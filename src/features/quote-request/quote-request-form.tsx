@@ -81,7 +81,7 @@ export function QuoteRequestForm() {
 
   function validateCurrentStep() {
     const allErrors = collectErrors(formData);
-    const currentFields = stepFields[step];
+    const currentFields = stepFields[step] ?? [];
     const stepErrors = currentFields.reduce<QuoteRequestErrors>((acc, field) => {
       if (allErrors[field]) {
         acc[field] = allErrors[field];
@@ -113,16 +113,16 @@ export function QuoteRequestForm() {
       return;
     }
 
-    startTransition(async () => {
-      const result = await submitQuoteRequest(formData);
+    startTransition(() => {
+      void submitQuoteRequest(formData).then((result) => {
+        if (!result.ok) {
+          setErrors(result.errors);
+          return;
+        }
 
-      if (!result.ok) {
-        setErrors(result.errors);
-        return;
-      }
-
-      setReferenceId(result.referenceId);
-      setErrors({});
+        setReferenceId(result.referenceId);
+        setErrors({});
+      });
     });
   }
 
