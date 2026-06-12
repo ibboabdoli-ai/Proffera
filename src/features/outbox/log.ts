@@ -23,11 +23,23 @@ export async function addOutboxRow(input: {
   }
 
   try {
+    const existing = await sql`
+      select id
+      from lead_outbox
+      where lead_ref = ${input.leadRef}
+        and company_email = ${input.companyEmail}
+      limit 1
+    `;
+
+    if (existing.length > 0) {
+      return { ok: true as const, duplicate: true as const };
+    }
+
     await sql`
       insert into lead_outbox (lead_ref, company_name, company_email, status, method)
       values (${input.leadRef}, ${input.companyName}, ${input.companyEmail}, 'sent', ${input.method})
     `;
-    return { ok: true as const };
+    return { ok: true as const, duplicate: false as const };
   } catch {
     return { ok: false as const, message: "Kunde inte spara logg." };
   }
