@@ -130,12 +130,12 @@ export function QuoteRequestForm() {
     return (
       <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-[#dfe5dd]">
         <CheckCircle2 className="h-12 w-12 text-[#17452f]" aria-hidden="true" />
-        <h2 className="mt-5 text-2xl font-bold text-[#17201a]">Förfrågan är validerad</h2>
+        <h2 className="mt-5 text-2xl font-bold text-[#17201a]">Förfrågan är skickad</h2>
         <p className="mt-3 text-[#5b665f]">
-          Tack! Flödet fungerar och servern har validerat uppgifterna. Databaslagring kopplas in i en senare fas.
+          Tack! Din förfrågan har validerats och sparats. Nästa steg är att koppla adminvy och matchning mot företag.
         </p>
         <div className="mt-6 rounded-2xl bg-[#eef5ef] p-4 text-sm font-semibold text-[#17452f]">
-          Tillfälligt referensnummer: {referenceId}
+          Referensnummer: {referenceId}
         </div>
       </div>
     );
@@ -356,7 +356,7 @@ export function QuoteRequestForm() {
             disabled={isPending}
             className="rounded-full bg-[#17452f] px-5 py-3 text-sm font-semibold text-white hover:bg-[#0e2e1e] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isPending ? "Validerar..." : "Skicka förfrågan"}
+            {isPending ? "Skickar..." : "Skicka förfrågan"}
           </button>
         )}
       </div>
