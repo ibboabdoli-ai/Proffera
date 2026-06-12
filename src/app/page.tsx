@@ -1,3 +1,4 @@
+import type { LucideIcon } from "lucide-react";
 import { ArrowRight, CheckCircle2, ShieldCheck, Star } from "lucide-react";
 import { ButtonLink } from "@/components/ui/button-link";
 import { serviceCategories, siteConfig } from "@/lib/site";
@@ -7,6 +8,24 @@ const steps = [
   "Vi matchar uppdraget med relevanta företag",
   "Jämför svar och välj det som känns bäst",
 ] as const;
+
+const trustCards: Array<{ icon: LucideIcon; title: string; text: string }> = [
+  {
+    icon: CheckCircle2,
+    title: "Relevanta företag",
+    text: "Matchning efter tjänst, stad och serviceområde.",
+  },
+  {
+    icon: Star,
+    title: "Tydlig jämförelse",
+    text: "Jämför svar, profil och omdömen när flödet byggs ut.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Kontrollerad process",
+    text: "Admin kan granska uppdrag och företag i kommande faser.",
+  },
+];
 
 export default function HomePage() {
   return (
@@ -68,15 +87,11 @@ export default function HomePage() {
 
       <section className="mx-auto max-w-7xl px-4 py-14 sm:px-6 lg:px-8">
         <div className="grid gap-6 md:grid-cols-3">
-          {[
-            [CheckCircle2, "Relevanta företag", "Matchning efter tjänst, stad och serviceområde."],
-            [Star, "Tydlig jämförelse", "Jämför svar, profil och omdömen när flödet byggs ut."],
-            [ShieldCheck, "Kontrollerad process", "Admin kan granska uppdrag och företag i kommande faser."],
-          ].map(([Icon, title, text]) => (
-            <article key={String(title)} className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
+          {trustCards.map(({ icon: Icon, title, text }) => (
+            <article key={title} className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
               <Icon className="h-7 w-7 text-[#17452f]" aria-hidden="true" />
-              <h2 className="mt-4 text-lg font-semibold">{String(title)}</h2>
-              <p className="mt-2 text-sm leading-6 text-[#5b665f]">{String(text)}</p>
+              <h2 className="mt-4 text-lg font-semibold">{title}</h2>
+              <p className="mt-2 text-sm leading-6 text-[#5b665f]">{text}</p>
             </article>
           ))}
         </div>
