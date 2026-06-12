@@ -1,5 +1,6 @@
 "use server";
 
+import { storeQuoteRequest } from "./persistence";
 import { quoteRequestSchema, type QuoteRequestErrors, type QuoteRequestInput } from "./schema";
 
 type SubmitQuoteRequestResult =
@@ -11,12 +12,6 @@ type SubmitQuoteRequestResult =
       ok: false;
       errors: QuoteRequestErrors;
     };
-
-function buildReferenceId() {
-  const timestamp = Date.now().toString(36).toUpperCase();
-  const randomPart = Math.random().toString(36).slice(2, 7).toUpperCase();
-  return `PRO-${timestamp}-${randomPart}`;
-}
 
 export async function submitQuoteRequest(input: QuoteRequestInput): Promise<SubmitQuoteRequestResult> {
   const parsed = quoteRequestSchema.safeParse(input);
@@ -34,10 +29,19 @@ export async function submitQuoteRequest(input: QuoteRequestInput): Promise<Subm
     return { ok: false, errors };
   }
 
-  // Database persistence is intentionally deferred to the database phase.
-  // This server action proves server-side validation and returns a temporary reference.
+  const result = await storeQuoteRequest(parsed.data);
+
+  if (!result.ok) {
+    return {
+      ok: false,
+      errors: {
+        form: result.message,
+      },
+    };
+  }
+
   return {
     ok: true,
-    referenceId: buildReferenceId(),
+    referenceId: result.referenceId,
   };
 }
