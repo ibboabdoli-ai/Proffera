@@ -10,12 +10,10 @@
   },
   "dependencies": {
     "@tailwindcss/postcss": "latest",
-    "clsx": "latest",
     "lucide-react": "latest",
     "next": "16.2.2",
     "react": "latest",
-    "react-dom": "latest",
-    "tailwind-merge": "latest"
+    "react-dom": "latest"
   },
   "devDependencies": {
     "@eslint/eslintrc": "latest",
