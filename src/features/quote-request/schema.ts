@@ -27,9 +27,9 @@ export const quoteRequestSchema = z.object({
     .string()
     .min(6, "Ange telefonnummer.")
     .regex(/^[0-9+\s-]+$/, "Telefonnummer får bara innehålla siffror, +, mellanslag eller bindestreck."),
-  consentAccepted: z.literal(true, {
-    error: "Du måste godkänna att Proffera behandlar uppgifterna för att hantera förfrågan.",
-  }),
+  consentAccepted: z
+    .boolean()
+    .refine((value) => value, "Du måste godkänna att Proffera behandlar uppgifterna för att hantera förfrågan."),
 });
 
 export type QuoteRequestInput = z.infer<typeof quoteRequestSchema>;
