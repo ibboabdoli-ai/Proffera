@@ -54,8 +54,12 @@ export async function getOutboxRows() {
 
   try {
     const rows = await sql`
-      select id, lead_ref, company_name, company_email, status, method, created_at
-      from lead_outbox
+      select * from (
+        select distinct on (lead_ref, company_email)
+          id, lead_ref, company_name, company_email, status, method, created_at
+        from lead_outbox
+        order by lead_ref, company_email, created_at desc
+      ) latest_logs
       order by created_at desc
       limit 100
     `;
