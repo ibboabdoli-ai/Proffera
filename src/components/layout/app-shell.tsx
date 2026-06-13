@@ -6,9 +6,9 @@ import { Header } from "@/components/layout/header";
 
 export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) {
   const pathname = usePathname();
-  const isAdminRoute = pathname?.startsWith("/admin");
+  const isAppRoute = pathname?.startsWith("/admin") || pathname?.startsWith("/dashboard");
 
-  if (isAdminRoute) {
+  if (isAppRoute) {
     return <main>{children}</main>;
   }
 
