@@ -49,6 +49,12 @@ function toDateText(value: unknown) {
   }).format(date);
 }
 
+function toNullableText(value: string) {
+  const trimmedValue = value.trim();
+
+  return trimmedValue.length > 0 ? trimmedValue : null;
+}
+
 export type DashboardStats = {
   customersCount: number;
   activeCustomersCount: number;
@@ -111,6 +117,19 @@ export type DashboardBookingDetail = {
   booking: DashboardBookingProfile;
   customer: DashboardCustomerProfile | null;
   events: DashboardCustomerEvent[];
+};
+
+export type CreateDashboardCustomerInput = {
+  name: string;
+  email: string;
+  phone: string;
+  companyName: string;
+  customerType: "private" | "company";
+  city: string;
+  status: "prospect" | "active" | "paused" | "lost";
+  serviceCategorySlug: string;
+  serviceSlug: string;
+  notes: string;
 };
 
 export async function getDashboardStats(): Promise<DashboardStats> {
@@ -228,6 +247,54 @@ export async function getDashboardBookings(): Promise<DashboardBooking[]> {
     console.error("Failed to read dashboard bookings", error);
     return [];
   }
+}
+
+export async function createDashboardCustomer(input: CreateDashboardCustomerInput): Promise<string> {
+  const sql = getSqlClient();
+
+  if (!sql) {
+    throw new Error("Missing database connection for dashboard customer creation");
+  }
+
+  const rows = await sql`
+    insert into customers (
+      workspace_id,
+      name,
+      email,
+      phone,
+      company_name,
+      customer_type,
+      city,
+      status,
+      source,
+      primary_service_category_slug,
+      primary_service_slug,
+      notes
+    )
+    values (
+      'default',
+      ${input.name.trim()},
+      ${toNullableText(input.email)},
+      ${toNullableText(input.phone)},
+      ${toNullableText(input.companyName)},
+      ${input.customerType},
+      ${toNullableText(input.city)},
+      ${input.status},
+      'dashboard_manual',
+      ${toNullableText(input.serviceCategorySlug)},
+      ${toNullableText(input.serviceSlug)},
+      ${toNullableText(input.notes)}
+    )
+    returning id
+  `;
+
+  const customerId = toText(rows[0]?.id);
+
+  if (!customerId) {
+    throw new Error("Customer creation did not return an id");
+  }
+
+  return customerId;
 }
 
 export async function getDashboardCustomerDetail(customerId: string): Promise<DashboardCustomerDetail | null> {
