@@ -6,6 +6,8 @@ import { BookingWidget } from "@/components/salon/booking-widget";
 import { juliusSalon, salonReviews, salonServices } from "@/lib/salon-demo";
 
 export function JuliusBookingDemo() {
+  const popularServices = salonServices.slice(0, 3);
+
   return (
     <div className="bg-[#f7f7f4] pb-24 text-[#17201a] lg:pb-0">
       <section className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8 lg:py-14">
@@ -38,7 +40,7 @@ export function JuliusBookingDemo() {
             </div>
             <div className="mt-5 hidden gap-3 sm:flex">
               <ButtonLink href="#boka" variant="secondary">Boka tid</ButtonLink>
-              <ButtonLink href="#tjanster" variant="secondary">Se priser</ButtonLink>
+              <ButtonLink href="#tjanster" variant="secondary">Populära priser</ButtonLink>
             </div>
           </div>
 
@@ -51,13 +53,13 @@ export function JuliusBookingDemo() {
       <section id="tjanster" className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="flex items-end justify-between gap-4">
           <div>
-            <p className="text-xs font-bold uppercase tracking-wide text-[#17452f]">Tjänster och priser</p>
-            <h2 className="mt-2 text-2xl font-black sm:text-3xl">Välj behandling</h2>
+            <p className="text-xs font-bold uppercase tracking-wide text-[#17452f]">Populära tjänster</p>
+            <h2 className="mt-2 text-2xl font-black sm:text-3xl">Priser före bokning</h2>
           </div>
-          <span className="hidden rounded-full bg-white px-4 py-2 text-sm font-bold text-[#17452f] ring-1 ring-[#dfe5dd] sm:block">Alla priser visas före bokning</span>
+          <span className="hidden rounded-full bg-white px-4 py-2 text-sm font-bold text-[#17452f] ring-1 ring-[#dfe5dd] sm:block">Fler tjänster finns i bokningen</span>
         </div>
-        <div className="mt-6 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-          {salonServices.map((service) => (
+        <div className="mt-6 grid gap-3 md:grid-cols-3">
+          {popularServices.map((service) => (
             <article key={service.name} className="rounded-3xl bg-white p-4 shadow-sm ring-1 ring-[#dfe5dd]">
               <p className="text-[11px] font-bold uppercase tracking-wide text-[#17452f]">{service.category}</p>
               <h3 className="mt-2 text-base font-black">{service.name}</h3>
@@ -74,11 +76,12 @@ export function JuliusBookingDemo() {
         <div className="mx-auto grid max-w-6xl gap-4 px-4 sm:px-6 lg:grid-cols-3 lg:px-8">
           <div className="rounded-3xl bg-[#17452f] p-6 text-white lg:col-span-1">
             <QrCode className="h-9 w-9" aria-hidden="true" />
-            <h2 className="mt-4 text-2xl font-black">QR-bokning</h2>
-            <p className="mt-2 text-sm leading-6 text-white/75">Sätt QR-koden på spegeln, disken, visitkortet eller Instagram.</p>
-            <div className="mt-6 flex h-40 w-40 items-center justify-center rounded-3xl bg-white text-center text-sm font-black text-[#17452f]">
-              QR<br />Demo-link
+            <h2 className="mt-4 text-2xl font-black">Skanna och boka direkt</h2>
+            <p className="mt-2 text-sm leading-6 text-white/75">QR-koden kan sättas på spegeln, disken, visitkortet eller Instagram.</p>
+            <div className="mt-6 flex h-44 w-44 items-center justify-center rounded-3xl bg-white text-center text-sm font-black text-[#17452f]">
+              QR<br />Julius Salong
             </div>
+            <p className="mt-4 text-xs font-bold text-white/70">julius.proffera.se</p>
           </div>
           <div className="grid gap-4 lg:col-span-2">
             {salonReviews.map((review) => (
@@ -115,10 +118,9 @@ export function JuliusBookingDemo() {
 
       <section className="mx-auto max-w-6xl px-4 pb-16 sm:px-6 lg:px-8">
         <div className="rounded-3xl bg-[#17201a] p-6 text-white md:p-8">
-          <h2 className="text-2xl font-black">Nästa steg efter demo</h2>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-white/75">Om Julius Salong godkänner demon kan lösningen byggas vidare med riktig databas, e-postnotiser, SMS och egen domän.</p>
+          <h2 className="text-2xl font-black">Vill salongen gå vidare?</h2>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-white/75">Nästa steg är riktig databas, e-postbekräftelser, SMS-påminnelser och egen domän för Julius Salong.</p>
           <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-            <ButtonLink href="/dashboard/salon" variant="secondary">Visa dashboard-demo</ButtonLink>
             <ButtonLink href="/kontakt" variant="secondary">Kontakta Proffera</ButtonLink>
           </div>
         </div>
