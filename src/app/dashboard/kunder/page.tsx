@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { getDashboardCustomers } from "@/lib/dashboard-db";
 
 export const dynamic = "force-dynamic";
@@ -69,6 +71,12 @@ export default async function CustomersPage() {
                   <strong>Notering:</strong> {customer.notes}
                 </p>
               </div>
+              <Link
+                href={`/dashboard/kunder/${customer.id}`}
+                className="mt-5 inline-flex rounded-full bg-[#17452f] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#0f2f20]"
+              >
+                Visa profil
+              </Link>
             </article>
           ))}
         </section>
