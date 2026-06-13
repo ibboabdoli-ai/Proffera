@@ -5,11 +5,11 @@ Repository: `ibboabdoli-ai/Proffera`
 Stack: Next.js App Router, TypeScript, Tailwind, Neon/Postgres.
 UI language: Swedish.
 
-## Status
+## Current status
 
-The MVP lead flow is working.
+The original MVP lead flow is working and must be protected.
 
-Completed:
+Completed phases:
 
 - Phase 07: Company registration
 - Phase 08: Matching companies to leads
@@ -27,17 +27,13 @@ Completed:
 - Phase 16.3: Conversion sections and public-site cleanup
 - Phase 16.4: Final public-site QA
 - Phase 17.1: SaaS dashboard shell
+- Phase 17.2: Dashboard module previews
 
 ## Product direction
 
 Proffera is evolving from a lead/offert MVP into a Swedish SaaS platform for small service businesses.
 
-The long-term product direction is documented in:
-
-- `docs/MASTER_PLAN.md`
-- `docs/ROADMAP.md`
-
-Primary SaaS modules planned:
+Main SaaS modules:
 
 - Leads
 - Customers
@@ -46,88 +42,23 @@ Primary SaaS modules planned:
 - AI Assistant
 - Settings
 
-Public SaaS pages planned:
+Long-term planning docs:
 
-- Home
-- Services
-- Pricing
-- Demo
-- Industries
-- About
-- Contact
-- Blog
-- Privacy Policy
-- Terms of Service
-
-## Safe points
-
-Before Phase 12:
-
-`4ed3e4feddc427a110df48104db910c3633fb692`
-
-Safe point after Phase 12:
-
-`d8bab25913c1c9b8dd60f77d48d2e88b16be28bd`
-
-Before Phase 13:
-
-`edf8e00cac6f70b98d1d9c1f2a915cd509a11dfb`
-
-Phase 13 code safe point:
-
-`063ff9da3f3e19d5f9b59bad0dad9c4bc2393464`
-
-Phase 13.1 code safe point:
-
-`f5ad98c81710ae19564a4d54a34d95069b6189f0`
-
-Phase 14.3 tested docs point:
-
-`579390cb449a82272f358c469bf9265399beb243`
-
-Phase 14.3 handoff point:
-
-`c09bf8ed7e734f32cdd10e48c8427da81eabcf24`
-
-SaaS master plan docs point:
-
-`3abcf6baaf0567f9484eb9f073ef7beeafe514c0`
-
-Phase 15 security verification docs point:
-
-`f9863e5b12e9761263f7738d1096298ffb3183f7`
-
-Phase 16.1 marketing foundation docs point:
-
-`80c979f0a5111d72d8cd3ff6f1b20a7bfa34e867`
-
-Phase 16.2 legal pages docs point:
-
-`ba586900621f4191c48f9fac01619810a7e054b1`
-
-Phase 16.3 conversion cleanup docs point:
-
-`37718cf23bea0de4ea62637d398efe9f561493ed`
-
-Phase 16.4 final public QA docs point:
-
-`1058dedbbfbec3a29a2efd6bf645bca4fa2f64f1`
-
-Phase 17.1 dashboard shell docs point:
-
-`59829df5980c8c672df5a8debcfdf4635aa6b66f`
-
-## Project memory files
-
-Read these files before starting new work:
-
-- `docs/PROJECT_HANDOFF.md`
-- `docs/PROJECT_LOG.md`
-- `docs/ROADMAP.md`
 - `docs/MASTER_PLAN.md`
+- `docs/ROADMAP.md`
 - `docs/DECISIONS.md`
+- `docs/PROJECT_LOG.md`
 
-## Public SaaS pages
+## Recent safe points
+
+- Phase 16.1 docs point: `80c979f0a5111d72d8cd3ff6f1b20a7bfa34e867`
+- Phase 16.2 docs point: `ba586900621f4191c48f9fac01619810a7e054b1`
+- Phase 16.3 docs point: `37718cf23bea0de4ea62637d398efe9f561493ed`
+- Phase 16.4 docs point: `1058dedbbfbec3a29a2efd6bf645bca4fa2f64f1`
+- Phase 17.1 docs point: `59829df5980c8c672df5a8debcfdf4635aa6b66f`
+- Phase 17.2 docs point: `e1c4c000d3946636a73b3cac6810ecdb613aa780`
+
+## Public SaaS routes
 
 Currently built:
 
@@ -144,7 +75,7 @@ Currently built:
 - `/robots.txt`
 - `/sitemap.xml`
 
-Public home sections currently include:
+Public home page currently includes:
 
 - SaaS hero
 - Dashboard preview
@@ -158,22 +89,9 @@ Public home sections currently include:
 - Demo CTA
 - SaaS footer copy
 
-Sitemap currently includes:
-
-- `/`
-- `/tjanster`
-- `/priser`
-- `/demo`
-- `/om`
-- `/kontakt`
-- `/logga-in`
-- `/integritetspolicy`
-- `/villkor`
-- `/cookies`
-
 ## SaaS dashboard routes
 
-Currently built as preview-only product shell:
+Preview-only product shell currently built:
 
 - `/dashboard`
 - `/dashboard/leads`
@@ -184,12 +102,15 @@ Currently built as preview-only product shell:
 
 Dashboard notes:
 
-- Dashboard is separate from existing `/admin` workflow.
+- Dashboard is separate from `/admin`.
 - Public header and footer are hidden on `/dashboard` routes.
-- Dashboard currently uses placeholder/preview data only.
-- Do not connect dashboard shell to production database until a separate data plan is defined.
+- All dashboard module data is static preview data only.
+- Phase 17.2 added richer previews for lead table, customer CRM cards, booking schedule, AI conversation and settings form.
+- Do not connect dashboard previews to production database without a separate data model, migration and rollback plan.
 
-## Main admin routes
+## Admin routes
+
+Existing admin workflow routes:
 
 - `/admin`
 - `/admin/status`
@@ -199,56 +120,29 @@ Dashboard notes:
 - `/admin/skicka-lead`
 - `/admin/leverans`
 
-## Admin security
+Admin notes:
 
-Admin routes are protected by Basic Auth.
+- Admin routes are protected by Basic Auth.
+- Admin code must not be passed in URLs.
+- Do not share admin secrets in chat, screenshots or docs.
+- Confirm the admin access secret is rotated before broader use.
 
-Current admin login behavior:
+## Existing tested MVP flow
 
-- Username can be any non-empty value, commonly `admin`.
-- Password is the Vercel `ADMIN_ACCESS_CODE` value.
-- Admin code should not be passed in URLs.
-
-Follow-up security requirement:
-
-- Confirm `ADMIN_ACCESS_CODE` has been rotated in Vercel after the earlier URL exposure.
-- Do not share the admin code in chat or screenshots.
-
-## Tested flow
-
-A quote request was matched to one approved company.
-
-The company was updated from a generic service value to real services:
-
-`Fönsterputs, Lägenhet, Hemstädning, Flyttstädning`
-
-The matching score reached `115` with these reasons:
-
-`område, kategori, tjänst, godkänt företag`
-
-The outbox log flow was tested. Duplicate prevention works and the UI shows one latest log per lead/company pair.
-
-The admin dashboard was tested after cleanup. Public header and footer are hidden on admin routes.
-
-Real lead sending was tested through Brevo. Leads `PRO-MQC5COT4-BL3RG` and `PRO-MQBD101M-6D6LO` were sent from `/admin/leverans`, and the delivery log showed `sent via brevo`.
-
-Phase 15 Basic Auth was tested. Admin login worked, `/admin/leverans` loaded after login, and Brevo delivery still worked.
-
-Phase 16.1 public home page was tested on production. It shows the SaaS hero, dashboard preview, service modules, pricing cards and CTA sections.
-
-Phase 16.2 legal pages were tested on production. `/integritetspolicy`, `/villkor` and `/cookies` are available with Swedish MVP legal copy.
-
-Phase 16.3 home page was tested on production. It shows `Varför Proffera`, case study placeholder, testimonial placeholders, FAQ, `Nästa steg` and updated SaaS footer copy.
-
-Phase 16.4 public-site QA was tested on production. `sitemap.xml` renders valid XML and includes the current public routes including `/logga-in` and legal pages. The browser XML style warning is normal.
-
-Phase 17.1 dashboard shell was tested on production. `/dashboard`, `/dashboard/leads`, `/dashboard/kunder`, `/dashboard/bokningar`, `/dashboard/ai-assistent` and `/dashboard/installningar` all loaded correctly.
+- Company registration works.
+- Company approval and service editing works.
+- Matching works by area, category, service and approved company status.
+- Outbox duplicate prevention works.
+- Brevo lead email sending works through `/admin/leverans`.
+- Tested lead refs include `PRO-MQC5COT4-BL3RG` and `PRO-MQBD101M-6D6LO`.
 
 ## Database tables currently used
 
 - `quote_requests`
 - `company_registrations`
 - `lead_outbox`
+
+Use Neon/Postgres. Do not switch to Supabase.
 
 ## Email provider
 
@@ -265,21 +159,27 @@ Current intended sender:
 
 Manual mailto fallback remains available in the admin UI.
 
-## Important notes
+## Workflow rules
 
-- Use Neon/Postgres, not Supabase.
-- Keep changes small.
 - Keep rollback points before each phase.
+- Keep changes small.
 - Avoid unnecessary Vercel deploys.
 - Do not expose environment variable values.
-- Some long documentation or migration payloads may be blocked by safety checks; do not retry blocked payloads repeatedly.
-- The admin code was exposed in a shared URL during testing. Rotate `ADMIN_ACCESS_CODE` before broader use.
-- Do not execute the full SaaS plan in one large agent prompt. Build it phase by phase.
-- Legal copy is MVP-level and should be reviewed before wider commercial launch.
+- Do not execute the full SaaS plan in one large prompt.
+- Build phase by phase.
 - `B` from the user means continue to the next planned step.
 
 ## Next recommended phase
 
-Phase 17.2: Dashboard module previews or Phase 18: Booking and CRM MVP.
+Phase 18: Booking and CRM MVP planning.
 
-Recommended next step is Phase 17.2 if the goal is to improve the dashboard UI without database risk. Choose Phase 18 only when ready to define data model and database changes for bookings/customers.
+Before code changes in Phase 18, define:
+
+- customer data model
+- booking data model
+- status model
+- dashboard integration plan
+- migration plan
+- rollback plan
+
+Do not modify existing lead, matching, outbox, Brevo or admin workflows without an explicit plan.
