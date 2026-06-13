@@ -38,11 +38,11 @@ export function JuliusBookingDemo() {
               </div>
             </div>
             <div className="mt-5 hidden gap-3 sm:flex">
-              <a className="inline-flex items-center justify-center rounded-full bg-white px-5 py-3 text-sm font-black text-[#17201a] shadow-sm ring-1 ring-white hover:bg-[#f3f5f1]" href="#boka">
-                Boka tid
+              <a className="inline-flex items-center justify-center rounded-full bg-white px-5 py-3 shadow-sm ring-1 ring-white hover:bg-[#f3f5f1]" href="#boka">
+                <span className="!text-[#17201a] text-sm font-black">Boka tid</span>
               </a>
-              <a className="inline-flex items-center justify-center rounded-full border border-white/70 bg-transparent px-5 py-3 text-sm font-black text-white hover:bg-white/10" href="#tjanster">
-                Populära priser
+              <a className="inline-flex items-center justify-center rounded-full border border-white/70 bg-transparent px-5 py-3 hover:bg-white/10" href="#tjanster">
+                <span className="!text-white text-sm font-black">Populära priser</span>
               </a>
             </div>
           </div>
@@ -124,8 +124,8 @@ export function JuliusBookingDemo() {
           <h2 className="text-2xl font-black">Vill salongen gå vidare?</h2>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-white/75">Nästa steg är riktig databas, e-postbekräftelser, SMS-påminnelser och egen domän för Julius Salong.</p>
           <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-            <a className="inline-flex items-center justify-center rounded-full bg-white px-5 py-3 text-sm font-black text-[#17201a] shadow-sm ring-2 ring-white hover:bg-[#f3f5f1] focus:outline-none focus:ring-2 focus:ring-[#e8b44d] focus:ring-offset-2 focus:ring-offset-[#17201a]" href="/kontakt">
-              Kontakta Proffera
+            <a className="inline-flex items-center justify-center rounded-full bg-white px-5 py-3 shadow-sm ring-2 ring-white hover:bg-[#f3f5f1] focus:outline-none focus:ring-2 focus:ring-[#e8b44d] focus:ring-offset-2 focus:ring-offset-[#17201a]" href="/kontakt">
+              <span className="!text-[#17201a] text-sm font-black">Kontakta Proffera</span>
             </a>
           </div>
         </div>
