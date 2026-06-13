@@ -1,7 +1,10 @@
--- Phase 18.1 — Booking and CRM MVP schema
+-- Phase 18.1C — Booking and CRM MVP schema
 -- Status: prepared migration file only. Do not run automatically.
 -- Purpose: add SaaS CRM/booking tables without touching existing lead flow tables.
 -- Protected existing tables: quote_requests, company_registrations, lead_outbox.
+-- Service taxonomy source: src/lib/service-taxonomy.ts
+-- Taxonomy strategy: store service_category_slug and service_slug as soft references first.
+-- Do not create service_categories/services tables until the seed and admin-management plan is reviewed.
 
 BEGIN;
 
@@ -18,6 +21,8 @@ CREATE TABLE IF NOT EXISTS customers (
   city text,
   status text NOT NULL DEFAULT 'prospect' CHECK (status IN ('prospect', 'active', 'paused', 'lost')),
   source text NOT NULL DEFAULT 'manual',
+  primary_service_category_slug text,
+  primary_service_slug text,
   notes text,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
@@ -29,6 +34,8 @@ CREATE TABLE IF NOT EXISTS bookings (
   customer_id uuid REFERENCES customers(id) ON DELETE SET NULL,
   title text NOT NULL,
   service text,
+  service_category_slug text,
+  service_slug text,
   city text,
   status text NOT NULL DEFAULT 'requested' CHECK (status IN ('draft', 'requested', 'confirmed', 'completed', 'cancelled', 'no_show')),
   starts_at timestamptz,
@@ -54,9 +61,11 @@ CREATE TABLE IF NOT EXISTS customer_events (
 CREATE INDEX IF NOT EXISTS idx_customers_workspace_status ON customers(workspace_id, status);
 CREATE INDEX IF NOT EXISTS idx_customers_email ON customers(email);
 CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone);
+CREATE INDEX IF NOT EXISTS idx_customers_workspace_service ON customers(workspace_id, primary_service_category_slug, primary_service_slug);
 CREATE INDEX IF NOT EXISTS idx_bookings_workspace_status ON bookings(workspace_id, status);
 CREATE INDEX IF NOT EXISTS idx_bookings_customer_id ON bookings(customer_id);
 CREATE INDEX IF NOT EXISTS idx_bookings_starts_at ON bookings(starts_at);
+CREATE INDEX IF NOT EXISTS idx_bookings_workspace_service ON bookings(workspace_id, service_category_slug, service_slug);
 CREATE INDEX IF NOT EXISTS idx_customer_events_customer_id ON customer_events(customer_id);
 CREATE INDEX IF NOT EXISTS idx_customer_events_booking_id ON customer_events(booking_id);
 CREATE INDEX IF NOT EXISTS idx_customer_events_created_at ON customer_events(created_at);
