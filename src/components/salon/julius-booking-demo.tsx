@@ -121,7 +121,9 @@ export function JuliusBookingDemo() {
           <h2 className="text-2xl font-black">Vill salongen gå vidare?</h2>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-white/75">Nästa steg är riktig databas, e-postbekräftelser, SMS-påminnelser och egen domän för Julius Salong.</p>
           <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-            <ButtonLink href="/kontakt" variant="secondary">Kontakta Proffera</ButtonLink>
+            <a className="inline-flex items-center justify-center rounded-full bg-white px-5 py-3 text-sm font-black text-[#17201a] shadow-sm ring-2 ring-white hover:bg-[#f3f5f1] focus:outline-none focus:ring-2 focus:ring-[#e8b44d] focus:ring-offset-2 focus:ring-offset-[#17201a]" href="/kontakt">
+              Kontakta Proffera
+            </a>
           </div>
         </div>
       </section>
