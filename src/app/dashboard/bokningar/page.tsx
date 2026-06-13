@@ -1,35 +1,44 @@
-const bookings = [
-  { time: "09:00", title: "Hemstädning", customer: "Anna Karlsson", status: "Bekräftad", address: "Södertälje" },
-  { time: "11:30", title: "Fönsterputs", customer: "Villa kund", status: "Väntar svar", address: "Tumba" },
-  { time: "13:30", title: "Demo Proffera", customer: "Nordic Kontor AB", status: "Planerad", address: "Online" },
-  { time: "16:00", title: "Uppföljning lead", customer: "Bostadsservice Demo", status: "Att göra", address: "Telefon" },
-] as const;
+import { getDashboardBookings } from "@/lib/dashboard-db";
 
-const days = [
-  { day: "Mån", count: "3" },
-  { day: "Tis", count: "5" },
-  { day: "Ons", count: "2" },
-  { day: "Tor", count: "4" },
-  { day: "Fre", count: "6" },
-] as const;
+export const dynamic = "force-dynamic";
 
-export default function BookingsPage() {
+const statusLabels: Record<string, string> = {
+  draft: "Utkast",
+  requested: "Förfrågad",
+  confirmed: "Bekräftad",
+  completed: "Klar",
+  cancelled: "Avbokad",
+  no_show: "Uteblev",
+};
+
+export default async function BookingsPage() {
+  const bookings = await getDashboardBookings();
+  const confirmedBookings = bookings.filter((booking) => booking.status === "confirmed").length;
+  const requestedBookings = bookings.filter((booking) => booking.status === "requested").length;
+  const completedBookings = bookings.filter((booking) => booking.status === "completed").length;
+
+  const summary = [
+    { label: "Bokningar i CRM", value: String(bookings.length) },
+    { label: "Bekräftade", value: String(confirmedBookings) },
+    { label: "Förfrågade", value: String(requestedBookings) },
+    { label: "Klara", value: String(completedBookings) },
+  ] as const;
+
   return (
     <div className="grid gap-6">
       <section>
         <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Bokningar</p>
         <h2 className="mt-2 text-3xl font-bold text-[#17201a]">Bokningsöversikt</h2>
         <p className="mt-3 max-w-3xl text-sm leading-7 text-[#5b665f]">
-          Preview för kommande kalender, dagsvy och uppföljningsflöde.
+          Read-only vy från Profferas bokningstabell. Data hämtas från Neon utan att skapa eller ändra bokningar.
         </p>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-5">
-        {days.map((item) => (
-          <article key={item.day} className="rounded-3xl bg-white p-5 text-center shadow-sm ring-1 ring-[#dfe5dd]">
-            <p className="text-sm font-semibold text-[#344139]">{item.day}</p>
-            <p className="mt-2 text-2xl font-bold text-[#17452f]">{item.count}</p>
-            <p className="text-xs text-[#5b665f]">bokningar</p>
+      <section className="grid gap-4 md:grid-cols-4">
+        {summary.map((item) => (
+          <article key={item.label} className="rounded-3xl bg-white p-5 text-center shadow-sm ring-1 ring-[#dfe5dd]">
+            <p className="text-sm font-semibold text-[#344139]">{item.label}</p>
+            <p className="mt-2 text-2xl font-bold text-[#17452f]">{item.value}</p>
           </article>
         ))}
       </section>
@@ -38,24 +47,34 @@ export default function BookingsPage() {
         <div className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
           <div className="flex items-center justify-between border-b border-[#dfe5dd] pb-4">
             <div>
-              <h3 className="text-xl font-bold text-[#17201a]">Dagens schema</h3>
-              <p className="text-sm text-[#5b665f]">Preview med tid, kund och status.</p>
+              <h3 className="text-xl font-bold text-[#17201a]">Kommande schema</h3>
+              <p className="text-sm text-[#5b665f]">Read-only lista med tid, kund och status.</p>
             </div>
-            <span className="rounded-full bg-[#e7f1eb] px-3 py-1 text-xs font-semibold text-[#17452f]">Live preview</span>
+            <span className="rounded-full bg-[#e7f1eb] px-3 py-1 text-xs font-semibold text-[#17452f]">Neon data</span>
           </div>
-          <div className="mt-5 space-y-3">
-            {bookings.map((booking) => (
-              <div key={`${booking.time}-${booking.title}`} className="grid gap-2 rounded-2xl bg-[#f7f7f4] p-4 sm:grid-cols-[90px_1fr_auto] sm:items-center">
-                <span className="font-bold text-[#17452f]">{booking.time}</span>
-                <span>
-                  <strong>{booking.title}</strong>
-                  <br />
-                  <span className="text-sm text-[#5b665f]">{booking.customer} · {booking.address}</span>
-                </span>
-                <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-[#344139]">{booking.status}</span>
-              </div>
-            ))}
-          </div>
+          {bookings.length === 0 ? (
+            <div className="mt-5 rounded-2xl bg-[#f7f7f4] p-4 text-sm text-[#5b665f]">
+              Det finns ännu inga bokningar att visa för workspace default.
+            </div>
+          ) : (
+            <div className="mt-5 space-y-3">
+              {bookings.map((booking) => (
+                <div key={booking.id} className="grid gap-2 rounded-2xl bg-[#f7f7f4] p-4 sm:grid-cols-[170px_1fr_auto] sm:items-center">
+                  <span className="font-bold text-[#17452f]">{booking.time}</span>
+                  <span>
+                    <strong>{booking.title}</strong>
+                    <br />
+                    <span className="text-sm text-[#5b665f]">
+                      {booking.customer} · {booking.city} · {booking.service}
+                    </span>
+                  </span>
+                  <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-[#344139]">
+                    {statusLabels[booking.status] ?? booking.status}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <aside className="rounded-3xl bg-[#17452f] p-6 text-white">
