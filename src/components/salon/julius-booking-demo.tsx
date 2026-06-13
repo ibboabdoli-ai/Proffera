@@ -1,7 +1,6 @@
 "use client";
 
 import { Clock, MapPin, QrCode, Star } from "lucide-react";
-import { ButtonLink } from "@/components/ui/button-link";
 import { BookingWidget } from "@/components/salon/booking-widget";
 import { juliusSalon, salonReviews, salonServices } from "@/lib/salon-demo";
 
@@ -39,8 +38,12 @@ export function JuliusBookingDemo() {
               </div>
             </div>
             <div className="mt-5 hidden gap-3 sm:flex">
-              <ButtonLink href="#boka" variant="secondary">Boka tid</ButtonLink>
-              <ButtonLink href="#tjanster" variant="secondary">Populära priser</ButtonLink>
+              <a className="inline-flex items-center justify-center rounded-full bg-white px-5 py-3 text-sm font-black text-[#17201a] shadow-sm ring-1 ring-white hover:bg-[#f3f5f1]" href="#boka">
+                Boka tid
+              </a>
+              <a className="inline-flex items-center justify-center rounded-full border border-white/70 bg-transparent px-5 py-3 text-sm font-black text-white hover:bg-white/10" href="#tjanster">
+                Populära priser
+              </a>
             </div>
           </div>
 
