@@ -1,5 +1,6 @@
 import { ArrowRight, Bot, CalendarCheck, CheckCircle2, QrCode, Users } from "lucide-react";
 import { ButtonLink } from "@/components/ui/button-link";
+import { ConversionSections } from "@/components/marketing/conversion-sections";
 import { pricingPlans, serviceCategories, siteConfig } from "@/lib/site";
 
 const dashboardItems = ["Leads", "Kunder", "Bokningar", "Analys", "AI Assistant", "Inställningar"] as const;
@@ -116,6 +117,8 @@ export default function HomePage() {
           </div>
         </div>
       </section>
+
+      <ConversionSections />
 
       <section className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
         <div className="rounded-3xl bg-[#17452f] p-8 text-white md:p-10">
