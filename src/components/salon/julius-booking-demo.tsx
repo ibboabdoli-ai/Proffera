@@ -1,35 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { ArrowRight, CalendarCheck, Clock, MapPin, QrCode, Scissors, Star, UserCheck } from "lucide-react";
+import { Clock, MapPin, QrCode, Star } from "lucide-react";
 import { ButtonLink } from "@/components/ui/button-link";
-import { demoTimeSlots, juliusSalon, salonReviews, salonServices } from "@/lib/salon-demo";
-
-type BookingStatus = "idle" | "submitted";
-
-const featuredServices = salonServices.slice(0, 4);
-const steps = ["Tjänst", "Tid", "Uppgifter"] as const;
+import { BookingWidget } from "@/components/salon/booking-widget";
+import { juliusSalon, salonReviews, salonServices } from "@/lib/salon-demo";
 
 export function JuliusBookingDemo() {
-  const [selectedService, setSelectedService] = useState(featuredServices[0]?.name ?? "Herrklippning");
-  const [selectedTime, setSelectedTime] = useState("14:30");
-  const [customerName, setCustomerName] = useState("");
-  const [customerPhone, setCustomerPhone] = useState("");
-  const [customerEmail, setCustomerEmail] = useState("");
-  const [status, setStatus] = useState<BookingStatus>("idle");
-
-  const selectedServiceDetails = useMemo(
-    () => salonServices.find((service) => service.name === selectedService) ?? salonServices[0],
-    [selectedService],
-  );
-
-  const canSubmit = customerName.trim().length > 1 && customerPhone.trim().length > 5 && customerEmail.includes("@");
-
-  function handleSubmit() {
-    if (!canSubmit) return;
-    setStatus("submitted");
-  }
-
   return (
     <div className="bg-[#f7f7f4] pb-24 text-[#17201a] lg:pb-0">
       <section className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8 lg:py-14">
@@ -66,105 +42,8 @@ export function JuliusBookingDemo() {
             </div>
           </div>
 
-          <div id="boka" className="mt-6 rounded-[1.7rem] bg-white p-4 text-[#17201a] shadow-2xl lg:mt-0 lg:p-6">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-wide text-[#17452f]">Bokning demo</p>
-                <h2 className="mt-1 text-2xl font-black">Boka hos Elias</h2>
-              </div>
-              <span className="rounded-full bg-[#e7f1eb] px-3 py-1 text-xs font-bold text-[#17452f]">Interaktiv</span>
-            </div>
-
-            <div className="mt-5 grid grid-cols-3 gap-2">
-              {steps.map((step, index) => (
-                <div key={step} className="rounded-2xl bg-[#f7f7f4] px-3 py-2 text-center text-xs font-bold text-[#344139]">
-                  {index + 1}. {step}
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-6 rounded-3xl border border-[#dfe5dd] bg-[#fbfbf8] p-4">
-              <div className="flex items-center gap-2">
-                <Scissors className="h-5 w-5 text-[#17452f]" aria-hidden="true" />
-                <h3 className="text-lg font-black">1. Välj tjänst</h3>
-              </div>
-              <div className="mt-4 grid gap-3">
-                {featuredServices.map((service) => {
-                  const selected = selectedService === service.name;
-                  return (
-                    <button
-                      key={service.name}
-                      className={`flex cursor-pointer items-center justify-between rounded-2xl border p-4 text-left ${
-                        selected ? "border-[#17452f] bg-white shadow-sm" : "border-[#dfe5dd] bg-white"
-                      }`}
-                      type="button"
-                      onClick={() => setSelectedService(service.name)}
-                    >
-                      <span>
-                        <span className="block text-sm font-black">{service.name}</span>
-                        <span className="mt-1 block text-xs font-semibold text-[#5b665f]">{service.duration}</span>
-                      </span>
-                      <span className="text-base font-black text-[#17452f]">{service.price}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="mt-4 rounded-3xl border border-[#dfe5dd] bg-[#fbfbf8] p-4">
-              <div className="flex items-center gap-2">
-                <CalendarCheck className="h-5 w-5 text-[#17452f]" aria-hidden="true" />
-                <h3 className="text-lg font-black">2. Välj tid</h3>
-              </div>
-              <div className="mt-4 grid grid-cols-3 gap-2">
-                {demoTimeSlots.map((slot) => {
-                  const selected = selectedTime === slot;
-                  return (
-                    <button
-                      key={slot}
-                      className={`rounded-2xl px-3 py-3 text-sm font-black ${
-                        selected ? "bg-[#17452f] text-white shadow-sm" : "border border-[#dfe5dd] bg-white text-[#344139]"
-                      }`}
-                      type="button"
-                      onClick={() => setSelectedTime(slot)}
-                    >
-                      {slot}
-                    </button>
-                  );
-                })}
-              </div>
-              <p className="mt-3 rounded-2xl bg-[#e7f1eb] px-3 py-2 text-xs font-bold text-[#17452f]">✓ Vald tid: {selectedTime}</p>
-            </div>
-
-            <div className="mt-4 rounded-3xl border border-[#dfe5dd] bg-[#fbfbf8] p-4">
-              <div className="flex items-center gap-2">
-                <UserCheck className="h-5 w-5 text-[#17452f]" aria-hidden="true" />
-                <h3 className="text-lg font-black">3. Dina uppgifter</h3>
-              </div>
-              <div className="mt-4 grid gap-3">
-                <input className="rounded-2xl border border-[#dfe5dd] bg-white px-4 py-3 text-base" placeholder="Namn" value={customerName} onChange={(event) => setCustomerName(event.target.value)} />
-                <input className="rounded-2xl border border-[#dfe5dd] bg-white px-4 py-3 text-base" placeholder="Telefon" value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} />
-                <input className="rounded-2xl border border-[#dfe5dd] bg-white px-4 py-3 text-base" placeholder="E-post" value={customerEmail} onChange={(event) => setCustomerEmail(event.target.value)} />
-              </div>
-              <button
-                className="mt-4 flex w-full items-center justify-center rounded-full bg-[#17452f] px-5 py-4 text-base font-black text-white shadow-lg shadow-[#17452f]/20 disabled:cursor-not-allowed disabled:bg-[#9aa89f]"
-                type="button"
-                disabled={!canSubmit}
-                onClick={handleSubmit}
-              >
-                Skicka bokningsförfrågan <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
-              </button>
-              {!canSubmit && <p className="mt-3 text-xs leading-5 text-[#5b665f]">Fyll i namn, telefon och en giltig e-post för att testa bokningen.</p>}
-
-              {status === "submitted" && selectedServiceDetails && (
-                <div className="mt-4 rounded-3xl border border-[#b6d8c1] bg-[#e7f1eb] p-4 text-sm text-[#17452f]">
-                  <p className="font-black">Bokningsförfrågan skickad!</p>
-                  <p className="mt-2 leading-6">
-                    {customerName}, din förfrågan för {selectedServiceDetails.name} kl. {selectedTime} är registrerad som väntande. Elias godkänner tiden i dashboarden och kunden får bekräftelse.
-                  </p>
-                </div>
-              )}
-            </div>
+          <div id="boka">
+            <BookingWidget />
           </div>
         </div>
       </section>
@@ -237,7 +116,7 @@ export function JuliusBookingDemo() {
       <section className="mx-auto max-w-6xl px-4 pb-16 sm:px-6 lg:px-8">
         <div className="rounded-3xl bg-[#17201a] p-6 text-white md:p-8">
           <h2 className="text-2xl font-black">Nästa steg efter demo</h2>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-white/75">Om Julius Salong godkänner demon kan lösningen byggas vidare med riktig bokningsdatabas, e-postnotiser, SMS och egen domän.</p>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-white/75">Om Julius Salong godkänner demon kan lösningen byggas vidare med riktig databas, e-postnotiser, SMS och egen domän.</p>
           <div className="mt-5 flex flex-col gap-3 sm:flex-row">
             <ButtonLink href="/dashboard/salon" variant="secondary">Visa dashboard-demo</ButtonLink>
             <ButtonLink href="/kontakt" variant="secondary">Kontakta Proffera</ButtonLink>
