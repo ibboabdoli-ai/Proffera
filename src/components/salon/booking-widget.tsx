@@ -23,6 +23,7 @@ export type SalonBooking = {
 const STORAGE_KEY = "proffera:julius-salong:bookings";
 const baseMonday = new Date(2026, 5, 15);
 const dayNames = ["Sön", "Mån", "Tis", "Ons", "Tor", "Fre", "Lör"] as const;
+const monthShortNames = ["Jan", "Feb", "Mar", "Apr", "Maj", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dec"] as const;
 const monthNames = ["januari", "februari", "mars", "april", "maj", "juni", "juli", "augusti", "september", "oktober", "november", "december"] as const;
 
 function parseMinutes(duration: string) {
@@ -53,6 +54,10 @@ function formatDateValue(date: Date) {
 
 function formatDateLabel(date: Date) {
   return `${dayNames[date.getDay()]} ${date.getDate()} ${monthNames[date.getMonth()]}`;
+}
+
+function formatCompactDate(date: Date) {
+  return `${date.getDate()} ${monthShortNames[date.getMonth()]}`;
 }
 
 function getWeekNumber(date: Date) {
@@ -101,6 +106,7 @@ export function BookingWidget() {
   const [selectedDayIndex, setSelectedDayIndex] = useState(0);
   const [weekOffset, setWeekOffset] = useState(0);
   const [selectedTime, setSelectedTime] = useState("10:00");
+  const [showAllTimes, setShowAllTimes] = useState(false);
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [customerEmail, setCustomerEmail] = useState("");
@@ -114,22 +120,29 @@ export function BookingWidget() {
   const weekDays = Array.from({ length: 7 }, (_, index) => addDays(selectedWeekStart, index));
   const selectedDate = weekDays[selectedDayIndex] ?? weekDays[0];
   const slots = generateSlots(duration, selectedDate);
+  const visibleSlots = showAllTimes ? slots : slots.slice(0, 6);
   const normalizedSelectedTime = slots.includes(selectedTime) ? selectedTime : slots[0] ?? "";
+  const referenceNumber = submittedBooking ? `JS-${submittedBooking.id.slice(-4)}` : "";
+
+  function resetTimeSelection() {
+    setSelectedTime("10:00");
+    setShowAllTimes(false);
+  }
 
   function handleServiceSelect(index: number) {
     setSelectedServiceIndex(index);
-    setSelectedTime("10:00");
+    resetTimeSelection();
   }
 
   function handleDaySelect(index: number) {
     setSelectedDayIndex(index);
-    setSelectedTime("10:00");
+    resetTimeSelection();
   }
 
   function handleWeekChange(direction: -1 | 1) {
     setWeekOffset((current) => current + direction);
     setSelectedDayIndex(0);
-    setSelectedTime("10:00");
+    resetTimeSelection();
   }
 
   function handleSubmit() {
@@ -175,7 +188,8 @@ export function BookingWidget() {
         <div className="rounded-3xl bg-[#e7f1eb] p-5 text-[#17452f]">
           <CheckCircle2 className="h-10 w-10" aria-hidden="true" />
           <h2 className="mt-4 text-2xl font-black">Bokningsförfrågan skickad</h2>
-          <p className="mt-2 text-sm leading-6">Tack {submittedBooking.customerName}. Din bokning väntar nu på godkännande från salongen.</p>
+          <p className="mt-2 text-sm leading-6">Vi kontaktar dig så snart frisören har godkänt tiden.</p>
+          <p className="mt-4 rounded-2xl bg-white/80 px-4 py-3 text-sm font-black">Referensnummer: {referenceNumber}</p>
         </div>
 
         <div className="mt-5 rounded-3xl border border-[#dfe5dd] bg-[#fbfbf8] p-4 text-sm">
@@ -192,10 +206,7 @@ export function BookingWidget() {
           </div>
         </div>
 
-        <div className="mt-5 grid gap-3 sm:grid-cols-2">
-          <button className="rounded-full bg-[#17452f] px-5 py-3 text-sm font-black text-white" type="button" onClick={() => setSubmittedBooking(null)}>Skapa ny bokning</button>
-          <a className="rounded-full border border-[#17452f] bg-white px-5 py-3 text-center text-sm font-black text-[#17452f]" href="/dashboard/salon">Visa i dashboard</a>
-        </div>
+        <button className="mt-5 w-full rounded-full bg-[#17452f] px-5 py-3 text-sm font-black text-white" type="button" onClick={() => setSubmittedBooking(null)}>Skapa ny bokning</button>
       </div>
     );
   }
@@ -234,12 +245,12 @@ export function BookingWidget() {
             <CalendarCheck className="h-5 w-5 text-[#17452f]" aria-hidden="true" />
             <div>
               <h3 className="text-lg font-black">2. Välj tid</h3>
-              <p className="text-xs font-bold text-[#5b665f]">Vecka {getWeekNumber(selectedWeekStart)} • {selectedWeekStart.getDate()} - {addDays(selectedWeekStart, 6).getDate()} juni</p>
+              <p className="text-xs font-bold text-[#5b665f]">Vecka {getWeekNumber(selectedWeekStart)} • {formatCompactDate(selectedWeekStart)} - {formatCompactDate(addDays(selectedWeekStart, 6))}</p>
             </div>
           </div>
           <div className="flex gap-2">
-            <button className="rounded-full border border-[#dfe5dd] bg-white p-2" type="button" onClick={() => handleWeekChange(-1)}><ChevronLeft className="h-4 w-4" /></button>
-            <button className="rounded-full border border-[#dfe5dd] bg-white p-2" type="button" onClick={() => handleWeekChange(1)}><ChevronRight className="h-4 w-4" /></button>
+            <button className="rounded-full border border-[#dfe5dd] bg-white p-2" type="button" onClick={() => handleWeekChange(-1)} aria-label="Tidigare vecka"><ChevronLeft className="h-4 w-4" /></button>
+            <button className="rounded-full border border-[#dfe5dd] bg-white p-2" type="button" onClick={() => handleWeekChange(1)} aria-label="Nästa vecka"><ChevronRight className="h-4 w-4" /></button>
           </div>
         </div>
 
@@ -250,14 +261,14 @@ export function BookingWidget() {
             return (
               <button key={formatDateValue(date)} className={`rounded-2xl px-1 py-3 text-center text-xs font-black ${selected ? "bg-[#17452f] text-white" : closed ? "bg-[#f0f0ec] text-[#9aa89f]" : "border border-[#dfe5dd] bg-white text-[#344139]"}`} type="button" onClick={() => handleDaySelect(index)}>
                 <span className="block">{dayNames[date.getDay()]}</span>
-                <span className="mt-1 block text-base">{date.getDate()}</span>
+                <span className="mt-1 block text-[11px]">{formatCompactDate(date)}</span>
               </button>
             );
           })}
         </div>
 
-        <div className="mt-4 grid max-h-72 grid-cols-2 gap-2 overflow-y-auto pr-1 sm:grid-cols-3">
-          {slots.length > 0 ? slots.map((slot) => (
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {slots.length > 0 ? visibleSlots.map((slot) => (
             <button key={slot} className={`rounded-2xl px-3 py-3 text-left text-sm font-black ${slot === normalizedSelectedTime ? "bg-[#17452f] text-white shadow-sm" : "border border-[#dfe5dd] bg-white text-[#344139]"}`} onClick={() => setSelectedTime(slot)} type="button">
               <span className="block">{slot}</span>
               <span className={`mt-1 block text-xs ${slot === normalizedSelectedTime ? "text-white/75" : "text-[#5b665f]"}`}>{selectedService.price}</span>
@@ -266,6 +277,12 @@ export function BookingWidget() {
             <p className="col-span-full rounded-2xl bg-white px-4 py-3 text-sm font-bold text-[#5b665f]">Stängt denna dag.</p>
           )}
         </div>
+
+        {slots.length > 6 ? (
+          <button className="mt-3 w-full rounded-full border border-[#17452f] bg-white px-4 py-3 text-sm font-black text-[#17452f]" type="button" onClick={() => setShowAllTimes((current) => !current)}>
+            {showAllTimes ? "Visa färre tider" : `Visa fler tider (${slots.length - 6})`}
+          </button>
+        ) : null}
       </div>
 
       <div className="mt-4 rounded-3xl border border-[#dfe5dd] bg-white p-4">
