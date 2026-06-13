@@ -123,10 +123,7 @@ async function createCustomerAction(formData: FormData) {
   }
 
   const resolvedService = resolveServiceSelection(serviceSelection);
-
-  if (!resolvedService) {
-    redirectWithError("service");
-  }
+  const validatedService = resolvedService ?? redirectWithError("service");
 
   const customerInput: CreateDashboardCustomerInput = {
     name,
@@ -136,8 +133,8 @@ async function createCustomerAction(formData: FormData) {
     customerType: customerType as CreateDashboardCustomerInput["customerType"],
     city,
     status: status as CreateDashboardCustomerInput["status"],
-    serviceCategorySlug: resolvedService.serviceCategorySlug,
-    serviceSlug: resolvedService.serviceSlug,
+    serviceCategorySlug: validatedService.serviceCategorySlug,
+    serviceSlug: validatedService.serviceSlug,
     notes,
   };
 
