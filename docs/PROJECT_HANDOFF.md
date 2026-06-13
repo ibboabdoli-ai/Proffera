@@ -29,6 +29,7 @@ Completed phases:
 - Phase 17.1: SaaS dashboard shell
 - Phase 17.2: Dashboard module previews
 - Phase 18.1B: Public branscher page
+- Phase 18.1C: Booking/CRM migration taxonomy references
 
 ## Product direction
 
@@ -61,6 +62,7 @@ Long-term planning docs:
 - `docs/PROJECT_LOG.md`
 - `docs/SERVICE_TAXONOMY_PLAN.md`
 - `docs/PHASE_18_BOOKING_CRM_PLAN.md`
+- `docs/PHASE_18_1C_TAXONOMY_MIGRATION_NOTES.md`
 
 ## Recent safe points
 
@@ -71,6 +73,7 @@ Long-term planning docs:
 - Phase 17.1 docs point: `59829df5980c8c672df5a8debcfdf4635aa6b66f`
 - Phase 17.2 docs point: `e1c4c000d3946636a73b3cac6810ecdb613aa780`
 - Phase 18.1B docs point: `5baff9c5a67a831e17a2b0991a3593196c2f18ab`
+- Phase 18.1C docs point: `286274889d7bd7fc74bd729a71c687f501123540`
 
 ## Public SaaS routes
 
@@ -178,11 +181,34 @@ Rollback notes:
 
 - `db/migrations/20260613_phase18_booking_crm_rollback_notes.md`
 
+Taxonomy notes:
+
+- `docs/PHASE_18_1C_TAXONOMY_MIGRATION_NOTES.md`
+
+Prepared new tables:
+
+- `customers`
+- `bookings`
+- `customer_events`
+
+Taxonomy strategy:
+
+- Store `service_category_slug` and `service_slug` as soft references first.
+- Do not create `service_categories` or `services` database tables until seed and admin-management planning is reviewed.
+
+SQL review summary:
+
+- Migration creates new SaaS CRM/booking tables only.
+- It does not alter/drop existing MVP lead-flow tables.
+- It is wrapped in `BEGIN` and `COMMIT`.
+- `updated_at` has no auto-update trigger yet.
+- `workspace_id` is still a simple text/default field and needs a stronger tenant model before real multi-tenant SaaS onboarding.
+
 Important:
 
-- Do not execute migration before reviewing service taxonomy impact.
+- Do not execute migration before a final SQL execution review.
 - Do not modify existing MVP tables without explicit migration and rollback plan.
-- Consider whether future tables need service category references before execution.
+- Do not run SQL in Neon until the user explicitly approves execution.
 
 ## Email provider
 
@@ -211,6 +237,6 @@ Manual mailto fallback remains available in the admin UI.
 
 ## Next recommended phase
 
-Phase 18.1C: Decide whether to revise the Booking/CRM migration to include service taxonomy references before executing any SQL.
+Phase 18.1D: Final SQL execution review before any manual database run.
 
 Do not modify existing lead, matching, outbox, Brevo or admin workflows without an explicit plan.
