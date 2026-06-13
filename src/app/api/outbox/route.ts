@@ -43,7 +43,8 @@ export async function POST(request: Request) {
     });
 
     if (!sent.ok) {
-      url.searchParams.set("send", "email_not_configured");
+      url.searchParams.set("send", "email_error");
+      url.searchParams.set("message", sent.message.slice(0, 180));
       return NextResponse.redirect(url);
     }
   }
