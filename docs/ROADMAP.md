@@ -2,59 +2,98 @@
 
 This roadmap defines the next planned phases for Proffera.
 
-## Phase 13 — Admin cleanup
+The working MVP lead flow is already in place. The next direction is to harden admin access, then turn Proffera into a sellable Swedish SaaS product for booking, leads, CRM and automation.
 
-Goal: make the admin workflow easier to use.
+## Phase 15 — Security cleanup and admin access hardening
 
-Tasks:
-
-- Add clear navigation links in admin.
-- Make `/admin` the central dashboard.
-- Link to status, companies, company management, matching, sending and delivery log.
-- Improve labels and workflow order.
-- Keep UI minimal and readable.
-
-## Phase 14 — Real email provider
-
-Goal: replace manual mailto with real outbound email.
+Goal: remove admin code exposure and make admin access safer.
 
 Tasks:
 
-- Choose email provider.
-- Send lead email from a domain email address.
-- Store send result.
-- Show success and failure states.
-- Keep manual fallback available.
+- Rotate `ADMIN_ACCESS_CODE` in Vercel.
+- Add admin login that sets a secure cookie.
+- Stop passing the admin code in query strings.
+- Update admin links and forms to rely on the cookie.
+- Keep existing admin routes working.
+- Test `/admin`, `/admin/status`, `/admin/foretag`, `/admin/matchning`, `/admin/skicka-lead` and `/admin/leverans`.
 
-## Phase 15 — Company dashboard
+## Phase 16 — Public SaaS marketing website
 
-Goal: allow companies to view their received leads.
+Goal: make Proffera presentable and sellable as a SaaS product.
 
-Tasks:
+Pages:
 
-- Company login or access link.
-- Received leads list.
-- Lead status for company.
-- Contact and follow-up workflow.
-
-## Phase 16 — Customer tracking
-
-Goal: allow customers to follow request status.
-
-Tasks:
-
-- Public tracking page by reference id.
-- Show request status.
-- Show basic next steps.
-
-## Phase 17 — Production hardening
-
-Goal: improve reliability and safety.
+- Home
+- Services
+- Pricing
+- Demo
+- Industries
+- About
+- Contact
+- Blog
+- Privacy Policy
+- Terms of Service
 
 Tasks:
 
-- Better validation.
-- Better error handling.
-- Rate limiting.
-- Audit logging.
-- Database indexes and constraints.
+- Add SaaS-style Swedish copy.
+- Add service category sections.
+- Add pricing plan cards for Starter, Professional and Business.
+- Add demo previews for booking, customer page, admin dashboard, AI assistant and QR booking.
+- Add CTA sections, FAQ, trust indicators and lead capture forms.
+- Add metadata, Open Graph, canonical URLs, sitemap support and robots.txt.
+- Keep current lead/company/admin/Brevo functionality untouched.
+
+## Phase 17 — SaaS dashboard shell
+
+Goal: evolve the current admin into a SaaS dashboard without breaking the MVP.
+
+Tasks:
+
+- Add dashboard navigation for Leads, Customers, Bookings, Analytics, AI Assistant and Settings.
+- Keep current lead delivery and outbox pages available.
+- Add placeholder views where the module is not implemented yet.
+- Prepare component structure for future SaaS modules.
+
+## Phase 18 — Booking and CRM MVP
+
+Goal: add the first functional SaaS modules beyond lead matching.
+
+Tasks:
+
+- Add customers table and customer admin UI.
+- Add bookings table and booking admin UI.
+- Add basic booking status workflow.
+- Send booking confirmations through Brevo.
+- Add simple customer history view.
+
+## Phase 19 — AI assistant MVP
+
+Goal: add AI-assisted communication in a controlled way.
+
+Tasks:
+
+- Add AI assistant preview page.
+- Add configurable company knowledge/settings later.
+- Add draft-first AI replies; do not send automatically.
+- Keep human review before outbound communication.
+
+## Phase 20 — Stripe subscriptions
+
+Goal: turn Proffera into a paid SaaS product.
+
+Tasks:
+
+- Add Stripe checkout.
+- Add subscription plans for Starter, Professional and Business.
+- Store customer and subscription state.
+- Add feature gating after billing is reliable.
+
+## Later phases
+
+- SMS reminders.
+- Invoice generation.
+- Employee scheduling.
+- Customer portal.
+- Mobile app.
+- Third-party integrations.
