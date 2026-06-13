@@ -28,6 +28,7 @@ Completed phases:
 - Phase 16.4: Final public-site QA
 - Phase 17.1: SaaS dashboard shell
 - Phase 17.2: Dashboard module previews
+- Phase 18.1B: Public branscher page
 
 ## Product direction
 
@@ -42,12 +43,24 @@ Main SaaS modules:
 - AI Assistant
 - Settings
 
+The service scope has expanded beyond cleaning/localvård into a broader booking-ready service taxonomy inspired by marketplace products such as Bokadirekt, but differentiated for Proffera as SaaS + booking + CRM + AI for Swedish service companies.
+
+Current service taxonomy categories:
+
+- Städning & lokalvård
+- Flytt & hemservice
+- Skönhet & hälsa
+- Träning & friskvård
+- Företagstjänster
+
 Long-term planning docs:
 
 - `docs/MASTER_PLAN.md`
 - `docs/ROADMAP.md`
 - `docs/DECISIONS.md`
 - `docs/PROJECT_LOG.md`
+- `docs/SERVICE_TAXONOMY_PLAN.md`
+- `docs/PHASE_18_BOOKING_CRM_PLAN.md`
 
 ## Recent safe points
 
@@ -57,6 +70,7 @@ Long-term planning docs:
 - Phase 16.4 docs point: `1058dedbbfbec3a29a2efd6bf645bca4fa2f64f1`
 - Phase 17.1 docs point: `59829df5980c8c672df5a8debcfdf4635aa6b66f`
 - Phase 17.2 docs point: `e1c4c000d3946636a73b3cac6810ecdb613aa780`
+- Phase 18.1B docs point: `5baff9c5a67a831e17a2b0991a3593196c2f18ab`
 
 ## Public SaaS routes
 
@@ -64,6 +78,7 @@ Currently built:
 
 - `/`
 - `/tjanster`
+- `/branscher`
 - `/priser`
 - `/demo`
 - `/om`
@@ -88,6 +103,13 @@ Public home page currently includes:
 - FAQ
 - Demo CTA
 - SaaS footer copy
+
+`/branscher` currently shows:
+
+- 5 main categories
+- 21 services
+- SaaS + booking + CRM + AI positioning
+- CTA to book a demo
 
 ## SaaS dashboard routes
 
@@ -144,6 +166,24 @@ Admin notes:
 
 Use Neon/Postgres. Do not switch to Supabase.
 
+## Phase 18 database planning
+
+A SQL migration file exists for early Booking/CRM planning, but it has not been executed against production database.
+
+Migration file:
+
+- `db/migrations/20260613_phase18_booking_crm.sql`
+
+Rollback notes:
+
+- `db/migrations/20260613_phase18_booking_crm_rollback_notes.md`
+
+Important:
+
+- Do not execute migration before reviewing service taxonomy impact.
+- Do not modify existing MVP tables without explicit migration and rollback plan.
+- Consider whether future tables need service category references before execution.
+
 ## Email provider
 
 Real lead email sending uses Brevo.
@@ -171,15 +211,6 @@ Manual mailto fallback remains available in the admin UI.
 
 ## Next recommended phase
 
-Phase 18: Booking and CRM MVP planning.
-
-Before code changes in Phase 18, define:
-
-- customer data model
-- booking data model
-- status model
-- dashboard integration plan
-- migration plan
-- rollback plan
+Phase 18.1C: Decide whether to revise the Booking/CRM migration to include service taxonomy references before executing any SQL.
 
 Do not modify existing lead, matching, outbox, Brevo or admin workflows without an explicit plan.
