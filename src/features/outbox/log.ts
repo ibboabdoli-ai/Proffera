@@ -32,6 +32,14 @@ export async function addOutboxRow(input: {
     `;
 
     if (existing.length > 0) {
+      await sql`
+        update lead_outbox
+        set company_name = ${input.companyName},
+            status = 'sent',
+            method = ${input.method},
+            created_at = now()
+        where id = ${existing[0].id}
+      `;
       return { ok: true as const, duplicate: true as const };
     }
 
