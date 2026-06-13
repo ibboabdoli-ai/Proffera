@@ -22,7 +22,7 @@ export async function POST(request: Request) {
     return NextResponse.redirect(url);
   }
 
-  if (method === "resend") {
+  if (method === "brevo") {
     const matches = await getLeadMatches();
     const leadMatch = matches.ok ? matches.matches.find((item) => item.lead.reference_id === leadRef) : null;
     const company = leadMatch?.companies.find((item) => item.email === companyEmail);
@@ -56,6 +56,6 @@ export async function POST(request: Request) {
     method,
   });
 
-  url.searchParams.set("send", method === "resend" ? "resend_success" : "mailto_marked");
+  url.searchParams.set("send", method === "brevo" ? "brevo_success" : "mailto_marked");
   return NextResponse.redirect(url);
 }
