@@ -263,3 +263,25 @@ Follow-up:
 
 - Continue with Phase 16.4 for final public-site QA and small visual/copy cleanup.
 - Do not touch admin, matching, outbox, Brevo or database flow during final public-site QA unless explicitly required.
+
+## Phase 16.4 — Final public-site QA
+
+Status: verified.
+
+Built:
+
+- Improved public login placeholder route for `/logga-in`.
+- Added `/logga-in` to `sitemap.xml`.
+- Confirmed public sitemap includes all current public SaaS, legal and login routes.
+
+Tested:
+
+- Production `sitemap.xml` renders valid XML.
+- Sitemap includes `/`, `/tjanster`, `/priser`, `/demo`, `/om`, `/kontakt`, `/logga-in`, `/integritetspolicy`, `/villkor` and `/cookies`.
+- Browser XML style warning was confirmed as normal and not an error.
+
+Follow-up:
+
+- Phase 16 public SaaS marketing website is complete enough for the next product phase.
+- Continue with Phase 17 for SaaS dashboard shell.
+- Do not change the working lead flow, matching, outbox, admin security, Brevo or database flow unless explicitly required.
