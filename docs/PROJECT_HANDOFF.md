@@ -18,10 +18,8 @@ Completed:
 - Phase 11.1: Duplicate prevention for outbox logs
 - Phase 12: Company approval and improved matching score
 - Phase 12.1: Project memory system
-
-Ready for test:
-
 - Phase 13: Admin cleanup
+- Phase 13.1: Hide public chrome on admin pages
 
 ## Safe points
 
@@ -37,9 +35,13 @@ Before Phase 13:
 
 `edf8e00cac6f70b98d1d9c1f2a915cd509a11dfb`
 
-Current Phase 13 safe point:
+Phase 13 code safe point:
 
 `063ff9da3f3e19d5f9b59bad0dad9c4bc2393464`
+
+Phase 13.1 code safe point:
+
+`f5ad98c81710ae19564a4d54a34d95069b6189f0`
 
 ## Project memory files
 
@@ -74,6 +76,8 @@ The matching score reached `115` with these reasons:
 
 The outbox log flow was tested. Duplicate prevention works and the UI shows one latest log per lead/company pair.
 
+The admin dashboard was tested after cleanup. Public header and footer are hidden on admin routes.
+
 ## Database tables currently used
 
 - `quote_requests`
@@ -91,4 +95,4 @@ The outbox log flow was tested. Duplicate prevention works and the UI shows one 
 
 ## Next recommended phase
 
-Finish testing Phase 13, then continue with Phase 14: real email provider integration.
+Phase 14: Real email provider integration.
