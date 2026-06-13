@@ -23,23 +23,17 @@ function isAllowedStatus(value: string): value is AllowedStatus {
 }
 
 export async function updateQuoteRequestStatus(formData: FormData) {
-  const code = String(formData.get("code") ?? "");
   const requestId = String(formData.get("requestId") ?? "");
   const nextStatus = String(formData.get("nextStatus") ?? "");
-  const adminCode = process.env.ADMIN_ACCESS_CODE;
-
-  if (!adminCode || code !== adminCode) {
-    redirect("/admin");
-  }
 
   if (!requestId || !isAllowedStatus(nextStatus)) {
-    redirect(`/admin?code=${encodeURIComponent(code)}`);
+    redirect("/admin/status");
   }
 
   const sql = getSql();
 
   if (!sql) {
-    redirect(`/admin?code=${encodeURIComponent(code)}`);
+    redirect("/admin/status");
   }
 
   await sql`
@@ -49,5 +43,6 @@ export async function updateQuoteRequestStatus(formData: FormData) {
   `;
 
   revalidatePath("/admin");
-  redirect(`/admin?code=${encodeURIComponent(code)}`);
+  revalidatePath("/admin/status");
+  redirect("/admin/status");
 }
