@@ -16,6 +16,43 @@ type AdminPageProps = {
   }>;
 };
 
+const adminLinks = [
+  {
+    title: "Request status",
+    description: "Ändra status på offertförfrågningar.",
+    href: "/admin/status",
+  },
+  {
+    title: "Företag",
+    description: "Se registrerade företag.",
+    href: "/admin/foretag",
+  },
+  {
+    title: "Hantera företag",
+    description: "Godkänn företag och uppdatera tjänster.",
+    href: "/admin/foretag/hantera",
+  },
+  {
+    title: "Matchning",
+    description: "Se vilka företag som matchar varje request.",
+    href: "/admin/matchning",
+  },
+  {
+    title: "Skicka lead",
+    description: "Öppna mailto för matchade företag.",
+    href: "/admin/skicka-lead",
+  },
+  {
+    title: "Leveranslogg",
+    description: "Markera skickade leads och se outbox-logg.",
+    href: "/admin/leverans",
+  },
+];
+
+function withCode(href: string, code: string) {
+  return `${href}?code=${encodeURIComponent(code)}`;
+}
+
 function StatusBadge({ status }: { status: string }) {
   return (
     <span className="inline-flex rounded-full bg-[#eef5ef] px-3 py-1 text-xs font-semibold text-[#17452f]">
@@ -56,7 +93,7 @@ function AdminGate({ codeValue }: { codeValue: string }) {
         <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#17452f]">Admin</p>
         <h1 className="mt-4 text-3xl font-bold text-[#17201a]">Adminvy är skyddad</h1>
         <p className="mt-4 text-[#5b665f]">
-          Ange den tillfälliga adminkoden för att öppna request dashboarden. Riktig inloggning byggs i en senare fas.
+          Ange adminkoden för att öppna Proffera admin.
         </p>
         <form className="mt-6 space-y-4" action="/admin" method="get">
           <label className="block text-sm font-semibold text-[#17201a]" htmlFor="code">
@@ -110,6 +147,7 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
   });
 
   const submittedCount = result.requests.filter((request) => request.status === "submitted").length;
+  const approvedCount = result.requests.filter((request) => request.status === "approved").length;
   const uniqueCities = new Set(result.requests.map((request) => request.city)).size;
 
   return (
@@ -118,9 +156,9 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#17452f]">Proffera admin</p>
-            <h1 className="mt-3 text-4xl font-bold tracking-tight text-[#17201a]">Offertförfrågningar</h1>
+            <h1 className="mt-3 text-4xl font-bold tracking-tight text-[#17201a]">Admin dashboard</h1>
             <p className="mt-3 max-w-2xl text-[#5b665f]">
-              Granska inkomna requests, se kontaktuppgifter och följ status. Statusändring och riktig inloggning byggs i kommande faser.
+              Hantera requests, företag, matchning, lead-utskick och leveranslogg från en central vy.
             </p>
           </div>
           <a className="rounded-full border border-[#17452f] px-5 py-3 text-sm font-semibold text-[#17452f]" href="/fa-offert">
@@ -138,10 +176,32 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
             <p className="mt-2 text-3xl font-bold text-[#17201a]">{submittedCount}</p>
           </article>
           <article className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
-            <p className="text-sm font-semibold text-[#5b665f]">Städer</p>
-            <p className="mt-2 text-3xl font-bold text-[#17201a]">{uniqueCities}</p>
+            <p className="text-sm font-semibold text-[#5b665f]">Approved</p>
+            <p className="mt-2 text-3xl font-bold text-[#17201a]">{approvedCount}</p>
           </article>
         </div>
+
+        <section className="mt-8 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
+          <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+            <div>
+              <h2 className="text-2xl font-bold text-[#17201a]">Arbetsflöde</h2>
+              <p className="mt-2 text-sm text-[#5b665f]">Gå från request till matchning, skickat lead och logg.</p>
+            </div>
+            <p className="text-sm font-semibold text-[#5b665f]">Städer: {uniqueCities}</p>
+          </div>
+          <div className="mt-5 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+            {adminLinks.map((link) => (
+              <a
+                key={link.href}
+                href={withCode(link.href, code)}
+                className="rounded-2xl border border-[#dfe5dd] bg-[#fbfbf8] p-4 transition hover:border-[#17452f] hover:bg-white"
+              >
+                <p className="font-semibold text-[#17201a]">{link.title}</p>
+                <p className="mt-1 text-sm text-[#5b665f]">{link.description}</p>
+              </a>
+            ))}
+          </div>
+        </section>
 
         <form className="mt-8 grid gap-3 rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[#dfe5dd] md:grid-cols-[1fr_220px_auto]" action="/admin" method="get">
           <input type="hidden" name="code" value={code} />
