@@ -67,6 +67,14 @@ export type DashboardCustomer = {
   notes: string;
 };
 
+export type DashboardCustomerProfile = DashboardCustomer & {
+  email: string;
+  phone: string;
+  companyName: string;
+  source: string;
+  createdAt: string;
+};
+
 export type DashboardBooking = {
   id: string;
   time: string;
@@ -75,6 +83,20 @@ export type DashboardBooking = {
   status: string;
   city: string;
   service: string;
+};
+
+export type DashboardCustomerEvent = {
+  id: string;
+  type: string;
+  title: string;
+  description: string;
+  createdAt: string;
+};
+
+export type DashboardCustomerDetail = {
+  customer: DashboardCustomerProfile;
+  bookings: DashboardBooking[];
+  events: DashboardCustomerEvent[];
 };
 
 export async function getDashboardStats(): Promise<DashboardStats> {
@@ -191,5 +213,108 @@ export async function getDashboardBookings(): Promise<DashboardBooking[]> {
   } catch (error) {
     console.error("Failed to read dashboard bookings", error);
     return [];
+  }
+}
+
+export async function getDashboardCustomerDetail(customerId: string): Promise<DashboardCustomerDetail | null> {
+  const sql = getSqlClient();
+
+  if (!sql) {
+    return null;
+  }
+
+  try {
+    const customerRows = await sql`
+      select
+        id,
+        name,
+        email,
+        phone,
+        company_name,
+        customer_type,
+        city,
+        status,
+        source,
+        primary_service_slug,
+        notes,
+        created_at
+      from customers
+      where workspace_id = 'default'
+        and id = ${customerId}
+      limit 1
+    `;
+
+    const customerRow = customerRows[0];
+
+    if (!customerRow) {
+      return null;
+    }
+
+    const bookingRows = await sql`
+      select
+        b.id,
+        b.title,
+        b.status,
+        b.city,
+        b.service,
+        b.starts_at,
+        c.name as customer_name
+      from bookings b
+      left join customers c on c.id = b.customer_id
+      where b.workspace_id = 'default'
+        and b.customer_id = ${customerId}
+      order by b.starts_at asc nulls last, b.created_at desc
+      limit 20
+    `;
+
+    const eventRows = await sql`
+      select
+        id,
+        event_type,
+        title,
+        description,
+        created_at
+      from customer_events
+      where workspace_id = 'default'
+        and customer_id = ${customerId}
+      order by created_at desc
+      limit 20
+    `;
+
+    return {
+      customer: {
+        id: toText(customerRow.id),
+        name: toText(customerRow.name, "Namnlös kund"),
+        type: toText(customerRow.customer_type) === "company" ? "Företag" : "Privatkund",
+        city: toText(customerRow.city, "Okänd ort"),
+        status: toText(customerRow.status, "prospect"),
+        service: toText(customerRow.primary_service_slug, "Ej valt"),
+        notes: toText(customerRow.notes, "Ingen notering"),
+        email: toText(customerRow.email, "Ingen e-post"),
+        phone: toText(customerRow.phone, "Inget telefonnummer"),
+        companyName: toText(customerRow.company_name, "Ej företag"),
+        source: toText(customerRow.source, "Okänd källa"),
+        createdAt: toDateText(customerRow.created_at),
+      },
+      bookings: bookingRows.map((row) => ({
+        id: toText(row.id),
+        time: toDateText(row.starts_at),
+        title: toText(row.title, "Namnlös bokning"),
+        customer: toText(row.customer_name, "Okänd kund"),
+        status: toText(row.status, "requested"),
+        city: toText(row.city, "Okänd ort"),
+        service: toText(row.service, "Ej vald tjänst"),
+      })),
+      events: eventRows.map((row) => ({
+        id: toText(row.id),
+        type: toText(row.event_type, "note"),
+        title: toText(row.title, "Namnlös händelse"),
+        description: toText(row.description, "Ingen beskrivning"),
+        createdAt: toDateText(row.created_at),
+      })),
+    };
+  } catch (error) {
+    console.error("Failed to read dashboard customer detail", error);
+    return null;
   }
 }
