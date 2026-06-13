@@ -133,3 +133,21 @@ Built:
 Tested:
 
 - `/admin` no longer shows the public Proffera footer/header.
+
+## Phase 14.3 — Real email sending with Brevo
+
+Status: done.
+
+Built:
+
+- Switched real lead email sending from Resend to Brevo.
+- Uses `BREVO_API_KEY` and `LEAD_FROM_EMAIL` server-side environment variables.
+- Keeps the existing admin delivery workflow and manual mailto fallback.
+- Outbox method can now record successful real sends via `brevo`.
+
+Tested:
+
+- Domain DNS records for `proffera.se` were added in Inleed.
+- Brevo sender/domain setup was completed.
+- A matched lead was sent from `/admin/leverans` using `Skicka via Proffera`.
+- The delivery log showed `sent via brevo` for lead `PRO-MQC5COT4-BL3RG`.
