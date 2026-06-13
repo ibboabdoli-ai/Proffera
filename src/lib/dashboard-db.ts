@@ -22,6 +22,16 @@ function toText(value: unknown, fallback = "") {
   return String(value);
 }
 
+function toNumber(value: unknown, fallback = 0) {
+  const numberValue = Number(value);
+
+  if (!Number.isFinite(numberValue)) {
+    return fallback;
+  }
+
+  return numberValue;
+}
+
 function toDateText(value: unknown) {
   if (!value) {
     return "Ej bokad";
@@ -38,6 +48,14 @@ function toDateText(value: unknown) {
     timeStyle: "short",
   }).format(date);
 }
+
+export type DashboardStats = {
+  customersCount: number;
+  activeCustomersCount: number;
+  bookingsCount: number;
+  confirmedBookingsCount: number;
+  customerEventsCount: number;
+};
 
 export type DashboardCustomer = {
   id: string;
@@ -58,6 +76,46 @@ export type DashboardBooking = {
   city: string;
   service: string;
 };
+
+export async function getDashboardStats(): Promise<DashboardStats> {
+  const sql = getSqlClient();
+
+  const fallbackStats: DashboardStats = {
+    customersCount: 0,
+    activeCustomersCount: 0,
+    bookingsCount: 0,
+    confirmedBookingsCount: 0,
+    customerEventsCount: 0,
+  };
+
+  if (!sql) {
+    return fallbackStats;
+  }
+
+  try {
+    const rows = await sql`
+      select
+        (select count(*) from customers where workspace_id = 'default') as customers_count,
+        (select count(*) from customers where workspace_id = 'default' and status = 'active') as active_customers_count,
+        (select count(*) from bookings where workspace_id = 'default') as bookings_count,
+        (select count(*) from bookings where workspace_id = 'default' and status = 'confirmed') as confirmed_bookings_count,
+        (select count(*) from customer_events where workspace_id = 'default') as customer_events_count
+    `;
+
+    const row = rows[0] ?? {};
+
+    return {
+      customersCount: toNumber(row.customers_count),
+      activeCustomersCount: toNumber(row.active_customers_count),
+      bookingsCount: toNumber(row.bookings_count),
+      confirmedBookingsCount: toNumber(row.confirmed_bookings_count),
+      customerEventsCount: toNumber(row.customer_events_count),
+    };
+  } catch (error) {
+    console.error("Failed to read dashboard stats", error);
+    return fallbackStats;
+  }
+}
 
 export async function getDashboardCustomers(): Promise<DashboardCustomer[]> {
   const sql = getSqlClient();
