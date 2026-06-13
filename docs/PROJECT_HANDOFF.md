@@ -21,6 +21,7 @@ Completed:
 - Phase 13: Admin cleanup
 - Phase 13.1: Hide public chrome on admin pages
 - Phase 14.3: Real lead email sending with Brevo
+- Phase 15: Security cleanup and admin access hardening
 
 ## Product direction
 
@@ -87,6 +88,10 @@ SaaS master plan docs point:
 
 `3abcf6baaf0567f9484eb9f073ef7beeafe514c0`
 
+Phase 15 security verification docs point:
+
+`f9863e5b12e9761263f7738d1096298ffb3183f7`
+
 ## Project memory files
 
 Read these files before starting new work:
@@ -107,6 +112,21 @@ Read these files before starting new work:
 - `/admin/skicka-lead`
 - `/admin/leverans`
 
+## Admin security
+
+Admin routes are protected by Basic Auth.
+
+Current admin login behavior:
+
+- Username can be any non-empty value, commonly `admin`.
+- Password is the Vercel `ADMIN_ACCESS_CODE` value.
+- Admin code should not be passed in URLs.
+
+Follow-up security requirement:
+
+- Confirm `ADMIN_ACCESS_CODE` has been rotated in Vercel after the earlier URL exposure.
+- Do not share the admin code in chat or screenshots.
+
 ## Tested flow
 
 A quote request was matched to one approved company.
@@ -123,7 +143,9 @@ The outbox log flow was tested. Duplicate prevention works and the UI shows one 
 
 The admin dashboard was tested after cleanup. Public header and footer are hidden on admin routes.
 
-Real lead sending was tested through Brevo. Lead `PRO-MQC5COT4-BL3RG` was sent from `/admin/leverans`, and the delivery log showed `sent via brevo`.
+Real lead sending was tested through Brevo. Leads `PRO-MQC5COT4-BL3RG` and `PRO-MQBD101M-6D6LO` were sent from `/admin/leverans`, and the delivery log showed `sent via brevo`.
+
+Phase 15 Basic Auth was tested. Admin login worked, `/admin/leverans` loaded after login, and Brevo delivery still worked.
 
 ## Database tables currently used
 
@@ -159,6 +181,6 @@ Manual mailto fallback remains available in the admin UI.
 
 ## Next recommended phase
 
-Phase 15: Security cleanup and admin access hardening.
+Phase 16: Public SaaS marketing website.
 
-After Phase 15 is verified, continue with Phase 16: Public SaaS marketing website.
+Phase 16 must not touch the working lead flow, matching, outbox, admin security or Brevo email delivery unless explicitly required.
