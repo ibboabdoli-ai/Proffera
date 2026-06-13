@@ -49,7 +49,9 @@ export function SalonDashboardDemo() {
       id: booking.id,
       customer: booking.customerName,
       service: booking.serviceName,
+      date: booking.dateLabel ?? booking.date ?? "Demo datum",
       time: booking.time,
+      price: booking.servicePrice,
       status: statusLabel(booking.status),
       statusTone: booking.status,
       stored: true,
@@ -59,7 +61,9 @@ export function SalonDashboardDemo() {
       id: `${booking.customer}-${booking.time}`,
       customer: booking.customer,
       service: booking.service,
+      date: "Demo datum",
       time: booking.time,
+      price: "Demo pris",
       status: booking.status,
       statusTone: booking.statusTone,
       stored: false,
@@ -118,7 +122,7 @@ export function SalonDashboardDemo() {
           <div className="flex items-center justify-between gap-4">
             <div>
               <h3 className="text-xl font-bold text-[#17201a]">Bokningar</h3>
-              <p className="mt-1 text-sm text-[#5b665f]">Frisören kan godkänna eller flytta tider.</p>
+              <p className="mt-1 text-sm text-[#5b665f]">Frisören kan godkänna eller avboka tider.</p>
             </div>
             <button className="inline-flex items-center gap-2 rounded-full bg-[#17452f] px-4 py-2 text-sm font-semibold text-white" type="button">
               <Plus className="h-4 w-4" aria-hidden="true" /> Ny bokning
@@ -141,7 +145,8 @@ export function SalonDashboardDemo() {
                 <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
                   <div>
                     <p className="font-bold text-[#17201a]">{booking.customer}</p>
-                    <p className="mt-1 text-sm text-[#5b665f]">{booking.service} • {booking.time}</p>
+                    <p className="mt-1 text-sm text-[#5b665f]">{booking.date} • {booking.time}</p>
+                    <p className="mt-1 text-sm text-[#5b665f]">{booking.service} • {booking.price}</p>
                   </div>
                   <span className={`w-fit rounded-full px-3 py-1 text-xs font-bold ${statusClasses[booking.statusTone]}`}>
                     {booking.status}
