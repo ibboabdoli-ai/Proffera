@@ -198,3 +198,25 @@ Follow-up:
 
 - Confirm `ADMIN_ACCESS_CODE` has been rotated in Vercel after the earlier URL exposure.
 - Continue avoiding admin secrets in URLs.
+
+## Phase 16.1 — Public SaaS marketing foundation
+
+Status: verified home page.
+
+Built:
+
+- Repositioned public home page from an offert platform into a SaaS marketing page for Swedish service businesses.
+- Added SaaS modules: leads, customers, bookings, analytics, AI assistant and settings.
+- Added public pages for services, pricing, demo and about.
+- Updated contact page for demo and pilot-customer interest.
+- Added `robots.txt` and `sitemap.xml` metadata routes.
+- Expanded root SEO metadata with canonical base, Open Graph metadata and Swedish SaaS keywords.
+
+Tested:
+
+- Production home page renders the new SaaS hero, dashboard preview, service modules, pricing cards and CTA sections.
+
+Follow-up:
+
+- Continue with Phase 16.2 for legal pages: Privacy Policy and Terms of Service.
+- Do not change admin, matching, outbox, Brevo or database flow during legal-page work.
