@@ -220,3 +220,23 @@ Follow-up:
 
 - Continue with Phase 16.2 for legal pages: Privacy Policy and Terms of Service.
 - Do not change admin, matching, outbox, Brevo or database flow during legal-page work.
+
+## Phase 16.2 — Legal pages
+
+Status: verified.
+
+Built:
+
+- Replaced `/integritetspolicy` placeholder with a practical Swedish MVP privacy policy.
+- Replaced `/villkor` placeholder with preliminary Swedish MVP terms.
+- Replaced `/cookies` placeholder with Swedish cookie information.
+- Added legal routes to `sitemap.xml`.
+
+Tested:
+
+- Legal pages deployed and were confirmed as working on production.
+
+Follow-up:
+
+- Legal copy is suitable for MVP but should be legally reviewed before broader public launch, paid subscriptions or larger-scale customer onboarding.
+- Continue with Phase 16.3 for conversion sections and cleanup.
