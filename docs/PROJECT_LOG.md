@@ -151,3 +151,27 @@ Tested:
 - Brevo sender/domain setup was completed.
 - A matched lead was sent from `/admin/leverans` using `Skicka via Proffera`.
 - The delivery log showed `sent via brevo` for lead `PRO-MQC5COT4-BL3RG`.
+
+## Planning update — SaaS master plan
+
+Status: done.
+
+Built:
+
+- Added `docs/MASTER_PLAN.md`.
+- Updated `docs/ROADMAP.md` for a phase-based SaaS buildout.
+- Updated `docs/PROJECT_HANDOFF.md` with the new product direction.
+
+Planned next sequence:
+
+- Phase 15: Security cleanup and admin access hardening.
+- Phase 16: Public SaaS marketing website.
+- Phase 17: SaaS dashboard shell.
+- Phase 18: Booking and CRM MVP.
+- Phase 19: AI assistant MVP.
+- Phase 20: Stripe subscriptions.
+
+Notes:
+
+- The SaaS plan must not be executed as one large change.
+- Existing lead flow, matching, outbox and Brevo email flow must be protected during future phases.
