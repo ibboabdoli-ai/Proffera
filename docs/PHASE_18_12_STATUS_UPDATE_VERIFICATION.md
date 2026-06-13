@@ -1,63 +1,76 @@
 # Phase 18.12 — Booking status update verification
 
+Status: verified
+Date: 2026-06-13
+
 ## Scope
 
-Phase 18.12 implemented a controlled status update form for existing bookings.
+Phase 18.12 verified the controlled booking status update flow on the booking profile page.
 
-The implementation is limited to updating the `status` field on an existing booking.
+The status update flow is intentionally limited:
 
-## Implemented files
+- Updates only the `status` field in the `bookings` table.
+- Requires internal write access code.
+- Does not create a new booking.
+- Does not delete any booking.
+- Does not create a `customer_events` row.
+- Does not send email or reminders.
+- Does not modify leads, matching, lead outbox, quote requests or admin delivery workflows.
 
-- `src/lib/dashboard-booking-status.ts`
-- `src/app/dashboard/bokningar/[id]/page.tsx`
+## Test target
 
-## Commits
+Seeded demo booking:
 
-- `a610978cb05695ceeb70752660a7e29a93f3aa32`
-- `33379156e26aa954b66fc9f278a1b40d893f5d76`
+- Title: `Demo booking – Hemstädning`
+- Customer: `Demo Kund – Sara Andersson`
+- Original status: `confirmed` / Bekräftad
+- Original source: `demo_seed`
 
-## Manual verification
+## Test 1 — Change status from Bekräftad to Klar
 
-### Initial state
+Action:
 
-- Bookings in CRM: 1
-- Confirmed bookings: 1
-- Requested bookings: 0
-- Completed bookings: 0
-- Demo booking status: confirmed
+- Opened the booking profile for `Demo booking – Hemstädning`.
+- Used the `Ändra status` form.
+- Changed status to `Klar` / `completed`.
 
-### Test update
+Observed result in `/dashboard/bokningar`:
 
-The demo booking was temporarily changed from confirmed to requested.
+- `Bokningar i CRM = 1`
+- `Bekräftade = 0`
+- `Förfrågade = 0`
+- `Klara = 1`
+- `Demo booking – Hemstädning` showed status `Klar`.
 
-Observed result:
+Assessment:
 
-- Bookings in CRM: 1
-- Confirmed bookings: 0
-- Requested bookings: 1
-- Completed bookings: 0
-- Demo booking status: requested
+- Status update from `confirmed` to `completed` worked.
+- The booking count stayed stable at `1`.
+- No additional booking was created.
 
-### Rollback verification
+## Test 2 — Roll back status from Klar to Bekräftad
 
-The demo booking was changed back from requested to confirmed.
+Action:
 
-Observed result:
+- Opened the same booking profile again.
+- Used the `Ändra status` form.
+- Changed status back to `Bekräftad` / `confirmed`.
 
-- Bookings in CRM: 1
-- Confirmed bookings: 1
-- Requested bookings: 0
-- Completed bookings: 0
-- Demo booking status: confirmed
+Observed result in `/dashboard/bokningar`:
 
-## Safety verification
+- `Bokningar i CRM = 1`
+- `Bekräftade = 1`
+- `Förfrågade = 0`
+- `Klara = 0`
+- `Demo booking – Hemstädning` showed status `Bekräftad`.
 
-- No booking was deleted.
-- No new booking was created.
-- The demo booking remained linked to the same customer.
-- The customer record was not changed.
-- The dashboard list returned to the original baseline state after rollback.
+Assessment:
 
-## Final status
+- Rollback to the original demo baseline worked.
+- The dashboard returned to the expected clean seed state.
 
-Phase 18.12 is verified and the database is back to the expected demo baseline.
+## Final assessment
+
+Phase 18.12 is verified.
+
+The controlled status update flow works and can be used for future CRM workflow testing, with the current safety boundary that it updates only the booking status and does not trigger customer history or messaging workflows.
