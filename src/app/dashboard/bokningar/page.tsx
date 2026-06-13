@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 import { getDashboardBookings } from "@/lib/dashboard-db";
 
 export const dynamic = "force-dynamic";
@@ -68,8 +70,16 @@ export default async function BookingsPage() {
                       {booking.customer} · {booking.city} · {booking.service}
                     </span>
                   </span>
-                  <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-[#344139]">
-                    {statusLabels[booking.status] ?? booking.status}
+                  <span className="flex flex-wrap items-center justify-start gap-2 sm:justify-end">
+                    <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-[#344139]">
+                      {statusLabels[booking.status] ?? booking.status}
+                    </span>
+                    <Link
+                      href={`/dashboard/bokningar/${booking.id}`}
+                      className="rounded-full bg-[#17452f] px-3 py-1 text-xs font-semibold text-white transition hover:bg-[#0f3322]"
+                    >
+                      Visa bokning
+                    </Link>
                   </span>
                 </div>
               ))}
