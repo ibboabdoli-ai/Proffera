@@ -119,7 +119,13 @@ export function BookingWidget() {
   const selectedWeekStart = addDays(baseMonday, weekOffset * 7);
   const weekDays = Array.from({ length: 7 }, (_, index) => addDays(selectedWeekStart, index));
   const selectedDate = weekDays[selectedDayIndex] ?? weekDays[0];
-  const slots = generateSlots(duration, selectedDate);
+  const selectedDateValue = formatDateValue(selectedDate);
+  const bookedTimes = new Set(
+    readStoredSalonBookings()
+      .filter((booking) => booking.date === selectedDateValue && booking.staffName === "Elias" && booking.status !== "cancelled")
+      .map((booking) => booking.time),
+  );
+  const slots = generateSlots(duration, selectedDate).filter((slot) => !bookedTimes.has(slot));
   const visibleSlots = showAllTimes ? slots : slots.slice(0, 6);
   const normalizedSelectedTime = slots.includes(selectedTime) ? selectedTime : slots[0] ?? "";
   const referenceNumber = submittedBooking ? `JS-${submittedBooking.id.slice(-4)}` : "";
@@ -153,6 +159,16 @@ export function BookingWidget() {
       return;
     }
 
+    const current = readStoredSalonBookings();
+    const alreadyBooked = current.some(
+      (booking) => booking.date === selectedDateValue && booking.time === normalizedSelectedTime && booking.staffName === "Elias" && booking.status !== "cancelled",
+    );
+
+    if (alreadyBooked) {
+      setError("Den tiden är redan bokad. Välj en annan tid.");
+      return;
+    }
+
     if (!customerName.trim() || !customerPhone.trim() || !customerEmail.trim()) {
       setError("Fyll i namn, telefon och e-post för att skicka bokningen.");
       return;
@@ -167,14 +183,13 @@ export function BookingWidget() {
       servicePrice: selectedService.price,
       serviceDuration: selectedService.duration,
       staffName: "Elias",
-      date: formatDateValue(selectedDate),
+      date: selectedDateValue,
       dateLabel: formatDateLabel(selectedDate),
       time: normalizedSelectedTime,
       status: "pending",
       createdAt: new Date().toISOString(),
     };
 
-    const current = readStoredSalonBookings();
     writeStoredSalonBookings([booking, ...current]);
     setSubmittedBooking(booking);
     setCustomerName("");
@@ -274,7 +289,7 @@ export function BookingWidget() {
               <span className={`mt-1 block text-xs ${slot === normalizedSelectedTime ? "text-white/75" : "text-[#5b665f]"}`}>{selectedService.price}</span>
             </button>
           )) : (
-            <p className="col-span-full rounded-2xl bg-white px-4 py-3 text-sm font-bold text-[#5b665f]">Stängt denna dag.</p>
+            <p className="col-span-full rounded-2xl bg-white px-4 py-3 text-sm font-bold text-[#5b665f]">Inga lediga tider denna dag.</p>
           )}
         </div>
 
