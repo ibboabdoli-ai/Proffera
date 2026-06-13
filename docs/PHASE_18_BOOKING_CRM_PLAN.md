@@ -29,6 +29,26 @@ Planning only:
 
 No database migration should be executed in Phase 18.0.
 
+## Service taxonomy prerequisite
+
+Phase 18 should treat service categories as a product-level taxonomy, not as free text only.
+
+Current taxonomy file:
+
+```text
+src/lib/service-taxonomy.ts
+```
+
+Planning document:
+
+```text
+docs/SERVICE_TAXONOMY_PLAN.md
+```
+
+The first commercial focus remains cleaning and local service, but the taxonomy also prepares Proffera for booking-based categories such as beauty, health, wellness and B2B service companies.
+
+Do not seed this taxonomy into production until a separate seed plan is reviewed.
+
 ## Proposed new tables
 
 ### customers
@@ -63,6 +83,7 @@ Suggested fields:
 - `customer_id`
 - `lead_ref`
 - `service`
+- `service_slug`
 - `title`
 - `description`
 - `city`
@@ -87,6 +108,16 @@ Suggested fields:
 - `type` — `note`, `call`, `email`, `booking`, `status_change`
 - `title`
 - `body`
+
+## Future taxonomy tables
+
+Do not add these before the first CRM/booking tables are reviewed:
+
+- `service_categories`
+- `services`
+- `company_services`
+
+These can be added later if public category pages, search, company profiles or service-specific booking flows require structured service data.
 
 ## Status model
 
