@@ -8,10 +8,10 @@ type SendLeadEmailInput = {
   description: string;
 };
 
-type ResendResponse = {
-  id?: string;
+type BrevoResponse = {
+  messageId?: string;
   message?: string;
-  name?: string;
+  code?: string;
 };
 
 function escapeHtml(value: string) {
@@ -23,8 +23,16 @@ function escapeHtml(value: string) {
     .replaceAll("'", "&#039;");
 }
 
-function safeIdempotencyValue(value: string) {
-  return value.replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 80);
+function parseSender(value: string) {
+  const match = value.match(/^(.+?)\s*<([^>]+)>$/);
+  if (!match) {
+    return { name: "Proffera", email: value.trim() };
+  }
+
+  return {
+    name: match[1].trim(),
+    email: match[2].trim(),
+  };
 }
 
 export function buildLeadEmail(input: SendLeadEmailInput) {
@@ -69,45 +77,44 @@ export function buildLeadEmail(input: SendLeadEmailInput) {
 }
 
 export async function sendLeadEmail(input: SendLeadEmailInput) {
-  const apiKey = process.env.RESEND_API_KEY;
+  const apiKey = process.env.BREVO_API_KEY;
   const from = process.env.LEAD_FROM_EMAIL;
 
-  if (!apiKey || !from) {
-    return { ok: false as const, message: "E-postprovider är inte konfigurerad." };
+  if (!apiKey) {
+    return { ok: false as const, message: "BREVO_API_KEY saknas i Vercel." };
   }
 
+  if (!from) {
+    return { ok: false as const, message: "LEAD_FROM_EMAIL saknas i Vercel." };
+  }
+
+  const sender = parseSender(from);
   const email = buildLeadEmail(input);
-  const idempotencyKey = [
-    "lead",
-    safeIdempotencyValue(input.leadRef),
-    safeIdempotencyValue(input.companyEmail),
-  ].join("-");
 
   try {
-    const response = await fetch("https://api.resend.com/emails", {
+    const response = await fetch("https://api.brevo.com/v3/smtp/email", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        "api-key": apiKey,
         "Content-Type": "application/json",
-        "Idempotency-Key": idempotencyKey,
       },
       body: JSON.stringify({
-        from,
-        to: [input.companyEmail],
+        sender,
+        to: [{ email: input.companyEmail, name: input.companyName }],
         subject: email.subject,
-        text: email.text,
-        html: email.html,
+        textContent: email.text,
+        htmlContent: email.html,
       }),
     });
 
-    const data = (await response.json().catch(() => ({}))) as ResendResponse;
+    const data = (await response.json().catch(() => ({}))) as BrevoResponse;
 
     if (!response.ok) {
-      return { ok: false as const, message: data.message ?? "Kunde inte skicka mejl." };
+      return { ok: false as const, message: data.message ?? data.code ?? "Kunde inte skicka mejl via Brevo." };
     }
 
-    return { ok: true as const, providerId: data.id ?? null };
+    return { ok: true as const, providerId: data.messageId ?? null };
   } catch {
-    return { ok: false as const, message: "Kunde inte kontakta e-postprovider." };
+    return { ok: false as const, message: "Kunde inte kontakta Brevo." };
   }
 }
