@@ -24,6 +24,7 @@ Completed:
 - Phase 15: Security cleanup and admin access hardening
 - Phase 16.1: Public SaaS marketing foundation
 - Phase 16.2: Legal pages
+- Phase 16.3: Conversion sections and public-site cleanup
 
 ## Product direction
 
@@ -102,6 +103,10 @@ Phase 16.2 legal pages docs point:
 
 `ba586900621f4191c48f9fac01619810a7e054b1`
 
+Phase 16.3 conversion cleanup docs point:
+
+`37718cf23bea0de4ea62637d398efe9f561493ed`
+
 ## Project memory files
 
 Read these files before starting new work:
@@ -128,13 +133,26 @@ Currently built:
 - `/robots.txt`
 - `/sitemap.xml`
 
+Public home sections currently include:
+
+- SaaS hero
+- Dashboard preview
+- Benefits
+- Service modules
+- Pricing cards
+- Trust indicators
+- Case study placeholder
+- Testimonials placeholder
+- FAQ
+- Demo CTA
+- SaaS footer copy
+
 Next public work:
 
-- Conversion sections
-- FAQ
-- Testimonials placeholder
-- Case study placeholder
-- Footer SaaS-copy cleanup
+- Final public-site QA
+- Mobile spacing check
+- Header CTA cleanup if needed
+- Final sitemap/robots check
 
 ## Main admin routes
 
@@ -185,6 +203,8 @@ Phase 16.1 public home page was tested on production. It shows the SaaS hero, da
 
 Phase 16.2 legal pages were tested on production. `/integritetspolicy`, `/villkor` and `/cookies` are available with Swedish MVP legal copy.
 
+Phase 16.3 home page was tested on production. It shows `Varför Proffera`, case study placeholder, testimonial placeholders, FAQ, `Nästa steg` and updated SaaS footer copy.
+
 ## Database tables currently used
 
 - `quote_requests`
@@ -217,9 +237,10 @@ Manual mailto fallback remains available in the admin UI.
 - The admin code was exposed in a shared URL during testing. Rotate `ADMIN_ACCESS_CODE` before broader use.
 - Do not execute the full SaaS plan in one large agent prompt. Build it phase by phase.
 - Legal copy is MVP-level and should be reviewed before wider commercial launch.
+- `B` from the user means continue to the next planned step.
 
 ## Next recommended phase
 
-Phase 16.3: Conversion sections and public-site cleanup.
+Phase 16.4: Final public-site QA.
 
-Phase 16.3 should focus on CTA sections, FAQ, testimonials placeholders, case study placeholder and footer SaaS-copy cleanup. It must not touch the working lead flow, matching, outbox, admin security or Brevo email delivery unless explicitly required.
+Phase 16.4 should verify public pages, sitemap, robots, mobile layout and obvious copy issues. It must not touch the working lead flow, matching, outbox, admin security or Brevo email delivery unless explicitly required.
