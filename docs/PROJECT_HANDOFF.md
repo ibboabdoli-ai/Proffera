@@ -26,6 +26,7 @@ Completed:
 - Phase 16.2: Legal pages
 - Phase 16.3: Conversion sections and public-site cleanup
 - Phase 16.4: Final public-site QA
+- Phase 17.1: SaaS dashboard shell
 
 ## Product direction
 
@@ -112,6 +113,10 @@ Phase 16.4 final public QA docs point:
 
 `1058dedbbfbec3a29a2efd6bf645bca4fa2f64f1`
 
+Phase 17.1 dashboard shell docs point:
+
+`59829df5980c8c672df5a8debcfdf4635aa6b66f`
+
 ## Project memory files
 
 Read these files before starting new work:
@@ -166,6 +171,24 @@ Sitemap currently includes:
 - `/villkor`
 - `/cookies`
 
+## SaaS dashboard routes
+
+Currently built as preview-only product shell:
+
+- `/dashboard`
+- `/dashboard/leads`
+- `/dashboard/kunder`
+- `/dashboard/bokningar`
+- `/dashboard/ai-assistent`
+- `/dashboard/installningar`
+
+Dashboard notes:
+
+- Dashboard is separate from existing `/admin` workflow.
+- Public header and footer are hidden on `/dashboard` routes.
+- Dashboard currently uses placeholder/preview data only.
+- Do not connect dashboard shell to production database until a separate data plan is defined.
+
 ## Main admin routes
 
 - `/admin`
@@ -219,6 +242,8 @@ Phase 16.3 home page was tested on production. It shows `Varför Proffera`, case
 
 Phase 16.4 public-site QA was tested on production. `sitemap.xml` renders valid XML and includes the current public routes including `/logga-in` and legal pages. The browser XML style warning is normal.
 
+Phase 17.1 dashboard shell was tested on production. `/dashboard`, `/dashboard/leads`, `/dashboard/kunder`, `/dashboard/bokningar`, `/dashboard/ai-assistent` and `/dashboard/installningar` all loaded correctly.
+
 ## Database tables currently used
 
 - `quote_requests`
@@ -255,6 +280,6 @@ Manual mailto fallback remains available in the admin UI.
 
 ## Next recommended phase
 
-Phase 17: SaaS dashboard shell.
+Phase 17.2: Dashboard module previews or Phase 18: Booking and CRM MVP.
 
-Phase 17 should start the authenticated/product dashboard foundation for the SaaS direction. It must not break the existing lead flow, matching, outbox, admin security, Brevo email delivery or current public pages.
+Recommended next step is Phase 17.2 if the goal is to improve the dashboard UI without database risk. Choose Phase 18 only when ready to define data model and database changes for bookings/customers.
