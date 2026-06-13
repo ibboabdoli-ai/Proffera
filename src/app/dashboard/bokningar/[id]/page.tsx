@@ -1,13 +1,24 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { getDashboardBookingDetail } from "@/lib/dashboard-db";
+import {
+  isDashboardBookingStatus,
+  updateDashboardBookingStatus,
+  type DashboardBookingStatus,
+} from "@/lib/dashboard-booking-status";
 
 export const dynamic = "force-dynamic";
+
+const bookingStatusOptions = ["requested", "confirmed", "completed", "cancelled"] as const;
 
 type BookingDetailPageProps = {
   params: Promise<{
     id: string;
+  }>;
+  searchParams?: Promise<{
+    error?: string | string[];
+    updated?: string | string[];
   }>;
 };
 
@@ -36,8 +47,57 @@ const eventTypeLabels: Record<string, string> = {
   ai_conversation: "AI-dialog",
 };
 
-export default async function BookingDetailPage({ params }: BookingDetailPageProps) {
-  const { id } = await params;
+const errorMessages: Record<string, string> = {
+  access: "Åtkomstkoden saknas eller är fel. Status ändrades inte.",
+  disabled: "Statusändring är inte aktiverad i miljön. Lägg till DASHBOARD_WRITE_CODE eller ADMIN_ACCESS_CODE.",
+  status: "Vald status är ogiltig.",
+  save: "Status kunde inte uppdateras. Försök igen eller kontrollera Neon-konfigurationen.",
+};
+
+function getFormText(formData: FormData, key: string) {
+  return String(formData.get(key) ?? "").trim();
+}
+
+function redirectWithStatusError(bookingId: string, error: keyof typeof errorMessages): never {
+  redirect(`/dashboard/bokningar/${bookingId}?error=${error}`);
+}
+
+async function updateBookingStatusAction(bookingId: string, formData: FormData) {
+  "use server";
+
+  const expectedCode = (process.env.DASHBOARD_WRITE_CODE ?? process.env.ADMIN_ACCESS_CODE ?? "").trim();
+
+  if (!expectedCode) {
+    redirectWithStatusError(bookingId, "disabled");
+  }
+
+  const accessCode = getFormText(formData, "access_code");
+
+  if (accessCode !== expectedCode) {
+    redirectWithStatusError(bookingId, "access");
+  }
+
+  const status = getFormText(formData, "status");
+
+  if (!isDashboardBookingStatus(status)) {
+    redirectWithStatusError(bookingId, "status");
+  }
+
+  try {
+    await updateDashboardBookingStatus(bookingId, status);
+  } catch (error) {
+    console.error("Failed to update dashboard booking status", error);
+    redirectWithStatusError(bookingId, "save");
+  }
+
+  redirect(`/dashboard/bokningar/${bookingId}?updated=1`);
+}
+
+export default async function BookingDetailPage({ params, searchParams }: BookingDetailPageProps) {
+  const [{ id }, query] = await Promise.all([
+    params,
+    searchParams ? searchParams : Promise.resolve(undefined),
+  ]);
   const detail = await getDashboardBookingDetail(id);
 
   if (!detail) {
@@ -45,6 +105,10 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
   }
 
   const { booking, customer, events } = detail;
+  const errorValue = Array.isArray(query?.error) ? query?.error[0] : query?.error;
+  const updatedValue = Array.isArray(query?.updated) ? query?.updated[0] : query?.updated;
+  const errorMessage = errorValue ? errorMessages[errorValue] : undefined;
+  const statusAction = updateBookingStatusAction.bind(null, booking.id);
 
   return (
     <div className="grid gap-6">
@@ -53,7 +117,7 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
           <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Bokningsprofil</p>
           <h2 className="mt-2 text-3xl font-bold text-[#17201a]">{booking.title}</h2>
           <p className="mt-3 max-w-3xl text-sm leading-7 text-[#5b665f]">
-            Read-only bokningsprofil från Neon. Bokning, kopplad kund och historik visas utan att skapa eller ändra CRM-data.
+            Bokningsprofil från Neon. Bokning, kopplad kund och historik visas från CRM. Status kan ändras kontrollerat med intern åtkomstkod.
           </p>
         </div>
         <Link
@@ -63,6 +127,18 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
           Tillbaka till bokningar
         </Link>
       </section>
+
+      {errorMessage ? (
+        <section className="rounded-3xl bg-[#fff5f2] p-5 text-sm font-semibold text-[#8f2f1b] ring-1 ring-[#f4c7ba]">
+          {errorMessage}
+        </section>
+      ) : null}
+
+      {updatedValue === "1" ? (
+        <section className="rounded-3xl bg-[#eef8f1] p-5 text-sm font-semibold text-[#17452f] ring-1 ring-[#cfe8d6]">
+          Status uppdaterades. Ingen kundhändelse skapades och ingen e-post skickades.
+        </section>
+      ) : null}
 
       <section className="grid gap-4 md:grid-cols-4">
         <article className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[#dfe5dd]">
@@ -81,7 +157,7 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
         </article>
         <article className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[#dfe5dd]">
           <p className="text-sm text-[#5b665f]">Läge</p>
-          <p className="mt-2 text-xl font-bold text-[#17452f]">Read-only</p>
+          <p className="mt-2 text-xl font-bold text-[#17452f]">Status write enabled</p>
         </article>
       </section>
 
@@ -112,6 +188,46 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
             <p className="mt-4 rounded-2xl bg-[#f7f7f4] p-4 text-sm leading-7 text-[#344139]">
               <strong>Notering:</strong> {booking.notes}
             </p>
+          </article>
+
+          <article className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
+            <h3 className="text-xl font-bold text-[#17201a]">Ändra status</h3>
+            <p className="mt-3 text-sm leading-7 text-[#5b665f]">
+              Uppdaterar endast fältet status i tabellen bookings. Ingen historikpost skapas och ingen e-post skickas.
+            </p>
+            <form action={statusAction} className="mt-5 grid gap-4 rounded-2xl bg-[#f7f7f4] p-4">
+              <label className="grid gap-2 text-sm font-semibold text-[#17201a]">
+                Intern åtkomstkod
+                <input
+                  name="access_code"
+                  type="password"
+                  required
+                  autoComplete="off"
+                  className="rounded-2xl border border-[#dfe5dd] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20"
+                  placeholder="Ange intern kod"
+                />
+              </label>
+              <label className="grid gap-2 text-sm font-semibold text-[#17201a]">
+                Ny status
+                <select
+                  name="status"
+                  defaultValue={bookingStatusOptions.includes(booking.status as DashboardBookingStatus) ? booking.status : "requested"}
+                  className="rounded-2xl border border-[#dfe5dd] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20"
+                >
+                  {bookingStatusOptions.map((status) => (
+                    <option key={status} value={status}>
+                      {bookingStatusLabels[status]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="submit"
+                className="inline-flex w-fit rounded-full bg-[#17452f] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0f3322] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#17452f]"
+              >
+                Uppdatera status
+              </button>
+            </form>
           </article>
 
           <article className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
