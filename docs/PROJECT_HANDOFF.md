@@ -25,6 +25,7 @@ Completed:
 - Phase 16.1: Public SaaS marketing foundation
 - Phase 16.2: Legal pages
 - Phase 16.3: Conversion sections and public-site cleanup
+- Phase 16.4: Final public-site QA
 
 ## Product direction
 
@@ -107,6 +108,10 @@ Phase 16.3 conversion cleanup docs point:
 
 `37718cf23bea0de4ea62637d398efe9f561493ed`
 
+Phase 16.4 final public QA docs point:
+
+`1058dedbbfbec3a29a2efd6bf645bca4fa2f64f1`
+
 ## Project memory files
 
 Read these files before starting new work:
@@ -127,6 +132,7 @@ Currently built:
 - `/demo`
 - `/om`
 - `/kontakt`
+- `/logga-in`
 - `/integritetspolicy`
 - `/villkor`
 - `/cookies`
@@ -147,12 +153,18 @@ Public home sections currently include:
 - Demo CTA
 - SaaS footer copy
 
-Next public work:
+Sitemap currently includes:
 
-- Final public-site QA
-- Mobile spacing check
-- Header CTA cleanup if needed
-- Final sitemap/robots check
+- `/`
+- `/tjanster`
+- `/priser`
+- `/demo`
+- `/om`
+- `/kontakt`
+- `/logga-in`
+- `/integritetspolicy`
+- `/villkor`
+- `/cookies`
 
 ## Main admin routes
 
@@ -205,6 +217,8 @@ Phase 16.2 legal pages were tested on production. `/integritetspolicy`, `/villko
 
 Phase 16.3 home page was tested on production. It shows `Varför Proffera`, case study placeholder, testimonial placeholders, FAQ, `Nästa steg` and updated SaaS footer copy.
 
+Phase 16.4 public-site QA was tested on production. `sitemap.xml` renders valid XML and includes the current public routes including `/logga-in` and legal pages. The browser XML style warning is normal.
+
 ## Database tables currently used
 
 - `quote_requests`
@@ -241,6 +255,6 @@ Manual mailto fallback remains available in the admin UI.
 
 ## Next recommended phase
 
-Phase 16.4: Final public-site QA.
+Phase 17: SaaS dashboard shell.
 
-Phase 16.4 should verify public pages, sitemap, robots, mobile layout and obvious copy issues. It must not touch the working lead flow, matching, outbox, admin security or Brevo email delivery unless explicitly required.
+Phase 17 should start the authenticated/product dashboard foundation for the SaaS direction. It must not break the existing lead flow, matching, outbox, admin security, Brevo email delivery or current public pages.
