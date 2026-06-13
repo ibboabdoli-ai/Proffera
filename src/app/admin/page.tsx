@@ -10,7 +10,6 @@ export const dynamic = "force-dynamic";
 
 type AdminPageProps = {
   searchParams: Promise<{
-    code?: string;
     status?: string;
     q?: string;
   }>;
@@ -49,10 +48,6 @@ const adminLinks = [
   },
 ];
 
-function withCode(href: string, code: string) {
-  return `${href}?code=${encodeURIComponent(code)}`;
-}
-
 function StatusBadge({ status }: { status: string }) {
   return (
     <span className="inline-flex rounded-full bg-[#eef5ef] px-3 py-1 text-xs font-semibold text-[#17452f]">
@@ -86,44 +81,8 @@ function matchesSearch(request: AdminQuoteRequest, query: string) {
   ].some((value) => value.toLowerCase().includes(normalized));
 }
 
-function AdminGate({ codeValue }: { codeValue: string }) {
-  return (
-    <main className="min-h-screen bg-[#f7f7f4] px-4 py-12 sm:px-6 lg:px-8">
-      <section className="mx-auto max-w-xl rounded-3xl bg-white p-8 shadow-sm ring-1 ring-[#dfe5dd]">
-        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#17452f]">Admin</p>
-        <h1 className="mt-4 text-3xl font-bold text-[#17201a]">Adminvy är skyddad</h1>
-        <p className="mt-4 text-[#5b665f]">
-          Ange adminkoden för att öppna Proffera admin.
-        </p>
-        <form className="mt-6 space-y-4" action="/admin" method="get">
-          <label className="block text-sm font-semibold text-[#17201a]" htmlFor="code">
-            Adminkod
-          </label>
-          <input
-            id="code"
-            name="code"
-            type="password"
-            defaultValue={codeValue}
-            className="w-full rounded-2xl border border-[#dfe5dd] px-4 py-3 outline-none focus:border-[#17452f]"
-          />
-          <button className="w-full rounded-full bg-[#17452f] px-5 py-3 text-sm font-semibold text-white hover:bg-[#0e2e1e]" type="submit">
-            Öppna admin
-          </button>
-        </form>
-      </section>
-    </main>
-  );
-}
-
 export default async function AdminPage({ searchParams }: AdminPageProps) {
   const params = await searchParams;
-  const adminCode = process.env.ADMIN_ACCESS_CODE;
-  const code = params.code ?? "";
-
-  if (!adminCode || code !== adminCode) {
-    return <AdminGate codeValue={code} />;
-  }
-
   const result = await getAdminQuoteRequests();
 
   if (!result.ok) {
@@ -193,7 +152,7 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
             {adminLinks.map((link) => (
               <a
                 key={link.href}
-                href={withCode(link.href, code)}
+                href={link.href}
                 className="rounded-2xl border border-[#dfe5dd] bg-[#fbfbf8] p-4 transition hover:border-[#17452f] hover:bg-white"
               >
                 <p className="font-semibold text-[#17201a]">{link.title}</p>
@@ -204,7 +163,6 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
         </section>
 
         <form className="mt-8 grid gap-3 rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[#dfe5dd] md:grid-cols-[1fr_220px_auto]" action="/admin" method="get">
-          <input type="hidden" name="code" value={code} />
           <input
             name="q"
             defaultValue={searchQuery}
