@@ -20,6 +20,7 @@ Completed:
 - Phase 12.1: Project memory system
 - Phase 13: Admin cleanup
 - Phase 13.1: Hide public chrome on admin pages
+- Phase 14.3: Real lead email sending with Brevo
 
 ## Safe points
 
@@ -42,6 +43,10 @@ Phase 13 code safe point:
 Phase 13.1 code safe point:
 
 `f5ad98c81710ae19564a4d54a34d95069b6189f0`
+
+Phase 14.3 tested docs point:
+
+`579390cb449a82272f358c469bf9265399beb243`
 
 ## Project memory files
 
@@ -78,11 +83,28 @@ The outbox log flow was tested. Duplicate prevention works and the UI shows one 
 
 The admin dashboard was tested after cleanup. Public header and footer are hidden on admin routes.
 
+Real lead sending was tested through Brevo. Lead `PRO-MQC5COT4-BL3RG` was sent from `/admin/leverans`, and the delivery log showed `sent via brevo`.
+
 ## Database tables currently used
 
 - `quote_requests`
 - `company_registrations`
 - `lead_outbox`
+
+## Email provider
+
+Real lead email sending uses Brevo.
+
+Required Vercel environment variables:
+
+- `BREVO_API_KEY`
+- `LEAD_FROM_EMAIL`
+
+Current intended sender:
+
+`Proffera <leads@proffera.se>`
+
+Manual mailto fallback remains available in the admin UI.
 
 ## Important notes
 
@@ -92,7 +114,8 @@ The admin dashboard was tested after cleanup. Public header and footer are hidde
 - Avoid unnecessary Vercel deploys.
 - Do not expose environment variable values.
 - Some long documentation or migration payloads may be blocked by safety checks; do not retry blocked payloads repeatedly.
+- The admin code was exposed in a shared URL during testing. Rotate `ADMIN_ACCESS_CODE` before broader use.
 
 ## Next recommended phase
 
-Phase 14: Real email provider integration.
+Phase 15: Security cleanup and admin access hardening.
