@@ -363,3 +363,34 @@ Notes:
 Follow-up:
 
 - Continue with a safe Phase 18 data step only after deciding whether service taxonomy should affect the database migration design.
+
+## Phase 18.1C — Booking/CRM migration taxonomy references
+
+Status: prepared and reviewed; not executed.
+
+Built:
+
+- Revised `db/migrations/20260613_phase18_booking_crm.sql` to include service taxonomy soft-reference columns.
+- Added `primary_service_category_slug` and `primary_service_slug` to `customers`.
+- Added `service_category_slug` and `service_slug` to `bookings`.
+- Added service-related workspace indexes for customers and bookings.
+- Added `docs/PHASE_18_1C_TAXONOMY_MIGRATION_NOTES.md`.
+
+Reviewed:
+
+- SQL creates only new SaaS CRM/booking tables: `customers`, `bookings`, `customer_events`.
+- SQL does not alter or drop existing MVP tables: `quote_requests`, `company_registrations`, `lead_outbox`.
+- SQL uses soft taxonomy references rather than creating taxonomy tables before seed/admin planning.
+- Migration is wrapped in `BEGIN` and `COMMIT`.
+
+Notes:
+
+- The migration has not been run against Neon/Postgres.
+- `updated_at` currently has no auto-update trigger; acceptable for first schema draft, but should be addressed before serious production use.
+- `workspace_id` is currently a text/default field; multi-tenant workspace modeling should be revisited before paid SaaS onboarding.
+
+Follow-up:
+
+- Continue with Phase 18.1D SQL review before any manual database execution.
+- Do not execute SQL until the user explicitly approves running it in Neon.
+- Do not change admin, matching, outbox, Brevo or lead email workflows during SQL review.
