@@ -240,3 +240,26 @@ Follow-up:
 
 - Legal copy is suitable for MVP but should be legally reviewed before broader public launch, paid subscriptions or larger-scale customer onboarding.
 - Continue with Phase 16.3 for conversion sections and cleanup.
+
+## Phase 16.3 — Conversion sections and public-site cleanup
+
+Status: verified.
+
+Built:
+
+- Added reusable marketing conversion sections component.
+- Added trust indicators to the home page.
+- Added case study placeholder.
+- Added testimonial placeholders.
+- Added FAQ section.
+- Added extra CTA section for booking a demo.
+- Updated footer copy from offert-platform wording to SaaS positioning.
+
+Tested:
+
+- Production home page shows `Varför Proffera`, `Case study`, testimonial placeholders, `FAQ`, `Nästa steg` and updated SaaS footer copy.
+
+Follow-up:
+
+- Continue with Phase 16.4 for final public-site QA and small visual/copy cleanup.
+- Do not touch admin, matching, outbox, Brevo or database flow during final public-site QA unless explicitly required.
