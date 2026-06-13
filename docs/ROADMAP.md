@@ -59,13 +59,26 @@ Tasks:
 
 Goal: add the first functional SaaS modules beyond lead matching.
 
-Tasks:
+Planning document:
 
-- Add customers table and customer admin UI.
-- Add bookings table and booking admin UI.
-- Add basic booking status workflow.
-- Send booking confirmations through Brevo.
-- Add simple customer history view.
+- `docs/PHASE_18_BOOKING_CRM_PLAN.md`
+
+Recommended order:
+
+- Phase 18.0: Define data model, migration plan and rollback plan.
+- Phase 18.1: Add isolated database migration for new tables only.
+- Phase 18.2: Add read-only customer and booking dashboard views.
+- Phase 18.3: Add create/update forms for customers and bookings.
+- Phase 18.4: Add customer history timeline.
+- Phase 18.5: Add booking status workflow.
+- Phase 18.6: Add Brevo booking confirmations only after booking records are reliable.
+
+Protected flows:
+
+- Do not break existing quote request flow.
+- Do not change existing matching logic without a separate plan.
+- Do not alter `lead_outbox` behavior during early CRM work.
+- Do not send booking emails automatically until the booking data model is tested.
 
 ## Phase 19 — AI assistant MVP
 
