@@ -73,6 +73,14 @@ export type DashboardCustomer = {
   notes: string;
 };
 
+export type DashboardCustomerOption = {
+  id: string;
+  name: string;
+  city: string;
+  status: string;
+  service: string;
+};
+
 export type DashboardCustomerProfile = DashboardCustomer & {
   email: string;
   phone: string;
@@ -127,6 +135,19 @@ export type CreateDashboardCustomerInput = {
   customerType: "private" | "company";
   city: string;
   status: "prospect" | "active" | "paused" | "lost";
+  serviceCategorySlug: string;
+  serviceSlug: string;
+  notes: string;
+};
+
+export type CreateDashboardBookingInput = {
+  customerId: string;
+  title: string;
+  status: "requested" | "confirmed" | "completed" | "cancelled";
+  startsAt: string;
+  endsAt: string;
+  city: string;
+  service: string;
   serviceCategorySlug: string;
   serviceSlug: string;
   notes: string;
@@ -206,6 +227,40 @@ export async function getDashboardCustomers(): Promise<DashboardCustomer[]> {
     }));
   } catch (error) {
     console.error("Failed to read dashboard customers", error);
+    return [];
+  }
+}
+
+export async function getDashboardCustomerOptions(): Promise<DashboardCustomerOption[]> {
+  const sql = getSqlClient();
+
+  if (!sql) {
+    return [];
+  }
+
+  try {
+    const rows = await sql`
+      select
+        id,
+        name,
+        city,
+        status,
+        primary_service_slug
+      from customers
+      where workspace_id = 'default'
+      order by created_at desc
+      limit 50
+    `;
+
+    return rows.map((row) => ({
+      id: toText(row.id),
+      name: toText(row.name, "Namnlös kund"),
+      city: toText(row.city, "Okänd ort"),
+      status: toText(row.status, "prospect"),
+      service: toText(row.primary_service_slug, "Ej valt"),
+    }));
+  } catch (error) {
+    console.error("Failed to read dashboard customer options", error);
     return [];
   }
 }
@@ -295,6 +350,68 @@ export async function createDashboardCustomer(input: CreateDashboardCustomerInpu
   }
 
   return customerId;
+}
+
+export async function createDashboardBooking(input: CreateDashboardBookingInput): Promise<string> {
+  const sql = getSqlClient();
+
+  if (!sql) {
+    throw new Error("Missing database connection for dashboard booking creation");
+  }
+
+  const customerRows = await sql`
+    select id
+    from customers
+    where workspace_id = 'default'
+      and id = ${input.customerId}
+    limit 1
+  `;
+
+  const customerId = toText(customerRows[0]?.id);
+
+  if (!customerId) {
+    throw new Error("Selected customer does not exist");
+  }
+
+  const rows = await sql`
+    insert into bookings (
+      workspace_id,
+      customer_id,
+      title,
+      service,
+      service_category_slug,
+      service_slug,
+      city,
+      status,
+      starts_at,
+      ends_at,
+      source,
+      notes
+    )
+    values (
+      'default',
+      ${customerId},
+      ${input.title.trim()},
+      ${toNullableText(input.service)},
+      ${toNullableText(input.serviceCategorySlug)},
+      ${toNullableText(input.serviceSlug)},
+      ${toNullableText(input.city)},
+      ${input.status},
+      ${input.startsAt}::timestamptz,
+      ${input.endsAt}::timestamptz,
+      'dashboard_manual',
+      ${toNullableText(input.notes)}
+    )
+    returning id
+  `;
+
+  const bookingId = toText(rows[0]?.id);
+
+  if (!bookingId) {
+    throw new Error("Booking creation did not return an id");
+  }
+
+  return bookingId;
 }
 
 export async function getDashboardCustomerDetail(customerId: string): Promise<DashboardCustomerDetail | null> {
