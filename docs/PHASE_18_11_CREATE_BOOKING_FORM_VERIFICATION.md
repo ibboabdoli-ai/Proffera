@@ -1,89 +1,127 @@
-# Phase 18.11 — Create Booking Form Verification
+# Phase 18.11 — Create booking form verification
 
+Status: accepted with limitation
 Date: 2026-06-13
 
 ## Scope
 
-This document records the end-to-end verification of the dashboard create-booking form.
+Phase 18.11 implemented a controlled create-booking flow for the Proffera dashboard.
 
-Implemented route:
+Included scope:
 
-- `/dashboard/bokningar/ny`
+- Add `/dashboard/bokningar/ny`.
+- Allow creating a booking for an existing CRM customer.
+- Insert only into the `bookings` table.
+- Use `source = 'dashboard_manual'` for manually created dashboard bookings.
+- Require an internal write access code.
+- Validate title, customer, status, city, start/end time, service taxonomy and notes.
+- Redirect to the booking profile after successful creation.
 
-The implementation is intentionally limited to creating one booking record in the `bookings` table.
+Explicitly excluded scope:
 
-## Implemented safety boundaries
+- No customer creation.
+- No booking edit flow.
+- No booking delete flow.
+- No status update implementation in this phase.
+- No email/Brevo send.
+- No lead matching, lead outbox, quote request or admin workflow changes.
+- No customer event should be created by the create-booking action.
 
-Verified boundaries:
+## Implementation commits
 
-- Internal access code is required.
-- The form selects an existing customer from `customers`.
-- The form writes only to `bookings`.
-- Created booking uses `source = dashboard_manual`.
-- No `customer_events` row is created.
-- No Brevo/email/SMS/reminder flow is triggered.
-- No lead, outbox, matching, or admin workflow is changed.
-- No edit/delete/status-update action is exposed.
+- `214e1c9a62a36de4676aeb4231b1c59a560009c4` — added booking creation helpers in `src/lib/dashboard-db.ts`.
+- `6d55c6a766eeee0997ee09988f764ce54bfd8b36` — added `Ny bokning` entry point in `/dashboard/bokningar`.
+- `930f30188bb370e27e8cf735bd59b2e76d5c91a5` — added `/dashboard/bokningar/ny` form.
+- `4ca9a23cbd58d7b5514064289479e9865d9b784d` — fixed TypeScript narrowing in `/dashboard/kunder/ny` so production build succeeds.
 
-## Test booking created
+## Build verification
 
-Manual test booking created from the dashboard form:
+The first production build failed because TypeScript flagged `resolvedService` as possibly `null` in `src/app/dashboard/kunder/ny/page.tsx`.
 
-- Title: `Test booking`
-- Customer: `Demo Kund – Sara Andersson`
-- Status: `requested` / Förfrågad
-- City: `Södertälje`
-- Service: `Hemstädning`
-- Source: `dashboard_manual`
-- Notes: `Test`
+Resolution:
 
-## Verified list view after creation
+```ts
+const resolvedService = resolveServiceSelection(serviceSelection);
+const validatedService = resolvedService ?? redirectWithError("service");
+```
 
-`/dashboard/bokningar` showed:
+Vercel status for commit `4ca9a23cbd58d7b5514064289479e9865d9b784d`: `success`.
 
-- `Bokningar i CRM = 2`
-- `Bekräftade = 1`
-- `Förfrågade = 1`
-- `Klara = 0`
+The middleware/proxy warning is non-blocking and did not fail the build.
 
-The list included:
+## Manual verification performed
 
-- `Test booking` linked to `Demo Kund – Sara Andersson`
-- `Demo booking – Hemstädning` remained intact
+### Create form rendering
 
-## Verified booking profile
+The user verified that `/dashboard/bokningar/ny` rendered the expected fields:
 
-`/dashboard/bokningar/[id]` for `Test booking` showed:
+- Internal access code.
+- Customer selector.
+- Title.
+- Status.
+- City.
+- Start time.
+- End time.
+- Service.
+- Notes.
+- Safety boundary text.
+- Submit button.
 
-- Booking profile opened successfully
-- Status: `Förfrågad`
-- Customer: `Demo Kund – Sara Andersson`
-- Events: `0`
-- Mode: `Read-only`
-- Start and end time visible
-- City: `Södertälje`
-- Service: `Hemstädning`
-- Source: `dashboard_manual`
-- Notes: `Test`
-- Linked customer data visible
-- `Visa kundprofil` link visible
-- Booking history showed no events
+### Manual booking creation
 
-## Cleanup required
+The user created a manual test booking.
 
-The test booking should be removed after verification so the database returns to the clean demo baseline.
+Observed result in `/dashboard/bokningar`:
 
-Cleanup target:
+- `Bokningar i CRM`: increased to `2`.
+- `Bekräftade`: stayed `1`.
+- `Förfrågade`: increased to `1`.
+- A new row appeared for `Test booking`.
+- Customer shown: `Demo Kund – Sara Andersson`.
+- City shown: `Södertälje`.
+- Service shown: `Hemstädning`.
+- Status shown: `Förfrågad`.
 
-- Delete `Test booking` where `source = 'dashboard_manual'`
+This verifies that the create-booking form inserted a booking row and that the booking list read it back from Neon.
 
-Expected clean state after cleanup:
+### Cleanup / back-to-baseline
 
-- `Bokningar i CRM = 1`
-- `Bekräftade = 1`
-- `Förfrågade = 0`
-- Demo booking remains intact
+After cleanup, the user verified `/dashboard/bokningar` again.
 
-## Status
+Observed result:
 
-Phase 18.11 create-booking form is verified end-to-end. Cleanup remains the next step.
+- `Bokningar i CRM`: `1`.
+- `Bekräftade`: `1`.
+- `Förfrågade`: `0`.
+- `Klara`: `0`.
+- Only the original `Demo booking – Hemstädning` remained.
+
+This verifies that the manual test booking was removed and the dashboard returned to the clean demo baseline.
+
+## Limitation / not verified
+
+The manual test booking detail profile was not verified before cleanup.
+
+The user opened the existing seeded demo booking profile instead:
+
+- Title: `Demo booking – Hemstädning`.
+- Source: `demo_seed`.
+- Status: `Bekräftad`.
+- Events: `1`.
+
+Therefore, the following specific check remains unverified for the manual booking:
+
+- Opening `/dashboard/bokningar/[id]` for the manually created `Test booking`.
+- Confirming source `dashboard_manual` on the detail page.
+- Confirming no customer history event was created for the manual booking.
+
+Accepted decision:
+
+- The phase is accepted based on successful form rendering, list-level creation verification, Vercel production build success, and cleanup/back-to-baseline verification.
+- The manual booking detail-profile verification is explicitly documented as not performed.
+
+## Final assessment
+
+Phase 18.11 is accepted with the limitation above.
+
+Safe to continue to the next planned phase after this report is committed.
