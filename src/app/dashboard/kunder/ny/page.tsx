@@ -35,7 +35,7 @@ function getFormText(formData: FormData, key: string) {
   return String(formData.get(key) ?? "").trim();
 }
 
-function redirectWithError(error: keyof typeof errorMessages) {
+function redirectWithError(error: keyof typeof errorMessages): never {
   redirect(`/dashboard/kunder/ny?error=${error}`);
 }
 
