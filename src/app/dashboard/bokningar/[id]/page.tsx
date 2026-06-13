@@ -128,7 +128,7 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
               </p>
             ) : (
               <div className="mt-5 rounded-2xl bg-[#f7f7f4] p-4 text-sm text-[#344139]">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <p className="text-lg font-bold text-[#17201a]">{customer.name}</p>
                     <p className="mt-1 text-[#5b665f]">
@@ -146,7 +146,7 @@ export default async function BookingDetailPage({ params }: BookingDetailPagePro
                   </div>
                   <Link
                     href={`/dashboard/kunder/${customer.id}`}
-                    className="inline-flex rounded-full bg-[#17452f] px-3 py-1 text-xs font-semibold text-white transition hover:bg-[#0f3322]"
+                    className="inline-flex min-h-10 items-center justify-center rounded-full bg-[#0f3322] px-4 py-2 text-sm font-bold text-white shadow-sm ring-1 ring-[#0f3322]/20 transition hover:bg-[#17452f] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#17452f]"
                   >
                     Visa kundprofil
                   </Link>
