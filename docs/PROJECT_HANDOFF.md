@@ -17,6 +17,7 @@ Completed:
 - Phase 11: Outbox / delivery log
 - Phase 11.1: Duplicate prevention for outbox logs
 - Phase 12: Company approval and improved matching score
+- Phase 12.1: Project memory system
 
 ## Safe points
 
@@ -24,9 +25,22 @@ Before Phase 12:
 
 `4ed3e4feddc427a110df48104db910c3633fb692`
 
-Current safe point after Phase 12:
+Safe point after Phase 12:
 
 `d8bab25913c1c9b8dd60f77d48d2e88b16be28bd`
+
+Current project-memory safe point:
+
+`99ecefd8d980013caeb562d218efcd478e380964`
+
+## Project memory files
+
+Read these files before starting new work:
+
+- `docs/PROJECT_HANDOFF.md`
+- `docs/PROJECT_LOG.md`
+- `docs/ROADMAP.md`
+- `docs/DECISIONS.md`
 
 ## Main admin routes
 
