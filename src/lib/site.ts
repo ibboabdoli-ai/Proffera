@@ -9,6 +9,7 @@ export const siteConfig = {
 
 export const mainNav = [
   { label: "Tjänster", href: "/tjanster" },
+  { label: "Branscher", href: "/branscher" },
   { label: "Priser", href: "/priser" },
   { label: "Demo", href: "/demo" },
   { label: "Om", href: "/om" },
