@@ -35,6 +35,7 @@ Completed phases:
 - Phase 18.4: Read-only dashboard DB connection for customers and bookings
 - Phase 18.5: Dashboard overview read-only Neon stats
 - Phase 18.6: Customer profile/history read-only page
+- Phase 18.7: Booking profile/history read-only page
 
 ## Product direction
 
@@ -75,6 +76,7 @@ Long-term planning docs:
 - `docs/PHASE_18_3_DB_STATE_AFTER_SEED.md`
 - `docs/PHASE_18_5_DASHBOARD_OVERVIEW_VERIFICATION.md`
 - `docs/PHASE_18_6_CUSTOMER_PROFILE_VERIFICATION.md`
+- `docs/PHASE_18_7_BOOKING_PROFILE_VERIFICATION.md`
 
 ## Recent safe points
 
@@ -91,6 +93,7 @@ Long-term planning docs:
 - Phase 18.4 read-only dashboard log point: `3b775806055e62dc2af8878597fa7cdee85ea470`
 - Phase 18.5 overview verification point: `c95c00f2a819a5474957155bfcb137d9226cd1ce`
 - Phase 18.6 customer profile verification point: `ff798e6e461b789b8a223a733a2d131ebca9976a`
+- Phase 18.7 booking profile verification point: `1ccb349af8901e2abb900bad1219bbbf66c6ca04`
 
 ## Public SaaS routes
 
@@ -140,6 +143,7 @@ Currently built:
 - `/dashboard/kunder`
 - `/dashboard/kunder/[id]`
 - `/dashboard/bokningar`
+- `/dashboard/bokningar/[id]`
 - `/dashboard/ai-assistent`
 - `/dashboard/installningar`
 
@@ -151,6 +155,7 @@ Dashboard notes:
 - `/dashboard/kunder` now reads real Neon data from `customers` in read-only mode.
 - `/dashboard/kunder/[id]` now reads a customer profile, related bookings and customer events/history in read-only mode.
 - `/dashboard/bokningar` now reads real Neon data from `bookings` with customer data in read-only mode.
+- `/dashboard/bokningar/[id]` now reads a booking profile, linked customer and related booking events/history in read-only mode.
 - `/dashboard/leads`, `/dashboard/ai-assistent` and `/dashboard/installningar` remain preview/static routes.
 - No dashboard create/update/delete flows exist yet.
 - Do not add write actions before a separate form, validation and rollback plan is reviewed.
@@ -164,6 +169,8 @@ Verified dashboard DB data:
 - `/dashboard/kunder/[id]` displays `Demo booking – Hemstädning` and `Demo event – booking confirmed` in read-only mode.
 - `/dashboard/bokningar` shows `Demo booking – Hemstädning` from Neon.
 - Booking stats show `Bokningar i CRM = 1`, `Bekräftade = 1`, `Förfrågade = 0`, `Klara = 0`.
+- `/dashboard/bokningar/[id]` shows the seeded booking profile, linked customer and one related booking event.
+- `/dashboard/bokningar/[id]` displays `Visa kundprofil` and booking history in read-only mode.
 
 ## Admin routes
 
@@ -292,11 +299,11 @@ Manual mailto fallback remains available in the admin UI.
 
 ## Next recommended phase
 
-Phase 18.7: Choose the next read-only dashboard detail step, or plan the first safe write flow with explicit validation and rollback before implementation.
+Phase 18.8: Choose the next safe step.
 
 Recommended safe options:
 
-- Read-only booking detail page.
+- UI polish for read-only booking/customer detail buttons and cards.
 - Improved customer event timeline.
 - Form planning for create customer/create booking, without implementation yet.
 
