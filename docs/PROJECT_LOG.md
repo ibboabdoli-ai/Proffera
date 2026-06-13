@@ -175,3 +175,26 @@ Notes:
 
 - The SaaS plan must not be executed as one large change.
 - Existing lead flow, matching, outbox and Brevo email flow must be protected during future phases.
+
+## Phase 15 — Security cleanup and admin access hardening
+
+Status: verified core flow.
+
+Built:
+
+- Added Basic Auth protection for admin routes.
+- Admin links were cleaned so the admin code is no longer passed in public admin URLs.
+- Main admin workflow pages were updated to work without `?code=` links.
+- Existing Brevo delivery workflow was preserved.
+
+Tested:
+
+- Admin login works with Basic Auth.
+- `/admin/leverans` loads after login.
+- `Skicka via Proffera` still sends real lead emails through Brevo.
+- Delivery log shows `sent via brevo` for both tested leads: `PRO-MQC5COT4-BL3RG` and `PRO-MQBD101M-6D6LO`.
+
+Follow-up:
+
+- Confirm `ADMIN_ACCESS_CODE` has been rotated in Vercel after the earlier URL exposure.
+- Continue avoiding admin secrets in URLs.
