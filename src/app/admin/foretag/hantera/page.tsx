@@ -4,6 +4,7 @@ export const dynamic = "force-dynamic";
 
 export default async function Page() {
   const result = await getCompanyRows();
+  const adminCode = process.env.ADMIN_ACCESS_CODE ?? "";
 
   return (
     <main style={{ padding: 24, maxWidth: 1000, margin: "0 auto" }}>
@@ -20,6 +21,7 @@ export default async function Page() {
           <p>Tjänster: {company.services}</p>
 
           <form action="/api/company-admin" method="post" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+            <input name="code" type="hidden" value={adminCode} />
             <input name="id" type="hidden" value={company.id} />
             <button name="status" type="submit" value="approved">Approve</button>
             <button name="status" type="submit" value="pending">Pending</button>
@@ -27,6 +29,7 @@ export default async function Page() {
           </form>
 
           <form action="/api/company-admin" method="post" style={{ display: "grid", gap: 8, marginTop: 12 }}>
+            <input name="code" type="hidden" value={adminCode} />
             <input name="id" type="hidden" value={company.id} />
             <input name="services" defaultValue={company.services} placeholder="Tjänster" />
             <button type="submit">Spara tjänster</button>
