@@ -14,7 +14,10 @@ export function Footer() {
         <div>
           <p className="text-xl font-bold">{siteConfig.name}</p>
           <p className="mt-3 max-w-sm text-sm leading-6 text-white/75">
-            En svensk plattform för kunder som vill beskriva sitt uppdrag och jämföra svar från relevanta företag.
+            En svensk SaaS-plattform för tjänsteföretag som vill hantera leads, bokningar, kunder och AI-driven kommunikation i ett smartare flöde.
+          </p>
+          <p className="mt-4 text-xs text-white/55">
+            Byggs stegvis för små företag i Sverige.
           </p>
         </div>
 
