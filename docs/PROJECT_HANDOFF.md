@@ -22,6 +22,37 @@ Completed:
 - Phase 13.1: Hide public chrome on admin pages
 - Phase 14.3: Real lead email sending with Brevo
 
+## Product direction
+
+Proffera is evolving from a lead/offert MVP into a Swedish SaaS platform for small service businesses.
+
+The long-term product direction is documented in:
+
+- `docs/MASTER_PLAN.md`
+- `docs/ROADMAP.md`
+
+Primary SaaS modules planned:
+
+- Leads
+- Customers
+- Bookings
+- Analytics
+- AI Assistant
+- Settings
+
+Public SaaS pages planned:
+
+- Home
+- Services
+- Pricing
+- Demo
+- Industries
+- About
+- Contact
+- Blog
+- Privacy Policy
+- Terms of Service
+
 ## Safe points
 
 Before Phase 12:
@@ -48,6 +79,14 @@ Phase 14.3 tested docs point:
 
 `579390cb449a82272f358c469bf9265399beb243`
 
+Phase 14.3 handoff point:
+
+`c09bf8ed7e734f32cdd10e48c8427da81eabcf24`
+
+SaaS master plan docs point:
+
+`3abcf6baaf0567f9484eb9f073ef7beeafe514c0`
+
 ## Project memory files
 
 Read these files before starting new work:
@@ -55,6 +94,7 @@ Read these files before starting new work:
 - `docs/PROJECT_HANDOFF.md`
 - `docs/PROJECT_LOG.md`
 - `docs/ROADMAP.md`
+- `docs/MASTER_PLAN.md`
 - `docs/DECISIONS.md`
 
 ## Main admin routes
@@ -115,7 +155,10 @@ Manual mailto fallback remains available in the admin UI.
 - Do not expose environment variable values.
 - Some long documentation or migration payloads may be blocked by safety checks; do not retry blocked payloads repeatedly.
 - The admin code was exposed in a shared URL during testing. Rotate `ADMIN_ACCESS_CODE` before broader use.
+- Do not execute the full SaaS plan in one large agent prompt. Build it phase by phase.
 
 ## Next recommended phase
 
 Phase 15: Security cleanup and admin access hardening.
+
+After Phase 15 is verified, continue with Phase 16: Public SaaS marketing website.
