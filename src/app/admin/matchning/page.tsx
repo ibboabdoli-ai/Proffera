@@ -1,34 +1,14 @@
 import { getLeadMatches } from "@/features/matching/list";
 
-type PageProps = {
-  searchParams: Promise<{ code?: string }>;
-};
-
 export const dynamic = "force-dynamic";
 
-export default async function Page({ searchParams }: PageProps) {
-  const params = await searchParams;
-  const code = params.code ?? "";
-  const validCode = process.env.ADMIN_ACCESS_CODE;
-
-  if (!validCode || code !== validCode) {
-    return (
-      <main style={{ padding: 24 }}>
-        <h1>Matchning</h1>
-        <form action="/admin/matchning" method="get">
-          <input name="code" type="password" placeholder="Admin code" />
-          <button type="submit">Open</button>
-        </form>
-      </main>
-    );
-  }
-
+export default async function Page() {
   const result = await getLeadMatches();
 
   return (
     <main style={{ padding: 24, maxWidth: 1100, margin: "0 auto" }}>
       <h1>Matchning</h1>
-      <p><a href={`/admin?code=${code}`}>Back to dashboard</a></p>
+      <p><a href="/admin">Back to dashboard</a></p>
       {!result.ok ? <p>{result.message}</p> : null}
       {result.matches.map((item) => (
         <section key={item.lead.id} style={{ border: "1px solid #ddd", borderRadius: 12, padding: 16, marginBottom: 18 }}>
