@@ -308,3 +308,31 @@ Follow-up:
 - Continue with Phase 17.2 for module table/card previews or Phase 18 for booking and CRM MVP.
 - Do not connect dashboard shell to production database until a separate data plan is defined.
 - Do not change existing admin, matching, outbox, Brevo or lead email workflows unless explicitly required.
+
+## Phase 17.2 — Dashboard module previews
+
+Status: verified.
+
+Built:
+
+- Replaced simple module placeholders with richer preview UI.
+- Added lead table preview with status, source-like reference, value and next action.
+- Added customer CRM card preview with contact status and notes.
+- Added booking overview with weekday counts and day schedule.
+- Added AI assistant conversation preview and intent breakdown.
+- Added settings preview with company profile, services, notifications, AI response settings and form-like fields.
+- Kept all dashboard module data as static UI preview data only.
+
+Tested:
+
+- Production `/dashboard/leads` shows the lead table preview.
+- Production `/dashboard/kunder` shows customer CRM cards.
+- Production `/dashboard/bokningar` shows booking overview and day schedule.
+- Production `/dashboard/ai-assistent` shows AI conversation and intent preview.
+- Production `/dashboard/installningar` shows settings cards and form preview.
+
+Follow-up:
+
+- Continue with Phase 18 only after defining a safe data model for bookings and CRM.
+- Do not connect dashboard previews to production database without a separate data and rollback plan.
+- Do not change existing admin, matching, outbox, Brevo or lead email workflows unless explicitly required.
