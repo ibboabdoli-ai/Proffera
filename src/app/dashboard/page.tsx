@@ -1,9 +1,4 @@
-const stats = [
-  { label: "Nya leads", value: "12", text: "Förfrågningar att följa upp" },
-  { label: "Bokningar", value: "5", text: "Planerade kundmöten" },
-  { label: "Svarstid", value: "8 min", text: "Mål för snabb återkoppling" },
-  { label: "AI-dialoger", value: "24", text: "Samtal från webbplatsen" },
-] as const;
+import { getDashboardStats } from "@/lib/dashboard-db";
 
 const modules = [
   "Leadlista med status",
@@ -14,19 +9,44 @@ const modules = [
   "Inställningar för tjänster",
 ] as const;
 
-export default function DashboardPage() {
+export default async function DashboardPage() {
+  const stats = await getDashboardStats();
+
+  const overviewStats = [
+    {
+      label: "Kunder",
+      value: String(stats.customersCount),
+      text: `${stats.activeCustomersCount} aktiva kunder i CRM`,
+    },
+    {
+      label: "Bokningar",
+      value: String(stats.bookingsCount),
+      text: `${stats.confirmedBookingsCount} bekräftade bokningar`,
+    },
+    {
+      label: "Kundhändelser",
+      value: String(stats.customerEventsCount),
+      text: "Noteringar, bokningar och historik",
+    },
+    {
+      label: "Läge",
+      value: "Read-only",
+      text: "Dashboard läser från Neon utan write actions",
+    },
+  ] as const;
+
   return (
     <div className="grid gap-8">
       <section>
         <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Översikt</p>
         <h2 className="mt-2 text-3xl font-bold text-[#17201a]">SaaS dashboard shell</h2>
         <p className="mt-3 max-w-3xl text-sm leading-7 text-[#5b665f]">
-          Detta är en första dashboard-grund för Proffera som produkt. Den är separat från nuvarande adminflöde och ska byggas vidare steg för steg.
+          Detta är en read-only dashboard-grund för Proffera som produkt. Översikten läser nu verifierad CRM- och bokningsdata från Neon.
         </p>
       </section>
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {stats.map((item) => (
+        {overviewStats.map((item) => (
           <article key={item.label} className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
             <p className="text-sm font-semibold text-[#5b665f]">{item.label}</p>
             <p className="mt-3 text-3xl font-bold text-[#17452f]">{item.value}</p>
