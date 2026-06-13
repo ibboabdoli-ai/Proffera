@@ -104,7 +104,7 @@ Tested:
 
 ## Phase 13 — Admin cleanup
 
-Status: ready for test.
+Status: done.
 
 Built:
 
@@ -113,8 +113,23 @@ Built:
 - Updated dashboard copy to describe the real workflow.
 - Added approved request count.
 
-Test:
+Tested:
 
-- Open `/admin` with admin code.
-- Confirm workflow cards are visible.
-- Confirm each workflow card keeps the admin code in the URL.
+- Admin dashboard loaded successfully.
+- Workflow cards were visible.
+- Request table and stats were visible.
+
+## Phase 13.1 — Hide public chrome on admin pages
+
+Status: done.
+
+Built:
+
+- Added `AppShell` wrapper.
+- Root layout now uses `AppShell`.
+- Public header and footer are hidden on `/admin` routes.
+- Public header and footer remain visible on public pages.
+
+Tested:
+
+- `/admin` no longer shows the public Proffera footer/header.
