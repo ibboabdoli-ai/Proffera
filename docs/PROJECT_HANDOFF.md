@@ -30,6 +30,9 @@ Completed phases:
 - Phase 17.2: Dashboard module previews
 - Phase 18.1B: Public branscher page
 - Phase 18.1C: Booking/CRM migration taxonomy references
+- Phase 18.2: Booking/CRM migration executed in Neon
+- Phase 18.3: Demo CRM/booking seed executed in Neon
+- Phase 18.4: Read-only dashboard DB connection for customers and bookings
 
 ## Product direction
 
@@ -63,6 +66,11 @@ Long-term planning docs:
 - `docs/SERVICE_TAXONOMY_PLAN.md`
 - `docs/PHASE_18_BOOKING_CRM_PLAN.md`
 - `docs/PHASE_18_1C_TAXONOMY_MIGRATION_NOTES.md`
+- `docs/PHASE_18_1D_SQL_EXECUTION_REVIEW.md`
+- `docs/PHASE_18_2_NEON_EXECUTION_INSTRUCTIONS.md`
+- `docs/PHASE_18_2_DB_STATE_AFTER_MIGRATION.md`
+- `docs/PHASE_18_3_DEMO_SEED_INSTRUCTIONS.md`
+- `docs/PHASE_18_3_DB_STATE_AFTER_SEED.md`
 
 ## Recent safe points
 
@@ -70,10 +78,13 @@ Long-term planning docs:
 - Phase 16.2 docs point: `ba586900621f4191c48f9fac01619810a7e054b1`
 - Phase 16.3 docs point: `37718cf23bea0de4ea62637d398efe9f561493ed`
 - Phase 16.4 docs point: `1058dedbbfbec3a29a2efd6bf645bca4fa2f64f1`
-- Phase 17.1 docs point: `59829df5980c8c672df5a8debcfdf4635aa6b66f`
+- Phase 17.1 docs point: `59829df5980c8c672df5a8debcfdf4635aa780`
 - Phase 17.2 docs point: `e1c4c000d3946636a73b3cac6810ecdb613aa780`
 - Phase 18.1B docs point: `5baff9c5a67a831e17a2b0991a3593196c2f18ab`
 - Phase 18.1C docs point: `286274889d7bd7fc74bd729a71c687f501123540`
+- Phase 18.2 DB state docs point: `c9b6253125e0c0507bbcc6ba3b708cf3fcd2e88b`
+- Phase 18.3 DB seed state docs point: `fdb8a808127092b8718870cb763f42672f11e9cf`
+- Phase 18.4 read-only dashboard log point: `3b775806055e62dc2af8878597fa7cdee85ea470`
 
 ## Public SaaS routes
 
@@ -116,7 +127,7 @@ Public home page currently includes:
 
 ## SaaS dashboard routes
 
-Preview-only product shell currently built:
+Currently built:
 
 - `/dashboard`
 - `/dashboard/leads`
@@ -129,9 +140,18 @@ Dashboard notes:
 
 - Dashboard is separate from `/admin`.
 - Public header and footer are hidden on `/dashboard` routes.
-- All dashboard module data is static preview data only.
-- Phase 17.2 added richer previews for lead table, customer CRM cards, booking schedule, AI conversation and settings form.
-- Do not connect dashboard previews to production database without a separate data model, migration and rollback plan.
+- `/dashboard/kunder` now reads real Neon data from `customers` in read-only mode.
+- `/dashboard/bokningar` now reads real Neon data from `bookings` with customer data in read-only mode.
+- `/dashboard/leads`, `/dashboard/ai-assistent` and `/dashboard/installningar` remain preview/static routes.
+- No dashboard create/update/delete flows exist yet.
+- Do not add write actions before a separate form, validation and rollback plan is reviewed.
+
+Verified dashboard DB data:
+
+- `/dashboard/kunder` shows `Demo Kund – Sara Andersson` from Neon.
+- Customer stats show `Kontakter i CRM = 1`, `Aktiva kunder = 1`, `Prospekt = 0`.
+- `/dashboard/bokningar` shows `Demo booking – Hemstädning` from Neon.
+- Booking stats show `Bokningar i CRM = 1`, `Bekräftade = 1`, `Förfrågade = 0`, `Klara = 0`.
 
 ## Admin routes
 
@@ -163,15 +183,23 @@ Admin notes:
 
 ## Database tables currently used
 
+Existing lead/offert flow tables:
+
 - `quote_requests`
 - `company_registrations`
 - `lead_outbox`
 
+Booking/CRM MVP tables now created in Neon:
+
+- `customers`
+- `bookings`
+- `customer_events`
+
 Use Neon/Postgres. Do not switch to Supabase.
 
-## Phase 18 database planning
+## Phase 18 database status
 
-A SQL migration file exists for early Booking/CRM planning, but it has not been executed against production database.
+The Booking/CRM migration has been executed manually in Neon and verified.
 
 Migration file:
 
@@ -185,11 +213,26 @@ Taxonomy notes:
 
 - `docs/PHASE_18_1C_TAXONOMY_MIGRATION_NOTES.md`
 
-Prepared new tables:
+Created tables:
 
 - `customers`
 - `bookings`
 - `customer_events`
+
+Verified table list after migration:
+
+- `bookings`
+- `company_registrations`
+- `customer_events`
+- `customers`
+- `lead_outbox`
+- `quote_requests`
+
+Demo seed state:
+
+- `customers_count = 1`
+- `bookings_count = 1`
+- `customer_events_count = 1`
 
 Taxonomy strategy:
 
@@ -206,9 +249,9 @@ SQL review summary:
 
 Important:
 
-- Do not execute migration before a final SQL execution review.
 - Do not modify existing MVP tables without explicit migration and rollback plan.
-- Do not run SQL in Neon until the user explicitly approves execution.
+- Do not add dashboard write actions before a separate validation, permission and rollback plan.
+- Do not change admin, matching, outbox, Brevo or lead email workflows unless explicitly required.
 
 ## Email provider
 
@@ -237,6 +280,6 @@ Manual mailto fallback remains available in the admin UI.
 
 ## Next recommended phase
 
-Phase 18.1D: Final SQL execution review before any manual database run.
+Phase 18.5: Connect `/dashboard` overview stats to Neon read-only counts, or build read-only customer history details.
 
 Do not modify existing lead, matching, outbox, Brevo or admin workflows without an explicit plan.
