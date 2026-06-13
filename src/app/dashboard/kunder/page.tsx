@@ -24,12 +24,20 @@ export default async function CustomersPage() {
 
   return (
     <div className="grid gap-6">
-      <section>
-        <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Kunder</p>
-        <h2 className="mt-2 text-3xl font-bold text-[#17201a]">Kund-CRM</h2>
-        <p className="mt-3 max-w-3xl text-sm leading-7 text-[#5b665f]">
-          Read-only vy från Profferas CRM-tabell. Data hämtas från Neon utan att skapa eller ändra kundposter.
-        </p>
+      <section className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Kunder</p>
+          <h2 className="mt-2 text-3xl font-bold text-[#17201a]">Kund-CRM</h2>
+          <p className="mt-3 max-w-3xl text-sm leading-7 text-[#5b665f]">
+            Read-only vy från Profferas CRM-tabell. Data hämtas från Neon utan att skapa eller ändra kundposter i listvyn.
+          </p>
+        </div>
+        <Link
+          href="/dashboard/kunder/ny"
+          className="inline-flex w-fit rounded-full bg-[#17452f] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0f2f20] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#17452f]"
+        >
+          Ny kund
+        </Link>
       </section>
 
       <section className="grid gap-4 md:grid-cols-3">
