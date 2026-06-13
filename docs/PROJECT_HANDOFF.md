@@ -19,6 +19,10 @@ Completed:
 - Phase 12: Company approval and improved matching score
 - Phase 12.1: Project memory system
 
+Ready for test:
+
+- Phase 13: Admin cleanup
+
 ## Safe points
 
 Before Phase 12:
@@ -29,9 +33,13 @@ Safe point after Phase 12:
 
 `d8bab25913c1c9b8dd60f77d48d2e88b16be28bd`
 
-Current project-memory safe point:
+Before Phase 13:
 
-`99ecefd8d980013caeb562d218efcd478e380964`
+`edf8e00cac6f70b98d1d9c1f2a915cd509a11dfb`
+
+Current Phase 13 safe point:
+
+`063ff9da3f3e19d5f9b59bad0dad9c4bc2393464`
 
 ## Project memory files
 
@@ -83,14 +91,4 @@ The outbox log flow was tested. Duplicate prevention works and the UI shows one 
 
 ## Next recommended phase
 
-Phase 13: Admin cleanup.
-
-Suggested goals:
-
-1. Add clearer admin navigation.
-2. Make `/admin` the central dashboard.
-3. Link requests, companies, company management, matching, sending and delivery log.
-4. Improve workflow labels.
-5. Keep the UI minimal but clearer.
-
-After that: Phase 14, real email provider integration.
+Finish testing Phase 13, then continue with Phase 14: real email provider integration.
