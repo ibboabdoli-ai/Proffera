@@ -37,6 +37,7 @@ Completed phases:
 - Phase 18.6: Customer profile/history read-only page
 - Phase 18.7: Booking profile/history read-only page
 - Phase 18.8: UI polish for read-only detail actions
+- Phase 18.9: Create/update forms planning without implementation
 
 ## Product direction
 
@@ -79,6 +80,7 @@ Long-term planning docs:
 - `docs/PHASE_18_6_CUSTOMER_PROFILE_VERIFICATION.md`
 - `docs/PHASE_18_7_BOOKING_PROFILE_VERIFICATION.md`
 - `docs/PHASE_18_8_UI_POLISH_VERIFICATION.md`
+- `docs/PHASE_18_9_CREATE_UPDATE_FORMS_PLAN.md`
 
 ## Recent safe points
 
@@ -97,6 +99,7 @@ Long-term planning docs:
 - Phase 18.6 customer profile verification point: `ff798e6e461b789b8a223a733a2d131ebca9976a`
 - Phase 18.7 booking profile verification point: `1ccb349af8901e2abb900bad1219bbbf66c6ca04`
 - Phase 18.8 UI polish verification point: `efd059b689974855ee0ce0128e5b9dc60cc9a8bf`
+- Phase 18.9 create/update forms plan point: `b7cc13cd3569a53934304704df85847f871b990f`
 
 ## Public SaaS routes
 
@@ -160,6 +163,7 @@ Dashboard notes:
 - `/dashboard/bokningar` now reads real Neon data from `bookings` with customer data in read-only mode.
 - `/dashboard/bokningar/[id]` now reads a booking profile, linked customer and related booking events/history in read-only mode.
 - Phase 18.8 improved readability/accessibility styling for read-only detail actions such as `Visa kundprofil`.
+- Phase 18.9 documents the create/update form plan only; no dashboard write actions were implemented.
 - `/dashboard/leads`, `/dashboard/ai-assistent` and `/dashboard/installningar` remain preview/static routes.
 - No dashboard create/update/delete flows exist yet.
 - Do not add write actions before a separate form, validation and rollback plan is reviewed.
@@ -176,6 +180,23 @@ Verified dashboard DB data:
 - `/dashboard/bokningar/[id]` shows the seeded booking profile, linked customer and one related booking event.
 - `/dashboard/bokningar/[id]` displays `Visa kundprofil` and booking history in read-only mode.
 - UI polish for the read-only booking detail action was verified after the button readability issue was identified.
+
+## Planned dashboard write-flow sequence
+
+Phase 18.9 is a plan only. The recommended future sequence is:
+
+- Phase 18.10: Implement `create customer` form only.
+- Phase 18.11: Implement `create booking` form only.
+- Phase 18.12: Implement controlled booking status updates.
+- Phase 18.13: Implement customer note/event creation.
+
+Before any implementation:
+
+- Keep each write action isolated to one table area.
+- Add validation before database writes.
+- Keep rollback SQL or an exact rollback path for test records.
+- Do not add delete actions in the first write phases.
+- Do not send Brevo booking emails until a separate booking communication plan exists.
 
 ## Admin routes
 
@@ -304,12 +325,13 @@ Manual mailto fallback remains available in the admin UI.
 
 ## Next recommended phase
 
-Phase 18.9: Plan create/update forms without implementation.
+Phase 18.10: Implement `create customer` form only, after confirming the Phase 18.9 plan.
 
 Recommended safe options:
 
-- Create a form plan for `create customer` and `create booking`.
-- Define validation, permissions and rollback strategy before implementation.
-- Improve customer event timeline UI while staying read-only.
+- Add `/dashboard/kunder/ny`.
+- Add validation and one isolated customer insert action.
+- Use `source = 'dashboard_manual'` for created records.
+- Add a rollback/test cleanup path before using with real customers.
 
 Do not modify existing lead, matching, outbox, Brevo or admin workflows without an explicit plan.
