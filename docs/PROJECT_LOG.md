@@ -394,3 +394,31 @@ Follow-up:
 - Continue with Phase 18.1D SQL review before any manual database execution.
 - Do not execute SQL until the user explicitly approves running it in Neon.
 - Do not change admin, matching, outbox, Brevo or lead email workflows during SQL review.
+
+## Phase 18.4 — Read-only dashboard DB connection
+
+Status: verified.
+
+Built:
+
+- Added `src/lib/dashboard-db.ts` as a read-only Neon dashboard helper.
+- Connected `/dashboard/kunder` to the `customers` table using read-only queries.
+- Connected `/dashboard/bokningar` to the `bookings` table using read-only queries and customer joins.
+- Kept `/dashboard/leads`, `/dashboard/ai-assistent`, `/dashboard/installningar`, `/admin`, Brevo, matching and outbox flows unchanged.
+
+Tested:
+
+- Production `/dashboard/kunder` renders real Neon data for `Demo Kund – Sara Andersson`.
+- Production `/dashboard/kunder` shows `Kontakter i CRM = 1`, `Aktiva kunder = 1`, `Prospekt = 0`.
+- Production `/dashboard/bokningar` renders real Neon data for `Demo booking – Hemstädning`.
+- Production `/dashboard/bokningar` shows `Bokningar i CRM = 1`, `Bekräftade = 1`, `Förfrågade = 0`, `Klara = 0`.
+
+Notes:
+
+- This phase is read-only only: no insert, update or delete actions were added to dashboard routes.
+- Demo data was seeded manually in Neon before dashboard verification.
+- Existing MVP lead and delivery flows remain protected.
+
+Follow-up:
+
+- Continue with a small Phase 18.5 to connect `/dashboard` overview stats to Neon read-only counts, or keep the overview static and start customer-history read-only UI.
