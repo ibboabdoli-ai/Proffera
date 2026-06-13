@@ -39,7 +39,5 @@ export async function POST(request: Request) {
     }
   }
 
-  const url = new URL("/admin/foretag", request.url);
-  url.searchParams.set("code", code);
-  return NextResponse.redirect(url);
+  return NextResponse.redirect(new URL("/admin/foretag", request.url));
 }
