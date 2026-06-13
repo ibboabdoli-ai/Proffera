@@ -22,6 +22,7 @@ Completed:
 - Phase 13.1: Hide public chrome on admin pages
 - Phase 14.3: Real lead email sending with Brevo
 - Phase 15: Security cleanup and admin access hardening
+- Phase 16.1: Public SaaS marketing foundation
 
 ## Product direction
 
@@ -92,6 +93,10 @@ Phase 15 security verification docs point:
 
 `f9863e5b12e9761263f7738d1096298ffb3183f7`
 
+Phase 16.1 marketing foundation docs point:
+
+`80c979f0a5111d72d8cd3ff6f1b20a7bfa34e867`
+
 ## Project memory files
 
 Read these files before starting new work:
@@ -101,6 +106,25 @@ Read these files before starting new work:
 - `docs/ROADMAP.md`
 - `docs/MASTER_PLAN.md`
 - `docs/DECISIONS.md`
+
+## Public SaaS pages
+
+Currently built:
+
+- `/`
+- `/tjanster`
+- `/priser`
+- `/demo`
+- `/om`
+- `/kontakt`
+- `/robots.txt`
+- `/sitemap.xml`
+
+Next public work:
+
+- `/integritetspolicy`
+- `/villkor`
+- legal copy review
 
 ## Main admin routes
 
@@ -147,6 +171,8 @@ Real lead sending was tested through Brevo. Leads `PRO-MQC5COT4-BL3RG` and `PRO-
 
 Phase 15 Basic Auth was tested. Admin login worked, `/admin/leverans` loaded after login, and Brevo delivery still worked.
 
+Phase 16.1 public home page was tested on production. It shows the SaaS hero, dashboard preview, service modules, pricing cards and CTA sections.
+
 ## Database tables currently used
 
 - `quote_requests`
@@ -181,6 +207,6 @@ Manual mailto fallback remains available in the admin UI.
 
 ## Next recommended phase
 
-Phase 16: Public SaaS marketing website.
+Phase 16.2: Legal pages.
 
-Phase 16 must not touch the working lead flow, matching, outbox, admin security or Brevo email delivery unless explicitly required.
+Phase 16.2 should add or finalize Privacy Policy and Terms of Service pages only. It must not touch the working lead flow, matching, outbox, admin security or Brevo email delivery unless explicitly required.
