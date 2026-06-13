@@ -23,6 +23,7 @@ Completed:
 - Phase 14.3: Real lead email sending with Brevo
 - Phase 15: Security cleanup and admin access hardening
 - Phase 16.1: Public SaaS marketing foundation
+- Phase 16.2: Legal pages
 
 ## Product direction
 
@@ -97,6 +98,10 @@ Phase 16.1 marketing foundation docs point:
 
 `80c979f0a5111d72d8cd3ff6f1b20a7bfa34e867`
 
+Phase 16.2 legal pages docs point:
+
+`ba586900621f4191c48f9fac01619810a7e054b1`
+
 ## Project memory files
 
 Read these files before starting new work:
@@ -117,14 +122,19 @@ Currently built:
 - `/demo`
 - `/om`
 - `/kontakt`
+- `/integritetspolicy`
+- `/villkor`
+- `/cookies`
 - `/robots.txt`
 - `/sitemap.xml`
 
 Next public work:
 
-- `/integritetspolicy`
-- `/villkor`
-- legal copy review
+- Conversion sections
+- FAQ
+- Testimonials placeholder
+- Case study placeholder
+- Footer SaaS-copy cleanup
 
 ## Main admin routes
 
@@ -173,6 +183,8 @@ Phase 15 Basic Auth was tested. Admin login worked, `/admin/leverans` loaded aft
 
 Phase 16.1 public home page was tested on production. It shows the SaaS hero, dashboard preview, service modules, pricing cards and CTA sections.
 
+Phase 16.2 legal pages were tested on production. `/integritetspolicy`, `/villkor` and `/cookies` are available with Swedish MVP legal copy.
+
 ## Database tables currently used
 
 - `quote_requests`
@@ -204,9 +216,10 @@ Manual mailto fallback remains available in the admin UI.
 - Some long documentation or migration payloads may be blocked by safety checks; do not retry blocked payloads repeatedly.
 - The admin code was exposed in a shared URL during testing. Rotate `ADMIN_ACCESS_CODE` before broader use.
 - Do not execute the full SaaS plan in one large agent prompt. Build it phase by phase.
+- Legal copy is MVP-level and should be reviewed before wider commercial launch.
 
 ## Next recommended phase
 
-Phase 16.2: Legal pages.
+Phase 16.3: Conversion sections and public-site cleanup.
 
-Phase 16.2 should add or finalize Privacy Policy and Terms of Service pages only. It must not touch the working lead flow, matching, outbox, admin security or Brevo email delivery unless explicitly required.
+Phase 16.3 should focus on CTA sections, FAQ, testimonials placeholders, case study placeholder and footer SaaS-copy cleanup. It must not touch the working lead flow, matching, outbox, admin security or Brevo email delivery unless explicitly required.
