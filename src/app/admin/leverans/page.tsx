@@ -85,7 +85,7 @@ export default async function Page({ searchParams }: PageProps) {
                   <input name="leadRef" type="hidden" value={item.lead.reference_id} />
                   <input name="companyName" type="hidden" value={company.company_name} />
                   <input name="companyEmail" type="hidden" value={company.email} />
-                  <input name="method" type="hidden" value="resend" />
+                  <input name="method" type="hidden" value="brevo" />
                   <button type="submit">Skicka via Proffera</button>
                 </form>
               </div>
