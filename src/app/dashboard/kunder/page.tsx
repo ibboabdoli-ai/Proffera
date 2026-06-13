@@ -1,47 +1,32 @@
-const customers = [
-  {
-    name: "Anna Karlsson",
-    type: "Privatkund",
-    city: "Södertälje",
-    status: "Aktiv",
-    lastContact: "Idag",
-    value: "4 uppdrag",
-    notes: "Återkommande hemstädning varannan vecka.",
-  },
-  {
-    name: "Nordic Kontor AB",
-    type: "Företag",
-    city: "Stockholm",
-    status: "Prospekt",
-    lastContact: "Igår",
-    value: "Offert skickad",
-    notes: "Vill jämföra kontorsstädning och fönsterputs.",
-  },
-  {
-    name: "Bostadsservice Demo",
-    type: "Företag",
-    city: "Tumba",
-    status: "Aktiv",
-    lastContact: "3 dagar sedan",
-    value: "2 öppna leads",
-    notes: "Behöver snabb uppföljning på flyttstädning.",
-  },
-] as const;
+import { getDashboardCustomers } from "@/lib/dashboard-db";
 
-const pipeline = [
-  { label: "Nya kontakter", value: "8" },
-  { label: "Aktiva kunder", value: "21" },
-  { label: "Prospekt", value: "14" },
-] as const;
+export const dynamic = "force-dynamic";
 
-export default function CustomersPage() {
+const statusLabels: Record<string, string> = {
+  prospect: "Prospekt",
+  active: "Aktiv",
+  paused: "Pausad",
+  lost: "Förlorad",
+};
+
+export default async function CustomersPage() {
+  const customers = await getDashboardCustomers();
+  const activeCustomers = customers.filter((customer) => customer.status === "active").length;
+  const prospects = customers.filter((customer) => customer.status === "prospect").length;
+
+  const pipeline = [
+    { label: "Kontakter i CRM", value: String(customers.length) },
+    { label: "Aktiva kunder", value: String(activeCustomers) },
+    { label: "Prospekt", value: String(prospects) },
+  ] as const;
+
   return (
     <div className="grid gap-6">
       <section>
         <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Kunder</p>
         <h2 className="mt-2 text-3xl font-bold text-[#17201a]">Kund-CRM</h2>
         <p className="mt-3 max-w-3xl text-sm leading-7 text-[#5b665f]">
-          Preview för kundkort, kontaktstatus, enkel historik och uppföljningsinformation.
+          Read-only vy från Profferas CRM-tabell. Data hämtas från Neon utan att skapa eller ändra kundposter.
         </p>
       </section>
 
@@ -54,24 +39,40 @@ export default function CustomersPage() {
         ))}
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-3">
-        {customers.map((customer) => (
-          <article key={customer.name} className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-lg font-bold text-[#17201a]">{customer.name}</p>
-                <p className="mt-2 text-sm text-[#5b665f]">{customer.type} · {customer.city}</p>
+      {customers.length === 0 ? (
+        <section className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
+          <h3 className="text-lg font-bold text-[#17201a]">Inga kunder hittades</h3>
+          <p className="mt-2 text-sm leading-7 text-[#5b665f]">
+            Det finns ännu inga CRM-poster att visa för workspace default.
+          </p>
+        </section>
+      ) : (
+        <section className="grid gap-4 lg:grid-cols-3">
+          {customers.map((customer) => (
+            <article key={customer.id} className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-lg font-bold text-[#17201a]">{customer.name}</p>
+                  <p className="mt-2 text-sm text-[#5b665f]">
+                    {customer.type} · {customer.city}
+                  </p>
+                </div>
+                <span className="rounded-full bg-[#e7f1eb] px-3 py-1 text-xs font-semibold text-[#17452f]">
+                  {statusLabels[customer.status] ?? customer.status}
+                </span>
               </div>
-              <span className="rounded-full bg-[#e7f1eb] px-3 py-1 text-xs font-semibold text-[#17452f]">{customer.status}</span>
-            </div>
-            <div className="mt-5 grid gap-3 rounded-2xl bg-[#f7f7f4] p-4 text-sm text-[#344139]">
-              <p><strong>Senaste kontakt:</strong> {customer.lastContact}</p>
-              <p><strong>Värde:</strong> {customer.value}</p>
-              <p><strong>Notering:</strong> {customer.notes}</p>
-            </div>
-          </article>
-        ))}
-      </section>
+              <div className="mt-5 grid gap-3 rounded-2xl bg-[#f7f7f4] p-4 text-sm text-[#344139]">
+                <p>
+                  <strong>Tjänst:</strong> {customer.service}
+                </p>
+                <p>
+                  <strong>Notering:</strong> {customer.notes}
+                </p>
+              </div>
+            </article>
+          ))}
+        </section>
+      )}
     </div>
   );
 }
