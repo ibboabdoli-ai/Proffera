@@ -336,3 +336,30 @@ Follow-up:
 - Continue with Phase 18 only after defining a safe data model for bookings and CRM.
 - Do not connect dashboard previews to production database without a separate data and rollback plan.
 - Do not change existing admin, matching, outbox, Brevo or lead email workflows unless explicitly required.
+
+## Phase 18.1B — Public branscher page
+
+Status: verified.
+
+Built:
+
+- Added `/branscher` public page using the service taxonomy.
+- Added Branscher to the public header navigation.
+- Added Branscher to footer navigation.
+- Added `/branscher` to `sitemap.xml` route generation.
+
+Tested:
+
+- Production `/branscher` renders the public branscher page.
+- Header navigation shows the Branscher link.
+- Vercel deployment for the sitemap update commit succeeded.
+
+Notes:
+
+- Sitemap route was added in code. The user pasted the `/branscher` page content rather than the raw sitemap XML.
+- No database migration was executed.
+- No admin, matching, outbox, Brevo or lead email workflow was changed.
+
+Follow-up:
+
+- Continue with a safe Phase 18 data step only after deciding whether service taxonomy should affect the database migration design.
