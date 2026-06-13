@@ -32,8 +32,14 @@ export default async function BookingsPage() {
         <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Bokningar</p>
         <h2 className="mt-2 text-3xl font-bold text-[#17201a]">Bokningsöversikt</h2>
         <p className="mt-3 max-w-3xl text-sm leading-7 text-[#5b665f]">
-          Read-only vy från Profferas bokningstabell. Data hämtas från Neon utan att skapa eller ändra bokningar.
+          Read-only vy från Profferas bokningstabell. Data hämtas från Neon utan att skapa eller ändra bokningar i listvyn.
         </p>
+        <Link
+          href="/dashboard/bokningar/ny"
+          className="mt-5 inline-flex rounded-full bg-[#17452f] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0f3322] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#17452f]"
+        >
+          Ny bokning
+        </Link>
       </section>
 
       <section className="grid gap-4 md:grid-cols-4">
