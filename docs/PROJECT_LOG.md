@@ -285,3 +285,26 @@ Follow-up:
 - Phase 16 public SaaS marketing website is complete enough for the next product phase.
 - Continue with Phase 17 for SaaS dashboard shell.
 - Do not change the working lead flow, matching, outbox, admin security, Brevo or database flow unless explicitly required.
+
+## Phase 17.1 — SaaS dashboard shell
+
+Status: verified.
+
+Built:
+
+- Added `/dashboard` as a separate SaaS product dashboard preview route.
+- Added dashboard shell with sidebar navigation and workspace preview.
+- Added dashboard module routes for leads, customers, bookings, AI assistant and settings.
+- Kept dashboard separate from the existing `/admin` workflow.
+- Hid public header and footer on dashboard routes.
+
+Tested:
+
+- Production `/dashboard` renders the SaaS dashboard preview.
+- Production module routes were confirmed working: `/dashboard/leads`, `/dashboard/kunder`, `/dashboard/bokningar`, `/dashboard/ai-assistent` and `/dashboard/installningar`.
+
+Follow-up:
+
+- Continue with Phase 17.2 for module table/card previews or Phase 18 for booking and CRM MVP.
+- Do not connect dashboard shell to production database until a separate data plan is defined.
+- Do not change existing admin, matching, outbox, Brevo or lead email workflows unless explicitly required.
