@@ -32,6 +32,15 @@ export type DashboardWorkspaceSettings = {
   contactPhone: string;
 };
 
+export type UpdateDashboardWorkspaceSettingsInput = {
+  companyName: string;
+  primaryCity: string;
+  responseTimeGoal: string;
+  defaultCta: string;
+  contactEmail: string;
+  contactPhone: string;
+};
+
 const fallbackWorkspaceSettings: DashboardWorkspaceSettings = {
   workspaceId: "default",
   companyName: "Proffera",
@@ -82,5 +91,31 @@ export async function getDashboardWorkspaceSettings(): Promise<DashboardWorkspac
   } catch (error) {
     console.error("Failed to read workspace settings", error);
     return fallbackWorkspaceSettings;
+  }
+}
+
+export async function updateDashboardWorkspaceSettings(input: UpdateDashboardWorkspaceSettingsInput) {
+  const sql = getSqlClient();
+
+  if (!sql) {
+    throw new Error("Missing database connection for workspace settings update");
+  }
+
+  const rows = await sql`
+    update workspace_settings
+    set
+      company_name = ${input.companyName},
+      primary_city = ${input.primaryCity},
+      response_time_goal = ${input.responseTimeGoal},
+      default_cta = ${input.defaultCta},
+      contact_email = ${input.contactEmail},
+      contact_phone = ${input.contactPhone},
+      updated_at = now()
+    where workspace_id = 'default'
+    returning workspace_id
+  `;
+
+  if (!rows[0]) {
+    throw new Error("Workspace settings row was not found for workspace_id default");
   }
 }
