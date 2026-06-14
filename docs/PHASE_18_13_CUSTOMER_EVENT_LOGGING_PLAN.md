@@ -1,13 +1,11 @@
 # Phase 18.13 — Customer event logging plan
 
-Status: planned only
+Status: implementation in progress
 Date: 2026-06-13
 
 ## Purpose
 
 Phase 18.13 defines how Proffera should safely write customer history events into `customer_events` when important dashboard actions happen.
-
-This phase is plan-only. No implementation is included in this step.
 
 ## Current baseline
 
@@ -32,6 +30,25 @@ The dashboard has customer and booking history views, but most dashboard write a
 
 This means a user can update a booking status but the customer profile may not show a timeline entry explaining what changed.
 
+## Correct `customer_events` schema
+
+The current table has these relevant columns:
+
+- `workspace_id`
+- `customer_id`
+- `booking_id`
+- `event_type`
+- `title`
+- `description`
+- `metadata`
+- `created_at`
+
+Important correction:
+
+- The table does not have a `body` column.
+- The table does not have a `source` column.
+- Manual source information should be stored inside `metadata`, for example `metadata->>'source' = 'dashboard_manual'`.
+
 ## Proposed first implementation target
 
 The first event-logging implementation should be small and isolated:
@@ -52,8 +69,8 @@ insert into customer_events (
   booking_id,
   event_type,
   title,
-  body,
-  source
+  description,
+  metadata
 ) values (
   'default',
   <customer_id>,
@@ -61,7 +78,11 @@ insert into customer_events (
   'status_change',
   'Booking status updated',
   'Status changed from <old_status> to <new_status>.',
-  'dashboard_manual'
+  jsonb_build_object(
+    'source', 'dashboard_manual',
+    'old_status', <old_status>,
+    'new_status', <new_status>
+  )
 );
 ```
 
@@ -80,7 +101,7 @@ After validation and successful status update, the server action can insert the 
 
 This phase must not modify:
 
-- Brevo/email delivery.
+- Email delivery.
 - SMS/reminder flows.
 - `lead_outbox`.
 - `quote_requests`.
@@ -121,7 +142,7 @@ Recommended cleanup query:
 begin;
 
 delete from customer_events
-where source = 'dashboard_manual'
+where metadata->>'source' = 'dashboard_manual'
   and event_type = 'status_change'
   and title = 'Booking status updated'
   and booking_id in (
@@ -149,21 +170,16 @@ Expected clean baseline after cleanup:
 - Seeded demo event remains intact.
 - Manual status-change events are removed.
 
-## Implementation steps for next phase
+## Implementation steps
 
-1. Add a dashboard DB helper to load booking status-update context:
-   - booking ID
-   - customer ID
-   - workspace ID
-   - current status
-
-2. Update the status action to:
-   - validate access code
-   - validate new status
+1. Update status helper to:
    - load current booking context
    - skip event creation if status is unchanged
    - update `bookings.status`
    - insert a `customer_events` row with `event_type = 'status_change'`
+   - write manual source in `metadata`
+
+2. Update booking profile copy to explain that status changes create a customer history event.
 
 3. Verify in production:
    - change demo booking from `confirmed` to `completed`
@@ -174,7 +190,7 @@ Expected clean baseline after cleanup:
 
 4. Roll back test data:
    - set demo booking back to `confirmed`
-   - delete manual status-change event rows
+   - delete manual status-change event rows using `metadata->>'source' = 'dashboard_manual'`
    - confirm dashboard returns to baseline
 
 ## Acceptance criteria
@@ -188,6 +204,6 @@ Phase 18.13 implementation can be accepted only when:
 - Cleanup returns the database to baseline.
 - Existing demo seed event remains untouched.
 
-## Final decision
+## Current note
 
-Proceed with implementation only after this plan is accepted.
+The first implementation attempt failed because it tried to insert into non-existing `customer_events.body` and `customer_events.source` columns. The implementation has been corrected to use `description` and `metadata` instead.
