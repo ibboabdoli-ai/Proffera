@@ -35,11 +35,8 @@ Service AI Chat remains a separate system:
 - Domain: `chat.proffera.se`
 - Domain status: connected to the Service AI Chat Vercel project; SSL working.
 - Proffera tenant/client ID: `proffera`
-- Planned widget:
-
-```html
-<script src="https://chat.proffera.se/widget-v2.js" data-client-id="proffera"></script>
-```
+- Widget status: installed on the Proffera public website and able to answer.
+- Inbox status: final persistence/delivery to the Proffera tenant inbox still needs verification/fix.
 
 Architecture rule:
 
@@ -52,15 +49,15 @@ Architecture rule:
 Integration sequence:
 
 - P-01: Test tenant `proffera` on `chat.proffera.se`.
-- P-02: Install the widget on the Proffera website.
-- P-03: Verify a test message/lead appears only in the Proffera inbox.
+- P-02: Install the widget on the Proffera website. Status: implemented.
+- P-03: Verify a test message/lead appears only in the Proffera inbox. Status: open.
 - P-04: Add an AI Chat / Inbox link inside the Proffera dashboard.
 - P-05: Evaluate deeper integration only after stability and tenant isolation are proven.
 
 ## Current website/security audit notes
 
 - Verify `/dashboard` protection before real customer usage.
-- Admin access code must not leak through URLs, forms, screenshots, or logs.
+- Admin/access codes must not leak through URLs, forms, screenshots, or logs.
 - Avoid `workspace_id = 'default'` for real SaaS multi-tenant usage.
 - Public forms need server-side validation and spam protection.
 - `Boka demo` should become a real booking/contact flow.
@@ -80,7 +77,7 @@ Before any approved Proffera change:
 - Confirm server-side validation and permission checks for writes.
 - Confirm tenant/workspace boundaries.
 - Confirm no secrets appear in URLs, rendered HTML, screenshots, or logs.
-- Run lint/build checks.
+- Run lint/build checks when local/runtime access is available.
 - Test relevant routes on mobile and desktop.
 - Verify Vercel deployment/status after an approved deployment.
 - Verify real data was not mixed with demo/test data.
@@ -113,3 +110,9 @@ For Service AI Chat integration:
 - `docs/DECISIONS.md`
 - `docs/PROJECT_LOG.md`
 - `docs/logs/`
+- `docs/PHASE_18_15_SETTINGS_COMPANY_PROFILE_PLAN.md`
+- `docs/PHASE_18_15B_SETTINGS_SAVE_FLOW_PLAN.md`
+- `docs/PHASE_18_16_SERVICES_SETTINGS_PLAN.md`
+- `docs/PHASE_18_16A_DB_BASELINE_NOTE.md`
+- `docs/PHASE_18_16B_SERVICES_SAVE_FLOW_PLAN.md`
+- `docs/PHASE_18_17_DOCS_SYNC.md`

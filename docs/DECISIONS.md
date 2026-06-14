@@ -44,6 +44,7 @@ The current MVP stack is:
 - Neon/Postgres
 - Zod
 - Vercel
+- Brevo
 
 Supabase is not used in the current implementation.
 
@@ -81,6 +82,8 @@ Admin pages use an environment-based access code for MVP protection.
 
 The value must never be committed or exposed.
 
+This is not the long-term SaaS authorization model.
+
 ## ADR-0006 — Lead delivery model for MVP
 
 - Status: Accepted
@@ -88,11 +91,9 @@ The value must never be committed or exposed.
 
 ### Decision
 
-Lead sending is currently manual through mailto.
+Lead sending is currently supported through the protected admin delivery workflow, with Brevo email delivery and manual mailto fallback.
 
 Sent status is tracked through an outbox log.
-
-A real email provider is planned for a later phase.
 
 ## ADR-0007 — Project memory files
 
@@ -112,7 +113,7 @@ Before new work, read these files:
 
 These files are the official project memory.
 
-## ADR-0009 — Use one current-status document and concise phase logs
+## ADR-0011 — Use one current-status document and concise phase logs
 
 - Status: Accepted
 - Date: 2026-06-14
@@ -137,11 +138,7 @@ This reduces duplicated stale status text and makes documentation updates smalle
 
 Service AI Chat remains a separate project and deployment for now.
 
-Proffera will integrate with it through `chat.proffera.se` and the tenant-scoped widget:
-
-```html
-<script src="https://chat.proffera.se/widget-v2.js" data-client-id="proffera"></script>
-```
+Proffera integrates with it through `chat.proffera.se` and the tenant-scoped widget using tenant/client ID `proffera`.
 
 Do not perform a full merge, shared database migration, or large cross-project refactor.
 
@@ -156,7 +153,59 @@ Do not perform a full merge, shared database migration, or large cross-project r
 ### Integration sequence
 
 - P-01: Test tenant `proffera`.
-- P-02: Install the widget on Proffera.
-- P-03: Verify messages/leads appear only in the Proffera inbox.
+- P-02: Install the widget on Proffera. Status: implemented.
+- P-03: Verify messages/leads appear only in the Proffera inbox. Status: open.
 - P-04: Add an AI Chat / Inbox dashboard link.
 - P-05: Evaluate deeper integration only after stability is proven.
+
+## ADR-0009 — Dashboard write actions must stay isolated
+
+- Status: Accepted
+- Date: 2026-06-14
+
+### Decision
+
+Dashboard write actions must remain small, isolated, server-validated, access-checked, and rollbackable.
+
+Each write phase must specify exactly which table it may write to.
+
+### Current accepted write scopes
+
+- Customer creation writes only the intended customer scope.
+- Booking creation writes only the intended booking scope.
+- Booking status update writes only the intended booking/status/event scope.
+- Manual customer note writes only the intended customer-event scope.
+- Workspace settings writes only to `workspace_settings` for `workspace_id = 'default'`.
+- Workspace service create/edit writes only to `workspace_services` for `workspace_id = 'default'`.
+
+### Non-goals
+
+- No broad dashboard write rollout.
+- No dashboard delete actions without a separate approved plan.
+- No automatic email, AI sending, Stripe, or cross-project writes without a reviewed workflow.
+
+## ADR-0010 — Workspace settings and services use default workspace until auth/tenant model exists
+
+- Status: Accepted
+- Date: 2026-06-14
+
+### Decision
+
+During the MVP dashboard phase, workspace settings and workspace services use `workspace_id = 'default'`.
+
+This is acceptable only while Proffera is a controlled MVP/demo workspace.
+
+### Current implemented tables
+
+- `workspace_settings`
+- `workspace_services`
+
+### Boundary
+
+Before real multi-tenant onboarding, `workspace_id = 'default'` must be replaced with a trusted workspace identity derived from authentication/session state.
+
+### Service management rule
+
+Services can be created, edited, sorted and activated/deactivated from `/dashboard/installningar`.
+
+Services cannot be deleted from the dashboard in Phase 18.16B. Delete requires a separate plan and cleanup policy.

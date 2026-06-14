@@ -1,6 +1,6 @@
 # Proffera Roadmap
 
-Proffera is the parent SaaS product for Swedish service businesses. The roadmap must protect the working lead/offert MVP while improving SaaS security, tenant isolation, booking/CRM workflows, and the separate Service AI Chat integration.
+Proffera is the parent SaaS product for Swedish service businesses. The roadmap must protect the working lead/offert MVP while improving SaaS security, tenant isolation, booking/CRM workflows, workspace settings, services, and the separate Service AI Chat integration.
 
 ## Current status
 
@@ -8,7 +8,7 @@ See [`CURRENT_STATUS.md`](CURRENT_STATUS.md) for completed phases, production st
 
 ## Immediate priority: launch-readiness safeguards
 
-- Verify `/dashboard` authentication and authorization.
+- Verify `/dashboard` authentication and authorization before real customer usage.
 - Remove access-code exposure from URLs, forms, screenshots, and logs.
 - Replace `workspace_id = 'default'` before real multi-tenant onboarding.
 - Add server-side validation and spam protection to public forms.
@@ -24,11 +24,17 @@ Service AI Chat remains separate from Proffera.
 - Tenant/client ID: `proffera`
 - Rule: Iboren and Proffera messages/leads must never mix.
 
+Current state:
+
+- Widget is installed on the Proffera public website.
+- Widget shows and AI replies.
+- Inbox persistence/delivery to tenant `proffera` still needs final verification and, if needed, a small routing/storage patch.
+
 Sequence:
 
 1. **P-01:** Test tenant `proffera` on `chat.proffera.se`.
-2. **P-02:** Install the tenant-scoped widget on the Proffera website.
-3. **P-03:** Verify message/lead delivery only to the Proffera inbox.
+2. **P-02:** Install the tenant-scoped widget on the Proffera website. Status: implemented.
+3. **P-03:** Verify message/lead delivery only to the Proffera inbox. Status: still open.
 4. **P-04:** Add an AI Chat / Inbox link inside the Proffera dashboard.
 5. **P-05:** Evaluate deeper integration only after stability and tenant isolation are proven.
 

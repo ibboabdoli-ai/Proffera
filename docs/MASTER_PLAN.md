@@ -2,18 +2,18 @@
 
 ## Product direction
 
-Proffera is the parent SaaS product for Swedish service businesses. It is evolving from a working lead/offert marketplace MVP into a professional platform for booking, CRM, customers, leads, automation, analytics, and future AI support.
+Proffera is the parent SaaS product for Swedish service businesses. It is evolving from a working lead/offert marketplace MVP into a professional platform for booking, CRM, customers, leads, automation, analytics, workspace settings, service management, and future AI support.
 
 Target customers:
 
 - Small and growing Swedish service businesses.
 - Appointment-based and local service companies.
-- Teams that need a simple system for inquiries, bookings, customer history, and follow-up.
+- Teams that need a simple system for inquiries, bookings, customer history, services, and follow-up.
 
 Product promise:
 
 - Capture leads and bookings online.
-- Manage customers and follow-up in one workspace.
+- Manage customers, bookings, services, and follow-up in one workspace.
 - Reduce manual administration.
 - Add AI-assisted communication only when security, tenant isolation, and core workflows are stable.
 
@@ -22,9 +22,10 @@ Product promise:
 - Leads and lead delivery
 - Customers and CRM history
 - Bookings and booking status
+- Workspace services
+- Workspace and company settings
 - Analytics and operational overview
 - AI assistant / inbox entry points
-- Workspace and company settings
 
 ## Current status
 
@@ -49,11 +50,8 @@ Current integration model:
 
 - Domain: `chat.proffera.se`
 - Tenant/client ID: `proffera`
-- Widget:
-
-```html
-<script src="https://chat.proffera.se/widget-v2.js" data-client-id="proffera"></script>
-```
+- Widget installed on Proffera public site.
+- Widget can show and answer, but message/lead persistence into the Proffera inbox still needs final verification.
 
 Tenant isolation rule:
 
@@ -63,8 +61,8 @@ Tenant isolation rule:
 ## Service AI Chat integration roadmap
 
 - **P-01:** Test tenant `proffera` on `chat.proffera.se`.
-- **P-02:** Install the widget on the Proffera website.
-- **P-03:** Send a test message/lead and verify it appears only in the Proffera inbox.
+- **P-02:** Install the widget on the Proffera website. Status: implemented.
+- **P-03:** Send a test message/lead and verify it appears only in the Proffera inbox. Status: open.
 - **P-04:** Add an AI Chat / Inbox link inside the Proffera dashboard.
 - **P-05:** Evaluate deeper integration only after the separate integration is stable.
 
