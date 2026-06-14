@@ -136,7 +136,7 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
 
       {updatedValue === "1" ? (
         <section className="rounded-3xl bg-[#eef8f1] p-5 text-sm font-semibold text-[#17452f] ring-1 ring-[#cfe8d6]">
-          Status uppdaterades. Ingen kundhändelse skapades och ingen e-post skickades.
+          Status uppdaterades. En kundhändelse skapas vid verklig statusändring och ingen e-post skickas.
         </section>
       ) : null}
 
@@ -193,7 +193,7 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
           <article className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
             <h3 className="text-xl font-bold text-[#17201a]">Ändra status</h3>
             <p className="mt-3 text-sm leading-7 text-[#5b665f]">
-              Uppdaterar endast fältet status i tabellen bookings. Ingen historikpost skapas och ingen e-post skickas.
+              Uppdaterar status i tabellen bookings. Vid verklig statusändring skapas en statusändring i kundhistoriken. Ingen e-post skickas.
             </p>
             <form action={statusAction} className="mt-5 grid gap-4 rounded-2xl bg-[#f7f7f4] p-4">
               <label className="grid gap-2 text-sm font-semibold text-[#17201a]">
