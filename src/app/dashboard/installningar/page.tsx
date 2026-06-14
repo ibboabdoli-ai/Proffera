@@ -82,7 +82,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Inställningar</p>
         <h2 className="mt-2 text-3xl font-bold text-[#17201a]">Workspace-inställningar</h2>
         <p className="mt-3 max-w-3xl text-sm leading-7 text-[#5b665f]">
-          Redigera företagsprofilen för workspace default. Tjänster visas read-only från workspace_services.
+          Redigera företagsprofilen och hantera tjänster för workspace default.
         </p>
       </section>
 
