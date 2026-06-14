@@ -10,6 +10,7 @@ Last updated: 2026-06-14
 - Phase 18.16A: Services read-only completed.
 - Phase 18.16B: Services create/edit completed and tested.
 - Phase 18.17: Documentation sync completed.
+- Phase 18.17B: Documentation workflow cleanup completed, merged, and deployed successfully.
 
 ## Production status
 
@@ -18,6 +19,7 @@ Last updated: 2026-06-14
 - Workspace settings save/edit and workspace services read/create/edit/active-inactive flows are deployed and verified.
 - Dashboard service deletion remains intentionally unavailable.
 - Phase 18.16B temporary test service data was cleaned from Neon after verification.
+- Phase 18.17B documentation workflow cleanup was merged through PR #12 and Vercel deploy succeeded.
 - Existing public website, dashboard, CRM/booking, lead, matching, outbox, Brevo, and mailto flows must remain protected.
 - Service AI Chat remains a separate project at `chat.proffera.se`.
 - The Service AI Chat widget is installed and can answer, but Proffera inbox persistence/delivery still needs final verification or a small fix.
