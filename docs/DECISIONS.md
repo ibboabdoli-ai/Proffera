@@ -103,12 +103,30 @@ A real email provider is planned for a later phase.
 
 Before new work, read these files:
 
+- `docs/CURRENT_STATUS.md`
+- `docs/DOCS_UPDATE_CHECKLIST.md`
 - `docs/PROJECT_HANDOFF.md`
 - `docs/PROJECT_LOG.md`
 - `docs/ROADMAP.md`
 - `docs/DECISIONS.md`
 
 These files are the official project memory.
+
+## ADR-0009 — Use one current-status document and concise phase logs
+
+- Status: Accepted
+- Date: 2026-06-14
+
+### Decision
+
+- `docs/CURRENT_STATUS.md` is the single source of current project status.
+- `docs/DOCS_UPDATE_CHECKLIST.md` defines the required update workflow after each phase.
+- New concise phase records belong under `docs/logs/`.
+- `docs/PROJECT_LOG.md` remains the long historical log and should not be destructively rewritten.
+
+### Reason
+
+This reduces duplicated stale status text and makes documentation updates smaller, safer, and easier to review.
 
 ## ADR-0008 — Keep Service AI Chat separate from Proffera
 

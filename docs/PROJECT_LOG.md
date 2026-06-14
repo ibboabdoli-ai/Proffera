@@ -2,6 +2,12 @@
 
 This file records what has been built and tested in Proffera.
 
+## Phase 18.17B — Documentation workflow cleanup
+
+Status: pending PR review.
+
+Details: `docs/logs/PHASE_18_17B_DOCUMENTATION_WORKFLOW_CLEANUP.md`
+
 ## 2026-06-14 — Documentation aligned with current SaaS direction
 
 Status: documentation-only update.

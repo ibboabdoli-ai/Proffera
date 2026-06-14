@@ -2,14 +2,9 @@
 
 Proffera is the parent SaaS product for Swedish service businesses. The roadmap must protect the working lead/offert MVP while improving SaaS security, tenant isolation, booking/CRM workflows, and the separate Service AI Chat integration.
 
-## Current baseline
+## Current status
 
-- Public SaaS website exists.
-- Existing lead, company, matching, outbox, Brevo, mailto, and Neon persistence flows work and are protected.
-- Dashboard customer and booking views exist.
-- Phase 18.10 create-customer form was implemented as one isolated write action and verified.
-- Controlled booking creation, status updates, event logging, and customer notes were subsequently verified through Phase 18.14.
-- Phase 18.15 workspace settings is planned; migration preparation exists, but full implementation/verification is not complete.
+See [`CURRENT_STATUS.md`](CURRENT_STATUS.md) for completed phases, production status, open risks, and the recommended next safe step.
 
 ## Immediate priority: launch-readiness safeguards
 
@@ -39,16 +34,7 @@ Sequence:
 
 No full merge, shared database migration, or large cross-project refactor is planned now.
 
-## Phase 18 safety sequence
-
-Historical and current boundaries:
-
-- Phase 18.10: create customer form only; verified.
-- Phase 18.11: create booking form; accepted with documented limitation.
-- Phase 18.12: controlled booking status update; verified.
-- Phase 18.13: booking status event logging; verified.
-- Phase 18.14: manual customer note flow; verified.
-- Phase 18.15: workspace settings; review and verify before expanding scope.
+## Phase safety rule
 
 Every dashboard write action requires:
 

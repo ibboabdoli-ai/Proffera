@@ -26,23 +26,9 @@ Product promise:
 - AI assistant / inbox entry points
 - Workspace and company settings
 
-## Current foundation
+## Current status
 
-Built and protected:
-
-- Quote request flow.
-- Company registration.
-- Company approval and service editing.
-- Lead/company matching.
-- Outbox/delivery log and duplicate prevention.
-- Brevo lead email delivery.
-- Manual mailto fallback.
-- Existing Neon/Postgres persistence.
-- Public SaaS website.
-- Dashboard customer, booking, and history views.
-- Controlled customer creation, booking creation, booking status update, and customer note flows.
-
-Phase 18.10 was intentionally limited to the create-customer form only. That isolated-write pattern, including validation, permission checks, verification, and rollback, remains the standard for future dashboard write actions.
+See [`CURRENT_STATUS.md`](CURRENT_STATUS.md) for completed phases, production status, current risks, and the recommended next safe step.
 
 ## Architecture decision: Service AI Chat stays separate
 
@@ -109,14 +95,6 @@ Do not break:
 - Brevo lead email sending.
 - Manual mailto fallback.
 - Existing Neon/Postgres persistence.
-
-## Current execution priorities
-
-1. Resolve high-impact website/security audit findings before real customer usage.
-2. Run P-01 and verify strict Service AI Chat tenant isolation.
-3. Review and verify the Phase 18.15 workspace-settings step without expanding its scope.
-4. Improve the real demo/contact conversion flow and public trust copy.
-5. Consider deeper AI or billing work only after authentication and tenant boundaries are reliable.
 
 ## Non-goals for now
 

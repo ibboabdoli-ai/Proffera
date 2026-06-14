@@ -10,51 +10,9 @@ Stack: Next.js App Router, TypeScript, Tailwind CSS, Neon/Postgres, Zod, Vercel,
 
 UI language: Swedish
 
-## Exact current status
+## Current status
 
-Proffera has moved beyond the original lead/offert marketplace MVP and now has a public SaaS website plus an early CRM/booking dashboard.
-
-Latest known phase state:
-
-- Phase 18.10 create-customer form: verified and cleaned back to demo baseline.
-- Phase 18.11 create-booking form: accepted with a documented detail-page verification limitation.
-- Phase 18.12 controlled booking status update: verified and rolled back to baseline.
-- Phase 18.13 booking status customer-event logging: verified.
-- Phase 18.14 manual customer note flow: verified and cleaned back to baseline.
-- Phase 18.15 workspace settings: planned; migration file added, but full settings implementation and verification are not documented as complete.
-
-Phase 18.10 was deliberately limited to the create-customer form only. It is the reference pattern for isolated dashboard writes. Do not broaden write actions without separate validation, permission, verification, and rollback plans.
-
-## What is already built
-
-Public/product:
-
-- Public SaaS marketing website and legal pages.
-- Dashboard shell and module routes.
-- Customers, bookings, customer profiles, booking profiles, and customer history.
-- Controlled create-customer, create-booking, booking-status, and customer-note actions.
-- Settings preview and Phase 18.15 migration preparation.
-
-Existing protected MVP:
-
-- Quote request flow.
-- Company registration.
-- Company approval and service editing.
-- Lead/company matching.
-- Outbox/delivery log.
-- Outbox duplicate prevention.
-- Brevo lead email sending.
-- Manual mailto fallback.
-- Neon/Postgres persistence.
-
-## Read-only, demo, or incomplete areas
-
-- Some dashboard and public marketing content remains preview/demo-oriented.
-- `/dashboard/leads` and `/dashboard/ai-assistent` are not complete product modules.
-- Workspace settings UI is not documented as fully implemented or verified.
-- Customer/booking data model still relies on the temporary/default workspace approach.
-- Public demo/contact flow is not yet a real low-friction booking flow.
-- Placeholder/MVP trust copy remains on public pages.
+See [`CURRENT_STATUS.md`](CURRENT_STATUS.md) for completed phases, production status, current risks, and the recommended next safe step.
 
 ## What must not be touched without a separate approved plan
 
@@ -113,33 +71,6 @@ Integration sequence:
 
 These findings are launch-readiness risks. Do not treat existing preview/demo routes as ready for real customer data until authentication and tenant boundaries are verified.
 
-## Current risks
-
-- Dashboard routes may expose private CRM data if not protected correctly.
-- Access-code handling is not a durable SaaS authorization model.
-- Hardcoded/default workspace behavior is not safe multi-tenant isolation.
-- Public forms can attract spam or abuse without rate limiting and spam controls.
-- Separate projects can mix tenant data if `data-client-id="proffera"` is not verified end-to-end.
-- Phase documents and production state can drift unless each approved change updates this handoff.
-
-## Immediate next steps
-
-Chat integration:
-
-- Run P-01 first: test tenant/client `proffera` on `chat.proffera.se`.
-- Confirm messages/leads appear only in the Proffera inbox.
-- Prepare a rollback point before P-02.
-
-Proffera product:
-
-- Review the Phase 18.15 migration and settings scope before any further implementation.
-- Verify dashboard protection and access-code exposure before real customer usage.
-- Keep any next write action isolated and reversible.
-
-Historical phase boundary:
-
-- Phase 18.10 was create-customer form only, with no booking flow, deletes, email sending, Stripe, or deep AI merge in that phase.
-
 ## Verification checklist
 
 Before any approved Proffera change:
@@ -175,13 +106,10 @@ For Service AI Chat integration:
 
 ## Important documentation
 
+- `docs/CURRENT_STATUS.md`
+- `docs/DOCS_UPDATE_CHECKLIST.md`
 - `docs/MASTER_PLAN.md`
 - `docs/ROADMAP.md`
 - `docs/DECISIONS.md`
 - `docs/PROJECT_LOG.md`
-- `docs/PHASE_18_10_CREATE_CUSTOMER_FORM_VERIFICATION.md`
-- `docs/PHASE_18_11_CREATE_BOOKING_FORM_VERIFICATION.md`
-- `docs/PHASE_18_12_STATUS_UPDATE_VERIFICATION.md`
-- `docs/PHASE_18_13_EVENT_LOGGING_VERIFICATION.md`
-- `docs/PHASE_18_14_VERIFICATION.md`
-- `docs/PHASE_18_15_SETTINGS_COMPANY_PROFILE_PLAN.md`
+- `docs/logs/`
