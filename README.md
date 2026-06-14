@@ -6,16 +6,7 @@ Proffera started as a Swedish lead/offert marketplace MVP. The current direction
 
 ## Current status
 
-The repository currently includes:
-
-- Public SaaS marketing website and legal pages.
-- Dashboard shell and module navigation.
-- Neon-backed customer, booking, and customer-history views.
-- Controlled dashboard write flows for customer creation, booking creation, booking status updates, and customer notes.
-- Existing lead/offert MVP, company registration and approval, matching, Brevo lead delivery, outbox log, duplicate prevention, and manual mailto fallback.
-- Phase 18.15 workspace settings planning and migration preparation.
-
-The latest verified product work is Phase 18.14. Phase 18.15 is not fully implemented or verified.
+See [`docs/CURRENT_STATUS.md`](docs/CURRENT_STATUS.md) for completed phases, production status, open risks, and the recommended next safe step.
 
 ## Product modules
 
@@ -77,14 +68,10 @@ Integration sequence:
 
 Phase 18.10 was intentionally limited to the create-customer form only. It is now complete and verified; it remains the model for isolating future write actions.
 
-## Current next steps
-
-- Immediate chat integration step: P-01, test tenant `proffera` on `chat.proffera.se`.
-- Product step: review and verify Phase 18.15 safely before any broader settings work.
-- Resolve the website/security audit blockers documented in `docs/PROJECT_HANDOFF.md` before real customer onboarding.
-
 ## Documentation
 
+- [`docs/CURRENT_STATUS.md`](docs/CURRENT_STATUS.md)
+- [`docs/DOCS_UPDATE_CHECKLIST.md`](docs/DOCS_UPDATE_CHECKLIST.md)
 - [`docs/MASTER_PLAN.md`](docs/MASTER_PLAN.md)
 - [`docs/PROJECT_HANDOFF.md`](docs/PROJECT_HANDOFF.md)
 - [`docs/ROADMAP.md`](docs/ROADMAP.md)

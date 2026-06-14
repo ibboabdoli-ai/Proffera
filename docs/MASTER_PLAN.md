@@ -27,38 +27,9 @@ Product promise:
 - Analytics and operational overview
 - AI assistant / inbox entry points
 
-## Current foundation
+## Current status
 
-Built and protected:
-
-- Quote request flow.
-- Company registration.
-- Company approval and service editing.
-- Lead/company matching.
-- Outbox/delivery log and duplicate prevention.
-- Brevo lead email delivery.
-- Manual mailto fallback.
-- Existing Neon/Postgres persistence.
-- Public SaaS website.
-- Dashboard customer, booking, and history views.
-- Controlled customer creation, booking creation, booking status update, customer-event, and customer-note flows.
-- Workspace settings read/edit flow for `workspace_settings`.
-- Workspace service read/create/edit/active-inactive flow for `workspace_services`.
-
-Phase 18.10 established the isolated-write pattern. That pattern, including validation, permission checks, verification, and rollback/cleanup, remains the standard for future dashboard write actions.
-
-## Current Phase 18 status
-
-- Phase 18.10 create customer: verified and cleaned.
-- Phase 18.11 create booking: accepted with documented limitation.
-- Phase 18.12 booking status update: verified.
-- Phase 18.13 event logging: verified.
-- Phase 18.14 customer note: verified and cleaned.
-- Phase 18.15 workspace settings: implemented and verified.
-- Phase 18.16 services plan: merged as documentation baseline.
-- Phase 18.16A workspace services read-only DB baseline: implemented, migrated, seeded, and verified.
-- Phase 18.16B workspace services create/edit: implemented, deployed, verified, and test data cleaned.
-- Phase 18.17 documentation sync: current step.
+See [`CURRENT_STATUS.md`](CURRENT_STATUS.md) for completed phases, production status, current risks, and the recommended next safe step.
 
 ## Architecture decision: Service AI Chat stays separate
 
@@ -122,15 +93,6 @@ Do not break:
 - Brevo lead email sending.
 - Manual mailto fallback.
 - Existing Neon/Postgres persistence.
-
-## Current execution priorities
-
-1. Finish documentation sync after Phase 18.15-18.16B.
-2. Verify/fix Service AI Chat tenant `proffera` inbox persistence.
-3. Add an AI Chat / Inbox dashboard link only after P-03 is verified.
-4. Harden dashboard authentication and authorization before real customer usage.
-5. Improve real demo/contact conversion flow and public trust copy.
-6. Consider deeper AI or billing work only after authentication and tenant boundaries are reliable.
 
 ## Non-goals for now
 

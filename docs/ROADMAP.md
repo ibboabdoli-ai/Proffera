@@ -2,17 +2,9 @@
 
 Proffera is the parent SaaS product for Swedish service businesses. The roadmap must protect the working lead/offert MVP while improving SaaS security, tenant isolation, booking/CRM workflows, workspace settings, services, and the separate Service AI Chat integration.
 
-## Current baseline
+## Current status
 
-- Public SaaS website exists and is deployed on `proffera.se`.
-- Existing lead, company, matching, outbox, Brevo, mailto, and Neon persistence flows work and are protected.
-- Dashboard customer and booking views exist and read real Neon data.
-- Controlled dashboard write flows have been verified through customer creation, booking creation, status updates, customer events, customer notes, workspace settings, and workspace services.
-- Phase 18.15 workspace settings is implemented and verified.
-- Phase 18.16A workspace services read-only baseline is implemented and verified.
-- Phase 18.16B service create/edit flow is implemented and verified.
-- `workspace_services` currently supports create/edit/active-inactive from settings, but no dashboard delete action exists by design.
-- Test service data from Phase 18.16B was cleaned from Neon after verification.
+See [`CURRENT_STATUS.md`](CURRENT_STATUS.md) for completed phases, production status, open risks, and the recommended next safe step.
 
 ## Immediate priority: launch-readiness safeguards
 
@@ -48,20 +40,7 @@ Sequence:
 
 No full merge, shared database migration, or large cross-project refactor is planned now.
 
-## Phase 18 safety sequence
-
-Historical and current boundaries:
-
-- Phase 18.10: create customer form only; verified and cleaned.
-- Phase 18.11: create booking form; accepted with documented limitation.
-- Phase 18.12: controlled booking status update; verified.
-- Phase 18.13: booking status event logging; verified.
-- Phase 18.14: manual customer note flow; verified and cleaned.
-- Phase 18.15: workspace settings DB and read/edit flow; verified.
-- Phase 18.16: workspace service settings plan; verified as documentation baseline.
-- Phase 18.16A: `workspace_services` migration, seed and read-only settings UI; verified.
-- Phase 18.16B: service create/edit/active-inactive flow; verified and test data cleaned.
-- Phase 18.17: documentation sync after Phase 18.15-18.16B.
+## Phase safety rule
 
 Every dashboard write action requires:
 
@@ -71,14 +50,6 @@ Every dashboard write action requires:
 - Exact verification steps.
 - Test-data cleanup or rollback plan.
 - Confirmation that protected flows remain unchanged.
-
-## Recommended next sequence
-
-1. Finish Phase 18.17 documentation sync.
-2. Verify/fix Service AI Chat inbox persistence for tenant `proffera`.
-3. Add a dashboard link to the Proffera chat inbox only after tenant delivery is verified.
-4. Harden dashboard authentication/authorization before any real customer data usage.
-5. Improve public demo/contact conversion and replace MVP copy.
 
 ## Later product phases
 
