@@ -10,6 +10,10 @@ const allowedBookingStatuses = ["requested", "confirmed", "completed", "cancelle
 
 export type DashboardBookingStatus = (typeof allowedBookingStatuses)[number];
 
+export type DashboardBookingStatusUpdateResult = {
+  changed: boolean;
+};
+
 function getSqlClient() {
   if (!connectionString) {
     return null;
@@ -22,7 +26,10 @@ export function isDashboardBookingStatus(value: string): value is DashboardBooki
   return allowedBookingStatuses.includes(value as DashboardBookingStatus);
 }
 
-export async function updateDashboardBookingStatus(bookingId: string, status: DashboardBookingStatus): Promise<void> {
+export async function updateDashboardBookingStatus(
+  bookingId: string,
+  status: DashboardBookingStatus,
+): Promise<DashboardBookingStatusUpdateResult> {
   const sql = getSqlClient();
 
   if (!sql) {
@@ -30,16 +37,65 @@ export async function updateDashboardBookingStatus(bookingId: string, status: Da
   }
 
   const rows = await sql`
-    update bookings
-    set
-      status = ${status},
-      updated_at = now()
-    where workspace_id = 'default'
-      and id = ${bookingId}
-    returning id
+    with existing_booking as (
+      select
+        id,
+        workspace_id,
+        customer_id,
+        status as old_status
+      from bookings
+      where workspace_id = 'default'
+        and id = ${bookingId}
+    ),
+    updated_booking as (
+      update bookings
+      set
+        status = ${status},
+        updated_at = now()
+      where workspace_id = 'default'
+        and id = ${bookingId}
+        and status <> ${status}
+      returning
+        id,
+        workspace_id,
+        customer_id,
+        status as new_status
+    ),
+    inserted_event as (
+      insert into customer_events (
+        workspace_id,
+        customer_id,
+        booking_id,
+        event_type,
+        title,
+        body,
+        source
+      )
+      select
+        updated_booking.workspace_id,
+        updated_booking.customer_id,
+        updated_booking.id,
+        'status_change',
+        'Booking status updated',
+        'Status changed from ' || existing_booking.old_status || ' to ' || updated_booking.new_status || '.',
+        'dashboard_manual'
+      from updated_booking
+      join existing_booking on existing_booking.id = updated_booking.id
+      returning id
+    )
+    select
+      (select id from existing_booking limit 1) as booking_id,
+      (select count(*)::int from updated_booking) as updated_count,
+      (select count(*)::int from inserted_event) as event_count
   `;
 
-  if (!rows[0]?.id) {
+  const result = rows[0];
+
+  if (!result?.booking_id) {
     throw new Error("Booking status update did not match a booking");
   }
+
+  return {
+    changed: Number(result.updated_count ?? 0) > 0,
+  };
 }
