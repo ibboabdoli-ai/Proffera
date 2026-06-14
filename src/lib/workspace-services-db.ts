@@ -58,6 +58,22 @@ export type DashboardWorkspaceService = {
   sortOrder: number;
 };
 
+export type WriteDashboardWorkspaceServiceInput = {
+  name: string;
+  description: string;
+  category: string;
+  priceLabel: string;
+  basePriceSek: number | null;
+  durationMinutes: number | null;
+  serviceArea: string;
+  isActive: boolean;
+  sortOrder: number;
+};
+
+export type UpdateDashboardWorkspaceServiceInput = WriteDashboardWorkspaceServiceInput & {
+  id: string;
+};
+
 export async function getDashboardWorkspaceServices(): Promise<DashboardWorkspaceService[]> {
   const sql = getSqlClient();
 
@@ -100,5 +116,75 @@ export async function getDashboardWorkspaceServices(): Promise<DashboardWorkspac
   } catch (error) {
     console.error("Failed to read workspace services", error);
     return [];
+  }
+}
+
+export async function createDashboardWorkspaceService(input: WriteDashboardWorkspaceServiceInput) {
+  const sql = getSqlClient();
+
+  if (!sql) {
+    throw new Error("Missing database connection for workspace service create");
+  }
+
+  const rows = await sql`
+    insert into workspace_services (
+      workspace_id,
+      name,
+      description,
+      category,
+      price_label,
+      base_price_sek,
+      duration_minutes,
+      service_area,
+      is_active,
+      sort_order
+    )
+    values (
+      'default',
+      ${input.name},
+      ${input.description},
+      ${input.category},
+      ${input.priceLabel},
+      ${input.basePriceSek},
+      ${input.durationMinutes},
+      ${input.serviceArea},
+      ${input.isActive},
+      ${input.sortOrder}
+    )
+    returning id
+  `;
+
+  if (!rows[0]) {
+    throw new Error("Workspace service was not created");
+  }
+}
+
+export async function updateDashboardWorkspaceService(input: UpdateDashboardWorkspaceServiceInput) {
+  const sql = getSqlClient();
+
+  if (!sql) {
+    throw new Error("Missing database connection for workspace service update");
+  }
+
+  const rows = await sql`
+    update workspace_services
+    set
+      name = ${input.name},
+      description = ${input.description},
+      category = ${input.category},
+      price_label = ${input.priceLabel},
+      base_price_sek = ${input.basePriceSek},
+      duration_minutes = ${input.durationMinutes},
+      service_area = ${input.serviceArea},
+      is_active = ${input.isActive},
+      sort_order = ${input.sortOrder},
+      updated_at = now()
+    where id = ${input.id}
+      and workspace_id = 'default'
+    returning id
+  `;
+
+  if (!rows[0]) {
+    throw new Error("Workspace service was not found for workspace_id default");
   }
 }

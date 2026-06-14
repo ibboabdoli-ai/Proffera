@@ -18,6 +18,21 @@ const errorMessages: Record<string, string> = {
   save: "Företagsprofilen kunde inte sparas. Kontrollera Neon-konfigurationen och försök igen.",
 };
 
+const serviceErrorMessages: Record<string, string> = {
+  access: "Åtkomstkoden saknas eller är fel. Tjänsten sparades inte.",
+  disabled: "Sparning av tjänster är inte aktiverad i miljön.",
+  id: "Tjänsten kunde inte hittas.",
+  name: "Namn är obligatoriskt och får vara max 140 tecken.",
+  description: "Beskrivning får vara max 500 tecken.",
+  category: "Kategori får vara max 120 tecken.",
+  price: "Prisvisning får vara max 120 tecken.",
+  base_price: "Baspris behöver vara ett heltal från 0 och uppåt.",
+  duration: "Längd behöver vara 1-1440 minuter.",
+  area: "Område får vara max 240 tecken.",
+  sort: "Sortering behöver vara ett heltal mellan 0 och 9999.",
+  save: "Tjänsten kunde inte sparas. Kontrollera databasen och försök igen.",
+};
+
 const inputClass =
   "rounded-2xl border border-[#dfe5dd] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20";
 
@@ -29,6 +44,8 @@ type SettingsPageProps = {
   searchParams?: Promise<{
     error?: string | string[];
     updated?: string | string[];
+    service_error?: string | string[];
+    service_updated?: string | string[];
   }>;
 };
 
@@ -36,8 +53,12 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   const params = searchParams ? await searchParams : undefined;
   const errorValue = firstParam(params?.error);
   const updatedValue = firstParam(params?.updated);
+  const serviceErrorValue = firstParam(params?.service_error);
+  const serviceUpdatedValue = firstParam(params?.service_updated);
   const errorMessage = errorValue ? errorMessages[errorValue] : undefined;
+  const serviceErrorMessage = serviceErrorValue ? serviceErrorMessages[serviceErrorValue] : undefined;
   const wasUpdated = updatedValue === "1";
+  const wasServiceUpdated = serviceUpdatedValue === "1";
   const [workspaceSettings, workspaceServices] = await Promise.all([
     getDashboardWorkspaceSettings(),
     getDashboardWorkspaceServices(),
@@ -71,9 +92,21 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         </section>
       ) : null}
 
+      {wasServiceUpdated ? (
+        <section className="rounded-3xl bg-[#eef8f0] p-5 text-sm font-semibold text-[#17452f] ring-1 ring-[#c9e6d0]">
+          Tjänsten sparades.
+        </section>
+      ) : null}
+
       {errorMessage ? (
         <section className="rounded-3xl bg-[#fff5f2] p-5 text-sm font-semibold text-[#8f2f1b] ring-1 ring-[#f4c7ba]">
           {errorMessage}
+        </section>
+      ) : null}
+
+      {serviceErrorMessage ? (
+        <section className="rounded-3xl bg-[#fff5f2] p-5 text-sm font-semibold text-[#8f2f1b] ring-1 ring-[#f4c7ba]">
+          {serviceErrorMessage}
         </section>
       ) : null}
 
