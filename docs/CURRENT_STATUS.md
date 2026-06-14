@@ -13,12 +13,14 @@ Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a le
 - Phase 18.16B: Services create/edit completed and tested.
 - Phase 18.17: Documentation sync completed.
 - Phase 18.17B: Documentation workflow cleanup completed and merged through PR #12.
+- Phase 18.17C: Documentation workflow hardening completed and merged through PR #17.
 
 ## Production status
 
 - `main` is the production branch.
 - Proffera is deployed on `proffera.se` through Vercel production.
 - Phase 18.17B was merged through PR #12 and its Vercel production deployment completed successfully.
+- Phase 18.17C was merged through PR #17 and its Vercel production deployment completed successfully.
 - Workspace settings save/edit and workspace services read/create/edit/active-inactive flows are deployed and verified.
 - Dashboard service deletion remains intentionally unavailable.
 - Phase 18.16B temporary test service data was cleaned from Neon after verification.
