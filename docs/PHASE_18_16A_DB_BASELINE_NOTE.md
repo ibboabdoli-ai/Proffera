@@ -1,9 +1,11 @@
-# Phase 18.16A DB baseline note
+# Phase 18.16A implementation note
 
-This branch adds the database baseline for workspace services:
+This branch adds the read-only baseline for workspace services:
 
 - workspace_services table migration
 - default service seed migration
 - read-only database helper
+- read-only dashboard component
+- settings page connection for the Tjänster section
 
-The settings page UI update is intentionally not included in this branch yet.
+No service create/edit/delete action is included in this branch.
