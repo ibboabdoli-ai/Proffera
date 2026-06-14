@@ -14,3 +14,9 @@ The database migrations still need to be executed in Neon after merge, in this o
 
 1. db/migrations/20260614_phase18_16_workspace_services.sql
 2. db/migrations/20260614_phase18_16_workspace_services_seed.sql
+
+Manual verification after migration:
+
+- Open /dashboard/installningar
+- Confirm Tjänster shows services from workspace_services
+- Confirm company profile save still works
