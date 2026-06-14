@@ -1,15 +1,10 @@
+import { getDashboardWorkspaceServices } from "@/lib/workspace-services-db";
 import { getDashboardWorkspaceSettings } from "@/lib/workspace-settings-db";
 
 import { updateWorkspaceSettingsAction } from "./actions";
+import { ServicesReadOnly } from "./services-read-only";
 
 export const dynamic = "force-dynamic";
-
-const settings = [
-  { label: "Företagsprofil", value: "Namn, kontakt, ort och CTA", status: "Aktiv" },
-  { label: "Tjänster", value: "Valbara tjänster, priser och serviceområden", status: "Kommande" },
-  { label: "Notiser", value: "E-post, interna aviseringar och påminnelser", status: "Kommande" },
-  { label: "AI-svar", value: "Ton, frågor, svarsmallar och branschkunskap", status: "Kommande" },
-] as const;
 
 const errorMessages: Record<string, string> = {
   access: "Åtkomstkoden saknas eller är fel. Inga inställningar sparades.",
@@ -43,7 +38,22 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   const updatedValue = firstParam(params?.updated);
   const errorMessage = errorValue ? errorMessages[errorValue] : undefined;
   const wasUpdated = updatedValue === "1";
-  const workspaceSettings = await getDashboardWorkspaceSettings();
+  const [workspaceSettings, workspaceServices] = await Promise.all([
+    getDashboardWorkspaceSettings(),
+    getDashboardWorkspaceServices(),
+  ]);
+  const hasServices = workspaceServices.length > 0;
+
+  const settings = [
+    { label: "Företagsprofil", value: "Namn, kontakt, ort och CTA", status: "Aktiv" },
+    {
+      label: "Tjänster",
+      value: hasServices ? `${workspaceServices.length} tjänster från databasen` : "Valbara tjänster, priser och serviceområden",
+      status: hasServices ? "Aktiv" : "Kommande",
+    },
+    { label: "Notiser", value: "E-post, interna aviseringar och påminnelser", status: "Kommande" },
+    { label: "AI-svar", value: "Ton, frågor, svarsmallar och branschkunskap", status: "Kommande" },
+  ] as const;
 
   return (
     <div className="grid gap-6">
@@ -51,7 +61,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Inställningar</p>
         <h2 className="mt-2 text-3xl font-bold text-[#17201a]">Workspace-inställningar</h2>
         <p className="mt-3 max-w-3xl text-sm leading-7 text-[#5b665f]">
-          Redigera företagsprofilen för workspace default. Sparning kräver intern åtkomstkod och skriver endast till workspace_settings i Neon.
+          Redigera företagsprofilen för workspace default. Tjänster visas read-only från workspace_services.
         </p>
       </section>
 
@@ -123,7 +133,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
             </label>
 
             <div className="rounded-2xl bg-[#f7f7f4] p-4 text-sm leading-6 text-[#5b665f]">
-              <strong className="text-[#17201a]">Säkerhetsgräns:</strong> Denna åtgärd uppdaterar endast företagsprofilen i workspace_settings. Den ändrar inga kunder, bokningar, leads eller publika sidor.
+              <strong className="text-[#17201a]">Säkerhetsgräns:</strong> Denna åtgärd uppdaterar endast företagsprofilen i workspace_settings.
             </div>
 
             <button
@@ -135,6 +145,8 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
           </form>
         </aside>
       </section>
+
+      <ServicesReadOnly services={workspaceServices} />
     </div>
   );
 }
