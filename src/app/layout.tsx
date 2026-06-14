@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { AppShell } from "@/components/layout/app-shell";
+import { ServiceAiChatWidget } from "@/components/service-ai-chat-widget";
 import { siteConfig } from "@/lib/site";
 
 export const metadata: Metadata = {
@@ -37,6 +38,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     <html lang="sv">
       <body>
         <AppShell>{children}</AppShell>
+        <ServiceAiChatWidget />
       </body>
     </html>
   );
