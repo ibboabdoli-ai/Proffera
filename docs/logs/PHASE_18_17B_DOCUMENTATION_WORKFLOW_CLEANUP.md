@@ -2,7 +2,7 @@
 
 Date: 2026-06-14
 
-Status: completed in documentation branch; pending PR review
+Status: completed, merged through PR #12, and deployed successfully through Vercel
 
 ## Scope
 
@@ -23,11 +23,11 @@ Status: completed in documentation branch; pending PR review
 
 ## Verification
 
-- Review changed-file list.
-- Run `git diff --check`.
-- Confirm all changed files are `README.md` or under `docs/`.
-- Open a PR from the documentation branch and stop before merge.
+- Documentation-only changed-file scope was confirmed.
+- `git diff --check` passed before merge.
+- PR #12 was reviewed and merged into `main`.
+- The resulting Vercel production deployment completed successfully.
 
 ## Next step
 
-Review the PR. After approval and merge, use `docs/DOCS_UPDATE_CHECKLIST.md` after each future phase.
+Use `docs/DOCS_UPDATE_CHECKLIST.md` after each future phase.
