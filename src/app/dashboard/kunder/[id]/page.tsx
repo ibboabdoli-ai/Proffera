@@ -1,13 +1,24 @@
+import { neon } from "@neondatabase/serverless";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { getDashboardCustomerDetail } from "@/lib/dashboard-db";
 
 export const dynamic = "force-dynamic";
 
+const connectionString =
+  process.env.DATABASE_URL ??
+  process.env.POSTGRES_URL ??
+  process.env.POSTGRES_PRISMA_URL ??
+  process.env.POSTGRES_URL_NON_POOLING;
+
 type CustomerDetailPageProps = {
   params: Promise<{
     id: string;
+  }>;
+  searchParams?: Promise<{
+    error?: string | string[];
+    note?: string | string[];
   }>;
 };
 
@@ -36,8 +47,95 @@ const eventTypeLabels: Record<string, string> = {
   ai_conversation: "AI-dialog",
 };
 
-export default async function CustomerDetailPage({ params }: CustomerDetailPageProps) {
-  const { id } = await params;
+const errorMessages: Record<string, string> = {
+  access: "Åtkomstkoden saknas eller är fel. Noteringen sparades inte.",
+  disabled: "Noteringar är inte aktiverade i miljön. Lägg till DASHBOARD_WRITE_CODE eller ADMIN_ACCESS_CODE.",
+  title: "Rubriken saknas eller är för lång.",
+  note: "Noteringen saknas eller är för lång.",
+  save: "Noteringen kunde inte sparas. Försök igen eller kontrollera Neon-konfigurationen.",
+};
+
+function getFormText(formData: FormData, key: string) {
+  return String(formData.get(key) ?? "").trim();
+}
+
+function redirectWithNoteError(customerId: string, error: keyof typeof errorMessages): never {
+  redirect(`/dashboard/kunder/${customerId}?error=${error}`);
+}
+
+async function createCustomerNoteAction(customerId: string, formData: FormData) {
+  "use server";
+
+  const expectedCode = (process.env.DASHBOARD_WRITE_CODE ?? process.env.ADMIN_ACCESS_CODE ?? "").trim();
+
+  if (!expectedCode) {
+    redirectWithNoteError(customerId, "disabled");
+  }
+
+  const accessCode = getFormText(formData, "access_code");
+
+  if (accessCode !== expectedCode) {
+    redirectWithNoteError(customerId, "access");
+  }
+
+  const title = getFormText(formData, "title");
+  const note = getFormText(formData, "note");
+
+  if (!title || title.length > 140) {
+    redirectWithNoteError(customerId, "title");
+  }
+
+  if (!note || note.length > 1000) {
+    redirectWithNoteError(customerId, "note");
+  }
+
+  if (!connectionString) {
+    redirectWithNoteError(customerId, "disabled");
+  }
+
+  const sql = neon(connectionString);
+
+  try {
+    const rows = await sql`
+      insert into customer_events (
+        workspace_id,
+        customer_id,
+        booking_id,
+        event_type,
+        title,
+        description,
+        metadata
+      )
+      select
+        workspace_id,
+        id,
+        null,
+        'note',
+        ${title},
+        ${note},
+        jsonb_build_object('source', 'dashboard_manual')
+      from customers
+      where workspace_id = 'default'
+        and id = ${customerId}
+      returning id
+    `;
+
+    if (!rows[0]?.id) {
+      redirectWithNoteError(customerId, "save");
+    }
+  } catch (error) {
+    console.error("Failed to create dashboard customer note", error);
+    redirectWithNoteError(customerId, "save");
+  }
+
+  redirect(`/dashboard/kunder/${customerId}?note=created`);
+}
+
+export default async function CustomerDetailPage({ params, searchParams }: CustomerDetailPageProps) {
+  const [{ id }, query] = await Promise.all([
+    params,
+    searchParams ? searchParams : Promise.resolve(undefined),
+  ]);
   const detail = await getDashboardCustomerDetail(id);
 
   if (!detail) {
@@ -45,6 +143,10 @@ export default async function CustomerDetailPage({ params }: CustomerDetailPageP
   }
 
   const { customer, bookings, events } = detail;
+  const errorValue = Array.isArray(query?.error) ? query?.error[0] : query?.error;
+  const noteValue = Array.isArray(query?.note) ? query?.note[0] : query?.note;
+  const errorMessage = errorValue ? errorMessages[errorValue] : undefined;
+  const noteAction = createCustomerNoteAction.bind(null, customer.id);
 
   return (
     <div className="grid gap-6">
@@ -53,7 +155,7 @@ export default async function CustomerDetailPage({ params }: CustomerDetailPageP
           <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Kundprofil</p>
           <h2 className="mt-2 text-3xl font-bold text-[#17201a]">{customer.name}</h2>
           <p className="mt-3 max-w-3xl text-sm leading-7 text-[#5b665f]">
-            Read-only kundprofil från Neon. Profil, bokningar och historik visas utan att skapa eller ändra CRM-data.
+            Kundprofil från Neon. Profil, bokningar och historik visas från CRM. Interna noteringar kan sparas kontrollerat med åtkomstkod.
           </p>
         </div>
         <Link
@@ -63,6 +165,18 @@ export default async function CustomerDetailPage({ params }: CustomerDetailPageP
           Tillbaka till kunder
         </Link>
       </section>
+
+      {errorMessage ? (
+        <section className="rounded-3xl bg-[#fff5f2] p-5 text-sm font-semibold text-[#8f2f1b] ring-1 ring-[#f4c7ba]">
+          {errorMessage}
+        </section>
+      ) : null}
+
+      {noteValue === "created" ? (
+        <section className="rounded-3xl bg-[#eef8f1] p-5 text-sm font-semibold text-[#17452f] ring-1 ring-[#cfe8d6]">
+          Noteringen sparades i kundhistoriken. Ingen bokning ändrades och ingen e-post skickades.
+        </section>
+      ) : null}
 
       <section className="grid gap-4 md:grid-cols-4">
         <article className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[#dfe5dd]">
@@ -81,7 +195,7 @@ export default async function CustomerDetailPage({ params }: CustomerDetailPageP
         </article>
         <article className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[#dfe5dd]">
           <p className="text-sm text-[#5b665f]">Läge</p>
-          <p className="mt-2 text-xl font-bold text-[#17452f]">Read-only</p>
+          <p className="mt-2 text-xl font-bold text-[#17452f]">Note write enabled</p>
         </article>
       </section>
 
@@ -121,6 +235,54 @@ export default async function CustomerDetailPage({ params }: CustomerDetailPageP
           </article>
 
           <article className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
+            <h3 className="text-xl font-bold text-[#17201a]">Lägg till notering</h3>
+            <p className="mt-3 text-sm leading-7 text-[#5b665f]">
+              Sparar en intern notering i kundhistoriken. Ingen bokning ändras och ingen e-post skickas.
+            </p>
+            <form action={noteAction} className="mt-5 grid gap-4 rounded-2xl bg-[#f7f7f4] p-4">
+              <label className="grid gap-2 text-sm font-semibold text-[#17201a]">
+                Intern åtkomstkod
+                <input
+                  name="access_code"
+                  type="password"
+                  required
+                  autoComplete="off"
+                  className="rounded-2xl border border-[#dfe5dd] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20"
+                  placeholder="Ange intern kod"
+                />
+              </label>
+              <label className="grid gap-2 text-sm font-semibold text-[#17201a]">
+                Rubrik
+                <input
+                  name="title"
+                  type="text"
+                  required
+                  maxLength={140}
+                  className="rounded-2xl border border-[#dfe5dd] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20"
+                  placeholder="Till exempel: Uppföljning"
+                />
+              </label>
+              <label className="grid gap-2 text-sm font-semibold text-[#17201a]">
+                Notering
+                <textarea
+                  name="note"
+                  required
+                  maxLength={1000}
+                  rows={5}
+                  className="rounded-2xl border border-[#dfe5dd] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20"
+                  placeholder="Skriv en intern CRM-notering..."
+                />
+              </label>
+              <button
+                type="submit"
+                className="inline-flex w-fit rounded-full bg-[#17452f] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0f3322] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#17452f]"
+              >
+                Spara notering
+              </button>
+            </form>
+          </article>
+
+          <article className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
             <div className="flex items-center justify-between border-b border-[#dfe5dd] pb-4">
               <div>
                 <h3 className="text-xl font-bold text-[#17201a]">Bokningar</h3>
@@ -157,7 +319,7 @@ export default async function CustomerDetailPage({ params }: CustomerDetailPageP
         <aside className="rounded-3xl bg-[#17452f] p-6 text-white">
           <h3 className="text-xl font-bold">Kundhistorik</h3>
           <p className="mt-3 text-sm leading-7 text-white/80">
-            Händelser från CRM-tabellen visas i read-only läge. Senare kan detta kopplas till samtal, e-post och AI-dialoger.
+            Händelser från CRM-tabellen visas här. Interna noteringar och bokningshändelser samlas i samma historik.
           </p>
           <div className="mt-5 space-y-3">
             {events.length === 0 ? (
