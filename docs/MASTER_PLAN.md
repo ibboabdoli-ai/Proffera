@@ -1,187 +1,142 @@
 # Proffera Master Plan
 
-This document defines the product direction for Proffera after the working lead/email MVP.
+## Product direction
 
-## Product position
+Proffera is the parent SaaS product for Swedish service businesses. It is evolving from a working lead/offert marketplace MVP into a professional platform for booking, CRM, customers, leads, automation, analytics, and future AI support.
 
-Proffera will evolve from a simple lead/offert workflow into a Swedish SaaS platform for small service businesses.
+Target customers:
 
-Primary customer profile:
+- Small and growing Swedish service businesses.
+- Appointment-based and local service companies.
+- Teams that need a simple system for inquiries, bookings, customer history, and follow-up.
 
-- Small cleaning, local service and appointment-based businesses in Sweden.
-- Companies that need booking, lead handling, customer communication and simple automation.
+Product promise:
 
-Initial product promise:
+- Capture leads and bookings online.
+- Manage customers and follow-up in one workspace.
+- Reduce manual administration.
+- Add AI-assisted communication only when security, tenant isolation, and core workflows are stable.
 
-- Get requests and bookings online.
-- Manage leads and customers in one admin view.
-- Send confirmations, reminders and follow-ups.
-- Add AI-assisted communication when the core workflow is stable.
+## Core modules
 
-## Current confirmed MVP foundation
+- Leads and lead delivery
+- Customers and CRM history
+- Bookings and booking status
+- Analytics and operational overview
+- AI assistant / inbox entry points
+- Workspace and company settings
 
-Already working:
+## Current foundation
+
+Built and protected:
 
 - Quote request flow.
 - Company registration.
 - Company approval and service editing.
 - Lead/company matching.
-- Delivery/outbox log.
-- Real lead email sending through Brevo.
+- Outbox/delivery log and duplicate prevention.
+- Brevo lead email delivery.
 - Manual mailto fallback.
-- Neon/Postgres persistence.
+- Existing Neon/Postgres persistence.
+- Public SaaS website.
+- Dashboard customer, booking, and history views.
+- Controlled customer creation, booking creation, booking status update, and customer note flows.
 
-Do not break these flows when building the SaaS layer.
+Phase 18.10 was intentionally limited to the create-customer form only. That isolated-write pattern, including validation, permission checks, verification, and rollback, remains the standard for future dashboard write actions.
 
-## Product architecture direction
+## Architecture decision: Service AI Chat stays separate
 
-Public website:
+Service AI Chat is a separate chat/widget/inbox/lead-capture engine in `ibboabdoli-ai/service-ai-chat`.
 
-- Home
-- Services
-- Pricing
-- Demo
-- Industries
-- About
-- Contact
-- Blog
-- Privacy Policy
-- Terms of Service
+It must not be fully merged into Proffera now.
 
-Core SaaS modules:
+Reasons:
 
-- Leads
-- Customers
-- Bookings
-- Analytics
-- AI Assistant
-- Settings
+- Lower implementation and deployment risk.
+- Cleaner rollback.
+- Separate database boundaries.
+- Reduced risk of tenant-data conflicts.
+- Avoid breaking the Proffera production website and dashboard.
+- Keep both systems independently stable.
 
-Service categories:
+Current integration model:
 
-- Online Booking System
-- AI Chat Assistant
-- QR Booking
-- Website Creation
-- Lead Management
-- Customer CRM
-- Automated Email Confirmations
-- Appointment Reminders
-- Digital Forms
-- Business Automation
+- Domain: `chat.proffera.se`
+- Tenant/client ID: `proffera`
+- Widget:
 
-## Pricing direction
+```html
+<script src="https://chat.proffera.se/widget-v2.js" data-client-id="proffera"></script>
+```
 
-Starter:
+Tenant isolation rule:
 
-- Booking system
-- Email notifications
-- Contact forms
+- Proffera messages and leads must go only to tenant/client `proffera`.
+- Iboren and Proffera messages or leads must never be mixed.
 
-Professional:
+## Service AI Chat integration roadmap
 
-- Booking system
-- AI chatbot
-- CRM
-- Analytics
+- **P-01:** Test tenant `proffera` on `chat.proffera.se`.
+- **P-02:** Install the widget on the Proffera website.
+- **P-03:** Send a test message/lead and verify it appears only in the Proffera inbox.
+- **P-04:** Add an AI Chat / Inbox link inside the Proffera dashboard.
+- **P-05:** Evaluate deeper integration only after the separate integration is stable.
 
-Business:
+Each step requires a rollback point and deployment/status verification before continuing.
 
-- Everything included
-- Priority support
-- Multi-location support
-- Custom integrations
+## SaaS and security readiness principles
 
-Pricing should be presented before Stripe is implemented. Stripe should come only after the offer and product packaging are clear.
+- Authenticate and authorize private dashboard and admin routes.
+- Derive workspace/tenant identity from a trusted authenticated session.
+- Do not use `workspace_id = 'default'` for real multi-tenant onboarding.
+- Keep secrets out of URLs, forms, screenshots, logs, and documentation.
+- Add server-side validation and spam protection to public forms.
+- Use one controlled write scope per phase.
+- Require validation, permission checks, verification, and rollback for every write action.
+- Do not index dashboard/private routes.
+- Review legal copy and data handling before larger-scale onboarding.
 
-## Phased execution plan
+## Protected flows
 
-### Phase 15 — Security cleanup and admin access hardening
+Do not break:
 
-Goal: remove admin code from URLs and reduce accidental exposure.
+- Quote request flow.
+- Company registration.
+- Company approval and service editing.
+- Lead/company matching.
+- Outbox/delivery log.
+- Outbox duplicate prevention.
+- Brevo lead email sending.
+- Manual mailto fallback.
+- Existing Neon/Postgres persistence.
 
-Scope:
+## Current execution priorities
 
-- Rotate `ADMIN_ACCESS_CODE` in Vercel.
-- Add cookie-based admin login.
-- Stop passing `code` through admin links and forms.
-- Keep rollback point before code changes.
+1. Resolve high-impact website/security audit findings before real customer usage.
+2. Run P-01 and verify strict Service AI Chat tenant isolation.
+3. Review and verify the Phase 18.15 workspace-settings step without expanding its scope.
+4. Improve the real demo/contact conversion flow and public trust copy.
+5. Consider deeper AI or billing work only after authentication and tenant boundaries are reliable.
 
-### Phase 16 — Public SaaS marketing website
+## Non-goals for now
 
-Goal: make Proffera sellable before adding complex SaaS logic.
+- No full Service AI Chat merge.
+- No shared cross-project database migration.
+- No large cross-project refactor.
+- No broad dashboard write expansion.
+- No delete actions without a separate plan.
+- No automatic booking emails without a reviewed communication plan.
+- No Stripe implementation before security, product packaging, and onboarding are ready.
+- No autonomous AI sending.
 
-Scope:
+## Stack direction
 
-- Add public pages listed above.
-- Add Swedish SaaS copy.
-- Add strong CTA sections.
-- Add pricing cards.
-- Add demo sections and dashboard previews.
-- Add FAQ, trust indicators and simple case-study blocks.
-- Add privacy and terms pages.
-- Add metadata, canonical URLs, sitemap and robots support.
+- Next.js App Router
+- TypeScript
+- Tailwind CSS
+- Neon/Postgres
+- Zod
+- Vercel
+- Brevo
 
-Do not touch lead flow, matching, outbox, database logic or Brevo integration in this phase.
-
-### Phase 17 — SaaS dashboard shell
-
-Goal: restructure admin toward a product dashboard without breaking the current MVP.
-
-Scope:
-
-- Add dashboard navigation for Leads, Customers, Bookings, Analytics, AI Assistant and Settings.
-- Keep existing admin pages available.
-- Move current lead delivery workflow under Leads/Delivery when safe.
-
-### Phase 18 — Booking and CRM MVP
-
-Goal: add the first real SaaS functionality beyond lead/offert matching.
-
-Scope:
-
-- Booking entity schema.
-- Customer entity schema.
-- Booking list and customer list.
-- Basic booking create/update/status flow.
-- Email confirmation through Brevo.
-
-### Phase 19 — AI assistant MVP
-
-Goal: add controlled AI-assisted communication.
-
-Scope:
-
-- AI assistant preview first.
-- Saved knowledge/settings per company later.
-- No autonomous sending before review workflow exists.
-
-### Phase 20 — Stripe subscriptions
-
-Goal: convert Proffera into a paid SaaS.
-
-Scope:
-
-- Stripe customer and subscription tables.
-- Checkout for Starter, Professional and Business.
-- Subscription status in admin.
-- Feature gating after billing is reliable.
-
-## Technical rules
-
-- Use Next.js App Router and TypeScript.
-- Use Neon/Postgres.
-- Do not use Supabase.
-- Keep changes small and phase-based.
-- Do not expose environment variable values.
-- Avoid unnecessary Vercel deploys.
-- Verify each phase before starting the next.
-
-## Future roadmap ideas
-
-- SMS reminders.
-- Invoice generation.
-- Employee scheduling.
-- Customer portal.
-- Mobile app.
-- Third-party API integrations.
+Do not describe Supabase or Prisma as the current main stack.

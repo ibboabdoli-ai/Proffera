@@ -109,3 +109,36 @@ Before new work, read these files:
 - `docs/DECISIONS.md`
 
 These files are the official project memory.
+
+## ADR-0008 — Keep Service AI Chat separate from Proffera
+
+- Status: Accepted
+- Date: 2026-06-14
+
+### Decision
+
+Service AI Chat remains a separate project and deployment for now.
+
+Proffera will integrate with it through `chat.proffera.se` and the tenant-scoped widget:
+
+```html
+<script src="https://chat.proffera.se/widget-v2.js" data-client-id="proffera"></script>
+```
+
+Do not perform a full merge, shared database migration, or large cross-project refactor.
+
+### Reason
+
+- Lower risk and easier rollback.
+- Separate database and deployment boundaries.
+- Reduced risk of breaking the Proffera website/dashboard.
+- Clear tenant isolation.
+- Iboren and Proffera messages or leads must never be mixed.
+
+### Integration sequence
+
+- P-01: Test tenant `proffera`.
+- P-02: Install the widget on Proffera.
+- P-03: Verify messages/leads appear only in the Proffera inbox.
+- P-04: Add an AI Chat / Inbox dashboard link.
+- P-05: Evaluate deeper integration only after stability is proven.

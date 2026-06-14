@@ -1,337 +1,187 @@
 # Proffera Project Handoff
 
 Project: Proffera
+
 Repository: `ibboabdoli-ai/Proffera`
-Stack: Next.js App Router, TypeScript, Tailwind, Neon/Postgres.
-UI language: Swedish.
 
-## Current status
+Role: Parent SaaS product for Swedish service businesses
 
-The original MVP lead flow is working and must be protected.
+Stack: Next.js App Router, TypeScript, Tailwind CSS, Neon/Postgres, Zod, Vercel, Brevo
 
-Completed phases:
+UI language: Swedish
 
-- Phase 07: Company registration
-- Phase 08: Matching companies to leads
-- Phase 10: Manual lead sending with mailto
-- Phase 11: Outbox / delivery log
-- Phase 11.1: Duplicate prevention for outbox logs
-- Phase 12: Company approval and improved matching score
-- Phase 12.1: Project memory system
-- Phase 13: Admin cleanup
-- Phase 13.1: Hide public chrome on admin pages
-- Phase 14.3: Real lead email sending with Brevo
-- Phase 15: Security cleanup and admin access hardening
-- Phase 16.1: Public SaaS marketing foundation
-- Phase 16.2: Legal pages
-- Phase 16.3: Conversion sections and public-site cleanup
-- Phase 16.4: Final public-site QA
-- Phase 17.1: SaaS dashboard shell
-- Phase 17.2: Dashboard module previews
-- Phase 18.1B: Public branscher page
-- Phase 18.1C: Booking/CRM migration taxonomy references
-- Phase 18.2: Booking/CRM migration executed in Neon
-- Phase 18.3: Demo CRM/booking seed executed in Neon
-- Phase 18.4: Read-only dashboard DB connection for customers and bookings
-- Phase 18.5: Dashboard overview read-only Neon stats
-- Phase 18.6: Customer profile/history read-only page
-- Phase 18.7: Booking profile/history read-only page
-- Phase 18.8: UI polish for read-only detail actions
-- Phase 18.9: Create/update forms planning without implementation
+## Exact current status
 
-## Product direction
+Proffera has moved beyond the original lead/offert marketplace MVP and now has a public SaaS website plus an early CRM/booking dashboard.
 
-Proffera is evolving from a lead/offert MVP into a Swedish SaaS platform for small service businesses.
+Latest known phase state:
 
-Main SaaS modules:
+- Phase 18.10 create-customer form: verified and cleaned back to demo baseline.
+- Phase 18.11 create-booking form: accepted with a documented detail-page verification limitation.
+- Phase 18.12 controlled booking status update: verified and rolled back to baseline.
+- Phase 18.13 booking status customer-event logging: verified.
+- Phase 18.14 manual customer note flow: verified and cleaned back to baseline.
+- Phase 18.15 workspace settings: planned; migration file added, but full settings implementation and verification are not documented as complete.
 
-- Leads
-- Customers
-- Bookings
-- Analytics
-- AI Assistant
-- Settings
+Phase 18.10 was deliberately limited to the create-customer form only. It is the reference pattern for isolated dashboard writes. Do not broaden write actions without separate validation, permission, verification, and rollback plans.
 
-The service scope has expanded beyond cleaning/localvård into a broader booking-ready service taxonomy inspired by marketplace products such as Bokadirekt, but differentiated for Proffera as SaaS + booking + CRM + AI for Swedish service companies.
+## What is already built
 
-Current service taxonomy categories:
+Public/product:
 
-- Städning & lokalvård
-- Flytt & hemservice
-- Skönhet & hälsa
-- Träning & friskvård
-- Företagstjänster
+- Public SaaS marketing website and legal pages.
+- Dashboard shell and module routes.
+- Customers, bookings, customer profiles, booking profiles, and customer history.
+- Controlled create-customer, create-booking, booking-status, and customer-note actions.
+- Settings preview and Phase 18.15 migration preparation.
 
-Long-term planning docs:
+Existing protected MVP:
+
+- Quote request flow.
+- Company registration.
+- Company approval and service editing.
+- Lead/company matching.
+- Outbox/delivery log.
+- Outbox duplicate prevention.
+- Brevo lead email sending.
+- Manual mailto fallback.
+- Neon/Postgres persistence.
+
+## Read-only, demo, or incomplete areas
+
+- Some dashboard and public marketing content remains preview/demo-oriented.
+- `/dashboard/leads` and `/dashboard/ai-assistent` are not complete product modules.
+- Workspace settings UI is not documented as fully implemented or verified.
+- Customer/booking data model still relies on the temporary/default workspace approach.
+- Public demo/contact flow is not yet a real low-friction booking flow.
+- Placeholder/MVP trust copy remains on public pages.
+
+## What must not be touched without a separate approved plan
+
+- Existing quote request flow.
+- Company registration.
+- Company approval and service editing.
+- Lead/company matching.
+- Outbox/delivery log and duplicate prevention.
+- Brevo lead delivery.
+- Manual mailto fallback.
+- Existing Neon/Postgres persistence and tables.
+- Service AI Chat database or tenant model.
+- Broad dashboard write actions, deletes, email sending, Stripe, or deep AI integration.
+
+## Related project: Service AI Chat
+
+Service AI Chat remains a separate system:
+
+- Repository: `ibboabdoli-ai/service-ai-chat`
+- Domain: `chat.proffera.se`
+- Domain status: connected to the Service AI Chat Vercel project; SSL working.
+- Proffera tenant/client ID: `proffera`
+- Planned widget:
+
+```html
+<script src="https://chat.proffera.se/widget-v2.js" data-client-id="proffera"></script>
+```
+
+Architecture rule:
+
+- No full merge now.
+- No shared database migration now.
+- No large cross-project refactor.
+- Iboren and Proffera messages or leads must never be mixed.
+- Proffera messages/leads must appear only under tenant/client `proffera`.
+
+Integration sequence:
+
+- P-01: Test tenant `proffera` on `chat.proffera.se`.
+- P-02: Install the widget on the Proffera website.
+- P-03: Verify a test message/lead appears only in the Proffera inbox.
+- P-04: Add an AI Chat / Inbox link inside the Proffera dashboard.
+- P-05: Evaluate deeper integration only after stability and tenant isolation are proven.
+
+## Current website/security audit notes
+
+- Verify `/dashboard` protection before real customer usage.
+- Admin access code must not leak through URLs, forms, screenshots, or logs.
+- Avoid `workspace_id = 'default'` for real SaaS multi-tenant usage.
+- Public forms need server-side validation and spam protection.
+- `Boka demo` should become a real booking/contact flow.
+- Mobile navigation should be checked and improved.
+- Canonical URLs, robots rules, and sitemap coverage should be reviewed.
+- Dashboard/private routes should not be indexed.
+- MVP/placeholder copy should be replaced before real sales.
+
+These findings are launch-readiness risks. Do not treat existing preview/demo routes as ready for real customer data until authentication and tenant boundaries are verified.
+
+## Current risks
+
+- Dashboard routes may expose private CRM data if not protected correctly.
+- Access-code handling is not a durable SaaS authorization model.
+- Hardcoded/default workspace behavior is not safe multi-tenant isolation.
+- Public forms can attract spam or abuse without rate limiting and spam controls.
+- Separate projects can mix tenant data if `data-client-id="proffera"` is not verified end-to-end.
+- Phase documents and production state can drift unless each approved change updates this handoff.
+
+## Immediate next steps
+
+Chat integration:
+
+- Run P-01 first: test tenant/client `proffera` on `chat.proffera.se`.
+- Confirm messages/leads appear only in the Proffera inbox.
+- Prepare a rollback point before P-02.
+
+Proffera product:
+
+- Review the Phase 18.15 migration and settings scope before any further implementation.
+- Verify dashboard protection and access-code exposure before real customer usage.
+- Keep any next write action isolated and reversible.
+
+Historical phase boundary:
+
+- Phase 18.10 was create-customer form only, with no booking flow, deletes, email sending, Stripe, or deep AI merge in that phase.
+
+## Verification checklist
+
+Before any approved Proffera change:
+
+- Confirm the changed scope is small and documented.
+- Confirm protected MVP flows remain unchanged.
+- Confirm server-side validation and permission checks for writes.
+- Confirm tenant/workspace boundaries.
+- Confirm no secrets appear in URLs, rendered HTML, screenshots, or logs.
+- Run lint/build checks.
+- Test relevant routes on mobile and desktop.
+- Verify Vercel deployment/status after an approved deployment.
+- Verify real data was not mixed with demo/test data.
+- Verify rollback steps before moving to the next phase.
+
+For Service AI Chat integration:
+
+- Confirm `chat.proffera.se` and SSL work.
+- Confirm widget uses `data-client-id="proffera"`.
+- Send a Proffera test message and lead.
+- Confirm both appear only in the Proffera inbox.
+- Confirm no Iboren data appears in the Proffera tenant and no Proffera data appears in Iboren.
+- Stop and roll back if tenant isolation is uncertain.
+
+## Rollback expectations
+
+- Create a rollback point before each implementation step.
+- Keep one functional change per step.
+- Document exact test data and cleanup steps.
+- Restore demo baseline after write-flow verification.
+- Revert the small change if verification fails.
+- Do not continue to the next P-step or product phase until the current step is verified.
+
+## Important documentation
 
 - `docs/MASTER_PLAN.md`
 - `docs/ROADMAP.md`
 - `docs/DECISIONS.md`
 - `docs/PROJECT_LOG.md`
-- `docs/SERVICE_TAXONOMY_PLAN.md`
-- `docs/PHASE_18_BOOKING_CRM_PLAN.md`
-- `docs/PHASE_18_1C_TAXONOMY_MIGRATION_NOTES.md`
-- `docs/PHASE_18_1D_SQL_EXECUTION_REVIEW.md`
-- `docs/PHASE_18_2_NEON_EXECUTION_INSTRUCTIONS.md`
-- `docs/PHASE_18_2_DB_STATE_AFTER_MIGRATION.md`
-- `docs/PHASE_18_3_DEMO_SEED_INSTRUCTIONS.md`
-- `docs/PHASE_18_3_DB_STATE_AFTER_SEED.md`
-- `docs/PHASE_18_5_DASHBOARD_OVERVIEW_VERIFICATION.md`
-- `docs/PHASE_18_6_CUSTOMER_PROFILE_VERIFICATION.md`
-- `docs/PHASE_18_7_BOOKING_PROFILE_VERIFICATION.md`
-- `docs/PHASE_18_8_UI_POLISH_VERIFICATION.md`
-- `docs/PHASE_18_9_CREATE_UPDATE_FORMS_PLAN.md`
-
-## Recent safe points
-
-- Phase 16.1 docs point: `80c979f0a5111d72d8cd3ff6f1b20a7bfa34e867`
-- Phase 16.2 docs point: `ba586900621f4191c48f9fac01619810a7e054b1`
-- Phase 16.3 docs point: `37718cf23bea0de4ea62637d398efe9f561493ed`
-- Phase 16.4 docs point: `1058dedbbfbec3a29a2efd6bf645bca4fa2f64f1`
-- Phase 17.1 docs point: `59829df5980c8c672df5a8debcfdf4635aa780`
-- Phase 17.2 docs point: `e1c4c000d3946636a73b3cac6810ecdb613aa780`
-- Phase 18.1B docs point: `5baff9c5a67a831e17a2b0991a3593196c2f18ab`
-- Phase 18.1C docs point: `286274889d7bd7fc74bd729a71c687f501123540`
-- Phase 18.2 DB state docs point: `c9b6253125e0c0507bbcc6ba3b708cf3fcd2e88b`
-- Phase 18.3 DB seed state docs point: `fdb8a808127092b8718870cb763f42672f11e9cf`
-- Phase 18.4 read-only dashboard log point: `3b775806055e62dc2af8878597fa7cdee85ea470`
-- Phase 18.5 overview verification point: `c95c00f2a819a5474957155bfcb137d9226cd1ce`
-- Phase 18.6 customer profile verification point: `ff798e6e461b789b8a223a733a2d131ebca9976a`
-- Phase 18.7 booking profile verification point: `1ccb349af8901e2abb900bad1219bbbf66c6ca04`
-- Phase 18.8 UI polish verification point: `efd059b689974855ee0ce0128e5b9dc60cc9a8bf`
-- Phase 18.9 create/update forms plan point: `b7cc13cd3569a53934304704df85847f871b990f`
-
-## Public SaaS routes
-
-Currently built:
-
-- `/`
-- `/tjanster`
-- `/branscher`
-- `/priser`
-- `/demo`
-- `/om`
-- `/kontakt`
-- `/logga-in`
-- `/integritetspolicy`
-- `/villkor`
-- `/cookies`
-- `/robots.txt`
-- `/sitemap.xml`
-
-Public home page currently includes:
-
-- SaaS hero
-- Dashboard preview
-- Benefits
-- Service modules
-- Pricing cards
-- Trust indicators
-- Case study placeholder
-- Testimonials placeholder
-- FAQ
-- Demo CTA
-- SaaS footer copy
-
-`/branscher` currently shows:
-
-- 5 main categories
-- 21 services
-- SaaS + booking + CRM + AI positioning
-- CTA to book a demo
-
-## SaaS dashboard routes
-
-Currently built:
-
-- `/dashboard`
-- `/dashboard/leads`
-- `/dashboard/kunder`
-- `/dashboard/kunder/[id]`
-- `/dashboard/bokningar`
-- `/dashboard/bokningar/[id]`
-- `/dashboard/ai-assistent`
-- `/dashboard/installningar`
-
-Dashboard notes:
-
-- Dashboard is separate from `/admin`.
-- Public header and footer are hidden on `/dashboard` routes.
-- `/dashboard` now reads real Neon counts for customers, bookings and customer events in read-only mode.
-- `/dashboard/kunder` now reads real Neon data from `customers` in read-only mode.
-- `/dashboard/kunder/[id]` now reads a customer profile, related bookings and customer events/history in read-only mode.
-- `/dashboard/bokningar` now reads real Neon data from `bookings` with customer data in read-only mode.
-- `/dashboard/bokningar/[id]` now reads a booking profile, linked customer and related booking events/history in read-only mode.
-- Phase 18.8 improved readability/accessibility styling for read-only detail actions such as `Visa kundprofil`.
-- Phase 18.9 documents the create/update form plan only; no dashboard write actions were implemented.
-- `/dashboard/leads`, `/dashboard/ai-assistent` and `/dashboard/installningar` remain preview/static routes.
-- No dashboard create/update/delete flows exist yet.
-- Do not add write actions before a separate form, validation and rollback plan is reviewed.
-
-Verified dashboard DB data:
-
-- `/dashboard` shows `Kunder = 1`, `Bokningar = 1`, `Kundhändelser = 1` and `Read-only`.
-- `/dashboard/kunder` shows `Demo Kund – Sara Andersson` from Neon.
-- Customer stats show `Kontakter i CRM = 1`, `Aktiva kunder = 1`, `Prospekt = 0`.
-- `/dashboard/kunder/[id]` shows the seeded demo customer profile, one linked booking and one linked customer event.
-- `/dashboard/kunder/[id]` displays `Demo booking – Hemstädning` and `Demo event – booking confirmed` in read-only mode.
-- `/dashboard/bokningar` shows `Demo booking – Hemstädning` from Neon.
-- Booking stats show `Bokningar i CRM = 1`, `Bekräftade = 1`, `Förfrågade = 0`, `Klara = 0`.
-- `/dashboard/bokningar/[id]` shows the seeded booking profile, linked customer and one related booking event.
-- `/dashboard/bokningar/[id]` displays `Visa kundprofil` and booking history in read-only mode.
-- UI polish for the read-only booking detail action was verified after the button readability issue was identified.
-
-## Planned dashboard write-flow sequence
-
-Phase 18.9 is a plan only. The recommended future sequence is:
-
-- Phase 18.10: Implement `create customer` form only.
-- Phase 18.11: Implement `create booking` form only.
-- Phase 18.12: Implement controlled booking status updates.
-- Phase 18.13: Implement customer note/event creation.
-
-Before any implementation:
-
-- Keep each write action isolated to one table area.
-- Add validation before database writes.
-- Keep rollback SQL or an exact rollback path for test records.
-- Do not add delete actions in the first write phases.
-- Do not send Brevo booking emails until a separate booking communication plan exists.
-
-## Admin routes
-
-Existing admin workflow routes:
-
-- `/admin`
-- `/admin/status`
-- `/admin/foretag`
-- `/admin/foretag/hantera`
-- `/admin/matchning`
-- `/admin/skicka-lead`
-- `/admin/leverans`
-
-Admin notes:
-
-- Admin routes are protected by Basic Auth.
-- Admin code must not be passed in URLs.
-- Do not share admin secrets in chat, screenshots or docs.
-- Confirm the admin access secret is rotated before broader use.
-
-## Existing tested MVP flow
-
-- Company registration works.
-- Company approval and service editing works.
-- Matching works by area, category, service and approved company status.
-- Outbox duplicate prevention works.
-- Brevo lead email sending works through `/admin/leverans`.
-- Tested lead refs include `PRO-MQC5COT4-BL3RG` and `PRO-MQBD101M-6D6LO`.
-
-## Database tables currently used
-
-Existing lead/offert flow tables:
-
-- `quote_requests`
-- `company_registrations`
-- `lead_outbox`
-
-Booking/CRM MVP tables now created in Neon:
-
-- `customers`
-- `bookings`
-- `customer_events`
-
-Use Neon/Postgres. Do not switch to Supabase.
-
-## Phase 18 database status
-
-The Booking/CRM migration has been executed manually in Neon and verified.
-
-Migration file:
-
-- `db/migrations/20260613_phase18_booking_crm.sql`
-
-Rollback notes:
-
-- `db/migrations/20260613_phase18_booking_crm_rollback_notes.md`
-
-Taxonomy notes:
-
-- `docs/PHASE_18_1C_TAXONOMY_MIGRATION_NOTES.md`
-
-Created tables:
-
-- `customers`
-- `bookings`
-- `customer_events`
-
-Verified table list after migration:
-
-- `bookings`
-- `company_registrations`
-- `customer_events`
-- `customers`
-- `lead_outbox`
-- `quote_requests`
-
-Demo seed state:
-
-- `customers_count = 1`
-- `bookings_count = 1`
-- `customer_events_count = 1`
-
-Taxonomy strategy:
-
-- Store `service_category_slug` and `service_slug` as soft references first.
-- Do not create `service_categories` or `services` database tables until seed and admin-management planning is reviewed.
-
-SQL review summary:
-
-- Migration creates new SaaS CRM/booking tables only.
-- It does not alter/drop existing MVP lead-flow tables.
-- It is wrapped in `BEGIN` and `COMMIT`.
-- `updated_at` has no auto-update trigger yet.
-- `workspace_id` is still a simple text/default field and needs a stronger tenant model before real multi-tenant SaaS onboarding.
-
-Important:
-
-- Do not modify existing MVP tables without explicit migration and rollback plan.
-- Do not add dashboard write actions before a separate validation, permission and rollback plan.
-- Do not change admin, matching, outbox, Brevo or lead email workflows unless explicitly required.
-
-## Email provider
-
-Real lead email sending uses Brevo.
-
-Required Vercel environment variables:
-
-- `BREVO_API_KEY`
-- `LEAD_FROM_EMAIL`
-
-Current intended sender:
-
-`Proffera <leads@proffera.se>`
-
-Manual mailto fallback remains available in the admin UI.
-
-## Workflow rules
-
-- Keep rollback points before each phase.
-- Keep changes small.
-- Avoid unnecessary Vercel deploys.
-- Do not expose environment variable values.
-- Do not execute the full SaaS plan in one large prompt.
-- Build phase by phase.
-- `B` from the user means continue to the next planned step.
-
-## Next recommended phase
-
-Phase 18.10: Implement `create customer` form only, after confirming the Phase 18.9 plan.
-
-Recommended safe options:
-
-- Add `/dashboard/kunder/ny`.
-- Add validation and one isolated customer insert action.
-- Use `source = 'dashboard_manual'` for created records.
-- Add a rollback/test cleanup path before using with real customers.
-
-Do not modify existing lead, matching, outbox, Brevo or admin workflows without an explicit plan.
+- `docs/PHASE_18_10_CREATE_CUSTOMER_FORM_VERIFICATION.md`
+- `docs/PHASE_18_11_CREATE_BOOKING_FORM_VERIFICATION.md`
+- `docs/PHASE_18_12_STATUS_UPDATE_VERIFICATION.md`
+- `docs/PHASE_18_13_EVENT_LOGGING_VERIFICATION.md`
+- `docs/PHASE_18_14_VERIFICATION.md`
+- `docs/PHASE_18_15_SETTINGS_COMPANY_PROFILE_PLAN.md`

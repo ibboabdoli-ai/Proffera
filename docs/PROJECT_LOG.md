@@ -2,6 +2,21 @@
 
 This file records what has been built and tested in Proffera.
 
+## 2026-06-14 — Documentation aligned with current SaaS direction
+
+Status: documentation-only update.
+
+Updated:
+
+- Reframed Proffera as the parent SaaS product for Swedish service businesses.
+- Documented Service AI Chat as a separate related engine under `chat.proffera.se`.
+- Added the P-01 to P-05 widget/inbox integration strategy.
+- Recorded the strict tenant-isolation rule: Iboren and Proffera data must never mix.
+- Updated current phase status through verified Phase 18.14 and planned Phase 18.15.
+- Recorded website/security audit notes, protected flows, rollback expectations, and documentation consistency fixes.
+
+No application code, package files, database files, routes, components, or deployment state changed in this documentation update.
+
 ## Phase 07 — Company registration
 
 Status: done.
