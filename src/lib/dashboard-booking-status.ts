@@ -68,8 +68,8 @@ export async function updateDashboardBookingStatus(
         booking_id,
         event_type,
         title,
-        body,
-        source
+        description,
+        metadata
       )
       select
         updated_booking.workspace_id,
@@ -78,7 +78,11 @@ export async function updateDashboardBookingStatus(
         'status_change',
         'Booking status updated',
         'Status changed from ' || existing_booking.old_status || ' to ' || updated_booking.new_status || '.',
-        'dashboard_manual'
+        jsonb_build_object(
+          'source', 'dashboard_manual',
+          'old_status', existing_booking.old_status,
+          'new_status', updated_booking.new_status
+        )
       from updated_booking
       join existing_booking on existing_booking.id = updated_booking.id
       returning id
