@@ -12,7 +12,7 @@ Use this checklist after every completed, verified, paused, or materially change
 
 2. Add a concise phase log under `docs/logs/`.
    - State scope, outcome, verification, risks, rollback, and next step.
-   - Do not rewrite the long historical `docs/PROJECT_LOG.md`.
+   - Phase logs under `docs/logs/` are the active phase history.
 
 3. Update `docs/ROADMAP.md` only when priorities or sequence change.
 
@@ -22,11 +22,18 @@ Use this checklist after every completed, verified, paused, or materially change
 
 6. Update `README.md` only when product direction, stack, major architecture, or documentation entry points change.
 
-7. Add a short index entry to `docs/PROJECT_LOG.md` only when useful.
+## Legacy project log rule
+
+- `docs/PROJECT_LOG.md` is a legacy/reference history file.
+- Normal daily or phase documentation updates must use `docs/CURRENT_STATUS.md` and a phase log under `docs/logs/`.
+- A `u` run does not require editing `docs/PROJECT_LOG.md`.
+- Do not perform line-level or partial replacement edits on `docs/PROJECT_LOG.md`.
+- Change `docs/PROJECT_LOG.md` only through Codex/local git when the full file can be preserved exactly and the edit is explicitly required.
 
 ## Verification
 
 - Confirm `docs/CURRENT_STATUS.md` is the only detailed current-status source.
+- Confirm the active phase record is under `docs/logs/`, not added to the legacy `docs/PROJECT_LOG.md`.
 - Confirm phase claims match accepted verification or the approved task brief.
 - Confirm links point to real files.
 - Confirm changed files are documentation-only.
@@ -37,7 +44,7 @@ Use this checklist after every completed, verified, paused, or materially change
 
 ## Command conventions
 
-- `u` = review/update docs only.
+- `u` = review/update active docs only; it does not require editing legacy `docs/PROJECT_LOG.md`.
 - `t` = simple status summary.
 - `b` / `B` = continue or approve the next safe step.
 

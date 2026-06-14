@@ -4,6 +4,8 @@ This file is the single source of truth for the current project state. Update it
 
 Last updated: 2026-06-14
 
+Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a legacy/reference history file and is not required for normal phase updates.
+
 ## Current completed phases
 
 - Phase 18.15: Workspace settings save/edit completed.
