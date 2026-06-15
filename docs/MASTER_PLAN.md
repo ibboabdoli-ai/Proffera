@@ -39,8 +39,15 @@ The public `Logga in` route belongs to Proffera and should remain on `proffera.s
 Current state:
 
 - `/logga-in` is a Proffera customer portal entry placeholder.
+- `/dashboard` has temporary Basic Auth protection.
 - Real authentication, sessions, roles, customer accounts, subscription access and workspace binding are not implemented yet.
 - Service AI Chat must not become the Proffera customer account/login system.
+
+Planned auth direction:
+
+- Use Better Auth with PostgreSQL/Neon for authentication and sessions.
+- Keep Proffera-owned workspace, membership, role, plan/subscription and business authorization tables.
+- Do not replace Proffera's workspace model with Service AI Chat or a third-party organization model.
 
 Long-term direction:
 
@@ -131,5 +138,6 @@ Do not break:
 - Zod
 - Vercel
 - Brevo
+- Better Auth for planned customer authentication
 
 Do not describe Supabase or Prisma as the current main stack.
