@@ -14,8 +14,10 @@
   "dependencies": {
     "@neondatabase/serverless": "latest",
     "@tailwindcss/postcss": "latest",
+    "better-auth": "1.6.18",
     "lucide-react": "latest",
     "next": "16.2.2",
+    "pg": "8.21.0",
     "react": "latest",
     "react-dom": "latest",
     "zod": "latest"
@@ -23,6 +25,7 @@
   "devDependencies": {
     "@eslint/eslintrc": "latest",
     "@types/node": "latest",
+    "@types/pg": "8.20.0",
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "eslint": "9.39.1",
