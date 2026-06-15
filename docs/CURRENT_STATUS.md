@@ -18,6 +18,7 @@ Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a le
 - P22A: Temporary Basic Auth protection added for `/dashboard` and `/dashboard/*`; real customer auth is not implemented yet.
 - P22B: Auth and workspace model plan added. No code or database changes were made in this planning step.
 - P22C: Auth implementation direction selected: Better Auth with PostgreSQL/Neon, plus Proffera-owned workspace and membership tables.
+- P22D: Better Auth package and `src/lib/auth.ts` config skeleton added. No route, login flow, migration, or dashboard access change was added.
 
 ## Production status
 
@@ -35,8 +36,8 @@ Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a le
 
 Choose one small, approved next step:
 
-1. P22D: add Better Auth dependency/config only, without removing temporary dashboard protection.
-2. Verify `/dashboard` prompts for Basic Auth in production if not already manually confirmed.
+1. Verify the production build after the P22D dependency/config change.
+2. P22E: create additive Better Auth schema migration only after P22D build succeeds.
 3. Later, verify Service AI Chat inbox persistence for client `proffera`, then confirm strict tenant isolation.
 
 Do not start a full Service AI Chat merge or broad cross-project refactor.
