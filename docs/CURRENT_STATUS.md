@@ -16,6 +16,7 @@ Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a le
 - Phase 18.17C: Documentation workflow hardening completed and merged through PR #17.
 - P21: Proffera login entry foundation completed. Public `Logga in` now stays inside Proffera at `/logga-in`; no real auth was added.
 - P22A: Temporary Basic Auth protection added for `/dashboard` and `/dashboard/*`; real customer auth is not implemented yet.
+- P22B: Auth and workspace model plan added. No code or database changes were made in this planning step.
 
 ## Production status
 
@@ -33,8 +34,8 @@ Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a le
 
 Choose one small, approved next step:
 
-1. Verify `/dashboard` prompts for Basic Auth in production after deploy.
-2. Plan the real customer authentication, session, role, and workspace model before replacing the temporary protection.
+1. P22C: choose the real auth implementation approach before writing code or migrations.
+2. Verify `/dashboard` prompts for Basic Auth in production if not already manually confirmed.
 3. Later, verify Service AI Chat inbox persistence for client `proffera`, then confirm strict tenant isolation.
 
 Do not start a full Service AI Chat merge or broad cross-project refactor.
