@@ -1,19 +1,9 @@
-import { betterAuth } from "better-auth";
-import { Pool } from "pg";
-
-const connectionString =
-  process.env.DATABASE_URL ??
-  process.env.POSTGRES_URL ??
-  process.env.POSTGRES_PRISMA_URL ??
-  process.env.POSTGRES_URL_NON_POOLING;
-
-export const auth = betterAuth({
-  database: new Pool({
-    connectionString,
-  }),
-  secret: process.env.BETTER_AUTH_SECRET,
-  baseURL: process.env.BETTER_AUTH_URL,
-  emailAndPassword: {
-    enabled: false,
-  },
-});
+/**
+ * Planned auth integration placeholder.
+ *
+ * P22C selected Better Auth with PostgreSQL/Neon as the intended direction,
+ * but the first dependency-only implementation attempt was rolled back after
+ * npm dependency resolution failed. Keep this file dependency-free until P22D
+ * is retried with a pinned and locally verified package set.
+ */
+export const authIntegrationStatus = "planned" as const;
