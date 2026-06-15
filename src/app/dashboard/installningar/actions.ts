@@ -4,9 +4,7 @@ import { redirect } from "next/navigation";
 
 import { updateDashboardWorkspaceSettings, type UpdateDashboardWorkspaceSettingsInput } from "@/lib/workspace-settings-db";
 
-const errorKeys = ["access", "disabled", "company", "city", "response", "cta", "email", "phone", "save"] as const;
-
-type SettingsSaveError = (typeof errorKeys)[number];
+type SettingsSaveError = "access" | "disabled" | "company" | "city" | "response" | "cta" | "email" | "phone" | "save";
 
 function getFormText(formData: FormData, key: string) {
   return String(formData.get(key) ?? "").trim();
