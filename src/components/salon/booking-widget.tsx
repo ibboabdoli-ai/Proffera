@@ -82,6 +82,10 @@ function generateSlots(duration: number, date: Date) {
   return slots;
 }
 
+function createDemoBookingId(date: string, time: string, existingCount: number) {
+  return `booking-${date}-${time.replace(":", "")}-${existingCount + 1}`;
+}
+
 export function readStoredSalonBookings(): SalonBooking[] {
   if (typeof window === "undefined") return [];
 
@@ -175,7 +179,7 @@ export function BookingWidget() {
     }
 
     const booking: SalonBooking = {
-      id: `booking-${Date.now()}`,
+      id: createDemoBookingId(selectedDateValue, normalizedSelectedTime, current.length),
       customerName: customerName.trim(),
       customerPhone: customerPhone.trim(),
       customerEmail: customerEmail.trim(),
@@ -187,7 +191,7 @@ export function BookingWidget() {
       dateLabel: formatDateLabel(selectedDate),
       time: normalizedSelectedTime,
       status: "pending",
-      createdAt: new Date().toISOString(),
+      createdAt: `${selectedDateValue}T${normalizedSelectedTime}:00.000Z`,
     };
 
     writeStoredSalonBookings([booking, ...current]);
