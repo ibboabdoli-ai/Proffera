@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CalendarCheck, Clock3, Mail, Phone, Plus, Scissors, Settings, Smartphone, UserPlus, Users } from "lucide-react";
+import { CalendarCheck, Clock3, Mail, Plus, Scissors, Settings, Smartphone, UserPlus, Users } from "lucide-react";
 import { type SalonBooking, readStoredSalonBookings, writeStoredSalonBookings } from "@/components/salon/booking-widget";
 import { demoBookings, juliusSalon, salonServices } from "@/lib/salon-demo";
 
