@@ -2,6 +2,24 @@
 
 This file records what has been built and tested in Proffera.
 
+## P22C — Auth implementation decision
+
+Status: done.
+
+Details: `docs/PHASE_P22C_AUTH_IMPLEMENTATION_DECISION.md`
+
+Built:
+
+- Selected Better Auth with PostgreSQL/Neon as the planned authentication foundation.
+- Confirmed Proffera should keep ownership of workspace, membership, role and business authorization tables.
+- Compared Better Auth, Clerk, Supabase Auth and custom auth.
+- No code, dependency or database migration was added in this decision step.
+
+Tested:
+
+- Official auth documentation was checked.
+- Current `package.json` and existing Proffera stack were checked.
+
 ## P22B — Auth and workspace model plan
 
 Status: done.
@@ -88,21 +106,3 @@ Built:
 - Company registration form.
 - Company thank-you page.
 - Admin company list.
-- Database persistence through Neon/Postgres.
-
-Tested:
-
-- A company registration was created successfully.
-
-## Phase 08 — Matching companies to leads
-
-Status: done.
-
-Built:
-
-- Admin matching page.
-- Matching by area, category, service and company status.
-
-Tested:
-
-- A lead was matched to a company by service area.
