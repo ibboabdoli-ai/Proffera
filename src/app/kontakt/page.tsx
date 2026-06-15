@@ -1,9 +1,13 @@
 import type { Metadata } from "next";
 import { Mail, MapPin, MessageSquare } from "lucide-react";
+import { ButtonLink } from "@/components/ui/button-link";
 
 export const metadata: Metadata = {
-  title: "Kontakt",
-  description: "Kontakta Proffera för demo, pilotkund eller frågor om SaaS-plattformen.",
+  title: {
+    absolute: "Kontakt – Boka demo av Proffera",
+  },
+  description:
+    "Kontakta Proffera för demo, pilotkund eller frågor om bokningssystem, CRM, leadhantering och AI-assistent för företag.",
 };
 
 export default function ContactPage() {
@@ -12,11 +16,14 @@ export default function ContactPage() {
       <section className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8 lg:py-24">
         <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Kontakt</p>
         <h1 className="mt-3 max-w-4xl text-4xl font-bold tracking-tight text-[#17201a] sm:text-5xl">
-          Vill du se hur Proffera kan fungera för ditt företag?
+          Vill du se hur Proffera fungerar för ditt företag?
         </h1>
         <p className="mt-5 max-w-3xl text-lg leading-8 text-[#5b665f]">
-          Kontakta oss för demo, pilotkund eller frågor om bokning, CRM och AI-driven kundkommunikation.
+          Boka en demo så visar vi bokning, leads, CRM och AI-assistent i ett enkelt flöde.
         </p>
+        <div className="mt-8">
+          <ButtonLink href="/demo">Boka demo</ButtonLink>
+        </div>
       </section>
 
       <section className="mx-auto grid max-w-7xl gap-6 px-4 pb-16 sm:px-6 lg:grid-cols-[0.8fr_1.2fr] lg:px-8">
@@ -29,27 +36,26 @@ export default function ContactPage() {
           </div>
         </div>
 
-        <form className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
-          <h2 className="text-2xl font-bold text-[#17201a]">Skicka intresseanmälan</h2>
-          <p className="mt-2 text-sm text-[#5b665f]">Formuläret är en visuell demo i denna fas. Skicka e-post direkt tills kontaktflödet kopplas till backend.</p>
-          <div className="mt-6 grid gap-4">
-            <label className="grid gap-2 text-sm font-medium text-[#17201a]">
-              Namn
-              <input className="rounded-xl border border-[#dfe5dd] px-4 py-3" placeholder="Ditt namn" />
-            </label>
-            <label className="grid gap-2 text-sm font-medium text-[#17201a]">
-              E-post
-              <input className="rounded-xl border border-[#dfe5dd] px-4 py-3" placeholder="namn@foretag.se" />
-            </label>
-            <label className="grid gap-2 text-sm font-medium text-[#17201a]">
-              Meddelande
-              <textarea className="min-h-32 rounded-xl border border-[#dfe5dd] px-4 py-3" placeholder="Berätta kort vad du vill se i Proffera" />
-            </label>
-            <a className="inline-flex w-fit rounded-full bg-[#17452f] px-5 py-3 text-sm font-semibold text-white" href="mailto:leads@proffera.se?subject=Demo%20Proffera">
-              Skicka via e-post
+        <div className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
+          <h2 className="text-2xl font-bold text-[#17201a]">Boka demo eller mejla oss</h2>
+          <p className="mt-2 text-sm leading-6 text-[#5b665f]">
+            Berätta kort om företaget, vilka tjänster ni erbjuder och vilket flöde ni vill förbättra. Vi återkommer med förslag på demo eller pilotupplägg.
+          </p>
+          <div className="mt-6 rounded-3xl bg-[#fbfbf8] p-4 text-sm text-[#344139] ring-1 ring-[#dfe5dd]">
+            <p className="font-semibold text-[#17201a]">Bra information att skicka:</p>
+            <ul className="mt-3 list-disc space-y-2 pl-5">
+              <li>Företagsnamn, bransch och stad</li>
+              <li>Om ni vill testa bokning, leads, CRM eller AI-chatt</li>
+              <li>Telefonnummer eller e-post för uppföljning</li>
+            </ul>
+          </div>
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+            <ButtonLink href="/demo">Boka demo</ButtonLink>
+            <a className="inline-flex w-fit rounded-full border border-[#17452f] bg-white px-5 py-3 text-sm font-semibold text-[#17452f]" href="mailto:leads@proffera.se?subject=Demo%20Proffera">
+              Skicka e-post
             </a>
           </div>
-        </form>
+        </div>
       </section>
     </div>
   );
