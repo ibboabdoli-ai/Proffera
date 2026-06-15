@@ -233,3 +233,24 @@ Service AI Chat remains a separate widget/inbox engine, not the Proffera custome
 ### Boundary
 
 P21 only creates/polishes the Proffera login entry. It does not implement real authentication, sessions, roles, billing, customer onboarding or workspace tenant binding.
+
+## ADR-0013 — Temporarily protect dashboard before real auth
+
+- Status: Accepted
+- Date: 2026-06-15
+
+### Decision
+
+Until real SaaS authentication exists, `/dashboard` and `/dashboard/*` must be protected by temporary Basic Auth.
+
+This is an interim launch-readiness safeguard only.
+
+### Reason
+
+- Dashboard pages read CRM, booking, customer, settings and service data from the MVP workspace.
+- The dashboard must not be openly accessible before real customer authentication and workspace isolation exist.
+- Temporary protection lowers exposure risk while the proper auth/session/workspace model is planned.
+
+### Boundary
+
+This does not implement real customer authentication, sessions, roles, billing, subscriptions or workspace tenant binding. It must be replaced before real multi-tenant customer onboarding.
