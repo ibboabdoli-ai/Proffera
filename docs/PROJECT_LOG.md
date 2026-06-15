@@ -2,6 +2,25 @@
 
 This file records what has been built and tested in Proffera.
 
+## P22A — Dashboard temporary Basic Auth
+
+Status: done.
+
+Details: `docs/logs/PHASE_P22A_DASHBOARD_TEMP_BASIC_AUTH.md`
+
+Built:
+
+- `/dashboard` and `/dashboard/*` now have temporary Basic Auth protection.
+- Dashboard still returns `X-Robots-Tag: noindex, nofollow` after access is accepted.
+- Admin protection, public pages, CRM/booking data access and Service AI Chat redirects were kept separate.
+- No real customer authentication, session handling, roles or workspace binding was added.
+
+Tested:
+
+- Code inspection completed for middleware behavior.
+- Local typecheck/lint/build were not run in this environment.
+- Production route verification still needs manual check after deployment.
+
 ## P21 — Proffera login entry foundation
 
 Status: done.
