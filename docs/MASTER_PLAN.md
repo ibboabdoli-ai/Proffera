@@ -26,10 +26,27 @@ Product promise:
 - Workspace and company settings
 - Analytics and operational overview
 - AI assistant / inbox entry points
+- Customer login and workspace access
 
 ## Current status
 
 See [`CURRENT_STATUS.md`](CURRENT_STATUS.md) for completed phases, production status, current risks, and the recommended next safe step.
+
+## Architecture decision: Proffera owns customer login
+
+The public `Logga in` route belongs to Proffera and should remain on `proffera.se`.
+
+Current state:
+
+- `/logga-in` is a Proffera customer portal entry placeholder.
+- Real authentication, sessions, roles, customer accounts, subscription access and workspace binding are not implemented yet.
+- Service AI Chat must not become the Proffera customer account/login system.
+
+Long-term direction:
+
+- Customer identity and workspace access should be derived from a trusted authenticated Proffera session.
+- The dashboard should be protected before real customer data is used.
+- `workspace_id = 'default'` must be replaced before real multi-tenant onboarding.
 
 ## Architecture decision: Service AI Chat stays separate
 
