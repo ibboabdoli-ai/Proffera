@@ -2,6 +2,24 @@
 
 This file records what has been built and tested in Proffera.
 
+## P22D-prep — Local toolchain alignment
+
+Status: done.
+
+Details: `docs/logs/PHASE_P22D_PREP_TOOLCHAIN.md`
+
+Built:
+
+- Added `.nvmrc` with Node 22.
+- Added `engines.node` requirement to `package.json`.
+- Pinned `eslint` to `9.39.1` instead of `latest`.
+- No Better Auth dependency, auth route, migration, login flow or dashboard logic was added.
+
+Tested:
+
+- Remote code inspection completed.
+- Local verification still required after pulling latest main: `nvm use`, `npm install`, `npm run build`, `npm run lint`.
+
 ## P22C — Auth implementation decision
 
 Status: done.
@@ -81,28 +99,3 @@ Tested:
 Status: pending PR review.
 
 Details: `docs/logs/PHASE_18_17B_DOCUMENTATION_WORKFLOW_CLEANUP.md`
-
-## 2026-06-14 — Documentation aligned with current SaaS direction
-
-Status: documentation-only update.
-
-Updated:
-
-- Reframed Proffera as the parent SaaS product for Swedish service businesses.
-- Documented Service AI Chat as a separate related engine under `chat.proffera.se`.
-- Added the P-01 to P-05 widget/inbox integration strategy.
-- Recorded the strict tenant-isolation rule: Iboren and Proffera data must never mix.
-- Updated current phase status through verified Phase 18.14 and planned Phase 18.15.
-- Recorded website/security audit notes, protected flows, rollback expectations, and documentation consistency fixes.
-
-No application code, package files, database files, routes, components, or deployment state changed in this documentation update.
-
-## Phase 07 — Company registration
-
-Status: done.
-
-Built:
-
-- Company registration form.
-- Company thank-you page.
-- Admin company list.
