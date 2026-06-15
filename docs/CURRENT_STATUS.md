@@ -19,6 +19,7 @@ Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a le
 - P22B: Auth and workspace model plan added. No code or database changes were made in this planning step.
 - P22C: Auth implementation direction selected: Better Auth with PostgreSQL/Neon, plus Proffera-owned workspace and membership tables.
 - P22D retry plan added after dependency resolution conflict. No auth dependency is currently installed.
+- P22D-prep: Local toolchain alignment completed with `.nvmrc`, Node engine requirement and ESLint 9 pin.
 
 ## Production status
 
@@ -31,6 +32,8 @@ Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a le
 - `/dashboard` now has temporary Basic Auth protection.
 - P22D dependency/config attempt failed during npm dependency resolution and was rolled back to keep install/build safe.
 - `src/lib/auth.ts` is only a dependency-free placeholder until P22D is retried with pinned, locally verified versions.
+- `.nvmrc` now requests Node 22 for local development.
+- `package.json` now declares Node `>=20.9.0` and pins ESLint to v9.
 - Service AI Chat remains a separate project at `chat.proffera.se`.
 - The Service AI Chat widget is installed and can answer, but Proffera inbox persistence/delivery still needs final verification or a small fix.
 
@@ -38,9 +41,9 @@ Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a le
 
 Choose one small, approved next step:
 
-1. Run the P22D retry local package checks from `docs/PHASE_P22D_RETRY_PLAN.md` and share the output.
-2. Verify npm install/build after the P22D rollback if not already done.
-3. Retry P22D only with pinned package versions that are locally install-verified first.
+1. Pull the latest main branch, run `nvm use`, then verify `npm install`, `npm run build`, and `npm run lint` locally.
+2. Retry P22D only with pinned Better Auth/package versions after local toolchain verification succeeds.
+3. Later, verify Service AI Chat inbox persistence for client `proffera`, then confirm strict tenant isolation.
 
 Do not start a full Service AI Chat merge or broad cross-project refactor.
 
