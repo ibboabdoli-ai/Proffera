@@ -1,7 +1,16 @@
+import type { Metadata } from "next";
 import { ArrowRight, Bot, CalendarCheck, CheckCircle2, QrCode, Users } from "lucide-react";
 import { ButtonLink } from "@/components/ui/button-link";
 import { ConversionSections } from "@/components/marketing/conversion-sections";
 import { pricingPlans, serviceCategories, siteConfig } from "@/lib/site";
+
+export const metadata: Metadata = {
+  title: {
+    absolute: "Proffera – Bokningssystem, CRM och AI-assistent för tjänsteföretag",
+  },
+  description:
+    "Proffera hjälper svenska tjänsteföretag att hantera bokningar, leads, kunder och AI-driven kunddialog i ett enkelt SaaS-system.",
+};
 
 const dashboardItems = ["Leads", "Kunder", "Bokningar", "Analys", "AI Assistant", "Inställningar"] as const;
 
@@ -51,7 +60,7 @@ export default function HomePage() {
               <p className="text-sm text-[#5b665f]">Admin dashboard</p>
               <p className="text-xl font-bold text-[#17201a]">Proffera Workspace</p>
             </div>
-            <span className="rounded-full bg-[#e7f1eb] px-3 py-1 text-xs font-semibold text-[#17452f]">Live MVP</span>
+            <span className="rounded-full bg-[#e7f1eb] px-3 py-1 text-xs font-semibold text-[#17452f]">Demo klar</span>
           </div>
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
             {dashboardItems.map((item) => (
@@ -123,12 +132,12 @@ export default function HomePage() {
       <section className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
         <div className="rounded-3xl bg-[#17452f] p-8 text-white md:p-10">
           <QrCode className="h-10 w-10" aria-hidden="true" />
-          <h2 className="mt-5 text-3xl font-bold">Redo att visa Proffera för första kunder?</h2>
+          <h2 className="mt-5 text-3xl font-bold">Redo att se Proffera i praktiken?</h2>
           <p className="mt-3 max-w-2xl text-white/80">
             Boka en demo och se hur bokningsflöde, leadhantering, AI-chatt och adminöversikt kan fungera för svenska tjänsteföretag.
           </p>
           <div className="mt-6">
-            <ButtonLink href="/demo" variant="secondary">Se demo</ButtonLink>
+            <ButtonLink href="/demo" variant="secondary">Boka demo</ButtonLink>
           </div>
         </div>
       </section>
