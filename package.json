@@ -22,7 +22,7 @@
     "@types/node": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
-    "eslint": "latest",
+    "eslint": "9.39.1",
     "eslint-config-next": "16.2.2",
     "tailwindcss": "latest",
     "typescript": "latest"
