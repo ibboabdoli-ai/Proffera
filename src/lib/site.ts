@@ -1,3 +1,11 @@
+export const chatLinks = {
+  app: "https://chat.proffera.se/app/inbox?tenant=proffera",
+  demo: "https://chat.proffera.se/demo?tenant=proffera",
+  settings: "https://chat.proffera.se/app/settings?tenant=proffera",
+  widgetInstall: "https://chat.proffera.se/app/widget-install?tenant=proffera",
+  widgetConfig: "https://chat.proffera.se/api/widget-config?clientId=proffera",
+} as const;
+
 export const siteConfig = {
   name: "Proffera",
   description:
@@ -11,7 +19,7 @@ export const mainNav = [
   { label: "Tjänster", href: "/tjanster" },
   { label: "Branscher", href: "/branscher" },
   { label: "Priser", href: "/priser" },
-  { label: "Demo", href: "/demo" },
+  { label: "Demo", href: chatLinks.demo },
   { label: "Om", href: "/om" },
   { label: "Kontakt", href: "/kontakt" },
 ] as const;
