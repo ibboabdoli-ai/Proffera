@@ -18,9 +18,11 @@ Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a le
 - P22A: Temporary Basic Auth protection added for `/dashboard` and `/dashboard/*`; real customer auth is not implemented yet.
 - P22B: Auth and workspace model plan added. No code or database changes were made in this planning step.
 - P22C: Auth implementation direction selected: Better Auth with PostgreSQL/Neon, plus Proffera-owned workspace and membership tables.
-- P22D retry plan added after dependency resolution conflict. No auth dependency is currently installed.
+- P22D retry plan added after dependency resolution conflict. No auth dependency was installed in that planning step.
 - P22D-prep: Local toolchain alignment completed with `.nvmrc`, Node engine requirement and ESLint 9 pin.
 - P22D-prep follow-up: ESLint config moved away from `FlatCompat` to direct flat config imports for Next/TypeScript.
+- P22D-prep lint cleanup: demo booking ID generation made deterministic and local lint/build passed.
+- P22D-retry: pinned Better Auth/PostgreSQL dependencies and lazy auth configuration added. No auth route, migration, login flow, dashboard session logic, or workspace binding was added.
 
 ## Production status
 
@@ -31,8 +33,9 @@ Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a le
 - Existing public website, dashboard, CRM/booking, lead, matching, outbox, Brevo, and mailto flows must remain protected.
 - `/logga-in` is now a Proffera-owned customer portal entry page, not a redirect to `chat.proffera.se`.
 - `/dashboard` now has temporary Basic Auth protection.
-- P22D dependency/config attempt failed during npm dependency resolution and was rolled back to keep install/build safe.
-- `src/lib/auth.ts` is only a dependency-free placeholder until P22D is retried with pinned, locally verified versions.
+- P22D direct `latest` dependency attempt failed during npm dependency resolution and was rolled back to keep install/build safe.
+- P22D-retry now uses pinned dependency versions and a lazy `getAuth()` config only.
+- `src/lib/auth.ts` does not expose an auth route yet; real customer auth is still not active.
 - `.nvmrc` now requests Node 22 for local development.
 - `package.json` now declares Node `>=20.9.0` and pins ESLint to v9.
 - `eslint.config.mjs` now uses direct flat config imports instead of `FlatCompat`.
@@ -43,8 +46,8 @@ Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a le
 
 Choose one small, approved next step:
 
-1. Pull the latest main branch, run `nvm use`, then verify `npm install`, `npm run build`, and `npm run lint` locally.
-2. Retry P22D only with pinned Better Auth/package versions after local toolchain verification succeeds.
+1. Pull the latest main branch, run `nvm use`, then verify `npm install --no-package-lock`, `npm run lint`, and `npm run build` locally.
+2. If P22D-retry verifies cleanly, continue with P22E: Better Auth schema/migration planning only.
 3. Later, verify Service AI Chat inbox persistence for client `proffera`, then confirm strict tenant isolation.
 
 Do not start a full Service AI Chat merge or broad cross-project refactor.
