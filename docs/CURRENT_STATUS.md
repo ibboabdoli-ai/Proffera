@@ -18,6 +18,7 @@ Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a le
 - P22A: Temporary Basic Auth protection added for `/dashboard` and `/dashboard/*`; real customer auth is not implemented yet.
 - P22B: Auth and workspace model plan added. No code or database changes were made in this planning step.
 - P22C: Auth implementation direction selected: Better Auth with PostgreSQL/Neon, plus Proffera-owned workspace and membership tables.
+- P22D retry plan added after dependency resolution conflict. No auth dependency is currently installed.
 
 ## Production status
 
@@ -37,9 +38,9 @@ Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a le
 
 Choose one small, approved next step:
 
-1. Verify npm install/build after the P22D rollback.
-2. Retry P22D only with pinned package versions that are locally install-verified first.
-3. Later, verify Service AI Chat inbox persistence for client `proffera`, then confirm strict tenant isolation.
+1. Run the P22D retry local package checks from `docs/PHASE_P22D_RETRY_PLAN.md` and share the output.
+2. Verify npm install/build after the P22D rollback if not already done.
+3. Retry P22D only with pinned package versions that are locally install-verified first.
 
 Do not start a full Service AI Chat merge or broad cross-project refactor.
 
