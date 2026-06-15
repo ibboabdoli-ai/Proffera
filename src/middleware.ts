@@ -3,14 +3,34 @@ import { NextRequest, NextResponse } from "next/server";
 const CHAT_ORIGIN = "https://chat.proffera.se";
 const PROFFERA_TENANT = "proffera";
 const PROFFERA_CLIENT_ID = "proffera";
+const NOINDEX_VALUE = "noindex, nofollow";
 
-function unauthorized() {
+function unauthorized(realm = "Proffera Admin", noindex = false) {
+  const headers = new Headers({
+    "WWW-Authenticate": `Basic realm="${realm}"`,
+  });
+
+  if (noindex) {
+    headers.set("X-Robots-Tag", NOINDEX_VALUE);
+  }
+
   return new Response("Authentication required", {
     status: 401,
-    headers: {
-      "WWW-Authenticate": 'Basic realm="Proffera Admin"',
-    },
+    headers,
   });
+}
+
+function basicAuthPassword(request: NextRequest) {
+  const authHeader = request.headers.get("authorization");
+
+  if (!authHeader || !authHeader.startsWith("Basic ")) {
+    return "";
+  }
+
+  const decoded = atob(authHeader.slice(6));
+  const separatorIndex = decoded.indexOf(":");
+
+  return separatorIndex >= 0 ? decoded.slice(separatorIndex + 1) : "";
 }
 
 function chatUrl(pathname: string, search = "") {
@@ -43,8 +63,34 @@ function widgetConfigUrl(search = "") {
   return url;
 }
 
+function isDashboardPath(pathname: string) {
+  return pathname === "/dashboard" || pathname.startsWith("/dashboard/");
+}
+
 function shouldRequireAdminAuth(pathname: string) {
   return pathname.startsWith("/admin/") || pathname === "/api/outbox" || pathname === "/api/company-admin";
+}
+
+function requireDashboardAuth(request: NextRequest) {
+  const expectedCode = (process.env.DASHBOARD_ACCESS_CODE ?? process.env.ADMIN_ACCESS_CODE ?? "").trim();
+
+  if (!expectedCode || basicAuthPassword(request) !== expectedCode) {
+    return unauthorized("Proffera Dashboard", true);
+  }
+
+  const response = NextResponse.next();
+  response.headers.set("X-Robots-Tag", NOINDEX_VALUE);
+  return response;
+}
+
+function requireAdminAuth(request: NextRequest) {
+  const expectedCode = (process.env.ADMIN_ACCESS_CODE ?? "").trim();
+
+  if (!expectedCode || basicAuthPassword(request) !== expectedCode) {
+    return unauthorized();
+  }
+
+  return NextResponse.next();
 }
 
 export function middleware(request: NextRequest) {
@@ -58,33 +104,12 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(widgetConfigUrl(search));
   }
 
-  if (pathname === "/dashboard" || pathname.startsWith("/dashboard/")) {
-    const response = NextResponse.next();
-    response.headers.set("X-Robots-Tag", "noindex, nofollow");
-    return response;
+  if (isDashboardPath(pathname)) {
+    return requireDashboardAuth(request);
   }
 
-  if (!shouldRequireAdminAuth(pathname)) {
-    return NextResponse.next();
-  }
-
-  const adminCode = process.env.ADMIN_ACCESS_CODE;
-
-  if (!adminCode) {
-    return unauthorized();
-  }
-
-  const authHeader = request.headers.get("authorization");
-  if (!authHeader || !authHeader.startsWith("Basic ")) {
-    return unauthorized();
-  }
-
-  const decoded = atob(authHeader.slice(6));
-  const separatorIndex = decoded.indexOf(":");
-  const password = separatorIndex >= 0 ? decoded.slice(separatorIndex + 1) : "";
-
-  if (password !== adminCode) {
-    return unauthorized();
+  if (shouldRequireAdminAuth(pathname)) {
+    return requireAdminAuth(request);
   }
 
   return NextResponse.next();
@@ -94,6 +119,7 @@ export const config = {
   matcher: [
     "/app/:path*",
     "/api/widget-config",
+    "/dashboard",
     "/dashboard/:path*",
     "/admin/:path*",
     "/api/outbox",
