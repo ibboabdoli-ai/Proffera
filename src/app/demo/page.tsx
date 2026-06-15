@@ -1,5 +1,14 @@
+import type { Metadata } from "next";
 import { Bot, CalendarDays, LayoutDashboard, QrCode } from "lucide-react";
 import { ButtonLink } from "@/components/ui/button-link";
+
+export const metadata: Metadata = {
+  title: {
+    absolute: "Boka demo – Se Proffera för ditt tjänsteföretag",
+  },
+  description:
+    "Boka en demo och se hur Proffera kan hjälpa ditt företag med bokningsflöde, leads, kundhantering och AI-chatt.",
+};
 
 const demoBlocks = [
   { icon: CalendarDays, title: "Interaktivt bokningsflöde", text: "Kunden väljer tjänst, beskriver behovet och skickar en tydlig förfrågan." },

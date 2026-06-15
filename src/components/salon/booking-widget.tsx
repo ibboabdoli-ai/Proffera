@@ -204,6 +204,7 @@ export function BookingWidget() {
           <CheckCircle2 className="h-10 w-10" aria-hidden="true" />
           <h2 className="mt-4 text-2xl font-black">Bokningsförfrågan skickad</h2>
           <p className="mt-2 text-sm leading-6">Vi kontaktar dig så snart frisören har godkänt tiden.</p>
+          <p className="mt-3 rounded-2xl bg-white/80 px-4 py-3 text-xs font-black leading-5">Detta är en demo. Ingen riktig bokning skickas.</p>
           <p className="mt-4 rounded-2xl bg-white/80 px-4 py-3 text-sm font-black">Referensnummer: {referenceNumber}</p>
         </div>
 
@@ -230,11 +231,15 @@ export function BookingWidget() {
     <div className="mt-6 rounded-[1.7rem] bg-white p-4 text-[#17201a] shadow-2xl lg:mt-0 lg:p-6">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="text-xs font-bold uppercase tracking-wide text-[#17452f]">Bokning demo</p>
+          <p className="text-xs font-bold uppercase tracking-wide text-[#17452f]">Bokningsdemo</p>
           <h2 className="mt-1 text-2xl font-black">Boka hos Elias</h2>
         </div>
         <span className="rounded-full bg-[#e7f1eb] px-3 py-1 text-xs font-bold text-[#17452f]">Månadsvy</span>
       </div>
+
+      <p className="mt-4 rounded-2xl bg-[#fff6dd] px-4 py-3 text-xs font-black leading-5 text-[#8a5b00]">
+        Detta är en demo. Ingen riktig bokning skickas.
+      </p>
 
       <div className="mt-5 rounded-3xl border border-[#dfe5dd] bg-[#fbfbf8] p-4">
         <div className="flex items-center gap-2">

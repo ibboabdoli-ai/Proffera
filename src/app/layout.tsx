@@ -55,9 +55,6 @@ export const metadata: Metadata = {
     "digital bokning",
     "kundhantering",
   ],
-  alternates: {
-    canonical: "/",
-  },
   openGraph: {
     title: `${siteConfig.name} – SaaS för svenska tjänsteföretag`,
     description: siteConfig.description,

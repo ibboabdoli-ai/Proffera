@@ -1,6 +1,15 @@
+import type { Metadata } from "next";
 import { CheckCircle2 } from "lucide-react";
 import { ButtonLink } from "@/components/ui/button-link";
 import { pricingPlans } from "@/lib/site";
+
+export const metadata: Metadata = {
+  title: {
+    absolute: "Priser – Bokningssystem och CRM från 299 kr/mån",
+  },
+  description:
+    "Välj en Proffera-plan för digital bokning, leadhantering, CRM och AI-stöd. Börja enkelt och väx när företaget behöver mer.",
+};
 
 export default function PricingPage() {
   return (

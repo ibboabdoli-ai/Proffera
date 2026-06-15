@@ -1,6 +1,15 @@
+import type { Metadata } from "next";
 import { ArrowRight, Bot, CalendarCheck, MailCheck, QrCode, Users } from "lucide-react";
 import { ButtonLink } from "@/components/ui/button-link";
 import { serviceCategories } from "@/lib/site";
+
+export const metadata: Metadata = {
+  title: {
+    absolute: "Tjänster – Digital bokning, CRM och AI-chatt för företag",
+  },
+  description:
+    "Utforska Profferas moduler för onlinebokning, leadhantering, kund-CRM, automatiska mejl, QR-bokning och AI-assistent.",
+};
 
 const highlights = [
   { icon: CalendarCheck, title: "Onlinebokning", text: "Låt kunder boka tid eller skicka förfrågan direkt från företagets webbplats." },
