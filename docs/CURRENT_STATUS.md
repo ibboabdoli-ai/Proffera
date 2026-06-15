@@ -17,6 +17,7 @@ Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a le
 - P21: Proffera login entry foundation completed. Public `Logga in` now stays inside Proffera at `/logga-in`; no real auth was added.
 - P22A: Temporary Basic Auth protection added for `/dashboard` and `/dashboard/*`; real customer auth is not implemented yet.
 - P22B: Auth and workspace model plan added. No code or database changes were made in this planning step.
+- P22C: Auth implementation direction selected: Better Auth with PostgreSQL/Neon, plus Proffera-owned workspace and membership tables.
 
 ## Production status
 
@@ -34,7 +35,7 @@ Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a le
 
 Choose one small, approved next step:
 
-1. P22C: choose the real auth implementation approach before writing code or migrations.
+1. P22D: add Better Auth dependency/config only, without removing temporary dashboard protection.
 2. Verify `/dashboard` prompts for Basic Auth in production if not already manually confirmed.
 3. Later, verify Service AI Chat inbox persistence for client `proffera`, then confirm strict tenant isolation.
 
