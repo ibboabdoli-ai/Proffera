@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { mainNav, siteConfig } from "@/lib/site";
+import { chatLinks, mainNav, siteConfig } from "@/lib/site";
 import { ButtonLink } from "@/components/ui/button-link";
 
 export function Header() {
@@ -20,14 +20,14 @@ export function Header() {
         </nav>
 
         <div className="hidden items-center gap-3 sm:flex">
-          <Link href="/logga-in" className="text-sm font-semibold text-[#17452f] hover:text-[#0e2e1e]">
+          <Link href={chatLinks.app} className="text-sm font-semibold text-[#17452f] hover:text-[#0e2e1e]">
             Logga in
           </Link>
-          <ButtonLink href="/fa-offert">{siteConfig.primaryCta}</ButtonLink>
+          <ButtonLink href={chatLinks.demo}>{siteConfig.primaryCta}</ButtonLink>
         </div>
 
-        <ButtonLink href="/fa-offert" className="sm:hidden">
-          Offert
+        <ButtonLink href={chatLinks.demo} className="sm:hidden">
+          Demo
         </ButtonLink>
       </div>
     </header>
