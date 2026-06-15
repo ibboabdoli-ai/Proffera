@@ -10,11 +10,13 @@ Recent completed steps:
 
 - P21: Public `Logga in` now stays inside Proffera at `/logga-in`. Real authentication is still not implemented.
 - P22A: `/dashboard` and `/dashboard/*` now have temporary Basic Auth protection. This is not the final SaaS authorization model.
+- P22B: Auth and workspace model plan added. Next step is choosing the actual auth implementation approach.
 
 ## Immediate priority: launch-readiness safeguards
 
 - Verify dashboard protection on production after deploy.
-- Plan and implement real customer authentication and authorization before real customer usage.
+- Choose the real customer authentication implementation approach before code or migrations.
+- Implement real customer authentication and authorization before real customer usage.
 - Replace `workspace_id = 'default'` before real multi-tenant onboarding.
 - Add server-side validation and spam protection to public forms.
 - Prevent dashboard/private routes from being indexed.
