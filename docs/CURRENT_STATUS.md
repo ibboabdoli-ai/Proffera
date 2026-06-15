@@ -20,6 +20,7 @@ Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a le
 - P22C: Auth implementation direction selected: Better Auth with PostgreSQL/Neon, plus Proffera-owned workspace and membership tables.
 - P22D retry plan added after dependency resolution conflict. No auth dependency is currently installed.
 - P22D-prep: Local toolchain alignment completed with `.nvmrc`, Node engine requirement and ESLint 9 pin.
+- P22D-prep follow-up: ESLint config moved away from `FlatCompat` to direct flat config imports for Next/TypeScript.
 
 ## Production status
 
@@ -34,6 +35,7 @@ Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a le
 - `src/lib/auth.ts` is only a dependency-free placeholder until P22D is retried with pinned, locally verified versions.
 - `.nvmrc` now requests Node 22 for local development.
 - `package.json` now declares Node `>=20.9.0` and pins ESLint to v9.
+- `eslint.config.mjs` now uses direct flat config imports instead of `FlatCompat`.
 - Service AI Chat remains a separate project at `chat.proffera.se`.
 - The Service AI Chat widget is installed and can answer, but Proffera inbox persistence/delivery still needs final verification or a small fix.
 
