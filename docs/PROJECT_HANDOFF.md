@@ -20,6 +20,7 @@ Recent product shell updates:
 - `/logga-in` is a Proffera customer portal entry placeholder, not real authentication.
 - P22A completed: `/dashboard` and `/dashboard/*` now have temporary Basic Auth protection.
 - P22B completed: auth and workspace model plan added in `docs/PHASE_P22B_AUTH_WORKSPACE_MODEL_PLAN.md`.
+- P22C completed: planned auth direction is Better Auth with PostgreSQL/Neon, while Proffera keeps ownership of workspace and membership business tables.
 - The long-term customer login model still needs proper auth, sessions, roles, and trusted workspace binding.
 
 ## What must not be touched without a separate approved plan
@@ -66,6 +67,7 @@ Integration sequence:
 ## Current website/security audit notes
 
 - Temporary dashboard protection is now in place, but it is not the final SaaS authorization model.
+- Planned auth direction: Better Auth with PostgreSQL/Neon.
 - Real customer authentication, session handling, roles, and workspace binding are still required.
 - Avoid `workspace_id = 'default'` for real SaaS multi-tenant usage.
 - Public forms need server-side validation and spam protection.
@@ -123,6 +125,7 @@ For Service AI Chat integration:
 - `docs/logs/PHASE_P21_PROFFERA_LOGIN_ENTRY.md`
 - `docs/logs/PHASE_P22A_DASHBOARD_TEMP_BASIC_AUTH.md`
 - `docs/PHASE_P22B_AUTH_WORKSPACE_MODEL_PLAN.md`
+- `docs/PHASE_P22C_AUTH_IMPLEMENTATION_DECISION.md`
 - `docs/PHASE_18_15_SETTINGS_COMPANY_PROFILE_PLAN.md`
 - `docs/PHASE_18_15B_SETTINGS_SAVE_FLOW_PLAN.md`
 - `docs/PHASE_18_16_SERVICES_SETTINGS_PLAN.md`
