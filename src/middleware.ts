@@ -50,10 +50,6 @@ function shouldRequireAdminAuth(pathname: string) {
 export function middleware(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
 
-  if (pathname === "/logga-in") {
-    return NextResponse.redirect(chatUrl("/app/inbox"));
-  }
-
   if (pathname.startsWith("/app/")) {
     return NextResponse.redirect(chatUrl(pathname, search));
   }
@@ -96,7 +92,6 @@ export function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/logga-in",
     "/app/:path*",
     "/api/widget-config",
     "/dashboard/:path*",
