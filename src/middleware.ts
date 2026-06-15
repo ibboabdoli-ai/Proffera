@@ -10,6 +10,12 @@ function unauthorized() {
 }
 
 export function middleware(request: NextRequest) {
+  if (request.nextUrl.pathname.startsWith("/dashboard")) {
+    const response = NextResponse.next();
+    response.headers.set("X-Robots-Tag", "noindex, nofollow");
+    return response;
+  }
+
   const adminCode = process.env.ADMIN_ACCESS_CODE;
 
   if (!adminCode) {
@@ -33,5 +39,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/admin/:path*", "/api/outbox", "/api/company-admin"],
+  matcher: ["/dashboard", "/dashboard/:path*", "/admin/:path*", "/api/outbox", "/api/company-admin"],
 };
