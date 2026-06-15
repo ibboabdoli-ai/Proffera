@@ -254,3 +254,26 @@ This is an interim launch-readiness safeguard only.
 ### Boundary
 
 This does not implement real customer authentication, sessions, roles, billing, subscriptions or workspace tenant binding. It must be replaced before real multi-tenant customer onboarding.
+
+## ADR-0014 — Use Better Auth with PostgreSQL/Neon for planned customer auth
+
+- Status: Accepted
+- Date: 2026-06-15
+
+### Decision
+
+The planned real customer authentication foundation for Proffera is Better Auth with PostgreSQL/Neon.
+
+Better Auth should handle authentication and sessions. Proffera should keep ownership of workspace, workspace membership, role, plan/subscription and CRM/booking authorization tables.
+
+### Reason
+
+- Fits the current Next.js, TypeScript and Neon/Postgres stack.
+- Avoids introducing Supabase as a second app platform.
+- Avoids making a fully managed external provider the owner of Proffera's core workspace model.
+- Avoids custom auth from scratch.
+- Keeps the long-term customer journey and workspace access inside Proffera.
+
+### Boundary
+
+This decision does not add dependencies, code, routes or database migrations. Implementation starts in a separate approved phase.
