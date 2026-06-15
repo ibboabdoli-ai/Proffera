@@ -1,5 +1,14 @@
+import type { Metadata } from "next";
 import { ButtonLink } from "@/components/ui/button-link";
 import { serviceTaxonomy } from "@/lib/service-taxonomy";
+
+export const metadata: Metadata = {
+  title: {
+    absolute: "Branscher – SaaS för städ, service, flytt och lokala tjänster",
+  },
+  description:
+    "Proffera är byggt för bokningsbara tjänsteföretag i Sverige som vill samla leads, bokningar, kunder och uppföljning.",
+};
 
 export default function IndustriesPage() {
   const totalServices = serviceTaxonomy.reduce((sum, category) => sum + category.services.length, 0);
