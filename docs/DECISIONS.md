@@ -209,3 +209,27 @@ Before real multi-tenant onboarding, `workspace_id = 'default'` must be replaced
 Services can be created, edited, sorted and activated/deactivated from `/dashboard/installningar`.
 
 Services cannot be deleted from the dashboard in Phase 18.16B. Delete requires a separate plan and cleanup policy.
+
+## ADR-0012 — Proffera owns login and customer portal entry
+
+- Status: Accepted
+- Date: 2026-06-15
+
+### Decision
+
+The public `Logga in` entry must stay inside the Proffera website at `/logga-in`.
+
+`/logga-in` must not redirect users directly to Service AI Chat.
+
+Service AI Chat remains a separate widget/inbox engine, not the Proffera customer account or authentication system.
+
+### Reason
+
+- Proffera is the parent SaaS product and must own the customer journey.
+- Customer accounts, dashboard access, workspace identity and subscription access should belong to Proffera.
+- Service AI Chat is only one module/integration and should not define the main login experience.
+- This keeps the long-term path open for real auth, roles, workspace binding and subscriptions inside Proffera.
+
+### Boundary
+
+P21 only creates/polishes the Proffera login entry. It does not implement real authentication, sessions, roles, billing, customer onboarding or workspace tenant binding.
