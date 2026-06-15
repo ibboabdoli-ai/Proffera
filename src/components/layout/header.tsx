@@ -23,11 +23,11 @@ export function Header() {
           <Link href="/logga-in" className="text-sm font-semibold text-[#17452f] hover:text-[#0e2e1e]">
             Logga in
           </Link>
-          <ButtonLink href="/fa-offert">{siteConfig.primaryCta}</ButtonLink>
+          <ButtonLink href="/demo">{siteConfig.primaryCta}</ButtonLink>
         </div>
 
-        <ButtonLink href="/fa-offert" className="sm:hidden">
-          Offert
+        <ButtonLink href="/demo" className="sm:hidden">
+          Boka demo
         </ButtonLink>
       </div>
     </header>
