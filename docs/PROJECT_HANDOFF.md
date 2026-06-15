@@ -14,6 +14,12 @@ UI language: Swedish
 
 See [`CURRENT_STATUS.md`](CURRENT_STATUS.md) for completed phases, production status, current risks, and the recommended next safe step.
 
+Recent product shell update:
+
+- P21 completed: public `Logga in` stays inside Proffera at `/logga-in`.
+- `/logga-in` is a Proffera customer portal entry placeholder, not real authentication.
+- The long-term customer login model still needs proper auth, sessions, roles, and trusted workspace binding.
+
 ## What must not be touched without a separate approved plan
 
 - Existing quote request flow.
@@ -45,6 +51,7 @@ Architecture rule:
 - No large cross-project refactor.
 - Iboren and Proffera messages or leads must never be mixed.
 - Proffera messages/leads must appear only under tenant/client `proffera`.
+- Service AI Chat is not the Proffera login system; Proffera owns its public login/customer portal entry.
 
 Integration sequence:
 
@@ -65,6 +72,7 @@ Integration sequence:
 - Canonical URLs, robots rules, and sitemap coverage should be reviewed.
 - Dashboard/private routes should not be indexed.
 - MVP/placeholder copy should be replaced before real sales.
+- `/logga-in` is only a customer portal entry placeholder until real auth is implemented.
 
 These findings are launch-readiness risks. Do not treat existing preview/demo routes as ready for real customer data until authentication and tenant boundaries are verified.
 
@@ -110,6 +118,7 @@ For Service AI Chat integration:
 - `docs/DECISIONS.md`
 - `docs/PROJECT_LOG.md`
 - `docs/logs/`
+- `docs/logs/PHASE_P21_PROFFERA_LOGIN_ENTRY.md`
 - `docs/PHASE_18_15_SETTINGS_COMPANY_PROFILE_PLAN.md`
 - `docs/PHASE_18_15B_SETTINGS_SAVE_FLOW_PLAN.md`
 - `docs/PHASE_18_16_SERVICES_SETTINGS_PLAN.md`
