@@ -6,15 +6,20 @@ Proffera is the parent SaaS product for Swedish service businesses. The roadmap 
 
 See [`CURRENT_STATUS.md`](CURRENT_STATUS.md) for completed phases, production status, open risks, and the recommended next safe step.
 
+Recent completed step:
+
+- P21: Public `Logga in` now stays inside Proffera at `/logga-in`. Real authentication is still not implemented.
+
 ## Immediate priority: launch-readiness safeguards
 
-- Verify `/dashboard` authentication and authorization before real customer usage.
+- Plan and implement real `/dashboard` authentication and authorization before real customer usage.
 - Remove access-code exposure from URLs, forms, screenshots, and logs.
 - Replace `workspace_id = 'default'` before real multi-tenant onboarding.
 - Add server-side validation and spam protection to public forms.
 - Prevent dashboard/private routes from being indexed.
 - Review canonical URLs, robots, sitemap, mobile navigation, and demo/contact conversion.
 - Replace MVP/placeholder copy before real sales.
+- Replace the `/logga-in` placeholder with a proper auth/session/customer portal flow.
 
 ## Service AI Chat integration
 
@@ -29,6 +34,7 @@ Current state:
 - Widget is installed on the Proffera public website.
 - Widget shows and AI replies.
 - Inbox persistence/delivery to tenant `proffera` still needs final verification and, if needed, a small routing/storage patch.
+- Service AI Chat is not the Proffera login/customer account system.
 
 Sequence:
 
