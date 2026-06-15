@@ -14,10 +14,11 @@ UI language: Swedish
 
 See [`CURRENT_STATUS.md`](CURRENT_STATUS.md) for completed phases, production status, current risks, and the recommended next safe step.
 
-Recent product shell update:
+Recent product shell updates:
 
 - P21 completed: public `Logga in` stays inside Proffera at `/logga-in`.
 - `/logga-in` is a Proffera customer portal entry placeholder, not real authentication.
+- P22A completed: `/dashboard` and `/dashboard/*` now have temporary Basic Auth protection.
 - The long-term customer login model still needs proper auth, sessions, roles, and trusted workspace binding.
 
 ## What must not be touched without a separate approved plan
@@ -63,8 +64,8 @@ Integration sequence:
 
 ## Current website/security audit notes
 
-- Verify `/dashboard` protection before real customer usage.
-- Admin/access codes must not leak through URLs, forms, screenshots, or logs.
+- Temporary dashboard protection is now in place, but it is not the final SaaS authorization model.
+- Real customer authentication, session handling, roles, and workspace binding are still required.
 - Avoid `workspace_id = 'default'` for real SaaS multi-tenant usage.
 - Public forms need server-side validation and spam protection.
 - `Boka demo` should become a real booking/contact flow.
@@ -119,6 +120,7 @@ For Service AI Chat integration:
 - `docs/PROJECT_LOG.md`
 - `docs/logs/`
 - `docs/logs/PHASE_P21_PROFFERA_LOGIN_ENTRY.md`
+- `docs/logs/PHASE_P22A_DASHBOARD_TEMP_BASIC_AUTH.md`
 - `docs/PHASE_18_15_SETTINGS_COMPANY_PROFILE_PLAN.md`
 - `docs/PHASE_18_15B_SETTINGS_SAVE_FLOW_PLAN.md`
 - `docs/PHASE_18_16_SERVICES_SETTINGS_PLAN.md`
