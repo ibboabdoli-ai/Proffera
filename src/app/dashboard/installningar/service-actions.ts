@@ -8,22 +8,19 @@ import {
   type WriteDashboardWorkspaceServiceInput,
 } from "@/lib/workspace-services-db";
 
-const serviceErrorKeys = [
-  "access",
-  "disabled",
-  "id",
-  "name",
-  "description",
-  "category",
-  "price",
-  "base_price",
-  "duration",
-  "area",
-  "sort",
-  "save",
-] as const;
-
-type ServiceSaveError = (typeof serviceErrorKeys)[number];
+type ServiceSaveError =
+  | "access"
+  | "disabled"
+  | "id"
+  | "name"
+  | "description"
+  | "category"
+  | "price"
+  | "base_price"
+  | "duration"
+  | "area"
+  | "sort"
+  | "save";
 
 function getFormText(formData: FormData, key: string) {
   return String(formData.get(key) ?? "").trim();
