@@ -18,7 +18,6 @@ Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a le
 - P22A: Temporary Basic Auth protection added for `/dashboard` and `/dashboard/*`; real customer auth is not implemented yet.
 - P22B: Auth and workspace model plan added. No code or database changes were made in this planning step.
 - P22C: Auth implementation direction selected: Better Auth with PostgreSQL/Neon, plus Proffera-owned workspace and membership tables.
-- P22D: Better Auth package and `src/lib/auth.ts` config skeleton added. No route, login flow, migration, or dashboard access change was added.
 
 ## Production status
 
@@ -29,6 +28,8 @@ Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a le
 - Existing public website, dashboard, CRM/booking, lead, matching, outbox, Brevo, and mailto flows must remain protected.
 - `/logga-in` is now a Proffera-owned customer portal entry page, not a redirect to `chat.proffera.se`.
 - `/dashboard` now has temporary Basic Auth protection.
+- P22D dependency/config attempt failed during npm dependency resolution and was rolled back to keep install/build safe.
+- `src/lib/auth.ts` is only a dependency-free placeholder until P22D is retried with pinned, locally verified versions.
 - Service AI Chat remains a separate project at `chat.proffera.se`.
 - The Service AI Chat widget is installed and can answer, but Proffera inbox persistence/delivery still needs final verification or a small fix.
 
@@ -36,8 +37,8 @@ Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a le
 
 Choose one small, approved next step:
 
-1. Verify the production build after the P22D dependency/config change.
-2. P22E: create additive Better Auth schema migration only after P22D build succeeds.
+1. Verify npm install/build after the P22D rollback.
+2. Retry P22D only with pinned package versions that are locally install-verified first.
 3. Later, verify Service AI Chat inbox persistence for client `proffera`, then confirm strict tenant isolation.
 
 Do not start a full Service AI Chat merge or broad cross-project refactor.
