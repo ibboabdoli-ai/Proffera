@@ -15,9 +15,10 @@ export function ServiceAiChatWidget() {
   return (
     <Script
       id="proffera-chat-widget"
-      src={`${widgetHost}/widget-v2.js`}
+      src={`${widgetHost}/widget.js?v=20260616-9`}
       strategy="afterInteractive"
       data-client-id={clientId}
+      data-api-base={widgetHost}
     />
   );
 }
