@@ -21,6 +21,9 @@ export const metadata: Metadata = {
     "digital bokning",
     "kundhantering",
   ],
+  icons: {
+    icon: "/favicon.svg",
+  },
   openGraph: {
     title: `${siteConfig.name} – SaaS för svenska tjänsteföretag`,
     description: siteConfig.description,
@@ -28,6 +31,14 @@ export const metadata: Metadata = {
     siteName: siteConfig.name,
     locale: "sv_SE",
     type: "website",
+    images: [
+      {
+        url: "/brand/proffera-og.svg",
+        width: 1200,
+        height: 630,
+        alt: "Proffera",
+      },
+    ],
   },
 };
 
