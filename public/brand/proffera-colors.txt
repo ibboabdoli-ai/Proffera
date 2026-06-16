@@ -1,0 +1,5 @@
+Proffera Green: #17452f
+Dark Green: #0e2e1e
+Ink: #17201a
+Muted: #5b665f
+Warm background: #f7f7f4

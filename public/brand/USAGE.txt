@@ -1,0 +1,5 @@
+Use /brand/proffera-logo.svg in the public header on light backgrounds.
+Use /brand/proffera-logo-light.svg in the footer or dark sections.
+Use /brand/proffera-mark.svg for compact UI.
+Use /favicon.svg as the browser icon source.
+Use /brand/proffera-og.svg as social preview source if the metadata is wired later.
