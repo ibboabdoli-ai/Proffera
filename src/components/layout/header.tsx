@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { mainNav, siteConfig } from "@/lib/site";
 import { ButtonLink } from "@/components/ui/button-link";
@@ -6,9 +7,15 @@ export function Header() {
   return (
     <header className="border-b border-[#dfe5dd] bg-white/90 backdrop-blur">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
-        <Link href="/" className="flex items-center gap-2 text-xl font-bold text-[#17452f]" aria-label="Proffera startsida">
-          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#17452f] text-white">P</span>
-          <span>{siteConfig.name}</span>
+        <Link href="/" className="flex items-center" aria-label="Proffera startsida">
+          <Image
+            src="/brand/proffera-logo.svg"
+            alt="Proffera"
+            width={184}
+            height={48}
+            priority
+            className="h-10 w-auto"
+          />
         </Link>
 
         <nav className="hidden items-center gap-6 text-sm font-medium text-[#344139] lg:flex" aria-label="Huvudmeny">
