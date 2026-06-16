@@ -1,0 +1,15 @@
+<svg viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
+  <title>Proffera social preview</title>
+  <rect width="1200" height="630" fill="#f7f7f4"/>
+  <rect x="92" y="82" width="1016" height="466" rx="44" fill="white"/>
+  <g transform="translate(170 168) scale(1.22)">
+    <rect x="104" y="64" width="38" height="168" rx="18" fill="#17452f"/>
+    <path d="M123 64h62a58 58 0 0 1 0 116h-62" fill="none" stroke="#17452f" stroke-width="38" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="50" y="160" width="62" height="30" rx="15" fill="#17452f"/>
+    <rect x="72" y="194" width="42" height="30" rx="15" fill="#17452f"/>
+    <rect x="30" y="228" width="84" height="30" rx="15" fill="#17452f"/>
+  </g>
+  <text x="492" y="305" fill="#17201a" font-family="Inter, system-ui, sans-serif" font-size="98" font-weight="780">Proffera</text>
+  <text x="496" y="374" fill="#5b665f" font-family="Inter, system-ui, sans-serif" font-size="34" font-weight="560">Bokning, CRM och AI-assistent för tjänsteföretag</text>
+  <text x="496" y="446" fill="#17452f" font-family="Inter, system-ui, sans-serif" font-size="22" font-weight="760">proffera.se</text>
+</svg>
