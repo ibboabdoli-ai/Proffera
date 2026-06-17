@@ -5,7 +5,7 @@ import { LoginForm } from "./LoginForm";
 
 export const metadata: Metadata = {
   title: "Logga in | Proffera",
-  description: "Kundportal för Proffera. Inloggning och kundkonto förbereds för pilotkunder.",
+  description: "Kundportal för Proffera. Logga in för att komma åt din dashboard.",
   robots: {
     index: false,
     follow: false,
@@ -15,20 +15,20 @@ export const metadata: Metadata = {
 export default function LoginPage() {
   return (
     <main className="bg-[#f7f7f4]">
-      <section className="mx-auto grid min-h-[70vh] max-w-7xl items-center gap-10 px-4 py-16 sm:px-6 lg:grid-cols-[1.05fr_0.95fr] lg:px-8">
-        <div>
+      <section className="mx-auto grid min-h-[calc(100vh-5rem)] max-w-7xl items-start gap-8 px-4 py-8 sm:px-6 sm:py-12 lg:grid-cols-[1.05fr_0.95fr] lg:items-center lg:gap-10 lg:px-8 lg:py-16">
+        <div className="order-2 lg:order-1">
           <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Proffera kundportal</p>
           <h1 className="mt-4 max-w-3xl text-4xl font-bold tracking-tight text-[#17201a] sm:text-5xl">
             Logga in till Proffera
           </h1>
           <p className="mt-5 max-w-2xl text-lg leading-8 text-[#5b665f]">
-            Kundinloggning för Proffera förbereds stegvis. Formuläret kan nu skicka inloggningsuppgifter, medan dashboard-skydd och Basic Auth fortfarande är oförändrade.
+            Logga in med ditt Proffera-konto för att komma åt dashboard, kunder, leads och bokningar.
           </p>
 
           <div className="mt-8 grid gap-3 text-sm text-[#344139] sm:grid-cols-2">
             <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-[#dfe5dd]">
               <p className="font-semibold text-[#17201a]">För pilotkunder</p>
-              <p className="mt-1 leading-6">Åtkomst öppnas först när konto, workspace och behörigheter är verifierade.</p>
+              <p className="mt-1 leading-6">Åtkomst öppnas när konto, workspace och behörigheter är aktiva.</p>
             </div>
             <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-[#dfe5dd]">
               <p className="font-semibold text-[#17201a]">Behöver du hjälp?</p>
@@ -52,7 +52,9 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <LoginForm />
+        <div className="order-1 w-full lg:order-2">
+          <LoginForm />
+        </div>
       </section>
     </main>
   );
