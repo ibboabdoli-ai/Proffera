@@ -19,3 +19,8 @@ Fix the Proffera login page so mobile users can see and use the login form more 
 - No database schema changes.
 - No Basic Auth removal.
 - No deployment performed in this phase.
+
+## Follow-up preview build fix
+- Added `dynamic = "force-dynamic"` to the dashboard layout.
+- This prevents protected dashboard routes from being prerendered during Vercel preview builds without auth/database runtime access.
+- Validation after this follow-up: `npm run lint`, `npm run build`, and `git diff --check` passed.
