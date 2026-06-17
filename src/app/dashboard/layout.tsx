@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { getUserWorkspaceAccess } from "@/lib/workspace-access";
 
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "Dashboard",
   description: "Proffera SaaS dashboard preview for leads, customers, bookings and AI assistant.",
