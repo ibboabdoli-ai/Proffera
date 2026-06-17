@@ -71,13 +71,7 @@ function shouldRequireAdminAuth(pathname: string) {
   return pathname.startsWith("/admin/") || pathname === "/api/outbox" || pathname === "/api/company-admin";
 }
 
-function requireDashboardAuth(request: NextRequest) {
-  const expectedCode = (process.env.DASHBOARD_ACCESS_CODE ?? process.env.ADMIN_ACCESS_CODE ?? "").trim();
-
-  if (!expectedCode || basicAuthPassword(request) !== expectedCode) {
-    return unauthorized("Proffera Dashboard", true);
-  }
-
+function allowDashboardWithNoIndex() {
   const response = NextResponse.next();
   response.headers.set("X-Robots-Tag", NOINDEX_VALUE);
   return response;
@@ -105,7 +99,7 @@ export function middleware(request: NextRequest) {
   }
 
   if (isDashboardPath(pathname)) {
-    return requireDashboardAuth(request);
+    return allowDashboardWithNoIndex();
   }
 
   if (shouldRequireAdminAuth(pathname)) {
