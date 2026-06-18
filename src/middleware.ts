@@ -68,7 +68,7 @@ function isDashboardPath(pathname: string) {
 }
 
 function shouldRequireAdminAuth(pathname: string) {
-  return pathname.startsWith("/admin/") || pathname === "/api/outbox" || pathname === "/api/company-admin";
+  return pathname === "/admin" || pathname.startsWith("/admin/") || pathname === "/api/outbox" || pathname === "/api/company-admin";
 }
 
 function allowDashboardWithNoIndex() {
