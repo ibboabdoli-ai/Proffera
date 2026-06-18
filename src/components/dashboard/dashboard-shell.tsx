@@ -18,25 +18,34 @@ export function DashboardShell({ children }: Readonly<{ children: React.ReactNod
             <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#17452f] text-white">P</span>
             <span>Proffera</span>
           </Link>
-          <p className="mt-2 text-xs text-[#5b665f]">SaaS dashboard preview</p>
+          <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-[#6a756e]">Kundportal</p>
+
           <nav className="mt-6 grid gap-2" aria-label="Dashboard navigation">
             {navigation.map((item) => (
-              <Link key={item.href} href={item.href} className="rounded-2xl px-4 py-3 text-sm font-semibold text-[#344139] hover:bg-[#eef5ef] hover:text-[#17452f]">
+              <Link
+                key={item.href}
+                href={item.href}
+                className="rounded-2xl px-4 py-3 text-sm font-semibold text-[#344139] hover:bg-[#eef5ef] hover:text-[#17452f]"
+              >
                 {item.label}
               </Link>
             ))}
           </nav>
         </aside>
+
         <div className="flex min-h-screen flex-col">
           <header className="border-b border-[#dfe5dd] bg-white px-4 py-4 sm:px-6 lg:px-8">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="text-sm font-semibold text-[#17452f]">Workspace</p>
-                <h1 className="text-2xl font-bold tracking-tight">Proffera Dashboard</h1>
+                <h1 className="text-2xl font-bold tracking-tight">Proffera dashboard</h1>
               </div>
-              <div className="rounded-full bg-[#e7f1eb] px-4 py-2 text-sm font-semibold text-[#17452f]">Preview-läge</div>
+              <div className="rounded-full bg-[#e7f1eb] px-4 py-2 text-sm font-semibold text-[#17452f]">
+                Aktivt workspace
+              </div>
             </div>
           </header>
+
           <main className="flex-1 px-4 py-8 sm:px-6 lg:px-8">{children}</main>
         </div>
       </div>
