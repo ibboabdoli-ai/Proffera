@@ -1,4 +1,10 @@
+"use client";
+
 import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useState } from "react";
+
+import { authClient } from "@/lib/auth-client";
 
 const navigation = [
   { label: "Översikt", href: "/dashboard" },
@@ -9,7 +15,32 @@ const navigation = [
   { label: "Inställningar", href: "/dashboard/installningar" },
 ] as const;
 
+function isActivePath(pathname: string, href: string) {
+  if (href === "/dashboard") {
+    return pathname === href;
+  }
+
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
 export function DashboardShell({ children }: Readonly<{ children: React.ReactNode }>) {
+  const pathname = usePathname();
+  const [isSigningOut, setIsSigningOut] = useState(false);
+
+  async function handleSignOut() {
+    if (isSigningOut) {
+      return;
+    }
+
+    setIsSigningOut(true);
+
+    try {
+      await authClient.signOut();
+    } finally {
+      window.location.assign("/logga-in");
+    }
+  }
+
   return (
     <div className="min-h-screen bg-[#f7f7f4] text-[#17201a]">
       <div className="grid min-h-screen lg:grid-cols-[280px_1fr]">
@@ -21,15 +52,25 @@ export function DashboardShell({ children }: Readonly<{ children: React.ReactNod
           <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-[#6a756e]">Kundportal</p>
 
           <nav className="mt-6 grid gap-2" aria-label="Dashboard navigation">
-            {navigation.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="rounded-2xl px-4 py-3 text-sm font-semibold text-[#344139] hover:bg-[#eef5ef] hover:text-[#17452f]"
-              >
-                {item.label}
-              </Link>
-            ))}
+            {navigation.map((item) => {
+              const isActive = isActivePath(pathname, item.href);
+
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  aria-current={isActive ? "page" : undefined}
+                  className={[
+                    "rounded-2xl px-4 py-3 text-sm font-semibold transition",
+                    isActive
+                      ? "bg-[#17452f] text-white shadow-sm"
+                      : "text-[#344139] hover:bg-[#eef5ef] hover:text-[#17452f]",
+                  ].join(" ")}
+                >
+                  {item.label}
+                </Link>
+              );
+            })}
           </nav>
         </aside>
 
@@ -40,8 +81,19 @@ export function DashboardShell({ children }: Readonly<{ children: React.ReactNod
                 <p className="text-sm font-semibold text-[#17452f]">Workspace</p>
                 <h1 className="text-2xl font-bold tracking-tight">Proffera dashboard</h1>
               </div>
-              <div className="rounded-full bg-[#e7f1eb] px-4 py-2 text-sm font-semibold text-[#17452f]">
-                Aktivt workspace
+
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="rounded-full bg-[#e7f1eb] px-4 py-2 text-sm font-semibold text-[#17452f]">
+                  Aktivt workspace
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSignOut}
+                  disabled={isSigningOut}
+                  className="rounded-full border border-[#d7ded5] bg-white px-4 py-2 text-sm font-semibold text-[#344139] transition hover:bg-[#f7f7f4] focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {isSigningOut ? "Loggar ut..." : "Logga ut"}
+                </button>
               </div>
             </div>
           </header>
