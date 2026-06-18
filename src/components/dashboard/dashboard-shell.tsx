@@ -28,18 +28,25 @@ export function DashboardShell({ children }: Readonly<{ children: React.ReactNod
   const [isSigningOut, setIsSigningOut] = useState(false);
 
   async function handleSignOut() {
-    if (isSigningOut) {
+  if (isSigningOut) {
+    return;
+  }
+
+  setIsSigningOut(true);
+
+  try {
+    const result = (await authClient.signOut()) as { error?: unknown } | undefined;
+
+    if (result?.error) {
+      setIsSigningOut(false);
       return;
     }
 
-    setIsSigningOut(true);
-
-    try {
-      await authClient.signOut();
-    } finally {
-      window.location.assign("/logga-in");
-    }
+    window.location.assign("/logga-in");
+  } catch {
+    setIsSigningOut(false);
   }
+}
 
   return (
     <div className="min-h-screen bg-[#f7f7f4] text-[#17201a]">
