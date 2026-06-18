@@ -33,10 +33,10 @@ export default async function CustomersPage() {
   const companies = customers.filter((customer) => customer.type === "Företag").length;
 
   const stats = [
-    { label: "Kunder i CRM", value: String(customers.length), helper: "Senaste kundposterna" },
-    { label: "Aktiva kunder", value: String(activeCustomers), helper: "Pågående relationer" },
-    { label: "Prospekt", value: String(prospects), helper: "Kan följas upp" },
-    { label: "Företagskunder", value: String(companies), helper: "B2B-kontakter" },
+    { label: "Visade kunder", value: String(customers.length), helper: "Senaste kundposterna i listan" },
+    { label: "Aktiva i listan", value: String(activeCustomers), helper: "Pågående relationer" },
+    { label: "Prospekt i listan", value: String(prospects), helper: "Kan följas upp" },
+    { label: "Företag i listan", value: String(companies), helper: "B2B-kontakter bland visade kunder" },
   ] as const;
 
   return (
@@ -47,7 +47,7 @@ export default async function CustomersPage() {
           <div>
             <h2 className="text-3xl font-bold text-[#17201a]">Samlad kundöversikt</h2>
             <p className="mt-3 max-w-3xl text-sm leading-7 text-[#5b665f]">
-              Se alla kunder och prospekt på ett ställe. Följ status, tjänst, ort och nästa steg så att ingen kundrelation tappas bort.
+              Se de senaste kunderna och prospekten på ett ställe. Följ status, tjänst, ort och nästa steg så att ingen kundrelation tappas bort.
             </p>
           </div>
           <Link
