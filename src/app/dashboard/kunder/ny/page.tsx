@@ -28,7 +28,7 @@ const errorMessages: Record<string, string> = {
   type: "Kundtyp är ogiltig.",
   status: "Status är ogiltig.",
   service: "Vald tjänst finns inte i Profferas tjänstekatalog.",
-  save: "Kunden kunde inte sparas. Försök igen eller kontrollera Neon-konfigurationen.",
+  save: "Kunden kunde inte sparas. Försök igen eller kontakta support om problemet kvarstår.",
 };
 
 function getFormText(formData: FormData, key: string) {
@@ -167,7 +167,7 @@ export default async function NewCustomerPage({ searchParams }: NewCustomerPageP
         <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Kunder</p>
         <h2 className="mt-2 text-3xl font-bold text-[#17201a]">Ny kund</h2>
         <p className="mt-3 max-w-3xl text-sm leading-7 text-[#5b665f]">
-          Skapa en ny kund i Profferas CRM. Formuläret kräver intern åtkomstkod och skriver endast till tabellen customers.
+          Skapa en ny kund i Proffera. Formuläret är skyddat med intern åtkomstkod och sparar kunden i kundregistret.
         </p>
         <Link
           href="/dashboard/kunder"
@@ -304,7 +304,7 @@ export default async function NewCustomerPage({ searchParams }: NewCustomerPageP
         </section>
 
         <section className="rounded-2xl bg-[#f7f7f4] p-4 text-sm leading-7 text-[#5b665f]">
-          <strong className="text-[#17201a]">Säkerhetsgräns:</strong> Denna åtgärd skapar endast en kundpost med source dashboard_manual. Den skapar ingen bokning, skickar ingen e-post och ändrar inga lead-tabeller.
+          <strong className="text-[#17201a]">Kontrollerad åtgärd:</strong> Kunden sparas manuellt i kundregistret. Ingen bokning skapas, ingen e-post skickas och inga leads ändras.
         </section>
 
         <button
