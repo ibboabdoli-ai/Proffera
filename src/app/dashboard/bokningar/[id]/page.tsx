@@ -49,9 +49,9 @@ const eventTypeLabels: Record<string, string> = {
 
 const errorMessages: Record<string, string> = {
   access: "Åtkomstkoden saknas eller är fel. Status ändrades inte.",
-  disabled: "Statusändring är inte aktiverad i miljön. Lägg till DASHBOARD_WRITE_CODE eller ADMIN_ACCESS_CODE.",
+  disabled: "Statusändring är inte aktiverad just nu.",
   status: "Vald status är ogiltig.",
-  save: "Status kunde inte uppdateras. Försök igen eller kontrollera Neon-konfigurationen.",
+  save: "Status kunde inte uppdateras. Försök igen eller kontrollera konfigurationen.",
 };
 
 function getFormText(formData: FormData, key: string) {
@@ -117,7 +117,7 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
           <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Bokningsprofil</p>
           <h2 className="mt-2 text-3xl font-bold text-[#17201a]">{booking.title}</h2>
           <p className="mt-3 max-w-3xl text-sm leading-7 text-[#5b665f]">
-            Bokningsprofil från Neon. Bokning, kopplad kund och historik visas från CRM. Status kan ändras kontrollerat med intern åtkomstkod.
+            Här visas bokningens viktigaste uppgifter, kopplad kund och historik. Status kan ändras kontrollerat med intern åtkomstkod.
           </p>
         </div>
         <Link
@@ -136,7 +136,7 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
 
       {updatedValue === "1" ? (
         <section className="rounded-3xl bg-[#eef8f1] p-5 text-sm font-semibold text-[#17452f] ring-1 ring-[#cfe8d6]">
-          Status uppdaterades. En kundhändelse skapas vid verklig statusändring och ingen e-post skickas.
+          Status uppdaterades. Händelsen sparas i bokningshistoriken och ingen e-post skickas.
         </section>
       ) : null}
 
@@ -156,8 +156,8 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
           <p className="mt-2 text-xl font-bold text-[#17452f]">{events.length}</p>
         </article>
         <article className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[#dfe5dd]">
-          <p className="text-sm text-[#5b665f]">Läge</p>
-          <p className="mt-2 text-xl font-bold text-[#17452f]">Status write enabled</p>
+          <p className="text-sm text-[#5b665f]">Åtgärd</p>
+          <p className="mt-2 text-xl font-bold text-[#17452f]">Status kan ändras</p>
         </article>
       </section>
 
@@ -179,9 +179,6 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
                 <strong>Tjänst:</strong> {booking.service}
               </p>
               <p>
-                <strong>Källa:</strong> {booking.source}
-              </p>
-              <p>
                 <strong>Skapad:</strong> {booking.createdAt}
               </p>
             </div>
@@ -193,7 +190,7 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
           <article className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
             <h3 className="text-xl font-bold text-[#17201a]">Ändra status</h3>
             <p className="mt-3 text-sm leading-7 text-[#5b665f]">
-              Uppdaterar status i tabellen bookings. Vid verklig statusändring skapas en statusändring i kundhistoriken. Ingen e-post skickas.
+              Ändra bokningens status när tiden är bekräftad, utförd eller behöver avbokas. En statusändring sparas i historiken och ingen e-post skickas automatiskt.
             </p>
             <form action={statusAction} className="mt-5 grid gap-4 rounded-2xl bg-[#f7f7f4] p-4">
               <label className="grid gap-2 text-sm font-semibold text-[#17201a]">
@@ -234,9 +231,9 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
             <div className="flex items-center justify-between border-b border-[#dfe5dd] pb-4">
               <div>
                 <h3 className="text-xl font-bold text-[#17201a]">Kopplad kund</h3>
-                <p className="text-sm text-[#5b665f]">Read-only kunddata kopplad till bokningen.</p>
+                <p className="text-sm text-[#5b665f]">Kunduppgifter kopplade till bokningen.</p>
               </div>
-              <span className="rounded-full bg-[#e7f1eb] px-3 py-1 text-xs font-semibold text-[#17452f]">Neon data</span>
+              <span className="rounded-full bg-[#e7f1eb] px-3 py-1 text-xs font-semibold text-[#17452f]">Kunddata</span>
             </div>
             {!customer ? (
               <p className="mt-5 rounded-2xl bg-[#f7f7f4] p-4 text-sm text-[#5b665f]">
@@ -275,7 +272,7 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
         <aside className="rounded-3xl bg-[#17452f] p-6 text-white">
           <h3 className="text-xl font-bold">Bokningshistorik</h3>
           <p className="mt-3 text-sm leading-7 text-white/80">
-            Händelser från CRM-tabellen visas i read-only läge. Senare kan detta kopplas till bekräftelser, påminnelser och AI-dialoger.
+            Här samlas statusändringar, noteringar och viktiga händelser kopplade till bokningen.
           </p>
           <div className="mt-5 space-y-3">
             {events.length === 0 ? (
