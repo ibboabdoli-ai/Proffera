@@ -34,10 +34,10 @@ const leads = [
 ] as const;
 
 const stats = [
-  { label: "Nya leads", value: "12", helper: "Väntar på första kontakt" },
-  { label: "Kontaktade", value: "7", helper: "Dialog pågår" },
-  { label: "Bokning föreslagen", value: "3", helper: "Redo att bekräftas" },
-  { label: "Snittvärde", value: "2 850 kr", helper: "Uppskattat per förfrågan" },
+  { label: "Nya leads", value: "12", helper: "Kräver första kontakt" },
+  { label: "Kontaktade", value: "7", helper: "Väntar på svar eller offert" },
+  { label: "Bokning föreslagen", value: "3", helper: "Nästa steg är bekräftelse" },
+  { label: "Snittvärde", value: "2 850 kr", helper: "Beräknat värde per förfrågan" },
 ] as const;
 
 type LeadStatus = (typeof leads)[number]["status"];
@@ -55,9 +55,9 @@ export default function LeadsPage() {
         <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Leads</p>
         <div className="mt-3 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
-            <h2 className="text-3xl font-bold text-[#17201a]">Följ nya förfrågningar</h2>
+            <h2 className="text-3xl font-bold text-[#17201a]">Hantera nya kundförfrågningar</h2>
             <p className="mt-3 max-w-3xl text-sm leading-7 text-[#5b665f]">
-              Prioritera, kontakta och konvertera leads till kunder och bokningar. Här samlas nya kundförfrågningar från webbformulär, AI-chatt och QR-flöden.
+              Samla inkommande förfrågningar, prioritera nästa kontakt och konvertera intresset till kund eller bokning. Vyn är byggd för snabb uppföljning från webbformulär, AI-chatt och QR-flöden.
             </p>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -89,8 +89,8 @@ export default function LeadsPage() {
 
       <section className="overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-[#dfe5dd]">
         <div className="border-b border-[#dfe5dd] px-5 py-4">
-          <h3 className="text-lg font-bold text-[#17201a]">Aktuella leads</h3>
-          <p className="mt-1 text-sm text-[#5b665f]">Översikt med status, källa, värde och nästa åtgärd.</p>
+          <h3 className="text-lg font-bold text-[#17201a]">Aktiva förfrågningar</h3>
+          <p className="mt-1 text-sm text-[#5b665f]">Prioriterad arbetslista med status, källa, uppskattat värde och rekommenderad åtgärd.</p>
         </div>
         <div className="hidden grid-cols-9 gap-4 border-b border-[#dfe5dd] bg-[#f7f7f4] px-5 py-3 text-xs font-semibold uppercase tracking-wide text-[#344139] md:grid">
           <span>Ref</span>
@@ -162,16 +162,16 @@ export default function LeadsPage() {
 
       <section className="grid gap-4 md:grid-cols-3">
         <article className="rounded-3xl bg-[#17452f] p-6 text-white md:col-span-2">
-          <h3 className="text-xl font-bold">Arbeta från vänster till höger</h3>
+          <h3 className="text-xl font-bold">Från förfrågan till bokad affär</h3>
           <p className="mt-2 max-w-2xl text-sm leading-7 text-white/80">
-            Börja med nya leads, kontakta kunden, föreslå tid och flytta sedan vidare till bokning. Ett tydligt arbetsflöde gör att teamet snabbare ser vem som behöver nästa åtgärd.
+            Börja med nya leads, kontakta kunden, skapa kundprofil och föreslå en bokning. Ett tydligt arbetsflöde gör att teamet snabbare ser vem som behöver nästa kontakt.
           </p>
         </article>
         <article className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
           <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Uppföljning</p>
-          <h3 className="mt-2 text-xl font-bold text-[#17201a]">Färre tappade kontakter</h3>
+          <h3 className="mt-2 text-xl font-bold text-[#17201a]">Minska tappade affärer</h3>
           <p className="mt-2 text-sm leading-7 text-[#5b665f]">
-            Använd nästa steg, källa och värde för att prioritera rätt kontakt och hålla varje förfrågan levande tills den är bokad eller avslutad.
+            Använd nästa steg, källa och värde för att prioritera rätt kontakt och hålla varje förfrågan levande tills den är bokad, vunnen eller avslutad.
           </p>
         </article>
       </section>
