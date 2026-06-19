@@ -210,7 +210,7 @@ export default async function CustomerDetailPage({ params, searchParams }: Custo
         </article>
         <article className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[#dfe5dd]">
           <p className="text-sm text-[#5b665f]">Noteringar</p>
-          <p className="mt-2 text-xl font-bold text-[#17452f]">Kan sparas</p>
+          <p className="mt-2 text-xl font-bold text-[#17452f]">Intern notering</p>
         </article>
       </section>
 
