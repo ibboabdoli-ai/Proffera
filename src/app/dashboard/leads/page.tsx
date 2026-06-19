@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 const leads = [
   {
     ref: "LEAD-001",
@@ -55,11 +57,22 @@ export default function LeadsPage() {
           <div>
             <h2 className="text-3xl font-bold text-[#17201a]">Följ nya förfrågningar</h2>
             <p className="mt-3 max-w-3xl text-sm leading-7 text-[#5b665f]">
-              Här samlas nya kundförfrågningar från webbformulär, AI-chatt och QR-flöden. Prioritera rätt kontakt, se status och ta nästa steg utan att tappa bort ett lead.
+              Prioritera, kontakta och konvertera leads till kunder och bokningar. Här samlas nya kundförfrågningar från webbformulär, AI-chatt och QR-flöden.
             </p>
           </div>
-          <div className="rounded-2xl bg-[#eef5ef] px-4 py-3 text-sm font-semibold text-[#17452f]">
-            3 prioriterade leads
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <Link
+              href="/dashboard/kunder/ny"
+              className="inline-flex items-center justify-center rounded-full bg-[#17452f] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#123927]"
+            >
+              Ny kund
+            </Link>
+            <Link
+              href="/dashboard/bokningar/ny"
+              className="inline-flex items-center justify-center rounded-full border border-[#17452f] bg-white px-5 py-3 text-sm font-semibold text-[#17452f] transition hover:bg-[#eef5ef]"
+            >
+              Ny bokning
+            </Link>
           </div>
         </div>
       </section>
@@ -79,7 +92,7 @@ export default function LeadsPage() {
           <h3 className="text-lg font-bold text-[#17201a]">Aktuella leads</h3>
           <p className="mt-1 text-sm text-[#5b665f]">Översikt med status, källa, värde och nästa åtgärd.</p>
         </div>
-        <div className="hidden grid-cols-8 gap-4 border-b border-[#dfe5dd] bg-[#f7f7f4] px-5 py-3 text-xs font-semibold uppercase tracking-wide text-[#344139] md:grid">
+        <div className="hidden grid-cols-9 gap-4 border-b border-[#dfe5dd] bg-[#f7f7f4] px-5 py-3 text-xs font-semibold uppercase tracking-wide text-[#344139] md:grid">
           <span>Ref</span>
           <span>Kund</span>
           <span>Tjänst</span>
@@ -88,9 +101,10 @@ export default function LeadsPage() {
           <span>Källa</span>
           <span>Värde</span>
           <span>Nästa steg</span>
+          <span>Åtgärd</span>
         </div>
         {leads.map((lead) => (
-          <div key={lead.ref} className="grid gap-3 border-b border-[#eef1ec] px-5 py-4 text-sm text-[#344139] last:border-0 md:grid-cols-8 md:gap-4">
+          <div key={lead.ref} className="grid gap-3 border-b border-[#eef1ec] px-5 py-4 text-sm text-[#344139] last:border-0 md:grid-cols-9 md:gap-4">
             <div>
               <p className="text-xs font-semibold uppercase text-[#8a948d] md:hidden">Ref</p>
               <p className="font-semibold text-[#17201a]">{lead.ref}</p>
@@ -124,6 +138,23 @@ export default function LeadsPage() {
             <div>
               <p className="text-xs font-semibold uppercase text-[#8a948d] md:hidden">Nästa steg</p>
               <p className="font-semibold text-[#17452f]">{lead.nextStep}</p>
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase text-[#8a948d] md:hidden">Åtgärd</p>
+              <div className="flex flex-wrap gap-2">
+                <Link
+                  href="/dashboard/kunder/ny"
+                  className="inline-flex items-center justify-center rounded-full bg-[#17452f] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#123927]"
+                >
+                  Skapa kund
+                </Link>
+                <Link
+                  href="/dashboard/bokningar/ny"
+                  className="inline-flex items-center justify-center rounded-full border border-[#17452f] bg-white px-3 py-2 text-xs font-semibold text-[#17452f] transition hover:bg-[#eef5ef]"
+                >
+                  Bokning
+                </Link>
+              </div>
             </div>
           </div>
         ))}
