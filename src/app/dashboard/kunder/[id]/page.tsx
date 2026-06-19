@@ -49,10 +49,10 @@ const eventTypeLabels: Record<string, string> = {
 
 const errorMessages: Record<string, string> = {
   access: "Åtkomstkoden saknas eller är fel. Noteringen sparades inte.",
-  disabled: "Noteringar är inte aktiverade i miljön. Lägg till DASHBOARD_WRITE_CODE eller ADMIN_ACCESS_CODE.",
+  disabled: "Noteringar är inte aktiverade just nu.",
   title: "Rubriken saknas eller är för lång.",
   note: "Noteringen saknas eller är för lång.",
-  save: "Noteringen kunde inte sparas. Försök igen eller kontrollera Neon-konfigurationen.",
+  save: "Noteringen kunde inte sparas. Försök igen eller kontrollera konfigurationen.",
 };
 
 function getFormText(formData: FormData, key: string) {
@@ -155,7 +155,7 @@ export default async function CustomerDetailPage({ params, searchParams }: Custo
           <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Kundprofil</p>
           <h2 className="mt-2 text-3xl font-bold text-[#17201a]">{customer.name}</h2>
           <p className="mt-3 max-w-3xl text-sm leading-7 text-[#5b665f]">
-            Kundprofil från Neon. Profil, bokningar och historik visas från CRM. Interna noteringar kan sparas kontrollerat med åtkomstkod.
+            Här visas kundens profil, bokningar och historik. Interna noteringar kan sparas kontrollerat med åtkomstkod.
           </p>
         </div>
         <Link
@@ -194,8 +194,8 @@ export default async function CustomerDetailPage({ params, searchParams }: Custo
           <p className="mt-2 text-xl font-bold text-[#17452f]">{events.length}</p>
         </article>
         <article className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[#dfe5dd]">
-          <p className="text-sm text-[#5b665f]">Läge</p>
-          <p className="mt-2 text-xl font-bold text-[#17452f]">Note write enabled</p>
+          <p className="text-sm text-[#5b665f]">Noteringar</p>
+          <p className="mt-2 text-xl font-bold text-[#17452f]">Kan sparas</p>
         </article>
       </section>
 
@@ -218,9 +218,6 @@ export default async function CustomerDetailPage({ params, searchParams }: Custo
               </p>
               <p>
                 <strong>Företag:</strong> {customer.companyName}
-              </p>
-              <p>
-                <strong>Källa:</strong> {customer.source}
               </p>
               <p>
                 <strong>Tjänst:</strong> {customer.service}
@@ -270,7 +267,7 @@ export default async function CustomerDetailPage({ params, searchParams }: Custo
                   maxLength={1000}
                   rows={5}
                   className="rounded-2xl border border-[#dfe5dd] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20"
-                  placeholder="Skriv en intern CRM-notering..."
+                  placeholder="Skriv en intern kundnotering..."
                 />
               </label>
               <button
@@ -286,9 +283,9 @@ export default async function CustomerDetailPage({ params, searchParams }: Custo
             <div className="flex items-center justify-between border-b border-[#dfe5dd] pb-4">
               <div>
                 <h3 className="text-xl font-bold text-[#17201a]">Bokningar</h3>
-                <p className="text-sm text-[#5b665f]">Read-only bokningar kopplade till kunden.</p>
+                <p className="text-sm text-[#5b665f]">Bokningar kopplade till kunden.</p>
               </div>
-              <span className="rounded-full bg-[#e7f1eb] px-3 py-1 text-xs font-semibold text-[#17452f]">Neon data</span>
+              <span className="rounded-full bg-[#e7f1eb] px-3 py-1 text-xs font-semibold text-[#17452f]">Bokningsdata</span>
             </div>
             {bookings.length === 0 ? (
               <p className="mt-5 rounded-2xl bg-[#f7f7f4] p-4 text-sm text-[#5b665f]">
@@ -319,7 +316,7 @@ export default async function CustomerDetailPage({ params, searchParams }: Custo
         <aside className="rounded-3xl bg-[#17452f] p-6 text-white">
           <h3 className="text-xl font-bold">Kundhistorik</h3>
           <p className="mt-3 text-sm leading-7 text-white/80">
-            Händelser från CRM-tabellen visas här. Interna noteringar och bokningshändelser samlas i samma historik.
+            Här samlas interna noteringar, bokningshändelser och annan viktig kundhistorik.
           </p>
           <div className="mt-5 space-y-3">
             {events.length === 0 ? (
