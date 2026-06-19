@@ -2,6 +2,25 @@
 
 This file records what has been built and tested in Proffera.
 
+## P24S — Customer note copy polish
+
+Status: PR ready.
+
+Details: `docs/logs/PHASE_P24S_CUSTOMER_NOTE_COPY_POLISH.md`
+
+Built:
+
+- Polished the `Kundprofil` summary copy for customer notes.
+- Changed `Noteringar → Kan sparas` to `Noteringar → Intern notering` for clearer Swedish UI text.
+- Kept the existing note form, access-code flow, customer history and database logic unchanged.
+- No database, API, auth or migration changes were added.
+
+Tested:
+
+- GitHub diff review required.
+- GitHub Actions CI should run on the PR.
+- Local lint/build were not run because this execution mode has no local shell access.
+
 ## P24R — Booking customer meta polish
 
 Status: PR ready.
@@ -77,44 +96,3 @@ Tested:
 - Confirmed the master plan requires session-derived workspace identity before real onboarding.
 
 ## P22A — Dashboard temporary Basic Auth
-
-Status: done.
-
-Details: `docs/logs/PHASE_P22A_DASHBOARD_TEMP_BASIC_AUTH.md`
-
-Built:
-
-- `/dashboard` and `/dashboard/*` now have temporary Basic Auth protection.
-- Dashboard still returns `X-Robots-Tag: noindex, nofollow` after access is accepted.
-- Admin protection, public pages, CRM/booking data access and Service AI Chat redirects were kept separate.
-- No real customer authentication, session handling, roles or workspace binding was added.
-
-Tested:
-
-- Code inspection completed for middleware behavior.
-- Local typecheck/lint/build were not run in this environment.
-- Vercel status was checked and returned success.
-
-## P21 — Proffera login entry foundation
-
-Status: done.
-
-Details: `docs/logs/PHASE_P21_PROFFERA_LOGIN_ENTRY.md`
-
-Built:
-
-- Public `Logga in` now links to `/logga-in` inside Proffera.
-- `/logga-in` no longer redirects to `chat.proffera.se`.
-- `/logga-in` is a Proffera customer portal entry placeholder.
-- No real authentication, session handling, billing, roles or workspace binding was added.
-
-Tested:
-
-- Code inspection completed for the changed files.
-- Local typecheck/lint/build were not run in this environment.
-
-## Phase 18.17B — Documentation workflow cleanup
-
-Status: pending PR review.
-
-Details: `docs/logs/PHASE_18_17B_DOCUMENTATION_WORKFLOW_CLEANUP.md`
