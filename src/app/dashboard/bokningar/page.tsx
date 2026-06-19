@@ -56,7 +56,7 @@ export default async function BookingsPage() {
           </div>
           <Link
             href="/dashboard/bokningar/ny"
-            className="inline-flex rounded-full bg-[#17452f] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0f3322] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#17452f]"
+            className="inline-flex rounded-full bg-[#17452f] px-5 py-3 text-sm font-semibold !text-white shadow-sm transition hover:bg-[#0f3322] hover:!text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#17452f]"
           >
             Ny bokning
           </Link>
@@ -86,7 +86,7 @@ export default async function BookingsPage() {
               <p className="mt-2 leading-7">
                 När bokningar skapas visas de här med tid, kund, status och länk till bokningsprofilen.
               </p>
-              <Link href="/dashboard/bokningar/ny" className="mt-4 inline-flex rounded-full bg-[#17452f] px-4 py-2 text-xs font-semibold text-white transition hover:bg-[#0f3322]">
+              <Link href="/dashboard/bokningar/ny" className="mt-4 inline-flex rounded-full bg-[#17452f] px-4 py-2 text-xs font-semibold !text-white transition hover:bg-[#0f3322] hover:!text-white">
                 Skapa första bokningen
               </Link>
             </div>
@@ -135,7 +135,7 @@ export default async function BookingsPage() {
                   <p className="text-xs font-semibold uppercase text-[#8a948d] md:hidden">Profil</p>
                   <Link
                     href={`/dashboard/bokningar/${booking.id}`}
-                    className="inline-flex rounded-full bg-[#17452f] px-3 py-1 text-xs font-semibold text-white transition hover:bg-[#0f3322]"
+                    className="inline-flex rounded-full bg-[#17452f] px-3 py-1 text-xs font-semibold !text-white transition hover:bg-[#0f3322] hover:!text-white"
                   >
                     Visa bokning
                   </Link>
