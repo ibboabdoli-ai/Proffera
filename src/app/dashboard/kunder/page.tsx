@@ -52,7 +52,7 @@ export default async function CustomersPage() {
           </div>
           <Link
             href="/dashboard/kunder/ny"
-            className="inline-flex w-fit rounded-full bg-[#17452f] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0f2f20] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#17452f]"
+            className="inline-flex w-fit rounded-full bg-[#17452f] px-5 py-3 text-sm font-semibold !text-white shadow-sm transition hover:bg-[#0f2f20] hover:!text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#17452f]"
           >
             Ny kund
           </Link>
@@ -77,7 +77,7 @@ export default async function CustomersPage() {
           </p>
           <Link
             href="/dashboard/kunder/ny"
-            className="mt-5 inline-flex rounded-full bg-[#17452f] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#0f2f20]"
+            className="mt-5 inline-flex rounded-full bg-[#17452f] px-5 py-3 text-sm font-semibold !text-white transition hover:bg-[#0f2f20] hover:!text-white"
           >
             Lägg till första kunden
           </Link>
@@ -144,10 +144,10 @@ export default async function CustomersPage() {
           </p>
         </article>
         <article className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
-          <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Nästa förbättring</p>
+          <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Kundarbete</p>
           <h3 className="mt-2 text-xl font-bold text-[#17201a]">Mer kunddata</h3>
           <p className="mt-2 text-sm leading-7 text-[#5b665f]">
-            Nästa CRM-fas kan lägga till kontaktperson, senaste aktivitet, kundvärde och automatiska påminnelser.
+            Lägg till kontaktpersoner, senaste aktivitet, kundvärde och påminnelser när kundflödet behöver mer detaljer.
           </p>
         </article>
       </section>
