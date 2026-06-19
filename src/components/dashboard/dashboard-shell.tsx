@@ -28,32 +28,32 @@ export function DashboardShell({ children }: Readonly<{ children: React.ReactNod
   const [isSigningOut, setIsSigningOut] = useState(false);
 
   async function handleSignOut() {
-  if (isSigningOut) {
-    return;
-  }
-
-  setIsSigningOut(true);
-
-  try {
-    const result = (await authClient.signOut()) as { error?: unknown } | undefined;
-
-    if (result?.error) {
-      setIsSigningOut(false);
+    if (isSigningOut) {
       return;
     }
 
-    window.location.assign("/logga-in");
-  } catch {
-    setIsSigningOut(false);
+    setIsSigningOut(true);
+
+    try {
+      const result = (await authClient.signOut()) as { error?: unknown } | undefined;
+
+      if (result?.error) {
+        setIsSigningOut(false);
+        return;
+      }
+
+      window.location.assign("/logga-in");
+    } catch {
+      setIsSigningOut(false);
+    }
   }
-}
 
   return (
     <div className="min-h-screen bg-[#f7f7f4] text-[#17201a]">
       <div className="grid min-h-screen lg:grid-cols-[280px_1fr]">
         <aside className="border-b border-[#dfe5dd] bg-white px-4 py-4 lg:border-b-0 lg:border-r lg:px-5 lg:py-6">
           <Link href="/" className="flex items-center gap-3 text-xl font-bold text-[#17452f]">
-            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#17452f] text-white">P</span>
+            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#17452f] !text-white">P</span>
             <span>Proffera</span>
           </Link>
           <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-[#6a756e]">Kundportal</p>
@@ -85,13 +85,13 @@ export function DashboardShell({ children }: Readonly<{ children: React.ReactNod
           <header className="border-b border-[#dfe5dd] bg-white px-4 py-4 sm:px-6 lg:px-8">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <p className="text-sm font-semibold text-[#17452f]">Workspace</p>
-                <h1 className="text-2xl font-bold tracking-tight">Proffera dashboard</h1>
+                <p className="text-sm font-semibold text-[#17452f]">Aktiv arbetsyta</p>
+                <h1 className="text-2xl font-bold tracking-tight">Proffera kundportal</h1>
               </div>
 
               <div className="flex flex-wrap items-center gap-3">
                 <div className="rounded-full bg-[#e7f1eb] px-4 py-2 text-sm font-semibold text-[#17452f]">
-                  Aktivt workspace
+                  Workspace aktivt
                 </div>
                 <button
                   type="button"
