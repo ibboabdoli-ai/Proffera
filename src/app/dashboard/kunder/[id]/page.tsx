@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { getDashboardCustomerDetail } from "@/lib/dashboard-db";
+import { getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 export const dynamic = "force-dynamic";
 
@@ -93,6 +94,12 @@ async function createCustomerNoteAction(customerId: string, formData: FormData) 
     redirectWithNoteError(customerId, "access");
   }
 
+  const access = await getUserWorkspaceAccess();
+
+  if (!access.ok) {
+    redirectWithNoteError(customerId, "access");
+  }
+
   const title = getFormText(formData, "title");
   const note = getFormText(formData, "note");
 
@@ -130,7 +137,7 @@ async function createCustomerNoteAction(customerId: string, formData: FormData) 
         ${note},
         jsonb_build_object('source', 'dashboard_manual')
       from customers
-      where workspace_id = 'default'
+      where workspace_id = ${access.workspaceId}
         and id = ${customerId}
       returning id
     `;
