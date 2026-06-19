@@ -124,9 +124,9 @@ export default function AiAssistantPage() {
           </article>
           <article className="rounded-3xl bg-[#17452f] p-6 !text-white">
             <p className="text-sm font-semibold uppercase tracking-wide text-white/70">Nästa steg</p>
-            <h3 className="mt-2 text-xl font-bold">Koppla till riktiga frågor</h3>
+            <h3 className="mt-2 text-xl font-bold">Koppla till riktiga kundflöden</h3>
             <p className="mt-3 text-sm leading-7 text-white/80">
-              När nästa integrationsfas är klar kan AI-assistenten använda företagskunskap, tjänster, öppettider och notifieringar i riktiga kundflöden.
+              Med företagskunskap, tjänster, öppettider och notifieringar kan AI-assistenten ge tydligare svar i kunddialogen.
             </p>
           </article>
         </aside>

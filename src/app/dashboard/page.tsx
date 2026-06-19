@@ -25,7 +25,7 @@ const quickLinks = [
   },
   {
     title: "Inställningar",
-    text: "Hantera företagsprofil, kontaktuppgifter, tjänster och kommande AI-underlag.",
+    text: "Hantera företagsprofil, kontaktuppgifter, tjänster och AI-underlag.",
     href: "/dashboard/installningar",
   },
 ] as const;
