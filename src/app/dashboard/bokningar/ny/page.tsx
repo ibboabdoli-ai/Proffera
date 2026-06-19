@@ -21,7 +21,7 @@ const statusLabels: Record<(typeof bookingStatuses)[number], string> = {
 
 const errorMessages: Record<string, string> = {
   access: "Åtkomstkoden saknas eller är fel. Ingen bokning skapades.",
-  disabled: "Bokningsskapande är inte aktiverat i miljön. Lägg till DASHBOARD_WRITE_CODE eller ADMIN_ACCESS_CODE.",
+  disabled: "Bokningsskapande är inte aktiverat. Kontakta administratören innan du försöker igen.",
   customer: "Välj en befintlig kund.",
   title: "Rubrik är obligatorisk och får vara max 140 tecken.",
   status: "Status är ogiltig.",
@@ -30,7 +30,7 @@ const errorMessages: Record<string, string> = {
   city: "Ort får vara max 120 tecken.",
   notes: "Notering får vara max 1000 tecken.",
   service: "Vald tjänst finns inte i Profferas tjänstekatalog.",
-  save: "Bokningen kunde inte sparas. Försök igen eller kontrollera Neon-konfigurationen.",
+  save: "Bokningen kunde inte sparas. Försök igen eller kontakta support om problemet kvarstår.",
 };
 
 function getFormText(formData: FormData, key: string) {
@@ -182,7 +182,7 @@ export default async function NewBookingPage({ searchParams }: NewBookingPagePro
         <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Bokningar</p>
         <h2 className="mt-2 text-3xl font-bold text-[#17201a]">Ny bokning</h2>
         <p className="mt-3 max-w-3xl text-sm leading-7 text-[#5b665f]">
-          Skapa en ny bokning i Profferas CRM. Formuläret kräver intern åtkomstkod och skriver endast till tabellen bookings.
+          Skapa en ny bokning i Proffera. Formuläret är skyddat med intern åtkomstkod och kopplar bokningen till vald kund.
         </p>
         <Link
           href="/dashboard/bokningar"
@@ -320,7 +320,7 @@ export default async function NewBookingPage({ searchParams }: NewBookingPagePro
         </section>
 
         <section className="rounded-2xl bg-[#f7f7f4] p-4 text-sm leading-7 text-[#5b665f]">
-          <strong className="text-[#17201a]">Säkerhetsgräns:</strong> Denna åtgärd skapar endast en bokningspost med source dashboard_manual. Den skapar ingen kundhändelse, skickar ingen e-post och ändrar inga lead-tabeller.
+          <strong className="text-[#17201a]">Kontrollerad åtgärd:</strong> Bokningen sparas manuellt och kopplas till vald kund. Ingen e-post skickas och inga leads ändras.
         </section>
 
         <button
