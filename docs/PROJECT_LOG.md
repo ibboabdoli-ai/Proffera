@@ -2,6 +2,25 @@
 
 This file records what has been built and tested in Proffera.
 
+## P24R — Booking customer meta polish
+
+Status: PR ready.
+
+Details: `docs/logs/PHASE_P24R_BOOKING_CUSTOMER_META_POLISH.md`
+
+Built:
+
+- Cleaned the linked customer meta row in `Bokningsprofil → Kopplad kund`.
+- Removed repeated service text from the compact customer meta row.
+- Kept the booking service visible in the booking details section.
+- No database, API, auth or migration changes were added.
+
+Tested:
+
+- GitHub diff review required.
+- GitHub Actions CI should run on the PR.
+- Local lint/build were not run because this execution mode has no local shell access.
+
 ## P22D-prep — Local toolchain alignment
 
 Status: done.

@@ -245,7 +245,7 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
                   <div>
                     <p className="text-lg font-bold text-[#17201a]">{customer.name}</p>
                     <p className="mt-1 text-[#5b665f]">
-                      {customer.type} · {customer.city} · {customer.service}
+                      {customer.type} · {customer.city}
                     </p>
                     <p className="mt-3">
                       <strong>Status:</strong> {customerStatusLabels[customer.status] ?? customer.status}
