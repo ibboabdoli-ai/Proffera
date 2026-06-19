@@ -37,7 +37,7 @@ VALUES (
   'demo_seed',
   'stadning-lokalvard',
   'Hemstädning',
-  'Seeded customer used for dashboard validation.'
+  'Kunden är aktiv och kan följas upp vid nästa kontakt.'
 )
 ON CONFLICT (id) DO UPDATE SET
   workspace_id = EXCLUDED.workspace_id,
@@ -81,7 +81,7 @@ VALUES (
   now() + interval '2 days',
   now() + interval '2 days 2 hours',
   'demo_seed',
-  'Seeded booking used for dashboard validation.'
+  'Bokningen är bekräftad och redo att förberedas.'
 )
 ON CONFLICT (id) DO UPDATE SET
   workspace_id = EXCLUDED.workspace_id,
@@ -115,7 +115,7 @@ VALUES (
   '22222222-2222-4222-8222-222222222222',
   'booking',
   'Bokning bekräftad',
-  'Seeded customer event used for dashboard validation.',
+  'Bokningen bekräftades och är klar för nästa steg.',
   '{"source":"demo_seed","phase":"18.3","service_slug":"hemstadning"}'::jsonb
 )
 ON CONFLICT (id) DO UPDATE SET
