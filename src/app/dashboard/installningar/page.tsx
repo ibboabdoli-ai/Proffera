@@ -8,19 +8,19 @@ export const dynamic = "force-dynamic";
 
 const errorMessages: Record<string, string> = {
   access: "Åtkomstkoden saknas eller är fel. Inga inställningar sparades.",
-  disabled: "Sparning är inte aktiverad i miljön. Lägg till DASHBOARD_WRITE_CODE eller ADMIN_ACCESS_CODE.",
+  disabled: "Sparning är inte aktiverad ännu. Kontrollera den interna åtkomstkoden och miljöinställningen.",
   company: "Företagsnamn är obligatoriskt och får vara max 160 tecken.",
   city: "Primär ort är obligatorisk och får vara max 120 tecken.",
   response: "Svarstid mål är obligatoriskt och får vara max 120 tecken.",
   cta: "Standard CTA är obligatorisk och får vara max 80 tecken.",
   email: "Kontakt e-post behöver vara tom eller en giltig e-postadress på max 180 tecken.",
   phone: "Kontakt telefon får vara max 80 tecken.",
-  save: "Företagsprofilen kunde inte sparas. Kontrollera Neon-konfigurationen och försök igen.",
+  save: "Företagsprofilen kunde inte sparas. Kontrollera inställningarna och försök igen.",
 };
 
 const serviceErrorMessages: Record<string, string> = {
   access: "Åtkomstkoden saknas eller är fel. Tjänsten sparades inte.",
-  disabled: "Sparning av tjänster är inte aktiverad i miljön.",
+  disabled: "Sparning av tjänster är inte aktiverad ännu.",
   id: "Tjänsten kunde inte hittas.",
   name: "Namn är obligatoriskt och får vara max 140 tecken.",
   description: "Beskrivning får vara max 500 tecken.",
@@ -30,7 +30,7 @@ const serviceErrorMessages: Record<string, string> = {
   duration: "Längd behöver vara 1-1440 minuter.",
   area: "Område får vara max 240 tecken.",
   sort: "Sortering behöver vara ett heltal mellan 0 och 9999.",
-  save: "Tjänsten kunde inte sparas. Kontrollera databasen och försök igen.",
+  save: "Tjänsten kunde inte sparas. Kontrollera uppgifterna och försök igen.",
 };
 
 const inputClass =
@@ -64,26 +64,44 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
     getDashboardWorkspaceServices(),
   ]);
   const hasServices = workspaceServices.length > 0;
+  const activeServices = workspaceServices.filter((service) => service.isActive).length;
 
   const settings = [
-    { label: "Företagsprofil", value: "Namn, kontakt, ort och CTA", status: "Aktiv" },
+    { label: "Företagsprofil", value: "Namn, kontaktuppgifter, ort och standard CTA", status: "Aktiv" },
     {
-      label: "Tjänster",
-      value: hasServices ? `${workspaceServices.length} tjänster från databasen` : "Valbara tjänster, priser och serviceområden",
-      status: hasServices ? "Aktiv" : "Kommande",
+      label: "Tjänstekatalog",
+      value: hasServices ? `${activeServices} aktiva av ${workspaceServices.length} tjänster` : "Lägg in tjänster, priser och serviceområden",
+      status: hasServices ? "Aktiv" : "Redo att fyllas i",
     },
     { label: "Notiser", value: "E-post, interna aviseringar och påminnelser", status: "Kommande" },
-    { label: "AI-svar", value: "Ton, frågor, svarsmallar och branschkunskap", status: "Kommande" },
+    { label: "AI-svar", value: "Ton, följdfrågor, svarsmallar och företagskunskap", status: "Kommande" },
+  ] as const;
+
+  const profileSummary = [
+    { label: "Företag", value: workspaceSettings.companyName || "Ej angivet" },
+    { label: "Primär ort", value: workspaceSettings.primaryCity || "Ej angivet" },
+    { label: "Svarstid", value: workspaceSettings.responseTimeGoal || "Ej angivet" },
+    { label: "Standard CTA", value: workspaceSettings.defaultCta || "Ej angivet" },
   ] as const;
 
   return (
     <div className="grid gap-6">
-      <section>
+      <section className="rounded-3xl bg-[#f7f7f4] p-6 ring-1 ring-[#e4e7df] lg:p-8">
         <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Inställningar</p>
-        <h2 className="mt-2 text-3xl font-bold text-[#17201a]">Workspace-inställningar</h2>
-        <p className="mt-3 max-w-3xl text-sm leading-7 text-[#5b665f]">
-          Redigera företagsprofilen och hantera tjänster för workspace default.
-        </p>
+        <div className="mt-3 grid gap-6 lg:grid-cols-[1.3fr_0.7fr] lg:items-end">
+          <div>
+            <h2 className="text-3xl font-bold tracking-tight text-[#17201a]">Styr företagsprofil och tjänsteutbud</h2>
+            <p className="mt-3 max-w-3xl text-sm leading-7 text-[#5b665f]">
+              Samla de uppgifter som påverkar kundflöden, CTA-knappar, tjänster och kommande AI-svar på ett ställe.
+              Håll profilen tydlig så att teamet, bokningar och kunddialoger använder samma information.
+            </p>
+          </div>
+          <div className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[#dfe5dd]">
+            <p className="text-sm font-semibold text-[#5b665f]">Aktuell profil</p>
+            <p className="mt-2 text-2xl font-bold text-[#17201a]">{workspaceSettings.companyName}</p>
+            <p className="mt-1 text-sm text-[#5b665f]">{workspaceSettings.primaryCity}</p>
+          </div>
+        </div>
       </section>
 
       {wasUpdated ? (
@@ -111,23 +129,47 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
       ) : null}
 
       <section className="grid gap-6 lg:grid-cols-[1fr_420px]">
-        <div className="grid gap-4 lg:grid-cols-2">
-          {settings.map((setting) => (
-            <article key={setting.label} className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-lg font-bold text-[#17201a]">{setting.label}</p>
-                  <p className="mt-2 text-sm leading-6 text-[#5b665f]">{setting.value}</p>
+        <div className="grid gap-6">
+          <div className="grid gap-4 lg:grid-cols-2">
+            {settings.map((setting) => (
+              <article key={setting.label} className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-lg font-bold text-[#17201a]">{setting.label}</p>
+                    <p className="mt-2 text-sm leading-6 text-[#5b665f]">{setting.value}</p>
+                  </div>
+                  <span className="rounded-full bg-[#e7f1eb] px-3 py-1 text-xs font-semibold text-[#17452f]">{setting.status}</span>
                 </div>
-                <span className="rounded-full bg-[#e7f1eb] px-3 py-1 text-xs font-semibold text-[#17452f]">{setting.status}</span>
+              </article>
+            ))}
+          </div>
+
+          <article className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h3 className="text-xl font-bold text-[#17201a]">Profil som används i kundflöden</h3>
+                <p className="mt-2 text-sm leading-6 text-[#5b665f]">
+                  Dessa värden visas i kontaktflöden, påverkar CTA-copy och är grunden för kommande AI-kunddialoger.
+                </p>
               </div>
-            </article>
-          ))}
+              <span className="w-fit rounded-full bg-[#e7f1eb] px-3 py-1 text-xs font-semibold text-[#17452f]">Kundnära data</span>
+            </div>
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              {profileSummary.map((item) => (
+                <div key={item.label} className="rounded-2xl bg-[#f7f7f4] p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-[#5b665f]">{item.label}</p>
+                  <p className="mt-1 text-sm font-bold text-[#17201a]">{item.value}</p>
+                </div>
+              ))}
+            </div>
+          </article>
         </div>
 
         <aside className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
-          <h3 className="text-xl font-bold text-[#17201a]">Företagsprofil</h3>
-          <p className="mt-2 text-sm text-[#5b665f]">Ändringar sparas till workspace_settings för workspace default.</p>
+          <h3 className="text-xl font-bold text-[#17201a]">Redigera företagsprofil</h3>
+          <p className="mt-2 text-sm leading-6 text-[#5b665f]">
+            Uppdatera de uppgifter som kunder och interna flöden ska se först.
+          </p>
 
           <form action={updateWorkspaceSettingsAction} className="mt-5 space-y-4">
             <label className="grid gap-2 text-sm font-semibold text-[#344139]">
@@ -166,12 +208,12 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
             </label>
 
             <div className="rounded-2xl bg-[#f7f7f4] p-4 text-sm leading-6 text-[#5b665f]">
-              <strong className="text-[#17201a]">Säkerhetsgräns:</strong> Denna åtgärd uppdaterar endast företagsprofilen i workspace_settings.
+              <strong className="text-[#17201a]">Säker ändring:</strong> Endast företagsprofilen uppdateras. Kunddata, leads och bokningar påverkas inte.
             </div>
 
             <button
               type="submit"
-              className="inline-flex w-full items-center justify-center rounded-full bg-[#17452f] px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#123824] focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2"
+              className="inline-flex w-full items-center justify-center rounded-full bg-[#17452f] px-6 py-3 text-sm font-semibold !text-white transition hover:bg-[#123824] hover:!text-white focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2"
             >
               Spara ändringar
             </button>
