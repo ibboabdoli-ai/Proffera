@@ -30,6 +30,10 @@ function getNextStep(status: string) {
   return "Bekräfta tid";
 }
 
+function shouldShowBookingTitle(title: string, service: string) {
+  return title.trim().toLocaleLowerCase("sv-SE") !== service.trim().toLocaleLowerCase("sv-SE");
+}
+
 export default async function BookingsPage() {
   const bookings = await getDashboardBookings();
   const confirmedBookings = bookings.filter((booking) => booking.status === "confirmed").length;
@@ -111,7 +115,9 @@ export default async function BookingsPage() {
                 <div>
                   <p className="text-xs font-semibold uppercase text-[#8a948d] md:hidden">Kund</p>
                   <p className="font-semibold text-[#17201a]">{booking.customer}</p>
-                  <p className="text-xs text-[#6d7770]">{booking.title}</p>
+                  {shouldShowBookingTitle(booking.title, booking.service) ? (
+                    <p className="text-xs text-[#6d7770]">{booking.title}</p>
+                  ) : null}
                 </div>
                 <div>
                   <p className="text-xs font-semibold uppercase text-[#8a948d] md:hidden">Tjänst</p>
