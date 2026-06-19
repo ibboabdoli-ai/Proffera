@@ -86,21 +86,28 @@ function ServiceFields({ service }: ServiceFieldsProps) {
 }
 
 export function ServicesReadOnly({ services }: ServicesReadOnlyProps) {
+  const activeServices = services.filter((service) => service.isActive).length;
+
   return (
     <section id="tjanster" className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h3 className="text-xl font-bold text-[#17201a]">Tjänster</h3>
-          <p className="mt-2 text-sm leading-6 text-[#5b665f]">Skapa och redigera tjänster i workspace default.</p>
+          <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Tjänster</p>
+          <h3 className="mt-2 text-xl font-bold text-[#17201a]">Hantera tjänstekatalog</h3>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-[#5b665f]">
+            Lägg till, justera och sortera de tjänster som kunder kan fråga om, boka eller få offert på.
+          </p>
         </div>
-        <span className="w-fit rounded-full bg-[#e7f1eb] px-3 py-1 text-xs font-semibold text-[#17452f]">Phase 18.16B</span>
+        <span className="w-fit rounded-full bg-[#e7f1eb] px-3 py-1 text-xs font-semibold text-[#17452f]">
+          {services.length > 0 ? `${activeServices} aktiva tjänster` : "Redo att fyllas i"}
+        </span>
       </div>
 
       <details className="mt-6 rounded-2xl border border-[#dfe5dd] bg-[#fdfdfb] p-5">
         <summary className="cursor-pointer text-sm font-bold text-[#17201a]">Skapa ny tjänst</summary>
         <form action={createWorkspaceServiceAction} className="mt-5 space-y-4">
           <ServiceFields />
-          <button type="submit" className="inline-flex w-full items-center justify-center rounded-full bg-[#17452f] px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#123824] focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2">
+          <button type="submit" className="inline-flex w-full items-center justify-center rounded-full bg-[#17452f] px-6 py-3 text-sm font-semibold !text-white transition hover:bg-[#123824] hover:!text-white focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2">
             Skapa tjänst
           </button>
         </form>
@@ -127,11 +134,11 @@ export function ServicesReadOnly({ services }: ServicesReadOnlyProps) {
               </div>
 
               <details className="mt-5 rounded-2xl bg-white p-4 ring-1 ring-[#dfe5dd]">
-                <summary className="cursor-pointer text-sm font-bold text-[#17201a]">Redigera</summary>
+                <summary className="cursor-pointer text-sm font-bold text-[#17201a]">Redigera tjänst</summary>
                 <form action={updateWorkspaceServiceAction} className="mt-5 space-y-4">
                   <input type="hidden" name="service_id" value={service.id} />
                   <ServiceFields service={service} />
-                  <button type="submit" className="inline-flex w-full items-center justify-center rounded-full bg-[#17452f] px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#123824] focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2">
+                  <button type="submit" className="inline-flex w-full items-center justify-center rounded-full bg-[#17452f] px-6 py-3 text-sm font-semibold !text-white transition hover:bg-[#123824] hover:!text-white focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2">
                     Spara tjänst
                   </button>
                 </form>
@@ -140,7 +147,9 @@ export function ServicesReadOnly({ services }: ServicesReadOnlyProps) {
           ))}
         </div>
       ) : (
-        <div className="mt-6 rounded-2xl bg-[#f7f7f4] p-5 text-sm leading-6 text-[#5b665f]">Inga tjänster visas ännu.</div>
+        <div className="mt-6 rounded-2xl bg-[#f7f7f4] p-5 text-sm leading-6 text-[#5b665f]">
+          Inga tjänster visas ännu. Skapa första tjänsten för att göra kundflöden, offertunderlag och kommande AI-svar tydligare.
+        </div>
       )}
     </section>
   );
