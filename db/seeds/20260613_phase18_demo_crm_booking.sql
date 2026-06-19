@@ -1,12 +1,12 @@
--- Phase 18.3 seed: safe demo CRM/booking data for Proffera
+-- Phase 18.3 seed: safe CRM/booking sample data for Proffera
 -- Purpose:
--- - Create one demo customer
--- - Create one demo booking connected to that customer
--- - Create one demo customer event connected to both
+-- - Create one customer
+-- - Create one booking connected to that customer
+-- - Create one customer event connected to both
 --
 -- Safety:
--- - Uses fixed UUIDs, so repeated runs update the same demo records instead of creating duplicates.
--- - Uses source = 'demo_seed' for easy identification.
+-- - Uses fixed UUIDs, so repeated runs update the same records instead of creating duplicates.
+-- - Uses source = 'demo_seed' for easy identification and safe cleanup.
 -- - Does not touch quote_requests, company_registrations, or lead_outbox.
 
 BEGIN;
@@ -28,16 +28,16 @@ INSERT INTO customers (
 VALUES (
   '11111111-1111-4111-8111-111111111111',
   'default',
-  'Demo Kund – Sara Andersson',
-  'demo.customer@proffera.se',
+  'Sara Andersson',
+  'sara.andersson@example.com',
   '+46700000001',
   'private',
   'Södertälje',
   'active',
   'demo_seed',
   'stadning-lokalvard',
-  'hemstadning',
-  'Demo customer created for Phase 18 dashboard read-only CRM testing.'
+  'Hemstädning',
+  'Seeded customer used for dashboard validation.'
 )
 ON CONFLICT (id) DO UPDATE SET
   workspace_id = EXCLUDED.workspace_id,
@@ -72,7 +72,7 @@ VALUES (
   '22222222-2222-4222-8222-222222222222',
   'default',
   '11111111-1111-4111-8111-111111111111',
-  'Demo booking – Hemstädning',
+  'Hemstädning',
   'Hemstädning',
   'stadning-lokalvard',
   'hemstadning',
@@ -81,7 +81,7 @@ VALUES (
   now() + interval '2 days',
   now() + interval '2 days 2 hours',
   'demo_seed',
-  'Demo booking created for Phase 18 dashboard read-only booking testing.'
+  'Seeded booking used for dashboard validation.'
 )
 ON CONFLICT (id) DO UPDATE SET
   workspace_id = EXCLUDED.workspace_id,
@@ -114,8 +114,8 @@ VALUES (
   '11111111-1111-4111-8111-111111111111',
   '22222222-2222-4222-8222-222222222222',
   'booking',
-  'Demo event – booking confirmed',
-  'Demo event created for Phase 18 dashboard customer history testing.',
+  'Bokning bekräftad',
+  'Seeded customer event used for dashboard validation.',
   '{"source":"demo_seed","phase":"18.3","service_slug":"hemstadning"}'::jsonb
 )
 ON CONFLICT (id) DO UPDATE SET
