@@ -91,7 +91,7 @@ export function DashboardShell({ children }: Readonly<{ children: React.ReactNod
 
               <div className="flex flex-wrap items-center gap-3">
                 <div className="rounded-full bg-[#e7f1eb] px-4 py-2 text-sm font-semibold text-[#17452f]">
-                  Workspace aktivt
+                  Aktiv arbetsyta
                 </div>
                 <button
                   type="button"

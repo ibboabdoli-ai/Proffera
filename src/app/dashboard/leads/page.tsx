@@ -1,6 +1,6 @@
 const leads = [
   {
-    ref: "PRO-DEMO-001",
+    ref: "LEAD-001",
     customer: "Anna Karlsson",
     service: "Hemstädning",
     city: "Södertälje",
@@ -10,7 +10,7 @@ const leads = [
     nextStep: "Ring kund",
   },
   {
-    ref: "PRO-DEMO-002",
+    ref: "LEAD-002",
     customer: "Nordic Kontor AB",
     service: "Kontorsstädning",
     city: "Stockholm",
@@ -20,8 +20,8 @@ const leads = [
     nextStep: "Skicka förslag",
   },
   {
-    ref: "PRO-DEMO-003",
-    customer: "Bostadsservice Demo",
+    ref: "LEAD-003",
+    customer: "Bostadsservice AB",
     service: "Flyttstädning",
     city: "Tumba",
     status: "Bokning föreslagen",
@@ -77,7 +77,7 @@ export default function LeadsPage() {
       <section className="overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-[#dfe5dd]">
         <div className="border-b border-[#dfe5dd] px-5 py-4">
           <h3 className="text-lg font-bold text-[#17201a]">Aktuella leads</h3>
-          <p className="mt-1 text-sm text-[#5b665f]">Demoöversikt med status, källa, värde och nästa åtgärd.</p>
+          <p className="mt-1 text-sm text-[#5b665f]">Översikt med status, källa, värde och nästa åtgärd.</p>
         </div>
         <div className="hidden grid-cols-8 gap-4 border-b border-[#dfe5dd] bg-[#f7f7f4] px-5 py-3 text-xs font-semibold uppercase tracking-wide text-[#344139] md:grid">
           <span>Ref</span>
@@ -133,14 +133,14 @@ export default function LeadsPage() {
         <article className="rounded-3xl bg-[#17452f] p-6 text-white md:col-span-2">
           <h3 className="text-xl font-bold">Arbeta från vänster till höger</h3>
           <p className="mt-2 max-w-2xl text-sm leading-7 text-white/80">
-            Börja med nya leads, kontakta kunden, föreslå tid och flytta sedan vidare till bokning. När databaskopplingen är klar kan samma vy visa riktiga leads och statusändringar.
+            Börja med nya leads, kontakta kunden, föreslå tid och flytta sedan vidare till bokning. Ett tydligt arbetsflöde gör att teamet snabbare ser vem som behöver nästa åtgärd.
           </p>
         </article>
         <article className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
-          <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Nästa förbättring</p>
-          <h3 className="mt-2 text-xl font-bold text-[#17201a]">Koppla till data</h3>
+          <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Uppföljning</p>
+          <h3 className="mt-2 text-xl font-bold text-[#17201a]">Färre tappade kontakter</h3>
           <p className="mt-2 text-sm leading-7 text-[#5b665f]">
-            Nästa databasfas kan ersätta demo-raderna med riktiga leads, påminnelser och automatisk uppföljning.
+            Använd nästa steg, källa och värde för att prioritera rätt kontakt och hålla varje förfrågan levande tills den är bokad eller avslutad.
           </p>
         </article>
       </section>
