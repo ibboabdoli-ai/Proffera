@@ -59,6 +59,21 @@ function getFormText(formData: FormData, key: string) {
   return String(formData.get(key) ?? "").trim();
 }
 
+function normalizeBookingDisplayText(value: string) {
+  return value.trim().toLocaleLowerCase("sv-SE");
+}
+
+function getBookingMetaText(booking: { title: string; service: string; city: string }) {
+  const title = normalizeBookingDisplayText(booking.title);
+  const service = normalizeBookingDisplayText(booking.service);
+
+  if (title && title === service) {
+    return booking.city;
+  }
+
+  return `${booking.city} · ${booking.service}`;
+}
+
 function redirectWithNoteError(customerId: string, error: keyof typeof errorMessages): never {
   redirect(`/dashboard/kunder/${customerId}?error=${error}`);
 }
@@ -300,7 +315,7 @@ export default async function CustomerDetailPage({ params, searchParams }: Custo
                       <strong>{booking.title}</strong>
                       <br />
                       <span className="text-sm text-[#5b665f]">
-                        {booking.city} · {booking.service}
+                        {getBookingMetaText(booking)}
                       </span>
                     </span>
                     <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-[#344139]">
