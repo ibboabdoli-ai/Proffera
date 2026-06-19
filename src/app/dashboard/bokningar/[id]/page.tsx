@@ -259,7 +259,7 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
                   </div>
                   <Link
                     href={`/dashboard/kunder/${customer.id}`}
-                    className="inline-flex min-h-10 items-center justify-center rounded-full bg-[#0f3322] px-4 py-2 text-sm font-bold text-white shadow-sm ring-1 ring-[#0f3322]/20 transition hover:bg-[#17452f] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#17452f]"
+                    className="inline-flex min-h-10 items-center justify-center rounded-full bg-[#0f3322] px-4 py-2 text-sm font-bold !text-white shadow-sm ring-1 ring-[#0f3322]/20 transition hover:bg-[#17452f] hover:!text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#17452f]"
                   >
                     Visa kundprofil
                   </Link>
