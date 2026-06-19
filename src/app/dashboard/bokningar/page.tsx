@@ -154,10 +154,10 @@ export default async function BookingsPage() {
           </p>
         </article>
         <article className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
-          <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Nästa förbättring</p>
+          <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Bokningsarbete</p>
           <h3 className="mt-2 text-xl font-bold text-[#17201a]">Påminnelser och kalender</h3>
           <p className="mt-2 text-sm leading-7 text-[#5b665f]">
-            Nästa bokningsfas kan koppla på automatiska bekräftelser, påminnelser och kalenderintegration.
+            Automatiska bekräftelser, påminnelser och kalenderkopplingar gör det enklare att hålla varje bokning uppdaterad.
           </p>
         </article>
       </section>
