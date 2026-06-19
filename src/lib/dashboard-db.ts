@@ -1,5 +1,7 @@
 import { neon } from "@neondatabase/serverless";
 
+import { getUserWorkspaceAccess } from "@/lib/workspace-access";
+
 const connectionString =
   process.env.DATABASE_URL ??
   process.env.POSTGRES_URL ??
@@ -12,6 +14,16 @@ function getSqlClient() {
   }
 
   return neon(connectionString);
+}
+
+async function getDashboardWorkspaceId() {
+  const access = await getUserWorkspaceAccess();
+
+  if (!access.ok) {
+    return null;
+  }
+
+  return access.workspaceId;
 }
 
 function toText(value: unknown, fallback = "") {
@@ -168,14 +180,20 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     return fallbackStats;
   }
 
+  const workspaceId = await getDashboardWorkspaceId();
+
+  if (!workspaceId) {
+    return fallbackStats;
+  }
+
   try {
     const rows = await sql`
       select
-        (select count(*) from customers where workspace_id = 'default') as customers_count,
-        (select count(*) from customers where workspace_id = 'default' and status = 'active') as active_customers_count,
-        (select count(*) from bookings where workspace_id = 'default') as bookings_count,
-        (select count(*) from bookings where workspace_id = 'default' and status = 'confirmed') as confirmed_bookings_count,
-        (select count(*) from customer_events where workspace_id = 'default') as customer_events_count
+        (select count(*) from customers where workspace_id = ${workspaceId}) as customers_count,
+        (select count(*) from customers where workspace_id = ${workspaceId} and status = 'active') as active_customers_count,
+        (select count(*) from bookings where workspace_id = ${workspaceId}) as bookings_count,
+        (select count(*) from bookings where workspace_id = ${workspaceId} and status = 'confirmed') as confirmed_bookings_count,
+        (select count(*) from customer_events where workspace_id = ${workspaceId}) as customer_events_count
     `;
 
     const row = rows[0] ?? {};
@@ -200,6 +218,12 @@ export async function getDashboardCustomers(): Promise<DashboardCustomer[]> {
     return [];
   }
 
+  const workspaceId = await getDashboardWorkspaceId();
+
+  if (!workspaceId) {
+    return [];
+  }
+
   try {
     const rows = await sql`
       select
@@ -211,7 +235,7 @@ export async function getDashboardCustomers(): Promise<DashboardCustomer[]> {
         primary_service_slug,
         notes
       from customers
-      where workspace_id = 'default'
+      where workspace_id = ${workspaceId}
       order by created_at desc
       limit 20
     `;
@@ -238,6 +262,12 @@ export async function getDashboardCustomerOptions(): Promise<DashboardCustomerOp
     return [];
   }
 
+  const workspaceId = await getDashboardWorkspaceId();
+
+  if (!workspaceId) {
+    return [];
+  }
+
   try {
     const rows = await sql`
       select
@@ -247,7 +277,7 @@ export async function getDashboardCustomerOptions(): Promise<DashboardCustomerOp
         status,
         primary_service_slug
       from customers
-      where workspace_id = 'default'
+      where workspace_id = ${workspaceId}
       order by created_at desc
       limit 50
     `;
@@ -272,6 +302,12 @@ export async function getDashboardBookings(): Promise<DashboardBooking[]> {
     return [];
   }
 
+  const workspaceId = await getDashboardWorkspaceId();
+
+  if (!workspaceId) {
+    return [];
+  }
+
   try {
     const rows = await sql`
       select
@@ -283,8 +319,8 @@ export async function getDashboardBookings(): Promise<DashboardBooking[]> {
         b.starts_at,
         c.name as customer_name
       from bookings b
-      left join customers c on c.id = b.customer_id
-      where b.workspace_id = 'default'
+      left join customers c on c.id = b.customer_id and c.workspace_id = b.workspace_id
+      where b.workspace_id = ${workspaceId}
       order by b.starts_at asc nulls last, b.created_at desc
       limit 20
     `;
@@ -311,6 +347,12 @@ export async function createDashboardCustomer(input: CreateDashboardCustomerInpu
     throw new Error("Missing database connection for dashboard customer creation");
   }
 
+  const workspaceId = await getDashboardWorkspaceId();
+
+  if (!workspaceId) {
+    throw new Error("Missing dashboard workspace access for dashboard customer creation");
+  }
+
   const rows = await sql`
     insert into customers (
       workspace_id,
@@ -327,7 +369,7 @@ export async function createDashboardCustomer(input: CreateDashboardCustomerInpu
       notes
     )
     values (
-      'default',
+      ${workspaceId},
       ${input.name.trim()},
       ${toNullableText(input.email)},
       ${toNullableText(input.phone)},
@@ -359,10 +401,16 @@ export async function createDashboardBooking(input: CreateDashboardBookingInput)
     throw new Error("Missing database connection for dashboard booking creation");
   }
 
+  const workspaceId = await getDashboardWorkspaceId();
+
+  if (!workspaceId) {
+    throw new Error("Missing dashboard workspace access for dashboard booking creation");
+  }
+
   const customerRows = await sql`
     select id
     from customers
-    where workspace_id = 'default'
+    where workspace_id = ${workspaceId}
       and id = ${input.customerId}
     limit 1
   `;
@@ -389,7 +437,7 @@ export async function createDashboardBooking(input: CreateDashboardBookingInput)
       notes
     )
     values (
-      'default',
+      ${workspaceId},
       ${customerId},
       ${input.title.trim()},
       ${toNullableText(input.service)},
@@ -421,6 +469,12 @@ export async function getDashboardCustomerDetail(customerId: string): Promise<Da
     return null;
   }
 
+  const workspaceId = await getDashboardWorkspaceId();
+
+  if (!workspaceId) {
+    return null;
+  }
+
   try {
     const customerRows = await sql`
       select
@@ -437,7 +491,7 @@ export async function getDashboardCustomerDetail(customerId: string): Promise<Da
         notes,
         created_at
       from customers
-      where workspace_id = 'default'
+      where workspace_id = ${workspaceId}
         and id = ${customerId}
       limit 1
     `;
@@ -458,8 +512,8 @@ export async function getDashboardCustomerDetail(customerId: string): Promise<Da
         b.starts_at,
         c.name as customer_name
       from bookings b
-      left join customers c on c.id = b.customer_id
-      where b.workspace_id = 'default'
+      left join customers c on c.id = b.customer_id and c.workspace_id = b.workspace_id
+      where b.workspace_id = ${workspaceId}
         and b.customer_id = ${customerId}
       order by b.starts_at asc nulls last, b.created_at desc
       limit 20
@@ -473,7 +527,7 @@ export async function getDashboardCustomerDetail(customerId: string): Promise<Da
         description,
         created_at
       from customer_events
-      where workspace_id = 'default'
+      where workspace_id = ${workspaceId}
         and customer_id = ${customerId}
       order by created_at desc
       limit 20
@@ -524,6 +578,12 @@ export async function getDashboardBookingDetail(bookingId: string): Promise<Dash
     return null;
   }
 
+  const workspaceId = await getDashboardWorkspaceId();
+
+  if (!workspaceId) {
+    return null;
+  }
+
   try {
     const bookingRows = await sql`
       select
@@ -550,8 +610,8 @@ export async function getDashboardBookingDetail(bookingId: string): Promise<Dash
         c.notes as customer_notes,
         c.created_at as customer_created_at
       from bookings b
-      left join customers c on c.id = b.customer_id
-      where b.workspace_id = 'default'
+      left join customers c on c.id = b.customer_id and c.workspace_id = b.workspace_id
+      where b.workspace_id = ${workspaceId}
         and b.id = ${bookingId}
       limit 1
     `;
@@ -570,7 +630,7 @@ export async function getDashboardBookingDetail(bookingId: string): Promise<Dash
         description,
         created_at
       from customer_events
-      where workspace_id = 'default'
+      where workspace_id = ${workspaceId}
         and booking_id = ${bookingId}
       order by created_at desc
       limit 20
