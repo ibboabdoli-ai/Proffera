@@ -147,9 +147,9 @@ export default async function BookingsPage() {
       </section>
 
       <section className="grid gap-4 md:grid-cols-3">
-        <article className="rounded-3xl bg-[#17452f] p-6 text-white md:col-span-2">
-          <h3 className="text-xl font-bold">Mindre manuellt arbete</h3>
-          <p className="mt-2 max-w-2xl text-sm leading-7 text-white/80">
+        <article className="rounded-3xl bg-[#17452f] p-6 md:col-span-2">
+          <h3 className="text-xl font-bold text-white">Mindre manuellt arbete</h3>
+          <p className="mt-2 max-w-2xl text-sm leading-7 text-[#e7f1eb]">
             En tydlig bokningsvy gör det enklare att se vilka tider som ska bekräftas, vilka jobb som är redo och vilka kunder som behöver uppföljning.
           </p>
         </article>
