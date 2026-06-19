@@ -300,12 +300,22 @@ export default async function CustomerDetailPage({ params, searchParams }: Custo
                       <strong>{booking.title}</strong>
                       <br />
                       <span className="text-sm text-[#5b665f]">
-                        {booking.city} · {booking.service}
+                        {booking.title.trim().toLowerCase() === booking.service.trim().toLowerCase()
+                          ? booking.city
+                          : `${booking.city} · ${booking.service}`}
                       </span>
                     </span>
-                    <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-[#344139]">
-                      {bookingStatusLabels[booking.status] ?? booking.status}
-                    </span>
+                    <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                      <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-[#344139]">
+                        {bookingStatusLabels[booking.status] ?? booking.status}
+                      </span>
+                      <Link
+                        href={`/dashboard/bokningar/${booking.id}`}
+                        className="inline-flex min-h-9 items-center justify-center rounded-full bg-[#17452f] px-3 py-2 text-xs font-semibold !text-white shadow-sm transition hover:bg-[#0f3322] hover:!text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#17452f]"
+                      >
+                        Visa bokning
+                      </Link>
+                    </div>
                   </div>
                 ))}
               </div>
