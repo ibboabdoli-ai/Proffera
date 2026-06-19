@@ -90,16 +90,17 @@ export default async function CustomersPage() {
               Översikt med kundtyp, tjänst, ort, status och föreslagen uppföljning.
             </p>
           </div>
-          <div className="hidden grid-cols-6 gap-4 border-b border-[#dfe5dd] bg-[#f7f7f4] px-5 py-3 text-xs font-semibold uppercase tracking-wide text-[#344139] md:grid">
+          <div className="hidden grid-cols-7 gap-4 border-b border-[#dfe5dd] bg-[#f7f7f4] px-5 py-3 text-xs font-semibold uppercase tracking-wide text-[#344139] md:grid">
             <span>Kund</span>
             <span>Typ</span>
             <span>Tjänst</span>
             <span>Ort</span>
             <span>Status</span>
             <span>Nästa steg</span>
+            <span>Profil</span>
           </div>
           {customers.map((customer) => (
-            <div key={customer.id} className="grid gap-3 border-b border-[#eef1ec] px-5 py-4 text-sm text-[#344139] last:border-0 md:grid-cols-6 md:gap-4">
+            <div key={customer.id} className="grid gap-3 border-b border-[#eef1ec] px-5 py-4 text-sm text-[#344139] last:border-0 md:grid-cols-7 md:gap-4">
               <div>
                 <p className="text-xs font-semibold uppercase text-[#8a948d] md:hidden">Kund</p>
                 <p className="font-semibold text-[#17201a]">{customer.name}</p>
@@ -124,11 +125,15 @@ export default async function CustomersPage() {
               </div>
               <div>
                 <p className="text-xs font-semibold uppercase text-[#8a948d] md:hidden">Nästa steg</p>
+                <p>{getNextStep(customer.status)}</p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase text-[#8a948d] md:hidden">Profil</p>
                 <Link
                   href={`/dashboard/kunder/${customer.id}`}
-                  className="font-semibold text-[#17452f] transition hover:text-[#0f2f20]"
+                  className="inline-flex min-h-10 items-center justify-center rounded-full bg-[#0f3322] px-4 py-2 text-sm font-bold !text-white shadow-sm ring-1 ring-[#0f3322]/20 transition hover:bg-[#17452f] hover:!text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#17452f]"
                 >
-                  {getNextStep(customer.status)}
+                  Visa kundprofil
                 </Link>
               </div>
             </div>
