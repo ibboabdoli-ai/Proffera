@@ -70,7 +70,7 @@ export function DashboardShell({ children }: Readonly<{ children: React.ReactNod
                   className={[
                     "rounded-2xl px-4 py-3 text-sm font-semibold transition",
                     isActive
-                      ? "bg-[#17452f] text-white shadow-sm"
+                      ? "bg-[#17452f] !text-white shadow-sm hover:!text-white"
                       : "text-[#344139] hover:bg-[#eef5ef] hover:text-[#17452f]",
                   ].join(" ")}
                 >
