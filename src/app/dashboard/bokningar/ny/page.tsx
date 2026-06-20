@@ -164,6 +164,7 @@ async function createBookingAction(formData: FormData) {
 type NewBookingPageProps = {
   searchParams?: Promise<{
     error?: string | string[];
+    customer?: string | string[];
   }>;
 };
 
@@ -175,6 +176,10 @@ export default async function NewBookingPage({ searchParams }: NewBookingPagePro
 
   const errorValue = Array.isArray(params?.error) ? params?.error[0] : params?.error;
   const errorMessage = errorValue ? errorMessages[errorValue] : undefined;
+  const customerValue = Array.isArray(params?.customer) ? params?.customer[0] : params?.customer;
+  const selectedCustomer = customerValue ? customers.find((customer) => customer.id === customerValue) : undefined;
+  const selectedCustomerId = selectedCustomer?.id ?? "";
+  const selectedCustomerCity = selectedCustomer?.city === "Ok\u00e4nd ort" ? "" : (selectedCustomer?.city ?? "");
 
   return (
     <div className="grid gap-6">
@@ -222,7 +227,7 @@ export default async function NewBookingPage({ searchParams }: NewBookingPagePro
             <select
               name="customer_id"
               required
-              defaultValue=""
+              defaultValue={selectedCustomerId}
               className="rounded-2xl border border-[#dfe5dd] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20"
             >
               <option value="" disabled>
@@ -266,6 +271,7 @@ export default async function NewBookingPage({ searchParams }: NewBookingPagePro
               name="city"
               type="text"
               maxLength={120}
+              defaultValue={selectedCustomerCity}
               className="rounded-2xl border border-[#dfe5dd] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20"
               placeholder="Ex. Södertälje"
             />
