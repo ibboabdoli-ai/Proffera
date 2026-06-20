@@ -1,6 +1,6 @@
 import { getDashboardWorkspaceServices } from "@/lib/workspace-services-db";
 import { getDashboardWorkspaceSettings } from "@/lib/workspace-settings-db";
-import { profferaModules } from "@/lib/proffera-modules";
+import { getModuleAccessLabel, getProfferaModuleAccess } from "@/lib/proffera-modules";
 
 import { updateWorkspaceSettingsAction } from "./actions";
 import { ServicesReadOnly } from "./services-read-only";
@@ -156,12 +156,12 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
               <span className="w-fit rounded-full bg-[#f7f7f4] px-3 py-1 text-xs font-semibold text-[#5b665f]">Read-only</span>
             </div>
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
-              {profferaModules.map((module) => (
+              {getProfferaModuleAccess().map((module) => (
                 <div key={module.id} className="rounded-2xl bg-[#f7f7f4] p-4">
                   <div className="flex items-start justify-between gap-3">
                     <p className="text-sm font-bold text-[#17201a]">{module.name}</p>
                     <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-[#17452f]">
-                      {module.status === "active" ? "Aktiv" : "Planerad"}
+                      {getModuleAccessLabel(module.accessState)}
                     </span>
                   </div>
                   <p className="mt-2 text-sm leading-6 text-[#5b665f]">{module.description}</p>
