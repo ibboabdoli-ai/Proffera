@@ -60,7 +60,7 @@ export default function HomePage() {
               <p className="text-sm text-[#5b665f]">Kundportal</p>
               <p className="text-xl font-bold text-[#17201a]">Proffera arbetsyta</p>
             </div>
-            <span className="rounded-full bg-[#e7f1eb] px-3 py-1 text-xs font-semibold text-[#17452f]">Redo f?r demo</span>
+            <span className="rounded-full bg-[#e7f1eb] px-3 py-1 text-xs font-semibold text-[#17452f]">Redo för demo</span>
           </div>
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
             {dashboardItems.map((item) => (
