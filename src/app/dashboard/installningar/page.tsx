@@ -150,7 +150,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
               <div>
                 <h3 className="text-xl font-bold text-[#17201a]">Proffera-moduler</h3>
                 <p className="mt-2 text-sm leading-6 text-[#5b665f]">
-                  En intern oversikt over produktmodulerna. I nasta steg kan dessa kopplas till access och betalning.
+                  En intern översikt över produktmodulerna. I nästa steg kan dessa kopplas till access och betalning.
                 </p>
               </div>
               <span className="w-fit rounded-full bg-[#f7f7f4] px-3 py-1 text-xs font-semibold text-[#5b665f]">Read-only</span>

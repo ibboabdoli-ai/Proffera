@@ -16,7 +16,7 @@ export const profferaModules: ProfferaModule[] = [
   {
     id: "online_booking",
     name: "Onlinebokning",
-    description: "Bokningsflode for serviceforetag.",
+    description: "Bokningsflöde för serviceföretag.",
     status: "active",
   },
   {
@@ -28,13 +28,13 @@ export const profferaModules: ProfferaModule[] = [
   {
     id: "ai_chat",
     name: "AI-chattassistent",
-    description: "AI-stod for kunddialog och leadhantering.",
+    description: "AI-stöd för kunddialog och leadhantering.",
     status: "planned",
   },
   {
     id: "email_automation",
     name: "Automatiska mejl",
-    description: "Bekraftelser, paminnelser och uppfoljning.",
+    description: "Bekräftelser, påminnelser och uppföljning.",
     status: "planned",
   },
   {
