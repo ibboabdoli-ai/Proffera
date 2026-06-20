@@ -12,7 +12,7 @@ export const metadata: Metadata = {
     "Proffera hjälper svenska tjänsteföretag att hantera bokningar, leads, kunder och AI-driven kunddialog i ett enkelt SaaS-system.",
 };
 
-const dashboardItems = ["Leads", "Kunder", "Bokningar", "Analys", "AI Assistant", "Inställningar"] as const;
+const dashboardItems = ["Leads", "Kunder", "Bokningar", "Analys", "AI-assistent", "Inställningar"] as const;
 
 const benefits = [
   {
@@ -57,16 +57,16 @@ export default function HomePage() {
         <div className="rounded-3xl bg-white p-6 shadow-xl shadow-black/5 ring-1 ring-[#dfe5dd]">
           <div className="flex items-center justify-between border-b border-[#dfe5dd] pb-4">
             <div>
-              <p className="text-sm text-[#5b665f]">Admin dashboard</p>
-              <p className="text-xl font-bold text-[#17201a]">Proffera Workspace</p>
+              <p className="text-sm text-[#5b665f]">Kundportal</p>
+              <p className="text-xl font-bold text-[#17201a]">Proffera arbetsyta</p>
             </div>
-            <span className="rounded-full bg-[#e7f1eb] px-3 py-1 text-xs font-semibold text-[#17452f]">Demo klar</span>
+            <span className="rounded-full bg-[#e7f1eb] px-3 py-1 text-xs font-semibold text-[#17452f]">Redo för demo</span>
           </div>
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
             {dashboardItems.map((item) => (
               <div key={item} className="rounded-2xl border border-[#dfe5dd] bg-[#fbfbf8] px-4 py-3">
                 <p className="font-semibold text-[#17201a]">{item}</p>
-                <p className="mt-1 text-xs text-[#5b665f]">SaaS-modul</p>
+                <p className="mt-1 text-xs text-[#5b665f]">Produktmodul</p>
               </div>
             ))}
           </div>
