@@ -5,45 +5,66 @@ export type ProfferaModuleId =
   | "email_automation"
   | "qr_booking";
 
+export type ProfferaModuleAccessState = "active" | "planned" | "locked";
+
 export type ProfferaModule = {
   id: ProfferaModuleId;
   name: string;
   description: string;
-  status: "active" | "planned";
+  accessState: ProfferaModuleAccessState;
+};
+
+export type ProfferaModuleAccess = ProfferaModule & {
+  isEnabled: boolean;
+  isLocked: boolean;
 };
 
 export const profferaModules: ProfferaModule[] = [
   {
     id: "online_booking",
     name: "Onlinebokning",
-    description: "Bokningsflöde för serviceföretag.",
-    status: "active",
+    description: "Bokningsfl\u00f6de f\u00f6r servicef\u00f6retag.",
+    accessState: "active",
   },
   {
     id: "customer_crm",
     name: "Kund-CRM",
     description: "Kunder, leads, bokningar och historik.",
-    status: "active",
+    accessState: "active",
   },
   {
     id: "ai_chat",
     name: "AI-chattassistent",
-    description: "AI-stöd för kunddialog och leadhantering.",
-    status: "planned",
+    description: "AI-st\u00f6d f\u00f6r kunddialog och leadhantering.",
+    accessState: "planned",
   },
   {
     id: "email_automation",
     name: "Automatiska mejl",
-    description: "Bekräftelser, påminnelser och uppföljning.",
-    status: "planned",
+    description: "Bekr\u00e4ftelser, p\u00e5minnelser och uppf\u00f6ljning.",
+    accessState: "planned",
   },
   {
     id: "qr_booking",
     name: "QR-bokning",
     description: "Snabb bokning via QR-koder.",
-    status: "planned",
+    accessState: "planned",
   },
 ];
+
+export function getModuleAccessLabel(accessState: ProfferaModuleAccessState) {
+  if (accessState === "active") return "Aktiv";
+  if (accessState === "locked") return "L\u00e5st";
+  return "Planerad";
+}
+
+export function getProfferaModuleAccess(): ProfferaModuleAccess[] {
+  return profferaModules.map((module) => ({
+    ...module,
+    isEnabled: module.accessState === "active",
+    isLocked: module.accessState === "locked",
+  }));
+}
 
 export const dashboardNavigation = [
   { label: "\u00d6versikt", href: "/dashboard" },
