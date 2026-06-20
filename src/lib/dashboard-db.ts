@@ -448,6 +448,25 @@ export async function createDashboardBooking(input: CreateDashboardBookingInput)
       and status = 'prospect'
   `;
 
+  await sql`
+    insert into customer_events (
+      workspace_id,
+      customer_id,
+      booking_id,
+      event_type,
+      title,
+      description
+    )
+    values (
+      ${workspaceId},
+      ${customerId},
+      ${bookingId},
+      'booking_created',
+      'Bokning skapad fran lead',
+      'Lead konverterades till bokning och kunden markerades som aktiv.'
+    )
+  `;
+
   return bookingId;
 }
 
