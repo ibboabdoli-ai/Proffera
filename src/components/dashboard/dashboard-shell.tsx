@@ -5,15 +5,8 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 
 import { authClient } from "@/lib/auth-client";
+import { dashboardNavigation } from "@/lib/proffera-modules";
 
-const navigation = [
-  { label: "Översikt", href: "/dashboard" },
-  { label: "Leads", href: "/dashboard/leads" },
-  { label: "Kunder", href: "/dashboard/kunder" },
-  { label: "Bokningar", href: "/dashboard/bokningar" },
-  { label: "AI-assistent", href: "/dashboard/ai-assistent" },
-  { label: "Inställningar", href: "/dashboard/installningar" },
-] as const;
 
 function isActivePath(pathname: string, href: string) {
   if (href === "/dashboard") {
@@ -59,7 +52,7 @@ export function DashboardShell({ children }: Readonly<{ children: React.ReactNod
           <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-[#6a756e]">Kundportal</p>
 
           <nav className="mt-6 grid gap-2" aria-label="Dashboard navigation">
-            {navigation.map((item) => {
+            {dashboardNavigation.map((item) => {
               const isActive = isActivePath(pathname, item.href);
 
               return (
