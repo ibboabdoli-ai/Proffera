@@ -205,7 +205,7 @@ export default async function CustomerDetailPage({ params, searchParams }: Custo
 
       {createdValue === "1" ? (
         <section className="rounded-3xl bg-[#eef8f1] p-5 text-sm font-semibold text-[#17452f] ring-1 ring-[#cfe8d6]">
-          Kunden skapades och profilen är redo fför nästa steg.
+          Kunden skapades och profilen är redo för nästa steg.
         </section>
       ) : null}
 
