@@ -12,7 +12,7 @@ const chatActions = [
     title: "Inkorg",
     eyebrow: "Kunddialoger och leads",
     description:
-      "Se inkommande konversationer, följ upp leads och hantera kundmeddelanden från Proffera Chat på rätt arbetsyta.",
+      "Se inkommande konversationer, följ upp leads och hantera kundmeddelanden från Proffera Chat när modulen är redo att aktiveras.",
     href: "https://chat.proffera.se/app/inbox?tenant=proffera",
     cta: "Öppna inkorg",
     priority: "Primär",
@@ -21,7 +21,7 @@ const chatActions = [
     title: "Installera widget",
     eyebrow: "Kod för webbplatsen",
     description:
-      "Hämta installationskoden för Proffera Chat och lägg in widgeten på webbplatsen så att besökare kan starta en chatt.",
+      "Förbered installationskoden för Proffera Chat och använd den först när AI-assistentmodulen ska aktiveras skarpt.",
     href: "https://chat.proffera.se/app/widget-install?tenant=proffera",
     cta: "Visa installationskod",
     priority: "Viktig",
@@ -30,7 +30,7 @@ const chatActions = [
     title: "Inställningar",
     eyebrow: "Utseende och AI-regler",
     description:
-      "Ändra färger, texter, välkomstmeddelande, widgetposition och andra inställningar för Proffera Chat.",
+      "Förbered färger, texter, välkomstmeddelande, widgetposition och andra inställningar innan modulen öppnas för kunder.",
     href: "https://chat.proffera.se/app/settings?tenant=proffera",
     cta: "Öppna inställningar",
     priority: "Viktig",
@@ -39,7 +39,7 @@ const chatActions = [
     title: "Teknisk konfiguration",
     eyebrow: "Widget Config API",
     description:
-      "Kontrollera widgetens tekniska konfiguration vid installation och felsökning. Direct access kan kräva rätt domänkälla.",
+      "Kontrollera widgetens tekniska konfiguration vid förberedelse, installation och felsökning. Direct access kan kräva rätt domänkälla.",
     href: "https://chat.proffera.se/api/widget-config?clientId=proffera",
     cta: "Visa konfiguration",
     priority: "Teknisk",
@@ -54,21 +54,21 @@ const setupSteps = [
   },
   {
     step: "2",
-    title: "Installera widget",
-    detail: "Kopiera installationskoden och lägg in den på rätt plats i webbplatsprojektet.",
+    title: "Förbered widget",
+    detail: "Kontrollera installationskod och inställningar innan modulen aktiveras för riktiga kunder.",
   },
   {
     step: "3",
-    title: "Följ upp i inkorgen",
-    detail: "När besökare skriver ska konversationer och leads hanteras i Proffera Chats inkorg.",
+    title: "Följ upp vid aktivering",
+    detail: "När modulen tas i bruk ska konversationer och leads följas upp i Proffera Chats inkorg.",
   },
 ] as const;
 
 const guardrails = [
-  "Proffera Chat är kundchatten och AI-assistenten för webbplatsens besökare.",
+  "AI-assistenten är en planerad Proffera-modul för webbplatsens besökare.",
   "Live demo används för test innan ändringar visas för riktiga kunder.",
-  "Inkorgen används för att följa upp konversationer, frågor och nya leads.",
-  "Tekniska länkar är främst för installation och felsökning.",
+  "Inkorgen används först skarpt när kundchatten är aktiverad.",
+  "Tekniska länkar är främst för förberedelse, installation och felsökning.",
 ] as const;
 
 export default function AiAssistantPage() {
@@ -79,11 +79,11 @@ export default function AiAssistantPage() {
           <div>
             <p className="text-sm font-semibold uppercase tracking-wide text-white/70">Proffera Chat</p>
             <h2 className="mt-3 max-w-3xl text-3xl font-bold tracking-tight !text-white md:text-4xl">
-              Hantera live demo, AI-assistent, inkorg och widgetinstallation
+              Förhandsvy för planerad AI-assistent
             </h2>
             <p className="mt-4 max-w-3xl text-sm leading-7 text-white/80">
-              Den här sidan samlar vägarna till Proffera Chats riktiga arbetsyta. Använd live demo för att testa kundflödet,
-              öppna inkorgen för att följa upp dialoger och gå till installation eller inställningar när widgeten ska justeras.
+              Den här sidan samlar förhandsvägarna till Proffera Chat. Använd live demo för att granska kundflödet,
+              och öppna övriga vyer först när modulen ska förberedas eller aktiveras skarpt.
             </p>
             <div className="mt-6 flex flex-col gap-3 sm:flex-row">
               <a
@@ -105,10 +105,11 @@ export default function AiAssistantPage() {
             </div>
           </div>
           <aside className="rounded-3xl bg-white/10 p-5 ring-1 ring-white/15">
-            <p className="text-sm font-semibold uppercase tracking-wide text-white/70">Rätt dashboard</p>
-            <p className="mt-3 break-all text-lg font-bold !text-white">chat.proffera.se</p>
+            <p className="text-sm font-semibold uppercase tracking-wide text-white/70">Status</p>
+            <p className="mt-3 break-all text-lg font-bold !text-white">Planerad modul</p>
             <p className="mt-3 text-sm leading-7 text-white/75">
-              Alla huvudlänkar går till Proffera Chats tenant-säkra vyer med <span className="font-semibold text-white">tenant=proffera</span>.
+              AI-assistenten är förberedd som kommande Proffera-modul. Länkarna går till tenant-säkra vyer med{" "}
+              <span className="font-semibold text-white">tenant=proffera</span>.
             </p>
           </aside>
         </div>
