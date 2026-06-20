@@ -81,6 +81,7 @@ export type DashboardLead = {
   value: string;
   nextStep: string;
   profileHref: string;
+  bookingHref: string;
 };
 
 export async function getDashboardLeads(): Promise<DashboardLead[]> {
@@ -122,6 +123,7 @@ export async function getDashboardLeads(): Promise<DashboardLead[]> {
         value: "Ej beräknat",
         nextStep: "Kvalificera kund",
         profileHref: `/dashboard/kunder/${id}`,
+        bookingHref: `/dashboard/bokningar/ny?customer=${encodeURIComponent(id)}`,
       };
     });
   } catch (error) {

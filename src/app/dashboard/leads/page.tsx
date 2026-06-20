@@ -136,7 +136,7 @@ export default async function LeadsPage() {
                       Visa profil
                     </Link>
                     <Link
-                      href="/dashboard/bokningar/ny"
+                      href={lead.bookingHref}
                       className="inline-flex items-center justify-center rounded-full border border-[#17452f] bg-white px-3 py-2 text-xs font-semibold text-[#17452f] transition hover:bg-[#eef5ef]"
                     >
                       Bokning
