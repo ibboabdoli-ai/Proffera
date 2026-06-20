@@ -439,6 +439,15 @@ export async function createDashboardBooking(input: CreateDashboardBookingInput)
     throw new Error("Booking creation did not return an id");
   }
 
+  await sql`
+    update customers
+    set status = 'active',
+        updated_at = now()
+    where id = ${customerId}
+      and workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})
+      and status = 'prospect'
+  `;
+
   return bookingId;
 }
 
