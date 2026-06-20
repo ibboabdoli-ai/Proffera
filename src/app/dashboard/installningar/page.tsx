@@ -1,5 +1,6 @@
 import { getDashboardWorkspaceServices } from "@/lib/workspace-services-db";
 import { getDashboardWorkspaceSettings } from "@/lib/workspace-settings-db";
+import { profferaModules } from "@/lib/proffera-modules";
 
 import { updateWorkspaceSettingsAction } from "./actions";
 import { ServicesReadOnly } from "./services-read-only";
@@ -143,6 +144,31 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
               </article>
             ))}
           </div>
+
+          <article className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h3 className="text-xl font-bold text-[#17201a]">Proffera-moduler</h3>
+                <p className="mt-2 text-sm leading-6 text-[#5b665f]">
+                  En intern ?versikt ?ver produktmodulerna. I n?sta steg kan dessa kopplas till access och betalning.
+                </p>
+              </div>
+              <span className="w-fit rounded-full bg-[#f7f7f4] px-3 py-1 text-xs font-semibold text-[#5b665f]">Read-only</span>
+            </div>
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              {profferaModules.map((module) => (
+                <div key={module.id} className="rounded-2xl bg-[#f7f7f4] p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="text-sm font-bold text-[#17201a]">{module.name}</p>
+                    <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-[#17452f]">
+                      {module.status === "active" ? "Aktiv" : "Planerad"}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm leading-6 text-[#5b665f]">{module.description}</p>
+                </div>
+              ))}
+            </div>
+          </article>
 
           <article className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
