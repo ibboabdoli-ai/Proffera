@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { getDashboardCustomerDetail } from "@/lib/dashboard-db";
+import { getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +12,8 @@ const connectionString =
   process.env.POSTGRES_URL ??
   process.env.POSTGRES_PRISMA_URL ??
   process.env.POSTGRES_URL_NON_POOLING;
+
+const LEGACY_WORKSPACE_ID = "default";
 
 type CustomerDetailPageProps = {
   params: Promise<{
@@ -57,6 +60,16 @@ const errorMessages: Record<string, string> = {
 
 function getFormText(formData: FormData, key: string) {
   return String(formData.get(key) ?? "").trim();
+}
+
+async function getActiveWorkspaceId() {
+  const access = await getUserWorkspaceAccess();
+
+  if (!access.ok) {
+    return LEGACY_WORKSPACE_ID;
+  }
+
+  return access.workspaceId;
 }
 
 function normalizeBookingDisplayText(value: string) {
@@ -109,6 +122,7 @@ async function createCustomerNoteAction(customerId: string, formData: FormData) 
   }
 
   const sql = neon(connectionString);
+  const workspaceId = await getActiveWorkspaceId();
 
   try {
     const rows = await sql`
@@ -130,7 +144,7 @@ async function createCustomerNoteAction(customerId: string, formData: FormData) 
         ${note},
         jsonb_build_object('source', 'dashboard_manual')
       from customers
-      where workspace_id = 'default'
+      where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})
         and id = ${customerId}
       returning id
     `;

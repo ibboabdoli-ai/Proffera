@@ -1,10 +1,16 @@
+import "server-only";
+
 import { neon } from "@neondatabase/serverless";
+
+import { getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 const connectionString =
   process.env.DATABASE_URL ??
   process.env.POSTGRES_URL ??
   process.env.POSTGRES_PRISMA_URL ??
   process.env.POSTGRES_URL_NON_POOLING;
+
+const LEGACY_WORKSPACE_ID = "default";
 
 const allowedBookingStatuses = ["requested", "confirmed", "completed", "cancelled"] as const;
 
@@ -22,6 +28,16 @@ function getSqlClient() {
   return neon(connectionString);
 }
 
+async function getActiveWorkspaceId() {
+  const access = await getUserWorkspaceAccess();
+
+  if (!access.ok) {
+    return LEGACY_WORKSPACE_ID;
+  }
+
+  return access.workspaceId;
+}
+
 export function isDashboardBookingStatus(value: string): value is DashboardBookingStatus {
   return allowedBookingStatuses.includes(value as DashboardBookingStatus);
 }
@@ -36,6 +52,8 @@ export async function updateDashboardBookingStatus(
     throw new Error("Missing database connection for dashboard booking status update");
   }
 
+  const workspaceId = await getActiveWorkspaceId();
+
   const rows = await sql`
     with existing_booking as (
       select
@@ -44,7 +62,7 @@ export async function updateDashboardBookingStatus(
         customer_id,
         status as old_status
       from bookings
-      where workspace_id = 'default'
+      where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})
         and id = ${bookingId}
     ),
     updated_booking as (
@@ -52,7 +70,7 @@ export async function updateDashboardBookingStatus(
       set
         status = ${status},
         updated_at = now()
-      where workspace_id = 'default'
+      where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})
         and id = ${bookingId}
         and status <> ${status}
       returning

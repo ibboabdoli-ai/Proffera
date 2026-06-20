@@ -1,4 +1,8 @@
+import "server-only";
+
 import { neon } from "@neondatabase/serverless";
+
+import { getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 const connectionString =
   process.env.DATABASE_URL ??
@@ -6,12 +10,24 @@ const connectionString =
   process.env.POSTGRES_PRISMA_URL ??
   process.env.POSTGRES_URL_NON_POOLING;
 
+const LEGACY_WORKSPACE_ID = "default";
+
 function getSqlClient() {
   if (!connectionString) {
     return null;
   }
 
   return neon(connectionString);
+}
+
+async function getActiveWorkspaceId() {
+  const access = await getUserWorkspaceAccess();
+
+  if (!access.ok) {
+    return LEGACY_WORKSPACE_ID;
+  }
+
+  return access.workspaceId;
 }
 
 function toText(value: unknown, fallback = "") {
@@ -168,14 +184,16 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     return fallbackStats;
   }
 
+  const workspaceId = await getActiveWorkspaceId();
+
   try {
     const rows = await sql`
       select
-        (select count(*) from customers where workspace_id = 'default') as customers_count,
-        (select count(*) from customers where workspace_id = 'default' and status = 'active') as active_customers_count,
-        (select count(*) from bookings where workspace_id = 'default') as bookings_count,
-        (select count(*) from bookings where workspace_id = 'default' and status = 'confirmed') as confirmed_bookings_count,
-        (select count(*) from customer_events where workspace_id = 'default') as customer_events_count
+        (select count(*) from customers where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})) as customers_count,
+        (select count(*) from customers where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID}) and status = 'active') as active_customers_count,
+        (select count(*) from bookings where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})) as bookings_count,
+        (select count(*) from bookings where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID}) and status = 'confirmed') as confirmed_bookings_count,
+        (select count(*) from customer_events where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})) as customer_events_count
     `;
 
     const row = rows[0] ?? {};
@@ -200,6 +218,8 @@ export async function getDashboardCustomers(): Promise<DashboardCustomer[]> {
     return [];
   }
 
+  const workspaceId = await getActiveWorkspaceId();
+
   try {
     const rows = await sql`
       select
@@ -211,8 +231,8 @@ export async function getDashboardCustomers(): Promise<DashboardCustomer[]> {
         primary_service_slug,
         notes
       from customers
-      where workspace_id = 'default'
-      order by created_at desc
+      where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})
+      order by case when workspace_id = ${workspaceId} then 0 else 1 end, created_at desc
       limit 20
     `;
 
@@ -238,6 +258,8 @@ export async function getDashboardCustomerOptions(): Promise<DashboardCustomerOp
     return [];
   }
 
+  const workspaceId = await getActiveWorkspaceId();
+
   try {
     const rows = await sql`
       select
@@ -247,8 +269,8 @@ export async function getDashboardCustomerOptions(): Promise<DashboardCustomerOp
         status,
         primary_service_slug
       from customers
-      where workspace_id = 'default'
-      order by created_at desc
+      where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})
+      order by case when workspace_id = ${workspaceId} then 0 else 1 end, created_at desc
       limit 50
     `;
 
@@ -272,6 +294,8 @@ export async function getDashboardBookings(): Promise<DashboardBooking[]> {
     return [];
   }
 
+  const workspaceId = await getActiveWorkspaceId();
+
   try {
     const rows = await sql`
       select
@@ -284,8 +308,8 @@ export async function getDashboardBookings(): Promise<DashboardBooking[]> {
         c.name as customer_name
       from bookings b
       left join customers c on c.id = b.customer_id
-      where b.workspace_id = 'default'
-      order by b.starts_at asc nulls last, b.created_at desc
+      where b.workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})
+      order by case when b.workspace_id = ${workspaceId} then 0 else 1 end, b.starts_at asc nulls last, b.created_at desc
       limit 20
     `;
 
@@ -311,6 +335,8 @@ export async function createDashboardCustomer(input: CreateDashboardCustomerInpu
     throw new Error("Missing database connection for dashboard customer creation");
   }
 
+  const workspaceId = await getActiveWorkspaceId();
+
   const rows = await sql`
     insert into customers (
       workspace_id,
@@ -327,7 +353,7 @@ export async function createDashboardCustomer(input: CreateDashboardCustomerInpu
       notes
     )
     values (
-      'default',
+      ${workspaceId},
       ${input.name.trim()},
       ${toNullableText(input.email)},
       ${toNullableText(input.phone)},
@@ -359,10 +385,12 @@ export async function createDashboardBooking(input: CreateDashboardBookingInput)
     throw new Error("Missing database connection for dashboard booking creation");
   }
 
+  const workspaceId = await getActiveWorkspaceId();
+
   const customerRows = await sql`
     select id
     from customers
-    where workspace_id = 'default'
+    where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})
       and id = ${input.customerId}
     limit 1
   `;
@@ -389,7 +417,7 @@ export async function createDashboardBooking(input: CreateDashboardBookingInput)
       notes
     )
     values (
-      'default',
+      ${workspaceId},
       ${customerId},
       ${input.title.trim()},
       ${toNullableText(input.service)},
@@ -421,6 +449,8 @@ export async function getDashboardCustomerDetail(customerId: string): Promise<Da
     return null;
   }
 
+  const workspaceId = await getActiveWorkspaceId();
+
   try {
     const customerRows = await sql`
       select
@@ -437,7 +467,7 @@ export async function getDashboardCustomerDetail(customerId: string): Promise<Da
         notes,
         created_at
       from customers
-      where workspace_id = 'default'
+      where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})
         and id = ${customerId}
       limit 1
     `;
@@ -459,7 +489,7 @@ export async function getDashboardCustomerDetail(customerId: string): Promise<Da
         c.name as customer_name
       from bookings b
       left join customers c on c.id = b.customer_id
-      where b.workspace_id = 'default'
+      where b.workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})
         and b.customer_id = ${customerId}
       order by b.starts_at asc nulls last, b.created_at desc
       limit 20
@@ -473,9 +503,9 @@ export async function getDashboardCustomerDetail(customerId: string): Promise<Da
         description,
         created_at
       from customer_events
-      where workspace_id = 'default'
+      where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})
         and customer_id = ${customerId}
-      order by created_at desc
+      order by case when workspace_id = ${workspaceId} then 0 else 1 end, created_at desc
       limit 20
     `;
 
@@ -524,6 +554,8 @@ export async function getDashboardBookingDetail(bookingId: string): Promise<Dash
     return null;
   }
 
+  const workspaceId = await getActiveWorkspaceId();
+
   try {
     const bookingRows = await sql`
       select
@@ -551,7 +583,7 @@ export async function getDashboardBookingDetail(bookingId: string): Promise<Dash
         c.created_at as customer_created_at
       from bookings b
       left join customers c on c.id = b.customer_id
-      where b.workspace_id = 'default'
+      where b.workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})
         and b.id = ${bookingId}
       limit 1
     `;
@@ -570,9 +602,9 @@ export async function getDashboardBookingDetail(bookingId: string): Promise<Dash
         description,
         created_at
       from customer_events
-      where workspace_id = 'default'
+      where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})
         and booking_id = ${bookingId}
-      order by created_at desc
+      order by case when workspace_id = ${workspaceId} then 0 else 1 end, created_at desc
       limit 20
     `;
 
