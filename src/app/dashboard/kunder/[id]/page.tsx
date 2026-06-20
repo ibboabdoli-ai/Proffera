@@ -22,6 +22,7 @@ type CustomerDetailPageProps = {
   searchParams?: Promise<{
     error?: string | string[];
     note?: string | string[];
+    created?: string | string[];
   }>;
 };
 
@@ -174,6 +175,7 @@ export default async function CustomerDetailPage({ params, searchParams }: Custo
   const { customer, bookings, events } = detail;
   const errorValue = Array.isArray(query?.error) ? query?.error[0] : query?.error;
   const noteValue = Array.isArray(query?.note) ? query?.note[0] : query?.note;
+  const createdValue = Array.isArray(query?.created) ? query?.created[0] : query?.created;
   const errorMessage = errorValue ? errorMessages[errorValue] : undefined;
   const noteAction = createCustomerNoteAction.bind(null, customer.id);
 
@@ -198,6 +200,12 @@ export default async function CustomerDetailPage({ params, searchParams }: Custo
       {errorMessage ? (
         <section className="rounded-3xl bg-[#fff5f2] p-5 text-sm font-semibold text-[#8f2f1b] ring-1 ring-[#f4c7ba]">
           {errorMessage}
+        </section>
+      ) : null}
+
+      {createdValue === "1" ? (
+        <section className="rounded-3xl bg-[#eef8f1] p-5 text-sm font-semibold text-[#17452f] ring-1 ring-[#cfe8d6]">
+          Kunden skapades och profilen är redo för nästa steg.
         </section>
       ) : null}
 
