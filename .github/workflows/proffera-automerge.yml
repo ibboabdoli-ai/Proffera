@@ -1,0 +1,156 @@
+name: Proffera gated automerge
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number to evaluate
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+  statuses: read
+
+jobs:
+  gated-automerge:
+    name: Gated automerge
+    runs-on: ubuntu-latest
+    steps:
+      - name: Evaluate gated automerge
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_PR_NUMBER: ${{ github.event.pull_request.number }}
+          INPUT_PR_NUMBER: ${{ inputs.pr_number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          summary() {
+            echo "$1" >> "$GITHUB_STEP_SUMMARY"
+          }
+
+          refuse() {
+            summary "## Proffera gated automerge: refused"
+            summary ""
+            summary "$1"
+            echo "$1"
+            exit 0
+          }
+
+          pr_number="${EVENT_PR_NUMBER:-}"
+          if [ -z "$pr_number" ]; then
+            pr_number="${INPUT_PR_NUMBER:-}"
+          fi
+
+          if [ -z "$pr_number" ]; then
+            refuse "No pull request number was provided."
+          fi
+
+          pr_json="$(gh pr view "$pr_number" --repo "$REPOSITORY" --json number,baseRefName,headRefName,headRefOid,labels,isDraft)"
+
+          base_ref="$(echo "$pr_json" | jq -r '.baseRefName')"
+          head_ref="$(echo "$pr_json" | jq -r '.headRefName')"
+          head_sha="$(echo "$pr_json" | jq -r '.headRefOid')"
+          is_draft="$(echo "$pr_json" | jq -r '.isDraft')"
+          has_label="$(echo "$pr_json" | jq -r '.labels[].name' | grep -Fxq 'ibbo-approved' && echo yes || echo no)"
+
+          summary "## Proffera gated automerge"
+          summary ""
+          summary "- PR: #$pr_number"
+          summary "- Base branch: $base_ref"
+          summary "- Head branch: $head_ref"
+          summary "- Head SHA: $head_sha"
+          summary "- Required label: ibbo-approved"
+          summary "- Merge method: squash"
+          summary "- Admin bypass: not used"
+          summary ""
+
+          if [ "$base_ref" != "main" ]; then
+            refuse "Refused: PR target branch is '$base_ref', not 'main'."
+          fi
+
+          if [[ "$head_ref" != work/proffera-* ]]; then
+            refuse "Refused: source branch '$head_ref' does not start with 'work/proffera-'."
+          fi
+
+          if [ "$is_draft" = "true" ]; then
+            refuse "Refused: PR is still a draft."
+          fi
+
+          if [ "$has_label" != "yes" ]; then
+            refuse "Refused: PR does not have the required 'ibbo-approved' label."
+          fi
+
+          changed_files="$(gh pr diff "$pr_number" --repo "$REPOSITORY" --name-only)"
+          summary "### Changed files"
+          if [ -z "$changed_files" ]; then
+            summary "No changed files found."
+          else
+            while IFS= read -r file; do
+              summary "- $file"
+            done <<< "$changed_files"
+          fi
+          summary ""
+
+          sensitive_match=""
+          while IFS= read -r file; do
+            case "$file" in
+              .github/workflows/*|.env*|vercel.json|next.config.*|middleware.*|src/app/api/*|src/app/api/**|src/lib/auth/*|src/lib/auth/**|src/lib/supabase/*|src/lib/supabase/**|src/lib/workspace/*|src/lib/workspace/**|supabase/*|supabase/**|prisma/*|prisma/**|package.json|package-lock.json|pnpm-lock.yaml|yarn.lock)
+                sensitive_match="$sensitive_match$file
+"
+                ;;
+            esac
+          done <<< "$changed_files"
+
+          if [ -n "$sensitive_match" ]; then
+            summary "### Blocked sensitive files"
+            while IFS= read -r file; do
+              [ -n "$file" ] && summary "- $file"
+            done <<< "$sensitive_match"
+            refuse "Refused: PR changes blocked sensitive paths."
+          fi
+
+          checks_json="$(gh pr checks "$pr_number" --repo "$REPOSITORY" --json name,state 2>/dev/null || true)"
+          if [ -z "$checks_json" ] || [ "$checks_json" = "[]" ]; then
+            refuse "Refused: no status checks were found for this PR."
+          fi
+
+          failing_checks="$(echo "$checks_json" | jq -r '.[] | select(.state == "FAILURE" or .state == "ERROR" or .state == "CANCELLED" or .state == "TIMED_OUT" or .state == "ACTION_REQUIRED") | .name')"
+          pending_checks="$(echo "$checks_json" | jq -r '.[] | select(.state == "PENDING" or .state == "QUEUED" or .state == "IN_PROGRESS" or .state == "WAITING") | .name')"
+
+          summary "### Checks"
+          echo "$checks_json" | jq -r '.[] | "- " + .name + ": " + .state' >> "$GITHUB_STEP_SUMMARY"
+          summary ""
+
+          if [ -n "$pending_checks" ]; then
+            summary "### Pending checks"
+            while IFS= read -r check; do
+              [ -n "$check" ] && summary "- $check"
+            done <<< "$pending_checks"
+            refuse "Refused: checks are still pending."
+          fi
+
+          if [ -n "$failing_checks" ]; then
+            summary "### Failed checks"
+            while IFS= read -r check; do
+              [ -n "$check" ] && summary "- $check"
+            done <<< "$failing_checks"
+            refuse "Refused: one or more checks failed."
+          fi
+
+          merge_output="$(gh pr merge "$pr_number" --repo "$REPOSITORY" --squash --delete-branch --match-head-commit "$head_sha" 2>&1)"
+          summary "## Proffera gated automerge: merged"
+          summary ""
+          summary "Squash merge completed with head-SHA safety check."
+          summary "Source branch was deleted only after successful merge."
+          summary ""
+          summary '```'
+          summary "$merge_output"
+          summary '```'
