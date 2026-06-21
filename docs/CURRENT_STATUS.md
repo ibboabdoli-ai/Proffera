@@ -2,7 +2,7 @@
 
 This file is the single source of truth for the current project state. Update it after every completed or materially changed phase.
 
-Last updated: 2026-06-15
+Last updated: 2026-06-21
 
 Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a legacy/reference history file and is not required for normal phase updates.
 
@@ -16,13 +16,19 @@ Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a le
 - Phase 18.17C: Documentation workflow hardening completed and merged through PR #17.
 - P21: Proffera login entry foundation completed. Public `Logga in` now stays inside Proffera at `/logga-in`; no real auth was added.
 - P22A: Temporary Basic Auth protection added for `/dashboard` and `/dashboard/*`; real customer auth is not implemented yet.
-- P22B: Auth and workspace model plan added. No code or database changes were made in this planning step.
+- P22B: Auth and workspace model plan added. No code or database changes were made in that planning step.
 - P22C: Auth implementation direction selected: Better Auth with PostgreSQL/Neon, plus Proffera-owned workspace and membership tables.
 - P22D retry plan added after dependency resolution conflict. No auth dependency was installed in that planning step.
 - P22D-prep: Local toolchain alignment completed with `.nvmrc`, Node engine requirement and ESLint 9 pin.
 - P22D-prep follow-up: ESLint config moved away from `FlatCompat` to direct flat config imports for Next/TypeScript.
 - P22D-prep lint cleanup: demo booking ID generation made deterministic and local lint/build passed.
 - P22D-retry: pinned Better Auth/PostgreSQL dependency attempt failed in Vercel and was rolled back from `main`. Real auth is still not active.
+- PR #102: Homepage Swedish/product copy polish completed.
+- PR #103: Customer profile created-confirmation message completed.
+- PR #104: AI-assistent page copy adjusted to present the module as planned/preview instead of fully active.
+- PR #105: Proffera gated automerge workflow merged on `main` for safe worker PRs.
+- Lead → Booking → Customer activation flow is complete.
+- Module registry with `Aktiv`, `Planerad`, and `Låst` status is in place.
 
 ## Production status
 
@@ -39,16 +45,18 @@ Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a le
 - `.nvmrc` now requests Node 22 for local development.
 - `package.json` now declares Node `>=20.9.0` and pins ESLint to v9.
 - `eslint.config.mjs` now uses direct flat config imports instead of `FlatCompat`.
-- Service AI Chat remains a separate project at `chat.proffera.se`.
-- The Service AI Chat widget is installed and can answer, but Proffera inbox persistence/delivery still needs final verification or a small fix.
+- Service AI Chat remains a separate project at `chat.proffera.se` and must not be merged into this repo.
+- AI-assistent in the Proffera dashboard is currently planned/preview copy, not a fully active production integration.
+- Normal worker branches should use the `work/proffera-` prefix.
+- Worker PRs must target `main`, pass real non-self checks, avoid blocked sensitive paths, and require the `ibbo-approved` label before gated automerge can run.
 
 ## Recommended next step
 
-Choose one small, approved next step:
+Run one small validation phase before new product changes:
 
-1. Pull the latest main branch, run `nvm use`, then verify `npm install --no-package-lock`, `npm run lint`, and `npm run build` locally.
-2. Retry Better Auth only on a separate branch, with Vercel preview verification before merging to `main`.
-3. Later, verify Service AI Chat inbox persistence for client `proffera`, then confirm strict tenant isolation.
+1. P91D Production smoke test on the live site and dashboard.
+2. If P91D passes, start P92 Module access guard on a separate `work/proffera-...` branch.
+3. Retry Better Auth only on a separate branch, with Vercel preview verification before merging to `main`.
 
 Do not start a full Service AI Chat merge or broad cross-project refactor.
 
@@ -65,6 +73,7 @@ Do not start a full Service AI Chat merge or broad cross-project refactor.
 - MVP and placeholder copy should be replaced before real sales.
 - Service AI Chat must keep Iboren and Proffera messages/leads strictly separated.
 - `/logga-in` is only a portal entry placeholder; real customer authentication, session handling, roles, and workspace binding are not implemented yet.
+- Planned and locked modules need access guards so `Planerad` stays preview-only and `Låst` stays inaccessible.
 
 ## Protected flows
 
