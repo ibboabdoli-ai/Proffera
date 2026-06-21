@@ -28,6 +28,8 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           EVENT_PR_NUMBER: ${{ github.event.pull_request.number }}
           INPUT_PR_NUMBER: ${{ inputs.pr_number }}
+          SELF_CHECK_NAME: Gated automerge
+          SELF_WORKFLOW_NAME: Proffera gated automerge
         shell: bash
         run: |
           set -euo pipefail
@@ -122,11 +124,13 @@ jobs:
             refuse "Refused: no status checks were found for this PR."
           fi
 
-          failing_checks="$(echo "$checks_json" | jq -r '.[] | select(.state == "FAILURE" or .state == "ERROR" or .state == "CANCELLED" or .state == "TIMED_OUT" or .state == "ACTION_REQUIRED") | .name')"
-          pending_checks="$(echo "$checks_json" | jq -r '.[] | select(.state == "PENDING" or .state == "QUEUED" or .state == "IN_PROGRESS" or .state == "WAITING") | .name')"
+          failing_checks="$(echo "$checks_json" | jq -r --arg self_check "$SELF_CHECK_NAME" --arg self_workflow "$SELF_WORKFLOW_NAME" '.[] | select(.name != $self_check and .name != $self_workflow) | select(.state == "FAILURE" or .state == "ERROR" or .state == "CANCELLED" or .state == "TIMED_OUT" or .state == "ACTION_REQUIRED") | .name')"
+          pending_checks="$(echo "$checks_json" | jq -r --arg self_check "$SELF_CHECK_NAME" --arg self_workflow "$SELF_WORKFLOW_NAME" '.[] | select(.name != $self_check and .name != $self_workflow) | select(.state == "PENDING" or .state == "QUEUED" or .state == "IN_PROGRESS" or .state == "WAITING") | .name')"
 
           summary "### Checks"
           echo "$checks_json" | jq -r '.[] | "- " + .name + ": " + .state' >> "$GITHUB_STEP_SUMMARY"
+          summary ""
+          summary "Self-check names ignored while gating pending/failing checks: $SELF_CHECK_NAME, $SELF_WORKFLOW_NAME"
           summary ""
 
           if [ -n "$pending_checks" ]; then
