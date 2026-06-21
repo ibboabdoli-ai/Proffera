@@ -124,6 +124,7 @@ jobs:
             refuse "Refused: no status checks were found for this PR."
           fi
 
+          non_self_check_count="$(echo "$checks_json" | jq -r --arg self_check "$SELF_CHECK_NAME" --arg self_workflow "$SELF_WORKFLOW_NAME" '[.[] | select(.name != $self_check and .name != $self_workflow)] | length')"
           failing_checks="$(echo "$checks_json" | jq -r --arg self_check "$SELF_CHECK_NAME" --arg self_workflow "$SELF_WORKFLOW_NAME" '.[] | select(.name != $self_check and .name != $self_workflow) | select(.state == "FAILURE" or .state == "ERROR" or .state == "CANCELLED" or .state == "TIMED_OUT" or .state == "ACTION_REQUIRED") | .name')"
           pending_checks="$(echo "$checks_json" | jq -r --arg self_check "$SELF_CHECK_NAME" --arg self_workflow "$SELF_WORKFLOW_NAME" '.[] | select(.name != $self_check and .name != $self_workflow) | select(.state == "PENDING" or .state == "QUEUED" or .state == "IN_PROGRESS" or .state == "WAITING") | .name')"
 
@@ -131,7 +132,12 @@ jobs:
           echo "$checks_json" | jq -r '.[] | "- " + .name + ": " + .state' >> "$GITHUB_STEP_SUMMARY"
           summary ""
           summary "Self-check names ignored while gating pending/failing checks: $SELF_CHECK_NAME, $SELF_WORKFLOW_NAME"
+          summary "Non-self status checks found: $non_self_check_count"
           summary ""
+
+          if [ "$non_self_check_count" -eq 0 ]; then
+            refuse "Refused: no non-self status checks were found for this PR."
+          fi
 
           if [ -n "$pending_checks" ]; then
             summary "### Pending checks"
