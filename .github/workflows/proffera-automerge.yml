@@ -105,8 +105,7 @@ jobs:
           while IFS= read -r file; do
             case "$file" in
               .github/workflows/*|.env*|vercel.json|next.config.*|middleware.*|src/app/api/*|src/app/api/**|src/lib/auth/*|src/lib/auth/**|src/lib/supabase/*|src/lib/supabase/**|src/lib/workspace/*|src/lib/workspace/**|supabase/*|supabase/**|prisma/*|prisma/**|package.json|package-lock.json|pnpm-lock.yaml|yarn.lock)
-                sensitive_match="$sensitive_match$file
-"
+                sensitive_match="${sensitive_match}${file}"$'\n'
                 ;;
             esac
           done <<< "$changed_files"
