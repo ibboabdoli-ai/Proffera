@@ -2,9 +2,9 @@ import { CheckCircle2, Quote, ShieldCheck } from "lucide-react";
 import { ButtonLink } from "@/components/ui/button-link";
 
 const trustItems = [
-  "Svensk SaaS för tjänsteföretag",
-  "Byggt stegvis med säker adminåtkomst",
-  "Fungerande lead- och e-postflöde i MVP",
+  "Svensk produkt för tjänsteföretag",
+  "Byggt stegvis med säker kundportal",
+  "Fungerande lead- och e-postflöde för demo",
   "Brevo-baserad e-postleverans",
 ] as const;
 
@@ -30,7 +30,7 @@ const faqs = [
   },
   {
     question: "Finns allt klart redan?",
-    answer: "MVP-flöden för leads, företag, matchning, admin och e-postleverans finns. SaaS-moduler byggs stegvis för att hålla kvalitet och kontroll.",
+    answer: "Grundflöden för leads, företag, matchning och e-postleverans finns. Produktmoduler byggs stegvis för att hålla kvalitet och kontroll.",
   },
   {
     question: "Kan Proffera anpassas för olika branscher?",
@@ -68,7 +68,7 @@ export function ConversionSections() {
               <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Case study</p>
               <h2 className="mt-2 text-2xl font-bold text-[#17201a]">Från manuell leadhantering till strukturerat flöde.</h2>
               <p className="mt-3 text-sm leading-7 text-[#5b665f]">
-                Ett lokalt serviceföretag kan använda Proffera för att ta emot förfrågningar, se matchade leads, skicka e-post och följa upp status i admin.
+                Ett lokalt serviceföretag kan använda Proffera för att ta emot förfrågningar, se matchade leads, skicka e-post och följa upp status i kundportalen.
               </p>
               <ul className="mt-5 space-y-2 text-sm text-[#344139]">
                 {['Lead in', 'Matchning', 'E-postleverans', 'Uppföljning'].map((item) => (
