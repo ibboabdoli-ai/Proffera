@@ -12,7 +12,14 @@ export const metadata: Metadata = {
     "Proffera hjälper svenska tjänsteföretag att hantera bokningar, leads, kunder och AI-driven kunddialog i ett enkelt SaaS-system.",
 };
 
-const dashboardItems = ["Leads", "Kunder", "Bokningar", "Analys", "AI-assistent", "Inställningar"] as const;
+const dashboardItems = [
+  { name: "Leads", status: "Aktiv modul" },
+  { name: "Kunder", status: "Aktiv modul" },
+  { name: "Bokningar", status: "Aktiv modul" },
+  { name: "Analys", status: "Kommande modul" },
+  { name: "AI-assistent", status: "Planerad modul" },
+  { name: "Inställningar", status: "Aktiv arbetsyta" },
+] as const;
 
 const benefits = [
   {
@@ -64,9 +71,9 @@ export default function HomePage() {
           </div>
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
             {dashboardItems.map((item) => (
-              <div key={item} className="rounded-2xl border border-[#dfe5dd] bg-[#fbfbf8] px-4 py-3">
-                <p className="font-semibold text-[#17201a]">{item}</p>
-                <p className="mt-1 text-xs text-[#5b665f]">Produktmodul</p>
+              <div key={item.name} className="rounded-2xl border border-[#dfe5dd] bg-[#fbfbf8] px-4 py-3">
+                <p className="font-semibold text-[#17201a]">{item.name}</p>
+                <p className="mt-1 text-xs text-[#5b665f]">{item.status}</p>
               </div>
             ))}
           </div>
@@ -134,7 +141,7 @@ export default function HomePage() {
           <QrCode className="h-10 w-10" aria-hidden="true" />
           <h2 className="mt-5 text-3xl font-bold">Redo att se Proffera i praktiken?</h2>
           <p className="mt-3 max-w-2xl text-white/80">
-            Boka en demo och se hur bokningsflöde, leadhantering, AI-chatt och adminöversikt kan fungera för svenska tjänsteföretag.
+            Boka en demo och se hur bokningsflöde, leadhantering, AI-chatt och kundportal kan fungera för svenska tjänsteföretag.
           </p>
           <div className="mt-6">
             <ButtonLink href="/demo" variant="secondary">Boka demo</ButtonLink>
