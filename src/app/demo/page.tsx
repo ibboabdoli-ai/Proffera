@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 
 const demoBlocks = [
   { icon: CalendarDays, title: "Interaktivt bokningsflöde", text: "Kunden väljer tjänst, beskriver behovet och skickar en tydlig förfrågan." },
-  { icon: LayoutDashboard, title: "Adminöversikt", text: "Företaget ser leads, status, leveranslogg och uppföljningar i ett arbetsflöde." },
+  { icon: LayoutDashboard, title: "Portalöversikt", text: "Företaget ser leads, status, leveranslogg och uppföljningar i ett arbetsflöde." },
   { icon: Bot, title: "AI-assistent", text: "AI kan hjälpa besökare att hitta rätt tjänst och lämna kontaktuppgifter." },
   { icon: QrCode, title: "QR-bokning", text: "QR-koder kan leda direkt till en boknings- eller offertförfrågan." },
 ];
@@ -26,7 +26,7 @@ export default function DemoPage() {
           Se hur Proffera kan fungera från första klick till uppföljning.
         </h1>
         <p className="mt-5 max-w-3xl text-lg leading-8 text-[#5b665f]">
-          Demo-sidan visar de centrala delarna: kundflöde, adminvy, AI-assistent och QR-bokning.
+          Demo-sidan visar de centrala delarna: kundflöde, portalöversikt, AI-assistent och QR-bokning.
         </p>
       </section>
 
