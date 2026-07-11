@@ -1,7 +1,9 @@
 import { neon } from "@neondatabase/serverless";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { Activity, ArrowLeft, CalendarCheck2, MessageSquareText, UserRound } from "lucide-react";
 
+import { DashboardMetricGrid, DashboardPageHeader } from "@/components/dashboard/dashboard-page-ui";
 import { getDashboardCustomerDetail } from "@/lib/dashboard-db";
 import { getUserWorkspaceAccess } from "@/lib/workspace-access";
 
@@ -178,69 +180,53 @@ export default async function CustomerDetailPage({ params, searchParams }: Custo
   const createdValue = Array.isArray(query?.created) ? query?.created[0] : query?.created;
   const errorMessage = errorValue ? errorMessages[errorValue] : undefined;
   const noteAction = createCustomerNoteAction.bind(null, customer.id);
+  const metrics = [
+    { label: "Status", value: customerStatusLabels[customer.status] ?? customer.status, helper: "Aktuell CRM-status", icon: UserRound, tone: "bg-[#e9f2ec] text-[#17452f]" },
+    { label: "Bokningar", value: String(bookings.length), helper: "Kopplade bokningar", icon: CalendarCheck2, tone: "bg-[#edf0f8] text-[#405582]" },
+    { label: "Händelser", value: String(events.length), helper: "Registrerade aktiviteter", icon: Activity, tone: "bg-[#f8f0df] text-[#8a6722]" },
+    { label: "Noteringar", value: "Intern", helper: "Kontrollerad kundnotering", icon: MessageSquareText, tone: "bg-[#f0ece8] text-[#6d5948]" },
+  ] as const;
 
   return (
     <div className="grid gap-6">
-      <section className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Kundprofil</p>
-          <h2 className="mt-2 text-3xl font-bold text-[#17201a]">{customer.name}</h2>
-          <p className="mt-3 max-w-3xl text-sm leading-7 text-[#5b665f]">
-            Här visas kundens profil, bokningar och historik. Interna noteringar kan sparas kontrollerat med åtkomstkod.
-          </p>
-        </div>
-        <Link
-          href="/dashboard/kunder"
-          className="inline-flex rounded-full bg-white px-4 py-2 text-sm font-semibold text-[#17452f] shadow-sm ring-1 ring-[#dfe5dd] transition hover:bg-[#f7f7f4]"
-        >
-          Tillbaka till kunder
-        </Link>
-      </section>
+      <DashboardPageHeader
+        eyebrow="Kundprofil"
+        title={customer.name}
+        description="Se kundens profil, bokningar och historik. Interna noteringar kan sparas kontrollerat med åtkomstkod."
+        icon={UserRound}
+        actions={
+          <Link href="/dashboard/kunder" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#d5ddd3] bg-white px-4 py-2.5 text-sm font-bold text-[#17452f] transition hover:-translate-y-0.5 hover:bg-[#f3f6f2]">
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+            Tillbaka till kunder
+          </Link>
+        }
+      />
 
       {errorMessage ? (
-        <section className="rounded-3xl bg-[#fff5f2] p-5 text-sm font-semibold text-[#8f2f1b] ring-1 ring-[#f4c7ba]">
+        <section className="rounded-2xl bg-[#fff5f2] p-5 text-sm font-semibold text-[#8f2f1b] ring-1 ring-[#f4c7ba]">
           {errorMessage}
         </section>
       ) : null}
 
       {createdValue === "1" ? (
-        <section className="rounded-3xl bg-[#eef8f1] p-5 text-sm font-semibold text-[#17452f] ring-1 ring-[#cfe8d6]">
+        <section className="rounded-2xl bg-[#eef8f1] p-5 text-sm font-semibold text-[#17452f] ring-1 ring-[#cfe8d6]">
           Kunden skapades och profilen är redo för nästa steg.
         </section>
       ) : null}
 
       {noteValue === "created" ? (
-        <section className="rounded-3xl bg-[#eef8f1] p-5 text-sm font-semibold text-[#17452f] ring-1 ring-[#cfe8d6]">
+        <section className="rounded-2xl bg-[#eef8f1] p-5 text-sm font-semibold text-[#17452f] ring-1 ring-[#cfe8d6]">
           Noteringen sparades i kundhistoriken. Ingen bokning ändrades och ingen e-post skickades.
         </section>
       ) : null}
 
-      <section className="grid gap-4 md:grid-cols-4">
-        <article className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[#dfe5dd]">
-          <p className="text-sm text-[#5b665f]">Status</p>
-          <p className="mt-2 text-xl font-bold text-[#17452f]">
-            {customerStatusLabels[customer.status] ?? customer.status}
-          </p>
-        </article>
-        <article className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[#dfe5dd]">
-          <p className="text-sm text-[#5b665f]">Bokningar</p>
-          <p className="mt-2 text-xl font-bold text-[#17452f]">{bookings.length}</p>
-        </article>
-        <article className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[#dfe5dd]">
-          <p className="text-sm text-[#5b665f]">Händelser</p>
-          <p className="mt-2 text-xl font-bold text-[#17452f]">{events.length}</p>
-        </article>
-        <article className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[#dfe5dd]">
-          <p className="text-sm text-[#5b665f]">Noteringar</p>
-          <p className="mt-2 text-xl font-bold text-[#17452f]">Intern notering</p>
-        </article>
-      </section>
+      <DashboardMetricGrid items={metrics} />
 
       <section className="grid gap-6 lg:grid-cols-[1fr_360px]">
         <div className="grid gap-6">
-          <article className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
+          <article className="rounded-[24px] border border-[#e0e5dd] bg-white p-6 shadow-[0_1px_2px_rgba(20,43,32,0.03),0_14px_36px_rgba(20,43,32,0.045)]">
             <h3 className="text-xl font-bold text-[#17201a]">Profil</h3>
-            <div className="mt-5 grid gap-3 rounded-2xl bg-[#f7f7f4] p-4 text-sm text-[#344139] sm:grid-cols-2">
+            <div className="mt-5 grid gap-3 rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4 text-sm text-[#344139] sm:grid-cols-2">
               <p>
                 <strong>Kundtyp:</strong> {customer.type}
               </p>
@@ -263,17 +249,17 @@ export default async function CustomerDetailPage({ params, searchParams }: Custo
                 <strong>Skapad:</strong> {customer.createdAt}
               </p>
             </div>
-            <p className="mt-4 rounded-2xl bg-[#f7f7f4] p-4 text-sm leading-7 text-[#344139]">
+            <p className="mt-4 rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4 text-sm leading-7 text-[#344139]">
               <strong>Notering:</strong> {customer.notes}
             </p>
           </article>
 
-          <article className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
+          <article className="rounded-[24px] border border-[#e0e5dd] bg-white p-6 shadow-[0_1px_2px_rgba(20,43,32,0.03),0_14px_36px_rgba(20,43,32,0.045)]">
             <h3 className="text-xl font-bold text-[#17201a]">Lägg till notering</h3>
             <p className="mt-3 text-sm leading-7 text-[#5b665f]">
               Sparar en intern notering i kundhistoriken. Ingen bokning ändras och ingen e-post skickas.
             </p>
-            <form action={noteAction} className="mt-5 grid gap-4 rounded-2xl bg-[#f7f7f4] p-4">
+            <form action={noteAction} className="mt-5 grid gap-4 rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4">
               <label className="grid gap-2 text-sm font-semibold text-[#17201a]">
                 Intern åtkomstkod
                 <input
@@ -281,7 +267,7 @@ export default async function CustomerDetailPage({ params, searchParams }: Custo
                   type="password"
                   required
                   autoComplete="off"
-                  className="rounded-2xl border border-[#dfe5dd] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20"
+                  className="rounded-xl border border-[#d9e1d7] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20"
                   placeholder="Ange intern kod"
                 />
               </label>
@@ -292,7 +278,7 @@ export default async function CustomerDetailPage({ params, searchParams }: Custo
                   type="text"
                   required
                   maxLength={140}
-                  className="rounded-2xl border border-[#dfe5dd] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20"
+                  className="rounded-xl border border-[#d9e1d7] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20"
                   placeholder="Till exempel: Uppföljning"
                 />
               </label>
@@ -303,20 +289,20 @@ export default async function CustomerDetailPage({ params, searchParams }: Custo
                   required
                   maxLength={1000}
                   rows={5}
-                  className="rounded-2xl border border-[#dfe5dd] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20"
+                  className="rounded-xl border border-[#d9e1d7] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20"
                   placeholder="Skriv en intern kundnotering..."
                 />
               </label>
               <button
                 type="submit"
-                className="inline-flex w-fit rounded-full bg-[#17452f] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0f3322] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#17452f]"
+                className="inline-flex w-fit rounded-xl bg-[#173e2b] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0f3322] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#17452f]"
               >
                 Spara notering
               </button>
             </form>
           </article>
 
-          <article className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
+          <article className="rounded-[24px] border border-[#e0e5dd] bg-white p-6 shadow-[0_1px_2px_rgba(20,43,32,0.03),0_14px_36px_rgba(20,43,32,0.045)]">
             <div className="flex items-center justify-between border-b border-[#dfe5dd] pb-4">
               <div>
                 <h3 className="text-xl font-bold text-[#17201a]">Bokningar</h3>
@@ -325,13 +311,13 @@ export default async function CustomerDetailPage({ params, searchParams }: Custo
               <span className="rounded-full bg-[#e7f1eb] px-3 py-1 text-xs font-semibold text-[#17452f]">Bokningsdata</span>
             </div>
             {bookings.length === 0 ? (
-              <p className="mt-5 rounded-2xl bg-[#f7f7f4] p-4 text-sm text-[#5b665f]">
+              <p className="mt-5 rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4 text-sm text-[#5b665f]">
                 Inga bokningar hittades för den här kunden.
               </p>
             ) : (
               <div className="mt-5 space-y-3">
                 {bookings.map((booking) => (
-                  <div key={booking.id} className="grid gap-2 rounded-2xl bg-[#f7f7f4] p-4 sm:grid-cols-[170px_1fr_auto] sm:items-center">
+                  <div key={booking.id} className="grid gap-2 rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4 sm:grid-cols-[170px_1fr_auto] sm:items-center">
                     <span className="font-bold text-[#17452f]">{booking.time}</span>
                     <span>
                       <strong>{booking.title}</strong>
@@ -346,7 +332,7 @@ export default async function CustomerDetailPage({ params, searchParams }: Custo
                       </span>
                       <Link
                         href={`/dashboard/bokningar/${booking.id}`}
-                        className="inline-flex min-h-9 items-center justify-center rounded-full bg-[#17452f] px-3 py-2 text-xs font-semibold !text-white shadow-sm transition hover:bg-[#0f3322] hover:!text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#17452f]"
+                        className="inline-flex min-h-9 items-center justify-center rounded-xl bg-[#173e2b] px-3 py-2 text-xs font-semibold !text-white shadow-sm transition hover:bg-[#0f3322] hover:!text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#17452f]"
                       >
                         Visa bokning
                       </Link>

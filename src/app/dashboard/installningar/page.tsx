@@ -1,3 +1,6 @@
+import { SlidersHorizontal } from "lucide-react";
+
+import { DashboardPageHeader } from "@/components/dashboard/dashboard-page-ui";
 import { getDashboardWorkspaceServices } from "@/lib/workspace-services-db";
 import { getDashboardWorkspaceSettings } from "@/lib/workspace-settings-db";
 import { getModuleAccessLabel, getProfferaModuleAccess } from "@/lib/proffera-modules";
@@ -35,7 +38,7 @@ const serviceErrorMessages: Record<string, string> = {
 };
 
 const inputClass =
-  "rounded-2xl border border-[#dfe5dd] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20";
+  "rounded-xl border border-[#d9e1d7] bg-white px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/15";
 
 function firstParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
@@ -87,44 +90,33 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
 
   return (
     <div className="grid gap-6">
-      <section className="rounded-3xl bg-[#f7f7f4] p-6 ring-1 ring-[#e4e7df] lg:p-8">
-        <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Inställningar</p>
-        <div className="mt-3 grid gap-6 lg:grid-cols-[1.3fr_0.7fr] lg:items-end">
-          <div>
-            <h2 className="text-3xl font-bold tracking-tight text-[#17201a]">Styr företagsprofil och tjänsteutbud</h2>
-            <p className="mt-3 max-w-3xl text-sm leading-7 text-[#5b665f]">
-              Samla de uppgifter som påverkar kundflöden, CTA-knappar, tjänster och kommande AI-svar på ett ställe.
-              Håll profilen tydlig så att teamet, bokningar och kunddialoger använder samma information.
-            </p>
-          </div>
-          <div className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[#dfe5dd]">
-            <p className="text-sm font-semibold text-[#5b665f]">Aktuell profil</p>
-            <p className="mt-2 text-2xl font-bold text-[#17201a]">{workspaceSettings.companyName}</p>
-            <p className="mt-1 text-sm text-[#5b665f]">{workspaceSettings.primaryCity}</p>
-          </div>
-        </div>
-      </section>
+      <DashboardPageHeader
+        eyebrow="Inställningar"
+        title="Styr företagsprofil och tjänsteutbud"
+        description={`Samla uppgifter som påverkar kundflöden, CTA-knappar, tjänster och kommande AI-svar. Aktiv profil: ${workspaceSettings.companyName}, ${workspaceSettings.primaryCity}.`}
+        icon={SlidersHorizontal}
+      />
 
       {wasUpdated ? (
-        <section className="rounded-3xl bg-[#eef8f0] p-5 text-sm font-semibold text-[#17452f] ring-1 ring-[#c9e6d0]">
+        <section className="rounded-2xl bg-[#eef8f0] p-5 text-sm font-semibold text-[#17452f] ring-1 ring-[#c9e6d0]">
           Företagsprofilen sparades.
         </section>
       ) : null}
 
       {wasServiceUpdated ? (
-        <section className="rounded-3xl bg-[#eef8f0] p-5 text-sm font-semibold text-[#17452f] ring-1 ring-[#c9e6d0]">
+        <section className="rounded-2xl bg-[#eef8f0] p-5 text-sm font-semibold text-[#17452f] ring-1 ring-[#c9e6d0]">
           Tjänsten sparades.
         </section>
       ) : null}
 
       {errorMessage ? (
-        <section className="rounded-3xl bg-[#fff5f2] p-5 text-sm font-semibold text-[#8f2f1b] ring-1 ring-[#f4c7ba]">
+        <section className="rounded-2xl bg-[#fff5f2] p-5 text-sm font-semibold text-[#8f2f1b] ring-1 ring-[#f4c7ba]">
           {errorMessage}
         </section>
       ) : null}
 
       {serviceErrorMessage ? (
-        <section className="rounded-3xl bg-[#fff5f2] p-5 text-sm font-semibold text-[#8f2f1b] ring-1 ring-[#f4c7ba]">
+        <section className="rounded-2xl bg-[#fff5f2] p-5 text-sm font-semibold text-[#8f2f1b] ring-1 ring-[#f4c7ba]">
           {serviceErrorMessage}
         </section>
       ) : null}
@@ -133,7 +125,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         <div className="grid gap-6">
           <div className="grid gap-4 lg:grid-cols-2">
             {settings.map((setting) => (
-              <article key={setting.label} className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
+              <article key={setting.label} className="rounded-[24px] border border-[#e0e5dd] bg-white p-6 shadow-[0_1px_2px_rgba(20,43,32,0.03),0_14px_36px_rgba(20,43,32,0.045)]">
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <p className="text-lg font-bold text-[#17201a]">{setting.label}</p>
@@ -145,7 +137,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
             ))}
           </div>
 
-          <article className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
+          <article className="rounded-[24px] border border-[#e0e5dd] bg-white p-6 shadow-[0_1px_2px_rgba(20,43,32,0.03),0_14px_36px_rgba(20,43,32,0.045)]">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <h3 className="text-xl font-bold text-[#17201a]">Proffera-moduler</h3>
@@ -157,7 +149,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
             </div>
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
               {getProfferaModuleAccess().map((module) => (
-                <div key={module.id} className="rounded-2xl bg-[#f7f7f4] p-4">
+                <div key={module.id} className="rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4">
                   <div className="flex items-start justify-between gap-3">
                     <p className="text-sm font-bold text-[#17201a]">{module.name}</p>
                     <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-[#17452f]">
@@ -170,7 +162,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
             </div>
           </article>
 
-          <article className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
+          <article className="rounded-[24px] border border-[#e0e5dd] bg-white p-6 shadow-[0_1px_2px_rgba(20,43,32,0.03),0_14px_36px_rgba(20,43,32,0.045)]">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <h3 className="text-xl font-bold text-[#17201a]">Profil som används i kundflöden</h3>
@@ -182,7 +174,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
             </div>
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
               {profileSummary.map((item) => (
-                <div key={item.label} className="rounded-2xl bg-[#f7f7f4] p-4">
+                <div key={item.label} className="rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4">
                   <p className="text-xs font-semibold uppercase tracking-wide text-[#5b665f]">{item.label}</p>
                   <p className="mt-1 text-sm font-bold text-[#17201a]">{item.value}</p>
                 </div>
@@ -191,7 +183,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
           </article>
         </div>
 
-        <aside className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
+        <aside className="rounded-[24px] border border-[#e0e5dd] bg-white p-6 shadow-[0_1px_2px_rgba(20,43,32,0.03),0_14px_36px_rgba(20,43,32,0.045)]">
           <h3 className="text-xl font-bold text-[#17201a]">Redigera företagsprofil</h3>
           <p className="mt-2 text-sm leading-6 text-[#5b665f]">
             Uppdatera de uppgifter som kunder och interna flöden ska se först.
@@ -233,13 +225,13 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
               <input name="contact_phone" type="tel" maxLength={80} className={inputClass} defaultValue={workspaceSettings.contactPhone} placeholder="Ej angivet" />
             </label>
 
-            <div className="rounded-2xl bg-[#f7f7f4] p-4 text-sm leading-6 text-[#5b665f]">
+            <div className="rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4 text-sm leading-6 text-[#5b665f]">
               <strong className="text-[#17201a]">Säker ändring:</strong> Endast företagsprofilen uppdateras. Kunddata, leads och bokningar påverkas inte.
             </div>
 
             <button
               type="submit"
-              className="inline-flex w-full items-center justify-center rounded-full bg-[#17452f] px-6 py-3 text-sm font-semibold !text-white transition hover:bg-[#123824] hover:!text-white focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2"
+              className="inline-flex w-full items-center justify-center rounded-xl bg-[#173e2b] px-6 py-3 text-sm font-semibold !text-white transition hover:bg-[#123824] hover:!text-white focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2"
             >
               Spara ändringar
             </button>
