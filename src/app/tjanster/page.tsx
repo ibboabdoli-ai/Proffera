@@ -21,34 +21,35 @@ const highlights = [
 
 export default function ServicesPage() {
   return (
-    <div className="bg-[#f7f7f4]">
-      <section className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8 lg:py-24">
-        <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Tjänster</p>
-        <h1 className="mt-3 max-w-4xl text-4xl font-bold tracking-tight text-[#17201a] sm:text-5xl">
+    <div className="overflow-hidden bg-[#f7f7f4]">
+      <section className="border-b border-[#dfe5dd] bg-[radial-gradient(circle_at_85%_0%,rgba(145,197,162,0.28),transparent_35%),linear-gradient(180deg,#fff_0%,#f7f7f4_100%)]">
+      <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8 lg:py-24">
+        <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#17452f]">Tjänster</p>
+        <h1 className="mt-4 max-w-4xl text-4xl font-bold leading-[1.08] tracking-[-0.04em] text-[#17201a] sm:text-5xl">
           Digitala verktyg för tjänsteföretag som vill växa smartare.
         </h1>
         <p className="mt-5 max-w-3xl text-lg leading-8 text-[#5b665f]">
           Proffera kombinerar bokning, leadhantering, CRM, AI-stöd och automation i ett system byggt för små företag i Sverige.
         </p>
-      </section>
+      </div></section>
 
-      <section className="bg-white py-14">
+      <section className="bg-white py-20">
         <div className="mx-auto grid max-w-7xl gap-6 px-4 sm:px-6 lg:grid-cols-5 lg:px-8">
-          {highlights.map(({ icon: Icon, title, text }) => (
-            <article key={title} className="rounded-3xl border border-[#dfe5dd] bg-[#fbfbf8] p-6">
-              <Icon className="h-8 w-8 text-[#17452f]" aria-hidden="true" />
-              <h2 className="mt-4 text-lg font-semibold text-[#17201a]">{title}</h2>
+          {highlights.map(({ icon: Icon, title, text }, index) => (
+            <article key={title} className="rounded-2xl border border-[#dfe5dd] bg-[#fbfbf8] p-6 transition hover:-translate-y-1 hover:border-[#b6cfbd] hover:bg-white hover:shadow-lg hover:shadow-[#17452f]/5">
+              <div className="flex items-center justify-between"><div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#e7f1eb]"><Icon className="h-5 w-5 text-[#17452f]" aria-hidden="true" /></div><span className="text-sm font-bold text-[#9aa69e]">0{index + 1}</span></div>
+              <h2 className="mt-6 text-lg font-semibold text-[#17201a]">{title}</h2>
               <p className="mt-2 text-sm leading-6 text-[#5b665f]">{text}</p>
             </article>
           ))}
         </div>
       </section>
 
-      <section className="mx-auto max-w-7xl px-4 py-14 sm:px-6 lg:px-8">
-        <h2 className="text-3xl font-bold text-[#17201a]">Moduler</h2>
+      <section className="mx-auto max-w-7xl px-4 py-20 sm:px-6 lg:px-8">
+        <h2 className="text-3xl font-bold tracking-tight text-[#17201a]">Moduler</h2>
         <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {serviceCategories.map((category) => (
-            <div key={category} className="flex items-center justify-between rounded-2xl bg-white px-5 py-4 shadow-sm ring-1 ring-[#dfe5dd]">
+            <div key={category} className="flex items-center justify-between rounded-xl bg-white px-5 py-4 shadow-sm ring-1 ring-[#dfe5dd] transition hover:-translate-y-0.5 hover:ring-[#b6cfbd]">
               <span className="font-medium text-[#17201a]">{category}</span>
               <ArrowRight className="h-4 w-4 text-[#17452f]" aria-hidden="true" />
             </div>
