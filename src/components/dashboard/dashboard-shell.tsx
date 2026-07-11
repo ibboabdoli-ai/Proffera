@@ -61,13 +61,13 @@ function NavigationLinks({ pathname, onNavigate }: NavigationLinksProps) {
               "group flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition",
               isActive
                 ? "bg-white text-[#173e2b] shadow-[0_8px_24px_rgba(0,0,0,0.12)]"
-                : "text-white/70 hover:bg-white/8 hover:text-white",
+                : "text-[#d8e5dc] hover:bg-white/10 hover:text-white",
             ].join(" ")}
           >
             <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
             <span className="flex-1">{item.label}</span>
             {isPlanned ? (
-              <span className={isActive ? "text-[10px] font-bold uppercase tracking-wide text-[#557061]" : "text-[10px] font-bold uppercase tracking-wide text-white/40"}>
+              <span className={isActive ? "text-[10px] font-bold uppercase tracking-wide text-[#557061]" : "text-[10px] font-bold uppercase tracking-wide text-[#a8c4b0]"}>
                 Planerad
               </span>
             ) : null}
@@ -80,13 +80,13 @@ function NavigationLinks({ pathname, onNavigate }: NavigationLinksProps) {
 
 function Brand() {
   return (
-    <Link href="/" className="flex items-center gap-3 text-white">
+    <Link href="/" className="flex items-center gap-3 !text-white">
       <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#d8ae52] text-lg font-black text-[#173124] shadow-lg shadow-black/15">
         P
       </span>
       <span>
         <span className="block text-lg font-bold tracking-tight">Proffera</span>
-        <span className="block text-[10px] font-semibold uppercase tracking-[0.18em] text-white/45">Kundportal</span>
+        <span className="block text-[10px] font-semibold uppercase tracking-[0.18em] text-[#b6cbbd]">Kundportal</span>
       </span>
     </Link>
   );
@@ -128,7 +128,7 @@ export function DashboardShell({ children }: Readonly<{ children: React.ReactNod
           </div>
 
           <div className="mt-9 flex-1">
-            <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-white/35">Arbetsyta</p>
+            <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-[#a8c4b0]">Arbetsyta</p>
             <NavigationLinks pathname={pathname} />
           </div>
 
@@ -138,7 +138,7 @@ export function DashboardShell({ children }: Readonly<{ children: React.ReactNod
               <p className="text-xs font-bold uppercase tracking-wide">Proffera</p>
             </div>
             <p className="mt-2 text-sm font-semibold text-white">Allt kundarbete samlat</p>
-            <p className="mt-1 text-xs leading-5 text-white/50">Leads, kunder och bokningar i en tydlig arbetsyta.</p>
+            <p className="mt-1 text-xs leading-5 text-[#c6d8cb]">Leads, kunder och bokningar i en tydlig arbetsyta.</p>
           </div>
         </aside>
 
@@ -208,7 +208,7 @@ export function DashboardShell({ children }: Readonly<{ children: React.ReactNod
               </button>
             </div>
             <div className="mt-9 flex-1 overflow-y-auto">
-              <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-white/35">Arbetsyta</p>
+              <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-[#a8c4b0]">Arbetsyta</p>
               <NavigationLinks pathname={pathname} onNavigate={() => setIsMobileMenuOpen(false)} />
             </div>
           </aside>
