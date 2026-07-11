@@ -63,6 +63,7 @@ function NavigationLinks({ pathname, onNavigate }: NavigationLinksProps) {
                 ? "bg-white text-[#173e2b] shadow-[0_8px_24px_rgba(0,0,0,0.12)]"
                 : "text-[#d8e5dc] hover:bg-white/10 hover:text-white",
             ].join(" ")}
+            style={isActive ? undefined : { color: "#e1eee5" }}
           >
             <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
             <span className="flex-1">{item.label}</span>
@@ -80,13 +81,13 @@ function NavigationLinks({ pathname, onNavigate }: NavigationLinksProps) {
 
 function Brand() {
   return (
-    <Link href="/" className="flex items-center gap-3 !text-white">
+    <Link href="/" className="flex items-center gap-3 !text-white" style={{ color: "#ffffff" }}>
       <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#d8ae52] text-lg font-black text-[#173124] shadow-lg shadow-black/15">
         P
       </span>
       <span>
         <span className="block text-lg font-bold tracking-tight">Proffera</span>
-        <span className="block text-[10px] font-semibold uppercase tracking-[0.18em] text-[#b6cbbd]">Kundportal</span>
+        <span className="block text-[10px] font-semibold uppercase tracking-[0.18em] text-[#b6cbbd]" style={{ color: "#c8dacd" }}>Kundportal</span>
       </span>
     </Link>
   );
