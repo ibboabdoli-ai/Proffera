@@ -112,6 +112,7 @@ export default async function DashboardPage() {
             <Link
               href="/dashboard/leads"
               className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-bold text-[#173e2b] transition hover:-translate-y-0.5 hover:bg-[#f3f6f2]"
+              style={{ color: "#173e2b" }}
             >
               Hantera leads
               <ArrowRight className="h-4 w-4" aria-hidden="true" />
