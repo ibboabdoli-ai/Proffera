@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { ArrowLeft, UserRoundPlus } from "lucide-react";
 
+import { DashboardPageHeader } from "@/components/dashboard/dashboard-page-ui";
 import { createDashboardCustomer, type CreateDashboardCustomerInput } from "@/lib/dashboard-db";
 import { serviceTaxonomy } from "@/lib/service-taxonomy";
 
@@ -163,27 +165,26 @@ export default async function NewCustomerPage({ searchParams }: NewCustomerPageP
 
   return (
     <div className="grid gap-6">
-      <section>
-        <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Kunder</p>
-        <h2 className="mt-2 text-3xl font-bold text-[#17201a]">Ny kund</h2>
-        <p className="mt-3 max-w-3xl text-sm leading-7 text-[#5b665f]">
-          Skapa en ny kund i Proffera. Formuläret är skyddat med intern åtkomstkod och sparar kunden i kundregistret.
-        </p>
-        <Link
-          href="/dashboard/kunder"
-          className="mt-5 inline-flex rounded-full bg-white px-4 py-2 text-sm font-semibold text-[#17452f] shadow-sm ring-1 ring-[#dfe5dd] transition hover:bg-[#eef5ef]"
-        >
-          Tillbaka till kunder
-        </Link>
-      </section>
+      <DashboardPageHeader
+        eyebrow="Kunder"
+        title="Ny kund"
+        description="Skapa en ny kund i Proffera. Formuläret är skyddat med intern åtkomstkod och sparar kunden direkt i kundregistret."
+        icon={UserRoundPlus}
+        actions={
+          <Link href="/dashboard/kunder" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#d5ddd3] bg-white px-4 py-2.5 text-sm font-bold text-[#17452f] transition hover:-translate-y-0.5 hover:bg-[#f3f6f2]">
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+            Tillbaka till kunder
+          </Link>
+        }
+      />
 
       {errorMessage ? (
-        <section className="rounded-3xl bg-[#fff5f2] p-5 text-sm font-semibold text-[#8f2f1b] ring-1 ring-[#f4c7ba]">
+        <section className="rounded-2xl bg-[#fff5f2] p-5 text-sm font-semibold text-[#8f2f1b] ring-1 ring-[#f4c7ba]">
           {errorMessage}
         </section>
       ) : null}
 
-      <form action={createCustomerAction} className="grid gap-6 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
+      <form action={createCustomerAction} className="grid gap-6 rounded-[24px] border border-[#e0e5dd] bg-white p-5 shadow-[0_1px_2px_rgba(20,43,32,0.03),0_14px_36px_rgba(20,43,32,0.045)] sm:p-6">
         <section className="grid gap-4 md:grid-cols-2">
           <label className="grid gap-2 text-sm font-semibold text-[#17201a]">
             Intern åtkomstkod
@@ -192,7 +193,7 @@ export default async function NewCustomerPage({ searchParams }: NewCustomerPageP
               type="password"
               required
               autoComplete="off"
-              className="rounded-2xl border border-[#dfe5dd] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20"
+              className="rounded-xl border border-[#d9e1d7] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20"
               placeholder="Ange intern kod"
             />
           </label>
@@ -203,7 +204,7 @@ export default async function NewCustomerPage({ searchParams }: NewCustomerPageP
               type="text"
               required
               maxLength={120}
-              className="rounded-2xl border border-[#dfe5dd] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20"
+              className="rounded-xl border border-[#d9e1d7] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20"
               placeholder="Ex. Sara Andersson"
             />
           </label>
@@ -212,7 +213,7 @@ export default async function NewCustomerPage({ searchParams }: NewCustomerPageP
             <select
               name="customer_type"
               defaultValue="private"
-              className="rounded-2xl border border-[#dfe5dd] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20"
+              className="rounded-xl border border-[#d9e1d7] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20"
             >
               <option value="private">Privatkund</option>
               <option value="company">Företag</option>
@@ -223,7 +224,7 @@ export default async function NewCustomerPage({ searchParams }: NewCustomerPageP
             <select
               name="status"
               defaultValue="prospect"
-              className="rounded-2xl border border-[#dfe5dd] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20"
+              className="rounded-xl border border-[#d9e1d7] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20"
             >
               {customerStatuses.map((item) => (
                 <option key={item} value={item}>
@@ -238,7 +239,7 @@ export default async function NewCustomerPage({ searchParams }: NewCustomerPageP
               name="email"
               type="email"
               maxLength={160}
-              className="rounded-2xl border border-[#dfe5dd] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20"
+              className="rounded-xl border border-[#d9e1d7] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20"
               placeholder="namn@example.se"
             />
           </label>
@@ -248,7 +249,7 @@ export default async function NewCustomerPage({ searchParams }: NewCustomerPageP
               name="phone"
               type="tel"
               maxLength={40}
-              className="rounded-2xl border border-[#dfe5dd] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20"
+              className="rounded-xl border border-[#d9e1d7] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20"
               placeholder="+46..."
             />
           </label>
@@ -258,7 +259,7 @@ export default async function NewCustomerPage({ searchParams }: NewCustomerPageP
               name="company_name"
               type="text"
               maxLength={160}
-              className="rounded-2xl border border-[#dfe5dd] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20"
+              className="rounded-xl border border-[#d9e1d7] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20"
               placeholder="Valfritt"
             />
           </label>
@@ -268,7 +269,7 @@ export default async function NewCustomerPage({ searchParams }: NewCustomerPageP
               name="city"
               type="text"
               maxLength={120}
-              className="rounded-2xl border border-[#dfe5dd] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20"
+              className="rounded-xl border border-[#d9e1d7] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20"
               placeholder="Ex. Södertälje"
             />
           </label>
@@ -277,7 +278,7 @@ export default async function NewCustomerPage({ searchParams }: NewCustomerPageP
             <select
               name="service_selection"
               defaultValue=""
-              className="rounded-2xl border border-[#dfe5dd] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20"
+              className="rounded-xl border border-[#d9e1d7] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20"
             >
               <option value="">Ingen primär tjänst</option>
               {serviceTaxonomy.map((category) => (
@@ -297,19 +298,19 @@ export default async function NewCustomerPage({ searchParams }: NewCustomerPageP
               name="notes"
               maxLength={1000}
               rows={5}
-              className="rounded-2xl border border-[#dfe5dd] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20"
+              className="rounded-xl border border-[#d9e1d7] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20"
               placeholder="Intern CRM-notering. Valfritt."
             />
           </label>
         </section>
 
-        <section className="rounded-2xl bg-[#f7f7f4] p-4 text-sm leading-7 text-[#5b665f]">
+        <section className="rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4 text-sm leading-7 text-[#5b665f]">
           <strong className="text-[#17201a]">Kontrollerad åtgärd:</strong> Kunden sparas manuellt i kundregistret. Ingen bokning skapas, ingen e-post skickas och inga leads ändras.
         </section>
 
         <button
           type="submit"
-          className="inline-flex w-fit rounded-full bg-[#17452f] px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0f2f20] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#17452f]"
+          className="inline-flex w-fit rounded-xl bg-[#173e2b] px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0f2f20] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#17452f]"
         >
           Skapa kund
         </button>
