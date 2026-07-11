@@ -56,8 +56,8 @@ export function LoginForm() {
   }
 
   return (
-    <aside className="w-full rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd] sm:p-8">
-      <div className="inline-flex rounded-full bg-[#eef5ef] px-3 py-1 text-xs font-semibold uppercase tracking-wide text-[#17452f]">
+    <aside className="w-full rounded-[1.75rem] border border-white bg-white p-6 shadow-2xl shadow-[#17452f]/10 ring-1 ring-[#dfe5dd] sm:p-8">
+      <div className="inline-flex rounded-full bg-[#e7f1eb] px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-[#17452f]">
         Kundinloggning
       </div>
 
@@ -82,7 +82,7 @@ export function LoginForm() {
             onChange={(event) => setEmail(event.target.value)}
             disabled={isPending}
             placeholder="namn@foretag.se"
-            className="mt-2 w-full rounded-2xl border border-[#d7ded5] bg-white px-4 py-3 text-base text-[#17201a] placeholder:text-[#8a958d] transition focus:border-[#17452f] focus:outline-none focus:ring-2 focus:ring-[#17452f]/20 disabled:cursor-not-allowed disabled:bg-[#f7f7f4] disabled:opacity-80"
+            className="mt-2 w-full rounded-xl border border-[#d7ded5] bg-white px-4 py-3 text-base text-[#17201a] placeholder:text-[#8a958d] transition focus:border-[#17452f] focus:outline-none focus:ring-2 focus:ring-[#17452f]/20 disabled:cursor-not-allowed disabled:bg-[#f7f7f4] disabled:opacity-80"
           />
         </div>
 
@@ -100,12 +100,12 @@ export function LoginForm() {
             onChange={(event) => setPassword(event.target.value)}
             disabled={isPending}
             placeholder="••••••••"
-            className="mt-2 w-full rounded-2xl border border-[#d7ded5] bg-white px-4 py-3 text-base text-[#17201a] placeholder:text-[#8a958d] transition focus:border-[#17452f] focus:outline-none focus:ring-2 focus:ring-[#17452f]/20 disabled:cursor-not-allowed disabled:bg-[#f7f7f4] disabled:opacity-80"
+            className="mt-2 w-full rounded-xl border border-[#d7ded5] bg-white px-4 py-3 text-base text-[#17201a] placeholder:text-[#8a958d] transition focus:border-[#17452f] focus:outline-none focus:ring-2 focus:ring-[#17452f]/20 disabled:cursor-not-allowed disabled:bg-[#f7f7f4] disabled:opacity-80"
           />
         </div>
 
         {errorMessage ? (
-          <p id="login-error" className="rounded-2xl bg-[#fff4f2] px-4 py-3 text-sm leading-6 text-[#8a2f1f]" role="alert">
+          <p id="login-error" className="rounded-xl bg-[#fff4f2] px-4 py-3 text-sm leading-6 text-[#8a2f1f]" role="alert">
             {errorMessage}
           </p>
         ) : (
@@ -117,7 +117,7 @@ export function LoginForm() {
         <button
           type="submit"
           disabled={isPending}
-          className="inline-flex w-full items-center justify-center rounded-full bg-[#17452f] px-6 py-3 text-base font-semibold text-white transition hover:bg-[#123824] focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70"
+          className="inline-flex min-h-12 w-full items-center justify-center rounded-xl bg-[#17452f] px-6 py-3 text-base font-semibold text-white transition hover:bg-[#123824] focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70"
         >
           {isPending ? "Loggar in..." : "Logga in"}
         </button>

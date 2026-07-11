@@ -9,24 +9,24 @@ const legalLinks = [
 
 export function Footer() {
   return (
-    <footer className="border-t border-[#dfe5dd] bg-[#102a1c] text-white">
-      <div className="mx-auto grid max-w-7xl gap-8 px-4 py-10 sm:px-6 md:grid-cols-3 lg:px-8">
+    <footer className="border-t border-[#0c2116] bg-[#102a1c] text-white">
+      <div className="mx-auto grid max-w-7xl gap-10 px-4 py-14 sm:px-6 md:grid-cols-[1.5fr_0.75fr_0.75fr] lg:px-8">
         <div>
-          <p className="text-xl font-bold">{siteConfig.name}</p>
-          <p className="mt-3 max-w-sm text-sm leading-6 text-white/75">
+          <p className="text-2xl font-bold tracking-tight">{siteConfig.name}</p>
+          <p className="mt-4 max-w-sm text-sm leading-6 text-white/70">
             En svensk SaaS-plattform för tjänsteföretag som vill hantera leads, bokningar, kunder och AI-driven kommunikation i ett smartare flöde.
           </p>
-          <p className="mt-4 text-xs text-white/55">
+          <p className="mt-5 text-xs font-medium uppercase tracking-[0.16em] text-white/45">
             Byggs stegvis för små företag i Sverige.
           </p>
         </div>
 
         <div>
-          <p className="font-semibold">Navigering</p>
-          <ul className="mt-3 space-y-2 text-sm text-white/75">
+          <p className="text-sm font-semibold">Navigering</p>
+          <ul className="mt-4 space-y-3 text-sm text-white/70">
             {mainNav.map((item) => (
               <li key={item.href}>
-                <Link href={item.href} className="hover:text-white">
+                <Link href={item.href} className="transition hover:text-white focus:outline-none focus-visible:text-white">
                   {item.label}
                 </Link>
               </li>
@@ -35,11 +35,11 @@ export function Footer() {
         </div>
 
         <div>
-          <p className="font-semibold">Juridiskt</p>
-          <ul className="mt-3 space-y-2 text-sm text-white/75">
+          <p className="text-sm font-semibold">Juridiskt</p>
+          <ul className="mt-4 space-y-3 text-sm text-white/70">
             {legalLinks.map((item) => (
               <li key={item.href}>
-                <Link href={item.href} className="hover:text-white">
+                <Link href={item.href} className="transition hover:text-white focus:outline-none focus-visible:text-white">
                   {item.label}
                 </Link>
               </li>
@@ -47,7 +47,7 @@ export function Footer() {
           </ul>
         </div>
       </div>
-      <div className="border-t border-white/10 px-4 py-4 text-center text-xs text-white/60">
+      <div className="border-t border-white/10 px-4 py-5 text-center text-xs text-white/55">
         © {new Date().getFullYear()} Proffera. Alla rättigheter förbehållna.
       </div>
     </footer>
