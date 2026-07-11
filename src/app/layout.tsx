@@ -1,10 +1,15 @@
 import type { Metadata } from "next";
+import { Hanken_Grotesk } from "next/font/google";
 import "./globals.css";
 import { AppShell } from "@/components/layout/app-shell";
 import { ServiceAiChatWidget } from "@/components/service-ai-chat-widget";
 import { siteConfig } from "@/lib/site";
 
-
+const hankenGrotesk = Hanken_Grotesk({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-hanken-grotesk",
+});
 export const metadata: Metadata = {
   metadataBase: new URL(siteConfig.url),
   title: {
@@ -45,7 +50,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="sv">
-      <body>
+      <body className={hankenGrotesk.variable}>
         <AppShell>{children}</AppShell>
         <ServiceAiChatWidget />
       </body>
