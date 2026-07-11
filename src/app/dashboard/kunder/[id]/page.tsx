@@ -15,7 +15,7 @@ const connectionString =
   process.env.POSTGRES_PRISMA_URL ??
   process.env.POSTGRES_URL_NON_POOLING;
 
-const LEGACY_WORKSPACE_ID = "default";
+const LEGACY_WORKSPACE_ID = "__legacy_workspace_access_disabled__";
 
 type CustomerDetailPageProps = {
   params: Promise<{
@@ -69,7 +69,7 @@ async function getActiveWorkspaceId() {
   const access = await getUserWorkspaceAccess();
 
   if (!access.ok) {
-    return LEGACY_WORKSPACE_ID;
+    throw new Error("A valid workspace membership is required for customer notes");
   }
 
   return access.workspaceId;
