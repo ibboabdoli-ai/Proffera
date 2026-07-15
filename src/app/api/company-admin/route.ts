@@ -7,12 +7,27 @@ function isAllowedStatus(value: string) {
   return allowedStatuses.includes(value as (typeof allowedStatuses)[number]);
 }
 
+function hasAdminAccess(request: Request) {
+  const expectedCode = (process.env.ADMIN_ACCESS_CODE ?? "").trim();
+  const authorization = request.headers.get("authorization") ?? "";
+
+  if (!expectedCode || !authorization.startsWith("Basic ")) {
+    return false;
+  }
+
+  try {
+    const decoded = atob(authorization.slice(6));
+    const separatorIndex = decoded.indexOf(":");
+    return separatorIndex >= 0 && decoded.slice(separatorIndex + 1) === expectedCode;
+  } catch {
+    return false;
+  }
+}
+
 export async function POST(request: Request) {
   const formData = await request.formData();
-  const code = String(formData.get("code") ?? "");
-  const adminCode = process.env.ADMIN_ACCESS_CODE;
 
-  if (!adminCode || code !== adminCode) {
+  if (!hasAdminAccess(request)) {
     return NextResponse.redirect(new URL("/admin/foretag", request.url));
   }
 
@@ -30,7 +45,7 @@ export async function POST(request: Request) {
       `;
     }
 
-    if (services.trim().length > 0) {
+    if (services.trim().length > 0 && services.length <= 300) {
       await sql`
         update company_registrations
         set services = ${services}, updated_at = now()
