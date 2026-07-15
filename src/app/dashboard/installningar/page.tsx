@@ -225,6 +225,12 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
               <input name="contact_phone" type="tel" maxLength={80} className={inputClass} defaultValue={workspaceSettings.contactPhone} placeholder="Ej angivet" />
             </label>
 
+            <label className="grid gap-2 text-sm font-semibold text-[#344139]">
+              Länk för onlinebokning
+              <input name="public_booking_slug" type="text" maxLength={60} pattern="[a-z0-9-]+" className={inputClass} placeholder="Ex. iboren" />
+              <span className="text-xs font-normal text-[#5b665f]">Din länk blir proffera.se/boka/ditt-namn</span>
+            </label>
+
             <div className="rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4 text-sm leading-6 text-[#5b665f]">
               <strong className="text-[#17201a]">Säker ändring:</strong> Endast företagsprofilen uppdateras. Kunddata, leads och bokningar påverkas inte.
             </div>

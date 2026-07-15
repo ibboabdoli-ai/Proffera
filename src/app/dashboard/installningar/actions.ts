@@ -4,8 +4,9 @@ import { redirect } from "next/navigation";
 
 import { updateDashboardWorkspaceSettings, type UpdateDashboardWorkspaceSettingsInput } from "@/lib/workspace-settings-db";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
+import { getSql } from "@/lib/db/server";
 
-type SettingsSaveError = "access" | "disabled" | "company" | "city" | "response" | "cta" | "email" | "phone" | "save";
+type SettingsSaveError = "access" | "disabled" | "company" | "city" | "response" | "cta" | "email" | "phone" | "slug" | "save";
 
 function getFormText(formData: FormData, key: string) {
   return String(formData.get(key) ?? "").trim();
@@ -20,7 +21,8 @@ function isEmailLike(value: string) {
 }
 
 export async function updateWorkspaceSettingsAction(formData: FormData) {
-  if (!canManageWorkspaceSettings(await getUserWorkspaceAccess())) {
+  const workspaceAccess = await getUserWorkspaceAccess();
+  if (!workspaceAccess.ok || !canManageWorkspaceSettings(workspaceAccess)) {
     redirectWithError("access");
   }
 
@@ -42,6 +44,7 @@ export async function updateWorkspaceSettingsAction(formData: FormData) {
   const defaultCta = getFormText(formData, "default_cta");
   const contactEmail = getFormText(formData, "contact_email");
   const contactPhone = getFormText(formData, "contact_phone");
+  const publicBookingSlug = getFormText(formData, "public_booking_slug").toLowerCase();
 
   if (!companyName || companyName.length > 160) {
     redirectWithError("company");
@@ -66,6 +69,7 @@ export async function updateWorkspaceSettingsAction(formData: FormData) {
   if (contactPhone.length > 80) {
     redirectWithError("phone");
   }
+  if (publicBookingSlug && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(publicBookingSlug)) redirectWithError("slug");
 
   const input: UpdateDashboardWorkspaceSettingsInput = {
     companyName,
@@ -78,6 +82,11 @@ export async function updateWorkspaceSettingsAction(formData: FormData) {
 
   try {
     await updateDashboardWorkspaceSettings(input);
+    if (publicBookingSlug) {
+      const sql = getSql();
+      if (!sql) redirectWithError("save");
+      await sql`update workspaces set public_booking_slug = ${publicBookingSlug}, updated_at = now() where id = ${workspaceAccess.workspaceId}::uuid`;
+    }
   } catch (error) {
     console.error("Failed to update workspace settings", error);
     redirectWithError("save");
