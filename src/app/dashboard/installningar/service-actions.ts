@@ -7,6 +7,7 @@ import {
   updateDashboardWorkspaceService,
   type WriteDashboardWorkspaceServiceInput,
 } from "@/lib/workspace-services-db";
+import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 type ServiceSaveError =
   | "access"
@@ -30,7 +31,11 @@ function redirectWithServiceError(error: ServiceSaveError): never {
   redirect(`/dashboard/installningar?service_error=${error}#tjanster`);
 }
 
-function requireAccessCode(formData: FormData) {
+async function requireAccessCode(formData: FormData) {
+  if (!canManageWorkspaceSettings(await getUserWorkspaceAccess())) {
+    redirectWithServiceError("access");
+  }
+
   const expectedCode = (process.env.DASHBOARD_WRITE_CODE ?? process.env.ADMIN_ACCESS_CODE ?? "").trim();
 
   if (!expectedCode) {
@@ -110,7 +115,7 @@ function getServiceInput(formData: FormData): WriteDashboardWorkspaceServiceInpu
 }
 
 export async function createWorkspaceServiceAction(formData: FormData) {
-  requireAccessCode(formData);
+  await requireAccessCode(formData);
   const input = getServiceInput(formData);
 
   try {
@@ -124,7 +129,7 @@ export async function createWorkspaceServiceAction(formData: FormData) {
 }
 
 export async function updateWorkspaceServiceAction(formData: FormData) {
-  requireAccessCode(formData);
+  await requireAccessCode(formData);
   const id = getFormText(formData, "service_id");
 
   if (!id) {

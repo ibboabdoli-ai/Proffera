@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 
 import { updateDashboardWorkspaceSettings, type UpdateDashboardWorkspaceSettingsInput } from "@/lib/workspace-settings-db";
+import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 type SettingsSaveError = "access" | "disabled" | "company" | "city" | "response" | "cta" | "email" | "phone" | "save";
 
@@ -19,6 +20,10 @@ function isEmailLike(value: string) {
 }
 
 export async function updateWorkspaceSettingsAction(formData: FormData) {
+  if (!canManageWorkspaceSettings(await getUserWorkspaceAccess())) {
+    redirectWithError("access");
+  }
+
   const expectedCode = (process.env.DASHBOARD_WRITE_CODE ?? process.env.ADMIN_ACCESS_CODE ?? "").trim();
 
   if (!expectedCode) {

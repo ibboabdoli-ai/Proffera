@@ -35,7 +35,11 @@ export type WorkspaceAccessResult =
   | {
       ok: false;
       reason: WorkspaceAccessFailureReason;
-    };
+  };
+
+export function canManageWorkspaceSettings(access: WorkspaceAccessResult) {
+  return access.ok && (access.role === "owner" || access.role === "admin");
+}
 
 function getSqlClient() {
   return connectionString ? neon(connectionString) : null;
