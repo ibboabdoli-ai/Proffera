@@ -2,6 +2,7 @@ import { MapPin } from "lucide-react";
 import { redirect } from "next/navigation";
 
 import { getSql } from "@/lib/db/server";
+import { sendBookingConfirmationEmail } from "@/features/email/lead-email";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,7 @@ async function requestPublicBooking(formData: FormData) {
   const startsAt = String(formData.get("starts_at") ?? "").trim();
   const sql = getSql();
   if (!sql || !slug || !name || (!email && !phone) || !service || !startsAt) redirect(`/boka/${slug}?error=invalid`);
-  const rows = await sql`select id, primary_city from workspaces where public_booking_slug = ${slug} and status in ('active', 'trial') limit 1`;
+  const rows = await sql`select id, coalesce(company_name, name) as company_name, primary_city from workspaces where public_booking_slug = ${slug} and status in ('active', 'trial') limit 1`;
   const workspace = rows[0];
   if (!workspace) redirect(`/boka/${slug}?error=unavailable`);
   const start = new Date(startsAt);
@@ -27,6 +28,9 @@ async function requestPublicBooking(formData: FormData) {
   if (conflict[0]) redirect(`/boka/${slug}?error=conflict`);
   const customer = await sql`insert into customers (workspace_id, name, email, phone, city, status, source) values (${String(workspace.id)}, ${name}, ${email || null}, ${phone || null}, ${String(workspace.primary_city ?? "") || null}, 'prospect', 'public_booking') returning id`;
   await sql`insert into bookings (workspace_id, customer_id, title, service, city, status, starts_at, ends_at, source) values (${String(workspace.id)}, ${String(customer[0]?.id)}, ${service}, ${service}, ${String(workspace.primary_city ?? "") || null}, 'requested', ${start.toISOString()}::timestamptz, ${end.toISOString()}::timestamptz, 'public_booking')`;
+  if (email) {
+    await sendBookingConfirmationEmail({ customerName: name, customerEmail: email, companyName: String(workspace.company_name), bookingTitle: service, service, startsAt: start.toISOString(), endsAt: end.toISOString(), city: String(workspace.primary_city ?? "") }).catch(() => null);
+  }
   redirect(`/boka/${slug}?booked=1`);
 }
 
