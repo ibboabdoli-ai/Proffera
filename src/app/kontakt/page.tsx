@@ -22,7 +22,7 @@ export default function ContactPage() {
           Boka en demo så visar vi bokning, leads, CRM och AI-assistent i ett enkelt flöde.
         </p>
         <div className="mt-8">
-          <ButtonLink href="/demo">Boka demo</ButtonLink>
+          <ButtonLink href="/anslut-foretag/registrera">Boka demo</ButtonLink>
         </div>
       </section>
 
@@ -50,7 +50,7 @@ export default function ContactPage() {
             </ul>
           </div>
           <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-            <ButtonLink href="/demo">Boka demo</ButtonLink>
+            <ButtonLink href="/anslut-foretag/registrera">Boka demo</ButtonLink>
             <a className="inline-flex min-h-11 w-fit items-center rounded-xl border border-[#17452f] bg-white px-5 py-3 text-sm font-semibold text-[#17452f]" href="mailto:leads@proffera.se?subject=Demo%20Proffera">
               Skicka e-post
             </a>
