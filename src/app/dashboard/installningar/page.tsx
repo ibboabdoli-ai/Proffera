@@ -2,10 +2,12 @@ import { SlidersHorizontal } from "lucide-react";
 
 import { DashboardPageHeader } from "@/components/dashboard/dashboard-page-ui";
 import { getDashboardWorkspaceServices } from "@/lib/workspace-services-db";
+import { bookingWeekdays, getDashboardWorkspaceBookingHours } from "@/lib/workspace-booking-hours-db";
 import { getDashboardWorkspaceSettings } from "@/lib/workspace-settings-db";
 import { getModuleAccessLabel, getProfferaModuleAccess } from "@/lib/proffera-modules";
 
 import { updateWorkspaceSettingsAction } from "./actions";
+import { updateWorkspaceBookingHoursAction } from "./booking-hours-actions";
 import { ServicesReadOnly } from "./services-read-only";
 
 export const dynamic = "force-dynamic";
@@ -37,6 +39,13 @@ const serviceErrorMessages: Record<string, string> = {
   save: "Tjänsten kunde inte sparas. Kontrollera uppgifterna och försök igen.",
 };
 
+const bookingHoursErrorMessages: Record<string, string> = {
+  access: "Åtkomstkoden saknas eller är fel. Bokningstiderna sparades inte.",
+  disabled: "Sparning av bokningstider är inte aktiverad ännu.",
+  hours: "Kontrollera tiderna. Öppning behöver vara före stängning.",
+  save: "Bokningstiderna kunde inte sparas. Försök igen.",
+};
+
 const inputClass =
   "rounded-xl border border-[#d9e1d7] bg-white px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/15";
 
@@ -50,6 +59,8 @@ type SettingsPageProps = {
     updated?: string | string[];
     service_error?: string | string[];
     service_updated?: string | string[];
+    hours_error?: string | string[];
+    hours_updated?: string | string[];
   }>;
 };
 
@@ -59,13 +70,18 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   const updatedValue = firstParam(params?.updated);
   const serviceErrorValue = firstParam(params?.service_error);
   const serviceUpdatedValue = firstParam(params?.service_updated);
+  const hoursErrorValue = firstParam(params?.hours_error);
+  const hoursUpdatedValue = firstParam(params?.hours_updated);
   const errorMessage = errorValue ? errorMessages[errorValue] : undefined;
   const serviceErrorMessage = serviceErrorValue ? serviceErrorMessages[serviceErrorValue] : undefined;
+  const bookingHoursErrorMessage = hoursErrorValue ? bookingHoursErrorMessages[hoursErrorValue] : undefined;
   const wasUpdated = updatedValue === "1";
   const wasServiceUpdated = serviceUpdatedValue === "1";
-  const [workspaceSettings, workspaceServices] = await Promise.all([
+  const wereBookingHoursUpdated = hoursUpdatedValue === "1";
+  const [workspaceSettings, workspaceServices, bookingHours] = await Promise.all([
     getDashboardWorkspaceSettings(),
     getDashboardWorkspaceServices(),
+    getDashboardWorkspaceBookingHours(),
   ]);
   const hasServices = workspaceServices.length > 0;
   const activeServices = workspaceServices.filter((service) => service.isActive).length;
@@ -109,6 +125,12 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         </section>
       ) : null}
 
+      {wereBookingHoursUpdated ? (
+        <section className="rounded-2xl bg-[#eef8f0] p-5 text-sm font-semibold text-[#17452f] ring-1 ring-[#c9e6d0]">
+          Bokningstiderna sparades och används nu på din bokningssida.
+        </section>
+      ) : null}
+
       {errorMessage ? (
         <section className="rounded-2xl bg-[#fff5f2] p-5 text-sm font-semibold text-[#8f2f1b] ring-1 ring-[#f4c7ba]">
           {errorMessage}
@@ -118,6 +140,12 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
       {serviceErrorMessage ? (
         <section className="rounded-2xl bg-[#fff5f2] p-5 text-sm font-semibold text-[#8f2f1b] ring-1 ring-[#f4c7ba]">
           {serviceErrorMessage}
+        </section>
+      ) : null}
+
+      {bookingHoursErrorMessage ? (
+        <section className="rounded-2xl bg-[#fff5f2] p-5 text-sm font-semibold text-[#8f2f1b] ring-1 ring-[#f4c7ba]">
+          {bookingHoursErrorMessage}
         </section>
       ) : null}
 
@@ -243,6 +271,45 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
             </button>
           </form>
         </aside>
+      </section>
+
+      <section className="rounded-[24px] border border-[#e0e5dd] bg-white p-6 shadow-[0_1px_2px_rgba(20,43,32,0.03),0_14px_36px_rgba(20,43,32,0.045)]">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h3 className="text-xl font-bold text-[#17201a]">Bokningstider</h3>
+            <p className="mt-2 text-sm leading-6 text-[#5b665f]">
+              Kunder kan bara skicka bokningsförfrågningar inom dessa tider. {bookingHours.isConfigured ? "Tiderna är publicerade." : "Spara tiderna för att publicera bokning."}
+            </p>
+          </div>
+          <span className="w-fit rounded-full bg-[#e7f1eb] px-3 py-1 text-xs font-semibold text-[#17452f]">
+            {bookingHours.isConfigured ? "Publicerad" : "Ej publicerad"}
+          </span>
+        </div>
+
+        <form action={updateWorkspaceBookingHoursAction} className="mt-5 grid gap-3">
+          <label className="grid max-w-md gap-2 text-sm font-semibold text-[#344139]">
+            Intern åtkomstkod
+            <input name="booking_hours_access_code" type="password" required autoComplete="off" className={inputClass} placeholder="Ange intern kod" />
+          </label>
+          <div className="grid gap-3">
+            {bookingWeekdays.map((day) => {
+              const hour = bookingHours.hours.find((item) => item.weekday === day.value)!;
+              return (
+                <fieldset key={day.value} className="grid gap-3 rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4 sm:grid-cols-[minmax(110px,1fr)_150px_150px_auto] sm:items-end">
+                  <legend className="sr-only">{day.label}</legend>
+                  <p className="text-sm font-bold text-[#17201a]">{day.label}</p>
+                  <label className="grid gap-1 text-xs font-semibold text-[#5b665f]">Öppnar<input name={`opens_at_${day.value}`} type="time" defaultValue={hour.opensAt} className={inputClass} /></label>
+                  <label className="grid gap-1 text-xs font-semibold text-[#5b665f]">Stänger<input name={`closes_at_${day.value}`} type="time" defaultValue={hour.closesAt} className={inputClass} /></label>
+                  <label className="flex min-h-11 items-center gap-2 text-sm font-semibold text-[#344139]"><input name={`closed_${day.value}`} type="checkbox" defaultChecked={hour.isClosed} className="h-4 w-4 accent-[#17452f]" />Stängt</label>
+                </fieldset>
+              );
+            })}
+          </div>
+          <div className="rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4 text-sm leading-6 text-[#5b665f]">
+            <strong className="text-[#17201a]">Säker ändring:</strong> Endast öppettiderna för onlinebokning uppdateras. Befintliga kunder och bokningar ändras inte.
+          </div>
+          <button type="submit" className="inline-flex w-full items-center justify-center rounded-xl bg-[#173e2b] px-6 py-3 text-sm font-semibold !text-white transition hover:bg-[#123824] hover:!text-white focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2">Spara bokningstider</button>
+        </form>
       </section>
 
       <ServicesReadOnly services={workspaceServices} />
