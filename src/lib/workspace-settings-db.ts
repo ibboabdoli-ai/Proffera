@@ -1,4 +1,5 @@
 import { neon } from "@neondatabase/serverless";
+import { getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 const connectionString =
   process.env.DATABASE_URL ??
@@ -13,6 +14,13 @@ function getSqlClient() {
 
   return neon(connectionString);
 }
+
+async function getActiveWorkspaceId() {
+  const access = await getUserWorkspaceAccess();
+  if (!access.ok) throw new Error("A valid workspace membership is required for workspace settings");
+  return access.workspaceId;
+}
+
 
 function toText(value: unknown, fallback = "") {
   if (value === null || value === undefined) {
@@ -59,6 +67,7 @@ export async function getDashboardWorkspaceSettings(): Promise<DashboardWorkspac
   }
 
   try {
+    const workspaceId = await getActiveWorkspaceId();
     const rows = await sql`
       select
         workspace_id,
@@ -69,7 +78,8 @@ export async function getDashboardWorkspaceSettings(): Promise<DashboardWorkspac
         contact_email,
         contact_phone
       from workspace_settings
-      where workspace_id = 'default'
+      where workspace_id in (${workspaceId}, 'default')
+      order by case when workspace_id = ${workspaceId} then 0 else 1 end
       limit 1
     `;
 
@@ -101,21 +111,18 @@ export async function updateDashboardWorkspaceSettings(input: UpdateDashboardWor
     throw new Error("Missing database connection for workspace settings update");
   }
 
+  const workspaceId = await getActiveWorkspaceId();
   const rows = await sql`
-    update workspace_settings
-    set
-      company_name = ${input.companyName},
-      primary_city = ${input.primaryCity},
-      response_time_goal = ${input.responseTimeGoal},
-      default_cta = ${input.defaultCta},
-      contact_email = ${input.contactEmail},
-      contact_phone = ${input.contactPhone},
-      updated_at = now()
-    where workspace_id = 'default'
+    insert into workspace_settings (workspace_id, company_name, primary_city, response_time_goal, default_cta, contact_email, contact_phone)
+    values (${workspaceId}, ${input.companyName}, ${input.primaryCity}, ${input.responseTimeGoal}, ${input.defaultCta}, ${input.contactEmail}, ${input.contactPhone})
+    on conflict (workspace_id) do update set
+      company_name = excluded.company_name, primary_city = excluded.primary_city,
+      response_time_goal = excluded.response_time_goal, default_cta = excluded.default_cta,
+      contact_email = excluded.contact_email, contact_phone = excluded.contact_phone, updated_at = now()
     returning workspace_id
   `;
 
   if (!rows[0]) {
-    throw new Error("Workspace settings row was not found for workspace_id default");
+    throw new Error("Workspace settings could not be saved");
   }
 }
