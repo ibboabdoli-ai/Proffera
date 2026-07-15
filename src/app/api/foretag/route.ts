@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { storeCompanyRegistration } from "@/features/company/persistence";
-import type { CompanyRegistrationInput } from "@/features/company/schema";
+import { companyRegistrationSchema } from "@/features/company/schema";
 
 export async function POST(request: Request) {
   const formData = await request.formData();
 
-  const input: CompanyRegistrationInput = {
+  const parsed = companyRegistrationSchema.safeParse({
     companyName: String(formData.get("companyName") ?? ""),
     organizationNumber: String(formData.get("organizationNumber") ?? ""),
     contactPerson: String(formData.get("contactPerson") ?? ""),
@@ -16,12 +16,18 @@ export async function POST(request: Request) {
     services: String(formData.get("services") ?? ""),
     description: String(formData.get("description") ?? ""),
     consentAccepted: formData.get("consentAccepted") === "on",
-  };
+  });
 
-  const result = await storeCompanyRegistration(input);
+  if (!parsed.success) {
+    const url = new URL("/anslut-foretag/registrera", request.url);
+    url.searchParams.set("error", "Kontrollera att alla obligatoriska uppgifter är korrekt ifyllda.");
+    return NextResponse.redirect(url);
+  }
+
+  const result = await storeCompanyRegistration(parsed.data);
 
   if (!result.ok) {
-    const url = new URL("/anslut-foretag", request.url);
+    const url = new URL("/anslut-foretag/registrera", request.url);
     url.searchParams.set("error", result.message);
     return NextResponse.redirect(url);
   }

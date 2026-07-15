@@ -50,7 +50,7 @@ export default function DemoPage() {
             Skicka en förfrågan så kan vi gå igenom hur Proffera kan anpassas för tjänster, orter och kundflöden.
           </p>
           <div className="mt-6">
-            <ButtonLink href="/kontakt" variant="secondary">Kontakta oss</ButtonLink>
+            <ButtonLink href="/anslut-foretag/registrera" variant="secondary">Boka demo</ButtonLink>
           </div>
         </div>
       </section>
