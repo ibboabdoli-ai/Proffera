@@ -169,6 +169,13 @@ export type CreateDashboardBookingInput = {
   notes: string;
 };
 
+export class BookingTimeConflictError extends Error {
+  constructor() {
+    super("A booking already exists during the selected time.");
+    this.name = "BookingTimeConflictError";
+  }
+}
+
 export async function getDashboardStats(): Promise<DashboardStats> {
   const sql = getSqlClient();
 
@@ -399,6 +406,22 @@ export async function createDashboardBooking(input: CreateDashboardBookingInput)
 
   if (!customerId) {
     throw new Error("Selected customer does not exist");
+  }
+
+  const conflictingBooking = await sql`
+    select id
+    from bookings
+    where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})
+      and status not in ('cancelled', 'no_show')
+      and starts_at is not null
+      and ends_at is not null
+      and starts_at < ${input.endsAt}::timestamptz
+      and ends_at > ${input.startsAt}::timestamptz
+    limit 1
+  `;
+
+  if (conflictingBooking[0]) {
+    throw new BookingTimeConflictError();
   }
 
   const rows = await sql`

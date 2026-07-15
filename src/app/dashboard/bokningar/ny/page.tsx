@@ -4,6 +4,7 @@ import { ArrowLeft, CalendarPlus } from "lucide-react";
 
 import { DashboardPageHeader } from "@/components/dashboard/dashboard-page-ui";
 import {
+  BookingTimeConflictError,
   createDashboardBooking,
   getDashboardCustomerOptions,
   type CreateDashboardBookingInput,
@@ -32,6 +33,7 @@ const errorMessages: Record<string, string> = {
   city: "Ort får vara max 120 tecken.",
   notes: "Notering får vara max 1000 tecken.",
   service: "Vald tjänst finns inte i Profferas tjänstekatalog.",
+  conflict: "Tiden är redan bokad. Välj en annan start- eller sluttid.",
   save: "Bokningen kunde inte sparas. Försök igen eller kontakta support om problemet kvarstår.",
 };
 
@@ -157,6 +159,9 @@ async function createBookingAction(formData: FormData) {
     bookingId = await createDashboardBooking(bookingInput);
   } catch (error) {
     console.error("Failed to create dashboard booking", error);
+    if (error instanceof BookingTimeConflictError) {
+      redirectWithError("conflict");
+    }
     redirectWithError("save");
   }
 
