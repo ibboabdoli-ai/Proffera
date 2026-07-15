@@ -1,4 +1,8 @@
+import "server-only";
+
 import { neon } from "@neondatabase/serverless";
+
+import { getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 const connectionString =
   process.env.DATABASE_URL ??
@@ -12,6 +16,16 @@ function getSqlClient() {
   }
 
   return neon(connectionString);
+}
+
+async function getActiveWorkspaceId() {
+  const access = await getUserWorkspaceAccess();
+
+  if (!access.ok) {
+    throw new Error("A valid workspace membership is required for workspace services");
+  }
+
+  return access.workspaceId;
 }
 
 function toText(value: unknown, fallback = "") {
@@ -82,6 +96,7 @@ export async function getDashboardWorkspaceServices(): Promise<DashboardWorkspac
   }
 
   try {
+    const workspaceId = await getActiveWorkspaceId();
     const rows = await sql`
       select
         id,
@@ -96,13 +111,13 @@ export async function getDashboardWorkspaceServices(): Promise<DashboardWorkspac
         is_active,
         sort_order
       from workspace_services
-      where workspace_id = 'default'
+      where workspace_id = ${workspaceId}
       order by sort_order asc, name asc
     `;
 
     return rows.map((row) => ({
       id: toText(row.id),
-      workspaceId: toText(row.workspace_id, "default"),
+      workspaceId: toText(row.workspace_id),
       name: toText(row.name),
       description: toText(row.description),
       category: toText(row.category),
@@ -126,6 +141,8 @@ export async function createDashboardWorkspaceService(input: WriteDashboardWorks
     throw new Error("Missing database connection for workspace service create");
   }
 
+  const workspaceId = await getActiveWorkspaceId();
+
   const rows = await sql`
     insert into workspace_services (
       workspace_id,
@@ -140,7 +157,7 @@ export async function createDashboardWorkspaceService(input: WriteDashboardWorks
       sort_order
     )
     values (
-      'default',
+      ${workspaceId},
       ${input.name},
       ${input.description},
       ${input.category},
@@ -166,6 +183,8 @@ export async function updateDashboardWorkspaceService(input: UpdateDashboardWork
     throw new Error("Missing database connection for workspace service update");
   }
 
+  const workspaceId = await getActiveWorkspaceId();
+
   const rows = await sql`
     update workspace_services
     set
@@ -180,11 +199,11 @@ export async function updateDashboardWorkspaceService(input: UpdateDashboardWork
       sort_order = ${input.sortOrder},
       updated_at = now()
     where id = ${input.id}
-      and workspace_id = 'default'
+      and workspace_id = ${workspaceId}
     returning id
   `;
 
   if (!rows[0]) {
-    throw new Error("Workspace service was not found for workspace_id default");
+    throw new Error("Workspace service was not found for the active workspace");
   }
 }
