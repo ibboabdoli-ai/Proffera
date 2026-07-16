@@ -4,6 +4,10 @@ import { getCompanyRows } from "@/features/company/list";
 
 export const dynamic = "force-dynamic";
 
+type PageProps = {
+  searchParams?: Promise<{ invite?: string | string[] }>;
+};
+
 const statusStyle: Record<string, string> = {
   approved: "bg-[#e7f1eb] text-[#17452f]",
   pending: "bg-[#fdf1d4] text-[#805d14]",
@@ -11,10 +15,14 @@ const statusStyle: Record<string, string> = {
   paused: "bg-[#eef0ed] text-[#536057]",
 };
 
-export default async function Page() {
-  const result = await getCompanyRows();
+export default async function Page({ searchParams }: PageProps) {
+  const [result, params] = await Promise.all([
+    getCompanyRows(),
+    searchParams ? searchParams : Promise.resolve(undefined),
+  ]);
   const companies = result.rows;
   const pendingCount = companies.filter((company) => company.status === "pending").length;
+  const inviteValue = Array.isArray(params?.invite) ? params?.invite[0] : params?.invite;
 
   return (
     <main className="min-h-screen bg-[#f7f7f4] px-4 py-10 sm:px-6 lg:px-8">
@@ -40,6 +48,18 @@ export default async function Page() {
             <CircleAlert className="h-5 w-5 shrink-0" aria-hidden="true" />
             <p>{result.message}</p>
           </div>
+        ) : null}
+
+        {inviteValue === "sent" ? (
+          <p className="mt-6 rounded-2xl border border-[#b8d9c2] bg-[#eef8f0] p-5 text-sm font-semibold text-[#17452f]" role="status">
+            Inbjudan skickades. Länken gäller i 48 timmar.
+          </p>
+        ) : null}
+
+        {inviteValue && inviteValue !== "sent" ? (
+          <p className="mt-6 rounded-2xl border border-[#e7b8b1] bg-[#fff4f2] p-5 text-sm font-semibold text-[#8a2b20]" role="alert">
+            Inbjudan kunde inte skickas. Kontrollera att företaget är godkänt, att migrationen är körd och att Brevo fungerar.
+          </p>
         ) : null}
 
         <div className="mt-6 grid gap-5">
@@ -77,6 +97,9 @@ export default async function Page() {
                 <input name="id" type="hidden" value={company.id} />
                 <p className="flex items-center gap-2 text-xs leading-5 text-[#6b766e]"><ShieldCheck className="h-4 w-4 shrink-0 text-[#17452f]" aria-hidden="true" />Ändringen sparas direkt med skyddad adminåtkomst.</p>
                 <div className="flex flex-wrap gap-2">
+                  {company.status === "approved" ? (
+                    <button className="min-h-10 rounded-xl bg-[#17452f] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#123724] focus:outline-none focus:ring-4 focus:ring-[#17452f]/20" name="action" type="submit" value="invite">Skicka inbjudan</button>
+                  ) : null}
                   <button className="min-h-10 rounded-xl bg-[#17452f] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#123724] focus:outline-none focus:ring-4 focus:ring-[#17452f]/20" name="status" type="submit" value="approved">Godkänn</button>
                   <button className="min-h-10 rounded-xl border border-[#cfd8cf] bg-white px-4 py-2 text-sm font-semibold text-[#344139] transition hover:border-[#17452f] focus:outline-none focus:ring-4 focus:ring-[#17452f]/10" name="status" type="submit" value="pending">Följ upp</button>
                   <button className="min-h-10 rounded-xl border border-[#e4c6c1] bg-white px-4 py-2 text-sm font-semibold text-[#8a2b20] transition hover:bg-[#fff4f2] focus:outline-none focus:ring-4 focus:ring-[#8a2b20]/10" name="status" type="submit" value="rejected">Avslå</button>

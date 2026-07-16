@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSql } from "@/lib/db/server";
+import { createWorkspaceInvitation } from "@/features/company/workspace-invitation";
 
 const allowedStatuses = ["pending", "approved", "rejected", "paused"] as const;
 
@@ -32,9 +33,17 @@ export async function POST(request: Request) {
   }
 
   const id = String(formData.get("id") ?? "");
+  const action = String(formData.get("action") ?? "");
   const status = String(formData.get("status") ?? "");
   const services = String(formData.get("services") ?? "");
   const sql = getSql();
+
+  if (action === "invite" && id) {
+    const result = await createWorkspaceInvitation(id, new URL(request.url).origin);
+    const url = new URL("/admin/foretag", request.url);
+    url.searchParams.set("invite", result.ok ? "sent" : result.code);
+    return NextResponse.redirect(url);
+  }
 
   if (sql && id) {
     if (isAllowedStatus(status)) {

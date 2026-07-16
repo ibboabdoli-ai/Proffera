@@ -42,6 +42,14 @@ type SendBookingStatusEmailInput = {
   city: string;
 };
 
+type SendWorkspaceInvitationEmailInput = {
+  companyName: string;
+  contactName: string;
+  email: string;
+  activationUrl: string;
+  expiresInHours: number;
+};
+
 type BrevoResponse = {
   messageId?: string;
   message?: string;
@@ -246,6 +254,36 @@ export function buildBookingStatusEmail(input: SendBookingStatusEmailInput) {
   return { subject, text, html };
 }
 
+export function buildWorkspaceInvitationEmail(input: SendWorkspaceInvitationEmailInput) {
+  const subject = `Aktivera ${input.companyName} i Proffera`;
+  const text = [
+    `Hej ${input.contactName},`,
+    "",
+    `${input.companyName} har godkänts för Proffera.`,
+    "Öppna länken och välj ditt lösenord för att aktivera kundportalen:",
+    input.activationUrl,
+    "",
+    `Länken gäller i ${input.expiresInHours} timmar och kan bara användas en gång.`,
+    "",
+    "Med vänliga hälsningar",
+    "Proffera",
+  ].join("\n");
+  const html = `
+    <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #17201a;">
+      <p>Hej ${escapeHtml(input.contactName)},</p>
+      <p><strong>${escapeHtml(input.companyName)}</strong> har godkänts för Proffera.</p>
+      <p>Öppna länken och välj ditt lösenord för att aktivera kundportalen.</p>
+      <p style="margin: 28px 0;">
+        <a href="${escapeHtml(input.activationUrl)}" style="display: inline-block; border-radius: 12px; background: #17452f; color: #ffffff; padding: 14px 22px; text-decoration: none; font-weight: 700;">Aktivera kundportalen</a>
+      </p>
+      <p>Länken gäller i ${input.expiresInHours} timmar och kan bara användas en gång.</p>
+      <p>Med vänliga hälsningar<br />Proffera</p>
+    </div>
+  `;
+
+  return { subject, text, html };
+}
+
 export async function sendLeadEmail(input: SendLeadEmailInput) {
   const apiKey = process.env.BREVO_API_KEY;
   const from = process.env.LEAD_FROM_EMAIL;
@@ -378,6 +416,34 @@ export async function sendBookingStatusEmail(input: SendBookingStatusEmailInput)
     });
     const data = (await response.json().catch(() => ({}))) as BrevoResponse;
     if (!response.ok) return { ok: false as const, message: data.message ?? data.code ?? "Kunde inte skicka statusmejl." };
+    return { ok: true as const, providerId: data.messageId ?? null };
+  } catch {
+    return { ok: false as const, message: "Kunde inte kontakta Brevo." };
+  }
+}
+
+export async function sendWorkspaceInvitationEmail(input: SendWorkspaceInvitationEmailInput) {
+  const apiKey = process.env.BREVO_API_KEY;
+  const from = process.env.LEAD_FROM_EMAIL;
+  if (!apiKey || !from) return { ok: false as const, message: "Brevo är inte konfigurerat." };
+
+  const sender = parseSender(from);
+  const email = buildWorkspaceInvitationEmail(input);
+
+  try {
+    const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      headers: { "api-key": apiKey, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sender,
+        to: [{ email: input.email, name: input.contactName }],
+        subject: email.subject,
+        textContent: email.text,
+        htmlContent: email.html,
+      }),
+    });
+    const data = (await response.json().catch(() => ({}))) as BrevoResponse;
+    if (!response.ok) return { ok: false as const, message: data.message ?? data.code ?? "Kunde inte skicka inbjudan." };
     return { ok: true as const, providerId: data.messageId ?? null };
   } catch {
     return { ok: false as const, message: "Kunde inte kontakta Brevo." };
