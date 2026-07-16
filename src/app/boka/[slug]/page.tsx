@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 import { getSql } from "@/lib/db/server";
 import { sendBookingConfirmationEmail } from "@/features/email/lead-email";
 
+import { BookingRequestForm } from "./booking-request-form";
+
 export const dynamic = "force-dynamic";
 
 type PageProps = {
@@ -167,6 +169,7 @@ export default async function PublicBookingPage({ params, searchParams }: PagePr
   let workspace: Record<string, unknown> | undefined;
   let services: Array<Record<string, unknown>> = [];
   let publishedHours: Array<Record<string, unknown>> = [];
+  let busyBookings: Array<Record<string, unknown>> = [];
 
   try {
     const workspaces = await sql`
@@ -175,9 +178,10 @@ export default async function PublicBookingPage({ params, searchParams }: PagePr
     `;
     workspace = workspaces[0] as Record<string, unknown> | undefined;
     if (workspace) {
-      [services, publishedHours] = await Promise.all([
+      [services, publishedHours, busyBookings] = await Promise.all([
         sql`select name, description, price_label, duration_minutes from workspace_services where workspace_id = ${String(workspace.id)} and is_active = true order by sort_order asc, name asc`,
         sql`select weekday, opens_at::text as opens_at, closes_at::text as closes_at, is_closed from workspace_booking_hours where workspace_id = ${String(workspace.id)} order by weekday asc`,
+        sql`select starts_at, ends_at from bookings where workspace_id = ${String(workspace.id)} and status not in ('cancelled', 'no_show') and starts_at >= now() - interval '1 day' and ends_at is not null`,
       ]);
     }
   } catch {
@@ -211,18 +215,13 @@ export default async function PublicBookingPage({ params, searchParams }: PagePr
         ) : null}
 
         {hasServices && hasHours ? (
-          <form action={requestPublicBooking} className="mt-8 grid gap-4">
-            <input type="hidden" name="slug" value={slug} />
-            <label className="grid gap-2 text-sm font-semibold text-[#344139]">Ditt namn<input name="name" required autoComplete="name" className="rounded-xl border border-[#d9e1d7] bg-white px-4 py-3 text-[#17201a]" /></label>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="grid gap-2 text-sm font-semibold text-[#344139]">E-post<input name="email" type="email" autoComplete="email" className="rounded-xl border border-[#d9e1d7] bg-white px-4 py-3 text-[#17201a]" /></label>
-              <label className="grid gap-2 text-sm font-semibold text-[#344139]">Telefon<input name="phone" type="tel" autoComplete="tel" className="rounded-xl border border-[#d9e1d7] bg-white px-4 py-3 text-[#17201a]" /></label>
-            </div>
-            <p className="-mt-2 text-xs text-[#5b665f]">Fyll i minst e-post eller telefon så att företaget kan kontakta dig.</p>
-            <label className="grid gap-2 text-sm font-semibold text-[#344139]">Tjänst<select name="service" required className="rounded-xl border border-[#d9e1d7] bg-white px-4 py-3 text-[#17201a]"><option value="">Välj tjänst</option>{services.map((service) => <option key={String(service.name)} value={String(service.name)}>{String(service.name)} · {Number(service.duration_minutes) || 60} min{service.price_label ? ` · ${String(service.price_label)}` : ""}</option>)}</select></label>
-            <label className="grid gap-2 text-sm font-semibold text-[#344139]">Önskad tid<input name="starts_at" required type="datetime-local" className="rounded-xl border border-[#d9e1d7] bg-white px-4 py-3 text-[#17201a]" /></label>
-            <button className="rounded-xl bg-[#17452f] px-5 py-3 font-bold text-white transition hover:bg-[#123824] focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2">Skicka bokningsförfrågan</button>
-          </form>
+          <BookingRequestForm
+            action={requestPublicBooking}
+            slug={slug}
+            services={services.map((service) => ({ name: String(service.name), durationMinutes: Number(service.duration_minutes) || 60, priceLabel: String(service.price_label ?? "") }))}
+            bookingHours={publishedHours.map((hour) => ({ weekday: Number(hour.weekday), opensAt: String(hour.opens_at).slice(0, 5), closesAt: String(hour.closes_at).slice(0, 5), isClosed: Boolean(hour.is_closed) }))}
+            busyBookings={busyBookings.map((booking) => ({ startsAt: String(booking.starts_at), endsAt: String(booking.ends_at) }))}
+          />
         ) : (
           <p className="mt-8 rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4 text-sm text-[#5b665f]">Företaget förbereder onlinebokning. Kom tillbaka snart.</p>
         )}
