@@ -5,7 +5,7 @@ import { Activity, ArrowLeft, CalendarCheck2, MessageSquareText, UserRound } fro
 
 import { DashboardMetricGrid, DashboardPageHeader } from "@/components/dashboard/dashboard-page-ui";
 import { getDashboardCustomerDetail } from "@/lib/dashboard-db";
-import { getUserWorkspaceAccess } from "@/lib/workspace-access";
+import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 export const dynamic = "force-dynamic";
 
@@ -54,8 +54,8 @@ const eventTypeLabels: Record<string, string> = {
 };
 
 const errorMessages: Record<string, string> = {
-  access: "Åtkomstkoden saknas eller är fel. Noteringen sparades inte.",
-  disabled: "Noteringar är inte aktiverade just nu.",
+  access: "Du saknar behörighet att lägga till noteringar.",
+  disabled: "Noteringar är inte tillgängliga just nu.",
   title: "Rubriken saknas eller är för lång.",
   note: "Noteringen saknas eller är för lång.",
   save: "Noteringen kunde inte sparas. Försök igen eller kontrollera konfigurationen.",
@@ -68,8 +68,8 @@ function getFormText(formData: FormData, key: string) {
 async function getActiveWorkspaceId() {
   const access = await getUserWorkspaceAccess();
 
-  if (!access.ok) {
-    throw new Error("A valid workspace membership is required for customer notes");
+  if (!access.ok || !canManageWorkspaceSettings(access)) {
+    throw new Error("An owner or admin workspace membership is required for customer notes");
   }
 
   return access.workspaceId;
@@ -97,15 +97,9 @@ function redirectWithNoteError(customerId: string, error: keyof typeof errorMess
 async function createCustomerNoteAction(customerId: string, formData: FormData) {
   "use server";
 
-  const expectedCode = (process.env.DASHBOARD_WRITE_CODE ?? process.env.ADMIN_ACCESS_CODE ?? "").trim();
+  const workspaceAccess = await getUserWorkspaceAccess();
 
-  if (!expectedCode) {
-    redirectWithNoteError(customerId, "disabled");
-  }
-
-  const accessCode = getFormText(formData, "access_code");
-
-  if (accessCode !== expectedCode) {
+  if (!workspaceAccess.ok || !canManageWorkspaceSettings(workspaceAccess)) {
     redirectWithNoteError(customerId, "access");
   }
 
@@ -260,17 +254,6 @@ export default async function CustomerDetailPage({ params, searchParams }: Custo
               Sparar en intern notering i kundhistoriken. Ingen bokning ändras och ingen e-post skickas.
             </p>
             <form action={noteAction} className="mt-5 grid gap-4 rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4">
-              <label className="grid gap-2 text-sm font-semibold text-[#17201a]">
-                Intern åtkomstkod
-                <input
-                  name="access_code"
-                  type="password"
-                  required
-                  autoComplete="off"
-                  className="rounded-xl border border-[#d9e1d7] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20"
-                  placeholder="Ange intern kod"
-                />
-              </label>
               <label className="grid gap-2 text-sm font-semibold text-[#17201a]">
                 Rubrik
                 <input
