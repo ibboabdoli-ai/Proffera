@@ -240,6 +240,7 @@ export default async function PublicBookingPage({ params, searchParams }: PagePr
       services={services.map((service) => ({ name: String(service.name), durationMinutes: Number(service.duration_minutes) || 60, priceLabel: String(service.price_label ?? "") }))}
       bookingHours={publishedHours.map((hour) => ({ weekday: Number(hour.weekday), opensAt: String(hour.opens_at).slice(0, 5), closesAt: String(hour.closes_at).slice(0, 5), isClosed: Boolean(hour.is_closed) }))}
       busyBookings={busyBookings.map((booking) => ({ startsAt: String(booking.starts_at), endsAt: String(booking.ends_at) }))}
+      variant={slug === "julius-salong" ? "salon" : "default"}
     />
   ) : null;
 
