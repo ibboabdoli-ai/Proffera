@@ -8,6 +8,7 @@ import { getModuleAccessLabel, getProfferaModuleAccess } from "@/lib/proffera-mo
 
 import { updateWorkspaceSettingsAction } from "./actions";
 import { updateWorkspaceBookingHoursAction } from "./booking-hours-actions";
+import { BookingLinkCard } from "./booking-link-card";
 import { ServicesReadOnly } from "./services-read-only";
 
 export const dynamic = "force-dynamic";
@@ -261,13 +262,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
             </label>
 
             {publicBookingUrl ? (
-              <div className="rounded-xl border border-[#c9e6d0] bg-[#eef8f0] p-4 text-sm text-[#17452f]">
-                <p className="font-bold">Din publicerade bokningslänk</p>
-                <a href={publicBookingUrl} target="_blank" rel="noreferrer" className="mt-2 block break-all font-semibold underline underline-offset-2 focus:outline-none focus:ring-2 focus:ring-[#17452f]">
-                  {publicBookingUrl}
-                </a>
-                <p className="mt-2 text-xs leading-5 text-[#466352]">Använd länken på din webbplats, i sociala medier eller för en QR-kod.</p>
-              </div>
+              <BookingLinkCard url={publicBookingUrl} />
             ) : null}
 
             <div className="rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4 text-sm leading-6 text-[#5b665f]">
