@@ -85,6 +85,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   ]);
   const hasServices = workspaceServices.length > 0;
   const activeServices = workspaceServices.filter((service) => service.isActive).length;
+  const publicBookingUrl = workspaceSettings.publicBookingSlug ? `https://www.proffera.se/boka/${workspaceSettings.publicBookingSlug}` : "";
 
   const settings = [
     { label: "Företagsprofil", value: "Namn, kontaktuppgifter, ort och standard CTA", status: "Aktiv" },
@@ -255,9 +256,19 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
 
             <label className="grid gap-2 text-sm font-semibold text-[#344139]">
               Länk för onlinebokning
-              <input name="public_booking_slug" type="text" maxLength={60} pattern="[a-z0-9-]+" className={inputClass} placeholder="Ex. iboren" />
+              <input name="public_booking_slug" type="text" maxLength={60} pattern="[a-z0-9-]+" autoCapitalize="none" autoCorrect="off" className={inputClass} placeholder="Ex. iboren" defaultValue={workspaceSettings.publicBookingSlug} />
               <span className="text-xs font-normal text-[#5b665f]">Din länk blir proffera.se/boka/ditt-namn</span>
             </label>
+
+            {publicBookingUrl ? (
+              <div className="rounded-xl border border-[#c9e6d0] bg-[#eef8f0] p-4 text-sm text-[#17452f]">
+                <p className="font-bold">Din publicerade bokningslänk</p>
+                <a href={publicBookingUrl} target="_blank" rel="noreferrer" className="mt-2 block break-all font-semibold underline underline-offset-2 focus:outline-none focus:ring-2 focus:ring-[#17452f]">
+                  {publicBookingUrl}
+                </a>
+                <p className="mt-2 text-xs leading-5 text-[#466352]">Använd länken på din webbplats, i sociala medier eller för en QR-kod.</p>
+              </div>
+            ) : null}
 
             <div className="rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4 text-sm leading-6 text-[#5b665f]">
               <strong className="text-[#17201a]">Säker ändring:</strong> Endast företagsprofilen uppdateras. Kunddata, leads och bokningar påverkas inte.
