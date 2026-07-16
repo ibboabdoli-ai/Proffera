@@ -2,6 +2,7 @@ type SendBookingOwnerSmsInput = {
   ownerPhone: string;
   companyName: string;
   customerName: string;
+  customerPhone: string;
   service: string;
   startsAt: string;
 };
@@ -43,7 +44,8 @@ export async function sendBookingOwnerSms(input: SendBookingOwnerSmsInput) {
     return { ok: false as const, skipped: true as const, message: "Kontakttelefonen är ogiltig." };
   }
 
-  const content = `Ny bokningsförfrågan hos ${input.companyName}: ${input.customerName}, ${input.service}, ${formatStockholmDate(input.startsAt)}. Öppna Proffera.`;
+  const customerPhone = input.customerPhone.trim() || "telefon saknas";
+  const content = `Ny bokning hos ${input.companyName}. Kund: ${input.customerName}, tel: ${customerPhone}. ${input.service}, ${formatStockholmDate(input.startsAt)}. Öppna Proffera.`;
 
   try {
     const response = await fetch("https://api.brevo.com/v3/transactionalSMS/sms", {
