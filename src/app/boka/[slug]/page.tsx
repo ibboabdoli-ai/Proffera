@@ -183,6 +183,7 @@ async function requestPublicBooking(formData: FormData) {
       ownerPhone: String(workspace.contact_phone),
       companyName: String(workspace.company_name),
       customerName: name,
+      customerPhone: phone,
       service: serviceName,
       startsAt: start.toISOString(),
     }).catch(() => null);
