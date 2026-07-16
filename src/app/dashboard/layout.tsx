@@ -32,5 +32,5 @@ export default async function DashboardLayout({ children }: Readonly<{ children:
     );
   }
 
-  return <DashboardShell>{children}</DashboardShell>;
+  return <DashboardShell workspaceName={access.workspaceName}>{children}</DashboardShell>;
 }

@@ -79,21 +79,21 @@ function NavigationLinks({ pathname, onNavigate }: NavigationLinksProps) {
   );
 }
 
-function Brand() {
+function Brand({ workspaceName }: { workspaceName: string }) {
   return (
     <Link href="/" className="flex items-center gap-3 !text-white" style={{ color: "#ffffff" }}>
       <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#d8ae52] text-lg font-black text-[#173124] shadow-lg shadow-black/15">
         P
       </span>
       <span>
-        <span className="block text-lg font-bold tracking-tight">Proffera</span>
-        <span className="block text-[10px] font-semibold uppercase tracking-[0.18em] text-[#b6cbbd]" style={{ color: "#c8dacd" }}>Kundportal</span>
+        <span className="block truncate text-lg font-bold tracking-tight">{workspaceName}</span>
+        <span className="block text-[10px] font-semibold uppercase tracking-[0.18em] text-[#b6cbbd]" style={{ color: "#c8dacd" }}>Proffera kundportal</span>
       </span>
     </Link>
   );
 }
 
-export function DashboardShell({ children }: Readonly<{ children: React.ReactNode }>) {
+export function DashboardShell({ children, workspaceName = "Proffera" }: Readonly<{ children: React.ReactNode; workspaceName?: string }>) {
   const pathname = usePathname();
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -125,7 +125,7 @@ export function DashboardShell({ children }: Readonly<{ children: React.ReactNod
       <div className="grid min-h-screen lg:grid-cols-[264px_minmax(0,1fr)]">
         <aside className="sticky top-0 hidden h-screen overflow-y-auto bg-[#142b20] px-4 py-5 lg:flex lg:flex-col">
           <div className="px-2">
-            <Brand />
+            <Brand workspaceName={workspaceName} />
           </div>
 
           <div className="mt-9 flex-1">
@@ -136,10 +136,10 @@ export function DashboardShell({ children }: Readonly<{ children: React.ReactNod
           <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.06] p-4">
             <div className="flex items-center gap-2 text-[#e8c678]">
               <Sparkles className="h-4 w-4" aria-hidden="true" />
-              <p className="text-xs font-bold uppercase tracking-wide">Proffera</p>
+              <p className="text-xs font-bold uppercase tracking-wide">Aktiv arbetsyta</p>
             </div>
-            <p className="mt-2 text-sm font-semibold text-white">Allt kundarbete samlat</p>
-            <p className="mt-1 text-xs leading-5 text-[#c6d8cb]">Leads, kunder och bokningar i en tydlig arbetsyta.</p>
+            <p className="mt-2 truncate text-sm font-semibold text-white">{workspaceName}</p>
+            <p className="mt-1 text-xs leading-5 text-[#c6d8cb]">Leads, kunder och bokningar samlade.</p>
           </div>
         </aside>
 
@@ -157,7 +157,7 @@ export function DashboardShell({ children }: Readonly<{ children: React.ReactNod
                   <Menu className="h-5 w-5" aria-hidden="true" />
                 </button>
                 <div>
-                  <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#6c786f]">Proffera kundportal</p>
+                  <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#6c786f]">{workspaceName} · Proffera kundportal</p>
                   <h1 className="truncate text-lg font-bold tracking-tight text-[#16231b] sm:text-xl">
                     {currentPage?.label ?? "Arbetsyta"}
                   </h1>
@@ -198,7 +198,7 @@ export function DashboardShell({ children }: Readonly<{ children: React.ReactNod
           />
           <aside className="relative flex h-full w-[min(88vw,330px)] flex-col bg-[#142b20] px-4 py-5 shadow-2xl">
             <div className="flex items-center justify-between px-2">
-              <Brand />
+              <Brand workspaceName={workspaceName} />
               <button
                 type="button"
                 onClick={() => setIsMobileMenuOpen(false)}
