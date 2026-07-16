@@ -4,6 +4,8 @@ import { Activity, ArrowLeft, CalendarClock, CircleUserRound, RefreshCw } from "
 
 import { DashboardMetricGrid, DashboardPageHeader } from "@/components/dashboard/dashboard-page-ui";
 import { getDashboardBookingDetail } from "@/lib/dashboard-db";
+import { sendBookingStatusEmail } from "@/features/email/lead-email";
+import { sendBookingCustomerSms } from "@/features/sms/booking-sms";
 import {
   isDashboardBookingStatus,
   updateDashboardBookingStatus,
@@ -80,7 +82,34 @@ async function updateBookingStatusAction(bookingId: string, formData: FormData) 
   }
 
   try {
-    await updateDashboardBookingStatus(bookingId, status);
+    const result = await updateDashboardBookingStatus(bookingId, status);
+
+    if (result.changed && result.notification && (status === "confirmed" || status === "cancelled")) {
+      const notification = result.notification;
+      await Promise.allSettled([
+        notification.customerEmail
+          ? sendBookingStatusEmail({
+              customerName: notification.customerName,
+              customerEmail: notification.customerEmail,
+              companyName: workspaceAccess.workspaceName,
+              status,
+              service: notification.service,
+              startsAt: notification.startsAt,
+              endsAt: notification.endsAt,
+              city: notification.city,
+            })
+          : Promise.resolve(null),
+        notification.customerPhone
+          ? sendBookingCustomerSms({
+              customerPhone: notification.customerPhone,
+              companyName: workspaceAccess.workspaceName,
+              status,
+              service: notification.service,
+              startsAt: notification.startsAt,
+            })
+          : Promise.resolve(null),
+      ]);
+    }
   } catch (error) {
     console.error("Failed to update dashboard booking status", error);
     redirectWithStatusError(bookingId, "save");
@@ -170,7 +199,7 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
           <article className="rounded-[24px] border border-[#e0e5dd] bg-white p-6 shadow-[0_1px_2px_rgba(20,43,32,0.03),0_14px_36px_rgba(20,43,32,0.045)]">
             <h3 className="text-xl font-bold text-[#17201a]">Ändra status</h3>
             <p className="mt-3 text-sm leading-7 text-[#5b665f]">
-              Ändra bokningens status när tiden är bekräftad, utförd eller behöver avbokas. Ändringen sparas i historiken. Ingen ny e-post eller SMS skickas automatiskt.
+              Ändra bokningens status när tiden är bekräftad, utförd eller behöver avbokas. Ändringen sparas i historiken. Vid bekräftelse eller avbokning skickas e-post och SMS när kunden har lämnat kontaktuppgifter.
             </p>
             <form action={statusAction} className="mt-5 grid gap-4 rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4">
               <label className="grid gap-2 text-sm font-semibold text-[#17201a]">

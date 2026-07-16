@@ -7,6 +7,14 @@ type SendBookingOwnerSmsInput = {
   startsAt: string;
 };
 
+type SendBookingCustomerSmsInput = {
+  customerPhone: string;
+  companyName: string;
+  status: "confirmed" | "cancelled";
+  service: string;
+  startsAt: string;
+};
+
 type BrevoSmsResponse = {
   messageId?: number;
   code?: string;
@@ -46,6 +54,39 @@ export async function sendBookingOwnerSms(input: SendBookingOwnerSmsInput) {
 
   const customerPhone = input.customerPhone.trim() || "telefon saknas";
   const content = `Ny bokning hos ${input.companyName}. Kund: ${input.customerName}, tel: ${customerPhone}. ${input.service}, ${formatStockholmDate(input.startsAt)}. Öppna Proffera.`;
+
+  try {
+    const response = await fetch("https://api.brevo.com/v3/transactionalSMS/sms", {
+      method: "POST",
+      headers: { "api-key": apiKey, "Content-Type": "application/json" },
+      body: JSON.stringify({ sender: sender.slice(0, 11), recipient, content, type: "transactional" }),
+    });
+    const data = (await response.json().catch(() => ({}))) as BrevoSmsResponse;
+    if (!response.ok) {
+      return { ok: false as const, skipped: false as const, message: data.message ?? data.code ?? "Kunde inte skicka SMS via Brevo." };
+    }
+    return { ok: true as const, skipped: false as const, providerId: data.messageId ?? null };
+  } catch {
+    return { ok: false as const, skipped: false as const, message: "Kunde inte kontakta Brevo SMS." };
+  }
+}
+
+export async function sendBookingCustomerSms(input: SendBookingCustomerSmsInput) {
+  const apiKey = process.env.BREVO_API_KEY;
+  const sender = process.env.BREVO_SMS_SENDER?.trim();
+  if (!apiKey || !sender) {
+    return { ok: false as const, skipped: true as const, message: "Brevo SMS är inte aktiverat." };
+  }
+
+  const recipient = normalizeSwedishPhone(input.customerPhone);
+  if (!recipient) {
+    return { ok: false as const, skipped: true as const, message: "Kundens telefonnummer är ogiltigt." };
+  }
+
+  const isConfirmed = input.status === "confirmed";
+  const content = isConfirmed
+    ? `Din bokning hos ${input.companyName} är bekräftad: ${input.service}, ${formatStockholmDate(input.startsAt)}.`
+    : `Din bokning hos ${input.companyName} är avbokad: ${input.service}, ${formatStockholmDate(input.startsAt)}. Kontakta företaget för ny tid.`;
 
   try {
     const response = await fetch("https://api.brevo.com/v3/transactionalSMS/sms", {
