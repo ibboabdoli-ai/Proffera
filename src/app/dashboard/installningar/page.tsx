@@ -8,8 +8,8 @@ import { getModuleAccessLabel, getProfferaModuleAccess } from "@/lib/proffera-mo
 
 import { updateWorkspaceSettingsAction } from "./actions";
 import { updateWorkspaceBookingHoursAction } from "./booking-hours-actions";
-import { BookingLinkCard } from "./booking-link-card";
 import { ServicesReadOnly } from "./services-read-only";
+import { AccountSecurityCard } from "./account-security-card";
 
 export const dynamic = "force-dynamic";
 
@@ -86,7 +86,6 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   ]);
   const hasServices = workspaceServices.length > 0;
   const activeServices = workspaceServices.filter((service) => service.isActive).length;
-  const publicBookingUrl = workspaceSettings.publicBookingSlug ? `https://www.proffera.se/boka/${workspaceSettings.publicBookingSlug}` : "";
 
   const settings = [
     { label: "Företagsprofil", value: "Namn, kontaktuppgifter, ort och standard CTA", status: "Aktiv" },
@@ -114,6 +113,8 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         description={`Samla uppgifter som påverkar kundflöden, CTA-knappar, tjänster och kommande AI-svar. Aktiv profil: ${workspaceSettings.companyName}, ${workspaceSettings.primaryCity}.`}
         icon={SlidersHorizontal}
       />
+
+      <AccountSecurityCard />
 
       {wasUpdated ? (
         <section className="rounded-2xl bg-[#eef8f0] p-5 text-sm font-semibold text-[#17452f] ring-1 ring-[#c9e6d0]">
@@ -257,13 +258,9 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
 
             <label className="grid gap-2 text-sm font-semibold text-[#344139]">
               Länk för onlinebokning
-              <input name="public_booking_slug" type="text" maxLength={60} pattern="[a-z0-9-]+" autoCapitalize="none" autoCorrect="off" className={inputClass} placeholder="Ex. iboren" defaultValue={workspaceSettings.publicBookingSlug} />
+              <input name="public_booking_slug" type="text" maxLength={60} pattern="[a-z0-9-]+" className={inputClass} placeholder="Ex. iboren" />
               <span className="text-xs font-normal text-[#5b665f]">Din länk blir proffera.se/boka/ditt-namn</span>
             </label>
-
-            {publicBookingUrl ? (
-              <BookingLinkCard url={publicBookingUrl} />
-            ) : null}
 
             <div className="rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4 text-sm leading-6 text-[#5b665f]">
               <strong className="text-[#17201a]">Säker ändring:</strong> Endast företagsprofilen uppdateras. Kunddata, leads och bokningar påverkas inte.
