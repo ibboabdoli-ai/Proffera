@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { getSql } from "@/lib/db/server";
 import { sendBookingConfirmationEmail, sendBookingOwnerNotificationEmail } from "@/features/email/lead-email";
+import { sendBookingOwnerSms } from "@/features/sms/booking-sms";
 
 import { BookingRequestForm } from "./booking-request-form";
 
@@ -83,7 +84,8 @@ async function requestPublicBooking(formData: FormData) {
       w.id,
       coalesce(nullif(ws.company_name, ''), w.company_name, w.name) as company_name,
       coalesce(nullif(ws.primary_city, ''), w.primary_city) as primary_city,
-      nullif(ws.contact_email, '') as contact_email
+      nullif(ws.contact_email, '') as contact_email,
+      nullif(ws.contact_phone, '') as contact_phone
     from workspaces w
     left join workspace_settings ws on ws.workspace_id = w.id::text
     where w.public_booking_slug = ${slug} and w.status in ('active', 'trial')
@@ -173,6 +175,16 @@ async function requestPublicBooking(formData: FormData) {
       startsAt: start.toISOString(),
       endsAt: end.toISOString(),
       city: String(workspace.primary_city ?? ""),
+    }).catch(() => null);
+  }
+
+  if (workspace.contact_phone) {
+    await sendBookingOwnerSms({
+      ownerPhone: String(workspace.contact_phone),
+      companyName: String(workspace.company_name),
+      customerName: name,
+      service: serviceName,
+      startsAt: start.toISOString(),
     }).catch(() => null);
   }
 
