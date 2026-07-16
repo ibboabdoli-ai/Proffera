@@ -95,6 +95,7 @@ function formatBookingTime(value: string) {
   }
 
   return new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Europe/Stockholm",
     dateStyle: "full",
     timeStyle: "short",
   }).format(date);
