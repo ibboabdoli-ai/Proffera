@@ -6,6 +6,7 @@ import { sendBookingConfirmationEmail, sendBookingOwnerNotificationEmail } from 
 import { sendBookingOwnerSms } from "@/features/sms/booking-sms";
 
 import { BookingRequestForm } from "./booking-request-form";
+import { JuliusBookingDemo } from "@/components/salon/julius-booking-demo";
 
 export const dynamic = "force-dynamic";
 
@@ -232,6 +233,40 @@ export default async function PublicBookingPage({ params, searchParams }: PagePr
   const booked = firstParam(query?.booked) === "1";
   const hasServices = services.length > 0;
   const hasHours = publishedHours.length > 0;
+  const bookingForm = hasServices && hasHours ? (
+    <BookingRequestForm
+      action={requestPublicBooking}
+      slug={slug}
+      services={services.map((service) => ({ name: String(service.name), durationMinutes: Number(service.duration_minutes) || 60, priceLabel: String(service.price_label ?? "") }))}
+      bookingHours={publishedHours.map((hour) => ({ weekday: Number(hour.weekday), opensAt: String(hour.opens_at).slice(0, 5), closesAt: String(hour.closes_at).slice(0, 5), isClosed: Boolean(hour.is_closed) }))}
+      busyBookings={busyBookings.map((booking) => ({ startsAt: String(booking.starts_at), endsAt: String(booking.ends_at) }))}
+    />
+  ) : null;
+
+  if (slug === "julius-salong") {
+    return (
+      <JuliusBookingDemo
+        live
+        bookingContent={(
+          <div className="mt-6 rounded-[1.7rem] bg-white p-4 text-[#17201a] shadow-2xl lg:mt-0 lg:p-6">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wide text-[#17452f]">Boka online</p>
+                <h2 className="mt-1 text-2xl font-black">Boka hos Elias</h2>
+              </div>
+              <span className="rounded-full bg-[#e7f1eb] px-3 py-1 text-xs font-bold text-[#17452f]">Riktiga tider</span>
+            </div>
+            <p className="mt-4 rounded-2xl bg-[#e7f1eb] px-4 py-3 text-xs font-bold leading-5 text-[#17452f]">
+              Välj tjänst och en ledig tid. Julius Salong bekräftar din bokningsförfrågan separat.
+            </p>
+            {booked ? <p role="status" className="mt-4 rounded-2xl bg-[#eef8f0] p-4 text-sm font-semibold text-[#17452f] ring-1 ring-[#c9e6d0]">Tack! Din bokningsförfrågan är mottagen. En bekräftelse har skickats via e-post.</p> : null}
+            {error ? <p role="alert" className="mt-4 rounded-2xl bg-[#fff5f2] p-4 text-sm font-semibold text-[#8f2f1b] ring-1 ring-[#f4c7ba]">{error}</p> : null}
+            {bookingForm ?? <p className="mt-5 rounded-2xl bg-[#f7f9f6] p-4 text-sm text-[#5b665f]">Bokningen förbereds. Försök igen senare.</p>}
+          </div>
+        )}
+      />
+    );
+  }
 
   return (
     <main className="min-h-screen bg-[#f7f7f4] px-4 py-10 sm:px-6">
@@ -252,15 +287,7 @@ export default async function PublicBookingPage({ params, searchParams }: PagePr
           </div>
         ) : null}
 
-        {hasServices && hasHours ? (
-          <BookingRequestForm
-            action={requestPublicBooking}
-            slug={slug}
-            services={services.map((service) => ({ name: String(service.name), durationMinutes: Number(service.duration_minutes) || 60, priceLabel: String(service.price_label ?? "") }))}
-            bookingHours={publishedHours.map((hour) => ({ weekday: Number(hour.weekday), opensAt: String(hour.opens_at).slice(0, 5), closesAt: String(hour.closes_at).slice(0, 5), isClosed: Boolean(hour.is_closed) }))}
-            busyBookings={busyBookings.map((booking) => ({ startsAt: String(booking.starts_at), endsAt: String(booking.ends_at) }))}
-          />
-        ) : (
+        {bookingForm ?? (
           <p className="mt-8 rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4 text-sm text-[#5b665f]">Företaget förbereder onlinebokning. Kom tillbaka snart.</p>
         )}
       </section>

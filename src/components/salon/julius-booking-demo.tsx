@@ -1,10 +1,16 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { Clock, MapPin, QrCode, Star } from "lucide-react";
 import { BookingWidget } from "@/components/salon/booking-widget";
 import { juliusSalon, salonReviews, salonServices } from "@/lib/salon-demo";
 
-export function JuliusBookingDemo() {
+type JuliusBookingDemoProps = {
+  bookingContent?: ReactNode;
+  live?: boolean;
+};
+
+export function JuliusBookingDemo({ bookingContent, live = false }: JuliusBookingDemoProps) {
   const popularServices = salonServices.slice(0, 3);
 
   return (
@@ -13,7 +19,7 @@ export function JuliusBookingDemo() {
         <div className="rounded-[2rem] bg-[#17201a] p-5 text-white shadow-xl shadow-black/10 lg:grid lg:grid-cols-[0.9fr_1.1fr] lg:gap-8 lg:p-8">
           <div>
             <p className="inline-flex rounded-full bg-white/10 px-3 py-1 text-xs font-bold text-white/85 ring-1 ring-white/15">
-              Demo • QR-bokning • Proffera
+              {live ? "Boka online • Julius Salong" : "Demo • QR-bokning • Proffera"}
             </p>
             <h1 className="mt-4 text-3xl font-black tracking-tight sm:text-4xl lg:text-5xl">{juliusSalon.name}</h1>
             <p className="mt-2 text-base font-semibold text-[#e8b44d]">{juliusSalon.category}</p>
@@ -48,7 +54,7 @@ export function JuliusBookingDemo() {
           </div>
 
           <div id="boka">
-            <BookingWidget />
+            {bookingContent ?? <BookingWidget />}
           </div>
         </div>
       </section>
@@ -84,7 +90,7 @@ export function JuliusBookingDemo() {
             <div className="mt-6 flex h-44 w-44 items-center justify-center rounded-3xl bg-white text-center text-sm font-black text-[#17452f]">
               QR<br />Julius Salong
             </div>
-            <p className="mt-4 text-xs font-bold text-white/70">julius.proffera.se</p>
+            <p className="mt-4 break-all text-xs font-bold text-white/70">{live ? "proffera.se/boka/julius-salong" : "julius.proffera.se"}</p>
           </div>
           <div className="grid gap-4 lg:col-span-2">
             {salonReviews.map((review) => (
@@ -114,12 +120,12 @@ export function JuliusBookingDemo() {
         <div className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[#dfe5dd]">
           <h2 className="text-xl font-black">Plats</h2>
           <p className="mt-3 text-sm font-bold text-[#344139]">{juliusSalon.address}</p>
-          <p className="mt-2 text-sm leading-6 text-[#5b665f]">Google Maps kan kopplas in när kunden godkänner demon.</p>
+          <p className="mt-2 text-sm leading-6 text-[#5b665f]">Nedre Torekällgatan 5, nära Södertälje centrum.</p>
           <div className="mt-5 rounded-3xl bg-[#f7f7f4] p-5 text-sm font-bold text-[#17452f]">Södertälje centrum • Nära kunderna</div>
         </div>
       </section>
 
-      <section className="mx-auto max-w-6xl px-4 pb-16 sm:px-6 lg:px-8">
+      {!live ? <section className="mx-auto max-w-6xl px-4 pb-16 sm:px-6 lg:px-8">
         <div className="rounded-3xl bg-[#17201a] p-6 text-white md:p-8">
           <h2 className="text-2xl font-black">Vill du använda detta i din salong?</h2>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-white/75">Vi visar hur flödet kan anpassas med bokning, bekräftelser, påminnelser och egen webbadress för din salong.</p>
@@ -129,7 +135,7 @@ export function JuliusBookingDemo() {
             </a>
           </div>
         </div>
-      </section>
+      </section> : null}
 
       <div className="fixed inset-x-0 bottom-0 z-40 border-t border-[#dfe5dd] bg-white/95 p-3 shadow-2xl backdrop-blur lg:hidden">
         <a href="#boka" className="flex items-center justify-between rounded-full bg-[#17452f] px-5 py-4 text-white shadow-lg shadow-[#17452f]/20">
