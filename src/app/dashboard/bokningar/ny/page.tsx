@@ -10,6 +10,7 @@ import {
   type CreateDashboardBookingInput,
 } from "@/lib/dashboard-db";
 import { serviceTaxonomy } from "@/lib/service-taxonomy";
+import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 export const dynamic = "force-dynamic";
 
@@ -23,8 +24,7 @@ const statusLabels: Record<(typeof bookingStatuses)[number], string> = {
 };
 
 const errorMessages: Record<string, string> = {
-  access: "Åtkomstkoden saknas eller är fel. Ingen bokning skapades.",
-  disabled: "Bokningsskapande är inte aktiverat. Kontakta administratören innan du försöker igen.",
+  access: "Du saknar behörighet att skapa bokningar.",
   customer: "Välj en befintlig kund.",
   title: "Rubrik är obligatorisk och får vara max 140 tecken.",
   status: "Status är ogiltig.",
@@ -82,15 +82,9 @@ function resolveServiceSelection(selection: string) {
 async function createBookingAction(formData: FormData) {
   "use server";
 
-  const expectedCode = (process.env.DASHBOARD_WRITE_CODE ?? process.env.ADMIN_ACCESS_CODE ?? "").trim();
+  const workspaceAccess = await getUserWorkspaceAccess();
 
-  if (!expectedCode) {
-    redirectWithError("disabled");
-  }
-
-  const accessCode = getFormText(formData, "access_code");
-
-  if (accessCode !== expectedCode) {
+  if (!workspaceAccess.ok || !canManageWorkspaceSettings(workspaceAccess)) {
     redirectWithError("access");
   }
 
@@ -193,7 +187,7 @@ export default async function NewBookingPage({ searchParams }: NewBookingPagePro
       <DashboardPageHeader
         eyebrow="Bokningar"
         title="Ny bokning"
-        description="Skapa en ny bokning i Proffera. Formuläret är skyddat med intern åtkomstkod och kopplar bokningen till vald kund."
+        description="Skapa en ny bokning i Proffera och koppla den direkt till vald kund. Endast ägare och administratörer kan spara ändringar."
         icon={CalendarPlus}
         actions={
           <Link href="/dashboard/bokningar" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#d5ddd3] bg-white px-4 py-2.5 text-sm font-bold text-[#17452f] transition hover:-translate-y-0.5 hover:bg-[#f3f6f2]">
@@ -217,17 +211,6 @@ export default async function NewBookingPage({ searchParams }: NewBookingPagePro
 
       <form action={createBookingAction} className="grid gap-6 rounded-[24px] border border-[#e0e5dd] bg-white p-5 shadow-[0_1px_2px_rgba(20,43,32,0.03),0_14px_36px_rgba(20,43,32,0.045)] sm:p-6">
         <section className="grid gap-4 md:grid-cols-2">
-          <label className="grid gap-2 text-sm font-semibold text-[#17201a]">
-            Intern åtkomstkod
-            <input
-              name="access_code"
-              type="password"
-              required
-              autoComplete="off"
-              className="rounded-xl border border-[#d9e1d7] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20"
-              placeholder="Ange intern kod"
-            />
-          </label>
           <label className="grid gap-2 text-sm font-semibold text-[#17201a]">
             Kund
             <select

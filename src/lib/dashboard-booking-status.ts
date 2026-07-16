@@ -2,7 +2,7 @@ import "server-only";
 
 import { neon } from "@neondatabase/serverless";
 
-import { getUserWorkspaceAccess } from "@/lib/workspace-access";
+import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 const connectionString =
   process.env.DATABASE_URL ??
@@ -31,8 +31,8 @@ function getSqlClient() {
 async function getActiveWorkspaceId() {
   const access = await getUserWorkspaceAccess();
 
-  if (!access.ok) {
-    throw new Error("A valid workspace membership is required for booking updates");
+  if (!access.ok || !canManageWorkspaceSettings(access)) {
+    throw new Error("An owner or admin workspace membership is required for booking updates");
   }
 
   return access.workspaceId;

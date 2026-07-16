@@ -9,6 +9,7 @@ import {
   updateDashboardBookingStatus,
   type DashboardBookingStatus,
 } from "@/lib/dashboard-booking-status";
+import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 export const dynamic = "force-dynamic";
 
@@ -50,8 +51,7 @@ const eventTypeLabels: Record<string, string> = {
 };
 
 const errorMessages: Record<string, string> = {
-  access: "Åtkomstkoden saknas eller är fel. Status ändrades inte.",
-  disabled: "Statusändring är inte aktiverad just nu.",
+  access: "Du saknar behörighet att ändra bokningens status.",
   status: "Vald status är ogiltig.",
   save: "Status kunde inte uppdateras. Försök igen eller kontrollera konfigurationen.",
 };
@@ -67,15 +67,9 @@ function redirectWithStatusError(bookingId: string, error: keyof typeof errorMes
 async function updateBookingStatusAction(bookingId: string, formData: FormData) {
   "use server";
 
-  const expectedCode = (process.env.DASHBOARD_WRITE_CODE ?? process.env.ADMIN_ACCESS_CODE ?? "").trim();
+  const workspaceAccess = await getUserWorkspaceAccess();
 
-  if (!expectedCode) {
-    redirectWithStatusError(bookingId, "disabled");
-  }
-
-  const accessCode = getFormText(formData, "access_code");
-
-  if (accessCode !== expectedCode) {
+  if (!workspaceAccess.ok || !canManageWorkspaceSettings(workspaceAccess)) {
     redirectWithStatusError(bookingId, "access");
   }
 
@@ -123,7 +117,7 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
       <DashboardPageHeader
         eyebrow="Bokningsprofil"
         title={booking.title}
-        description="Se bokningens viktigaste uppgifter, kopplad kund och historik. Status kan ändras kontrollerat med intern åtkomstkod."
+        description="Se bokningens viktigaste uppgifter, kopplad kund och historik. Ändra status när kunden har bekräftat, genomfört eller avbokat tiden."
         icon={CalendarClock}
         actions={
           <Link href="/dashboard/bokningar" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#d5ddd3] bg-white px-4 py-2.5 text-sm font-bold text-[#17452f] transition hover:-translate-y-0.5 hover:bg-[#f3f6f2]">
@@ -176,20 +170,9 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
           <article className="rounded-[24px] border border-[#e0e5dd] bg-white p-6 shadow-[0_1px_2px_rgba(20,43,32,0.03),0_14px_36px_rgba(20,43,32,0.045)]">
             <h3 className="text-xl font-bold text-[#17201a]">Ändra status</h3>
             <p className="mt-3 text-sm leading-7 text-[#5b665f]">
-              Ändra bokningens status när tiden är bekräftad, utförd eller behöver avbokas. En statusändring sparas i historiken och ingen e-post skickas automatiskt.
+              Ändra bokningens status när tiden är bekräftad, utförd eller behöver avbokas. Ändringen sparas i historiken. Ingen ny e-post eller SMS skickas automatiskt.
             </p>
             <form action={statusAction} className="mt-5 grid gap-4 rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4">
-              <label className="grid gap-2 text-sm font-semibold text-[#17201a]">
-                Intern åtkomstkod
-                <input
-                  name="access_code"
-                  type="password"
-                  required
-                  autoComplete="off"
-                  className="rounded-xl border border-[#d9e1d7] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20"
-                  placeholder="Ange intern kod"
-                />
-              </label>
               <label className="grid gap-2 text-sm font-semibold text-[#17201a]">
                 Ny status
                 <select
