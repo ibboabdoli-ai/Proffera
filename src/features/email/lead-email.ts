@@ -104,18 +104,18 @@ function formatBookingTime(value: string) {
 export function buildBookingConfirmationEmail(input: SendBookingConfirmationEmailInput) {
   const start = formatBookingTime(input.startsAt);
   const end = formatBookingTime(input.endsAt);
-  const subject = `Bokningsbekräftelse – ${input.companyName}`;
+  const subject = `Bokningsförfrågan mottagen – ${input.companyName}`;
   const text = [
     `Hej ${input.customerName},`,
     "",
-    `Din bokning hos ${input.companyName} är bekräftad.`,
+    `Vi har tagit emot din bokningsförfrågan hos ${input.companyName}.`,
     "",
     `Tjänst: ${input.service || input.bookingTitle}`,
     `Start: ${start}`,
     `Slut: ${end}`,
     input.city ? `Ort: ${input.city}` : "",
     "",
-    "Hör av dig till företaget om du behöver ändra eller avboka tiden.",
+    "Företaget bekräftar tiden separat. Hör av dig till företaget om du behöver ändra eller avboka förfrågan.",
     "",
     `Med vänliga hälsningar`,
     input.companyName,
@@ -123,14 +123,14 @@ export function buildBookingConfirmationEmail(input: SendBookingConfirmationEmai
   const html = `
     <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #17201a;">
       <p>Hej ${escapeHtml(input.customerName)},</p>
-      <p>Din bokning hos <strong>${escapeHtml(input.companyName)}</strong> är bekräftad.</p>
+      <p>Vi har tagit emot din bokningsförfrågan hos <strong>${escapeHtml(input.companyName)}</strong>.</p>
       <ul>
         <li><strong>Tjänst:</strong> ${escapeHtml(input.service || input.bookingTitle)}</li>
         <li><strong>Start:</strong> ${escapeHtml(start)}</li>
         <li><strong>Slut:</strong> ${escapeHtml(end)}</li>
         ${input.city ? `<li><strong>Ort:</strong> ${escapeHtml(input.city)}</li>` : ""}
       </ul>
-      <p>Hör av dig till företaget om du behöver ändra eller avboka tiden.</p>
+      <p>Företaget bekräftar tiden separat. Hör av dig till företaget om du behöver ändra eller avboka förfrågan.</p>
       <p>Med vänliga hälsningar<br />${escapeHtml(input.companyName)}</p>
     </div>
   `;
