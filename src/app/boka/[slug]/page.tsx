@@ -79,9 +79,13 @@ async function requestPublicBooking(formData: FormData) {
   if (!sql || !slug || !name || (!email && !phone) || !serviceName || !startsAt) redirect(`/boka/${slug}?error=invalid`);
 
   const workspaces = await sql`
-    select id, coalesce(company_name, name) as company_name, primary_city
-    from workspaces
-    where public_booking_slug = ${slug} and status in ('active', 'trial')
+    select
+      w.id,
+      coalesce(nullif(ws.company_name, ''), w.company_name, w.name) as company_name,
+      coalesce(nullif(ws.primary_city, ''), w.primary_city) as primary_city
+    from workspaces w
+    left join workspace_settings ws on ws.workspace_id = w.id::text
+    where w.public_booking_slug = ${slug} and w.status in ('active', 'trial')
     limit 1
   `;
   const workspace = workspaces[0];
@@ -173,8 +177,14 @@ export default async function PublicBookingPage({ params, searchParams }: PagePr
 
   try {
     const workspaces = await sql`
-      select id, coalesce(company_name, name) as company_name, primary_city
-      from workspaces where public_booking_slug = ${slug} and status in ('active', 'trial') limit 1
+      select
+        w.id,
+        coalesce(nullif(ws.company_name, ''), w.company_name, w.name) as company_name,
+        coalesce(nullif(ws.primary_city, ''), w.primary_city) as primary_city
+      from workspaces w
+      left join workspace_settings ws on ws.workspace_id = w.id::text
+      where w.public_booking_slug = ${slug} and w.status in ('active', 'trial')
+      limit 1
     `;
     workspace = workspaces[0] as Record<string, unknown> | undefined;
     if (workspace) {
