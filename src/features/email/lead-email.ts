@@ -19,6 +19,18 @@ type SendBookingConfirmationEmailInput = {
   city: string;
 };
 
+type SendBookingOwnerNotificationEmailInput = {
+  ownerEmail: string;
+  companyName: string;
+  customerName: string;
+  customerEmail: string;
+  customerPhone: string;
+  service: string;
+  startsAt: string;
+  endsAt: string;
+  city: string;
+};
+
 type BrevoResponse = {
   messageId?: string;
   message?: string;
@@ -138,6 +150,45 @@ export function buildBookingConfirmationEmail(input: SendBookingConfirmationEmai
   return { subject, text, html };
 }
 
+export function buildBookingOwnerNotificationEmail(input: SendBookingOwnerNotificationEmailInput) {
+  const start = formatBookingTime(input.startsAt);
+  const end = formatBookingTime(input.endsAt);
+  const subject = `Ny bokningsförfrågan – ${input.service}`;
+  const text = [
+    `Hej ${input.companyName},`,
+    "",
+    "En ny bokningsförfrågan har kommit in via Proffera.",
+    "",
+    `Kund: ${input.customerName}`,
+    input.customerEmail ? `E-post: ${input.customerEmail}` : "",
+    input.customerPhone ? `Telefon: ${input.customerPhone}` : "",
+    `Tjänst: ${input.service}`,
+    `Start: ${start}`,
+    `Slut: ${end}`,
+    input.city ? `Ort: ${input.city}` : "",
+    "",
+    "Öppna Bokningar i Proffera för att bekräfta eller avboka förfrågan.",
+  ].filter(Boolean).join("\n");
+  const html = `
+    <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #17201a;">
+      <p>Hej ${escapeHtml(input.companyName)},</p>
+      <p>En ny bokningsförfrågan har kommit in via Proffera.</p>
+      <ul>
+        <li><strong>Kund:</strong> ${escapeHtml(input.customerName)}</li>
+        ${input.customerEmail ? `<li><strong>E-post:</strong> ${escapeHtml(input.customerEmail)}</li>` : ""}
+        ${input.customerPhone ? `<li><strong>Telefon:</strong> ${escapeHtml(input.customerPhone)}</li>` : ""}
+        <li><strong>Tjänst:</strong> ${escapeHtml(input.service)}</li>
+        <li><strong>Start:</strong> ${escapeHtml(start)}</li>
+        <li><strong>Slut:</strong> ${escapeHtml(end)}</li>
+        ${input.city ? `<li><strong>Ort:</strong> ${escapeHtml(input.city)}</li>` : ""}
+      </ul>
+      <p>Öppna Bokningar i Proffera för att bekräfta eller avboka förfrågan.</p>
+    </div>
+  `;
+
+  return { subject, text, html };
+}
+
 export async function sendLeadEmail(input: SendLeadEmailInput) {
   const apiKey = process.env.BREVO_API_KEY;
   const from = process.env.LEAD_FROM_EMAIL;
@@ -214,6 +265,34 @@ export async function sendBookingConfirmationEmail(input: SendBookingConfirmatio
       return { ok: false as const, message: data.message ?? data.code ?? "Kunde inte skicka bokningsbekräftelse via Brevo." };
     }
 
+    return { ok: true as const, providerId: data.messageId ?? null };
+  } catch {
+    return { ok: false as const, message: "Kunde inte kontakta Brevo." };
+  }
+}
+
+export async function sendBookingOwnerNotificationEmail(input: SendBookingOwnerNotificationEmailInput) {
+  const apiKey = process.env.BREVO_API_KEY;
+  const from = process.env.LEAD_FROM_EMAIL;
+  if (!apiKey || !from) return { ok: false as const, message: "Brevo är inte konfigurerat." };
+
+  const sender = parseSender(from);
+  const email = buildBookingOwnerNotificationEmail(input);
+
+  try {
+    const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      headers: { "api-key": apiKey, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sender,
+        to: [{ email: input.ownerEmail, name: input.companyName }],
+        subject: email.subject,
+        textContent: email.text,
+        htmlContent: email.html,
+      }),
+    });
+    const data = (await response.json().catch(() => ({}))) as BrevoResponse;
+    if (!response.ok) return { ok: false as const, message: data.message ?? data.code ?? "Kunde inte skicka bokningsnotis." };
     return { ok: true as const, providerId: data.messageId ?? null };
   } catch {
     return { ok: false as const, message: "Kunde inte kontakta Brevo." };

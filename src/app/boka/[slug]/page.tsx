@@ -2,7 +2,7 @@ import { MapPin } from "lucide-react";
 import { redirect } from "next/navigation";
 
 import { getSql } from "@/lib/db/server";
-import { sendBookingConfirmationEmail } from "@/features/email/lead-email";
+import { sendBookingConfirmationEmail, sendBookingOwnerNotificationEmail } from "@/features/email/lead-email";
 
 import { BookingRequestForm } from "./booking-request-form";
 
@@ -82,7 +82,8 @@ async function requestPublicBooking(formData: FormData) {
     select
       w.id,
       coalesce(nullif(ws.company_name, ''), w.company_name, w.name) as company_name,
-      coalesce(nullif(ws.primary_city, ''), w.primary_city) as primary_city
+      coalesce(nullif(ws.primary_city, ''), w.primary_city) as primary_city,
+      nullif(ws.contact_email, '') as contact_email
     from workspaces w
     left join workspace_settings ws on ws.workspace_id = w.id::text
     where w.public_booking_slug = ${slug} and w.status in ('active', 'trial')
@@ -154,6 +155,20 @@ async function requestPublicBooking(formData: FormData) {
       customerEmail: email,
       companyName: String(workspace.company_name),
       bookingTitle: serviceName,
+      service: serviceName,
+      startsAt: start.toISOString(),
+      endsAt: end.toISOString(),
+      city: String(workspace.primary_city ?? ""),
+    }).catch(() => null);
+  }
+
+  if (workspace.contact_email) {
+    await sendBookingOwnerNotificationEmail({
+      ownerEmail: String(workspace.contact_email),
+      companyName: String(workspace.company_name),
+      customerName: name,
+      customerEmail: email,
+      customerPhone: phone,
       service: serviceName,
       startsAt: start.toISOString(),
       endsAt: end.toISOString(),
