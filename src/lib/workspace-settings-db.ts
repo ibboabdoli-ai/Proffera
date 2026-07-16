@@ -38,6 +38,7 @@ export type DashboardWorkspaceSettings = {
   defaultCta: string;
   contactEmail: string;
   contactPhone: string;
+  publicBookingSlug: string;
 };
 
 export type UpdateDashboardWorkspaceSettingsInput = {
@@ -57,6 +58,7 @@ const fallbackWorkspaceSettings: DashboardWorkspaceSettings = {
   defaultCta: "Boka demo",
   contactEmail: "",
   contactPhone: "",
+  publicBookingSlug: "",
 };
 
 export async function getDashboardWorkspaceSettings(): Promise<DashboardWorkspaceSettings> {
@@ -68,7 +70,8 @@ export async function getDashboardWorkspaceSettings(): Promise<DashboardWorkspac
 
   try {
     const workspaceId = await getActiveWorkspaceId();
-    const rows = await sql`
+    const [rows, workspaceRows] = await Promise.all([
+      sql`
       select
         workspace_id,
         company_name,
@@ -81,7 +84,14 @@ export async function getDashboardWorkspaceSettings(): Promise<DashboardWorkspac
       where workspace_id in (${workspaceId}, 'default')
       order by case when workspace_id = ${workspaceId} then 0 else 1 end
       limit 1
-    `;
+      `,
+      sql`
+        select public_booking_slug
+        from workspaces
+        where id = ${workspaceId}::uuid
+        limit 1
+      `,
+    ]);
 
     const row = rows[0];
 
@@ -97,6 +107,7 @@ export async function getDashboardWorkspaceSettings(): Promise<DashboardWorkspac
       defaultCta: toText(row.default_cta, fallbackWorkspaceSettings.defaultCta),
       contactEmail: toText(row.contact_email, fallbackWorkspaceSettings.contactEmail),
       contactPhone: toText(row.contact_phone, fallbackWorkspaceSettings.contactPhone),
+      publicBookingSlug: toText(workspaceRows[0]?.public_booking_slug, fallbackWorkspaceSettings.publicBookingSlug),
     };
   } catch (error) {
     console.error("Failed to read workspace settings", error);
