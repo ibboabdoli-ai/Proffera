@@ -34,6 +34,10 @@ export default async function Page({ searchParams }: PageProps) {
             <p className="mt-2 text-sm leading-6 text-[#5b665f]">Fält med <span aria-hidden="true">*</span> är obligatoriska.</p>
             {error ? <p className="mt-5 rounded-xl border border-[#e7b8b1] bg-[#fff4f2] px-4 py-3 text-sm font-medium text-[#8a2b20]" role="alert">{error}</p> : null}
             <form action="/api/foretag" method="post" className="mt-7 grid gap-5">
+              <label className="absolute left-[-10000px]" aria-hidden="true">
+                Webbplats
+                <input name="website" type="text" tabIndex={-1} autoComplete="off" />
+              </label>
               <div className="grid gap-5 sm:grid-cols-2">
                 <label className="text-sm font-semibold text-[#26322a]">Företagsnamn *<input autoComplete="organization" className={inputClassName} name="companyName" required /></label>
                 <label className="text-sm font-semibold text-[#26322a]">Organisationsnummer *<input className={inputClassName} inputMode="numeric" name="organizationNumber" required /></label>

@@ -4,6 +4,11 @@ import { companyRegistrationSchema } from "@/features/company/schema";
 
 export async function POST(request: Request) {
   const formData = await request.formData();
+  const website = String(formData.get("website") ?? "").trim();
+
+  if (website) {
+    return NextResponse.redirect(new URL("/anslut-foretag/tack", request.url));
+  }
 
   const parsed = companyRegistrationSchema.safeParse({
     companyName: String(formData.get("companyName") ?? ""),
