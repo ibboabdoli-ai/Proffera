@@ -76,7 +76,15 @@ async function requestPublicBooking(formData: FormData) {
   const phone = String(formData.get("phone") ?? "").trim();
   const serviceName = String(formData.get("service") ?? "").trim();
   const startsAt = String(formData.get("starts_at") ?? "").trim();
+  const website = String(formData.get("website") ?? "").trim();
   const sql = getSql();
+
+  if (website) redirect(`/boka/${slug}?booked=1`);
+
+  const isValidEmail = !email || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  if (name.length > 160 || email.length > 180 || phone.length > 80 || serviceName.length > 140 || startsAt.length > 32 || !isValidEmail) {
+    redirect(`/boka/${slug}?error=invalid`);
+  }
 
   if (!sql || !slug || !name || (!email && !phone) || !serviceName || !startsAt) redirect(`/boka/${slug}?error=invalid`);
 

@@ -95,6 +95,7 @@ export function BookingRequestForm({ action, slug, services, bookingHours, busyB
         <input type="hidden" name="slug" value={slug} />
         <input type="hidden" name="service" value={serviceName} />
         <input type="hidden" name="starts_at" value={date && time ? `${date}T${time}` : ""} />
+        <label className="absolute left-[-10000px]" aria-hidden="true">Webbplats<input name="website" type="text" tabIndex={-1} autoComplete="off" /></label>
 
         <section className="rounded-3xl border border-[#dfe5dd] bg-[#fbfbf8] p-4">
           <div className="flex items-center gap-2">
@@ -151,9 +152,9 @@ export function BookingRequestForm({ action, slug, services, bookingHours, busyB
             <h3 className="text-lg font-black">3. Dina uppgifter</h3>
           </div>
           <div className="mt-4 grid gap-3">
-            <label className="grid gap-1.5 text-sm font-bold text-[#344139]">Namn<input name="name" required autoComplete="name" className="min-h-12 rounded-2xl border border-[#dfe5dd] bg-white px-4 py-3 text-base text-[#17201a] focus:outline-none focus:ring-2 focus:ring-[#17452f]" /></label>
-            <label className="grid gap-1.5 text-sm font-bold text-[#344139]">Telefon<input name="phone" type="tel" inputMode="tel" autoComplete="tel" className="min-h-12 rounded-2xl border border-[#dfe5dd] bg-white px-4 py-3 text-base text-[#17201a] focus:outline-none focus:ring-2 focus:ring-[#17452f]" /></label>
-            <label className="grid gap-1.5 text-sm font-bold text-[#344139]">E-post<input name="email" type="email" inputMode="email" autoComplete="email" className="min-h-12 rounded-2xl border border-[#dfe5dd] bg-white px-4 py-3 text-base text-[#17201a] focus:outline-none focus:ring-2 focus:ring-[#17452f]" /></label>
+            <label className="grid gap-1.5 text-sm font-bold text-[#344139]">Namn<input name="name" required autoComplete="name" maxLength={160} className="min-h-12 rounded-2xl border border-[#dfe5dd] bg-white px-4 py-3 text-base text-[#17201a] focus:outline-none focus:ring-2 focus:ring-[#17452f]" /></label>
+            <label className="grid gap-1.5 text-sm font-bold text-[#344139]">Telefon<input name="phone" type="tel" inputMode="tel" autoComplete="tel" maxLength={80} className="min-h-12 rounded-2xl border border-[#dfe5dd] bg-white px-4 py-3 text-base text-[#17201a] focus:outline-none focus:ring-2 focus:ring-[#17452f]" /></label>
+            <label className="grid gap-1.5 text-sm font-bold text-[#344139]">E-post<input name="email" type="email" inputMode="email" autoComplete="email" maxLength={180} className="min-h-12 rounded-2xl border border-[#dfe5dd] bg-white px-4 py-3 text-base text-[#17201a] focus:outline-none focus:ring-2 focus:ring-[#17452f]" /></label>
           </div>
           <p className="mt-3 text-xs leading-5 text-[#5b665f]">Fyll i minst e-post eller telefon så att Julius Salong kan kontakta dig.</p>
           <button disabled={!selectedService || !time} className="mt-4 flex min-h-14 w-full items-center justify-center rounded-full bg-[#17452f] px-5 py-4 text-base font-black text-white shadow-lg shadow-[#17452f]/20 transition hover:bg-[#123824] disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2">
@@ -168,11 +169,12 @@ export function BookingRequestForm({ action, slug, services, bookingHours, busyB
     <form action={action} className="mt-8 grid gap-4">
       <input type="hidden" name="slug" value={slug} />
       <input type="hidden" name="starts_at" value={date && time ? `${date}T${time}` : ""} />
+      <label className="absolute left-[-10000px]" aria-hidden="true">Webbplats<input name="website" type="text" tabIndex={-1} autoComplete="off" /></label>
 
-      <label className="grid gap-2 text-sm font-semibold text-[#344139]">Ditt namn<input name="name" required autoComplete="name" className="rounded-xl border border-[#d9e1d7] bg-white px-4 py-3 text-[#17201a]" /></label>
+      <label className="grid gap-2 text-sm font-semibold text-[#344139]">Ditt namn<input name="name" required autoComplete="name" maxLength={160} className="rounded-xl border border-[#d9e1d7] bg-white px-4 py-3 text-[#17201a]" /></label>
       <div className="grid gap-4 sm:grid-cols-2">
-        <label className="grid gap-2 text-sm font-semibold text-[#344139]">E-post<input name="email" type="email" autoComplete="email" className="rounded-xl border border-[#d9e1d7] bg-white px-4 py-3 text-[#17201a]" /></label>
-        <label className="grid gap-2 text-sm font-semibold text-[#344139]">Telefon<input name="phone" type="tel" autoComplete="tel" className="rounded-xl border border-[#d9e1d7] bg-white px-4 py-3 text-[#17201a]" /></label>
+        <label className="grid gap-2 text-sm font-semibold text-[#344139]">E-post<input name="email" type="email" autoComplete="email" maxLength={180} className="rounded-xl border border-[#d9e1d7] bg-white px-4 py-3 text-[#17201a]" /></label>
+        <label className="grid gap-2 text-sm font-semibold text-[#344139]">Telefon<input name="phone" type="tel" autoComplete="tel" maxLength={80} className="rounded-xl border border-[#d9e1d7] bg-white px-4 py-3 text-[#17201a]" /></label>
       </div>
       <p className="-mt-2 text-xs text-[#5b665f]">Fyll i minst e-post eller telefon så att företaget kan kontakta dig.</p>
 
