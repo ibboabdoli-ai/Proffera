@@ -15,7 +15,6 @@ export const dynamic = "force-dynamic";
 
 const errorMessages: Record<string, string> = {
   access: "Åtkomstkoden saknas eller är fel. Inga inställningar sparades.",
-  disabled: "Sparning är inte aktiverad ännu. Kontrollera den interna åtkomstkoden och miljöinställningen.",
   company: "Företagsnamn är obligatoriskt och får vara max 160 tecken.",
   city: "Primär ort är obligatorisk och får vara max 120 tecken.",
   response: "Svarstid mål är obligatoriskt och får vara max 120 tecken.",
@@ -27,7 +26,6 @@ const errorMessages: Record<string, string> = {
 
 const serviceErrorMessages: Record<string, string> = {
   access: "Åtkomstkoden saknas eller är fel. Tjänsten sparades inte.",
-  disabled: "Sparning av tjänster är inte aktiverad ännu.",
   id: "Tjänsten kunde inte hittas.",
   name: "Namn är obligatoriskt och får vara max 140 tecken.",
   description: "Beskrivning får vara max 500 tecken.",
@@ -42,7 +40,6 @@ const serviceErrorMessages: Record<string, string> = {
 
 const bookingHoursErrorMessages: Record<string, string> = {
   access: "Åtkomstkoden saknas eller är fel. Bokningstiderna sparades inte.",
-  disabled: "Sparning av bokningstider är inte aktiverad ännu.",
   hours: "Kontrollera tiderna. Öppning behöver vara före stängning.",
   save: "Bokningstiderna kunde inte sparas. Försök igen.",
 };
@@ -222,11 +219,6 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
 
           <form action={updateWorkspaceSettingsAction} className="mt-5 space-y-4">
             <label className="grid gap-2 text-sm font-semibold text-[#344139]">
-              Intern åtkomstkod
-              <input name="access_code" type="password" required autoComplete="off" className={inputClass} placeholder="Ange intern kod" />
-            </label>
-
-            <label className="grid gap-2 text-sm font-semibold text-[#344139]">
               Företagsnamn
               <input name="company_name" type="text" required maxLength={160} className={inputClass} defaultValue={workspaceSettings.companyName} />
             </label>
@@ -290,10 +282,6 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         </div>
 
         <form action={updateWorkspaceBookingHoursAction} className="mt-5 grid gap-3">
-          <label className="grid max-w-md gap-2 text-sm font-semibold text-[#344139]">
-            Intern åtkomstkod
-            <input name="booking_hours_access_code" type="password" required autoComplete="off" className={inputClass} placeholder="Ange intern kod" />
-          </label>
           <div className="grid gap-3">
             {bookingWeekdays.map((day) => {
               const hour = bookingHours.hours.find((item) => item.weekday === day.value)!;

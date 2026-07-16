@@ -29,11 +29,6 @@ function ServiceFields({ service }: ServiceFieldsProps) {
   return (
     <div className="grid gap-3">
       <label className="grid gap-2 text-sm font-semibold text-[#344139]">
-        Intern åtkomstkod
-        <input name="access_code" type="password" required autoComplete="off" className={fieldClass} placeholder="Ange intern kod" />
-      </label>
-
-      <label className="grid gap-2 text-sm font-semibold text-[#344139]">
         Namn
         <input name="name" type="text" required maxLength={140} className={fieldClass} defaultValue={service?.name ?? ""} />
       </label>

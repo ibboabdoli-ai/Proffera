@@ -6,7 +6,7 @@ import { updateDashboardWorkspaceSettings, type UpdateDashboardWorkspaceSettings
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 import { getSql } from "@/lib/db/server";
 
-type SettingsSaveError = "access" | "disabled" | "company" | "city" | "response" | "cta" | "email" | "phone" | "slug" | "save";
+type SettingsSaveError = "access" | "company" | "city" | "response" | "cta" | "email" | "phone" | "slug" | "save";
 
 function getFormText(formData: FormData, key: string) {
   return String(formData.get(key) ?? "").trim();
@@ -23,18 +23,6 @@ function isEmailLike(value: string) {
 export async function updateWorkspaceSettingsAction(formData: FormData) {
   const workspaceAccess = await getUserWorkspaceAccess();
   if (!workspaceAccess.ok || !canManageWorkspaceSettings(workspaceAccess)) {
-    redirectWithError("access");
-  }
-
-  const expectedCode = (process.env.DASHBOARD_WRITE_CODE ?? process.env.ADMIN_ACCESS_CODE ?? "").trim();
-
-  if (!expectedCode) {
-    redirectWithError("disabled");
-  }
-
-  const accessCode = getFormText(formData, "access_code");
-
-  if (accessCode !== expectedCode) {
     redirectWithError("access");
   }
 
