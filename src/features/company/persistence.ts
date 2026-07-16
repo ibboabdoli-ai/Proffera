@@ -21,6 +21,24 @@ export async function storeCompanyRegistration(input: CompanyRegistrationInput):
   const referenceId = buildCompanyReferenceId();
 
   try {
+    const existingRows = await sql`
+      select reference_id
+      from company_registrations
+      where status = 'pending'
+        and (
+          lower(email) = lower(${input.email})
+          or organization_number = ${input.organizationNumber}
+        )
+      order by created_at desc
+      limit 1
+    `;
+
+    const existingReferenceId = String(existingRows[0]?.reference_id ?? "").trim();
+
+    if (existingReferenceId) {
+      return { ok: true, referenceId: existingReferenceId };
+    }
+
     await sql`
       insert into company_registrations (
         reference_id,
