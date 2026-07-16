@@ -1,6 +1,9 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { useEffect, useState } from "react";
+import Image from "next/image";
+import QRCode from "qrcode";
 import { Clock, MapPin, QrCode, Star } from "lucide-react";
 import { BookingWidget } from "@/components/salon/booking-widget";
 import { juliusSalon, salonReviews, salonServices } from "@/lib/salon-demo";
@@ -12,6 +15,18 @@ type JuliusBookingDemoProps = {
 
 export function JuliusBookingDemo({ bookingContent, live = false }: JuliusBookingDemoProps) {
   const popularServices = salonServices.slice(0, 3);
+  const bookingUrl = "https://www.proffera.se/boka/julius-salong";
+  const [qrCodeUrl, setQrCodeUrl] = useState("");
+
+  useEffect(() => {
+    if (!live) return;
+    QRCode.toDataURL(bookingUrl, {
+      width: 320,
+      margin: 1,
+      errorCorrectionLevel: "M",
+      color: { dark: "#173e2b", light: "#ffffff" },
+    }).then(setQrCodeUrl).catch(() => setQrCodeUrl(""));
+  }, [live]);
 
   return (
     <div className="bg-[#f7f7f4] pb-24 text-[#17201a] lg:pb-0">
@@ -87,8 +102,10 @@ export function JuliusBookingDemo({ bookingContent, live = false }: JuliusBookin
             <QrCode className="h-9 w-9" aria-hidden="true" />
             <h2 className="mt-4 text-2xl font-black">Skanna och boka direkt</h2>
             <p className="mt-2 text-sm leading-6 text-white/75">QR-koden kan sättas på spegeln, disken, visitkortet eller Instagram.</p>
-            <div className="mt-6 flex h-44 w-44 items-center justify-center rounded-3xl bg-white text-center text-sm font-black text-[#17452f]">
-              QR<br />Julius Salong
+            <div className="mt-6 flex h-44 w-44 items-center justify-center overflow-hidden rounded-3xl bg-white p-2 text-center text-sm font-black text-[#17452f]">
+              {live && qrCodeUrl ? (
+                <Image src={qrCodeUrl} width={160} height={160} unoptimized alt="QR-kod till Julius Salongs bokningssida" className="h-40 w-40 rounded-2xl" />
+              ) : <>QR<br />Julius Salong</>}
             </div>
             <p className="mt-4 break-all text-xs font-bold text-white/70">{live ? "proffera.se/boka/julius-salong" : "julius.proffera.se"}</p>
           </div>

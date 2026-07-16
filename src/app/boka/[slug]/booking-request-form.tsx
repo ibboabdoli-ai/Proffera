@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { ArrowRight, CalendarCheck, Scissors, UserCheck } from "lucide-react";
 
 type BookingService = {
   name: string;
@@ -26,6 +27,7 @@ type BookingRequestFormProps = {
   services: BookingService[];
   bookingHours: BookingHour[];
   busyBookings: BusyBooking[];
+  variant?: "default" | "salon";
 };
 
 const stockholmFormatter = new Intl.DateTimeFormat("sv-SE", {
@@ -55,7 +57,7 @@ function toTime(value: number) {
   return `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
 }
 
-export function BookingRequestForm({ action, slug, services, bookingHours, busyBookings }: BookingRequestFormProps) {
+export function BookingRequestForm({ action, slug, services, bookingHours, busyBookings, variant = "default" }: BookingRequestFormProps) {
   const today = toStockholmParts(new Date()).date;
   const [serviceName, setServiceName] = useState("");
   const [date, setDate] = useState(today);
@@ -86,6 +88,81 @@ export function BookingRequestForm({ action, slug, services, bookingHours, busyB
     }
     return slots;
   }, [busyBookings, date, selectedHours, selectedService]);
+
+  if (variant === "salon") {
+    return (
+      <form action={action} className="mt-5 grid gap-4">
+        <input type="hidden" name="slug" value={slug} />
+        <input type="hidden" name="service" value={serviceName} />
+        <input type="hidden" name="starts_at" value={date && time ? `${date}T${time}` : ""} />
+
+        <section className="rounded-3xl border border-[#dfe5dd] bg-[#fbfbf8] p-4">
+          <div className="flex items-center gap-2">
+            <Scissors className="h-5 w-5 text-[#17452f]" aria-hidden="true" />
+            <h3 className="text-lg font-black">1. Välj tjänst</h3>
+          </div>
+          <div className="mt-4 grid max-h-[24rem] gap-3 overflow-y-auto pr-1">
+            {services.map((service) => {
+              const selected = service.name === serviceName;
+              return (
+                <button key={service.name} type="button" aria-pressed={selected} onClick={() => { setServiceName(service.name); setTime(""); }} className={`flex min-h-16 items-center justify-between rounded-2xl border p-4 text-left transition focus:outline-none focus:ring-2 focus:ring-[#17452f] ${selected ? "border-[#17452f] bg-white shadow-sm" : "border-[#dfe5dd] bg-white hover:border-[#9fb5a5]"}`}>
+                  <span>
+                    <span className="block text-sm font-black">{service.name}</span>
+                    <span className="mt-1 block text-xs font-semibold text-[#5b665f]">{service.durationMinutes} min</span>
+                  </span>
+                  {service.priceLabel ? <span className="ml-3 shrink-0 text-base font-black text-[#17452f]">{service.priceLabel}</span> : null}
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="rounded-3xl border border-[#dfe5dd] bg-[#fbfbf8] p-4">
+          <div className="flex items-center gap-2">
+            <CalendarCheck className="h-5 w-5 text-[#17452f]" aria-hidden="true" />
+            <h3 className="text-lg font-black">2. Välj tid</h3>
+          </div>
+          <label className="mt-4 grid gap-2 text-sm font-bold text-[#344139]">Datum
+            <input type="date" required min={today} value={date} onChange={(event) => { setDate(event.target.value); setTime(""); }} className="min-h-12 rounded-2xl border border-[#dfe5dd] bg-white px-4 py-3 text-base text-[#17201a] focus:outline-none focus:ring-2 focus:ring-[#17452f]" />
+          </label>
+          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {selectedService && availableTimes.length ? availableTimes.map((availableTime) => (
+              <button key={availableTime} type="button" aria-pressed={time === availableTime} onClick={() => setTime(availableTime)} className={`min-h-12 rounded-2xl px-3 py-3 text-left text-sm font-black transition focus:outline-none focus:ring-2 focus:ring-[#17452f] ${time === availableTime ? "bg-[#17452f] text-white shadow-sm" : "border border-[#dfe5dd] bg-white text-[#344139] hover:border-[#9fb5a5]"}`}>
+                <span className="block">{availableTime}</span>
+                {selectedService.priceLabel ? <span className={`mt-1 block text-xs ${time === availableTime ? "text-white/75" : "text-[#5b665f]"}`}>{selectedService.priceLabel}</span> : null}
+              </button>
+            )) : <p className="col-span-full rounded-2xl bg-white px-4 py-3 text-sm font-bold text-[#5b665f]">{selectedService ? "Inga lediga tider denna dag." : "Välj en tjänst först."}</p>}
+          </div>
+        </section>
+
+        {selectedService ? <section className="rounded-3xl border border-[#dfe5dd] bg-white p-4">
+          <p className="text-xs font-bold uppercase tracking-wide text-[#17452f]">Du har valt</p>
+          <div className="mt-3 grid gap-2 text-sm text-[#344139]">
+            <p><strong>{selectedService.name}</strong></p>
+            <p>{selectedService.durationMinutes} min{selectedService.priceLabel ? ` • ${selectedService.priceLabel}` : ""}</p>
+            <p>Frisör: Elias</p>
+            <p>{date} • {time || "Välj en tid"}</p>
+          </div>
+        </section> : null}
+
+        <section className="rounded-3xl border border-[#dfe5dd] bg-[#fbfbf8] p-4">
+          <div className="flex items-center gap-2">
+            <UserCheck className="h-5 w-5 text-[#17452f]" aria-hidden="true" />
+            <h3 className="text-lg font-black">3. Dina uppgifter</h3>
+          </div>
+          <div className="mt-4 grid gap-3">
+            <label className="grid gap-1.5 text-sm font-bold text-[#344139]">Namn<input name="name" required autoComplete="name" className="min-h-12 rounded-2xl border border-[#dfe5dd] bg-white px-4 py-3 text-base text-[#17201a] focus:outline-none focus:ring-2 focus:ring-[#17452f]" /></label>
+            <label className="grid gap-1.5 text-sm font-bold text-[#344139]">Telefon<input name="phone" type="tel" inputMode="tel" autoComplete="tel" className="min-h-12 rounded-2xl border border-[#dfe5dd] bg-white px-4 py-3 text-base text-[#17201a] focus:outline-none focus:ring-2 focus:ring-[#17452f]" /></label>
+            <label className="grid gap-1.5 text-sm font-bold text-[#344139]">E-post<input name="email" type="email" inputMode="email" autoComplete="email" className="min-h-12 rounded-2xl border border-[#dfe5dd] bg-white px-4 py-3 text-base text-[#17201a] focus:outline-none focus:ring-2 focus:ring-[#17452f]" /></label>
+          </div>
+          <p className="mt-3 text-xs leading-5 text-[#5b665f]">Fyll i minst e-post eller telefon så att Julius Salong kan kontakta dig.</p>
+          <button disabled={!selectedService || !time} className="mt-4 flex min-h-14 w-full items-center justify-center rounded-full bg-[#17452f] px-5 py-4 text-base font-black text-white shadow-lg shadow-[#17452f]/20 transition hover:bg-[#123824] disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2">
+            Skicka bokningsförfrågan <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
+          </button>
+        </section>
+      </form>
+    );
+  }
 
   return (
     <form action={action} className="mt-8 grid gap-4">
