@@ -8,9 +8,13 @@ const clientId = "proffera";
 
 export function ServiceAiChatWidget() {
   const pathname = usePathname();
-  const isPrivateRoute = pathname?.startsWith("/admin") || pathname?.startsWith("/dashboard");
+  const isSensitiveFlow = pathname?.startsWith("/admin")
+    || pathname?.startsWith("/dashboard")
+    || pathname?.startsWith("/boka/")
+    || pathname?.startsWith("/logga-in")
+    || pathname?.startsWith("/anslut-foretag/");
 
-  if (isPrivateRoute) return null;
+  if (isSensitiveFlow) return null;
 
   return (
     <Script
