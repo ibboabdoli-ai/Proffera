@@ -6,7 +6,7 @@ import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/worksp
 import { bookingWeekdays } from "@/lib/workspace-booking-hours-db";
 import { getSql } from "@/lib/db/server";
 
-type BookingHoursError = "access" | "disabled" | "hours" | "save";
+type BookingHoursError = "access" | "hours" | "save";
 
 function redirectWithError(error: BookingHoursError): never {
   redirect(`/dashboard/installningar?hours_error=${error}`);
@@ -28,10 +28,6 @@ function toMinutes(value: string) {
 export async function updateWorkspaceBookingHoursAction(formData: FormData) {
   const access = await getUserWorkspaceAccess();
   if (!access.ok || !canManageWorkspaceSettings(access)) redirectWithError("access");
-
-  const expectedCode = (process.env.DASHBOARD_WRITE_CODE ?? process.env.ADMIN_ACCESS_CODE ?? "").trim();
-  if (!expectedCode) redirectWithError("disabled");
-  if (text(formData, "booking_hours_access_code") !== expectedCode) redirectWithError("access");
 
   const hours = bookingWeekdays.map(({ value }) => {
     const isClosed = formData.get(`closed_${value}`) === "on";
