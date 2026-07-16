@@ -12,6 +12,7 @@ export function ServiceAiChatWidget() {
     || pathname?.startsWith("/dashboard")
     || pathname?.startsWith("/boka/")
     || pathname?.startsWith("/logga-in")
+    || pathname?.startsWith("/aktivera/")
     || pathname?.startsWith("/anslut-foretag/");
 
   if (isSensitiveFlow) return null;

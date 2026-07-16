@@ -12,7 +12,14 @@ export const metadata: Metadata = {
   },
 };
 
-export default function LoginPage() {
+type LoginPageProps = {
+  searchParams?: Promise<{ created?: string | string[] }>;
+};
+
+export default async function LoginPage({ searchParams }: LoginPageProps) {
+  const params = searchParams ? await searchParams : undefined;
+  const createdValue = Array.isArray(params?.created) ? params?.created[0] : params?.created;
+
   return (
     <main className="relative overflow-hidden bg-[#f7f7f4]">
       <div className="absolute inset-x-0 top-0 h-80 bg-[radial-gradient(circle_at_12%_0%,rgba(139,195,157,0.28),transparent_35%),linear-gradient(180deg,#fff_0%,#f7f7f4_100%)]" />
@@ -54,6 +61,11 @@ export default function LoginPage() {
         </div>
 
         <div className="order-1 w-full lg:order-2">
+          {createdValue === "1" ? (
+            <p className="mb-4 rounded-xl border border-[#b8d9c2] bg-[#eef8f0] px-4 py-3 text-sm font-semibold text-[#17452f]" role="status">
+              Kontot och kundportalen är klara. Logga in med ditt nya lösenord.
+            </p>
+          ) : null}
           <LoginForm />
         </div>
       </section>
