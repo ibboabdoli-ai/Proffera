@@ -31,6 +31,17 @@ type SendBookingOwnerNotificationEmailInput = {
   city: string;
 };
 
+type SendBookingStatusEmailInput = {
+  customerName: string;
+  customerEmail: string;
+  companyName: string;
+  status: "confirmed" | "cancelled";
+  service: string;
+  startsAt: string;
+  endsAt: string;
+  city: string;
+};
+
 type BrevoResponse = {
   messageId?: string;
   message?: string;
@@ -189,6 +200,52 @@ export function buildBookingOwnerNotificationEmail(input: SendBookingOwnerNotifi
   return { subject, text, html };
 }
 
+export function buildBookingStatusEmail(input: SendBookingStatusEmailInput) {
+  const start = formatBookingTime(input.startsAt);
+  const end = formatBookingTime(input.endsAt);
+  const isConfirmed = input.status === "confirmed";
+  const subject = isConfirmed
+    ? `Din bokning är bekräftad – ${input.companyName}`
+    : `Din bokning är avbokad – ${input.companyName}`;
+  const statusText = isConfirmed
+    ? `Din bokning hos ${input.companyName} är bekräftad.`
+    : `Din bokning hos ${input.companyName} är avbokad.`;
+  const nextStep = isConfirmed
+    ? "Hör av dig till företaget om du behöver ändra tiden."
+    : "Hör av dig till företaget om du vill boka en ny tid.";
+  const text = [
+    `Hej ${input.customerName},`,
+    "",
+    statusText,
+    "",
+    `Tjänst: ${input.service}`,
+    `Start: ${start}`,
+    `Slut: ${end}`,
+    input.city ? `Ort: ${input.city}` : "",
+    "",
+    nextStep,
+    "",
+    "Med vänliga hälsningar",
+    input.companyName,
+  ].filter(Boolean).join("\n");
+  const html = `
+    <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #17201a;">
+      <p>Hej ${escapeHtml(input.customerName)},</p>
+      <p>${escapeHtml(statusText)}</p>
+      <ul>
+        <li><strong>Tjänst:</strong> ${escapeHtml(input.service)}</li>
+        <li><strong>Start:</strong> ${escapeHtml(start)}</li>
+        <li><strong>Slut:</strong> ${escapeHtml(end)}</li>
+        ${input.city ? `<li><strong>Ort:</strong> ${escapeHtml(input.city)}</li>` : ""}
+      </ul>
+      <p>${escapeHtml(nextStep)}</p>
+      <p>Med vänliga hälsningar<br />${escapeHtml(input.companyName)}</p>
+    </div>
+  `;
+
+  return { subject, text, html };
+}
+
 export async function sendLeadEmail(input: SendLeadEmailInput) {
   const apiKey = process.env.BREVO_API_KEY;
   const from = process.env.LEAD_FROM_EMAIL;
@@ -293,6 +350,34 @@ export async function sendBookingOwnerNotificationEmail(input: SendBookingOwnerN
     });
     const data = (await response.json().catch(() => ({}))) as BrevoResponse;
     if (!response.ok) return { ok: false as const, message: data.message ?? data.code ?? "Kunde inte skicka bokningsnotis." };
+    return { ok: true as const, providerId: data.messageId ?? null };
+  } catch {
+    return { ok: false as const, message: "Kunde inte kontakta Brevo." };
+  }
+}
+
+export async function sendBookingStatusEmail(input: SendBookingStatusEmailInput) {
+  const apiKey = process.env.BREVO_API_KEY;
+  const from = process.env.LEAD_FROM_EMAIL;
+  if (!apiKey || !from) return { ok: false as const, message: "Brevo är inte konfigurerat." };
+
+  const sender = parseSender(from);
+  const email = buildBookingStatusEmail(input);
+
+  try {
+    const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      headers: { "api-key": apiKey, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sender,
+        to: [{ email: input.customerEmail, name: input.customerName }],
+        subject: email.subject,
+        textContent: email.text,
+        htmlContent: email.html,
+      }),
+    });
+    const data = (await response.json().catch(() => ({}))) as BrevoResponse;
+    if (!response.ok) return { ok: false as const, message: data.message ?? data.code ?? "Kunde inte skicka statusmejl." };
     return { ok: true as const, providerId: data.messageId ?? null };
   } catch {
     return { ok: false as const, message: "Kunde inte kontakta Brevo." };
