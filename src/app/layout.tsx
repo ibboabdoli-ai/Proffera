@@ -1,8 +1,9 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Hanken_Grotesk } from "next/font/google";
 import "./globals.css";
 import { AppShell } from "@/components/layout/app-shell";
 import { ServiceAiChatWidget } from "@/components/service-ai-chat-widget";
+import { PwaServiceWorker } from "@/components/pwa-service-worker";
 import { siteConfig } from "@/lib/site";
 
 const hankenGrotesk = Hanken_Grotesk({
@@ -12,6 +13,8 @@ const hankenGrotesk = Hanken_Grotesk({
 });
 export const metadata: Metadata = {
   metadataBase: new URL(siteConfig.url),
+  applicationName: "Proffera",
+  manifest: "/manifest.webmanifest",
   title: {
     default: `${siteConfig.name} – SaaS för bokningar, leads och AI-kommunikation`,
     template: `%s | ${siteConfig.name}`,
@@ -28,6 +31,11 @@ export const metadata: Metadata = {
   ],
   icons: {
     icon: "/favicon.svg",
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "Proffera",
   },
   openGraph: {
     title: `${siteConfig.name} – SaaS för svenska tjänsteföretag`,
@@ -47,11 +55,16 @@ export const metadata: Metadata = {
   },
 };
 
+export const viewport: Viewport = {
+  themeColor: "#17452f",
+};
+
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="sv">
       <body className={hankenGrotesk.variable}>
         <AppShell>{children}</AppShell>
+        <PwaServiceWorker />
         <ServiceAiChatWidget />
       </body>
     </html>
