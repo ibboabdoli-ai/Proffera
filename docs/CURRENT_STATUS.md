@@ -33,6 +33,7 @@ Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a le
 - PR #160: Settings reads workspace module availability from `workspace_feature_flags`; existing active/trial workspaces received base booking and CRM feature flags.
 - P92: Dashboard navigation and the Leads, Customers, and Bookings route trees enforce workspace module access. Production deployment passed.
 - P93: Proffera admin can manage each workspace plan status and base booking/CRM module access. Local lint, TypeScript and production build passed.
+- P94: Workspace roles now protect Settings in both dashboard navigation and direct route access; only owners and admins can open it.
 
 ## Production status
 
@@ -58,7 +59,7 @@ Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a le
 
 ## Recommended next step
 
-Deploy P93 and verify one active workspace plus one paused test workspace from `/admin/foretag`. Then continue with durable customer authentication and roles. Do not add Stripe or activate the AI assistant yet.
+Verify owner/admin versus staff/viewer access with a test membership, then continue with multi-workspace selection. Do not add Stripe or activate the AI assistant yet.
 
 Do not start a full Service AI Chat merge or broad cross-project refactor.
 
