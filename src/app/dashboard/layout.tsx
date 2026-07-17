@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { getUserWorkspaceAccess } from "@/lib/workspace-access";
+import { getDashboardModuleAccess } from "@/lib/workspace-module-access";
 
 export const dynamic = "force-dynamic";
 
@@ -32,5 +33,7 @@ export default async function DashboardLayout({ children }: Readonly<{ children:
     );
   }
 
-  return <DashboardShell workspaceName={access.workspaceName}>{children}</DashboardShell>;
+  const moduleAccess = await getDashboardModuleAccess();
+
+  return <DashboardShell workspaceName={access.workspaceName} moduleAccess={moduleAccess}>{children}</DashboardShell>;
 }

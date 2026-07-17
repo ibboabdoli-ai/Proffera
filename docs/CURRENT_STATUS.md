@@ -2,7 +2,7 @@
 
 This file is the single source of truth for the current project state. Update it after every completed or materially changed phase.
 
-Last updated: 2026-06-21
+Last updated: 2026-07-17
 
 Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a legacy/reference history file and is not required for normal phase updates.
 
@@ -29,6 +29,9 @@ Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a le
 - PR #105: Proffera gated automerge workflow merged on `main` for safe worker PRs.
 - Lead → Booking → Customer activation flow is complete.
 - Module registry with `Aktiv`, `Planerad`, and `Låst` status is in place.
+- PR #159: Mobile public navigation closes after navigation, and the admin company overview lists real workspaces separately from incoming registrations.
+- PR #160: Settings reads workspace module availability from `workspace_feature_flags`; existing active/trial workspaces received base booking and CRM feature flags.
+- P92: Dashboard navigation and the Leads, Customers, and Bookings route trees enforce workspace module access. Local checks passed; production verification remains.
 
 ## Production status
 
@@ -47,16 +50,18 @@ Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a le
 - `eslint.config.mjs` now uses direct flat config imports instead of `FlatCompat`.
 - Service AI Chat remains a separate project at `chat.proffera.se` and must not be merged into this repo.
 - AI-assistent in the Proffera dashboard is currently planned/preview copy, not a fully active production integration.
+- Workspace module status is read from Neon and displayed in Settings.
+- Locked CRM or booking modules are non-interactive in dashboard navigation and blocked on direct route access.
 - Normal worker branches should use the `work/proffera-` prefix.
 - Worker PRs must target `main`, pass real non-self checks, avoid blocked sensitive paths, and require the `ibbo-approved` label before gated automerge can run.
 
 ## Recommended next step
 
-Run one small validation phase before new product changes:
+Finish the P92 production smoke test after deployment:
 
-1. P91D Production smoke test on the live site and dashboard.
-2. If P91D passes, start P92 Module access guard on a separate `work/proffera-...` branch.
-3. Retry Better Auth only on a separate branch, with Vercel preview verification before merging to `main`.
+1. Confirm Julius Salong still opens Leads, Customers, and Bookings with the active base flags.
+2. Confirm a locked test workspace cannot open the protected route directly.
+3. After P92 passes, prepare the smallest admin workflow for changing workspace plan/module access. Do not add Stripe yet.
 
 Do not start a full Service AI Chat merge or broad cross-project refactor.
 
@@ -65,7 +70,7 @@ Do not start a full Service AI Chat merge or broad cross-project refactor.
 - Temporary dashboard protection is not a durable SaaS authorization model.
 - Real customer authentication, sessions, roles, and workspace binding are not implemented yet.
 - Sensitive access values must not appear in URLs, forms, screenshots, logs, or documentation.
-- Replace `workspace_id = 'default'` before real multi-tenant onboarding.
+- Continue auditing legacy `workspace_id = 'default'` profile fallbacks; CRM and booking writes already use the authenticated workspace.
 - Public forms need server-side validation, rate limiting, and spam protection.
 - Dashboard/private routes should not be indexed.
 - Canonical URLs, robots rules, sitemap coverage, and mobile navigation need review.
@@ -73,7 +78,7 @@ Do not start a full Service AI Chat merge or broad cross-project refactor.
 - MVP and placeholder copy should be replaced before real sales.
 - Service AI Chat must keep Iboren and Proffera messages/leads strictly separated.
 - `/logga-in` is only a portal entry placeholder; real customer authentication, session handling, roles, and workspace binding are not implemented yet.
-- Planned and locked modules need access guards so `Planerad` stays preview-only and `Låst` stays inaccessible.
+- Plan changes are still managed manually; there is no reviewed admin workflow for changing workspace plan/module access yet.
 
 ## Protected flows
 
