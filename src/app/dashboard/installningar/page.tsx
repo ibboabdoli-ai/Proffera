@@ -7,12 +7,14 @@ import { bookingWeekdays, getDashboardWorkspaceBookingHours } from "@/lib/worksp
 import { getDashboardWorkspaceSettings } from "@/lib/workspace-settings-db";
 import { getModuleAccessLabel } from "@/lib/proffera-modules";
 import { getDashboardModuleAccess } from "@/lib/workspace-module-access";
-import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
+import { getWorkspaceMembers } from "@/lib/workspace-members-db";
+import { canManageWorkspaceMembers, canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 import { updateWorkspaceSettingsAction } from "./actions";
 import { updateWorkspaceBookingHoursAction } from "./booking-hours-actions";
 import { ServicesReadOnly } from "./services-read-only";
 import { AccountSecurityCard } from "./account-security-card";
+import { WorkspaceMembersCard } from "./workspace-members-card";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +49,12 @@ const bookingHoursErrorMessages: Record<string, string> = {
   save: "Bokningstiderna kunde inte sparas. Försök igen.",
 };
 
+const memberErrorMessages: Record<string, string> = {
+  access: "Endast arbetsytans Owner kan ändra medlemmar.", invalid: "Kontrollera e-post, roll och vald medlem.",
+  not_found: "Ingen befintlig Proffera-användare hittades med den e-postadressen.", exists: "Användaren är redan medlem i arbetsytan.",
+  protected: "Owner-medlemskapet är skyddat.", database: "Medlemsändringen kunde inte sparas. Försök igen.",
+};
+
 const inputClass =
   "rounded-xl border border-[#d9e1d7] bg-white px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/15";
 
@@ -62,6 +70,8 @@ type SettingsPageProps = {
     service_updated?: string | string[];
     hours_error?: string | string[];
     hours_updated?: string | string[];
+    member_error?: string | string[];
+    member_updated?: string | string[];
   }>;
 };
 
@@ -79,17 +89,21 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   const serviceUpdatedValue = firstParam(params?.service_updated);
   const hoursErrorValue = firstParam(params?.hours_error);
   const hoursUpdatedValue = firstParam(params?.hours_updated);
+  const memberErrorValue = firstParam(params?.member_error);
+  const memberUpdatedValue = firstParam(params?.member_updated);
   const errorMessage = errorValue ? errorMessages[errorValue] : undefined;
   const serviceErrorMessage = serviceErrorValue ? serviceErrorMessages[serviceErrorValue] : undefined;
   const bookingHoursErrorMessage = hoursErrorValue ? bookingHoursErrorMessages[hoursErrorValue] : undefined;
+  const memberErrorMessage = memberErrorValue ? memberErrorMessages[memberErrorValue] : undefined;
   const wasUpdated = updatedValue === "1";
   const wasServiceUpdated = serviceUpdatedValue === "1";
   const wereBookingHoursUpdated = hoursUpdatedValue === "1";
-  const [workspaceSettings, workspaceServices, bookingHours, moduleAccess] = await Promise.all([
+  const [workspaceSettings, workspaceServices, bookingHours, moduleAccess, workspaceMembers] = await Promise.all([
     getDashboardWorkspaceSettings(),
     getDashboardWorkspaceServices(),
     getDashboardWorkspaceBookingHours(),
     getDashboardModuleAccess(),
+    getWorkspaceMembers(),
   ]);
   const hasServices = workspaceServices.length > 0;
   const activeServices = workspaceServices.filter((service) => service.isActive).length;
@@ -122,6 +136,11 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
       />
 
       <AccountSecurityCard />
+
+      <WorkspaceMembersCard members={workspaceMembers} canManage={canManageWorkspaceMembers(access)} />
+
+      {memberUpdatedValue ? <section className="rounded-2xl bg-[#eef8f0] p-5 text-sm font-semibold text-[#17452f] ring-1 ring-[#c9e6d0]" role="status">Teamets åtkomst uppdaterades.</section> : null}
+      {memberErrorMessage ? <section className="rounded-2xl bg-[#fff5f2] p-5 text-sm font-semibold text-[#8f2f1b] ring-1 ring-[#f4c7ba]" role="alert">{memberErrorMessage}</section> : null}
 
       {wasUpdated ? (
         <section className="rounded-2xl bg-[#eef8f0] p-5 text-sm font-semibold text-[#17452f] ring-1 ring-[#c9e6d0]">

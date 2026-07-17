@@ -36,6 +36,7 @@ Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a le
 - P94: Workspace roles now protect Settings in both dashboard navigation and direct route access; only owners and admins can open it.
 - P95: Users with more than one active workspace can securely switch the dashboard workspace from desktop or mobile navigation.
 - P96: Customer and booking mutations enforce module access inside the server action, not only at navigation and page level.
+- P97: Workspace owners can list members, add existing Proffera users, change non-owner roles, and remove non-owner members from Settings.
 
 ## Production status
 
@@ -61,7 +62,7 @@ Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a le
 
 ## Recommended next step
 
-Verify locked-module mutation rejection with a test workspace, then continue with membership management. Do not add Stripe or activate the AI assistant yet.
+Verify member management with a second existing Proffera account, then design email invitations for users without an account. Do not add Stripe or activate the AI assistant yet.
 
 Do not start a full Service AI Chat merge or broad cross-project refactor.
 
