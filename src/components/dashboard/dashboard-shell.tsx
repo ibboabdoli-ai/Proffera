@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 
 import { authClient } from "@/lib/auth-client";
-import { dashboardNavigation } from "@/lib/proffera-modules";
+import { dashboardNavigation, type ProfferaModuleAccess } from "@/lib/proffera-modules";
 
 const navigationIcons: Record<string, LucideIcon> = {
   "/dashboard": LayoutDashboard,
@@ -40,16 +40,26 @@ function isActivePath(pathname: string, href: string) {
 
 type NavigationLinksProps = {
   pathname: string;
+  moduleAccess?: ProfferaModuleAccess[];
   onNavigate?: () => void;
 };
 
-function NavigationLinks({ pathname, onNavigate }: NavigationLinksProps) {
+function NavigationLinks({ pathname, moduleAccess, onNavigate }: NavigationLinksProps) {
+  const moduleAccessById = new Map(moduleAccess?.map((item) => [item.id, item]));
+
   return (
     <nav className="grid gap-1.5" aria-label="Dashboard navigation">
       {dashboardNavigation.map((item) => {
         const isActive = isActivePath(pathname, item.href);
         const Icon = navigationIcons[item.href] ?? ChevronRight;
-        const isPlanned = item.href === "/dashboard/ai-assistent";
+        const moduleState = "moduleId" in item ? moduleAccessById.get(item.moduleId) : undefined;
+        const isLocked = moduleState?.accessState === "locked";
+        const isPlanned = moduleState?.accessState === "planned" || (!moduleAccess && item.href === "/dashboard/ai-assistent");
+        const content = <><Icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" /><span className="flex-1">{item.label}</span>{isLocked || isPlanned ? <span className={isActive ? "text-[10px] font-bold uppercase tracking-wide text-[#557061]" : "text-[10px] font-bold uppercase tracking-wide text-[#a8c4b0]"}>{isLocked ? "Låst" : "Planerad"}</span> : null}</>;
+
+        if (isLocked) {
+          return <div key={item.href} aria-disabled="true" className="flex min-h-11 cursor-not-allowed items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-[#9bb0a2] opacity-80" title="Modulen är inte aktiverad för arbetsytan">{content}</div>;
+        }
 
         return (
           <Link
@@ -65,13 +75,7 @@ function NavigationLinks({ pathname, onNavigate }: NavigationLinksProps) {
             ].join(" ")}
             style={isActive ? undefined : { color: "#e1eee5" }}
           >
-            <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
-            <span className="flex-1">{item.label}</span>
-            {isPlanned ? (
-              <span className={isActive ? "text-[10px] font-bold uppercase tracking-wide text-[#557061]" : "text-[10px] font-bold uppercase tracking-wide text-[#a8c4b0]"}>
-                Planerad
-              </span>
-            ) : null}
+            {content}
           </Link>
         );
       })}
@@ -93,7 +97,7 @@ function Brand({ workspaceName }: { workspaceName: string }) {
   );
 }
 
-export function DashboardShell({ children, workspaceName = "Proffera" }: Readonly<{ children: React.ReactNode; workspaceName?: string }>) {
+export function DashboardShell({ children, workspaceName = "Proffera", moduleAccess }: Readonly<{ children: React.ReactNode; workspaceName?: string; moduleAccess?: ProfferaModuleAccess[] }>) {
   const pathname = usePathname();
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -130,7 +134,7 @@ export function DashboardShell({ children, workspaceName = "Proffera" }: Readonl
 
           <div className="mt-9 flex-1">
             <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-[#a8c4b0]">Arbetsyta</p>
-            <NavigationLinks pathname={pathname} />
+            <NavigationLinks pathname={pathname} moduleAccess={moduleAccess} />
           </div>
 
           <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.06] p-4">
@@ -210,7 +214,7 @@ export function DashboardShell({ children, workspaceName = "Proffera" }: Readonl
             </div>
             <div className="mt-9 flex-1 overflow-y-auto">
               <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-[#a8c4b0]">Arbetsyta</p>
-              <NavigationLinks pathname={pathname} onNavigate={() => setIsMobileMenuOpen(false)} />
+              <NavigationLinks pathname={pathname} moduleAccess={moduleAccess} onNavigate={() => setIsMobileMenuOpen(false)} />
             </div>
           </aside>
         </div>
