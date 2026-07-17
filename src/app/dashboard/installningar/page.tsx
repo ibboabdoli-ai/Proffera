@@ -1,4 +1,5 @@
 import { SlidersHorizontal } from "lucide-react";
+import { redirect } from "next/navigation";
 
 import { DashboardPageHeader } from "@/components/dashboard/dashboard-page-ui";
 import { getDashboardWorkspaceServices } from "@/lib/workspace-services-db";
@@ -6,6 +7,7 @@ import { bookingWeekdays, getDashboardWorkspaceBookingHours } from "@/lib/worksp
 import { getDashboardWorkspaceSettings } from "@/lib/workspace-settings-db";
 import { getModuleAccessLabel } from "@/lib/proffera-modules";
 import { getDashboardModuleAccess } from "@/lib/workspace-module-access";
+import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 import { updateWorkspaceSettingsAction } from "./actions";
 import { updateWorkspaceBookingHoursAction } from "./booking-hours-actions";
@@ -64,6 +66,12 @@ type SettingsPageProps = {
 };
 
 export default async function SettingsPage({ searchParams }: SettingsPageProps) {
+  const access = await getUserWorkspaceAccess();
+
+  if (!canManageWorkspaceSettings(access)) {
+    redirect("/dashboard");
+  }
+
   const params = searchParams ? await searchParams : undefined;
   const errorValue = firstParam(params?.error);
   const updatedValue = firstParam(params?.updated);

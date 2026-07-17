@@ -41,15 +41,20 @@ function isActivePath(pathname: string, href: string) {
 type NavigationLinksProps = {
   pathname: string;
   moduleAccess?: ProfferaModuleAccess[];
+  canManageSettings: boolean;
   onNavigate?: () => void;
 };
 
-function NavigationLinks({ pathname, moduleAccess, onNavigate }: NavigationLinksProps) {
+function NavigationLinks({ pathname, moduleAccess, canManageSettings, onNavigate }: NavigationLinksProps) {
   const moduleAccessById = new Map(moduleAccess?.map((item) => [item.id, item]));
 
   return (
     <nav className="grid gap-1.5" aria-label="Dashboard navigation">
       {dashboardNavigation.map((item) => {
+        if (item.href === "/dashboard/installningar" && !canManageSettings) {
+          return null;
+        }
+
         const isActive = isActivePath(pathname, item.href);
         const Icon = navigationIcons[item.href] ?? ChevronRight;
         const moduleState = "moduleId" in item ? moduleAccessById.get(item.moduleId) : undefined;
@@ -97,7 +102,7 @@ function Brand({ workspaceName }: { workspaceName: string }) {
   );
 }
 
-export function DashboardShell({ children, workspaceName = "Proffera", moduleAccess }: Readonly<{ children: React.ReactNode; workspaceName?: string; moduleAccess?: ProfferaModuleAccess[] }>) {
+export function DashboardShell({ children, workspaceName = "Proffera", moduleAccess, canManageSettings = false }: Readonly<{ children: React.ReactNode; workspaceName?: string; moduleAccess?: ProfferaModuleAccess[]; canManageSettings?: boolean }>) {
   const pathname = usePathname();
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -134,7 +139,7 @@ export function DashboardShell({ children, workspaceName = "Proffera", moduleAcc
 
           <div className="mt-9 flex-1">
             <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-[#a8c4b0]">Arbetsyta</p>
-            <NavigationLinks pathname={pathname} moduleAccess={moduleAccess} />
+            <NavigationLinks pathname={pathname} moduleAccess={moduleAccess} canManageSettings={canManageSettings} />
           </div>
 
           <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.06] p-4">
@@ -214,7 +219,7 @@ export function DashboardShell({ children, workspaceName = "Proffera", moduleAcc
             </div>
             <div className="mt-9 flex-1 overflow-y-auto">
               <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-[#a8c4b0]">Arbetsyta</p>
-              <NavigationLinks pathname={pathname} moduleAccess={moduleAccess} onNavigate={() => setIsMobileMenuOpen(false)} />
+              <NavigationLinks pathname={pathname} moduleAccess={moduleAccess} canManageSettings={canManageSettings} onNavigate={() => setIsMobileMenuOpen(false)} />
             </div>
           </aside>
         </div>
