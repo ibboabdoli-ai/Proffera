@@ -18,8 +18,10 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import { switchWorkspaceAction } from "@/app/dashboard/workspace-actions";
 import { authClient } from "@/lib/auth-client";
 import { dashboardNavigation, type ProfferaModuleAccess } from "@/lib/proffera-modules";
+import type { WorkspaceOption } from "@/lib/workspace-access";
 
 const navigationIcons: Record<string, LucideIcon> = {
   "/dashboard": LayoutDashboard,
@@ -102,7 +104,23 @@ function Brand({ workspaceName }: { workspaceName: string }) {
   );
 }
 
-export function DashboardShell({ children, workspaceName = "Proffera", moduleAccess, canManageSettings = false }: Readonly<{ children: React.ReactNode; workspaceName?: string; moduleAccess?: ProfferaModuleAccess[]; canManageSettings?: boolean }>) {
+function WorkspaceSwitcher({ workspaceId, workspaceOptions }: { workspaceId?: string; workspaceOptions: WorkspaceOption[] }) {
+  if (!workspaceId || workspaceOptions.length < 2) return null;
+
+  return (
+    <form action={switchWorkspaceAction} className="mt-6 rounded-2xl border border-white/10 bg-white/[0.06] p-3">
+      <label className="grid gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#b6cbbd]">
+        Byt arbetsyta
+        <select name="workspace_id" defaultValue={workspaceId} className="min-h-11 w-full rounded-xl border border-white/15 bg-[#203b2d] px-3 text-sm font-semibold normal-case tracking-normal text-white outline-none focus:border-[#d8ae52] focus:ring-2 focus:ring-[#d8ae52]/25">
+          {workspaceOptions.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}
+        </select>
+      </label>
+      <button type="submit" className="mt-2 min-h-11 w-full rounded-xl bg-white px-3 text-sm font-bold text-[#173e2b] transition hover:bg-[#f0f5f1] focus:outline-none focus:ring-2 focus:ring-[#d8ae52]">Byt arbetsyta</button>
+    </form>
+  );
+}
+
+export function DashboardShell({ children, workspaceName = "Proffera", workspaceId, workspaceOptions = [], moduleAccess, canManageSettings = false }: Readonly<{ children: React.ReactNode; workspaceName?: string; workspaceId?: string; workspaceOptions?: WorkspaceOption[]; moduleAccess?: ProfferaModuleAccess[]; canManageSettings?: boolean }>) {
   const pathname = usePathname();
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -141,6 +159,8 @@ export function DashboardShell({ children, workspaceName = "Proffera", moduleAcc
             <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-[#a8c4b0]">Arbetsyta</p>
             <NavigationLinks pathname={pathname} moduleAccess={moduleAccess} canManageSettings={canManageSettings} />
           </div>
+
+          <WorkspaceSwitcher workspaceId={workspaceId} workspaceOptions={workspaceOptions} />
 
           <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.06] p-4">
             <div className="flex items-center gap-2 text-[#e8c678]">
@@ -220,6 +240,7 @@ export function DashboardShell({ children, workspaceName = "Proffera", moduleAcc
             <div className="mt-9 flex-1 overflow-y-auto">
               <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-[#a8c4b0]">Arbetsyta</p>
               <NavigationLinks pathname={pathname} moduleAccess={moduleAccess} canManageSettings={canManageSettings} onNavigate={() => setIsMobileMenuOpen(false)} />
+              <WorkspaceSwitcher workspaceId={workspaceId} workspaceOptions={workspaceOptions} />
             </div>
           </aside>
         </div>

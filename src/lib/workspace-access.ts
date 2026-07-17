@@ -1,6 +1,7 @@
 import "server-only";
 
 import { neon } from "@neondatabase/serverless";
+import { cookies } from "next/headers";
 
 import { getServerSession } from "@/lib/auth-session";
 
@@ -12,9 +13,17 @@ const connectionString =
 
 const workspaceRoles = ["owner", "admin", "staff", "viewer"] as const;
 const allowedWorkspaceStatuses = ["active", "trial"] as const;
+export const selectedWorkspaceCookieName = "proffera_workspace_id";
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export type WorkspaceRole = (typeof workspaceRoles)[number];
 export type AllowedWorkspaceStatus = (typeof allowedWorkspaceStatuses)[number];
+export type WorkspaceOption = {
+  id: string;
+  name: string;
+  slug: string;
+  role: WorkspaceRole;
+};
 
 export type WorkspaceAccessFailureReason =
   | "no_session"
@@ -77,6 +86,9 @@ export async function getUserWorkspaceAccess(): Promise<WorkspaceAccessResult> {
   }
 
   try {
+    const cookieStore = await cookies();
+    const cookieWorkspaceId = cookieStore.get(selectedWorkspaceCookieName)?.value ?? "";
+    const selectedWorkspaceId = uuidPattern.test(cookieWorkspaceId) ? cookieWorkspaceId : "";
     const userRows = await sql`
       select id
       from "user"
@@ -99,7 +111,9 @@ export async function getUserWorkspaceAccess(): Promise<WorkspaceAccessResult> {
       join workspaces w on w.id = wm.workspace_id
       where wm.user_id = ${userId}
         and w.status in ('active', 'trial')
-      order by wm.created_at asc
+      order by
+        case when w.id::text = ${selectedWorkspaceId} then 0 else 1 end,
+        wm.created_at asc
       limit 1
     `;
 
@@ -136,5 +150,36 @@ export async function getUserWorkspaceAccess(): Promise<WorkspaceAccessResult> {
     console.error("Failed to read workspace access", error);
 
     return { ok: false, reason: "workspace_not_allowed" };
+  }
+}
+
+export async function getUserWorkspaceOptions(): Promise<WorkspaceOption[]> {
+  const session = await getServerSession();
+  const userId = session?.user?.id;
+  const sql = getSqlClient();
+
+  if (!userId || !sql) return [];
+
+  try {
+    const rows = await sql`
+      select w.id, w.name, w.slug, wm.role
+      from workspace_memberships wm
+      join workspaces w on w.id = wm.workspace_id
+      where wm.user_id = ${userId}
+        and w.status in ('active', 'trial')
+      order by w.name asc, wm.created_at asc
+    `;
+
+    return rows.flatMap((row) => {
+      const id = toText(row.id);
+      const name = toText(row.name);
+      const slug = toText(row.slug);
+      const role = row.role;
+
+      return id && name && slug && isWorkspaceRole(role) ? [{ id, name, slug, role }] : [];
+    });
+  } catch (error) {
+    console.error("Failed to read workspace options", error);
+    return [];
   }
 }

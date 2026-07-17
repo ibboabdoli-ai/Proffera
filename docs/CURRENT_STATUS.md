@@ -34,6 +34,7 @@ Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a le
 - P92: Dashboard navigation and the Leads, Customers, and Bookings route trees enforce workspace module access. Production deployment passed.
 - P93: Proffera admin can manage each workspace plan status and base booking/CRM module access. Local lint, TypeScript and production build passed.
 - P94: Workspace roles now protect Settings in both dashboard navigation and direct route access; only owners and admins can open it.
+- P95: Users with more than one active workspace can securely switch the dashboard workspace from desktop or mobile navigation.
 
 ## Production status
 
@@ -59,7 +60,7 @@ Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a le
 
 ## Recommended next step
 
-Verify owner/admin versus staff/viewer access with a test membership, then continue with multi-workspace selection. Do not add Stripe or activate the AI assistant yet.
+Verify workspace switching with a multi-membership test user, then continue with membership management. Do not add Stripe or activate the AI assistant yet.
 
 Do not start a full Service AI Chat merge or broad cross-project refactor.
 
