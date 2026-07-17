@@ -5,6 +5,7 @@ import { ArrowLeft, UserRoundPlus } from "lucide-react";
 import { DashboardPageHeader } from "@/components/dashboard/dashboard-page-ui";
 import { createDashboardCustomer, type CreateDashboardCustomerInput } from "@/lib/dashboard-db";
 import { serviceTaxonomy } from "@/lib/service-taxonomy";
+import { hasDashboardModuleAccess } from "@/lib/workspace-module-access";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 export const dynamic = "force-dynamic";
@@ -72,7 +73,7 @@ async function createCustomerAction(formData: FormData) {
 
   const workspaceAccess = await getUserWorkspaceAccess();
 
-  if (!workspaceAccess.ok || !canManageWorkspaceSettings(workspaceAccess)) {
+  if (!workspaceAccess.ok || !canManageWorkspaceSettings(workspaceAccess) || !(await hasDashboardModuleAccess("customer_crm"))) {
     redirectWithError("access");
   }
 

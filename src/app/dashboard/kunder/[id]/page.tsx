@@ -6,6 +6,7 @@ import { Activity, ArrowLeft, CalendarCheck2, MessageSquareText, UserRound } fro
 import { DashboardMetricGrid, DashboardPageHeader } from "@/components/dashboard/dashboard-page-ui";
 import { getDashboardCustomerDetail } from "@/lib/dashboard-db";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
+import { hasDashboardModuleAccess } from "@/lib/workspace-module-access";
 
 export const dynamic = "force-dynamic";
 
@@ -99,7 +100,7 @@ async function createCustomerNoteAction(customerId: string, formData: FormData) 
 
   const workspaceAccess = await getUserWorkspaceAccess();
 
-  if (!workspaceAccess.ok || !canManageWorkspaceSettings(workspaceAccess)) {
+  if (!workspaceAccess.ok || !canManageWorkspaceSettings(workspaceAccess) || !(await hasDashboardModuleAccess("customer_crm"))) {
     redirectWithNoteError(customerId, "access");
   }
 
