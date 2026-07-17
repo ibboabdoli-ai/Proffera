@@ -4,7 +4,8 @@ import { DashboardPageHeader } from "@/components/dashboard/dashboard-page-ui";
 import { getDashboardWorkspaceServices } from "@/lib/workspace-services-db";
 import { bookingWeekdays, getDashboardWorkspaceBookingHours } from "@/lib/workspace-booking-hours-db";
 import { getDashboardWorkspaceSettings } from "@/lib/workspace-settings-db";
-import { getModuleAccessLabel, getProfferaModuleAccess } from "@/lib/proffera-modules";
+import { getModuleAccessLabel } from "@/lib/proffera-modules";
+import { getDashboardModuleAccess } from "@/lib/workspace-module-access";
 
 import { updateWorkspaceSettingsAction } from "./actions";
 import { updateWorkspaceBookingHoursAction } from "./booking-hours-actions";
@@ -76,10 +77,11 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   const wasUpdated = updatedValue === "1";
   const wasServiceUpdated = serviceUpdatedValue === "1";
   const wereBookingHoursUpdated = hoursUpdatedValue === "1";
-  const [workspaceSettings, workspaceServices, bookingHours] = await Promise.all([
+  const [workspaceSettings, workspaceServices, bookingHours, moduleAccess] = await Promise.all([
     getDashboardWorkspaceSettings(),
     getDashboardWorkspaceServices(),
     getDashboardWorkspaceBookingHours(),
+    getDashboardModuleAccess(),
   ]);
   const hasServices = workspaceServices.length > 0;
   const activeServices = workspaceServices.filter((service) => service.isActive).length;
@@ -170,21 +172,22 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
               <div>
                 <h3 className="text-xl font-bold text-[#17201a]">Proffera-moduler</h3>
                 <p className="mt-2 text-sm leading-6 text-[#5b665f]">
-                  En intern översikt över produktmodulerna. I nästa steg kan dessa kopplas till access och betalning.
+                  Här ser du vilka moduler som är aktiva för din arbetsyta. Betalning och ändring av plan hanteras av Proffera.
                 </p>
               </div>
               <span className="w-fit rounded-full bg-[#f7f7f4] px-3 py-1 text-xs font-semibold text-[#5b665f]">Read-only</span>
             </div>
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
-              {getProfferaModuleAccess().map((module) => (
+              {moduleAccess.map((module) => (
                 <div key={module.id} className="rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4">
                   <div className="flex items-start justify-between gap-3">
                     <p className="text-sm font-bold text-[#17201a]">{module.name}</p>
-                    <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-[#17452f]">
+                    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${module.accessState === "active" ? "bg-[#e7f1eb] text-[#17452f]" : module.accessState === "locked" ? "bg-[#f1f2ef] text-[#5b665f]" : "bg-[#fdf1d4] text-[#805d14]"}`}>
                       {getModuleAccessLabel(module.accessState)}
                     </span>
                   </div>
                   <p className="mt-2 text-sm leading-6 text-[#5b665f]">{module.description}</p>
+                  {module.isLocked ? <p className="mt-2 text-xs font-semibold text-[#5b665f]">Inte aktiverad för den här arbetsytan.</p> : null}
                 </div>
               ))}
             </div>
