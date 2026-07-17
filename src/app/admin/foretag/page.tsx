@@ -5,7 +5,7 @@ import { getCompanyRows, getWorkspaceCompanyRows } from "@/features/company/list
 export const dynamic = "force-dynamic";
 
 type PageProps = {
-  searchParams?: Promise<{ invite?: string | string[] }>;
+  searchParams?: Promise<{ invite?: string | string[]; access?: string | string[] }>;
 };
 
 const statusStyle: Record<string, string> = {
@@ -28,6 +28,7 @@ export default async function Page({ searchParams }: PageProps) {
   const companies = result.rows;
   const pendingCount = companies.filter((company) => company.status === "pending").length;
   const inviteValue = Array.isArray(params?.invite) ? params?.invite[0] : params?.invite;
+  const accessValue = Array.isArray(params?.access) ? params?.access[0] : params?.access;
 
   return (
     <main className="min-h-screen bg-[#f7f7f4] px-4 py-10 sm:px-6 lg:px-8">
@@ -80,6 +81,18 @@ export default async function Page({ searchParams }: PageProps) {
           </p>
         ) : null}
 
+        {accessValue === "updated" ? (
+          <p className="mt-6 rounded-2xl border border-[#b8d9c2] bg-[#eef8f0] p-5 text-sm font-semibold text-[#17452f]" role="status">
+            Plan och modulåtkomst sparades.
+          </p>
+        ) : null}
+
+        {accessValue && accessValue !== "updated" ? (
+          <p className="mt-6 rounded-2xl border border-[#e7b8b1] bg-[#fff4f2] p-5 text-sm font-semibold text-[#8a2b20]" role="alert">
+            Plan och modulåtkomst kunde inte sparas. Kontrollera arbetsytan och försök igen.
+          </p>
+        ) : null}
+
         <section className="mt-10">
           <div className="mb-5">
             <p className="text-sm font-semibold uppercase tracking-[0.14em] text-[#5f7568]">Arbetsytor</p>
@@ -108,6 +121,57 @@ export default async function Page({ searchParams }: PageProps) {
                   <p className="flex gap-2"><Users className="h-4 w-4 shrink-0 text-[#17452f]" aria-hidden="true" />{workspace.member_count} användare</p>
                   <p className="flex gap-2"><CalendarDays className="h-4 w-4 shrink-0 text-[#17452f]" aria-hidden="true" />Plan: {workspace.plan_key ?? "saknas"}{workspace.plan_status ? ` · ${workspace.plan_status}` : ""}</p>
                 </div>
+
+                <form action="/api/company-admin" method="post" className="mt-5 rounded-2xl bg-[#f7f9f6] p-4 ring-1 ring-[#dfe5dd]">
+                  <input name="action" type="hidden" value="workspace_access" />
+                  <input name="workspace_id" type="hidden" value={workspace.id} />
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-bold text-[#17201a]">Plan och moduler</p>
+                      <p className="mt-1 text-xs leading-5 text-[#667168]">Ändringen gäller bara den här arbetsytan.</p>
+                    </div>
+                    <ShieldCheck className="h-5 w-5 shrink-0 text-[#17452f]" aria-hidden="true" />
+                  </div>
+
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <label className="grid gap-1.5 text-xs font-semibold text-[#405047]">
+                      Plan
+                      <select name="plan_key" defaultValue={workspace.plan_key ?? "starter"} className="min-h-11 rounded-xl border border-[#cfd8cf] bg-white px-3 text-sm text-[#17201a] outline-none focus:border-[#17452f] focus:ring-4 focus:ring-[#17452f]/10">
+                        <option value="starter">Starter</option>
+                        <option value="professional">Professional</option>
+                        <option value="business">Business</option>
+                      </select>
+                    </label>
+                    <label className="grid gap-1.5 text-xs font-semibold text-[#405047]">
+                      Planstatus
+                      <select name="plan_status" defaultValue={workspace.plan_status ?? "trialing"} className="min-h-11 rounded-xl border border-[#cfd8cf] bg-white px-3 text-sm text-[#17201a] outline-none focus:border-[#17452f] focus:ring-4 focus:ring-[#17452f]/10">
+                        <option value="trialing">Trial</option>
+                        <option value="active">Aktiv</option>
+                        <option value="paused">Pausad</option>
+                        <option value="past_due">Betalning saknas</option>
+                        <option value="cancelled">Avslutad</option>
+                      </select>
+                    </label>
+                  </div>
+                  <p className="mt-2 text-xs leading-5 text-[#667168]">Pausad, avslutad eller obetald plan låser modulerna även om de är markerade.</p>
+
+                  <fieldset className="mt-4 grid gap-2">
+                    <legend className="text-xs font-bold uppercase tracking-wide text-[#667168]">Aktiva moduler</legend>
+                    <label className="flex min-h-11 items-center gap-3 rounded-xl bg-white px-3 text-sm font-semibold text-[#28362d] ring-1 ring-[#dfe5dd]">
+                      <input name="booking_enabled" type="checkbox" defaultChecked={workspace.booking_enabled} className="h-4 w-4 accent-[#17452f]" />
+                      Onlinebokning och QR
+                    </label>
+                    <label className="flex min-h-11 items-center gap-3 rounded-xl bg-white px-3 text-sm font-semibold text-[#28362d] ring-1 ring-[#dfe5dd]">
+                      <input name="crm_enabled" type="checkbox" defaultChecked={workspace.crm_customers_enabled && workspace.lead_inbox_enabled} className="h-4 w-4 accent-[#17452f]" />
+                      Kund-CRM och Leads
+                    </label>
+                    <div className="flex min-h-11 items-center justify-between gap-3 rounded-xl bg-[#f2f3f0] px-3 text-sm font-semibold text-[#667168] ring-1 ring-[#dfe5dd]">
+                      <span>AI-assistent</span><span className="text-[10px] font-bold uppercase tracking-wide">Planerad</span>
+                    </div>
+                  </fieldset>
+
+                  <button className="mt-4 min-h-11 w-full rounded-xl bg-[#17452f] px-4 py-2.5 text-sm font-bold text-white transition hover:bg-[#123724] focus:outline-none focus:ring-4 focus:ring-[#17452f]/20" type="submit">Spara åtkomst</button>
+                </form>
 
                 <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-[#e5eae4] pt-5">
                   <p className="text-xs text-[#6b766e]">Skapad {new Intl.DateTimeFormat("sv-SE", { dateStyle: "medium" }).format(new Date(workspace.created_at))}</p>

@@ -28,6 +28,9 @@ export type WorkspaceCompanyRow = {
   status: string;
   plan_key: string | null;
   plan_status: string | null;
+  booking_enabled: boolean;
+  crm_customers_enabled: boolean;
+  lead_inbox_enabled: boolean;
   member_count: number;
   created_at: string;
 };
@@ -87,6 +90,18 @@ export async function getWorkspaceCompanyRows() {
         w.status,
         plan.plan_key,
         plan.status as plan_status,
+        exists (
+          select 1 from workspace_feature_flags wff
+          where wff.workspace_id = w.id and wff.feature_key = 'booking_demo' and wff.enabled = true
+        ) as booking_enabled,
+        exists (
+          select 1 from workspace_feature_flags wff
+          where wff.workspace_id = w.id and wff.feature_key = 'crm_customers' and wff.enabled = true
+        ) as crm_customers_enabled,
+        exists (
+          select 1 from workspace_feature_flags wff
+          where wff.workspace_id = w.id and wff.feature_key = 'lead_inbox' and wff.enabled = true
+        ) as lead_inbox_enabled,
         (select count(*)::int from workspace_memberships wm where wm.workspace_id = w.id) as member_count,
         w.created_at
       from workspaces w
@@ -115,6 +130,9 @@ export async function getWorkspaceCompanyRows() {
         status: String(row.status),
         plan_key: row.plan_key ? String(row.plan_key) : null,
         plan_status: row.plan_status ? String(row.plan_status) : null,
+        booking_enabled: row.booking_enabled === true,
+        crm_customers_enabled: row.crm_customers_enabled === true,
+        lead_inbox_enabled: row.lead_inbox_enabled === true,
         member_count: Number(row.member_count ?? 0),
         created_at: String(row.created_at),
       })) as WorkspaceCompanyRow[],

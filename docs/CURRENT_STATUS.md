@@ -31,7 +31,8 @@ Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a le
 - Module registry with `Aktiv`, `Planerad`, and `Låst` status is in place.
 - PR #159: Mobile public navigation closes after navigation, and the admin company overview lists real workspaces separately from incoming registrations.
 - PR #160: Settings reads workspace module availability from `workspace_feature_flags`; existing active/trial workspaces received base booking and CRM feature flags.
-- P92: Dashboard navigation and the Leads, Customers, and Bookings route trees enforce workspace module access. Local checks passed; production verification remains.
+- P92: Dashboard navigation and the Leads, Customers, and Bookings route trees enforce workspace module access. Production deployment passed.
+- P93: Proffera admin can manage each workspace plan status and base booking/CRM module access. Local lint, TypeScript and production build passed.
 
 ## Production status
 
@@ -57,11 +58,7 @@ Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a le
 
 ## Recommended next step
 
-Finish the P92 production smoke test after deployment:
-
-1. Confirm Julius Salong still opens Leads, Customers, and Bookings with the active base flags.
-2. Confirm a locked test workspace cannot open the protected route directly.
-3. After P92 passes, prepare the smallest admin workflow for changing workspace plan/module access. Do not add Stripe yet.
+Deploy P93 and verify one active workspace plus one paused test workspace from `/admin/foretag`. Then continue with durable customer authentication and roles. Do not add Stripe or activate the AI assistant yet.
 
 Do not start a full Service AI Chat merge or broad cross-project refactor.
 
@@ -78,7 +75,7 @@ Do not start a full Service AI Chat merge or broad cross-project refactor.
 - MVP and placeholder copy should be replaced before real sales.
 - Service AI Chat must keep Iboren and Proffera messages/leads strictly separated.
 - `/logga-in` is only a portal entry placeholder; real customer authentication, session handling, roles, and workspace binding are not implemented yet.
-- Plan changes are still managed manually; there is no reviewed admin workflow for changing workspace plan/module access yet.
+- Plan and base module access are managed manually from Proffera admin; Stripe synchronization is not implemented.
 
 ## Protected flows
 
