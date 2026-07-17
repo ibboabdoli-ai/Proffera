@@ -50,6 +50,10 @@ export function canManageWorkspaceSettings(access: WorkspaceAccessResult) {
   return access.ok && (access.role === "owner" || access.role === "admin");
 }
 
+export function canManageWorkspaceMembers(access: WorkspaceAccessResult) {
+  return access.ok && access.role === "owner";
+}
+
 function getSqlClient() {
   return connectionString ? neon(connectionString) : null;
 }
