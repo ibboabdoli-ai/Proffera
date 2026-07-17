@@ -12,6 +12,7 @@ import {
   type DashboardBookingStatus,
 } from "@/lib/dashboard-booking-status";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
+import { hasDashboardModuleAccess } from "@/lib/workspace-module-access";
 
 export const dynamic = "force-dynamic";
 
@@ -71,7 +72,7 @@ async function updateBookingStatusAction(bookingId: string, formData: FormData) 
 
   const workspaceAccess = await getUserWorkspaceAccess();
 
-  if (!workspaceAccess.ok || !canManageWorkspaceSettings(workspaceAccess)) {
+  if (!workspaceAccess.ok || !canManageWorkspaceSettings(workspaceAccess) || !(await hasDashboardModuleAccess("online_booking"))) {
     redirectWithStatusError(bookingId, "access");
   }
 

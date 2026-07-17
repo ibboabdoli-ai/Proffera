@@ -10,6 +10,7 @@ import {
   type CreateDashboardBookingInput,
 } from "@/lib/dashboard-db";
 import { serviceTaxonomy } from "@/lib/service-taxonomy";
+import { hasDashboardModuleAccess } from "@/lib/workspace-module-access";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 export const dynamic = "force-dynamic";
@@ -84,7 +85,7 @@ async function createBookingAction(formData: FormData) {
 
   const workspaceAccess = await getUserWorkspaceAccess();
 
-  if (!workspaceAccess.ok || !canManageWorkspaceSettings(workspaceAccess)) {
+  if (!workspaceAccess.ok || !canManageWorkspaceSettings(workspaceAccess) || !(await hasDashboardModuleAccess("online_booking"))) {
     redirectWithError("access");
   }
 
