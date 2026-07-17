@@ -34,6 +34,13 @@ export async function hasDashboardModuleAccess(moduleId: ProfferaModuleId): Prom
       from workspace_feature_flags
       where workspace_id = ${access.workspaceId}::uuid
         and enabled = true
+        and (
+          select wp.status
+          from workspace_plans wp
+          where wp.workspace_id = ${access.workspaceId}::uuid
+          order by wp.created_at desc
+          limit 1
+        ) in ('active', 'trialing')
     `;
     const enabledFeatures = new Set(rows.map((row) => String(row.feature_key)));
 
@@ -58,6 +65,13 @@ export async function getDashboardModuleAccess(): Promise<ProfferaModuleAccess[]
       from workspace_feature_flags
       where workspace_id = ${access.workspaceId}::uuid
         and enabled = true
+        and (
+          select wp.status
+          from workspace_plans wp
+          where wp.workspace_id = ${access.workspaceId}::uuid
+          order by wp.created_at desc
+          limit 1
+        ) in ('active', 'trialing')
     `;
     const enabledFeatures = new Set(rows.map((row) => String(row.feature_key)));
 
