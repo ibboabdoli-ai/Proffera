@@ -10,6 +10,7 @@ export function ServiceAiChatWidget() {
   const pathname = usePathname();
   const isSensitiveFlow = pathname?.startsWith("/admin")
     || pathname?.startsWith("/dashboard")
+    || pathname?.startsWith("/demo/")
     || pathname?.startsWith("/boka/")
     || pathname?.startsWith("/logga-in")
     || pathname?.startsWith("/aktivera/")
