@@ -41,6 +41,7 @@ Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a le
 - P99: Workspace owners can see pending invitations, resend a fresh secure link, or revoke an unused invitation from Settings.
 - P100: Dashboard summary cards now distinguish total customer/booking records from their active or confirmed subset.
 - P101: The dashboard no longer fetches or displays CRM and booking data for modules that are locked in the active workspace.
+- P102: Restricted Staff dashboards hide Settings and use clear limited-access copy instead of owner-oriented workflow wording.
 
 ## Production status
 
