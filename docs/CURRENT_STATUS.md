@@ -2,7 +2,7 @@
 
 This file is the single source of truth for the current project state. Update it after every completed or materially changed phase.
 
-Last updated: 2026-07-17
+Last updated: 2026-07-18
 
 Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a legacy/reference history file and is not required for normal phase updates.
 
@@ -37,6 +37,7 @@ Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a le
 - P95: Users with more than one active workspace can securely switch the dashboard workspace from desktop or mobile navigation.
 - P96: Customer and booking mutations enforce module access inside the server action, not only at navigation and page level.
 - P97: Workspace owners can list members, add existing Proffera users, change non-owner roles, and remove non-owner members from Settings.
+- P98: Workspace owners can securely invite a person without a Proffera account. The invitation expires after 48 hours, creates the account, and adds it only to the invited workspace with the selected role.
 
 ## Production status
 
@@ -62,7 +63,7 @@ Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a le
 
 ## Recommended next step
 
-Verify member management with a second existing Proffera account, then design email invitations for users without an account. Do not add Stripe or activate the AI assistant yet.
+Run the P98 Neon migration, then verify a new-user invitation with an email address that does not yet have a Proffera account. Do not add Stripe or activate the AI assistant yet.
 
 Do not start a full Service AI Chat merge or broad cross-project refactor.
 
