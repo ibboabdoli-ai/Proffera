@@ -16,6 +16,10 @@ import {
 
 import { getDashboardStats } from "@/lib/dashboard-db";
 
+function countLabel(value: number, singular: string, plural: string) {
+  return `${value} ${value === 1 ? singular : plural}`;
+}
+
 const quickLinks = [
   {
     title: "Leads",
@@ -61,14 +65,14 @@ export default async function DashboardPage() {
     {
       label: "Kunder",
       value: String(stats.customersCount),
-      text: `${stats.activeCustomersCount} aktiva kunder`,
+      text: `${countLabel(stats.customersCount, "kund", "kunder")} totalt · ${countLabel(stats.activeCustomersCount, "aktiv", "aktiva")}`,
       icon: UsersRound,
       tone: "bg-[#e9f2ec] text-[#17452f]",
     },
     {
       label: "Bokningar",
       value: String(stats.bookingsCount),
-      text: `${stats.confirmedBookingsCount} bekräftade bokningar`,
+      text: `${countLabel(stats.bookingsCount, "bokning", "bokningar")} totalt · ${countLabel(stats.confirmedBookingsCount, "bekräftad", "bekräftade")}`,
       icon: CalendarCheck2,
       tone: "bg-[#edf0f8] text-[#405582]",
     },
