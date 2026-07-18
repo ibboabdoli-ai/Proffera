@@ -8,6 +8,7 @@ import { getDashboardWorkspaceSettings } from "@/lib/workspace-settings-db";
 import { getModuleAccessLabel } from "@/lib/proffera-modules";
 import { getDashboardModuleAccess } from "@/lib/workspace-module-access";
 import { getWorkspaceMembers } from "@/lib/workspace-members-db";
+import { getPendingWorkspaceMemberInvitations } from "@/features/company/workspace-member-invitation";
 import { canManageWorkspaceMembers, canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 import { updateWorkspaceSettingsAction } from "./actions";
@@ -52,7 +53,8 @@ const bookingHoursErrorMessages: Record<string, string> = {
 const memberErrorMessages: Record<string, string> = {
   access: "Endast arbetsytans Owner kan ändra medlemmar.", invalid: "Kontrollera e-post, roll och vald medlem.",
   not_found: "Ingen befintlig Proffera-användare hittades med den e-postadressen.", exists: "Användaren är redan medlem i arbetsytan.",
-  protected: "Owner-medlemskapet är skyddat.", database: "Medlemsändringen kunde inte sparas. Försök igen.",
+  protected: "Owner-medlemskapet är skyddat.", expired: "Inbjudan har gått ut eller är inte längre aktiv.",
+  email: "Inbjudan sparades, men e-post kunde inte skickas. Försök skicka igen.", database: "Medlemsändringen kunde inte sparas. Försök igen.",
 };
 
 const inputClass =
@@ -98,12 +100,13 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   const wasUpdated = updatedValue === "1";
   const wasServiceUpdated = serviceUpdatedValue === "1";
   const wereBookingHoursUpdated = hoursUpdatedValue === "1";
-  const [workspaceSettings, workspaceServices, bookingHours, moduleAccess, workspaceMembers] = await Promise.all([
+  const [workspaceSettings, workspaceServices, bookingHours, moduleAccess, workspaceMembers, pendingInvitations] = await Promise.all([
     getDashboardWorkspaceSettings(),
     getDashboardWorkspaceServices(),
     getDashboardWorkspaceBookingHours(),
     getDashboardModuleAccess(),
     getWorkspaceMembers(),
+    getPendingWorkspaceMemberInvitations(),
   ]);
   const hasServices = workspaceServices.length > 0;
   const activeServices = workspaceServices.filter((service) => service.isActive).length;
@@ -137,7 +140,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
 
       <AccountSecurityCard />
 
-      <WorkspaceMembersCard members={workspaceMembers} canManage={canManageWorkspaceMembers(access)} />
+      <WorkspaceMembersCard members={workspaceMembers} invitations={pendingInvitations} canManage={canManageWorkspaceMembers(access)} />
 
       {memberUpdatedValue ? <section className="rounded-2xl bg-[#eef8f0] p-5 text-sm font-semibold text-[#17452f] ring-1 ring-[#c9e6d0]" role="status">Teamets åtkomst uppdaterades.</section> : null}
       {memberErrorMessage ? <section className="rounded-2xl bg-[#fff5f2] p-5 text-sm font-semibold text-[#8f2f1b] ring-1 ring-[#f4c7ba]" role="alert">{memberErrorMessage}</section> : null}

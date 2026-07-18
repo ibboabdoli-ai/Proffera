@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { addExistingWorkspaceMember, isEditableWorkspaceRole, removeWorkspaceMember, updateWorkspaceMemberRole } from "@/lib/workspace-members-db";
-import { createWorkspaceMemberInvitation } from "@/features/company/workspace-member-invitation";
+import { createWorkspaceMemberInvitation, resendWorkspaceMemberInvitation, revokeWorkspaceMemberInvitation } from "@/features/company/workspace-member-invitation";
 
 const value = (formData: FormData, key: string) => String(formData.get(key) ?? "").trim();
 function finish(result: { ok: true } | { ok: false; code: string }): never {
@@ -29,4 +29,18 @@ export async function updateWorkspaceMemberRoleAction(formData: FormData) {
 
 export async function removeWorkspaceMemberAction(formData: FormData) {
   finish(await removeWorkspaceMember(value(formData, "membership_id")));
+}
+
+export async function resendWorkspaceMemberInvitationAction(formData: FormData) {
+  const requestHeaders = await headers();
+  const result = await resendWorkspaceMemberInvitation(
+    value(formData, "invitation_id"),
+    new URL(requestHeaders.get("origin") ?? "https://www.proffera.se").origin,
+  );
+  redirect(result.ok ? "/dashboard/installningar?member_updated=resent" : `/dashboard/installningar?member_error=${result.code}`);
+}
+
+export async function revokeWorkspaceMemberInvitationAction(formData: FormData) {
+  const result = await revokeWorkspaceMemberInvitation(value(formData, "invitation_id"));
+  redirect(result.ok ? "/dashboard/installningar?member_updated=revoked" : `/dashboard/installningar?member_error=${result.code}`);
 }
