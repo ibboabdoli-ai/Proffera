@@ -40,6 +40,7 @@ Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a le
 - P98: Workspace owners can securely invite a person without a Proffera account. The invitation expires after 48 hours, creates the account, and adds it only to the invited workspace with the selected role.
 - P99: Workspace owners can see pending invitations, resend a fresh secure link, or revoke an unused invitation from Settings.
 - P100: Dashboard summary cards now distinguish total customer/booking records from their active or confirmed subset.
+- P101: The dashboard no longer fetches or displays CRM and booking data for modules that are locked in the active workspace.
 
 ## Production status
 
