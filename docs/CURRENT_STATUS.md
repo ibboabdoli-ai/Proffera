@@ -38,6 +38,7 @@ Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a le
 - P96: Customer and booking mutations enforce module access inside the server action, not only at navigation and page level.
 - P97: Workspace owners can list members, add existing Proffera users, change non-owner roles, and remove non-owner members from Settings.
 - P98: Workspace owners can securely invite a person without a Proffera account. The invitation expires after 48 hours, creates the account, and adds it only to the invited workspace with the selected role.
+- P99: Workspace owners can see pending invitations, resend a fresh secure link, or revoke an unused invitation from Settings.
 
 ## Production status
 
@@ -63,7 +64,7 @@ Active phase history is stored under `docs/logs/`. `docs/PROJECT_LOG.md` is a le
 
 ## Recommended next step
 
-Run the P98 Neon migration, then verify a new-user invitation with an email address that does not yet have a Proffera account. Do not add Stripe or activate the AI assistant yet.
+Verify the P98 invitation flow with an email address that does not yet have a Proffera account, including resend and revoke. Do not add Stripe or activate the AI assistant yet.
 
 Do not start a full Service AI Chat merge or broad cross-project refactor.
 
