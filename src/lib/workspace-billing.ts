@@ -75,6 +75,10 @@ export async function syncWorkspaceSubscription(subscription: Stripe.Subscriptio
   const workspaceId = subscription.metadata.workspace_id?.trim() ?? "";
   const subscriptionItem = subscription.items.data[0];
   const stripePriceId = subscriptionItem?.price.id ?? "";
+  const legacySubscription = subscription as Stripe.Subscription & {
+    current_period_start?: number;
+    current_period_end?: number;
+  };
 
   if (!sql || !uuidPattern.test(workspaceId) || stripePriceId !== expectedPriceId) {
     return { ok: false as const, code: "ignored" as const };
@@ -83,11 +87,13 @@ export async function syncWorkspaceSubscription(subscription: Stripe.Subscriptio
   const status = normalizeStripeStatus(subscription.status);
   const modulesEnabled = status === "active" || status === "trialing";
   const customerId = stripeId(subscription.customer);
-  const currentPeriodStart = subscriptionItem?.current_period_start
-    ? new Date(subscriptionItem.current_period_start * 1000).toISOString()
+  const currentPeriodStartTimestamp = subscriptionItem?.current_period_start ?? legacySubscription.current_period_start;
+  const currentPeriodEndTimestamp = subscriptionItem?.current_period_end ?? legacySubscription.current_period_end;
+  const currentPeriodStart = currentPeriodStartTimestamp
+    ? new Date(currentPeriodStartTimestamp * 1000).toISOString()
     : null;
-  const currentPeriodEnd = subscriptionItem?.current_period_end
-    ? new Date(subscriptionItem.current_period_end * 1000).toISOString()
+  const currentPeriodEnd = currentPeriodEndTimestamp
+    ? new Date(currentPeriodEndTimestamp * 1000).toISOString()
     : null;
 
   try {
