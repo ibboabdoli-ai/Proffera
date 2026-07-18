@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import { getDashboardStats } from "@/lib/dashboard-db";
+import { getDashboardModuleAccess } from "@/lib/workspace-module-access";
 
 function countLabel(value: number, singular: string, plural: string) {
   return `${value} ${value === 1 ? singular : plural}`;
@@ -27,6 +28,7 @@ const quickLinks = [
     href: "/dashboard/leads",
     icon: UserRoundSearch,
     label: "Förfrågningar",
+    moduleId: "customer_crm",
   },
   {
     title: "Kunder",
@@ -34,6 +36,7 @@ const quickLinks = [
     href: "/dashboard/kunder",
     icon: UsersRound,
     label: "CRM",
+    moduleId: "customer_crm",
   },
   {
     title: "Bokningar",
@@ -41,6 +44,7 @@ const quickLinks = [
     href: "/dashboard/bokningar",
     icon: CalendarCheck2,
     label: "Planering",
+    moduleId: "online_booking",
   },
   {
     title: "AI-assistent",
@@ -48,6 +52,7 @@ const quickLinks = [
     href: "/dashboard/ai-assistent",
     icon: Bot,
     label: "Planerad modul",
+    moduleId: undefined,
   },
   {
     title: "Inställningar",
@@ -55,38 +60,44 @@ const quickLinks = [
     href: "/dashboard/installningar",
     icon: Settings,
     label: "Konfiguration",
+    moduleId: undefined,
   },
 ] as const;
 
 export default async function DashboardPage() {
-  const stats = await getDashboardStats();
+  const moduleAccess = await getDashboardModuleAccess();
+  const isModuleEnabled = (id: "customer_crm" | "online_booking") => moduleAccess.some((module) => module.id === id && module.isEnabled);
+  const canUseCrm = isModuleEnabled("customer_crm");
+  const canUseBooking = isModuleEnabled("online_booking");
+  const stats = await getDashboardStats({ includeCustomers: canUseCrm, includeBookings: canUseBooking });
+  const visibleQuickLinks = quickLinks.filter((item) => !item.moduleId || isModuleEnabled(item.moduleId));
 
   const overviewStats = [
-    {
+    ...(canUseCrm ? [{
       label: "Kunder",
       value: String(stats.customersCount),
       text: `${countLabel(stats.customersCount, "kund", "kunder")} totalt · ${countLabel(stats.activeCustomersCount, "aktiv", "aktiva")}`,
       icon: UsersRound,
       tone: "bg-[#e9f2ec] text-[#17452f]",
-    },
-    {
+    }] : []),
+    ...(canUseBooking ? [{
       label: "Bokningar",
       value: String(stats.bookingsCount),
       text: `${countLabel(stats.bookingsCount, "bokning", "bokningar")} totalt · ${countLabel(stats.confirmedBookingsCount, "bekräftad", "bekräftade")}`,
       icon: CalendarCheck2,
       tone: "bg-[#edf0f8] text-[#405582]",
-    },
-    {
+    }] : []),
+    ...(canUseCrm ? [{
       label: "Aktivitet",
       value: String(stats.customerEventsCount),
       text: "Noteringar, bokningar och kundhistorik",
       icon: Activity,
       tone: "bg-[#f8f0df] text-[#8a6722]",
-    },
+    }] : []),
     {
       label: "Arbetsyta",
       value: "Aktiv",
-      text: "Kundportal, leads och bokningar samlade",
+      text: canUseCrm || canUseBooking ? "Kundportal, leads och bokningar samlade" : "CRM och bokningar är inte aktiverade för arbetsytan",
       icon: ShieldCheck,
       tone: "bg-[#f0ece8] text-[#6d5948]",
     },
@@ -112,23 +123,23 @@ export default async function DashboardPage() {
             </p>
           </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <Link
+          {canUseCrm || canUseBooking ? <div className="flex flex-col gap-3 sm:flex-row">
+            {canUseCrm ? <Link
               href="/dashboard/leads"
               className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-bold text-[#173e2b] transition hover:-translate-y-0.5 hover:bg-[#f3f6f2]"
               style={{ color: "#173e2b" }}
             >
               Hantera leads
               <ArrowRight className="h-4 w-4" aria-hidden="true" />
-            </Link>
-            <Link
+            </Link> : null}
+            {canUseBooking ? <Link
               href="/dashboard/bokningar/ny"
               className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.07] px-4 py-2.5 text-sm font-bold text-white transition hover:-translate-y-0.5 hover:bg-white/[0.12]"
             >
               <CalendarPlus className="h-4 w-4" aria-hidden="true" />
               Ny bokning
-            </Link>
-          </div>
+            </Link> : null}
+          </div> : null}
         </div>
       </section>
 
@@ -163,7 +174,7 @@ export default async function DashboardPage() {
           </div>
 
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
-            {quickLinks.map((item) => (
+            {visibleQuickLinks.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
@@ -197,7 +208,7 @@ export default async function DashboardPage() {
           </div>
 
           <div className="mt-5 grid gap-3">
-            <Link href="/dashboard/bokningar" className="group flex items-start gap-3 rounded-xl p-2 transition hover:bg-[#f6f8f5]">
+            {canUseBooking ? <Link href="/dashboard/bokningar" className="group flex items-start gap-3 rounded-xl p-2 transition hover:bg-[#f6f8f5]">
               <span className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#edf0f8] text-[#405582]">
                 <CalendarCheck2 className="h-4 w-4" aria-hidden="true" />
               </span>
@@ -205,8 +216,8 @@ export default async function DashboardPage() {
                 <span className="block text-sm font-bold text-[#27342c]">Följ bokningarna</span>
                 <span className="mt-0.5 block text-sm leading-5 text-[#6a756d]">{stats.confirmedBookingsCount} bekräftade av {stats.bookingsCount}</span>
               </span>
-            </Link>
-            <Link href="/dashboard/kunder" className="group flex items-start gap-3 rounded-xl p-2 transition hover:bg-[#f6f8f5]">
+            </Link> : null}
+            {canUseCrm ? <><Link href="/dashboard/kunder" className="group flex items-start gap-3 rounded-xl p-2 transition hover:bg-[#f6f8f5]">
               <span className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#e9f2ec] text-[#17452f]">
                 <CircleUserRound className="h-4 w-4" aria-hidden="true" />
               </span>
@@ -223,7 +234,8 @@ export default async function DashboardPage() {
                 <span className="block text-sm font-bold text-[#27342c]">Registrera nästa kund</span>
                 <span className="mt-0.5 block text-sm leading-5 text-[#6a756d]">Skapa en komplett kundprofil</span>
               </span>
-            </Link>
+            </Link></> : null}
+            {!canUseCrm && !canUseBooking ? <p className="rounded-xl bg-[#f6f8f5] p-4 text-sm leading-6 text-[#5b665f]">Din arbetsyta har begränsad åtkomst. Kontakta Owner eller Proffera för att aktivera CRM och bokningar.</p> : null}
           </div>
         </aside>
       </section>

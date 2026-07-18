@@ -176,8 +176,10 @@ export class BookingTimeConflictError extends Error {
   }
 }
 
-export async function getDashboardStats(): Promise<DashboardStats> {
+export async function getDashboardStats(options: { includeCustomers?: boolean; includeBookings?: boolean } = {}): Promise<DashboardStats> {
   const sql = getSqlClient();
+  const includeCustomers = options.includeCustomers ?? true;
+  const includeBookings = options.includeBookings ?? true;
 
   const fallbackStats: DashboardStats = {
     customersCount: 0,
@@ -187,20 +189,34 @@ export async function getDashboardStats(): Promise<DashboardStats> {
     customerEventsCount: 0,
   };
 
-  if (!sql) {
+  if (!sql || (!includeCustomers && !includeBookings)) {
     return fallbackStats;
   }
 
   const workspaceId = await getActiveWorkspaceId();
 
   try {
-    const rows = await sql`
+    const rows = includeCustomers && includeBookings ? await sql`
       select
         (select count(*) from customers where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})) as customers_count,
         (select count(*) from customers where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID}) and status = 'active') as active_customers_count,
         (select count(*) from bookings where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})) as bookings_count,
         (select count(*) from bookings where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID}) and status = 'confirmed') as confirmed_bookings_count,
         (select count(*) from customer_events where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})) as customer_events_count
+    ` : includeCustomers ? await sql`
+      select
+        (select count(*) from customers where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})) as customers_count,
+        (select count(*) from customers where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID}) and status = 'active') as active_customers_count,
+        0 as bookings_count,
+        0 as confirmed_bookings_count,
+        (select count(*) from customer_events where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})) as customer_events_count
+    ` : await sql`
+      select
+        0 as customers_count,
+        0 as active_customers_count,
+        (select count(*) from bookings where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})) as bookings_count,
+        (select count(*) from bookings where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID}) and status = 'confirmed') as confirmed_bookings_count,
+        0 as customer_events_count
     `;
 
     const row = rows[0] ?? {};
