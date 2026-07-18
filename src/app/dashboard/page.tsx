@@ -16,6 +16,7 @@ import {
 
 import { getDashboardStats } from "@/lib/dashboard-db";
 import { getDashboardModuleAccess } from "@/lib/workspace-module-access";
+import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 function countLabel(value: number, singular: string, plural: string) {
   return `${value} ${value === 1 ? singular : plural}`;
@@ -65,12 +66,13 @@ const quickLinks = [
 ] as const;
 
 export default async function DashboardPage() {
-  const moduleAccess = await getDashboardModuleAccess();
+  const [moduleAccess, workspaceAccess] = await Promise.all([getDashboardModuleAccess(), getUserWorkspaceAccess()]);
   const isModuleEnabled = (id: "customer_crm" | "online_booking") => moduleAccess.some((module) => module.id === id && module.isEnabled);
   const canUseCrm = isModuleEnabled("customer_crm");
   const canUseBooking = isModuleEnabled("online_booking");
+  const hasLimitedAccess = !canUseCrm && !canUseBooking;
   const stats = await getDashboardStats({ includeCustomers: canUseCrm, includeBookings: canUseBooking });
-  const visibleQuickLinks = quickLinks.filter((item) => !item.moduleId || isModuleEnabled(item.moduleId));
+  const visibleQuickLinks = quickLinks.filter((item) => (!item.moduleId || isModuleEnabled(item.moduleId)) && (item.href !== "/dashboard/installningar" || canManageWorkspaceSettings(workspaceAccess)));
 
   const overviewStats = [
     ...(canUseCrm ? [{
@@ -116,10 +118,10 @@ export default async function DashboardPage() {
               Arbetsytan är aktiv
             </div>
             <h2 className="mt-5 max-w-3xl text-3xl font-bold tracking-[-0.035em] text-white sm:text-4xl lg:text-[44px] lg:leading-[1.08]">
-              Full kontroll över varje kundrelation.
+              {hasLimitedAccess ? "Din arbetsyta är redo när modulerna aktiveras." : "Full kontroll över varje kundrelation."}
             </h2>
             <p className="mt-4 max-w-2xl text-sm leading-7 text-white/65 sm:text-base">
-              Prioritera nya förfrågningar, följ bokningar och håll kundarbetet i rörelse från en samlad översikt.
+              {hasLimitedAccess ? "CRM och bokningar är inte aktiverade för den här arbetsytan. Kontakta Owner eller Proffera för hjälp." : "Prioritera nya förfrågningar, följ bokningar och håll kundarbetet i rörelse från en samlad översikt."}
             </p>
           </div>
 
@@ -168,9 +170,9 @@ export default async function DashboardPage() {
           <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.12em] text-[#17452f]">Snabbvägar</p>
-              <h3 className="mt-2 text-xl font-bold tracking-tight text-[#17201a]">Fortsätt där arbetet händer</h3>
+              <h3 className="mt-2 text-xl font-bold tracking-tight text-[#17201a]">{hasLimitedAccess ? "Tillgängliga delar" : "Fortsätt där arbetet händer"}</h3>
             </div>
-            <p className="max-w-md text-sm leading-6 text-[#667168]">Öppna rätt del av kundflödet utan att tappa fokus.</p>
+            <p className="max-w-md text-sm leading-6 text-[#667168]">{hasLimitedAccess ? "Här visas bara delar som är tillgängliga för din roll och arbetsyta." : "Öppna rätt del av kundflödet utan att tappa fokus."}</p>
           </div>
 
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
@@ -200,7 +202,7 @@ export default async function DashboardPage() {
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.12em] text-[#17452f]">Dagens fokus</p>
-              <h3 className="mt-2 text-xl font-bold tracking-tight text-[#17201a]">Nästa steg</h3>
+              <h3 className="mt-2 text-xl font-bold tracking-tight text-[#17201a]">{hasLimitedAccess ? "Åtkomst" : "Nästa steg"}</h3>
             </div>
             <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#e9f2ec] text-[#17452f]">
               <CheckCircle2 className="h-5 w-5" aria-hidden="true" />
