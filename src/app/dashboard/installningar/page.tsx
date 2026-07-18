@@ -10,12 +10,15 @@ import { getDashboardModuleAccess } from "@/lib/workspace-module-access";
 import { getWorkspaceMembers } from "@/lib/workspace-members-db";
 import { getPendingWorkspaceMemberInvitations } from "@/features/company/workspace-member-invitation";
 import { canManageWorkspaceMembers, canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
+import { getWorkspaceBillingSummary } from "@/lib/workspace-billing";
+import { isStripeCheckoutConfigured, isStripeTestMode } from "@/lib/stripe";
 
 import { updateWorkspaceSettingsAction } from "./actions";
 import { updateWorkspaceBookingHoursAction } from "./booking-hours-actions";
 import { ServicesReadOnly } from "./services-read-only";
 import { AccountSecurityCard } from "./account-security-card";
 import { WorkspaceMembersCard } from "./workspace-members-card";
+import { WorkspaceBillingCard } from "./workspace-billing-card";
 
 export const dynamic = "force-dynamic";
 
@@ -74,13 +77,14 @@ type SettingsPageProps = {
     hours_updated?: string | string[];
     member_error?: string | string[];
     member_updated?: string | string[];
+    billing?: string | string[];
   }>;
 };
 
 export default async function SettingsPage({ searchParams }: SettingsPageProps) {
   const access = await getUserWorkspaceAccess();
 
-  if (!canManageWorkspaceSettings(access)) {
+  if (!access.ok || !canManageWorkspaceSettings(access)) {
     redirect("/dashboard");
   }
 
@@ -93,6 +97,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   const hoursUpdatedValue = firstParam(params?.hours_updated);
   const memberErrorValue = firstParam(params?.member_error);
   const memberUpdatedValue = firstParam(params?.member_updated);
+  const billingValue = firstParam(params?.billing);
   const errorMessage = errorValue ? errorMessages[errorValue] : undefined;
   const serviceErrorMessage = serviceErrorValue ? serviceErrorMessages[serviceErrorValue] : undefined;
   const bookingHoursErrorMessage = hoursErrorValue ? bookingHoursErrorMessages[hoursErrorValue] : undefined;
@@ -100,13 +105,14 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   const wasUpdated = updatedValue === "1";
   const wasServiceUpdated = serviceUpdatedValue === "1";
   const wereBookingHoursUpdated = hoursUpdatedValue === "1";
-  const [workspaceSettings, workspaceServices, bookingHours, moduleAccess, workspaceMembers, pendingInvitations] = await Promise.all([
+  const [workspaceSettings, workspaceServices, bookingHours, moduleAccess, workspaceMembers, pendingInvitations, billing] = await Promise.all([
     getDashboardWorkspaceSettings(),
     getDashboardWorkspaceServices(),
     getDashboardWorkspaceBookingHours(),
     getDashboardModuleAccess(),
     getWorkspaceMembers(),
     getPendingWorkspaceMemberInvitations(),
+    getWorkspaceBillingSummary(access.workspaceId),
   ]);
   const hasServices = workspaceServices.length > 0;
   const activeServices = workspaceServices.filter((service) => service.isActive).length;
@@ -141,6 +147,16 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
       <AccountSecurityCard />
 
       <WorkspaceMembersCard members={workspaceMembers} invitations={pendingInvitations} canManage={canManageWorkspaceMembers(access)} />
+
+      {billingValue === "success" ? <section className="rounded-2xl bg-[#eef8f0] p-5 text-sm font-semibold text-[#17452f] ring-1 ring-[#c9e6d0]" role="status">Betalningen är genomförd. Planen aktiveras så snart Stripe har bekräftat abonnemanget.</section> : null}
+      {billingValue === "cancelled" ? <section className="rounded-2xl bg-[#f7f9f6] p-5 text-sm font-semibold text-[#5b665f] ring-1 ring-[#e0e5dd]" role="status">Betalningen avbröts. Inga ändringar gjordes i arbetsytan.</section> : null}
+
+      <WorkspaceBillingCard
+        billing={billing}
+        canManage={canManageWorkspaceMembers(access)}
+        checkoutConfigured={isStripeCheckoutConfigured()}
+        testMode={isStripeTestMode()}
+      />
 
       {memberUpdatedValue ? <section className="rounded-2xl bg-[#eef8f0] p-5 text-sm font-semibold text-[#17452f] ring-1 ring-[#c9e6d0]" role="status">Teamets åtkomst uppdaterades.</section> : null}
       {memberErrorMessage ? <section className="rounded-2xl bg-[#fff5f2] p-5 text-sm font-semibold text-[#8f2f1b] ring-1 ring-[#f4c7ba]" role="alert">{memberErrorMessage}</section> : null}
