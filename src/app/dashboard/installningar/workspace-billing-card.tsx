@@ -28,6 +28,7 @@ type WorkspaceBillingCardProps = {
 export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, testMode, checkoutPlans, preferredPlanKey }: WorkspaceBillingCardProps) {
   const router = useRouter();
   const [loadingPlanKey, setLoadingPlanKey] = useState<CheckoutPlanKey | null>(null);
+  const [portalLoading, setPortalLoading] = useState(false);
   const [upgradeConfirmationOpen, setUpgradeConfirmationOpen] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -35,6 +36,7 @@ export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, t
   const starterPlan = checkoutPlans.find((plan) => plan.key === "starter");
   const professionalPlan = checkoutPlans.find((plan) => plan.key === "professional");
   const canUpgrade = canManage && hasActivePlan && billing.planKey === "starter" && professionalPlan?.configured;
+  const canOpenPortal = canManage && ["active", "trialing", "past_due", "paused"].includes(billing.status ?? "");
 
   async function startCheckout(planKey: CheckoutPlanKey) {
     setLoadingPlanKey(planKey);
@@ -94,6 +96,29 @@ export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, t
     }
   }
 
+  async function openBillingPortal() {
+    setPortalLoading(true);
+    setError("");
+    setSuccess("");
+
+    try {
+      const response = await fetch("/api/stripe/portal", {
+        method: "POST",
+        headers: { Accept: "application/json" },
+      });
+      const data = (await response.json()) as { url?: string; error?: string };
+
+      if (!response.ok || !data.url) {
+        throw new Error(data.error || "Betalningsportalen kunde inte öppnas.");
+      }
+
+      window.location.assign(data.url);
+    } catch (portalError) {
+      setError(portalError instanceof Error ? portalError.message : "Betalningsportalen kunde inte öppnas.");
+      setPortalLoading(false);
+    }
+  }
+
   return (
     <article className="rounded-[24px] border border-[#dce5dc] bg-white p-6 shadow-[0_1px_2px_rgba(20,43,32,0.03),0_14px_36px_rgba(20,43,32,0.045)]">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -128,6 +153,28 @@ export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, t
         <p className="mt-3 text-sm font-semibold text-[#17201a]">
           Nuvarande plan: {billing.planKey === "professional" ? "Professional" : "Starter"}
         </p>
+      ) : null}
+
+      {billing.cancelAtPeriodEnd && billing.currentPeriodEnd ? (
+        <p className="mt-4 rounded-xl bg-[#fdf5dc] p-4 text-sm font-semibold leading-6 text-[#72520f]" role="status">
+          Abonnemanget avslutas den {new Intl.DateTimeFormat("sv-SE", { dateStyle: "long", timeZone: "Europe/Stockholm" }).format(new Date(billing.currentPeriodEnd))}. Du kan återaktivera det via Stripe innan dess.
+        </p>
+      ) : null}
+
+      {canOpenPortal ? (
+        <div className="mt-5 rounded-2xl border border-[#dce5dc] bg-[#f7f9f6] p-4">
+          <p className="text-sm font-bold text-[#17201a]">Hantera abonnemang</p>
+          <p className="mt-1 text-sm leading-6 text-[#5b665f]">Öppna Stripes säkra portal för att byta betalkort, se fakturor eller avsluta abonnemanget vid periodens slut.</p>
+          <button
+            type="button"
+            onClick={openBillingPortal}
+            disabled={portalLoading || loadingPlanKey !== null}
+            className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-[#17452f] bg-white px-5 py-3 text-sm font-semibold text-[#17452f] transition hover:bg-[#eef8f0] focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+          >
+            {portalLoading ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <CreditCard className="h-4 w-4" aria-hidden="true" />}
+            {portalLoading ? "Öppnar Stripe…" : "Hantera betalning och abonnemang"}
+          </button>
+        </div>
       ) : null}
 
       {!billing.databaseReady ? (
