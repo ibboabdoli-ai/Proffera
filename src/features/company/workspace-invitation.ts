@@ -17,7 +17,7 @@ type InvitationSummary = {
 
 type Result =
   | { ok: true }
-  | { ok: false; code: "invalid" | "expired" | "account" | "database" | "email" };
+  | { ok: false; code: "invalid" | "expired" | "account" | "database" | "email_configuration" | "email_provider" | "email_network" };
 
 function hashToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
@@ -89,7 +89,7 @@ export async function createWorkspaceInvitation(registrationId: string, origin: 
       expiresInHours: INVITATION_TTL_HOURS,
     });
 
-    return sent.ok ? { ok: true } : { ok: false, code: "email" };
+    return sent.ok ? { ok: true } : { ok: false, code: `email_${sent.code}` };
   } catch (error) {
     console.error("Failed to create workspace invitation", error);
     return { ok: false, code: "database" };
