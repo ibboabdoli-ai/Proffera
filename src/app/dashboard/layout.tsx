@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess, getUserWorkspaceOptions } from "@/lib/workspace-access";
-import { getDashboardModuleAccess } from "@/lib/workspace-module-access";
+import { getDashboardEnabledFeatureKeys, getDashboardModuleAccess } from "@/lib/workspace-module-access";
 
 export const dynamic = "force-dynamic";
 
@@ -33,10 +33,11 @@ export default async function DashboardLayout({ children }: Readonly<{ children:
     );
   }
 
-  const [moduleAccess, workspaceOptions] = await Promise.all([
+  const [moduleAccess, enabledFeatures, workspaceOptions] = await Promise.all([
     getDashboardModuleAccess(),
+    getDashboardEnabledFeatureKeys(),
     getUserWorkspaceOptions(),
   ]);
 
-  return <DashboardShell workspaceName={access.workspaceName} workspaceId={access.workspaceId} workspaceOptions={workspaceOptions} moduleAccess={moduleAccess} canManageSettings={canManageWorkspaceSettings(access)}>{children}</DashboardShell>;
+  return <DashboardShell workspaceName={access.workspaceName} workspaceId={access.workspaceId} workspaceOptions={workspaceOptions} moduleAccess={moduleAccess} enabledFeatures={enabledFeatures} canManageSettings={canManageWorkspaceSettings(access)}>{children}</DashboardShell>;
 }
