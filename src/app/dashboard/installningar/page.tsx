@@ -58,7 +58,10 @@ const memberErrorMessages: Record<string, string> = {
   access: "Endast arbetsytans Owner kan ändra medlemmar.", invalid: "Kontrollera e-post, roll och vald medlem.",
   not_found: "Ingen befintlig Proffera-användare hittades med den e-postadressen.", exists: "Användaren är redan medlem i arbetsytan.",
   protected: "Owner-medlemskapet är skyddat.", expired: "Inbjudan har gått ut eller är inte längre aktiv.",
-  email: "Inbjudan sparades, men e-post kunde inte skickas. Försök skicka igen.", database: "Medlemsändringen kunde inte sparas. Försök igen.",
+  email_configuration: "Inbjudan sparades, men Brevo är inte konfigurerat. Kontrollera BREVO_API_KEY och LEAD_FROM_EMAIL i Vercel.",
+  email_provider: "Inbjudan sparades, men Brevo avvisade e-postmeddelandet. Kontrollera avsändaren och Brevo-loggen och försök igen.",
+  email_network: "Inbjudan sparades, men Proffera kunde inte kontakta Brevo. Försök skicka igen om en stund.",
+  database: "Medlemsändringen kunde inte sparas. Försök igen.",
 };
 
 const inputClass =
