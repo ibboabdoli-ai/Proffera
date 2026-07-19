@@ -1,6 +1,7 @@
 import { SlidersHorizontal } from "lucide-react";
 import { redirect } from "next/navigation";
 
+import { isCheckoutPlanKey } from "@/lib/billing-plans";
 import { DashboardPageHeader } from "@/components/dashboard/dashboard-page-ui";
 import { getDashboardWorkspaceServices } from "@/lib/workspace-services-db";
 import { bookingWeekdays, getDashboardWorkspaceBookingHours } from "@/lib/workspace-booking-hours-db";
@@ -11,7 +12,7 @@ import { getWorkspaceMembers } from "@/lib/workspace-members-db";
 import { getPendingWorkspaceMemberInvitations } from "@/features/company/workspace-member-invitation";
 import { canManageWorkspaceMembers, canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 import { getWorkspaceBillingSummary } from "@/lib/workspace-billing";
-import { isStripeCheckoutConfigured, isStripeTestMode } from "@/lib/stripe";
+import { getStripeCheckoutPlanOptions, isStripeCheckoutConfigured, isStripeTestMode } from "@/lib/stripe";
 
 import { updateWorkspaceSettingsAction } from "./actions";
 import { updateWorkspaceBookingHoursAction } from "./booking-hours-actions";
@@ -78,6 +79,7 @@ type SettingsPageProps = {
     member_error?: string | string[];
     member_updated?: string | string[];
     billing?: string | string[];
+    plan?: string | string[];
   }>;
 };
 
@@ -98,6 +100,8 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   const memberErrorValue = firstParam(params?.member_error);
   const memberUpdatedValue = firstParam(params?.member_updated);
   const billingValue = firstParam(params?.billing);
+  const preferredPlanValue = firstParam(params?.plan);
+  const preferredPlanKey = isCheckoutPlanKey(preferredPlanValue) ? preferredPlanValue : null;
   const errorMessage = errorValue ? errorMessages[errorValue] : undefined;
   const serviceErrorMessage = serviceErrorValue ? serviceErrorMessages[serviceErrorValue] : undefined;
   const bookingHoursErrorMessage = hoursErrorValue ? bookingHoursErrorMessages[hoursErrorValue] : undefined;
@@ -157,6 +161,8 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         canManage={canManageWorkspaceMembers(access)}
         checkoutConfigured={isStripeCheckoutConfigured()}
         testMode={isStripeTestMode()}
+        checkoutPlans={getStripeCheckoutPlanOptions()}
+        preferredPlanKey={preferredPlanKey}
       />
 
       {memberUpdatedValue ? <section className="rounded-2xl bg-[#eef8f0] p-5 text-sm font-semibold text-[#17452f] ring-1 ring-[#c9e6d0]" role="status">Teamets åtkomst uppdaterades.</section> : null}

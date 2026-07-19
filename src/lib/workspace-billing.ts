@@ -2,6 +2,7 @@ import "server-only";
 
 import type Stripe from "stripe";
 
+import { type CheckoutPlanKey } from "@/lib/billing-plans";
 import { getSql } from "@/lib/db/server";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -70,7 +71,12 @@ export async function getWorkspaceBillingSummary(workspaceId: string): Promise<W
   }
 }
 
-export async function syncWorkspaceSubscription(subscription: Stripe.Subscription, eventCreated: number, expectedPriceId: string) {
+export async function syncWorkspaceSubscription(
+  subscription: Stripe.Subscription,
+  eventCreated: number,
+  planKey: CheckoutPlanKey,
+  expectedPriceId: string,
+) {
   const sql = getSql();
   const workspaceId = subscription.metadata.workspace_id?.trim() ?? "";
   const subscriptionItem = subscription.items.data[0];
@@ -86,6 +92,7 @@ export async function syncWorkspaceSubscription(subscription: Stripe.Subscriptio
 
   const status = normalizeStripeStatus(subscription.status);
   const modulesEnabled = status === "active" || status === "trialing";
+  const customerCrmEnabled = modulesEnabled && planKey === "professional";
   const customerId = stripeId(subscription.customer);
   const currentPeriodStartTimestamp = subscriptionItem?.current_period_start ?? legacySubscription.current_period_start;
   const currentPeriodEndTimestamp = subscriptionItem?.current_period_end ?? legacySubscription.current_period_end;
@@ -121,7 +128,7 @@ export async function syncWorkspaceSubscription(subscription: Stripe.Subscriptio
       updated_plan as (
         update workspace_plans wp
         set
-          plan_key = 'professional',
+          plan_key = ${planKey},
           status = ${status},
           current_period_start = ${currentPeriodStart},
           current_period_end = ${currentPeriodEnd},
@@ -135,7 +142,7 @@ export async function syncWorkspaceSubscription(subscription: Stripe.Subscriptio
           id, workspace_id, plan_key, status, current_period_start, current_period_end, created_at, updated_at
         )
         select
-          gen_random_uuid(), sw.id, 'professional', ${status}, ${currentPeriodStart}, ${currentPeriodEnd}, now(), now()
+          gen_random_uuid(), sw.id, ${planKey}, ${status}, ${currentPeriodStart}, ${currentPeriodEnd}, now(), now()
         from selected_workspace sw
         cross join permitted_event pe
         where not exists (select 1 from updated_plan)
@@ -195,7 +202,7 @@ export async function syncWorkspaceSubscription(subscription: Stripe.Subscriptio
       feature_values (feature_key, enabled) as (
         values
           ('booking_demo', ${modulesEnabled}::boolean),
-          ('crm_customers', ${modulesEnabled}::boolean),
+          ('crm_customers', ${customerCrmEnabled}::boolean),
           ('lead_inbox', ${modulesEnabled}::boolean)
       )
       insert into workspace_feature_flags (id, workspace_id, feature_key, enabled, created_at, updated_at)

@@ -39,8 +39,11 @@ export default function PricingPage() {
               ))}
             </ul>
             <div className="mt-8">
-              <ButtonLink href="/kontakt" variant={plan.name === "Professional" ? "primary" : "secondary"}>
-                Kontakta oss
+              <ButtonLink
+                href={plan.name === "Business" ? "/kontakt" : `/logga-in?plan=${plan.name.toLowerCase()}`}
+                variant={plan.name === "Professional" ? "primary" : "secondary"}
+              >
+                {plan.name === "Business" ? "Prata med oss" : `Välj ${plan.name}`}
               </ButtonLink>
             </div>
           </article>

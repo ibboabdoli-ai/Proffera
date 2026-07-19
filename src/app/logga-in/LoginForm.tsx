@@ -4,7 +4,11 @@ import { type FormEvent, useState } from "react";
 
 const GENERIC_LOGIN_ERROR = "Det gick inte att logga in. Kontrollera uppgifterna och försök igen.";
 
-export function LoginForm() {
+type LoginFormProps = {
+  afterLoginPath?: string;
+};
+
+export function LoginForm({ afterLoginPath = "/dashboard" }: LoginFormProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isPending, setIsPending] = useState(false);
@@ -48,7 +52,7 @@ export function LoginForm() {
         return;
       }
 
-      window.location.assign("/dashboard");
+      window.location.assign(afterLoginPath);
     } catch {
       setErrorMessage(GENERIC_LOGIN_ERROR);
       setIsPending(false);
