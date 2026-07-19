@@ -1,6 +1,7 @@
 "use client";
 
 import { CreditCard, LoaderCircle, ShieldCheck } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import type { CheckoutPlanKey, CheckoutPlanOption } from "@/lib/billing-plans";
@@ -25,13 +26,18 @@ type WorkspaceBillingCardProps = {
 };
 
 export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, testMode, checkoutPlans, preferredPlanKey }: WorkspaceBillingCardProps) {
+  const router = useRouter();
   const [loadingPlanKey, setLoadingPlanKey] = useState<CheckoutPlanKey | null>(null);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
   const hasActivePlan = billing.status === "active" || billing.status === "trialing";
+  const professionalPlan = checkoutPlans.find((plan) => plan.key === "professional");
+  const canUpgrade = canManage && hasActivePlan && billing.planKey === "starter" && professionalPlan?.configured;
 
   async function startCheckout(planKey: CheckoutPlanKey) {
     setLoadingPlanKey(planKey);
     setError("");
+    setSuccess("");
 
     try {
       const response = await fetch("/api/stripe/checkout", {
@@ -48,6 +54,48 @@ export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, t
       window.location.assign(data.url);
     } catch (checkoutError) {
       setError(checkoutError instanceof Error ? checkoutError.message : "Betalningssidan kunde inte öppnas.");
+      setLoadingPlanKey(null);
+    }
+  }
+
+  async function upgradeToProfessional() {
+    const confirmation = window.confirm(
+      testMode
+        ? "Uppgradera till Professional i Stripe Sandbox? Inga riktiga pengar dras."
+        : "Uppgradera till Professional? Stripe debiterar den proportionella prisskillnaden för den pågående perioden.",
+    );
+
+    if (!confirmation) return;
+
+    setLoadingPlanKey("professional");
+    setError("");
+    setSuccess("");
+
+    try {
+      const response = await fetch("/api/stripe/upgrade", {
+        method: "POST",
+        headers: { Accept: "application/json" },
+      });
+      const data = (await response.json()) as { upgraded?: boolean; applied?: boolean; pending?: boolean; url?: string | null; error?: string };
+
+      if (data.url) {
+        window.location.assign(data.url);
+        return;
+      }
+
+      if (!response.ok && response.status !== 202) {
+        throw new Error(data.error || "Abonnemanget kunde inte uppgraderas.");
+      }
+
+      if (data.pending) {
+        throw new Error(data.error || "Betalningen väntar på bekräftelse från Stripe.");
+      }
+
+      setSuccess(data.applied ? "Planen uppgraderades till Professional. CRM är nu aktivt." : "Stripe har godkänt uppgraderingen. Åtkomsten synkroniseras nu.");
+      setLoadingPlanKey(null);
+      router.refresh();
+    } catch (upgradeError) {
+      setError(upgradeError instanceof Error ? upgradeError.message : "Abonnemanget kunde inte uppgraderas.");
       setLoadingPlanKey(null);
     }
   }
@@ -79,6 +127,12 @@ export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, t
       {billing.currentPeriodEnd && hasActivePlan ? (
         <p className="mt-4 text-sm text-[#5b665f]">
           Nuvarande period gäller till {new Intl.DateTimeFormat("sv-SE", { dateStyle: "long", timeZone: "Europe/Stockholm" }).format(new Date(billing.currentPeriodEnd))}.
+        </p>
+      ) : null}
+
+      {hasActivePlan && billing.planKey ? (
+        <p className="mt-3 text-sm font-semibold text-[#17201a]">
+          Nuvarande plan: {billing.planKey === "professional" ? "Professional" : "Starter"}
         </p>
       ) : null}
 
@@ -118,8 +172,25 @@ export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, t
         </div>
       ) : null}
 
+      {canUpgrade && professionalPlan ? (
+        <div className="mt-5 rounded-2xl border border-[#b8d8c2] bg-[#eef8f0] p-4">
+          <p className="text-base font-bold text-[#17201a]">Uppgradera till Professional</p>
+          <p className="mt-1 text-sm leading-6 text-[#5b665f]">{professionalPlan.description}</p>
+          <button
+            type="button"
+            onClick={upgradeToProfessional}
+            disabled={loadingPlanKey !== null}
+            className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#173e2b] px-5 py-3 text-sm font-semibold !text-white transition hover:bg-[#123824] focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+          >
+            {loadingPlanKey === "professional" ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <CreditCard className="h-4 w-4" aria-hidden="true" />}
+            {loadingPlanKey === "professional" ? "Uppgraderar…" : "Uppgradera till Professional"}
+          </button>
+        </div>
+      ) : null}
+
       {!canManage ? <p className="mt-5 text-sm text-[#5b665f]">Endast arbetsytans Owner kan starta eller ändra abonnemanget.</p> : null}
       {canManage && !checkoutConfigured ? <p className="mt-5 text-sm text-[#5b665f]">Stripe Checkout är ännu inte konfigurerad.</p> : null}
+      {success ? <p className="mt-4 rounded-xl bg-[#eef8f0] p-4 text-sm font-semibold text-[#17452f]" role="status" aria-live="polite">{success}</p> : null}
       {error ? <p className="mt-4 text-sm font-semibold text-[#9b301f]" role="alert" aria-live="assertive">{error}</p> : null}
     </article>
   );
