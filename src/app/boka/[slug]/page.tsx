@@ -97,7 +97,22 @@ async function requestPublicBooking(formData: FormData) {
       nullif(ws.contact_phone, '') as contact_phone
     from workspaces w
     left join workspace_settings ws on ws.workspace_id = w.id::text
-    where w.public_booking_slug = ${slug} and w.status in ('active', 'trial')
+    where w.public_booking_slug = ${slug}
+      and w.status in ('active', 'trial')
+      and exists (
+        select 1
+        from workspace_feature_flags wff
+        where wff.workspace_id = w.id
+          and wff.feature_key = 'booking_demo'
+          and wff.enabled = true
+      )
+      and (
+        select wp.status
+        from workspace_plans wp
+        where wp.workspace_id = w.id
+        order by wp.created_at desc
+        limit 1
+      ) in ('active', 'trialing')
     limit 1
   `;
   const workspace = workspaces[0];
@@ -220,7 +235,22 @@ export default async function PublicBookingPage({ params, searchParams }: PagePr
         coalesce(nullif(ws.primary_city, ''), w.primary_city) as primary_city
       from workspaces w
       left join workspace_settings ws on ws.workspace_id = w.id::text
-      where w.public_booking_slug = ${slug} and w.status in ('active', 'trial')
+      where w.public_booking_slug = ${slug}
+        and w.status in ('active', 'trial')
+        and exists (
+          select 1
+          from workspace_feature_flags wff
+          where wff.workspace_id = w.id
+            and wff.feature_key = 'booking_demo'
+            and wff.enabled = true
+        )
+        and (
+          select wp.status
+          from workspace_plans wp
+          where wp.workspace_id = w.id
+          order by wp.created_at desc
+          limit 1
+        ) in ('active', 'trialing')
       limit 1
     `;
     workspace = workspaces[0] as Record<string, unknown> | undefined;
