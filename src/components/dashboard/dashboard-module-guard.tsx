@@ -2,10 +2,14 @@ import Link from "next/link";
 import { LockKeyhole } from "lucide-react";
 
 import type { ProfferaModuleId } from "@/lib/proffera-modules";
-import { hasDashboardModuleAccess } from "@/lib/workspace-module-access";
+import { hasDashboardFeatureAccess, hasDashboardModuleAccess, type WorkspaceFeatureKey } from "@/lib/workspace-module-access";
 
-export async function DashboardModuleGuard({ children, moduleId }: Readonly<{ children: React.ReactNode; moduleId: ProfferaModuleId }>) {
-  const hasAccess = await hasDashboardModuleAccess(moduleId);
+export async function DashboardModuleGuard({ children, moduleId, featureKey }: Readonly<{ children: React.ReactNode; moduleId?: ProfferaModuleId; featureKey?: WorkspaceFeatureKey }>) {
+  const hasAccess = featureKey
+    ? await hasDashboardFeatureAccess(featureKey)
+    : moduleId
+      ? await hasDashboardModuleAccess(moduleId)
+      : false;
 
   if (hasAccess) return children;
 

@@ -29,7 +29,7 @@ export const profferaModules: ProfferaModule[] = [
   {
     id: "customer_crm",
     name: "Kund-CRM",
-    description: "Kunder, leads, bokningar och historik.",
+    description: "Kunder, bokningar och historik.",
     accessState: "active",
   },
   {
@@ -68,7 +68,7 @@ export function getProfferaModuleAccess(): ProfferaModuleAccess[] {
 
 export const dashboardNavigation = [
   { label: "\u00d6versikt", href: "/dashboard" },
-  { label: "Leads", href: "/dashboard/leads", moduleId: "customer_crm" },
+  { label: "Leads", href: "/dashboard/leads", featureKey: "lead_inbox" },
   { label: "Kunder", href: "/dashboard/kunder", moduleId: "customer_crm" },
   { label: "Bokningar", href: "/dashboard/bokningar", moduleId: "online_booking" },
   { label: "AI-assistent", href: "/dashboard/ai-assistent", moduleId: "ai_chat" },

@@ -22,6 +22,7 @@ import { switchWorkspaceAction } from "@/app/dashboard/workspace-actions";
 import { authClient } from "@/lib/auth-client";
 import { dashboardNavigation, type ProfferaModuleAccess } from "@/lib/proffera-modules";
 import type { WorkspaceOption } from "@/lib/workspace-access";
+import type { WorkspaceFeatureKey } from "@/lib/workspace-module-access";
 
 const navigationIcons: Record<string, LucideIcon> = {
   "/dashboard": LayoutDashboard,
@@ -43,11 +44,12 @@ function isActivePath(pathname: string, href: string) {
 type NavigationLinksProps = {
   pathname: string;
   moduleAccess?: ProfferaModuleAccess[];
+  enabledFeatures?: WorkspaceFeatureKey[];
   canManageSettings: boolean;
   onNavigate?: () => void;
 };
 
-function NavigationLinks({ pathname, moduleAccess, canManageSettings, onNavigate }: NavigationLinksProps) {
+function NavigationLinks({ pathname, moduleAccess, enabledFeatures, canManageSettings, onNavigate }: NavigationLinksProps) {
   const moduleAccessById = new Map(moduleAccess?.map((item) => [item.id, item]));
 
   return (
@@ -60,7 +62,8 @@ function NavigationLinks({ pathname, moduleAccess, canManageSettings, onNavigate
         const isActive = isActivePath(pathname, item.href);
         const Icon = navigationIcons[item.href] ?? ChevronRight;
         const moduleState = "moduleId" in item ? moduleAccessById.get(item.moduleId) : undefined;
-        const isLocked = moduleState?.accessState === "locked";
+        const featureIsLocked = "featureKey" in item && !enabledFeatures?.includes(item.featureKey);
+        const isLocked = moduleState?.accessState === "locked" || featureIsLocked;
         const isPlanned = moduleState?.accessState === "planned" || (!moduleAccess && item.href === "/dashboard/ai-assistent");
         const content = <><Icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" /><span className="flex-1">{item.label}</span>{isLocked || isPlanned ? <span className={isActive ? "text-[10px] font-bold uppercase tracking-wide text-[#557061]" : "text-[10px] font-bold uppercase tracking-wide text-[#a8c4b0]"}>{isLocked ? "Låst" : "Planerad"}</span> : null}</>;
 
@@ -120,7 +123,7 @@ function WorkspaceSwitcher({ workspaceId, workspaceOptions }: { workspaceId?: st
   );
 }
 
-export function DashboardShell({ children, workspaceName = "Proffera", workspaceId, workspaceOptions = [], moduleAccess, canManageSettings = false }: Readonly<{ children: React.ReactNode; workspaceName?: string; workspaceId?: string; workspaceOptions?: WorkspaceOption[]; moduleAccess?: ProfferaModuleAccess[]; canManageSettings?: boolean }>) {
+export function DashboardShell({ children, workspaceName = "Proffera", workspaceId, workspaceOptions = [], moduleAccess, enabledFeatures, canManageSettings = false }: Readonly<{ children: React.ReactNode; workspaceName?: string; workspaceId?: string; workspaceOptions?: WorkspaceOption[]; moduleAccess?: ProfferaModuleAccess[]; enabledFeatures?: WorkspaceFeatureKey[]; canManageSettings?: boolean }>) {
   const pathname = usePathname();
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -157,7 +160,7 @@ export function DashboardShell({ children, workspaceName = "Proffera", workspace
 
           <div className="mt-9 flex-1">
             <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-[#a8c4b0]">Arbetsyta</p>
-            <NavigationLinks pathname={pathname} moduleAccess={moduleAccess} canManageSettings={canManageSettings} />
+            <NavigationLinks pathname={pathname} moduleAccess={moduleAccess} enabledFeatures={enabledFeatures} canManageSettings={canManageSettings} />
           </div>
 
           <WorkspaceSwitcher workspaceId={workspaceId} workspaceOptions={workspaceOptions} />
@@ -239,7 +242,7 @@ export function DashboardShell({ children, workspaceName = "Proffera", workspace
             </div>
             <div className="mt-9 flex-1 overflow-y-auto">
               <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-[#a8c4b0]">Arbetsyta</p>
-              <NavigationLinks pathname={pathname} moduleAccess={moduleAccess} canManageSettings={canManageSettings} onNavigate={() => setIsMobileMenuOpen(false)} />
+              <NavigationLinks pathname={pathname} moduleAccess={moduleAccess} enabledFeatures={enabledFeatures} canManageSettings={canManageSettings} onNavigate={() => setIsMobileMenuOpen(false)} />
               <WorkspaceSwitcher workspaceId={workspaceId} workspaceOptions={workspaceOptions} />
             </div>
           </aside>
