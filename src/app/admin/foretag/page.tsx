@@ -18,6 +18,14 @@ const statusStyle: Record<string, string> = {
   cancelled: "bg-[#fff0ee] text-[#9a3024]",
 };
 
+const invitationErrorMessages: Record<string, string> = {
+  invalid: "Företaget måste vara godkänt innan en inbjudan kan skickas.",
+  email_configuration: "Inbjudan sparades, men Brevo är inte konfigurerat. Kontrollera BREVO_API_KEY och LEAD_FROM_EMAIL i Vercel.",
+  email_provider: "Inbjudan sparades, men Brevo avvisade meddelandet. Kontrollera avsändaren och Brevo-loggen.",
+  email_network: "Inbjudan sparades, men Proffera kunde inte kontakta Brevo. Försök igen om en stund.",
+  database: "Inbjudan kunde inte sparas i databasen. Kontrollera migrationerna och försök igen.",
+};
+
 export default async function Page({ searchParams }: PageProps) {
   const [workspaceResult, result, params] = await Promise.all([
     getWorkspaceCompanyRows(),
@@ -77,7 +85,7 @@ export default async function Page({ searchParams }: PageProps) {
 
         {inviteValue && inviteValue !== "sent" ? (
           <p className="mt-6 rounded-2xl border border-[#e7b8b1] bg-[#fff4f2] p-5 text-sm font-semibold text-[#8a2b20]" role="alert">
-            Inbjudan kunde inte skickas. Kontrollera att företaget är godkänt, att migrationen är körd och att Brevo fungerar.
+            {invitationErrorMessages[inviteValue] ?? "Inbjudan kunde inte skickas. Kontrollera uppgifterna och försök igen."}
           </p>
         ) : null}
 
