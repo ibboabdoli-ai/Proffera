@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 
+import { isCheckoutPlanKey } from "@/lib/billing-plans";
 import { getSql } from "@/lib/db/server";
-import { getStripeClient, getStripePriceId } from "@/lib/stripe";
+import { getStripeClient, getStripePriceIdForPlan } from "@/lib/stripe";
 import { canManageWorkspaceMembers, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 export const runtime = "nodejs";
@@ -24,9 +25,16 @@ export async function POST(request: Request) {
     return jsonError("Endast arbetsytans Owner kan starta ett abonnemang.", 403);
   }
 
+  const requestBody = await request.json().catch(() => null) as { planKey?: unknown } | null;
+  const planKey = requestBody?.planKey;
+
+  if (!isCheckoutPlanKey(planKey)) {
+    return jsonError("Välj en tillgänglig plan.", 400);
+  }
+
   const sql = getSql();
   const stripe = getStripeClient();
-  const priceId = getStripePriceId();
+  const priceId = getStripePriceIdForPlan(planKey);
 
   if (!sql || !stripe || !priceId) {
     return jsonError("Betalningen är inte färdigkonfigurerad.", 503);
@@ -38,6 +46,7 @@ export async function POST(request: Request) {
         stripe_customer_id,
         stripe_checkout_session_id,
         stripe_subscription_id,
+        stripe_price_id,
         status
       from workspace_billing_subscriptions
       where workspace_id = ${access.workspaceId}::uuid
@@ -54,7 +63,7 @@ export async function POST(request: Request) {
       ? String(existing.stripe_checkout_session_id)
       : "";
 
-    if (existingSessionId) {
+    if (existingSessionId && String(existing?.stripe_price_id ?? "") === priceId) {
       const existingSession = await stripe.checkout.sessions.retrieve(existingSessionId);
 
       if (existingSession.status === "open" && existingSession.url) {
@@ -75,13 +84,13 @@ export async function POST(request: Request) {
       metadata: {
         workspace_id: access.workspaceId,
         workspace_owner_id: access.userId,
-        plan_key: "professional",
+        plan_key: planKey,
       },
       subscription_data: {
         metadata: {
           workspace_id: access.workspaceId,
           workspace_owner_id: access.userId,
-          plan_key: "professional",
+          plan_key: planKey,
         },
       },
       success_url: `${requestUrl.origin}/dashboard/installningar?billing=success`,
