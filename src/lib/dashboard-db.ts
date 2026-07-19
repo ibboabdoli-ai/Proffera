@@ -209,7 +209,7 @@ export async function getDashboardStats(options: { includeCustomers?: boolean; i
         (select count(*) from customers where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID}) and status = 'active') as active_customers_count,
         0 as bookings_count,
         0 as confirmed_bookings_count,
-        (select count(*) from customer_events where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})) as customer_events_count
+        (select count(*) from customer_events where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID}) and booking_id is null) as customer_events_count
     ` : await sql`
       select
         0 as customers_count,
