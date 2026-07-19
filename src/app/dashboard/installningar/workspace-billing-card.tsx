@@ -28,9 +28,11 @@ type WorkspaceBillingCardProps = {
 export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, testMode, checkoutPlans, preferredPlanKey }: WorkspaceBillingCardProps) {
   const router = useRouter();
   const [loadingPlanKey, setLoadingPlanKey] = useState<CheckoutPlanKey | null>(null);
+  const [upgradeConfirmationOpen, setUpgradeConfirmationOpen] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const hasActivePlan = billing.status === "active" || billing.status === "trialing";
+  const starterPlan = checkoutPlans.find((plan) => plan.key === "starter");
   const professionalPlan = checkoutPlans.find((plan) => plan.key === "professional");
   const canUpgrade = canManage && hasActivePlan && billing.planKey === "starter" && professionalPlan?.configured;
 
@@ -59,14 +61,6 @@ export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, t
   }
 
   async function upgradeToProfessional() {
-    const confirmation = window.confirm(
-      testMode
-        ? "Uppgradera till Professional i Stripe Sandbox? Inga riktiga pengar dras."
-        : "Uppgradera till Professional? Stripe debiterar den proportionella prisskillnaden för den pågående perioden.",
-    );
-
-    if (!confirmation) return;
-
     setLoadingPlanKey("professional");
     setError("");
     setSuccess("");
@@ -176,15 +170,61 @@ export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, t
         <div className="mt-5 rounded-2xl border border-[#b8d8c2] bg-[#eef8f0] p-4">
           <p className="text-base font-bold text-[#17201a]">Uppgradera till Professional</p>
           <p className="mt-1 text-sm leading-6 text-[#5b665f]">{professionalPlan.description}</p>
-          <button
-            type="button"
-            onClick={upgradeToProfessional}
-            disabled={loadingPlanKey !== null}
-            className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#173e2b] px-5 py-3 text-sm font-semibold !text-white transition hover:bg-[#123824] focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
-          >
-            {loadingPlanKey === "professional" ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <CreditCard className="h-4 w-4" aria-hidden="true" />}
-            {loadingPlanKey === "professional" ? "Uppgraderar…" : "Uppgradera till Professional"}
-          </button>
+
+          <dl className="mt-4 divide-y divide-[#cfe2d5] rounded-xl border border-[#cfe2d5] bg-white px-4 text-sm">
+            <div className="flex items-center justify-between gap-4 py-3">
+              <dt className="text-[#5b665f]">Nuvarande plan</dt>
+              <dd className="text-right font-semibold text-[#17201a]">Starter · {testMode ? "1 kr/mån (test)" : starterPlan?.priceLabel ?? "299 kr/mån"}</dd>
+            </div>
+            <div className="flex items-center justify-between gap-4 py-3">
+              <dt className="text-[#5b665f]">Ny plan</dt>
+              <dd className="text-right font-semibold text-[#17201a]">Professional · {testMode ? "1 kr/mån (test)" : professionalPlan.priceLabel}</dd>
+            </div>
+          </dl>
+
+          <div className="mt-3 rounded-xl bg-white p-4 text-sm leading-6 text-[#49554e]" role="note">
+            {testMode ? (
+              <p><strong className="text-[#17201a]">Testbetalning:</strong> Inga riktiga pengar dras. Stripe registrerar bara uppgraderingen med testpriset.</p>
+            ) : (
+              <p><strong className="text-[#17201a]">Betalning vid uppgradering:</strong> Stripe räknar av det du redan betalat för Starter och debiterar bara den proportionella prisskillnaden för resten av perioden. Därefter debiteras {professionalPlan.priceLabel.replace("Från ", "")} från nästa betalningsperiod. Det exakta beloppet bekräftas av Stripe.</p>
+            )}
+          </div>
+
+          {!upgradeConfirmationOpen ? (
+            <button
+              type="button"
+              onClick={() => setUpgradeConfirmationOpen(true)}
+              disabled={loadingPlanKey !== null}
+              className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#173e2b] px-5 py-3 text-sm font-semibold !text-white transition hover:bg-[#123824] focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+            >
+              <CreditCard className="h-4 w-4" aria-hidden="true" />
+              Fortsätt till bekräftelse
+            </button>
+          ) : (
+            <div className="mt-4 rounded-xl border border-[#91c5a2] bg-white p-4" role="group" aria-labelledby="upgrade-confirmation-title">
+              <p id="upgrade-confirmation-title" className="font-bold text-[#17201a]">Bekräfta uppgraderingen</p>
+              <p className="mt-1 text-sm leading-6 text-[#5b665f]">Genom att bekräfta godkänner du bytet till Professional och Stripes betalningsvillkor ovan.</p>
+              <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={upgradeToProfessional}
+                  disabled={loadingPlanKey !== null}
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#173e2b] px-5 py-3 text-sm font-semibold !text-white transition hover:bg-[#123824] focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {loadingPlanKey === "professional" ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <CreditCard className="h-4 w-4" aria-hidden="true" />}
+                  {loadingPlanKey === "professional" ? "Uppgraderar…" : "Bekräfta och uppgradera"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUpgradeConfirmationOpen(false)}
+                  disabled={loadingPlanKey !== null}
+                  className="min-h-11 rounded-xl border border-[#c8d5ca] bg-white px-5 py-3 text-sm font-semibold text-[#17452f] transition hover:bg-[#f7f9f6] focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Avbryt
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       ) : null}
 
