@@ -3,6 +3,7 @@ import { Bot, CalendarPlus, LayoutList, UserRoundPlus, UserRoundSearch } from "l
 
 import { DashboardDataPanel, DashboardMetricGrid, DashboardPageHeader } from "@/components/dashboard/dashboard-page-ui";
 import { getDashboardLeads, type DashboardLead } from "@/lib/dashboard-leads";
+import { hasDashboardModuleAccess } from "@/lib/workspace-module-access";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +26,11 @@ function getLeadStats(leads: DashboardLead[]) {
 }
 
 export default async function LeadsPage() {
-  const leads = await getDashboardLeads();
+  const [leads, canUseCrm, canUseBooking] = await Promise.all([
+    getDashboardLeads(),
+    hasDashboardModuleAccess("customer_crm"),
+    hasDashboardModuleAccess("online_booking"),
+  ]);
   const stats = getLeadStats(leads);
 
   return (
@@ -33,18 +38,20 @@ export default async function LeadsPage() {
       <DashboardPageHeader
         eyebrow="Leads"
         title="Hantera nya kundförfrågningar"
-        description="Samla inkommande förfrågningar, prioritera nästa kontakt och konvertera intresset till kund eller bokning. Prospekt från kund-CRM visas här och arbetsytan är redo för framtida AI-chattleads."
+        description={canUseCrm
+          ? "Samla inkommande förfrågningar, prioritera nästa kontakt och konvertera intresset till kund eller bokning."
+          : "Samla inkommande förfrågningar och prioritera nästa kontakt. Kundprofiler och full CRM-historik ingår i Professional."}
         icon={UserRoundSearch}
         actions={
           <>
-            <Link href="/dashboard/kunder/ny" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#173e2b] px-4 py-2.5 text-sm font-bold text-white transition hover:-translate-y-0.5 hover:bg-[#0f3020]">
+            {canUseCrm ? <Link href="/dashboard/kunder/ny" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#173e2b] px-4 py-2.5 text-sm font-bold text-white transition hover:-translate-y-0.5 hover:bg-[#0f3020]">
               <UserRoundPlus className="h-4 w-4" aria-hidden="true" />
               Ny kund
-            </Link>
-            <Link href="/dashboard/bokningar/ny" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#d5ddd3] bg-white px-4 py-2.5 text-sm font-bold text-[#17452f] transition hover:-translate-y-0.5 hover:bg-[#f3f6f2]">
+            </Link> : null}
+            {canUseBooking ? <Link href="/dashboard/bokningar/ny" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#d5ddd3] bg-white px-4 py-2.5 text-sm font-bold text-[#17452f] transition hover:-translate-y-0.5 hover:bg-[#f3f6f2]">
               <CalendarPlus className="h-4 w-4" aria-hidden="true" />
               Ny bokning
-            </Link>
+            </Link> : null}
           </>
         }
       />
@@ -53,13 +60,13 @@ export default async function LeadsPage() {
 
       <DashboardDataPanel
         title="Aktiva förfrågningar"
-        description="Prioriterad arbetslista med prospekt från kundregistret. Kunder med status prospekt visas som leads."
+        description={canUseCrm ? "Prioriterad arbetslista med prospekt från kundregistret." : "Prioriterad arbetslista med inkommande förfrågningar."}
         count={leads.length}
       >
         {leads.length === 0 ? (
           <div className="p-5 sm:p-6">
             <div className="rounded-2xl border border-dashed border-[#ced8cc] bg-[#f7f9f6] px-5 py-8 text-center text-sm leading-7 text-[#667168]">
-              Inga aktiva leads hittades. Skapa en kund med status Prospekt så visas den här.
+              {canUseCrm ? "Inga aktiva leads hittades. Skapa en kund med status Prospekt så visas den här." : "Inga aktiva leads hittades. Nya förfrågningar visas här när de kommer in."}
             </div>
           </div>
         ) : (
@@ -115,18 +122,18 @@ export default async function LeadsPage() {
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-wide text-[#8a948d] xl:hidden">Åtgärd</p>
                   <div className="flex flex-wrap gap-2">
-                    <Link
+                    {canUseCrm ? <Link
                       href={lead.profileHref}
                       className="inline-flex min-h-9 items-center justify-center rounded-lg bg-[#173e2b] px-3 py-2 text-xs font-bold text-white transition hover:bg-[#0f3020]"
                     >
                       Visa profil
-                    </Link>
-                    <Link
+                    </Link> : null}
+                    {canUseBooking ? <Link
                       href={lead.bookingHref}
                       className="inline-flex min-h-9 items-center justify-center rounded-lg border border-[#cfdbd1] bg-white px-3 py-2 text-xs font-bold text-[#17452f] transition hover:bg-[#f1f5f2]"
                     >
                       Bokning
-                    </Link>
+                    </Link> : null}
                   </div>
                 </div>
               </div>
