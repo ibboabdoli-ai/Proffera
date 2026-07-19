@@ -436,7 +436,7 @@ export async function sendBookingStatusEmail(input: SendBookingStatusEmailInput)
 export async function sendWorkspaceInvitationEmail(input: SendWorkspaceInvitationEmailInput) {
   const apiKey = process.env.BREVO_API_KEY;
   const from = process.env.LEAD_FROM_EMAIL;
-  if (!apiKey || !from) return { ok: false as const, message: "Brevo är inte konfigurerat." };
+  if (!apiKey || !from) return { ok: false as const, code: "configuration" as const, message: "Brevo är inte konfigurerat." };
 
   const sender = parseSender(from);
   const email = buildWorkspaceInvitationEmail(input);
@@ -454,20 +454,20 @@ export async function sendWorkspaceInvitationEmail(input: SendWorkspaceInvitatio
       }),
     });
     const data = (await response.json().catch(() => ({}))) as BrevoResponse;
-    if (!response.ok) return { ok: false as const, message: data.message ?? data.code ?? "Kunde inte skicka inbjudan." };
+    if (!response.ok) return { ok: false as const, code: "provider" as const, message: data.message ?? data.code ?? "Kunde inte skicka inbjudan." };
     return { ok: true as const, providerId: data.messageId ?? null };
   } catch {
-    return { ok: false as const, message: "Kunde inte kontakta Brevo." };
+    return { ok: false as const, code: "network" as const, message: "Kunde inte kontakta Brevo." };
   }
 }
 
 export async function sendWorkspaceMemberInvitationEmail(input: SendWorkspaceMemberInvitationEmailInput) {
   const apiKey = process.env.BREVO_API_KEY, from = process.env.LEAD_FROM_EMAIL;
-  if (!apiKey || !from) return { ok: false as const, message: "Brevo är inte konfigurerat." };
+  if (!apiKey || !from) return { ok: false as const, code: "configuration" as const, message: "Brevo är inte konfigurerat." };
   const sender = parseSender(from), email = buildWorkspaceMemberInvitationEmail(input);
   try {
     const response = await fetch("https://api.brevo.com/v3/smtp/email", { method: "POST", headers: { "api-key": apiKey, "Content-Type": "application/json" }, body: JSON.stringify({ sender, to: [{ email: input.email, name: input.contactName }], subject: email.subject, textContent: email.text, htmlContent: email.html }) });
     const data = (await response.json().catch(() => ({}))) as BrevoResponse;
-    return response.ok ? { ok: true as const, providerId: data.messageId ?? null } : { ok: false as const, message: data.message ?? "Kunde inte skicka inbjudan." };
-  } catch { return { ok: false as const, message: "Kunde inte kontakta Brevo." }; }
+    return response.ok ? { ok: true as const, providerId: data.messageId ?? null } : { ok: false as const, code: "provider" as const, message: data.message ?? "Kunde inte skicka inbjudan." };
+  } catch { return { ok: false as const, code: "network" as const, message: "Kunde inte kontakta Brevo." }; }
 }
