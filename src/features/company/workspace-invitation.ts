@@ -242,15 +242,11 @@ export async function claimWorkspaceInvitation(token: string, password: string):
         on conflict (workspace_id) do nothing
       `,
       tx`
-        insert into workspace_plans (id, workspace_id, plan_key, status, current_period_start, current_period_end)
-        values (gen_random_uuid(), ${workspaceId}::uuid, 'starter', 'trialing', now(), now() + interval '14 days')
-      `,
-      tx`
         insert into workspace_feature_flags (id, workspace_id, feature_key, enabled)
         values
-          (gen_random_uuid(), ${workspaceId}::uuid, 'booking_demo', true),
-          (gen_random_uuid(), ${workspaceId}::uuid, 'crm_customers', true),
-          (gen_random_uuid(), ${workspaceId}::uuid, 'lead_inbox', true)
+          (gen_random_uuid(), ${workspaceId}::uuid, 'booking_demo', false),
+          (gen_random_uuid(), ${workspaceId}::uuid, 'crm_customers', false),
+          (gen_random_uuid(), ${workspaceId}::uuid, 'lead_inbox', false)
         on conflict (workspace_id, feature_key) do update set enabled = excluded.enabled, updated_at = now()
       `,
       tx`
