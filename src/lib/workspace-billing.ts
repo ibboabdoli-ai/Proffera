@@ -194,9 +194,9 @@ export async function syncWorkspaceSubscription(subscription: Stripe.Subscriptio
       ),
       feature_values (feature_key, enabled) as (
         values
-          ('booking_demo', ${modulesEnabled}),
-          ('crm_customers', ${modulesEnabled}),
-          ('lead_inbox', ${modulesEnabled})
+          ('booking_demo', ${modulesEnabled}::boolean),
+          ('crm_customers', ${modulesEnabled}::boolean),
+          ('lead_inbox', ${modulesEnabled}::boolean)
       )
       insert into workspace_feature_flags (id, workspace_id, feature_key, enabled, created_at, updated_at)
       select gen_random_uuid(), bu.workspace_id, fv.feature_key, fv.enabled, now(), now()
