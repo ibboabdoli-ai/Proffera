@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 
 import { getDashboardStats } from "@/lib/dashboard-db";
-import { getDashboardModuleAccess } from "@/lib/workspace-module-access";
+import { getDashboardEnabledFeatureKeys, getDashboardModuleAccess } from "@/lib/workspace-module-access";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 function countLabel(value: number, singular: string, plural: string) {
@@ -29,7 +29,7 @@ const quickLinks = [
     href: "/dashboard/leads",
     icon: UserRoundSearch,
     label: "Förfrågningar",
-    moduleId: "customer_crm",
+    featureKey: "lead_inbox",
   },
   {
     title: "Kunder",
@@ -66,13 +66,18 @@ const quickLinks = [
 ] as const;
 
 export default async function DashboardPage() {
-  const [moduleAccess, workspaceAccess] = await Promise.all([getDashboardModuleAccess(), getUserWorkspaceAccess()]);
+  const [moduleAccess, enabledFeatures, workspaceAccess] = await Promise.all([getDashboardModuleAccess(), getDashboardEnabledFeatureKeys(), getUserWorkspaceAccess()]);
   const isModuleEnabled = (id: "customer_crm" | "online_booking") => moduleAccess.some((module) => module.id === id && module.isEnabled);
   const canUseCrm = isModuleEnabled("customer_crm");
   const canUseBooking = isModuleEnabled("online_booking");
-  const hasLimitedAccess = !canUseCrm && !canUseBooking;
+  const canUseLeads = enabledFeatures.includes("lead_inbox");
+  const hasLimitedAccess = !canUseCrm && !canUseBooking && !canUseLeads;
   const stats = await getDashboardStats({ includeCustomers: canUseCrm, includeBookings: canUseBooking });
-  const visibleQuickLinks = quickLinks.filter((item) => (!item.moduleId || isModuleEnabled(item.moduleId)) && (item.href !== "/dashboard/installningar" || canManageWorkspaceSettings(workspaceAccess)));
+  const visibleQuickLinks = quickLinks.filter((item) =>
+    (!("moduleId" in item) || !item.moduleId || isModuleEnabled(item.moduleId))
+    && (!("featureKey" in item) || enabledFeatures.includes(item.featureKey))
+    && (item.href !== "/dashboard/installningar" || canManageWorkspaceSettings(workspaceAccess)),
+  );
 
   const overviewStats = [
     ...(canUseCrm ? [{
@@ -99,7 +104,7 @@ export default async function DashboardPage() {
     {
       label: "Arbetsyta",
       value: "Aktiv",
-      text: canUseCrm || canUseBooking ? "Kundportal, leads och bokningar samlade" : "CRM och bokningar är inte aktiverade för arbetsytan",
+      text: canUseCrm || canUseBooking || canUseLeads ? "Kundportal, leads och bokningar samlade" : "Leads, CRM och bokningar är inte aktiverade för arbetsytan",
       icon: ShieldCheck,
       tone: "bg-[#f0ece8] text-[#6d5948]",
     },
@@ -125,8 +130,8 @@ export default async function DashboardPage() {
             </p>
           </div>
 
-          {canUseCrm || canUseBooking ? <div className="flex flex-col gap-3 sm:flex-row">
-            {canUseCrm ? <Link
+          {canUseLeads || canUseBooking ? <div className="flex flex-col gap-3 sm:flex-row">
+            {canUseLeads ? <Link
               href="/dashboard/leads"
               className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-bold text-[#173e2b] transition hover:-translate-y-0.5 hover:bg-[#f3f6f2]"
               style={{ color: "#173e2b" }}
@@ -237,7 +242,7 @@ export default async function DashboardPage() {
                 <span className="mt-0.5 block text-sm leading-5 text-[#6a756d]">Skapa en komplett kundprofil</span>
               </span>
             </Link></> : null}
-            {!canUseCrm && !canUseBooking ? <p className="rounded-xl bg-[#f6f8f5] p-4 text-sm leading-6 text-[#5b665f]">Din arbetsyta har begränsad åtkomst. Kontakta Owner eller Proffera för att aktivera CRM och bokningar.</p> : null}
+            {!canUseCrm && !canUseBooking && !canUseLeads ? <p className="rounded-xl bg-[#f6f8f5] p-4 text-sm leading-6 text-[#5b665f]">Din arbetsyta har begränsad åtkomst. Kontakta Owner eller Proffera för att aktivera Leads, CRM och bokningar.</p> : null}
           </div>
         </aside>
       </section>
