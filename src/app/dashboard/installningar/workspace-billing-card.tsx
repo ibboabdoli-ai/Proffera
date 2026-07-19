@@ -3,6 +3,7 @@
 import { CreditCard, LoaderCircle, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 
+import type { CheckoutPlanKey, CheckoutPlanOption } from "@/lib/billing-plans";
 import type { WorkspaceBillingSummary } from "@/lib/workspace-billing";
 
 const statusLabels = {
@@ -19,21 +20,24 @@ type WorkspaceBillingCardProps = {
   canManage: boolean;
   checkoutConfigured: boolean;
   testMode: boolean;
+  checkoutPlans: CheckoutPlanOption[];
+  preferredPlanKey: CheckoutPlanKey | null;
 };
 
-export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, testMode }: WorkspaceBillingCardProps) {
-  const [isLoading, setIsLoading] = useState(false);
+export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, testMode, checkoutPlans, preferredPlanKey }: WorkspaceBillingCardProps) {
+  const [loadingPlanKey, setLoadingPlanKey] = useState<CheckoutPlanKey | null>(null);
   const [error, setError] = useState("");
   const hasActivePlan = billing.status === "active" || billing.status === "trialing";
 
-  async function startCheckout() {
-    setIsLoading(true);
+  async function startCheckout(planKey: CheckoutPlanKey) {
+    setLoadingPlanKey(planKey);
     setError("");
 
     try {
       const response = await fetch("/api/stripe/checkout", {
         method: "POST",
-        headers: { Accept: "application/json" },
+        headers: { Accept: "application/json", "content-type": "application/json" },
+        body: JSON.stringify({ planKey }),
       });
       const data = (await response.json()) as { url?: string; error?: string };
 
@@ -44,7 +48,7 @@ export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, t
       window.location.assign(data.url);
     } catch (checkoutError) {
       setError(checkoutError instanceof Error ? checkoutError.message : "Betalningssidan kunde inte öppnas.");
-      setIsLoading(false);
+      setLoadingPlanKey(null);
     }
   }
 
@@ -68,7 +72,7 @@ export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, t
       {testMode ? (
         <div className="mt-5 flex items-start gap-3 rounded-2xl bg-[#fdf5dc] p-4 text-sm leading-6 text-[#72520f]" role="note">
           <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
-          <p><strong>Stripe Sandbox:</strong> detta är ett testabonnemang på 1 kr/mån. Inga riktiga pengar dras.</p>
+          <p><strong>Stripe Sandbox:</strong> Stripe använder testpriser i den här miljön. Inga riktiga pengar dras.</p>
         </div>
       ) : null}
 
@@ -83,15 +87,35 @@ export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, t
       ) : null}
 
       {canManage && billing.databaseReady && checkoutConfigured && !hasActivePlan ? (
-        <button
-          type="button"
-          onClick={startCheckout}
-          disabled={isLoading}
-          className="mt-5 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#17452f] px-5 py-3 text-sm font-bold text-white transition hover:bg-[#0e2e1e] focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2 disabled:cursor-wait disabled:opacity-70 sm:w-auto"
-        >
-          {isLoading ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <CreditCard className="h-4 w-4" aria-hidden="true" />}
-          {isLoading ? "Öppnar Stripe…" : testMode ? "Starta testabonnemang" : "Välj Professional"}
-        </button>
+        <div className="mt-5">
+          <p className="text-sm font-semibold text-[#17201a]">Välj plan</p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            {checkoutPlans.map((plan) => {
+              const isLoading = loadingPlanKey === plan.key;
+              const isPreferred = preferredPlanKey === plan.key;
+
+              return (
+                <button
+                  key={plan.key}
+                  type="button"
+                  onClick={() => startCheckout(plan.key)}
+                  disabled={!plan.configured || loadingPlanKey !== null}
+                  className={`rounded-2xl border p-4 text-left transition focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-55 ${isPreferred ? "border-[#17452f] bg-[#eef8f0]" : "border-[#dce5dc] bg-[#fbfcfa] hover:border-[#91c5a2]"}`}
+                >
+                  <span className="flex items-start justify-between gap-3">
+                    <span>
+                      <span className="block text-base font-bold text-[#17201a]">{plan.name}</span>
+                      <span className="mt-1 block text-sm font-semibold text-[#17452f]">{testMode ? "Testpris i Stripe Sandbox" : plan.priceLabel}</span>
+                    </span>
+                    {isLoading ? <LoaderCircle className="h-4 w-4 animate-spin text-[#17452f]" aria-hidden="true" /> : <CreditCard className="h-4 w-4 text-[#17452f]" aria-hidden="true" />}
+                  </span>
+                  <span className="mt-2 block text-sm leading-6 text-[#5b665f]">{plan.configured ? plan.description : "Inte tillgänglig ännu."}</span>
+                  <span className="mt-3 block text-sm font-bold text-[#17452f]">{isLoading ? "Öppnar Stripe…" : plan.configured ? `Välj ${plan.name}` : "Förbereds"}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
       ) : null}
 
       {!canManage ? <p className="mt-5 text-sm text-[#5b665f]">Endast arbetsytans Owner kan starta eller ändra abonnemanget.</p> : null}
