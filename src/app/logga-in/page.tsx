@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { isCheckoutPlanKey } from "@/lib/billing-plans";
 import { LoginForm } from "./LoginForm";
 
 export const metadata: Metadata = {
@@ -13,12 +14,15 @@ export const metadata: Metadata = {
 };
 
 type LoginPageProps = {
-  searchParams?: Promise<{ created?: string | string[] }>;
+  searchParams?: Promise<{ created?: string | string[]; plan?: string | string[] }>;
 };
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
   const params = searchParams ? await searchParams : undefined;
   const createdValue = Array.isArray(params?.created) ? params?.created[0] : params?.created;
+  const planValue = Array.isArray(params?.plan) ? params?.plan[0] : params?.plan;
+  const selectedPlan = isCheckoutPlanKey(planValue) ? planValue : null;
+  const afterLoginPath = selectedPlan ? `/dashboard/installningar?plan=${selectedPlan}` : "/dashboard";
 
   return (
     <main className="relative overflow-hidden bg-[#f7f7f4]">
@@ -66,7 +70,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
               Kontot och kundportalen är klara. Logga in med ditt nya lösenord.
             </p>
           ) : null}
-          <LoginForm />
+          <LoginForm afterLoginPath={afterLoginPath} />
         </div>
       </section>
     </main>
