@@ -82,6 +82,17 @@ export async function POST(request: Request) {
       return jsonError("Stripe-abonnemanget använder ett okänt pris.", 409);
     }
 
+    if (subscription.pending_update) {
+      return NextResponse.json(
+        {
+          pending: true,
+          url: invoiceUrl(subscription.latest_invoice),
+          error: "Slutför den befintliga betalningen innan Professional aktiveras.",
+        },
+        { status: 202, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+
     if (subscriptionItem.price.id === starterPriceId) {
       subscription = await stripe.subscriptions.update(subscriptionId, {
         items: [{ id: subscriptionItem.id, price: professionalPriceId, quantity: subscriptionItem.quantity ?? 1 }],

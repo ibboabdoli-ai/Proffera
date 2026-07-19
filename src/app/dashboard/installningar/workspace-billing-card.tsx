@@ -185,6 +185,8 @@ export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, t
           <div className="mt-3 rounded-xl bg-white p-4 text-sm leading-6 text-[#49554e]" role="note">
             {testMode ? (
               <p><strong className="text-[#17201a]">Testbetalning:</strong> Inga riktiga pengar dras. Stripe registrerar bara uppgraderingen med testpriset.</p>
+            ) : billing.status === "trialing" ? (
+              <p><strong className="text-[#17201a]">Uppgradering under testperiod:</strong> Ingen tidigare Starter-betalning räknas av om testperioden varit kostnadsfri. Stripe beräknar om något ska betalas nu och Professional-priset gäller för kommande betalningsperioder. Det exakta beloppet bekräftas av Stripe.</p>
             ) : (
               <p><strong className="text-[#17201a]">Betalning vid uppgradering:</strong> Stripe räknar av det du redan betalat för Starter och debiterar bara den proportionella prisskillnaden för resten av perioden. Därefter debiteras {professionalPlan.priceLabel.replace("Från ", "")} från nästa betalningsperiod. Det exakta beloppet bekräftas av Stripe.</p>
             )}
