@@ -116,6 +116,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   ]);
   const hasServices = workspaceServices.length > 0;
   const activeServices = workspaceServices.filter((service) => service.isActive).length;
+  const billingIsActive = billing.status === "active" || billing.status === "trialing";
 
   const settings = [
     { label: "Företagsprofil", value: "Namn, kontaktuppgifter, ort och standard CTA", status: "Aktiv" },
@@ -149,7 +150,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
       <WorkspaceMembersCard members={workspaceMembers} invitations={pendingInvitations} canManage={canManageWorkspaceMembers(access)} />
 
       {billingValue === "success" ? <section className="rounded-2xl bg-[#eef8f0] p-5 text-sm font-semibold text-[#17452f] ring-1 ring-[#c9e6d0]" role="status">Betalningen är genomförd. Planen aktiveras så snart Stripe har bekräftat abonnemanget.</section> : null}
-      {billingValue === "cancelled" ? <section className="rounded-2xl bg-[#f7f9f6] p-5 text-sm font-semibold text-[#5b665f] ring-1 ring-[#e0e5dd]" role="status">Betalningen avbröts. Inga ändringar gjordes i arbetsytan.</section> : null}
+      {billingValue === "cancelled" && !billingIsActive ? <section className="rounded-2xl bg-[#f7f9f6] p-5 text-sm font-semibold text-[#5b665f] ring-1 ring-[#e0e5dd]" role="status">Betalningen avbröts. Inga ändringar gjordes i arbetsytan.</section> : null}
 
       <WorkspaceBillingCard
         billing={billing}
