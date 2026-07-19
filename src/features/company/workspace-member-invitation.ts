@@ -16,7 +16,7 @@ export type PendingWorkspaceMemberInvitation = {
   role: EditableWorkspaceRole;
   expiresAt: string;
 };
-type Result = { ok: true } | { ok: false; code: "access" | "invalid" | "exists" | "email" | "expired" | "account" | "database" };
+type Result = { ok: true } | { ok: false; code: "access" | "invalid" | "exists" | "email_configuration" | "email_provider" | "email_network" | "expired" | "account" | "database" };
 
 export async function createWorkspaceMemberInvitation(input: { email: string; memberName: string; role: EditableWorkspaceRole; origin: string }): Promise<Result> {
   const access = await getUserWorkspaceAccess(), sql = getSql();
@@ -32,7 +32,7 @@ export async function createWorkspaceMemberInvitation(input: { email: string; me
       on conflict (workspace_id,email) do update set member_name=excluded.member_name,role=excluded.role,token_hash=excluded.token_hash,status='pending',expires_at=excluded.expires_at,accepted_at=null,created_by_user_id=excluded.created_by_user_id,updated_at=now()
     `;
     const sent = await sendWorkspaceMemberInvitationEmail({ companyName: access.workspaceName, contactName: input.memberName, email: input.email, activationUrl: new URL(`/bjud-in/${token}`, input.origin).toString(), expiresInHours: TTL_HOURS });
-    return sent.ok ? { ok: true } : { ok: false, code: "email" };
+    return sent.ok ? { ok: true } : { ok: false, code: `email_${sent.code}` };
   } catch (error) { console.error("Failed to create member invitation", error); return { ok: false, code: "database" }; }
 }
 
@@ -122,7 +122,7 @@ export async function resendWorkspaceMemberInvitation(id: string, origin: string
       expiresInHours: TTL_HOURS,
     });
 
-    return sent.ok ? { ok: true } : { ok: false, code: "email" };
+    return sent.ok ? { ok: true } : { ok: false, code: `email_${sent.code}` };
   } catch (error) {
     console.error("Failed to resend workspace invitation", error);
     return { ok: false, code: "database" };
