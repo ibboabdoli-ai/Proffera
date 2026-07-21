@@ -161,11 +161,25 @@ async function requestPublicBooking(formData: FormData) {
   if (conflict[0]) redirect(`/boka/${slug}?error=conflict`);
 
   try {
-    const customer = await sql`
-      insert into customers (workspace_id, name, email, phone, city, status, source)
-      values (${String(workspace.id)}, ${name}, ${email || null}, ${phone || null}, ${String(workspace.primary_city ?? "") || null}, 'prospect', 'public_booking')
-      returning id
+    const existingCustomers = await sql`
+      select id
+      from customers
+      where workspace_id = ${String(workspace.id)}
+        and (
+          (${email} <> '' and lower(email) = lower(${email}))
+          or (${phone} <> '' and phone = ${phone})
+        )
+      order by created_at asc
+      limit 1
     `;
+    const existingCustomerId = String(existingCustomers[0]?.id ?? "").trim();
+    const customer = existingCustomerId
+      ? [{ id: existingCustomerId }]
+      : await sql`
+          insert into customers (workspace_id, name, email, phone, city, status, source)
+          values (${String(workspace.id)}, ${name}, ${email || null}, ${phone || null}, ${String(workspace.primary_city ?? "") || null}, 'prospect', 'public_booking')
+          returning id
+        `;
     await sql`
       insert into bookings (workspace_id, customer_id, title, service, city, status, starts_at, ends_at, source)
       values (${String(workspace.id)}, ${String(customer[0]?.id)}, ${serviceName}, ${serviceName}, ${String(workspace.primary_city ?? "") || null}, 'requested', ${start.toISOString()}::timestamptz, ${end.toISOString()}::timestamptz, 'public_booking')
