@@ -148,7 +148,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
       <DashboardPageHeader
         eyebrow="Inställningar"
         title="Styr företagsprofil och tjänsteutbud"
-        description={`Samla uppgifter som påverkar kundflöden, CTA-knappar, tjänster och kommande AI-svar. Aktiv profil: ${workspaceSettings.companyName}, ${workspaceSettings.primaryCity}.`}
+        description={`Samla uppgifter som påverkar kundflöden, CTA-knappar, tjänster och kommande AI-svar. Aktiv profil: ${workspaceSettings.companyName || "Ej angivet"}${workspaceSettings.primaryCity ? `, ${workspaceSettings.primaryCity}` : ""}.`}
         icon={SlidersHorizontal}
       />
 
