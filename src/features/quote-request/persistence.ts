@@ -30,6 +30,23 @@ export async function storeQuoteRequest(input: QuoteRequestInput): Promise<Store
   const referenceId = buildReferenceId();
 
   try {
+    const recentRows = await sql`
+      select reference_id
+      from quote_requests
+      where created_at >= now() - interval '15 minutes'
+        and (
+          lower(contact_email) = lower(${input.contactEmail})
+          or contact_phone = ${input.contactPhone}
+        )
+      order by created_at desc
+      limit 1
+    `;
+    const recentReferenceId = String(recentRows[0]?.reference_id ?? "").trim();
+
+    if (recentReferenceId) {
+      return { ok: true, referenceId: recentReferenceId };
+    }
+
     await sql`
       insert into quote_requests (
         category,

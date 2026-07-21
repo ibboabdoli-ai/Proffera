@@ -56,6 +56,8 @@ function ErrorText({ message }: { message?: string }) {
 export function QuoteRequestForm() {
   const [step, setStep] = useState(0);
   const [formData, setFormData] = useState<QuoteRequestInput>(initialQuoteRequest);
+  const [website, setWebsite] = useState("");
+  const [formStartedAt] = useState(() => Date.now());
   const [errors, setErrors] = useState<QuoteRequestErrors>({});
   const [referenceId, setReferenceId] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -114,7 +116,7 @@ export function QuoteRequestForm() {
     }
 
     startTransition(() => {
-      void submitQuoteRequest(formData).then((result) => {
+      void submitQuoteRequest({ ...formData, website, formStartedAt }).then((result) => {
         if (!result.ok) {
           setErrors(result.errors);
           return;
@@ -143,6 +145,10 @@ export function QuoteRequestForm() {
 
   return (
     <div className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[#dfe5dd] sm:p-8">
+      <label className="absolute left-[-10000px]" aria-hidden="true">
+        Webbplats
+        <input name="website" type="text" tabIndex={-1} autoComplete="off" value={website} onChange={(event) => setWebsite(event.target.value)} />
+      </label>
       <div className="mb-8">
         <div className="flex items-center justify-between gap-4 text-sm font-semibold text-[#17452f]">
           <span>Steg {step + 1} av {steps.length}</span>
