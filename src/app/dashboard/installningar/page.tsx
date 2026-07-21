@@ -20,6 +20,7 @@ import { ServicesReadOnly } from "./services-read-only";
 import { AccountSecurityCard } from "./account-security-card";
 import { WorkspaceMembersCard } from "./workspace-members-card";
 import { WorkspaceBillingCard } from "./workspace-billing-card";
+import { BookingLinkCard } from "./booking-link-card";
 
 export const dynamic = "force-dynamic";
 
@@ -124,6 +125,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   const hasServices = workspaceServices.length > 0;
   const activeServices = workspaceServices.filter((service) => service.isActive).length;
   const billingIsActive = billing.status === "active" || billing.status === "trialing";
+  const bookingUrl = workspaceSettings.publicBookingSlug ? `https://www.proffera.se/boka/${workspaceSettings.publicBookingSlug}` : null;
 
   const settings = [
     { label: "Företagsprofil", value: "Namn, kontaktuppgifter, ort och standard CTA", status: "Aktiv" },
@@ -361,6 +363,8 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
           <button type="submit" className="inline-flex w-full items-center justify-center rounded-xl bg-[#173e2b] px-6 py-3 text-sm font-semibold !text-white transition hover:bg-[#123824] hover:!text-white focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2">Spara bokningstider</button>
         </form>
       </section>
+
+      {bookingUrl ? <BookingLinkCard url={bookingUrl} /> : null}
 
       <ServicesReadOnly services={workspaceServices} />
     </div>
