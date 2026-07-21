@@ -15,10 +15,10 @@ function getSqlClient() {
   return neon(connectionString);
 }
 
-async function getActiveWorkspaceId() {
+async function getActiveWorkspace() {
   const access = await getUserWorkspaceAccess();
   if (!access.ok) throw new Error("A valid workspace membership is required for workspace settings");
-  return access.workspaceId;
+  return { id: access.workspaceId, name: access.workspaceName };
 }
 
 
@@ -50,26 +50,30 @@ export type UpdateDashboardWorkspaceSettingsInput = {
   contactPhone: string;
 };
 
-const fallbackWorkspaceSettings: DashboardWorkspaceSettings = {
-  workspaceId: "default",
-  companyName: "Proffera",
-  primaryCity: "Stockholm",
-  responseTimeGoal: "Inom 24 timmar",
-  defaultCta: "Boka demo",
-  contactEmail: "",
-  contactPhone: "",
-  publicBookingSlug: "",
-};
+function createFallbackWorkspaceSettings(workspaceId: string, workspaceName: string): DashboardWorkspaceSettings {
+  return {
+    workspaceId,
+    companyName: workspaceName,
+    primaryCity: "",
+    responseTimeGoal: "Inom 24 timmar",
+    defaultCta: "Boka demo",
+    contactEmail: "",
+    contactPhone: "",
+    publicBookingSlug: "",
+  };
+}
 
 export async function getDashboardWorkspaceSettings(): Promise<DashboardWorkspaceSettings> {
   const sql = getSqlClient();
+  const workspace = await getActiveWorkspace();
+  const fallbackWorkspaceSettings = createFallbackWorkspaceSettings(workspace.id, workspace.name);
 
   if (!sql) {
     return fallbackWorkspaceSettings;
   }
 
   try {
-    const workspaceId = await getActiveWorkspaceId();
+    const workspaceId = workspace.id;
     const [rows, workspaceRows] = await Promise.all([
       sql`
       select
@@ -81,8 +85,7 @@ export async function getDashboardWorkspaceSettings(): Promise<DashboardWorkspac
         contact_email,
         contact_phone
       from workspace_settings
-      where workspace_id in (${workspaceId}, 'default')
-      order by case when workspace_id = ${workspaceId} then 0 else 1 end
+      where workspace_id = ${workspaceId}
       limit 1
       `,
       sql`
@@ -122,7 +125,8 @@ export async function updateDashboardWorkspaceSettings(input: UpdateDashboardWor
     throw new Error("Missing database connection for workspace settings update");
   }
 
-  const workspaceId = await getActiveWorkspaceId();
+  const workspace = await getActiveWorkspace();
+  const workspaceId = workspace.id;
   const rows = await sql`
     insert into workspace_settings (workspace_id, company_name, primary_city, response_time_goal, default_cta, contact_email, contact_phone)
     values (${workspaceId}, ${input.companyName}, ${input.primaryCity}, ${input.responseTimeGoal}, ${input.defaultCta}, ${input.contactEmail}, ${input.contactPhone})
