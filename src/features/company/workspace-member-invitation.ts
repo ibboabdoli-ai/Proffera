@@ -108,12 +108,6 @@ export async function resendWorkspaceMemberInvitation(id: string, origin: string
 
     const token = randomBytes(32).toString("base64url");
     const expiresAt = new Date(Date.now() + TTL_HOURS * 3600000);
-    await sql`
-      update workspace_member_invitations
-      set token_hash = ${hash(token)}, expires_at = ${expiresAt.toISOString()}::timestamptz, updated_at = now()
-      where id = ${id}::uuid and workspace_id = ${access.workspaceId}::uuid and status = 'pending'
-    `;
-
     const sent = await sendWorkspaceMemberInvitationEmail({
       companyName: access.workspaceName,
       contactName: String(invitation.member_name),
@@ -122,7 +116,16 @@ export async function resendWorkspaceMemberInvitation(id: string, origin: string
       expiresInHours: TTL_HOURS,
     });
 
-    return sent.ok ? { ok: true } : { ok: false, code: `email_${sent.code}` };
+    if (!sent.ok) return { ok: false, code: `email_${sent.code}` };
+
+    const updated = await sql`
+      update workspace_member_invitations
+      set token_hash = ${hash(token)}, expires_at = ${expiresAt.toISOString()}::timestamptz, updated_at = now()
+      where id = ${id}::uuid and workspace_id = ${access.workspaceId}::uuid and status = 'pending' and expires_at > now()
+      returning id
+    `;
+
+    return updated[0]?.id ? { ok: true } : { ok: false, code: "expired" };
   } catch (error) {
     console.error("Failed to resend workspace invitation", error);
     return { ok: false, code: "database" };
