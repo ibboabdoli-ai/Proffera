@@ -170,8 +170,12 @@ export default async function Page({ searchParams }: PageProps) {
                       Onlinebokning och QR
                     </label>
                     <label className="flex min-h-11 items-center gap-3 rounded-xl bg-white px-3 text-sm font-semibold text-[#28362d] ring-1 ring-[#dfe5dd]">
-                      <input name="crm_enabled" type="checkbox" defaultChecked={workspace.crm_customers_enabled && workspace.lead_inbox_enabled} className="h-4 w-4 accent-[#17452f]" />
-                      Kund-CRM och Leads
+                      <input name="leads_enabled" type="checkbox" defaultChecked={workspace.lead_inbox_enabled} className="h-4 w-4 accent-[#17452f]" />
+                      Leads
+                    </label>
+                    <label className="flex min-h-11 items-center gap-3 rounded-xl bg-white px-3 text-sm font-semibold text-[#28362d] ring-1 ring-[#dfe5dd]">
+                      <input name="crm_enabled" type="checkbox" defaultChecked={workspace.crm_customers_enabled} className="h-4 w-4 accent-[#17452f]" />
+                      Kund-CRM
                     </label>
                     <div className="flex min-h-11 items-center justify-between gap-3 rounded-xl bg-[#f2f3f0] px-3 text-sm font-semibold text-[#667168] ring-1 ring-[#dfe5dd]">
                       <span>AI-assistent</span><span className="text-[10px] font-bold uppercase tracking-wide">Planerad</span>

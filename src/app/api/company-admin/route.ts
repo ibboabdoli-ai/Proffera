@@ -56,6 +56,7 @@ export async function POST(request: Request) {
     const planKey = String(formData.get("plan_key") ?? "");
     const planStatus = String(formData.get("plan_status") ?? "");
     const bookingEnabled = formData.get("booking_enabled") === "on";
+    const leadsEnabled = formData.get("leads_enabled") === "on";
     const crmEnabled = formData.get("crm_enabled") === "on";
     const url = new URL("/admin/foretag", request.url);
 
@@ -94,7 +95,7 @@ export async function POST(request: Request) {
           values
             ('booking_demo', ${bookingEnabled}),
             ('crm_customers', ${crmEnabled}),
-            ('lead_inbox', ${crmEnabled})
+            ('lead_inbox', ${leadsEnabled})
         )
         insert into workspace_feature_flags (id, workspace_id, feature_key, enabled, created_at, updated_at)
         select gen_random_uuid(), sw.id, fv.feature_key, fv.enabled, now(), now()
