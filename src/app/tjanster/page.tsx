@@ -5,15 +5,15 @@ import { serviceCategories } from "@/lib/site";
 
 export const metadata: Metadata = {
   title: {
-    absolute: "Tjänster – Digital bokning, CRM och AI-chatt för företag",
+    absolute: "Tjänster – Digital bokning och CRM för företag",
   },
   description:
-    "Utforska Profferas moduler för onlinebokning, leadhantering, kund-CRM, automatiska mejl, QR-bokning och AI-assistent.",
+    "Utforska Profferas moduler för onlinebokning, leadhantering, kund-CRM, automatiska mejl och QR-bokning. AI-assistenten är planerad.",
 };
 
 const highlights = [
   { icon: CalendarCheck, title: "Onlinebokning", text: "Låt kunder boka tid eller skicka förfrågan direkt från företagets webbplats." },
-  { icon: Bot, title: "AI-chattassistent", text: "Svara på vanliga frågor och fånga leads automatiskt, även utanför öppettider." },
+  { icon: Bot, title: "AI-chattassistent (planerad)", text: "Förbereds för framtida kunddialog och leadfångst. Ingår inte i den aktiva portalen ännu." },
   { icon: Users, title: "Kund-CRM", text: "Samla kunduppgifter, historik och uppföljning på ett ställe." },
   { icon: MailCheck, title: "Automatiska mejl", text: "Skicka bekräftelser, interna notifieringar och uppföljningar utan manuellt arbete." },
   { icon: QrCode, title: "QR-bokning", text: "Gör det enkelt att starta bokning från skyltar, visitkort, fordon eller annonser." },
@@ -29,7 +29,7 @@ export default function ServicesPage() {
           Digitala verktyg för tjänsteföretag som vill växa smartare.
         </h1>
         <p className="mt-5 max-w-3xl text-lg leading-8 text-[#5b665f]">
-          Proffera kombinerar bokning, leadhantering, CRM, AI-stöd och automation i ett system byggt för små företag i Sverige.
+          Proffera kombinerar bokning, leadhantering och CRM i ett system byggt för små företag i Sverige. AI-stöd och mer automation byggs vidare stegvis.
         </p>
       </div></section>
 
