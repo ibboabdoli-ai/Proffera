@@ -1,15 +1,15 @@
 import type { Metadata } from "next";
-import { ArrowRight, Bot, CalendarCheck, CheckCircle2, QrCode, Users } from "lucide-react";
+import { ArrowRight, CalendarCheck, CheckCircle2, MailCheck, QrCode, Users } from "lucide-react";
 import { ButtonLink } from "@/components/ui/button-link";
 import { ConversionSections } from "@/components/marketing/conversion-sections";
 import { pricingPlans, serviceCategories, siteConfig } from "@/lib/site";
 
 export const metadata: Metadata = {
   title: {
-    absolute: "Proffera – Bokningssystem, CRM och AI-assistent för tjänsteföretag",
+    absolute: "Proffera – Bokningssystem och CRM för tjänsteföretag",
   },
   description:
-    "Proffera hjälper svenska tjänsteföretag att hantera bokningar, leads, kunder och AI-driven kunddialog i ett enkelt SaaS-system.",
+    "Proffera hjälper svenska tjänsteföretag att hantera bokningar, leads och kunder i ett enkelt SaaS-system.",
 };
 
 const dashboardItems = [
@@ -28,9 +28,9 @@ const benefits = [
     text: "Samla formulär, förfrågningar, bokningar och bekräftelser i ett tydligt arbetsflöde.",
   },
   {
-    icon: Bot,
-    title: "AI som svarar snabbare",
-    text: "Ge besökare svar direkt och fånga upp leads även när företaget är stängt.",
+    icon: MailCheck,
+    title: "Snabbare uppföljning",
+    text: "Få bokningsbekräftelser och kunduppgifter i ett tydligt flöde för enklare återkoppling.",
   },
   {
     icon: Users,
@@ -53,7 +53,7 @@ export default function HomePage() {
             Hantera leads, bokningar och kunddialog i ett smartare system.
           </h1>
           <p className="mt-6 max-w-2xl text-lg leading-8 text-[#526057]">
-            Proffera hjälper små företag i Sverige att ta emot förfrågningar, boka kunder, följa upp leads och använda AI för snabbare kommunikation.
+            Proffera hjälper små företag i Sverige att ta emot förfrågningar, boka kunder och följa upp leads i samma portal.
           </p>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
             <ButtonLink href="/demo">{siteConfig.primaryCta}</ButtonLink>
@@ -147,7 +147,7 @@ export default function HomePage() {
           <QrCode className="relative h-10 w-10" aria-hidden="true" />
           <h2 className="relative mt-5 text-3xl font-bold tracking-tight">Redo att se Proffera i praktiken?</h2>
           <p className="mt-3 max-w-2xl text-white/80">
-            Boka en demo och se hur bokningsflöde, leadhantering, AI-chatt och kundportal kan fungera för svenska tjänsteföretag.
+            Boka en demo och se hur bokningsflöde, leadhantering och kundportal kan fungera för svenska tjänsteföretag.
           </p>
           <div className="relative mt-7">
             <ButtonLink href="/demo" variant="secondary">Boka demo</ButtonLink>

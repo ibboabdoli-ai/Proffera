@@ -5,10 +5,10 @@ import { pricingPlans } from "@/lib/site";
 
 export const metadata: Metadata = {
   title: {
-    absolute: "Priser – Bokningssystem och CRM från 299 kr/mån",
+    absolute: "Priser – Bokningssystem och kund-CRM från 299 kr/mån",
   },
   description:
-    "Välj en Proffera-plan för digital bokning, leadhantering, CRM och AI-stöd. Börja enkelt och väx när företaget behöver mer.",
+    "Välj en Proffera-plan för digital bokning, leadhantering och kund-CRM. Börja enkelt och väx när företaget behöver mer.",
 };
 
 export default function PricingPage() {
@@ -20,7 +20,7 @@ export default function PricingPage() {
           Välj en plan som passar företagets digitala mognad.
         </h1>
         <p className="mt-5 max-w-3xl text-lg leading-8 text-[#5b665f]">
-          Starta enkelt med bokning och formulär. Lägg till AI, CRM och automation när flödet växer.
+          Starta enkelt med bokning och formulär. Lägg till kund-CRM när företaget behöver samla fler kundflöden på ett ställe.
         </p>
       </section>
 

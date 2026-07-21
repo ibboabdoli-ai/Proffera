@@ -9,7 +9,7 @@ export const chatLinks = {
 export const siteConfig = {
   name: "Proffera",
   description:
-    "Proffera är en svensk SaaS-plattform som hjälper små tjänsteföretag att hantera leads, bokningar, kunder och AI-driven kommunikation.",
+    "Proffera är en svensk SaaS-plattform som hjälper små tjänsteföretag att hantera leads, bokningar och kunder i ett tydligt arbetsflöde.",
   url: "https://proffera.se",
   primaryCta: "Boka demo",
   providerCta: "Se priser",
@@ -26,15 +26,15 @@ export const mainNav = [
 
 export const serviceCategories = [
   "Onlinebokning",
-  "AI-chattassistent",
+  "AI-chattassistent (planerad)",
   "QR-bokning",
   "Leadhantering",
   "Kund-CRM",
   "Automatiska bekräftelser",
-  "Påminnelser",
+  "Påminnelser (planerad)",
   "Digitala formulär",
   "Webbplats för företag",
-  "Affärsautomation",
+  "Affärsautomation (planerad)",
 ] as const;
 
 export const pricingPlans = [
@@ -47,8 +47,8 @@ export const pricingPlans = [
   {
     name: "Professional",
     price: "Från 699 kr/mån",
-    description: "För växande företag som vill samla leads, kunder och AI-stöd i ett system.",
-    features: ["Allt i Starter", "AI-chatt", "CRM", "Analysöversikt", "Automatiska bekräftelser"],
+    description: "För växande företag som vill samla leads, kunder och bokningar i ett system.",
+    features: ["Allt i Starter", "Kund-CRM", "Bokningshistorik", "Tjänstekatalog", "Automatiska bokningsbekräftelser"],
   },
   {
     name: "Business",
