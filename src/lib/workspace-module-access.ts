@@ -25,17 +25,28 @@ async function readEnabledFeatureKeys(): Promise<Set<string> | null> {
   if (!sql || !access.ok) return null;
 
   const rows = await sql`
+    with latest_plan as (
+      select wp.plan_key, wp.status
+      from workspace_plans wp
+      where wp.workspace_id = ${access.workspaceId}::uuid
+      order by wp.created_at desc
+      limit 1
+    )
     select feature_key
     from workspace_feature_flags
     where workspace_id = ${access.workspaceId}::uuid
       and enabled = true
-      and (
-        select wp.status
-        from workspace_plans wp
-        where wp.workspace_id = ${access.workspaceId}::uuid
-        order by wp.created_at desc
-        limit 1
-      ) in ('active', 'trialing')
+      and exists (select 1 from latest_plan where status in ('active', 'trialing'))
+
+    union
+
+    -- Professional includes AI Chat. Keeping this derived from the current
+    -- plan also makes the feature available to subscriptions created before
+    -- the AI-specific feature flag existed.
+    select 'ai_assistant'::text as feature_key
+    from latest_plan
+    where plan_key = 'professional'
+      and status in ('active', 'trialing')
   `;
 
   return new Set(rows.map((row) => String(row.feature_key)));
