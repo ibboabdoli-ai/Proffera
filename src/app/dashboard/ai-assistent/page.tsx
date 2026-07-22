@@ -77,23 +77,33 @@ export default async function AiAssistantPage({ searchParams }: AiAssistantPageP
           {canManage ? <a href="/api/ai-chat/activate" className="mt-5 inline-flex rounded-full bg-[#17452f] px-4 py-2.5 text-sm font-semibold !text-white">Aktivera AI Chat</a> : <p className="mt-4 text-sm text-[#5b665f]">Be workspace-owner eller admin att aktivera AI Chat.</p>}
         </section>
       ) : (
-        <section className="grid gap-4 md:grid-cols-3">
-          <a href={panelHref("/app/inbox", integration.tenantId!)} target="_blank" rel="noreferrer" className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
-            <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Kunddialoger</p>
-            <h3 className="mt-2 text-xl font-bold text-[#17201a]">Öppna inbox</h3>
-            <p className="mt-3 text-sm leading-6 text-[#5b665f]">Se chattar och följ upp leads från din egen webbplats.</p>
-          </a>
-          <a href={panelHref("/app/settings", integration.tenantId!)} target="_blank" rel="noreferrer" className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
-            <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">AI och varumärke</p>
-            <h3 className="mt-2 text-xl font-bold text-[#17201a]">Öppna inställningar</h3>
-            <p className="mt-3 text-sm leading-6 text-[#5b665f]">Ställ in svar, språk, tjänster och godkända domäner.</p>
-          </a>
-          <a href={panelHref("/app/widget-install", integration.tenantId!)} target="_blank" rel="noreferrer" className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
-            <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Installation</p>
-            <h3 className="mt-2 text-xl font-bold text-[#17201a]">Hämta widget-kod</h3>
-            <p className="mt-3 text-sm leading-6 text-[#5b665f]">Kopiera den unika widget-koden till din webbplats och testa i demo-läget.</p>
-          </a>
-        </section>
+        <>
+          <section className="grid gap-4 md:grid-cols-3">
+            <a href={panelHref("/app/inbox", integration.tenantId!)} target="_blank" rel="noreferrer" className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
+              <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Kunddialoger</p>
+              <h3 className="mt-2 text-xl font-bold text-[#17201a]">Öppna inbox</h3>
+              <p className="mt-3 text-sm leading-6 text-[#5b665f]">Se chattar och följ upp leads från din egen webbplats.</p>
+            </a>
+            <a href={panelHref("/app/settings", integration.tenantId!)} target="_blank" rel="noreferrer" className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
+              <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">AI och varumärke</p>
+              <h3 className="mt-2 text-xl font-bold text-[#17201a]">Öppna inställningar</h3>
+              <p className="mt-3 text-sm leading-6 text-[#5b665f]">Ställ in svar, språk, tjänster och godkända domäner.</p>
+            </a>
+            <a href={panelHref("/app/widget-install", integration.tenantId!)} target="_blank" rel="noreferrer" className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
+              <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Installation</p>
+              <h3 className="mt-2 text-xl font-bold text-[#17201a]">Hämta widget-kod</h3>
+              <p className="mt-3 text-sm leading-6 text-[#5b665f]">Kopiera den unika widget-koden till din webbplats och testa i demo-läget.</p>
+            </a>
+          </section>
+
+          {canManage ? (
+            <section className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
+              <h3 className="text-lg font-bold text-[#17201a]">Fungerar inte inloggningen?</h3>
+              <p className="mt-2 text-sm leading-6 text-[#5b665f]">Skapa ett nytt lösenord för AI Chat. Din Proffera-inloggning, prenumeration och kunddialoger påverkas inte.</p>
+              <a href="/api/ai-chat/activate" className="mt-4 inline-flex rounded-full border border-[#17452f] px-4 py-2.5 text-sm font-semibold text-[#17452f]">Återställ lösenord för AI Chat</a>
+            </section>
+          ) : null}
+        </>
       )}
     </div>
   );
