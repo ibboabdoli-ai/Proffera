@@ -6,6 +6,7 @@ import { getSql } from "@/lib/db/server";
 import { sendBookingConfirmationEmail, sendBookingOwnerNotificationEmail } from "@/features/email/lead-email";
 import { sendBookingOwnerSms } from "@/features/sms/booking-sms";
 import { allowPublicSubmission } from "@/lib/public-form-protection";
+import { BookingAiChatWidget } from "@/components/service-ai-chat-widget";
 
 import { BookingRequestForm } from "./booking-request-form";
 import { JuliusBookingDemo } from "@/components/salon/julius-booking-demo";
@@ -279,6 +280,7 @@ export default async function PublicBookingPage({ params, searchParams }: PagePr
   let services: Array<Record<string, unknown>> = [];
   let publishedHours: Array<Record<string, unknown>> = [];
   let busyBookings: Array<Record<string, unknown>> = [];
+  let aiChatClientId: string | null = null;
 
   try {
     const workspaces = await sql`
@@ -320,6 +322,27 @@ export default async function PublicBookingPage({ params, searchParams }: PagePr
 
   if (!workspace) return <Unavailable />;
 
+  // Booking pages are public, so only an explicitly active integration may
+  // provide a widget client id. This keeps every conversation in the
+  // booking company's own tenant and hides the widget after suspension.
+  try {
+    const integrations = await sql`
+      select remote_client_id
+      from workspace_ai_chat_integrations
+      where workspace_id = ${String(workspace.id)}::uuid
+        and lifecycle_state = 'active'
+      limit 1
+    `;
+    const clientId = String(integrations[0]?.remote_client_id ?? "").trim();
+    aiChatClientId = clientId || null;
+  } catch (error) {
+    // A booking page must still work if an older environment has not yet
+    // received the optional AI integration migration.
+    console.error("Failed to read booking page AI Chat integration", error);
+  }
+
+  const bookingAiChatWidget = aiChatClientId ? <BookingAiChatWidget clientId={aiChatClientId} /> : null;
+
   const error = bookingErrors[firstParam(query?.error) ?? ""];
   const booked = firstParam(query?.booked) === "1";
   const hasServices = services.length > 0;
@@ -337,26 +360,29 @@ export default async function PublicBookingPage({ params, searchParams }: PagePr
 
   if (slug === "julius-salong") {
     return (
-      <JuliusBookingDemo
-        live
-        bookingContent={(
-          <div className="mt-6 rounded-[1.7rem] bg-white p-4 text-[#17201a] shadow-2xl lg:mt-0 lg:p-6">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-wide text-[#17452f]">Boka online</p>
-                <h2 className="mt-1 text-2xl font-black">Boka hos Elias</h2>
+      <>
+        <JuliusBookingDemo
+          live
+          bookingContent={(
+            <div className="mt-6 rounded-[1.7rem] bg-white p-4 text-[#17201a] shadow-2xl lg:mt-0 lg:p-6">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wide text-[#17452f]">Boka online</p>
+                  <h2 className="mt-1 text-2xl font-black">Boka hos Elias</h2>
+                </div>
+                <span className="rounded-full bg-[#e7f1eb] px-3 py-1 text-xs font-bold text-[#17452f]">Riktiga tider</span>
               </div>
-              <span className="rounded-full bg-[#e7f1eb] px-3 py-1 text-xs font-bold text-[#17452f]">Riktiga tider</span>
+              <p className="mt-4 rounded-2xl bg-[#e7f1eb] px-4 py-3 text-xs font-bold leading-5 text-[#17452f]">
+                Välj tjänst och en ledig tid. Julius Salong bekräftar din bokningsförfrågan separat.
+              </p>
+              {booked ? <p role="status" className="mt-4 rounded-2xl bg-[#eef8f0] p-4 text-sm font-semibold text-[#17452f] ring-1 ring-[#c9e6d0]">Tack! Din bokningsförfrågan är mottagen. En bekräftelse har skickats via e-post.</p> : null}
+              {error ? <p role="alert" className="mt-4 rounded-2xl bg-[#fff5f2] p-4 text-sm font-semibold text-[#8f2f1b] ring-1 ring-[#f4c7ba]">{error}</p> : null}
+              {bookingForm ?? <p className="mt-5 rounded-2xl bg-[#f7f9f6] p-4 text-sm text-[#5b665f]">Bokningen förbereds. Försök igen senare.</p>}
             </div>
-            <p className="mt-4 rounded-2xl bg-[#e7f1eb] px-4 py-3 text-xs font-bold leading-5 text-[#17452f]">
-              Välj tjänst och en ledig tid. Julius Salong bekräftar din bokningsförfrågan separat.
-            </p>
-            {booked ? <p role="status" className="mt-4 rounded-2xl bg-[#eef8f0] p-4 text-sm font-semibold text-[#17452f] ring-1 ring-[#c9e6d0]">Tack! Din bokningsförfrågan är mottagen. En bekräftelse har skickats via e-post.</p> : null}
-            {error ? <p role="alert" className="mt-4 rounded-2xl bg-[#fff5f2] p-4 text-sm font-semibold text-[#8f2f1b] ring-1 ring-[#f4c7ba]">{error}</p> : null}
-            {bookingForm ?? <p className="mt-5 rounded-2xl bg-[#f7f9f6] p-4 text-sm text-[#5b665f]">Bokningen förbereds. Försök igen senare.</p>}
-          </div>
-        )}
-      />
+          )}
+        />
+        {bookingAiChatWidget}
+      </>
     );
   }
 
@@ -383,6 +409,7 @@ export default async function PublicBookingPage({ params, searchParams }: PagePr
           <p className="mt-8 rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4 text-sm text-[#5b665f]">Företaget förbereder onlinebokning. Kom tillbaka snart.</p>
         )}
       </section>
+      {bookingAiChatWidget}
     </main>
   );
 }

@@ -2,6 +2,7 @@ import "server-only";
 
 import { getSql } from "@/lib/db/server";
 import { signServiceAiChatRequest } from "@/lib/service-ai-chat-signature";
+import { siteConfig } from "@/lib/site";
 
 export type AiChatLifecycle = "active" | "suspended";
 
@@ -142,7 +143,10 @@ export async function syncWorkspaceAiChat(input: { workspaceId: string; enabled:
     workspaceId: input.workspaceId,
     workspaceName: identity.name,
     ownerEmail: identity.ownerEmail,
-    website: "",
+    // Every Proffera booking page lives on this trusted origin. The remote
+    // tenant must allow it so its own widget can load from the customer's
+    // QR/link booking page without falling back to Proffera's marketing bot.
+    website: siteConfig.url,
     lifecycle,
   });
 
