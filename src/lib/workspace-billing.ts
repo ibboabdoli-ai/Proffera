@@ -4,6 +4,7 @@ import type Stripe from "stripe";
 
 import { type CheckoutPlanKey } from "@/lib/billing-plans";
 import { getSql } from "@/lib/db/server";
+import { syncWorkspaceAiChat } from "@/lib/service-ai-chat-bridge";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -206,7 +207,8 @@ export async function syncWorkspaceSubscription(
         values
           ('booking_demo', ${modulesEnabled}::boolean),
           ('crm_customers', ${customerCrmEnabled}::boolean),
-          ('lead_inbox', ${modulesEnabled}::boolean)
+          ('lead_inbox', ${modulesEnabled}::boolean),
+          ('ai_assistant', ${customerCrmEnabled}::boolean)
       )
       insert into workspace_feature_flags (id, workspace_id, feature_key, enabled, created_at, updated_at)
       select gen_random_uuid(), bu.workspace_id, fv.feature_key, fv.enabled, now(), now()
@@ -217,7 +219,23 @@ export async function syncWorkspaceSubscription(
       returning workspace_id
     `;
 
-    return rows.length > 0 ? { ok: true as const } : { ok: false as const, code: "stale" as const };
+    if (rows.length === 0) return { ok: false as const, code: "stale" as const };
+
+    // AI Chat is deliberately a separate service. A temporary remote failure
+    // must never make Stripe retry an already-persisted billing update.
+    try {
+      const aiChatResult = await syncWorkspaceAiChat({ workspaceId, enabled: customerCrmEnabled });
+      if (!aiChatResult.ok) {
+        console.error("Failed to synchronise AI Chat entitlement", {
+          workspaceId,
+          code: aiChatResult.code,
+        });
+      }
+    } catch (error) {
+      console.error("AI Chat entitlement synchronisation crashed", { workspaceId, error });
+    }
+
+    return { ok: true as const };
   } catch (error) {
     console.error("Failed to sync Stripe subscription", error);
     return { ok: false as const, code: "database" as const };
