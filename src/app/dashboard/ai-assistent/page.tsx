@@ -5,7 +5,7 @@ import { getWorkspaceAiChatIntegration, isServiceAiChatBridgeConfigured } from "
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 type AiAssistantPageProps = {
-  searchParams?: Promise<{ error?: string }>;
+  searchParams?: Promise<{ error?: string; synced?: string }>;
 };
 
 const errorMessages: Record<string, string> = {
@@ -46,13 +46,14 @@ export default async function AiAssistantPage({ searchParams }: AiAssistantPageP
               {active ? "Aktiv" : eligible ? "Redo att aktiveras" : "Ingår inte i planen"}
             </p>
             <p className="mt-3 text-sm leading-7 text-white/75">
-              {active ? "AI Chat är kopplad till din workspace och redo för inställning och installation." : "AI Chat aktiveras först när en Professional-prenumeration är aktiv."}
+              {active ? "AI Chat är kopplad till din workspace och visas automatiskt på din publika bokningssida." : "AI Chat aktiveras först när en Professional-prenumeration är aktiv."}
             </p>
           </aside>
         </div>
       </section>
 
       {params.error ? <p className="rounded-2xl bg-[#fff3e8] p-4 text-sm font-semibold text-[#8a3d12]">{errorMessages[params.error] ?? "Något gick fel. Försök igen."}</p> : null}
+      {params.synced === "booking" ? <p className="rounded-2xl bg-[#eef8f0] p-4 text-sm font-semibold text-[#17452f]">Bokningssidan är nu kopplad till din egen AI Chat.</p> : null}
 
       {!access.ok ? (
         <section className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
@@ -95,7 +96,7 @@ export default async function AiAssistantPage({ searchParams }: AiAssistantPageP
               <p className="mt-3 text-sm leading-6 text-[#5b665f]">Kopiera den unika widget-koden till din webbplats och testa i demo-läget.</p>
             </a>
           </section>
-
+          {canManage ? <a href="/api/ai-chat/sync-booking-page" className="w-fit text-sm font-semibold text-[#17452f] underline underline-offset-4">Synka AI Chat med bokningssidan</a> : null}
           {canManage ? (
             <section className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
               <h3 className="text-lg font-bold text-[#17201a]">Fungerar inte inloggningen?</h3>
