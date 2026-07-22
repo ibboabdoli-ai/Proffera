@@ -9,7 +9,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@neondatabase/serverless": "latest",
@@ -34,6 +36,7 @@
     "eslint-config-next": "16.2.2",
     "tailwindcss": "latest",
     "typescript": "5.9.3",
+    "vitest": "4.1.10",
     "@types/qrcode": "^1.5.5"
   }
 }

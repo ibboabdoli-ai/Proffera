@@ -20,7 +20,7 @@ export default async function ThanksPage({ searchParams }: PageProps) {
         <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#17452f]">Företag</p>
         <h1 className="mt-4 text-4xl font-bold text-[#17201a]">Tack! Ansökan är mottagen.</h1>
         <p className="mt-4 text-[#5b665f]">
-          Vi har tagit emot uppgifterna och granskar företaget innan det kan ta emot matchade förfrågningar.
+          Vi har tagit emot uppgifterna och återkommer om nästa steg för demo eller installation.
         </p>
         {reference ? (
           <p className="mt-6 rounded-2xl bg-[#eef5ef] p-4 font-semibold text-[#17452f]">

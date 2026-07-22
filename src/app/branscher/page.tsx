@@ -21,12 +21,12 @@ export default function IndustriesPage() {
           Proffera för bokningsbara tjänsteföretag i flera branscher.
         </h1>
         <p className="mt-5 max-w-3xl text-lg leading-8 text-[#5b665f]">
-          Proffera börjar med städning och lokalvård, men är byggt för att kunna växa till fler tjänstebranscher som behöver bokning, CRM, leads och AI-driven kunddialog.
+          Proffera börjar med städning och lokalvård, men är byggt för fler tjänstebranscher som behöver bokning, kundhantering och tydlig uppföljning.
         </p>
         <div className="mt-8 flex flex-wrap gap-3 text-sm font-medium text-[#314139]">
           <span className="rounded-full bg-white px-4 py-2 ring-1 ring-[#dfe5dd]">{serviceTaxonomy.length} huvudkategorier</span>
           <span className="rounded-full bg-white px-4 py-2 ring-1 ring-[#dfe5dd]">{totalServices} tjänster</span>
-          <span className="rounded-full bg-white px-4 py-2 ring-1 ring-[#dfe5dd]">SaaS + bokning + CRM + AI</span>
+          <span className="rounded-full bg-white px-4 py-2 ring-1 ring-[#dfe5dd]">SaaS + bokning + CRM</span>
         </div>
       </section>
 
@@ -65,7 +65,7 @@ export default function IndustriesPage() {
             <p className="text-sm font-semibold uppercase tracking-wide text-[#cfe8d5]">Nästa steg</p>
             <h2 className="mt-3 max-w-2xl text-3xl font-bold">Vill du se hur Proffera kan fungera för din bransch?</h2>
             <p className="mt-4 max-w-2xl text-sm leading-6 text-[#d9e6dc]">
-              Boka en demo så kan vi visa hur bokning, leadhantering, kundregister och AI-dialog kan anpassas för olika tjänsteföretag.
+              Boka en demo så kan vi visa hur bokning, leadhantering och kundregister kan anpassas för olika tjänsteföretag.
             </p>
           </div>
           <div className="mt-8 lg:mt-0">

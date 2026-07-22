@@ -51,6 +51,9 @@ export async function storeCompanyRegistration(input: CompanyRegistrationInput):
         service_areas,
         services,
         description,
+        consent_accepted,
+        consent_version,
+        consent_recorded_at,
         status
       ) values (
         ${referenceId},
@@ -63,6 +66,9 @@ export async function storeCompanyRegistration(input: CompanyRegistrationInput):
         ${input.serviceAreas},
         ${input.services},
         ${input.description},
+        ${input.consentAccepted},
+        '2026-07-22',
+        now(),
         'pending'
       )
     `;

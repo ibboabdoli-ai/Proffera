@@ -1,9 +1,11 @@
 import { MapPin } from "lucide-react";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { getSql } from "@/lib/db/server";
 import { sendBookingConfirmationEmail, sendBookingOwnerNotificationEmail } from "@/features/email/lead-email";
 import { sendBookingOwnerSms } from "@/features/sms/booking-sms";
+import { allowPublicSubmission } from "@/lib/public-form-protection";
 
 import { BookingRequestForm } from "./booking-request-form";
 import { JuliusBookingDemo } from "@/components/salon/julius-booking-demo";
@@ -25,6 +27,7 @@ const bookingErrors: Record<string, string> = {
   hours: "Tiden ligger utanför företagets bokningstider.",
   hours_missing: "Företaget har inte publicerat sina bokningstider ännu.",
   conflict: "Tiden hann precis bli bokad. Välj gärna en annan tid.",
+  rate_limit: "För många försök. Vänta en stund och försök igen.",
 };
 
 function firstParam(value: string | string[] | undefined) {
@@ -77,9 +80,15 @@ async function requestPublicBooking(formData: FormData) {
   const serviceName = String(formData.get("service") ?? "").trim();
   const startsAt = String(formData.get("starts_at") ?? "").trim();
   const website = String(formData.get("website") ?? "").trim();
+  const formStartedAt = Number(formData.get("form_started_at"));
   const sql = getSql();
 
   if (website) redirect(`/boka/${slug}?booked=1`);
+
+  const elapsed = Date.now() - formStartedAt;
+  if (!Number.isFinite(elapsed) || elapsed < 2_500 || elapsed > 24 * 60 * 60 * 1_000) {
+    redirect(`/boka/${slug}?error=rate_limit`);
+  }
 
   const isValidEmail = !email || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   if (name.length > 160 || email.length > 180 || phone.length > 80 || serviceName.length > 140 || startsAt.length > 32 || !isValidEmail) {
@@ -117,6 +126,15 @@ async function requestPublicBooking(formData: FormData) {
   `;
   const workspace = workspaces[0];
   if (!workspace) redirect(`/boka/${slug}?error=unavailable`);
+
+  const allowed = await allowPublicSubmission({
+    scope: "public_booking",
+    requestHeaders: await headers(),
+    identity: `${slug}:${email}:${phone}`,
+    maxAttempts: 5,
+    windowSeconds: 15 * 60,
+  });
+  if (!allowed) redirect(`/boka/${slug}?error=rate_limit`);
 
   const services = await sql`
     select name, duration_minutes
@@ -161,28 +179,49 @@ async function requestPublicBooking(formData: FormData) {
   if (conflict[0]) redirect(`/boka/${slug}?error=conflict`);
 
   try {
-    const existingCustomers = await sql`
-      select id
-      from customers
-      where workspace_id = ${String(workspace.id)}
-        and (
-          (${email} <> '' and lower(email) = lower(${email}))
-          or (${phone} <> '' and phone = ${phone})
-        )
-      order by created_at asc
-      limit 1
-    `;
-    const existingCustomerId = String(existingCustomers[0]?.id ?? "").trim();
-    const customer = existingCustomerId
-      ? [{ id: existingCustomerId }]
-      : await sql`
-          insert into customers (workspace_id, name, email, phone, city, status, source)
-          values (${String(workspace.id)}, ${name}, ${email || null}, ${phone || null}, ${String(workspace.primary_city ?? "") || null}, 'prospect', 'public_booking')
-          returning id
-        `;
     await sql`
+      with existing_customer as (
+        select id
+        from customers
+        where workspace_id = ${String(workspace.id)}
+          and (
+            (${email} <> '' and lower(email) = lower(${email}))
+            or (${phone} <> '' and phone = ${phone})
+          )
+        order by created_at asc
+        limit 1
+      ),
+      created_customer as (
+        insert into customers (workspace_id, name, email, phone, city, status, source)
+        select
+          ${String(workspace.id)},
+          ${name},
+          ${email || null},
+          ${phone || null},
+          ${String(workspace.primary_city ?? "") || null},
+          'prospect',
+          'public_booking'
+        where not exists (select 1 from existing_customer)
+        returning id
+      ),
+      selected_customer as (
+        select id from existing_customer
+        union all
+        select id from created_customer
+      )
       insert into bookings (workspace_id, customer_id, title, service, city, status, starts_at, ends_at, source)
-      values (${String(workspace.id)}, ${String(customer[0]?.id)}, ${serviceName}, ${serviceName}, ${String(workspace.primary_city ?? "") || null}, 'requested', ${start.toISOString()}::timestamptz, ${end.toISOString()}::timestamptz, 'public_booking')
+      select
+        ${String(workspace.id)},
+        selected_customer.id,
+        ${serviceName},
+        ${serviceName},
+        ${String(workspace.primary_city ?? "") || null},
+        'requested',
+        ${start.toISOString()}::timestamptz,
+        ${end.toISOString()}::timestamptz,
+        'public_booking'
+      from selected_customer
+      returning id
     `;
   } catch (error) {
     console.error("Failed to create public booking", error);

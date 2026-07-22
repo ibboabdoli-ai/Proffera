@@ -2,6 +2,8 @@
 
 import { storeQuoteRequest } from "./persistence";
 import { quoteRequestSchema, type QuoteRequestErrors, type QuoteRequestInput } from "./schema";
+import { headers } from "next/headers";
+import { allowPublicSubmission } from "@/lib/public-form-protection";
 
 type QuoteRequestSubmission = QuoteRequestInput & {
   website?: string;
@@ -38,6 +40,18 @@ export async function submitQuoteRequest(input: QuoteRequestSubmission): Promise
     }
 
     return { ok: false, errors };
+  }
+
+  const allowed = await allowPublicSubmission({
+    scope: "quote_request",
+    requestHeaders: await headers(),
+    identity: `${parsed.data.contactEmail}:${parsed.data.contactPhone}`,
+    maxAttempts: 3,
+    windowSeconds: 15 * 60,
+  });
+
+  if (!allowed) {
+    return { ok: false, errors: { form: "För många försök. Vänta en stund och försök igen." } };
   }
 
   const result = await storeQuoteRequest(parsed.data);

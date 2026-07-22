@@ -55,24 +55,31 @@ export async function POST(request: Request) {
     const existing = rows[0];
     const existingStatus = existing?.status ? String(existing.status) : "";
 
-    if (existing?.stripe_subscription_id && existingStatus !== "cancelled") {
-      return jsonError("Arbetsytan har redan ett abonnemang. Vänta på att Stripe uppdaterar statusen.", 409);
-    }
-
     const existingSessionId = existingStatus !== "cancelled" && existing?.stripe_checkout_session_id
       ? String(existing.stripe_checkout_session_id)
       : "";
 
-    if (existingSessionId && String(existing?.stripe_price_id ?? "") === priceId) {
+    if (existingSessionId) {
       const existingSession = await stripe.checkout.sessions.retrieve(existingSessionId);
 
       if (existingSession.status === "open" && existingSession.url) {
-        return NextResponse.json({ url: existingSession.url }, { headers: { "Cache-Control": "no-store" } });
+        if (String(existing?.stripe_price_id ?? "") === priceId) {
+          return NextResponse.json({ url: existingSession.url }, { headers: { "Cache-Control": "no-store" } });
+        }
+
+        // A previous open session for another plan can still be completed after
+        // a replacement checkout is created. Expire it first so one workspace
+        // cannot create two concurrent subscriptions.
+        await stripe.checkout.sessions.expire(existingSessionId);
       }
 
       if (existingSession.status === "complete") {
         return jsonError("Betalningen är klar och väntar på bekräftelse från Stripe.", 409);
       }
+    }
+
+    if (existing?.stripe_subscription_id && existingStatus !== "cancelled") {
+      return jsonError("Arbetsytan har redan ett abonnemang. Hantera betalningen via Stripe-portalen.", 409);
     }
 
     const customerId = existing?.stripe_customer_id ? String(existing.stripe_customer_id) : undefined;

@@ -1,143 +1,127 @@
-# Proffera Master Plan
+# Proffera Master Plan — Controlled Paid Launch
 
-## Product direction
+Last updated: 2026-07-22
 
-Proffera is the parent SaaS product for Swedish service businesses. It is evolving from a working lead/offert marketplace MVP into a professional platform for booking, CRM, customers, leads, automation, analytics, workspace settings, service management, and future AI support.
+## Goal
 
-Target customers:
+Ship Proffera as a controlled, paid SaaS for Swedish service businesses.
+The release scope is booking, lead handling, customer CRM, workspace access,
+team invitations, and Stripe subscriptions. AI chat stays a separate,
+explicitly planned integration until tenant delivery is verified.
 
-- Small and growing Swedish service businesses.
-- Appointment-based and local service companies.
-- Teams that need a simple system for inquiries, bookings, customer history, services, and follow-up.
+## Product position
 
-Product promise:
+Proffera is a SaaS platform, not a public lead marketplace.
 
-- Capture leads and bookings online.
-- Manage customers, bookings, services, and follow-up in one workspace.
-- Reduce manual administration.
-- Add AI-assisted communication only when security, tenant isolation, and core workflows are stable.
+- **Starter:** public booking, contact forms, and lead inbox.
+- **Professional:** Starter plus customer CRM, booking history, and service catalog.
+- **Business:** a sales-led offer for multi-team or customised needs.
+- **AI assistant, reminders, analytics, and automation:** planned; do not sell or
+  describe them as active modules until they are delivered and verified.
 
-## Core modules
+The public Demo flow is an enquiry for a SaaS demo. It must not promise that
+the applicant will receive marketplace-style matched requests.
 
-- Leads and lead delivery
-- Customers and CRM history
-- Bookings and booking status
-- Workspace services
-- Workspace and company settings
-- Analytics and operational overview
-- AI assistant / inbox entry points
-- Customer login and workspace access
+## Release gates
 
-## Current status
+No phase may be marked complete until its verification checks pass. Do not
+begin the following phase with known failures in the current phase.
 
-See [`CURRENT_STATUS.md`](CURRENT_STATUS.md) for completed phases, production status, current risks, and the recommended next safe step.
+| Phase | Outcome | Required verification |
+| --- | --- | --- |
+| 0. Baseline | Scope, risks, docs, and rollback point are current | Clean branch, baseline lint/typecheck/build, documented checklist |
+| 1. Billing safety | Stripe cannot create duplicate subscriptions or apply stale entitlement state | Unit/integration coverage where feasible, Stripe event ordering review, lint/typecheck/build |
+| 2. Public write safety | Demo, company, quote, and booking inputs resist spam and preserve consent/audit data | Server validation, rate limits, database migration review, lint/typecheck/build |
+| 3. Product truth | Site copy, CTA journey, SEO, pricing, and legal content match live capabilities | Route review and public-page smoke check |
+| 4. Delivery quality | CI, tests, environment docs, operations docs, and release checklist are reliable | CI validates lint/typecheck/build/tests and docs are current |
+| 5. Release verification | A controlled pilot flow is proven end to end | Manual checklist in Preview/Sandbox; no real payment or customer data without approval |
 
-## Architecture decision: Proffera owns customer login
+## Phase 0 — Baseline and release checklist
 
-The public `Logga in` route belongs to Proffera and should remain on `proffera.se`.
+- Record the production commit and rollback branch.
+- Establish a local reproducible toolchain and run lint, typecheck, and build.
+- Keep this plan, `CURRENT_STATUS.md`, `ROADMAP.md`, and `TEST_CHECKLIST.md`
+  aligned with the code.
+- Do not treat historical phase documents as the current source of truth.
 
-Current state:
+## Phase 1 — Stripe billing safety
 
-- `/logga-in` is a Proffera customer portal entry placeholder.
-- `/dashboard` has temporary Basic Auth protection.
-- Real authentication, sessions, roles, customer accounts, subscription access and workspace binding are not implemented yet.
-- Service AI Chat must not become the Proffera customer account/login system.
+### Must be true before paid launch
 
-Planned auth direction:
+- A stale or out-of-order webhook cannot overwrite a newer subscription state.
+- A second Checkout Session cannot leave a previous session payable for another plan.
+- The customer portal handles payment recovery, cancellation, and invoices without
+  showing a CTA that always fails.
+- QR booking links are shown only when the public booking route is actually live.
+- Stripe webhook events are traceable and idempotent.
 
-- Use Better Auth with PostgreSQL/Neon for authentication and sessions.
-- Keep Proffera-owned workspace, membership, role, plan/subscription and business authorization tables.
-- Do not replace Proffera's workspace model with Service AI Chat or a third-party organization model.
+### Protected flows
 
-Long-term direction:
+- Owner-only checkout, upgrade, and portal access.
+- Stripe signature verification.
+- Workspace-to-subscription binding.
+- Feature flags derived from a confirmed subscription.
 
-- Customer identity and workspace access should be derived from a trusted authenticated Proffera session.
-- The dashboard should be protected before real customer data is used.
-- `workspace_id = 'default'` must be replaced before real multi-tenant onboarding.
+## Phase 2 — Public write safety and data handling
 
-## Architecture decision: Service AI Chat stays separate
+### Must be true before public acquisition
 
-Service AI Chat is a separate chat/widget/inbox/lead-capture engine in `ibboabdoli-ai/service-ai-chat`.
+- Every public write has server-side schema validation, rate limiting, and a spam
+  control appropriate to the form.
+- Demo/company consent acceptance and policy version are stored with the request.
+- A successful demo/company request produces an operational notification or a
+  reliable inbox task.
+- Booking database constraints remain the final protection against overlap.
+- Failed booking inserts do not leave unwanted orphan customer records.
+- Public-form errors are normal validation responses, not server errors.
 
-It must not be fully merged into Proffera now.
+## Phase 3 — Product truth, legal, and conversion
 
-Reasons:
+### Must be true before public sales
 
-- Lower implementation and deployment risk.
-- Cleaner rollback.
-- Separate database boundaries.
-- Reduced risk of tenant-data conflicts.
-- Avoid breaking the Proffera production website and dashboard.
-- Keep both systems independently stable.
+- Public copy states only what is active in the paid product.
+- Demo CTA, confirmation page, and sales workflow describe one coherent SaaS
+  onboarding journey.
+- Pricing titles and structured metadata match the actual plan entitlements.
+- Footer, Open Graph, FAQ, contact page, services page, and default metadata use
+  the same product promise.
+- Terms, privacy policy, cookies, subscription cancellation, and processor list
+  are reviewed and match the implemented Stripe/Brevo/Neon/Vercel/AI-chat setup.
 
-Current integration model:
+## Phase 4 — Engineering and operations
 
-- Domain: `chat.proffera.se`
-- Tenant/client ID: `proffera`
-- Widget installed on Proffera public site.
-- Widget can show and answer, but message/lead persistence into the Proffera inbox still needs final verification.
+- Pin runtime and dependency versions through a lockfile and deterministic install.
+- CI runs lint, TypeScript, build, and focused tests.
+- Add `.env.example` without secrets and a production environment checklist.
+- Add tests for billing event ordering, checkout session replacement, public forms,
+  module access, and booking conflicts.
+- Keep a small active-branch policy; archive obsolete backup branches only after
+  verifying they are no longer required for rollback.
 
-Tenant isolation rule:
+## Phase 5 — Controlled release verification
 
-- Proffera messages and leads must go only to tenant/client `proffera`.
-- Iboren and Proffera messages or leads must never be mixed.
+Run in a Vercel Preview and Stripe Sandbox:
 
-## Service AI Chat integration roadmap
+1. Submit a Demo request and verify consent, notification, and deduplication.
+2. Create/invite a workspace member and verify role-scoped access.
+3. Start Starter checkout, confirm webhook entitlement, and open the portal.
+4. Create a public booking and verify confirmation, owner notification, and no
+   duplicate time slot.
+5. Upgrade to Professional and verify CRM access.
+6. Cancel at period end and verify the correct access state.
+7. Test duplicate, delayed, and out-of-order Stripe webhook events.
+8. Verify Service AI Chat traffic stays in the `proffera` tenant only.
 
-- **P-01:** Test tenant `proffera` on `chat.proffera.se`.
-- **P-02:** Install the widget on the Proffera website. Status: implemented.
-- **P-03:** Send a test message/lead and verify it appears only in the Proffera inbox. Status: open.
-- **P-04:** Add an AI Chat / Inbox link inside the Proffera dashboard.
-- **P-05:** Evaluate deeper integration only after the separate integration is stable.
+## Non-goals during this release
 
-Each step requires a rollback point and deployment/status verification before continuing.
+- No full merge with `service-ai-chat`.
+- No automatic AI sending or AI-assisted customer decisions.
+- No public claim that planned modules are active.
+- No production payment test that creates a real charge without explicit approval.
+- No broad database migration unrelated to release safety.
 
-## SaaS and security readiness principles
+## Definition of done
 
-- Authenticate and authorize private dashboard and admin routes.
-- Derive workspace/tenant identity from a trusted authenticated session.
-- Do not use `workspace_id = 'default'` for real multi-tenant onboarding.
-- Keep secrets out of URLs, forms, screenshots, logs, and documentation.
-- Add server-side validation and spam protection to public forms.
-- Use one controlled write scope per phase.
-- Require validation, permission checks, verification, and rollback for every write action.
-- Do not index dashboard/private routes.
-- Review legal copy and data handling before larger-scale onboarding.
-
-## Protected flows
-
-Do not break:
-
-- Quote request flow.
-- Company registration.
-- Company approval and service editing.
-- Lead/company matching.
-- Outbox/delivery log.
-- Outbox duplicate prevention.
-- Brevo lead email sending.
-- Manual mailto fallback.
-- Existing Neon/Postgres persistence.
-
-## Non-goals for now
-
-- No full Service AI Chat merge.
-- No shared cross-project database migration.
-- No large cross-project refactor.
-- No broad dashboard write expansion.
-- No delete actions without a separate plan.
-- No automatic booking emails without a reviewed communication plan.
-- No Stripe implementation before security, product packaging, and onboarding are ready.
-- No autonomous AI sending.
-
-## Stack direction
-
-- Next.js App Router
-- TypeScript
-- Tailwind CSS
-- Neon/Postgres
-- Zod
-- Vercel
-- Brevo
-- Better Auth for planned customer authentication
-
-Do not describe Supabase or Prisma as the current main stack.
+Proffera can be presented as a paid SaaS only when all release gates pass, the
+legal/business owner approves the final public copy and policies, and the Phase
+5 checklist is completed in Preview/Sandbox.

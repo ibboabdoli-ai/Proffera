@@ -16,7 +16,7 @@ export const metadata: Metadata = {
   applicationName: "Proffera",
   manifest: "/manifest.webmanifest",
   title: {
-    default: `${siteConfig.name} – SaaS för bokningar, leads och AI-kommunikation`,
+    default: `${siteConfig.name} – SaaS för bokningar, leads och kundhantering`,
     template: `%s | ${siteConfig.name}`,
   },
   description: siteConfig.description,

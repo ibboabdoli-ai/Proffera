@@ -34,7 +34,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ received: true });
   }
 
-  const subscription = event.data.object as Stripe.Subscription;
+  const eventSubscription = event.data.object as Stripe.Subscription;
+  let subscription: Stripe.Subscription;
+
+  try {
+    // Stripe can deliver subscription events out of order. Always synchronise
+    // from Stripe's current subscription snapshot rather than applying the
+    // event payload, which can already be stale when it reaches this endpoint.
+    subscription = await stripe.subscriptions.retrieve(eventSubscription.id);
+  } catch (error) {
+    console.error("Failed to retrieve current Stripe subscription state", error);
+    return NextResponse.json({ error: "Stripe-abonnemanget kunde inte läsas." }, { status: 502 });
+  }
+
   const priceId = subscription.items.data[0]?.price.id ?? "";
   const planKey = getStripeCheckoutPlanForPriceId(priceId);
 

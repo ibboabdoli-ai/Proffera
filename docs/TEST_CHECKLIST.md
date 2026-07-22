@@ -1,91 +1,41 @@
-# Test Checklist
+# Proffera Release Checklist
 
-This checklist will be expanded as the application is implemented.
+## Local gate (required for every release candidate)
 
-## PHASE 00 verification
+- [x] `npm ci --no-audit --no-fund` succeeds with the committed lockfile.
+- [x] `npm test` passes.
+- [x] `npm run lint` passes.
+- [x] `npm run typecheck` passes.
+- [x] `npm run build` passes.
+- [ ] Review `git diff --check` and confirm no secret is committed.
 
-- [x] Repository metadata checked
-- [x] Empty repository status identified
-- [x] Initial README created to bootstrap default branch
-- [x] Working branch `phase/00-discovery` created
-- [x] Project documentation started
-- [x] No app code implemented
-- [x] No deployment performed
-- [x] No secrets committed
+## Preview + Stripe Sandbox gate
 
-## General checks for future phases
+- [ ] Apply and verify `20260722_0012_public_form_safety.sql` in Preview.
+- [ ] Submit a demo request; confirm consent, consent version and rate limit are
+  stored and that the operational inbox/notification receives the request.
+- [ ] Submit a valid quote request and verify invalid categories/service types
+  return form errors rather than a server error.
+- [ ] Create a public booking; confirm customer creation, booking confirmation
+  and owner notification. Re-submit the same time slot and confirm no duplicate
+  booking or orphan customer is created.
+- [ ] Start a Starter Stripe Sandbox checkout; confirm the webhook activates the
+  correct workspace features and the customer portal opens.
+- [ ] Try a second plan before completing the first Checkout session; confirm
+  the old session cannot be paid and only the selected plan remains payable.
+- [ ] Deliver delayed/out-of-order subscription webhooks and confirm the current
+  Stripe subscription snapshot controls the entitlement.
+- [ ] Upgrade to Professional, then cancel at period end; confirm CRM access
+  follows the confirmed subscription status.
+- [ ] Check desktop and mobile routes: `/`, `/demo`, `/kontakt`, `/priser`,
+  `/boka/[slug]`, `/dashboard`, `/dashboard/installningar`.
+- [ ] Verify AI Chat traffic appears only in tenant `proffera`.
 
-Before every commit:
+## Production gate
 
-- [ ] Confirm current branch
-- [ ] Confirm rollback point
-- [ ] Review changed files
-- [ ] Check no secrets are included
-- [ ] Check changes are limited to current phase scope
-
-When app code exists:
-
-- [ ] Install dependencies successfully
-- [ ] Run lint
-- [ ] Run typecheck
-- [ ] Run build
-- [ ] Run tests if available
-- [ ] Check key routes locally or in preview
-
-## Public pages
-
-- [ ] Homepage loads
-- [ ] How-it-works page loads
-- [ ] Categories page loads
-- [ ] Category detail pages load
-- [ ] City pages load
-- [ ] Provider landing page loads
-- [ ] About page loads
-- [ ] Contact page loads
-- [ ] Legal pages load
-
-## Customer request flow
-
-- [ ] Category selection works
-- [ ] Region/city selection works
-- [ ] Required fields validate
-- [ ] Invalid email/phone is rejected
-- [ ] Consent checkbox is required
-- [ ] Successful submission creates a request
-- [ ] Success state is shown
-- [ ] Error state is shown when submission fails
-
-## Provider flow
-
-- [ ] Provider application form validates
-- [ ] Provider application is saved
-- [ ] Pending provider cannot access leads
-- [ ] Approved provider can access matching leads
-- [ ] Provider can submit an offer
-
-## Admin flow
-
-- [ ] Admin route is protected
-- [ ] Non-admin users cannot access admin pages
-- [ ] Admin can view providers
-- [ ] Admin can approve provider
-- [ ] Admin can reject provider
-- [ ] Admin can view leads
-- [ ] Admin can view offers
-
-## Security and privacy
-
-- [ ] Server-side validation exists for all write actions
-- [ ] Role-based access is enforced server-side
-- [ ] Rate limiting or anti-spam strategy exists
-- [ ] Contact data exposure rules are documented
-- [ ] Privacy consent is stored
-- [ ] Environment variables are not committed
-
-## Deployment readiness
-
-- [ ] `.env.example` is complete
-- [ ] Vercel environment variables are configured
-- [ ] Production build passes
-- [ ] Production routes tested
-- [ ] Rollback plan documented
+- [ ] Apply the migration after Preview approval and verify it on production.
+- [ ] Configure Vercel values from `.env.example`; use a production-only rate
+  limit secret and live Stripe values only after explicit payment approval.
+- [ ] Obtain legal/business approval for public copy, terms, privacy policy and
+  processor list.
+- [ ] Confirm rollback target and deployment health before announcing launch.

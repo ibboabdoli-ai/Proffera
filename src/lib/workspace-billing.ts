@@ -13,6 +13,7 @@ export type WorkspaceBillingSummary = {
   databaseReady: boolean;
   status: WorkspaceBillingStatus | null;
   planKey: string | null;
+  hasSubscription: boolean;
   currentPeriodEnd: string | null;
   cancelAtPeriodEnd: boolean;
 };
@@ -40,13 +41,14 @@ export async function getWorkspaceBillingSummary(workspaceId: string): Promise<W
   const sql = getSql();
 
   if (!sql || !uuidPattern.test(workspaceId)) {
-    return { databaseReady: false, status: null, planKey: null, currentPeriodEnd: null, cancelAtPeriodEnd: false };
+    return { databaseReady: false, status: null, planKey: null, hasSubscription: false, currentPeriodEnd: null, cancelAtPeriodEnd: false };
   }
 
   try {
     const rows = await sql`
       select
         wbs.status,
+        wbs.stripe_subscription_id,
         wbs.current_period_end,
         wbs.cancel_at_period_end,
         wp.plan_key
@@ -62,12 +64,13 @@ export async function getWorkspaceBillingSummary(workspaceId: string): Promise<W
       databaseReady: true,
       status: isBillingStatus(status) ? status : null,
       planKey: asText(row?.plan_key) || null,
+      hasSubscription: Boolean(asText(row?.stripe_subscription_id)),
       currentPeriodEnd: row?.current_period_end ? new Date(String(row.current_period_end)).toISOString() : null,
       cancelAtPeriodEnd: row?.cancel_at_period_end === true,
     };
   } catch (error) {
     console.error("Failed to read workspace billing state", error);
-    return { databaseReady: false, status: null, planKey: null, currentPeriodEnd: null, cancelAtPeriodEnd: false };
+    return { databaseReady: false, status: null, planKey: null, hasSubscription: false, currentPeriodEnd: null, cancelAtPeriodEnd: false };
   }
 }
 

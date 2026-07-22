@@ -11,11 +11,15 @@ export const serviceTypesByCategory = {
   "Renovering": ["Målning", "Golv", "Mindre renovering"],
 } as const;
 
+function isServiceCategory(value: string) {
+  return Object.hasOwn(serviceTypesByCategory, value);
+}
+
 export const quoteRequestSchema = z.object({
   category: z
     .string()
     .trim()
-    .refine((value) => value in serviceTypesByCategory, "Välj en kategori."),
+    .refine(isServiceCategory, "Välj en kategori."),
   serviceType: z.string().trim().min(1, "Välj tjänstetyp.").max(120, "Tjänstetypen är för lång."),
   city: z.string().trim().min(2, "Ange stad.").max(120, "Orten är för lång."),
   postalCode: z
@@ -38,7 +42,9 @@ export const quoteRequestSchema = z.object({
     .boolean()
     .refine((value) => value, "Du måste godkänna att Proffera behandlar uppgifterna för att hantera förfrågan."),
 }).superRefine((input, context) => {
-  const availableServiceTypes = serviceTypesByCategory[input.category as keyof typeof serviceTypesByCategory];
+  const availableServiceTypes = isServiceCategory(input.category)
+    ? serviceTypesByCategory[input.category as keyof typeof serviceTypesByCategory]
+    : null;
 
   if (availableServiceTypes && !availableServiceTypes.includes(input.serviceType as never)) {
     context.addIssue({

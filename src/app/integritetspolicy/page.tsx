@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 const sections = [
   {
     title: "1. Personuppgiftsansvarig",
-    text: "Proffera är en svensk digital tjänst under uppbyggnad. Den som driver Proffera ansvarar för hur personuppgifter behandlas i tjänsten. Kontakt kan ske via leads@proffera.se.",
+    text: "Den som driver Proffera ansvarar för hur personuppgifter behandlas i tjänsten. För frågor om personuppgifter eller för att utöva dina rättigheter, kontakta leads@proffera.se.",
   },
   {
     title: "2. Vilka uppgifter vi kan behandla",
@@ -16,7 +16,7 @@ const sections = [
   },
   {
     title: "3. Varför uppgifterna behandlas",
-    text: "Uppgifter används för att ta emot förfrågningar, matcha leads med relevanta företag, hantera företagsregistreringar, skicka e-postnotiser, visa adminloggar, förbättra tjänsten och skydda plattformen mot missbruk.",
+    text: "Uppgifter används för att ta emot förfrågningar, hantera bokningar och företagsregistreringar, skicka e-postnotiser, tillhandahålla kundportalen, förbättra tjänsten och skydda plattformen mot missbruk.",
   },
   {
     title: "4. Rättslig grund",
@@ -40,7 +40,7 @@ const sections = [
   },
   {
     title: "9. Uppdateringar",
-    text: "Denna policy kan uppdateras när Proffera utvecklas. En juridisk granskning bör göras före bred publik lansering och före större förändringar i personuppgiftsbehandlingen.",
+    text: "Denna policy kan uppdateras när Proffera utvecklas eller personuppgiftsbehandlingen förändras. Den senaste versionen publiceras på denna sida.",
   },
 ];
 
@@ -54,7 +54,7 @@ export default function PrivacyPage() {
           Den här policyn beskriver hur Proffera behandlar personuppgifter i samband med leads, bokningar, företagsregistreringar och kommunikation.
         </p>
         <p className="mt-4 rounded-2xl bg-white p-4 text-sm leading-6 text-[#5b665f] ring-1 ring-[#dfe5dd]">
-          Obs: detta är en praktisk policytext för MVP och bör juridiskt granskas innan större publik lansering.
+          Senast uppdaterad: 22 juli 2026. Kundspecifika personuppgiftsbiträdesavtal kan komplettera denna policy.
         </p>
       </section>
 

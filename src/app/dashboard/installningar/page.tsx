@@ -125,7 +125,10 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   const hasServices = workspaceServices.length > 0;
   const activeServices = workspaceServices.filter((service) => service.isActive).length;
   const billingIsActive = billing.status === "active" || billing.status === "trialing";
-  const bookingUrl = workspaceSettings.publicBookingSlug ? `https://www.proffera.se/boka/${workspaceSettings.publicBookingSlug}` : null;
+  const bookingIsActive = moduleAccess.some((module) => module.id === "online_booking" && module.isEnabled);
+  const bookingUrl = workspaceSettings.publicBookingSlug && billingIsActive && bookingIsActive
+    ? `https://www.proffera.se/boka/${workspaceSettings.publicBookingSlug}`
+    : null;
 
   const settings = [
     { label: "Företagsprofil", value: "Namn, kontaktuppgifter, ort och standard CTA", status: "Aktiv" },

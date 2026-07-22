@@ -62,6 +62,7 @@ export function BookingRequestForm({ action, slug, services, bookingHours, busyB
   const [serviceName, setServiceName] = useState("");
   const [date, setDate] = useState(today);
   const [time, setTime] = useState("");
+  const [formStartedAt] = useState(() => Date.now());
 
   const selectedService = services.find((service) => service.name === serviceName);
   const day = new Date(`${date}T12:00:00`).getDay();
@@ -95,6 +96,7 @@ export function BookingRequestForm({ action, slug, services, bookingHours, busyB
         <input type="hidden" name="slug" value={slug} />
         <input type="hidden" name="service" value={serviceName} />
         <input type="hidden" name="starts_at" value={date && time ? `${date}T${time}` : ""} />
+        <input type="hidden" name="form_started_at" value={formStartedAt} />
         <label className="absolute left-[-10000px]" aria-hidden="true">Webbplats<input name="website" type="text" tabIndex={-1} autoComplete="off" /></label>
 
         <section className="rounded-3xl border border-[#dfe5dd] bg-[#fbfbf8] p-4">
@@ -169,6 +171,7 @@ export function BookingRequestForm({ action, slug, services, bookingHours, busyB
     <form action={action} className="mt-8 grid gap-4">
       <input type="hidden" name="slug" value={slug} />
       <input type="hidden" name="starts_at" value={date && time ? `${date}T${time}` : ""} />
+      <input type="hidden" name="form_started_at" value={formStartedAt} />
       <label className="absolute left-[-10000px]" aria-hidden="true">Webbplats<input name="website" type="text" tabIndex={-1} autoComplete="off" /></label>
 
       <label className="grid gap-2 text-sm font-semibold text-[#344139]">Ditt namn<input name="name" required autoComplete="name" maxLength={160} className="rounded-xl border border-[#d9e1d7] bg-white px-4 py-3 text-[#17201a]" /></label>

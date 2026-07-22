@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { storeCompanyRegistration } from "@/features/company/persistence";
 import { companyRegistrationSchema } from "@/features/company/schema";
+import { allowPublicSubmission } from "@/lib/public-form-protection";
 
 export async function POST(request: Request) {
   const formData = await request.formData();
@@ -26,6 +27,20 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     const url = new URL("/anslut-foretag/registrera", request.url);
     url.searchParams.set("error", "Kontrollera att alla obligatoriska uppgifter är korrekt ifyllda.");
+    return NextResponse.redirect(url);
+  }
+
+  const allowed = await allowPublicSubmission({
+    scope: "company_demo",
+    requestHeaders: request.headers,
+    identity: `${parsed.data.email}:${parsed.data.organizationNumber}`,
+    maxAttempts: 3,
+    windowSeconds: 15 * 60,
+  });
+
+  if (!allowed) {
+    const url = new URL("/anslut-foretag/registrera", request.url);
+    url.searchParams.set("error", "För många försök. Vänta en stund och försök igen.");
     return NextResponse.redirect(url);
   }
 

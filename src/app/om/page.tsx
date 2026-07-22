@@ -3,7 +3,7 @@ import { ButtonLink } from "@/components/ui/button-link";
 
 const values = [
   { icon: Target, title: "Byggt för små företag", text: "Proffera fokuserar på vardagliga behov: leads, bokningar, kunder och uppföljning." },
-  { icon: Sparkles, title: "AI som praktiskt stöd", text: "AI ska hjälpa företag att svara snabbare och arbeta mer strukturerat, inte ersätta relationen med kunden." },
+  { icon: Sparkles, title: "Moduler med tydlig status", text: "Planerade funktioner markeras som planerade och aktiveras inte automatiskt för kunders arbetsytor." },
   { icon: ShieldCheck, title: "Svensk och tydlig process", text: "Plattformen byggs stegvis med fokus på säkerhet, tydlighet och lokala tjänsteföretag." },
 ];
 
@@ -34,7 +34,7 @@ export default function AboutPage() {
         <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-[#dfe5dd]">
           <h2 className="text-2xl font-bold text-[#17201a]">Nästa steg</h2>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-[#5b665f]">
-            Vi bygger vidare med publika sidor, dashboard, bokningsflöde, CRM, AI-assistent och abonnemang på ett kontrollerat sätt.
+            Vi bygger vidare med publika sidor, dashboard, bokningsflöde, CRM och abonnemang på ett kontrollerat sätt. Planerade moduler lanseras först när de är klara för användning.
           </p>
           <div className="mt-6">
             <ButtonLink href="/kontakt">Prata med oss</ButtonLink>

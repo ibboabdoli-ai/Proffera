@@ -22,7 +22,7 @@ const testimonials = [
 const faqs = [
   {
     question: "Är Proffera en offertplattform eller ett SaaS-system?",
-    answer: "Proffera började som ett lead- och offertflöde men byggs nu vidare som SaaS för bokningar, CRM, AI-kommunikation och uppföljning.",
+    answer: "Proffera är ett SaaS-system för bokningar, leads, kunduppgifter och uppföljning. AI-stöd är en separat, planerad modul.",
   },
   {
     question: "Vilka företag passar Proffera för?",
@@ -30,11 +30,11 @@ const faqs = [
   },
   {
     question: "Finns allt klart redan?",
-    answer: "Grundflöden för leads, företag, matchning och e-postleverans finns. Produktmoduler byggs stegvis för att hålla kvalitet och kontroll.",
+    answer: "Bokningsflöde, kundhantering, leads och e-postnotiser kan visas i demon. Åtkomst aktiveras efter överenskommen installation och plan.",
   },
   {
     question: "Kan Proffera anpassas för olika branscher?",
-    answer: "Ja. Planen är att kunna anpassa tjänster, frågor, bokningsflöde, notifieringar och AI-svar efter varje bransch.",
+    answer: "Ja. Tjänster, bokningsflöden, notifieringar och företagsprofil kan anpassas efter verksamhetens behov.",
   },
 ] as const;
 
@@ -68,10 +68,10 @@ export function ConversionSections() {
               <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Case study</p>
               <h2 className="mt-2 text-2xl font-bold text-[#17201a]">Från manuell leadhantering till strukturerat flöde.</h2>
               <p className="mt-3 text-sm leading-7 text-[#5b665f]">
-                Ett lokalt serviceföretag kan använda Proffera för att ta emot förfrågningar, se matchade leads, skicka e-post och följa upp status i kundportalen.
+                Ett lokalt serviceföretag kan använda Proffera för att ta emot förfrågningar, hålla kunduppgifter samlade, skicka e-post och följa upp status i kundportalen.
               </p>
               <ul className="mt-5 space-y-2 text-sm text-[#344139]">
-                {['Lead in', 'Matchning', 'E-postleverans', 'Uppföljning'].map((item) => (
+                {['Förfrågan in', 'Bokning', 'E-postnotis', 'Uppföljning'].map((item) => (
                   <li key={item} className="flex gap-2">
                     <CheckCircle2 className="mt-0.5 h-4 w-4 text-[#17452f]" aria-hidden="true" />
                     {item}
