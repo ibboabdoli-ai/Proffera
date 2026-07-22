@@ -33,6 +33,7 @@ export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, t
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const hasActivePlan = billing.status === "active" || billing.status === "trialing";
+  const canStartCheckout = !billing.hasSubscription || billing.status === "cancelled";
   const starterPlan = checkoutPlans.find((plan) => plan.key === "starter");
   const professionalPlan = checkoutPlans.find((plan) => plan.key === "professional");
   const canUpgrade = canManage && hasActivePlan && billing.planKey === "starter" && professionalPlan?.configured;
@@ -181,7 +182,7 @@ export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, t
         <p className="mt-5 rounded-2xl bg-[#f7f9f6] p-4 text-sm text-[#5b665f]">Betalning blir tillgänglig när installationen är klar.</p>
       ) : null}
 
-      {canManage && billing.databaseReady && checkoutConfigured && !hasActivePlan ? (
+      {canManage && billing.databaseReady && checkoutConfigured && !hasActivePlan && canStartCheckout ? (
         <div className="mt-5">
           <p className="text-sm font-semibold text-[#17201a]">Välj plan</p>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">

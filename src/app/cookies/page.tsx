@@ -24,7 +24,7 @@ const sections = [
   },
   {
     title: "5. Nuvarande status",
-    text: "I MVP-fasen används cookies främst för nödvändig säkerhets- och adminfunktionalitet. Cookiehantering ska utökas när analytics eller externa spårningsverktyg införs.",
+    text: "Proffera använder för närvarande endast nödvändiga cookies eller liknande teknik för säkerhet, inloggning och drift. Om analys eller externa spårningsverktyg tas i bruk uppdateras denna sida och samtycke hanteras när det krävs.",
   },
 ];
 
@@ -35,7 +35,7 @@ export default function CookiesPage() {
         <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Juridiskt</p>
         <h1 className="mt-3 text-4xl font-bold tracking-tight text-[#17201a] sm:text-5xl">Cookies</h1>
         <p className="mt-5 text-lg leading-8 text-[#5b665f]">
-          Den här sidan beskriver hur Proffera kan använda cookies och liknande teknik för drift, säkerhet och framtida analys.
+          Den här sidan beskriver hur Proffera använder cookies och liknande teknik för drift och säkerhet.
         </p>
       </section>
 

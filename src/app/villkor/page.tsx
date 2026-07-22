@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 const sections = [
   {
     title: "1. Om tjänsten",
-    text: "Proffera är en digital plattform under utveckling för svenska tjänsteföretag. Tjänsten kan omfatta leadhantering, bokningar, kundhantering, e-postnotiser, AI-stöd och administrativa arbetsflöden.",
+    text: "Proffera är en digital plattform för svenska tjänsteföretag. Tjänsten omfattar de moduler som uttryckligen aktiverats för kundens arbetsyta, till exempel leadhantering, bokningar, kundhantering, e-postnotiser och administrativa arbetsflöden.",
   },
   {
     title: "2. Användning",
@@ -28,19 +28,19 @@ const sections = [
   },
   {
     title: "6. Priser och abonnemang",
-    text: "Publika priser kan vara preliminära under MVP-fasen. Betalning, abonnemang och uppsägning ska regleras när Stripe eller annan betalningslösning införs.",
+    text: "Pris, vald plan, betalningsperiod och eventuella skatter visas innan ett abonnemang bekräftas. Betalning och hantering av abonnemang sker via Stripe när den funktionen har aktiverats för arbetsytan. Uppsägning och ändringar hanteras i Stripe-portalen och gäller enligt den bekräftade betalningsperioden.",
   },
   {
     title: "7. Tillgänglighet och ändringar",
-    text: "Proffera utvecklas stegvis. Funktioner kan ändras, läggas till eller tas bort. Driftstörningar kan förekomma under test- och utvecklingsperioder.",
+    text: "Proffera kan uppdatera eller ändra tjänsten. Planerade eller separata moduler är inte en del av kundens aktiva tjänst förrän de uttryckligen har aktiverats. Driftstörningar kan förekomma, men vi arbetar för att begränsa deras påverkan.",
   },
   {
     title: "8. Ansvarsbegränsning",
     text: "Proffera ansvarar inte för indirekta skador, uteblivna affärer, felaktiga uppgifter från användare eller avtal som ingås mellan kund och företag utanför plattformen.",
   },
   {
-    title: "9. Juridisk granskning",
-    text: "Dessa villkor är framtagna för MVP och ska granskas juridiskt innan bred publik lansering eller innan kommersiella abonnemang börjar säljas i större skala.",
+    title: "9. Kontakt och frågor",
+    text: "Frågor om dessa villkor eller om den aktiva tjänsten kan skickas till leads@proffera.se.",
   },
 ];
 
@@ -54,7 +54,7 @@ export default function TermsPage() {
           Dessa villkor beskriver den övergripande användningen av Proffera som digital plattform för leads, bokningar och företagsflöden.
         </p>
         <p className="mt-4 rounded-2xl bg-white p-4 text-sm leading-6 text-[#5b665f] ring-1 ring-[#dfe5dd]">
-          Obs: detta är preliminära MVP-villkor och bör juridiskt granskas innan större publik lansering.
+          Senast uppdaterad: 22 juli 2026. Kundspecifika villkor eller personuppgiftsbiträdesavtal kan komplettera dessa villkor.
         </p>
       </section>
 

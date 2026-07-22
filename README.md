@@ -1,12 +1,31 @@
 # Proffera
 
-Proffera is the parent SaaS product for Swedish service businesses. It combines a public marketing website with tools for leads, customers, bookings, CRM workflows, automation, and future AI support.
-
-Proffera started as a Swedish lead/offert marketplace MVP. The current direction is a professional SaaS platform that helps service businesses manage the full path from first inquiry to ongoing customer relationship.
+Proffera is a SaaS platform for Swedish service businesses. It combines a public
+website with booking, lead handling, customer CRM, workspace access and Stripe
+subscription plumbing. AI Chat remains a separate, explicitly planned
+integration.
 
 ## Current status
 
 See [`docs/CURRENT_STATUS.md`](docs/CURRENT_STATUS.md) for completed phases, production status, open risks, and the recommended next safe step.
+
+## Local setup
+
+```bash
+cp .env.example .env.local
+npm ci
+npm run dev
+```
+
+Run the local quality gate with:
+
+```bash
+npm test && npm run lint && npm run typecheck && npm run build
+```
+
+Do not use production credentials in local or Preview environments. Apply
+database migrations in Preview before production and follow
+[`docs/TEST_CHECKLIST.md`](docs/TEST_CHECKLIST.md) for release verification.
 
 ## Product modules
 
@@ -15,7 +34,7 @@ See [`docs/CURRENT_STATUS.md`](docs/CURRENT_STATUS.md) for completed phases, pro
 - Bookings / bokningar
 - CRM and customer history
 - Analytics
-- AI assistant and inbox entry points
+- AI assistant (planned/separate integration)
 - Workspace settings
 
 ## Tech stack

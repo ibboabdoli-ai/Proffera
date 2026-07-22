@@ -7,7 +7,7 @@ export const metadata: Metadata = {
     absolute: "Kontakt – Boka demo av Proffera",
   },
   description:
-    "Kontakta Proffera för demo, pilotkund eller frågor om bokningssystem, CRM, leadhantering och AI-assistent för företag.",
+    "Kontakta Proffera för demo eller frågor om bokningssystem, CRM och leadhantering för tjänsteföretag.",
 };
 
 export default function ContactPage() {
@@ -19,7 +19,7 @@ export default function ContactPage() {
           Vill du se hur Proffera fungerar för ditt företag?
         </h1>
         <p className="mt-5 max-w-3xl text-lg leading-8 text-[#5b665f]">
-          Boka en demo så visar vi bokning, leads, CRM och AI-assistent i ett enkelt flöde.
+          Boka en demo så visar vi bokning, leads och kundhantering i ett enkelt flöde.
         </p>
         <div className="mt-8">
           <ButtonLink href="/anslut-foretag/registrera">Boka demo</ButtonLink>
@@ -45,7 +45,7 @@ export default function ContactPage() {
             <p className="font-semibold text-[#17201a]">Bra information att skicka:</p>
             <ul className="mt-3 list-disc space-y-2 pl-5">
               <li>Företagsnamn, bransch och stad</li>
-              <li>Om ni vill testa bokning, leads, CRM eller AI-chatt</li>
+              <li>Om ni vill testa bokning, leads eller kundhantering</li>
               <li>Telefonnummer eller e-post för uppföljning</li>
             </ul>
           </div>

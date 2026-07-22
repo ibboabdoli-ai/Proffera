@@ -63,7 +63,7 @@ export function QuoteRequestForm() {
   const [isPending, startTransition] = useTransition();
 
   const availableServiceTypes = useMemo(() => {
-    if (!formData.category || !(formData.category in serviceTypesByCategory)) {
+    if (!formData.category || !Object.hasOwn(serviceTypesByCategory, formData.category)) {
       return [];
     }
 

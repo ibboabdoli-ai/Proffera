@@ -7,13 +7,13 @@ export const metadata: Metadata = {
     absolute: "Boka demo – Se Proffera för ditt tjänsteföretag",
   },
   description:
-    "Boka en demo och se hur Proffera kan hjälpa ditt företag med bokningsflöde, leads, kundhantering och AI-chatt.",
+    "Boka en demo och se hur Proffera kan hjälpa ditt företag med bokningsflöde, leads och kundhantering.",
 };
 
 const demoBlocks = [
   { icon: CalendarDays, title: "Interaktivt bokningsflöde", text: "Kunden väljer tjänst, beskriver behovet och skickar en tydlig förfrågan." },
   { icon: LayoutDashboard, title: "Portalöversikt", text: "Företaget ser leads, status, leveranslogg och uppföljningar i ett arbetsflöde." },
-  { icon: Bot, title: "AI-assistent", text: "AI kan hjälpa besökare att hitta rätt tjänst och lämna kontaktuppgifter." },
+  { icon: Bot, title: "AI-stöd (planerat)", text: "AI-stöd är en separat modul och ingår inte i den aktiva grundinstallationen." },
   { icon: QrCode, title: "QR-bokning", text: "QR-koder kan leda direkt till en boknings- eller offertförfrågan." },
 ];
 
@@ -28,7 +28,7 @@ export default function DemoPage() {
           Se hur Proffera kan fungera från första klick till uppföljning.
         </h1>
         <p className="mt-6 max-w-3xl text-lg leading-8 text-white/75">
-          Demo-sidan visar de centrala delarna: kundflöde, portalöversikt, AI-assistent och QR-bokning.
+          Demon visar kundflöde, portalöversikt och QR-bokning. Planerade moduler markeras tydligt.
         </p>
         </div>
       </section>
