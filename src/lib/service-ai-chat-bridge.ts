@@ -80,6 +80,7 @@ async function getWorkspaceIdentity(workspaceId: string) {
     select
       w.id,
       w.name,
+      w.public_booking_slug,
       coalesce((
         select u.email
         from workspace_memberships wm
@@ -96,8 +97,11 @@ async function getWorkspaceIdentity(workspaceId: string) {
   const row = rows[0];
   const name = asText(row?.name).trim();
   const ownerEmail = asText(row?.owner_email).trim().toLowerCase();
+  const bookingSlug = asText(row?.public_booking_slug).trim();
+  const bookingBaseUrl = siteConfig.url.replace(/^https?:\/\/(?:www\.)?/, "https://www.").replace(/\/$/, "");
+  const bookingUrl = bookingSlug ? `${bookingBaseUrl}/boka/${encodeURIComponent(bookingSlug)}` : bookingBaseUrl;
 
-  return name && ownerEmail ? { name, ownerEmail } : null;
+  return name && ownerEmail ? { name, ownerEmail, bookingUrl } : null;
 }
 
 export async function getWorkspaceAiChatIntegration(workspaceId: string): Promise<WorkspaceAiChatIntegration> {
@@ -143,10 +147,10 @@ export async function syncWorkspaceAiChat(input: { workspaceId: string; enabled:
     workspaceId: input.workspaceId,
     workspaceName: identity.name,
     ownerEmail: identity.ownerEmail,
-    // Every Proffera booking page lives on this trusted origin. The remote
-    // tenant must allow it so its own widget can load from the customer's
-    // QR/link booking page without falling back to Proffera's marketing bot.
-    website: siteConfig.url,
+    // The remote tenant is keyed to this workspace's own public booking URL.
+    // It lets the chat service reuse a previously configured tenant safely
+    // and gives new tenants the correct Proffera allowlist from the start.
+    website: identity.bookingUrl,
     lifecycle,
   });
 
