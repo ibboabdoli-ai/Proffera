@@ -26,7 +26,7 @@ export function ServiceAiChatWidget() {
   return (
     <Script
       id="proffera-chat-widget"
-      src={`${widgetHost}/widget.js?v=20260616-9`}
+      src={`${widgetHost}/widget.js?v=20260723-1`}
       strategy="afterInteractive"
       data-client-id={clientId}
       data-api-base={widgetHost}
@@ -45,7 +45,7 @@ export function BookingAiChatWidget({ clientId }: BookingAiChatWidgetProps) {
   return (
     <Script
       id={`proffera-booking-chat-widget-${clientId}`}
-      src={`${widgetHost}/widget.js?v=20260616-9`}
+      src={`${widgetHost}/widget.js?v=20260723-1`}
       strategy="afterInteractive"
       data-client-id={clientId}
       data-api-base={widgetHost}
