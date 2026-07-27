@@ -52,6 +52,29 @@ function parseOptionalInteger(formData: FormData, key: string, min: number, max:
   return value;
 }
 
+function parseIntegerWithDefault(
+  formData: FormData,
+  key: string,
+  min: number,
+  max: number,
+  fallback: number,
+  error: ServiceSaveError,
+) {
+  const rawValue = getFormText(formData, key);
+
+  if (!rawValue) {
+    return fallback;
+  }
+
+  const value = Number(rawValue);
+
+  if (!Number.isInteger(value) || value < min || value > max) {
+    redirectWithServiceError(error);
+  }
+
+  return value;
+}
+
 function parseRequiredInteger(formData: FormData, key: string, min: number, max: number, error: ServiceSaveError) {
   const rawValue = getFormText(formData, key);
   const value = Number(rawValue);
@@ -97,6 +120,10 @@ function getServiceInput(formData: FormData): WriteDashboardWorkspaceServiceInpu
     priceLabel,
     basePriceSek: parseOptionalInteger(formData, "base_price_sek", 0, 9999999, "base_price"),
     durationMinutes: parseOptionalInteger(formData, "duration_minutes", 1, 1440, "duration"),
+    bufferBeforeMinutes: parseIntegerWithDefault(formData, "buffer_before_minutes", 0, 1440, 0, "duration"),
+    bufferAfterMinutes: parseIntegerWithDefault(formData, "buffer_after_minutes", 0, 1440, 0, "duration"),
+    minimumNoticeMinutes: parseIntegerWithDefault(formData, "minimum_notice_minutes", 0, 525600, 0, "duration"),
+    maximumAdvanceDays: parseIntegerWithDefault(formData, "maximum_advance_days", 1, 730, 365, "duration"),
     serviceArea,
     isActive: formData.get("is_active") === "on",
     sortOrder: parseRequiredInteger(formData, "sort_order", 0, 9999, "sort"),

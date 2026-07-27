@@ -67,6 +67,29 @@ function ServiceFields({ service }: ServiceFieldsProps) {
         </label>
       </div>
 
+      <fieldset className="grid gap-3 rounded-2xl bg-[#f7f9f6] p-4 ring-1 ring-[#dfe5dd]">
+        <legend className="px-2 text-sm font-bold text-[#17201a]">Bokningsregler</legend>
+        <p className="text-xs leading-5 text-[#5b665f]">Styr förberedelsetid, paus efter tjänsten och hur nära eller långt fram kunden får boka.</p>
+        <div className="grid gap-3 md:grid-cols-2">
+          <label className="grid gap-2 text-sm font-semibold text-[#344139]">
+            Buffert före, min
+            <input name="buffer_before_minutes" type="number" min={0} max={1440} className={fieldClass} defaultValue={service?.bufferBeforeMinutes ?? 0} />
+          </label>
+          <label className="grid gap-2 text-sm font-semibold text-[#344139]">
+            Buffert efter, min
+            <input name="buffer_after_minutes" type="number" min={0} max={1440} className={fieldClass} defaultValue={service?.bufferAfterMinutes ?? 0} />
+          </label>
+          <label className="grid gap-2 text-sm font-semibold text-[#344139]">
+            Minsta framförhållning, min
+            <input name="minimum_notice_minutes" type="number" min={0} max={525600} className={fieldClass} defaultValue={service?.minimumNoticeMinutes ?? 0} />
+          </label>
+          <label className="grid gap-2 text-sm font-semibold text-[#344139]">
+            Bokningshorisont, dagar
+            <input name="maximum_advance_days" type="number" min={1} max={730} className={fieldClass} defaultValue={service?.maximumAdvanceDays ?? 365} />
+          </label>
+        </div>
+      </fieldset>
+
       <label className="grid gap-2 text-sm font-semibold text-[#344139]">
         Område
         <input name="service_area" type="text" maxLength={240} className={fieldClass} defaultValue={service?.serviceArea ?? ""} />
@@ -125,6 +148,8 @@ export function ServicesReadOnly({ services }: ServicesReadOnlyProps) {
                 <p><strong className="text-[#17201a]">Pris:</strong> {visibleValue(service.priceLabel)}</p>
                 <p><strong className="text-[#17201a]">Baspris:</strong> {formatPrice(service.basePriceSek)}</p>
                 <p><strong className="text-[#17201a]">Längd:</strong> {formatDuration(service.durationMinutes)}</p>
+                <p><strong className="text-[#17201a]">Buffert:</strong> {service.bufferBeforeMinutes} min före / {service.bufferAfterMinutes} min efter</p>
+                <p><strong className="text-[#17201a]">Bokningsregel:</strong> minst {service.minimumNoticeMinutes} min före, max {service.maximumAdvanceDays} dagar framåt</p>
                 <p><strong className="text-[#17201a]">Område:</strong> {visibleValue(service.serviceArea)}</p>
               </div>
 
