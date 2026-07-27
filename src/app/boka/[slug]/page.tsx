@@ -6,6 +6,7 @@ import { getSql } from "@/lib/db/server";
 import { sendBookingConfirmationEmail, sendBookingOwnerNotificationEmail } from "@/features/email/lead-email";
 import { sendBookingOwnerSms } from "@/features/sms/booking-sms";
 import { allowPublicSubmission } from "@/lib/public-form-protection";
+import { parseLocalDateTime, validatePublicBookingPolicy } from "@/lib/public-booking-policy";
 import { BookingAiChatWidget } from "@/components/service-ai-chat-widget";
 
 import { BookingRequestForm } from "./booking-request-form";
@@ -35,42 +36,6 @@ const bookingErrors: Record<string, string> = {
 
 function firstParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
-}
-
-function parseLocalDateTime(value: string) {
-  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value);
-  if (!match) return null;
-  const [, year, month, day, hours, minutes] = match;
-  const parts = [Number(year), Number(month), Number(day), Number(hours), Number(minutes)];
-  if (parts.some((part) => !Number.isInteger(part))) return null;
-  const [y, m, d, h, min] = parts;
-  if (m < 1 || m > 12 || d < 1 || d > 31 || h > 23 || min > 59) return null;
-  return { year: y, month: m, day: d, hours: h, minutes: min };
-}
-
-function stockholmDateToUtc(parts: NonNullable<ReturnType<typeof parseLocalDateTime>>) {
-  const desired = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hours, parts.minutes);
-  const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Europe/Stockholm",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  });
-  const inStockholm = (date: Date) => {
-    const formatted = Object.fromEntries(formatter.formatToParts(date).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
-    return Date.UTC(Number(formatted.year), Number(formatted.month) - 1, Number(formatted.day), Number(formatted.hour), Number(formatted.minute));
-  };
-  let date = new Date(desired);
-  date = new Date(desired - (inStockholm(date) - desired));
-  return date;
-}
-
-function timeToMinutes(value: unknown) {
-  const [hours, minutes] = String(value ?? "").slice(0, 5).split(":").map(Number);
-  return Number.isInteger(hours) && Number.isInteger(minutes) ? hours * 60 + minutes : null;
 }
 
 async function requestPublicBooking(formData: FormData) {
@@ -154,21 +119,14 @@ async function requestPublicBooking(formData: FormData) {
   const selectedService = services[0];
   if (!selectedService) redirect(`/boka/${slug}?error=service`);
 
-  const localStart = parseLocalDateTime(startsAt);
-  if (!localStart) redirect(`/boka/${slug}?error=time`);
-  const start = stockholmDateToUtc(localStart);
   const now = new Date();
-  if (Number.isNaN(start.getTime()) || start <= now) redirect(`/boka/${slug}?error=time`);
-
   const minimumNotice = Math.max(0, Number(selectedService.minimum_notice_minutes) || 0);
   const maximumAdvance = Math.max(1, Number(selectedService.maximum_advance_days) || 365);
-  if (start.getTime() < now.getTime() + minimumNotice * 60 * 1000) redirect(`/boka/${slug}?error=notice`);
-  if (start.getTime() > now.getTime() + maximumAdvance * 24 * 60 * 60 * 1000) redirect(`/boka/${slug}?error=advance`);
-
   const duration = Math.min(1440, Math.max(1, Number(selectedService.duration_minutes) || 60));
   const bufferBefore = Math.max(0, Number(selectedService.buffer_before_minutes) || 0);
   const bufferAfter = Math.max(0, Number(selectedService.buffer_after_minutes) || 0);
-  const end = new Date(start.getTime() + duration * 60 * 1000);
+  const localStart = parseLocalDateTime(startsAt);
+  if (!localStart) redirect(`/boka/${slug}?error=time`);
   const weekday = new Date(Date.UTC(localStart.year, localStart.month - 1, localStart.day)).getUTCDay();
   const bookingHours = await sql`
     select opens_at::text as opens_at, closes_at::text as closes_at, is_closed
@@ -177,13 +135,28 @@ async function requestPublicBooking(formData: FormData) {
     limit 1
   `;
   const bookingHour = bookingHours[0];
-  if (!bookingHour) redirect(`/boka/${slug}?error=hours_missing`);
-  const opensAt = timeToMinutes(bookingHour.opens_at);
-  const closesAt = timeToMinutes(bookingHour.closes_at);
-  const requestedStart = localStart.hours * 60 + localStart.minutes;
-  if (bookingHour.is_closed || opensAt === null || closesAt === null || requestedStart < opensAt || requestedStart + duration > closesAt) {
-    redirect(`/boka/${slug}?error=hours`);
+  const validation = validatePublicBookingPolicy({
+    startsAt,
+    now,
+    service: {
+      durationMinutes: duration,
+      bufferBeforeMinutes: bufferBefore,
+      bufferAfterMinutes: bufferAfter,
+      minimumNoticeMinutes: minimumNotice,
+      maximumAdvanceDays: maximumAdvance,
+    },
+    bookingHour: bookingHour
+      ? {
+          opensAt: String(bookingHour.opens_at),
+          closesAt: String(bookingHour.closes_at),
+          isClosed: Boolean(bookingHour.is_closed),
+        }
+      : null,
+  });
+  if (validation.error) {
+    redirect(`/boka/${slug}?error=${validation.error}`);
   }
+  const { start, end } = validation;
 
   const conflict = await sql`
     select existing.id
