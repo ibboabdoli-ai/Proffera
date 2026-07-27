@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  isValidStockholmLocalTime,
   parseLocalDateTime,
   stockholmDateToUtc,
   timeToMinutes,
@@ -31,12 +32,29 @@ describe("public booking server policy", () => {
     const parsed = parseLocalDateTime("2026-07-28T09:00");
     expect(parsed).not.toBeNull();
     expect(stockholmDateToUtc(parsed!).toISOString()).toBe("2026-07-28T07:00:00.000Z");
+    expect(isValidStockholmLocalTime(parsed!)).toBe(true);
   });
 
-  it("validates booking-hour values", () => {
+  it("rejects a local time skipped by the Stockholm DST transition", () => {
+    const skipped = parseLocalDateTime("2026-03-29T02:30");
+    expect(skipped).not.toBeNull();
+    expect(isValidStockholmLocalTime(skipped!)).toBe(false);
+
+    const result = validatePublicBookingPolicy({
+      startsAt: "2026-03-29T02:30",
+      now: stockholmDateToUtc(parseLocalDateTime("2026-03-28T08:00")!),
+      service: { ...service, minimumNoticeMinutes: 0 },
+      bookingHour: { opensAt: "00:00", closesAt: "23:59", isClosed: false },
+    });
+    expect(result.error).toBe("time");
+  });
+
+  it("validates booking-hour values strictly", () => {
     expect(timeToMinutes("09:30")).toBe(570);
+    expect(timeToMinutes("09:30:00")).toBe(570);
     expect(timeToMinutes("24:00")).toBeNull();
     expect(timeToMinutes("09:99")).toBeNull();
+    expect(timeToMinutes("09:30junk")).toBeNull();
   });
 
   it("returns notice and advance errors", () => {
