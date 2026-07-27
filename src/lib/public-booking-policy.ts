@@ -22,6 +22,33 @@ export type ParsedLocalDateTime = {
   minutes: number;
 };
 
+const stockholmFormatter = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Europe/Stockholm",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
+function stockholmParts(date: Date): ParsedLocalDateTime {
+  const formatted = Object.fromEntries(
+    stockholmFormatter
+      .formatToParts(date)
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value]),
+  );
+
+  return {
+    year: Number(formatted.year),
+    month: Number(formatted.month),
+    day: Number(formatted.day),
+    hours: Number(formatted.hour),
+    minutes: Number(formatted.minute),
+  };
+}
+
 export function parseLocalDateTime(value: string): ParsedLocalDateTime | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value);
   if (!match) return null;
@@ -52,28 +79,14 @@ export function parseLocalDateTime(value: string): ParsedLocalDateTime | null {
 
 export function stockholmDateToUtc(parts: ParsedLocalDateTime) {
   const desired = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hours, parts.minutes);
-  const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Europe/Stockholm",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  });
   const inStockholm = (date: Date) => {
-    const formatted = Object.fromEntries(
-      formatter
-        .formatToParts(date)
-        .filter((part) => part.type !== "literal")
-        .map((part) => [part.type, part.value]),
-    );
+    const formatted = stockholmParts(date);
     return Date.UTC(
-      Number(formatted.year),
-      Number(formatted.month) - 1,
-      Number(formatted.day),
-      Number(formatted.hour),
-      Number(formatted.minute),
+      formatted.year,
+      formatted.month - 1,
+      formatted.day,
+      formatted.hours,
+      formatted.minutes,
     );
   };
 
@@ -82,11 +95,24 @@ export function stockholmDateToUtc(parts: ParsedLocalDateTime) {
   return date;
 }
 
+export function isValidStockholmLocalTime(parts: ParsedLocalDateTime, date = stockholmDateToUtc(parts)) {
+  const roundTrip = stockholmParts(date);
+  return (
+    roundTrip.year === parts.year &&
+    roundTrip.month === parts.month &&
+    roundTrip.day === parts.day &&
+    roundTrip.hours === parts.hours &&
+    roundTrip.minutes === parts.minutes
+  );
+}
+
 export function timeToMinutes(value: unknown) {
-  const [hours, minutes] = String(value ?? "").slice(0, 5).split(":").map(Number);
-  if (!Number.isInteger(hours) || !Number.isInteger(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
-    return null;
-  }
+  const match = /^(\d{2}):(\d{2})(?::\d{2})?$/.exec(String(value ?? "").trim());
+  if (!match) return null;
+
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
   return hours * 60 + minutes;
 }
 
@@ -101,7 +127,9 @@ export function validatePublicBookingPolicy(input: {
   if (!localStart) return { error: "time" as PublicBookingPolicyError };
 
   const start = stockholmDateToUtc(localStart);
-  if (Number.isNaN(start.getTime()) || start <= now) return { error: "time" as PublicBookingPolicyError };
+  if (!isValidStockholmLocalTime(localStart, start) || Number.isNaN(start.getTime()) || start <= now) {
+    return { error: "time" as PublicBookingPolicyError };
+  }
 
   if (start.getTime() < now.getTime() + service.minimumNoticeMinutes * 60_000) {
     return { error: "notice" as PublicBookingPolicyError };
