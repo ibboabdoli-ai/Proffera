@@ -7,6 +7,10 @@ type BookingService = {
   name: string;
   durationMinutes: number;
   priceLabel: string;
+  bufferBeforeMinutes: number;
+  bufferAfterMinutes: number;
+  minimumNoticeMinutes: number;
+  maximumAdvanceDays: number;
 };
 
 type BookingHour = {
@@ -19,6 +23,8 @@ type BookingHour = {
 type BusyBooking = {
   startsAt: string;
   endsAt: string;
+  bufferBeforeMinutes: number;
+  bufferAfterMinutes: number;
 };
 
 type BookingRequestFormProps = {
@@ -48,6 +54,25 @@ function toStockholmParts(date: Date) {
   };
 }
 
+function stockholmLocalToUtc(dateValue: string, timeValue: string) {
+  const [year, month, day] = dateValue.split("-").map(Number);
+  const [hours, minutes] = timeValue.split(":").map(Number);
+  const desired = Date.UTC(year, month - 1, day, hours, minutes);
+  const inStockholm = (date: Date) => {
+    const formatted = Object.fromEntries(stockholmFormatter.formatToParts(date).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+    return Date.UTC(Number(formatted.year), Number(formatted.month) - 1, Number(formatted.day), Number(formatted.hour), Number(formatted.minute));
+  };
+  let result = new Date(desired);
+  result = new Date(desired - (inStockholm(result) - desired));
+  return result;
+}
+
+function addDaysToDateInput(value: string, days: number) {
+  const [year, month, day] = value.split("-").map(Number);
+  const result = new Date(Date.UTC(year, month - 1, day + days));
+  return result.toISOString().slice(0, 10);
+}
+
 function toMinutes(value: string) {
   const [hours, minutes] = value.slice(0, 5).split(":").map(Number);
   return hours * 60 + minutes;
@@ -65,6 +90,7 @@ export function BookingRequestForm({ action, slug, services, bookingHours, busyB
   const [formStartedAt] = useState(() => Date.now());
 
   const selectedService = services.find((service) => service.name === serviceName);
+  const maximumDate = selectedService ? addDaysToDateInput(today, selectedService.maximumAdvanceDays) : undefined;
   const day = new Date(`${date}T12:00:00`).getDay();
   const selectedHours = bookingHours.find((hour) => hour.weekday === day);
 
@@ -72,20 +98,25 @@ export function BookingRequestForm({ action, slug, services, bookingHours, busyB
     if (!selectedService || !selectedHours || selectedHours.isClosed || !date) return [];
     const opensAt = toMinutes(selectedHours.opensAt);
     const closesAt = toMinutes(selectedHours.closesAt);
-    const now = toStockholmParts(new Date());
-    const blocked = busyBookings
-      .map((booking) => ({ start: toStockholmParts(new Date(booking.startsAt)), end: toStockholmParts(new Date(booking.endsAt)) }))
-      .filter((booking) => booking.start.date === date || booking.end.date === date);
+    const now = Date.now();
+    const minimumStart = now + selectedService.minimumNoticeMinutes * 60 * 1000;
+    const maximumStart = now + selectedService.maximumAdvanceDays * 24 * 60 * 60 * 1000;
     const slots: string[] = [];
 
     for (let start = opensAt; start + selectedService.durationMinutes <= closesAt; start += 30) {
-      if (date === now.date && start <= now.minutes) continue;
-      const end = start + selectedService.durationMinutes;
-      const overlaps = blocked.some((booking) => {
-        if (booking.start.date !== date || booking.end.date !== date) return false;
-        return start < booking.end.minutes && end > booking.start.minutes;
+      const timeValue = toTime(start);
+      const slotStart = stockholmLocalToUtc(date, timeValue).getTime();
+      if (!Number.isFinite(slotStart) || slotStart < minimumStart || slotStart > maximumStart) continue;
+
+      const slotEnd = slotStart + selectedService.durationMinutes * 60 * 1000;
+      const protectedStart = slotStart - selectedService.bufferBeforeMinutes * 60 * 1000;
+      const protectedEnd = slotEnd + selectedService.bufferAfterMinutes * 60 * 1000;
+      const overlaps = busyBookings.some((booking) => {
+        const bookingStart = new Date(booking.startsAt).getTime() - booking.bufferBeforeMinutes * 60 * 1000;
+        const bookingEnd = new Date(booking.endsAt).getTime() + booking.bufferAfterMinutes * 60 * 1000;
+        return bookingStart < protectedEnd && bookingEnd > protectedStart;
       });
-      if (!overlaps) slots.push(toTime(start));
+      if (!overlaps) slots.push(timeValue);
     }
     return slots;
   }, [busyBookings, date, selectedHours, selectedService]);
@@ -126,7 +157,7 @@ export function BookingRequestForm({ action, slug, services, bookingHours, busyB
             <h3 className="text-lg font-black">2. Välj tid</h3>
           </div>
           <label className="mt-4 grid gap-2 text-sm font-bold text-[#344139]">Datum
-            <input type="date" required min={today} value={date} onChange={(event) => { setDate(event.target.value); setTime(""); }} className="min-h-12 rounded-2xl border border-[#dfe5dd] bg-white px-4 py-3 text-base text-[#17201a] focus:outline-none focus:ring-2 focus:ring-[#17452f]" />
+            <input type="date" required min={today} max={maximumDate} value={date} onChange={(event) => { setDate(event.target.value); setTime(""); }} className="min-h-12 rounded-2xl border border-[#dfe5dd] bg-white px-4 py-3 text-base text-[#17201a] focus:outline-none focus:ring-2 focus:ring-[#17452f]" />
           </label>
           <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
             {selectedService && availableTimes.length ? availableTimes.map((availableTime) => (
@@ -190,7 +221,7 @@ export function BookingRequestForm({ action, slug, services, bookingHours, busyB
 
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="grid gap-2 text-sm font-semibold text-[#344139]">Datum
-          <input type="date" required min={today} value={date} onChange={(event) => { setDate(event.target.value); setTime(""); }} className="rounded-xl border border-[#d9e1d7] bg-white px-4 py-3 text-[#17201a]" />
+          <input type="date" required min={today} max={maximumDate} value={date} onChange={(event) => { setDate(event.target.value); setTime(""); }} className="rounded-xl border border-[#d9e1d7] bg-white px-4 py-3 text-[#17201a]" />
         </label>
         <label className="grid gap-2 text-sm font-semibold text-[#344139]">Ledig tid
           <select required value={time} onChange={(event) => setTime(event.target.value)} disabled={!selectedService || availableTimes.length === 0} className="rounded-xl border border-[#d9e1d7] bg-white px-4 py-3 text-[#17201a] disabled:cursor-not-allowed disabled:bg-[#f2f4f1]">
