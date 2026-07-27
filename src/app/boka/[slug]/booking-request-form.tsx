@@ -98,9 +98,8 @@ export function BookingRequestForm({ action, slug, services, bookingHours, busyB
     if (!selectedService || !selectedHours || selectedHours.isClosed || !date) return [];
     const opensAt = toMinutes(selectedHours.opensAt);
     const closesAt = toMinutes(selectedHours.closesAt);
-    const now = Date.now();
-    const minimumStart = now + selectedService.minimumNoticeMinutes * 60 * 1000;
-    const maximumStart = now + selectedService.maximumAdvanceDays * 24 * 60 * 60 * 1000;
+    const minimumStart = formStartedAt + selectedService.minimumNoticeMinutes * 60 * 1000;
+    const maximumStart = formStartedAt + selectedService.maximumAdvanceDays * 24 * 60 * 60 * 1000;
     const slots: string[] = [];
 
     for (let start = opensAt; start + selectedService.durationMinutes <= closesAt; start += 30) {
@@ -119,7 +118,7 @@ export function BookingRequestForm({ action, slug, services, bookingHours, busyB
       if (!overlaps) slots.push(timeValue);
     }
     return slots;
-  }, [busyBookings, date, selectedHours, selectedService]);
+  }, [busyBookings, date, formStartedAt, selectedHours, selectedService]);
 
   if (variant === "salon") {
     return (
