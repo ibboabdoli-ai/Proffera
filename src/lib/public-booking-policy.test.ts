@@ -5,7 +5,7 @@ import {
   stockholmDateToUtc,
   timeToMinutes,
   validatePublicBookingPolicy,
-} from "@/lib/public-booking-policy";
+} from "./public-booking-policy";
 
 const service = {
   durationMinutes: 60,
