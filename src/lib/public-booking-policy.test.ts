@@ -49,6 +49,16 @@ describe("public booking server policy", () => {
     expect(result.error).toBe("time");
   });
 
+  it("keeps valid local times around the Stockholm DST transition", () => {
+    const beforeJump = parseLocalDateTime("2026-03-29T01:00");
+    const afterJump = parseLocalDateTime("2026-03-29T03:00");
+
+    expect(stockholmDateToUtc(beforeJump!).toISOString()).toBe("2026-03-29T00:00:00.000Z");
+    expect(isValidStockholmLocalTime(beforeJump!)).toBe(true);
+    expect(stockholmDateToUtc(afterJump!).toISOString()).toBe("2026-03-29T01:00:00.000Z");
+    expect(isValidStockholmLocalTime(afterJump!)).toBe(true);
+  });
+
   it("validates booking-hour values strictly", () => {
     expect(timeToMinutes("09:30")).toBe(570);
     expect(timeToMinutes("09:30:00")).toBe(570);

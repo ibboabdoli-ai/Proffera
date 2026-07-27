@@ -77,7 +77,7 @@ export function parseLocalDateTime(value: string): ParsedLocalDateTime | null {
   return { year: y, month: m, day: d, hours: h, minutes: min };
 }
 
-export function stockholmDateToUtc(parts: ParsedLocalDateTime) {
+export function stockholmDateToUtc(parts: ParsedLocalDateTime): Date {
   const desired = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hours, parts.minutes);
   const inStockholm = (date: Date) => {
     const formatted = stockholmParts(date);
@@ -90,12 +90,22 @@ export function stockholmDateToUtc(parts: ParsedLocalDateTime) {
     );
   };
 
-  let date = new Date(desired);
-  date = new Date(desired - (inStockholm(date) - desired));
-  return date;
+  const probes = [
+    new Date(desired - 86_400_000),
+    new Date(desired),
+    new Date(desired + 86_400_000),
+  ];
+  const offsets = [...new Set(probes.map((probe) => inStockholm(probe) - probe.getTime()))];
+  const candidates = offsets.map((offset) => new Date(desired - offset));
+  return candidates.find((candidate) => isValidStockholmLocalTime(parts, candidate))
+    ?? candidates[0]
+    ?? new Date(Number.NaN);
 }
 
-export function isValidStockholmLocalTime(parts: ParsedLocalDateTime, date = stockholmDateToUtc(parts)) {
+export function isValidStockholmLocalTime(
+  parts: ParsedLocalDateTime,
+  date: Date = stockholmDateToUtc(parts),
+) {
   const roundTrip = stockholmParts(date);
   return (
     roundTrip.year === parts.year &&

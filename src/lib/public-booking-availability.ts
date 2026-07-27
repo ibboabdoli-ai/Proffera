@@ -1,3 +1,9 @@
+import {
+  isValidStockholmLocalTime,
+  parseLocalDateTime,
+  stockholmDateToUtc,
+} from "./public-booking-policy";
+
 export type BookingAvailabilityService = {
   durationMinutes: number;
   bufferBeforeMinutes: number;
@@ -40,27 +46,11 @@ export function stockholmDateInput(date: Date) {
 }
 
 export function stockholmLocalToUtc(dateValue: string, timeValue: string) {
-  const [year, month, day] = dateValue.split("-").map(Number);
-  const [hours, minutes] = timeValue.split(":").map(Number);
-  const desired = Date.UTC(year, month - 1, day, hours, minutes);
-  const inStockholm = (date: Date) => {
-    const formatted = Object.fromEntries(
-      stockholmFormatter
-        .formatToParts(date)
-        .filter((part) => part.type !== "literal")
-        .map((part) => [part.type, part.value]),
-    );
-    return Date.UTC(
-      Number(formatted.year),
-      Number(formatted.month) - 1,
-      Number(formatted.day),
-      Number(formatted.hour),
-      Number(formatted.minute),
-    );
-  };
-  let result = new Date(desired);
-  result = new Date(desired - (inStockholm(result) - desired));
-  return result;
+  const local = parseLocalDateTime(`${dateValue}T${timeValue}`);
+  if (!local) return new Date(Number.NaN);
+
+  const result = stockholmDateToUtc(local);
+  return isValidStockholmLocalTime(local, result) ? result : new Date(Number.NaN);
 }
 
 export function addDaysToDateInput(value: string, days: number) {
