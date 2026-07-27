@@ -25,6 +25,8 @@ const bookingErrors: Record<string, string> = {
   unavailable: "Bokningssidan är inte tillgänglig.",
   service: "Den valda tjänsten är inte tillgänglig längre.",
   time: "Välj en tid som ligger framåt i tiden.",
+  notice: "Den valda tiden ligger för nära i tid. Välj en senare tid.",
+  advance: "Den valda tiden ligger för långt fram. Välj ett tidigare datum.",
   hours: "Tiden ligger utanför företagets bokningstider.",
   hours_missing: "Företaget har inte publicerat sina bokningstider ännu.",
   conflict: "Tiden hann precis bli bokad. Välj gärna en annan tid.",
@@ -138,7 +140,13 @@ async function requestPublicBooking(formData: FormData) {
   if (!allowed) redirect(`/boka/${slug}?error=rate_limit`);
 
   const services = await sql`
-    select name, duration_minutes
+    select
+      name,
+      duration_minutes,
+      buffer_before_minutes,
+      buffer_after_minutes,
+      minimum_notice_minutes,
+      maximum_advance_days
     from workspace_services
     where workspace_id = ${String(workspace.id)} and name = ${serviceName} and is_active = true
     limit 1
@@ -149,9 +157,17 @@ async function requestPublicBooking(formData: FormData) {
   const localStart = parseLocalDateTime(startsAt);
   if (!localStart) redirect(`/boka/${slug}?error=time`);
   const start = stockholmDateToUtc(localStart);
-  if (Number.isNaN(start.getTime()) || start <= new Date()) redirect(`/boka/${slug}?error=time`);
+  const now = new Date();
+  if (Number.isNaN(start.getTime()) || start <= now) redirect(`/boka/${slug}?error=time`);
+
+  const minimumNotice = Math.max(0, Number(selectedService.minimum_notice_minutes) || 0);
+  const maximumAdvance = Math.max(1, Number(selectedService.maximum_advance_days) || 365);
+  if (start.getTime() < now.getTime() + minimumNotice * 60 * 1000) redirect(`/boka/${slug}?error=notice`);
+  if (start.getTime() > now.getTime() + maximumAdvance * 24 * 60 * 60 * 1000) redirect(`/boka/${slug}?error=advance`);
 
   const duration = Math.min(1440, Math.max(1, Number(selectedService.duration_minutes) || 60));
+  const bufferBefore = Math.max(0, Number(selectedService.buffer_before_minutes) || 0);
+  const bufferAfter = Math.max(0, Number(selectedService.buffer_after_minutes) || 0);
   const end = new Date(start.getTime() + duration * 60 * 1000);
   const weekday = new Date(Date.UTC(localStart.year, localStart.month - 1, localStart.day)).getUTCDay();
   const bookingHours = await sql`
@@ -170,11 +186,17 @@ async function requestPublicBooking(formData: FormData) {
   }
 
   const conflict = await sql`
-    select id from bookings
-    where workspace_id = ${String(workspace.id)}
-      and status not in ('cancelled', 'no_show')
-      and starts_at < ${end.toISOString()}::timestamptz
-      and ends_at > ${start.toISOString()}::timestamptz
+    select existing.id
+    from bookings existing
+    left join workspace_services existing_service
+      on existing_service.workspace_id = existing.workspace_id
+     and existing_service.name = existing.service
+    where existing.workspace_id = ${String(workspace.id)}
+      and existing.status not in ('cancelled', 'no_show')
+      and existing.starts_at - make_interval(mins => coalesce(existing_service.buffer_before_minutes, 0))
+        < ${end.toISOString()}::timestamptz + make_interval(mins => ${bufferAfter})
+      and existing.ends_at + make_interval(mins => coalesce(existing_service.buffer_after_minutes, 0))
+        > ${start.toISOString()}::timestamptz - make_interval(mins => ${bufferBefore})
     limit 1
   `;
   if (conflict[0]) redirect(`/boka/${slug}?error=conflict`);
@@ -311,9 +333,9 @@ export default async function PublicBookingPage({ params, searchParams }: PagePr
     workspace = workspaces[0] as Record<string, unknown> | undefined;
     if (workspace) {
       [services, publishedHours, busyBookings] = await Promise.all([
-        sql`select name, description, price_label, duration_minutes from workspace_services where workspace_id = ${String(workspace.id)} and is_active = true order by sort_order asc, name asc`,
+        sql`select name, description, price_label, duration_minutes, buffer_before_minutes, buffer_after_minutes, minimum_notice_minutes, maximum_advance_days from workspace_services where workspace_id = ${String(workspace.id)} and is_active = true order by sort_order asc, name asc`,
         sql`select weekday, opens_at::text as opens_at, closes_at::text as closes_at, is_closed from workspace_booking_hours where workspace_id = ${String(workspace.id)} order by weekday asc`,
-        sql`select starts_at, ends_at from bookings where workspace_id = ${String(workspace.id)} and status not in ('cancelled', 'no_show') and starts_at >= now() - interval '1 day' and ends_at is not null`,
+        sql`select b.starts_at, b.ends_at, coalesce(ws.buffer_before_minutes, 0) as buffer_before_minutes, coalesce(ws.buffer_after_minutes, 0) as buffer_after_minutes from bookings b left join workspace_services ws on ws.workspace_id = b.workspace_id and ws.name = b.service where b.workspace_id = ${String(workspace.id)} and b.status not in ('cancelled', 'no_show') and b.starts_at >= now() - interval '1 day' and b.ends_at is not null`,
       ]);
     }
   } catch {
@@ -351,9 +373,22 @@ export default async function PublicBookingPage({ params, searchParams }: PagePr
     <BookingRequestForm
       action={requestPublicBooking}
       slug={slug}
-      services={services.map((service) => ({ name: String(service.name), durationMinutes: Number(service.duration_minutes) || 60, priceLabel: String(service.price_label ?? "") }))}
+      services={services.map((service) => ({
+        name: String(service.name),
+        durationMinutes: Number(service.duration_minutes) || 60,
+        priceLabel: String(service.price_label ?? ""),
+        bufferBeforeMinutes: Number(service.buffer_before_minutes) || 0,
+        bufferAfterMinutes: Number(service.buffer_after_minutes) || 0,
+        minimumNoticeMinutes: Number(service.minimum_notice_minutes) || 0,
+        maximumAdvanceDays: Number(service.maximum_advance_days) || 365,
+      }))}
       bookingHours={publishedHours.map((hour) => ({ weekday: Number(hour.weekday), opensAt: String(hour.opens_at).slice(0, 5), closesAt: String(hour.closes_at).slice(0, 5), isClosed: Boolean(hour.is_closed) }))}
-      busyBookings={busyBookings.map((booking) => ({ startsAt: String(booking.starts_at), endsAt: String(booking.ends_at) }))}
+      busyBookings={busyBookings.map((booking) => ({
+        startsAt: String(booking.starts_at),
+        endsAt: String(booking.ends_at),
+        bufferBeforeMinutes: Number(booking.buffer_before_minutes) || 0,
+        bufferAfterMinutes: Number(booking.buffer_after_minutes) || 0,
+      }))}
       variant={slug === "julius-salong" ? "salon" : "default"}
     />
   ) : null;
