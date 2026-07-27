@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, CalendarCheck, Scissors, UserCheck } from "lucide-react";
 
 import {
@@ -33,11 +33,12 @@ type BookingRequestFormProps = {
 };
 
 export function BookingRequestForm({ action, slug, services, bookingHours, busyBookings, variant = "default" }: BookingRequestFormProps) {
-  const today = stockholmDateInput(new Date());
+  const [formStartedAt] = useState(() => Date.now());
+  const [availabilityReferenceTimeMs, setAvailabilityReferenceTimeMs] = useState(formStartedAt);
+  const today = stockholmDateInput(new Date(availabilityReferenceTimeMs));
   const [serviceName, setServiceName] = useState("");
   const [date, setDate] = useState(today);
   const [time, setTime] = useState("");
-  const [formStartedAt] = useState(() => Date.now());
 
   const selectedService = services.find((service) => service.name === serviceName);
   const maximumDate = selectedService ? addDaysToDateInput(today, selectedService.maximumAdvanceDays) : undefined;
@@ -51,16 +52,24 @@ export function BookingRequestForm({ action, slug, services, bookingHours, busyB
       service: selectedService,
       hours: selectedHours,
       busyBookings,
-      referenceTimeMs: formStartedAt,
+      referenceTimeMs: availabilityReferenceTimeMs,
     });
-  }, [busyBookings, date, formStartedAt, selectedHours, selectedService]);
+  }, [availabilityReferenceTimeMs, busyBookings, date, selectedHours, selectedService]);
+
+  useEffect(() => {
+    const refreshAvailability = () => setAvailabilityReferenceTimeMs(Date.now());
+    const timer = window.setInterval(refreshAvailability, 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const selectedTime = availableTimes.includes(time) ? time : "";
 
   if (variant === "salon") {
     return (
       <form action={action} className="mt-5 grid gap-4">
         <input type="hidden" name="slug" value={slug} />
         <input type="hidden" name="service" value={serviceName} />
-        <input type="hidden" name="starts_at" value={date && time ? `${date}T${time}` : ""} />
+        <input type="hidden" name="starts_at" value={date && selectedTime ? `${date}T${selectedTime}` : ""} />
         <input type="hidden" name="form_started_at" value={formStartedAt} />
         <label className="absolute left-[-10000px]" aria-hidden="true">Webbplats<input name="website" type="text" tabIndex={-1} autoComplete="off" /></label>
 
@@ -95,9 +104,9 @@ export function BookingRequestForm({ action, slug, services, bookingHours, busyB
           </label>
           <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
             {selectedService && availableTimes.length ? availableTimes.map((availableTime) => (
-              <button key={availableTime} type="button" aria-pressed={time === availableTime} onClick={() => setTime(availableTime)} className={`min-h-12 rounded-2xl px-3 py-3 text-left text-sm font-black transition focus:outline-none focus:ring-2 focus:ring-[#17452f] ${time === availableTime ? "bg-[#17452f] text-white shadow-sm" : "border border-[#dfe5dd] bg-white text-[#344139] hover:border-[#9fb5a5]"}`}>
+              <button key={availableTime} type="button" aria-pressed={selectedTime === availableTime} onClick={() => setTime(availableTime)} className={`min-h-12 rounded-2xl px-3 py-3 text-left text-sm font-black transition focus:outline-none focus:ring-2 focus:ring-[#17452f] ${selectedTime === availableTime ? "bg-[#17452f] text-white shadow-sm" : "border border-[#dfe5dd] bg-white text-[#344139] hover:border-[#9fb5a5]"}`}>
                 <span className="block">{availableTime}</span>
-                {selectedService.priceLabel ? <span className={`mt-1 block text-xs ${time === availableTime ? "text-white/75" : "text-[#5b665f]"}`}>{selectedService.priceLabel}</span> : null}
+                {selectedService.priceLabel ? <span className={`mt-1 block text-xs ${selectedTime === availableTime ? "text-white/75" : "text-[#5b665f]"}`}>{selectedService.priceLabel}</span> : null}
               </button>
             )) : <p className="col-span-full rounded-2xl bg-white px-4 py-3 text-sm font-bold text-[#5b665f]">{selectedService ? "Inga lediga tider denna dag." : "Välj en tjänst först."}</p>}
           </div>
@@ -109,7 +118,7 @@ export function BookingRequestForm({ action, slug, services, bookingHours, busyB
             <p><strong>{selectedService.name}</strong></p>
             <p>{selectedService.durationMinutes} min{selectedService.priceLabel ? ` • ${selectedService.priceLabel}` : ""}</p>
             <p>Frisör: Elias</p>
-            <p>{date} • {time || "Välj en tid"}</p>
+            <p>{date} • {selectedTime || "Välj en tid"}</p>
           </div>
         </section> : null}
 
@@ -124,7 +133,7 @@ export function BookingRequestForm({ action, slug, services, bookingHours, busyB
             <label className="grid gap-1.5 text-sm font-bold text-[#344139]">E-post<input name="email" type="email" inputMode="email" autoComplete="email" maxLength={180} className="min-h-12 rounded-2xl border border-[#dfe5dd] bg-white px-4 py-3 text-base text-[#17201a] focus:outline-none focus:ring-2 focus:ring-[#17452f]" /></label>
           </div>
           <p className="mt-3 text-xs leading-5 text-[#5b665f]">Fyll i minst e-post eller telefon så att Julius Salong kan kontakta dig.</p>
-          <button disabled={!selectedService || !time} className="mt-4 flex min-h-14 w-full items-center justify-center rounded-full bg-[#17452f] px-5 py-4 text-base font-black text-white shadow-lg shadow-[#17452f]/20 transition hover:bg-[#123824] disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2">
+          <button disabled={!selectedService || !selectedTime} className="mt-4 flex min-h-14 w-full items-center justify-center rounded-full bg-[#17452f] px-5 py-4 text-base font-black text-white shadow-lg shadow-[#17452f]/20 transition hover:bg-[#123824] disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2">
             Skicka bokningsförfrågan <ArrowRight className="ml-2 h-4 w-4" aria-hidden="true" />
           </button>
         </section>
@@ -135,7 +144,7 @@ export function BookingRequestForm({ action, slug, services, bookingHours, busyB
   return (
     <form action={action} className="mt-8 grid gap-4">
       <input type="hidden" name="slug" value={slug} />
-      <input type="hidden" name="starts_at" value={date && time ? `${date}T${time}` : ""} />
+      <input type="hidden" name="starts_at" value={date && selectedTime ? `${date}T${selectedTime}` : ""} />
       <input type="hidden" name="form_started_at" value={formStartedAt} />
       <label className="absolute left-[-10000px]" aria-hidden="true">Webbplats<input name="website" type="text" tabIndex={-1} autoComplete="off" /></label>
 
@@ -158,7 +167,7 @@ export function BookingRequestForm({ action, slug, services, bookingHours, busyB
           <input type="date" required min={today} max={maximumDate} value={date} onChange={(event) => { setDate(event.target.value); setTime(""); }} className="rounded-xl border border-[#d9e1d7] bg-white px-4 py-3 text-[#17201a]" />
         </label>
         <label className="grid gap-2 text-sm font-semibold text-[#344139]">Ledig tid
-          <select required value={time} onChange={(event) => setTime(event.target.value)} disabled={!selectedService || availableTimes.length === 0} className="rounded-xl border border-[#d9e1d7] bg-white px-4 py-3 text-[#17201a] disabled:cursor-not-allowed disabled:bg-[#f2f4f1]">
+          <select required value={selectedTime} onChange={(event) => setTime(event.target.value)} disabled={!selectedService || availableTimes.length === 0} className="rounded-xl border border-[#d9e1d7] bg-white px-4 py-3 text-[#17201a] disabled:cursor-not-allowed disabled:bg-[#f2f4f1]">
             <option value="">{selectedService ? (availableTimes.length ? "Välj en tid" : "Inga tider den dagen") : "Välj tjänst först"}</option>
             {availableTimes.map((availableTime) => <option key={availableTime} value={availableTime}>{availableTime}</option>)}
           </select>
