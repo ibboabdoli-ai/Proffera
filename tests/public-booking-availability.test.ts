@@ -26,6 +26,24 @@ describe("public booking availability policy", () => {
     expect(stockholmLocalToUtc("2026-07-28", "09:00").toISOString()).toBe("2026-07-28T07:00:00.000Z");
   });
 
+  it("does not offer local slots skipped by the Stockholm DST transition", () => {
+    expect(getAvailableBookingTimes({
+      date: "2026-03-29",
+      service: {
+        ...service,
+        durationMinutes: 30,
+        minimumNoticeMinutes: 0,
+      },
+      hours: {
+        opensAt: "01:00",
+        closesAt: "04:00",
+        isClosed: false,
+      },
+      busyBookings: [],
+      referenceTimeMs: stockholmLocalToUtc("2026-03-28", "08:00").getTime(),
+    })).toEqual(["01:00", "01:30", "03:00", "03:30"]);
+  });
+
   it("formats dates and advances the date input deterministically", () => {
     expect(stockholmDateInput(new Date("2026-07-27T10:00:00.000Z"))).toBe("2026-07-27");
     expect(addDaysToDateInput("2026-07-27", 30)).toBe("2026-08-26");
