@@ -67,6 +67,10 @@ export type DashboardWorkspaceService = {
   priceLabel: string;
   basePriceSek: number | null;
   durationMinutes: number | null;
+  bufferBeforeMinutes: number;
+  bufferAfterMinutes: number;
+  minimumNoticeMinutes: number;
+  maximumAdvanceDays: number;
   serviceArea: string;
   isActive: boolean;
   sortOrder: number;
@@ -79,6 +83,10 @@ export type WriteDashboardWorkspaceServiceInput = {
   priceLabel: string;
   basePriceSek: number | null;
   durationMinutes: number | null;
+  bufferBeforeMinutes: number;
+  bufferAfterMinutes: number;
+  minimumNoticeMinutes: number;
+  maximumAdvanceDays: number;
   serviceArea: string;
   isActive: boolean;
   sortOrder: number;
@@ -107,6 +115,10 @@ export async function getDashboardWorkspaceServices(): Promise<DashboardWorkspac
         price_label,
         base_price_sek,
         duration_minutes,
+        buffer_before_minutes,
+        buffer_after_minutes,
+        minimum_notice_minutes,
+        maximum_advance_days,
         service_area,
         is_active,
         sort_order
@@ -124,6 +136,10 @@ export async function getDashboardWorkspaceServices(): Promise<DashboardWorkspac
       priceLabel: toText(row.price_label),
       basePriceSek: toNumber(row.base_price_sek),
       durationMinutes: toNumber(row.duration_minutes),
+      bufferBeforeMinutes: toNumber(row.buffer_before_minutes) ?? 0,
+      bufferAfterMinutes: toNumber(row.buffer_after_minutes) ?? 0,
+      minimumNoticeMinutes: toNumber(row.minimum_notice_minutes) ?? 0,
+      maximumAdvanceDays: toNumber(row.maximum_advance_days) ?? 365,
       serviceArea: toText(row.service_area),
       isActive: toBoolean(row.is_active, true),
       sortOrder: toNumber(row.sort_order) ?? 100,
@@ -152,6 +168,10 @@ export async function createDashboardWorkspaceService(input: WriteDashboardWorks
       price_label,
       base_price_sek,
       duration_minutes,
+      buffer_before_minutes,
+      buffer_after_minutes,
+      minimum_notice_minutes,
+      maximum_advance_days,
       service_area,
       is_active,
       sort_order
@@ -164,6 +184,10 @@ export async function createDashboardWorkspaceService(input: WriteDashboardWorks
       ${input.priceLabel},
       ${input.basePriceSek},
       ${input.durationMinutes},
+      ${input.bufferBeforeMinutes},
+      ${input.bufferAfterMinutes},
+      ${input.minimumNoticeMinutes},
+      ${input.maximumAdvanceDays},
       ${input.serviceArea},
       ${input.isActive},
       ${input.sortOrder}
@@ -194,6 +218,10 @@ export async function updateDashboardWorkspaceService(input: UpdateDashboardWork
       price_label = ${input.priceLabel},
       base_price_sek = ${input.basePriceSek},
       duration_minutes = ${input.durationMinutes},
+      buffer_before_minutes = ${input.bufferBeforeMinutes},
+      buffer_after_minutes = ${input.bufferAfterMinutes},
+      minimum_notice_minutes = ${input.minimumNoticeMinutes},
+      maximum_advance_days = ${input.maximumAdvanceDays},
       service_area = ${input.serviceArea},
       is_active = ${input.isActive},
       sort_order = ${input.sortOrder},
