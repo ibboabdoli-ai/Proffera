@@ -5,7 +5,7 @@ import {
   getAvailableBookingTimes,
   stockholmDateInput,
   stockholmLocalToUtc,
-} from "@/lib/public-booking-availability";
+} from "../src/lib/public-booking-availability";
 
 const service = {
   durationMinutes: 60,
