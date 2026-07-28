@@ -14,7 +14,7 @@ const connectionString =
 const LEGACY_WORKSPACE_ID = "__legacy_workspace_access_disabled__";
 
 export class BookingRescheduleValidationError extends Error {
-  constructor(public readonly code: "time" | "past" | "conflict" | "status") {
+  constructor(public readonly code: "time" | "past" | "conflict" | "status" | "staff") {
     super(code);
     this.name = "BookingRescheduleValidationError";
   }
@@ -62,6 +62,7 @@ export async function rescheduleDashboardBooking(
       b.id,
       b.workspace_id,
       b.customer_id,
+      b.staff_id,
       b.status,
       b.service,
       b.city,
@@ -104,6 +105,40 @@ export async function rescheduleDashboardBooking(
     limit 1
   `;
   if (conflicts[0]) throw new BookingRescheduleValidationError("conflict");
+
+  if (existing.staff_id && String(existing.workspace_id) === access.workspaceId) {
+    const staffId = String(existing.staff_id);
+    const availabilityRows = await sql`
+      select
+        exists(
+          select 1 from workspace_staff_schedules ss
+          where ss.workspace_id = ${access.workspaceId}
+            and ss.staff_id = ${staffId}::uuid
+            and ss.is_active = true
+        ) as has_schedule,
+        exists(
+          select 1 from workspace_staff_schedules ss
+          where ss.workspace_id = ${access.workspaceId}
+            and ss.staff_id = ${staffId}::uuid
+            and ss.is_active = true
+            and ss.weekday = extract(dow from (${newStart.toISOString()}::timestamptz at time zone 'Europe/Stockholm'))::int
+            and ss.start_time <= (${newStart.toISOString()}::timestamptz at time zone 'Europe/Stockholm')::time
+            and ss.end_time >= (${newEnd.toISOString()}::timestamptz at time zone 'Europe/Stockholm')::time
+            and (${newStart.toISOString()}::timestamptz at time zone 'Europe/Stockholm')::date = (${newEnd.toISOString()}::timestamptz at time zone 'Europe/Stockholm')::date
+        ) as inside_schedule,
+        exists(
+          select 1 from workspace_staff_time_off t
+          where t.workspace_id = ${access.workspaceId}
+            and t.staff_id = ${staffId}::uuid
+            and t.starts_at < ${newEnd.toISOString()}::timestamptz
+            and t.ends_at > ${newStart.toISOString()}::timestamptz
+        ) as has_time_off
+    `;
+    const availability = availabilityRows[0];
+    if (Boolean(availability?.has_time_off) || (Boolean(availability?.has_schedule) && !Boolean(availability?.inside_schedule))) {
+      throw new BookingRescheduleValidationError("staff");
+    }
+  }
 
   const changed = oldStart.getTime() !== newStart.getTime();
   if (!changed) return { changed: false, notification: null };
