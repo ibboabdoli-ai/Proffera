@@ -156,7 +156,7 @@ export async function createDashboardRecurringAvailabilityBlocks(input: {
   }
 
   const now = new Date();
-  const occurrences: Array<{ startsAt: Date; endsAt: Date }> = [];
+  const occurrences: Array<{ startsAt: string; endsAt: string }> = [];
   for (let cursor = new Date(startDay); cursor <= endDay; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
     if (!weekdays.includes(cursor.getUTCDay())) continue;
     const date = cursor.toISOString().slice(0, 10);
@@ -175,32 +175,78 @@ export async function createDashboardRecurringAvailabilityBlocks(input: {
       throw new AvailabilityBlockValidationError("time");
     }
     if (startsAt <= now) continue;
-    occurrences.push({ startsAt, endsAt });
+    occurrences.push({ startsAt: startsAt.toISOString(), endsAt: endsAt.toISOString() });
   }
 
   if (!occurrences.length) throw new AvailabilityBlockValidationError("past");
   if (occurrences.length > 366) throw new AvailabilityBlockValidationError("range");
 
+  const reason = normalizeReason(input.reason);
   const sql = neon(connectionString!);
-  for (const occurrence of occurrences) {
-    if (await hasConflict(sql, access.workspaceId, occurrence.startsAt, occurrence.endsAt)) {
-      throw new AvailabilityBlockValidationError("conflict");
-    }
+  const rows = await sql`
+    with requested as (
+      select
+        value->>'startsAt' as starts_at_text,
+        value->>'endsAt' as ends_at_text
+      from jsonb_array_elements(${JSON.stringify(occurrences)}::jsonb)
+    ),
+    normalized as (
+      select
+        starts_at_text::timestamptz as starts_at,
+        ends_at_text::timestamptz as ends_at
+      from requested
+    ),
+    conflicts as (
+      select 1
+      from normalized n
+      join bookings b
+        on b.workspace_id = ${access.workspaceId}
+       and b.status not in ('cancelled', 'no_show')
+       and b.starts_at < n.ends_at
+       and b.ends_at > n.starts_at
+      limit 1
+    ),
+    inserted as (
+      insert into bookings (
+        workspace_id,
+        customer_id,
+        title,
+        service,
+        city,
+        status,
+        starts_at,
+        ends_at,
+        source,
+        notes
+      )
+      select
+        ${access.workspaceId},
+        null,
+        ${reason},
+        'Blockerad tid',
+        null,
+        'confirmed',
+        n.starts_at,
+        n.ends_at,
+        'dashboard_availability_recurring_block',
+        ${reason}
+      from normalized n
+      where not exists (select 1 from conflicts)
+      returning id
+    )
+    select
+      exists(select 1 from conflicts) as has_conflict,
+      coalesce((select json_agg(id) from inserted), '[]'::json) as ids
+  `;
+
+  if (Boolean(rows[0]?.has_conflict)) {
+    throw new AvailabilityBlockValidationError("conflict");
   }
 
-  const reason = normalizeReason(input.reason);
-  const ids: string[] = [];
-  for (const occurrence of occurrences) {
-    ids.push(
-      await insertBlock(
-        sql,
-        access.workspaceId,
-        occurrence.startsAt,
-        occurrence.endsAt,
-        reason,
-        "dashboard_availability_recurring_block",
-      ),
-    );
+  const idsValue = rows[0]?.ids;
+  const ids = Array.isArray(idsValue) ? idsValue.map((id) => String(id)) : [];
+  if (ids.length !== occurrences.length) {
+    throw new Error("Recurring availability block insert count mismatch");
   }
 
   return { count: ids.length, ids };
