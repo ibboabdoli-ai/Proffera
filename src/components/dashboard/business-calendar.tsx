@@ -1,61 +1,50 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import type { DashboardCalendarEvent } from "@/lib/dashboard-calendar";
 
 type ViewMode = "month" | "week" | "staff";
-
-type StaffColumn = {
-  id: string;
-  name: string;
-};
+type StaffColumn = { id: string; name: string };
 
 const statusLabels: Record<string, string> = {
-  draft: "Utkast",
-  requested: "Förfrågan",
-  confirmed: "Bekräftad",
-  completed: "Klar",
-  cancelled: "Avbokad",
-  no_show: "Uteblev",
-  leave: "Ledighet",
-  sick: "Sjukfrånvaro",
-  break: "Rast",
-  other: "Ej tillgänglig",
+  draft: "Utkast", requested: "Förfrågan", confirmed: "Bekräftad", completed: "Klar",
+  cancelled: "Avbokad", no_show: "Uteblev", leave: "Ledighet", sick: "Sjukfrånvaro",
+  break: "Rast", other: "Ej tillgänglig",
+};
+
+const moveErrorLabels: Record<string, string> = {
+  time: "Tiden kunde inte tolkas.",
+  past: "Bokningen kan inte flyttas till en tid som redan passerat.",
+  status: "Klara, avbokade eller uteblivna bokningar kan inte flyttas.",
+  conflict: "Tiden krockar med en blockerad period.",
+  staff: "Den valda medarbetaren är inte aktiv.",
+  staff_conflict: "Medarbetaren har redan en bokning under den tiden.",
+  staff_hours: "Tiden ligger utanför medarbetarens arbetstid.",
+  staff_time_off: "Medarbetaren har frånvaro eller rast under den tiden.",
+  save: "Ändringen kunde inte sparas.",
 };
 
 function stockholmParts(value: Date | string) {
   const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Europe/Stockholm",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
+    timeZone: "Europe/Stockholm", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hourCycle: "h23",
   }).formatToParts(new Date(value));
   const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
   return { date: `${get("year")}-${get("month")}-${get("day")}`, time: `${get("hour")}:${get("minute")}` };
 }
 
-function dateKey(date: Date) {
-  return date.toISOString().slice(0, 10);
-}
-
+function dateKey(date: Date) { return date.toISOString().slice(0, 10); }
 function startOfWeek(date: Date) {
   const copy = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
   const day = copy.getUTCDay() || 7;
   copy.setUTCDate(copy.getUTCDate() - day + 1);
   return copy;
 }
-
-function addDays(date: Date, days: number) {
-  const copy = new Date(date);
-  copy.setUTCDate(copy.getUTCDate() + days);
-  return copy;
-}
+function addDays(date: Date, days: number) { const copy = new Date(date); copy.setUTCDate(copy.getUTCDate() + days); return copy; }
 
 function eventStyle(event: DashboardCalendarEvent) {
   if (event.type === "time_off") return "border-[#8f5f75] bg-[#f6eaf0] text-[#6d2848]";
@@ -67,7 +56,12 @@ function eventStyle(event: DashboardCalendarEvent) {
   return "border-[#c8d2c6] bg-[#f1f2ed] text-[#4f5b53]";
 }
 
-function EventCard({ event, compact = false }: { event: DashboardCalendarEvent; compact?: boolean }) {
+function EventCard({ event, compact = false, draggable = false, onDragStart }: {
+  event: DashboardCalendarEvent;
+  compact?: boolean;
+  draggable?: boolean;
+  onDragStart?: () => void;
+}) {
   const href = event.type === "booking" ? `/dashboard/bokningar/${event.id}` : event.type === "time_off" ? "/dashboard/personal/tider" : "/dashboard/bokningar/blockera";
   const time = stockholmParts(event.startsAt).time;
   const staffLabel = event.type === "booking" ? event.staffName || "Ej fördelad" : event.staffName;
@@ -75,9 +69,19 @@ function EventCard({ event, compact = false }: { event: DashboardCalendarEvent; 
   const secondaryLabel = event.type === "time_off"
     ? `${event.service}${staffLabel ? ` · ${staffLabel}` : ""}`
     : `${event.service} · ${statusLabels[event.status] ?? event.status}${staffLabel ? ` · ${staffLabel}` : ""}`;
-
   return (
-    <Link href={href} title={`${time} ${event.title}`} className={`block rounded-lg border-l-4 px-2 py-1.5 text-xs leading-4 ${eventStyle(event)}`}>
+    <Link
+      href={href}
+      draggable={draggable}
+      onDragStart={(dragEvent) => {
+        if (!draggable) return;
+        dragEvent.dataTransfer.effectAllowed = "move";
+        dragEvent.dataTransfer.setData("text/plain", event.id);
+        onDragStart?.();
+      }}
+      title={`${time} ${event.title}${draggable ? " · Dra för att flytta" : ""}`}
+      className={`block rounded-lg border-l-4 px-2 py-1.5 text-xs leading-4 ${eventStyle(event)} ${draggable ? "cursor-grab active:cursor-grabbing" : ""}`}
+    >
       <span className="font-black">{time}</span> <span className="font-semibold">{primaryLabel}</span>
       {!compact ? <span className="mt-0.5 block opacity-80">{secondaryLabel}</span> : staffLabel ? <span className="mt-0.5 block truncate opacity-75">{staffLabel}</span> : null}
     </Link>
@@ -85,55 +89,65 @@ function EventCard({ event, compact = false }: { event: DashboardCalendarEvent; 
 }
 
 export function BusinessCalendar({ events }: { events: DashboardCalendarEvent[] }) {
+  const router = useRouter();
   const todayKey = stockholmParts(new Date()).date;
   const [view, setView] = useState<ViewMode>("month");
   const [cursor, setCursor] = useState(() => new Date(`${todayKey}T00:00:00Z`));
   const [status, setStatus] = useState("all");
   const [staffId, setStaffId] = useState("all");
+  const [draggedBooking, setDraggedBooking] = useState<DashboardCalendarEvent | null>(null);
+  const [moveState, setMoveState] = useState<{ pending: boolean; message: string; error: boolean }>({ pending: false, message: "", error: false });
 
   const staffOptions = useMemo(() => {
     const map = new Map<string, string>();
-    events.forEach((event) => {
-      if (event.staffId && event.staffName) map.set(event.staffId, event.staffName);
-    });
+    events.forEach((event) => { if (event.staffId && event.staffName) map.set(event.staffId, event.staffName); });
     return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1], "sv"));
   }, [events]);
-
-  const staffColumns = useMemo<StaffColumn[]>(() => [
-    { id: "unassigned", name: "Ej fördelade" },
-    ...staffOptions.map(([id, name]) => ({ id, name })),
-  ], [staffOptions]);
+  const staffColumns = useMemo<StaffColumn[]>(() => [{ id: "unassigned", name: "Ej fördelade" }, ...staffOptions.map(([id, name]) => ({ id, name }))], [staffOptions]);
 
   const visibleEvents = useMemo(() => events.filter((event) => {
-    const statusMatch = status === "all" ||
-      (status === "block" ? event.type === "block" : status === "time_off" ? event.type === "time_off" : event.type === "booking" && event.status === status);
+    const statusMatch = status === "all" || (status === "block" ? event.type === "block" : status === "time_off" ? event.type === "time_off" : event.type === "booking" && event.status === status);
     const staffMatch = staffId === "all" || (staffId === "unassigned" ? event.type === "booking" && !event.staffId : event.staffId === staffId);
     return statusMatch && staffMatch;
   }), [events, staffId, status]);
 
   const eventsByDate = useMemo(() => {
     const map = new Map<string, DashboardCalendarEvent[]>();
-    visibleEvents.forEach((event) => {
-      const key = stockholmParts(event.startsAt).date;
-      map.set(key, [...(map.get(key) ?? []), event]);
-    });
+    visibleEvents.forEach((event) => { const key = stockholmParts(event.startsAt).date; map.set(key, [...(map.get(key) ?? []), event]); });
     return map;
   }, [visibleEvents]);
 
-  const weekDays = useMemo(() => {
-    const start = startOfWeek(cursor);
-    return Array.from({ length: 7 }, (_, index) => addDays(start, index));
-  }, [cursor]);
-
+  const weekDays = useMemo(() => { const start = startOfWeek(cursor); return Array.from({ length: 7 }, (_, index) => addDays(start, index)); }, [cursor]);
   const days = useMemo(() => {
     if (view === "week" || view === "staff") return weekDays;
     const first = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth(), 1));
-    const gridStart = startOfWeek(first);
-    return Array.from({ length: 42 }, (_, index) => addDays(gridStart, index));
+    return Array.from({ length: 42 }, (_, index) => addDays(startOfWeek(first), index));
   }, [cursor, view, weekDays]);
 
   const title = new Intl.DateTimeFormat("sv-SE", view === "month" ? { month: "long", year: "numeric", timeZone: "UTC" } : { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(cursor);
   const move = (direction: number) => setCursor((current) => view === "month" ? new Date(Date.UTC(current.getUTCFullYear(), current.getUTCMonth() + direction, 1)) : addDays(current, direction * 7));
+
+  async function moveBooking(targetDate: string, targetStaffId: string) {
+    if (!draggedBooking || moveState.pending) return;
+    const localStartsAt = `${targetDate}T${stockholmParts(draggedBooking.startsAt).time}`;
+    setMoveState({ pending: true, message: "Flyttar bokningen…", error: false });
+    try {
+      const response = await fetch("/api/dashboard/calendar/move", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bookingId: draggedBooking.id, localStartsAt, staffId: targetStaffId === "unassigned" ? "" : targetStaffId }),
+      });
+      const payload = await response.json() as { ok?: boolean; error?: string };
+      if (!response.ok || !payload.ok) throw new Error(payload.error || "save");
+      setMoveState({ pending: false, message: "Bokningen flyttades och kalendern uppdateras.", error: false });
+      setDraggedBooking(null);
+      router.refresh();
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "save";
+      setMoveState({ pending: false, message: moveErrorLabels[code] ?? moveErrorLabels.save, error: true });
+      setDraggedBooking(null);
+    }
+  }
 
   return (
     <div className="grid gap-4">
@@ -148,66 +162,42 @@ export function BusinessCalendar({ events }: { events: DashboardCalendarEvent[] 
           <select value={status} onChange={(event) => setStatus(event.target.value)} className="min-h-10 rounded-xl border border-[#d7dfd5] bg-white px-3 text-sm font-semibold">
             <option value="all">Alla händelser</option><option value="requested">Förfrågningar</option><option value="confirmed">Bekräftade</option><option value="completed">Klara</option><option value="cancelled">Avbokade</option><option value="block">Blockerad tid</option><option value="time_off">Frånvaro och raster</option>
           </select>
-          {view !== "staff" ? (
-            <select value={staffId} onChange={(event) => setStaffId(event.target.value)} className="min-h-10 rounded-xl border border-[#d7dfd5] bg-white px-3 text-sm font-semibold">
-              <option value="all">All personal</option>
-              <option value="unassigned">Ej fördelade</option>
-              {staffOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-            </select>
-          ) : null}
+          {view !== "staff" ? <select value={staffId} onChange={(event) => setStaffId(event.target.value)} className="min-h-10 rounded-xl border border-[#d7dfd5] bg-white px-3 text-sm font-semibold"><option value="all">All personal</option><option value="unassigned">Ej fördelade</option>{staffOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select> : null}
           {(["month", "week", "staff"] as ViewMode[]).map((mode) => <button key={mode} type="button" onClick={() => { setView(mode); if (mode === "staff") setStaffId("all"); }} className={`min-h-10 rounded-xl px-4 text-sm font-bold ${view === mode ? "bg-[#173e2b] text-white" : "border border-[#d7dfd5] bg-white"}`}>{mode === "month" ? "Månad" : mode === "week" ? "Vecka" : "Personal"}</button>)}
         </div>
       </div>
 
+      {view === "staff" ? <p className="rounded-xl border border-[#dfe5dc] bg-[#f7f9f6] px-4 py-3 text-sm text-[#536158]">Dra en aktiv bokning till rätt dag och medarbetare. Starttiden och bokningens längd behålls.</p> : null}
+      {moveState.message ? <p role={moveState.error ? "alert" : "status"} className={`rounded-xl px-4 py-3 text-sm font-semibold ${moveState.error ? "bg-[#fff5f2] text-[#8f2f1b] ring-1 ring-[#f4c7ba]" : "bg-[#eef8f1] text-[#17452f] ring-1 ring-[#cfe8d6]"}`}>{moveState.message}</p> : null}
+
       {view === "staff" ? (
         <div className="overflow-x-auto rounded-2xl border border-[#dfe5dc] bg-white shadow-sm">
           <div className="grid min-w-max" style={{ gridTemplateColumns: `repeat(${Math.max(staffColumns.length, 1)}, minmax(260px, 1fr))` }}>
-            {staffColumns.map((column) => (
-              <section key={column.id} className="border-r border-[#e5e9e3] last:border-r-0">
-                <header className="sticky top-0 z-10 border-b border-[#dfe5dc] bg-[#f7f9f6] px-4 py-3">
-                  <h3 className="font-bold text-[#17201a]">{column.name}</h3>
-                  <p className="mt-1 text-xs text-[#6b766e]">Veckoplanering</p>
-                </header>
-                <div className="grid">
-                  {weekDays.map((day) => {
-                    const key = dateKey(day);
-                    const dayEvents = (eventsByDate.get(key) ?? []).filter((event) => column.id === "unassigned" ? event.type === "booking" && !event.staffId : event.staffId === column.id);
-                    return (
-                      <div key={`${column.id}-${key}`} className="min-h-32 border-b border-[#edf0eb] p-3">
-                        <div className="mb-2 flex items-center justify-between gap-2">
-                          <p className="text-xs font-bold uppercase tracking-wide text-[#667168]">{new Intl.DateTimeFormat("sv-SE", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }).format(day)}</p>
-                          {key === todayKey ? <span className="rounded-full bg-[#173e2b] px-2 py-0.5 text-[10px] font-bold text-white">Idag</span> : null}
-                        </div>
-                        <div className="grid gap-1.5">
-                          {dayEvents.length ? dayEvents.map((event) => <EventCard key={event.id} event={event} />) : <p className="rounded-lg border border-dashed border-[#dce3da] p-3 text-xs text-[#8a948d]">Inga händelser</p>}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-            ))}
+            {staffColumns.map((column) => <section key={column.id} className="border-r border-[#e5e9e3] last:border-r-0">
+              <header className="sticky top-0 z-10 border-b border-[#dfe5dc] bg-[#f7f9f6] px-4 py-3"><h3 className="font-bold text-[#17201a]">{column.name}</h3><p className="mt-1 text-xs text-[#6b766e]">Veckoplanering</p></header>
+              <div className="grid">{weekDays.map((day) => {
+                const key = dateKey(day);
+                const dayEvents = (eventsByDate.get(key) ?? []).filter((event) => column.id === "unassigned" ? event.type === "booking" && !event.staffId : event.staffId === column.id);
+                return <div
+                  key={`${column.id}-${key}`}
+                  onDragOver={(event) => { if (draggedBooking) { event.preventDefault(); event.dataTransfer.dropEffect = "move"; } }}
+                  onDrop={(event) => { event.preventDefault(); void moveBooking(key, column.id); }}
+                  className={`min-h-32 border-b border-[#edf0eb] p-3 transition ${draggedBooking ? "bg-[#fbfdfb] hover:bg-[#eef8f1]" : ""}`}
+                >
+                  <div className="mb-2 flex items-center justify-between gap-2"><p className="text-xs font-bold uppercase tracking-wide text-[#667168]">{new Intl.DateTimeFormat("sv-SE", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }).format(day)}</p>{key === todayKey ? <span className="rounded-full bg-[#173e2b] px-2 py-0.5 text-[10px] font-bold text-white">Idag</span> : null}</div>
+                  <div className="grid gap-1.5">{dayEvents.length ? dayEvents.map((calendarEvent) => <EventCard key={calendarEvent.id} event={calendarEvent} draggable={calendarEvent.type === "booking" && !["completed", "cancelled", "no_show"].includes(calendarEvent.status)} onDragStart={() => setDraggedBooking(calendarEvent)} />) : <p className="rounded-lg border border-dashed border-[#dce3da] p-3 text-xs text-[#8a948d]">Inga händelser</p>}</div>
+                </div>;
+              })}</div>
+            </section>)}
           </div>
         </div>
       ) : (
         <div className="overflow-x-auto rounded-2xl border border-[#dfe5dc] bg-white shadow-sm">
-          <div className="min-w-[850px] grid grid-cols-7 border-b border-[#e4e8e2] bg-[#f7f9f6] text-center text-xs font-bold uppercase tracking-wide text-[#6b766e]">
-            {['Mån','Tis','Ons','Tor','Fre','Lör','Sön'].map((day) => <div key={day} className="px-2 py-3">{day}</div>)}
-          </div>
-          <div className="min-w-[850px] grid grid-cols-7">
-            {days.map((day) => {
-              const key = dateKey(day);
-              const dayEvents = eventsByDate.get(key) ?? [];
-              const outsideMonth = view === "month" && day.getUTCMonth() !== cursor.getUTCMonth();
-              return <div key={key} className={`min-h-36 border-b border-r border-[#edf0eb] p-2 ${outsideMonth ? "bg-[#fafbf9] text-[#9aa39c]" : "bg-white"}`}>
-                <div className={`mb-2 flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold ${key === todayKey ? "bg-[#173e2b] text-white" : ""}`}>{day.getUTCDate()}</div>
-                <div className="grid gap-1.5">
-                  {dayEvents.slice(0, view === "month" ? 4 : 12).map((event) => <EventCard key={event.id} event={event} compact={view === "month"} />)}
-                  {dayEvents.length > (view === "month" ? 4 : 12) ? <p className="px-1 text-xs font-semibold text-[#667168]">+{dayEvents.length - (view === "month" ? 4 : 12)} till</p> : null}
-                </div>
-              </div>;
-            })}
-          </div>
+          <div className="min-w-[850px] grid grid-cols-7 border-b border-[#e4e8e2] bg-[#f7f9f6] text-center text-xs font-bold uppercase tracking-wide text-[#6b766e]">{['Mån','Tis','Ons','Tor','Fre','Lör','Sön'].map((day) => <div key={day} className="px-2 py-3">{day}</div>)}</div>
+          <div className="min-w-[850px] grid grid-cols-7">{days.map((day) => {
+            const key = dateKey(day); const dayEvents = eventsByDate.get(key) ?? []; const outsideMonth = view === "month" && day.getUTCMonth() !== cursor.getUTCMonth();
+            return <div key={key} className={`min-h-36 border-b border-r border-[#edf0eb] p-2 ${outsideMonth ? "bg-[#fafbf9] text-[#9aa39c]" : "bg-white"}`}><div className={`mb-2 flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold ${key === todayKey ? "bg-[#173e2b] text-white" : ""}`}>{day.getUTCDate()}</div><div className="grid gap-1.5">{dayEvents.slice(0, view === "month" ? 4 : 12).map((calendarEvent) => <EventCard key={calendarEvent.id} event={calendarEvent} compact={view === "month"} />)}{dayEvents.length > (view === "month" ? 4 : 12) ? <p className="px-1 text-xs font-semibold text-[#667168]">+{dayEvents.length - (view === "month" ? 4 : 12)} till</p> : null}</div></div>;
+          })}</div>
         </div>
       )}
     </div>
