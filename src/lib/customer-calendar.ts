@@ -130,3 +130,21 @@ export async function getCustomerCalendar(token: string): Promise<CustomerCalend
       .reverse(),
   };
 }
+
+export async function getCustomerCalendarBooking(token: string, bookingId: string): Promise<CustomerCalendarBooking | null> {
+  const payload = verifyCustomerCalendarToken(token);
+  if (!payload || !connectionString || !bookingId) return null;
+
+  const sql = neon(connectionString);
+  const rows = await sql`
+    select id, title, service, city, status, starts_at, ends_at
+    from bookings
+    where id = ${bookingId}
+      and customer_id = ${payload.customerId}
+      and workspace_id = ${payload.workspaceId}
+      and source not in ('dashboard_availability_block', 'dashboard_availability_recurring_block')
+    limit 1
+  `;
+
+  return rows[0] ? toBooking(rows[0]) : null;
+}
