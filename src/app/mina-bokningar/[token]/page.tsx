@@ -31,8 +31,8 @@ function formatDate(value: string) {
   }).format(new Date(value));
 }
 
-function BookingCard({ booking }: { booking: CustomerCalendarBooking }) {
-  const calendarUrl = `/api/mina-bokningar/${encodeURIComponent(booking.id)}/calendar`;
+function BookingCard({ booking, token }: { booking: CustomerCalendarBooking; token: string }) {
+  const calendarUrl = `/api/mina-bokningar/${encodeURIComponent(token)}/${encodeURIComponent(booking.id)}/calendar`;
 
   return (
     <article className="rounded-2xl border border-[#dfe6df] bg-white p-5 shadow-sm">
@@ -86,7 +86,7 @@ export default async function CustomerCalendarPage({ params }: PageProps) {
             <h2 className="text-xl font-bold text-[#17201a]">Kommande</h2>
           </div>
           <div className="mt-5 grid gap-4 md:grid-cols-2">
-            {data.upcoming.length ? data.upcoming.map((booking) => <BookingCard key={booking.id} booking={booking} />) : <p className="text-sm text-[#667168]">Du har inga kommande bokningar.</p>}
+            {data.upcoming.length ? data.upcoming.map((booking) => <BookingCard key={booking.id} booking={booking} token={token} />) : <p className="text-sm text-[#667168]">Du har inga kommande bokningar.</p>}
           </div>
         </section>
 
@@ -96,7 +96,7 @@ export default async function CustomerCalendarPage({ params }: PageProps) {
             <h2 className="text-xl font-bold text-[#17201a]">Historik</h2>
           </div>
           <div className="mt-5 grid gap-4 md:grid-cols-2">
-            {data.history.length ? data.history.map((booking) => <BookingCard key={booking.id} booking={booking} />) : <p className="text-sm text-[#667168]">Ingen bokningshistorik ännu.</p>}
+            {data.history.length ? data.history.map((booking) => <BookingCard key={booking.id} booking={booking} token={token} />) : <p className="text-sm text-[#667168]">Ingen bokningshistorik ännu.</p>}
           </div>
         </section>
       </div>
