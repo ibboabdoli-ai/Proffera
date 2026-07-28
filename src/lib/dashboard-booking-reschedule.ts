@@ -14,7 +14,7 @@ const connectionString =
 const LEGACY_WORKSPACE_ID = "__legacy_workspace_access_disabled__";
 
 export class BookingRescheduleValidationError extends Error {
-  constructor(public readonly code: "time" | "past" | "conflict" | "status" | "staff") {
+  constructor(public readonly code: "time" | "past" | "conflict" | "status") {
     super(code);
     this.name = "BookingRescheduleValidationError";
   }
@@ -136,7 +136,7 @@ export async function rescheduleDashboardBooking(
     `;
     const availability = availabilityRows[0];
     if (Boolean(availability?.has_time_off) || (Boolean(availability?.has_schedule) && !Boolean(availability?.inside_schedule))) {
-      throw new BookingRescheduleValidationError("staff");
+      throw new BookingRescheduleValidationError("conflict");
     }
   }
 
