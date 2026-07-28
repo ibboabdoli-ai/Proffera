@@ -21,6 +21,8 @@ export type DashboardCalendarEvent = {
   startsAt: string;
   endsAt: string;
   source: string;
+  staffId: string;
+  staffName: string;
 };
 
 function text(value: unknown, fallback = "") {
@@ -50,11 +52,16 @@ export async function getDashboardCalendarEvents(): Promise<DashboardCalendarEve
         b.starts_at,
         b.ends_at,
         b.source,
-        c.name as customer_name
+        b.staff_id,
+        c.name as customer_name,
+        s.name as staff_name
       from bookings b
       left join customers c
         on c.id = b.customer_id
        and c.workspace_id = b.workspace_id
+      left join workspace_staff s
+        on s.id = b.staff_id
+       and s.workspace_id = b.workspace_id
       where b.workspace_id = ${access.workspaceId}
         and b.starts_at is not null
         and b.ends_at is not null
@@ -78,6 +85,8 @@ export async function getDashboardCalendarEvents(): Promise<DashboardCalendarEve
         startsAt: new Date(String(row.starts_at)).toISOString(),
         endsAt: new Date(String(row.ends_at)).toISOString(),
         source,
+        staffId: text(row.staff_id),
+        staffName: text(row.staff_name),
       } satisfies DashboardCalendarEvent;
     });
   } catch (error) {
