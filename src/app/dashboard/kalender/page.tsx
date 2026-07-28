@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CalendarDays, CalendarPlus, Clock3 } from "lucide-react";
+import { CalendarDays, CalendarPlus, Clock3, Download } from "lucide-react";
 
 import { BusinessCalendar } from "@/components/dashboard/business-calendar";
 import { DashboardPageHeader } from "@/components/dashboard/dashboard-page-ui";
@@ -21,6 +21,10 @@ export default async function CalendarPage() {
         icon={CalendarDays}
         actions={
           <div className="flex flex-wrap gap-2">
+            <Link href="/api/dashboard/calendar/export" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#cfd9d0] bg-white px-4 py-2.5 text-sm font-bold text-[#17452f] hover:bg-[#f3f7f3]">
+              <Download className="h-4 w-4" aria-hidden="true" />
+              Exportera kalender
+            </Link>
             <Link href="/dashboard/bokningar/blockera" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#cfd9d0] bg-white px-4 py-2.5 text-sm font-bold text-[#17452f] hover:bg-[#f3f7f3]">
               <Clock3 className="h-4 w-4" aria-hidden="true" />
               Blockera tid
