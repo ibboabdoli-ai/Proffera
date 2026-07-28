@@ -23,7 +23,7 @@ export const profferaModules: ProfferaModule[] = [
   {
     id: "online_booking",
     name: "Onlinebokning",
-    description: "Bokningsfl\u00f6de f\u00f6r servicef\u00f6retag.",
+    description: "Bokningsflöde för serviceföretag.",
     accessState: "active",
   },
   {
@@ -35,13 +35,13 @@ export const profferaModules: ProfferaModule[] = [
   {
     id: "ai_chat",
     name: "AI-chattassistent",
-    description: "AI-st\u00f6d f\u00f6r kunddialog och leadhantering.",
+    description: "AI-stöd för kunddialog och leadhantering.",
     accessState: "planned",
   },
   {
     id: "email_automation",
     name: "Automatiska mejl",
-    description: "Bekr\u00e4ftelser, p\u00e5minnelser och uppf\u00f6ljning.",
+    description: "Bekräftelser, påminnelser och uppföljning.",
     accessState: "planned",
   },
   {
@@ -54,7 +54,7 @@ export const profferaModules: ProfferaModule[] = [
 
 export function getModuleAccessLabel(accessState: ProfferaModuleAccessState) {
   if (accessState === "active") return "Aktiv";
-  if (accessState === "locked") return "L\u00e5st";
+  if (accessState === "locked") return "Låst";
   return "Planerad";
 }
 
@@ -67,10 +67,11 @@ export function getProfferaModuleAccess(): ProfferaModuleAccess[] {
 }
 
 export const dashboardNavigation = [
-  { label: "\u00d6versikt", href: "/dashboard" },
+  { label: "Översikt", href: "/dashboard" },
   { label: "Leads", href: "/dashboard/leads", featureKey: "lead_inbox" },
   { label: "Kunder", href: "/dashboard/kunder", moduleId: "customer_crm" },
   { label: "Bokningar", href: "/dashboard/bokningar", moduleId: "online_booking" },
+  { label: "Kalender", href: "/dashboard/kalender", moduleId: "online_booking" },
   { label: "AI-assistent", href: "/dashboard/ai-assistent", moduleId: "ai_chat" },
-  { label: "Inst\u00e4llningar", href: "/dashboard/installningar" },
+  { label: "Inställningar", href: "/dashboard/installningar" },
 ] as const;
