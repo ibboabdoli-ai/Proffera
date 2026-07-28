@@ -1,5 +1,6 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
-import { UserPlus, UsersRound } from "lucide-react";
+import { CalendarRange, UserPlus, UsersRound } from "lucide-react";
 
 import { DashboardPageHeader } from "@/components/dashboard/dashboard-page-ui";
 import {
@@ -55,8 +56,13 @@ export default async function StaffPage({
       <DashboardPageHeader
         eyebrow="Personal"
         title="Medarbetare och resurser"
-        description="Skapa personal som senare kan kopplas till bokningar, arbetstider och kalenderkolumner. All information är isolerad till den aktiva arbetsytan."
+        description="Skapa personal, hantera aktiva medarbetare och koppla dem till bokningar. All information är isolerad till den aktiva arbetsytan."
         icon={UsersRound}
+        actions={
+          <Link href="/dashboard/personal/bokningar" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#173e2b] px-4 py-2.5 text-sm font-bold text-white">
+            <CalendarRange className="h-4 w-4" aria-hidden="true" /> Fördela bokningar
+          </Link>
+        }
       />
 
       {query?.created === "1" || query?.updated === "1" ? (
