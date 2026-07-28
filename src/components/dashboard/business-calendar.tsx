@@ -62,8 +62,22 @@ export function BusinessCalendar({ events }: { events: DashboardCalendarEvent[] 
   const [view, setView] = useState<ViewMode>("month");
   const [cursor, setCursor] = useState(() => new Date(`${todayKey}T00:00:00Z`));
   const [status, setStatus] = useState("all");
+  const [staffId, setStaffId] = useState("all");
 
-  const visibleEvents = useMemo(() => events.filter((event) => status === "all" || (status === "block" ? event.type === "block" : event.status === status)), [events, status]);
+  const staffOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    events.forEach((event) => {
+      if (event.staffId && event.staffName) map.set(event.staffId, event.staffName);
+    });
+    return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1], "sv"));
+  }, [events]);
+
+  const visibleEvents = useMemo(() => events.filter((event) => {
+    const statusMatch = status === "all" || (status === "block" ? event.type === "block" : event.status === status);
+    const staffMatch = staffId === "all" || (staffId === "unassigned" ? event.type === "booking" && !event.staffId : event.staffId === staffId);
+    return statusMatch && staffMatch;
+  }), [events, staffId, status]);
+
   const eventsByDate = useMemo(() => {
     const map = new Map<string, DashboardCalendarEvent[]>();
     visibleEvents.forEach((event) => {
@@ -99,6 +113,11 @@ export function BusinessCalendar({ events }: { events: DashboardCalendarEvent[] 
           <select value={status} onChange={(event) => setStatus(event.target.value)} className="min-h-10 rounded-xl border border-[#d7dfd5] bg-white px-3 text-sm font-semibold">
             <option value="all">Alla händelser</option><option value="requested">Förfrågningar</option><option value="confirmed">Bekräftade</option><option value="completed">Klara</option><option value="cancelled">Avbokade</option><option value="block">Blockerad tid</option>
           </select>
+          <select value={staffId} onChange={(event) => setStaffId(event.target.value)} className="min-h-10 rounded-xl border border-[#d7dfd5] bg-white px-3 text-sm font-semibold">
+            <option value="all">All personal</option>
+            <option value="unassigned">Ej fördelade</option>
+            {staffOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+          </select>
           {(["month", "week"] as ViewMode[]).map((mode) => <button key={mode} type="button" onClick={() => setView(mode)} className={`min-h-10 rounded-xl px-4 text-sm font-bold ${view === mode ? "bg-[#173e2b] text-white" : "border border-[#d7dfd5] bg-white"}`}>{mode === "month" ? "Månad" : "Vecka"}</button>)}
         </div>
       </div>
@@ -118,9 +137,10 @@ export function BusinessCalendar({ events }: { events: DashboardCalendarEvent[] 
                 {dayEvents.slice(0, view === "month" ? 4 : 12).map((event) => {
                   const href = event.type === "booking" ? `/dashboard/bokningar/${event.id}` : "/dashboard/bokningar/blockera";
                   const time = stockholmParts(event.startsAt).time;
+                  const staffLabel = event.type === "booking" ? event.staffName || "Ej fördelad" : "";
                   return <Link key={event.id} href={href} title={`${time} ${event.title}`} className={`block rounded-lg border-l-4 px-2 py-1.5 text-xs leading-4 ${eventStyle(event)}`}>
                     <span className="font-black">{time}</span> <span className="font-semibold">{event.type === "block" ? event.title : event.customerName}</span>
-                    {view === "week" ? <span className="mt-0.5 block opacity-80">{event.service} · {statusLabels[event.status] ?? event.status}</span> : null}
+                    {view === "week" ? <span className="mt-0.5 block opacity-80">{event.service} · {statusLabels[event.status] ?? event.status}{staffLabel ? ` · ${staffLabel}` : ""}</span> : event.type === "booking" ? <span className="mt-0.5 block truncate opacity-75">{staffLabel}</span> : null}
                   </Link>;
                 })}
                 {dayEvents.length > (view === "month" ? 4 : 12) ? <p className="px-1 text-xs font-semibold text-[#667168]">+{dayEvents.length - (view === "month" ? 4 : 12)} till</p> : null}
