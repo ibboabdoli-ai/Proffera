@@ -2,7 +2,7 @@ import Link from "next/link";
 import { CalendarCheck2, CalendarClock, CalendarPlus, CheckCircle2, ClipboardList, Clock3 } from "lucide-react";
 
 import { DashboardDataPanel, DashboardMetricGrid, DashboardPageHeader } from "@/components/dashboard/dashboard-page-ui";
-import { getDashboardBookings } from "@/lib/dashboard-db";
+import { getDashboardBookingsInStockholm } from "@/lib/dashboard-bookings-db";
 
 export const dynamic = "force-dynamic";
 
@@ -37,7 +37,7 @@ function shouldShowBookingTitle(title: string, service: string) {
 }
 
 export default async function BookingsPage() {
-  const bookings = await getDashboardBookings();
+  const bookings = await getDashboardBookingsInStockholm();
   const confirmedBookings = bookings.filter((booking) => booking.status === "confirmed").length;
   const requestedBookings = bookings.filter((booking) => booking.status === "requested").length;
   const completedBookings = bookings.filter((booking) => booking.status === "completed").length;
