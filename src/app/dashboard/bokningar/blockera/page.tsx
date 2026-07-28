@@ -77,6 +77,7 @@ async function createRecurringAvailabilityBlockAction(formData: FormData) {
 
   if (!(await requireAvailabilityAccess())) redirect("/dashboard/bokningar/blockera?error=access");
 
+  let count = 0;
   try {
     const result = await createDashboardRecurringAvailabilityBlocks({
       startDate: String(formData.get("recurring_start_date") ?? "").trim(),
@@ -86,7 +87,7 @@ async function createRecurringAvailabilityBlockAction(formData: FormData) {
       weekdays: formData.getAll("weekdays").map((value) => Number(value)),
       reason: String(formData.get("recurring_reason") ?? "").trim(),
     });
-    redirect(`/dashboard/bokningar/blockera?created=recurring&count=${result.count}`);
+    count = result.count;
   } catch (error) {
     if (error instanceof AvailabilityBlockValidationError) {
       redirect(`/dashboard/bokningar/blockera?error=${error.code}`);
@@ -94,6 +95,8 @@ async function createRecurringAvailabilityBlockAction(formData: FormData) {
     console.error("Failed to create recurring dashboard availability blocks", error);
     redirect("/dashboard/bokningar/blockera?error=save");
   }
+
+  redirect(`/dashboard/bokningar/blockera?created=recurring&count=${count}`);
 }
 
 const inputClass =
