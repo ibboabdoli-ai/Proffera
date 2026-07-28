@@ -10,9 +10,10 @@ type SendBookingOwnerSmsInput = {
 type SendBookingCustomerSmsInput = {
   customerPhone: string;
   companyName: string;
-  status: "confirmed" | "cancelled";
+  status: "confirmed" | "cancelled" | "rescheduled";
   service: string;
   startsAt: string;
+  previousStartsAt?: string;
 };
 
 type BrevoSmsResponse = {
@@ -83,10 +84,15 @@ export async function sendBookingCustomerSms(input: SendBookingCustomerSmsInput)
     return { ok: false as const, skipped: true as const, message: "Kundens telefonnummer är ogiltigt." };
   }
 
-  const isConfirmed = input.status === "confirmed";
-  const content = isConfirmed
-    ? `Din bokning hos ${input.companyName} är bekräftad: ${input.service}, ${formatStockholmDate(input.startsAt)}.`
-    : `Din bokning hos ${input.companyName} är avbokad: ${input.service}, ${formatStockholmDate(input.startsAt)}. Kontakta företaget för ny tid.`;
+  let content: string;
+  if (input.status === "confirmed") {
+    content = `Din bokning hos ${input.companyName} är bekräftad: ${input.service}, ${formatStockholmDate(input.startsAt)}.`;
+  } else if (input.status === "cancelled") {
+    content = `Din bokning hos ${input.companyName} är avbokad: ${input.service}, ${formatStockholmDate(input.startsAt)}. Kontakta företaget för ny tid.`;
+  } else {
+    const previous = input.previousStartsAt ? ` från ${formatStockholmDate(input.previousStartsAt)}` : "";
+    content = `Din bokning hos ${input.companyName} har flyttats${previous} till ${formatStockholmDate(input.startsAt)}: ${input.service}.`;
+  }
 
   try {
     const response = await fetch("https://api.brevo.com/v3/transactionalSMS/sms", {
