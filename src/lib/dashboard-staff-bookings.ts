@@ -101,6 +101,44 @@ export async function assignStaffToBooking(bookingId: string, staffId: string) {
   if (!booking) throw new Error("Booking not found");
 
   if (staffId) {
+    const startsAt = new Date(String(booking.starts_at)).toISOString();
+    const endsAt = new Date(String(booking.ends_at)).toISOString();
+
+    const availabilityRows = await sql`
+      select
+        exists(
+          select 1
+          from workspace_staff_schedules ss
+          where ss.workspace_id = ${access.workspaceId}
+            and ss.staff_id = ${staffId}::uuid
+            and ss.is_active = true
+        ) as has_schedule,
+        exists(
+          select 1
+          from workspace_staff_schedules ss
+          where ss.workspace_id = ${access.workspaceId}
+            and ss.staff_id = ${staffId}::uuid
+            and ss.is_active = true
+            and ss.weekday = extract(dow from (${startsAt}::timestamptz at time zone 'Europe/Stockholm'))::int
+            and ss.start_time <= (${startsAt}::timestamptz at time zone 'Europe/Stockholm')::time
+            and ss.end_time >= (${endsAt}::timestamptz at time zone 'Europe/Stockholm')::time
+            and (${startsAt}::timestamptz at time zone 'Europe/Stockholm')::date = (${endsAt}::timestamptz at time zone 'Europe/Stockholm')::date
+        ) as inside_schedule,
+        exists(
+          select 1
+          from workspace_staff_time_off t
+          where t.workspace_id = ${access.workspaceId}
+            and t.staff_id = ${staffId}::uuid
+            and t.starts_at < ${endsAt}::timestamptz
+            and t.ends_at > ${startsAt}::timestamptz
+        ) as has_time_off
+    `;
+    const availability = availabilityRows[0];
+    if (Boolean(availability?.has_time_off)) throw new Error("Staff time off conflict");
+    if (Boolean(availability?.has_schedule) && !Boolean(availability?.inside_schedule)) {
+      throw new Error("Booking is outside staff working hours");
+    }
+
     const conflictRows = await sql`
       select id
       from bookings
@@ -108,8 +146,8 @@ export async function assignStaffToBooking(bookingId: string, staffId: string) {
         and staff_id = ${staffId}::uuid
         and id <> ${bookingId}
         and status not in ('cancelled', 'no_show')
-        and starts_at < ${new Date(String(booking.ends_at)).toISOString()}::timestamptz
-        and ends_at > ${new Date(String(booking.starts_at)).toISOString()}::timestamptz
+        and starts_at < ${endsAt}::timestamptz
+        and ends_at > ${startsAt}::timestamptz
       limit 1
     `;
     if (conflictRows[0]) throw new Error("Staff booking conflict");

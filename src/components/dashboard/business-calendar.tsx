@@ -15,6 +15,10 @@ const statusLabels: Record<string, string> = {
   completed: "Klar",
   cancelled: "Avbokad",
   no_show: "Uteblev",
+  leave: "Ledighet",
+  sick: "Sjukfrånvaro",
+  break: "Rast",
+  other: "Ej tillgänglig",
 };
 
 function stockholmParts(value: Date | string) {
@@ -49,6 +53,7 @@ function addDays(date: Date, days: number) {
 }
 
 function eventStyle(event: DashboardCalendarEvent) {
+  if (event.type === "time_off") return "border-[#8f5f75] bg-[#f6eaf0] text-[#6d2848]";
   if (event.type === "block") return "border-[#5d6670] bg-[#eef0f2] text-[#30363d]";
   if (event.status === "confirmed") return "border-[#75a489] bg-[#e7f1eb] text-[#17452f]";
   if (event.status === "requested") return "border-[#d3ad54] bg-[#fff4d7] text-[#6f4f00]";
@@ -73,7 +78,9 @@ export function BusinessCalendar({ events }: { events: DashboardCalendarEvent[] 
   }, [events]);
 
   const visibleEvents = useMemo(() => events.filter((event) => {
-    const statusMatch = status === "all" || (status === "block" ? event.type === "block" : event.status === status);
+    const statusMatch =
+      status === "all" ||
+      (status === "block" ? event.type === "block" : status === "time_off" ? event.type === "time_off" : event.type === "booking" && event.status === status);
     const staffMatch = staffId === "all" || (staffId === "unassigned" ? event.type === "booking" && !event.staffId : event.staffId === staffId);
     return statusMatch && staffMatch;
   }), [events, staffId, status]);
@@ -111,7 +118,7 @@ export function BusinessCalendar({ events }: { events: DashboardCalendarEvent[] 
         </div>
         <div className="flex flex-wrap gap-2">
           <select value={status} onChange={(event) => setStatus(event.target.value)} className="min-h-10 rounded-xl border border-[#d7dfd5] bg-white px-3 text-sm font-semibold">
-            <option value="all">Alla händelser</option><option value="requested">Förfrågningar</option><option value="confirmed">Bekräftade</option><option value="completed">Klara</option><option value="cancelled">Avbokade</option><option value="block">Blockerad tid</option>
+            <option value="all">Alla händelser</option><option value="requested">Förfrågningar</option><option value="confirmed">Bekräftade</option><option value="completed">Klara</option><option value="cancelled">Avbokade</option><option value="block">Blockerad tid</option><option value="time_off">Frånvaro och raster</option>
           </select>
           <select value={staffId} onChange={(event) => setStaffId(event.target.value)} className="min-h-10 rounded-xl border border-[#d7dfd5] bg-white px-3 text-sm font-semibold">
             <option value="all">All personal</option>
@@ -135,12 +142,14 @@ export function BusinessCalendar({ events }: { events: DashboardCalendarEvent[] 
               <div className={`mb-2 flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold ${key === todayKey ? "bg-[#173e2b] text-white" : ""}`}>{day.getUTCDate()}</div>
               <div className="grid gap-1.5">
                 {dayEvents.slice(0, view === "month" ? 4 : 12).map((event) => {
-                  const href = event.type === "booking" ? `/dashboard/bokningar/${event.id}` : "/dashboard/bokningar/blockera";
+                  const href = event.type === "booking" ? `/dashboard/bokningar/${event.id}` : event.type === "time_off" ? "/dashboard/personal/tider" : "/dashboard/bokningar/blockera";
                   const time = stockholmParts(event.startsAt).time;
-                  const staffLabel = event.type === "booking" ? event.staffName || "Ej fördelad" : "";
+                  const staffLabel = event.type === "booking" ? event.staffName || "Ej fördelad" : event.staffName;
+                  const primaryLabel = event.type === "booking" ? event.customerName : event.title;
+                  const secondaryLabel = event.type === "time_off" ? `${event.service}${staffLabel ? ` · ${staffLabel}` : ""}` : `${event.service} · ${statusLabels[event.status] ?? event.status}${staffLabel ? ` · ${staffLabel}` : ""}`;
                   return <Link key={event.id} href={href} title={`${time} ${event.title}`} className={`block rounded-lg border-l-4 px-2 py-1.5 text-xs leading-4 ${eventStyle(event)}`}>
-                    <span className="font-black">{time}</span> <span className="font-semibold">{event.type === "block" ? event.title : event.customerName}</span>
-                    {view === "week" ? <span className="mt-0.5 block opacity-80">{event.service} · {statusLabels[event.status] ?? event.status}{staffLabel ? ` · ${staffLabel}` : ""}</span> : event.type === "booking" ? <span className="mt-0.5 block truncate opacity-75">{staffLabel}</span> : null}
+                    <span className="font-black">{time}</span> <span className="font-semibold">{primaryLabel}</span>
+                    {view === "week" ? <span className="mt-0.5 block opacity-80">{secondaryLabel}</span> : staffLabel ? <span className="mt-0.5 block truncate opacity-75">{staffLabel}</span> : null}
                   </Link>;
                 })}
                 {dayEvents.length > (view === "month" ? 4 : 12) ? <p className="px-1 text-xs font-semibold text-[#667168]">+{dayEvents.length - (view === "month" ? 4 : 12)} till</p> : null}

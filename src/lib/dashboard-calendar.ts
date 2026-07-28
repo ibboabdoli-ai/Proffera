@@ -12,7 +12,7 @@ const connectionString =
 
 export type DashboardCalendarEvent = {
   id: string;
-  type: "booking" | "block";
+  type: "booking" | "block" | "time_off";
   title: string;
   customerName: string;
   service: string;
@@ -29,6 +29,13 @@ function text(value: unknown, fallback = "") {
   return value === null || value === undefined ? fallback : String(value);
 }
 
+const timeOffLabels: Record<string, string> = {
+  leave: "Ledighet",
+  sick: "Sjukfrånvaro",
+  break: "Rast",
+  other: "Ej tillgänglig",
+};
+
 export async function getDashboardCalendarEvents(): Promise<DashboardCalendarEvent[]> {
   if (!connectionString) return [];
 
@@ -42,36 +49,57 @@ export async function getDashboardCalendarEvents(): Promise<DashboardCalendarEve
   rangeEnd.setUTCMonth(rangeEnd.getUTCMonth() + 18);
 
   try {
-    const rows = await sql`
-      select
-        b.id,
-        b.title,
-        b.status,
-        b.city,
-        b.service,
-        b.starts_at,
-        b.ends_at,
-        b.source,
-        b.staff_id,
-        c.name as customer_name,
-        s.name as staff_name
-      from bookings b
-      left join customers c
-        on c.id = b.customer_id
-       and c.workspace_id = b.workspace_id
-      left join workspace_staff s
-        on s.id = b.staff_id
-       and s.workspace_id = b.workspace_id
-      where b.workspace_id = ${access.workspaceId}
-        and b.starts_at is not null
-        and b.ends_at is not null
-        and b.starts_at < ${rangeEnd.toISOString()}::timestamptz
-        and b.ends_at > ${rangeStart.toISOString()}::timestamptz
-      order by b.starts_at asc, b.created_at asc
-      limit 2000
-    `;
+    const [bookingRows, timeOffRows] = await Promise.all([
+      sql`
+        select
+          b.id,
+          b.title,
+          b.status,
+          b.city,
+          b.service,
+          b.starts_at,
+          b.ends_at,
+          b.source,
+          b.staff_id,
+          c.name as customer_name,
+          s.name as staff_name
+        from bookings b
+        left join customers c
+          on c.id = b.customer_id
+         and c.workspace_id = b.workspace_id
+        left join workspace_staff s
+          on s.id = b.staff_id
+         and s.workspace_id = b.workspace_id
+        where b.workspace_id = ${access.workspaceId}
+          and b.starts_at is not null
+          and b.ends_at is not null
+          and b.starts_at < ${rangeEnd.toISOString()}::timestamptz
+          and b.ends_at > ${rangeStart.toISOString()}::timestamptz
+        order by b.starts_at asc, b.created_at asc
+        limit 2000
+      `,
+      sql`
+        select
+          t.id,
+          t.staff_id,
+          t.kind,
+          t.reason,
+          t.starts_at,
+          t.ends_at,
+          s.name as staff_name
+        from workspace_staff_time_off t
+        join workspace_staff s
+          on s.id = t.staff_id
+         and s.workspace_id = t.workspace_id
+        where t.workspace_id = ${access.workspaceId}
+          and t.starts_at < ${rangeEnd.toISOString()}::timestamptz
+          and t.ends_at > ${rangeStart.toISOString()}::timestamptz
+        order by t.starts_at asc
+        limit 1000
+      `,
+    ]);
 
-    return rows.map((row) => {
+    const bookingEvents = bookingRows.map((row) => {
       const source = text(row.source);
       const isBlock = source === "dashboard_availability_block" || source === "dashboard_availability_recurring_block";
       return {
@@ -89,6 +117,27 @@ export async function getDashboardCalendarEvents(): Promise<DashboardCalendarEve
         staffName: text(row.staff_name),
       } satisfies DashboardCalendarEvent;
     });
+
+    const timeOffEvents = timeOffRows.map((row) => {
+      const kind = text(row.kind, "other");
+      const label = timeOffLabels[kind] ?? timeOffLabels.other;
+      return {
+        id: `time-off-${text(row.id)}`,
+        type: "time_off",
+        title: text(row.reason, label) || label,
+        customerName: "",
+        service: label,
+        city: "",
+        status: kind,
+        startsAt: new Date(String(row.starts_at)).toISOString(),
+        endsAt: new Date(String(row.ends_at)).toISOString(),
+        source: "workspace_staff_time_off",
+        staffId: text(row.staff_id),
+        staffName: text(row.staff_name),
+      } satisfies DashboardCalendarEvent;
+    });
+
+    return [...bookingEvents, ...timeOffEvents].sort((a, b) => a.startsAt.localeCompare(b.startsAt));
   } catch (error) {
     console.error("Failed to read dashboard calendar", error);
     return [];
