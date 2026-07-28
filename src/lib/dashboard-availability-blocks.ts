@@ -11,6 +11,12 @@ const connectionString =
   process.env.POSTGRES_PRISMA_URL ??
   process.env.POSTGRES_URL_NON_POOLING;
 
+function createSqlClient() {
+  return neon(connectionString!);
+}
+
+type SqlClient = ReturnType<typeof createSqlClient>;
+
 export class AvailabilityBlockValidationError extends Error {
   constructor(public readonly code: "time" | "past" | "range" | "weekdays" | "conflict") {
     super(code);
@@ -34,7 +40,7 @@ function normalizeReason(value: string) {
 }
 
 async function hasConflict(
-  sql: ReturnType<typeof neon>,
+  sql: SqlClient,
   workspaceId: string,
   startsAt: Date,
   endsAt: Date,
@@ -52,7 +58,7 @@ async function hasConflict(
 }
 
 async function insertBlock(
-  sql: ReturnType<typeof neon>,
+  sql: SqlClient,
   workspaceId: string,
   startsAt: Date,
   endsAt: Date,
@@ -116,7 +122,7 @@ export async function createDashboardAvailabilityBlock(input: {
   }
 
   const reason = normalizeReason(input.reason);
-  const sql = neon(connectionString!);
+  const sql = createSqlClient();
   if (await hasConflict(sql, access.workspaceId, startsAt, endsAt)) {
     throw new AvailabilityBlockValidationError("conflict");
   }
@@ -182,7 +188,7 @@ export async function createDashboardRecurringAvailabilityBlocks(input: {
   if (occurrences.length > 366) throw new AvailabilityBlockValidationError("range");
 
   const reason = normalizeReason(input.reason);
-  const sql = neon(connectionString!);
+  const sql = createSqlClient();
   const rows = await sql`
     with requested as (
       select
