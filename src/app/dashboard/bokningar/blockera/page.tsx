@@ -64,7 +64,7 @@ export default async function AvailabilityBlockPage({ searchParams }: PageProps)
       <DashboardPageHeader
         eyebrow="Tillgänglighet"
         title="Blockera tid"
-        description="Stäng en enskild period för lunch, ledighet, privat ärende eller annat arbete. Perioden försvinner automatiskt från den publika bokningssidan."
+        description="Stäng några timmar, en hel dag eller flera dagar för lunch, ledighet, semester, privat ärende eller annat arbete. Perioden försvinner automatiskt från den publika bokningssidan."
         icon={CalendarOff}
         actions={
           <Link
@@ -84,20 +84,26 @@ export default async function AvailabilityBlockPage({ searchParams }: PageProps)
 
       {created ? (
         <p role="status" className="rounded-2xl bg-[#eef8f1] p-5 text-sm font-semibold text-[#17452f] ring-1 ring-[#cfe8d6]">
-          Tiden är blockerad och visas inte längre som bokningsbar.
+          Perioden är blockerad och visas inte längre som bokningsbar.
         </p>
       ) : null}
 
       <section className="max-w-2xl rounded-[24px] border border-[#e0e5dd] bg-white p-6 shadow-[0_1px_2px_rgba(20,43,32,0.03),0_14px_36px_rgba(20,43,32,0.045)]">
         <h2 className="text-xl font-bold text-[#17201a]">Ny blockering</h2>
         <p className="mt-3 text-sm leading-7 text-[#5b665f]">
-          Tiderna anges i svensk lokal tid. En befintlig aktiv bokning kan inte skrivas över.
+          Tiderna anges i svensk lokal tid. Du kan välja olika datum för start och slut och blockera upp till 31 dagar. En befintlig aktiv bokning kan inte skrivas över.
         </p>
+
+        <div className="mt-4 rounded-xl bg-[#f3f6f2] p-4 text-sm leading-6 text-[#344139] ring-1 ring-[#e0e5dd]">
+          <p className="font-semibold text-[#17201a]">Exempel</p>
+          <p>En hel dag: 29 juli 00:00 till 30 juli 00:00.</p>
+          <p>Semester: välj första dagens starttid och sista dagens sluttid.</p>
+        </div>
 
         <form action={createAvailabilityBlockAction} className="mt-6 grid gap-5">
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="grid gap-2 text-sm font-semibold text-[#17201a]">
-              Start
+              Startdatum och tid
               <input
                 type="datetime-local"
                 name="starts_at"
@@ -106,7 +112,7 @@ export default async function AvailabilityBlockPage({ searchParams }: PageProps)
               />
             </label>
             <label className="grid gap-2 text-sm font-semibold text-[#17201a]">
-              Slut
+              Slutdatum och tid
               <input
                 type="datetime-local"
                 name="ends_at"
@@ -130,7 +136,7 @@ export default async function AvailabilityBlockPage({ searchParams }: PageProps)
             type="submit"
             className="inline-flex w-fit min-h-11 items-center justify-center rounded-xl bg-[#173e2b] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#0f3322] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#17452f]"
           >
-            Blockera tiden
+            Blockera perioden
           </button>
         </form>
       </section>
