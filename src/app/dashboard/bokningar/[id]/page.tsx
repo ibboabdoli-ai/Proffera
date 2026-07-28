@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { Activity, ArrowLeft, CalendarClock, CircleUserRound, RefreshCw } from "lucide-react";
 
 import { DashboardMetricGrid, DashboardPageHeader } from "@/components/dashboard/dashboard-page-ui";
-import { getDashboardBookingDetail } from "@/lib/dashboard-db";
+import { getDashboardBookingDetailInStockholm } from "@/lib/dashboard-booking-detail-db";
 import { sendBookingStatusEmail } from "@/features/email/lead-email";
 import { sendBookingCustomerSms } from "@/features/sms/booking-sms";
 import {
@@ -124,7 +124,7 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
     params,
     searchParams ? searchParams : Promise.resolve(undefined),
   ]);
-  const detail = await getDashboardBookingDetail(id);
+  const detail = await getDashboardBookingDetailInStockholm(id);
 
   if (!detail) {
     notFound();
@@ -176,21 +176,11 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
           <article className="rounded-[24px] border border-[#e0e5dd] bg-white p-6 shadow-[0_1px_2px_rgba(20,43,32,0.03),0_14px_36px_rgba(20,43,32,0.045)]">
             <h3 className="text-xl font-bold text-[#17201a]">Bokning</h3>
             <div className="mt-5 grid gap-3 rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4 text-sm text-[#344139] sm:grid-cols-2">
-              <p>
-                <strong>Start:</strong> {booking.time}
-              </p>
-              <p>
-                <strong>Slut:</strong> {booking.endsAt}
-              </p>
-              <p>
-                <strong>Ort:</strong> {booking.city}
-              </p>
-              <p>
-                <strong>Tjänst:</strong> {booking.service}
-              </p>
-              <p>
-                <strong>Skapad:</strong> {booking.createdAt}
-              </p>
+              <p><strong>Start:</strong> {booking.time}</p>
+              <p><strong>Slut:</strong> {booking.endsAt}</p>
+              <p><strong>Ort:</strong> {booking.city}</p>
+              <p><strong>Tjänst:</strong> {booking.service}</p>
+              <p><strong>Skapad:</strong> {booking.createdAt}</p>
             </div>
             <p className="mt-4 rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4 text-sm leading-7 text-[#344139]">
               <strong>Notering:</strong> {booking.notes}
@@ -211,16 +201,11 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
                   className="rounded-xl border border-[#d9e1d7] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20"
                 >
                   {bookingStatusOptions.map((status) => (
-                    <option key={status} value={status}>
-                      {bookingStatusLabels[status]}
-                    </option>
+                    <option key={status} value={status}>{bookingStatusLabels[status]}</option>
                   ))}
                 </select>
               </label>
-              <button
-                type="submit"
-                className="inline-flex w-fit rounded-xl bg-[#173e2b] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0f3322] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#17452f]"
-              >
+              <button type="submit" className="inline-flex w-fit rounded-xl bg-[#173e2b] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0f3322] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#17452f]">
                 Uppdatera status
               </button>
             </form>
@@ -235,31 +220,18 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
               <span className="rounded-full bg-[#e7f1eb] px-3 py-1 text-xs font-semibold text-[#17452f]">Kunddata</span>
             </div>
             {!customer ? (
-              <p className="mt-5 rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4 text-sm text-[#5b665f]">
-                Ingen kund är kopplad till den här bokningen.
-              </p>
+              <p className="mt-5 rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4 text-sm text-[#5b665f]">Ingen kund är kopplad till den här bokningen.</p>
             ) : (
               <div className="mt-5 rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4 text-sm text-[#344139]">
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <p className="text-lg font-bold text-[#17201a]">{customer.name}</p>
-                    <p className="mt-1 text-[#5b665f]">
-                      {customer.type} · {customer.city}
-                    </p>
-                    <p className="mt-3">
-                      <strong>Status:</strong> {customerStatusLabels[customer.status] ?? customer.status}
-                    </p>
-                    <p>
-                      <strong>E-post:</strong> {customer.email}
-                    </p>
-                    <p>
-                      <strong>Telefon:</strong> {customer.phone}
-                    </p>
+                    <p className="mt-1 text-[#5b665f]">{customer.type} · {customer.city}</p>
+                    <p className="mt-3"><strong>Status:</strong> {customerStatusLabels[customer.status] ?? customer.status}</p>
+                    <p><strong>E-post:</strong> {customer.email}</p>
+                    <p><strong>Telefon:</strong> {customer.phone}</p>
                   </div>
-                  <Link
-                    href={`/dashboard/kunder/${customer.id}`}
-                    className="inline-flex min-h-10 items-center justify-center rounded-full bg-[#0f3322] px-4 py-2 text-sm font-bold !text-white shadow-sm ring-1 ring-[#0f3322]/20 transition hover:bg-[#17452f] hover:!text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#17452f]"
-                  >
+                  <Link href={`/dashboard/kunder/${customer.id}`} className="inline-flex min-h-10 items-center justify-center rounded-full bg-[#0f3322] px-4 py-2 text-sm font-bold !text-white shadow-sm ring-1 ring-[#0f3322]/20 transition hover:bg-[#17452f] hover:!text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#17452f]">
                     Visa kundprofil
                   </Link>
                 </div>
@@ -270,9 +242,7 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
 
         <aside className="rounded-3xl bg-[#17452f] p-6 text-white">
           <h3 className="text-xl font-bold">Bokningshistorik</h3>
-          <p className="mt-3 text-sm leading-7 text-white/80">
-            Här samlas statusändringar, noteringar och viktiga händelser kopplade till bokningen.
-          </p>
+          <p className="mt-3 text-sm leading-7 text-white/80">Här samlas statusändringar, noteringar och viktiga händelser kopplade till bokningen.</p>
           <div className="mt-5 space-y-3">
             {events.length === 0 ? (
               <p className="rounded-2xl bg-white/10 p-4 text-sm text-white/80">Inga händelser hittades.</p>
@@ -280,9 +250,7 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
               events.map((event) => (
                 <div key={event.id} className="rounded-2xl bg-white/10 p-4">
                   <div className="flex items-center justify-between gap-3">
-                    <span className="rounded-full bg-white/15 px-3 py-1 text-xs font-semibold">
-                      {eventTypeLabels[event.type] ?? event.type}
-                    </span>
+                    <span className="rounded-full bg-white/15 px-3 py-1 text-xs font-semibold">{eventTypeLabels[event.type] ?? event.type}</span>
                     <span className="text-xs text-white/70">{event.createdAt}</span>
                   </div>
                   <p className="mt-3 font-semibold">{event.title}</p>
