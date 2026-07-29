@@ -109,7 +109,7 @@ export default function PrimeViewDemoPage() {
             <a href={`tel:${phoneHref}`} className="hidden items-center gap-2 rounded-xl border border-white/35 px-4 py-3 text-sm font-extrabold text-white transition hover:border-white hover:bg-white/10 sm:inline-flex motion-reduce:transition-none">
               <Phone className="size-4" aria-hidden="true" /> {phoneDisplay}
             </a>
-            <a href="#quote" className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-black text-[#071b42] shadow-[0_10px_25px_rgba(0,0,0,.2)] transition hover:-translate-y-0.5 hover:bg-[#edf3ff] sm:px-5 motion-reduce:transform-none motion-reduce:transition-none">
+            <a href="#quote" className="inline-flex items-center gap-2 rounded-xl bg-[#0a3c8f] px-4 py-3 text-sm font-black text-white shadow-[0_10px_25px_rgba(0,0,0,.2)] transition hover:-translate-y-0.5 hover:bg-[#061b42] sm:px-5 motion-reduce:transform-none motion-reduce:transition-none">
               Free Quote <ArrowRight className="size-4" aria-hidden="true" />
             </a>
           </div>
@@ -138,7 +138,7 @@ export default function PrimeViewDemoPage() {
             </p>
 
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <a href="#quote" className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-6 py-4 font-black text-[#071b42] shadow-[0_12px_24px_rgba(0,0,0,.22)] transition hover:-translate-y-0.5 hover:bg-[#edf3ff] motion-reduce:transform-none motion-reduce:transition-none">
+              <a href="#quote" className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#0a3c8f] px-6 py-4 font-black text-white shadow-[0_12px_24px_rgba(0,0,0,.22)] transition hover:-translate-y-0.5 hover:bg-[#061b42] motion-reduce:transform-none motion-reduce:transition-none">
                 Request a Free Quote <ArrowRight className="size-5" aria-hidden="true" />
               </a>
               <a href={whatsappUrl} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/50 bg-white/10 px-6 py-4 font-extrabold text-white backdrop-blur-sm transition hover:bg-white/20 motion-reduce:transition-none">
