@@ -1,10 +1,12 @@
 import type { Metadata, Viewport } from "next";
+import { headers } from "next/headers";
 import { Hanken_Grotesk } from "next/font/google";
 import "./globals.css";
 import { AppShell } from "@/components/layout/app-shell";
 import { ServiceAiChatWidget } from "@/components/service-ai-chat-widget";
 import { PwaServiceWorker } from "@/components/pwa-service-worker";
 import { siteConfig } from "@/lib/site";
+import { isPrimeViewHost } from "@/lib/public-site-domains";
 
 const hankenGrotesk = Hanken_Grotesk({
   subsets: ["latin"],
@@ -59,13 +61,16 @@ export const viewport: Viewport = {
   themeColor: "#17452f",
 };
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  const requestHeaders = await headers();
+  const isCustomerSite = isPrimeViewHost(requestHeaders.get("host"));
+
   return (
     <html lang="sv">
       <body className={hankenGrotesk.variable}>
-        <AppShell>{children}</AppShell>
-        <PwaServiceWorker />
-        <ServiceAiChatWidget />
+        {isCustomerSite ? <main>{children}</main> : <AppShell>{children}</AppShell>}
+        {!isCustomerSite && <PwaServiceWorker />}
+        {!isCustomerSite && <ServiceAiChatWidget />}
       </body>
     </html>
   );
