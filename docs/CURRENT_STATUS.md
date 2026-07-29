@@ -1,73 +1,69 @@
 # Proffera Current Status
 
-Last updated: 2026-07-22
+Last updated: 2026-07-29
 
-## Release candidate status
+## Production status
 
-The active branch contains a controlled paid-launch candidate. It is **not yet
-deployed to production**. The latest known `main` baseline before this work is
-`08972a2`; the candidate branch can be rolled back by reverting its four scoped
-commits.
+Production is deployed from `main`. The latest verified production baseline is
+commit `9e78423` (Graph Engineering worker protocol); the booking-reminder
+scheduler was merged earlier in commit `b527be6`.
 
-Local release gates completed:
+## Booking reminders
 
-- Billing safety: Checkout now reuses only the matching open session, expires a
-  mismatched open session, and webhooks read the current Stripe subscription
-  before syncing access.
-- Public write safety: demo, quote and public-booking requests have durable
-  database-backed rate limiting; demo consent and its version are stored; the
-  public booking customer/booking write is atomic.
-- Product truth: public pages no longer present planned AI functionality or the
-  former marketplace matching flow as an active paid feature.
-- Delivery quality: lockfile-based install, Node 22 CI, lint, typecheck, build
-  and focused Vitest checks are in place.
-
-## Required release actions
-
-These actions require the production owners and have deliberately not been run
-from this branch:
-
-1. Apply `db/migrations/20260722_0012_public_form_safety.sql` to Preview, then
-   production, and verify the `public_submission_rate_limits` table plus the
-   `company_registrations` consent columns.
-2. Configure every required value in `.env.example` in Vercel. Generate a
-   unique `PUBLIC_FORM_RATE_LIMIT_SECRET`; use Stripe test keys in Preview.
-3. Run the Phase 5 checklist in a Vercel Preview and Stripe Sandbox. Do not use
-   real cards or customer data without explicit approval.
-4. Have the legal/business owner supply the controller's legal name,
-   organisation number/address, final processor list and approved terms before
-   public commercial launch.
-5. Confirm Service AI Chat messages and leads remain isolated to tenant
-   `proffera`; AI is not part of the active paid promise until that test passes.
-
-## Active product boundary
-
-- Active scope: booking, leads, customer CRM, workspace membership/invitations,
-  email notifications and Stripe subscription plumbing.
-- Planned/separate scope: AI assistant, analytics, reminders and automation.
-- Proffera is a SaaS platform, not a public marketplace that promises matched
-  jobs to demo applicants.
-
-## Verification completed locally
+The reminder delivery path is deployed and configured:
 
 ```text
-npm test          # 2 files, 5 tests passed
-npm run lint       # passed
-npm run typecheck  # passed
-npm run build      # passed
+GitHub Actions (every 15 minutes)
+  -> /api/cron/booking-reminders (Bearer secret)
+  -> Neon PostgreSQL
+  -> Brevo email / SMS provider when a booking is due
 ```
 
-## Protected flows
+- Vercel Hobby-compatible scheduling is provided by GitHub Actions, so normal
+  reminder runs do not create Vercel deployments.
+- Production tables `workspace_booking_reminder_settings` and
+  `booking_reminder_deliveries` exist.
+- Default behavior for a workspace without a saved settings row is enabled,
+  24 hours before the booking, through email and SMS when customer contact
+  information is available.
+- The unique delivery constraint prevents duplicate sends across repeated
+  scheduler runs.
+- At the last database check, no workspace-specific reminder settings or
+  delivery records existed. This means no reminder has yet been observed as
+  sent, skipped, or failed in production.
 
-- Quote requests and company demo registration.
-- Company approval, service editing, lead delivery and Brevo notifications.
-- Workspace membership, role and feature access controls.
-- Public bookings, booking overlap protection and booking notifications.
-- Stripe signature verification and workspace-to-subscription binding.
+## Verified safety controls
 
-## Next safe step
+- Billing safety: Checkout reuses only the matching open session, expires a
+  mismatched open session, and webhooks read the current Stripe subscription
+  before syncing access.
+- Public-write safety: demo, quote and public-booking requests have durable
+  database-backed rate limiting; demo consent and its version are stored; the
+  public booking customer/booking write is atomic.
+- Workspace controls: membership, role, feature access, customer ownership and
+  workspace-specific settings are protected flows.
+- Deployment discipline: production changes are validated locally and merged
+  in focused pull requests.
 
-Open a pull request for this release candidate. After code review, use a Vercel
-Preview and Stripe Sandbox to execute the release checklist; merge only after
-the required migration, environment configuration and owner approvals are
-recorded.
+## Release actions still required before commercial launch
+
+1. Run the full Phase 5 checklist in a Vercel Preview and Stripe Sandbox:
+   demo registration, booking, emails, team invitations, payment, cancellation
+   and subscription upgrade. Do not use real cards or customer data without
+   explicit approval.
+2. Have the legal/business owner supply the controller's legal name,
+   organisation number and address, final processor list, Terms and Privacy
+   content before public commercial launch.
+3. Confirm Service AI Chat messages and leads remain isolated to tenant
+   `proffera`; AI is not part of the active paid promise until that test passes.
+4. Before onboarding real businesses, replace the MVP `workspace_id = default`
+   boundary and Basic Auth assumptions with the planned production auth and
+   workspace model. This is a separate high-risk database/auth change and
+   requires its own approved migration plan.
+
+## Next safe verification
+
+Review the first scheduled GitHub Actions run that has a due booking. Its API
+response and the corresponding row in `booking_reminder_deliveries` must be
+checked before claiming end-to-end email or SMS delivery is verified. Do not
+trigger a manual run against real customer bookings solely for this check.
