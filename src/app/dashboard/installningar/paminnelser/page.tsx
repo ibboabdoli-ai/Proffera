@@ -30,12 +30,13 @@ async function updateAction(formData: FormData) {
 export default async function ReminderSettingsPage({ searchParams }: { searchParams?: Promise<{ updated?: string; error?: string }> }) {
   const access = await getUserWorkspaceAccess();
   if (!access.ok || !canManageWorkspaceSettings(access)) redirect("/dashboard");
-  const [settings, deliveries, params] = await Promise.all([getBookingReminderSettings(), getRecentReminderDeliveries(), searchParams ?? Promise.resolve({})]);
+  const [settings, deliveries] = await Promise.all([getBookingReminderSettings(), getRecentReminderDeliveries()]);
+  const params = searchParams ? await searchParams : undefined;
 
   return <div className="grid gap-6">
     <DashboardPageHeader eyebrow="Bokningspåminnelser" title="Automatiska påminnelser" description="Styr när kunder får påminnelser och följ de senaste leveranserna för den aktiva arbetsytan." icon={BellRing} actions={<Link href="/dashboard/installningar" className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-[#d5ddd3] bg-white px-4 py-2.5 text-sm font-bold text-[#17452f]"><ChevronLeft className="h-4 w-4" />Inställningar</Link>} />
-    {params.updated === "1" ? <section className="rounded-2xl bg-[#eef8f0] p-5 text-sm font-semibold text-[#17452f] ring-1 ring-[#c9e6d0]">Påminnelseinställningarna sparades.</section> : null}
-    {params.error === "1" ? <section className="rounded-2xl bg-[#fff5f2] p-5 text-sm font-semibold text-[#8f2f1b] ring-1 ring-[#f4c7ba]">Inställningarna kunde inte sparas.</section> : null}
+    {params?.updated === "1" ? <section className="rounded-2xl bg-[#eef8f0] p-5 text-sm font-semibold text-[#17452f] ring-1 ring-[#c9e6d0]">Påminnelseinställningarna sparades.</section> : null}
+    {params?.error === "1" ? <section className="rounded-2xl bg-[#fff5f2] p-5 text-sm font-semibold text-[#8f2f1b] ring-1 ring-[#f4c7ba]">Inställningarna kunde inte sparas.</section> : null}
     <section className="grid gap-6 lg:grid-cols-[420px_1fr]">
       <form action={updateAction} className="h-fit rounded-[24px] border border-[#e0e5dd] bg-white p-6 shadow-sm">
         <h2 className="text-xl font-bold text-[#17201a]">Inställningar</h2>
