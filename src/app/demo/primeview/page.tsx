@@ -1,205 +1,284 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import {
   ArrowRight,
-  CalendarDays,
+  CalendarCheck2,
+  Check,
   ChevronDown,
   CirclePoundSterling,
   Droplets,
   House,
   Mail,
+  MapPin,
+  MessageCircle,
   PanelsTopLeft,
   Phone,
   ShieldCheck,
   Sparkles,
   Star,
+  Sun,
   Wrench,
 } from "lucide-react";
 
 export const metadata: Metadata = {
-  title: "PrimeView Window Care | Professional Exterior Cleaning",
+  title: "PrimeView Window Care | Exterior Cleaning in West & North London",
   description:
-    "Professional window and exterior cleaning across West and North London.",
+    "Professional window, gutter, fascia, conservatory, patio and solar panel cleaning across West and North London. Request a free quote from PrimeView Window Care.",
 };
 
 const phoneDisplay = "07500 338 585";
 const phoneHref = "+447500338585";
 const email = "am@primeviewlondon.co.uk";
+const whatsappUrl = "https://wa.me/447500338585";
 
 const services = [
   {
     title: "Window Cleaning",
-    description: "Streak-free window cleaning for homes and businesses.",
+    description: "Streak-free windows for homes, shops and business premises.",
     icon: PanelsTopLeft,
   },
   {
     title: "Fascia & Soffit Cleaning",
-    description: "Remove dirt and grime from fascias, soffits and cladding.",
+    description: "A careful refresh for fascias, soffits, cladding and trims.",
     icon: House,
   },
   {
     title: "Conservatory Roof Cleaning",
-    description: "Bring back the shine to your conservatory roof.",
+    description: "Restore light and clarity to conservatory roofs and frames.",
     icon: Sparkles,
   },
   {
     title: "Gutter Cleaning",
-    description: "Clear gutters and downpipes to protect your property.",
+    description: "Clear gutters and downpipes to help protect your property.",
     icon: Droplets,
   },
   {
     title: "Driveway & Patio Cleaning",
-    description: "High-pressure cleaning for driveways, patios and paths.",
+    description: "Pressure washing for driveways, patios, paths and outdoor areas.",
     icon: Wrench,
   },
   {
     title: "Solar Panel Cleaning",
-    description: "Improve efficiency with safe solar panel cleaning.",
-    icon: PanelsTopLeft,
+    description: "A safe, specialist clean to keep your panels performing well.",
+    icon: Sun,
   },
+];
+
+const reasons = [
+  "Professional, reliable service",
+  "Homes and businesses across London",
+  "Clear communication from quote to completion",
+  "Free, no-obligation quotes",
 ];
 
 export default function PrimeViewDemoPage() {
   return (
-    <div className="min-h-screen bg-[#f7f8fb] text-[#071739]">
-      <section id="home" className="relative isolate overflow-hidden bg-[#061b40] text-white">
-        <div
-          className="absolute inset-0 bg-cover bg-center"
-          style={{
-            backgroundImage:
-              "linear-gradient(90deg, rgba(2,17,47,.97) 0%, rgba(4,29,68,.89) 38%, rgba(3,25,58,.32) 66%, rgba(1,12,31,.18) 100%), url('https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?auto=format&fit=crop&w=2200&q=85')",
-          }}
-        />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_68%_15%,rgba(41,105,189,.28),transparent_34%)]" />
+    <div className="min-h-screen bg-[#f4f6fb] text-[#09183a]">
+      <div className="bg-[#06183b] px-5 py-2 text-center text-xs font-bold tracking-wide text-white sm:text-sm">
+        <span className="text-[#cbd5e1]">West & North London&apos;s exterior cleaning specialists</span>
+        <a href={`tel:${phoneHref}`} className="ml-3 text-white underline decoration-[#9fb4d8] underline-offset-4 hover:text-[#dbeafe]">
+          Call {phoneDisplay}
+        </a>
+      </div>
 
-        <header className="relative z-20 mx-auto flex max-w-[1450px] items-center justify-between px-6 py-5 lg:px-10">
-          <a href="#home" className="flex items-center gap-3">
-            <div className="grid h-24 w-32 place-items-center rounded-[42%_42%_48%_48%] border-4 border-slate-200 bg-gradient-to-b from-[#102d68] to-[#06163a] shadow-[0_0_0_3px_rgba(255,255,255,.2),0_12px_30px_rgba(0,0,0,.4)]">
-              <div className="text-center">
-                <div className="text-2xl font-black tracking-tight text-white">PrimeView</div>
-                <div className="mt-1 border-t border-white/60 pt-1 text-[10px] font-bold tracking-[.22em] text-slate-100">WINDOW CARE</div>
-              </div>
-            </div>
+      <section id="home" className="relative isolate overflow-hidden bg-[#06183b] text-white">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_88%_10%,rgba(44,91,181,.58),transparent_28%),radial-gradient(circle_at_70%_82%,rgba(21,57,126,.8),transparent_37%),linear-gradient(135deg,#020d26_0%,#061b45_52%,#0b2d6d_100%)]" />
+        <div className="absolute inset-0 opacity-30 [background-image:linear-gradient(rgba(255,255,255,.07)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.07)_1px,transparent_1px)] [background-size:64px_64px]" />
+
+        <header className="relative z-20 mx-auto flex max-w-[1320px] items-center justify-between gap-4 px-5 py-4 lg:px-8">
+          <a href="#home" className="flex shrink-0 items-center" aria-label="PrimeView Window Care home">
+            <Image
+              src="/brand/primeview-window-care-logo.jpeg"
+              alt="PrimeView Window Care"
+              width={1242}
+              height={1173}
+              priority
+              className="h-[74px] w-[79px] rounded-2xl border border-white/25 object-cover shadow-[0_12px_28px_rgba(0,0,0,.32)] sm:h-[86px] sm:w-[92px]"
+            />
           </a>
 
-          <nav className="hidden items-center gap-10 text-sm font-bold lg:flex">
-            <a href="#home" className="hover:text-[#d8ad42]">Home</a>
-            <a href="#services" className="flex items-center gap-2 hover:text-[#d8ad42]">Services <ChevronDown className="size-4" /></a>
-            <a href="#about" className="hover:text-[#d8ad42]">About Us</a>
-            <a href="#services" className="hover:text-[#d8ad42]">Gallery</a>
-            <a href="#contact" className="hover:text-[#d8ad42]">Contact</a>
+          <nav className="hidden items-center gap-7 text-sm font-bold text-slate-100 lg:flex" aria-label="Main navigation">
+            <a href="#home" className="transition hover:text-white motion-reduce:transition-none">Home</a>
+            <a href="#services" className="flex items-center gap-1 transition hover:text-white motion-reduce:transition-none">Services <ChevronDown className="size-4" aria-hidden="true" /></a>
+            <a href="#why-us" className="transition hover:text-white motion-reduce:transition-none">Why PrimeView</a>
+            <a href="#areas" className="transition hover:text-white motion-reduce:transition-none">Service Areas</a>
+            <a href="#quote" className="transition hover:text-white motion-reduce:transition-none">Contact</a>
           </nav>
 
-          <a href="#contact" className="hidden items-center gap-2 rounded-lg bg-[#d8ad42] px-6 py-4 text-sm font-extrabold text-white shadow-lg transition hover:-translate-y-0.5 md:inline-flex">
-            Get a Free Quote <ArrowRight className="size-4" />
-          </a>
+          <div className="flex items-center gap-2">
+            <a href={`tel:${phoneHref}`} className="hidden items-center gap-2 rounded-xl border border-white/35 px-4 py-3 text-sm font-extrabold text-white transition hover:border-white hover:bg-white/10 sm:inline-flex motion-reduce:transition-none">
+              <Phone className="size-4" aria-hidden="true" /> {phoneDisplay}
+            </a>
+            <a href="#quote" className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-black text-[#071b42] shadow-[0_10px_25px_rgba(0,0,0,.2)] transition hover:-translate-y-0.5 hover:bg-[#edf3ff] sm:px-5 motion-reduce:transform-none motion-reduce:transition-none">
+              Free Quote <ArrowRight className="size-4" aria-hidden="true" />
+            </a>
+          </div>
         </header>
 
-        <div className="relative z-10 mx-auto flex min-h-[570px] max-w-[1450px] items-center px-6 pb-24 pt-8 lg:px-10">
-          <div className="max-w-[620px]">
-            <h1 className="text-5xl font-black leading-[.98] tracking-[-.04em] sm:text-6xl lg:text-7xl">
-              Crystal Clear
-              <span className="mt-2 block text-[#d8ad42]">Results</span>
+        <details className="relative z-20 mx-5 border-t border-white/20 py-3 lg:hidden">
+          <summary className="cursor-pointer text-sm font-bold text-white">Menu</summary>
+          <nav className="grid gap-3 pt-4 text-sm font-semibold" aria-label="Mobile navigation">
+            <a href="#services">Services</a>
+            <a href="#why-us">Why PrimeView</a>
+            <a href="#areas">Service Areas</a>
+            <a href="#quote">Contact</a>
+          </nav>
+        </details>
+
+        <div className="relative z-10 mx-auto grid min-h-[590px] max-w-[1320px] items-center gap-10 px-5 pb-16 pt-12 lg:grid-cols-[1.1fr_.9fr] lg:px-8 lg:py-20">
+          <div className="max-w-2xl">
+            <div className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/10 px-4 py-2 text-xs font-black uppercase tracking-[.13em] text-[#dbeafe] backdrop-blur-sm">
+              <ShieldCheck className="size-4 text-white" aria-hidden="true" /> Professional exterior cleaning
+            </div>
+            <h1 className="mt-6 text-4xl font-black leading-[1.02] tracking-[-.045em] text-white sm:text-6xl lg:text-7xl">
+              A clearer view of your <span className="text-[#b8ceff]">property.</span>
             </h1>
-            <p className="mt-5 max-w-md text-lg leading-7 text-slate-100">
-              Professional window cleaning and exterior care you can rely on.
+            <p className="mt-6 max-w-xl text-lg leading-8 text-slate-200 sm:text-xl">
+              Reliable window, gutter, fascia, conservatory, patio and solar panel cleaning for homes and businesses across West & North London.
             </p>
 
-            <div className="mt-8 grid gap-5 sm:grid-cols-3">
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <a href="#quote" className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-6 py-4 font-black text-[#071b42] shadow-[0_12px_24px_rgba(0,0,0,.22)] transition hover:-translate-y-0.5 hover:bg-[#edf3ff] motion-reduce:transform-none motion-reduce:transition-none">
+                Request a Free Quote <ArrowRight className="size-5" aria-hidden="true" />
+              </a>
+              <a href={whatsappUrl} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/50 bg-white/10 px-6 py-4 font-extrabold text-white backdrop-blur-sm transition hover:bg-white/20 motion-reduce:transition-none">
+                <MessageCircle className="size-5" aria-hidden="true" /> WhatsApp Us
+              </a>
+            </div>
+
+            <div className="mt-9 grid max-w-xl gap-4 border-t border-white/20 pt-6 sm:grid-cols-3">
               {[
-                { icon: CirclePoundSterling, title: "Affordable", text: "Great results, fair prices" },
-                { icon: ShieldCheck, title: "Reliable", text: "On time, every time, every job" },
-                { icon: Star, title: "Spotless Finish", text: "We leave every surface looking its best" },
+                { icon: CirclePoundSterling, title: "Fair pricing", text: "Clear quotes, no pressure" },
+                { icon: CalendarCheck2, title: "Flexible visits", text: "A time that suits you" },
+                { icon: Star, title: "Careful finish", text: "Attention to every detail" },
               ].map(({ icon: Icon, title, text }) => (
                 <div key={title} className="flex gap-3">
-                  <Icon className="mt-0.5 size-10 shrink-0 text-[#d8ad42]" strokeWidth={1.8} />
+                  <Icon className="mt-0.5 size-7 shrink-0 text-[#b8ceff]" strokeWidth={1.7} aria-hidden="true" />
                   <div>
-                    <h2 className="font-extrabold">{title}</h2>
-                    <p className="mt-1 text-sm leading-5 text-slate-200">{text}</p>
+                    <p className="font-extrabold text-white">{title}</p>
+                    <p className="mt-0.5 text-xs leading-5 text-slate-300">{text}</p>
                   </div>
                 </div>
               ))}
             </div>
+          </div>
 
-            <div className="mt-8 flex flex-col gap-4 sm:flex-row">
-              <a href="#contact" className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#d8ad42] px-6 py-4 font-extrabold shadow-lg transition hover:-translate-y-0.5">
-                Get a Free Quote <ArrowRight className="size-4" />
-              </a>
-              <a href={`tel:${phoneHref}`} className="inline-flex items-center gap-3 rounded-lg border border-white/70 bg-[#071b40]/70 px-5 py-3 font-bold backdrop-blur">
-                <Phone className="size-5" />
-                <span><span className="block text-xs">Call Us</span>{phoneDisplay}</span>
-              </a>
+          <div className="justify-self-center lg:justify-self-end">
+            <div className="relative rounded-[2rem] border border-white/25 bg-white/10 p-3 shadow-[0_28px_65px_rgba(0,0,0,.38)] backdrop-blur-sm">
+              <Image
+                src="/brand/primeview-window-care-logo.jpeg"
+                alt="PrimeView Window Care emblem"
+                width={1242}
+                height={1173}
+                className="aspect-square w-full max-w-[355px] rounded-[1.45rem] object-cover"
+              />
+              <div className="absolute -bottom-4 -left-4 rounded-2xl bg-white px-4 py-3 shadow-xl">
+                <p className="text-xs font-black uppercase tracking-[.12em] text-[#436295]">PrimeView</p>
+                <p className="mt-1 text-sm font-black text-[#071b42]">Window Care</p>
+              </div>
             </div>
           </div>
         </div>
       </section>
 
-      <main className="relative z-10 -mt-8">
-        <section id="services" className="mx-auto max-w-[1450px] rounded-t-[22px] bg-[#f8f9fc] px-6 py-10 shadow-[0_-12px_34px_rgba(2,17,47,.08)] lg:px-10">
-          <div className="text-center">
-            <p className="text-xs font-black tracking-[.08em] text-[#123d99]">OUR SERVICES</p>
-            <h2 className="mt-2 text-3xl font-black tracking-tight md:text-4xl">Professional Exterior Cleaning</h2>
-            <div className="mx-auto mt-2 h-0.5 w-10 bg-[#d8ad42]" />
-            <p className="mx-auto mt-3 max-w-2xl text-sm leading-6 text-slate-600 md:text-base">
-              We offer a full range of exterior cleaning services to keep your home or business looking its best all year round.
-            </p>
+      <main>
+        <section id="services" className="mx-auto max-w-[1320px] px-5 py-20 lg:px-8">
+          <div className="flex flex-col justify-between gap-6 md:flex-row md:items-end">
+            <div className="max-w-2xl">
+              <p className="text-sm font-black uppercase tracking-[.18em] text-[#315997]">Our services</p>
+              <h2 className="mt-3 text-3xl font-black tracking-[-.03em] text-[#071b42] sm:text-4xl">Everything outside, taken care of.</h2>
+              <p className="mt-4 text-base leading-7 text-slate-600">A practical, professional clean for the parts of your property that make the first impression.</p>
+            </div>
+            <a href="#quote" className="inline-flex w-fit items-center gap-2 font-black text-[#0a3478] underline decoration-[#9fb4d8] decoration-2 underline-offset-8 hover:text-[#06183b]">
+              Get a quote for your property <ArrowRight className="size-4" aria-hidden="true" />
+            </a>
           </div>
 
-          <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+          <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {services.map(({ title, description, icon: Icon }) => (
-              <article key={title} className="flex min-h-[220px] flex-col rounded-xl border border-slate-200 bg-white p-5 text-center shadow-[0_7px_22px_rgba(15,34,74,.08)] transition hover:-translate-y-1 hover:shadow-xl">
-                <div className="mx-auto grid size-16 place-items-center rounded-full bg-gradient-to-br from-[#104bb6] to-[#061c65] text-white">
-                  <Icon className="size-8" strokeWidth={1.6} />
+              <article key={title} className="group flex min-h-[238px] flex-col rounded-2xl border border-[#d9e0ed] bg-white p-6 shadow-[0_12px_32px_rgba(16,37,80,.06)] transition hover:-translate-y-1 hover:border-[#9db7e8] hover:shadow-[0_18px_38px_rgba(16,37,80,.12)] motion-reduce:transform-none motion-reduce:transition-none">
+                <div className="grid size-12 place-items-center rounded-xl bg-[#eaf0fc] text-[#0a3c8f]">
+                  <Icon className="size-6" strokeWidth={1.7} aria-hidden="true" />
                 </div>
-                <h3 className="mt-4 text-base font-black leading-5">{title}</h3>
-                <p className="mt-3 text-sm leading-5 text-slate-600">{description}</p>
-                <a href="#contact" className="mt-auto pt-4 text-left text-sm font-extrabold text-[#103c9b]">Learn More <ArrowRight className="ml-1 inline size-4" /></a>
+                <h3 className="mt-6 text-xl font-black tracking-tight text-[#071b42]">{title}</h3>
+                <p className="mt-3 leading-6 text-slate-600">{description}</p>
+                <a href="#quote" className="mt-auto pt-6 text-sm font-black text-[#0a3c8f] group-hover:text-[#06183b]">Request a quote <ArrowRight className="ml-1 inline size-4" aria-hidden="true" /></a>
               </article>
-            ))}
-          </div>
-
-          <div id="about" className="mt-4 grid overflow-hidden rounded-xl bg-gradient-to-r from-[#0a2557] to-[#061a43] px-7 py-5 text-white lg:grid-cols-3">
-            {[
-              { icon: ShieldCheck, title: "Fully Insured & Reliable", text: "Your property is in safe hands with our fully insured and experienced team." },
-              { icon: CalendarDays, title: "Flexible Appointments", text: "We work around your schedule, including weekends and evenings." },
-              { icon: Phone, title: "Call Us Today", text: `${phoneDisplay} · Get your free, no-obligation quote.` },
-            ].map(({ icon: Icon, title, text }, index) => (
-              <div key={title} className={`flex gap-5 py-3 ${index ? "lg:border-l lg:border-white/25 lg:pl-10" : ""}`}>
-                <Icon className="size-12 shrink-0 text-[#d8ad42]" strokeWidth={1.7} />
-                <div>
-                  <h3 className="font-extrabold">{title}</h3>
-                  <p className="mt-1 text-sm leading-6 text-slate-200">{text}</p>
-                </div>
-              </div>
             ))}
           </div>
         </section>
 
-        <section id="contact" className="bg-white px-6 py-16 lg:px-10">
-          <div className="mx-auto grid max-w-6xl overflow-hidden rounded-3xl border border-slate-200 shadow-xl lg:grid-cols-[.8fr_1.2fr]">
-            <div className="bg-[#0a2557] p-8 text-white md:p-10">
-              <p className="text-sm font-black uppercase tracking-[.2em] text-[#d8ad42]">Free quote</p>
-              <h2 className="mt-3 text-4xl font-black">Tell us what needs cleaning.</h2>
-              <p className="mt-4 leading-7 text-slate-200">Send your details and PrimeView Window Care will get back to you with a clear, no-obligation quote.</p>
-              <div className="mt-8 space-y-4 text-sm font-bold">
-                <a href={`tel:${phoneHref}`} className="flex items-center gap-3"><Phone className="size-5 text-[#d8ad42]" /> {phoneDisplay}</a>
-                <a href={`mailto:${email}`} className="flex items-center gap-3"><Mail className="size-5 text-[#d8ad42]" /> {email}</a>
-                <p>Serving West & North London</p>
+        <section id="why-us" className="bg-[#06183b] px-5 py-20 text-white lg:px-8">
+          <div className="mx-auto grid max-w-[1320px] gap-12 lg:grid-cols-[.92fr_1.08fr] lg:items-center">
+            <div>
+              <p className="text-sm font-black uppercase tracking-[.18em] text-[#b8ceff]">Why PrimeView</p>
+              <h2 className="mt-3 text-3xl font-black tracking-[-.035em] sm:text-4xl">A service you can feel confident booking.</h2>
+              <p className="mt-5 max-w-lg leading-7 text-slate-300">From first contact to the final check, PrimeView keeps the process simple, respectful and focused on a high-quality result.</p>
+              <a href={`tel:${phoneHref}`} className="mt-8 inline-flex items-center gap-2 font-black text-white underline decoration-[#9fb4d8] decoration-2 underline-offset-8 hover:text-[#dbeafe]">
+                <Phone className="size-4" aria-hidden="true" /> Speak to PrimeView: {phoneDisplay}
+              </a>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {reasons.map((reason) => (
+                <div key={reason} className="flex items-center gap-4 rounded-2xl border border-white/15 bg-white/8 p-5">
+                  <span className="grid size-8 shrink-0 place-items-center rounded-full bg-[#b8ceff] text-[#06183b]"><Check className="size-5" strokeWidth={3} aria-hidden="true" /></span>
+                  <p className="font-extrabold leading-6">{reason}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section id="areas" className="px-5 py-20 lg:px-8">
+          <div className="mx-auto grid max-w-[1320px] gap-8 rounded-3xl border border-[#d9e0ed] bg-white p-8 shadow-[0_14px_40px_rgba(16,37,80,.07)] md:grid-cols-[auto_1fr_auto] md:items-center md:p-10">
+            <div className="grid size-14 place-items-center rounded-2xl bg-[#eaf0fc] text-[#0a3c8f]"><MapPin className="size-7" aria-hidden="true" /></div>
+            <div>
+              <p className="text-sm font-black uppercase tracking-[.16em] text-[#315997]">Service area</p>
+              <h2 className="mt-2 text-2xl font-black tracking-tight text-[#071b42]">West & North London</h2>
+              <p className="mt-2 max-w-2xl leading-6 text-slate-600">Not sure whether you&apos;re in our area? Send your postcode and we&apos;ll let you know.</p>
+            </div>
+            <a href="#quote" className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#0a3c8f] px-5 py-3.5 text-sm font-black text-white transition hover:bg-[#061b42] motion-reduce:transition-none">Check your area <ArrowRight className="size-4" aria-hidden="true" /></a>
+          </div>
+        </section>
+
+        <section id="quote" className="bg-white px-5 py-20 lg:px-8">
+          <div className="mx-auto grid max-w-[1120px] overflow-hidden rounded-3xl border border-[#d9e0ed] shadow-[0_22px_60px_rgba(16,37,80,.12)] lg:grid-cols-[.82fr_1.18fr]">
+            <div className="bg-[linear-gradient(150deg,#06183b,#0b347c)] p-8 text-white md:p-11">
+              <p className="text-sm font-black uppercase tracking-[.18em] text-[#b8ceff]">Free quote</p>
+              <h2 className="mt-4 text-4xl font-black tracking-[-.035em]">Tell us what needs cleaning.</h2>
+              <p className="mt-5 leading-7 text-slate-200">Send your details and PrimeView Window Care will come back to you with a clear, no-obligation quote.</p>
+              <div className="mt-10 space-y-5 text-sm font-bold">
+                <a href={`tel:${phoneHref}`} className="flex items-center gap-3 transition hover:text-[#dbeafe]"><Phone className="size-5 text-[#b8ceff]" aria-hidden="true" /> {phoneDisplay}</a>
+                <a href={`mailto:${email}`} className="flex items-center gap-3 transition hover:text-[#dbeafe]"><Mail className="size-5 text-[#b8ceff]" aria-hidden="true" /> {email}</a>
+                <a href={whatsappUrl} target="_blank" rel="noreferrer" className="flex items-center gap-3 transition hover:text-[#dbeafe]"><MessageCircle className="size-5 text-[#b8ceff]" aria-hidden="true" /> WhatsApp PrimeView</a>
               </div>
             </div>
-            <form action={`mailto:${email}`} method="post" encType="text/plain" className="grid gap-5 p-8 sm:grid-cols-2 md:p-10">
-              <label className="grid gap-2 text-sm font-bold">Name<input name="name" required className="rounded-xl border border-slate-300 px-4 py-3 font-normal outline-none focus:border-[#104bb6]" /></label>
-              <label className="grid gap-2 text-sm font-bold">Phone<input name="phone" required className="rounded-xl border border-slate-300 px-4 py-3 font-normal outline-none focus:border-[#104bb6]" /></label>
-              <label className="grid gap-2 text-sm font-bold sm:col-span-2">Postcode<input name="postcode" className="rounded-xl border border-slate-300 px-4 py-3 font-normal outline-none focus:border-[#104bb6]" /></label>
-              <label className="grid gap-2 text-sm font-bold sm:col-span-2">What do you need cleaned?<textarea name="message" required rows={5} className="resize-none rounded-xl border border-slate-300 px-4 py-3 font-normal outline-none focus:border-[#104bb6]" /></label>
-              <button type="submit" className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#d8ad42] px-6 py-4 font-extrabold text-white sm:col-span-2">Request my free quote <ArrowRight className="size-4" /></button>
+            <form action={`mailto:${email}?subject=PrimeView%20website%20quote%20request`} method="post" encType="text/plain" className="grid gap-5 p-8 sm:grid-cols-2 md:p-11">
+              <label className="grid gap-2 text-sm font-black text-[#152853]">Name<input name="name" required autoComplete="name" className="rounded-xl border border-slate-300 bg-white px-4 py-3.5 font-normal text-[#071b42] outline-none transition focus:border-[#0a3c8f] focus:ring-4 focus:ring-[#dbe7ff]" /></label>
+              <label className="grid gap-2 text-sm font-black text-[#152853]">Phone<input name="phone" required type="tel" autoComplete="tel" className="rounded-xl border border-slate-300 bg-white px-4 py-3.5 font-normal text-[#071b42] outline-none transition focus:border-[#0a3c8f] focus:ring-4 focus:ring-[#dbe7ff]" /></label>
+              <label className="grid gap-2 text-sm font-black text-[#152853] sm:col-span-2">Email<input name="email" required type="email" autoComplete="email" className="rounded-xl border border-slate-300 bg-white px-4 py-3.5 font-normal text-[#071b42] outline-none transition focus:border-[#0a3c8f] focus:ring-4 focus:ring-[#dbe7ff]" /></label>
+              <label className="grid gap-2 text-sm font-black text-[#152853]">Postcode<input name="postcode" required autoComplete="postal-code" className="rounded-xl border border-slate-300 bg-white px-4 py-3.5 font-normal text-[#071b42] outline-none transition focus:border-[#0a3c8f] focus:ring-4 focus:ring-[#dbe7ff]" /></label>
+              <label className="grid gap-2 text-sm font-black text-[#152853]">Service<select name="service" required defaultValue="" className="rounded-xl border border-slate-300 bg-white px-4 py-3.5 font-normal text-[#071b42] outline-none transition focus:border-[#0a3c8f] focus:ring-4 focus:ring-[#dbe7ff]"><option value="" disabled>Select a service</option>{services.map((service) => <option key={service.title}>{service.title}</option>)}</select></label>
+              <label className="grid gap-2 text-sm font-black text-[#152853] sm:col-span-2">Property details / message<textarea name="message" required rows={5} placeholder="For example: number of floors, access details, or what you would like cleaned." className="resize-y rounded-xl border border-slate-300 bg-white px-4 py-3.5 font-normal text-[#071b42] outline-none transition placeholder:text-slate-400 focus:border-[#0a3c8f] focus:ring-4 focus:ring-[#dbe7ff]" /></label>
+              <button type="submit" className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#0a3c8f] px-6 py-4 font-black text-white shadow-[0_10px_22px_rgba(10,60,143,.22)] transition hover:-translate-y-0.5 hover:bg-[#061b42] sm:col-span-2 motion-reduce:transform-none motion-reduce:transition-none">Request My Free Quote <ArrowRight className="size-5" aria-hidden="true" /></button>
+              <p className="text-center text-xs leading-5 text-slate-500 sm:col-span-2">Submitting opens your email app with your request addressed to PrimeView.</p>
             </form>
           </div>
         </section>
       </main>
 
-      <footer className="bg-[#04132f] px-6 py-9 text-center text-sm text-slate-300">
-        <p className="font-extrabold text-white">PrimeView Window Care</p>
-        <p className="mt-2">Professional exterior cleaning across West & North London.</p>
+      <footer className="bg-[#030f28] px-5 py-10 text-slate-300 lg:px-8">
+        <div className="mx-auto flex max-w-[1320px] flex-col gap-6 text-sm sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-black text-white">PrimeView Window Care</p>
+            <p className="mt-1">Professional exterior cleaning across West & North London.</p>
+          </div>
+          <div className="flex gap-5 font-bold">
+            <a href={`tel:${phoneHref}`} className="hover:text-white">Call</a>
+            <a href={`mailto:${email}`} className="hover:text-white">Email</a>
+            <a href={whatsappUrl} target="_blank" rel="noreferrer" className="hover:text-white">WhatsApp</a>
+          </div>
+        </div>
       </footer>
     </div>
   );
