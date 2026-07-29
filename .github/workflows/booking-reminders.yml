@@ -1,0 +1,40 @@
+name: Booking reminders
+
+on:
+  schedule:
+    - cron: "7,22,37,52 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: booking-reminders
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    name: Process due booking reminders
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Verify scheduler configuration
+        env:
+          REMINDER_CRON_URL: ${{ secrets.PROFFERA_REMINDER_CRON_URL }}
+          REMINDER_CRON_SECRET: ${{ secrets.PROFFERA_REMINDER_CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          test -n "$REMINDER_CRON_URL"
+          test -n "$REMINDER_CRON_SECRET"
+
+      - name: Process due reminders
+        env:
+          REMINDER_CRON_URL: ${{ secrets.PROFFERA_REMINDER_CRON_URL }}
+          REMINDER_CRON_SECRET: ${{ secrets.PROFFERA_REMINDER_CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error \
+            --connect-timeout 10 \
+            --max-time 75 \
+            --header "Authorization: Bearer $REMINDER_CRON_SECRET" \
+            --header "User-Agent: proffera-booking-reminders-github-actions" \
+            "$REMINDER_CRON_URL"
