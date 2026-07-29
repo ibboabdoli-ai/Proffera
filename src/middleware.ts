@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isPrimeViewHost } from "@/lib/public-site-domains";
 
 const CHAT_ORIGIN = "https://chat.proffera.se";
 const PROFFERA_TENANT = "proffera";
@@ -90,6 +91,13 @@ function requireAdminAuth(request: NextRequest) {
 export function middleware(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
 
+  // A custom customer domain must never fall through to the Proffera homepage.
+  // The PrimeView site remains on its existing internal preview route, while the
+  // browser keeps the customer's own domain in the address bar.
+  if (isPrimeViewHost(request.headers.get("host")) && pathname === "/") {
+    return NextResponse.rewrite(new URL("/demo/primeview", request.url));
+  }
+
   if (pathname.startsWith("/app/")) {
     return NextResponse.redirect(chatUrl(pathname, search));
   }
@@ -111,6 +119,7 @@ export function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
+    "/",
     "/app/:path*",
     "/api/widget-config",
     "/dashboard",
