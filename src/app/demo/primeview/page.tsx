@@ -34,33 +34,45 @@ const whatsappUrl = "https://wa.me/447500338585";
 const services = [
   {
     title: "Window Cleaning",
-    description: "Streak-free windows for homes, shops and business premises.",
+    description: "Streak-free windows for homes, shops and business premises, finished with care.",
     icon: PanelsTopLeft,
+    image: "https://images.unsplash.com/photo-1494526585095-c41746248156?auto=format&fit=crop&w=1200&q=85",
+    imageAlt: "Bright home exterior with clean windows",
   },
   {
     title: "Fascia & Soffit Cleaning",
-    description: "A careful refresh for fascias, soffits, cladding and trims.",
+    description: "A careful refresh for fascias, soffits, cladding and trims around your home.",
     icon: House,
+    image: "https://images.unsplash.com/photo-1600566753086-00f18fb6b3ea?auto=format&fit=crop&w=1200&q=85",
+    imageAlt: "Well maintained house exterior",
   },
   {
     title: "Conservatory Roof Cleaning",
-    description: "Restore light and clarity to conservatory roofs and frames.",
+    description: "Restore light and clarity to conservatory roofs, glass and surrounding frames.",
     icon: Sparkles,
+    image: "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1200&q=85",
+    imageAlt: "Modern home with a glass conservatory style extension",
   },
   {
     title: "Gutter Cleaning",
-    description: "Clear gutters and downpipes to help protect your property.",
+    description: "Clear gutters and downpipes to help protect your home from overflowing rainwater.",
     icon: Droplets,
+    image: "https://images.unsplash.com/photo-1510798831971-661eb04b3739?auto=format&fit=crop&w=1200&q=85",
+    imageAlt: "House roof and rain gutter",
   },
   {
     title: "Driveway & Patio Cleaning",
-    description: "Pressure washing for driveways, patios, paths and outdoor areas.",
+    description: "Pressure washing for driveways, patios, paths and outdoor areas that need a fresh start.",
     icon: Wrench,
+    image: "https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?auto=format&fit=crop&w=1200&q=85",
+    imageAlt: "Clean modern patio outside a home",
   },
   {
     title: "Solar Panel Cleaning",
-    description: "A safe, specialist clean to keep your panels performing well.",
+    description: "A safe, specialist clean that helps keep your solar panels performing well.",
     icon: Sun,
+    image: "https://images.unsplash.com/photo-1509391366360-2e959784a276?auto=format&fit=crop&w=1200&q=85",
+    imageAlt: "Solar panels in sunlight",
   },
 ];
 
@@ -195,14 +207,16 @@ export default function PrimeViewDemoPage() {
           </div>
 
           <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {services.map(({ title, description, icon: Icon }) => (
-              <article key={title} className="group flex min-h-[238px] flex-col rounded-2xl border border-[#d9e0ed] bg-white p-6 shadow-[0_12px_32px_rgba(16,37,80,.06)] transition hover:-translate-y-1 hover:border-[#9db7e8] hover:shadow-[0_18px_38px_rgba(16,37,80,.12)] motion-reduce:transform-none motion-reduce:transition-none">
-                <div className="grid size-12 place-items-center rounded-xl bg-[#eaf0fc] text-[#0a3c8f]">
+            {services.map(({ title, description, icon: Icon, image }) => (
+              <article key={title} className="group relative isolate flex min-h-[292px] flex-col overflow-hidden rounded-2xl border border-[#183b79] bg-[#06183b] p-6 text-white shadow-[0_12px_32px_rgba(16,37,80,.16)] transition hover:-translate-y-1 hover:border-[#7da7f2] hover:shadow-[0_20px_42px_rgba(16,37,80,.25)] motion-reduce:transform-none motion-reduce:transition-none">
+                <div aria-hidden="true" className="absolute inset-0 -z-20 bg-cover bg-center brightness-[.78] transition duration-500 group-hover:brightness-110 motion-reduce:transition-none" style={{ backgroundImage: `url("${image}")` }} />
+                <div className="absolute inset-0 -z-10 bg-[linear-gradient(145deg,rgba(2,13,38,.94)_0%,rgba(6,24,59,.82)_54%,rgba(10,60,143,.65)_100%)] transition group-hover:bg-[linear-gradient(145deg,rgba(2,13,38,.84)_0%,rgba(6,24,59,.66)_54%,rgba(10,60,143,.48)_100%)] motion-reduce:transition-none" />
+                <div className="grid size-12 place-items-center rounded-xl border border-white/25 bg-white/15 text-white backdrop-blur-sm">
                   <Icon className="size-6" strokeWidth={1.7} aria-hidden="true" />
                 </div>
-                <h3 className="mt-6 text-xl font-black tracking-tight text-[#071b42]">{title}</h3>
-                <p className="mt-3 leading-6 text-slate-600">{description}</p>
-                <a href="#quote" className="mt-auto pt-6 text-sm font-black text-[#0a3c8f] group-hover:text-[#06183b]">Request a quote <ArrowRight className="ml-1 inline size-4" aria-hidden="true" /></a>
+                <h3 className="mt-6 text-xl font-black tracking-tight text-white">{title}</h3>
+                <p className="mt-3 max-w-sm leading-6 text-slate-100">{description}</p>
+                <a href="#quote" className="mt-auto pt-6 text-sm font-black text-white underline decoration-[#b8ceff] decoration-2 underline-offset-4 transition group-hover:text-[#dbeafe]">Request a quote <ArrowRight className="ml-1 inline size-4" aria-hidden="true" /></a>
               </article>
             ))}
           </div>
