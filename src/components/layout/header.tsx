@@ -25,6 +25,7 @@ export function Header({ locale }: HeaderProps) {
   const alternateLocalePath = getAlternateLocalePath(pathname);
   const homeHref = getLocalizedRoute("/", locale);
   const demoHref = getLocalizedRoute("/demo", locale);
+  const loginHref = locale === "en" ? "/logga-in?lang=en" : "/logga-in?lang=sv";
 
   function closeMenu() {
     menuRef.current?.removeAttribute("open");
@@ -68,7 +69,7 @@ export function Header({ locale }: HeaderProps) {
         </nav>
 
         <div className="hidden items-center gap-3 sm:flex">
-          <Link href="/logga-in" className="text-sm font-semibold text-[#17452f] transition hover:text-[#0e2e1e] focus:outline-none focus-visible:text-[#0e2e1e]">
+          <Link href={loginHref} className="text-sm font-semibold text-[#17452f] transition hover:text-[#0e2e1e] focus:outline-none focus-visible:text-[#0e2e1e]">
             {copy.loginLabel}
           </Link>
           {alternateLocalePath ? (
@@ -94,7 +95,7 @@ export function Header({ locale }: HeaderProps) {
                   {item.label}
                 </Link>
               ))}
-              <Link href="/logga-in" onClick={closeMenu} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-[#17452f] transition hover:bg-[#f2f6f2]">
+              <Link href={loginHref} onClick={closeMenu} className="rounded-xl px-3 py-2.5 text-sm font-semibold text-[#17452f] transition hover:bg-[#f2f6f2]">
                 {copy.loginLabel}
               </Link>
               {alternateLocalePath ? (
