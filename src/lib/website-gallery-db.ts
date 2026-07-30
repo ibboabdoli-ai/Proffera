@@ -19,6 +19,19 @@ export type GalleryItem = {
   bytes: number;
 };
 
+type CreateGalleryItemInput = Omit<GalleryItem, "id" | "status" | "isFeatured" | "sortOrder"> & {
+  id?: string;
+  mediaBase64?: string | null;
+};
+
+export type GalleryMediaRecord = {
+  workspaceId: string;
+  status: GalleryItem["status"];
+  mimeType: string;
+  bytes: number;
+  mediaBase64: string;
+};
+
 function mapItem(row: Record<string, unknown>): GalleryItem {
   return {
     id: String(row.id),
@@ -55,14 +68,50 @@ export async function getPublishedGalleryItems(workspaceSlug: string) {
   return rows.map(mapItem);
 }
 
-export async function createGalleryItem(input: Omit<GalleryItem, "id" | "status" | "isFeatured" | "sortOrder">) {
+export async function createGalleryItem(input: CreateGalleryItemInput) {
   const [access, sql] = await Promise.all([getUserWorkspaceAccess(), Promise.resolve(getSql())]);
   if (!access.ok || !canManageWorkspaceSettings(access) || !sql) return false;
-  const rows = await sql`
-    insert into website_gallery_items(workspace_id,media_type,public_url,storage_key,title,caption,alt_text,display_style,mime_type,bytes)
-    values(${access.workspaceId}::uuid,${input.mediaType},${input.publicUrl},${input.storageKey},${input.title},${input.caption},${input.altText},${input.displayStyle},${input.mimeType},${input.bytes}) returning id
-  `;
+
+  const id = input.id ?? crypto.randomUUID();
+  const rows = input.mediaBase64
+    ? await sql`
+        insert into website_gallery_items(
+          id,workspace_id,media_type,public_url,storage_key,title,caption,alt_text,display_style,mime_type,bytes,media_data
+        )
+        values(
+          ${id}::uuid,${access.workspaceId}::uuid,${input.mediaType},${input.publicUrl},${input.storageKey},${input.title},${input.caption},${input.altText},${input.displayStyle},${input.mimeType},${input.bytes},decode(${input.mediaBase64},'base64')
+        ) returning id
+      `
+    : await sql`
+        insert into website_gallery_items(
+          id,workspace_id,media_type,public_url,storage_key,title,caption,alt_text,display_style,mime_type,bytes
+        )
+        values(
+          ${id}::uuid,${access.workspaceId}::uuid,${input.mediaType},${input.publicUrl},${input.storageKey},${input.title},${input.caption},${input.altText},${input.displayStyle},${input.mimeType},${input.bytes}
+        ) returning id
+      `;
   return Boolean(rows[0]?.id);
+}
+
+export async function getGalleryMedia(id: string): Promise<GalleryMediaRecord | null> {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) return null;
+  const sql = getSql();
+  if (!sql) return null;
+  const rows = await sql`
+    select workspace_id,status,mime_type,bytes,encode(media_data,'base64') as media_base64
+    from website_gallery_items
+    where id=${id}::uuid and media_data is not null
+    limit 1
+  `;
+  const row = rows[0];
+  if (!row?.media_base64) return null;
+  return {
+    workspaceId: String(row.workspace_id),
+    status: String(row.status) as GalleryItem["status"],
+    mimeType: String(row.mime_type),
+    bytes: Number(row.bytes ?? 0),
+    mediaBase64: String(row.media_base64),
+  };
 }
 
 export async function updateGalleryItem(id: string, action: "publish" | "hide" | "delete") {

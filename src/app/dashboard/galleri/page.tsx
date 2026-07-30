@@ -34,10 +34,10 @@ export default async function GalleryManagerPage({ searchParams }: { searchParam
 
     {query.uploaded === "1" ? <p className="rounded-2xl bg-[#eef8f1] p-4 font-semibold text-[#17452f]">Media uploaded as a draft.</p> : null}
     {query.updated === "1" ? <p className="rounded-2xl bg-[#eef8f1] p-4 font-semibold text-[#17452f]">Gallery updated.</p> : null}
-    {query.error === "1" ? <p className="rounded-2xl bg-[#fff4f1] p-4 font-semibold text-[#8f2f1b]">The change could not be saved.</p> : null}
+    {query.error ? <p className="rounded-2xl bg-[#fff4f1] p-4 font-semibold text-[#8f2f1b]">The upload or gallery change could not be saved. Please try again with a file under 4 MB.</p> : null}
 
     <section className="rounded-[24px] border border-[#e0e5dd] bg-white p-5 shadow-sm sm:p-6">
-      <div className="flex items-center gap-3"><Upload className="size-6 text-[#17452f]"/><div><h2 className="text-xl font-black">Upload media</h2><p className="text-sm text-[#667168]">Images up to 8 MB. Videos up to 40 MB.</p></div></div>
+      <div className="flex items-center gap-3"><Upload className="size-6 text-[#17452f]"/><div><h2 className="text-xl font-black">Upload media</h2><p className="text-sm text-[#667168]">Images and short videos up to 4 MB.</p></div></div>
       <form action="/api/dashboard/gallery/upload" method="post" encType="multipart/form-data" className="mt-5 grid gap-4 lg:grid-cols-2">
         <label className="grid gap-2 text-sm font-bold">File<input required name="file" type="file" accept="image/jpeg,image/png,image/webp,image/avif,video/mp4,video/webm,video/quicktime" className="rounded-xl border border-[#d8dfd6] p-3"/></label>
         <label className="grid gap-2 text-sm font-bold">Display style<select name="display_style" className="min-h-12 rounded-xl border border-[#d8dfd6] px-3"><option value="grid">Simple grid</option><option value="masonry">Masonry</option><option value="slider">Slider</option><option value="hero">Large banner</option><option value="video">Video card</option></select></label>
