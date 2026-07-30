@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { ImageIcon, Upload, Video } from "lucide-react";
+import { ImageIcon, Upload } from "lucide-react";
 
 import { getDashboardGalleryItems, updateGalleryItem } from "@/lib/website-gallery-db";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
