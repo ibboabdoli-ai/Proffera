@@ -3,12 +3,34 @@ import { storeCompanyRegistration } from "@/features/company/persistence";
 import { companyRegistrationSchema } from "@/features/company/schema";
 import { allowPublicSubmission } from "@/lib/public-form-protection";
 
+type RegistrationLocale = "sv" | "en";
+
+function registrationPaths(locale: RegistrationLocale) {
+  return locale === "en"
+    ? { register: "/en/join-business/register", thanks: "/en/join-business/thank-you" }
+    : { register: "/anslut-foretag/registrera", thanks: "/anslut-foretag/tack" };
+}
+
+function registrationError(locale: RegistrationLocale, kind: "validation" | "rate-limit" | "storage") {
+  if (locale === "en") {
+    if (kind === "validation") return "Please check that all required information is filled in correctly.";
+    if (kind === "rate-limit") return "Too many attempts. Please wait a moment and try again.";
+    return "We could not save your business request. Please try again or contact us.";
+  }
+
+  if (kind === "validation") return "Kontrollera att alla obligatoriska uppgifter är korrekt ifyllda.";
+  if (kind === "rate-limit") return "För många försök. Vänta en stund och försök igen.";
+  return "Företagsansökan kunde inte sparas. Kontrollera att databastabellen finns.";
+}
+
 export async function POST(request: Request) {
   const formData = await request.formData();
   const website = String(formData.get("website") ?? "").trim();
+  const locale: RegistrationLocale = formData.get("locale") === "en" ? "en" : "sv";
+  const paths = registrationPaths(locale);
 
   if (website) {
-    return NextResponse.redirect(new URL("/anslut-foretag/tack", request.url));
+    return NextResponse.redirect(new URL(paths.thanks, request.url));
   }
 
   const parsed = companyRegistrationSchema.safeParse({
@@ -25,8 +47,8 @@ export async function POST(request: Request) {
   });
 
   if (!parsed.success) {
-    const url = new URL("/anslut-foretag/registrera", request.url);
-    url.searchParams.set("error", "Kontrollera att alla obligatoriska uppgifter är korrekt ifyllda.");
+    const url = new URL(paths.register, request.url);
+    url.searchParams.set("error", registrationError(locale, "validation"));
     return NextResponse.redirect(url);
   }
 
@@ -39,20 +61,20 @@ export async function POST(request: Request) {
   });
 
   if (!allowed) {
-    const url = new URL("/anslut-foretag/registrera", request.url);
-    url.searchParams.set("error", "För många försök. Vänta en stund och försök igen.");
+    const url = new URL(paths.register, request.url);
+    url.searchParams.set("error", registrationError(locale, "rate-limit"));
     return NextResponse.redirect(url);
   }
 
   const result = await storeCompanyRegistration(parsed.data);
 
   if (!result.ok) {
-    const url = new URL("/anslut-foretag/registrera", request.url);
-    url.searchParams.set("error", result.message);
+    const url = new URL(paths.register, request.url);
+    url.searchParams.set("error", locale === "en" ? registrationError(locale, "storage") : result.message);
     return NextResponse.redirect(url);
   }
 
-  const url = new URL("/anslut-foretag/tack", request.url);
+  const url = new URL(paths.thanks, request.url);
   url.searchParams.set("ref", result.referenceId);
   return NextResponse.redirect(url);
 }

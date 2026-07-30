@@ -3,21 +3,10 @@ import { headers } from "next/headers";
 
 import { primeViewSite } from "@/lib/primeview-seo";
 import { isPrimeViewHost } from "@/lib/public-site-domains";
+import { localizedPublicRoutes } from "@/lib/public-locale";
 import { siteConfig } from "@/lib/site";
 
-const routes = [
-  "",
-  "/tjanster",
-  "/branscher",
-  "/priser",
-  "/demo",
-  "/om",
-  "/kontakt",
-  "/logga-in",
-  "/integritetspolicy",
-  "/villkor",
-  "/cookies",
-] as const;
+const swedishOnlyRoutes = ["/logga-in"] as const;
 
 export const dynamic = "force-dynamic";
 
@@ -34,10 +23,37 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     ];
   }
 
-  return routes.map((route) => ({
-    url: `${siteConfig.url}${route}`,
-    lastModified: new Date(),
-    changeFrequency: route === "" ? "weekly" : "monthly",
-    priority: route === "" ? 1 : 0.8,
-  }));
+  const lastModified = new Date();
+
+  return [
+    ...localizedPublicRoutes.flatMap((route) => {
+      const languages = {
+        "sv-SE": `${siteConfig.url}${route.sv}`,
+        en: `${siteConfig.url}${route.en}`,
+      };
+
+      return [
+        {
+          url: languages["sv-SE"],
+          lastModified,
+          changeFrequency: route.sv === "/" ? "weekly" as const : "monthly" as const,
+          priority: route.sv === "/" ? 1 : 0.8,
+          alternates: { languages },
+        },
+        {
+          url: languages.en,
+          lastModified,
+          changeFrequency: route.en === "/en" ? "weekly" as const : "monthly" as const,
+          priority: route.en === "/en" ? 1 : 0.8,
+          alternates: { languages },
+        },
+      ];
+    }),
+    ...swedishOnlyRoutes.map((route) => ({
+      url: `${siteConfig.url}${route}`,
+      lastModified,
+      changeFrequency: "monthly" as const,
+      priority: 0.8,
+    })),
+  ];
 }
