@@ -64,9 +64,11 @@ export const viewport: Viewport = {
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const requestHeaders = await headers();
   const isCustomerSite = isPrimeViewHost(requestHeaders.get("host"));
+  const isEnglishPublicSite = requestHeaders.get("x-proffera-locale") === "en";
+  const documentLanguage = isCustomerSite ? "en-GB" : isEnglishPublicSite ? "en" : "sv";
 
   return (
-    <html lang={isCustomerSite ? "en-GB" : "sv"} className={isCustomerSite ? "primeview-site" : undefined}>
+    <html lang={documentLanguage} className={isCustomerSite ? "primeview-site" : undefined}>
       <body className={`${hankenGrotesk.variable}${isCustomerSite ? " primeview-site" : ""}`}>
         {isCustomerSite ? <main>{children}</main> : <AppShell>{children}</AppShell>}
         {!isCustomerSite && <PwaServiceWorker />}

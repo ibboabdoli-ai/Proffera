@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isPrimeViewHost } from "@/lib/public-site-domains";
+import { isEnglishPublicPath } from "@/lib/public-locale";
 
 const CHAT_ORIGIN = "https://chat.proffera.se";
 const PROFFERA_TENANT = "proffera";
@@ -78,6 +79,21 @@ function allowDashboardWithNoIndex() {
   return response;
 }
 
+function allowPublicPath(request: NextRequest) {
+  if (!isEnglishPublicPath(request.nextUrl.pathname)) {
+    return NextResponse.next();
+  }
+
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-proffera-locale", "en");
+
+  return NextResponse.next({
+    request: {
+      headers: requestHeaders,
+    },
+  });
+}
+
 function requireAdminAuth(request: NextRequest) {
   const expectedCode = (process.env.ADMIN_ACCESS_CODE ?? "").trim();
 
@@ -114,12 +130,14 @@ export function middleware(request: NextRequest) {
     return requireAdminAuth(request);
   }
 
-  return NextResponse.next();
+  return allowPublicPath(request);
 }
 
 export const config = {
   matcher: [
     "/",
+    "/en",
+    "/en/:path*",
     "/app/:path*",
     "/api/widget-config",
     "/dashboard",
