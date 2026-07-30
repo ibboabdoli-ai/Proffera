@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import Link from "next/link";
 
 import { primeViewWorkspaceSlug } from "@/features/primeview/review";
+import { isPrimeViewHost } from "@/lib/public-site-domains";
 import { getPublishedGalleryItems } from "@/lib/website-gallery-db";
 
 export const dynamic = "force-dynamic";
@@ -12,13 +14,17 @@ export const metadata: Metadata = {
 };
 
 export default async function PrimeViewGalleryPage() {
+  const requestHeaders = await headers();
+  const customerDomain = isPrimeViewHost(requestHeaders.get("host"));
+  const homeHref = customerDomain ? "/" : "/demo/primeview";
+  const quoteHref = customerDomain ? "/#quote" : "/demo/primeview#quote";
   const items = await getPublishedGalleryItems(primeViewWorkspaceSlug);
   const sliderItems = items.filter((item) => item.displayStyle === "slider");
   const hero = items.find((item) => item.displayStyle === "hero" || item.isFeatured);
   const gridItems = items.filter((item) => item.id !== hero?.id && item.displayStyle !== "slider");
 
   return <main className="min-h-screen bg-[#f4f6fb] text-[#09183a]">
-    <header className="bg-[#06183b] text-white"><div className="mx-auto flex max-w-[1320px] items-center justify-between px-5 py-5 lg:px-8"><Link href="/demo/primeview" className="text-xl font-black">PrimeView Window Care</Link><Link href="/demo/primeview#quote" className="rounded-xl bg-[#0a3c8f] px-4 py-3 text-sm font-black text-white">Free quote</Link></div></header>
+    <header className="bg-[#06183b] text-white"><div className="mx-auto flex max-w-[1320px] items-center justify-between px-5 py-5 lg:px-8"><Link href={homeHref} className="text-xl font-black">PrimeView Window Care</Link><Link href={quoteHref} className="rounded-xl bg-[#0a3c8f] px-4 py-3 text-sm font-black text-white">Free quote</Link></div></header>
     <section className="mx-auto max-w-[1320px] px-5 py-14 lg:px-8"><p className="text-sm font-black uppercase tracking-[.15em] text-[#315ea8]">Our work</p><h1 className="mt-3 text-4xl font-black tracking-[-.04em] sm:text-6xl">PrimeView project gallery</h1><p className="mt-5 max-w-2xl text-lg leading-8 text-[#52617e]">Photos and videos uploaded directly by the PrimeView team.</p></section>
 
     {hero ? <section className="mx-auto max-w-[1320px] px-5 pb-8 lg:px-8"><article className="overflow-hidden rounded-[28px] bg-[#06183b] text-white shadow-xl">{hero.mediaType === "image" ? <img src={hero.publicUrl} alt={hero.altText} className="max-h-[650px] w-full object-cover"/> : <video src={hero.publicUrl} controls preload="metadata" className="max-h-[650px] w-full object-cover"/>}<div className="p-6 sm:p-8"><h2 className="text-2xl font-black">{hero.title || "Featured project"}</h2>{hero.caption ? <p className="mt-2 text-slate-200">{hero.caption}</p> : null}</div></article></section> : null}
