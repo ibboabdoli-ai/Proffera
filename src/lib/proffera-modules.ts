@@ -73,6 +73,7 @@ export const dashboardNavigation = [
   { label: "Bokningar", href: "/dashboard/bokningar", moduleId: "online_booking" },
   { label: "Kalender", href: "/dashboard/kalender", moduleId: "online_booking" },
   { label: "Personal", href: "/dashboard/personal", moduleId: "online_booking" },
+  { label: "Omdömen", href: "/dashboard/omdomen" },
   { label: "AI-assistent", href: "/dashboard/ai-assistent", moduleId: "ai_chat" },
   { label: "Inställningar", href: "/dashboard/installningar" },
 ] as const;

@@ -20,11 +20,18 @@ import {
   Wrench,
 } from "lucide-react";
 
+import { PrimeViewQuoteForm } from "./quote-form";
+import { PrimeViewReviewForm } from "./review-form";
+import { primeViewWorkspaceSlug } from "@/features/primeview/review";
+import { getPublishedWebsiteReviews } from "@/lib/website-reviews-db";
+
 export const metadata: Metadata = {
   title: "PrimeView Window Care | Exterior Cleaning in West & North London",
   description:
     "Professional window, gutter, fascia, conservatory, patio and solar panel cleaning across West and North London. Request a free quote from PrimeView Window Care.",
 };
+
+export const dynamic = "force-dynamic";
 
 const phoneDisplay = "07500 338 585";
 const phoneHref = "+447500338585";
@@ -83,7 +90,9 @@ const reasons = [
   "Free, no-obligation quotes",
 ];
 
-export default function PrimeViewDemoPage() {
+export default async function PrimeViewDemoPage() {
+  const reviews = await getPublishedWebsiteReviews(primeViewWorkspaceSlug);
+
   return (
     <div className="min-h-screen bg-[#f4f6fb] text-[#09183a]">
       <div className="bg-[#06183b] px-5 py-2 text-center text-xs font-bold tracking-wide text-white sm:text-sm">
@@ -114,6 +123,7 @@ export default function PrimeViewDemoPage() {
             <a href="#services" className="flex items-center gap-1 transition hover:text-white motion-reduce:transition-none">Services <ChevronDown className="size-4" aria-hidden="true" /></a>
             <a href="#why-us" className="transition hover:text-white motion-reduce:transition-none">Why PrimeView</a>
             <a href="#areas" className="transition hover:text-white motion-reduce:transition-none">Service Areas</a>
+            <a href="#reviews" className="transition hover:text-white motion-reduce:transition-none">Reviews</a>
             <a href="#quote" className="transition hover:text-white motion-reduce:transition-none">Contact</a>
           </nav>
 
@@ -121,7 +131,7 @@ export default function PrimeViewDemoPage() {
             <a href={`tel:${phoneHref}`} className="hidden items-center gap-2 rounded-xl border border-white/35 px-4 py-3 text-sm font-extrabold text-white transition hover:border-white hover:bg-white/10 sm:inline-flex motion-reduce:transition-none">
               <Phone className="size-4" aria-hidden="true" /> {phoneDisplay}
             </a>
-            <a href="#quote" className="inline-flex items-center gap-2 rounded-xl bg-[#0a3c8f] px-4 py-3 text-sm font-black text-white shadow-[0_10px_25px_rgba(0,0,0,.2)] transition hover:-translate-y-0.5 hover:bg-[#061b42] sm:px-5 motion-reduce:transform-none motion-reduce:transition-none">
+            <a href="#quote" className="inline-flex items-center gap-2 rounded-xl bg-[#0a3c8f] px-4 py-3 text-sm font-black !text-white shadow-[0_10px_25px_rgba(0,0,0,.2)] transition hover:-translate-y-0.5 hover:bg-[#061b42] sm:px-5 motion-reduce:transform-none motion-reduce:transition-none" style={{ color: "#ffffff" }}>
               Free Quote <ArrowRight className="size-4" aria-hidden="true" />
             </a>
           </div>
@@ -133,6 +143,7 @@ export default function PrimeViewDemoPage() {
             <a href="#services">Services</a>
             <a href="#why-us">Why PrimeView</a>
             <a href="#areas">Service Areas</a>
+            <a href="#reviews">Reviews</a>
             <a href="#quote">Contact</a>
           </nav>
         </details>
@@ -150,7 +161,7 @@ export default function PrimeViewDemoPage() {
             </p>
 
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <a href="#quote" className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#0a3c8f] px-6 py-4 font-black text-white shadow-[0_12px_24px_rgba(0,0,0,.22)] transition hover:-translate-y-0.5 hover:bg-[#061b42] motion-reduce:transform-none motion-reduce:transition-none">
+              <a href="#quote" className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#0a3c8f] px-6 py-4 font-black !text-white shadow-[0_12px_24px_rgba(0,0,0,.22)] transition hover:-translate-y-0.5 hover:bg-[#061b42] motion-reduce:transform-none motion-reduce:transition-none" style={{ color: "#ffffff" }}>
                 Request a Free Quote <ArrowRight className="size-5" aria-hidden="true" />
               </a>
               <a href={whatsappUrl} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/50 bg-white/10 px-6 py-4 font-extrabold text-white backdrop-blur-sm transition hover:bg-white/20 motion-reduce:transition-none">
@@ -251,7 +262,46 @@ export default function PrimeViewDemoPage() {
               <h2 className="mt-2 text-2xl font-black tracking-tight text-[#071b42]">West & North London</h2>
               <p className="mt-2 max-w-2xl leading-6 text-slate-600">Not sure whether you&apos;re in our area? Send your postcode and we&apos;ll let you know.</p>
             </div>
-            <a href="#quote" className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#0a3c8f] px-5 py-3.5 text-sm font-black text-white transition hover:bg-[#061b42] motion-reduce:transition-none">Check your area <ArrowRight className="size-4" aria-hidden="true" /></a>
+            <a href="#quote" className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#0a3c8f] px-5 py-3.5 text-sm font-black !text-white transition hover:bg-[#061b42] motion-reduce:transition-none" style={{ color: "#ffffff" }}>Check your area <ArrowRight className="size-4" aria-hidden="true" /></a>
+          </div>
+        </section>
+
+        <section id="reviews" className="bg-[#eef3fc] px-5 py-20 lg:px-8">
+          <div className="mx-auto max-w-[1320px]">
+            <div className="max-w-2xl">
+              <p className="text-sm font-black uppercase tracking-[.18em] text-[#315997]">Customer reviews</p>
+              <h2 className="mt-3 text-3xl font-black tracking-[-.03em] text-[#071b42] sm:text-4xl">Your feedback means a lot.</h2>
+              <p className="mt-4 text-base leading-7 text-slate-600">Read feedback from customers after it has been checked by PrimeView, or share your own experience with the team.</p>
+            </div>
+
+            <div className="mt-10 grid gap-6 xl:grid-cols-[minmax(0,1fr)_440px]">
+              <div className="grid gap-4 sm:grid-cols-2">
+                {reviews.length ? reviews.map((review) => (
+                  <article key={review.id} className="flex flex-col rounded-2xl border border-[#d7e1f2] bg-white p-6 shadow-[0_12px_28px_rgba(16,37,80,.07)]">
+                    <div className="flex items-center gap-1 text-[#b17815]" aria-label={`${review.rating} out of 5 stars`}>
+                      {Array.from({ length: 5 }, (_, index) => <Star key={index} className="size-4" fill={index < review.rating ? "currentColor" : "none"} aria-hidden="true" />)}
+                    </div>
+                    <p className="mt-4 flex-1 leading-7 text-slate-700">“{review.message}”</p>
+                    <div className="mt-5 border-t border-slate-100 pt-4">
+                      <p className="font-black text-[#071b42]">{review.reviewerName}</p>
+                      <p className="mt-1 text-sm text-slate-500">{[review.service, review.area].filter(Boolean).join(" · ") || "PrimeView customer"}</p>
+                    </div>
+                  </article>
+                )) : (
+                  <article className="sm:col-span-2 rounded-2xl border border-dashed border-[#b9c9e4] bg-white/75 p-7 text-slate-600">
+                    <p className="font-black text-[#071b42]">Be the first to share your experience.</p>
+                    <p className="mt-2 max-w-xl leading-7">PrimeView publishes genuine customer feedback after a quick review, so future customers can make an informed choice.</p>
+                  </article>
+                )}
+              </div>
+
+              <aside className="rounded-3xl border border-[#cbd9ef] bg-white p-6 shadow-[0_18px_42px_rgba(16,37,80,.1)] sm:p-8">
+                <p className="text-sm font-black uppercase tracking-[.16em] text-[#315997]">Leave a review</p>
+                <h3 className="mt-3 text-2xl font-black tracking-tight text-[#071b42]">How did we do?</h3>
+                <p className="mt-3 text-sm leading-6 text-slate-600">It takes less than a minute. Your review is checked before it appears publicly.</p>
+                <div className="mt-6"><PrimeViewReviewForm serviceOptions={services.map((service) => service.title)} /></div>
+              </aside>
+            </div>
           </div>
         </section>
 
@@ -267,16 +317,7 @@ export default function PrimeViewDemoPage() {
                 <a href={whatsappUrl} target="_blank" rel="noreferrer" className="flex items-center gap-3 transition hover:text-[#dbeafe]"><MessageCircle className="size-5 text-[#b8ceff]" aria-hidden="true" /> WhatsApp PrimeView</a>
               </div>
             </div>
-            <form action={`mailto:${email}?subject=PrimeView%20website%20quote%20request`} method="post" encType="text/plain" className="grid gap-5 p-8 sm:grid-cols-2 md:p-11">
-              <label className="grid gap-2 text-sm font-black text-[#152853]">Name<input name="name" required autoComplete="name" className="rounded-xl border border-slate-300 bg-white px-4 py-3.5 font-normal text-[#071b42] outline-none transition focus:border-[#0a3c8f] focus:ring-4 focus:ring-[#dbe7ff]" /></label>
-              <label className="grid gap-2 text-sm font-black text-[#152853]">Phone<input name="phone" required type="tel" autoComplete="tel" className="rounded-xl border border-slate-300 bg-white px-4 py-3.5 font-normal text-[#071b42] outline-none transition focus:border-[#0a3c8f] focus:ring-4 focus:ring-[#dbe7ff]" /></label>
-              <label className="grid gap-2 text-sm font-black text-[#152853] sm:col-span-2">Email<input name="email" required type="email" autoComplete="email" className="rounded-xl border border-slate-300 bg-white px-4 py-3.5 font-normal text-[#071b42] outline-none transition focus:border-[#0a3c8f] focus:ring-4 focus:ring-[#dbe7ff]" /></label>
-              <label className="grid gap-2 text-sm font-black text-[#152853]">Postcode<input name="postcode" required autoComplete="postal-code" className="rounded-xl border border-slate-300 bg-white px-4 py-3.5 font-normal text-[#071b42] outline-none transition focus:border-[#0a3c8f] focus:ring-4 focus:ring-[#dbe7ff]" /></label>
-              <label className="grid gap-2 text-sm font-black text-[#152853]">Service<select name="service" required defaultValue="" className="rounded-xl border border-slate-300 bg-white px-4 py-3.5 font-normal text-[#071b42] outline-none transition focus:border-[#0a3c8f] focus:ring-4 focus:ring-[#dbe7ff]"><option value="" disabled>Select a service</option>{services.map((service) => <option key={service.title}>{service.title}</option>)}</select></label>
-              <label className="grid gap-2 text-sm font-black text-[#152853] sm:col-span-2">Property details / message<textarea name="message" required rows={5} placeholder="For example: number of floors, access details, or what you would like cleaned." className="resize-y rounded-xl border border-slate-300 bg-white px-4 py-3.5 font-normal text-[#071b42] outline-none transition placeholder:text-slate-400 focus:border-[#0a3c8f] focus:ring-4 focus:ring-[#dbe7ff]" /></label>
-              <button type="submit" className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#0a3c8f] px-6 py-4 font-black text-white shadow-[0_10px_22px_rgba(10,60,143,.22)] transition hover:-translate-y-0.5 hover:bg-[#061b42] sm:col-span-2 motion-reduce:transform-none motion-reduce:transition-none">Request My Free Quote <ArrowRight className="size-5" aria-hidden="true" /></button>
-              <p className="text-center text-xs leading-5 text-slate-500 sm:col-span-2">Submitting opens your email app with your request addressed to PrimeView.</p>
-            </form>
+            <PrimeViewQuoteForm serviceOptions={services.map((service) => service.title)} />
           </div>
         </section>
       </main>
