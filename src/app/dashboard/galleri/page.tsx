@@ -22,8 +22,8 @@ async function galleryAction(formData: FormData) {
 }
 
 export default async function GalleryManagerPage({ searchParams }: { searchParams?: Promise<GallerySearchParams> }) {
-  const [access, items, query] = await Promise.all([getUserWorkspaceAccess(), getDashboardGalleryItems(), searchParams ?? Promise.resolve({})]);
-  const value = (key: keyof GallerySearchParams) => { const current = query?.[key]; return Array.isArray(current) ? current[0] : current; };
+  const [access, items, query] = await Promise.all([getUserWorkspaceAccess(), getDashboardGalleryItems(), searchParams ?? Promise.resolve({} as GallerySearchParams)]);
+  const value = (key: keyof GallerySearchParams) => { const current = query[key]; return Array.isArray(current) ? current[0] : current; };
   const isEnglish = value("lang") === "en";
   if (!access.ok || !canManageWorkspaceSettings(access)) redirect(localizedHref("/dashboard", isEnglish));
 
