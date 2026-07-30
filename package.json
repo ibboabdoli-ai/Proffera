@@ -16,6 +16,7 @@
   "dependencies": {
     "@neondatabase/serverless": "latest",
     "@tailwindcss/postcss": "latest",
+    "@vercel/blob": "latest",
     "better-auth": "1.6.18",
     "lucide-react": "latest",
     "next": "16.2.2",
