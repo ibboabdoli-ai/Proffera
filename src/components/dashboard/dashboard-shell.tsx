@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
+  MessageSquareQuote,
   Settings,
   Sparkles,
   UserRoundSearch,
@@ -29,6 +30,7 @@ const navigationIcons: Record<string, LucideIcon> = {
   "/dashboard/leads": UserRoundSearch,
   "/dashboard/kunder": Users,
   "/dashboard/bokningar": CalendarDays,
+  "/dashboard/omdomen": MessageSquareQuote,
   "/dashboard/ai-assistent": Bot,
   "/dashboard/installningar": Settings,
 };
@@ -46,16 +48,21 @@ type NavigationLinksProps = {
   moduleAccess?: ProfferaModuleAccess[];
   enabledFeatures?: WorkspaceFeatureKey[];
   canManageSettings: boolean;
+  workspaceSlug?: string;
   onNavigate?: () => void;
 };
 
-function NavigationLinks({ pathname, moduleAccess, enabledFeatures, canManageSettings, onNavigate }: NavigationLinksProps) {
+function NavigationLinks({ pathname, moduleAccess, enabledFeatures, canManageSettings, workspaceSlug, onNavigate }: NavigationLinksProps) {
   const moduleAccessById = new Map(moduleAccess?.map((item) => [item.id, item]));
 
   return (
     <nav className="grid gap-1.5" aria-label="Dashboard navigation">
       {dashboardNavigation.map((item) => {
         if (item.href === "/dashboard/installningar" && !canManageSettings) {
+          return null;
+        }
+
+        if (item.href === "/dashboard/omdomen" && workspaceSlug !== "primeview-window-care") {
           return null;
         }
 
@@ -123,7 +130,7 @@ function WorkspaceSwitcher({ workspaceId, workspaceOptions }: { workspaceId?: st
   );
 }
 
-export function DashboardShell({ children, workspaceName = "Proffera", workspaceId, workspaceOptions = [], moduleAccess, enabledFeatures, canManageSettings = false }: Readonly<{ children: React.ReactNode; workspaceName?: string; workspaceId?: string; workspaceOptions?: WorkspaceOption[]; moduleAccess?: ProfferaModuleAccess[]; enabledFeatures?: WorkspaceFeatureKey[]; canManageSettings?: boolean }>) {
+export function DashboardShell({ children, workspaceName = "Proffera", workspaceId, workspaceSlug, workspaceOptions = [], moduleAccess, enabledFeatures, canManageSettings = false }: Readonly<{ children: React.ReactNode; workspaceName?: string; workspaceId?: string; workspaceSlug?: string; workspaceOptions?: WorkspaceOption[]; moduleAccess?: ProfferaModuleAccess[]; enabledFeatures?: WorkspaceFeatureKey[]; canManageSettings?: boolean }>) {
   const pathname = usePathname();
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -160,7 +167,7 @@ export function DashboardShell({ children, workspaceName = "Proffera", workspace
 
           <div className="mt-9 flex-1">
             <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-[#a8c4b0]">Arbetsyta</p>
-            <NavigationLinks pathname={pathname} moduleAccess={moduleAccess} enabledFeatures={enabledFeatures} canManageSettings={canManageSettings} />
+            <NavigationLinks pathname={pathname} moduleAccess={moduleAccess} enabledFeatures={enabledFeatures} canManageSettings={canManageSettings} workspaceSlug={workspaceSlug} />
           </div>
 
           <WorkspaceSwitcher workspaceId={workspaceId} workspaceOptions={workspaceOptions} />
@@ -242,7 +249,7 @@ export function DashboardShell({ children, workspaceName = "Proffera", workspace
             </div>
             <div className="mt-9 flex-1 overflow-y-auto">
               <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-[#a8c4b0]">Arbetsyta</p>
-              <NavigationLinks pathname={pathname} moduleAccess={moduleAccess} enabledFeatures={enabledFeatures} canManageSettings={canManageSettings} onNavigate={() => setIsMobileMenuOpen(false)} />
+              <NavigationLinks pathname={pathname} moduleAccess={moduleAccess} enabledFeatures={enabledFeatures} canManageSettings={canManageSettings} workspaceSlug={workspaceSlug} onNavigate={() => setIsMobileMenuOpen(false)} />
               <WorkspaceSwitcher workspaceId={workspaceId} workspaceOptions={workspaceOptions} />
             </div>
           </aside>
