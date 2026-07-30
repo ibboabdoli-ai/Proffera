@@ -9,48 +9,115 @@ export const runtime = "nodejs";
 const allowedImageTypes = new Set(["image/jpeg", "image/png", "image/webp", "image/avif"]);
 const allowedVideoTypes = new Set(["video/mp4", "video/webm", "video/quicktime"]);
 const displayStyles = new Set(["grid", "masonry", "slider", "hero", "video"]);
+const maxUploadBytes = 4 * 1024 * 1024;
+
+function redirectToGallery(request: Request, status: string) {
+  return NextResponse.redirect(new URL(`/dashboard/galleri?${status}`, request.url), 303);
+}
 
 export async function POST(request: Request) {
-  const access = await getUserWorkspaceAccess();
-  if (!access.ok || !canManageWorkspaceSettings(access)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const startedAt = Date.now();
+
+  try {
+    const access = await getUserWorkspaceAccess();
+    if (!access.ok || !canManageWorkspaceSettings(access)) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const formData = await request.formData();
+    const file = formData.get("file");
+    if (!(file instanceof File) || file.size === 0) {
+      return NextResponse.json({ error: "Choose a file." }, { status: 400 });
+    }
+
+    const isImage = allowedImageTypes.has(file.type);
+    const isVideo = allowedVideoTypes.has(file.type);
+    if (!isImage && !isVideo) {
+      return NextResponse.json({ error: "Unsupported file type." }, { status: 400 });
+    }
+
+    if (file.size > maxUploadBytes) {
+      return NextResponse.json({ error: "Files must be under 4 MB." }, { status: 400 });
+    }
+
+    const requestedStyle = String(formData.get("display_style") ?? "grid");
+    const displayStyle = displayStyles.has(requestedStyle) ? requestedStyle : isVideo ? "video" : "grid";
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "-").toLowerCase();
+    const id = crypto.randomUUID();
+    const pathname = `gallery/${access.workspaceSlug}/${id}-${safeName}`;
+
+    let publicUrl = `/api/gallery/media/${id}`;
+    let storageKey = `database:${id}`;
+    let mediaBase64: string | null = null;
+
+    const hasBlobCredentials = Boolean(
+      process.env.BLOB_READ_WRITE_TOKEN || (process.env.VERCEL_OIDC_TOKEN && process.env.BLOB_STORE_ID),
+    );
+
+    if (hasBlobCredentials) {
+      try {
+        const blob = await put(pathname, file, {
+          access: "public",
+          addRandomSuffix: false,
+          contentType: file.type,
+        });
+        publicUrl = blob.url;
+        storageKey = pathname;
+      } catch (error) {
+        console.warn(
+          JSON.stringify({
+            level: "warning",
+            message: "Gallery Blob upload failed; using database fallback",
+            route: "/api/dashboard/gallery/upload",
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        );
+      }
+    }
+
+    if (storageKey.startsWith("database:")) {
+      mediaBase64 = Buffer.from(await file.arrayBuffer()).toString("base64");
+    }
+
+    const saved = await createGalleryItem({
+      id,
+      mediaType: isVideo ? "video" : "image",
+      publicUrl,
+      storageKey,
+      title: String(formData.get("title") ?? "").trim() || null,
+      caption: String(formData.get("caption") ?? "").trim() || null,
+      altText: String(formData.get("alt_text") ?? "").trim() || (isVideo ? "PrimeView project video" : "PrimeView completed work"),
+      displayStyle: displayStyle as "grid" | "masonry" | "slider" | "hero" | "video",
+      mimeType: file.type,
+      bytes: file.size,
+      mediaBase64,
+    });
+
+    if (!saved) return redirectToGallery(request, "error=save");
+
+    console.log(
+      JSON.stringify({
+        level: "info",
+        message: "Gallery media uploaded",
+        route: "/api/dashboard/gallery/upload",
+        workspace: access.workspaceSlug,
+        storage: storageKey.startsWith("database:") ? "database" : "blob",
+        bytes: file.size,
+        durationMs: Date.now() - startedAt,
+      }),
+    );
+
+    return redirectToGallery(request, "uploaded=1");
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        level: "error",
+        message: "Gallery upload failed",
+        route: "/api/dashboard/gallery/upload",
+        error: error instanceof Error ? error.message : String(error),
+        durationMs: Date.now() - startedAt,
+      }),
+    );
+    return redirectToGallery(request, "error=upload");
   }
-
-  const formData = await request.formData();
-  const file = formData.get("file");
-  if (!(file instanceof File) || file.size === 0) {
-    return NextResponse.json({ error: "Choose a file." }, { status: 400 });
-  }
-
-  const isImage = allowedImageTypes.has(file.type);
-  const isVideo = allowedVideoTypes.has(file.type);
-  if (!isImage && !isVideo) {
-    return NextResponse.json({ error: "Unsupported file type." }, { status: 400 });
-  }
-
-  const maxBytes = isImage ? 8 * 1024 * 1024 : 40 * 1024 * 1024;
-  if (file.size > maxBytes) {
-    return NextResponse.json({ error: isImage ? "Images must be under 8 MB." : "Videos must be under 40 MB." }, { status: 400 });
-  }
-
-  const requestedStyle = String(formData.get("display_style") ?? "grid");
-  const displayStyle = displayStyles.has(requestedStyle) ? requestedStyle : isVideo ? "video" : "grid";
-  const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "-").toLowerCase();
-  const pathname = `gallery/${access.workspaceSlug}/${crypto.randomUUID()}-${safeName}`;
-  const blob = await put(pathname, file, { access: "public", addRandomSuffix: false, contentType: file.type });
-
-  const saved = await createGalleryItem({
-    mediaType: isVideo ? "video" : "image",
-    publicUrl: blob.url,
-    storageKey: pathname,
-    title: String(formData.get("title") ?? "").trim() || null,
-    caption: String(formData.get("caption") ?? "").trim() || null,
-    altText: String(formData.get("alt_text") ?? "").trim() || (isVideo ? "PrimeView project video" : "PrimeView completed work"),
-    displayStyle: displayStyle as "grid" | "masonry" | "slider" | "hero" | "video",
-    mimeType: file.type,
-    bytes: file.size,
-  });
-
-  if (!saved) return NextResponse.json({ error: "Could not save media metadata." }, { status: 503 });
-  return NextResponse.redirect(new URL("/dashboard/galleri?uploaded=1", request.url), 303);
 }
