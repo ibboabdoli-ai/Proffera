@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { AlertCircle, ArrowRight, CheckCircle2, LoaderCircle } from "lucide-react";
 
 type PrimeViewQuoteFormProps = {
@@ -14,9 +14,13 @@ type SubmissionMessage =
 const inputClassName = "rounded-xl border border-slate-300 bg-white px-4 py-3.5 font-normal text-[#071b42] outline-none transition focus:border-[#0a3c8f] focus:ring-4 focus:ring-[#dbe7ff]";
 
 export function PrimeViewQuoteForm({ serviceOptions }: PrimeViewQuoteFormProps) {
-  const [formStartedAt, setFormStartedAt] = useState(() => Date.now());
+  const formStartedAtRef = useRef<number | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionMessage, setSubmissionMessage] = useState<SubmissionMessage>(null);
+
+  useEffect(() => {
+    formStartedAtRef.current = Date.now();
+  }, []);
 
   async function submitQuote(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -33,7 +37,7 @@ export function PrimeViewQuoteForm({ serviceOptions }: PrimeViewQuoteFormProps) 
       service: String(values.get("service") ?? ""),
       message: String(values.get("message") ?? ""),
       website: String(values.get("website") ?? ""),
-      formStartedAt,
+      formStartedAt: formStartedAtRef.current ?? Date.now(),
     };
 
     setIsSubmitting(true);
@@ -52,7 +56,7 @@ export function PrimeViewQuoteForm({ serviceOptions }: PrimeViewQuoteFormProps) 
       }
 
       form.reset();
-      setFormStartedAt(Date.now());
+      formStartedAtRef.current = Date.now();
       setSubmissionMessage(
         result.confirmationSent === false
           ? {
@@ -76,7 +80,7 @@ export function PrimeViewQuoteForm({ serviceOptions }: PrimeViewQuoteFormProps) 
 
   return (
     <form onSubmit={submitQuote} className="grid gap-5 p-8 sm:grid-cols-2 md:p-11">
-      <label className="absolute left-[-10000px] top-auto h-px w-px overflow-hidden" aria-hidden="true">
+      <label className="sr-only" aria-hidden="true">
         Website
         <input name="website" type="text" tabIndex={-1} autoComplete="off" />
       </label>

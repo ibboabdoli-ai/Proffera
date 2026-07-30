@@ -66,8 +66,8 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   const isCustomerSite = isPrimeViewHost(requestHeaders.get("host"));
 
   return (
-    <html lang={isCustomerSite ? "en-GB" : "sv"}>
-      <body className={hankenGrotesk.variable}>
+    <html lang={isCustomerSite ? "en-GB" : "sv"} className={isCustomerSite ? "primeview-site" : undefined}>
+      <body className={`${hankenGrotesk.variable}${isCustomerSite ? " primeview-site" : ""}`}>
         {isCustomerSite ? <main>{children}</main> : <AppShell>{children}</AppShell>}
         {!isCustomerSite && <PwaServiceWorker />}
         {!isCustomerSite && <ServiceAiChatWidget />}
