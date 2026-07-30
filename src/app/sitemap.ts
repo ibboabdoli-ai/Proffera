@@ -1,4 +1,8 @@
 import type { MetadataRoute } from "next";
+import { headers } from "next/headers";
+
+import { primeViewSite } from "@/lib/primeview-seo";
+import { isPrimeViewHost } from "@/lib/public-site-domains";
 import { siteConfig } from "@/lib/site";
 
 const routes = [
@@ -15,7 +19,21 @@ const routes = [
   "/cookies",
 ] as const;
 
-export default function sitemap(): MetadataRoute.Sitemap {
+export const dynamic = "force-dynamic";
+
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  const requestHeaders = await headers();
+
+  if (isPrimeViewHost(requestHeaders.get("host"))) {
+    return [
+      {
+        url: primeViewSite.canonicalUrl,
+        changeFrequency: "weekly",
+        priority: 1,
+      },
+    ];
+  }
+
   return routes.map((route) => ({
     url: `${siteConfig.url}${route}`,
     lastModified: new Date(),

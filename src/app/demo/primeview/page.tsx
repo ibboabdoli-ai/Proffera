@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import Image from "next/image";
 import {
   ArrowRight,
@@ -23,20 +24,76 @@ import {
 import { PrimeViewQuoteForm } from "./quote-form";
 import { PrimeViewReviewForm } from "./review-form";
 import { primeViewWorkspaceSlug } from "@/features/primeview/review";
+import { primeViewSite, primeViewStructuredData } from "@/lib/primeview-seo";
+import { isPrimeViewHost } from "@/lib/public-site-domains";
 import { getPublishedWebsiteReviews } from "@/lib/website-reviews-db";
 
-export const metadata: Metadata = {
-  title: "PrimeView Window Care | Exterior Cleaning in West & North London",
-  description:
-    "Professional window, gutter, fascia, conservatory, patio and solar panel cleaning across West and North London. Request a free quote from PrimeView Window Care.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const requestHeaders = await headers();
+
+  if (!isPrimeViewHost(requestHeaders.get("host"))) {
+    return {
+      robots: { index: false, follow: false },
+    };
+  }
+
+  return {
+    metadataBase: new URL(primeViewSite.origin),
+    title: { absolute: primeViewSite.title },
+    description: primeViewSite.description,
+    applicationName: primeViewSite.name,
+    keywords: [
+      "window cleaning West London",
+      "window cleaning North London",
+      "gutter cleaning London",
+      "fascia and soffit cleaning",
+      "conservatory roof cleaning",
+      "solar panel cleaning London",
+    ],
+    alternates: { canonical: primeViewSite.canonicalUrl },
+    robots: {
+      index: true,
+      follow: true,
+      googleBot: {
+        index: true,
+        follow: true,
+        "max-image-preview": "large",
+        "max-snippet": -1,
+        "max-video-preview": -1,
+      },
+    },
+    openGraph: {
+      type: "website",
+      locale: "en_GB",
+      url: primeViewSite.canonicalUrl,
+      siteName: primeViewSite.name,
+      title: primeViewSite.title,
+      description: primeViewSite.description,
+      images: [
+        {
+          url: primeViewSite.openGraphImageUrl,
+          width: 1200,
+          height: 630,
+          alt: "PrimeView Window Care exterior cleaning in West and North London",
+        },
+      ],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: primeViewSite.title,
+      description: primeViewSite.description,
+      images: [primeViewSite.openGraphImageUrl],
+    },
+  };
+}
 
 export const dynamic = "force-dynamic";
 
-const phoneDisplay = "07500 338 585";
-const phoneHref = "+447500338585";
-const email = "am@primeviewlondon.co.uk";
+const phoneDisplay = primeViewSite.telephoneDisplay;
+const phoneHref = primeViewSite.telephone;
+const email = primeViewSite.email;
 const whatsappUrl = "https://wa.me/447500338585";
+const primeViewJsonLd = JSON.stringify(primeViewStructuredData).replace(/</g, "\\u003c");
 
 const services = [
   {
@@ -95,6 +152,7 @@ export default async function PrimeViewDemoPage() {
 
   return (
     <div className="min-h-screen bg-[#f4f6fb] text-[#09183a]">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: primeViewJsonLd }} />
       <div className="bg-[#06183b] px-5 py-2 text-center text-xs font-bold tracking-wide text-white sm:text-sm">
         <span className="text-[#cbd5e1]">West & North London&apos;s exterior cleaning specialists</span>
         <a href={`tel:${phoneHref}`} className="ml-3 text-white underline decoration-[#9fb4d8] underline-offset-4 hover:text-[#dbeafe]">
@@ -154,7 +212,7 @@ export default async function PrimeViewDemoPage() {
               <ShieldCheck className="size-4 text-white" aria-hidden="true" /> Professional exterior cleaning
             </div>
             <h1 className="mt-6 text-4xl font-black leading-[1.02] tracking-[-.045em] text-white sm:text-6xl lg:text-7xl">
-              A clearer view of your <span className="text-[#b8ceff]">property.</span>
+              Window, gutter &amp; exterior cleaning in <span className="text-[#b8ceff]">West &amp; North London.</span>
             </h1>
             <p className="mt-6 max-w-xl text-lg leading-8 text-slate-200 sm:text-xl">
               Reliable window, gutter, fascia, conservatory, patio and solar panel cleaning for homes and businesses across West & North London.
