@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { SettingsLocaleBoundary } from "@/app/dashboard/installningar/settings-locale-boundary";
+import { SettingsResidualLocaleFix } from "@/app/dashboard/installningar/settings-residual-locale-fix";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess, getUserWorkspaceOptions } from "@/lib/workspace-access";
 import { getDashboardEnabledFeatureKeys, getDashboardModuleAccess } from "@/lib/workspace-module-access";
 
@@ -34,7 +35,9 @@ export default async function DashboardLayout({ children }: Readonly<{ children:
 
   return (
     <DashboardShell workspaceName={access.workspaceName} workspaceId={access.workspaceId} workspaceSlug={access.workspaceSlug} workspaceOptions={workspaceOptions} moduleAccess={moduleAccess} enabledFeatures={enabledFeatures} canManageSettings={canManageWorkspaceSettings(access)}>
-      <SettingsLocaleBoundary>{children}</SettingsLocaleBoundary>
+      <SettingsLocaleBoundary>
+        <SettingsResidualLocaleFix>{children}</SettingsResidualLocaleFix>
+      </SettingsLocaleBoundary>
     </DashboardShell>
   );
 }
