@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, LoaderCircle, Star } from "lucide-react";
 
 type PrimeViewReviewFormProps = {
@@ -12,10 +12,14 @@ type SubmissionMessage = { kind: "success" | "error"; text: string } | null;
 const inputClassName = "rounded-xl border border-slate-300 bg-white px-4 py-3.5 font-normal text-[#071b42] outline-none transition focus:border-[#0a3c8f] focus:ring-4 focus:ring-[#dbe7ff]";
 
 export function PrimeViewReviewForm({ serviceOptions }: PrimeViewReviewFormProps) {
-  const [formStartedAt, setFormStartedAt] = useState(() => Date.now());
+  const formStartedAtRef = useRef<number | null>(null);
   const [rating, setRating] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionMessage, setSubmissionMessage] = useState<SubmissionMessage>(null);
+
+  useEffect(() => {
+    formStartedAtRef.current = Date.now();
+  }, []);
 
   async function submitReview(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -37,7 +41,7 @@ export function PrimeViewReviewForm({ serviceOptions }: PrimeViewReviewFormProps
       message: String(values.get("message") ?? ""),
       consent: values.get("consent") === "true",
       website: String(values.get("website") ?? ""),
-      formStartedAt,
+      formStartedAt: formStartedAtRef.current ?? Date.now(),
     };
 
     setIsSubmitting(true);
@@ -57,7 +61,7 @@ export function PrimeViewReviewForm({ serviceOptions }: PrimeViewReviewFormProps
 
       form.reset();
       setRating(0);
-      setFormStartedAt(Date.now());
+      formStartedAtRef.current = Date.now();
       setSubmissionMessage({
         kind: "success",
         text: "Thank you — your review has been received and will appear after PrimeView approves it.",
@@ -74,7 +78,7 @@ export function PrimeViewReviewForm({ serviceOptions }: PrimeViewReviewFormProps
 
   return (
     <form onSubmit={submitReview} className="grid gap-4" aria-describedby="review-form-note">
-      <label className="absolute left-[-10000px] top-auto h-px w-px overflow-hidden" aria-hidden="true">
+      <label className="sr-only" aria-hidden="true">
         Website
         <input name="website" type="text" tabIndex={-1} autoComplete="off" />
       </label>
