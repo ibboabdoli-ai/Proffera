@@ -6,6 +6,12 @@ import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/worksp
 
 export const dynamic = "force-dynamic";
 
+type GallerySearchParams = {
+  uploaded?: string;
+  updated?: string;
+  error?: string;
+};
+
 async function galleryAction(formData: FormData) {
   "use server";
   const id = String(formData.get("id") ?? "");
@@ -14,8 +20,9 @@ async function galleryAction(formData: FormData) {
   redirect("/dashboard/galleri?updated=1");
 }
 
-export default async function GalleryManagerPage({ searchParams }: { searchParams?: Promise<{ uploaded?: string; updated?: string; error?: string }> }) {
-  const [access, items, query] = await Promise.all([getUserWorkspaceAccess(), getDashboardGalleryItems(), searchParams ?? Promise.resolve({})]);
+export default async function GalleryManagerPage({ searchParams }: { searchParams?: Promise<GallerySearchParams> }) {
+  const [access, items] = await Promise.all([getUserWorkspaceAccess(), getDashboardGalleryItems()]);
+  const query: GallerySearchParams = searchParams ? await searchParams : {};
   if (!access.ok || !canManageWorkspaceSettings(access)) redirect("/dashboard");
 
   return <div className="grid gap-6">
