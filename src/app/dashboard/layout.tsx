@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { DashboardGlobalLocaleBoundary } from "@/components/dashboard/dashboard-global-locale-boundary";
 import { DashboardLanguageSwitchFix } from "@/components/dashboard/dashboard-language-switch-fix";
+import { DashboardStripeCheckoutFix } from "@/components/dashboard/dashboard-stripe-checkout-fix";
 import { SettingsLocaleBoundary } from "@/app/dashboard/installningar/settings-locale-boundary";
 import { SettingsResidualLocaleFix } from "@/app/dashboard/installningar/settings-residual-locale-fix";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess, getUserWorkspaceOptions } from "@/lib/workspace-access";
@@ -24,6 +25,7 @@ export default async function DashboardLayout({ children }: Readonly<{ children:
     return (
       <DashboardShell>
         <DashboardLanguageSwitchFix />
+        <DashboardStripeCheckoutFix />
         <DashboardGlobalLocaleBoundary>
           <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
             <p className="text-sm font-semibold text-slate-900">Åtkomst saknas</p>
@@ -41,6 +43,7 @@ export default async function DashboardLayout({ children }: Readonly<{ children:
   return (
     <DashboardShell workspaceName={access.workspaceName} workspaceId={access.workspaceId} workspaceSlug={access.workspaceSlug} workspaceOptions={workspaceOptions} moduleAccess={moduleAccess} enabledFeatures={enabledFeatures} canManageSettings={canManageWorkspaceSettings(access)}>
       <DashboardLanguageSwitchFix />
+      <DashboardStripeCheckoutFix />
       <DashboardGlobalLocaleBoundary>
         <SettingsLocaleBoundary>
           <SettingsResidualLocaleFix>{children}</SettingsResidualLocaleFix>
