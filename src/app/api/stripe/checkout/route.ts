@@ -11,6 +11,14 @@ function jsonError(message: string, status: number) {
   return NextResponse.json({ error: message }, { status, headers: { "Cache-Control": "no-store" } });
 }
 
+function settingsUrl(origin: string, status: "success" | "cancelled" | "error", locale: "sv" | "en") {
+  const url = new URL("/dashboard/installningar", origin);
+  if (status === "success" || status === "cancelled") url.searchParams.set("billing", status);
+  if (status === "error") url.searchParams.set("billing", "error");
+  if (locale === "en") url.searchParams.set("lang", "en");
+  return url;
+}
+
 export async function POST(request: Request) {
   const requestUrl = new URL(request.url);
   const requestOrigin = request.headers.get("origin");
@@ -19,25 +27,48 @@ export async function POST(request: Request) {
     return jsonError("Ogiltig begäran.", 403);
   }
 
+  const contentType = request.headers.get("content-type") ?? "";
+  const isNativeForm = contentType.includes("application/x-www-form-urlencoded") || contentType.includes("multipart/form-data");
+  let planKeyValue: unknown;
+  let locale: "sv" | "en" = "sv";
+
+  if (isNativeForm) {
+    const formData = await request.formData().catch(() => null);
+    planKeyValue = formData?.get("planKey");
+    locale = formData?.get("lang") === "en" ? "en" : "sv";
+  } else {
+    const requestBody = await request.json().catch(() => null) as { planKey?: unknown; lang?: unknown } | null;
+    planKeyValue = requestBody?.planKey;
+    locale = requestBody?.lang === "en" ? "en" : "sv";
+  }
+
+  const fail = (message: string, status: number) => {
+    if (isNativeForm) return NextResponse.redirect(settingsUrl(requestUrl.origin, "error", locale), 303);
+    return jsonError(message, status);
+  };
+
+  const checkoutResponse = (url: string) => {
+    if (isNativeForm) return NextResponse.redirect(url, 303);
+    return NextResponse.json({ url }, { headers: { "Cache-Control": "no-store" } });
+  };
+
   const access = await getUserWorkspaceAccess();
 
   if (!access.ok || !canManageWorkspaceMembers(access)) {
-    return jsonError("Endast arbetsytans Owner kan starta ett abonnemang.", 403);
+    return fail("Endast arbetsytans Owner kan starta ett abonnemang.", 403);
   }
 
-  const requestBody = await request.json().catch(() => null) as { planKey?: unknown } | null;
-  const planKey = requestBody?.planKey;
-
-  if (!isCheckoutPlanKey(planKey)) {
-    return jsonError("Välj en tillgänglig plan.", 400);
+  if (!isCheckoutPlanKey(planKeyValue)) {
+    return fail("Välj en tillgänglig plan.", 400);
   }
 
+  const planKey = planKeyValue;
   const sql = getSql();
   const stripe = getStripeClient();
   const priceId = getStripePriceIdForPlan(planKey);
 
   if (!sql || !stripe || !priceId) {
-    return jsonError("Betalningen är inte färdigkonfigurerad.", 503);
+    return fail("Betalningen är inte färdigkonfigurerad.", 503);
   }
 
   try {
@@ -64,25 +95,24 @@ export async function POST(request: Request) {
 
       if (existingSession.status === "open" && existingSession.url) {
         if (String(existing?.stripe_price_id ?? "") === priceId) {
-          return NextResponse.json({ url: existingSession.url }, { headers: { "Cache-Control": "no-store" } });
+          return checkoutResponse(existingSession.url);
         }
 
-        // A previous open session for another plan can still be completed after
-        // a replacement checkout is created. Expire it first so one workspace
-        // cannot create two concurrent subscriptions.
         await stripe.checkout.sessions.expire(existingSessionId);
       }
 
       if (existingSession.status === "complete") {
-        return jsonError("Betalningen är klar och väntar på bekräftelse från Stripe.", 409);
+        return fail("Betalningen är klar och väntar på bekräftelse från Stripe.", 409);
       }
     }
 
     if (existing?.stripe_subscription_id && existingStatus !== "cancelled") {
-      return jsonError("Arbetsytan har redan ett abonnemang. Hantera betalningen via Stripe-portalen.", 409);
+      return fail("Arbetsytan har redan ett abonnemang. Hantera betalningen via Stripe-portalen.", 409);
     }
 
     const customerId = existing?.stripe_customer_id ? String(existing.stripe_customer_id) : undefined;
+    const successUrl = settingsUrl(requestUrl.origin, "success", locale).toString();
+    const cancelUrl = settingsUrl(requestUrl.origin, "cancelled", locale).toString();
     const checkoutSession = await stripe.checkout.sessions.create({
       mode: "subscription",
       line_items: [{ price: priceId, quantity: 1 }],
@@ -100,12 +130,12 @@ export async function POST(request: Request) {
           plan_key: planKey,
         },
       },
-      success_url: `${requestUrl.origin}/dashboard/installningar?billing=success`,
-      cancel_url: `${requestUrl.origin}/dashboard/installningar?billing=cancelled`,
+      success_url: successUrl,
+      cancel_url: cancelUrl,
     });
 
     if (!checkoutSession.url) {
-      return jsonError("Stripe kunde inte skapa betalningssidan.", 502);
+      return fail("Stripe kunde inte skapa betalningssidan.", 502);
     }
 
     await sql`
@@ -130,9 +160,9 @@ export async function POST(request: Request) {
         updated_at = now()
     `;
 
-    return NextResponse.json({ url: checkoutSession.url }, { headers: { "Cache-Control": "no-store" } });
+    return checkoutResponse(checkoutSession.url);
   } catch (error) {
     console.error("Failed to create Stripe Checkout session", error);
-    return jsonError("Betalningssidan kunde inte öppnas. Försök igen.", 500);
+    return fail("Betalningssidan kunde inte öppnas. Försök igen.", 500);
   }
 }
