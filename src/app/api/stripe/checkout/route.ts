@@ -19,6 +19,12 @@ function settingsUrl(origin: string, status: "success" | "cancelled" | "error", 
   return url;
 }
 
+function isMissingStripeResource(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const stripeError = error as { code?: unknown; type?: unknown };
+  return stripeError.code === "resource_missing" || stripeError.type === "StripeInvalidRequestError";
+}
+
 export async function POST(request: Request) {
   const requestUrl = new URL(request.url);
   const requestOrigin = request.headers.get("origin");
@@ -91,26 +97,48 @@ export async function POST(request: Request) {
       : "";
 
     if (existingSessionId) {
-      const existingSession = await stripe.checkout.sessions.retrieve(existingSessionId);
+      try {
+        const existingSession = await stripe.checkout.sessions.retrieve(existingSessionId);
 
-      if (existingSession.status === "open" && existingSession.url) {
-        if (String(existing?.stripe_price_id ?? "") === priceId) {
-          return checkoutResponse(existingSession.url);
+        if (existingSession.status === "open" && existingSession.url) {
+          if (String(existing?.stripe_price_id ?? "") === priceId) {
+            return checkoutResponse(existingSession.url);
+          }
+
+          await stripe.checkout.sessions.expire(existingSessionId);
         }
 
-        await stripe.checkout.sessions.expire(existingSessionId);
-      }
-
-      if (existingSession.status === "complete") {
-        return fail("Betalningen är klar och väntar på bekräftelse från Stripe.", 409);
+        if (existingSession.status === "complete") {
+          return fail("Betalningen är klar och väntar på bekräftelse från Stripe.", 409);
+        }
+      } catch (error) {
+        if (!isMissingStripeResource(error)) throw error;
+        console.warn("Ignoring stale Stripe Checkout session from another mode", existingSessionId);
       }
     }
 
     if (existing?.stripe_subscription_id && existingStatus !== "cancelled") {
-      return fail("Arbetsytan har redan ett abonnemang. Hantera betalningen via Stripe-portalen.", 409);
+      try {
+        await stripe.subscriptions.retrieve(String(existing.stripe_subscription_id));
+        return fail("Arbetsytan har redan ett abonnemang. Hantera betalningen via Stripe-portalen.", 409);
+      } catch (error) {
+        if (!isMissingStripeResource(error)) throw error;
+        console.warn("Ignoring stale Stripe subscription from another mode", existing.stripe_subscription_id);
+      }
     }
 
-    const customerId = existing?.stripe_customer_id ? String(existing.stripe_customer_id) : undefined;
+    let customerId = existing?.stripe_customer_id ? String(existing.stripe_customer_id) : undefined;
+    if (customerId) {
+      try {
+        const customer = await stripe.customers.retrieve(customerId);
+        if (customer.deleted) customerId = undefined;
+      } catch (error) {
+        if (!isMissingStripeResource(error)) throw error;
+        console.warn("Ignoring stale Stripe customer from another mode", customerId);
+        customerId = undefined;
+      }
+    }
+
     const successUrl = settingsUrl(requestUrl.origin, "success", locale).toString();
     const cancelUrl = settingsUrl(requestUrl.origin, "cancelled", locale).toString();
     const checkoutSession = await stripe.checkout.sessions.create({
@@ -154,7 +182,9 @@ export async function POST(request: Request) {
       )
       on conflict (workspace_id)
       do update set
+        stripe_customer_id = excluded.stripe_customer_id,
         stripe_checkout_session_id = excluded.stripe_checkout_session_id,
+        stripe_subscription_id = null,
         stripe_price_id = excluded.stripe_price_id,
         status = 'pending',
         updated_at = now()
