@@ -1,127 +1,105 @@
-# Proffera Master Plan — Controlled Paid Launch
+# Proffera Master Plan — Hybrid SaaS and Service Marketplace
 
-Last updated: 2026-07-22
+Last updated: 2026-08-02
 
-## Goal
+## Current direction
 
-Ship Proffera as a controlled, paid SaaS for Swedish service businesses.
-The release scope is booking, lead handling, customer CRM, workspace access,
-team invitations, and Stripe subscriptions. AI chat stays a separate,
-explicitly planned integration until tenant delivery is verified.
+Proffera is evolving into a controlled hybrid of:
 
-## Product position
+- a Bokadirekt-style booking and provider-discovery platform,
+- an Offerta-style quote-request and provider-offer marketplace,
+- and Proffera-native CRM, reminders, QR booking, AI chat and automation.
 
-Proffera is a SaaS platform, not a public lead marketplace.
+The previous SaaS-only controlled-launch scope is no longer the complete product target. Existing SaaS, booking, CRM, billing and tenant-isolation behavior remains protected while marketplace modules are delivered incrementally.
 
-- **Starter:** public booking, contact forms, and lead inbox.
-- **Professional:** Starter plus customer CRM, booking history, and service catalog.
-- **Business:** a sales-led offer for multi-team or customised needs.
-- **AI assistant, reminders, analytics, and automation:** planned; do not sell or
-  describe them as active modules until they are delivered and verified.
+The authoritative dependency plan is:
 
-The public Demo flow is an enquiry for a SaaS demo. It must not promise that
-the applicant will receive marketplace-style matched requests.
+- [`GRAPH_ENGINEERING_MARKETPLACE_PLAN.md`](GRAPH_ENGINEERING_MARKETPLACE_PLAN.md)
+
+## Delivery policy
+
+No phase may be marked complete until its verification checks pass. Marketplace work must follow dependency order, use additive migrations, preserve existing production flows and keep every workspace isolated.
+
+## Protected production baseline
+
+The following existing capabilities must remain operational during marketplace development:
+
+- Online booking and QR booking
+- Lead handling and customer CRM
+- Workspace membership and role checks
+- Stripe subscription plumbing
+- Booking confirmations and reminders
+- Public forms with server validation and rate limiting
+- Existing company, quote and matching-related persistence flows
+- Separate Service AI Chat integration with tenant isolation
+
+## Product graph phases
+
+| Phase | Graph nodes | Outcome |
+| --- | --- | --- |
+| A | G0-G1 | Product truth, feature flags, production-grade identity and workspace authorization |
+| B | G2-G9 | Bokadirekt core: provider profiles, directory, search, reviews, staff calendar, lifecycle and payments |
+| C | G10-G15 | Offerta core: provider onboarding, quote requests, matching, offers, comparison, award and messaging |
+| D | G16-G18 | Notifications, analytics, AI and auditable business automation |
+
+## Immediate implementation order
+
+1. Add marketplace feature flags and update module claims.
+2. Complete production workspace/auth boundary before broad marketplace writes.
+3. Implement verified reviews and moderation.
+4. Implement public provider profiles, directory and search.
+5. Implement multi-staff availability and conflict-safe booking.
+6. Implement quote request, matching, offer and award MVP.
+7. Add deposits, waiting list, analytics and controlled AI automation.
 
 ## Release gates
 
-No phase may be marked complete until its verification checks pass. Do not
-begin the following phase with known failures in the current phase.
+### Gate 0 — Baseline
 
-| Phase | Outcome | Required verification |
-| --- | --- | --- |
-| 0. Baseline | Scope, risks, docs, and rollback point are current | Clean branch, baseline lint/typecheck/build, documented checklist |
-| 1. Billing safety | Stripe cannot create duplicate subscriptions or apply stale entitlement state | Unit/integration coverage where feasible, Stripe event ordering review, lint/typecheck/build |
-| 2. Public write safety | Demo, company, quote, and booking inputs resist spam and preserve consent/audit data | Server validation, rate limits, database migration review, lint/typecheck/build |
-| 3. Product truth | Site copy, CTA journey, SEO, pricing, and legal content match live capabilities | Route review and public-page smoke check |
-| 4. Delivery quality | CI, tests, environment docs, operations docs, and release checklist are reliable | CI validates lint/typecheck/build/tests and docs are current |
-| 5. Release verification | A controlled pilot flow is proven end to end | Manual checklist in Preview/Sandbox; no real payment or customer data without approval |
+- Existing test, lint, typecheck and build checks pass.
+- Production rollback point is documented.
+- New marketplace flags default to disabled.
 
-## Phase 0 — Baseline and release checklist
+### Gate 1 — Isolation
 
-- Record the production commit and rollback branch.
-- Establish a local reproducible toolchain and run lint, typecheck, and build.
-- Keep this plan, `CURRENT_STATUS.md`, `ROADMAP.md`, and `TEST_CHECKLIST.md`
-  aligned with the code.
-- Do not treat historical phase documents as the current source of truth.
+- No authenticated user can read or mutate another workspace's private records.
+- Public routes expose only explicitly public provider fields.
+- Role-matrix tests pass.
 
-## Phase 1 — Stripe billing safety
+### Gate 2 — Bokadirekt core
 
-### Must be true before paid launch
+- Provider/service discovery works with deterministic filters.
+- Reviews require verified eligibility.
+- Multi-staff bookings remain conflict-safe.
+- Payment and cancellation rules are auditable.
 
-- A stale or out-of-order webhook cannot overwrite a newer subscription state.
-- A second Checkout Session cannot leave a previous session payable for another plan.
-- The customer portal handles payment recovery, cancellation, and invoices without
-  showing a CTA that always fails.
-- QR booking links are shown only when the public booking route is actually live.
-- Stripe webhook events are traceable and idempotent.
+### Gate 3 — Offerta core
 
-### Protected flows
+- Quote intake stores a consented immutable request snapshot.
+- Matching decisions are explainable and stored.
+- Offers have revision history.
+- Awarding one offer is transactional and creates the downstream CRM/job state exactly once.
 
-- Owner-only checkout, upgrade, and portal access.
-- Stripe signature verification.
-- Workspace-to-subscription binding.
-- Feature flags derived from a confirmed subscription.
+### Gate 4 — Intelligence
 
-## Phase 2 — Public write safety and data handling
+- Notifications are idempotent.
+- Analytics use defined event semantics.
+- AI remains tenant-safe, draft-first and kill-switch controlled.
 
-### Must be true before public acquisition
+## Non-negotiable safety rules
 
-- Every public write has server-side schema validation, rate limiting, and a spam
-  control appropriate to the form.
-- Demo/company consent acceptance and policy version are stored with the request.
-- A successful demo/company request produces an operational notification or a
-  reliable inbox task.
-- Booking database constraints remain the final protection against overlap.
-- Failed booking inserts do not leave unwanted orphan customer records.
-- Public-form errors are normal validation responses, not server errors.
+- No cross-workspace data access.
+- No public mutation without validation, abuse controls and audit fields.
+- No autonomous AI customer communication before draft-only verification.
+- No paid ranking without explicit disclosure and deterministic organic ranking.
+- No production payment or customer-data test without explicit approval.
+- No node is complete without schema, domain logic, API, UI, tests, telemetry and documentation.
 
-## Phase 3 — Product truth, legal, and conversion
+## Definition of complete product target
 
-### Must be true before public sales
+Proffera reaches the intended target when it supports the core customer journeys of both reference products:
 
-- Public copy states only what is active in the paid product.
-- Demo CTA, confirmation page, and sales workflow describe one coherent SaaS
-  onboarding journey.
-- Pricing titles and structured metadata match the actual plan entitlements.
-- Footer, Open Graph, FAQ, contact page, services page, and default metadata use
-  the same product promise.
-- Terms, privacy policy, cookies, subscription cancellation, and processor list
-  are reviewed and match the implemented Stripe/Brevo/Neon/Vercel/AI-chat setup.
-
-## Phase 4 — Engineering and operations
-
-- Pin runtime and dependency versions through a lockfile and deterministic install.
-- CI runs lint, TypeScript, build, and focused tests.
-- Add `.env.example` without secrets and a production environment checklist.
-- Add tests for billing event ordering, checkout session replacement, public forms,
-  module access, and booking conflicts.
-- Keep a small active-branch policy; archive obsolete backup branches only after
-  verifying they are no longer required for rollback.
-
-## Phase 5 — Controlled release verification
-
-Run in a Vercel Preview and Stripe Sandbox:
-
-1. Submit a Demo request and verify consent, notification, and deduplication.
-2. Create/invite a workspace member and verify role-scoped access.
-3. Start Starter checkout, confirm webhook entitlement, and open the portal.
-4. Create a public booking and verify confirmation, owner notification, and no
-   duplicate time slot.
-5. Upgrade to Professional and verify CRM access.
-6. Cancel at period end and verify the correct access state.
-7. Test duplicate, delayed, and out-of-order Stripe webhook events.
-8. Verify Service AI Chat traffic stays in the `proffera` tenant only.
-
-## Non-goals during this release
-
-- No full merge with `service-ai-chat`.
-- No automatic AI sending or AI-assisted customer decisions.
-- No public claim that planned modules are active.
-- No production payment test that creates a real charge without explicit approval.
-- No broad database migration unrelated to release safety.
-
-## Definition of done
-
-Proffera can be presented as a paid SaaS only when all release gates pass, the
-legal/business owner approves the final public copy and policies, and the Phase
-5 checklist is completed in Preview/Sandbox.
+1. A customer discovers a provider, compares trust signals, books an available service, manages the booking and leaves a verified review.
+2. A customer submits a structured service request, matched providers submit offers, the customer compares and awards one offer, and the result enters the provider CRM/workflow.
+3. The business manages customers, staff, leads, booking, messaging, reminders, payments and reporting within its isolated workspace.
+4. AI and automation assist these flows without bypassing consent, authorization, auditability or human control.
