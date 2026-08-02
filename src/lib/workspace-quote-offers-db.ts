@@ -418,15 +418,146 @@ export async function respondToPublicWorkspaceQuoteOffer(
         and request.id = offer.quote_request_id
         and request.workspace_id = offer.workspace_id
         and request.status = 'quoted'
-      returning offer.quote_request_id, offer.workspace_id
+      returning
+        offer.id as offer_id,
+        offer.quote_request_id,
+        offer.workspace_id,
+        offer.title,
+        offer.currency,
+        offer.total_minor
     )
-    update workspace_quote_requests request
-    set status = ${response}, updated_at = now()
-    from responded_offer offer
-    where request.id = offer.quote_request_id
-      and request.workspace_id = offer.workspace_id
-      and request.status = 'quoted'
-    returning request.id
+    , responded_request as (
+      update workspace_quote_requests request
+      set status = ${response}, updated_at = now()
+      from responded_offer offer
+      where request.id = offer.quote_request_id
+        and request.workspace_id = offer.workspace_id
+        and request.status = 'quoted'
+      returning
+        request.id,
+        request.workspace_id,
+        request.customer_name,
+        request.customer_email,
+        request.customer_phone,
+        request.city,
+        request.description
+    )
+    , existing_customer as (
+      select customer.id
+      from customers customer
+      join responded_request request
+        on customer.workspace_id = request.workspace_id::text
+       and lower(customer.email) = lower(request.customer_email)
+      where ${response} = 'accepted'
+        and nullif(trim(request.customer_email), '') is not null
+      order by customer.created_at asc
+      limit 1
+    )
+    , created_customer as (
+      insert into customers (
+        workspace_id,
+        name,
+        email,
+        phone,
+        city,
+        status,
+        source
+      )
+      select
+        request.workspace_id::text,
+        request.customer_name,
+        request.customer_email,
+        nullif(trim(request.customer_phone), ''),
+        nullif(trim(request.city), ''),
+        'active',
+        'quote_offer'
+      from responded_request request
+      where ${response} = 'accepted'
+        and not exists (select 1 from existing_customer)
+      returning id
+    )
+    , customer_for_job as (
+      select id from existing_customer
+      union all
+      select id from created_customer
+    )
+    , created_job as (
+      insert into workspace_service_jobs (
+        workspace_id,
+        source_type,
+        quote_request_id,
+        quote_offer_id,
+        customer_id,
+        status,
+        title,
+        description,
+        service_name,
+        city,
+        currency,
+        total_minor
+      )
+      select
+        offer.workspace_id,
+        'quote_offer',
+        offer.quote_request_id,
+        offer.offer_id,
+        customer.id,
+        'new',
+        offer.title,
+        request.description,
+        offer.title,
+        nullif(trim(request.city), ''),
+        offer.currency,
+        offer.total_minor
+      from responded_offer offer
+      join responded_request request
+        on request.id = offer.quote_request_id
+       and request.workspace_id = offer.workspace_id
+      join customer_for_job customer on true
+      where ${response} = 'accepted'
+      on conflict (quote_offer_id) where quote_offer_id is not null do nothing
+      returning id, workspace_id, quote_offer_id, customer_id
+    )
+    , job_event as (
+      insert into workspace_service_job_events (
+        workspace_id,
+        service_job_id,
+        event_type,
+        to_status,
+        summary,
+        metadata
+      )
+      select
+        workspace_id,
+        id,
+        'created',
+        'new',
+        'Service job created from accepted quote offer.',
+        jsonb_build_object('source', 'accepted_quote_offer', 'quote_offer_id', quote_offer_id)
+      from created_job
+      returning id
+    )
+    , customer_event as (
+      insert into customer_events (
+        workspace_id,
+        customer_id,
+        event_type,
+        title,
+        description,
+        metadata
+      )
+      select
+        request.workspace_id::text,
+        job.customer_id,
+        'status_change',
+        'Quote offer accepted',
+        'A service job was created from the accepted quote offer.',
+        jsonb_build_object('source', 'accepted_quote_offer', 'service_job_id', job.id, 'quote_offer_id', job.quote_offer_id)
+      from created_job job
+      join responded_request request on request.workspace_id = job.workspace_id
+      returning id
+    )
+    select id from responded_request
   `;
 
   return rows[0] ? { ok: true as const, response } : { ok: false as const };
