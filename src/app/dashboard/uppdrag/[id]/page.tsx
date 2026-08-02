@@ -54,9 +54,10 @@ export default async function ServiceJobDetailPage({ params, searchParams }: {
   const [{ id }, query] = await Promise.all([params, searchParams ?? Promise.resolve(undefined)]);
   const locale: Locale = value(query?.lang) === "en" ? "en" : "sv";
   const text = copy[locale];
+  const access = await getUserWorkspaceAccess();
+  if (!access.ok) redirect(access.reason === "no_session" ? "/logga-in" : "/dashboard");
   const detail = await getDashboardWorkspaceServiceJobDetail(id);
   if (!detail) notFound();
-  const access = await getUserWorkspaceAccess();
   const canManage = canManageWorkspaceSettings(access);
   const { job } = detail;
   const transitions = getWorkspaceServiceJobTransitions(job.status);

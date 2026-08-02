@@ -1,9 +1,11 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { BriefcaseBusiness, CheckCircle2, CircleDashed, Clock3, UserRound } from "lucide-react";
 
 import { DashboardDataPanel, DashboardMetricGrid, DashboardPageHeader } from "@/components/dashboard/dashboard-page-ui";
 import { getDashboardWorkspaceServiceJobs } from "@/lib/workspace-service-jobs-db";
 import type { WorkspaceServiceJobStatus } from "@/lib/workspace-service-job-policy";
+import { getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 export const dynamic = "force-dynamic";
 
@@ -76,6 +78,8 @@ export default async function ServiceJobsPage({ searchParams }: { searchParams?:
   const language = Array.isArray(query?.lang) ? query.lang[0] : query?.lang;
   const locale: Locale = language === "en" ? "en" : "sv";
   const text = copy[locale];
+  const access = await getUserWorkspaceAccess();
+  if (!access.ok) redirect(access.reason === "no_session" ? "/logga-in" : "/dashboard");
   const jobs = await getDashboardWorkspaceServiceJobs();
   const active = jobs.filter((job) => !["completed", "cancelled"].includes(job.status));
   const metrics = [
