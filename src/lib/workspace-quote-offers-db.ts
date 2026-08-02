@@ -65,12 +65,6 @@ function mapOffer(row: Record<string, unknown>): DashboardWorkspaceQuoteOffer {
   };
 }
 
-const offerColumns = `
-  id, quote_request_id, version, status, currency, subtotal_minor,
-  vat_rate_basis_points, vat_amount_minor, total_minor, title, terms,
-  valid_until, created_at, updated_at
-`;
-
 export async function getDashboardWorkspaceQuoteOffers(quoteRequestId: string) {
   const sql = getSqlClient();
   if (!sql) return [];
