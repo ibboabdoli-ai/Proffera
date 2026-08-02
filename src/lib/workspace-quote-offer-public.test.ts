@@ -4,6 +4,7 @@ import {
   createPublicWorkspaceQuoteOfferToken,
   hashPublicWorkspaceQuoteOfferToken,
   isPublicWorkspaceQuoteOfferToken,
+  publicWorkspaceQuoteOfferPdfPath,
   publicWorkspaceQuoteOfferPath,
 } from "./workspace-quote-offer-public";
 
@@ -25,5 +26,6 @@ describe("public workspace quote offer token", () => {
     expect(isPublicWorkspaceQuoteOfferToken("raw-token")).toBe(false);
     expect(isPublicWorkspaceQuoteOfferToken("x".repeat(44))).toBe(false);
     expect(publicWorkspaceQuoteOfferPath("a/b")).toBe("/offert/a%2Fb");
+    expect(publicWorkspaceQuoteOfferPdfPath("a/b")).toBe("/offert/a%2Fb/pdf");
   });
 });
