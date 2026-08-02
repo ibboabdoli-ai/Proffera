@@ -5,6 +5,12 @@ import { cookies } from "next/headers";
 
 import { getServerSession } from "@/lib/auth-session";
 import { selectWorkspaceMembership } from "@/lib/workspace-access-selection";
+import {
+  canRoleManageWorkspaceMembers,
+  canRoleManageWorkspaceSettings,
+  isWorkspaceRole,
+  type WorkspaceRole,
+} from "@/lib/workspace-role-policy";
 
 const connectionString =
   process.env.DATABASE_URL ??
@@ -12,12 +18,11 @@ const connectionString =
   process.env.POSTGRES_PRISMA_URL ??
   process.env.POSTGRES_URL_NON_POOLING;
 
-const workspaceRoles = ["owner", "admin", "staff", "viewer"] as const;
 const allowedWorkspaceStatuses = ["active", "trial"] as const;
 export const selectedWorkspaceCookieName = "proffera_workspace_id";
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-export type WorkspaceRole = (typeof workspaceRoles)[number];
+export type { WorkspaceRole } from "@/lib/workspace-role-policy";
 export type AllowedWorkspaceStatus = (typeof allowedWorkspaceStatuses)[number];
 export type WorkspaceOption = {
   id: string;
@@ -56,11 +61,11 @@ type ValidWorkspaceMembership = {
 };
 
 export function canManageWorkspaceSettings(access: WorkspaceAccessResult) {
-  return access.ok && (access.role === "owner" || access.role === "admin");
+  return access.ok && canRoleManageWorkspaceSettings(access.role);
 }
 
 export function canManageWorkspaceMembers(access: WorkspaceAccessResult) {
-  return access.ok && access.role === "owner";
+  return access.ok && canRoleManageWorkspaceMembers(access.role);
 }
 
 function getSqlClient() {
@@ -69,10 +74,6 @@ function getSqlClient() {
 
 function toText(value: unknown, fallback = "") {
   return value === null || value === undefined ? fallback : String(value);
-}
-
-function isWorkspaceRole(value: unknown): value is WorkspaceRole {
-  return typeof value === "string" && workspaceRoles.includes(value as WorkspaceRole);
 }
 
 function isAllowedWorkspaceStatus(value: unknown): value is AllowedWorkspaceStatus {
