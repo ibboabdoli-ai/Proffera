@@ -5,9 +5,12 @@ import Stripe from "stripe";
 import {
   checkoutPlanDefinitions,
   checkoutPlanKeys,
+  getCheckoutPlanPriceLabel,
   type CheckoutPlanKey,
+  type CheckoutPlanLocale,
   type CheckoutPlanOption,
 } from "@/lib/billing-plans";
+import type { WorkspaceBillingCurrency } from "@/lib/workspace-market";
 
 let stripeClient: Stripe | null = null;
 
@@ -38,9 +41,13 @@ export function getStripePriceIdForPlan(planKey: CheckoutPlanKey) {
   return process.env.STRIPE_PRICE_PROFESSIONAL?.trim() || getStripePriceId();
 }
 
-export function getStripeCheckoutPlanOptions(): CheckoutPlanOption[] {
+export function getStripeCheckoutPlanOptions(
+  billingCurrency: WorkspaceBillingCurrency = "SEK",
+  locale: CheckoutPlanLocale = "sv",
+): CheckoutPlanOption[] {
   return checkoutPlanKeys.map((planKey) => ({
     ...checkoutPlanDefinitions[planKey],
+    priceLabel: getCheckoutPlanPriceLabel(planKey, billingCurrency, locale),
     configured: Boolean(getStripePriceIdForPlan(planKey)),
   }));
 }
