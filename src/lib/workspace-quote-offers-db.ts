@@ -316,7 +316,7 @@ export async function prepareDashboardWorkspaceQuoteOfferEmailDelivery(
   const token = createPublicWorkspaceQuoteOfferToken();
   const tokenHash = hashPublicWorkspaceQuoteOfferToken(token);
 
-  const [, rows] = await sql.transaction((transaction) => [
+  const [, , rows] = await sql.transaction((transaction) => [
     transaction`
     with prepared_offer as (
       update workspace_quote_offers offer
@@ -356,15 +356,15 @@ export async function prepareDashboardWorkspaceQuoteOfferEmailDelivery(
     returning request.id
   `,
     transaction`
-    with superseded_deliveries as (
-      update workspace_quote_offer_email_deliveries delivery
-      set status = 'failed', failure_code = 'superseded', completed_at = now()
-      where delivery.workspace_id = ${workspaceId}
-        and delivery.quote_offer_id = ${offerId}
-        and delivery.status = 'pending'
-      returning delivery.id
-    ),
-    created_delivery as (
+    update workspace_quote_offer_email_deliveries delivery
+    set status = 'failed', failure_code = 'superseded', completed_at = now()
+    where delivery.workspace_id = ${workspaceId}
+      and delivery.quote_offer_id = ${offerId}
+      and delivery.status = 'pending'
+    returning delivery.id
+  `,
+    transaction`
+    with created_delivery as (
       insert into workspace_quote_offer_email_deliveries (
         workspace_id,
         quote_offer_id,
