@@ -22,6 +22,10 @@ export function isWorkspaceQuoteOfferStatus(value: unknown): value is WorkspaceQ
   return typeof value === "string" && workspaceQuoteOfferStatuses.includes(value as WorkspaceQuoteOfferStatus);
 }
 
+export function canEditWorkspaceQuoteOffer(status: WorkspaceQuoteOfferStatus) {
+  return status === "draft";
+}
+
 export function canTransitionWorkspaceQuoteOffer(
   from: WorkspaceQuoteOfferStatus,
   to: WorkspaceQuoteOfferStatus,
