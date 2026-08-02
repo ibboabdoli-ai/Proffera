@@ -4,7 +4,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { DashboardPageHeader } from "@/components/dashboard/dashboard-page-ui";
 import { getDashboardWorkspaceQuoteRequest, transitionDashboardWorkspaceQuoteRequest } from "@/lib/workspace-quote-requests-db";
-import { workspaceQuoteTransitions, type WorkspaceQuoteStatus } from "@/lib/workspace-quote-policy";
+import { getWorkspaceQuoteTransitions, isWorkspaceQuoteStatus, type WorkspaceQuoteStatus } from "@/lib/workspace-quote-policy";
 
 export const dynamic = "force-dynamic";
 
@@ -61,18 +61,20 @@ export default async function QuoteDetailPage({ params, searchParams }: { params
   const language = Array.isArray(query?.lang) ? query.lang[0] : query?.lang;
   const locale: DashboardLocale = language === "en" ? "en" : "sv";
   const text = copy[locale];
-  const quote = await getDashboardWorkspaceQuoteRequest(id);
-  if (!quote) notFound();
+  const foundQuote = await getDashboardWorkspaceQuoteRequest(id);
+  if (!foundQuote) notFound();
+  const quote = foundQuote;
+  const nextStatuses = getWorkspaceQuoteTransitions(quote.status);
 
   async function changeStatus(formData: FormData) {
     "use server";
-    const nextStatus = String(formData.get("status") ?? "") as WorkspaceQuoteStatus;
-    if (!workspaceQuoteTransitions[quote.status].includes(nextStatus)) return;
-    await transitionDashboardWorkspaceQuoteRequest(quote.id, nextStatus);
+    const value = formData.get("status");
+    if (!isWorkspaceQuoteStatus(value)) return;
+    if (!getWorkspaceQuoteTransitions(quote.status).includes(value)) return;
+    await transitionDashboardWorkspaceQuoteRequest(quote.id, value);
     redirect(localHref(`/dashboard/offerter/${quote.id}`, locale));
   }
 
-  const nextStatuses = workspaceQuoteTransitions[quote.status];
   const location = [quote.postalCode, quote.city].filter(Boolean).join(" ");
 
   return (
@@ -111,7 +113,7 @@ export default async function QuoteDetailPage({ params, searchParams }: { params
         <section className="rounded-3xl border border-[#dbe3d8] bg-[#f7f9f6] p-5 sm:p-6">
           <h2 className="text-lg font-bold text-[#17201a]">{text.changeStatus}</h2>
           <div className="mt-4 flex flex-wrap gap-3">
-            {nextStatuses.map((status) => (
+            {nextStatuses.map((status: WorkspaceQuoteStatus) => (
               <form key={status} action={changeStatus}>
                 <input type="hidden" name="status" value={status} />
                 <button type="submit" className="min-h-11 rounded-xl bg-[#173e2b] px-4 py-2.5 text-sm font-bold text-white transition hover:bg-[#0f3020]">{statusLabel[locale][status]}</button>
