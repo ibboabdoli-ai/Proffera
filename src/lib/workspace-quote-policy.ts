@@ -22,6 +22,10 @@ export function isWorkspaceQuoteStatus(value: unknown): value is WorkspaceQuoteS
   return typeof value === "string" && workspaceQuoteStatuses.includes(value as WorkspaceQuoteStatus);
 }
 
+export function getWorkspaceQuoteTransitions(status: WorkspaceQuoteStatus) {
+  return allowedTransitions[status];
+}
+
 export function canTransitionWorkspaceQuote(
   from: WorkspaceQuoteStatus,
   to: WorkspaceQuoteStatus,
