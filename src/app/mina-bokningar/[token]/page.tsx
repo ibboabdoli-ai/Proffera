@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { CalendarDays, Clock3, History, MapPin } from "lucide-react";
 
 import { getCustomerCalendar, type CustomerCalendarBooking } from "@/lib/customer-calendar";
+import type { WorkspaceTimeZone } from "@/lib/workspace-market";
 
 export const dynamic = "force-dynamic";
 
@@ -19,9 +20,9 @@ const statusLabels: Record<string, string> = {
   no_show: "Uteblev",
 };
 
-function formatDate(value: string) {
+function formatDate(value: string, timeZone: WorkspaceTimeZone) {
   return new Intl.DateTimeFormat("sv-SE", {
-    timeZone: "Europe/Stockholm",
+    timeZone,
     weekday: "short",
     day: "numeric",
     month: "long",
@@ -31,7 +32,7 @@ function formatDate(value: string) {
   }).format(new Date(value));
 }
 
-function BookingCard({ booking, token }: { booking: CustomerCalendarBooking; token: string }) {
+function BookingCard({ booking, token, timeZone }: { booking: CustomerCalendarBooking; token: string; timeZone: WorkspaceTimeZone }) {
   const calendarUrl = `/api/mina-bokningar/${encodeURIComponent(token)}/${encodeURIComponent(booking.id)}/calendar`;
 
   return (
@@ -46,7 +47,7 @@ function BookingCard({ booking, token }: { booking: CustomerCalendarBooking; tok
       </div>
 
       <div className="mt-4 grid gap-2 text-sm text-[#344139]">
-        <p className="flex items-center gap-2"><Clock3 className="h-4 w-4" aria-hidden="true" />{formatDate(booking.startsAt)}</p>
+        <p className="flex items-center gap-2"><Clock3 className="h-4 w-4" aria-hidden="true" />{formatDate(booking.startsAt, timeZone)}</p>
         {booking.city ? <p className="flex items-center gap-2"><MapPin className="h-4 w-4" aria-hidden="true" />{booking.city}</p> : null}
       </div>
 
@@ -86,7 +87,7 @@ export default async function CustomerCalendarPage({ params }: PageProps) {
             <h2 className="text-xl font-bold text-[#17201a]">Kommande</h2>
           </div>
           <div className="mt-5 grid gap-4 md:grid-cols-2">
-            {data.upcoming.length ? data.upcoming.map((booking) => <BookingCard key={booking.id} booking={booking} token={token} />) : <p className="text-sm text-[#667168]">Du har inga kommande bokningar.</p>}
+            {data.upcoming.length ? data.upcoming.map((booking) => <BookingCard key={booking.id} booking={booking} token={token} timeZone={data.timeZone} />) : <p className="text-sm text-[#667168]">Du har inga kommande bokningar.</p>}
           </div>
         </section>
 
@@ -96,7 +97,7 @@ export default async function CustomerCalendarPage({ params }: PageProps) {
             <h2 className="text-xl font-bold text-[#17201a]">Historik</h2>
           </div>
           <div className="mt-5 grid gap-4 md:grid-cols-2">
-            {data.history.length ? data.history.map((booking) => <BookingCard key={booking.id} booking={booking} token={token} />) : <p className="text-sm text-[#667168]">Ingen bokningshistorik ännu.</p>}
+            {data.history.length ? data.history.map((booking) => <BookingCard key={booking.id} booking={booking} token={token} timeZone={data.timeZone} />) : <p className="text-sm text-[#667168]">Ingen bokningshistorik ännu.</p>}
           </div>
         </section>
       </div>

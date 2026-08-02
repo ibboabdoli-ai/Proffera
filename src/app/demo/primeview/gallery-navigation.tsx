@@ -14,13 +14,17 @@ export function PrimeViewGalleryNavigation() {
   const [targets, setTargets] = useState<NavigationTarget[]>([]);
 
   useEffect(() => {
-    const desktop = document.querySelector<HTMLElement>('nav[aria-label="Main navigation"]');
-    const mobile = document.querySelector<HTMLElement>('nav[aria-label="Mobile navigation"]');
+    const frame = window.requestAnimationFrame(() => {
+      const desktop = document.querySelector<HTMLElement>('nav[aria-label="Main navigation"]');
+      const mobile = document.querySelector<HTMLElement>('nav[aria-label="Mobile navigation"]');
 
-    setTargets([
-      ...(desktop ? [{ element: desktop, mobile: false }] : []),
-      ...(mobile ? [{ element: mobile, mobile: true }] : []),
-    ]);
+      setTargets([
+        ...(desktop ? [{ element: desktop, mobile: false }] : []),
+        ...(mobile ? [{ element: mobile, mobile: true }] : []),
+      ]);
+    });
+
+    return () => window.cancelAnimationFrame(frame);
   }, [pathname]);
 
   const isGalleryPage = pathname === "/gallery" || pathname.endsWith("/gallery");

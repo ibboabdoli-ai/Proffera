@@ -6,7 +6,7 @@ import { getSql } from "@/lib/db/server";
 import { sendBookingConfirmationEmail, sendBookingOwnerNotificationEmail } from "@/features/email/lead-email";
 import { sendBookingOwnerSms } from "@/features/sms/booking-sms";
 import { allowPublicSubmission } from "@/lib/public-form-protection";
-import { parseLocalDateTime, validatePublicBookingPolicy } from "@/lib/public-booking-policy";
+import { parseLocalDateTime, resolveBookingTimeZone, validatePublicBookingPolicy } from "@/lib/public-booking-policy";
 import { BookingAiChatWidget } from "@/components/service-ai-chat-widget";
 
 import { BookingRequestForm } from "./booking-request-form";
@@ -71,7 +71,8 @@ async function requestPublicBooking(formData: FormData) {
       coalesce(nullif(ws.company_name, ''), w.company_name, w.name) as company_name,
       coalesce(nullif(ws.primary_city, ''), w.primary_city) as primary_city,
       nullif(ws.contact_email, '') as contact_email,
-      nullif(ws.contact_phone, '') as contact_phone
+      nullif(ws.contact_phone, '') as contact_phone,
+      coalesce(nullif(ws.time_zone, ''), 'Europe/Stockholm') as time_zone
     from workspaces w
     left join workspace_settings ws on ws.workspace_id = w.id::text
     where w.public_booking_slug = ${slug}
@@ -94,6 +95,7 @@ async function requestPublicBooking(formData: FormData) {
   `;
   const workspace = workspaces[0];
   if (!workspace) redirect(`/boka/${slug}?error=unavailable`);
+  const timeZone = resolveBookingTimeZone(workspace.time_zone);
 
   const allowed = await allowPublicSubmission({
     scope: "public_booking",
@@ -152,6 +154,7 @@ async function requestPublicBooking(formData: FormData) {
           isClosed: Boolean(bookingHour.is_closed),
         }
       : null,
+    timeZone,
   });
   if (validation.error) {
     redirect(`/boka/${slug}?error=${validation.error}`);
@@ -234,6 +237,7 @@ async function requestPublicBooking(formData: FormData) {
       startsAt: start.toISOString(),
       endsAt: end.toISOString(),
       city: String(workspace.primary_city ?? ""),
+      timeZone,
     }).catch(() => null);
   }
 
@@ -248,6 +252,7 @@ async function requestPublicBooking(formData: FormData) {
       startsAt: start.toISOString(),
       endsAt: end.toISOString(),
       city: String(workspace.primary_city ?? ""),
+      timeZone,
     }).catch(() => null);
   }
 
@@ -259,6 +264,7 @@ async function requestPublicBooking(formData: FormData) {
       customerPhone: phone,
       service: serviceName,
       startsAt: start.toISOString(),
+      timeZone,
     }).catch(() => null);
   }
 
@@ -282,7 +288,8 @@ export default async function PublicBookingPage({ params, searchParams }: PagePr
       select
         w.id,
         coalesce(nullif(ws.company_name, ''), w.company_name, w.name) as company_name,
-        coalesce(nullif(ws.primary_city, ''), w.primary_city) as primary_city
+        coalesce(nullif(ws.primary_city, ''), w.primary_city) as primary_city,
+        coalesce(nullif(ws.time_zone, ''), 'Europe/Stockholm') as time_zone
       from workspaces w
       left join workspace_settings ws on ws.workspace_id = w.id::text
       where w.public_booking_slug = ${slug}
@@ -342,6 +349,7 @@ export default async function PublicBookingPage({ params, searchParams }: PagePr
   const booked = firstParam(query?.booked) === "1";
   const hasServices = services.length > 0;
   const hasHours = publishedHours.length > 0;
+  const timeZone = resolveBookingTimeZone(workspace.time_zone);
   const bookingForm = hasServices && hasHours ? (
     <BookingRequestForm
       action={requestPublicBooking}
@@ -362,6 +370,7 @@ export default async function PublicBookingPage({ params, searchParams }: PagePr
         bufferBeforeMinutes: Number(booking.buffer_before_minutes) || 0,
         bufferAfterMinutes: Number(booking.buffer_after_minutes) || 0,
       }))}
+      timeZone={timeZone}
       variant={slug === "julius-salong" ? "salon" : "default"}
     />
   ) : null;

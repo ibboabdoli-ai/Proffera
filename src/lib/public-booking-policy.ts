@@ -1,3 +1,5 @@
+import { DEFAULT_WORKSPACE_MARKET, isWorkspaceTimeZone, type WorkspaceTimeZone } from "./workspace-market";
+
 export type PublicBookingServicePolicy = {
   durationMinutes: number;
   bufferBeforeMinutes: number;
@@ -22,19 +24,32 @@ export type ParsedLocalDateTime = {
   minutes: number;
 };
 
-const stockholmFormatter = new Intl.DateTimeFormat("en-CA", {
-  timeZone: "Europe/Stockholm",
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-  hour: "2-digit",
-  minute: "2-digit",
-  hourCycle: "h23",
-});
+const formatters = new Map<WorkspaceTimeZone, Intl.DateTimeFormat>();
 
-function stockholmParts(date: Date): ParsedLocalDateTime {
+export function resolveBookingTimeZone(value: unknown): WorkspaceTimeZone {
+  return isWorkspaceTimeZone(value) ? value : DEFAULT_WORKSPACE_MARKET.timeZone;
+}
+
+function getFormatter(timeZone: WorkspaceTimeZone) {
+  const existing = formatters.get(timeZone);
+  if (existing) return existing;
+
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  });
+  formatters.set(timeZone, formatter);
+  return formatter;
+}
+
+export function localDateTimeParts(date: Date, timeZone: WorkspaceTimeZone = DEFAULT_WORKSPACE_MARKET.timeZone): ParsedLocalDateTime {
   const formatted = Object.fromEntries(
-    stockholmFormatter
+    getFormatter(timeZone)
       .formatToParts(date)
       .filter((part) => part.type !== "literal")
       .map((part) => [part.type, part.value]),
@@ -77,10 +92,10 @@ export function parseLocalDateTime(value: string): ParsedLocalDateTime | null {
   return { year: y, month: m, day: d, hours: h, minutes: min };
 }
 
-export function stockholmDateToUtc(parts: ParsedLocalDateTime): Date {
+export function localDateTimeToUtc(parts: ParsedLocalDateTime, timeZone: WorkspaceTimeZone = DEFAULT_WORKSPACE_MARKET.timeZone): Date {
   const desired = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hours, parts.minutes);
-  const inStockholm = (date: Date) => {
-    const formatted = stockholmParts(date);
+  const inTimeZone = (date: Date) => {
+    const formatted = localDateTimeParts(date, timeZone);
     return Date.UTC(
       formatted.year,
       formatted.month - 1,
@@ -95,18 +110,19 @@ export function stockholmDateToUtc(parts: ParsedLocalDateTime): Date {
     new Date(desired),
     new Date(desired + 86_400_000),
   ];
-  const offsets = [...new Set(probes.map((probe) => inStockholm(probe) - probe.getTime()))];
+  const offsets = [...new Set(probes.map((probe) => inTimeZone(probe) - probe.getTime()))];
   const candidates = offsets.map((offset) => new Date(desired - offset));
-  return candidates.find((candidate) => isValidStockholmLocalTime(parts, candidate))
+  return candidates.find((candidate) => isValidLocalTime(parts, candidate, timeZone))
     ?? candidates[0]
     ?? new Date(Number.NaN);
 }
 
-export function isValidStockholmLocalTime(
+export function isValidLocalTime(
   parts: ParsedLocalDateTime,
-  date: Date = stockholmDateToUtc(parts),
+  date: Date | undefined = undefined,
+  timeZone: WorkspaceTimeZone = DEFAULT_WORKSPACE_MARKET.timeZone,
 ) {
-  const roundTrip = stockholmParts(date);
+  const roundTrip = localDateTimeParts(date ?? localDateTimeToUtc(parts, timeZone), timeZone);
   return (
     roundTrip.year === parts.year &&
     roundTrip.month === parts.month &&
@@ -114,6 +130,16 @@ export function isValidStockholmLocalTime(
     roundTrip.hours === parts.hours &&
     roundTrip.minutes === parts.minutes
   );
+}
+
+// Keep the previous exports while callers are migrated. Their behavior remains
+// exactly Stockholm-based, which protects existing Swedish booking links.
+export function stockholmDateToUtc(parts: ParsedLocalDateTime) {
+  return localDateTimeToUtc(parts, "Europe/Stockholm");
+}
+
+export function isValidStockholmLocalTime(parts: ParsedLocalDateTime, date?: Date) {
+  return isValidLocalTime(parts, date, "Europe/Stockholm");
 }
 
 export function timeToMinutes(value: unknown) {
@@ -131,13 +157,15 @@ export function validatePublicBookingPolicy(input: {
   now: Date;
   service: PublicBookingServicePolicy;
   bookingHour?: PublicBookingHourPolicy | null;
+  timeZone?: unknown;
 }) {
   const { startsAt, now, service, bookingHour } = input;
+  const timeZone = resolveBookingTimeZone(input.timeZone);
   const localStart = parseLocalDateTime(startsAt);
   if (!localStart) return { error: "time" as PublicBookingPolicyError };
 
-  const start = stockholmDateToUtc(localStart);
-  if (!isValidStockholmLocalTime(localStart, start) || Number.isNaN(start.getTime()) || start <= now) {
+  const start = localDateTimeToUtc(localStart, timeZone);
+  if (!isValidLocalTime(localStart, start, timeZone) || Number.isNaN(start.getTime()) || start <= now) {
     return { error: "time" as PublicBookingPolicyError };
   }
 

@@ -5,6 +5,7 @@ import { BusinessCalendar } from "@/components/dashboard/business-calendar";
 import { DashboardLocaleBoundary } from "@/components/dashboard/dashboard-locale-boundary";
 import { DashboardPageHeader } from "@/components/dashboard/dashboard-page-ui";
 import { getDashboardCalendarEvents } from "@/lib/dashboard-calendar";
+import { getDashboardWorkspaceSettings } from "@/lib/workspace-settings-db";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +19,7 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
   const params = searchParams ? await searchParams : undefined;
   const lang = Array.isArray(params?.lang) ? params.lang[0] : params?.lang;
   const isEnglish = lang === "en";
-  const events = await getDashboardCalendarEvents();
+  const [events, workspaceSettings] = await Promise.all([getDashboardCalendarEvents(), getDashboardWorkspaceSettings()]);
   const bookingCount = events.filter((event) => event.type === "booking").length;
   const blockCount = events.filter((event) => event.type === "block").length;
 
@@ -43,7 +44,7 @@ export default async function CalendarPage({ searchParams }: CalendarPageProps) 
           <div className="rounded-2xl border border-[#dfe5dc] bg-white p-4 shadow-sm"><p className="text-xs font-bold uppercase tracking-wide text-[#6c786f]">{isEnglish ? "Display period" : "Visningsperiod"}</p><p className="mt-1 text-sm font-bold text-[#17201a]">{isEnglish ? "6 months back · 18 months ahead" : "6 månader bakåt · 18 månader framåt"}</p></div>
         </div>
 
-        <BusinessCalendar events={events} />
+        <BusinessCalendar events={events} timeZone={workspaceSettings.timeZone} />
 
         <div className="flex flex-wrap gap-3 text-xs font-semibold text-[#536158]">
           <span className="rounded-full bg-[#fff4d7] px-3 py-1.5">{isEnglish ? "Requested" : "Förfrågan"}</span>

@@ -12,7 +12,8 @@ import { getWorkspaceMembers } from "@/lib/workspace-members-db";
 import { getPendingWorkspaceMemberInvitations } from "@/features/company/workspace-member-invitation";
 import { canManageWorkspaceMembers, canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 import { getWorkspaceBillingSummary } from "@/lib/workspace-billing";
-import { getStripeCheckoutPlanOptions, isStripeCheckoutConfigured, isStripeTestMode } from "@/lib/stripe";
+import { getStripeCheckoutPlanOptions, isStripeAdaptivePricingEnabled, isStripeCheckoutConfigured, isStripeTestMode } from "@/lib/stripe";
+import { getWorkspaceMarketLabel } from "@/lib/workspace-market";
 
 import { updateWorkspaceSettingsAction } from "./actions";
 import { updateWorkspaceBookingHoursAction } from "./booking-hours-actions";
@@ -21,6 +22,7 @@ import { AccountSecurityCard } from "./account-security-card";
 import { WorkspaceMembersCard } from "./workspace-members-card";
 import { WorkspaceBillingCard } from "./workspace-billing-card";
 import { BookingLinkCard } from "./booking-link-card";
+import { WorkspaceMarketFields } from "./workspace-market-fields";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +34,9 @@ const errorMessages: Record<string, string> = {
   cta: "Standard CTA är obligatorisk och får vara max 80 tecken.",
   email: "Kontakt e-post behöver vara tom eller en giltig e-postadress på max 180 tecken.",
   phone: "Kontakt telefon får vara max 80 tecken.",
+  slug: "Bokningslänken får bara innehålla små bokstäver, siffror och bindestreck.",
+  market: "Välj en godkänd marknad, tidszon och valuta.",
+  vat: "VAT-numret får bara innehålla bokstäver, siffror och bindestreck och vara högst 32 tecken.",
   save: "Företagsprofilen kunde inte sparas. Kontrollera inställningarna och försök igen.",
 };
 
@@ -84,6 +89,7 @@ type SettingsPageProps = {
     member_updated?: string | string[];
     billing?: string | string[];
     plan?: string | string[];
+    lang?: string | string[];
   }>;
 };
 
@@ -105,6 +111,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   const memberUpdatedValue = firstParam(params?.member_updated);
   const billingValue = firstParam(params?.billing);
   const preferredPlanValue = firstParam(params?.plan);
+  const isEnglish = firstParam(params?.lang) === "en";
   const preferredPlanKey = isCheckoutPlanKey(preferredPlanValue) ? preferredPlanValue : null;
   const errorMessage = errorValue ? errorMessages[errorValue] : undefined;
   const serviceErrorMessage = serviceErrorValue ? serviceErrorMessages[serviceErrorValue] : undefined;
@@ -146,6 +153,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
     { label: "Primär ort", value: workspaceSettings.primaryCity || "Ej angivet" },
     { label: "Svarstid", value: workspaceSettings.responseTimeGoal || "Ej angivet" },
     { label: "Standard CTA", value: workspaceSettings.defaultCta || "Ej angivet" },
+    { label: "Marknad", value: `${getWorkspaceMarketLabel(workspaceSettings.billingCountryCode, isEnglish ? "en" : "sv")} · ${workspaceSettings.timeZone} · ${workspaceSettings.billingCurrency}` },
   ] as const;
 
   return (
@@ -171,6 +179,10 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         testMode={isStripeTestMode()}
         checkoutPlans={getStripeCheckoutPlanOptions()}
         preferredPlanKey={preferredPlanKey}
+        billingCurrency={workspaceSettings.billingCurrency}
+        timeZone={workspaceSettings.timeZone}
+        locale={isEnglish ? "en" : "sv"}
+        adaptivePricingEnabled={isStripeAdaptivePricingEnabled()}
       />
 
       {memberUpdatedValue ? <section className="rounded-2xl bg-[#eef8f0] p-5 text-sm font-semibold text-[#17452f] ring-1 ring-[#c9e6d0]" role="status">Teamets åtkomst uppdaterades.</section> : null}
@@ -311,6 +323,13 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
               Kontakt telefon
               <input name="contact_phone" type="tel" maxLength={80} className={inputClass} defaultValue={workspaceSettings.contactPhone} placeholder="Ej angivet" />
             </label>
+
+            <WorkspaceMarketFields
+              countryCode={workspaceSettings.billingCountryCode}
+              timeZone={workspaceSettings.timeZone}
+              vatNumber={workspaceSettings.vatNumber}
+              locale={isEnglish ? "en" : "sv"}
+            />
 
             <label className="grid gap-2 text-sm font-semibold text-[#344139]">
               Länk för onlinebokning

@@ -10,8 +10,6 @@ const connectionString =
   process.env.POSTGRES_PRISMA_URL ??
   process.env.POSTGRES_URL_NON_POOLING;
 
-const LEGACY_WORKSPACE_ID = "__legacy_workspace_access_disabled__";
-
 function getSqlClient() {
   if (!connectionString) {
     return null;
@@ -198,24 +196,24 @@ export async function getDashboardStats(options: { includeCustomers?: boolean; i
   try {
     const rows = includeCustomers && includeBookings ? await sql`
       select
-        (select count(*) from customers where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})) as customers_count,
-        (select count(*) from customers where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID}) and status = 'active') as active_customers_count,
-        (select count(*) from bookings where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})) as bookings_count,
-        (select count(*) from bookings where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID}) and status = 'confirmed') as confirmed_bookings_count,
-        (select count(*) from customer_events where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})) as customer_events_count
+        (select count(*) from customers where workspace_id = ${workspaceId}) as customers_count,
+        (select count(*) from customers where workspace_id = ${workspaceId} and status = 'active') as active_customers_count,
+        (select count(*) from bookings where workspace_id = ${workspaceId}) as bookings_count,
+        (select count(*) from bookings where workspace_id = ${workspaceId} and status = 'confirmed') as confirmed_bookings_count,
+        (select count(*) from customer_events where workspace_id = ${workspaceId}) as customer_events_count
     ` : includeCustomers ? await sql`
       select
-        (select count(*) from customers where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})) as customers_count,
-        (select count(*) from customers where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID}) and status = 'active') as active_customers_count,
+        (select count(*) from customers where workspace_id = ${workspaceId}) as customers_count,
+        (select count(*) from customers where workspace_id = ${workspaceId} and status = 'active') as active_customers_count,
         0 as bookings_count,
         0 as confirmed_bookings_count,
-        (select count(*) from customer_events where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID}) and booking_id is null) as customer_events_count
+        (select count(*) from customer_events where workspace_id = ${workspaceId} and booking_id is null) as customer_events_count
     ` : await sql`
       select
         0 as customers_count,
         0 as active_customers_count,
-        (select count(*) from bookings where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})) as bookings_count,
-        (select count(*) from bookings where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID}) and status = 'confirmed') as confirmed_bookings_count,
+        (select count(*) from bookings where workspace_id = ${workspaceId}) as bookings_count,
+        (select count(*) from bookings where workspace_id = ${workspaceId} and status = 'confirmed') as confirmed_bookings_count,
         0 as customer_events_count
     `;
 
@@ -254,8 +252,8 @@ export async function getDashboardCustomers(): Promise<DashboardCustomer[]> {
         primary_service_slug,
         notes
       from customers
-      where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})
-      order by case when workspace_id = ${workspaceId} then 0 else 1 end, created_at desc
+      where workspace_id = ${workspaceId}
+      order by created_at desc
       limit 20
     `;
 
@@ -292,8 +290,8 @@ export async function getDashboardCustomerOptions(): Promise<DashboardCustomerOp
         status,
         primary_service_slug
       from customers
-      where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})
-      order by case when workspace_id = ${workspaceId} then 0 else 1 end, created_at desc
+      where workspace_id = ${workspaceId}
+      order by created_at desc
       limit 50
     `;
 
@@ -331,8 +329,8 @@ export async function getDashboardBookings(): Promise<DashboardBooking[]> {
         c.name as customer_name
       from bookings b
       left join customers c on c.id = b.customer_id
-      where b.workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})
-      order by case when b.workspace_id = ${workspaceId} then 0 else 1 end, b.starts_at asc nulls last, b.created_at desc
+      where b.workspace_id = ${workspaceId}
+      order by b.starts_at asc nulls last, b.created_at desc
       limit 20
     `;
 
@@ -413,7 +411,7 @@ export async function createDashboardBooking(input: CreateDashboardBookingInput)
   const customerRows = await sql`
     select id
     from customers
-    where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})
+    where workspace_id = ${workspaceId}
       and id = ${input.customerId}
     limit 1
   `;
@@ -427,7 +425,7 @@ export async function createDashboardBooking(input: CreateDashboardBookingInput)
   const conflictingBooking = await sql`
     select id
     from bookings
-    where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})
+    where workspace_id = ${workspaceId}
       and status not in ('cancelled', 'no_show')
       and starts_at is not null
       and ends_at is not null
@@ -483,7 +481,7 @@ export async function createDashboardBooking(input: CreateDashboardBookingInput)
     set status = 'active',
         updated_at = now()
     where id = ${customerId}
-      and workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})
+      and workspace_id = ${workspaceId}
       and status = 'prospect'
   `;
 
@@ -534,7 +532,7 @@ export async function getDashboardCustomerDetail(customerId: string): Promise<Da
         notes,
         created_at
       from customers
-      where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})
+      where workspace_id = ${workspaceId}
         and id = ${customerId}
       limit 1
     `;
@@ -556,7 +554,7 @@ export async function getDashboardCustomerDetail(customerId: string): Promise<Da
         c.name as customer_name
       from bookings b
       left join customers c on c.id = b.customer_id
-      where b.workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})
+      where b.workspace_id = ${workspaceId}
         and b.customer_id = ${customerId}
       order by b.starts_at asc nulls last, b.created_at desc
       limit 20
@@ -570,9 +568,9 @@ export async function getDashboardCustomerDetail(customerId: string): Promise<Da
         description,
         created_at
       from customer_events
-      where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})
+      where workspace_id = ${workspaceId}
         and customer_id = ${customerId}
-      order by case when workspace_id = ${workspaceId} then 0 else 1 end, created_at desc
+      order by created_at desc
       limit 20
     `;
 
@@ -650,7 +648,7 @@ export async function getDashboardBookingDetail(bookingId: string): Promise<Dash
         c.created_at as customer_created_at
       from bookings b
       left join customers c on c.id = b.customer_id
-      where b.workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})
+      where b.workspace_id = ${workspaceId}
         and b.id = ${bookingId}
       limit 1
     `;
@@ -669,9 +667,9 @@ export async function getDashboardBookingDetail(bookingId: string): Promise<Dash
         description,
         created_at
       from customer_events
-      where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})
+      where workspace_id = ${workspaceId}
         and booking_id = ${bookingId}
-      order by case when workspace_id = ${workspaceId} then 0 else 1 end, created_at desc
+      order by created_at desc
       limit 20
     `;
 

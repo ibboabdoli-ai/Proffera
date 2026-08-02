@@ -1,8 +1,11 @@
 import {
-  isValidStockholmLocalTime,
+  isValidLocalTime,
+  localDateTimeParts,
+  localDateTimeToUtc,
   parseLocalDateTime,
-  stockholmDateToUtc,
+  resolveBookingTimeZone,
 } from "./public-booking-policy";
+import type { WorkspaceTimeZone } from "./workspace-market";
 
 export type BookingAvailabilityService = {
   durationMinutes: number;
@@ -25,32 +28,26 @@ export type BookingAvailabilityBusyBooking = {
   bufferAfterMinutes: number;
 };
 
-const stockholmFormatter = new Intl.DateTimeFormat("sv-SE", {
-  timeZone: "Europe/Stockholm",
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-  hour: "2-digit",
-  minute: "2-digit",
-  hourCycle: "h23",
-});
-
-export function stockholmDateInput(date: Date) {
-  const values = Object.fromEntries(
-    stockholmFormatter
-      .formatToParts(date)
-      .filter((part) => part.type !== "literal")
-      .map((part) => [part.type, part.value]),
-  );
-  return `${values.year}-${values.month}-${values.day}`;
+export function dateInputInTimeZone(date: Date, timeZone: WorkspaceTimeZone) {
+  const values = localDateTimeParts(date, timeZone);
+  return `${values.year}-${String(values.month).padStart(2, "0")}-${String(values.day).padStart(2, "0")}`;
 }
 
-export function stockholmLocalToUtc(dateValue: string, timeValue: string) {
+export function localTimeToUtc(dateValue: string, timeValue: string, timeZone: WorkspaceTimeZone) {
   const local = parseLocalDateTime(`${dateValue}T${timeValue}`);
   if (!local) return new Date(Number.NaN);
 
-  const result = stockholmDateToUtc(local);
-  return isValidStockholmLocalTime(local, result) ? result : new Date(Number.NaN);
+  const result = localDateTimeToUtc(local, timeZone);
+  return isValidLocalTime(local, result, timeZone) ? result : new Date(Number.NaN);
+}
+
+// Compatibility exports for existing Swedish booking callers.
+export function stockholmDateInput(date: Date) {
+  return dateInputInTimeZone(date, "Europe/Stockholm");
+}
+
+export function stockholmLocalToUtc(dateValue: string, timeValue: string) {
+  return localTimeToUtc(dateValue, timeValue, "Europe/Stockholm");
 }
 
 export function addDaysToDateInput(value: string, days: number) {
@@ -74,8 +71,10 @@ export function getAvailableBookingTimes(input: {
   busyBookings: BookingAvailabilityBusyBooking[];
   referenceTimeMs: number;
   slotStepMinutes?: number;
+  timeZone?: unknown;
 }) {
   const { date, service, hours, busyBookings, referenceTimeMs, slotStepMinutes = 30 } = input;
+  const timeZone = resolveBookingTimeZone(input.timeZone);
   if (!date || hours.isClosed) return [];
 
   const opensAt = toMinutes(hours.opensAt);
@@ -86,7 +85,7 @@ export function getAvailableBookingTimes(input: {
 
   for (let start = opensAt; start + service.durationMinutes <= closesAt; start += slotStepMinutes) {
     const timeValue = toTime(start);
-    const slotStart = stockholmLocalToUtc(date, timeValue).getTime();
+    const slotStart = localTimeToUtc(date, timeValue, timeZone).getTime();
     if (!Number.isFinite(slotStart) || slotStart < minimumStart || slotStart > maximumStart) continue;
 
     const slotEnd = slotStart + service.durationMinutes * 60_000;

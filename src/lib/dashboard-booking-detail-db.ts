@@ -3,6 +3,7 @@ import "server-only";
 import { neon } from "@neondatabase/serverless";
 
 import type { DashboardBookingDetail } from "@/lib/dashboard-db";
+import { resolveBookingTimeZone } from "@/lib/public-booking-policy";
 import { getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 const connectionString =
@@ -10,9 +11,6 @@ const connectionString =
   process.env.POSTGRES_URL ??
   process.env.POSTGRES_PRISMA_URL ??
   process.env.POSTGRES_URL_NON_POOLING;
-
-const LEGACY_WORKSPACE_ID = "__legacy_workspace_access_disabled__";
-const DASHBOARD_TIME_ZONE = "Europe/Stockholm";
 
 function toText(value: unknown, fallback = "") {
   if (value === null || value === undefined) {
@@ -22,7 +20,7 @@ function toText(value: unknown, fallback = "") {
   return String(value);
 }
 
-function toStockholmDateText(value: unknown) {
+function toWorkspaceDateText(value: unknown, timeZone: ReturnType<typeof resolveBookingTimeZone>) {
   if (!value) {
     return "Ej bokad";
   }
@@ -36,7 +34,7 @@ function toStockholmDateText(value: unknown) {
   return new Intl.DateTimeFormat("sv-SE", {
     dateStyle: "medium",
     timeStyle: "short",
-    timeZone: DASHBOARD_TIME_ZONE,
+    timeZone,
   }).format(date);
 }
 
@@ -54,7 +52,8 @@ export async function getDashboardBookingDetailInStockholm(bookingId: string): P
   const sql = neon(connectionString);
 
   try {
-    const bookingRows = await sql`
+    const [bookingRows, settingsRows] = await Promise.all([
+      sql`
       select
         b.id,
         b.customer_id,
@@ -80,10 +79,18 @@ export async function getDashboardBookingDetailInStockholm(bookingId: string): P
         c.created_at as customer_created_at
       from bookings b
       left join customers c on c.id = b.customer_id
-      where b.workspace_id in (${access.workspaceId}, ${LEGACY_WORKSPACE_ID})
+      where b.workspace_id = ${access.workspaceId}
         and b.id = ${bookingId}
       limit 1
-    `;
+      `,
+      sql`
+        select time_zone
+        from workspace_settings
+        where workspace_id = ${access.workspaceId}
+        limit 1
+      `,
+    ]);
+    const timeZone = resolveBookingTimeZone(settingsRows[0]?.time_zone);
 
     const bookingRow = bookingRows[0];
 
@@ -99,9 +106,9 @@ export async function getDashboardBookingDetailInStockholm(bookingId: string): P
         description,
         created_at
       from customer_events
-      where workspace_id in (${access.workspaceId}, ${LEGACY_WORKSPACE_ID})
+      where workspace_id = ${access.workspaceId}
         and booking_id = ${bookingId}
-      order by case when workspace_id = ${access.workspaceId} then 0 else 1 end, created_at desc
+      order by created_at desc
       limit 20
     `;
 
@@ -110,17 +117,17 @@ export async function getDashboardBookingDetailInStockholm(bookingId: string): P
     return {
       booking: {
         id: toText(bookingRow.id),
-        time: toStockholmDateText(bookingRow.starts_at),
+        time: toWorkspaceDateText(bookingRow.starts_at, timeZone),
         title: toText(bookingRow.title, "Namnlös bokning"),
         customer: toText(bookingRow.customer_name, "Okänd kund"),
         status: toText(bookingRow.status, "requested"),
         city: toText(bookingRow.city, "Okänd ort"),
         service: toText(bookingRow.service, "Ej vald tjänst"),
         customerId,
-        endsAt: toStockholmDateText(bookingRow.ends_at),
+        endsAt: toWorkspaceDateText(bookingRow.ends_at, timeZone),
         source: toText(bookingRow.source, "Okänd källa"),
         notes: toText(bookingRow.notes, "Ingen notering"),
-        createdAt: toStockholmDateText(bookingRow.created_at),
+        createdAt: toWorkspaceDateText(bookingRow.created_at, timeZone),
       },
       customer: customerId
         ? {
@@ -135,7 +142,7 @@ export async function getDashboardBookingDetailInStockholm(bookingId: string): P
             phone: toText(bookingRow.customer_phone, "Inget telefonnummer"),
             companyName: toText(bookingRow.customer_company_name, "Ej företag"),
             source: toText(bookingRow.customer_source, "Okänd källa"),
-            createdAt: toStockholmDateText(bookingRow.customer_created_at),
+            createdAt: toWorkspaceDateText(bookingRow.customer_created_at, timeZone),
           }
         : null,
       events: eventRows.map((row) => ({
@@ -143,7 +150,7 @@ export async function getDashboardBookingDetailInStockholm(bookingId: string): P
         type: toText(row.event_type, "note"),
         title: toText(row.title, "Namnlös händelse"),
         description: toText(row.description, "Ingen beskrivning"),
-        createdAt: toStockholmDateText(row.created_at),
+        createdAt: toWorkspaceDateText(row.created_at, timeZone),
       })),
     };
   } catch (error) {

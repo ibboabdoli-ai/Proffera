@@ -4,6 +4,7 @@ import { neon } from "@neondatabase/serverless";
 import { cookies } from "next/headers";
 
 import { getServerSession } from "@/lib/auth-session";
+import { selectWorkspaceMembership } from "@/lib/workspace-access-selection";
 
 const connectionString =
   process.env.DATABASE_URL ??
@@ -45,6 +46,14 @@ export type WorkspaceAccessResult =
       ok: false;
       reason: WorkspaceAccessFailureReason;
   };
+
+type ValidWorkspaceMembership = {
+  workspaceId: string;
+  workspaceSlug: string;
+  workspaceName: string;
+  workspaceStatus: AllowedWorkspaceStatus;
+  role: WorkspaceRole;
+};
 
 export function canManageWorkspaceSettings(access: WorkspaceAccessResult) {
   return access.ok && (access.role === "owner" || access.role === "admin");
@@ -115,40 +124,35 @@ export async function getUserWorkspaceAccess(): Promise<WorkspaceAccessResult> {
       join workspaces w on w.id = wm.workspace_id
       where wm.user_id = ${userId}
         and w.status in ('active', 'trial')
-      order by
-        case when w.id::text = ${selectedWorkspaceId} then 0 else 1 end,
-        wm.created_at asc
-      limit 1
+      order by wm.created_at asc
     `;
 
-    const workspaceRow = workspaceRows[0];
-
-    if (!workspaceRow) {
+    if (!workspaceRows[0]) {
       return { ok: false, reason: "no_membership" };
     }
+    const memberships = workspaceRows.flatMap((workspaceRow) => {
+      const role = workspaceRow.role;
+      const workspaceStatus = workspaceRow.workspace_status;
+      const workspaceId = toText(workspaceRow.workspace_id);
+      const workspaceSlug = toText(workspaceRow.workspace_slug);
+      const workspaceName = toText(workspaceRow.workspace_name);
 
-    const role = workspaceRow.role;
-    const workspaceStatus = workspaceRow.workspace_status;
-    const workspaceId = toText(workspaceRow.workspace_id);
-    const workspaceSlug = toText(workspaceRow.workspace_slug);
-    const workspaceName = toText(workspaceRow.workspace_name);
+      if (!isWorkspaceRole(role) || !isAllowedWorkspaceStatus(workspaceStatus) || !workspaceId || !workspaceSlug || !workspaceName) {
+        return [];
+      }
 
-    if (!isWorkspaceRole(role) || !isAllowedWorkspaceStatus(workspaceStatus)) {
-      return { ok: false, reason: "workspace_not_allowed" };
-    }
+      return [{ workspaceId, workspaceSlug, workspaceName, workspaceStatus, role } satisfies ValidWorkspaceMembership];
+    });
+    const workspace = selectWorkspaceMembership(memberships, selectedWorkspaceId);
 
-    if (!workspaceId || !workspaceSlug || !workspaceName) {
+    if (!workspace) {
       return { ok: false, reason: "workspace_not_allowed" };
     }
 
     return {
       ok: true,
       userId,
-      workspaceId,
-      workspaceSlug,
-      workspaceName,
-      workspaceStatus,
-      role,
+      ...workspace,
     };
   } catch (error) {
     console.error("Failed to read workspace access", error);

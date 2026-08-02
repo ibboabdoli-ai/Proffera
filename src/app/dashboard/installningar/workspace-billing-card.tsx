@@ -6,6 +6,7 @@ import { useState } from "react";
 
 import type { CheckoutPlanKey, CheckoutPlanOption } from "@/lib/billing-plans";
 import type { WorkspaceBillingSummary } from "@/lib/workspace-billing";
+import type { WorkspaceBillingCurrency, WorkspaceTimeZone } from "@/lib/workspace-market";
 
 const statusLabels = {
   pending: "Väntar på betalning",
@@ -23,9 +24,13 @@ type WorkspaceBillingCardProps = {
   testMode: boolean;
   checkoutPlans: CheckoutPlanOption[];
   preferredPlanKey: CheckoutPlanKey | null;
+  billingCurrency: WorkspaceBillingCurrency;
+  timeZone: WorkspaceTimeZone;
+  locale: "sv" | "en";
+  adaptivePricingEnabled: boolean;
 };
 
-export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, testMode, checkoutPlans, preferredPlanKey }: WorkspaceBillingCardProps) {
+export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, testMode, checkoutPlans, preferredPlanKey, billingCurrency, timeZone, locale, adaptivePricingEnabled }: WorkspaceBillingCardProps) {
   const router = useRouter();
   const [loadingPlanKey, setLoadingPlanKey] = useState<CheckoutPlanKey | null>(null);
   const [portalLoading, setPortalLoading] = useState(false);
@@ -38,6 +43,12 @@ export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, t
   const professionalPlan = checkoutPlans.find((plan) => plan.key === "professional");
   const canUpgrade = canManage && hasActivePlan && billing.planKey === "starter" && professionalPlan?.configured;
   const canOpenPortal = canManage && ["active", "trialing", "past_due", "paused"].includes(billing.status ?? "");
+  const dateLocale = locale === "en" ? "en-GB" : "sv-SE";
+  const localPriceNote = billingCurrency === "SEK"
+    ? (locale === "en" ? "Prices are shown in SEK before Stripe confirms checkout." : "Priser visas i SEK innan Stripe bekräftar kassan.")
+    : adaptivePricingEnabled
+      ? (locale === "en" ? "Stripe confirms an eligible local currency and final amount at checkout." : "Stripe bekräftar tillgänglig lokal valuta och slutligt belopp i kassan.")
+      : (locale === "en" ? "Stripe confirms the final payable currency and amount at checkout." : "Stripe bekräftar slutlig betalningsvaluta och belopp i kassan.");
 
   async function startCheckout(planKey: CheckoutPlanKey) {
     setLoadingPlanKey(planKey);
@@ -48,7 +59,7 @@ export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, t
       const response = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { Accept: "application/json", "content-type": "application/json" },
-        body: JSON.stringify({ planKey }),
+        body: JSON.stringify({ planKey, lang: locale }),
       });
       const data = (await response.json()) as { url?: string; error?: string };
 
@@ -144,9 +155,16 @@ export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, t
         </div>
       ) : null}
 
+      <div className="mt-5 rounded-2xl border border-[#dce5dc] bg-[#f7f9f6] p-4 text-sm leading-6 text-[#5b665f]">
+        <p className="font-bold text-[#17201a]">{locale === "en" ? "B2B billing market" : "B2B-betalningsmarknad"}</p>
+        <p className="mt-1">{locale === "en" ? `Currency preference: ${billingCurrency}. Business time zone: ${timeZone}.` : `Valutapreferens: ${billingCurrency}. Företagets tidszon: ${timeZone}.`}</p>
+        <p className="mt-1">{localPriceNote}</p>
+        <p className="mt-1">{locale === "en" ? "Checkout collects the billing address and VAT number. Tax is applied only when Proffera has enabled the relevant Stripe Tax registrations." : "Kassan samlar in fakturaadress och VAT-nummer. Skatt tillämpas först när Proffera har aktiverat relevanta Stripe Tax-registreringar."}</p>
+      </div>
+
       {billing.currentPeriodEnd && hasActivePlan ? (
         <p className="mt-4 text-sm text-[#5b665f]">
-          Nuvarande period gäller till {new Intl.DateTimeFormat("sv-SE", { dateStyle: "long", timeZone: "Europe/Stockholm" }).format(new Date(billing.currentPeriodEnd))}.
+          {locale === "en" ? "Current period ends " : "Nuvarande period gäller till "}{new Intl.DateTimeFormat(dateLocale, { dateStyle: "long", timeZone }).format(new Date(billing.currentPeriodEnd))}.
         </p>
       ) : null}
 
@@ -158,7 +176,7 @@ export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, t
 
       {billing.cancelAtPeriodEnd && billing.currentPeriodEnd ? (
         <p className="mt-4 rounded-xl bg-[#fdf5dc] p-4 text-sm font-semibold leading-6 text-[#72520f]" role="status">
-          Abonnemanget avslutas den {new Intl.DateTimeFormat("sv-SE", { dateStyle: "long", timeZone: "Europe/Stockholm" }).format(new Date(billing.currentPeriodEnd))}. Du kan återaktivera det via Stripe innan dess.
+          {locale === "en" ? "The subscription ends on " : "Abonnemanget avslutas den "}{new Intl.DateTimeFormat(dateLocale, { dateStyle: "long", timeZone }).format(new Date(billing.currentPeriodEnd))}.{locale === "en" ? " You can reactivate it through Stripe before then." : " Du kan återaktivera det via Stripe innan dess."}
         </p>
       ) : null}
 

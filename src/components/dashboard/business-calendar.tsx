@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 import type { DashboardCalendarEvent } from "@/lib/dashboard-calendar";
+import type { WorkspaceTimeZone } from "@/lib/workspace-market";
 
 type ViewMode = "month" | "week" | "staff";
 type StaffColumn = { id: string; name: string };
@@ -28,9 +29,9 @@ const moveErrorLabels: Record<string, string> = {
   save: "Ändringen kunde inte sparas.",
 };
 
-function stockholmParts(value: Date | string) {
+function localParts(value: Date | string, timeZone: WorkspaceTimeZone) {
   const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Europe/Stockholm", year: "numeric", month: "2-digit", day: "2-digit",
+    timeZone, year: "numeric", month: "2-digit", day: "2-digit",
     hour: "2-digit", minute: "2-digit", hourCycle: "h23",
   }).formatToParts(new Date(value));
   const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
@@ -56,14 +57,15 @@ function eventStyle(event: DashboardCalendarEvent) {
   return "border-[#c8d2c6] bg-[#f1f2ed] text-[#4f5b53]";
 }
 
-function EventCard({ event, compact = false, draggable = false, onDragStart }: {
+function EventCard({ event, timeZone, compact = false, draggable = false, onDragStart }: {
   event: DashboardCalendarEvent;
+  timeZone: WorkspaceTimeZone;
   compact?: boolean;
   draggable?: boolean;
   onDragStart?: () => void;
 }) {
   const href = event.type === "booking" ? `/dashboard/bokningar/${event.id}` : event.type === "time_off" ? "/dashboard/personal/tider" : "/dashboard/bokningar/blockera";
-  const time = stockholmParts(event.startsAt).time;
+  const time = localParts(event.startsAt, timeZone).time;
   const staffLabel = event.type === "booking" ? event.staffName || "Ej fördelad" : event.staffName;
   const primaryLabel = event.type === "booking" ? event.customerName : event.title;
   const secondaryLabel = event.type === "time_off"
@@ -88,9 +90,9 @@ function EventCard({ event, compact = false, draggable = false, onDragStart }: {
   );
 }
 
-export function BusinessCalendar({ events }: { events: DashboardCalendarEvent[] }) {
+export function BusinessCalendar({ events, timeZone }: { events: DashboardCalendarEvent[]; timeZone: WorkspaceTimeZone }) {
   const router = useRouter();
-  const todayKey = stockholmParts(new Date()).date;
+  const todayKey = localParts(new Date(), timeZone).date;
   const [view, setView] = useState<ViewMode>("month");
   const [cursor, setCursor] = useState(() => new Date(`${todayKey}T00:00:00Z`));
   const [status, setStatus] = useState("all");
@@ -113,9 +115,9 @@ export function BusinessCalendar({ events }: { events: DashboardCalendarEvent[] 
 
   const eventsByDate = useMemo(() => {
     const map = new Map<string, DashboardCalendarEvent[]>();
-    visibleEvents.forEach((event) => { const key = stockholmParts(event.startsAt).date; map.set(key, [...(map.get(key) ?? []), event]); });
+    visibleEvents.forEach((event) => { const key = localParts(event.startsAt, timeZone).date; map.set(key, [...(map.get(key) ?? []), event]); });
     return map;
-  }, [visibleEvents]);
+  }, [timeZone, visibleEvents]);
 
   const weekDays = useMemo(() => { const start = startOfWeek(cursor); return Array.from({ length: 7 }, (_, index) => addDays(start, index)); }, [cursor]);
   const days = useMemo(() => {
@@ -129,7 +131,7 @@ export function BusinessCalendar({ events }: { events: DashboardCalendarEvent[] 
 
   async function moveBooking(targetDate: string, targetStaffId: string) {
     if (!draggedBooking || moveState.pending) return;
-    const localStartsAt = `${targetDate}T${stockholmParts(draggedBooking.startsAt).time}`;
+    const localStartsAt = `${targetDate}T${localParts(draggedBooking.startsAt, timeZone).time}`;
     setMoveState({ pending: true, message: "Flyttar bokningen…", error: false });
     try {
       const response = await fetch("/api/dashboard/calendar/move", {
@@ -184,8 +186,8 @@ export function BusinessCalendar({ events }: { events: DashboardCalendarEvent[] 
                   onDrop={(event) => { event.preventDefault(); void moveBooking(key, column.id); }}
                   className={`min-h-32 border-b border-[#edf0eb] p-3 transition ${draggedBooking ? "bg-[#fbfdfb] hover:bg-[#eef8f1]" : ""}`}
                 >
-                  <div className="mb-2 flex items-center justify-between gap-2"><p className="text-xs font-bold uppercase tracking-wide text-[#667168]">{new Intl.DateTimeFormat("sv-SE", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }).format(day)}</p>{key === todayKey ? <span className="rounded-full bg-[#173e2b] px-2 py-0.5 text-[10px] font-bold text-white">Idag</span> : null}</div>
-                  <div className="grid gap-1.5">{dayEvents.length ? dayEvents.map((calendarEvent) => <EventCard key={calendarEvent.id} event={calendarEvent} draggable={calendarEvent.type === "booking" && !["completed", "cancelled", "no_show"].includes(calendarEvent.status)} onDragStart={() => setDraggedBooking(calendarEvent)} />) : <p className="rounded-lg border border-dashed border-[#dce3da] p-3 text-xs text-[#8a948d]">Inga händelser</p>}</div>
+                <div className="mb-2 flex items-center justify-between gap-2"><p className="text-xs font-bold uppercase tracking-wide text-[#667168]">{new Intl.DateTimeFormat("sv-SE", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }).format(day)}</p>{key === todayKey ? <span className="rounded-full bg-[#173e2b] px-2 py-0.5 text-[10px] font-bold text-white">Idag</span> : null}</div>
+                  <div className="grid gap-1.5">{dayEvents.length ? dayEvents.map((calendarEvent) => <EventCard key={calendarEvent.id} event={calendarEvent} timeZone={timeZone} draggable={calendarEvent.type === "booking" && !["completed", "cancelled", "no_show"].includes(calendarEvent.status)} onDragStart={() => setDraggedBooking(calendarEvent)} />) : <p className="rounded-lg border border-dashed border-[#dce3da] p-3 text-xs text-[#8a948d]">Inga händelser</p>}</div>
                 </div>;
               })}</div>
             </section>)}
@@ -196,7 +198,7 @@ export function BusinessCalendar({ events }: { events: DashboardCalendarEvent[] 
           <div className="min-w-[850px] grid grid-cols-7 border-b border-[#e4e8e2] bg-[#f7f9f6] text-center text-xs font-bold uppercase tracking-wide text-[#6b766e]">{['Mån','Tis','Ons','Tor','Fre','Lör','Sön'].map((day) => <div key={day} className="px-2 py-3">{day}</div>)}</div>
           <div className="min-w-[850px] grid grid-cols-7">{days.map((day) => {
             const key = dateKey(day); const dayEvents = eventsByDate.get(key) ?? []; const outsideMonth = view === "month" && day.getUTCMonth() !== cursor.getUTCMonth();
-            return <div key={key} className={`min-h-36 border-b border-r border-[#edf0eb] p-2 ${outsideMonth ? "bg-[#fafbf9] text-[#9aa39c]" : "bg-white"}`}><div className={`mb-2 flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold ${key === todayKey ? "bg-[#173e2b] text-white" : ""}`}>{day.getUTCDate()}</div><div className="grid gap-1.5">{dayEvents.slice(0, view === "month" ? 4 : 12).map((calendarEvent) => <EventCard key={calendarEvent.id} event={calendarEvent} compact={view === "month"} />)}{dayEvents.length > (view === "month" ? 4 : 12) ? <p className="px-1 text-xs font-semibold text-[#667168]">+{dayEvents.length - (view === "month" ? 4 : 12)} till</p> : null}</div></div>;
+            return <div key={key} className={`min-h-36 border-b border-r border-[#edf0eb] p-2 ${outsideMonth ? "bg-[#fafbf9] text-[#9aa39c]" : "bg-white"}`}><div className={`mb-2 flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold ${key === todayKey ? "bg-[#173e2b] text-white" : ""}`}>{day.getUTCDate()}</div><div className="grid gap-1.5">{dayEvents.slice(0, view === "month" ? 4 : 12).map((calendarEvent) => <EventCard key={calendarEvent.id} event={calendarEvent} timeZone={timeZone} compact={view === "month"} />)}{dayEvents.length > (view === "month" ? 4 : 12) ? <p className="px-1 text-xs font-semibold text-[#667168]">+{dayEvents.length - (view === "month" ? 4 : 12)} till</p> : null}</div></div>;
           })}</div>
         </div>
       )}

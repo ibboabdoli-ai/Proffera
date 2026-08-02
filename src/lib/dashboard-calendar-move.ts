@@ -2,7 +2,7 @@ import "server-only";
 
 import { neon } from "@neondatabase/serverless";
 
-import { isValidStockholmLocalTime, parseLocalDateTime, stockholmDateToUtc } from "@/lib/public-booking-policy";
+import { isValidLocalTime, localDateTimeToUtc, parseLocalDateTime, resolveBookingTimeZone } from "@/lib/public-booking-policy";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 const connectionString =
@@ -30,6 +30,7 @@ export class CalendarMoveValidationError extends Error {
 
 export type CalendarMoveResult = {
   workspaceName: string;
+  timeZone: ReturnType<typeof resolveBookingTimeZone>;
   notification: {
     customerName: string;
     customerEmail: string;
@@ -54,15 +55,22 @@ export async function moveDashboardCalendarBooking(input: {
     throw new Error("Owner or admin workspace access is required");
   }
 
+  const sql = neon(connectionString);
+  const marketRows = await sql`
+    select time_zone
+    from workspace_settings
+    where workspace_id = ${access.workspaceId}
+    limit 1
+  `;
+  const timeZone = resolveBookingTimeZone(marketRows[0]?.time_zone);
   const localStart = parseLocalDateTime(input.localStartsAt);
   if (!localStart) throw new CalendarMoveValidationError("time");
-  const newStart = stockholmDateToUtc(localStart);
-  if (!isValidStockholmLocalTime(localStart, newStart) || Number.isNaN(newStart.getTime())) {
+  const newStart = localDateTimeToUtc(localStart, timeZone);
+  if (!isValidLocalTime(localStart, newStart, timeZone) || Number.isNaN(newStart.getTime())) {
     throw new CalendarMoveValidationError("time");
   }
   if (newStart <= new Date()) throw new CalendarMoveValidationError("past");
 
-  const sql = neon(connectionString);
   const rows = await sql`
     select
       b.id,
@@ -135,10 +143,10 @@ export async function moveDashboardCalendarBooking(input: {
           where ss.workspace_id = ${access.workspaceId}
             and ss.staff_id = ${staffId}::uuid
             and ss.is_active = true
-            and ss.weekday = extract(dow from (${newStart.toISOString()}::timestamptz at time zone 'Europe/Stockholm'))::int
-            and ss.start_time <= (${newStart.toISOString()}::timestamptz at time zone 'Europe/Stockholm')::time
-            and ss.end_time >= (${newEnd.toISOString()}::timestamptz at time zone 'Europe/Stockholm')::time
-            and (${newStart.toISOString()}::timestamptz at time zone 'Europe/Stockholm')::date = (${newEnd.toISOString()}::timestamptz at time zone 'Europe/Stockholm')::date
+            and ss.weekday = extract(dow from (${newStart.toISOString()}::timestamptz at time zone ${timeZone}))::int
+            and ss.start_time <= (${newStart.toISOString()}::timestamptz at time zone ${timeZone})::time
+            and ss.end_time >= (${newEnd.toISOString()}::timestamptz at time zone ${timeZone})::time
+            and (${newStart.toISOString()}::timestamptz at time zone ${timeZone})::date = (${newEnd.toISOString()}::timestamptz at time zone ${timeZone})::date
         ) as inside_schedule,
         exists(
           select 1 from workspace_staff_time_off t
@@ -169,7 +177,7 @@ export async function moveDashboardCalendarBooking(input: {
   }
 
   const changed = oldStart.getTime() !== newStart.getTime() || String(booking.staff_id ?? "") !== staffId;
-  if (!changed) return { workspaceName: access.workspaceName, notification: null };
+  if (!changed) return { workspaceName: access.workspaceName, timeZone, notification: null };
 
   const updated = await sql`
     update bookings
@@ -207,6 +215,7 @@ export async function moveDashboardCalendarBooking(input: {
 
   return {
     workspaceName: access.workspaceName,
+    timeZone,
     notification: {
       customerName: String(booking.customer_name ?? "Kund"),
       customerEmail: String(booking.customer_email ?? ""),

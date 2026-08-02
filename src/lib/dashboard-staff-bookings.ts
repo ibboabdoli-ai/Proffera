@@ -2,6 +2,7 @@ import "server-only";
 
 import { neon } from "@neondatabase/serverless";
 
+import { resolveBookingTimeZone } from "@/lib/public-booking-policy";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 const connectionString =
@@ -76,6 +77,13 @@ export async function getStaffBookingAssignments(): Promise<StaffBookingAssignme
 export async function assignStaffToBooking(bookingId: string, staffId: string) {
   const access = await requireManager();
   const sql = neon(connectionString!);
+  const marketRows = await sql`
+    select time_zone
+    from workspace_settings
+    where workspace_id = ${access.workspaceId}
+    limit 1
+  `;
+  const timeZone = resolveBookingTimeZone(marketRows[0]?.time_zone);
 
   if (staffId) {
     const staffRows = await sql`
@@ -119,10 +127,10 @@ export async function assignStaffToBooking(bookingId: string, staffId: string) {
           where ss.workspace_id = ${access.workspaceId}
             and ss.staff_id = ${staffId}::uuid
             and ss.is_active = true
-            and ss.weekday = extract(dow from (${startsAt}::timestamptz at time zone 'Europe/Stockholm'))::int
-            and ss.start_time <= (${startsAt}::timestamptz at time zone 'Europe/Stockholm')::time
-            and ss.end_time >= (${endsAt}::timestamptz at time zone 'Europe/Stockholm')::time
-            and (${startsAt}::timestamptz at time zone 'Europe/Stockholm')::date = (${endsAt}::timestamptz at time zone 'Europe/Stockholm')::date
+            and ss.weekday = extract(dow from (${startsAt}::timestamptz at time zone ${timeZone}))::int
+            and ss.start_time <= (${startsAt}::timestamptz at time zone ${timeZone})::time
+            and ss.end_time >= (${endsAt}::timestamptz at time zone ${timeZone})::time
+            and (${startsAt}::timestamptz at time zone ${timeZone})::date = (${endsAt}::timestamptz at time zone ${timeZone})::date
         ) as inside_schedule,
         exists(
           select 1

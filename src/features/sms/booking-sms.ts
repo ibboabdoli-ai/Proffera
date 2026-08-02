@@ -1,3 +1,5 @@
+import type { WorkspaceTimeZone } from "@/lib/workspace-market";
+
 type SendBookingOwnerSmsInput = {
   ownerPhone: string;
   companyName: string;
@@ -5,6 +7,7 @@ type SendBookingOwnerSmsInput = {
   customerPhone: string;
   service: string;
   startsAt: string;
+  timeZone?: WorkspaceTimeZone;
 };
 
 type SendBookingCustomerSmsInput = {
@@ -14,6 +17,7 @@ type SendBookingCustomerSmsInput = {
   service: string;
   startsAt: string;
   previousStartsAt?: string;
+  timeZone?: WorkspaceTimeZone;
 };
 
 type BrevoSmsResponse = {
@@ -22,17 +26,18 @@ type BrevoSmsResponse = {
   message?: string;
 };
 
-function normalizeSwedishPhone(value: string) {
+function normalizeInternationalPhone(value: string) {
   const compact = value.replace(/[^\d+]/g, "");
-  if (/^\+46\d{7,12}$/.test(compact)) return compact;
-  if (/^0046\d{7,12}$/.test(compact)) return `+${compact.slice(2)}`;
+  if (/^\+[1-9]\d{6,14}$/.test(compact)) return compact;
+  if (/^00[1-9]\d{6,14}$/.test(compact)) return `+${compact.slice(2)}`;
+  // Keep local Swedish entry convenient for the existing Swedish businesses.
   if (/^0\d{7,12}$/.test(compact)) return `+46${compact.slice(1)}`;
   return null;
 }
 
-function formatStockholmDate(value: string) {
+function formatBookingDate(value: string, timeZone: WorkspaceTimeZone = "Europe/Stockholm") {
   return new Intl.DateTimeFormat("sv-SE", {
-    timeZone: "Europe/Stockholm",
+    timeZone,
     weekday: "short",
     day: "numeric",
     month: "short",
@@ -48,13 +53,13 @@ export async function sendBookingOwnerSms(input: SendBookingOwnerSmsInput) {
     return { ok: false as const, skipped: true as const, message: "Brevo SMS är inte aktiverat." };
   }
 
-  const recipient = normalizeSwedishPhone(input.ownerPhone);
+  const recipient = normalizeInternationalPhone(input.ownerPhone);
   if (!recipient) {
     return { ok: false as const, skipped: true as const, message: "Kontakttelefonen är ogiltig." };
   }
 
   const customerPhone = input.customerPhone.trim() || "telefon saknas";
-  const content = `Ny bokning hos ${input.companyName}. Kund: ${input.customerName}, tel: ${customerPhone}. ${input.service}, ${formatStockholmDate(input.startsAt)}. Öppna Proffera.`;
+  const content = `Ny bokning hos ${input.companyName}. Kund: ${input.customerName}, tel: ${customerPhone}. ${input.service}, ${formatBookingDate(input.startsAt, input.timeZone)}. Öppna Proffera.`;
 
   try {
     const response = await fetch("https://api.brevo.com/v3/transactionalSMS/sms", {
@@ -79,19 +84,19 @@ export async function sendBookingCustomerSms(input: SendBookingCustomerSmsInput)
     return { ok: false as const, skipped: true as const, message: "Brevo SMS är inte aktiverat." };
   }
 
-  const recipient = normalizeSwedishPhone(input.customerPhone);
+  const recipient = normalizeInternationalPhone(input.customerPhone);
   if (!recipient) {
     return { ok: false as const, skipped: true as const, message: "Kundens telefonnummer är ogiltigt." };
   }
 
   let content: string;
   if (input.status === "confirmed") {
-    content = `Din bokning hos ${input.companyName} är bekräftad: ${input.service}, ${formatStockholmDate(input.startsAt)}.`;
+    content = `Din bokning hos ${input.companyName} är bekräftad: ${input.service}, ${formatBookingDate(input.startsAt, input.timeZone)}.`;
   } else if (input.status === "cancelled") {
-    content = `Din bokning hos ${input.companyName} är avbokad: ${input.service}, ${formatStockholmDate(input.startsAt)}. Kontakta företaget för ny tid.`;
+    content = `Din bokning hos ${input.companyName} är avbokad: ${input.service}, ${formatBookingDate(input.startsAt, input.timeZone)}. Kontakta företaget för ny tid.`;
   } else {
-    const previous = input.previousStartsAt ? ` från ${formatStockholmDate(input.previousStartsAt)}` : "";
-    content = `Din bokning hos ${input.companyName} har flyttats${previous} till ${formatStockholmDate(input.startsAt)}: ${input.service}.`;
+    const previous = input.previousStartsAt ? ` från ${formatBookingDate(input.previousStartsAt, input.timeZone)}` : "";
+    content = `Din bokning hos ${input.companyName} har flyttats${previous} till ${formatBookingDate(input.startsAt, input.timeZone)}: ${input.service}.`;
   }
 
   try {

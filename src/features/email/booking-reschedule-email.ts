@@ -1,3 +1,5 @@
+import type { WorkspaceTimeZone } from "@/lib/workspace-market";
+
 type SendBookingRescheduleEmailInput = {
   customerName: string;
   customerEmail: string;
@@ -7,6 +9,7 @@ type SendBookingRescheduleEmailInput = {
   startsAt: string;
   endsAt: string;
   city: string;
+  timeZone?: WorkspaceTimeZone;
 };
 
 type BrevoResponse = {
@@ -30,11 +33,11 @@ function parseSender(value: string) {
   return { name: match[1].trim(), email: match[2].trim() };
 }
 
-function formatStockholmDate(value: string) {
+function formatBookingDate(value: string, timeZone: WorkspaceTimeZone = "Europe/Stockholm") {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return new Intl.DateTimeFormat("sv-SE", {
-    timeZone: "Europe/Stockholm",
+    timeZone,
     dateStyle: "full",
     timeStyle: "short",
   }).format(date);
@@ -45,9 +48,9 @@ export async function sendBookingRescheduleEmail(input: SendBookingRescheduleEma
   const from = process.env.LEAD_FROM_EMAIL;
   if (!apiKey || !from) return { ok: false as const, message: "Brevo är inte konfigurerat." };
 
-  const previousStart = formatStockholmDate(input.previousStartsAt);
-  const start = formatStockholmDate(input.startsAt);
-  const end = formatStockholmDate(input.endsAt);
+  const previousStart = formatBookingDate(input.previousStartsAt, input.timeZone);
+  const start = formatBookingDate(input.startsAt, input.timeZone);
+  const end = formatBookingDate(input.endsAt, input.timeZone);
   const subject = `Din bokning har flyttats – ${input.companyName}`;
   const text = [
     `Hej ${input.customerName},`,

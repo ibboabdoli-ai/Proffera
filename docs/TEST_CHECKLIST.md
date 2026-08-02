@@ -9,6 +9,26 @@
 - [x] `npm run build` passes.
 - [ ] Review `git diff --check` and confirm no secret is committed.
 
+## International B2B and tenant-isolation gate
+
+- [ ] Verify `20260801_0020_workspace_market_settings.sql` on a Neon temporary
+  branch, then apply it only after explicit migration approval.
+- [ ] Confirm existing Swedish workspaces retain `SE` / `Europe/Stockholm` /
+  `SEK`, and PrimeView is `GB` / `Europe/London` / `GBP` after migration.
+- [ ] In a Preview workspace, save Sweden, one supported EU country and the UK;
+  verify an invalid country/currency pairing is rejected server-side.
+- [ ] Create a public booking in a non-Stockholm workspace and verify the stored
+  UTC timestamp, visible time and notification time all match that workspace's
+  selected IANA zone, including a daylight-saving boundary.
+- [ ] Start a Checkout session, change the workspace market, then start again;
+  verify the old open Checkout session is expired and cannot be paid.
+- [ ] Verify billing address and VAT ID collection in Stripe Checkout. Do not
+  enable automatic tax without completed Stripe Tax registration review.
+- [ ] With designated test accounts, sign into two different workspaces and
+  confirm each sees only its own customers, bookings, leads and settings.
+- [ ] Confirm no customer, booking or event row remains in the retired `default`
+  workspace before declaring tenant isolation complete.
+
 ## Preview + Stripe Sandbox gate
 
 - [ ] Apply and verify `20260722_0012_public_form_safety.sql` in Preview.

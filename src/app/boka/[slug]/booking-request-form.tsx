@@ -5,12 +5,13 @@ import { ArrowRight, CalendarCheck, Scissors, UserCheck } from "lucide-react";
 
 import {
   addDaysToDateInput,
+  dateInputInTimeZone,
   getAvailableBookingTimes,
-  stockholmDateInput,
   type BookingAvailabilityBusyBooking,
   type BookingAvailabilityHour,
   type BookingAvailabilityService,
 } from "@/lib/public-booking-availability";
+import type { WorkspaceTimeZone } from "@/lib/workspace-market";
 
 type BookingService = BookingAvailabilityService & {
   name: string;
@@ -29,20 +30,26 @@ type BookingRequestFormProps = {
   services: BookingService[];
   bookingHours: BookingHour[];
   busyBookings: BusyBooking[];
+  timeZone: WorkspaceTimeZone;
   variant?: "default" | "salon";
 };
 
-export function BookingRequestForm({ action, slug, services, bookingHours, busyBookings, variant = "default" }: BookingRequestFormProps) {
+function weekdayForDate(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+}
+
+export function BookingRequestForm({ action, slug, services, bookingHours, busyBookings, timeZone, variant = "default" }: BookingRequestFormProps) {
   const [formStartedAt] = useState(() => Date.now());
   const [availabilityReferenceTimeMs, setAvailabilityReferenceTimeMs] = useState(formStartedAt);
-  const today = stockholmDateInput(new Date(availabilityReferenceTimeMs));
+  const today = dateInputInTimeZone(new Date(availabilityReferenceTimeMs), timeZone);
   const [serviceName, setServiceName] = useState("");
   const [date, setDate] = useState(today);
   const [time, setTime] = useState("");
 
   const selectedService = services.find((service) => service.name === serviceName);
   const maximumDate = selectedService ? addDaysToDateInput(today, selectedService.maximumAdvanceDays) : undefined;
-  const day = new Date(`${date}T12:00:00`).getDay();
+  const day = weekdayForDate(date);
   const selectedHours = bookingHours.find((hour) => hour.weekday === day);
 
   const availableTimes = useMemo(() => {
@@ -53,8 +60,9 @@ export function BookingRequestForm({ action, slug, services, bookingHours, busyB
       hours: selectedHours,
       busyBookings,
       referenceTimeMs: availabilityReferenceTimeMs,
+      timeZone,
     });
-  }, [availabilityReferenceTimeMs, busyBookings, date, selectedHours, selectedService]);
+  }, [availabilityReferenceTimeMs, busyBookings, date, selectedHours, selectedService, timeZone]);
 
   useEffect(() => {
     const refreshAvailability = () => setAvailabilityReferenceTimeMs(Date.now());

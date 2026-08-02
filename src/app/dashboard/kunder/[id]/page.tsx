@@ -11,8 +11,6 @@ import { hasDashboardModuleAccess } from "@/lib/workspace-module-access";
 export const dynamic = "force-dynamic";
 
 const connectionString = process.env.DATABASE_URL ?? process.env.POSTGRES_URL ?? process.env.POSTGRES_PRISMA_URL ?? process.env.POSTGRES_URL_NON_POOLING;
-const LEGACY_WORKSPACE_ID = "__legacy_workspace_access_disabled__";
-
 type Locale = "sv" | "en";
 type ErrorKey = "access" | "disabled" | "title" | "note" | "save";
 type CustomerDetailPageProps = {
@@ -73,7 +71,7 @@ async function createCustomerNoteAction(customerId: string, formData: FormData) 
       insert into customer_events (workspace_id, customer_id, booking_id, event_type, title, description, metadata)
       select workspace_id, id, null, 'note', ${title}, ${note}, jsonb_build_object('source', 'dashboard_manual')
       from customers
-      where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID}) and id = ${customerId}
+      where workspace_id = ${workspaceId} and id = ${customerId}
       returning id
     `;
     if (!rows[0]?.id) redirectWithNoteError(customerId, "save", locale);

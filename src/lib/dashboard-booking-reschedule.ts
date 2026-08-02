@@ -2,7 +2,7 @@ import "server-only";
 
 import { neon } from "@neondatabase/serverless";
 
-import { parseLocalDateTime, stockholmDateToUtc, isValidStockholmLocalTime } from "@/lib/public-booking-policy";
+import { isValidLocalTime, localDateTimeToUtc, parseLocalDateTime, resolveBookingTimeZone } from "@/lib/public-booking-policy";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 const connectionString =
@@ -10,8 +10,6 @@ const connectionString =
   process.env.POSTGRES_URL ??
   process.env.POSTGRES_PRISMA_URL ??
   process.env.POSTGRES_URL_NON_POOLING;
-
-const LEGACY_WORKSPACE_ID = "__legacy_workspace_access_disabled__";
 
 export class BookingRescheduleValidationError extends Error {
   constructor(public readonly code: "time" | "past" | "conflict" | "status") {
@@ -22,6 +20,7 @@ export class BookingRescheduleValidationError extends Error {
 
 export type BookingRescheduleResult = {
   changed: boolean;
+  timeZone: ReturnType<typeof resolveBookingTimeZone>;
   notification: {
     customerName: string;
     customerEmail: string;
@@ -47,16 +46,23 @@ export async function rescheduleDashboardBooking(
     throw new Error("An owner or admin workspace membership is required for booking updates");
   }
 
+  const sql = neon(connectionString);
+  const marketRows = await sql`
+    select time_zone
+    from workspace_settings
+    where workspace_id = ${access.workspaceId}
+    limit 1
+  `;
+  const timeZone = resolveBookingTimeZone(marketRows[0]?.time_zone);
   const localStart = parseLocalDateTime(localStartsAt);
   if (!localStart) throw new BookingRescheduleValidationError("time");
 
-  const newStart = stockholmDateToUtc(localStart);
-  if (!isValidStockholmLocalTime(localStart, newStart) || Number.isNaN(newStart.getTime())) {
+  const newStart = localDateTimeToUtc(localStart, timeZone);
+  if (!isValidLocalTime(localStart, newStart, timeZone) || Number.isNaN(newStart.getTime())) {
     throw new BookingRescheduleValidationError("time");
   }
   if (newStart <= new Date()) throw new BookingRescheduleValidationError("past");
 
-  const sql = neon(connectionString);
   const existingRows = await sql`
     select
       b.id,
@@ -73,7 +79,7 @@ export async function rescheduleDashboardBooking(
       c.phone as customer_phone
     from bookings b
     left join customers c on c.id = b.customer_id
-    where b.workspace_id in (${access.workspaceId}, ${LEGACY_WORKSPACE_ID})
+    where b.workspace_id = ${access.workspaceId}
       and b.id = ${bookingId}
     limit 1
   `;
@@ -95,7 +101,7 @@ export async function rescheduleDashboardBooking(
   const conflicts = await sql`
     select id
     from bookings
-    where workspace_id in (${access.workspaceId}, ${LEGACY_WORKSPACE_ID})
+    where workspace_id = ${access.workspaceId}
       and id <> ${bookingId}
       and status not in ('cancelled', 'no_show')
       and starts_at is not null
@@ -121,10 +127,10 @@ export async function rescheduleDashboardBooking(
           where ss.workspace_id = ${access.workspaceId}
             and ss.staff_id = ${staffId}::uuid
             and ss.is_active = true
-            and ss.weekday = extract(dow from (${newStart.toISOString()}::timestamptz at time zone 'Europe/Stockholm'))::int
-            and ss.start_time <= (${newStart.toISOString()}::timestamptz at time zone 'Europe/Stockholm')::time
-            and ss.end_time >= (${newEnd.toISOString()}::timestamptz at time zone 'Europe/Stockholm')::time
-            and (${newStart.toISOString()}::timestamptz at time zone 'Europe/Stockholm')::date = (${newEnd.toISOString()}::timestamptz at time zone 'Europe/Stockholm')::date
+            and ss.weekday = extract(dow from (${newStart.toISOString()}::timestamptz at time zone ${timeZone}))::int
+            and ss.start_time <= (${newStart.toISOString()}::timestamptz at time zone ${timeZone})::time
+            and ss.end_time >= (${newEnd.toISOString()}::timestamptz at time zone ${timeZone})::time
+            and (${newStart.toISOString()}::timestamptz at time zone ${timeZone})::date = (${newEnd.toISOString()}::timestamptz at time zone ${timeZone})::date
         ) as inside_schedule,
         exists(
           select 1 from workspace_staff_time_off t
@@ -141,14 +147,14 @@ export async function rescheduleDashboardBooking(
   }
 
   const changed = oldStart.getTime() !== newStart.getTime();
-  if (!changed) return { changed: false, notification: null };
+  if (!changed) return { changed: false, timeZone, notification: null };
 
   await sql`
     update bookings
     set starts_at = ${newStart.toISOString()}::timestamptz,
         ends_at = ${newEnd.toISOString()}::timestamptz,
         updated_at = now()
-    where workspace_id in (${access.workspaceId}, ${LEGACY_WORKSPACE_ID})
+    where workspace_id = ${access.workspaceId}
       and id = ${bookingId}
   `;
 
@@ -181,6 +187,7 @@ export async function rescheduleDashboardBooking(
 
   return {
     changed: true,
+    timeZone,
     notification: {
       customerName: String(existing.customer_name ?? "Kund"),
       customerEmail: String(existing.customer_email ?? ""),

@@ -2,7 +2,7 @@ import "server-only";
 
 import { neon } from "@neondatabase/serverless";
 
-import { isValidStockholmLocalTime, parseLocalDateTime, stockholmDateToUtc } from "@/lib/public-booking-policy";
+import { isValidLocalTime, localDateTimeToUtc, parseLocalDateTime, resolveBookingTimeZone } from "@/lib/public-booking-policy";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 const connectionString =
@@ -37,6 +37,16 @@ async function requireWorkspaceAccess() {
 
 function normalizeReason(value: string) {
   return value.trim().slice(0, 180) || "Blockerad tid";
+}
+
+async function getWorkspaceTimeZone(sql: SqlClient, workspaceId: string) {
+  const rows = await sql`
+    select time_zone
+    from workspace_settings
+    where workspace_id = ${workspaceId}
+    limit 1
+  `;
+  return resolveBookingTimeZone(rows[0]?.time_zone);
 }
 
 async function hasConflict(
@@ -101,15 +111,17 @@ export async function createDashboardAvailabilityBlock(input: {
   reason: string;
 }) {
   const access = await requireWorkspaceAccess();
+  const sql = createSqlClient();
+  const timeZone = await getWorkspaceTimeZone(sql, access.workspaceId);
   const startParts = parseLocalDateTime(input.localStartsAt);
   const endParts = parseLocalDateTime(input.localEndsAt);
   if (!startParts || !endParts) throw new AvailabilityBlockValidationError("time");
 
-  const startsAt = stockholmDateToUtc(startParts);
-  const endsAt = stockholmDateToUtc(endParts);
+  const startsAt = localDateTimeToUtc(startParts, timeZone);
+  const endsAt = localDateTimeToUtc(endParts, timeZone);
   if (
-    !isValidStockholmLocalTime(startParts, startsAt) ||
-    !isValidStockholmLocalTime(endParts, endsAt) ||
+    !isValidLocalTime(startParts, startsAt, timeZone) ||
+    !isValidLocalTime(endParts, endsAt, timeZone) ||
     Number.isNaN(startsAt.getTime()) ||
     Number.isNaN(endsAt.getTime())
   ) {
@@ -122,7 +134,6 @@ export async function createDashboardAvailabilityBlock(input: {
   }
 
   const reason = normalizeReason(input.reason);
-  const sql = createSqlClient();
   if (await hasConflict(sql, access.workspaceId, startsAt, endsAt)) {
     throw new AvailabilityBlockValidationError("conflict");
   }
@@ -140,6 +151,8 @@ export async function createDashboardRecurringAvailabilityBlocks(input: {
   reason: string;
 }) {
   const access = await requireWorkspaceAccess();
+  const sql = createSqlClient();
+  const timeZone = await getWorkspaceTimeZone(sql, access.workspaceId);
   const datePattern = /^\d{4}-\d{2}-\d{2}$/;
   const timePattern = /^([01]\d|2[0-3]):[0-5]\d$/;
   if (
@@ -170,11 +183,11 @@ export async function createDashboardRecurringAvailabilityBlocks(input: {
     const endParts = parseLocalDateTime(`${date}T${input.endTime}`);
     if (!startParts || !endParts) throw new AvailabilityBlockValidationError("time");
 
-    const startsAt = stockholmDateToUtc(startParts);
-    const endsAt = stockholmDateToUtc(endParts);
+    const startsAt = localDateTimeToUtc(startParts, timeZone);
+    const endsAt = localDateTimeToUtc(endParts, timeZone);
     if (
-      !isValidStockholmLocalTime(startParts, startsAt) ||
-      !isValidStockholmLocalTime(endParts, endsAt) ||
+      !isValidLocalTime(startParts, startsAt, timeZone) ||
+      !isValidLocalTime(endParts, endsAt, timeZone) ||
       Number.isNaN(startsAt.getTime()) ||
       Number.isNaN(endsAt.getTime())
     ) {
@@ -188,7 +201,6 @@ export async function createDashboardRecurringAvailabilityBlocks(input: {
   if (occurrences.length > 366) throw new AvailabilityBlockValidationError("range");
 
   const reason = normalizeReason(input.reason);
-  const sql = createSqlClient();
   const rows = await sql`
     with requested as (
       select

@@ -6,6 +6,7 @@ import { DashboardLocaleBoundary } from "@/components/dashboard/dashboard-locale
 import { DashboardPageHeader } from "@/components/dashboard/dashboard-page-ui";
 import { getDashboardStaff } from "@/lib/dashboard-staff";
 import { assignStaffToBooking, getStaffBookingAssignments } from "@/lib/dashboard-staff-bookings";
+import { getDashboardWorkspaceSettings } from "@/lib/workspace-settings-db";
 
 export const dynamic = "force-dynamic";
 
@@ -13,9 +14,9 @@ function localizedHref(href: string, isEnglish: boolean) {
   return isEnglish ? `${href}${href.includes("?") ? "&" : "?"}lang=en` : href;
 }
 
-function formatStockholm(value: string, isEnglish: boolean) {
+function formatWorkspaceTime(value: string, isEnglish: boolean, timeZone: string) {
   return new Intl.DateTimeFormat(isEnglish ? "en-GB" : "sv-SE", {
-    timeZone: "Europe/Stockholm",
+    timeZone,
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
@@ -36,7 +37,7 @@ async function assignStaffAction(formData: FormData) {
 }
 
 export default async function StaffBookingAssignmentPage({ searchParams }: { searchParams?: Promise<{ updated?: string; error?: string; lang?: string | string[] }> }) {
-  const [staff, bookings, query] = await Promise.all([getDashboardStaff(), getStaffBookingAssignments(), searchParams ?? Promise.resolve(undefined)]);
+  const [staff, bookings, workspaceSettings, query] = await Promise.all([getDashboardStaff(), getStaffBookingAssignments(), getDashboardWorkspaceSettings(), searchParams ?? Promise.resolve(undefined)]);
   const lang = Array.isArray(query?.lang) ? query.lang[0] : query?.lang;
   const isEnglish = lang === "en";
   const activeStaff = staff.filter((member) => member.isActive);
@@ -60,7 +61,7 @@ export default async function StaffBookingAssignmentPage({ searchParams }: { sea
           <div className="mt-5 grid gap-3">
             {bookings.length ? bookings.map((booking) => (
               <article key={booking.id} className="grid gap-4 rounded-2xl border border-[#e2e7df] p-4 lg:grid-cols-[1fr_320px] lg:items-center">
-                <div><div className="flex flex-wrap items-center gap-2"><Link href={localizedHref(`/dashboard/bokningar/${booking.id}`, isEnglish)} className="font-bold text-[#17201a] hover:underline">{booking.customerName}</Link><span className="rounded-full bg-[#f1f3ef] px-2.5 py-1 text-xs font-bold text-[#566159]">{booking.status}</span></div><p className="mt-1 text-sm text-[#5b665f]">{booking.service}</p><p className="mt-2 text-xs font-semibold text-[#6b766e]">{formatStockholm(booking.startsAt, isEnglish)} – {formatStockholm(booking.endsAt, isEnglish)}</p><p className="mt-1 text-xs text-[#6b766e]">{isEnglish ? "Current" : "Nuvarande"}: {booking.staffName || (isEnglish ? "No staff member" : "Ingen medarbetare")}</p></div>
+                <div><div className="flex flex-wrap items-center gap-2"><Link href={localizedHref(`/dashboard/bokningar/${booking.id}`, isEnglish)} className="font-bold text-[#17201a] hover:underline">{booking.customerName}</Link><span className="rounded-full bg-[#f1f3ef] px-2.5 py-1 text-xs font-bold text-[#566159]">{booking.status}</span></div><p className="mt-1 text-sm text-[#5b665f]">{booking.service}</p><p className="mt-2 text-xs font-semibold text-[#6b766e]">{formatWorkspaceTime(booking.startsAt, isEnglish, workspaceSettings.timeZone)} – {formatWorkspaceTime(booking.endsAt, isEnglish, workspaceSettings.timeZone)}</p><p className="mt-1 text-xs text-[#6b766e]">{isEnglish ? "Current" : "Nuvarande"}: {booking.staffName || (isEnglish ? "No staff member" : "Ingen medarbetare")}</p></div>
                 <form action={assignStaffAction} className="flex flex-col gap-2 sm:flex-row"><input type="hidden" name="lang" value={isEnglish ? "en" : "sv"}/><input type="hidden" name="booking_id" value={booking.id}/><select name="staff_id" defaultValue={booking.staffId} className="min-h-11 flex-1 rounded-xl border border-[#d9e1d7] bg-white px-3 text-sm font-semibold text-[#17201a]"><option value="">{isEnglish ? "No staff member" : "Ingen medarbetare"}</option>{activeStaff.map((member) => <option key={member.id} value={member.id}>{member.name}{member.roleLabel ? ` · ${member.roleLabel}` : ""}</option>)}</select><button type="submit" className="min-h-11 rounded-xl bg-[#173e2b] px-4 text-sm font-bold text-white">{isEnglish ? "Save" : "Spara"}</button></form>
               </article>
             )) : <p className="rounded-2xl border border-dashed border-[#ced8cc] bg-[#f7f9f6] p-6 text-sm text-[#667168]">{isEnglish ? "No bookings to assign." : "Inga bokningar att fördela."}</p>}

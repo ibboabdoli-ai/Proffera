@@ -10,8 +10,6 @@ const connectionString =
   process.env.POSTGRES_PRISMA_URL ??
   process.env.POSTGRES_URL_NON_POOLING;
 
-const LEGACY_WORKSPACE_ID = "__legacy_workspace_access_disabled__";
-
 function getSqlClient() {
   if (!connectionString) {
     return null;
@@ -103,9 +101,9 @@ export async function getDashboardLeads(): Promise<DashboardLead[]> {
         primary_service_slug,
         created_at
       from customers
-      where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})
+      where workspace_id = ${workspaceId}
         and status = 'prospect'
-      order by case when workspace_id = ${workspaceId} then 0 else 1 end, created_at desc
+      order by created_at desc
       limit 50
     `;
 
