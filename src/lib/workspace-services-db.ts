@@ -2,6 +2,7 @@ import "server-only";
 
 import { neon } from "@neondatabase/serverless";
 
+import { isWorkspaceServicePriceType, type WorkspaceServicePriceType } from "@/lib/workspace-service-pricing";
 import { getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 const connectionString =
@@ -46,6 +47,10 @@ function toNumber(value: unknown) {
   return Number.isFinite(parsedValue) ? parsedValue : null;
 }
 
+function toPriceType(value: unknown): WorkspaceServicePriceType | null {
+  return isWorkspaceServicePriceType(value) ? value : null;
+}
+
 function toBoolean(value: unknown, fallback = false) {
   if (typeof value === "boolean") {
     return value;
@@ -65,6 +70,8 @@ export type DashboardWorkspaceService = {
   description: string;
   category: string;
   priceLabel: string;
+  priceType: WorkspaceServicePriceType | null;
+  priceAmountMinor: number | null;
   basePriceSek: number | null;
   durationMinutes: number | null;
   bufferBeforeMinutes: number;
@@ -113,6 +120,8 @@ export async function getDashboardWorkspaceServices(): Promise<DashboardWorkspac
         description,
         category,
         price_label,
+        price_type,
+        price_amount_minor,
         base_price_sek,
         duration_minutes,
         buffer_before_minutes,
@@ -134,6 +143,8 @@ export async function getDashboardWorkspaceServices(): Promise<DashboardWorkspac
       description: toText(row.description),
       category: toText(row.category),
       priceLabel: toText(row.price_label),
+      priceType: toPriceType(row.price_type),
+      priceAmountMinor: toNumber(row.price_amount_minor),
       basePriceSek: toNumber(row.base_price_sek),
       durationMinutes: toNumber(row.duration_minutes),
       bufferBeforeMinutes: toNumber(row.buffer_before_minutes) ?? 0,
