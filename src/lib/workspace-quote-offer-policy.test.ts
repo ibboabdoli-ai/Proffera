@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   calculateQuoteOfferTotals,
+  canEditWorkspaceQuoteOffer,
   canTransitionWorkspaceQuoteOffer,
   isWorkspaceQuoteOfferStatus,
   workspaceQuoteOfferStatuses,
@@ -13,6 +14,13 @@ describe("workspace quote offer policy", () => {
       expect(isWorkspaceQuoteOfferStatus(status)).toBe(true);
     }
     expect(isWorkspaceQuoteOfferStatus("reviewing")).toBe(false);
+  });
+
+  it("allows editing only while the offer is a draft", () => {
+    expect(canEditWorkspaceQuoteOffer("draft")).toBe(true);
+    for (const status of workspaceQuoteOfferStatuses.filter((status) => status !== "draft")) {
+      expect(canEditWorkspaceQuoteOffer(status)).toBe(false);
+    }
   });
 
   it.each([
