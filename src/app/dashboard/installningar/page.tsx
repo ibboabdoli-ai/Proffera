@@ -177,7 +177,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         canManage={canManageWorkspaceMembers(access)}
         checkoutConfigured={isStripeCheckoutConfigured()}
         testMode={isStripeTestMode()}
-        checkoutPlans={getStripeCheckoutPlanOptions()}
+        checkoutPlans={getStripeCheckoutPlanOptions(workspaceSettings.billingCurrency, isEnglish ? "en" : "sv")}
         preferredPlanKey={preferredPlanKey}
         billingCurrency={workspaceSettings.billingCurrency}
         timeZone={workspaceSettings.timeZone}

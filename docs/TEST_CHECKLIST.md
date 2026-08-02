@@ -29,6 +29,16 @@
 - [ ] Confirm no customer, booking or event row remains in the retired `default`
   workspace before declaring tenant isolation complete.
 
+## Live Stripe local-currency configuration (2026-08-02)
+
+- [x] Read back the two live recurring Prices: Starter is `299 SEK` / `€28` /
+  `£24` monthly; Professional is `699 SEK` / `€64` / `£55` monthly. All
+  currency options use `inclusive` tax behaviour.
+- [x] Confirmed that the Stripe account had zero subscriptions before the
+  currency options were added; no existing customer renewal was changed.
+- [ ] Open, but do not complete, a Checkout Session from Sweden, an EU country
+  and the UK to confirm Stripe presents the matching currency option.
+
 ## Preview + Stripe Sandbox gate
 
 - [ ] Apply and verify `20260722_0012_public_form_safety.sql` in Preview.

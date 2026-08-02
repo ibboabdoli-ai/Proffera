@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { checkoutPlanDefinitions, isCheckoutPlanKey } from "../src/lib/billing-plans";
+import {
+  checkoutPlanDefinitions,
+  getCheckoutPlanPriceLabel,
+  isCheckoutPlanKey,
+} from "../src/lib/billing-plans";
 
 describe("checkout plans", () => {
   it("only accepts plans that have a defined checkout entitlement", () => {
@@ -13,5 +17,11 @@ describe("checkout plans", () => {
   it("keeps the paid plan definitions explicit", () => {
     expect(checkoutPlanDefinitions.starter.name).toBe("Starter");
     expect(checkoutPlanDefinitions.professional.name).toBe("Professional");
+  });
+
+  it("shows the matching live Stripe currency option for each B2B market", () => {
+    expect(getCheckoutPlanPriceLabel("starter", "SEK", "sv")).toBe("Från 299 kr/mån");
+    expect(getCheckoutPlanPriceLabel("starter", "EUR", "en")).toBe("From €28/month");
+    expect(getCheckoutPlanPriceLabel("professional", "GBP", "en")).toBe("From £55/month");
   });
 });
