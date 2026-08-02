@@ -17,3 +17,7 @@ export function hashPublicWorkspaceQuoteOfferToken(token: string) {
 export function publicWorkspaceQuoteOfferPath(token: string) {
   return `/offert/${encodeURIComponent(token)}`;
 }
+
+export function publicWorkspaceQuoteOfferPdfPath(token: string) {
+  return `${publicWorkspaceQuoteOfferPath(token)}/pdf`;
+}
