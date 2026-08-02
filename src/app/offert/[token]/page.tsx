@@ -1,10 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { CheckCircle2, FileText, ShieldCheck, XCircle } from "lucide-react";
+import { CheckCircle2, Download, FileText, ShieldCheck, XCircle } from "lucide-react";
 
 import { respondToPublicQuoteOfferAction } from "./actions";
 import { getPublicWorkspaceQuoteOffer } from "@/lib/workspace-quote-offers-db";
-import { publicWorkspaceQuoteOfferPath } from "@/lib/workspace-quote-offer-public";
+import {
+  publicWorkspaceQuoteOfferPath,
+  publicWorkspaceQuoteOfferPdfPath,
+} from "@/lib/workspace-quote-offer-public";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +32,7 @@ const copy = {
     vat: "Moms",
     total: "Totalt",
     terms: "Villkor",
+    downloadPdf: "Ladda ner PDF",
     accept: "Acceptera offert",
     reject: "Tacka nej",
     accepted: "Offerten är accepterad",
@@ -52,6 +56,7 @@ const copy = {
     vat: "VAT",
     total: "Total",
     terms: "Terms",
+    downloadPdf: "Download PDF",
     accept: "Accept quote",
     reject: "Decline quote",
     accepted: "Quote accepted",
@@ -70,6 +75,11 @@ function localeFrom(value: string | string[] | undefined): Locale {
 
 function publicHref(token: string, locale: Locale) {
   const base = publicWorkspaceQuoteOfferPath(token);
+  return locale === "en" ? `${base}?lang=en` : base;
+}
+
+function pdfHref(token: string, locale: Locale) {
+  const base = publicWorkspaceQuoteOfferPdfPath(token);
   return locale === "en" ? `${base}?lang=en` : base;
 }
 
@@ -136,6 +146,8 @@ export default async function PublicQuoteOfferPage({
           <article className="rounded-2xl border border-[#dce5da] bg-[#fafcf9] p-5 sm:p-6"><div className="flex items-start gap-3"><FileText className="mt-0.5 h-6 w-6 shrink-0 text-[#17452f]" aria-hidden="true" /><div><h2 className="text-xl font-bold">{offer.title}</h2>{offer.terms ? <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-[#4d5b52]">{offer.terms}</p> : null}</div></div></article>
 
           <dl className="grid gap-4 rounded-2xl border border-[#dce5da] p-5 text-sm sm:grid-cols-3"><div><dt className="font-bold uppercase tracking-wide text-[#6b776d]">{text.subtotal}</dt><dd className="mt-2">{formatMoney(offer.subtotalMinor, offer.currency, locale)}</dd></div><div><dt className="font-bold uppercase tracking-wide text-[#6b776d]">{text.vat} ({offer.vatRateBasisPoints / 100}%)</dt><dd className="mt-2">{formatMoney(offer.vatAmountMinor, offer.currency, locale)}</dd></div><div><dt className="font-bold uppercase tracking-wide text-[#6b776d]">{text.total}</dt><dd className="mt-2 text-xl font-extrabold text-[#173e2b]">{formatMoney(offer.totalMinor, offer.currency, locale)}</dd></div></dl>
+
+          <Link href={pdfHref(token, locale)} prefetch={false} className="inline-flex min-h-11 w-fit items-center justify-center gap-2 rounded-xl border border-[#bfd0c0] bg-white px-4 py-2.5 text-sm font-bold text-[#17452f] transition hover:bg-[#f2f7f2]"><Download className="h-4 w-4" aria-hidden="true" />{text.downloadPdf}</Link>
 
           {isOpen ? (
             <div className="grid gap-3 sm:grid-cols-2"><form action={action}><input type="hidden" name="decision" value="accepted" /><input type="hidden" name="lang" value={locale} /><button type="submit" className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#17452f] px-5 py-3 text-sm font-bold text-white transition hover:bg-[#103822]"><CheckCircle2 className="h-5 w-5" aria-hidden="true" />{text.accept}</button></form><form action={action}><input type="hidden" name="decision" value="rejected" /><input type="hidden" name="lang" value={locale} /><button type="submit" className="inline-flex min-h-12 w-full items-center justify-center rounded-xl border border-[#d3a39d] bg-white px-5 py-3 text-sm font-bold text-[#8a2b20] transition hover:bg-[#fff7f5]"><XCircle className="h-5 w-5" aria-hidden="true" />{text.reject}</button></form></div>
