@@ -79,8 +79,11 @@ export async function updateDashboardBookingStatus(
         b.status as old_status,
         b.service,
         b.city,
+        b.title,
+        b.notes,
         b.starts_at,
         b.ends_at,
+        b.staff_id,
         c.name as customer_name,
         c.email as customer_email,
         c.phone as customer_phone
@@ -103,6 +106,120 @@ export async function updateDashboardBookingStatus(
         customer_id,
         status as new_status
     ),
+    created_job as (
+      insert into workspace_service_jobs (
+        workspace_id,
+        source_type,
+        booking_id,
+        customer_id,
+        assigned_staff_id,
+        status,
+        title,
+        description,
+        service_name,
+        city,
+        scheduled_starts_at,
+        scheduled_ends_at
+      )
+      select
+        ${workspaceId}::uuid,
+        'booking',
+        updated_booking.id,
+        updated_booking.customer_id,
+        existing_booking.staff_id,
+        case when existing_booking.staff_id is null then 'new' else 'assigned' end,
+        existing_booking.title,
+        coalesce(existing_booking.notes, ''),
+        existing_booking.service,
+        existing_booking.city,
+        existing_booking.starts_at,
+        existing_booking.ends_at
+      from updated_booking
+      join existing_booking on existing_booking.id = updated_booking.id
+      where updated_booking.new_status = 'confirmed'
+      on conflict (booking_id) where booking_id is not null do nothing
+      returning id, workspace_id, booking_id, status
+    ),
+    created_job_event as (
+      insert into workspace_service_job_events (
+        workspace_id, service_job_id, event_type, to_status, summary, metadata
+      )
+      select
+        workspace_id,
+        id,
+        'created',
+        status,
+        'Service job created from confirmed booking.',
+        jsonb_build_object('source', 'confirmed_booking', 'booking_id', booking_id)
+      from created_job
+      returning id
+    ),
+    source_job_candidate as (
+      select
+        job.id,
+        job.workspace_id,
+        job.status as old_status,
+        updated_booking.new_status as booking_status
+      from workspace_service_jobs job
+      join updated_booking on job.booking_id = updated_booking.id
+      where job.workspace_id = ${workspaceId}::uuid
+        and updated_booking.new_status in ('completed', 'cancelled')
+        and job.status not in ('completed', 'cancelled')
+    ),
+    source_job_sync as (
+      update workspace_service_jobs job
+      set
+        status = case when source_job_candidate.booking_status = 'completed' then 'completed' else 'cancelled' end,
+        completion_summary = case when source_job_candidate.booking_status = 'completed' then 'Booking source marked completed.' else job.completion_summary end,
+        completed_at = case when source_job_candidate.booking_status = 'completed' then now() else job.completed_at end,
+        cancelled_at = case when source_job_candidate.booking_status = 'cancelled' then now() else job.cancelled_at end,
+        updated_at = now()
+      from source_job_candidate
+      where job.id = source_job_candidate.id
+        and job.workspace_id = source_job_candidate.workspace_id
+      returning job.id, job.workspace_id, source_job_candidate.old_status, job.status as new_status, source_job_candidate.booking_status
+    ),
+    source_job_event as (
+      insert into workspace_service_job_events (
+        workspace_id, service_job_id, event_type, from_status, to_status, summary, metadata
+      )
+      select
+        workspace_id,
+        id,
+        'status_changed',
+        old_status,
+        new_status,
+        'Service job synchronized with its booking source.',
+        jsonb_build_object('source', 'booking_status_change', 'booking_status', booking_status)
+      from source_job_sync
+      returning id
+    ),
+    source_completion_evidence as (
+      insert into workspace_service_job_completion_evidence (
+        workspace_id, service_job_id, evidence_type, description
+      )
+      select
+        workspace_id,
+        id,
+        'note',
+        'Booking source marked completed.'
+      from source_job_sync
+      where booking_status = 'completed'
+      returning id, workspace_id, service_job_id
+    ),
+    source_evidence_event as (
+      insert into workspace_service_job_events (
+        workspace_id, service_job_id, event_type, summary, metadata
+      )
+      select
+        workspace_id,
+        service_job_id,
+        'completion_evidence_added',
+        'Completion evidence recorded from booking source.',
+        jsonb_build_object('source', 'booking_status_change')
+      from source_completion_evidence
+      returning id
+    ),
     inserted_event as (
       insert into customer_events (
         workspace_id,
@@ -123,7 +240,8 @@ export async function updateDashboardBookingStatus(
         jsonb_build_object(
           'source', 'dashboard_manual',
           'old_status', existing_booking.old_status,
-          'new_status', updated_booking.new_status
+          'new_status', updated_booking.new_status,
+          'service_job_id', (select id from created_job limit 1)
         )
       from updated_booking
       join existing_booking on existing_booking.id = updated_booking.id

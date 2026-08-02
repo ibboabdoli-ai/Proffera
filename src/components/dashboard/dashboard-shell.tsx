@@ -5,6 +5,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import {
   Bot,
+  BriefcaseBusiness,
   CalendarDays,
   ChevronRight,
   LayoutDashboard,
@@ -32,6 +33,7 @@ const navigationIcons: Record<string, LucideIcon> = {
   "/dashboard/leads": UserRoundSearch,
   "/dashboard/kunder": Users,
   "/dashboard/bokningar": CalendarDays,
+  "/dashboard/uppdrag": BriefcaseBusiness,
   "/dashboard/omdomen": MessageSquareQuote,
   "/dashboard/ai-assistent": Bot,
   "/dashboard/installningar": Settings,
@@ -42,6 +44,7 @@ const englishNavigationLabels: Record<string, string> = {
   "/dashboard/leads": "Leads",
   "/dashboard/kunder": "Customers",
   "/dashboard/bokningar": "Bookings",
+  "/dashboard/uppdrag": "Jobs",
   "/dashboard/kalender": "Calendar",
   "/dashboard/personal": "Staff",
   "/dashboard/galleri": "Gallery",
