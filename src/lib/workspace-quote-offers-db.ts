@@ -17,6 +17,8 @@ function getSqlClient() {
   return connectionString ? neon(connectionString) : null;
 }
 
+type SqlClient = NonNullable<ReturnType<typeof getSqlClient>>;
+
 async function getActiveWorkspaceId() {
   const access = await getUserWorkspaceAccess();
   if (!access.ok) throw new Error("A valid workspace membership is required for quote offers");
@@ -75,7 +77,7 @@ export async function getDashboardWorkspaceQuoteOffers(quoteRequestId: string) {
 }
 
 async function insertDraft(
-  sql: ReturnType<typeof neon>,
+  sql: SqlClient,
   workspaceId: string,
   quoteRequestId: string,
   draft: NormalizedWorkspaceQuoteOfferDraft,
