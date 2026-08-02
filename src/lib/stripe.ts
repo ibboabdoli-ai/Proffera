@@ -57,6 +57,23 @@ export function isStripeTestMode() {
   return process.env.STRIPE_SECRET_KEY?.trim().startsWith("sk_test_") ?? false;
 }
 
+/**
+ * Stripe can localise a SEK subscription price at hosted Checkout without us
+ * inventing EUR/GBP amounts in code. It remains opt-in until the account's
+ * Adaptive Pricing configuration has been verified in Stripe.
+ */
+export function isStripeAdaptivePricingEnabled() {
+  return process.env.STRIPE_ADAPTIVE_PRICING_ENABLED?.trim().toLowerCase() === "true";
+}
+
+/**
+ * Tax must stay disabled until Proffera has configured the relevant Stripe
+ * Tax registrations. A country selector alone is never enough to collect VAT.
+ */
+export function isStripeTaxEnabled() {
+  return process.env.STRIPE_TAX_ENABLED?.trim().toLowerCase() === "true";
+}
+
 export function isStripeCheckoutConfigured() {
   return Boolean(getStripeClient() && getStripeCheckoutPlanOptions().some((plan) => plan.configured));
 }

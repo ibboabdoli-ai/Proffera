@@ -1,3 +1,5 @@
+import type { WorkspaceTimeZone } from "@/lib/workspace-market";
+
 type SendLeadEmailInput = {
   leadRef: string;
   companyName: string;
@@ -17,6 +19,7 @@ type SendBookingConfirmationEmailInput = {
   startsAt: string;
   endsAt: string;
   city: string;
+  timeZone?: WorkspaceTimeZone;
 };
 
 type SendBookingOwnerNotificationEmailInput = {
@@ -29,6 +32,7 @@ type SendBookingOwnerNotificationEmailInput = {
   startsAt: string;
   endsAt: string;
   city: string;
+  timeZone?: WorkspaceTimeZone;
 };
 
 type SendBookingStatusEmailInput = {
@@ -40,6 +44,7 @@ type SendBookingStatusEmailInput = {
   startsAt: string;
   endsAt: string;
   city: string;
+  timeZone?: WorkspaceTimeZone;
 };
 
 type SendWorkspaceInvitationEmailInput = {
@@ -202,7 +207,7 @@ export function buildPrimeViewQuoteConfirmationEmail(input: SendPrimeViewQuoteEm
   return { subject, text, html };
 }
 
-function formatBookingTime(value: string) {
+function formatBookingTime(value: string, timeZone: WorkspaceTimeZone = "Europe/Stockholm") {
   const date = new Date(value);
 
   if (Number.isNaN(date.getTime())) {
@@ -210,15 +215,15 @@ function formatBookingTime(value: string) {
   }
 
   return new Intl.DateTimeFormat("sv-SE", {
-    timeZone: "Europe/Stockholm",
+    timeZone,
     dateStyle: "full",
     timeStyle: "short",
   }).format(date);
 }
 
 export function buildBookingConfirmationEmail(input: SendBookingConfirmationEmailInput) {
-  const start = formatBookingTime(input.startsAt);
-  const end = formatBookingTime(input.endsAt);
+  const start = formatBookingTime(input.startsAt, input.timeZone);
+  const end = formatBookingTime(input.endsAt, input.timeZone);
   const subject = `Bokningsförfrågan mottagen – ${input.companyName}`;
   const text = [
     `Hej ${input.customerName},`,
@@ -254,8 +259,8 @@ export function buildBookingConfirmationEmail(input: SendBookingConfirmationEmai
 }
 
 export function buildBookingOwnerNotificationEmail(input: SendBookingOwnerNotificationEmailInput) {
-  const start = formatBookingTime(input.startsAt);
-  const end = formatBookingTime(input.endsAt);
+  const start = formatBookingTime(input.startsAt, input.timeZone);
+  const end = formatBookingTime(input.endsAt, input.timeZone);
   const subject = `Ny bokningsförfrågan – ${input.service}`;
   const text = [
     `Hej ${input.companyName},`,
@@ -293,8 +298,8 @@ export function buildBookingOwnerNotificationEmail(input: SendBookingOwnerNotifi
 }
 
 export function buildBookingStatusEmail(input: SendBookingStatusEmailInput) {
-  const start = formatBookingTime(input.startsAt);
-  const end = formatBookingTime(input.endsAt);
+  const start = formatBookingTime(input.startsAt, input.timeZone);
+  const end = formatBookingTime(input.endsAt, input.timeZone);
   const isConfirmed = input.status === "confirmed";
   const subject = isConfirmed
     ? `Din bokning är bekräftad – ${input.companyName}`

@@ -2,7 +2,13 @@ import { NextResponse } from "next/server";
 
 import { isCheckoutPlanKey } from "@/lib/billing-plans";
 import { getSql } from "@/lib/db/server";
-import { getStripeClient, getStripePriceIdForPlan } from "@/lib/stripe";
+import {
+  getStripeClient,
+  getStripePriceIdForPlan,
+  isStripeAdaptivePricingEnabled,
+  isStripeTaxEnabled,
+} from "@/lib/stripe";
+import { DEFAULT_WORKSPACE_MARKET, resolveWorkspaceMarket } from "@/lib/workspace-market";
 import { canManageWorkspaceMembers, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 export const runtime = "nodejs";
@@ -78,7 +84,8 @@ export async function POST(request: Request) {
   }
 
   try {
-    const rows = await sql`
+    const [rows, settingsRows] = await Promise.all([
+      sql`
       select
         stripe_customer_id,
         stripe_checkout_session_id,
@@ -88,8 +95,21 @@ export async function POST(request: Request) {
       from workspace_billing_subscriptions
       where workspace_id = ${access.workspaceId}::uuid
       limit 1
-    `;
+      `,
+      sql`
+        select billing_country_code, time_zone, billing_currency
+        from workspace_settings
+        where workspace_id = ${access.workspaceId}
+        limit 1
+      `,
+    ]);
     const existing = rows[0];
+    const configuredMarket = resolveWorkspaceMarket({
+      countryCode: settingsRows[0]?.billing_country_code,
+      timeZone: settingsRows[0]?.time_zone,
+      billingCurrency: settingsRows[0]?.billing_currency,
+    });
+    const market = configuredMarket ?? DEFAULT_WORKSPACE_MARKET;
     const existingStatus = existing?.status ? String(existing.status) : "";
 
     const existingSessionId = existingStatus !== "cancelled" && existing?.stripe_checkout_session_id
@@ -101,7 +121,10 @@ export async function POST(request: Request) {
         const existingSession = await stripe.checkout.sessions.retrieve(existingSessionId);
 
         if (existingSession.status === "open" && existingSession.url) {
-          if (String(existing?.stripe_price_id ?? "") === priceId) {
+          const existingMarketMatches = existingSession.metadata?.billing_country_code === market.countryCode
+            && existingSession.metadata?.billing_currency === market.billingCurrency
+            && existingSession.metadata?.workspace_time_zone === market.timeZone;
+          if (String(existing?.stripe_price_id ?? "") === priceId && existingMarketMatches) {
             return checkoutResponse(existingSession.url);
           }
 
@@ -141,21 +164,34 @@ export async function POST(request: Request) {
 
     const successUrl = settingsUrl(requestUrl.origin, "success", locale).toString();
     const cancelUrl = settingsUrl(requestUrl.origin, "cancelled", locale).toString();
+    const adaptivePricingEnabled = isStripeAdaptivePricingEnabled();
+    const stripeTaxEnabled = isStripeTaxEnabled();
     const checkoutSession = await stripe.checkout.sessions.create({
       mode: "subscription",
       line_items: [{ price: priceId, quantity: 1 }],
       customer: customerId,
+      billing_address_collection: "required",
+      customer_update: customerId ? { address: "auto", name: "auto" } : undefined,
+      tax_id_collection: { enabled: true },
+      automatic_tax: { enabled: stripeTaxEnabled },
+      adaptive_pricing: adaptivePricingEnabled ? { enabled: true } : undefined,
       client_reference_id: access.workspaceId,
       metadata: {
         workspace_id: access.workspaceId,
         workspace_owner_id: access.userId,
         plan_key: planKey,
+        billing_country_code: market.countryCode,
+        billing_currency: market.billingCurrency,
+        workspace_time_zone: market.timeZone,
       },
       subscription_data: {
         metadata: {
           workspace_id: access.workspaceId,
           workspace_owner_id: access.userId,
           plan_key: planKey,
+          billing_country_code: market.countryCode,
+          billing_currency: market.billingCurrency,
+          workspace_time_zone: market.timeZone,
         },
       },
       success_url: successUrl,

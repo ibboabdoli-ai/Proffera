@@ -277,3 +277,35 @@ Better Auth should handle authentication and sessions. Proffera should keep owne
 ### Boundary
 
 This decision does not add dependencies, code, routes or database migrations. Implementation starts in a separate approved phase.
+
+## ADR-0015 — Session-derived workspace isolation and controlled B2B markets
+
+- Status: Accepted
+- Date: 2026-08-01
+
+### Decision
+
+The runtime dashboard identity is derived from the authenticated user session
+and an active workspace membership. Customer, booking, lead, event, settings
+and billing operations must scope their database queries to that workspace ID.
+
+The retired `workspace_id = 'default'` fallback is not an authorization path
+and must not be included in dashboard reads or writes.
+
+Each workspace may hold a controlled B2B market, business time zone,
+billing-currency preference and VAT number. Sweden remains the default;
+supported EU countries and the United Kingdom are available through the
+approved market migration.
+
+### Payment boundary
+
+Stripe Checkout is the authority for the payable amount, final currency and tax.
+Application code must not create EUR/GBP amounts by converting a configured
+SEK Price. Automatic tax remains disabled until the appropriate Stripe Tax
+registrations and business/legal review are complete.
+
+### Supersedes
+
+This supersedes the active-runtime portions of ADR-0009, ADR-0010 and ADR-0013
+that describe a default workspace or temporary-only dashboard isolation. Their
+historical context remains valid.

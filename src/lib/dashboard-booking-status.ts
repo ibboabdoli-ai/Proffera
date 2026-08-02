@@ -2,6 +2,7 @@ import "server-only";
 
 import { neon } from "@neondatabase/serverless";
 
+import { resolveBookingTimeZone } from "@/lib/public-booking-policy";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 const connectionString =
@@ -10,14 +11,13 @@ const connectionString =
   process.env.POSTGRES_PRISMA_URL ??
   process.env.POSTGRES_URL_NON_POOLING;
 
-const LEGACY_WORKSPACE_ID = "__legacy_workspace_access_disabled__";
-
 const allowedBookingStatuses = ["requested", "confirmed", "completed", "cancelled"] as const;
 
 export type DashboardBookingStatus = (typeof allowedBookingStatuses)[number];
 
 export type DashboardBookingStatusUpdateResult = {
   changed: boolean;
+  timeZone: ReturnType<typeof resolveBookingTimeZone>;
   notification: {
     customerName: string;
     customerEmail: string;
@@ -62,6 +62,13 @@ export async function updateDashboardBookingStatus(
   }
 
   const workspaceId = await getActiveWorkspaceId();
+  const marketRows = await sql`
+    select time_zone
+    from workspace_settings
+    where workspace_id = ${workspaceId}
+    limit 1
+  `;
+  const timeZone = resolveBookingTimeZone(marketRows[0]?.time_zone);
 
   const rows = await sql`
     with existing_booking as (
@@ -79,7 +86,7 @@ export async function updateDashboardBookingStatus(
         c.phone as customer_phone
       from bookings b
       left join customers c on c.id = b.customer_id
-      where b.workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})
+      where b.workspace_id = ${workspaceId}
         and b.id = ${bookingId}
     ),
     updated_booking as (
@@ -87,7 +94,7 @@ export async function updateDashboardBookingStatus(
       set
         status = ${status},
         updated_at = now()
-      where workspace_id in (${workspaceId}, ${LEGACY_WORKSPACE_ID})
+      where workspace_id = ${workspaceId}
         and id = ${bookingId}
         and status <> ${status}
       returning
@@ -145,6 +152,7 @@ export async function updateDashboardBookingStatus(
 
   return {
     changed,
+    timeZone,
     notification: changed
       ? {
           customerName: String(result.customer_name ?? "Kund"),

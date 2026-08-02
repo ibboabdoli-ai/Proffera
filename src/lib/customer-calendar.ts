@@ -3,6 +3,9 @@ import "server-only";
 import crypto from "node:crypto";
 import { neon } from "@neondatabase/serverless";
 
+import { resolveBookingTimeZone } from "@/lib/public-booking-policy";
+import type { WorkspaceTimeZone } from "@/lib/workspace-market";
+
 const connectionString =
   process.env.DATABASE_URL ??
   process.env.POSTGRES_URL ??
@@ -33,6 +36,7 @@ export type CustomerCalendarBooking = {
 };
 
 export type CustomerCalendarData = {
+  timeZone: WorkspaceTimeZone;
   customer: {
     id: string;
     name: string;
@@ -100,13 +104,21 @@ export async function getCustomerCalendar(token: string): Promise<CustomerCalend
   if (!payload || !connectionString) return null;
 
   const sql = neon(connectionString);
-  const customers = await sql`
+  const [customers, settings] = await Promise.all([
+    sql`
     select id, name
     from customers
     where id = ${payload.customerId}
       and workspace_id = ${payload.workspaceId}
     limit 1
-  `;
+    `,
+    sql`
+      select time_zone
+      from workspace_settings
+      where workspace_id = ${payload.workspaceId}
+      limit 1
+    `,
+  ]);
   const customer = customers[0];
   if (!customer) return null;
 
@@ -123,6 +135,7 @@ export async function getCustomerCalendar(token: string): Promise<CustomerCalend
   const now = Date.now();
   const all = bookings.map(toBooking);
   return {
+    timeZone: resolveBookingTimeZone(settings[0]?.time_zone),
     customer: { id: String(customer.id), name: String(customer.name ?? "Kund") },
     upcoming: all.filter((booking) => new Date(booking.endsAt).getTime() >= now && booking.status !== "cancelled"),
     history: all

@@ -1,34 +1,40 @@
 # Proffera Roadmap
 
-## Current priority: controlled paid launch
+## Current priority: controlled international B2B release
 
-The authoritative sequence is [`MASTER_PLAN.md`](MASTER_PLAN.md). Local phases
-0–4 are complete on the current release-candidate branch; Phase 5 requires
-Preview/Sandbox verification and owner approvals.
+The release in `work/proffera-international-billing` prepares Proffera for
+business customers in Sweden, the supported EU countries and the United
+Kingdom without changing Swedish customer data or inventing subscription
+prices.
 
-1. Apply the public-form safety migration in Preview and run the full release
-   checklist.
-2. Verify Stripe Checkout, current-subscription webhook sync, portal, upgrade
-   and cancellation in Stripe Sandbox.
-3. Confirm public booking, consent capture, notification delivery and rate
-   limiting with Preview data only.
-4. Supply final legal controller details, processor list and approved commercial
-   terms before public sales.
-5. Verify Service AI Chat is tenant-isolated to `proffera` before presenting it
-   as an available integration.
+1. Validate and apply `20260801_0020_workspace_market_settings.sql` through
+   the Neon temporary-branch workflow.
+2. Run the full local gate, create a focused PR, and deploy only the verified
+   commit after the database migration is live.
+3. Verify Sweden, EU and UK Checkout in Stripe Sandbox. Confirm that a market
+   change expires an old open Checkout session.
+4. Enable Stripe Adaptive Pricing only after it is verified in the Stripe
+   account. Do not create application-side EUR/GBP price amounts by guesswork.
+5. Keep automatic tax disabled until the required Stripe Tax registrations and
+   business/legal review are complete.
+6. Perform a designated two-workspace authentication smoke test and record the
+   outcome in the release checklist.
 
-## Product sequence after launch verification
+## Completed foundations
 
-- Improve authentication and workspace onboarding only with focused permission
-  and migration tests.
-- Add analytics, reminders, automation and AI only as separately scoped modules.
-- Keep AI decisions draft-first with human review; no automatic customer-facing
-  AI actions without an explicit plan.
+- Swedish and English public marketing routes.
+- English dashboard experience.
+- Session-derived workspace membership and role checks.
+- Workspace-scoped customers, bookings, leads, reminders, gallery and Stripe
+  subscription data.
+- Booking policies, staff planning and notification flows that can use a
+  workspace time zone.
 
 ## Guardrails
 
+- Never charge a currency or tax amount that is not configured and confirmed by
+  Stripe Checkout.
+- Do not turn on automatic tax based only on a country or VAT input.
+- Do not use a customer workspace for access-control testing.
+- Keep all dashboard reads and writes scoped by trusted session membership.
 - Do not merge Service AI Chat or share its database with this project.
-- Do not claim planned modules are active.
-- Do not use live payments or real customer data for verification without
-  explicit approval.
-- Protect quote, demo, booking, workspace and Stripe subscription flows.

@@ -92,6 +92,7 @@ const exactTranslations: Record<string, string> = {
   "Primär ort": "Primary city",
   "Svarstid mål": "Response-time target",
   "Standard CTA": "Default CTA",
+  "Marknad": "Market",
   "Kontakt e-post": "Contact email",
   "Kontakt telefon": "Contact phone",
   "Länk för onlinebokning": "Online-booking link",

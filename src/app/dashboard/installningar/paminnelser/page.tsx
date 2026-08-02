@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { DashboardPageHeader } from "@/components/dashboard/dashboard-page-ui";
 import { getBookingReminderSettings, getRecentReminderDeliveries, updateBookingReminderSettings } from "@/lib/booking-reminder-settings";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
+import { getDashboardWorkspaceSettings } from "@/lib/workspace-settings-db";
 
 export const dynamic = "force-dynamic";
 
@@ -12,8 +13,8 @@ function localizedHref(href: string, isEnglish: boolean) {
   return isEnglish ? `${href}${href.includes("?") ? "&" : "?"}lang=en` : href;
 }
 
-function formatDate(value: string, isEnglish: boolean) {
-  return new Intl.DateTimeFormat(isEnglish ? "en-GB" : "sv-SE", { timeZone: "Europe/Stockholm", dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+function formatDate(value: string, isEnglish: boolean, timeZone: string) {
+  return new Intl.DateTimeFormat(isEnglish ? "en-GB" : "sv-SE", { timeZone, dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 }
 
 async function updateAction(formData: FormData) {
@@ -40,7 +41,7 @@ export default async function ReminderSettingsPage({ searchParams }: { searchPar
   const isEnglish = first(params.lang) === "en";
   const access = await getUserWorkspaceAccess();
   if (!access.ok || !canManageWorkspaceSettings(access)) redirect(localizedHref("/dashboard", isEnglish));
-  const [settings, deliveries] = await Promise.all([getBookingReminderSettings(), getRecentReminderDeliveries()]);
+  const [settings, deliveries, workspaceSettings] = await Promise.all([getBookingReminderSettings(), getRecentReminderDeliveries(), getDashboardWorkspaceSettings()]);
 
   return <div className="grid gap-6">
     <DashboardPageHeader
@@ -66,7 +67,7 @@ export default async function ReminderSettingsPage({ searchParams }: { searchPar
       </form>
       <article className="rounded-[24px] border border-[#e0e5dd] bg-white p-6 shadow-sm">
         <div className="flex items-center justify-between gap-4"><div><h2 className="text-xl font-bold text-[#17201a]">{isEnglish ? "Recent deliveries" : "Senaste leveranser"}</h2><p className="mt-1 text-sm text-[#667168]">{isEnglish ? "The 50 most recent attempts." : "De 50 senaste försöken."}</p></div><span className="rounded-full bg-[#edf5ef] px-3 py-1 text-xs font-bold text-[#17452f]">{deliveries.length}</span></div>
-        <div className="mt-5 grid gap-3">{deliveries.length ? deliveries.map((delivery) => <div key={delivery.id} className="rounded-xl border border-[#e3e8e1] bg-[#f8faf7] p-4 text-sm"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-bold text-[#17201a]">{delivery.customerName} · {delivery.service}</p><p className="mt-1 text-xs text-[#68736b]">{isEnglish ? "Booking" : "Bokning"}: {formatDate(delivery.startsAt, isEnglish)}</p></div><span className="rounded-full bg-white px-3 py-1 text-xs font-bold uppercase">{delivery.channel} · {delivery.status}</span></div>{delivery.errorMessage ? <p className="mt-3 text-xs font-semibold text-[#8f2f1b]">{delivery.errorMessage}</p> : null}<p className="mt-3 text-xs text-[#7a847d]">{isEnglish ? "Scheduled" : "Planerad"}: {formatDate(delivery.scheduledFor, isEnglish)}</p></div>) : <p className="rounded-xl border border-dashed border-[#dce3da] p-5 text-sm text-[#7a847d]">{isEnglish ? "No reminders have been processed yet." : "Inga påminnelser har behandlats ännu."}</p>}</div>
+        <div className="mt-5 grid gap-3">{deliveries.length ? deliveries.map((delivery) => <div key={delivery.id} className="rounded-xl border border-[#e3e8e1] bg-[#f8faf7] p-4 text-sm"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-bold text-[#17201a]">{delivery.customerName} · {delivery.service}</p><p className="mt-1 text-xs text-[#68736b]">{isEnglish ? "Booking" : "Bokning"}: {formatDate(delivery.startsAt, isEnglish, workspaceSettings.timeZone)}</p></div><span className="rounded-full bg-white px-3 py-1 text-xs font-bold uppercase">{delivery.channel} · {delivery.status}</span></div>{delivery.errorMessage ? <p className="mt-3 text-xs font-semibold text-[#8f2f1b]">{delivery.errorMessage}</p> : null}<p className="mt-3 text-xs text-[#7a847d]">{isEnglish ? "Scheduled" : "Planerad"}: {formatDate(delivery.scheduledFor, isEnglish, workspaceSettings.timeZone)}</p></div>) : <p className="rounded-xl border border-dashed border-[#dce3da] p-5 text-sm text-[#7a847d]">{isEnglish ? "No reminders have been processed yet." : "Inga påminnelser har behandlats ännu."}</p>}</div>
       </article>
     </section>
   </div>;

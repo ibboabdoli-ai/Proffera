@@ -38,6 +38,7 @@ export async function POST(request: Request) {
               startsAt: notification.startsAt,
               endsAt: notification.endsAt,
               city: notification.city,
+              timeZone: result.timeZone,
             })
           : Promise.resolve(null),
         notification.customerPhone
@@ -48,6 +49,7 @@ export async function POST(request: Request) {
               service: notification.service,
               previousStartsAt: notification.previousStartsAt,
               startsAt: notification.startsAt,
+              timeZone: result.timeZone,
             })
           : Promise.resolve(null),
       ]);

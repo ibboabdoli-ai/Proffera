@@ -1,69 +1,94 @@
 # Proffera Current Status
 
-Last updated: 2026-07-29
+Last updated: 2026-08-01
 
-## Production status
+## Production baseline
 
-Production is deployed from `main`. The latest verified production baseline is
-commit `9e78423` (Graph Engineering worker protocol); the booking-reminder
-scheduler was merged earlier in commit `b527be6`.
+Production deploys from `main`. The current production baseline is the merged
+PrimeView portfolio release (`b1b4dab`). The next controlled release is
+`work/proffera-international-billing`; it must not be deployed before its Neon
+migration is verified and applied.
 
-## Booking reminders
+## Delivered product capabilities
 
-The reminder delivery path is deployed and configured:
+- Swedish public routes remain canonical; English public marketing is available
+  under `/en`, with language-aware metadata and sitemap entries.
+- English dashboard navigation, booking/customer views, settings and billing
+  are available through `?lang=en` without changing the underlying workspace.
+- Gallery media is stored per workspace. The package lock now includes the
+  Blob client required by the optional Blob upload path; database media remains
+  the safe fallback.
+- Stripe subscriptions use hosted Checkout, a customer portal and webhook-led
+  entitlement synchronization. The two configured subscription Prices remain
+  the source of truth.
+- Booking reminders have a durable scheduler and duplicate-delivery protection.
+  A real due reminder still needs operational verification before it is claimed
+  as an end-to-end production success.
 
-```text
-GitHub Actions (every 15 minutes)
-  -> /api/cron/booking-reminders (Bearer secret)
-  -> Neon PostgreSQL
-  -> Brevo email / SMS provider when a booking is due
-```
+## Workspace access and tenant isolation
 
-- Vercel Hobby-compatible scheduling is provided by GitHub Actions, so normal
-  reminder runs do not create Vercel deployments.
-- Production tables `workspace_booking_reminder_settings` and
-  `booking_reminder_deliveries` exist.
-- Default behavior for a workspace without a saved settings row is enabled,
-  24 hours before the booking, through email and SMS when customer contact
-  information is available.
-- The unique delivery constraint prevents duplicate sends across repeated
-  scheduler runs.
-- At the last database check, no workspace-specific reminder settings or
-  delivery records existed. This means no reminder has yet been observed as
-  sent, skipped, or failed in production.
+The application has session-derived workspace access with these roles:
+`owner`, `admin`, `staff`, and `viewer`.
 
-## Verified safety controls
+- Dashboard reads and writes resolve the active workspace from the authenticated
+  membership, never from a route parameter or form field.
+- Customer, booking, event, lead, status-update and rescheduling queries no
+  longer include the retired legacy workspace fallback.
+- The production database audit before this release found no customer or booking
+  rows assigned to the retired `default` workspace.
+- A live two-user sign-in smoke test remains a release verification step; it
+  must use designated test accounts, never a real customer workspace.
 
-- Billing safety: Checkout reuses only the matching open session, expires a
-  mismatched open session, and webhooks read the current Stripe subscription
-  before syncing access.
-- Public-write safety: demo, quote and public-booking requests have durable
-  database-backed rate limiting; demo consent and its version are stored; the
-  public booking customer/booking write is atomic.
-- Workspace controls: membership, role, feature access, customer ownership and
-  workspace-specific settings are protected flows.
-- Deployment discipline: production changes are validated locally and merged
-  in focused pull requests.
+## International B2B release (pending migration and deployment)
 
-## Release actions still required before commercial launch
+Migration: `db/migrations/20260801_0020_workspace_market_settings.sql`
 
-1. Run the full Phase 5 checklist in a Vercel Preview and Stripe Sandbox:
-   demo registration, booking, emails, team invitations, payment, cancellation
-   and subscription upgrade. Do not use real cards or customer data without
-   explicit approval.
-2. Have the legal/business owner supply the controller's legal name,
-   organisation number and address, final processor list, Terms and Privacy
-   content before public commercial launch.
-3. Confirm Service AI Chat messages and leads remain isolated to tenant
-   `proffera`; AI is not part of the active paid promise until that test passes.
-4. Before onboarding real businesses, replace the MVP `workspace_id = default`
-   boundary and Basic Auth assumptions with the planned production auth and
-   workspace model. This is a separate high-risk database/auth change and
-   requires its own approved migration plan.
+Each workspace will have a controlled B2B market setting:
 
-## Next safe verification
+| Market | Currency preference | Booking and staff time |
+| --- | --- | --- |
+| Sweden | SEK | `Europe/Stockholm` by default |
+| EU countries in the supported list | EUR | Workspace-selected supported IANA zone |
+| United Kingdom | GBP | `Europe/London` by default |
 
-Review the first scheduled GitHub Actions run that has a due booking. Its API
-response and the corresponding row in `booking_reminder_deliveries` must be
-checked before claiming end-to-end email or SMS delivery is verified. Do not
-trigger a manual run against real customer bookings solely for this check.
+- Existing workspaces stay Sweden-first by default.
+- PrimeView Window Care is moved to the UK market by the migration. It has no
+  booking records, so no historic appointment is reinterpreted.
+- Public booking, schedule blocks, staff scheduling, calendar moves, booking
+  notifications, reminders and customer booking pages use the workspace time
+  zone after the migration.
+- Checkout collects a billing address and VAT ID. The market and selected
+  currency are recorded in Stripe metadata, and an old open Checkout session is
+  expired if the workspace market changes.
+- Proffera does not invent EUR or GBP amounts in application code. Hosted
+  Checkout uses the configured Stripe Price; Adaptive Pricing is available only
+  when `STRIPE_ADAPTIVE_PRICING_ENABLED=true` is verified in the Stripe account.
+- `STRIPE_TAX_ENABLED` stays `false` until the business owner has configured
+  and verified the required Stripe Tax registrations. A country selection or a
+  VAT field alone is not legal/tax configuration.
+
+See [International B2B billing](INTERNATIONAL_B2B_BILLING.md) for the release
+decision and operational hand-off.
+
+## Verification status for this release
+
+- `npm test` — passing (45 tests)
+- `npm run typecheck` — passing
+- `npm run lint` — passing (four existing image-element warnings)
+- `npm run build` — passing locally
+- Neon migration — pending temporary-branch validation and explicit commit
+  approval
+- Production deployment and live checkout — not yet claimed or announced
+
+## Remaining commercial prerequisites
+
+1. Verify and apply the controlled Neon migration, then deploy the matching
+   application commit.
+2. Configure and test Stripe Adaptive Pricing only if local-currency display is
+   wanted; otherwise Checkout safely uses the configured Price currency.
+3. Obtain tax/legal review and configure the applicable Stripe Tax
+   registrations before switching on automatic tax.
+4. Run a Stripe Sandbox/Preview checkout for Sweden, an EU company and a UK
+   company; verify that an open session is replaced after a market change.
+5. Run the designated two-workspace authentication smoke test and confirm each
+   account sees only its own customers, bookings and settings.
