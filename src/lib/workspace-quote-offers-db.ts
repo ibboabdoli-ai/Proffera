@@ -34,6 +34,17 @@ function text(value: unknown) {
   return value === null || value === undefined ? "" : String(value);
 }
 
+export const workspaceQuoteOfferEmailDeliveryStatuses = ["not_sent", "pending", "sent", "failed"] as const;
+
+export type WorkspaceQuoteOfferEmailDeliveryStatus = (typeof workspaceQuoteOfferEmailDeliveryStatuses)[number];
+
+function mapEmailDeliveryStatus(value: unknown): WorkspaceQuoteOfferEmailDeliveryStatus {
+  const status = text(value);
+  return workspaceQuoteOfferEmailDeliveryStatuses.includes(status as WorkspaceQuoteOfferEmailDeliveryStatus)
+    ? status as WorkspaceQuoteOfferEmailDeliveryStatus
+    : "not_sent";
+}
+
 export type DashboardWorkspaceQuoteOffer = {
   id: string;
   quoteRequestId: string;
@@ -53,6 +64,11 @@ export type DashboardWorkspaceQuoteOffer = {
   publicTokenExpiresAt: string;
   firstViewedAt: string;
   responseAt: string;
+  emailDeliveryStatus: WorkspaceQuoteOfferEmailDeliveryStatus;
+  emailDeliveryAttempt: number;
+  emailDeliveryRequestedAt: string;
+  emailDeliveryCompletedAt: string;
+  emailDeliveryFailureCode: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -77,6 +93,11 @@ function mapOffer(row: Record<string, unknown>): DashboardWorkspaceQuoteOffer {
     publicTokenExpiresAt: text(row.public_token_expires_at),
     firstViewedAt: text(row.first_viewed_at),
     responseAt: text(row.response_at),
+    emailDeliveryStatus: mapEmailDeliveryStatus(row.email_delivery_status),
+    emailDeliveryAttempt: Number(row.email_delivery_attempt ?? 0),
+    emailDeliveryRequestedAt: text(row.email_delivery_requested_at),
+    emailDeliveryCompletedAt: text(row.email_delivery_completed_at),
+    emailDeliveryFailureCode: text(row.email_delivery_failure_code),
     createdAt: text(row.created_at),
     updatedAt: text(row.updated_at),
   };
@@ -87,14 +108,27 @@ export async function getDashboardWorkspaceQuoteOffers(quoteRequestId: string) {
   if (!sql) return [];
   const workspaceId = await getActiveWorkspaceId();
   const rows = await sql`
-    select id, quote_request_id, version, status, currency, subtotal_minor,
-           vat_rate_basis_points, vat_amount_minor, total_minor, title, terms,
-           valid_until, sent_at, accepted_at, rejected_at, public_token_expires_at,
-           first_viewed_at, response_at, created_at, updated_at
-    from workspace_quote_offers
-    where workspace_id = ${workspaceId}
-      and quote_request_id = ${quoteRequestId}
-    order by version desc
+    select offer.id, offer.quote_request_id, offer.version, offer.status, offer.currency, offer.subtotal_minor,
+           offer.vat_rate_basis_points, offer.vat_amount_minor, offer.total_minor, offer.title, offer.terms,
+           offer.valid_until, offer.sent_at, offer.accepted_at, offer.rejected_at, offer.public_token_expires_at,
+           offer.first_viewed_at, offer.response_at, offer.created_at, offer.updated_at,
+           delivery.status as email_delivery_status,
+           delivery.attempt as email_delivery_attempt,
+           delivery.requested_at as email_delivery_requested_at,
+           delivery.completed_at as email_delivery_completed_at,
+           delivery.failure_code as email_delivery_failure_code
+    from workspace_quote_offers offer
+    left join lateral (
+      select status, attempt, requested_at, completed_at, failure_code
+      from workspace_quote_offer_email_deliveries
+      where workspace_id = offer.workspace_id
+        and quote_offer_id = offer.id
+      order by attempt desc
+      limit 1
+    ) delivery on true
+    where offer.workspace_id = ${workspaceId}
+      and offer.quote_request_id = ${quoteRequestId}
+    order by offer.version desc
   `;
   return rows.map((row) => mapOffer(row as Record<string, unknown>));
 }
@@ -104,14 +138,27 @@ export async function getDashboardWorkspaceQuoteOffer(quoteRequestId: string, of
   if (!sql) return null;
   const workspaceId = await getActiveWorkspaceId();
   const rows = await sql`
-    select id, quote_request_id, version, status, currency, subtotal_minor,
-           vat_rate_basis_points, vat_amount_minor, total_minor, title, terms,
-           valid_until, sent_at, accepted_at, rejected_at, public_token_expires_at,
-           first_viewed_at, response_at, created_at, updated_at
-    from workspace_quote_offers
-    where workspace_id = ${workspaceId}
-      and quote_request_id = ${quoteRequestId}
-      and id = ${offerId}
+    select offer.id, offer.quote_request_id, offer.version, offer.status, offer.currency, offer.subtotal_minor,
+           offer.vat_rate_basis_points, offer.vat_amount_minor, offer.total_minor, offer.title, offer.terms,
+           offer.valid_until, offer.sent_at, offer.accepted_at, offer.rejected_at, offer.public_token_expires_at,
+           offer.first_viewed_at, offer.response_at, offer.created_at, offer.updated_at,
+           delivery.status as email_delivery_status,
+           delivery.attempt as email_delivery_attempt,
+           delivery.requested_at as email_delivery_requested_at,
+           delivery.completed_at as email_delivery_completed_at,
+           delivery.failure_code as email_delivery_failure_code
+    from workspace_quote_offers offer
+    left join lateral (
+      select status, attempt, requested_at, completed_at, failure_code
+      from workspace_quote_offer_email_deliveries
+      where workspace_id = offer.workspace_id
+        and quote_offer_id = offer.id
+      order by attempt desc
+      limit 1
+    ) delivery on true
+    where offer.workspace_id = ${workspaceId}
+      and offer.quote_request_id = ${quoteRequestId}
+      and offer.id = ${offerId}
     limit 1
   `;
   return rows[0] ? mapOffer(rows[0] as Record<string, unknown>) : null;
@@ -236,56 +283,205 @@ export async function updateDashboardWorkspaceQuoteOfferDraft(
   return { id: String(rows[0].id), updatedAt: String(rows[0].updated_at) };
 }
 
-export type DashboardWorkspaceQuoteOfferDelivery = {
+export type DashboardWorkspaceQuoteOfferEmailDeliveryMode = "initial" | "resend";
+
+export type PreparedDashboardWorkspaceQuoteOfferEmailDelivery = {
   token: string;
+  tokenHash: string;
   expiresAt: string;
+  attempt: number;
+  customerName: string;
+  customerEmail: string;
+  companyName: string;
+  quoteReferenceId: string;
+  currency: WorkspaceBillingCurrency;
+  subtotalMinor: number;
+  vatRateBasisPoints: number;
+  vatAmountMinor: number;
+  totalMinor: number;
+  title: string;
+  terms: string;
+  validUntil: string;
+  sentAt: string;
 };
 
-export async function sendDashboardWorkspaceQuoteOffer(
+export async function prepareDashboardWorkspaceQuoteOfferEmailDelivery(
   quoteRequestId: string,
   offerId: string,
-): Promise<DashboardWorkspaceQuoteOfferDelivery> {
+  mode: DashboardWorkspaceQuoteOfferEmailDeliveryMode,
+): Promise<PreparedDashboardWorkspaceQuoteOfferEmailDelivery> {
   const sql = getSqlClient();
   if (!sql) throw new Error("Missing database connection for quote offer delivery");
   const workspaceId = await getActiveWorkspaceId();
   const token = createPublicWorkspaceQuoteOfferToken();
   const tokenHash = hashPublicWorkspaceQuoteOfferToken(token);
 
-  const rows = await sql`
-    with sent_offer as (
+  const [, rows] = await sql.transaction((transaction) => [
+    transaction`
+    with prepared_offer as (
       update workspace_quote_offers offer
       set
-        status = 'sent',
-        sent_at = now(),
+        status = case when ${mode} = 'initial' then 'sent' else offer.status end,
+        sent_at = case when ${mode} = 'initial' then now() else offer.sent_at end,
         public_token_hash = ${tokenHash},
         public_token_expires_at = coalesce(
           (offer.valid_until + 1)::timestamptz,
           now() + interval '30 days'
         ),
+        email_delivery_attempts = offer.email_delivery_attempts + 1,
         updated_at = now()
       from workspace_quote_requests request
       where offer.id = ${offerId}
         and offer.quote_request_id = ${quoteRequestId}
         and offer.workspace_id = ${workspaceId}
-        and offer.status = 'draft'
         and request.id = offer.quote_request_id
         and request.workspace_id = offer.workspace_id
-        and request.status in ('submitted', 'reviewing')
-      returning offer.quote_request_id, offer.workspace_id, offer.public_token_expires_at
+        and nullif(trim(request.customer_email), '') is not null
+        and (
+          (${mode} = 'initial' and offer.status = 'draft' and request.status in ('submitted', 'reviewing'))
+          or (${mode} = 'resend' and offer.status = 'sent' and request.status = 'quoted')
+        )
+      returning
+        offer.id as offer_id,
+        offer.workspace_id,
+        offer.quote_request_id
     )
     update workspace_quote_requests request
     set status = 'quoted', updated_at = now()
-    from sent_offer offer
-    where request.id = offer.quote_request_id
+    from prepared_offer offer
+    where ${mode} = 'initial'
+      and request.id = offer.quote_request_id
       and request.workspace_id = offer.workspace_id
       and request.status in ('submitted', 'reviewing')
-    returning offer.public_token_expires_at
+    returning request.id
+  `,
+    transaction`
+    with superseded_deliveries as (
+      update workspace_quote_offer_email_deliveries delivery
+      set status = 'failed', failure_code = 'superseded', completed_at = now()
+      where delivery.workspace_id = ${workspaceId}
+        and delivery.quote_offer_id = ${offerId}
+        and delivery.status = 'pending'
+      returning delivery.id
+    ),
+    created_delivery as (
+      insert into workspace_quote_offer_email_deliveries (
+        workspace_id,
+        quote_offer_id,
+        attempt,
+        status
+      )
+      select offer.workspace_id, offer.id, offer.email_delivery_attempts, 'pending'
+      from workspace_quote_offers offer
+      join workspace_quote_requests request
+        on request.id = offer.quote_request_id
+       and request.workspace_id = offer.workspace_id
+      where offer.id = ${offerId}
+        and offer.quote_request_id = ${quoteRequestId}
+        and offer.workspace_id = ${workspaceId}
+        and offer.public_token_hash = ${tokenHash}
+        and offer.status = 'sent'
+        and request.status = 'quoted'
+        and nullif(trim(request.customer_email), '') is not null
+      returning workspace_id, quote_offer_id, attempt
+    )
+    select
+      offer.public_token_hash,
+      offer.public_token_expires_at,
+      offer.email_delivery_attempts,
+      offer.currency,
+      offer.subtotal_minor,
+      offer.vat_rate_basis_points,
+      offer.vat_amount_minor,
+      offer.total_minor,
+      offer.title,
+      offer.terms,
+      offer.valid_until,
+      offer.sent_at,
+      request.reference_id,
+      request.customer_name,
+      request.customer_email,
+      coalesce(nullif(workspace.company_name, ''), workspace.name) as company_name,
+      delivery.attempt
+    from workspace_quote_offers offer
+    join workspace_quote_requests request
+      on request.id = offer.quote_request_id
+     and request.workspace_id = offer.workspace_id
+    join workspaces workspace on workspace.id = offer.workspace_id
+    join created_delivery delivery
+      on delivery.workspace_id = offer.workspace_id
+     and delivery.quote_offer_id = offer.id
+     and delivery.attempt = offer.email_delivery_attempts
+    where offer.id = ${offerId}
+      and offer.quote_request_id = ${quoteRequestId}
+      and offer.workspace_id = ${workspaceId}
+      and offer.public_token_hash = ${tokenHash}
+  `,
+  ]);
+
+  const row = rows[0] as Record<string, unknown> | undefined;
+  if (!row?.public_token_expires_at || !row.public_token_hash) {
+    throw new Error("Quote offer could not be prepared for email delivery");
+  }
+
+  return {
+    token,
+    tokenHash: text(row.public_token_hash),
+    expiresAt: text(row.public_token_expires_at),
+    attempt: Number(row.attempt),
+    customerName: text(row.customer_name),
+    customerEmail: text(row.customer_email),
+    companyName: text(row.company_name),
+    quoteReferenceId: text(row.reference_id),
+    currency: text(row.currency) as WorkspaceBillingCurrency,
+    subtotalMinor: Number(row.subtotal_minor),
+    vatRateBasisPoints: Number(row.vat_rate_basis_points),
+    vatAmountMinor: Number(row.vat_amount_minor),
+    totalMinor: Number(row.total_minor),
+    title: text(row.title),
+    terms: text(row.terms),
+    validUntil: text(row.valid_until),
+    sentAt: text(row.sent_at),
+  };
+}
+
+export type DashboardWorkspaceQuoteOfferEmailDeliveryCompletion =
+  | { status: "sent"; providerMessageId: string | null }
+  | { status: "failed"; failureCode: "configuration" | "provider" | "network" | "rendering" };
+
+export async function completeDashboardWorkspaceQuoteOfferEmailDelivery(
+  offerId: string,
+  attempt: number,
+  tokenHash: string,
+  completion: DashboardWorkspaceQuoteOfferEmailDeliveryCompletion,
+) {
+  const sql = getSqlClient();
+  if (!sql) throw new Error("Missing database connection for quote offer email completion");
+  const workspaceId = await getActiveWorkspaceId();
+  const providerMessageId = completion.status === "sent"
+    ? completion.providerMessageId?.slice(0, 512) ?? null
+    : null;
+  const failureCode = completion.status === "failed" ? completion.failureCode : null;
+
+  const rows = await sql`
+    update workspace_quote_offer_email_deliveries delivery
+    set
+      status = ${completion.status},
+      provider_message_id = ${providerMessageId},
+      failure_code = ${failureCode},
+      completed_at = now()
+    from workspace_quote_offers offer
+    where delivery.workspace_id = ${workspaceId}
+      and delivery.quote_offer_id = ${offerId}
+      and delivery.attempt = ${attempt}
+      and delivery.status = 'pending'
+      and offer.id = delivery.quote_offer_id
+      and offer.workspace_id = delivery.workspace_id
+      and offer.public_token_hash = ${tokenHash}
+    returning delivery.id
   `;
 
-  const expiresAt = rows[0]?.public_token_expires_at;
-  if (!expiresAt) throw new Error("Draft offer could not be sent for the active workspace");
-
-  return { token, expiresAt: String(expiresAt) };
+  return Boolean(rows[0]);
 }
 
 export type PublicWorkspaceQuoteOffer = {
