@@ -71,8 +71,9 @@ export default async function EditOfferDraftPage({
   const state = Array.isArray(query?.state) ? query.state[0] : query?.state;
   const locale: DashboardLocale = language === "en" ? "en" : "sv";
   const text = copy[locale];
-  const offer = await getDashboardWorkspaceQuoteOffer(id, offerId);
-  if (!offer) notFound();
+  const foundOffer = await getDashboardWorkspaceQuoteOffer(id, offerId);
+  if (!foundOffer) notFound();
+  const offer = foundOffer;
 
   async function updateDraft(formData: FormData) {
     "use server";
