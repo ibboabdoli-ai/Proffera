@@ -4,7 +4,7 @@ import { neon } from "@neondatabase/serverless";
 
 import type { WorkspaceBillingCurrency } from "@/lib/workspace-market";
 import type { NormalizedWorkspaceQuoteOfferDraft } from "@/lib/workspace-quote-offer-draft";
-import type { WorkspaceQuoteOfferStatus } from "@/lib/workspace-quote-offer-policy";
+import { canEditWorkspaceQuoteOffer, type WorkspaceQuoteOfferStatus } from "@/lib/workspace-quote-offer-policy";
 import { getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 const connectionString =
@@ -31,6 +31,7 @@ function text(value: unknown) {
 
 export type DashboardWorkspaceQuoteOffer = {
   id: string;
+  quoteRequestId: string;
   version: number;
   status: WorkspaceQuoteOfferStatus;
   currency: WorkspaceBillingCurrency;
@@ -42,11 +43,13 @@ export type DashboardWorkspaceQuoteOffer = {
   terms: string;
   validUntil: string;
   createdAt: string;
+  updatedAt: string;
 };
 
 function mapOffer(row: Record<string, unknown>): DashboardWorkspaceQuoteOffer {
   return {
     id: text(row.id),
+    quoteRequestId: text(row.quote_request_id),
     version: Number(row.version),
     status: text(row.status) as WorkspaceQuoteOfferStatus,
     currency: text(row.currency) as WorkspaceBillingCurrency,
@@ -58,22 +61,47 @@ function mapOffer(row: Record<string, unknown>): DashboardWorkspaceQuoteOffer {
     terms: text(row.terms),
     validUntil: text(row.valid_until),
     createdAt: text(row.created_at),
+    updatedAt: text(row.updated_at),
   };
 }
+
+const offerColumns = `
+  id, quote_request_id, version, status, currency, subtotal_minor,
+  vat_rate_basis_points, vat_amount_minor, total_minor, title, terms,
+  valid_until, created_at, updated_at
+`;
 
 export async function getDashboardWorkspaceQuoteOffers(quoteRequestId: string) {
   const sql = getSqlClient();
   if (!sql) return [];
   const workspaceId = await getActiveWorkspaceId();
   const rows = await sql`
-    select id, version, status, currency, subtotal_minor, vat_rate_basis_points,
-           vat_amount_minor, total_minor, title, terms, valid_until, created_at
+    select id, quote_request_id, version, status, currency, subtotal_minor,
+           vat_rate_basis_points, vat_amount_minor, total_minor, title, terms,
+           valid_until, created_at, updated_at
     from workspace_quote_offers
     where workspace_id = ${workspaceId}
       and quote_request_id = ${quoteRequestId}
     order by version desc
   `;
   return rows.map((row) => mapOffer(row as Record<string, unknown>));
+}
+
+export async function getDashboardWorkspaceQuoteOffer(quoteRequestId: string, offerId: string) {
+  const sql = getSqlClient();
+  if (!sql) return null;
+  const workspaceId = await getActiveWorkspaceId();
+  const rows = await sql`
+    select id, quote_request_id, version, status, currency, subtotal_minor,
+           vat_rate_basis_points, vat_amount_minor, total_minor, title, terms,
+           valid_until, created_at, updated_at
+    from workspace_quote_offers
+    where workspace_id = ${workspaceId}
+      and quote_request_id = ${quoteRequestId}
+      and id = ${offerId}
+    limit 1
+  `;
+  return rows[0] ? mapOffer(rows[0] as Record<string, unknown>) : null;
 }
 
 async function insertDraft(
@@ -147,6 +175,52 @@ export async function createDashboardWorkspaceQuoteOfferDraft(
   `;
 
   return { id: String(rows[0].id), version: Number(rows[0].version) };
+}
+
+export async function updateDashboardWorkspaceQuoteOfferDraft(
+  quoteRequestId: string,
+  offerId: string,
+  expectedUpdatedAt: string,
+  draft: NormalizedWorkspaceQuoteOfferDraft,
+) {
+  const sql = getSqlClient();
+  if (!sql) throw new Error("Missing database connection for quote offer update");
+  const workspaceId = await getActiveWorkspaceId();
+
+  const currentRows = await sql`
+    select status, currency
+    from workspace_quote_offers
+    where workspace_id = ${workspaceId}
+      and quote_request_id = ${quoteRequestId}
+      and id = ${offerId}
+    limit 1
+  `;
+  const current = currentRows[0];
+  if (!current) throw new Error("Quote offer was not found for the active workspace");
+  const status = String(current.status) as WorkspaceQuoteOfferStatus;
+  if (!canEditWorkspaceQuoteOffer(status)) throw new Error("Only draft offers can be edited");
+  if (String(current.currency) !== draft.currency) throw new Error("Offer currency cannot be changed");
+
+  const rows = await sql`
+    update workspace_quote_offers
+    set subtotal_minor = ${draft.subtotalMinor},
+        vat_rate_basis_points = ${draft.vatRateBasisPoints},
+        vat_amount_minor = ${draft.vatAmountMinor},
+        total_minor = ${draft.totalMinor},
+        title = ${draft.title},
+        terms = ${draft.terms},
+        valid_until = ${draft.validUntil},
+        updated_at = now()
+    where workspace_id = ${workspaceId}
+      and quote_request_id = ${quoteRequestId}
+      and id = ${offerId}
+      and status = 'draft'
+      and updated_at = ${expectedUpdatedAt}
+    returning id, updated_at
+  `;
+
+  if (!rows[0]) throw new Error("The draft changed before the update completed");
+  return { id: String(rows[0].id), updatedAt: String(rows[0].updated_at) };
 }
 
 export async function getDashboardWorkspaceBillingCurrency() {
