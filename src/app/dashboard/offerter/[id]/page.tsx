@@ -9,6 +9,7 @@ import {
   getDashboardWorkspaceQuoteOffers,
 } from "@/lib/workspace-quote-offers-db";
 import { validateWorkspaceQuoteOfferDraft } from "@/lib/workspace-quote-offer-draft";
+import { canEditWorkspaceQuoteOffer } from "@/lib/workspace-quote-offer-policy";
 import { getDashboardWorkspaceQuoteRequest, transitionDashboardWorkspaceQuoteRequest } from "@/lib/workspace-quote-requests-db";
 import { getWorkspaceQuoteTransitions, isWorkspaceQuoteStatus, type WorkspaceQuoteStatus } from "@/lib/workspace-quote-policy";
 
@@ -34,7 +35,7 @@ const copy = {
     changeStatus: "Ändra status", currentStatus: "Nuvarande status", offers: "Offerter", createOffer: "Skapa offertutkast",
     offerTitle: "Rubrik", amount: "Belopp exkl. moms", vatRate: "Moms (%)", validUntil: "Giltig till", terms: "Villkor",
     saveDraft: "Spara utkast", noOffers: "Ingen offert har skapats ännu.", version: "Version", subtotal: "Exkl. moms",
-    vat: "Moms", total: "Totalt", invalid: "Kontrollera offertens belopp, moms, rubrik och datum.", created: "Offertutkastet skapades.",
+    vat: "Moms", total: "Totalt", invalid: "Kontrollera offertens belopp, moms, rubrik och datum.", created: "Offertutkastet skapades.", edit: "Redigera utkast",
   },
   en: {
     back: "Back to quote enquiries", eyebrow: "Quote enquiry", customer: "Customer details", request: "Request",
@@ -43,7 +44,7 @@ const copy = {
     changeStatus: "Change status", currentStatus: "Current status", offers: "Offers", createOffer: "Create offer draft",
     offerTitle: "Title", amount: "Amount excluding VAT", vatRate: "VAT (%)", validUntil: "Valid until", terms: "Terms",
     saveDraft: "Save draft", noOffers: "No offer has been created yet.", version: "Version", subtotal: "Excluding VAT",
-    vat: "VAT", total: "Total", invalid: "Check the offer amount, VAT, title and date.", created: "The offer draft was created.",
+    vat: "VAT", total: "Total", invalid: "Check the offer amount, VAT, title and date.", created: "The offer draft was created.", edit: "Edit draft",
   },
 } as const;
 
@@ -139,7 +140,10 @@ export default async function QuoteDetailPage({ params, searchParams }: {
         <div className="mt-5 grid gap-4">
           {offers.length ? offers.map((offer) => (
             <article key={offer.id} className="rounded-2xl border border-[#e0e6de] bg-[#fafbf9] p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-bold text-[#17201a]">{offer.title}</p><p className="mt-1 text-xs text-[#667269]">{text.version} {offer.version} · {offerStatusLabel[locale][offer.status]}</p></div><p className="text-lg font-extrabold text-[#173e2b]">{formatMoney(offer.totalMinor, offer.currency, locale)}</p></div>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div><p className="font-bold text-[#17201a]">{offer.title}</p><p className="mt-1 text-xs text-[#667269]">{text.version} {offer.version} · {offerStatusLabel[locale][offer.status]}</p></div>
+                <div className="flex items-center gap-3"><p className="text-lg font-extrabold text-[#173e2b]">{formatMoney(offer.totalMinor, offer.currency, locale)}</p>{canEditWorkspaceQuoteOffer(offer.status) ? <Link href={localHref(`/dashboard/offerter/${quote.id}/offer/${offer.id}`, locale)} className="rounded-xl border border-[#bfcbbf] bg-white px-3 py-2 text-xs font-bold text-[#17452f] hover:bg-[#f0f5f0]">{text.edit}</Link> : null}</div>
+              </div>
               <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-3"><div><dt className="text-xs font-bold uppercase text-[#7d877f]">{text.subtotal}</dt><dd>{formatMoney(offer.subtotalMinor, offer.currency, locale)}</dd></div><div><dt className="text-xs font-bold uppercase text-[#7d877f]">{text.vat} ({offer.vatRateBasisPoints / 100}%)</dt><dd>{formatMoney(offer.vatAmountMinor, offer.currency, locale)}</dd></div><div><dt className="text-xs font-bold uppercase text-[#7d877f]">{text.total}</dt><dd className="font-bold">{formatMoney(offer.totalMinor, offer.currency, locale)}</dd></div></dl>
             </article>
           )) : <p className="text-sm text-[#667269]">{text.noOffers}</p>}
