@@ -12,6 +12,7 @@ import { validateWorkspaceQuoteOfferDraft } from "@/lib/workspace-quote-offer-dr
 import { canEditWorkspaceQuoteOffer } from "@/lib/workspace-quote-offer-policy";
 import { getDashboardWorkspaceQuoteRequest, transitionDashboardWorkspaceQuoteRequest } from "@/lib/workspace-quote-requests-db";
 import { getWorkspaceQuoteTransitions, isWorkspaceQuoteStatus, type WorkspaceQuoteStatus } from "@/lib/workspace-quote-policy";
+import { SendOfferForm } from "./send-offer-form";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +37,7 @@ const copy = {
     offerTitle: "Rubrik", amount: "Belopp exkl. moms", vatRate: "Moms (%)", validUntil: "Giltig till", terms: "Villkor",
     saveDraft: "Spara utkast", noOffers: "Ingen offert har skapats ännu.", version: "Version", subtotal: "Exkl. moms",
     vat: "Moms", total: "Totalt", invalid: "Kontrollera offertens belopp, moms, rubrik och datum.", created: "Offertutkastet skapades.", edit: "Redigera utkast",
+    send: "Skicka offert", sending: "Skickar...", sent: "Offerten är skickad. Kopiera kundlänken nu – den visas bara denna gång.", open: "Öppna kundlänk", copyLink: "Kopiera länk", copied: "Kopierad", linkExpires: "Länken är giltig till", sendError: "Offerten kunde inte skickas. Ladda om sidan och försök igen.",
   },
   en: {
     back: "Back to quote enquiries", eyebrow: "Quote enquiry", customer: "Customer details", request: "Request",
@@ -45,6 +47,7 @@ const copy = {
     offerTitle: "Title", amount: "Amount excluding VAT", vatRate: "VAT (%)", validUntil: "Valid until", terms: "Terms",
     saveDraft: "Save draft", noOffers: "No offer has been created yet.", version: "Version", subtotal: "Excluding VAT",
     vat: "VAT", total: "Total", invalid: "Check the offer amount, VAT, title and date.", created: "The offer draft was created.", edit: "Edit draft",
+    send: "Send quote", sending: "Sending...", sent: "The quote is sent. Copy the customer link now – it is shown only this time.", open: "Open customer link", copyLink: "Copy link", copied: "Copied", linkExpires: "The link is valid until", sendError: "The quote could not be sent. Reload and try again.",
   },
 } as const;
 
@@ -78,7 +81,9 @@ export default async function QuoteDetailPage({ params, searchParams }: {
     getDashboardWorkspaceQuoteOffers(quote.id),
     getDashboardWorkspaceBillingCurrency(),
   ]);
-  const nextStatuses = getWorkspaceQuoteTransitions(quote.status);
+  const nextStatuses = offers.some((offer) => offer.status === "sent")
+    ? []
+    : getWorkspaceQuoteTransitions(quote.status);
 
   async function changeStatus(formData: FormData) {
     "use server";
@@ -142,9 +147,10 @@ export default async function QuoteDetailPage({ params, searchParams }: {
             <article key={offer.id} className="rounded-2xl border border-[#e0e6de] bg-[#fafbf9] p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div><p className="font-bold text-[#17201a]">{offer.title}</p><p className="mt-1 text-xs text-[#667269]">{text.version} {offer.version} · {offerStatusLabel[locale][offer.status]}</p></div>
-                <div className="flex items-center gap-3"><p className="text-lg font-extrabold text-[#173e2b]">{formatMoney(offer.totalMinor, offer.currency, locale)}</p>{canEditWorkspaceQuoteOffer(offer.status) ? <Link href={localHref(`/dashboard/offerter/${quote.id}/offer/${offer.id}`, locale)} className="rounded-xl border border-[#bfcbbf] bg-white px-3 py-2 text-xs font-bold text-[#17452f] hover:bg-[#f0f5f0]">{text.edit}</Link> : null}</div>
+                <div className="flex flex-wrap items-center justify-end gap-3"><p className="text-lg font-extrabold text-[#173e2b]">{formatMoney(offer.totalMinor, offer.currency, locale)}</p>{canEditWorkspaceQuoteOffer(offer.status) ? <Link href={localHref(`/dashboard/offerter/${quote.id}/offer/${offer.id}`, locale)} className="rounded-xl border border-[#bfcbbf] bg-white px-3 py-2 text-xs font-bold text-[#17452f] hover:bg-[#f0f5f0]">{text.edit}</Link> : null}</div>
               </div>
               <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-3"><div><dt className="text-xs font-bold uppercase text-[#7d877f]">{text.subtotal}</dt><dd>{formatMoney(offer.subtotalMinor, offer.currency, locale)}</dd></div><div><dt className="text-xs font-bold uppercase text-[#7d877f]">{text.vat} ({offer.vatRateBasisPoints / 100}%)</dt><dd>{formatMoney(offer.vatAmountMinor, offer.currency, locale)}</dd></div><div><dt className="text-xs font-bold uppercase text-[#7d877f]">{text.total}</dt><dd className="font-bold">{formatMoney(offer.totalMinor, offer.currency, locale)}</dd></div></dl>
+              {canEditWorkspaceQuoteOffer(offer.status) ? <div className="mt-4 border-t border-[#e0e6de] pt-4"><SendOfferForm quoteRequestId={quote.id} offerId={offer.id} locale={locale} copy={{ send: text.send, sending: text.sending, sent: text.sent, open: text.open, copy: text.copyLink, copied: text.copied, expires: text.linkExpires, error: text.sendError }} /></div> : null}
             </article>
           )) : <p className="text-sm text-[#667269]">{text.noOffers}</p>}
         </div>
