@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, ExternalLink, Send } from "lucide-react";
+import { Copy, ExternalLink, RotateCcw, Send } from "lucide-react";
 import { useActionState, useState } from "react";
 
 import {
@@ -10,35 +10,58 @@ import {
 
 const initialState: SendWorkspaceQuoteOfferState = { status: "idle" };
 
-type Copy = {
+type SendOfferCopy = {
   send: string;
+  resend: string;
   sending: string;
-  sent: string;
+  delivered: string;
+  deliveryFailed: string;
   open: string;
   copy: string;
   copied: string;
   expires: string;
   error: string;
+  deliveryNotSent: string;
+  deliveryPending: string;
+  deliverySent: string;
+  deliveryLastFailed: string;
 };
+
+type DeliveryStatus = "not_sent" | "pending" | "sent" | "failed";
+
+function deliveryNotice(status: DeliveryStatus, copy: SendOfferCopy) {
+  switch (status) {
+    case "pending": return copy.deliveryPending;
+    case "sent": return copy.deliverySent;
+    case "failed": return copy.deliveryLastFailed;
+    default: return copy.deliveryNotSent;
+  }
+}
 
 export function SendOfferForm({
   quoteRequestId,
   offerId,
   locale,
+  mode,
+  deliveryStatus = "not_sent",
   copy,
 }: {
   quoteRequestId: string;
   offerId: string;
   locale: "sv" | "en";
-  copy: Copy;
+  mode: "initial" | "resend";
+  deliveryStatus?: DeliveryStatus;
+  copy: SendOfferCopy;
 }) {
   const [state, formAction, isPending] = useActionState(sendWorkspaceQuoteOfferAction, initialState);
   const [copied, setCopied] = useState(false);
-  const publicUrl = state.status === "sent" && typeof window !== "undefined"
+  const hasPublicLink = state.status === "delivered" || state.status === "delivery_failed";
+  const publicUrl = hasPublicLink && typeof window !== "undefined"
     ? `${window.location.origin}${state.publicPath}`
-    : state.status === "sent"
+    : hasPublicLink
       ? state.publicPath
       : "";
+  const effectiveMode = state.status === "delivery_failed" ? "resend" : mode;
 
   async function copyPublicUrl() {
     if (!publicUrl || !navigator.clipboard) return;
@@ -48,16 +71,24 @@ export function SendOfferForm({
 
   return (
     <div className="grid gap-3">
+      {mode === "resend" && state.status === "idle" ? (
+        <p className={`rounded-xl px-3 py-2 text-xs font-semibold ${deliveryStatus === "failed" ? "bg-[#fff4f2] text-[#8a2b20]" : "bg-[#f1f6f1] text-[#315240]"}`}>
+          {deliveryNotice(deliveryStatus, copy)}
+        </p>
+      ) : null}
+
       <form action={formAction}>
         <input type="hidden" name="quoteRequestId" value={quoteRequestId} />
         <input type="hidden" name="offerId" value={offerId} />
+        <input type="hidden" name="mode" value={effectiveMode} />
+        <input type="hidden" name="locale" value={locale} />
         <button
           type="submit"
-          disabled={isPending || state.status === "sent"}
+          disabled={isPending || state.status === "delivered"}
           className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-[#173e2b] px-3 py-2 text-xs font-bold text-white transition hover:bg-[#0f3020] disabled:cursor-not-allowed disabled:opacity-60"
         >
-          <Send className="h-3.5 w-3.5" aria-hidden="true" />
-          {isPending ? copy.sending : copy.send}
+          {effectiveMode === "resend" ? <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" /> : <Send className="h-3.5 w-3.5" aria-hidden="true" />}
+          {isPending ? copy.sending : effectiveMode === "resend" ? copy.resend : copy.send}
         </button>
       </form>
 
@@ -65,9 +96,9 @@ export function SendOfferForm({
         <p className="rounded-xl bg-[#fff4f2] px-3 py-2 text-xs font-semibold text-[#8a2b20]" role="alert">{copy.error}</p>
       ) : null}
 
-      {state.status === "sent" ? (
-        <div className="grid gap-3 rounded-2xl border border-[#b9d8c0] bg-[#edf8ef] p-3 text-xs text-[#173e2b]">
-          <p className="font-bold">{copy.sent}</p>
+      {hasPublicLink ? (
+        <div className={`grid gap-3 rounded-2xl border p-3 text-xs ${state.status === "delivered" ? "border-[#b9d8c0] bg-[#edf8ef] text-[#173e2b]" : "border-[#e6bbb5] bg-[#fff4f2] text-[#8a2b20]"}`}>
+          <p className="font-bold" role={state.status === "delivery_failed" ? "alert" : undefined}>{state.status === "delivered" ? copy.delivered : copy.deliveryFailed}</p>
           <input aria-label={copy.open} readOnly value={publicUrl} className="min-h-10 rounded-lg border border-[#b9d8c0] bg-white px-3 font-mono text-[11px] text-[#173e2b]" />
           <div className="flex flex-wrap gap-2">
             <a href={state.publicPath} target="_blank" rel="noreferrer" className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-[#93bf9d] bg-white px-3 py-2 font-bold text-[#17452f]">

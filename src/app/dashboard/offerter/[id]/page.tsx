@@ -37,7 +37,7 @@ const copy = {
     offerTitle: "Rubrik", amount: "Belopp exkl. moms", vatRate: "Moms (%)", validUntil: "Giltig till", terms: "Villkor",
     saveDraft: "Spara utkast", noOffers: "Ingen offert har skapats ännu.", version: "Version", subtotal: "Exkl. moms",
     vat: "Moms", total: "Totalt", invalid: "Kontrollera offertens belopp, moms, rubrik och datum.", created: "Offertutkastet skapades.", edit: "Redigera utkast",
-    send: "Skicka offert", sending: "Skickar...", sent: "Offerten är skickad. Kopiera kundlänken nu – den visas bara denna gång.", open: "Öppna kundlänk", copyLink: "Kopiera länk", copied: "Kopierad", linkExpires: "Länken är giltig till", sendError: "Offerten kunde inte skickas. Ladda om sidan och försök igen.",
+    send: "Skicka offert via e-post", resend: "Skicka ny e-postlänk", sending: "Skickar...", delivered: "Offerten har lämnats till e-postleverantören. Kundlänken visas bara nu.", deliveryFailed: "Offerten är publicerad, men e-posten kunde inte skickas. Använd kundlänken eller försök skicka igen.", open: "Öppna kundlänk", copyLink: "Kopiera länk", copied: "Kopierad", linkExpires: "Länken är giltig till", sendError: "Offerten kunde inte förberedas för e-post. Ladda om sidan och försök igen.", deliveryNotSent: "Ingen offertmejl har skickats ännu.", deliveryPending: "E-postförsöket väntar på slutförande. Skicka igen om det inte uppdateras.", deliverySent: "Senaste offertmejlet har lämnats till e-postleverantören.", deliveryLastFailed: "Senaste offertmejlet kunde inte skickas. Skicka en ny säker länk.",
   },
   en: {
     back: "Back to quote enquiries", eyebrow: "Quote enquiry", customer: "Customer details", request: "Request",
@@ -47,7 +47,7 @@ const copy = {
     offerTitle: "Title", amount: "Amount excluding VAT", vatRate: "VAT (%)", validUntil: "Valid until", terms: "Terms",
     saveDraft: "Save draft", noOffers: "No offer has been created yet.", version: "Version", subtotal: "Excluding VAT",
     vat: "VAT", total: "Total", invalid: "Check the offer amount, VAT, title and date.", created: "The offer draft was created.", edit: "Edit draft",
-    send: "Send quote", sending: "Sending...", sent: "The quote is sent. Copy the customer link now – it is shown only this time.", open: "Open customer link", copyLink: "Copy link", copied: "Copied", linkExpires: "The link is valid until", sendError: "The quote could not be sent. Reload and try again.",
+    send: "Send quote by email", resend: "Send a new email link", sending: "Sending...", delivered: "The quote was handed to the email provider. The customer link is shown only now.", deliveryFailed: "The quote is published, but the email could not be sent. Use the customer link or try again.", open: "Open customer link", copyLink: "Copy link", copied: "Copied", linkExpires: "The link is valid until", sendError: "The quote could not be prepared for email. Reload and try again.", deliveryNotSent: "No quote email has been sent yet.", deliveryPending: "The email attempt is awaiting completion. Send again if it does not update.", deliverySent: "The latest quote email was handed to the email provider.", deliveryLastFailed: "The latest quote email could not be sent. Send a new secure link.",
   },
 } as const;
 
@@ -74,6 +74,22 @@ export default async function QuoteDetailPage({ params, searchParams }: {
   const offerMessage = Array.isArray(query?.offer) ? query.offer[0] : query?.offer;
   const locale: DashboardLocale = language === "en" ? "en" : "sv";
   const text = copy[locale];
+  const sendOfferCopy = {
+    send: text.send,
+    resend: text.resend,
+    sending: text.sending,
+    delivered: text.delivered,
+    deliveryFailed: text.deliveryFailed,
+    open: text.open,
+    copy: text.copyLink,
+    copied: text.copied,
+    expires: text.linkExpires,
+    error: text.sendError,
+    deliveryNotSent: text.deliveryNotSent,
+    deliveryPending: text.deliveryPending,
+    deliverySent: text.deliverySent,
+    deliveryLastFailed: text.deliveryLastFailed,
+  };
   const foundQuote = await getDashboardWorkspaceQuoteRequest(id);
   if (!foundQuote) notFound();
   const quote = foundQuote;
@@ -150,7 +166,8 @@ export default async function QuoteDetailPage({ params, searchParams }: {
                 <div className="flex flex-wrap items-center justify-end gap-3"><p className="text-lg font-extrabold text-[#173e2b]">{formatMoney(offer.totalMinor, offer.currency, locale)}</p>{canEditWorkspaceQuoteOffer(offer.status) ? <Link href={localHref(`/dashboard/offerter/${quote.id}/offer/${offer.id}`, locale)} className="rounded-xl border border-[#bfcbbf] bg-white px-3 py-2 text-xs font-bold text-[#17452f] hover:bg-[#f0f5f0]">{text.edit}</Link> : null}</div>
               </div>
               <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-3"><div><dt className="text-xs font-bold uppercase text-[#7d877f]">{text.subtotal}</dt><dd>{formatMoney(offer.subtotalMinor, offer.currency, locale)}</dd></div><div><dt className="text-xs font-bold uppercase text-[#7d877f]">{text.vat} ({offer.vatRateBasisPoints / 100}%)</dt><dd>{formatMoney(offer.vatAmountMinor, offer.currency, locale)}</dd></div><div><dt className="text-xs font-bold uppercase text-[#7d877f]">{text.total}</dt><dd className="font-bold">{formatMoney(offer.totalMinor, offer.currency, locale)}</dd></div></dl>
-              {canEditWorkspaceQuoteOffer(offer.status) ? <div className="mt-4 border-t border-[#e0e6de] pt-4"><SendOfferForm quoteRequestId={quote.id} offerId={offer.id} locale={locale} copy={{ send: text.send, sending: text.sending, sent: text.sent, open: text.open, copy: text.copyLink, copied: text.copied, expires: text.linkExpires, error: text.sendError }} /></div> : null}
+              {canEditWorkspaceQuoteOffer(offer.status) ? <div className="mt-4 border-t border-[#e0e6de] pt-4"><SendOfferForm quoteRequestId={quote.id} offerId={offer.id} locale={locale} mode="initial" copy={sendOfferCopy} /></div> : null}
+              {offer.status === "sent" ? <div className="mt-4 border-t border-[#e0e6de] pt-4"><SendOfferForm quoteRequestId={quote.id} offerId={offer.id} locale={locale} mode="resend" deliveryStatus={offer.emailDeliveryStatus} copy={sendOfferCopy} /></div> : null}
             </article>
           )) : <p className="text-sm text-[#667269]">{text.noOffers}</p>}
         </div>
