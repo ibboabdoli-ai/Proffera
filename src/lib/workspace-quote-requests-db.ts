@@ -73,38 +73,35 @@ function mapQuote(row: Record<string, unknown>): DashboardWorkspaceQuoteRequest 
   };
 }
 
-const quoteSelect = `
-  select
-    q.id,
-    q.reference_id,
-    q.status,
-    q.service_id,
-    coalesce(s.name, '') as service_name,
-    q.customer_name,
-    q.customer_email,
-    q.customer_phone,
-    q.city,
-    q.postal_code,
-    q.description,
-    q.preferred_date,
-    q.source,
-    q.created_at,
-    q.updated_at
-  from workspace_quote_requests q
-  left join workspace_services s
-    on s.id = q.service_id
-   and s.workspace_id = q.workspace_id
-`;
-
 export async function getDashboardWorkspaceQuoteRequests() {
   const sql = getSqlClient();
   if (!sql) return [];
 
   const workspaceId = await getActiveWorkspaceId();
-  const rows = await sql.query(
-    `${quoteSelect} where q.workspace_id = $1 order by q.created_at desc`,
-    [workspaceId],
-  );
+  const rows = await sql`
+    select
+      q.id,
+      q.reference_id,
+      q.status,
+      q.service_id,
+      coalesce(s.name, '') as service_name,
+      q.customer_name,
+      q.customer_email,
+      q.customer_phone,
+      q.city,
+      q.postal_code,
+      q.description,
+      q.preferred_date,
+      q.source,
+      q.created_at,
+      q.updated_at
+    from workspace_quote_requests q
+    left join workspace_services s
+      on s.id = q.service_id
+     and s.workspace_id = q.workspace_id
+    where q.workspace_id = ${workspaceId}
+    order by q.created_at desc
+  `;
 
   return rows.map((row) => mapQuote(row as Record<string, unknown>));
 }
@@ -114,10 +111,31 @@ export async function getDashboardWorkspaceQuoteRequest(id: string) {
   if (!sql) return null;
 
   const workspaceId = await getActiveWorkspaceId();
-  const rows = await sql.query(
-    `${quoteSelect} where q.workspace_id = $1 and q.id = $2 limit 1`,
-    [workspaceId, id],
-  );
+  const rows = await sql`
+    select
+      q.id,
+      q.reference_id,
+      q.status,
+      q.service_id,
+      coalesce(s.name, '') as service_name,
+      q.customer_name,
+      q.customer_email,
+      q.customer_phone,
+      q.city,
+      q.postal_code,
+      q.description,
+      q.preferred_date,
+      q.source,
+      q.created_at,
+      q.updated_at
+    from workspace_quote_requests q
+    left join workspace_services s
+      on s.id = q.service_id
+     and s.workspace_id = q.workspace_id
+    where q.workspace_id = ${workspaceId}
+      and q.id = ${id}
+    limit 1
+  `;
 
   return rows[0] ? mapQuote(rows[0] as Record<string, unknown>) : null;
 }
