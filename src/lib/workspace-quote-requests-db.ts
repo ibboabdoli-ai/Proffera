@@ -98,7 +98,7 @@ export async function getDashboardWorkspaceQuoteRequests() {
     from workspace_quote_requests q
     left join workspace_services s
       on s.id = q.service_id
-     and s.workspace_id = q.workspace_id
+     and s.workspace_id = q.workspace_id::text
     where q.workspace_id = ${workspaceId}
     order by q.created_at desc
   `;
@@ -131,7 +131,7 @@ export async function getDashboardWorkspaceQuoteRequest(id: string) {
     from workspace_quote_requests q
     left join workspace_services s
       on s.id = q.service_id
-     and s.workspace_id = q.workspace_id
+     and s.workspace_id = q.workspace_id::text
     where q.workspace_id = ${workspaceId}
       and q.id = ${id}
     limit 1
