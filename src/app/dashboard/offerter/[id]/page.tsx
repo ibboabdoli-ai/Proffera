@@ -12,6 +12,7 @@ import { validateWorkspaceQuoteOfferDraft } from "@/lib/workspace-quote-offer-dr
 import { canEditWorkspaceQuoteOffer } from "@/lib/workspace-quote-offer-policy";
 import { getDashboardWorkspaceQuoteRequest, transitionDashboardWorkspaceQuoteRequest } from "@/lib/workspace-quote-requests-db";
 import { getWorkspaceQuoteTransitions, isWorkspaceQuoteStatus, type WorkspaceQuoteStatus } from "@/lib/workspace-quote-policy";
+import { getUserWorkspaceAccess } from "@/lib/workspace-access";
 import { SendOfferForm } from "./send-offer-form";
 
 export const dynamic = "force-dynamic";
@@ -74,6 +75,8 @@ export default async function QuoteDetailPage({ params, searchParams }: {
   const offerMessage = Array.isArray(query?.offer) ? query.offer[0] : query?.offer;
   const locale: DashboardLocale = language === "en" ? "en" : "sv";
   const text = copy[locale];
+  const access = await getUserWorkspaceAccess();
+  if (!access.ok) redirect(access.reason === "no_session" ? "/logga-in" : "/dashboard");
   const sendOfferCopy = {
     send: text.send,
     resend: text.resend,

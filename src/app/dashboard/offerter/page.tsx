@@ -1,7 +1,9 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { FileText, Inbox, MapPin, UserRound } from "lucide-react";
 
 import { DashboardDataPanel, DashboardMetricGrid, DashboardPageHeader } from "@/components/dashboard/dashboard-page-ui";
+import { getUserWorkspaceAccess } from "@/lib/workspace-access";
 import { getDashboardWorkspaceQuoteRequests } from "@/lib/workspace-quote-requests-db";
 import type { WorkspaceQuoteStatus } from "@/lib/workspace-quote-policy";
 
@@ -75,6 +77,8 @@ export default async function QuoteInboxPage({ searchParams }: { searchParams?: 
   const language = Array.isArray(params?.lang) ? params.lang[0] : params?.lang;
   const locale: DashboardLocale = language === "en" ? "en" : "sv";
   const text = copy[locale];
+  const access = await getUserWorkspaceAccess();
+  if (!access.ok) redirect(access.reason === "no_session" ? "/logga-in" : "/dashboard");
   const quotes = await getDashboardWorkspaceQuoteRequests();
   const active = quotes.filter((quote) => !["accepted", "rejected", "cancelled"].includes(quote.status)).length;
   const metrics = [

@@ -9,6 +9,7 @@ import {
 } from "@/lib/workspace-quote-offers-db";
 import { validateWorkspaceQuoteOfferDraft } from "@/lib/workspace-quote-offer-draft";
 import { canEditWorkspaceQuoteOffer } from "@/lib/workspace-quote-offer-policy";
+import { getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 export const dynamic = "force-dynamic";
 
@@ -71,6 +72,8 @@ export default async function EditOfferDraftPage({
   const state = Array.isArray(query?.state) ? query.state[0] : query?.state;
   const locale: DashboardLocale = language === "en" ? "en" : "sv";
   const text = copy[locale];
+  const access = await getUserWorkspaceAccess();
+  if (!access.ok) redirect(access.reason === "no_session" ? "/logga-in" : "/dashboard");
   const foundOffer = await getDashboardWorkspaceQuoteOffer(id, offerId);
   if (!foundOffer) notFound();
   const offer = foundOffer;
