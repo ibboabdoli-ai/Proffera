@@ -5,6 +5,11 @@ import { neon } from "@neondatabase/serverless";
 import type { WorkspaceBillingCurrency } from "@/lib/workspace-market";
 import type { NormalizedWorkspaceQuoteOfferDraft } from "@/lib/workspace-quote-offer-draft";
 import { canEditWorkspaceQuoteOffer, type WorkspaceQuoteOfferStatus } from "@/lib/workspace-quote-offer-policy";
+import {
+  createPublicWorkspaceQuoteOfferToken,
+  hashPublicWorkspaceQuoteOfferToken,
+  isPublicWorkspaceQuoteOfferToken,
+} from "@/lib/workspace-quote-offer-public";
 import { getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 const connectionString =
@@ -42,6 +47,12 @@ export type DashboardWorkspaceQuoteOffer = {
   title: string;
   terms: string;
   validUntil: string;
+  sentAt: string;
+  acceptedAt: string;
+  rejectedAt: string;
+  publicTokenExpiresAt: string;
+  firstViewedAt: string;
+  responseAt: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -60,6 +71,12 @@ function mapOffer(row: Record<string, unknown>): DashboardWorkspaceQuoteOffer {
     title: text(row.title),
     terms: text(row.terms),
     validUntil: text(row.valid_until),
+    sentAt: text(row.sent_at),
+    acceptedAt: text(row.accepted_at),
+    rejectedAt: text(row.rejected_at),
+    publicTokenExpiresAt: text(row.public_token_expires_at),
+    firstViewedAt: text(row.first_viewed_at),
+    responseAt: text(row.response_at),
     createdAt: text(row.created_at),
     updatedAt: text(row.updated_at),
   };
@@ -72,7 +89,8 @@ export async function getDashboardWorkspaceQuoteOffers(quoteRequestId: string) {
   const rows = await sql`
     select id, quote_request_id, version, status, currency, subtotal_minor,
            vat_rate_basis_points, vat_amount_minor, total_minor, title, terms,
-           valid_until, created_at, updated_at
+           valid_until, sent_at, accepted_at, rejected_at, public_token_expires_at,
+           first_viewed_at, response_at, created_at, updated_at
     from workspace_quote_offers
     where workspace_id = ${workspaceId}
       and quote_request_id = ${quoteRequestId}
@@ -88,7 +106,8 @@ export async function getDashboardWorkspaceQuoteOffer(quoteRequestId: string, of
   const rows = await sql`
     select id, quote_request_id, version, status, currency, subtotal_minor,
            vat_rate_basis_points, vat_amount_minor, total_minor, title, terms,
-           valid_until, created_at, updated_at
+           valid_until, sent_at, accepted_at, rejected_at, public_token_expires_at,
+           first_viewed_at, response_at, created_at, updated_at
     from workspace_quote_offers
     where workspace_id = ${workspaceId}
       and quote_request_id = ${quoteRequestId}
@@ -215,6 +234,202 @@ export async function updateDashboardWorkspaceQuoteOfferDraft(
 
   if (!rows[0]) throw new Error("The draft changed before the update completed");
   return { id: String(rows[0].id), updatedAt: String(rows[0].updated_at) };
+}
+
+export type DashboardWorkspaceQuoteOfferDelivery = {
+  token: string;
+  expiresAt: string;
+};
+
+export async function sendDashboardWorkspaceQuoteOffer(
+  quoteRequestId: string,
+  offerId: string,
+): Promise<DashboardWorkspaceQuoteOfferDelivery> {
+  const sql = getSqlClient();
+  if (!sql) throw new Error("Missing database connection for quote offer delivery");
+  const workspaceId = await getActiveWorkspaceId();
+  const token = createPublicWorkspaceQuoteOfferToken();
+  const tokenHash = hashPublicWorkspaceQuoteOfferToken(token);
+
+  const rows = await sql`
+    with sent_offer as (
+      update workspace_quote_offers offer
+      set
+        status = 'sent',
+        sent_at = now(),
+        public_token_hash = ${tokenHash},
+        public_token_expires_at = coalesce(
+          (offer.valid_until + 1)::timestamptz,
+          now() + interval '30 days'
+        ),
+        updated_at = now()
+      from workspace_quote_requests request
+      where offer.id = ${offerId}
+        and offer.quote_request_id = ${quoteRequestId}
+        and offer.workspace_id = ${workspaceId}
+        and offer.status = 'draft'
+        and request.id = offer.quote_request_id
+        and request.workspace_id = offer.workspace_id
+        and request.status in ('submitted', 'reviewing')
+      returning offer.quote_request_id, offer.workspace_id, offer.public_token_expires_at
+    )
+    update workspace_quote_requests request
+    set status = 'quoted', updated_at = now()
+    from sent_offer offer
+    where request.id = offer.quote_request_id
+      and request.workspace_id = offer.workspace_id
+      and request.status in ('submitted', 'reviewing')
+    returning offer.public_token_expires_at
+  `;
+
+  const expiresAt = rows[0]?.public_token_expires_at;
+  if (!expiresAt) throw new Error("Draft offer could not be sent for the active workspace");
+
+  return { token, expiresAt: String(expiresAt) };
+}
+
+export type PublicWorkspaceQuoteOffer = {
+  status: Extract<WorkspaceQuoteOfferStatus, "sent" | "accepted" | "rejected">;
+  companyName: string;
+  quoteReferenceId: string;
+  customerName: string;
+  currency: WorkspaceBillingCurrency;
+  subtotalMinor: number;
+  vatRateBasisPoints: number;
+  vatAmountMinor: number;
+  totalMinor: number;
+  title: string;
+  terms: string;
+  validUntil: string;
+  publicTokenExpiresAt: string;
+  sentAt: string;
+  acceptedAt: string;
+  rejectedAt: string;
+  responseAt: string;
+};
+
+function mapPublicOffer(row: Record<string, unknown>): PublicWorkspaceQuoteOffer {
+  return {
+    status: text(row.status) as PublicWorkspaceQuoteOffer["status"],
+    companyName: text(row.company_name),
+    quoteReferenceId: text(row.reference_id),
+    customerName: text(row.customer_name),
+    currency: text(row.currency) as WorkspaceBillingCurrency,
+    subtotalMinor: Number(row.subtotal_minor),
+    vatRateBasisPoints: Number(row.vat_rate_basis_points),
+    vatAmountMinor: Number(row.vat_amount_minor),
+    totalMinor: Number(row.total_minor),
+    title: text(row.title),
+    terms: text(row.terms),
+    validUntil: text(row.valid_until),
+    publicTokenExpiresAt: text(row.public_token_expires_at),
+    sentAt: text(row.sent_at),
+    acceptedAt: text(row.accepted_at),
+    rejectedAt: text(row.rejected_at),
+    responseAt: text(row.response_at),
+  };
+}
+
+export async function getPublicWorkspaceQuoteOffer(token: string) {
+  if (!isPublicWorkspaceQuoteOfferToken(token)) return null;
+  const sql = getSqlClient();
+  if (!sql) return null;
+  const tokenHash = hashPublicWorkspaceQuoteOfferToken(token);
+
+  const rows = await sql`
+    with visible_offer as (
+      select offer.id
+      from workspace_quote_offers offer
+      join workspace_quote_requests request
+        on request.id = offer.quote_request_id
+       and request.workspace_id = offer.workspace_id
+      where offer.public_token_hash = ${tokenHash}
+        and offer.public_token_expires_at > now()
+        and (offer.valid_until is null or offer.valid_until >= current_date)
+        and (
+          (offer.status = 'sent' and request.status = 'quoted')
+          or (offer.status = 'accepted' and request.status = 'accepted')
+          or (offer.status = 'rejected' and request.status = 'rejected')
+        )
+      limit 1
+    ),
+    mark_first_view as (
+      update workspace_quote_offers offer
+      set first_viewed_at = coalesce(offer.first_viewed_at, now())
+      where offer.id in (select id from visible_offer)
+        and offer.status = 'sent'
+      returning offer.id
+    )
+    select
+      offer.status,
+      coalesce(nullif(workspace.company_name, ''), workspace.name) as company_name,
+      request.reference_id,
+      request.customer_name,
+      offer.currency,
+      offer.subtotal_minor,
+      offer.vat_rate_basis_points,
+      offer.vat_amount_minor,
+      offer.total_minor,
+      offer.title,
+      offer.terms,
+      offer.valid_until,
+      offer.public_token_expires_at,
+      offer.sent_at,
+      offer.accepted_at,
+      offer.rejected_at,
+      offer.response_at
+    from workspace_quote_offers offer
+    join visible_offer visible on visible.id = offer.id
+    join workspace_quote_requests request
+      on request.id = offer.quote_request_id
+     and request.workspace_id = offer.workspace_id
+    join workspaces workspace on workspace.id = offer.workspace_id
+    limit 1
+  `;
+
+  return rows[0] ? mapPublicOffer(rows[0] as Record<string, unknown>) : null;
+}
+
+export type PublicWorkspaceQuoteOfferResponse = "accepted" | "rejected";
+
+export async function respondToPublicWorkspaceQuoteOffer(
+  token: string,
+  response: PublicWorkspaceQuoteOfferResponse,
+) {
+  if (!isPublicWorkspaceQuoteOfferToken(token)) return { ok: false as const };
+  const sql = getSqlClient();
+  if (!sql) return { ok: false as const };
+  const tokenHash = hashPublicWorkspaceQuoteOfferToken(token);
+
+  const rows = await sql`
+    with responded_offer as (
+      update workspace_quote_offers offer
+      set
+        status = ${response},
+        accepted_at = case when ${response} = 'accepted' then now() else offer.accepted_at end,
+        rejected_at = case when ${response} = 'rejected' then now() else offer.rejected_at end,
+        response_at = now(),
+        updated_at = now()
+      from workspace_quote_requests request
+      where offer.public_token_hash = ${tokenHash}
+        and offer.status = 'sent'
+        and offer.public_token_expires_at > now()
+        and (offer.valid_until is null or offer.valid_until >= current_date)
+        and request.id = offer.quote_request_id
+        and request.workspace_id = offer.workspace_id
+        and request.status = 'quoted'
+      returning offer.quote_request_id, offer.workspace_id
+    )
+    update workspace_quote_requests request
+    set status = ${response}, updated_at = now()
+    from responded_offer offer
+    where request.id = offer.quote_request_id
+      and request.workspace_id = offer.workspace_id
+      and request.status = 'quoted'
+    returning request.id
+  `;
+
+  return rows[0] ? { ok: true as const, response } : { ok: false as const };
 }
 
 export async function getDashboardWorkspaceBillingCurrency() {
