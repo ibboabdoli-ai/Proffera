@@ -5,22 +5,11 @@ import { redirect } from "next/navigation";
 import {
   createDashboardWorkspaceService,
   updateDashboardWorkspaceService,
-  type WriteDashboardWorkspaceServiceInput,
 } from "@/lib/workspace-services-db";
+import { validateWorkspaceServiceDraft, type WorkspaceServiceValidationError } from "@/lib/workspace-service-policy";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
-type ServiceSaveError =
-  | "access"
-  | "id"
-  | "name"
-  | "description"
-  | "category"
-  | "price"
-  | "base_price"
-  | "duration"
-  | "area"
-  | "sort"
-  | "save";
+type ServiceSaveError = "access" | "id" | WorkspaceServiceValidationError | "save";
 
 function getFormText(formData: FormData, key: string) {
   return String(formData.get(key) ?? "").trim();
@@ -36,98 +25,25 @@ async function requireWorkspaceManager() {
   }
 }
 
-function parseOptionalInteger(formData: FormData, key: string, min: number, max: number, error: ServiceSaveError) {
-  const rawValue = getFormText(formData, key);
-
-  if (!rawValue) {
-    return null;
-  }
-
-  const value = Number(rawValue);
-
-  if (!Number.isInteger(value) || value < min || value > max) {
-    redirectWithServiceError(error);
-  }
-
-  return value;
-}
-
-function parseIntegerWithDefault(
-  formData: FormData,
-  key: string,
-  min: number,
-  max: number,
-  fallback: number,
-  error: ServiceSaveError,
-) {
-  const rawValue = getFormText(formData, key);
-
-  if (!rawValue) {
-    return fallback;
-  }
-
-  const value = Number(rawValue);
-
-  if (!Number.isInteger(value) || value < min || value > max) {
-    redirectWithServiceError(error);
-  }
-
-  return value;
-}
-
-function parseRequiredInteger(formData: FormData, key: string, min: number, max: number, error: ServiceSaveError) {
-  const rawValue = getFormText(formData, key);
-  const value = Number(rawValue);
-
-  if (!rawValue || !Number.isInteger(value) || value < min || value > max) {
-    redirectWithServiceError(error);
-  }
-
-  return value;
-}
-
-function getServiceInput(formData: FormData): WriteDashboardWorkspaceServiceInput {
-  const name = getFormText(formData, "name");
-  const description = getFormText(formData, "description");
-  const category = getFormText(formData, "category");
-  const priceLabel = getFormText(formData, "price_label");
-  const serviceArea = getFormText(formData, "service_area");
-
-  if (!name || name.length > 140) {
-    redirectWithServiceError("name");
-  }
-
-  if (description.length > 500) {
-    redirectWithServiceError("description");
-  }
-
-  if (category.length > 120) {
-    redirectWithServiceError("category");
-  }
-
-  if (priceLabel.length > 120) {
-    redirectWithServiceError("price");
-  }
-
-  if (serviceArea.length > 240) {
-    redirectWithServiceError("area");
-  }
-
-  return {
-    name,
-    description,
-    category,
-    priceLabel,
-    basePriceSek: parseOptionalInteger(formData, "base_price_sek", 0, 9999999, "base_price"),
-    durationMinutes: parseOptionalInteger(formData, "duration_minutes", 1, 1440, "duration"),
-    bufferBeforeMinutes: parseIntegerWithDefault(formData, "buffer_before_minutes", 0, 1440, 0, "duration"),
-    bufferAfterMinutes: parseIntegerWithDefault(formData, "buffer_after_minutes", 0, 1440, 0, "duration"),
-    minimumNoticeMinutes: parseIntegerWithDefault(formData, "minimum_notice_minutes", 0, 525600, 0, "duration"),
-    maximumAdvanceDays: parseIntegerWithDefault(formData, "maximum_advance_days", 1, 730, 365, "duration"),
-    serviceArea,
+function getServiceInput(formData: FormData) {
+  const result = validateWorkspaceServiceDraft({
+    name: getFormText(formData, "name"),
+    description: getFormText(formData, "description"),
+    category: getFormText(formData, "category"),
+    priceLabel: getFormText(formData, "price_label"),
+    basePriceSek: getFormText(formData, "base_price_sek"),
+    durationMinutes: getFormText(formData, "duration_minutes"),
+    bufferBeforeMinutes: getFormText(formData, "buffer_before_minutes"),
+    bufferAfterMinutes: getFormText(formData, "buffer_after_minutes"),
+    minimumNoticeMinutes: getFormText(formData, "minimum_notice_minutes"),
+    maximumAdvanceDays: getFormText(formData, "maximum_advance_days"),
+    serviceArea: getFormText(formData, "service_area"),
     isActive: formData.get("is_active") === "on",
-    sortOrder: parseRequiredInteger(formData, "sort_order", 0, 9999, "sort"),
-  };
+    sortOrder: getFormText(formData, "sort_order"),
+  });
+
+  if (!result.ok) redirectWithServiceError(result.error);
+  return result.value;
 }
 
 export async function createWorkspaceServiceAction(formData: FormData) {
@@ -147,10 +63,7 @@ export async function createWorkspaceServiceAction(formData: FormData) {
 export async function updateWorkspaceServiceAction(formData: FormData) {
   await requireWorkspaceManager();
   const id = getFormText(formData, "service_id");
-
-  if (!id) {
-    redirectWithServiceError("id");
-  }
+  if (!id) redirectWithServiceError("id");
 
   const input = getServiceInput(formData);
 
