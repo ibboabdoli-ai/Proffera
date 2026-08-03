@@ -15,6 +15,12 @@ function hashCode(id: string, code: string) {
   return createHash("sha256").update(`${id}:${code}:${secret}`).digest("hex");
 }
 
+function toIsoTimestamp(value: unknown) {
+  const date = value instanceof Date ? value : new Date(String(value));
+  if (Number.isNaN(date.getTime())) throw new Error("Invalid booking verification timestamp");
+  return date.toISOString();
+}
+
 export type BeginBookingVerificationInput = {
   workspaceId: string;
   slug: string;
@@ -89,12 +95,15 @@ export async function verifyPublicBookingCode(id: string, code: string) {
     return { ok: false as const, error: "code" };
   }
 
+  const startsAt = toIsoTimestamp(challenge.starts_at);
+  const endsAt = toIsoTimestamp(challenge.ends_at);
+
   const conflict = await sql`
     select id from bookings
     where workspace_id = ${String(challenge.workspace_id)}
       and status not in ('cancelled', 'no_show')
-      and starts_at < ${String(challenge.ends_at)}::timestamptz
-      and ends_at > ${String(challenge.starts_at)}::timestamptz
+      and starts_at < ${endsAt}::timestamptz
+      and ends_at > ${startsAt}::timestamptz
     limit 1
   `;
   if (conflict[0]) return { ok: false as const, error: "conflict" };
@@ -111,7 +120,7 @@ export async function verifyPublicBookingCode(id: string, code: string) {
       select id from customers where workspace_id = ${String(challenge.workspace_id)} and lower(email) = lower(${String(challenge.customer_email)}) order by id limit 1
     ), booking as (
       insert into bookings (workspace_id, customer_id, title, service, city, status, starts_at, ends_at, source)
-      select ${String(challenge.workspace_id)}, id, ${String(challenge.service_name)}, ${String(challenge.service_name)}, ${challenge.city ? String(challenge.city) : null}, 'requested', ${String(challenge.starts_at)}::timestamptz, ${String(challenge.ends_at)}::timestamptz, 'public_booking'
+      select ${String(challenge.workspace_id)}, id, ${String(challenge.service_name)}, ${String(challenge.service_name)}, ${challenge.city ? String(challenge.city) : null}, 'requested', ${startsAt}::timestamptz, ${endsAt}::timestamptz, 'public_booking'
       from selected_customer limit 1 returning id
     )
     update public_booking_verifications set verified_at = now(), consumed_at = now(), updated_at = now()
@@ -121,9 +130,9 @@ export async function verifyPublicBookingCode(id: string, code: string) {
 
   const timeZone = String(challenge.time_zone) as WorkspaceTimeZone;
   await Promise.allSettled([
-    sendBookingConfirmationEmail({ customerName: String(challenge.customer_name), customerEmail: String(challenge.customer_email), companyName: String(challenge.company_name), bookingTitle: String(challenge.service_name), service: String(challenge.service_name), startsAt: String(challenge.starts_at), endsAt: String(challenge.ends_at), city: String(challenge.city ?? ""), timeZone }),
-    challenge.owner_email ? sendBookingOwnerNotificationEmail({ ownerEmail: String(challenge.owner_email), companyName: String(challenge.company_name), customerName: String(challenge.customer_name), customerEmail: String(challenge.customer_email), customerPhone: String(challenge.customer_phone ?? ""), service: String(challenge.service_name), startsAt: String(challenge.starts_at), endsAt: String(challenge.ends_at), city: String(challenge.city ?? ""), timeZone }) : Promise.resolve(),
-    challenge.owner_phone ? sendBookingOwnerSms({ ownerPhone: String(challenge.owner_phone), companyName: String(challenge.company_name), customerName: String(challenge.customer_name), customerPhone: String(challenge.customer_phone ?? ""), service: String(challenge.service_name), startsAt: String(challenge.starts_at), timeZone }) : Promise.resolve(),
+    sendBookingConfirmationEmail({ customerName: String(challenge.customer_name), customerEmail: String(challenge.customer_email), companyName: String(challenge.company_name), bookingTitle: String(challenge.service_name), service: String(challenge.service_name), startsAt, endsAt, city: String(challenge.city ?? ""), timeZone }),
+    challenge.owner_email ? sendBookingOwnerNotificationEmail({ ownerEmail: String(challenge.owner_email), companyName: String(challenge.company_name), customerName: String(challenge.customer_name), customerEmail: String(challenge.customer_email), customerPhone: String(challenge.customer_phone ?? ""), service: String(challenge.service_name), startsAt, endsAt, city: String(challenge.city ?? ""), timeZone }) : Promise.resolve(),
+    challenge.owner_phone ? sendBookingOwnerSms({ ownerPhone: String(challenge.owner_phone), companyName: String(challenge.company_name), customerName: String(challenge.customer_name), customerPhone: String(challenge.customer_phone ?? ""), service: String(challenge.service_name), startsAt, timeZone }) : Promise.resolve(),
   ]);
 
   return { ok: true as const, slug: String(challenge.public_booking_slug) };
