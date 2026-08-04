@@ -7,6 +7,10 @@ import { localizedPublicRoutes } from "@/lib/public-locale";
 import { siteConfig } from "@/lib/site";
 
 const swedishOnlyRoutes = ["/logga-in"] as const;
+const primeViewRoutes = [
+  { path: "/", changeFrequency: "weekly" as const, priority: 1 },
+  { path: "/gallery", changeFrequency: "weekly" as const, priority: 0.8 },
+] as const;
 
 export const dynamic = "force-dynamic";
 
@@ -14,13 +18,14 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const requestHeaders = await headers();
 
   if (isPrimeViewHost(requestHeaders.get("host"))) {
-    return [
-      {
-        url: primeViewSite.canonicalUrl,
-        changeFrequency: "weekly",
-        priority: 1,
-      },
-    ];
+    const lastModified = new Date();
+
+    return primeViewRoutes.map((route) => ({
+      url: new URL(route.path, primeViewSite.origin).toString(),
+      lastModified,
+      changeFrequency: route.changeFrequency,
+      priority: route.priority,
+    }));
   }
 
   const lastModified = new Date();
