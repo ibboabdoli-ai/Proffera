@@ -8,6 +8,7 @@ const TRIAL_DAYS = 14;
 
 type ProvisionWorkspaceInput = {
   workspaceId?: string;
+  invitationId: string;
   userId: string;
   slug: string;
   companyName: string;
@@ -104,7 +105,9 @@ export async function provisionWorkspace(input: ProvisionWorkspaceInput) {
       select gen_random_uuid(), ${workspaceId}::uuid, feature_key, minimum_plan = 'starter', now(), now()
       from feature_catalog
       where is_active = true
-      on conflict (workspace_id, feature_key) do nothing
+      on conflict (workspace_id, feature_key) do update set
+        enabled = excluded.enabled,
+        updated_at = now()
     `,
     tx`
       insert into workspace_feature_flags (id, workspace_id, feature_key, enabled, created_at, updated_at)
@@ -113,7 +116,16 @@ export async function provisionWorkspace(input: ProvisionWorkspaceInput) {
         (gen_random_uuid(), ${workspaceId}::uuid, 'lead_inbox', true, now(), now()),
         (gen_random_uuid(), ${workspaceId}::uuid, 'crm_customers', false, now(), now()),
         (gen_random_uuid(), ${workspaceId}::uuid, 'ai_assistant', false, now(), now())
-      on conflict (workspace_id, feature_key) do nothing
+      on conflict (workspace_id, feature_key) do update set
+        enabled = excluded.enabled,
+        updated_at = now()
+    `,
+    tx`
+      update workspace_invitations
+      set workspace_id = ${workspaceId}::uuid, updated_at = now()
+      where id = ${input.invitationId}::uuid
+        and status = 'accepted'
+        and workspace_id is null
     `,
   ]);
 
