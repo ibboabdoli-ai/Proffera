@@ -8,67 +8,61 @@ import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/worksp
 import { getDashboardWorkspaceSettings } from "@/lib/workspace-settings-db";
 
 export const dynamic = "force-dynamic";
-
-function localizedHref(href: string, isEnglish: boolean) {
-  return isEnglish ? `${href}${href.includes("?") ? "&" : "?"}lang=en` : href;
-}
-
-function formatDate(value: string, isEnglish: boolean, timeZone: string) {
-  return new Intl.DateTimeFormat(isEnglish ? "en-GB" : "sv-SE", { timeZone, dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
-}
+const href = (value: string, en: boolean) => en ? `${value}${value.includes("?") ? "&" : "?"}lang=en` : value;
+const first = (value: string | string[] | undefined) => Array.isArray(value) ? value[0] : value;
+const date = (value: string, en: boolean, timeZone: string) => new Intl.DateTimeFormat(en ? "en-GB" : "sv-SE", { timeZone, dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 
 async function updateAction(formData: FormData) {
   "use server";
-  const isEnglish = String(formData.get("lang") ?? "") === "en";
+  const en = String(formData.get("lang") ?? "") === "en";
   try {
     await updateBookingReminderSettings({
       isEnabled: formData.get("isEnabled") === "on",
-      hoursBefore: Number(String(formData.get("hoursBefore") ?? "24")),
+      hoursBefore: Number(formData.get("hoursBefore") ?? 24),
       emailEnabled: formData.get("emailEnabled") === "on",
       smsEnabled: formData.get("smsEnabled") === "on",
+      customerRescheduleEnabled: formData.get("customerRescheduleEnabled") === "on",
+      customerCancelEnabled: formData.get("customerCancelEnabled") === "on",
+      cancelNoticeHours: Number(formData.get("cancelNoticeHours") ?? 0),
+      noShowEnabled: formData.get("noShowEnabled") === "on",
+      autoCompleteEnabled: formData.get("autoCompleteEnabled") === "on",
+      companyConfirmationRequired: formData.get("companyConfirmationRequired") === "on",
     });
-  } catch {
-    redirect(localizedHref("/dashboard/installningar/paminnelser?error=1", isEnglish));
-  }
-  redirect(localizedHref("/dashboard/installningar/paminnelser?updated=1", isEnglish));
+  } catch { redirect(href("/dashboard/installningar/paminnelser?error=1", en)); }
+  redirect(href("/dashboard/installningar/paminnelser?updated=1", en));
 }
 
-type ReminderSearchParams = { updated?: string | string[]; error?: string | string[]; lang?: string | string[] };
-
-export default async function ReminderSettingsPage({ searchParams }: { searchParams?: Promise<ReminderSearchParams> }) {
-  const params: ReminderSearchParams = searchParams ? await searchParams : {};
-  const first = (value: string | string[] | undefined) => Array.isArray(value) ? value[0] : value;
-  const isEnglish = first(params.lang) === "en";
+type Params = { updated?: string | string[]; error?: string | string[]; lang?: string | string[] };
+export default async function Page({ searchParams }: { searchParams?: Promise<Params> }) {
+  const params = searchParams ? await searchParams : {};
+  const en = first(params.lang) === "en";
   const access = await getUserWorkspaceAccess();
-  if (!access.ok || !canManageWorkspaceSettings(access)) redirect(localizedHref("/dashboard", isEnglish));
-  const [settings, deliveries, workspaceSettings] = await Promise.all([getBookingReminderSettings(), getRecentReminderDeliveries(), getDashboardWorkspaceSettings()]);
-
+  if (!access.ok || !canManageWorkspaceSettings(access)) redirect(href("/dashboard", en));
+  const [settings, deliveries, workspace] = await Promise.all([getBookingReminderSettings(), getRecentReminderDeliveries(), getDashboardWorkspaceSettings()]);
+  const toggle = (name: string, labelSv: string, labelEn: string, checked: boolean) => <label className="flex items-center justify-between gap-4 rounded-xl border border-[#e1e7df] p-4 text-sm font-semibold"><span>{en ? labelEn : labelSv}</span><input name={name} type="checkbox" defaultChecked={checked} className="h-5 w-5" /></label>;
   return <div className="grid gap-6">
-    <DashboardPageHeader
-      eyebrow={isEnglish ? "Booking reminders" : "Bokningspåminnelser"}
-      title={isEnglish ? "Automatic reminders" : "Automatiska påminnelser"}
-      description={isEnglish ? "Control when customers receive reminders and review recent deliveries for the active workspace." : "Styr när kunder får påminnelser och följ de senaste leveranserna för den aktiva arbetsytan."}
-      icon={BellRing}
-      actions={<Link href={localizedHref("/dashboard/installningar", isEnglish)} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-[#d5ddd3] bg-white px-4 py-2.5 text-sm font-bold text-[#17452f]"><ChevronLeft className="h-4 w-4" />{isEnglish ? "Settings" : "Inställningar"}</Link>}
-    />
-    {first(params.updated) === "1" ? <section className="rounded-2xl bg-[#eef8f0] p-5 text-sm font-semibold text-[#17452f] ring-1 ring-[#c9e6d0]">{isEnglish ? "Reminder settings were saved." : "Påminnelseinställningarna sparades."}</section> : null}
-    {first(params.error) === "1" ? <section className="rounded-2xl bg-[#fff5f2] p-5 text-sm font-semibold text-[#8f2f1b] ring-1 ring-[#f4c7ba]">{isEnglish ? "The settings could not be saved." : "Inställningarna kunde inte sparas."}</section> : null}
-    <section className="grid gap-6 lg:grid-cols-[420px_1fr]">
+    <DashboardPageHeader eyebrow={en ? "Booking policy" : "Bokningsregler"} title={en ? "Reminders and customer actions" : "Påminnelser och kundåtgärder"} description={en ? "Configure reminders, rescheduling, cancellation and status handling for this workspace." : "Styr påminnelser, ombokning, avbokning och statushantering för den aktiva arbetsytan."} icon={BellRing} actions={<Link href={href("/dashboard/installningar", en)} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-[#d5ddd3] bg-white px-4 py-2.5 text-sm font-bold text-[#17452f]"><ChevronLeft className="h-4 w-4" />{en ? "Settings" : "Inställningar"}</Link>} />
+    {first(params.updated) === "1" ? <p className="rounded-2xl bg-[#eef8f0] p-5 text-sm font-semibold text-[#17452f]">{en ? "Settings saved." : "Inställningarna sparades."}</p> : null}
+    {first(params.error) === "1" ? <p className="rounded-2xl bg-[#fff5f2] p-5 text-sm font-semibold text-[#8f2f1b]">{en ? "Settings could not be saved." : "Inställningarna kunde inte sparas."}</p> : null}
+    <section className="grid gap-6 xl:grid-cols-[480px_1fr]">
       <form action={updateAction} className="h-fit rounded-[24px] border border-[#e0e5dd] bg-white p-6 shadow-sm">
-        <input type="hidden" name="lang" value={isEnglish ? "en" : "sv"} />
-        <h2 className="text-xl font-bold text-[#17201a]">{isEnglish ? "Settings" : "Inställningar"}</h2>
+        <input type="hidden" name="lang" value={en ? "en" : "sv"} />
+        <h2 className="text-xl font-bold text-[#17201a]">{en ? "Workspace controls" : "Inställningar för arbetsytan"}</h2>
         <div className="mt-5 grid gap-4">
-          <label className="flex items-center justify-between gap-4 rounded-xl border border-[#e1e7df] p-4 text-sm font-semibold"><span>{isEnglish ? "Enable reminders" : "Aktivera påminnelser"}</span><input name="isEnabled" type="checkbox" defaultChecked={settings.isEnabled} className="h-5 w-5" /></label>
-          <label className="grid gap-2 text-sm font-semibold">{isEnglish ? "Hours before booking" : "Timmar före bokningen"}<input name="hoursBefore" type="number" min="1" max="168" required defaultValue={settings.hoursBefore} className="rounded-xl border border-[#d9e1d7] px-4 py-3 font-normal" /><span className="text-xs font-normal text-[#6b766e]">{isEnglish ? "1–168 hours." : "1–168 timmar."}</span></label>
-          <label className="flex items-center justify-between gap-4 rounded-xl border border-[#e1e7df] p-4 text-sm font-semibold"><span className="flex items-center gap-2"><Mail className="h-4 w-4" />{isEnglish ? "Email" : "E-post"}</span><input name="emailEnabled" type="checkbox" defaultChecked={settings.emailEnabled} className="h-5 w-5" /></label>
-          <label className="flex items-center justify-between gap-4 rounded-xl border border-[#e1e7df] p-4 text-sm font-semibold"><span className="flex items-center gap-2"><MessageSquareText className="h-4 w-4" />SMS</span><input name="smsEnabled" type="checkbox" defaultChecked={settings.smsEnabled} className="h-5 w-5" /></label>
-          <button type="submit" className="min-h-11 rounded-xl bg-[#173e2b] px-5 py-3 text-sm font-bold text-white">{isEnglish ? "Save reminders" : "Spara påminnelser"}</button>
+          {toggle("isEnabled", "Aktivera påminnelser", "Enable reminders", settings.isEnabled)}
+          <label className="grid gap-2 text-sm font-semibold">{en ? "Hours before booking" : "Timmar före bokningen"}<input name="hoursBefore" type="number" min="1" max="168" required defaultValue={settings.hoursBefore} className="rounded-xl border border-[#d9e1d7] px-4 py-3 font-normal" /></label>
+          <div className="grid grid-cols-2 gap-3">{toggle("emailEnabled", "E-post", "Email", settings.emailEnabled)}{toggle("smsEnabled", "SMS", "SMS", settings.smsEnabled)}</div>
+          <hr className="my-1 border-[#e4e9e2]" />
+          {toggle("customerRescheduleEnabled", "Kunden får boka om", "Customer may reschedule", settings.customerRescheduleEnabled)}
+          {toggle("customerCancelEnabled", "Kunden får avboka", "Customer may cancel", settings.customerCancelEnabled)}
+          <label className="grid gap-2 text-sm font-semibold">{en ? "Minimum cancellation notice (hours)" : "Minsta tid före avbokning (timmar)"}<input name="cancelNoticeHours" type="number" min="0" max="720" required defaultValue={settings.cancelNoticeHours} className="rounded-xl border border-[#d9e1d7] px-4 py-3 font-normal" /><span className="text-xs font-normal text-[#6b766e]">{en ? "0 allows cancellation until start." : "0 tillåter avbokning fram till starttiden."}</span></label>
+          {toggle("companyConfirmationRequired", "Företaget måste bekräfta nya tider", "Company confirmation required", settings.companyConfirmationRequired)}
+          {toggle("noShowEnabled", "Tillåt status Uteblev", "Enable no-show status", settings.noShowEnabled)}
+          {toggle("autoCompleteEnabled", "Markera passerade bekräftade bokningar som klara automatiskt", "Auto-complete past confirmed bookings", settings.autoCompleteEnabled)}
+          <button className="min-h-11 rounded-xl bg-[#173e2b] px-5 py-3 text-sm font-bold text-white">{en ? "Save settings" : "Spara inställningar"}</button>
         </div>
       </form>
-      <article className="rounded-[24px] border border-[#e0e5dd] bg-white p-6 shadow-sm">
-        <div className="flex items-center justify-between gap-4"><div><h2 className="text-xl font-bold text-[#17201a]">{isEnglish ? "Recent deliveries" : "Senaste leveranser"}</h2><p className="mt-1 text-sm text-[#667168]">{isEnglish ? "The 50 most recent attempts." : "De 50 senaste försöken."}</p></div><span className="rounded-full bg-[#edf5ef] px-3 py-1 text-xs font-bold text-[#17452f]">{deliveries.length}</span></div>
-        <div className="mt-5 grid gap-3">{deliveries.length ? deliveries.map((delivery) => <div key={delivery.id} className="rounded-xl border border-[#e3e8e1] bg-[#f8faf7] p-4 text-sm"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-bold text-[#17201a]">{delivery.customerName} · {delivery.service}</p><p className="mt-1 text-xs text-[#68736b]">{isEnglish ? "Booking" : "Bokning"}: {formatDate(delivery.startsAt, isEnglish, workspaceSettings.timeZone)}</p></div><span className="rounded-full bg-white px-3 py-1 text-xs font-bold uppercase">{delivery.channel} · {delivery.status}</span></div>{delivery.errorMessage ? <p className="mt-3 text-xs font-semibold text-[#8f2f1b]">{delivery.errorMessage}</p> : null}<p className="mt-3 text-xs text-[#7a847d]">{isEnglish ? "Scheduled" : "Planerad"}: {formatDate(delivery.scheduledFor, isEnglish, workspaceSettings.timeZone)}</p></div>) : <p className="rounded-xl border border-dashed border-[#dce3da] p-5 text-sm text-[#7a847d]">{isEnglish ? "No reminders have been processed yet." : "Inga påminnelser har behandlats ännu."}</p>}</div>
-      </article>
+      <article className="rounded-[24px] border border-[#e0e5dd] bg-white p-6 shadow-sm"><div className="flex items-center justify-between"><div><h2 className="text-xl font-bold">{en ? "Recent deliveries" : "Senaste leveranser"}</h2><p className="mt-1 text-sm text-[#667168]">{en ? "The 50 most recent reminder attempts." : "De 50 senaste påminnelseförsöken."}</p></div><span className="rounded-full bg-[#edf5ef] px-3 py-1 text-xs font-bold text-[#17452f]">{deliveries.length}</span></div><div className="mt-5 grid gap-3">{deliveries.length ? deliveries.map((item) => <div key={item.id} className="rounded-xl border border-[#e3e8e1] bg-[#f8faf7] p-4 text-sm"><div className="flex justify-between gap-3"><div><p className="font-bold">{item.customerName} · {item.service}</p><p className="mt-1 text-xs text-[#68736b]">{date(item.startsAt, en, workspace.timeZone)}</p></div><span className="text-xs font-bold uppercase">{item.channel} · {item.status}</span></div>{item.errorMessage ? <p className="mt-3 text-xs text-[#8f2f1b]">{item.errorMessage}</p> : null}</div>) : <p className="rounded-xl border border-dashed p-5 text-sm text-[#7a847d]">{en ? "No reminders processed yet." : "Inga påminnelser har behandlats ännu."}</p>}</div></article>
     </section>
   </div>;
 }
