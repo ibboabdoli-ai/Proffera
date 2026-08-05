@@ -84,6 +84,7 @@ export default async function AdminWorkspacesPage() {
                 <th className="px-5 py-3">Plan</th>
                 <th className="px-5 py-3">Status</th>
                 <th className="px-5 py-3">Medlemmar</th>
+                <th className="px-5 py-3">Översikt</th>
                 <th className="px-5 py-3">Supportläge</th>
               </tr>
             </thead>
@@ -97,6 +98,11 @@ export default async function AdminWorkspacesPage() {
                   <td className="px-5 py-4 text-slate-700">{String(workspace.plan_key)} · {String(workspace.plan_status)}</td>
                   <td className="px-5 py-4 text-slate-700">{String(workspace.status)}</td>
                   <td className="px-5 py-4 text-slate-700">{String(workspace.member_count)}</td>
+                  <td className="px-5 py-4">
+                    <Link href={`/admin/workspaces/${String(workspace.id)}`} className="inline-flex rounded-lg border border-slate-300 px-3 py-2 font-semibold text-slate-800">
+                      Visa översikt
+                    </Link>
+                  </td>
                   <td className="px-5 py-4">
                     <form action={startSupportSessionAction} className="flex min-w-72 flex-col gap-2">
                       <input type="hidden" name="workspaceId" value={String(workspace.id)} />
