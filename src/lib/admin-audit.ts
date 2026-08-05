@@ -7,6 +7,9 @@ export type AdminAuditFilters = {
   workspaceId?: string;
   adminUserId?: string;
   action?: string;
+  query?: string;
+  dateFrom?: string;
+  dateTo?: string;
 };
 
 function safeUuid(value?: string) {
@@ -19,6 +22,11 @@ function safeUuid(value?: string) {
 function safeText(value: string | undefined, maxLength: number) {
   const cleaned = value?.trim() ?? "";
   return cleaned && cleaned.length <= maxLength ? cleaned : null;
+}
+
+function safeDate(value?: string) {
+  const cleaned = value?.trim() ?? "";
+  return /^\d{4}-\d{2}-\d{2}$/.test(cleaned) ? cleaned : null;
 }
 
 export async function listAdminAuditFilterOptions() {
@@ -54,6 +62,10 @@ export async function listAdminAuditLogs(filters: AdminAuditFilters = {}, limit 
   const workspaceId = safeUuid(filters.workspaceId);
   const adminUserId = safeText(filters.adminUserId, 255);
   const action = safeText(filters.action, 160);
+  const query = safeText(filters.query, 160);
+  const searchPattern = query ? `%${query}%` : null;
+  const dateFrom = safeDate(filters.dateFrom);
+  const dateTo = safeDate(filters.dateTo);
 
   return sql`
     select l.id, l.action, l.reason, l.created_at,
@@ -66,6 +78,16 @@ export async function listAdminAuditLogs(filters: AdminAuditFilters = {}, limit 
     where (${workspaceId}::uuid is null or l.workspace_id = ${workspaceId}::uuid)
       and (${adminUserId} is null or l.admin_user_id = ${adminUserId})
       and (${action} is null or l.action = ${action})
+      and (${dateFrom}::date is null or l.created_at >= ${dateFrom}::date)
+      and (${dateTo}::date is null or l.created_at < (${dateTo}::date + interval '1 day'))
+      and (
+        ${searchPattern} is null
+        or l.action ilike ${searchPattern}
+        or coalesce(l.reason, '') ilike ${searchPattern}
+        or coalesce(w.name, '') ilike ${searchPattern}
+        or coalesce(u.name, '') ilike ${searchPattern}
+        or coalesce(u.email, '') ilike ${searchPattern}
+      )
     order by l.created_at desc
     limit ${safeLimit}
   `;
