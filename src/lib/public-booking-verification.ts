@@ -2,10 +2,10 @@ import "server-only";
 
 import { createHash, randomInt } from "node:crypto";
 
-import { getSql } from "@/lib/db/server";
 import { sendBookingConfirmationEmail, sendBookingOwnerNotificationEmail } from "@/features/email/lead-email";
-import { sendBookingOwnerSms } from "@/features/sms/booking-sms";
 import { sendBookingVerificationEmail } from "@/features/email/booking-verification-email";
+import { sendBookingOwnerSms } from "@/features/sms/booking-sms";
+import { getSql } from "@/lib/db/server";
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
 
 const EXPIRY_MINUTES = 10;
@@ -31,6 +31,7 @@ export type BeginBookingVerificationInput = {
   customerEmail: string;
   customerPhone?: string;
   serviceName: string;
+  staffId?: string;
   city?: string;
   startsAt: string;
   endsAt: string;
@@ -46,10 +47,10 @@ export async function beginBookingEmailVerification(input: BeginBookingVerificat
   const rows = await sql`
     insert into public_booking_verifications (
       workspace_id, public_booking_slug, customer_name, customer_email, customer_phone,
-      service_name, city, starts_at, ends_at, code_hash, expires_at
+      service_name, staff_id, city, starts_at, ends_at, code_hash, expires_at
     ) values (
       ${input.workspaceId}::uuid, ${input.slug}, ${input.customerName}, ${input.customerEmail.toLowerCase()},
-      ${input.customerPhone || null}, ${input.serviceName}, ${input.city || null},
+      ${input.customerPhone || null}, ${input.serviceName}, ${input.staffId || null}::uuid, ${input.city || null},
       ${input.startsAt}::timestamptz, ${input.endsAt}::timestamptz, '', ${expiresAt}::timestamptz
     ) returning id
   `;
@@ -97,11 +98,13 @@ export async function verifyPublicBookingCode(id: string, code: string) {
 
   const startsAt = toIsoTimestamp(challenge.starts_at);
   const endsAt = toIsoTimestamp(challenge.ends_at);
+  const staffId = challenge.staff_id ? String(challenge.staff_id) : null;
 
   const conflict = await sql`
     select id from bookings
     where workspace_id = ${String(challenge.workspace_id)}
       and status not in ('cancelled', 'no_show')
+      and (${staffId}::uuid is null or staff_id = ${staffId}::uuid or staff_id is null)
       and starts_at < ${endsAt}::timestamptz
       and ends_at > ${startsAt}::timestamptz
     limit 1
@@ -119,8 +122,8 @@ export async function verifyPublicBookingCode(id: string, code: string) {
       union all
       select id from customers where workspace_id = ${String(challenge.workspace_id)} and lower(email) = lower(${String(challenge.customer_email)}) order by id limit 1
     ), booking as (
-      insert into bookings (workspace_id, customer_id, title, service, city, status, starts_at, ends_at, source)
-      select ${String(challenge.workspace_id)}, id, ${String(challenge.service_name)}, ${String(challenge.service_name)}, ${challenge.city ? String(challenge.city) : null}, 'requested', ${startsAt}::timestamptz, ${endsAt}::timestamptz, 'public_booking'
+      insert into bookings (workspace_id, customer_id, staff_id, title, service, city, status, starts_at, ends_at, source)
+      select ${String(challenge.workspace_id)}, id, ${staffId}::uuid, ${String(challenge.service_name)}, ${String(challenge.service_name)}, ${challenge.city ? String(challenge.city) : null}, 'requested', ${startsAt}::timestamptz, ${endsAt}::timestamptz, 'public_booking'
       from selected_customer limit 1 returning id
     )
     update public_booking_verifications set verified_at = now(), consumed_at = now(), updated_at = now()
