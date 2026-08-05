@@ -7,6 +7,7 @@ import {
   elevateSupportSessionAction,
   endSupportSessionAction,
 } from "../../workspaces/actions";
+import { ContactEditForm } from "./contact-edit-form";
 
 export default async function AdminSupportPage({ params }: { params: Promise<{ sessionId: string }> }) {
   const { sessionId } = await params;
@@ -98,10 +99,19 @@ export default async function AdminSupportPage({ params }: { params: Promise<{ s
         </article>
       </section>
 
+      {isEditMode ? (
+        <ContactEditForm
+          sessionId={sessionId}
+          contactEmail={String(support.contact_email ?? "")}
+          contactPhone={String(support.contact_phone ?? "")}
+          primaryCity={String(support.primary_city ?? "")}
+        />
+      ) : null}
+
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-lg font-bold text-slate-950">Säkra länkar</h2>
         <p className="mt-2 text-sm text-slate-600">
-          Den här supportvyn visar kundens information. Specifika ändringsformulär läggs till separat och måste kontrollera aktivt editläge på servern.
+          Den här supportvyn visar kundens information. Specifika ändringsformulär kräver aktivt editläge och kontrolleras på servern.
         </p>
         <div className="mt-4 flex flex-wrap gap-3">
           {support.public_booking_slug ? (
