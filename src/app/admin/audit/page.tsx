@@ -19,7 +19,14 @@ function formatAuditValue(value: unknown) {
 export default async function AdminAuditPage({
   searchParams,
 }: {
-  searchParams: Promise<{ workspace?: string; admin?: string; action?: string }>;
+  searchParams: Promise<{
+    workspace?: string;
+    admin?: string;
+    action?: string;
+    query?: string;
+    from?: string;
+    to?: string;
+  }>;
 }) {
   const admin = await getPlatformAdmin();
   if (!admin) redirect("/logga-in");
@@ -29,6 +36,9 @@ export default async function AdminAuditPage({
     workspaceId: params.workspace ?? "",
     adminUserId: params.admin ?? "",
     action: params.action ?? "",
+    query: params.query ?? "",
+    dateFrom: params.from ?? "",
+    dateTo: params.to ?? "",
   };
   const [logs, options] = await Promise.all([
     listAdminAuditLogs(filters),
@@ -46,7 +56,17 @@ export default async function AdminAuditPage({
         <Link href="/admin/workspaces" className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold">Workspaces</Link>
       </div>
 
-      <form method="get" className="mb-6 grid gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm md:grid-cols-4">
+      <form method="get" className="mb-6 grid gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm md:grid-cols-2 xl:grid-cols-6">
+        <label className="grid gap-1 text-sm font-semibold text-slate-700 xl:col-span-2">
+          Sök
+          <input
+            name="query"
+            defaultValue={filters.query}
+            maxLength={160}
+            placeholder="Workspace, admin, orsak eller händelse"
+            className="rounded-lg border border-slate-300 px-3 py-2 font-normal"
+          />
+        </label>
         <label className="grid gap-1 text-sm font-semibold text-slate-700">
           Workspace
           <select name="workspace" defaultValue={filters.workspaceId} className="rounded-lg border border-slate-300 px-3 py-2 font-normal">
@@ -74,7 +94,16 @@ export default async function AdminAuditPage({
             ))}
           </select>
         </label>
-        <div className="flex items-end gap-2">
+        <div className="hidden xl:block" />
+        <label className="grid gap-1 text-sm font-semibold text-slate-700">
+          Från datum
+          <input type="date" name="from" defaultValue={filters.dateFrom} className="rounded-lg border border-slate-300 px-3 py-2 font-normal" />
+        </label>
+        <label className="grid gap-1 text-sm font-semibold text-slate-700">
+          Till datum
+          <input type="date" name="to" defaultValue={filters.dateTo} className="rounded-lg border border-slate-300 px-3 py-2 font-normal" />
+        </label>
+        <div className="flex items-end gap-2 xl:col-span-2">
           <button type="submit" className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white">Filtrera</button>
           <Link href="/admin/audit" className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700">Rensa</Link>
         </div>
