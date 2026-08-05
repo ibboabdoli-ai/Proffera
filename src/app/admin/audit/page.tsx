@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { listAdminAuditLogs } from "@/lib/admin-audit";
+import { listAdminAuditFilterOptions, listAdminAuditLogs } from "@/lib/admin-audit";
 import { getPlatformAdmin } from "@/lib/platform-admin";
 
 function formatAuditValue(value: unknown) {
@@ -16,10 +16,24 @@ function formatAuditValue(value: unknown) {
   return JSON.stringify(value, null, 2);
 }
 
-export default async function AdminAuditPage() {
+export default async function AdminAuditPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ workspace?: string; admin?: string; action?: string }>;
+}) {
   const admin = await getPlatformAdmin();
   if (!admin) redirect("/logga-in");
-  const logs = await listAdminAuditLogs();
+
+  const params = await searchParams;
+  const filters = {
+    workspaceId: params.workspace ?? "",
+    adminUserId: params.admin ?? "",
+    action: params.action ?? "",
+  };
+  const [logs, options] = await Promise.all([
+    listAdminAuditLogs(filters),
+    listAdminAuditFilterOptions(),
+  ]);
 
   return (
     <main className="mx-auto max-w-7xl px-4 py-10">
@@ -31,6 +45,42 @@ export default async function AdminAuditPage() {
         </div>
         <Link href="/admin/workspaces" className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold">Workspaces</Link>
       </div>
+
+      <form method="get" className="mb-6 grid gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm md:grid-cols-4">
+        <label className="grid gap-1 text-sm font-semibold text-slate-700">
+          Workspace
+          <select name="workspace" defaultValue={filters.workspaceId} className="rounded-lg border border-slate-300 px-3 py-2 font-normal">
+            <option value="">Alla workspaces</option>
+            {options.workspaces.map((workspace) => (
+              <option key={String(workspace.id)} value={String(workspace.id)}>{String(workspace.name)}</option>
+            ))}
+          </select>
+        </label>
+        <label className="grid gap-1 text-sm font-semibold text-slate-700">
+          Admin
+          <select name="admin" defaultValue={filters.adminUserId} className="rounded-lg border border-slate-300 px-3 py-2 font-normal">
+            <option value="">Alla administratörer</option>
+            {options.admins.map((item) => (
+              <option key={String(item.id)} value={String(item.id)}>{String(item.name || item.email)}</option>
+            ))}
+          </select>
+        </label>
+        <label className="grid gap-1 text-sm font-semibold text-slate-700">
+          Händelse
+          <select name="action" defaultValue={filters.action} className="rounded-lg border border-slate-300 px-3 py-2 font-normal">
+            <option value="">Alla händelser</option>
+            {options.actions.map((item) => (
+              <option key={String(item.action)} value={String(item.action)}>{String(item.action)}</option>
+            ))}
+          </select>
+        </label>
+        <div className="flex items-end gap-2">
+          <button type="submit" className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white">Filtrera</button>
+          <Link href="/admin/audit" className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700">Rensa</Link>
+        </div>
+      </form>
+
+      <div className="mb-3 text-sm text-slate-600">Visar {logs.length} logghändelser.</div>
       <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
         <table className="min-w-full divide-y divide-slate-200 text-sm">
           <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
@@ -76,7 +126,7 @@ export default async function AdminAuditPage() {
                 </tr>
               );
             })}
-            {logs.length === 0 ? <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-500">No audit events yet.</td></tr> : null}
+            {logs.length === 0 ? <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-500">Inga logghändelser matchar filtret.</td></tr> : null}
           </tbody>
         </table>
       </div>
