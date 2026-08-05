@@ -2,9 +2,10 @@ import "server-only";
 
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 
+import { sendWorkspaceInvitationEmail } from "@/features/email/lead-email";
+import { provisionWorkspace } from "@/features/company/workspace-provisioning";
 import { getAuth } from "@/lib/auth";
 import { getSql } from "@/lib/db/server";
-import { sendWorkspaceInvitationEmail } from "@/features/email/lead-email";
 
 const INVITATION_TTL_HOURS = 48;
 
@@ -215,46 +216,16 @@ export async function claimWorkspaceInvitation(token: string, password: string):
     const workspaceId = randomUUID();
     const workspaceSlug = toSlug(String(invitation.company_name));
 
-    await sql.transaction((tx) => [
-      tx`
-        insert into workspaces (
-          id, slug, name, company_name, primary_city, contact_email, contact_phone,
-          status
-        ) values (
-          ${workspaceId}::uuid, ${workspaceSlug}, ${String(invitation.company_name)},
-          ${String(invitation.company_name)}, ${String(invitation.city)}, ${email},
-          ${String(invitation.phone)}, 'trial'
-        )
-      `,
-      tx`
-        insert into workspace_memberships (id, workspace_id, user_id, role)
-        values (gen_random_uuid(), ${workspaceId}::uuid, ${userId}, 'owner')
-        on conflict (workspace_id, user_id) do nothing
-      `,
-      tx`
-        insert into workspace_settings (
-          workspace_id, company_name, primary_city, response_time_goal,
-          default_cta, contact_email, contact_phone
-        ) values (
-          ${workspaceId}, ${String(invitation.company_name)}, ${String(invitation.city)},
-          'Inom 24 timmar', 'Boka tid', ${email}, ${String(invitation.phone)}
-        )
-        on conflict (workspace_id) do nothing
-      `,
-      tx`
-        insert into workspace_feature_flags (id, workspace_id, feature_key, enabled)
-        values
-          (gen_random_uuid(), ${workspaceId}::uuid, 'booking_demo', false),
-          (gen_random_uuid(), ${workspaceId}::uuid, 'crm_customers', false),
-          (gen_random_uuid(), ${workspaceId}::uuid, 'lead_inbox', false)
-        on conflict (workspace_id, feature_key) do update set enabled = excluded.enabled, updated_at = now()
-      `,
-      tx`
-        update workspace_invitations
-        set workspace_id = ${workspaceId}::uuid, updated_at = now()
-        where id = ${reservedInvitationId}::uuid and status = 'accepted'
-      `,
-    ]);
+    await provisionWorkspace({
+      workspaceId,
+      invitationId: reservedInvitationId,
+      userId,
+      slug: workspaceSlug,
+      companyName: String(invitation.company_name),
+      city: String(invitation.city),
+      email,
+      phone: String(invitation.phone),
+    });
 
     reservedInvitationId = "";
     return { ok: true };
