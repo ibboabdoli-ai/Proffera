@@ -32,10 +32,15 @@ async function cancelBooking(formData: FormData) {
 
 function BookingCard({ booking, token, timeZone }: { booking: CustomerCalendarBooking; token: string; timeZone: WorkspaceTimeZone }) {
   const calendarUrl = `/api/mina-bokningar/${encodeURIComponent(token)}/${encodeURIComponent(booking.id)}/calendar`;
-  const canManage = ["requested", "confirmed"].includes(booking.status) && new Date(booking.startsAt).getTime() > Date.now();
+  const isPast = new Date(booking.startsAt).getTime() <= Date.now();
+  const canManage = ["requested", "confirmed"].includes(booking.status) && !isPast;
+  const displayStatus = isPast && ["requested", "confirmed"].includes(booking.status)
+    ? "Tiden har passerat"
+    : statusLabels[booking.status] ?? booking.status;
+
   return (
     <article className="rounded-2xl border border-[#dfe6df] bg-white p-5 shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#647269]">{statusLabels[booking.status] ?? booking.status}</p><h3 className="mt-1 text-lg font-bold text-[#17201a]">{booking.title}</h3><p className="mt-1 text-sm text-[#5c685f]">{booking.service}</p></div><span className="rounded-full bg-[#edf5ef] px-3 py-1 text-xs font-bold text-[#17452f]">Privat bokning</span></div>
+      <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#647269]">{displayStatus}</p><h3 className="mt-1 text-lg font-bold text-[#17201a]">{booking.title}</h3><p className="mt-1 text-sm text-[#5c685f]">{booking.service}</p></div><span className="rounded-full bg-[#edf5ef] px-3 py-1 text-xs font-bold text-[#17452f]">Privat bokning</span></div>
       <div className="mt-4 grid gap-2 text-sm text-[#344139]"><p className="flex items-center gap-2"><Clock3 className="h-4 w-4" />{formatDate(booking.startsAt, timeZone)}</p>{booking.city ? <p className="flex items-center gap-2"><MapPin className="h-4 w-4" />{booking.city}</p> : null}</div>
       <div className="mt-5 flex flex-wrap gap-2">
         <Link href={calendarUrl} className="inline-flex min-h-10 items-center rounded-xl border border-[#cfd9d0] px-4 py-2 text-sm font-bold text-[#17452f] hover:bg-[#f3f7f3]">Lägg till i kalender</Link>
@@ -43,6 +48,7 @@ function BookingCard({ booking, token, timeZone }: { booking: CustomerCalendarBo
         {canManage ? <form action={cancelBooking}><input type="hidden" name="token" value={token} /><input type="hidden" name="booking_id" value={booking.id} /><button type="submit" className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-[#efc8c3] px-4 py-2 text-sm font-bold text-[#a5362a] hover:bg-[#fff4f2]"><XCircle className="h-4 w-4" />Avboka</button></form> : null}
       </div>
       {canManage ? <p className="mt-3 text-xs leading-5 text-[#6c756f]">Du kan boka om eller avboka tiden utan att skapa ett konto.</p> : null}
+      {isPast && ["requested", "confirmed"].includes(booking.status) ? <p className="mt-3 text-xs leading-5 text-[#6c756f]">Bokningstiden har passerat. Företaget kan senare markera den som genomförd eller utebliven.</p> : null}
     </article>
   );
 }
