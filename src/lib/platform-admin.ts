@@ -61,6 +61,29 @@ export async function listAdminWorkspaces() {
   `;
 }
 
+export async function listActiveSupportSessions() {
+  const admin = await getPlatformAdmin();
+  const sql = getSql();
+  if (!admin || !sql) return [];
+
+  await sql`
+    update admin_support_sessions
+    set status = 'expired', updated_at = now()
+    where status = 'active' and expires_at <= now()
+  `;
+
+  return sql`
+    select s.id, s.reason, s.mode, s.expires_at, s.created_at,
+      w.name as workspace_name, w.slug as workspace_slug,
+      u.email as admin_email, u.name as admin_name
+    from admin_support_sessions s
+    join workspaces w on w.id = s.workspace_id
+    join "user" u on u.id = s.admin_user_id
+    where s.status = 'active' and s.expires_at > now()
+    order by s.expires_at asc
+  `;
+}
+
 export async function startReadOnlySupportSession(workspaceId: string, reason: string) {
   const admin = await getPlatformAdmin();
   const sql = getSql();
@@ -131,7 +154,7 @@ export async function endSupportSession(sessionId: string) {
   const rows = await sql`
     update admin_support_sessions
     set status = 'ended', ended_at = now(), updated_at = now()
-    where id = ${sessionId}::uuid and admin_user_id = ${admin.userId} and status = 'active'
+    where id = ${sessionId}::uuid and status = 'active'
     returning workspace_id, reason
   `;
   const ended = rows[0];
@@ -141,4 +164,22 @@ export async function endSupportSession(sessionId: string) {
       values (${admin.userId}, ${String(ended.workspace_id)}::uuid, ${sessionId}::uuid, 'support_session.ended', ${String(ended.reason)})
     `;
   }
+}
+
+export async function listAdminAuditLogs(limit = 200) {
+  const admin = await getPlatformAdmin();
+  const sql = getSql();
+  if (!admin || !sql) return [];
+  const safeLimit = Math.min(Math.max(limit, 1), 500);
+
+  return sql`
+    select l.id, l.action, l.reason, l.created_at,
+      u.email as admin_email, u.name as admin_name,
+      w.name as workspace_name
+    from admin_audit_logs l
+    join "user" u on u.id = l.admin_user_id
+    left join workspaces w on w.id = l.workspace_id
+    order by l.created_at desc
+    limit ${safeLimit}
+  `;
 }
