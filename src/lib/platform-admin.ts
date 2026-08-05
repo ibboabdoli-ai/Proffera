@@ -119,7 +119,7 @@ export async function startReadOnlySupportSession(workspaceId: string, reason: s
   return { id: String(supportSession.id), expiresAt: new Date(String(supportSession.expires_at)).toISOString() };
 }
 
-export async function getReadOnlySupportSession(sessionId: string) {
+export async function getSupportSession(sessionId: string) {
   const admin = await getPlatformAdmin();
   const sql = getSql();
   if (!admin || !sql) return null;
@@ -139,11 +139,78 @@ export async function getReadOnlySupportSession(sessionId: string) {
     where s.id = ${sessionId}::uuid
       and s.admin_user_id = ${admin.userId}
       and s.status = 'active'
-      and s.mode = 'read_only'
       and s.expires_at > now()
     limit 1
   `;
   return rows[0] ?? null;
+}
+
+export async function elevateSupportSession(sessionId: string, reason: string) {
+  const admin = await getPlatformAdmin();
+  const sql = getSql();
+  if (!admin || !sql || admin.role !== "super_admin") {
+    throw new Error("Super admin access required");
+  }
+
+  const cleanReason = reason.trim();
+  if (cleanReason.length < 12 || cleanReason.length > 500) {
+    throw new Error("A clear edit reason is required");
+  }
+
+  const rows = await sql`
+    update admin_support_sessions
+    set mode = 'edit', expires_at = now() + interval '10 minutes', updated_at = now()
+    where id = ${sessionId}::uuid
+      and admin_user_id = ${admin.userId}
+      and status = 'active'
+      and expires_at > now()
+    returning workspace_id
+  `;
+  const elevated = rows[0];
+  if (!elevated) throw new Error("Active support session not found");
+
+  await sql`
+    insert into admin_audit_logs (
+      admin_user_id, workspace_id, support_session_id, action, reason,
+      previous_value, new_value
+    ) values (
+      ${admin.userId}, ${String(elevated.workspace_id)}::uuid, ${sessionId}::uuid,
+      'support_session.edit_elevated', ${cleanReason},
+      ${JSON.stringify({ mode: "read_only" })}::jsonb,
+      ${JSON.stringify({ mode: "edit", duration_minutes: 10 })}::jsonb
+    )
+  `;
+}
+
+export async function downgradeSupportSession(sessionId: string) {
+  const admin = await getPlatformAdmin();
+  const sql = getSql();
+  if (!admin || !sql) throw new Error("Platform admin access required");
+
+  const rows = await sql`
+    update admin_support_sessions
+    set mode = 'read_only', expires_at = now() + interval '20 minutes', updated_at = now()
+    where id = ${sessionId}::uuid
+      and admin_user_id = ${admin.userId}
+      and status = 'active'
+      and mode = 'edit'
+      and expires_at > now()
+    returning workspace_id, reason
+  `;
+  const downgraded = rows[0];
+  if (!downgraded) return;
+
+  await sql`
+    insert into admin_audit_logs (
+      admin_user_id, workspace_id, support_session_id, action, reason,
+      previous_value, new_value
+    ) values (
+      ${admin.userId}, ${String(downgraded.workspace_id)}::uuid, ${sessionId}::uuid,
+      'support_session.edit_downgraded', ${String(downgraded.reason)},
+      ${JSON.stringify({ mode: "edit" })}::jsonb,
+      ${JSON.stringify({ mode: "read_only" })}::jsonb
+    )
+  `;
 }
 
 export async function endSupportSession(sessionId: string) {
@@ -151,10 +218,11 @@ export async function endSupportSession(sessionId: string) {
   const sql = getSql();
   if (!admin || !sql) throw new Error("Platform admin access required");
 
+  const ownershipClause = admin.role === "super_admin" ? sql`` : sql`and admin_user_id = ${admin.userId}`;
   const rows = await sql`
     update admin_support_sessions
     set status = 'ended', ended_at = now(), updated_at = now()
-    where id = ${sessionId}::uuid and status = 'active'
+    where id = ${sessionId}::uuid and status = 'active' ${ownershipClause}
     returning workspace_id, reason
   `;
   const ended = rows[0];
