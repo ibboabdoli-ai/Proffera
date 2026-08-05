@@ -9,6 +9,18 @@ export type AdminAuditFilters = {
   action?: string;
 };
 
+function safeUuid(value?: string) {
+  const cleaned = value?.trim() ?? "";
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(cleaned)
+    ? cleaned
+    : null;
+}
+
+function safeText(value: string | undefined, maxLength: number) {
+  const cleaned = value?.trim() ?? "";
+  return cleaned && cleaned.length <= maxLength ? cleaned : null;
+}
+
 export async function listAdminAuditFilterOptions() {
   const admin = await getPlatformAdmin();
   const sql = getSql();
@@ -39,9 +51,9 @@ export async function listAdminAuditLogs(filters: AdminAuditFilters = {}, limit 
   if (!admin || !sql) return [];
 
   const safeLimit = Math.min(Math.max(limit, 1), 500);
-  const workspaceId = filters.workspaceId?.trim() || null;
-  const adminUserId = filters.adminUserId?.trim() || null;
-  const action = filters.action?.trim() || null;
+  const workspaceId = safeUuid(filters.workspaceId);
+  const adminUserId = safeText(filters.adminUserId, 255);
+  const action = safeText(filters.action, 160);
 
   return sql`
     select l.id, l.action, l.reason, l.created_at,
