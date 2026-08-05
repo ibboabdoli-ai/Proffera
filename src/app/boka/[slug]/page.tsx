@@ -84,7 +84,7 @@ async function requestPublicBooking(formData: FormData) {
   const localStart = parseLocalDateTime(startsAt);
   if (!localStart) redirect(`/boka/${slug}?error=time`);
   const weekday = new Date(Date.UTC(localStart.year, localStart.month - 1, localStart.day)).getUTCDay();
-  const localClock = `${String(localStart.hour).padStart(2, "0")}:${String(localStart.minute).padStart(2, "0")}`;
+  const localClock = `${String(localStart.hours).padStart(2, "0")}:${String(localStart.minutes).padStart(2, "0")}`;
 
   let bookingHour: { opens_at: unknown; closes_at: unknown; is_closed: unknown } | undefined;
   if (staffId) {
