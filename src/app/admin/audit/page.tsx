@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { getPlatformAdmin, listAdminAuditLogs } from "@/lib/platform-admin";
+import { listAdminAuditLogs } from "@/lib/admin-audit";
+import { getPlatformAdmin } from "@/lib/platform-admin";
 
 export default async function AdminAuditPage() {
   const admin = await getPlatformAdmin();
