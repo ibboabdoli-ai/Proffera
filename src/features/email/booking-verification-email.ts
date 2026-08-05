@@ -29,17 +29,28 @@ export async function sendBookingVerificationEmail(input: BookingVerificationEma
   if (!apiKey || !from) return { ok: false as const, message: "Email provider is not configured." };
 
   const expiresMinutes = input.expiresMinutes ?? 10;
-  const subject = `${input.code} – verifiera din bokning hos ${input.companyName}`;
+  const subject = `${input.code} är din verifieringskod för ${input.companyName}`;
   const text = [
-    `Hej ${input.customerName},`,
+    `${input.code} är din verifieringskod.`,
     "",
-    `Din verifieringskod är: ${input.code}`,
+    `Använd koden för att verifiera din bokning hos ${input.companyName}.`,
     `Koden gäller i ${expiresMinutes} minuter.`,
     "",
+    `Hej ${input.customerName},`,
     "Bokningen skapas först när koden har verifierats.",
     "Om du inte gjorde bokningen kan du ignorera mejlet.",
   ].join("\n");
-  const html = `<div style="font-family:Arial,sans-serif;line-height:1.6;color:#17201a"><p>Hej ${escapeHtml(input.customerName)},</p><p>Använd koden nedan för att verifiera din bokning hos <strong>${escapeHtml(input.companyName)}</strong>.</p><p style="font-size:32px;font-weight:800;letter-spacing:8px;margin:24px 0">${escapeHtml(input.code)}</p><p>Koden gäller i ${expiresMinutes} minuter. Bokningen skapas först när koden har verifierats.</p><p>Om du inte gjorde bokningen kan du ignorera mejlet.</p></div>`;
+  const html = `
+    <div style="font-family:Arial,sans-serif;line-height:1.6;color:#17201a;max-width:620px;margin:0 auto">
+      <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent">${escapeHtml(input.code)} är din verifieringskod för ${escapeHtml(input.companyName)}.</div>
+      <p style="font-size:14px;color:#667168;margin:0 0 8px">Verifieringskod</p>
+      <p style="font-size:40px;font-weight:800;letter-spacing:10px;margin:0 0 24px;color:#17452f">${escapeHtml(input.code)}</p>
+      <p>Hej ${escapeHtml(input.customerName)},</p>
+      <p>Använd koden ovan för att verifiera din bokning hos <strong>${escapeHtml(input.companyName)}</strong>.</p>
+      <p>Koden gäller i ${expiresMinutes} minuter. Bokningen skapas först när koden har verifierats.</p>
+      <p style="font-size:13px;color:#667168">Om du inte gjorde bokningen kan du ignorera mejlet.</p>
+    </div>
+  `;
 
   try {
     const response = await fetch("https://api.brevo.com/v3/smtp/email", {

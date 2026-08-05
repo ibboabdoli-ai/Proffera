@@ -4,6 +4,7 @@ import { CalendarClock, Clock3, UserRound } from "lucide-react";
 
 import { getRescheduleBooking, rescheduleCustomerBooking } from "@/lib/customer-booking-reschedule";
 import { getAvailableRescheduleSlots, getUpcomingRescheduleDays } from "@/lib/customer-reschedule-slots";
+import { RescheduleSlotPicker } from "./reschedule-slot-picker";
 
 export const dynamic = "force-dynamic";
 
@@ -34,8 +35,15 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
   if (!booking) notFound();
 
   const days = getUpcomingRescheduleDays(booking.timeZone, 7);
-  const requestedDate = query?.date && days.some((day) => day.date === query.date) ? query.date : days[0]?.date;
-  const slots = requestedDate ? await getAvailableRescheduleSlots(token, bookingId, requestedDate) : [];
+  const slotEntries = await Promise.all(
+    days.map(async (day) => [day.date, await getAvailableRescheduleSlots(token, bookingId, day.date)] as const),
+  );
+  const slotsByDate = new Map(slotEntries);
+  const firstAvailableDate = days.find((day) => (slotsByDate.get(day.date)?.length ?? 0) > 0)?.date;
+  const requestedDate = query?.date && (slotsByDate.get(query.date)?.length ?? 0) > 0
+    ? query.date
+    : firstAvailableDate ?? days[0]?.date;
+  const slots = requestedDate ? slotsByDate.get(requestedDate) ?? [] : [];
   const selectedDay = days.find((day) => day.date === requestedDate);
 
   async function reschedule(formData: FormData) {
@@ -74,6 +82,15 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
           <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
             {days.map((day) => {
               const active = day.date === requestedDate;
+              const availableCount = slotsByDate.get(day.date)?.length ?? 0;
+              if (availableCount === 0) {
+                return (
+                  <span key={day.date} aria-disabled="true" className="cursor-not-allowed rounded-xl border border-[#e0e5e1] bg-[#f3f5f3] px-3 py-3 text-center text-sm font-bold text-[#a1aaa4]">
+                    {day.shortLabel}
+                    <span className="mt-1 block text-[10px] font-semibold uppercase tracking-wide">Fullbokad</span>
+                  </span>
+                );
+              }
               return (
                 <Link
                   key={day.date}
@@ -81,6 +98,7 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
                   className={`rounded-xl border px-3 py-3 text-center text-sm font-bold transition ${active ? "border-[#17452f] bg-[#17452f] text-white" : "border-[#cfd9d0] bg-white text-[#344139] hover:border-[#17452f]"}`}
                 >
                   {day.shortLabel}
+                  <span className={`mt-1 block text-[10px] font-semibold uppercase tracking-wide ${active ? "text-white/75" : "text-[#647269]"}`}>{availableCount} tider</span>
                 </Link>
               );
             })}
@@ -97,28 +115,11 @@ export default async function ReschedulePage({ params, searchParams }: PageProps
           </div>
 
           {slots.length > 0 ? (
-            <form action={reschedule} className="mt-4">
-              <fieldset>
-                <legend className="sr-only">Välj en ledig tid</legend>
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-                  {slots.map((slot) => (
-                    <label key={slot.startsAtLocal} className="cursor-pointer">
-                      <input className="peer sr-only" type="radio" name="startsAtLocal" value={slot.startsAtLocal} required />
-                      <span className="grid min-h-14 place-items-center rounded-xl border border-[#b9ccc0] bg-[#f3f8f4] px-4 py-3 text-base font-bold text-[#17452f] transition peer-checked:border-[#17452f] peer-checked:bg-[#17452f] peer-checked:text-white hover:border-[#17452f]">
-                        {slot.label}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              </fieldset>
-
-              <p className="mt-5 text-xs leading-5 text-[#667168]">Tiderna är redan kontrollerade mot arbetstid, medarbetarens frånvaro, andra bokningar och tillfälligt reserverade tider. Tillgängligheten kontrolleras igen när du sparar.</p>
-              <button className="mt-5 min-h-12 w-full rounded-xl bg-[#17452f] px-5 py-3 font-bold text-white hover:bg-[#123824]">Spara vald tid</button>
-            </form>
+            <RescheduleSlotPicker action={reschedule} slots={slots} selectedDayLabel={selectedDay?.label} />
           ) : (
             <div className="mt-4 rounded-2xl border border-dashed border-[#cfd9d0] bg-[#f8faf8] p-6 text-center">
-              <p className="font-bold text-[#344139]">Inga lediga tider den här dagen.</p>
-              <p className="mt-1 text-sm text-[#667168]">Välj en annan dag ovan.</p>
+              <p className="font-bold text-[#344139]">Inga lediga tider under de kommande sju dagarna.</p>
+              <p className="mt-1 text-sm text-[#667168]">Kontakta företaget om du behöver hjälp med en ny tid.</p>
             </div>
           )}
         </div>
