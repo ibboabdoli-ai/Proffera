@@ -1,34 +1,80 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { getReadOnlySupportSession } from "@/lib/platform-admin";
-import { endSupportSessionAction } from "../../workspaces/actions";
+import { getPlatformAdmin, getSupportSession } from "@/lib/platform-admin";
+import {
+  downgradeSupportSessionAction,
+  elevateSupportSessionAction,
+  endSupportSessionAction,
+} from "../../workspaces/actions";
 
 export default async function AdminSupportPage({ params }: { params: Promise<{ sessionId: string }> }) {
   const { sessionId } = await params;
-  const support = await getReadOnlySupportSession(sessionId);
-  if (!support) notFound();
+  const [admin, support] = await Promise.all([
+    getPlatformAdmin(),
+    getSupportSession(sessionId),
+  ]);
+  if (!admin || !support) notFound();
 
   const expiresAt = new Date(String(support.expires_at));
+  const isEditMode = String(support.mode) === "edit";
 
   return (
     <main className="mx-auto max-w-5xl space-y-6 px-4 py-10 sm:px-6 lg:px-8">
-      <div className="rounded-2xl border border-amber-300 bg-amber-50 p-5 text-amber-950">
+      <div className={`rounded-2xl border p-5 ${isEditMode ? "border-red-300 bg-red-50 text-red-950" : "border-amber-300 bg-amber-50 text-amber-950"}`}>
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-sm font-bold uppercase tracking-[0.18em]">Read-only support mode</p>
+            <p className="text-sm font-bold uppercase tracking-[0.18em]">
+              {isEditMode ? "Temporary edit support mode" : "Read-only support mode"}
+            </p>
             <h1 className="mt-1 text-2xl font-bold">{String(support.name)}</h1>
             <p className="mt-2 text-sm">Orsak: {String(support.reason)}</p>
             <p className="mt-1 text-xs">Sessionen löper ut {expiresAt.toLocaleString("sv-SE")}</p>
+            {isEditMode ? (
+              <p className="mt-2 text-sm font-semibold">Editläget är begränsat till 10 minuter och alla ändringar måste loggas.</p>
+            ) : null}
           </div>
-          <form action={endSupportSessionAction}>
-            <input type="hidden" name="sessionId" value={sessionId} />
-            <button className="rounded-lg bg-amber-950 px-4 py-2 text-sm font-semibold text-white" type="submit">
-              Avsluta supportläge
-            </button>
-          </form>
+          <div className="flex flex-wrap gap-2">
+            {isEditMode ? (
+              <form action={downgradeSupportSessionAction}>
+                <input type="hidden" name="sessionId" value={sessionId} />
+                <button className="rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-semibold text-red-800" type="submit">
+                  Tillbaka till read-only
+                </button>
+              </form>
+            ) : null}
+            <form action={endSupportSessionAction}>
+              <input type="hidden" name="sessionId" value={sessionId} />
+              <button className={`rounded-lg px-4 py-2 text-sm font-semibold text-white ${isEditMode ? "bg-red-900" : "bg-amber-950"}`} type="submit">
+                Avsluta supportläge
+              </button>
+            </form>
+          </div>
         </div>
       </div>
+
+      {!isEditMode && admin.role === "super_admin" ? (
+        <section className="rounded-2xl border border-red-200 bg-white p-5 shadow-sm">
+          <h2 className="text-lg font-bold text-slate-950">Tillfälligt editläge</h2>
+          <p className="mt-2 text-sm text-slate-600">
+            Aktivera endast när en kund uttryckligen har bett om en ändring. Läget löper ut automatiskt efter 10 minuter.
+          </p>
+          <form action={elevateSupportSessionAction} className="mt-4 flex flex-col gap-3 sm:flex-row">
+            <input type="hidden" name="sessionId" value={sessionId} />
+            <input
+              className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              name="reason"
+              minLength={12}
+              maxLength={500}
+              required
+              placeholder="Separat orsak, t.ex. kunden bad oss korrigera öppettider"
+            />
+            <button className="rounded-lg bg-red-700 px-4 py-2 text-sm font-semibold text-white" type="submit">
+              Aktivera 10 min editläge
+            </button>
+          </form>
+        </section>
+      ) : null}
 
       <section className="grid gap-4 sm:grid-cols-2">
         <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -54,7 +100,9 @@ export default async function AdminSupportPage({ params }: { params: Promise<{ s
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-lg font-bold text-slate-950">Säkra länkar</h2>
-        <p className="mt-2 text-sm text-slate-600">Den här vyn ändrar inte kundens data. Publika sidor kan öppnas separat för visuell felsökning.</p>
+        <p className="mt-2 text-sm text-slate-600">
+          Den här supportvyn visar kundens information. Specifika ändringsformulär läggs till separat och måste kontrollera aktivt editläge på servern.
+        </p>
         <div className="mt-4 flex flex-wrap gap-3">
           {support.public_booking_slug ? (
             <Link className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-800" href={`/boka/${String(support.public_booking_slug)}`} target="_blank">
@@ -63,6 +111,9 @@ export default async function AdminSupportPage({ params }: { params: Promise<{ s
           ) : null}
           <Link className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-800" href="/admin/workspaces">
             Till workspace-listan
+          </Link>
+          <Link className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-800" href="/admin/audit">
+            Audit log
           </Link>
         </div>
       </section>
