@@ -2,15 +2,16 @@ import "server-only";
 
 import { createHash, randomInt } from "node:crypto";
 
-import { sendBookingConfirmationEmail, sendBookingOwnerNotificationEmail } from "@/features/email/lead-email";
+import { sendBookingOwnerNotificationEmail } from "@/features/email/lead-email";
 import { sendBookingVerificationEmail } from "@/features/email/booking-verification-email";
-import { sendCustomerBookingPortalEmail } from "@/features/email/customer-booking-portal-email";
+import { sendUnifiedBookingConfirmationEmail } from "@/features/email/unified-booking-confirmation-email";
 import { sendBookingOwnerSms } from "@/features/sms/booking-sms";
 import { createCustomerCalendarToken } from "@/lib/customer-calendar";
 import { getSql } from "@/lib/db/server";
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
 
 const EXPIRY_MINUTES = 10;
+const DAY_SECONDS = 60 * 60 * 24;
 
 function hashCode(id: string, code: string) {
   const secret = process.env.BETTER_AUTH_SECRET ?? process.env.AUTH_SECRET ?? "proffera-booking-verification";
@@ -21,6 +22,16 @@ function toIsoTimestamp(value: unknown) {
   const date = value instanceof Date ? value : new Date(String(value));
   if (Number.isNaN(date.getTime())) throw new Error("Invalid booking verification timestamp");
   return date.toISOString();
+}
+
+function portalTokenLifetimeSeconds(bookingEndsAt: string) {
+  const bookingEndMs = new Date(bookingEndsAt).getTime();
+  const minimumMs = Date.now() + 30 * DAY_SECONDS * 1000;
+  const desiredMs = Number.isFinite(bookingEndMs)
+    ? bookingEndMs + 30 * DAY_SECONDS * 1000
+    : minimumMs;
+  const cappedMs = Math.min(Math.max(minimumMs, desiredMs), Date.now() + 400 * DAY_SECONDS * 1000);
+  return Math.max(30 * DAY_SECONDS, Math.ceil((cappedMs - Date.now()) / 1000));
 }
 
 export type BeginBookingVerificationInput = {
@@ -140,13 +151,27 @@ export async function verifyPublicBookingCode(id: string, code: string) {
   const portalToken = createCustomerCalendarToken({
     workspaceId: String(challenge.workspace_id),
     customerId,
+    expiresInSeconds: portalTokenLifetimeSeconds(endsAt),
   });
   const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL ?? "https://www.proffera.se").replace(/\/$/, "");
-  const portalUrl = `${appUrl}/mina-bokningar/${encodeURIComponent(portalToken)}`;
+  const encodedToken = encodeURIComponent(portalToken);
+  const encodedBookingId = encodeURIComponent(bookingId);
+  const portalUrl = `${appUrl}/mina-bokningar/${encodedToken}`;
+  const rescheduleUrl = `${portalUrl}/${encodedBookingId}/boka-om`;
 
   await Promise.allSettled([
-    sendBookingConfirmationEmail({ customerName: String(challenge.customer_name), customerEmail: String(challenge.customer_email), companyName: String(challenge.company_name), bookingTitle: String(challenge.service_name), service: String(challenge.service_name), startsAt, endsAt, city: String(challenge.city ?? ""), timeZone }),
-    sendCustomerBookingPortalEmail({ customerName: String(challenge.customer_name), customerEmail: String(challenge.customer_email), companyName: String(challenge.company_name), portalUrl }),
+    sendUnifiedBookingConfirmationEmail({
+      customerName: String(challenge.customer_name),
+      customerEmail: String(challenge.customer_email),
+      companyName: String(challenge.company_name),
+      service: String(challenge.service_name),
+      startsAt,
+      endsAt,
+      city: String(challenge.city ?? ""),
+      timeZone,
+      portalUrl,
+      rescheduleUrl,
+    }),
     challenge.owner_email ? sendBookingOwnerNotificationEmail({ ownerEmail: String(challenge.owner_email), companyName: String(challenge.company_name), customerName: String(challenge.customer_name), customerEmail: String(challenge.customer_email), customerPhone: String(challenge.customer_phone ?? ""), service: String(challenge.service_name), startsAt, endsAt, city: String(challenge.city ?? ""), timeZone }) : Promise.resolve(),
     challenge.owner_phone ? sendBookingOwnerSms({ ownerPhone: String(challenge.owner_phone), companyName: String(challenge.company_name), customerName: String(challenge.customer_name), customerPhone: String(challenge.customer_phone ?? ""), service: String(challenge.service_name), startsAt, timeZone }) : Promise.resolve(),
   ]);
