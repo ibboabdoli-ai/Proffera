@@ -3,11 +3,16 @@ import "server-only";
 import { getSql } from "@/lib/db/server";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
+export type WorkspaceLanguage = "sv" | "en";
+
 export type WorkspaceExperienceSettings = {
   themeKey: string;
   primaryColor: string;
   accentColor: string;
   appearance: "light" | "dark";
+  defaultLanguage: WorkspaceLanguage;
+  swedishEnabled: boolean;
+  englishEnabled: boolean;
   heroEnabled: boolean;
   servicesEnabled: boolean;
   staffEnabled: boolean;
@@ -30,6 +35,55 @@ export type WorkspaceOnboarding = {
   isComplete: boolean;
 };
 
+const defaultExperience: WorkspaceExperienceSettings = {
+  themeKey: "clean",
+  primaryColor: "#17452f",
+  accentColor: "#d9b44a",
+  appearance: "light",
+  defaultLanguage: "sv",
+  swedishEnabled: true,
+  englishEnabled: true,
+  heroEnabled: true,
+  servicesEnabled: true,
+  staffEnabled: true,
+  reviewsEnabled: true,
+  galleryEnabled: false,
+  contactEnabled: true,
+  faqEnabled: false,
+  chatbotEnabled: false,
+  logoUrl: "",
+  heroImageUrl: "",
+  heroVideoUrl: "",
+  customDomain: "",
+  customDomainStatus: "disconnected",
+};
+
+function mapExperienceRow(row: Record<string, unknown> | undefined): WorkspaceExperienceSettings {
+  if (!row) return defaultExperience;
+  return {
+    themeKey: String(row.theme_key ?? defaultExperience.themeKey),
+    primaryColor: String(row.primary_color ?? defaultExperience.primaryColor),
+    accentColor: String(row.accent_color ?? defaultExperience.accentColor),
+    appearance: row.appearance === "dark" ? "dark" : "light",
+    defaultLanguage: row.default_language === "en" ? "en" : "sv",
+    swedishEnabled: row.swedish_enabled !== false,
+    englishEnabled: row.english_enabled !== false,
+    heroEnabled: Boolean(row.hero_enabled),
+    servicesEnabled: Boolean(row.services_enabled),
+    staffEnabled: Boolean(row.staff_enabled),
+    reviewsEnabled: Boolean(row.reviews_enabled),
+    galleryEnabled: Boolean(row.gallery_enabled),
+    contactEnabled: Boolean(row.contact_enabled),
+    faqEnabled: Boolean(row.faq_enabled),
+    chatbotEnabled: Boolean(row.chatbot_enabled),
+    logoUrl: String(row.logo_url ?? ""),
+    heroImageUrl: String(row.hero_image_url ?? ""),
+    heroVideoUrl: String(row.hero_video_url ?? ""),
+    customDomain: String(row.custom_domain ?? ""),
+    customDomainStatus: String(row.custom_domain_status ?? "disconnected"),
+  };
+}
+
 async function requireManager() {
   const sql = getSql();
   const access = await getUserWorkspaceAccess();
@@ -41,15 +95,14 @@ export async function getWorkspaceExperienceSettings(): Promise<WorkspaceExperie
   const { sql, access } = await requireManager();
   await sql`insert into workspace_experience_settings (workspace_id) values (${access.workspaceId}::uuid) on conflict (workspace_id) do nothing`;
   const rows = await sql`select * from workspace_experience_settings where workspace_id = ${access.workspaceId}::uuid limit 1`;
-  const row = rows[0];
-  return {
-    themeKey: String(row.theme_key ?? "clean"), primaryColor: String(row.primary_color ?? "#17452f"), accentColor: String(row.accent_color ?? "#d9b44a"),
-    appearance: row.appearance === "dark" ? "dark" : "light", heroEnabled: Boolean(row.hero_enabled), servicesEnabled: Boolean(row.services_enabled),
-    staffEnabled: Boolean(row.staff_enabled), reviewsEnabled: Boolean(row.reviews_enabled), galleryEnabled: Boolean(row.gallery_enabled),
-    contactEnabled: Boolean(row.contact_enabled), faqEnabled: Boolean(row.faq_enabled), chatbotEnabled: Boolean(row.chatbot_enabled),
-    logoUrl: String(row.logo_url ?? ""), heroImageUrl: String(row.hero_image_url ?? ""), heroVideoUrl: String(row.hero_video_url ?? ""),
-    customDomain: String(row.custom_domain ?? ""), customDomainStatus: String(row.custom_domain_status ?? "disconnected"),
-  };
+  return mapExperienceRow(rows[0] as Record<string, unknown> | undefined);
+}
+
+export async function getPublicWorkspaceExperienceSettings(workspaceId: string): Promise<WorkspaceExperienceSettings> {
+  const sql = getSql();
+  if (!sql || !/^[0-9a-f-]{36}$/i.test(workspaceId)) return defaultExperience;
+  const rows = await sql`select * from workspace_experience_settings where workspace_id = ${workspaceId}::uuid limit 1`;
+  return mapExperienceRow(rows[0] as Record<string, unknown> | undefined);
 }
 
 export async function updateWorkspaceExperienceSettings(input: WorkspaceExperienceSettings) {
@@ -57,20 +110,26 @@ export async function updateWorkspaceExperienceSettings(input: WorkspaceExperien
   const themes = new Set(["clean", "salon", "premium", "modern", "minimal"]);
   if (!themes.has(input.themeKey)) throw new Error("Invalid theme");
   if (!/^#[0-9a-f]{6}$/i.test(input.primaryColor) || !/^#[0-9a-f]{6}$/i.test(input.accentColor)) throw new Error("Invalid color");
+  if (!input.swedishEnabled && !input.englishEnabled) throw new Error("At least one language must be enabled");
+  const defaultLanguage: WorkspaceLanguage = input.defaultLanguage === "en" && input.englishEnabled ? "en" : "sv";
   await sql`
     insert into workspace_experience_settings (
-      workspace_id, theme_key, primary_color, accent_color, appearance, hero_enabled, services_enabled, staff_enabled,
-      reviews_enabled, gallery_enabled, contact_enabled, faq_enabled, chatbot_enabled, logo_url, hero_image_url, hero_video_url, custom_domain, updated_at
+      workspace_id, theme_key, primary_color, accent_color, appearance, default_language, swedish_enabled, english_enabled,
+      hero_enabled, services_enabled, staff_enabled, reviews_enabled, gallery_enabled, contact_enabled, faq_enabled,
+      chatbot_enabled, logo_url, hero_image_url, hero_video_url, custom_domain, updated_at
     ) values (
-      ${access.workspaceId}::uuid, ${input.themeKey}, ${input.primaryColor}, ${input.accentColor}, ${input.appearance}, ${input.heroEnabled},
-      ${input.servicesEnabled}, ${input.staffEnabled}, ${input.reviewsEnabled}, ${input.galleryEnabled}, ${input.contactEnabled}, ${input.faqEnabled},
-      ${input.chatbotEnabled}, ${input.logoUrl || null}, ${input.heroImageUrl || null}, ${input.heroVideoUrl || null}, ${input.customDomain || null}, now()
+      ${access.workspaceId}::uuid, ${input.themeKey}, ${input.primaryColor}, ${input.accentColor}, ${input.appearance}, ${defaultLanguage},
+      ${input.swedishEnabled}, ${input.englishEnabled}, ${input.heroEnabled}, ${input.servicesEnabled}, ${input.staffEnabled},
+      ${input.reviewsEnabled}, ${input.galleryEnabled}, ${input.contactEnabled}, ${input.faqEnabled}, ${input.chatbotEnabled},
+      ${input.logoUrl || null}, ${input.heroImageUrl || null}, ${input.heroVideoUrl || null}, ${input.customDomain || null}, now()
     ) on conflict (workspace_id) do update set
-      theme_key = excluded.theme_key, primary_color = excluded.primary_color, accent_color = excluded.accent_color, appearance = excluded.appearance,
-      hero_enabled = excluded.hero_enabled, services_enabled = excluded.services_enabled, staff_enabled = excluded.staff_enabled,
-      reviews_enabled = excluded.reviews_enabled, gallery_enabled = excluded.gallery_enabled, contact_enabled = excluded.contact_enabled,
-      faq_enabled = excluded.faq_enabled, chatbot_enabled = excluded.chatbot_enabled, logo_url = excluded.logo_url,
-      hero_image_url = excluded.hero_image_url, hero_video_url = excluded.hero_video_url, custom_domain = excluded.custom_domain, updated_at = now()
+      theme_key = excluded.theme_key, primary_color = excluded.primary_color, accent_color = excluded.accent_color,
+      appearance = excluded.appearance, default_language = excluded.default_language, swedish_enabled = excluded.swedish_enabled,
+      english_enabled = excluded.english_enabled, hero_enabled = excluded.hero_enabled, services_enabled = excluded.services_enabled,
+      staff_enabled = excluded.staff_enabled, reviews_enabled = excluded.reviews_enabled, gallery_enabled = excluded.gallery_enabled,
+      contact_enabled = excluded.contact_enabled, faq_enabled = excluded.faq_enabled, chatbot_enabled = excluded.chatbot_enabled,
+      logo_url = excluded.logo_url, hero_image_url = excluded.hero_image_url, hero_video_url = excluded.hero_video_url,
+      custom_domain = excluded.custom_domain, updated_at = now()
   `;
 }
 

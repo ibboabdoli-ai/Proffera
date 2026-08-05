@@ -13,6 +13,9 @@ describe("PrimeView SEO source of truth", () => {
     const business = graph.find((node) => node["@type"] === "ProfessionalService");
 
     expect(business?.hasOfferCatalog.itemListElement).toHaveLength(primeViewServices.length);
-    expect(business?.areaServed).toEqual(["West London", "North London"]);
+    expect(business?.areaServed).toEqual([
+      { "@type": "AdministrativeArea", name: "West London" },
+      { "@type": "AdministrativeArea", name: "North London" },
+    ]);
   });
 });

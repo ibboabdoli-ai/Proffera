@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { MapPin } from "lucide-react";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -8,6 +9,7 @@ import { getSql } from "@/lib/db/server";
 import { allowPublicSubmission } from "@/lib/public-form-protection";
 import { parseLocalDateTime, resolveBookingTimeZone, validatePublicBookingPolicy } from "@/lib/public-booking-policy";
 import { beginBookingEmailVerification } from "@/lib/public-booking-verification";
+import { getPublicWorkspaceExperienceSettings, type WorkspaceLanguage } from "@/lib/workspace-experience";
 
 import { BookingRequestForm } from "./booking-request-form";
 
@@ -15,32 +17,56 @@ export const dynamic = "force-dynamic";
 
 type PageProps = {
   params: Promise<{ slug: string }>;
-  searchParams?: Promise<{ error?: string | string[]; booked?: string | string[] }>;
+  searchParams?: Promise<{ error?: string | string[]; booked?: string | string[]; lang?: string | string[] }>;
 };
 
-const weekdayLabels = ["Söndag", "Måndag", "Tisdag", "Onsdag", "Torsdag", "Fredag", "Lördag"];
-const bookingErrors: Record<string, string> = {
-  invalid: "Fyll i namn, e-post, tjänst, personal och tid.",
-  unavailable: "Bokningssidan är inte tillgänglig.",
-  service: "Den valda tjänsten är inte tillgänglig längre.",
-  staff: "Den valda personalen är inte tillgänglig för den tiden.",
-  time: "Välj en tid som ligger framåt i tiden.",
-  notice: "Den valda tiden ligger för nära i tid. Välj en senare tid.",
-  advance: "Den valda tiden ligger för långt fram. Välj ett tidigare datum.",
-  hours: "Tiden ligger utanför bokningstiderna.",
-  hours_missing: "Bokningstider saknas för den valda dagen.",
-  conflict: "Tiden hann precis bli bokad eller reserverad. Välj gärna en annan tid.",
-  rate_limit: "För många försök. Vänta en stund och försök igen.",
-  email: "Verifieringskoden kunde inte skickas. Kontrollera e-postadressen och försök igen.",
-};
+const copy = {
+  sv: {
+    weekdays: ["Söndag", "Måndag", "Tisdag", "Onsdag", "Torsdag", "Fredag", "Lördag"],
+    errors: {
+      invalid: "Fyll i namn, e-post, tjänst, personal och tid.", unavailable: "Bokningssidan är inte tillgänglig.",
+      service: "Den valda tjänsten är inte tillgänglig längre.", staff: "Den valda personalen är inte tillgänglig för den tiden.",
+      time: "Välj en tid som ligger framåt i tiden.", notice: "Den valda tiden ligger för nära i tid. Välj en senare tid.",
+      advance: "Den valda tiden ligger för långt fram. Välj ett tidigare datum.", hours: "Tiden ligger utanför bokningstiderna.",
+      hours_missing: "Bokningstider saknas för den valda dagen.", conflict: "Tiden hann precis bli bokad eller reserverad. Välj gärna en annan tid.",
+      rate_limit: "För många försök. Vänta en stund och försök igen.", email: "Verifieringskoden kunde inte skickas. Kontrollera e-postadressen och försök igen.",
+    },
+    bookOnline: "Boka online", verification: "Vi skickar en sexsiffrig kod till din e-post. Bokningen skapas först efter verifiering.",
+    booked: "Tack! Din e-post är verifierad och bokningsförfrågan är mottagen.", hours: "Bokningstider", closed: "Stängt",
+    preparing: "Företaget förbereder onlinebokning.", services: "Tjänster", contact: "Kontakt", faq: "Vanliga frågor",
+    faqTitle: "När blir bokningen klar?", faqBody: "Bokningen registreras efter att du har verifierat din e-postadress.",
+    unavailableTitle: "Bokning är inte tillgänglig ännu", unavailableBody: "Företaget har ännu inte publicerat sin bokningssida.",
+  },
+  en: {
+    weekdays: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+    errors: {
+      invalid: "Enter your name, email, service, staff member and time.", unavailable: "The booking page is unavailable.",
+      service: "The selected service is no longer available.", staff: "The selected staff member is unavailable at that time.",
+      time: "Choose a future time.", notice: "The selected time is too close. Choose a later time.",
+      advance: "The selected time is too far in the future. Choose an earlier date.", hours: "The time is outside the booking hours.",
+      hours_missing: "Booking hours are missing for the selected day.", conflict: "The time was just booked or reserved. Choose another time.",
+      rate_limit: "Too many attempts. Wait a moment and try again.", email: "The verification code could not be sent. Check the email address and try again.",
+    },
+    bookOnline: "Book online", verification: "We will send a six-digit code to your email. The booking is created after verification.",
+    booked: "Thank you! Your email is verified and the booking request has been received.", hours: "Booking hours", closed: "Closed",
+    preparing: "The company is preparing online booking.", services: "Services", contact: "Contact", faq: "Frequently asked questions",
+    faqTitle: "When is the booking completed?", faqBody: "The booking is registered after you verify your email address.",
+    unavailableTitle: "Booking is not available yet", unavailableBody: "The company has not published its booking page yet.",
+  },
+} as const;
 
 function firstParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
 }
 
+function withLang(slug: string, lang: WorkspaceLanguage, params: string) {
+  return `/boka/${slug}?${params}&lang=${lang}`;
+}
+
 async function requestPublicBooking(formData: FormData) {
   "use server";
   const slug = String(formData.get("slug") ?? "").trim();
+  const lang: WorkspaceLanguage = formData.get("lang") === "en" ? "en" : "sv";
   const name = String(formData.get("name") ?? "").trim();
   const email = String(formData.get("email") ?? "").trim();
   const phone = String(formData.get("phone") ?? "").trim();
@@ -51,11 +77,11 @@ async function requestPublicBooking(formData: FormData) {
   const formStartedAt = Number(formData.get("form_started_at"));
   const sql = getSql();
 
-  if (website) redirect(`/boka/${slug}?booked=1`);
+  if (website) redirect(withLang(slug, lang, "booked=1"));
   const elapsed = Date.now() - formStartedAt;
-  if (!Number.isFinite(elapsed) || elapsed < 2_500 || elapsed > 24 * 60 * 60 * 1_000) redirect(`/boka/${slug}?error=rate_limit`);
+  if (!Number.isFinite(elapsed) || elapsed < 2_500 || elapsed > 24 * 60 * 60 * 1_000) redirect(withLang(slug, lang, "error=rate_limit"));
   const validStaffId = !staffId || /^[0-9a-f-]{36}$/i.test(staffId);
-  if (!sql || !slug || !name || !email || !serviceName || !startsAt || !validStaffId || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) redirect(`/boka/${slug}?error=invalid`);
+  if (!sql || !slug || !name || !email || !serviceName || !startsAt || !validStaffId || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) redirect(withLang(slug, lang, "error=invalid"));
 
   const workspaces = await sql`
     select w.id, coalesce(nullif(ws.company_name, ''), w.company_name, w.name) as company_name,
@@ -64,25 +90,25 @@ async function requestPublicBooking(formData: FormData) {
       coalesce(nullif(ws.time_zone, ''), 'Europe/Stockholm') as time_zone
     from workspaces w left join workspace_settings ws on ws.workspace_id = w.id::text
     where w.public_booking_slug = ${slug} and w.status in ('active', 'trial')
-      and exists (select 1 from workspace_feature_flags wff where wff.workspace_id = w.id and wff.feature_key = 'booking_demo' and wff.enabled = true)
+      and exists (select 1 from workspace_feature_flags wff where wff.workspace_id = w.id and wff.feature_key in ('booking_demo','online_booking') and wff.enabled = true)
       and (select wp.status from workspace_plans wp where wp.workspace_id = w.id order by wp.created_at desc limit 1) in ('active', 'trialing')
     limit 1
   `;
   const workspace = workspaces[0];
-  if (!workspace) redirect(`/boka/${slug}?error=unavailable`);
+  if (!workspace) redirect(withLang(slug, lang, "error=unavailable"));
 
   const allowed = await allowPublicSubmission({ scope: "public_booking_verification", requestHeaders: await headers(), identity: `${slug}:${email}`, maxAttempts: 5, windowSeconds: 15 * 60 });
-  if (!allowed) redirect(`/boka/${slug}?error=rate_limit`);
+  if (!allowed) redirect(withLang(slug, lang, "error=rate_limit"));
 
   const services = await sql`
     select name, duration_minutes, buffer_before_minutes, buffer_after_minutes, minimum_notice_minutes, maximum_advance_days
     from workspace_services where workspace_id = ${String(workspace.id)} and name = ${serviceName} and is_active = true limit 1
   `;
   const selectedService = services[0];
-  if (!selectedService) redirect(`/boka/${slug}?error=service`);
+  if (!selectedService) redirect(withLang(slug, lang, "error=service"));
 
   const localStart = parseLocalDateTime(startsAt);
-  if (!localStart) redirect(`/boka/${slug}?error=time`);
+  if (!localStart) redirect(withLang(slug, lang, "error=time"));
   const weekday = new Date(Date.UTC(localStart.year, localStart.month - 1, localStart.day)).getUTCDay();
   const localClock = `${String(localStart.hours).padStart(2, "0")}:${String(localStart.minutes).padStart(2, "0")}`;
 
@@ -90,14 +116,12 @@ async function requestPublicBooking(formData: FormData) {
   if (staffId) {
     const staffRows = await sql`
       select s.id, ss.start_time::text as opens_at, ss.end_time::text as closes_at, false as is_closed
-      from workspace_staff s
-      join workspace_staff_schedules ss on ss.staff_id = s.id and ss.workspace_id = s.workspace_id
+      from workspace_staff s join workspace_staff_schedules ss on ss.staff_id = s.id and ss.workspace_id = s.workspace_id
       where s.id = ${staffId}::uuid and s.workspace_id = ${String(workspace.id)} and s.is_active = true
-        and ss.weekday = ${weekday} and ss.is_active = true
-        and ${localClock}::time >= ss.start_time and ${localClock}::time < ss.end_time
+        and ss.weekday = ${weekday} and ss.is_active = true and ${localClock}::time >= ss.start_time and ${localClock}::time < ss.end_time
       order by ss.start_time limit 1
     `;
-    if (!staffRows[0]) redirect(`/boka/${slug}?error=staff`);
+    if (!staffRows[0]) redirect(withLang(slug, lang, "error=staff"));
     bookingHour = staffRows[0] as typeof bookingHour;
   } else {
     const rows = await sql`select opens_at::text as opens_at, closes_at::text as closes_at, is_closed from workspace_booking_hours where workspace_id = ${String(workspace.id)} and weekday = ${weekday} limit 1`;
@@ -109,62 +133,44 @@ async function requestPublicBooking(formData: FormData) {
   const bufferAfter = Math.max(0, Number(selectedService.buffer_after_minutes) || 0);
   const timeZone = resolveBookingTimeZone(workspace.time_zone);
   const validation = validatePublicBookingPolicy({
-    startsAt,
-    now: new Date(),
-    service: {
-      durationMinutes: duration,
-      bufferBeforeMinutes: bufferBefore,
-      bufferAfterMinutes: bufferAfter,
-      minimumNoticeMinutes: Math.max(0, Number(selectedService.minimum_notice_minutes) || 0),
-      maximumAdvanceDays: Math.max(1, Number(selectedService.maximum_advance_days) || 365),
-    },
+    startsAt, now: new Date(),
+    service: { durationMinutes: duration, bufferBeforeMinutes: bufferBefore, bufferAfterMinutes: bufferAfter, minimumNoticeMinutes: Math.max(0, Number(selectedService.minimum_notice_minutes) || 0), maximumAdvanceDays: Math.max(1, Number(selectedService.maximum_advance_days) || 365) },
     bookingHour: bookingHour ? { opensAt: String(bookingHour.opens_at), closesAt: String(bookingHour.closes_at), isClosed: Boolean(bookingHour.is_closed) } : null,
     timeZone,
   });
-  if (validation.error) redirect(`/boka/${slug}?error=${validation.error}`);
+  if (validation.error) redirect(withLang(slug, lang, `error=${validation.error}`));
   const { start, end } = validation;
 
   if (staffId) {
-    const timeOff = await sql`
-      select id from workspace_staff_time_off
-      where workspace_id = ${String(workspace.id)} and staff_id = ${staffId}::uuid
-        and starts_at < ${end.toISOString()}::timestamptz and ends_at > ${start.toISOString()}::timestamptz
-      limit 1
-    `;
-    if (timeOff[0]) redirect(`/boka/${slug}?error=staff`);
+    const timeOff = await sql`select id from workspace_staff_time_off where workspace_id = ${String(workspace.id)} and staff_id = ${staffId}::uuid and starts_at < ${end.toISOString()}::timestamptz and ends_at > ${start.toISOString()}::timestamptz limit 1`;
+    if (timeOff[0]) redirect(withLang(slug, lang, "error=staff"));
   }
 
   const conflict = await sql`
-    select id from bookings
-    where workspace_id = ${String(workspace.id)} and status not in ('cancelled', 'no_show')
+    select id from bookings where workspace_id = ${String(workspace.id)} and status not in ('cancelled', 'no_show')
       and (${staffId || null}::uuid is null or staff_id = ${staffId || null}::uuid or staff_id is null)
       and starts_at < ${end.toISOString()}::timestamptz and ends_at > ${start.toISOString()}::timestamptz
     union all
-    select id from public_booking_verifications
-    where workspace_id = ${String(workspace.id)}::uuid and consumed_at is null and expires_at > now()
+    select id from public_booking_verifications where workspace_id = ${String(workspace.id)}::uuid and consumed_at is null and expires_at > now()
       and (${staffId || null}::uuid is null or staff_id = ${staffId || null}::uuid or staff_id is null)
-      and starts_at < ${end.toISOString()}::timestamptz and ends_at > ${start.toISOString()}::timestamptz
-    limit 1
+      and starts_at < ${end.toISOString()}::timestamptz and ends_at > ${start.toISOString()}::timestamptz limit 1
   `;
-  if (conflict[0]) redirect(`/boka/${slug}?error=conflict`);
+  if (conflict[0]) redirect(withLang(slug, lang, "error=conflict"));
 
   const result = await beginBookingEmailVerification({
-    workspaceId: String(workspace.id), slug, companyName: String(workspace.company_name),
-    ownerEmail: workspace.contact_email ? String(workspace.contact_email) : undefined,
-    ownerPhone: workspace.contact_phone ? String(workspace.contact_phone) : undefined,
-    customerName: name, customerEmail: email, customerPhone: phone || undefined,
-    serviceName, staffId: staffId || undefined, city: String(workspace.primary_city ?? ""),
-    startsAt: start.toISOString(), endsAt: end.toISOString(), timeZone,
+    workspaceId: String(workspace.id), slug, companyName: String(workspace.company_name), ownerEmail: workspace.contact_email ? String(workspace.contact_email) : undefined,
+    ownerPhone: workspace.contact_phone ? String(workspace.contact_phone) : undefined, customerName: name, customerEmail: email, customerPhone: phone || undefined,
+    serviceName, staffId: staffId || undefined, city: String(workspace.primary_city ?? ""), startsAt: start.toISOString(), endsAt: end.toISOString(), timeZone,
   });
-  if (!result.ok) redirect(`/boka/${slug}?error=${result.error === "email" ? "email" : "conflict"}`);
-  redirect(`/boka/verifiera/${result.verificationId}`);
+  if (!result.ok) redirect(withLang(slug, lang, `error=${result.error === "email" ? "email" : "conflict"}`));
+  redirect(`/boka/verifiera/${result.verificationId}?lang=${lang}`);
 }
 
 export default async function PublicBookingPage({ params, searchParams }: PageProps) {
   const { slug } = await params;
   const query = searchParams ? await searchParams : undefined;
   const sql = getSql();
-  if (!sql) return <Unavailable />;
+  if (!sql) return <Unavailable locale="sv" />;
 
   let workspace: Record<string, unknown> | undefined;
   let services: Array<Record<string, unknown>> = [];
@@ -175,11 +181,11 @@ export default async function PublicBookingPage({ params, searchParams }: PagePr
   try {
     const workspaces = await sql`
       select w.id, coalesce(nullif(ws.company_name, ''), w.company_name, w.name) as company_name,
-        coalesce(nullif(ws.primary_city, ''), w.primary_city) as primary_city,
-        coalesce(nullif(ws.time_zone, ''), 'Europe/Stockholm') as time_zone
+        coalesce(nullif(ws.primary_city, ''), w.primary_city) as primary_city, nullif(ws.contact_email, '') as contact_email,
+        nullif(ws.contact_phone, '') as contact_phone, coalesce(nullif(ws.time_zone, ''), 'Europe/Stockholm') as time_zone
       from workspaces w left join workspace_settings ws on ws.workspace_id = w.id::text
       where w.public_booking_slug = ${slug} and w.status in ('active', 'trial')
-        and exists (select 1 from workspace_feature_flags wff where wff.workspace_id = w.id and wff.feature_key = 'booking_demo' and wff.enabled = true)
+        and exists (select 1 from workspace_feature_flags wff where wff.workspace_id = w.id and wff.feature_key in ('booking_demo','online_booking') and wff.enabled = true)
         and (select wp.status from workspace_plans wp where wp.workspace_id = w.id order by wp.created_at desc limit 1) in ('active', 'trialing') limit 1
     `;
     workspace = workspaces[0] as Record<string, unknown> | undefined;
@@ -190,37 +196,74 @@ export default async function PublicBookingPage({ params, searchParams }: PagePr
         sql`select starts_at, ends_at, 0 as buffer_before_minutes, 0 as buffer_after_minutes from bookings where workspace_id = ${String(workspace.id)} and status not in ('cancelled', 'no_show') and starts_at >= now() - interval '1 day' union all select starts_at, ends_at, 0, 0 from public_booking_verifications where workspace_id = ${String(workspace.id)}::uuid and consumed_at is null and expires_at > now()`,
       ]);
       try {
-        const integrations = await sql`select remote_client_id from workspace_ai_chat_integrations where workspace_id = ${String(workspace.id)}::uuid and lifecycle_state = 'active' limit 1`;
+        const integrations = await sql`
+          select i.remote_client_id from workspace_ai_chat_integrations i
+          where i.workspace_id = ${String(workspace.id)}::uuid and i.lifecycle_state = 'active'
+            and exists (select 1 from workspace_feature_flags f where f.workspace_id = i.workspace_id and f.feature_key in ('ai_chatbot','chat_widget') and f.enabled = true)
+          limit 1
+        `;
         aiChatClientId = String(integrations[0]?.remote_client_id ?? "").trim() || null;
       } catch { aiChatClientId = null; }
     }
   } catch { workspace = undefined; }
-  if (!workspace) return <Unavailable />;
+  if (!workspace) return <Unavailable locale="sv" />;
 
-  const error = bookingErrors[firstParam(query?.error) ?? ""];
+  const experience = await getPublicWorkspaceExperienceSettings(String(workspace.id));
+  const requestedLanguage = firstParam(query?.lang) === "en" ? "en" : firstParam(query?.lang) === "sv" ? "sv" : experience.defaultLanguage;
+  const locale: WorkspaceLanguage = requestedLanguage === "en" && experience.englishEnabled ? "en" : requestedLanguage === "sv" && experience.swedishEnabled ? "sv" : experience.englishEnabled ? "en" : "sv";
+  const t = copy[locale];
+  const error = t.errors[firstParam(query?.error) as keyof typeof t.errors];
   const booked = firstParam(query?.booked) === "1";
   const timeZone = resolveBookingTimeZone(workspace.time_zone);
   const bookingForm = services.length && publishedHours.length ? <BookingRequestForm
-    action={requestPublicBooking}
-    slug={slug}
-    services={services.map((service) => ({
-      name: String(service.name), durationMinutes: Number(service.duration_minutes) || 60, priceLabel: String(service.price_label ?? ""),
-      bufferBeforeMinutes: Number(service.buffer_before_minutes) || 0, bufferAfterMinutes: Number(service.buffer_after_minutes) || 0,
-      minimumNoticeMinutes: Number(service.minimum_notice_minutes) || 0, maximumAdvanceDays: Number(service.maximum_advance_days) || 365,
-    }))}
+    action={requestPublicBooking} slug={slug} locale={locale}
+    services={services.map((service) => ({ name: String(service.name), durationMinutes: Number(service.duration_minutes) || 60, priceLabel: String(service.price_label ?? ""), bufferBeforeMinutes: Number(service.buffer_before_minutes) || 0, bufferAfterMinutes: Number(service.buffer_after_minutes) || 0, minimumNoticeMinutes: Number(service.minimum_notice_minutes) || 0, maximumAdvanceDays: Number(service.maximum_advance_days) || 365 }))}
     bookingHours={publishedHours.map((hour) => ({ weekday: Number(hour.weekday), opensAt: String(hour.opens_at).slice(0, 5), closesAt: String(hour.closes_at).slice(0, 5), isClosed: Boolean(hour.is_closed) }))}
     busyBookings={busyBookings.map((booking) => ({ startsAt: new Date(booking.starts_at as Date).toISOString(), endsAt: new Date(booking.ends_at as Date).toISOString(), bufferBeforeMinutes: 0, bufferAfterMinutes: 0 }))}
-    timeZone={timeZone}
-    variant={slug === "julius-salong" ? "salon" : "default"}
+    timeZone={timeZone} variant={experience.themeKey === "salon" || slug === "julius-salong" ? "salon" : "default"}
   /> : null;
 
-  const notices = <>{booked ? <p role="status" className="mt-5 rounded-xl bg-[#eef8f0] p-4 text-sm font-semibold text-[#17452f] ring-1 ring-[#c9e6d0]">Tack! Din e-post är verifierad och bokningsförfrågan är mottagen.</p> : null}{error ? <p role="alert" className="mt-5 rounded-xl bg-[#fff5f2] p-4 text-sm font-semibold text-[#8f2f1b] ring-1 ring-[#f4c7ba]">{error}</p> : null}</>;
+  const languageSwitch = experience.swedishEnabled && experience.englishEnabled ? <nav className="flex justify-end gap-2" aria-label="Language"><a href={`/boka/${slug}?lang=sv`} className={`rounded-full px-3 py-2 text-xs font-bold ${locale === "sv" ? "bg-white text-black" : "bg-white/15 text-white"}`}>Svenska</a><a href={`/boka/${slug}?lang=en`} className={`rounded-full px-3 py-2 text-xs font-bold ${locale === "en" ? "bg-white text-black" : "bg-white/15 text-white"}`}>English</a></nav> : null;
+  const notices = <>{booked ? <p role="status" className="mt-5 rounded-xl bg-[#eef8f0] p-4 text-sm font-semibold text-[#17452f] ring-1 ring-[#c9e6d0]">{t.booked}</p> : null}{error ? <p role="alert" className="mt-5 rounded-xl bg-[#fff5f2] p-4 text-sm font-semibold text-[#8f2f1b] ring-1 ring-[#f4c7ba]">{error}</p> : null}</>;
+  const showChatbot = Boolean(aiChatClientId && experience.chatbotEnabled);
 
-  if (slug === "julius-salong") return <><JuliusBookingDemo live bookingContent={<div className="mt-6 rounded-[1.7rem] bg-white p-4 text-[#17201a] shadow-2xl lg:mt-0 lg:p-6"><p className="text-xs font-bold uppercase tracking-wide text-[#17452f]">Boka online</p><h2 className="mt-1 text-2xl font-black">Julius Salong</h2><p className="mt-4 rounded-2xl bg-[#e7f1eb] px-4 py-3 text-xs font-bold leading-5 text-[#17452f]">Välj tjänst, personal och en ledig tid. Bokningen blir klar efter e-postverifiering.</p>{notices}{bookingForm}</div>} />{aiChatClientId ? <BookingAiChatWidget clientId={aiChatClientId} /> : null}</>;
+  if (slug === "julius-salong") return <><div className="fixed right-4 top-4 z-50 rounded-full bg-[#173e2b] p-1 shadow-lg">{languageSwitch}</div><JuliusBookingDemo live bookingContent={<div className="mt-6 rounded-[1.7rem] bg-white p-4 text-[#17201a] shadow-2xl lg:mt-0 lg:p-6"><p className="text-xs font-bold uppercase tracking-wide text-[#17452f]">{t.bookOnline}</p><h2 className="mt-1 text-2xl font-black">{String(workspace.company_name)}</h2><p className="mt-4 rounded-2xl bg-[#e7f1eb] px-4 py-3 text-xs font-bold leading-5 text-[#17452f]">{t.verification}</p>{notices}{bookingForm}</div>} />{showChatbot ? <BookingAiChatWidget clientId={aiChatClientId!} /> : null}</>;
 
-  return <main className="min-h-screen bg-[#f7f7f4] px-4 py-10 sm:px-6"><section className="mx-auto max-w-3xl rounded-[2rem] bg-white p-7 shadow-sm ring-1 ring-[#dfe5dd] sm:p-10"><p className="text-sm font-bold uppercase tracking-[.16em] text-[#17452f]">Boka online</p><h1 className="mt-3 text-3xl font-bold text-[#17201a]">{String(workspace.company_name)}</h1><p className="mt-2 flex gap-2 text-[#5b665f]"><MapPin className="h-5 w-5 shrink-0" />{String(workspace.primary_city ?? "Sverige")}</p><p className="mt-6 rounded-xl bg-[#eef8f0] p-4 text-sm text-[#17452f]">Vi skickar en sexsiffrig kod till din e-post. Bokningen skapas först efter verifiering.</p>{notices}{publishedHours.length ? <div className="mt-7 rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4"><h2 className="text-sm font-bold text-[#17201a]">Bokningstider</h2><ul className="mt-3 grid gap-1 text-sm text-[#5b665f] sm:grid-cols-2">{publishedHours.map((hour) => <li key={String(hour.weekday)}><span className="font-semibold text-[#344139]">{weekdayLabels[Number(hour.weekday)]}:</span> {hour.is_closed ? "Stängt" : `${String(hour.opens_at).slice(0, 5)}–${String(hour.closes_at).slice(0, 5)}`}</li>)}</ul></div> : null}{bookingForm ?? <p className="mt-8 rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4 text-sm text-[#5b665f]">Företaget förbereder onlinebokning.</p>}</section>{aiChatClientId ? <BookingAiChatWidget clientId={aiChatClientId} /> : null}</main>;
+  const dark = experience.appearance === "dark";
+  const themeStyles = { "--booking-primary": experience.primaryColor, "--booking-accent": experience.accentColor } as CSSProperties;
+  const pageBackground = dark ? "#111713" : experience.themeKey === "premium" ? "#f3efe7" : experience.themeKey === "modern" ? "#eef4f7" : "#f7f7f4";
+  const cardBackground = dark ? "#1b241e" : "#ffffff";
+  const textColor = dark ? "#f4f7f4" : "#17201a";
+  const mutedColor = dark ? "#bac5bd" : "#5b665f";
+
+  return <main style={{ ...themeStyles, background: pageBackground, color: textColor }} className="min-h-screen px-4 py-8 sm:px-6">
+    <section style={{ background: experience.primaryColor }} className="mx-auto max-w-5xl rounded-[2rem] p-5 text-white shadow-lg sm:p-7">
+      {languageSwitch}
+      {experience.heroEnabled ? <div className="mt-4 grid items-center gap-6 md:grid-cols-[1fr_280px]">
+        <div>{experience.logoUrl ? <img src={experience.logoUrl} alt="" className="mb-4 max-h-16 max-w-48 object-contain" /> : null}<p className="text-sm font-bold uppercase tracking-[.16em] text-white/75">{t.bookOnline}</p><h1 className="mt-3 text-3xl font-bold sm:text-4xl">{String(workspace.company_name)}</h1><p className="mt-3 flex gap-2 text-white/80"><MapPin className="h-5 w-5 shrink-0" />{String(workspace.primary_city ?? "")}</p></div>
+        {experience.heroVideoUrl ? <video src={experience.heroVideoUrl} controls muted playsInline className="h-52 w-full rounded-2xl object-cover" /> : experience.heroImageUrl ? <img src={experience.heroImageUrl} alt="" className="h-52 w-full rounded-2xl object-cover" /> : null}
+      </div> : null}
+    </section>
+
+    <div className="mx-auto mt-6 grid max-w-5xl gap-6 lg:grid-cols-[1fr_360px]">
+      <section style={{ background: cardBackground, color: textColor }} className="rounded-[2rem] p-6 shadow-sm ring-1 ring-black/10 sm:p-8">
+        <p style={{ background: dark ? "#26342b" : "#eef8f0", color: dark ? "#dce8df" : experience.primaryColor }} className="rounded-xl p-4 text-sm">{t.verification}</p>
+        {notices}
+        {bookingForm ?? <p style={{ color: mutedColor }} className="mt-8 rounded-xl border border-black/10 p-4 text-sm">{t.preparing}</p>}
+      </section>
+
+      <aside className="grid content-start gap-5">
+        {experience.servicesEnabled && services.length ? <section style={{ background: cardBackground, color: textColor }} className="rounded-3xl p-5 shadow-sm ring-1 ring-black/10"><h2 className="text-lg font-bold">{t.services}</h2><div className="mt-3 grid gap-2">{services.map((service) => <div key={String(service.name)} className="rounded-xl border border-black/10 p-3"><strong>{String(service.name)}</strong><p style={{ color: mutedColor }} className="mt-1 text-sm">{Number(service.duration_minutes) || 60} min{service.price_label ? ` · ${String(service.price_label)}` : ""}</p></div>)}</div></section> : null}
+        {publishedHours.length ? <section style={{ background: cardBackground, color: textColor }} className="rounded-3xl p-5 shadow-sm ring-1 ring-black/10"><h2 className="text-lg font-bold">{t.hours}</h2><ul style={{ color: mutedColor }} className="mt-3 grid gap-1 text-sm">{publishedHours.map((hour) => <li key={String(hour.weekday)}><span className="font-semibold">{t.weekdays[Number(hour.weekday)]}:</span> {hour.is_closed ? t.closed : `${String(hour.opens_at).slice(0, 5)}–${String(hour.closes_at).slice(0, 5)}`}</li>)}</ul></section> : null}
+        {experience.contactEnabled && (workspace.contact_email || workspace.contact_phone) ? <section style={{ background: cardBackground, color: textColor }} className="rounded-3xl p-5 shadow-sm ring-1 ring-black/10"><h2 className="text-lg font-bold">{t.contact}</h2><div style={{ color: mutedColor }} className="mt-3 grid gap-2 text-sm">{workspace.contact_email ? <a href={`mailto:${String(workspace.contact_email)}`}>{String(workspace.contact_email)}</a> : null}{workspace.contact_phone ? <a href={`tel:${String(workspace.contact_phone)}`}>{String(workspace.contact_phone)}</a> : null}</div></section> : null}
+        {experience.faqEnabled ? <section style={{ background: cardBackground, color: textColor }} className="rounded-3xl p-5 shadow-sm ring-1 ring-black/10"><h2 className="text-lg font-bold">{t.faq}</h2><h3 className="mt-3 font-semibold">{t.faqTitle}</h3><p style={{ color: mutedColor }} className="mt-1 text-sm leading-6">{t.faqBody}</p></section> : null}
+      </aside>
+    </div>
+    {showChatbot ? <BookingAiChatWidget clientId={aiChatClientId!} /> : null}
+  </main>;
 }
 
-function Unavailable() {
-  return <main className="min-h-screen bg-[#f7f7f4] px-4 py-16"><section className="mx-auto max-w-lg rounded-3xl bg-white p-8 text-center shadow-sm ring-1 ring-[#dfe5dd]"><h1 className="text-2xl font-bold text-[#17201a]">Bokning är inte tillgänglig ännu</h1><p className="mt-3 text-[#5b665f]">Företaget har ännu inte publicerat sin bokningssida.</p></section></main>;
+function Unavailable({ locale }: { locale: WorkspaceLanguage }) {
+  const t = copy[locale];
+  return <main className="min-h-screen bg-[#f7f7f4] px-4 py-16"><section className="mx-auto max-w-lg rounded-3xl bg-white p-8 text-center shadow-sm ring-1 ring-[#dfe5dd]"><h1 className="text-2xl font-bold text-[#17201a]">{t.unavailableTitle}</h1><p className="mt-3 text-[#5b665f]">{t.unavailableBody}</p></section></main>;
 }

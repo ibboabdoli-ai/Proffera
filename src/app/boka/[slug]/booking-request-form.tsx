@@ -1,7 +1,8 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, ArrowRight, CalendarDays, Check, Clock3, MailCheck, Scissors, UserRound, UsersRound } from "lucide-react";
+import { ArrowLeft, ArrowRight, CalendarDays, Check, MailCheck, Scissors, UserRound, UsersRound } from "lucide-react";
 
 import {
   addDaysToDateInput,
@@ -17,6 +18,7 @@ type BookingService = BookingAvailabilityService & { name: string; priceLabel: s
 type BookingHour = BookingAvailabilityHour & { weekday: number };
 type BusyBooking = BookingAvailabilityBusyBooking;
 type BookingStaff = { id: string; name: string; roleLabel: string; schedules: BookingHour[]; busy: BusyBooking[] };
+type Locale = "sv" | "en";
 
 type Props = {
   action: (formData: FormData) => void | Promise<void>;
@@ -26,11 +28,35 @@ type Props = {
   busyBookings: BusyBooking[];
   timeZone: WorkspaceTimeZone;
   variant?: "default" | "salon";
+  locale?: Locale;
 };
 
 type SalonStep = "service" | "staff" | "time" | "details";
-const weekdayShort = ["Sön", "Mån", "Tis", "Ons", "Tors", "Fre", "Lör"];
-const monthShort = ["jan", "feb", "mar", "apr", "maj", "jun", "jul", "aug", "sep", "okt", "nov", "dec"];
+
+const copy = {
+  sv: {
+    weekdays: ["Sön", "Mån", "Tis", "Ons", "Tors", "Fre", "Lör"],
+    months: ["jan", "feb", "mar", "apr", "maj", "jun", "jul", "aug", "sep", "okt", "nov", "dec"],
+    name: "Namn", email: "E-post", phone: "Telefon", service: "Tjänst", staff: "Personal", time: "Tid", details: "Uppgifter",
+    chooseService: "Välj tjänst", chooseTime: "Välj tid", sendCode: "Skicka verifieringskod", book: "Boka",
+    serviceIntro: "Se pris, behandlingstid och närmaste lediga tid.", available: "Ledig", noTimes: "Inga lediga tider",
+    changeService: "Byt tjänst", chooseStaff: "Välj personal", staffIntro: "Välj en specifik person eller första lediga.",
+    firstStaff: "Första lediga personal", fastest: "Snabbaste tillgängliga tiden", back: "Tillbaka", chooseDayTime: "Välj dag och tid",
+    noTimesDay: "Inga lediga tider denna dag.", continue: "Fortsätt", changeTime: "Byt tid", yourDetails: "Dina uppgifter",
+    verificationInfo: "Vi skickar en sexsiffrig kod. Bokningen blir klar efter verifiering.", website: "Webbplats", at: "kl.", genericStaff: "Personal",
+  },
+  en: {
+    weekdays: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+    months: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+    name: "Name", email: "Email", phone: "Phone", service: "Service", staff: "Staff", time: "Time", details: "Details",
+    chooseService: "Choose service", chooseTime: "Choose time", sendCode: "Send verification code", book: "Book",
+    serviceIntro: "See the price, duration and nearest available time.", available: "Available", noTimes: "No available times",
+    changeService: "Change service", chooseStaff: "Choose staff", staffIntro: "Choose a specific person or the first available.",
+    firstStaff: "First available staff", fastest: "Fastest available appointment", back: "Back", chooseDayTime: "Choose day and time",
+    noTimesDay: "No available times on this day.", continue: "Continue", changeTime: "Change time", yourDetails: "Your details",
+    verificationInfo: "We will send a six-digit code. The booking is completed after verification.", website: "Website", at: "at", genericStaff: "Staff",
+  },
+} as const;
 
 function weekdayForDate(value: string) {
   const [year, month, day] = value.split("-").map(Number);
@@ -42,12 +68,12 @@ function dateParts(value: string) {
   return { month, day, weekday: new Date(Date.UTC(year, month - 1, day)).getUTCDay() };
 }
 
-function formatDateLabel(value: string) {
-  const { day, month, weekday } = dateParts(value);
-  return `${weekdayShort[weekday]} ${day} ${monthShort[month - 1]}`;
-}
-
-export function BookingRequestForm({ action, slug, services, bookingHours, busyBookings, timeZone, variant = "default" }: Props) {
+export function BookingRequestForm({ action, slug, services, bookingHours, busyBookings, timeZone, variant = "default", locale = "sv" }: Props) {
+  const t = copy[locale];
+  const formatDateLabel = (value: string) => {
+    const { day, month, weekday } = dateParts(value);
+    return `${t.weekdays[weekday]} ${day} ${t.months[month - 1]}`;
+  };
   const [formStartedAt] = useState(() => Date.now());
   const [referenceTime, setReferenceTime] = useState(formStartedAt);
   const today = dateInputInTimeZone(new Date(referenceTime), timeZone);
@@ -138,33 +164,33 @@ export function BookingRequestForm({ action, slug, services, bookingHours, busyB
     const hours = bookingHours.find((item) => item.weekday === weekdayForDate(date));
     const times = selectedService && hours ? getAvailableBookingTimes({ date, service: selectedService, hours, busyBookings, referenceTimeMs: referenceTime, timeZone }) : [];
     return <form action={action} className="mt-8 grid gap-4">
-      <input type="hidden" name="slug" value={slug} /><input type="hidden" name="starts_at" value={date && time ? `${date}T${time}` : ""} /><input type="hidden" name="form_started_at" value={formStartedAt} />
-      <label className="grid gap-2 text-sm font-semibold">Namn<input name="name" required className="rounded-xl border px-4 py-3" /></label>
-      <label className="grid gap-2 text-sm font-semibold">E-post<input name="email" required type="email" className="rounded-xl border px-4 py-3" /></label>
-      <label className="grid gap-2 text-sm font-semibold">Telefon<input name="phone" type="tel" className="rounded-xl border px-4 py-3" /></label>
-      <label className="grid gap-2 text-sm font-semibold">Tjänst<select name="service" required value={serviceName} onChange={(e) => { setServiceName(e.target.value); setTime(""); }} className="rounded-xl border px-4 py-3"><option value="">Välj tjänst</option>{services.map((service) => <option key={service.name}>{service.name}</option>)}</select></label>
-      <input type="date" required min={today} max={maximumDate} value={date} onChange={(e) => { setDate(e.target.value); setTime(""); }} className="rounded-xl border px-4 py-3" />
-      <select required value={time} onChange={(e) => setTime(e.target.value)} className="rounded-xl border px-4 py-3"><option value="">Välj tid</option>{times.map((slot) => <option key={slot}>{slot}</option>)}</select>
-      <button className="rounded-xl bg-[#17452f] px-5 py-3 font-bold text-white">Skicka verifieringskod</button>
+      <input type="hidden" name="slug" value={slug} /><input type="hidden" name="lang" value={locale} /><input type="hidden" name="starts_at" value={date && time ? `${date}T${time}` : ""} /><input type="hidden" name="form_started_at" value={formStartedAt} />
+      <label className="grid gap-2 text-sm font-semibold">{t.name}<input name="name" required className="rounded-xl border px-4 py-3" /></label>
+      <label className="grid gap-2 text-sm font-semibold">{t.email}<input name="email" required type="email" className="rounded-xl border px-4 py-3" /></label>
+      <label className="grid gap-2 text-sm font-semibold">{t.phone}<input name="phone" type="tel" className="rounded-xl border px-4 py-3" /></label>
+      <label className="grid gap-2 text-sm font-semibold">{t.service}<select name="service" required value={serviceName} onChange={(e) => { setServiceName(e.target.value); setTime(""); }} className="rounded-xl border px-4 py-3"><option value="">{t.chooseService}</option>{services.map((service) => <option key={service.name}>{service.name}</option>)}</select></label>
+      <input aria-label={t.chooseDayTime} type="date" required min={today} max={maximumDate} value={date} onChange={(e) => { setDate(e.target.value); setTime(""); }} className="rounded-xl border px-4 py-3" />
+      <select aria-label={t.chooseTime} required value={time} onChange={(e) => setTime(e.target.value)} className="rounded-xl border px-4 py-3"><option value="">{t.chooseTime}</option>{times.map((slot) => <option key={slot}>{slot}</option>)}</select>
+      <button className="rounded-xl bg-[#17452f] px-5 py-3 font-bold text-white">{t.sendCode}</button>
     </form>;
   }
 
-  const steps: Array<[SalonStep, string]> = staff.length ? [["service", "Tjänst"], ["staff", "Personal"], ["time", "Tid"], ["details", "Uppgifter"]] : [["service", "Tjänst"], ["time", "Tid"], ["details", "Uppgifter"]];
+  const steps: Array<[SalonStep, string]> = staff.length ? [["service", t.service], ["staff", t.staff], ["time", t.time], ["details", t.details]] : [["service", t.service], ["time", t.time], ["details", t.details]];
   const currentIndex = steps.findIndex(([key]) => key === step);
   const selectedStaff = staff.find((member) => member.id === assignedStaffId || member.id === staffChoice);
 
   return <form action={action} className="mt-5">
-    <input type="hidden" name="slug" value={slug} /><input type="hidden" name="service" value={serviceName} /><input type="hidden" name="staff_id" value={assignedStaffId} /><input type="hidden" name="starts_at" value={date && selectedTime ? `${date}T${selectedTime}` : ""} /><input type="hidden" name="form_started_at" value={formStartedAt} />
-    <label className="absolute left-[-10000px]" aria-hidden="true">Webbplats<input name="website" tabIndex={-1} /></label>
+    <input type="hidden" name="slug" value={slug} /><input type="hidden" name="lang" value={locale} /><input type="hidden" name="service" value={serviceName} /><input type="hidden" name="staff_id" value={assignedStaffId} /><input type="hidden" name="starts_at" value={date && selectedTime ? `${date}T${selectedTime}` : ""} /><input type="hidden" name="form_started_at" value={formStartedAt} />
+    <label className="absolute left-[-10000px]" aria-hidden="true">{t.website}<input name="website" tabIndex={-1} /></label>
 
     <div className={`mb-5 grid gap-2 ${steps.length === 4 ? "grid-cols-4" : "grid-cols-3"}`}>{steps.map(([key, label], index) => <div key={key} className="text-center"><div className={`mx-auto flex h-8 w-8 items-center justify-center rounded-full text-xs font-black ${index === currentIndex ? "bg-[#17452f] text-white" : index < currentIndex ? "bg-[#dceee2] text-[#17452f]" : "bg-[#eef1ed] text-[#7a857e]"}`}>{index < currentIndex ? <Check className="h-4 w-4" /> : index + 1}</div><p className="mt-1 text-[11px] font-bold text-[#5b665f]">{label}</p></div>)}</div>
 
-    {step === "service" ? <section><h3 className="text-2xl font-black">Välj tjänst</h3><p className="mt-2 text-sm text-[#5b665f]">Se pris, behandlingstid och närmaste lediga tid.</p><div className="mt-4 grid gap-3">{services.map((service) => { const first = firstAvailability.get(service.name); return <article key={service.name} className="rounded-3xl border bg-white p-5 shadow-sm"><div className="flex gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#edf5ef]"><Scissors className="h-5 w-5 text-[#17452f]" /></div><div className="flex-1"><h4 className="font-black">{service.name}</h4><p className="mt-2 text-sm font-bold text-[#5b665f]">{service.durationMinutes} min{service.priceLabel ? ` · ${service.priceLabel}` : ""}</p><p className="mt-2 text-sm font-bold text-[#2873b9]">{first ? `Ledig ${formatDateLabel(first.date)} kl. ${first.time}` : "Inga lediga tider"}</p></div></div><button type="button" disabled={!first} onClick={() => chooseService(service.name)} className="mt-4 w-full rounded-2xl bg-[#17452f] p-3 font-black text-white disabled:opacity-40">Boka</button></article>; })}</div></section> : null}
+    {step === "service" ? <section><h3 className="text-2xl font-black">{t.chooseService}</h3><p className="mt-2 text-sm text-[#5b665f]">{t.serviceIntro}</p><div className="mt-4 grid gap-3">{services.map((service) => { const first = firstAvailability.get(service.name); return <article key={service.name} className="rounded-3xl border bg-white p-5 shadow-sm"><div className="flex gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#edf5ef]"><Scissors className="h-5 w-5 text-[#17452f]" /></div><div className="flex-1"><h4 className="font-black">{service.name}</h4><p className="mt-2 text-sm font-bold text-[#5b665f]">{service.durationMinutes} min{service.priceLabel ? ` · ${service.priceLabel}` : ""}</p><p className="mt-2 text-sm font-bold text-[#2873b9]">{first ? `${t.available} ${formatDateLabel(first.date)} ${t.at} ${first.time}` : t.noTimes}</p></div></div><button type="button" disabled={!first} onClick={() => chooseService(service.name)} className="mt-4 w-full rounded-2xl bg-[#17452f] p-3 font-black text-white disabled:opacity-40">{t.book}</button></article>; })}</div></section> : null}
 
-    {step === "staff" && selectedService ? <section><button type="button" onClick={() => setStep("service")} className="mb-4 inline-flex items-center gap-2 font-black text-[#17452f]"><ArrowLeft className="h-4 w-4" /> Byt tjänst</button><h3 className="text-2xl font-black">Välj personal</h3><p className="mt-2 text-sm text-[#5b665f]">Välj en specifik person eller första lediga.</p><div className="mt-4 grid gap-3"><button type="button" onClick={() => { setStaffChoice("any"); setTime(""); setAssignedStaffId(""); setStep("time"); }} className="flex items-center gap-3 rounded-3xl border bg-white p-4 text-left"><UsersRound className="h-6 w-6 text-[#17452f]" /><span><strong className="block">Första lediga personal</strong><span className="text-sm text-[#5b665f]">Snabbaste tillgängliga tiden</span></span></button>{staff.map((member) => <button key={member.id} type="button" onClick={() => { setStaffChoice(member.id); setTime(""); setAssignedStaffId(member.id); setStep("time"); }} className="flex items-center gap-3 rounded-3xl border bg-white p-4 text-left"><UserRound className="h-6 w-6 text-[#17452f]" /><span><strong className="block">{member.name}</strong><span className="text-sm text-[#5b665f]">{member.roleLabel || "Personal"}</span></span></button>)}</div></section> : null}
+    {step === "staff" && selectedService ? <section><button type="button" onClick={() => setStep("service")} className="mb-4 inline-flex items-center gap-2 font-black text-[#17452f]"><ArrowLeft className="h-4 w-4" /> {t.changeService}</button><h3 className="text-2xl font-black">{t.chooseStaff}</h3><p className="mt-2 text-sm text-[#5b665f]">{t.staffIntro}</p><div className="mt-4 grid gap-3"><button type="button" onClick={() => { setStaffChoice("any"); setTime(""); setAssignedStaffId(""); setStep("time"); }} className="flex items-center gap-3 rounded-3xl border bg-white p-4 text-left"><UsersRound className="h-6 w-6 text-[#17452f]" /><span><strong className="block">{t.firstStaff}</strong><span className="text-sm text-[#5b665f]">{t.fastest}</span></span></button>{staff.map((member) => <button key={member.id} type="button" onClick={() => { setStaffChoice(member.id); setTime(""); setAssignedStaffId(member.id); setStep("time"); }} className="flex items-center gap-3 rounded-3xl border bg-white p-4 text-left"><UserRound className="h-6 w-6 text-[#17452f]" /><span><strong className="block">{member.name}</strong><span className="text-sm text-[#5b665f]">{member.roleLabel || t.genericStaff}</span></span></button>)}</div></section> : null}
 
-    {step === "time" && selectedService ? <section><button type="button" onClick={() => setStep(staff.length ? "staff" : "service")} className="mb-4 inline-flex items-center gap-2 font-black text-[#17452f]"><ArrowLeft className="h-4 w-4" /> Tillbaka</button><div className="rounded-3xl border bg-white p-4"><h3 className="font-black">{selectedService.name}</h3><p className="text-sm text-[#5b665f]">{staffChoice === "any" ? "Första lediga personal" : selectedStaff?.name}</p></div><div className="mt-4 flex items-center justify-between"><button type="button" disabled={!weekOffset} onClick={() => { setWeekOffset((v) => Math.max(0, v - 1)); setTime(""); }} className="rounded-full border p-3 disabled:opacity-30"><ArrowLeft /></button><strong>Välj dag och tid</strong><button type="button" onClick={() => { setWeekOffset((v) => v + 1); setTime(""); }} className="rounded-full bg-[#17452f] p-3 text-white"><ArrowRight /></button></div><div className="mt-4 grid grid-cols-4 gap-2 sm:grid-cols-7">{weekDates.map((value) => { const slots = slotsForDate(value, selectedService).slots; const parts = dateParts(value); return <button key={value} type="button" disabled={!slots.length} onClick={() => { setDate(value); setTime(""); setAssignedStaffId(staffChoice === "any" ? "" : staffChoice); }} className={`rounded-2xl border p-2 ${date === value ? "bg-[#17452f] text-white" : "bg-white"} disabled:opacity-30`}><span className="block text-xs">{weekdayShort[parts.weekday]}</span><strong>{parts.day}</strong></button>; })}</div><div className="mt-4 rounded-3xl border bg-[#fbfbf8] p-4"><div className="flex items-center gap-2"><CalendarDays className="h-5 w-5 text-[#17452f]" /><strong>{formatDateLabel(date)}</strong></div><div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">{availability.slots.length ? availability.slots.map((slot) => <button key={slot} type="button" onClick={() => chooseSlot(slot)} className={`rounded-2xl border p-4 font-black ${selectedTime === slot ? "bg-[#17452f] text-white" : "bg-[#eef8f1] text-[#17452f]"}`}>{slot}</button>) : <p className="col-span-full p-3 text-sm text-[#5b665f]">Inga lediga tider denna dag.</p>}</div></div><button type="button" disabled={!selectedTime || (staff.length > 0 && !assignedStaffId)} onClick={() => setStep("details")} className="mt-4 flex w-full items-center justify-center rounded-2xl bg-[#17452f] p-4 font-black text-white disabled:opacity-40">Fortsätt <ArrowRight className="ml-2 h-4 w-4" /></button></section> : null}
+    {step === "time" && selectedService ? <section><button type="button" onClick={() => setStep(staff.length ? "staff" : "service")} className="mb-4 inline-flex items-center gap-2 font-black text-[#17452f]"><ArrowLeft className="h-4 w-4" /> {t.back}</button><div className="rounded-3xl border bg-white p-4"><h3 className="font-black">{selectedService.name}</h3><p className="text-sm text-[#5b665f]">{staffChoice === "any" ? t.firstStaff : selectedStaff?.name}</p></div><div className="mt-4 flex items-center justify-between"><button type="button" disabled={!weekOffset} onClick={() => { setWeekOffset((v) => Math.max(0, v - 1)); setTime(""); }} className="rounded-full border p-3 disabled:opacity-30"><ArrowLeft /></button><strong>{t.chooseDayTime}</strong><button type="button" onClick={() => { setWeekOffset((v) => v + 1); setTime(""); }} className="rounded-full bg-[#17452f] p-3 text-white"><ArrowRight /></button></div><div className="mt-4 grid grid-cols-4 gap-2 sm:grid-cols-7">{weekDates.map((value) => { const slots = slotsForDate(value, selectedService).slots; const parts = dateParts(value); return <button key={value} type="button" disabled={!slots.length} onClick={() => { setDate(value); setTime(""); setAssignedStaffId(staffChoice === "any" ? "" : staffChoice); }} className={`rounded-2xl border p-2 ${date === value ? "bg-[#17452f] text-white" : "bg-white"} disabled:opacity-30`}><span className="block text-xs">{t.weekdays[parts.weekday]}</span><strong>{parts.day}</strong></button>; })}</div><div className="mt-4 rounded-3xl border bg-[#fbfbf8] p-4"><div className="flex items-center gap-2"><CalendarDays className="h-5 w-5 text-[#17452f]" /><strong>{formatDateLabel(date)}</strong></div><div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">{availability.slots.length ? availability.slots.map((slot) => <button key={slot} type="button" onClick={() => chooseSlot(slot)} className={`rounded-2xl border p-4 font-black ${selectedTime === slot ? "bg-[#17452f] text-white" : "bg-[#eef8f1] text-[#17452f]"}`}>{slot}</button>) : <p className="col-span-full p-3 text-sm text-[#5b665f]">{t.noTimesDay}</p>}</div></div><button type="button" disabled={!selectedTime || (staff.length > 0 && !assignedStaffId)} onClick={() => setStep("details")} className="mt-4 flex w-full items-center justify-center rounded-2xl bg-[#17452f] p-4 font-black text-white disabled:opacity-40">{t.continue} <ArrowRight className="ml-2 h-4 w-4" /></button></section> : null}
 
-    {step === "details" && selectedService ? <section><button type="button" onClick={() => setStep("time")} className="mb-4 inline-flex items-center gap-2 font-black text-[#17452f]"><ArrowLeft className="h-4 w-4" /> Byt tid</button><div className="rounded-3xl border bg-white p-4"><h3 className="font-black">{selectedService.name}</h3><p className="mt-1 text-sm text-[#5b665f]">{formatDateLabel(date)} kl. {selectedTime} · {selectedStaff?.name ?? "Personal"}</p></div><div className="mt-4 rounded-3xl border bg-[#fbfbf8] p-4"><div className="flex items-center gap-2"><UserRound className="h-5 w-5 text-[#17452f]" /><h3 className="font-black">Dina uppgifter</h3></div><div className="mt-4 grid gap-3"><label className="grid gap-1 text-sm font-bold">Namn<input name="name" required className="rounded-2xl border bg-white px-4 py-3" /></label><label className="grid gap-1 text-sm font-bold">Telefon<input name="phone" type="tel" className="rounded-2xl border bg-white px-4 py-3" /></label><label className="grid gap-1 text-sm font-bold">E-post<input name="email" required type="email" className="rounded-2xl border bg-white px-4 py-3" /></label></div><div className="mt-4 flex gap-3 rounded-2xl bg-[#edf5ef] p-3 text-xs"><MailCheck className="h-5 w-5 text-[#17452f]" /><p>Vi skickar en sexsiffrig kod. Bokningen blir klar efter verifiering.</p></div><button className="mt-4 flex w-full items-center justify-center rounded-2xl bg-[#17452f] p-4 font-black text-white">Skicka verifieringskod <ArrowRight className="ml-2 h-4 w-4" /></button></div></section> : null}
+    {step === "details" && selectedService ? <section><button type="button" onClick={() => setStep("time")} className="mb-4 inline-flex items-center gap-2 font-black text-[#17452f]"><ArrowLeft className="h-4 w-4" /> {t.changeTime}</button><div className="rounded-3xl border bg-white p-4"><h3 className="font-black">{selectedService.name}</h3><p className="mt-1 text-sm text-[#5b665f]">{formatDateLabel(date)} {t.at} {selectedTime} · {selectedStaff?.name ?? t.genericStaff}</p></div><div className="mt-4 rounded-3xl border bg-[#fbfbf8] p-4"><div className="flex items-center gap-2"><UserRound className="h-5 w-5 text-[#17452f]" /><h3 className="font-black">{t.yourDetails}</h3></div><div className="mt-4 grid gap-3"><label className="grid gap-1 text-sm font-bold">{t.name}<input name="name" required className="rounded-2xl border bg-white px-4 py-3" /></label><label className="grid gap-1 text-sm font-bold">{t.phone}<input name="phone" type="tel" className="rounded-2xl border bg-white px-4 py-3" /></label><label className="grid gap-1 text-sm font-bold">{t.email}<input name="email" required type="email" className="rounded-2xl border bg-white px-4 py-3" /></label></div><div className="mt-4 flex gap-3 rounded-2xl bg-[#edf5ef] p-3 text-xs"><MailCheck className="h-5 w-5 text-[#17452f]" /><p>{t.verificationInfo}</p></div><button className="mt-4 flex w-full items-center justify-center rounded-2xl bg-[#17452f] p-4 font-black text-white">{t.sendCode} <ArrowRight className="ml-2 h-4 w-4" /></button></div></section> : null}
   </form>;
 }
