@@ -1,8 +1,13 @@
 import Link from "next/link";
+import { revalidatePath } from "next/cache";
 import { notFound } from "next/navigation";
-import { CalendarDays, Clock3, History, MapPin } from "lucide-react";
+import { CalendarDays, Clock3, History, MapPin, XCircle } from "lucide-react";
 
-import { getCustomerCalendar, type CustomerCalendarBooking } from "@/lib/customer-calendar";
+import {
+  cancelCustomerCalendarBooking,
+  getCustomerCalendar,
+  type CustomerCalendarBooking,
+} from "@/lib/customer-calendar";
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
 
 export const dynamic = "force-dynamic";
@@ -32,8 +37,17 @@ function formatDate(value: string, timeZone: WorkspaceTimeZone) {
   }).format(new Date(value));
 }
 
+async function cancelBooking(formData: FormData) {
+  "use server";
+  const token = String(formData.get("token") ?? "");
+  const bookingId = String(formData.get("booking_id") ?? "");
+  const result = await cancelCustomerCalendarBooking(token, bookingId);
+  if (result.ok) revalidatePath(`/mina-bokningar/${token}`);
+}
+
 function BookingCard({ booking, token, timeZone }: { booking: CustomerCalendarBooking; token: string; timeZone: WorkspaceTimeZone }) {
   const calendarUrl = `/api/mina-bokningar/${encodeURIComponent(token)}/${encodeURIComponent(booking.id)}/calendar`;
+  const canCancel = ["requested", "confirmed"].includes(booking.status) && new Date(booking.startsAt).getTime() > Date.now();
 
   return (
     <article className="rounded-2xl border border-[#dfe6df] bg-white p-5 shadow-sm">
@@ -55,7 +69,21 @@ function BookingCard({ booking, token, timeZone }: { booking: CustomerCalendarBo
         <Link href={calendarUrl} className="inline-flex min-h-10 items-center rounded-xl border border-[#cfd9d0] px-4 py-2 text-sm font-bold text-[#17452f] hover:bg-[#f3f7f3]">
           Lägg till i kalender
         </Link>
+        {canCancel ? (
+          <form action={cancelBooking}>
+            <input type="hidden" name="token" value={token} />
+            <input type="hidden" name="booking_id" value={booking.id} />
+            <button
+              type="submit"
+              className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-[#efc8c3] px-4 py-2 text-sm font-bold text-[#a5362a] hover:bg-[#fff4f2]"
+            >
+              <XCircle className="h-4 w-4" aria-hidden="true" />
+              Avboka
+            </button>
+          </form>
+        ) : null}
       </div>
+      {canCancel ? <p className="mt-3 text-xs leading-5 text-[#6c756f]">Avbokning frigör tiden direkt. Kontakta företaget om du behöver hjälp eller vill boka om.</p> : null}
     </article>
   );
 }
@@ -77,7 +105,7 @@ export default async function CustomerCalendarPage({ params }: PageProps) {
             </div>
           </div>
           <p className="mt-4 max-w-2xl text-sm leading-7 text-white/80">
-            Här visas endast dina egna bokningar. Tider och uppgifter för andra kunder skickas aldrig till den här sidan.
+            Här visas endast dina egna bokningar. Du kan lägga till en tid i kalendern eller avboka en framtida bokning utan att skapa ett konto.
           </p>
         </header>
 
