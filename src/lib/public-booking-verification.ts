@@ -4,7 +4,9 @@ import { createHash, randomInt } from "node:crypto";
 
 import { sendBookingConfirmationEmail, sendBookingOwnerNotificationEmail } from "@/features/email/lead-email";
 import { sendBookingVerificationEmail } from "@/features/email/booking-verification-email";
+import { sendCustomerBookingPortalEmail } from "@/features/email/customer-booking-portal-email";
 import { sendBookingOwnerSms } from "@/features/sms/booking-sms";
+import { createCustomerCalendarToken } from "@/lib/customer-calendar";
 import { getSql } from "@/lib/db/server";
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
 
@@ -124,16 +126,27 @@ export async function verifyPublicBookingCode(id: string, code: string) {
     ), booking as (
       insert into bookings (workspace_id, customer_id, staff_id, title, service, city, status, starts_at, ends_at, source)
       select ${String(challenge.workspace_id)}, id, ${staffId}::uuid, ${String(challenge.service_name)}, ${String(challenge.service_name)}, ${challenge.city ? String(challenge.city) : null}, 'requested', ${startsAt}::timestamptz, ${endsAt}::timestamptz, 'public_booking'
-      from selected_customer limit 1 returning id
+      from selected_customer limit 1 returning id, customer_id
     )
     update public_booking_verifications set verified_at = now(), consumed_at = now(), updated_at = now()
-    where id = ${id}::uuid returning (select id from booking) as booking_id
+    where id = ${id}::uuid
+    returning (select id from booking) as booking_id, (select customer_id from booking) as customer_id
   `;
-  if (!booked[0]?.booking_id) return { ok: false as const, error: "save" };
+  const bookingId = String(booked[0]?.booking_id ?? "");
+  const customerId = String(booked[0]?.customer_id ?? "");
+  if (!bookingId || !customerId) return { ok: false as const, error: "save" };
 
   const timeZone = String(challenge.time_zone) as WorkspaceTimeZone;
+  const portalToken = createCustomerCalendarToken({
+    workspaceId: String(challenge.workspace_id),
+    customerId,
+  });
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL ?? "https://www.proffera.se").replace(/\/$/, "");
+  const portalUrl = `${appUrl}/mina-bokningar/${encodeURIComponent(portalToken)}`;
+
   await Promise.allSettled([
     sendBookingConfirmationEmail({ customerName: String(challenge.customer_name), customerEmail: String(challenge.customer_email), companyName: String(challenge.company_name), bookingTitle: String(challenge.service_name), service: String(challenge.service_name), startsAt, endsAt, city: String(challenge.city ?? ""), timeZone }),
+    sendCustomerBookingPortalEmail({ customerName: String(challenge.customer_name), customerEmail: String(challenge.customer_email), companyName: String(challenge.company_name), portalUrl }),
     challenge.owner_email ? sendBookingOwnerNotificationEmail({ ownerEmail: String(challenge.owner_email), companyName: String(challenge.company_name), customerName: String(challenge.customer_name), customerEmail: String(challenge.customer_email), customerPhone: String(challenge.customer_phone ?? ""), service: String(challenge.service_name), startsAt, endsAt, city: String(challenge.city ?? ""), timeZone }) : Promise.resolve(),
     challenge.owner_phone ? sendBookingOwnerSms({ ownerPhone: String(challenge.owner_phone), companyName: String(challenge.company_name), customerName: String(challenge.customer_name), customerPhone: String(challenge.customer_phone ?? ""), service: String(challenge.service_name), startsAt, timeZone }) : Promise.resolve(),
   ]);

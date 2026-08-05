@@ -161,3 +161,27 @@ export async function getCustomerCalendarBooking(token: string, bookingId: strin
 
   return rows[0] ? toBooking(rows[0]) : null;
 }
+
+export async function cancelCustomerCalendarBooking(token: string, bookingId: string) {
+  const payload = verifyCustomerCalendarToken(token);
+  if (!payload || !connectionString || !/^[0-9a-f-]{36}$/i.test(bookingId)) {
+    return { ok: false as const, error: "invalid" };
+  }
+
+  const sql = neon(connectionString);
+  const rows = await sql`
+    update bookings
+    set status = 'cancelled', updated_at = now()
+    where id = ${bookingId}
+      and customer_id = ${payload.customerId}
+      and workspace_id = ${payload.workspaceId}
+      and status in ('requested', 'confirmed')
+      and starts_at > now()
+      and source not in ('dashboard_availability_block', 'dashboard_availability_recurring_block')
+    returning id
+  `;
+
+  return rows[0]
+    ? { ok: true as const }
+    : { ok: false as const, error: "not_allowed" };
+}
