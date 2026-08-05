@@ -11,6 +11,7 @@ export async function listAdminAuditLogs(limit = 200) {
   const safeLimit = Math.min(Math.max(limit, 1), 500);
   return sql`
     select l.id, l.action, l.reason, l.created_at,
+      l.previous_value, l.new_value,
       u.name as admin_name, u.email as admin_email,
       w.name as workspace_name
     from admin_audit_logs l
