@@ -4,17 +4,18 @@ import { neon } from "@neondatabase/serverless";
 
 import { sendBookingReminderEmail } from "@/features/email/booking-reminder-email";
 import { sendBookingReminderSms } from "@/features/sms/booking-reminder-sms";
+import { createCustomerCalendarToken } from "@/lib/customer-calendar";
 import { resolveBookingTimeZone } from "@/lib/public-booking-policy";
 
 const connectionString = process.env.DATABASE_URL ?? process.env.POSTGRES_URL ?? process.env.POSTGRES_PRISMA_URL ?? process.env.POSTGRES_URL_NON_POOLING;
 
-type ReminderRow = { booking_id: string; workspace_id: string; workspace_name: string; customer_name: string; customer_email: string; customer_phone: string; service: string; city: string; starts_at: string; time_zone: string; hours_before: number; email_enabled: boolean; sms_enabled: boolean };
+type ReminderRow = { booking_id: string; workspace_id: string; customer_id: string; workspace_name: string; customer_name: string; customer_email: string; customer_phone: string; service: string; city: string; starts_at: string; time_zone: string; hours_before: number; email_enabled: boolean; sms_enabled: boolean };
 
 export async function processBookingReminders() {
   if (!connectionString) throw new Error("Missing database connection");
   const sql = neon(connectionString);
   const rows = await sql`
-    select b.id as booking_id, b.workspace_id, coalesce(w.name, b.workspace_id) as workspace_name,
+    select b.id as booking_id, b.workspace_id, b.customer_id, coalesce(w.name, b.workspace_id) as workspace_name,
       coalesce(c.name, 'Kund') as customer_name, coalesce(c.email, '') as customer_email,
       coalesce(c.phone, '') as customer_phone, coalesce(b.service, 'Bokning') as service,
       coalesce(b.city, '') as city, b.starts_at,
@@ -28,6 +29,7 @@ export async function processBookingReminders() {
     left join workspace_settings ws on ws.workspace_id = b.workspace_id
     left join workspace_booking_reminder_settings s on s.workspace_id = b.workspace_id
     where b.status = 'confirmed'
+      and b.customer_id is not null
       and b.source not in ('dashboard_availability_block', 'dashboard_availability_recurring_block')
       and coalesce(s.is_enabled, true) = true
       and b.starts_at > now()
@@ -37,10 +39,18 @@ export async function processBookingReminders() {
     limit 250
   `;
 
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL ?? "https://www.proffera.se").replace(/\/$/, "");
   let sent = 0; let skipped = 0; let failed = 0;
   for (const raw of rows as unknown as ReminderRow[]) {
     const timeZone = resolveBookingTimeZone(raw.time_zone);
     const scheduledFor = new Date(new Date(String(raw.starts_at)).getTime() - Number(raw.hours_before) * 3600000).toISOString();
+    const portalToken = createCustomerCalendarToken({
+      workspaceId: String(raw.workspace_id),
+      customerId: String(raw.customer_id),
+      expiresInSeconds: 60 * 60 * 24 * 45,
+    });
+    const portalUrl = `${appUrl}/mina-bokningar/${encodeURIComponent(portalToken)}`;
+    const rescheduleUrl = `${portalUrl}/${encodeURIComponent(String(raw.booking_id))}/boka-om`;
     const channels = [raw.email_enabled && raw.customer_email ? "email" : null, raw.sms_enabled && raw.customer_phone ? "sms" : null].filter(Boolean) as ("email" | "sms")[];
     for (const channel of channels) {
       const claimed = await sql`
@@ -50,7 +60,7 @@ export async function processBookingReminders() {
       `;
       if (!claimed[0]) { skipped += 1; continue; }
       const result = channel === "email"
-        ? await sendBookingReminderEmail({ customerName: String(raw.customer_name), customerEmail: String(raw.customer_email), companyName: String(raw.workspace_name), service: String(raw.service), startsAt: new Date(String(raw.starts_at)).toISOString(), city: String(raw.city), timeZone })
+        ? await sendBookingReminderEmail({ customerName: String(raw.customer_name), customerEmail: String(raw.customer_email), companyName: String(raw.workspace_name), service: String(raw.service), startsAt: new Date(String(raw.starts_at)).toISOString(), city: String(raw.city), portalUrl, rescheduleUrl, timeZone })
         : await sendBookingReminderSms({ customerPhone: String(raw.customer_phone), companyName: String(raw.workspace_name), service: String(raw.service), startsAt: new Date(String(raw.starts_at)).toISOString(), timeZone });
       const status = result.ok ? "sent" : result.skipped ? "skipped" : "failed";
       await sql`update booking_reminder_deliveries set status = ${status}, provider_id = ${result.ok ? result.providerId : null}, error_message = ${result.ok ? "" : result.message}, sent_at = ${result.ok ? new Date().toISOString() : null}::timestamptz, updated_at = now() where id = ${String(claimed[0].id)}::uuid`;
