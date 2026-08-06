@@ -8,7 +8,7 @@ import {
 } from "@/lib/proffera-modules";
 import { getWorkspaceEntitlements } from "@/lib/workspace-entitlements";
 
-export type WorkspaceFeatureKey =
+type CanonicalWorkspaceFeatureKey =
   | "online_booking"
   | "customer_crm"
   | "lead_management"
@@ -34,7 +34,9 @@ type LegacyWorkspaceFeatureKey =
   | "ai_assistant"
   | "chat_widget";
 
-const featureAliases: Record<LegacyWorkspaceFeatureKey, WorkspaceFeatureKey> = {
+export type WorkspaceFeatureKey = CanonicalWorkspaceFeatureKey | LegacyWorkspaceFeatureKey;
+
+const featureAliases: Record<LegacyWorkspaceFeatureKey, CanonicalWorkspaceFeatureKey> = {
   booking_demo: "online_booking",
   crm_customers: "customer_crm",
   lead_inbox: "lead_management",
@@ -42,7 +44,7 @@ const featureAliases: Record<LegacyWorkspaceFeatureKey, WorkspaceFeatureKey> = {
   chat_widget: "ai_chatbot",
 };
 
-const knownFeatureKeys = new Set<WorkspaceFeatureKey>([
+const knownFeatureKeys = new Set<CanonicalWorkspaceFeatureKey>([
   "online_booking",
   "customer_crm",
   "lead_management",
@@ -62,7 +64,7 @@ const knownFeatureKeys = new Set<WorkspaceFeatureKey>([
   "analytics",
 ]);
 
-const moduleFeatureKeys: Partial<Record<ProfferaModuleId, WorkspaceFeatureKey[]>> = {
+const moduleFeatureKeys: Partial<Record<ProfferaModuleId, CanonicalWorkspaceFeatureKey[]>> = {
   online_booking: ["online_booking"],
   customer_crm: ["customer_crm"],
   ai_chat: ["ai_chatbot"],
@@ -70,35 +72,41 @@ const moduleFeatureKeys: Partial<Record<ProfferaModuleId, WorkspaceFeatureKey[]>
   qr_booking: ["online_booking"],
 };
 
-function normalizeFeatureKey(featureKey: WorkspaceFeatureKey | LegacyWorkspaceFeatureKey): WorkspaceFeatureKey {
+function normalizeFeatureKey(featureKey: WorkspaceFeatureKey): CanonicalWorkspaceFeatureKey {
   return featureKey in featureAliases
     ? featureAliases[featureKey as LegacyWorkspaceFeatureKey]
-    : featureKey as WorkspaceFeatureKey;
+    : featureKey as CanonicalWorkspaceFeatureKey;
 }
 
-async function readEnabledFeatureKeys(): Promise<Set<WorkspaceFeatureKey>> {
+async function readEnabledFeatureKeys(): Promise<Set<CanonicalWorkspaceFeatureKey>> {
   const entitlements = await getWorkspaceEntitlements();
   return new Set(
     entitlements
-      .filter((item) => item.hasAccess && knownFeatureKeys.has(item.featureKey as WorkspaceFeatureKey))
-      .map((item) => item.featureKey as WorkspaceFeatureKey),
+      .filter((item) => item.hasAccess && knownFeatureKeys.has(item.featureKey as CanonicalWorkspaceFeatureKey))
+      .map((item) => item.featureKey as CanonicalWorkspaceFeatureKey),
   );
 }
 
 export async function getDashboardEnabledFeatureKeys(): Promise<WorkspaceFeatureKey[]> {
   try {
-    return [...await readEnabledFeatureKeys()];
+    const enabledFeatures = await readEnabledFeatureKeys();
+    const legacyAliases = (Object.entries(featureAliases) as Array<[
+      LegacyWorkspaceFeatureKey,
+      CanonicalWorkspaceFeatureKey,
+    ]>)
+      .filter(([, canonicalFeature]) => enabledFeatures.has(canonicalFeature))
+      .map(([legacyFeature]) => legacyFeature);
+
+    return [...enabledFeatures, ...legacyAliases];
   } catch (error) {
     console.error("Failed to read workspace feature access", error);
     return [];
   }
 }
 
-export async function hasDashboardFeatureAccess(
-  featureKey: WorkspaceFeatureKey | LegacyWorkspaceFeatureKey,
-): Promise<boolean> {
-  const enabledFeatures = await getDashboardEnabledFeatureKeys();
-  return enabledFeatures.includes(normalizeFeatureKey(featureKey));
+export async function hasDashboardFeatureAccess(featureKey: WorkspaceFeatureKey): Promise<boolean> {
+  const enabledFeatures = await readEnabledFeatureKeys();
+  return enabledFeatures.has(normalizeFeatureKey(featureKey));
 }
 
 export async function hasDashboardModuleAccess(moduleId: ProfferaModuleId): Promise<boolean> {
