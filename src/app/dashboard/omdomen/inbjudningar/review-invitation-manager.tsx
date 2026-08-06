@@ -18,6 +18,10 @@ type CreatedInvitation = {
   customerEmail: string | null;
   expiresAt: string;
   reviewUrl: string;
+  delivery: {
+    status: "sent" | "missing_email" | "failed";
+    providerMessageId: string | null;
+  };
 };
 
 function formatDate(value: string | null, isEnglish: boolean, timeZone: string) {
@@ -95,23 +99,57 @@ export function ReviewInvitationManager({
     }
   }
 
+  const deliveryHeading = created
+    ? created.delivery.status === "sent"
+      ? isEnglish
+        ? "Invitation email sent"
+        : "Inbjudan skickades med e-post"
+      : created.delivery.status === "missing_email"
+        ? isEnglish
+          ? "Customer email is missing"
+          : "Kundens e-postadress saknas"
+        : isEnglish
+          ? "Email delivery failed"
+          : "E-postutskicket misslyckades"
+    : "";
+  const deliveryDescription = created
+    ? created.delivery.status === "sent"
+      ? isEnglish
+        ? "The customer received the private link. Copy it now only when you also need to share it manually."
+        : "Kunden fick den privata länken. Kopiera den nu endast om du även behöver dela den manuellt."
+      : created.delivery.status === "missing_email"
+        ? isEnglish
+          ? "The invitation was created but could not be emailed. Copy the private link and send it through a trusted channel."
+          : "Inbjudan skapades men kunde inte skickas med e-post. Kopiera den privata länken och skicka den via en betrodd kanal."
+        : isEnglish
+          ? "The invitation was created, but Brevo did not deliver it. Copy the link now or create a new link later to retry delivery."
+          : "Inbjudan skapades, men Brevo levererade den inte. Kopiera länken nu eller skapa en ny länk senare för att försöka igen."
+    : "";
+
   return (
     <div className="grid gap-5">
       {created ? (
-        <section className="rounded-2xl border border-[#bcdcc5] bg-[#eef8f1] p-5 text-[#17452f]">
+        <section
+          className={
+            created.delivery.status === "sent"
+              ? "rounded-2xl border border-[#bcdcc5] bg-[#eef8f1] p-5 text-[#17452f]"
+              : "rounded-2xl border border-[#e7cf9b] bg-[#fff9ea] p-5 text-[#6f5115]"
+          }
+        >
           <p className="text-sm font-black uppercase tracking-[0.13em]">
-            {isEnglish ? "Copy this link now" : "Kopiera länken nu"}
+            {deliveryHeading}
           </p>
-          <p className="mt-2 text-sm leading-6">
+          <p className="mt-2 text-sm leading-6">{deliveryDescription}</p>
+          <p className="mt-2 text-xs leading-5">
             {isEnglish
-              ? "The raw token is shown only in this response and is not stored in the database."
-              : "Den råa token visas bara i detta svar och lagras inte i databasen."}
+              ? "The raw token is shown only in this response and is never stored in the database."
+              : "Den råa token visas bara i detta svar och lagras aldrig i databasen."}
           </p>
           <div className="mt-4 flex flex-col gap-2 sm:flex-row">
             <input
               readOnly
               value={created.reviewUrl}
-              className="min-w-0 flex-1 rounded-xl border border-[#bcdcc5] bg-white px-3 py-2 text-sm text-[#173e2b]"
+              className="min-w-0 flex-1 rounded-xl border border-current/20 bg-white px-3 py-2 text-sm text-[#173e2b]"
               aria-label={isEnglish ? "Review link" : "Omdömeslänk"}
             />
             <button
@@ -212,11 +250,11 @@ export function ReviewInvitationManager({
                             : "Redan använd"
                           : reissue
                             ? isEnglish
-                              ? "Create new link"
-                              : "Skapa ny länk"
+                              ? "Send new invitation"
+                              : "Skicka ny inbjudan"
                             : isEnglish
-                              ? "Create link"
-                              : "Skapa länk"}
+                              ? "Send invitation"
+                              : "Skicka inbjudan"}
                       </button>
                     </td>
                   </tr>
