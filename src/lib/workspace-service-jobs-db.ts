@@ -294,28 +294,42 @@ export async function assignDashboardWorkspaceServiceJob(jobId: string, staffId:
 
   const rows = await sql`
     with current_job as (
-      select id, workspace_id, status
+      select id, workspace_id, status, assigned_staff_id
       from workspace_service_jobs
       where id = ${jobId}::uuid
         and workspace_id = ${access.workspaceId}::uuid
         and status in ('new', 'assigned', 'in_progress')
       for update
     ),
-    assigned_job as (
-      update workspace_service_jobs job
-      set
-        assigned_staff_id = staff.id,
-        status = case when job.status = 'new' then 'assigned' else job.status end,
-        updated_at = now()
+    target_staff as (
+      select
+        current.id as job_id,
+        current.workspace_id,
+        current.status,
+        current.assigned_staff_id,
+        staff.id as staff_id
       from current_job current
       join workspace_staff staff
         on staff.id = ${staffId}::uuid
        and staff.workspace_id = current.workspace_id::text
        and staff.is_active = true
-      where job.id = current.id
-        and job.workspace_id = current.workspace_id
-        and job.assigned_staff_id is distinct from staff.id
-      returning job.id, job.workspace_id, current.status as old_status, job.status as new_status, staff.id as staff_id
+    ),
+    assigned_job as (
+      update workspace_service_jobs job
+      set
+        assigned_staff_id = target.staff_id,
+        status = case when job.status = 'new' then 'assigned' else job.status end,
+        updated_at = now()
+      from target_staff target
+      where job.id = target.job_id
+        and job.workspace_id = target.workspace_id
+        and job.assigned_staff_id is distinct from target.staff_id
+      returning
+        job.id,
+        job.workspace_id,
+        target.status as old_status,
+        job.status as new_status,
+        target.staff_id
     ),
     recorded_event as (
       insert into workspace_service_job_events (
@@ -334,6 +348,11 @@ export async function assignDashboardWorkspaceServiceJob(jobId: string, staffId:
       returning id
     )
     select id from assigned_job
+    union all
+    select job_id as id
+    from target_staff
+    where assigned_staff_id = staff_id
+    limit 1
   `;
 
   if (!rows[0]) throw new Error("Service job assignment did not match an active staff member");
