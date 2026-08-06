@@ -60,9 +60,11 @@ export function resolveReviewInvitationOrigin(
   );
 }
 
-export function buildVerifiedReviewUrl(token: string, origin?: string) {
-  const trustedOrigin = normalizeOrigin(origin) ?? resolveReviewInvitationOrigin();
-  return new URL(`/review/${encodeURIComponent(token)}`, trustedOrigin).toString();
+export function buildVerifiedReviewUrl(token: string) {
+  return new URL(
+    `/review/${encodeURIComponent(token)}`,
+    resolveReviewInvitationOrigin(),
+  ).toString();
 }
 
 async function recordEmailDeliveryAudit(input: {
@@ -115,12 +117,11 @@ async function recordEmailDeliveryAudit(input: {
 
 export async function deliverVerifiedReviewInvitation(
   bookingId: string,
-  options?: { origin?: string },
 ): Promise<VerifiedReviewEmailDeliveryResult> {
   const invitation = await issueReviewInvitation(bookingId);
   if (!invitation.ok) return invitation;
 
-  const reviewUrl = buildVerifiedReviewUrl(invitation.token, options?.origin);
+  const reviewUrl = buildVerifiedReviewUrl(invitation.token);
   if (!invitation.customerEmail) {
     await recordEmailDeliveryAudit({
       bookingId: invitation.bookingId,

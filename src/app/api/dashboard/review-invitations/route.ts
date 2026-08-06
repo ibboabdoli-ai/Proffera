@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { deliverVerifiedReviewInvitation } from "@/lib/verified-review-email-delivery";
+import {
+  buildVerifiedReviewUrl,
+  deliverVerifiedReviewInvitation,
+} from "@/lib/verified-review-email-delivery";
 import { issueReviewInvitation } from "@/lib/verified-review-invitations";
 
 export const runtime = "nodejs";
@@ -54,9 +57,7 @@ export async function POST(request: Request) {
   }
 
   if (parsed.data.delivery === "email") {
-    const delivery = await deliverVerifiedReviewInvitation(parsed.data.bookingId, {
-      origin: new URL(request.url).origin,
-    });
+    const delivery = await deliverVerifiedReviewInvitation(parsed.data.bookingId);
     const invitation = delivery.invitation;
 
     if (!invitation) return invitationError(delivery.code);
@@ -79,11 +80,6 @@ export async function POST(request: Request) {
   const result = await issueReviewInvitation(parsed.data.bookingId);
   if (!result.ok) return invitationError(result.code);
 
-  const reviewUrl = new URL(
-    `/review/${encodeURIComponent(result.token)}`,
-    request.url,
-  ).toString();
-
   return NextResponse.json(
     {
       bookingId: result.bookingId,
@@ -91,7 +87,7 @@ export async function POST(request: Request) {
       customerName: result.customerName,
       customerEmail: result.customerEmail,
       expiresAt: result.expiresAt,
-      reviewUrl,
+      reviewUrl: buildVerifiedReviewUrl(result.token),
       emailSent: null,
       emailError: null,
     },

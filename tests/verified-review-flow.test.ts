@@ -92,7 +92,8 @@ describe("central verified review flow", () => {
     expect(service).toContain("where invitation.token_hash =");
     expect(service).toContain("workspace_experience_settings");
     expect(service).toContain("workspace_settings");
-    expect(invitationRoute).toContain("new URL(");
+    expect(invitationRoute).toContain("buildVerifiedReviewUrl(result.token)");
+    expect(invitationRoute).not.toContain("new URL(request.url)");
     expect(invitationRoute).not.toContain("primeViewSite");
     expect(reviewsPage).not.toContain("primeViewWorkspaceSlug");
   });
