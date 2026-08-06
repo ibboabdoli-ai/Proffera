@@ -7,6 +7,7 @@ import {
   EyeOff,
   Link2,
   MessageSquareQuote,
+  PencilLine,
   ShieldAlert,
   Star,
 } from "lucide-react";
@@ -17,6 +18,7 @@ import {
 } from "@/components/dashboard/dashboard-page-ui";
 import {
   getDashboardWebsiteReviews,
+  updateDashboardWebsiteReview,
   updateDashboardWebsiteReviewStatus,
 } from "@/lib/website-reviews-db";
 import { getReviewInvitationDashboardContext } from "@/lib/verified-review-invitations";
@@ -52,6 +54,24 @@ async function moderateReviewAction(formData: FormData) {
   const status = decision === "approved" || decision === "rejected" ? decision : null;
 
   if (!status || !(await updateDashboardWebsiteReviewStatus(reviewId, status))) {
+    redirect(localizedHref("/dashboard/omdomen?error=1", isEnglish));
+  }
+  redirect(localizedHref("/dashboard/omdomen?updated=1", isEnglish));
+}
+
+async function editReviewAction(formData: FormData) {
+  "use server";
+  const reviewId = String(formData.get("review_id") ?? "");
+  const isEnglish = String(formData.get("lang") ?? "") === "en";
+  const updated = await updateDashboardWebsiteReview(reviewId, {
+    reviewerName: formData.get("reviewer_name"),
+    rating: formData.get("rating"),
+    service: formData.get("service"),
+    area: formData.get("area"),
+    message: formData.get("message"),
+  });
+
+  if (!updated) {
     redirect(localizedHref("/dashboard/omdomen?error=1", isEnglish));
   }
   redirect(localizedHref("/dashboard/omdomen?updated=1", isEnglish));
@@ -120,7 +140,7 @@ export default async function WebsiteReviewsPage({ searchParams }: ReviewsPagePr
 
       {value("updated") === "1" ? (
         <p className="rounded-2xl bg-[#eef8f1] p-4 text-sm font-semibold text-[#17452f] ring-1 ring-[#cfe8d6]" role="status">
-          {isEnglish ? "Review status updated." : "Omdömets status uppdaterades."}
+          {isEnglish ? "Review updated." : "Omdömet uppdaterades."}
         </p>
       ) : null}
       {value("error") === "1" ? (
@@ -233,6 +253,79 @@ export default async function WebsiteReviewsPage({ searchParams }: ReviewsPagePr
                 <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-[#435047]">
                   {review.message}
                 </p>
+
+                <details className="mt-4 rounded-2xl border border-[#e2e7df] bg-[#f7f9f6] open:bg-white">
+                  <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-bold text-[#435047]">
+                    <PencilLine className="size-4" aria-hidden="true" />
+                    {isEnglish ? "Edit review" : "Redigera omdöme"}
+                  </summary>
+                  <form action={editReviewAction} className="grid gap-4 border-t border-[#e2e7df] p-4">
+                    <input type="hidden" name="lang" value={isEnglish ? "en" : "sv"} />
+                    <input type="hidden" name="review_id" value={review.id} />
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <label className="grid gap-1.5 text-sm font-semibold text-[#36423a]">
+                        {isEnglish ? "Customer display name" : "Kundens visningsnamn"}
+                        <input
+                          name="reviewer_name"
+                          defaultValue={review.reviewerName}
+                          required
+                          minLength={2}
+                          maxLength={80}
+                          className="min-h-11 rounded-xl border border-[#cfd8cd] bg-white px-3 font-normal"
+                        />
+                      </label>
+                      <label className="grid gap-1.5 text-sm font-semibold text-[#36423a]">
+                        {isEnglish ? "Rating" : "Betyg"}
+                        <select
+                          name="rating"
+                          defaultValue={String(review.rating)}
+                          className="min-h-11 rounded-xl border border-[#cfd8cd] bg-white px-3 font-normal"
+                        >
+                          {[5, 4, 3, 2, 1].map((rating) => (
+                            <option key={rating} value={rating}>
+                              {rating} / 5
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="grid gap-1.5 text-sm font-semibold text-[#36423a]">
+                        {isEnglish ? "Service" : "Tjänst"}
+                        <input
+                          name="service"
+                          defaultValue={review.service ?? ""}
+                          maxLength={120}
+                          className="min-h-11 rounded-xl border border-[#cfd8cd] bg-white px-3 font-normal"
+                        />
+                      </label>
+                      <label className="grid gap-1.5 text-sm font-semibold text-[#36423a]">
+                        {isEnglish ? "Area" : "Område"}
+                        <input
+                          name="area"
+                          defaultValue={review.area ?? ""}
+                          maxLength={120}
+                          className="min-h-11 rounded-xl border border-[#cfd8cd] bg-white px-3 font-normal"
+                        />
+                      </label>
+                    </div>
+                    <label className="grid gap-1.5 text-sm font-semibold text-[#36423a]">
+                      {isEnglish ? "Review text" : "Omdömestext"}
+                      <textarea
+                        name="message"
+                        defaultValue={review.message}
+                        required
+                        minLength={10}
+                        maxLength={1_000}
+                        rows={5}
+                        className="rounded-xl border border-[#cfd8cd] bg-white px-3 py-2 font-normal leading-6"
+                      />
+                    </label>
+                    <div>
+                      <button type="submit" className="min-h-11 rounded-xl bg-[#173e2b] px-4 text-sm font-bold text-white">
+                        {isEnglish ? "Save changes" : "Spara ändringar"}
+                      </button>
+                    </div>
+                  </form>
+                </details>
               </article>
             ))}
           </div>
