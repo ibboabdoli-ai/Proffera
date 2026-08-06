@@ -48,23 +48,25 @@ function normalizeOrigin(value: string | undefined) {
   }
 }
 
+function localRequestOrigin(requestUrl: string | undefined) {
+  const origin = normalizeOrigin(requestUrl);
+  if (!origin) return null;
+  const hostname = new URL(origin).hostname;
+  return hostname === "localhost" || hostname === "127.0.0.1" ? origin : null;
+}
+
 export function resolveVerifiedReviewOrigin(requestUrl?: string) {
-  const candidates = [
-    requestUrl,
+  const configuredOrigins = [
     process.env.NEXT_PUBLIC_APP_URL,
     process.env.BETTER_AUTH_URL,
-    process.env.VERCEL_PROJECT_PRODUCTION_URL
-      ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
-      : undefined,
-    canonicalOrigin,
   ];
 
-  for (const candidate of candidates) {
+  for (const candidate of configuredOrigins) {
     const origin = normalizeOrigin(candidate);
     if (origin) return origin;
   }
 
-  return canonicalOrigin;
+  return localRequestOrigin(requestUrl) ?? canonicalOrigin;
 }
 
 async function recordDeliveryAudit(input: {
