@@ -18,6 +18,14 @@ describe("Public workspace gallery", () => {
     expect(alias).toContain("@/app/galleri/[slug]/page");
   });
 
+  it("renders a useful standalone state before the first media item is published", () => {
+    const page = source("src/app/galleri/[slug]/page.tsx");
+
+    expect(page).toContain("if (!items.length)");
+    expect(page).toContain("Galleriet är klart");
+    expect(page).toContain("Publicerade medier visas här automatiskt");
+  });
+
   it("shows only published workspace media on an active booking surface", () => {
     const layout = source("src/app/boka/[slug]/layout.tsx");
     const galleryDb = source("src/lib/website-gallery-db.ts");
