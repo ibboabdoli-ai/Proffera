@@ -20,6 +20,20 @@ const eslintConfig = defineConfig([
       "react-hooks/purity": "off",
     },
   },
+  {
+    // Workspace media URLs may use the internal media route or a tenant-specific
+    // Vercel Blob URL, and original image dimensions are not stored. Keep direct
+    // rendering scoped to these media surfaces so arbitrary aspect ratios and
+    // remote hosts are not rewritten or blocked by the Next image optimizer.
+    files: [
+      "src/app/demo/primeview/gallery/page.tsx",
+      "src/app/dashboard/galleri/page.tsx",
+      "src/app/boka/*/page.tsx",
+    ],
+    rules: {
+      "@next/next/no-img-element": "off",
+    },
+  },
   globalIgnores([
     ".next/**",
     "out/**",
