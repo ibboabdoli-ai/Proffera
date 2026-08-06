@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { issueReviewInvitation } from "@/lib/verified-review-invitations";
+import { issueAndDeliverReviewInvitation } from "@/lib/verified-review-delivery";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,7 +27,10 @@ export async function POST(request: Request) {
     );
   }
 
-  const result = await issueReviewInvitation(parsed.data.bookingId);
+  const result = await issueAndDeliverReviewInvitation(
+    parsed.data.bookingId,
+    request.url,
+  );
   if (!result.ok) {
     const status =
       result.code === "access"
@@ -52,11 +55,6 @@ export async function POST(request: Request) {
     );
   }
 
-  const reviewUrl = new URL(
-    `/review/${encodeURIComponent(result.token)}`,
-    request.url,
-  ).toString();
-
   return NextResponse.json(
     {
       bookingId: result.bookingId,
@@ -64,7 +62,8 @@ export async function POST(request: Request) {
       customerName: result.customerName,
       customerEmail: result.customerEmail,
       expiresAt: result.expiresAt,
-      reviewUrl,
+      reviewUrl: result.reviewUrl,
+      delivery: result.delivery,
     },
     { status: 201, headers: { "Cache-Control": "no-store" } },
   );
