@@ -1,11 +1,15 @@
 import { betterAuth } from "better-auth";
 import { Pool } from "pg";
 
+import { resolveDatabaseUrl } from "@/lib/db/database-url";
+
 function createAuth() {
-  const databaseUrl = process.env.DATABASE_URL;
+  const databaseUrl = resolveDatabaseUrl();
 
   if (!databaseUrl) {
-    throw new Error("DATABASE_URL is required to initialize Proffera auth.");
+    throw new Error(
+      "DATABASE_URL or a supported Postgres fallback is required to initialize Proffera auth.",
+    );
   }
 
   return betterAuth({
