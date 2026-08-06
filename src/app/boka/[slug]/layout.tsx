@@ -5,10 +5,14 @@ import { getSql } from "@/lib/db/server";
 import { getPublicWorkspaceExperienceSettings } from "@/lib/workspace-experience";
 import { getPublishedGalleryItems } from "@/lib/website-gallery-db";
 
+import "./booking-themes.css";
+
 export default async function PublicBookingLayout({ children, params }: { children: ReactNode; params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const sql = getSql();
   let gallery: ReactNode = null;
+  let themeKey = "clean";
+  let appearance = "light";
 
   if (sql) {
     const rows = await sql`
@@ -25,6 +29,8 @@ export default async function PublicBookingLayout({ children, params }: { childr
     const workspace = rows[0];
     if (workspace) {
       const experience = await getPublicWorkspaceExperienceSettings(String(workspace.id));
+      themeKey = experience.themeKey;
+      appearance = experience.appearance;
       if (experience.galleryEnabled) {
         const items = await getPublishedGalleryItems(String(workspace.slug));
         gallery = <PublicWorkspaceGallery items={items} companyName={String(workspace.company_name)} workspaceSlug={slug} compact />;
@@ -32,5 +38,5 @@ export default async function PublicBookingLayout({ children, params }: { childr
     }
   }
 
-  return <>{children}{gallery}</>;
+  return <div data-booking-theme={themeKey} data-booking-appearance={appearance}>{children}{gallery}</div>;
 }
