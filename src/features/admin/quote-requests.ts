@@ -19,59 +19,31 @@ export type AdminQuoteRequest = {
 };
 
 export type AdminQuoteRequestResult =
-  | {
-      ok: true;
-      requests: AdminQuoteRequest[];
-    }
-  | {
-      ok: false;
-      message: string;
-    };
+  | { ok: true; requests: AdminQuoteRequest[] }
+  | { ok: false; message: string };
 
 export async function getAdminQuoteRequests(): Promise<AdminQuoteRequestResult> {
-  const admin = await getAdminForArea("quote");
+  const admin = await getAdminForArea("quote_admin");
   const sql = getSql();
 
   if (!admin) {
-    return {
-      ok: false,
-      message: "Du saknar behörighet till Quote Admin.",
-    };
+    return { ok: false, message: "Du saknar behörighet till Quote Admin." };
   }
-
   if (!sql) {
-    return {
-      ok: false,
-      message: "Databasen är inte konfigurerad ännu.",
-    };
+    return { ok: false, message: "Databasen är inte konfigurerad ännu." };
   }
 
   try {
     const rows = await sql`
       select
-        id,
-        reference_id,
-        category,
-        service_type,
-        city,
-        postal_code,
-        description,
-        preferred_date,
-        contact_name,
-        contact_email,
-        contact_phone,
-        consent_accepted,
-        status,
-        created_at
+        id, reference_id, category, service_type, city, postal_code,
+        description, preferred_date, contact_name, contact_email,
+        contact_phone, consent_accepted, status, created_at
       from quote_requests
       order by created_at desc
       limit 100
     `;
-
-    return {
-      ok: true,
-      requests: rows as AdminQuoteRequest[],
-    };
+    return { ok: true, requests: rows as AdminQuoteRequest[] };
   } catch {
     return {
       ok: false,

@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { getAdminQuoteRequests, type AdminQuoteRequest } from "@/features/admin/quote-requests";
-import { canAccessAdminArea, type AdminArea } from "@/lib/admin-access-policy";
 import { requireAdminArea } from "@/lib/admin-authorization";
+import { canAccessCompanyAdmin } from "@/lib/admin-navigation";
 
 export const metadata: Metadata = {
   title: "Admin",
@@ -23,37 +23,33 @@ const adminLinks: Array<{
   title: string;
   description: string;
   href: string;
-  area: AdminArea;
+  companyOnly?: boolean;
 }> = [
   {
     title: "Request status",
     description: "Ändra status på offertförfrågningar.",
     href: "/admin/status",
-    area: "quote",
   },
   {
     title: "Företag",
     description: "Se registrerade företag. Plan och betalstatus är read-only.",
     href: "/admin/foretag",
-    area: "company",
+    companyOnly: true,
   },
   {
     title: "Matchning",
     description: "Se vilka företag som matchar varje request.",
     href: "/admin/matchning",
-    area: "quote",
   },
   {
     title: "Skicka lead",
     description: "Förbered leverans till matchade företag.",
     href: "/admin/skicka-lead",
-    area: "quote",
   },
   {
     title: "Leveranslogg",
     description: "Se registrerade leadleveranser och resultat.",
     href: "/admin/leverans",
-    area: "quote",
   },
 ];
 
@@ -88,7 +84,7 @@ function matchesSearch(request: AdminQuoteRequest, query: string) {
 }
 
 export default async function AdminPage({ searchParams }: AdminPageProps) {
-  const admin = await requireAdminArea("quote");
+  const admin = await requireAdminArea("quote_admin");
   const params = await searchParams;
   const result = await getAdminQuoteRequests();
 
@@ -111,7 +107,7 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
     const statusMatches = statusFilter === "all" || request.status === statusFilter;
     return statusMatches && matchesSearch(request, searchQuery);
   });
-  const visibleAdminLinks = adminLinks.filter((link) => canAccessAdminArea(admin.role, link.area));
+  const visibleAdminLinks = adminLinks.filter((link) => !link.companyOnly || canAccessCompanyAdmin(admin.role));
   const submittedCount = result.requests.filter((request) => request.status === "submitted").length;
   const approvedCount = result.requests.filter((request) => request.status === "approved").length;
   const uniqueCities = new Set(result.requests.map((request) => request.city)).size;

@@ -1,6 +1,6 @@
-import { requireAdminArea } from "@/lib/admin-authorization";
+import { requireCompanyAdmin } from "@/lib/admin-authorization";
 
 export default async function Layout({ children }: { children: React.ReactNode }) {
-  await requireAdminArea("company");
+  await requireCompanyAdmin();
   return children;
 }

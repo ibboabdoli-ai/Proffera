@@ -19,7 +19,6 @@ const allowedStatuses = [
 ] as const;
 
 type AllowedStatus = (typeof allowedStatuses)[number];
-
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function isAllowedStatus(value: string): value is AllowedStatus {
@@ -29,7 +28,7 @@ function isAllowedStatus(value: string): value is AllowedStatus {
 export async function updateQuoteRequestStatus(formData: FormData) {
   const requestId = String(formData.get("requestId") ?? "");
   const nextStatus = String(formData.get("nextStatus") ?? "");
-  const admin = await getAdminForArea("quote");
+  const admin = await getAdminForArea("quote_admin");
   const sql = getSql();
 
   if (!admin || !sql || !uuidPattern.test(requestId) || !isAllowedStatus(nextStatus)) {
@@ -47,8 +46,7 @@ export async function updateQuoteRequestStatus(formData: FormData) {
       update quote_requests qr
       set status = ${nextStatus}, updated_at = now()
       from previous p
-      where qr.id = p.id
-        and p.status <> ${nextStatus}
+      where qr.id = p.id and p.status <> ${nextStatus}
       returning qr.id, p.reference_id, p.status as previous_status, qr.status as next_status
     )
     insert into admin_audit_logs (

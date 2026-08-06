@@ -9,7 +9,7 @@ import { getSql } from "@/lib/db/server";
 const allowedMethods = new Set(["mailto", "brevo"]);
 
 export async function POST(request: Request) {
-  const admin = await getAdminForArea("quote");
+  const admin = await getAdminForArea("quote_admin");
   const requestUrl = new URL(request.url);
   const requestOrigin = request.headers.get("origin");
   const url = new URL("/admin/leverans", request.url);
@@ -26,13 +26,8 @@ export async function POST(request: Request) {
   const companyEmail = String(formData.get("companyEmail") ?? "").trim().toLowerCase();
 
   if (
-    !allowedMethods.has(method) ||
-    !leadRef ||
-    leadRef.length > 160 ||
-    !companyName ||
-    companyName.length > 240 ||
-    !companyEmail ||
-    companyEmail.length > 320
+    !allowedMethods.has(method) || !leadRef || leadRef.length > 160 ||
+    !companyName || companyName.length > 240 || !companyEmail || companyEmail.length > 320
   ) {
     url.searchParams.set("send", "invalid");
     return NextResponse.redirect(url);
@@ -65,13 +60,7 @@ export async function POST(request: Request) {
     }
   }
 
-  const logged = await addOutboxRow({
-    leadRef,
-    companyName,
-    companyEmail,
-    method,
-  });
-
+  const logged = await addOutboxRow({ leadRef, companyName, companyEmail, method });
   if (!logged.ok) {
     url.searchParams.set("send", "log_error");
     return NextResponse.redirect(url);

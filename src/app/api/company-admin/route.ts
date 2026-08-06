@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { createWorkspaceInvitation } from "@/features/company/workspace-invitation";
-import { getAdminForArea } from "@/lib/admin-authorization";
+import { getCompanyAdmin } from "@/lib/admin-authorization";
 import { getSql } from "@/lib/db/server";
 
 const allowedStatuses = ["pending", "approved", "rejected", "paused"] as const;
@@ -18,7 +18,7 @@ function redirectToCompanyAdmin(request: Request, key?: string, value?: string) 
 }
 
 export async function POST(request: Request) {
-  const admin = await getAdminForArea("company");
+  const admin = await getCompanyAdmin();
   const requestUrl = new URL(request.url);
   const requestOrigin = request.headers.get("origin");
 
@@ -33,9 +33,7 @@ export async function POST(request: Request) {
   const services = String(formData.get("services") ?? "");
   const sql = getSql();
 
-  if (!sql) {
-    return redirectToCompanyAdmin(request, "access", "database");
-  }
+  if (!sql) return redirectToCompanyAdmin(request, "access", "database");
 
   if (action === "workspace_access") {
     const workspaceId = String(formData.get("workspace_id") ?? "");
@@ -47,10 +45,7 @@ export async function POST(request: Request) {
     }
 
     const currentRows = await sql`
-      select
-        w.id,
-        coalesce(p.plan_key, 'none') as plan_key,
-        coalesce(p.status, 'none') as plan_status
+      select coalesce(p.plan_key, 'none') as plan_key, coalesce(p.status, 'none') as plan_status
       from workspaces w
       left join lateral (
         select plan_key, status
@@ -83,29 +78,20 @@ export async function POST(request: Request) {
         })}::jsonb
       )
     `;
-
     return redirectToCompanyAdmin(request, "access", "read_only");
   }
 
-  if (!uuidPattern.test(id)) {
-    return redirectToCompanyAdmin(request, "access", "invalid");
-  }
+  if (!uuidPattern.test(id)) return redirectToCompanyAdmin(request, "access", "invalid");
 
   if (action === "invite") {
     const beforeRows = await sql`
-      select
-        cr.id,
-        cr.company_name,
-        cr.email,
-        cr.status,
-        wi.status as invitation_status,
-        wi.expires_at
+      select cr.id, cr.company_name, cr.email, cr.status,
+             wi.status as invitation_status, wi.expires_at
       from company_registrations cr
       left join workspace_invitations wi on wi.company_registration_id = cr.id
       where cr.id = ${id}::uuid
       limit 1
     `;
-    const before = beforeRows[0] ?? null;
     const result = await createWorkspaceInvitation(id, requestUrl.origin);
 
     await sql`
@@ -115,14 +101,10 @@ export async function POST(request: Request) {
         ${admin.userId},
         'company.invitation_requested',
         ${`Workspace invitation requested for company registration ${id}`},
-        ${JSON.stringify(before)}::jsonb,
-        ${JSON.stringify({
-          registration_id: id,
-          result: result.ok ? "sent" : result.code,
-        })}::jsonb
+        ${JSON.stringify(beforeRows[0] ?? null)}::jsonb,
+        ${JSON.stringify({ registration_id: id, result: result.ok ? "sent" : result.code })}::jsonb
       )
     `;
-
     return redirectToCompanyAdmin(request, "invite", result.ok ? "sent" : result.code);
   }
 
@@ -133,17 +115,13 @@ export async function POST(request: Request) {
     limit 1
   `;
   const previous = previousRows[0];
-
-  if (!previous) {
-    return redirectToCompanyAdmin(request, "access", "missing");
-  }
+  if (!previous) return redirectToCompanyAdmin(request, "access", "missing");
 
   const nextStatus = isAllowedStatus(status) ? status : String(previous.status);
   const cleanServices = services.trim();
-  const nextServices =
-    cleanServices.length > 0 && cleanServices.length <= 300
-      ? cleanServices
-      : String(previous.services ?? "");
+  const nextServices = cleanServices.length > 0 && cleanServices.length <= 300
+    ? cleanServices
+    : String(previous.services ?? "");
 
   if (nextStatus === String(previous.status) && nextServices === String(previous.services ?? "")) {
     return redirectToCompanyAdmin(request);
@@ -152,9 +130,7 @@ export async function POST(request: Request) {
   await sql.transaction((tx) => [
     tx`
       update company_registrations
-      set status = ${nextStatus},
-          services = ${nextServices},
-          updated_at = now()
+      set status = ${nextStatus}, services = ${nextServices}, updated_at = now()
       where id = ${id}::uuid
     `,
     tx`
