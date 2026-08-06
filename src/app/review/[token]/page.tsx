@@ -8,7 +8,7 @@ import { VerifiedReviewForm } from "./verified-review-form";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Verified customer review | Proffera",
+  title: "Verified customer review",
   robots: { index: false, follow: false },
 };
 
