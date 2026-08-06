@@ -102,22 +102,11 @@ export async function provisionWorkspace(input: ProvisionWorkspaceInput) {
     `,
     tx`
       insert into workspace_feature_flags (id, workspace_id, feature_key, enabled, created_at, updated_at)
-      select gen_random_uuid(), ${workspaceId}::uuid, feature_key, minimum_plan = 'starter', now(), now()
+      select gen_random_uuid(), ${workspaceId}::uuid, feature_key, true, now(), now()
       from feature_catalog
       where is_active = true
       on conflict (workspace_id, feature_key) do update set
-        enabled = excluded.enabled,
-        updated_at = now()
-    `,
-    tx`
-      insert into workspace_feature_flags (id, workspace_id, feature_key, enabled, created_at, updated_at)
-      values
-        (gen_random_uuid(), ${workspaceId}::uuid, 'booking_demo', true, now(), now()),
-        (gen_random_uuid(), ${workspaceId}::uuid, 'lead_inbox', true, now(), now()),
-        (gen_random_uuid(), ${workspaceId}::uuid, 'crm_customers', false, now(), now()),
-        (gen_random_uuid(), ${workspaceId}::uuid, 'ai_assistant', false, now(), now())
-      on conflict (workspace_id, feature_key) do update set
-        enabled = excluded.enabled,
+        enabled = true,
         updated_at = now()
     `,
     tx`
