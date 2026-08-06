@@ -17,7 +17,7 @@ const dashboardItems = [
   { name: "Kunder", status: "Aktiv modul" },
   { name: "Bokningar", status: "Aktiv modul" },
   { name: "Analys", status: "Kommande modul" },
-  { name: "AI-assistent", status: "Planerad modul" },
+  { name: "AI-assistent", status: "Tillgänglig i pilot" },
   { name: "Inställningar", status: "Aktiv arbetsyta" },
 ] as const;
 
