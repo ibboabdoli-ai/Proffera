@@ -9,16 +9,18 @@ function source(path: string) {
 
 describe("Admin mutation audit contracts", () => {
   it("keeps Quote Admin status changes authorized, atomic and audited", () => {
-    const code = source("src/features/admin/actions.ts");
+    const actionCode = source("src/features/admin/actions.ts");
+    const mutationCode = source("src/features/admin/quote-request-status.ts");
 
-    expect(code).toContain('getAdminForArea("quote_admin")');
-    expect(code).toContain("for update");
-    expect(code).toContain("p.status <> ${nextStatus}");
-    expect(code).toContain("insert into admin_audit_logs");
-    expect(code).toContain("'quote_request.status_updated'");
-    expect(code).toContain("previous_value, new_value");
-    expect(code).toContain("'status', previous_status");
-    expect(code).toContain("'status', next_status");
+    expect(actionCode).toContain('getAdminForArea("quote_admin")');
+    expect(actionCode).toContain("persistQuoteRequestStatusChange");
+    expect(mutationCode).toContain("for update");
+    expect(mutationCode).toContain("p.status <> ${nextStatus}");
+    expect(mutationCode).toContain("insert into admin_audit_logs");
+    expect(mutationCode).toContain("'quote_request.status_updated'");
+    expect(mutationCode).toContain("previous_value, new_value");
+    expect(mutationCode).toContain("'status', previous_status");
+    expect(mutationCode).toContain("'status', next_status");
   });
 
   it("keeps Company Admin mutations super-admin-only and audited", () => {
