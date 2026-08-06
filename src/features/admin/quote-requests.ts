@@ -1,3 +1,4 @@
+import { getAdminForArea } from "@/lib/admin-authorization";
 import { getSql } from "@/lib/db/server";
 
 export type AdminQuoteRequest = {
@@ -28,7 +29,15 @@ export type AdminQuoteRequestResult =
     };
 
 export async function getAdminQuoteRequests(): Promise<AdminQuoteRequestResult> {
+  const admin = await getAdminForArea("quote");
   const sql = getSql();
+
+  if (!admin) {
+    return {
+      ok: false,
+      message: "Du saknar behörighet till Quote Admin.",
+    };
+  }
 
   if (!sql) {
     return {

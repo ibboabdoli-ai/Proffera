@@ -1,5 +1,9 @@
 import type { Metadata } from "next";
+import Link from "next/link";
+
 import { getAdminQuoteRequests, type AdminQuoteRequest } from "@/features/admin/quote-requests";
+import { canAccessAdminArea, type AdminArea } from "@/lib/admin-access-policy";
+import { requireAdminArea } from "@/lib/admin-authorization";
 
 export const metadata: Metadata = {
   title: "Admin",
@@ -15,36 +19,41 @@ type AdminPageProps = {
   }>;
 };
 
-const adminLinks = [
+const adminLinks: Array<{
+  title: string;
+  description: string;
+  href: string;
+  area: AdminArea;
+}> = [
   {
     title: "Request status",
     description: "Ändra status på offertförfrågningar.",
     href: "/admin/status",
+    area: "quote",
   },
   {
     title: "Företag",
-    description: "Se registrerade företag.",
+    description: "Se registrerade företag. Plan och betalstatus är read-only.",
     href: "/admin/foretag",
-  },
-  {
-    title: "Hantera företag",
-    description: "Godkänn företag och uppdatera tjänster.",
-    href: "/admin/foretag/hantera",
+    area: "company",
   },
   {
     title: "Matchning",
     description: "Se vilka företag som matchar varje request.",
     href: "/admin/matchning",
+    area: "quote",
   },
   {
     title: "Skicka lead",
-    description: "Öppna mailto för matchade företag.",
+    description: "Förbered leverans till matchade företag.",
     href: "/admin/skicka-lead",
+    area: "quote",
   },
   {
     title: "Leveranslogg",
-    description: "Markera skickade leads och se outbox-logg.",
+    description: "Se registrerade leadleveranser och resultat.",
     href: "/admin/leverans",
+    area: "quote",
   },
 ];
 
@@ -64,10 +73,7 @@ function formatDate(value: string) {
 }
 
 function matchesSearch(request: AdminQuoteRequest, query: string) {
-  if (!query) {
-    return true;
-  }
-
+  if (!query) return true;
   const normalized = query.toLowerCase();
   return [
     request.reference_id,
@@ -82,14 +88,15 @@ function matchesSearch(request: AdminQuoteRequest, query: string) {
 }
 
 export default async function AdminPage({ searchParams }: AdminPageProps) {
+  const admin = await requireAdminArea("quote");
   const params = await searchParams;
   const result = await getAdminQuoteRequests();
 
   if (!result.ok) {
     return (
-      <main className="min-h-screen bg-[#f7f7f4] px-4 py-12 sm:px-6 lg:px-8">
+      <main className="px-4 py-12 sm:px-6 lg:px-8">
         <section className="mx-auto max-w-3xl rounded-3xl bg-white p-8 shadow-sm ring-1 ring-[#dfe5dd]">
-          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#17452f]">Admin</p>
+          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#17452f]">Quote admin</p>
           <h1 className="mt-4 text-3xl font-bold text-[#17201a]">Kunde inte läsa requests</h1>
           <p className="mt-4 text-[#5b665f]">{result.message}</p>
         </section>
@@ -104,28 +111,28 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
     const statusMatches = statusFilter === "all" || request.status === statusFilter;
     return statusMatches && matchesSearch(request, searchQuery);
   });
-
+  const visibleAdminLinks = adminLinks.filter((link) => canAccessAdminArea(admin.role, link.area));
   const submittedCount = result.requests.filter((request) => request.status === "submitted").length;
   const approvedCount = result.requests.filter((request) => request.status === "approved").length;
   const uniqueCities = new Set(result.requests.map((request) => request.city)).size;
 
   return (
-    <main className="min-h-screen bg-[#f7f7f4] px-4 py-10 sm:px-6 lg:px-8">
+    <main className="px-4 py-10 sm:px-6 lg:px-8">
       <section className="mx-auto max-w-7xl">
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#17452f]">Proffera admin</p>
-            <h1 className="mt-3 text-4xl font-bold tracking-tight text-[#17201a]">Admin dashboard</h1>
+            <h1 className="mt-3 text-4xl font-bold tracking-tight text-[#17201a]">Quote admin</h1>
             <p className="mt-3 max-w-2xl text-[#5b665f]">
-              Hantera requests, företag, matchning, lead-utskick och leveranslogg från en central vy.
+              Hantera requests, matchning och leadleveranser. Åtkomsten styrs av din Platform Admin-roll.
             </p>
           </div>
-          <a className="rounded-full border border-[#17452f] px-5 py-3 text-sm font-semibold text-[#17452f]" href="/fa-offert">
+          <Link className="rounded-full border border-[#17452f] px-5 py-3 text-sm font-semibold text-[#17452f]" href="/fa-offert">
             Testa formulär
-          </a>
+          </Link>
         </div>
 
-        <div className="mt-8 grid gap-4 md:grid-cols-3">
+        <div className="mt-8 grid gap-4 md:grid-cols-4">
           <article className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
             <p className="text-sm font-semibold text-[#5b665f]">Totalt</p>
             <p className="mt-2 text-3xl font-bold text-[#17201a]">{result.requests.length}</p>
@@ -138,26 +145,25 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
             <p className="text-sm font-semibold text-[#5b665f]">Approved</p>
             <p className="mt-2 text-3xl font-bold text-[#17201a]">{approvedCount}</p>
           </article>
+          <article className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
+            <p className="text-sm font-semibold text-[#5b665f]">Städer</p>
+            <p className="mt-2 text-3xl font-bold text-[#17201a]">{uniqueCities}</p>
+          </article>
         </div>
 
         <section className="mt-8 rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
-          <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-            <div>
-              <h2 className="text-2xl font-bold text-[#17201a]">Arbetsflöde</h2>
-              <p className="mt-2 text-sm text-[#5b665f]">Gå från request till matchning, skickat lead och logg.</p>
-            </div>
-            <p className="text-sm font-semibold text-[#5b665f]">Städer: {uniqueCities}</p>
-          </div>
+          <h2 className="text-2xl font-bold text-[#17201a]">Arbetsflöde</h2>
+          <p className="mt-2 text-sm text-[#5b665f]">Endast funktioner som din roll får använda visas.</p>
           <div className="mt-5 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-            {adminLinks.map((link) => (
-              <a
+            {visibleAdminLinks.map((link) => (
+              <Link
                 key={link.href}
                 href={link.href}
                 className="rounded-2xl border border-[#dfe5dd] bg-[#fbfbf8] p-4 transition hover:border-[#17452f] hover:bg-white"
               >
                 <p className="font-semibold text-[#17201a]">{link.title}</p>
                 <p className="mt-1 text-sm text-[#5b665f]">{link.description}</p>
-              </a>
+              </Link>
             ))}
           </div>
         </section>
@@ -166,6 +172,7 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
           <input
             name="q"
             defaultValue={searchQuery}
+            maxLength={160}
             placeholder="Sök referens, stad, kategori eller kund"
             className="rounded-2xl border border-[#dfe5dd] px-4 py-3 outline-none focus:border-[#17452f]"
           />
