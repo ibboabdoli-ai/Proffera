@@ -2,10 +2,10 @@
 
 All `/admin` pages have two server-side access layers:
 
-1. Middleware Basic authentication using the existing `ADMIN_ACCESS_CODE` secret.
+1. Proxy Basic authentication using the existing `ADMIN_ACCESS_CODE` secret.
 2. The shared Admin layout, which requires an active `platform_admins` record and checks the role against the requested admin area.
 
-The middleware forwards the verified admin pathname in an internal request header. The layout resolves that pathname to an admin area and rejects roles without access before rendering the page.
+The Proxy forwards the verified admin pathname in an internal request header. The layout resolves that pathname to an admin area and rejects roles without access before rendering the page.
 
 ## Role matrix
 
