@@ -3,6 +3,7 @@ import "server-only";
 import { neon } from "@neondatabase/serverless";
 
 import { resolveBookingTimeZone } from "@/lib/public-booking-policy";
+import { deliverVerifiedReviewInvitation } from "@/lib/verified-review-email-delivery";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 const connectionString =
@@ -27,6 +28,7 @@ export type DashboardBookingStatusUpdateResult = {
     startsAt: string;
     endsAt: string;
   } | null;
+  reviewInvitationDelivery: "sent" | "failed" | "skipped" | null;
 };
 
 function getSqlClient() {
@@ -37,14 +39,14 @@ function getSqlClient() {
   return neon(connectionString);
 }
 
-async function getActiveWorkspaceId() {
+async function getActiveWorkspaceAccess() {
   const access = await getUserWorkspaceAccess();
 
   if (!access.ok || !canManageWorkspaceSettings(access)) {
     throw new Error("An owner or admin workspace membership is required for booking updates");
   }
 
-  return access.workspaceId;
+  return access;
 }
 
 export function isDashboardBookingStatus(value: string): value is DashboardBookingStatus {
@@ -61,7 +63,8 @@ export async function updateDashboardBookingStatus(
     throw new Error("Missing database connection for dashboard booking status update");
   }
 
-  const workspaceId = await getActiveWorkspaceId();
+  const access = await getActiveWorkspaceAccess();
+  const workspaceId = access.workspaceId;
   const marketRows = await sql`
     select time_zone
     from workspace_settings
@@ -267,20 +270,41 @@ export async function updateDashboardBookingStatus(
   }
 
   const changed = Number(result.updated_count ?? 0) > 0;
+  const notification = changed
+    ? {
+        customerName: String(result.customer_name ?? "Kund"),
+        customerEmail: String(result.customer_email ?? ""),
+        customerPhone: String(result.customer_phone ?? ""),
+        service: String(result.service ?? "Bokning"),
+        city: String(result.city ?? ""),
+        startsAt: new Date(String(result.starts_at)).toISOString(),
+        endsAt: new Date(String(result.ends_at)).toISOString(),
+      }
+    : null;
+
+  let reviewInvitationDelivery: DashboardBookingStatusUpdateResult["reviewInvitationDelivery"] = null;
+  if (changed && status === "completed") {
+    reviewInvitationDelivery = notification?.customerEmail ? "failed" : "skipped";
+
+    if (notification?.customerEmail) {
+      try {
+        const delivery = await deliverVerifiedReviewInvitation(bookingId);
+        reviewInvitationDelivery = delivery.ok
+          ? "sent"
+          : delivery.code === "email" || delivery.code === "missing_email"
+            ? "failed"
+            : "skipped";
+      } catch (error) {
+        console.error("Failed to deliver verified review invitation", error);
+        reviewInvitationDelivery = "failed";
+      }
+    }
+  }
 
   return {
     changed,
     timeZone,
-    notification: changed
-      ? {
-          customerName: String(result.customer_name ?? "Kund"),
-          customerEmail: String(result.customer_email ?? ""),
-          customerPhone: String(result.customer_phone ?? ""),
-          service: String(result.service ?? "Bokning"),
-          city: String(result.city ?? ""),
-          startsAt: new Date(String(result.starts_at)).toISOString(),
-          endsAt: new Date(String(result.ends_at)).toISOString(),
-        }
-      : null,
+    notification,
+    reviewInvitationDelivery,
   };
 }

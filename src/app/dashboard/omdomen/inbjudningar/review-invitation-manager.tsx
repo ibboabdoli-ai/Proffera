@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Copy, Link2, LoaderCircle, RotateCw } from "lucide-react";
+import { Check, Copy, Link2, LoaderCircle, Mail, RotateCw } from "lucide-react";
 
 import type { ReviewInvitationCandidate } from "@/features/reviews/verified-review";
 
@@ -11,6 +11,8 @@ type ReviewInvitationManagerProps = {
   timeZone: string;
 };
 
+type DeliveryMode = "link" | "email";
+
 type CreatedInvitation = {
   bookingId: string;
   bookingTitle: string;
@@ -18,6 +20,8 @@ type CreatedInvitation = {
   customerEmail: string | null;
   expiresAt: string;
   reviewUrl: string;
+  emailSent: boolean | null;
+  emailError: string | null;
 };
 
 function formatDate(value: string | null, isEnglish: boolean, timeZone: string) {
@@ -35,13 +39,15 @@ export function ReviewInvitationManager({
   timeZone,
 }: ReviewInvitationManagerProps) {
   const [pendingBookingId, setPendingBookingId] = useState<string | null>(null);
+  const [pendingDelivery, setPendingDelivery] = useState<DeliveryMode | null>(null);
   const [created, setCreated] = useState<CreatedInvitation | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  async function issue(bookingId: string) {
+  async function issue(bookingId: string, delivery: DeliveryMode) {
     if (pendingBookingId) return;
     setPendingBookingId(bookingId);
+    setPendingDelivery(delivery);
     setCreated(null);
     setError(null);
     setCopied(false);
@@ -50,7 +56,7 @@ export function ReviewInvitationManager({
       const response = await fetch("/api/dashboard/review-invitations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bookingId }),
+        body: JSON.stringify({ bookingId, delivery }),
       });
       const result = (await response.json().catch(() => null)) as
         | (CreatedInvitation & { error?: never })
@@ -78,6 +84,7 @@ export function ReviewInvitationManager({
       );
     } finally {
       setPendingBookingId(null);
+      setPendingDelivery(null);
     }
   }
 
@@ -95,18 +102,39 @@ export function ReviewInvitationManager({
     }
   }
 
+  const createdHeading = created?.emailSent === true
+    ? isEnglish
+      ? "Email sent"
+      : "E-post skickad"
+    : created?.emailSent === false
+      ? isEnglish
+        ? "Email failed — use the new link"
+        : "E-post misslyckades – använd den nya länken"
+      : isEnglish
+        ? "Copy this link now"
+        : "Kopiera länken nu";
+
   return (
     <div className="grid gap-5">
       {created ? (
         <section className="rounded-2xl border border-[#bcdcc5] bg-[#eef8f1] p-5 text-[#17452f]">
           <p className="text-sm font-black uppercase tracking-[0.13em]">
-            {isEnglish ? "Copy this link now" : "Kopiera länken nu"}
+            {createdHeading}
           </p>
           <p className="mt-2 text-sm leading-6">
-            {isEnglish
-              ? "The raw token is shown only in this response and is not stored in the database."
-              : "Den råa token visas bara i detta svar och lagras inte i databasen."}
+            {created.emailSent === true
+              ? isEnglish
+                ? `A secure one-time review link was sent to ${created.customerEmail}.`
+                : `En säker engångslänk skickades till ${created.customerEmail}.`
+              : isEnglish
+                ? "The raw token is shown only in this response and is not stored in the database."
+                : "Den råa token visas bara i detta svar och lagras inte i databasen."}
           </p>
+          {created.emailError ? (
+            <p className="mt-3 rounded-xl border border-[#f4c7ba] bg-[#fff5f2] p-3 text-sm font-semibold text-[#8f2f1b]">
+              {created.emailError}
+            </p>
+          ) : null}
           <div className="mt-4 flex flex-col gap-2 sm:flex-row">
             <input
               readOnly
@@ -193,31 +221,58 @@ export function ReviewInvitationManager({
                       ) : null}
                     </td>
                     <td className="px-4 py-4">
-                      <button
-                        type="button"
-                        disabled={used || Boolean(pendingBookingId)}
-                        onClick={() => issue(candidate.bookingId)}
-                        className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-[#173e2b] px-4 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {isPending ? (
-                          <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" />
-                        ) : reissue ? (
-                          <RotateCw className="size-4" />
-                        ) : (
-                          <Link2 className="size-4" />
-                        )}
-                        {used
-                          ? isEnglish
-                            ? "Already used"
-                            : "Redan använd"
-                          : reissue
+                      <div className="flex flex-wrap gap-2">
+                        {candidate.customerEmail ? (
+                          <button
+                            type="button"
+                            disabled={used || Boolean(pendingBookingId)}
+                            onClick={() => issue(candidate.bookingId, "email")}
+                            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-[#173e2b] px-4 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {isPending && pendingDelivery === "email" ? (
+                              <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" />
+                            ) : (
+                              <Mail className="size-4" />
+                            )}
+                            {used
+                              ? isEnglish
+                                ? "Already used"
+                                : "Redan använd"
+                              : reissue
+                                ? isEnglish
+                                  ? "Send new email"
+                                  : "Skicka nytt mejl"
+                                : isEnglish
+                                  ? "Send email"
+                                  : "Skicka mejl"}
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          disabled={used || Boolean(pendingBookingId)}
+                          onClick={() => issue(candidate.bookingId, "link")}
+                          className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-[#b9c8bc] bg-white px-4 text-xs font-bold text-[#173e2b] disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {isPending && pendingDelivery === "link" ? (
+                            <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" />
+                          ) : reissue ? (
+                            <RotateCw className="size-4" />
+                          ) : (
+                            <Link2 className="size-4" />
+                          )}
+                          {used
                             ? isEnglish
-                              ? "Create new link"
-                              : "Skapa ny länk"
-                            : isEnglish
-                              ? "Create link"
-                              : "Skapa länk"}
-                      </button>
+                              ? "Already used"
+                              : "Redan använd"
+                            : reissue
+                              ? isEnglish
+                                ? "Create new link"
+                                : "Skapa ny länk"
+                              : isEnglish
+                                ? "Create link"
+                                : "Skapa länk"}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
