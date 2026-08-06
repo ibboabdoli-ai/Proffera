@@ -6,7 +6,11 @@ const DATABASE_URL_ENV_KEYS = [
   "DATABASE_URL_UNPOOLED",
 ] as const;
 
-export function resolveDatabaseUrl(env: NodeJS.ProcessEnv = process.env) {
+type DatabaseUrlEnvironment = Partial<
+  Record<(typeof DATABASE_URL_ENV_KEYS)[number], string | undefined>
+>;
+
+export function resolveDatabaseUrl(env: DatabaseUrlEnvironment = process.env) {
   for (const key of DATABASE_URL_ENV_KEYS) {
     const value = env[key]?.trim();
 
