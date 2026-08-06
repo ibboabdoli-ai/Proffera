@@ -6,6 +6,7 @@ const CHAT_ORIGIN = "https://chat.proffera.se";
 const PROFFERA_TENANT = "proffera";
 const PROFFERA_CLIENT_ID = "proffera";
 const NOINDEX_VALUE = "noindex, nofollow";
+const ADMIN_PATH_HEADER = "x-proffera-admin-path";
 
 function unauthorized(realm = "Proffera Admin", noindex = false) {
   const headers = new Headers({
@@ -101,7 +102,16 @@ function requireAdminAuth(request: NextRequest) {
     return unauthorized();
   }
 
-  return NextResponse.next();
+  const requestHeaders = new Headers(request.headers);
+  if (request.nextUrl.pathname === "/admin" || request.nextUrl.pathname.startsWith("/admin/")) {
+    requestHeaders.set(ADMIN_PATH_HEADER, request.nextUrl.pathname);
+  }
+
+  return NextResponse.next({
+    request: {
+      headers: requestHeaders,
+    },
+  });
 }
 
 export function middleware(request: NextRequest) {
