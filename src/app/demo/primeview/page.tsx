@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import Image from "next/image";
 import {
   ArrowRight,
+  BadgeCheck,
   CalendarCheck2,
   Check,
   ChevronDown,
@@ -42,6 +43,11 @@ export async function generateMetadata(): Promise<Metadata> {
     title: { absolute: primeViewSite.title },
     description: primeViewSite.description,
     applicationName: primeViewSite.name,
+    appleWebApp: {
+      capable: true,
+      title: primeViewSite.name,
+      statusBarStyle: "black-translucent",
+    },
     keywords: [
       "window cleaning West London",
       "window cleaning North London",
@@ -327,17 +333,24 @@ export default async function PrimeViewDemoPage() {
         <section id="reviews" className="bg-[#eef3fc] px-5 py-20 lg:px-8">
           <div className="mx-auto max-w-[1320px]">
             <div className="max-w-2xl">
-              <p className="text-sm font-black uppercase tracking-[.18em] text-[#315997]">Customer reviews</p>
-              <h2 className="mt-3 text-3xl font-black tracking-[-.03em] text-[#071b42] sm:text-4xl">Your feedback means a lot.</h2>
-              <p className="mt-4 text-base leading-7 text-slate-600">Read feedback from customers after it has been checked by PrimeView, or share your own experience with the team.</p>
+              <p className="text-sm font-black uppercase tracking-[.18em] text-[#315997]">Verified customer reviews</p>
+              <h2 className="mt-3 text-3xl font-black tracking-[-.03em] text-[#071b42] sm:text-4xl">Feedback linked to completed services.</h2>
+              <p className="mt-4 text-base leading-7 text-slate-600">Read verified feedback from customers after a completed PrimeView service. Every public review is linked to a secure invitation and checked before publication.</p>
             </div>
 
             <div className="mt-10 grid gap-6 xl:grid-cols-[minmax(0,1fr)_440px]">
               <div className="grid gap-4 sm:grid-cols-2">
                 {reviews.length ? reviews.map((review) => (
                   <article key={review.id} className="flex flex-col rounded-2xl border border-[#d7e1f2] bg-white p-6 shadow-[0_12px_28px_rgba(16,37,80,.07)]">
-                    <div className="flex items-center gap-1 text-[#b17815]" aria-label={`${review.rating} out of 5 stars`}>
-                      {Array.from({ length: 5 }, (_, index) => <Star key={index} className="size-4" fill={index < review.rating ? "currentColor" : "none"} aria-hidden="true" />)}
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-1 text-[#b17815]" aria-label={`${review.rating} out of 5 stars`}>
+                        {Array.from({ length: 5 }, (_, index) => <Star key={index} className="size-4" fill={index < review.rating ? "currentColor" : "none"} aria-hidden="true" />)}
+                      </div>
+                      {review.isVerified ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-[#e8f5eb] px-2.5 py-1 text-xs font-black text-[#17452f]">
+                          <BadgeCheck className="size-3.5" aria-hidden="true" /> Verified customer
+                        </span>
+                      ) : null}
                     </div>
                     <p className="mt-4 flex-1 leading-7 text-slate-700">“{review.message}”</p>
                     <div className="mt-5 border-t border-slate-100 pt-4">
@@ -347,16 +360,16 @@ export default async function PrimeViewDemoPage() {
                   </article>
                 )) : (
                   <article className="sm:col-span-2 rounded-2xl border border-dashed border-[#b9c9e4] bg-white/75 p-7 text-slate-600">
-                    <p className="font-black text-[#071b42]">Be the first to share your experience.</p>
-                    <p className="mt-2 max-w-xl leading-7">PrimeView publishes genuine customer feedback after a quick review, so future customers can make an informed choice.</p>
+                    <p className="font-black text-[#071b42]">Verified reviews will appear here.</p>
+                    <p className="mt-2 max-w-xl leading-7">PrimeView publishes feedback linked to completed services after moderation.</p>
                   </article>
                 )}
               </div>
 
               <aside className="rounded-3xl border border-[#cbd9ef] bg-white p-6 shadow-[0_18px_42px_rgba(16,37,80,.1)] sm:p-8">
-                <p className="text-sm font-black uppercase tracking-[.16em] text-[#315997]">Leave a review</p>
-                <h3 className="mt-3 text-2xl font-black tracking-tight text-[#071b42]">How did we do?</h3>
-                <p className="mt-3 text-sm leading-6 text-slate-600">It takes less than a minute. Your review is checked before it appears publicly.</p>
+                <p className="text-sm font-black uppercase tracking-[.16em] text-[#315997]">Verified reviews</p>
+                <h3 className="mt-3 text-2xl font-black tracking-tight text-[#071b42]">Completed a service with us?</h3>
+                <p className="mt-3 text-sm leading-6 text-slate-600">PrimeView sends a secure single-use review link after a completed service. Reviews cannot be submitted anonymously from this website.</p>
                 <div className="mt-6"><PrimeViewReviewForm serviceOptions={services.map((service) => service.title)} /></div>
               </aside>
             </div>
