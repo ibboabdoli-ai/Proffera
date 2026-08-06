@@ -1,10 +1,8 @@
 import { neon } from "@neondatabase/serverless";
 
-const databaseUrl =
-  process.env.DATABASE_URL ??
-  process.env.POSTGRES_URL ??
-  process.env.POSTGRES_PRISMA_URL ??
-  process.env.POSTGRES_URL_NON_POOLING;
+import { resolveDatabaseUrl } from "@/lib/db/database-url";
+
+const databaseUrl = resolveDatabaseUrl();
 
 export function hasDatabaseConfig() {
   return Boolean(databaseUrl);
