@@ -55,17 +55,17 @@ export async function listAdminWorkspaceDirectory(filters: AdminWorkspaceDirecto
     ) p on true
     left join workspace_memberships wm on wm.workspace_id = w.id
     where (
-      ${searchPattern} is null
-      or w.name ilike ${searchPattern}
-      or w.slug ilike ${searchPattern}
-      or coalesce(ws.company_name, w.company_name, '') ilike ${searchPattern}
-      or coalesce(ws.contact_email, w.contact_email, '') ilike ${searchPattern}
+      ${searchPattern}::text is null
+      or w.name ilike ${searchPattern}::text
+      or w.slug ilike ${searchPattern}::text
+      or coalesce(ws.company_name, w.company_name, '') ilike ${searchPattern}::text
+      or coalesce(ws.contact_email, w.contact_email, '') ilike ${searchPattern}::text
     )
-      and (${planStatus} is null or coalesce(p.status, 'none') = ${planStatus})
+      and (${planStatus}::text is null or coalesce(p.status, 'none') = ${planStatus}::text)
     group by w.id, ws.company_name, ws.contact_email, ws.contact_phone,
       p.plan_key, p.status, p.current_period_end
     having (
-      ${attentionOnly} = false
+      ${attentionOnly}::boolean = false
       or (
         (p.status = 'trialing' and p.current_period_end is not null and p.current_period_end <= now() + interval '3 days')
         or coalesce(ws.contact_email, w.contact_email, '') = ''
