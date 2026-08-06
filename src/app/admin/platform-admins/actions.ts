@@ -3,7 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { PLATFORM_ADMIN_ROLES, upsertPlatformAdmin } from "@/lib/platform-admin-management";
+import {
+  PLATFORM_ADMIN_ROLES,
+  PlatformAdminManagementError,
+  upsertPlatformAdmin,
+} from "@/lib/platform-admin-management";
 import type { PlatformAdminRole } from "@/lib/platform-admin";
 
 export async function savePlatformAdminAction(formData: FormData) {
@@ -11,8 +15,19 @@ export async function savePlatformAdminAction(formData: FormData) {
   const role = String(formData.get("role") ?? "") as PlatformAdminRole;
   const isActive = formData.get("isActive") === "on";
 
-  if (!PLATFORM_ADMIN_ROLES.includes(role)) throw new Error("Invalid role");
-  await upsertPlatformAdmin(email, role, isActive);
+  if (!PLATFORM_ADMIN_ROLES.includes(role)) {
+    redirect("/admin/platform-admins?error=invalid_role");
+  }
+
+  try {
+    await upsertPlatformAdmin(email, role, isActive);
+  } catch (error) {
+    if (error instanceof PlatformAdminManagementError) {
+      redirect(`/admin/platform-admins?error=${error.code}`);
+    }
+    throw error;
+  }
+
   revalidatePath("/admin/platform-admins");
   revalidatePath("/admin/audit");
   redirect("/admin/platform-admins?saved=1");
