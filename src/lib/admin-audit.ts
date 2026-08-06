@@ -40,7 +40,7 @@ export async function listAdminAuditFilterOptions() {
       select distinct u.id, u.name, u.email
       from admin_audit_logs l
       join "user" u on u.id = l.admin_user_id
-      order by coalesce(u.name, u.email) asc
+      order by u.name asc nulls last, u.email asc
     `,
     sql`
       select distinct action
@@ -76,17 +76,17 @@ export async function listAdminAuditLogs(filters: AdminAuditFilters = {}, limit 
     join "user" u on u.id = l.admin_user_id
     left join workspaces w on w.id = l.workspace_id
     where (${workspaceId}::uuid is null or l.workspace_id = ${workspaceId}::uuid)
-      and (${adminUserId} is null or l.admin_user_id = ${adminUserId})
-      and (${action} is null or l.action = ${action})
+      and (${adminUserId}::text is null or l.admin_user_id = ${adminUserId}::text)
+      and (${action}::text is null or l.action = ${action}::text)
       and (${dateFrom}::date is null or l.created_at >= ${dateFrom}::date)
       and (${dateTo}::date is null or l.created_at < (${dateTo}::date + interval '1 day'))
       and (
-        ${searchPattern} is null
-        or l.action ilike ${searchPattern}
-        or coalesce(l.reason, '') ilike ${searchPattern}
-        or coalesce(w.name, '') ilike ${searchPattern}
-        or coalesce(u.name, '') ilike ${searchPattern}
-        or coalesce(u.email, '') ilike ${searchPattern}
+        ${searchPattern}::text is null
+        or l.action ilike ${searchPattern}::text
+        or coalesce(l.reason, '') ilike ${searchPattern}::text
+        or coalesce(w.name, '') ilike ${searchPattern}::text
+        or coalesce(u.name, '') ilike ${searchPattern}::text
+        or coalesce(u.email, '') ilike ${searchPattern}::text
       )
     order by l.created_at desc
     limit ${safeLimit}
