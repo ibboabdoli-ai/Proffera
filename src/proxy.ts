@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isPrimeViewHost } from "@/lib/public-site-domains";
+
 import { isEnglishPublicPath } from "@/lib/public-locale";
+import { isPrimeViewHost } from "@/lib/public-site-domains";
 
 const CHAT_ORIGIN = "https://chat.proffera.se";
 const PROFFERA_TENANT = "proffera";
@@ -71,7 +72,12 @@ function isDashboardPath(pathname: string) {
 }
 
 function shouldRequireAdminAuth(pathname: string) {
-  return pathname === "/admin" || pathname.startsWith("/admin/") || pathname === "/api/outbox" || pathname === "/api/company-admin";
+  return (
+    pathname === "/admin" ||
+    pathname.startsWith("/admin/") ||
+    pathname === "/api/outbox" ||
+    pathname === "/api/company-admin"
+  );
 }
 
 function allowDashboardWithNoIndex() {
@@ -103,7 +109,10 @@ function requireAdminAuth(request: NextRequest) {
   }
 
   const requestHeaders = new Headers(request.headers);
-  if (request.nextUrl.pathname === "/admin" || request.nextUrl.pathname.startsWith("/admin/")) {
+  if (
+    request.nextUrl.pathname === "/admin" ||
+    request.nextUrl.pathname.startsWith("/admin/")
+  ) {
     requestHeaders.set(ADMIN_PATH_HEADER, request.nextUrl.pathname);
   }
 
@@ -114,7 +123,7 @@ function requireAdminAuth(request: NextRequest) {
   });
 }
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
 
   // A custom customer domain must never fall through to the Proffera homepage.
