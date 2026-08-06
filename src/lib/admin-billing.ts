@@ -1,18 +1,15 @@
 import "server-only";
 
+import { canAccessAdminBilling } from "@/lib/admin-billing-policy";
 import { getSql } from "@/lib/db/server";
-import { getPlatformAdmin, type PlatformAdminRole } from "@/lib/platform-admin";
+import { getPlatformAdmin } from "@/lib/platform-admin";
 
-export const BILLING_ADMIN_ROLES: PlatformAdminRole[] = ["super_admin", "billing_admin"];
+export { canAccessAdminBilling } from "@/lib/admin-billing-policy";
 
 export type AdminBillingFilters = {
   query?: string;
   status?: string;
 };
-
-export function canAccessAdminBilling(role: PlatformAdminRole) {
-  return BILLING_ADMIN_ROLES.includes(role);
-}
 
 function safeText(value: string | undefined, maxLength: number) {
   const cleaned = value?.trim() ?? "";
@@ -40,11 +37,23 @@ export async function listAdminBillingWorkspaces(filters: AdminBillingFilters = 
       w.id,
       w.slug,
       coalesce(ws.company_name, w.company_name, w.name) as company_name,
+      p.id as workspace_plan_id,
       p.plan_key,
       p.status as subscription_status,
       p.current_period_start,
       p.current_period_end,
       (p.id is null) as missing_subscription,
+      (wbs.stripe_subscription_id is not null) as stripe_bound,
+      case
+        when wbs.stripe_subscription_id is not null then 'stripe'
+        else 'internal'
+      end as billing_source,
+      (
+        p.status = 'trialing'
+        and p.current_period_end is not null
+        and wbs.stripe_subscription_id is null
+        and (wbs.id is null or wbs.status in ('pending', 'trialing'))
+      ) as trial_extension_allowed,
       case
         when p.status = 'trialing' and p.current_period_end is not null
           then ceil(extract(epoch from (p.current_period_end - now())) / 86400.0)::int
@@ -61,6 +70,7 @@ export async function listAdminBillingWorkspaces(filters: AdminBillingFilters = 
       order by created_at desc
       limit 1
     ) p on true
+    left join workspace_billing_subscriptions wbs on wbs.workspace_id = w.id
     where (
       ${searchPattern}::text is null
       or w.name ilike ${searchPattern}::text
@@ -69,6 +79,7 @@ export async function listAdminBillingWorkspaces(filters: AdminBillingFilters = 
     )
       and (
         ${status}::text is null
+        or (${status}::text = 'canceled' and p.status in ('canceled', 'cancelled'))
         or coalesce(p.status, 'none') = ${status}::text
       )
     order by
