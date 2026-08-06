@@ -26,11 +26,27 @@ describe("workspace service job lifecycle", () => {
     expect(persistence).toContain("export async function assignDashboardWorkspaceServiceJob");
     expect(persistence).toContain("for update");
     expect(persistence).toContain("status in ('new', 'assigned', 'in_progress')");
+    expect(persistence).toContain("target_staff as (");
     expect(persistence).toContain("status = case when job.status = 'new' then 'assigned' else job.status end");
-    expect(persistence).toContain("job.assigned_staff_id is distinct from staff.id");
+    expect(persistence).toContain("job.assigned_staff_id is distinct from target.staff_id");
     expect(persistence).toContain("insert into workspace_service_job_events");
     expect(persistence).toContain("'assigned'");
     expect(persistence).toContain("jsonb_build_object('staff_id', staff_id)");
+  });
+
+  it("treats selecting the current active staff member as a successful no-op", () => {
+    const persistence = source("src/lib/workspace-service-jobs-db.ts");
+    const assignmentSection = persistence.slice(
+      persistence.indexOf("export async function assignDashboardWorkspaceServiceJob"),
+      persistence.indexOf("export async function transitionDashboardWorkspaceServiceJob"),
+    );
+
+    expect(assignmentSection).toContain("select id from assigned_job");
+    expect(assignmentSection).toContain("union all");
+    expect(assignmentSection).toContain("select job_id as id");
+    expect(assignmentSection).toContain("where assigned_staff_id = staff_id");
+    expect(assignmentSection).toContain("limit 1");
+    expect(assignmentSection).toContain("from assigned_job\n      returning id");
   });
 
   it("allows only declared status transitions and makes terminal states immutable", () => {
