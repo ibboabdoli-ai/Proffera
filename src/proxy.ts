@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { isEnglishPublicPath } from "@/lib/public-locale";
-import { isPrimeViewHost } from "@/lib/public-site-domains";
+import { isEnglishPublicPath } from "./lib/public-locale";
+import { isPrimeViewHost } from "./lib/public-site-domains";
 
 const CHAT_ORIGIN = "https://chat.proffera.se";
 const PROFFERA_TENANT = "proffera";
