@@ -39,16 +39,16 @@ export default async function Page({ searchParams }: PageProps) {
                 <input name="website" type="text" tabIndex={-1} autoComplete="off" />
               </label>
               <div className="grid gap-5 sm:grid-cols-2">
-                <label className="text-sm font-semibold text-[#26322a]">Företagsnamn *<input autoComplete="organization" className={inputClassName} name="companyName" required /></label>
-                <label className="text-sm font-semibold text-[#26322a]">Organisationsnummer *<input className={inputClassName} inputMode="numeric" name="organizationNumber" required /></label>
-                <label className="text-sm font-semibold text-[#26322a]">Kontaktperson *<input autoComplete="name" className={inputClassName} name="contactPerson" required /></label>
+                <label className="text-sm font-semibold text-[#26322a]">Företagsnamn *<input autoComplete="organization" className={inputClassName} name="companyName" minLength={2} maxLength={120} required /></label>
+                <label className="text-sm font-semibold text-[#26322a]">Organisationsnummer *<input className={inputClassName} inputMode="numeric" name="organizationNumber" minLength={6} maxLength={32} required /></label>
+                <label className="text-sm font-semibold text-[#26322a]">Kontaktperson *<input autoComplete="name" className={inputClassName} name="contactPerson" minLength={2} maxLength={120} required /></label>
                 <label className="text-sm font-semibold text-[#26322a]">E-post *<input autoComplete="email" className={inputClassName} name="email" required type="email" /></label>
-                <label className="text-sm font-semibold text-[#26322a]">Telefon *<input autoComplete="tel" className={inputClassName} name="phone" required type="tel" /></label>
-                <label className="text-sm font-semibold text-[#26322a]">Ort *<input autoComplete="address-level2" className={inputClassName} name="city" required /></label>
+                <label className="text-sm font-semibold text-[#26322a]">Telefon *<input autoComplete="tel" className={inputClassName} name="phone" minLength={6} maxLength={40} required type="tel" /></label>
+                <label className="text-sm font-semibold text-[#26322a]">Ort *<input autoComplete="address-level2" className={inputClassName} name="city" minLength={2} maxLength={120} required /></label>
               </div>
-              <label className="text-sm font-semibold text-[#26322a]">Var arbetar ni? *<input className={inputClassName} name="serviceAreas" placeholder="Till exempel Malmö och Lund" required /></label>
-              <label className="text-sm font-semibold text-[#26322a]">Vilka tjänster erbjuder ni? *<input className={inputClassName} name="services" placeholder="Till exempel elinstallation och service" required /></label>
-              <label className="text-sm font-semibold text-[#26322a]">Vad vill ni förbättra? *<textarea className={`${inputClassName} min-h-32 resize-y`} name="description" placeholder="Berätta kort om ert kundflöde eller vad du vill se i demon." required /></label>
+              <label className="text-sm font-semibold text-[#26322a]">Var arbetar ni? *<input className={inputClassName} name="serviceAreas" minLength={2} maxLength={300} placeholder="Till exempel Malmö och Lund" required /></label>
+              <label className="text-sm font-semibold text-[#26322a]">Vilka tjänster erbjuder ni? *<input className={inputClassName} name="services" minLength={2} maxLength={300} placeholder="Till exempel elinstallation och service" required /></label>
+              <label className="text-sm font-semibold text-[#26322a]">Vad vill ni förbättra? *<textarea aria-describedby="description-help" className={`${inputClassName} min-h-32 resize-y`} name="description" minLength={20} maxLength={2000} placeholder="Berätta kort om ert kundflöde eller vad du vill se i demon." required /><span id="description-help" className="mt-2 block text-xs font-normal leading-5 text-[#6b766e]">Skriv minst 20 tecken.</span></label>
               <label className="flex items-start gap-3 rounded-xl bg-[#fbfbf8] p-4 text-sm leading-6 text-[#344139] ring-1 ring-[#dfe5dd]">
                 <input className="mt-1 h-4 w-4 accent-[#17452f]" name="consentAccepted" required type="checkbox" />
                 <span>Jag godkänner att Proffera kontaktar mig om min demoförfrågan.</span>

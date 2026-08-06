@@ -48,7 +48,9 @@ export async function POST(request: Request) {
 
   if (!parsed.success) {
     const url = new URL(paths.register, request.url);
-    url.searchParams.set("error", registrationError(locale, "validation"));
+    const firstIssue = parsed.error.issues[0];
+    const message = firstIssue?.message || registrationError(locale, "validation");
+    url.searchParams.set("error", message);
     return NextResponse.redirect(url);
   }
 
