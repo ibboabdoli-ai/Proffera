@@ -10,6 +10,7 @@ import {
   PencilLine,
   ShieldAlert,
   Star,
+  Trash2,
 } from "lucide-react";
 
 import {
@@ -17,6 +18,7 @@ import {
   DashboardPageHeader,
 } from "@/components/dashboard/dashboard-page-ui";
 import {
+  deleteDashboardWebsiteReview,
   getDashboardWebsiteReviews,
   updateDashboardWebsiteReview,
   updateDashboardWebsiteReviewStatus,
@@ -77,9 +79,22 @@ async function editReviewAction(formData: FormData) {
   redirect(localizedHref("/dashboard/omdomen?updated=1", isEnglish));
 }
 
+async function deleteReviewAction(formData: FormData) {
+  "use server";
+  const reviewId = String(formData.get("review_id") ?? "");
+  const confirmation = String(formData.get("confirmation") ?? "").trim().toUpperCase();
+  const isEnglish = String(formData.get("lang") ?? "") === "en";
+
+  if (confirmation !== "DELETE" || !(await deleteDashboardWebsiteReview(reviewId))) {
+    redirect(localizedHref("/dashboard/omdomen?error=1", isEnglish));
+  }
+  redirect(localizedHref("/dashboard/omdomen?deleted=1", isEnglish));
+}
+
 type ReviewsPageProps = {
   searchParams?: Promise<{
     updated?: string | string[];
+    deleted?: string | string[];
     error?: string | string[];
     lang?: string | string[];
   }>;
@@ -90,7 +105,7 @@ export default async function WebsiteReviewsPage({ searchParams }: ReviewsPagePr
     getUserWorkspaceAccess(),
     searchParams ?? Promise.resolve(undefined),
   ]);
-  const value = (key: "updated" | "error" | "lang") => {
+  const value = (key: "updated" | "deleted" | "error" | "lang") => {
     const current = query?.[key];
     return Array.isArray(current) ? current[0] : current;
   };
@@ -141,6 +156,11 @@ export default async function WebsiteReviewsPage({ searchParams }: ReviewsPagePr
       {value("updated") === "1" ? (
         <p className="rounded-2xl bg-[#eef8f1] p-4 text-sm font-semibold text-[#17452f] ring-1 ring-[#cfe8d6]" role="status">
           {isEnglish ? "Review updated." : "Omdömet uppdaterades."}
+        </p>
+      ) : null}
+      {value("deleted") === "1" ? (
+        <p className="rounded-2xl bg-[#eef8f1] p-4 text-sm font-semibold text-[#17452f] ring-1 ring-[#cfe8d6]" role="status">
+          {isEnglish ? "Review permanently deleted." : "Omdömet raderades permanent."}
         </p>
       ) : null}
       {value("error") === "1" ? (
@@ -322,6 +342,38 @@ export default async function WebsiteReviewsPage({ searchParams }: ReviewsPagePr
                     <div>
                       <button type="submit" className="min-h-11 rounded-xl bg-[#173e2b] px-4 text-sm font-bold text-white">
                         {isEnglish ? "Save changes" : "Spara ändringar"}
+                      </button>
+                    </div>
+                  </form>
+                </details>
+
+                <details className="mt-3 rounded-2xl border border-[#f0c9bf] bg-[#fff8f6] open:bg-white">
+                  <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-bold text-[#8f2f1b]">
+                    <Trash2 className="size-4" aria-hidden="true" />
+                    {isEnglish ? "Permanently delete review" : "Radera omdömet permanent"}
+                  </summary>
+                  <form action={deleteReviewAction} className="grid gap-4 border-t border-[#f0c9bf] p-4">
+                    <input type="hidden" name="lang" value={isEnglish ? "en" : "sv"} />
+                    <input type="hidden" name="review_id" value={review.id} />
+                    <p className="text-sm leading-6 text-[#6f3b30]">
+                      {isEnglish
+                        ? "This cannot be undone. Type DELETE to confirm. The action is recorded in the audit log."
+                        : "Detta går inte att ångra. Skriv DELETE för att bekräfta. Åtgärden registreras i auditloggen."}
+                    </p>
+                    <label className="grid max-w-sm gap-1.5 text-sm font-semibold text-[#6f3b30]">
+                      {isEnglish ? "Confirmation" : "Bekräftelse"}
+                      <input
+                        name="confirmation"
+                        required
+                        pattern="DELETE"
+                        autoComplete="off"
+                        placeholder="DELETE"
+                        className="min-h-11 rounded-xl border border-[#dcae9f] bg-white px-3 font-normal uppercase"
+                      />
+                    </label>
+                    <div>
+                      <button type="submit" className="min-h-11 rounded-xl bg-[#9f2f1d] px-4 text-sm font-bold text-white">
+                        {isEnglish ? "Delete permanently" : "Radera permanent"}
                       </button>
                     </div>
                   </form>
