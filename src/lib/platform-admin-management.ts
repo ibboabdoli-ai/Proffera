@@ -64,12 +64,6 @@ export async function upsertPlatformAdmin(email: string, role: PlatformAdminRole
   const targetUserId = String(target.id);
   const existingActive = target.existing_is_active === true;
   const workspaceMembershipCount = Number(target.workspace_membership_count ?? 0);
-  const previous = target.existing_role == null
-    ? null
-    : {
-        role: String(target.existing_role),
-        is_active: existingActive,
-      };
 
   if (targetUserId === admin.userId && (!isActive || role !== "super_admin")) {
     throw new PlatformAdminManagementError("self_protection");
@@ -84,45 +78,105 @@ export async function upsertPlatformAdmin(email: string, role: PlatformAdminRole
   }
 
   const mutationRows = await sql`
-    with eligible as (
-      select ${targetUserId}::text as user_id
-      where not (
-        ${isActive}
-        and not ${existingActive}
-        and exists (
+    with lock_guard as materialized (
+      select pg_advisory_xact_lock(74821, 34901)
+    ),
+    current_target as materialized (
+      select
+        ${targetUserId}::text as user_id,
+        pa.role as existing_role,
+        coalesce(pa.is_active, false) as existing_is_active,
+        exists (
           select 1
           from workspace_memberships wm
           where wm.user_id = ${targetUserId}
-        )
-      )
+        ) as has_workspace_membership,
+        exists (
+          select 1
+          from platform_admins actor
+          where actor.user_id = ${admin.userId}
+            and actor.role = 'super_admin'
+            and actor.is_active = true
+        ) as actor_is_super_admin
+      from lock_guard
+      left join platform_admins pa on pa.user_id = ${targetUserId}
+    ),
+    eligibility as materialized (
+      select
+        current_target.*,
+        case
+          when not current_target.actor_is_super_admin
+            then 'access_revoked'
+          when ${isActive}
+            and not current_target.existing_is_active
+            and current_target.has_workspace_membership
+            then 'workspace_member'
+          when current_target.existing_role = 'super_admin'
+            and current_target.existing_is_active
+            and (not ${isActive} or ${role} <> 'super_admin')
+            and not exists (
+              select 1
+              from platform_admins other
+              where other.user_id <> current_target.user_id
+                and other.role = 'super_admin'
+                and other.is_active = true
+            )
+            then 'last_super_admin'
+          else 'ok'
+        end as outcome
+      from current_target
     ),
     upserted as (
       insert into platform_admins (user_id, role, is_active, created_at, updated_at)
       select user_id, ${role}, ${isActive}, now(), now()
-      from eligible
+      from eligibility
+      where outcome = 'ok'
       on conflict (user_id) do update
       set role = excluded.role, is_active = excluded.is_active, updated_at = now()
       returning user_id, role, is_active
-    )
-    insert into admin_audit_logs (
-      admin_user_id, action, reason, previous_value, new_value
+    ),
+    audited as (
+      insert into admin_audit_logs (
+        admin_user_id, action, reason, previous_value, new_value
+      )
+      select
+        ${admin.userId},
+        'platform_admin.updated',
+        ${`Platform admin access updated for ${cleanEmail}`},
+        case
+          when eligibility.existing_role is null then null
+          else jsonb_build_object(
+            'role', eligibility.existing_role,
+            'is_active', eligibility.existing_is_active
+          )
+        end,
+        jsonb_build_object(
+          'user_id', upserted.user_id,
+          'email', ${cleanEmail},
+          'role', upserted.role,
+          'is_active', upserted.is_active
+        )
+      from upserted
+      join eligibility on eligibility.user_id = upserted.user_id
+      returning id
     )
     select
-      ${admin.userId},
-      'platform_admin.updated',
-      ${`Platform admin access updated for ${cleanEmail}`},
-      ${JSON.stringify(previous)}::jsonb,
-      jsonb_build_object(
-        'user_id', upserted.user_id,
-        'email', ${cleanEmail},
-        'role', upserted.role,
-        'is_active', upserted.is_active
-      )
-    from upserted
-    returning id
+      eligibility.outcome,
+      (select id from audited limit 1) as audit_id
+    from eligibility
   `;
 
-  if (mutationRows.length === 0) {
+  const outcome = String(mutationRows[0]?.outcome ?? "");
+  if (outcome === "workspace_member") {
     throw new PlatformAdminManagementError("workspace_member");
+  }
+  if (outcome === "last_super_admin") {
+    throw new PlatformAdminManagementError("last_super_admin");
+  }
+  if (outcome === "access_revoked") {
+    throw new PlatformAdminManagementError("access_revoked");
+  }
+  if (outcome !== "ok" || !mutationRows[0]?.audit_id) {
+    throw new Error("Platform admin update was not persisted and audited");
   }
 }
