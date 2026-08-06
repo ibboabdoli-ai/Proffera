@@ -1,12 +1,16 @@
 import "server-only";
 
 import { getSql } from "@/lib/db/server";
+import {
+  isWebsiteReviewStatus,
+  persistWebsiteReviewModeration,
+  type WebsiteReviewModerationStatus,
+} from "@/lib/website-review-moderation";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
-const reviewStatuses = ["pending", "approved", "rejected"] as const;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-export type WebsiteReviewStatus = (typeof reviewStatuses)[number];
+export type WebsiteReviewStatus = import("@/lib/website-review-moderation").WebsiteReviewStatus;
 
 export type PublishedWebsiteReview = {
   id: string;
@@ -39,10 +43,6 @@ function toText(value: unknown, fallback = "") {
 function toRating(value: unknown) {
   const rating = Number(value);
   return Number.isInteger(rating) && rating >= 1 && rating <= 5 ? rating : 0;
-}
-
-function isReviewStatus(value: unknown): value is WebsiteReviewStatus {
-  return typeof value === "string" && reviewStatuses.includes(value as WebsiteReviewStatus);
 }
 
 function toPublishedReview(row: Record<string, unknown>): PublishedWebsiteReview | null {
@@ -145,7 +145,7 @@ export async function getDashboardWebsiteReviews(): Promise<DashboardWebsiteRevi
       const published = toPublishedReview({ ...row, published_at: row.published_at ?? row.created_at });
       const status = row.status;
 
-      if (!published || !isReviewStatus(status)) return [];
+      if (!published || !isWebsiteReviewStatus(status)) return [];
 
       return [{ ...published, status, createdAt: toText(row.created_at) }];
     });
@@ -155,26 +155,21 @@ export async function getDashboardWebsiteReviews(): Promise<DashboardWebsiteRevi
   }
 }
 
-export async function updateDashboardWebsiteReviewStatus(id: string, status: Extract<WebsiteReviewStatus, "approved" | "rejected">) {
+export async function updateDashboardWebsiteReviewStatus(id: string, status: WebsiteReviewModerationStatus) {
   const [access, sql] = await Promise.all([getUserWorkspaceAccess(), Promise.resolve(getSql())]);
 
-  if (!access.ok || !canManageWorkspaceSettings(access) || !sql || !uuidPattern.test(id) || !isReviewStatus(status)) {
+  if (!access.ok || !canManageWorkspaceSettings(access) || !sql || !uuidPattern.test(id) || !isWebsiteReviewStatus(status)) {
     return false;
   }
 
   try {
-    const rows = await sql`
-      update website_reviews
-      set
-        status = ${status},
-        moderated_at = now(),
-        moderated_by_user_id = ${access.userId},
-        published_at = case when ${status} = 'approved' then coalesce(published_at, now()) else null end
-      where id = ${id}::uuid
-        and workspace_id = ${access.workspaceId}::uuid
-        and status <> ${status}
-      returning id
-    `;
+    const rows = await persistWebsiteReviewModeration({
+      sql,
+      actorUserId: access.userId,
+      workspaceId: access.workspaceId,
+      reviewId: id,
+      nextStatus: status,
+    });
 
     return Boolean(rows[0]?.id);
   } catch (error) {
