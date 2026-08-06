@@ -59,15 +59,23 @@ export async function getAdminWorkspaceOverview(workspaceId: string) {
   const workspace = rows[0];
   if (!workspace) return null;
 
-  const recentBookings = await sql`
-    select b.id, b.title, b.service, b.status, b.starts_at, b.created_at,
-      c.name as customer_name, c.email as customer_email
-    from bookings b
-    left join customers c on c.id = b.customer_id
-    where b.workspace_id = ${workspaceId}
-    order by b.created_at desc
-    limit 10
-  `;
+  const [recentBookings, featureFlags] = await Promise.all([
+    sql`
+      select b.id, b.title, b.service, b.status, b.starts_at, b.created_at,
+        c.name as customer_name, c.email as customer_email
+      from bookings b
+      left join customers c on c.id = b.customer_id
+      where b.workspace_id = ${workspaceId}
+      order by b.created_at desc
+      limit 10
+    `,
+    sql`
+      select feature_key, enabled
+      from workspace_feature_flags
+      where workspace_id = ${workspaceId}::uuid
+      order by feature_key asc
+    `,
+  ]);
 
-  return { workspace, recentBookings };
+  return { workspace, recentBookings, featureFlags };
 }
