@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BellRing, ChevronLeft, Mail, MessageSquareText } from "lucide-react";
+import { BellRing, ChevronLeft } from "lucide-react";
 import { redirect } from "next/navigation";
 
 import { DashboardPageHeader } from "@/components/dashboard/dashboard-page-ui";
