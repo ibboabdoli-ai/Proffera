@@ -41,7 +41,7 @@ describe("Verified review invitation email", () => {
     });
 
     expect(email.subject).toContain("Hur gick det?");
-    expect(email.text).toContain("säker engångslänk");
+    expect(email.text).toContain("säkra engångslänk");
     expect(email.html).toContain("Lämna ett verifierat omdöme");
   });
 
