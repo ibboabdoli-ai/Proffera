@@ -1,144 +1,158 @@
 import { NextResponse } from "next/server";
-import { getSql } from "@/lib/db/server";
+
 import { createWorkspaceInvitation } from "@/features/company/workspace-invitation";
+import { getCompanyAdmin } from "@/lib/admin-authorization";
+import { getSql } from "@/lib/db/server";
 
 const allowedStatuses = ["pending", "approved", "rejected", "paused"] as const;
-const allowedPlanKeys = ["starter", "professional", "business"] as const;
-const allowedPlanStatuses = ["trialing", "active", "past_due", "cancelled", "paused"] as const;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function isAllowedStatus(value: string) {
   return allowedStatuses.includes(value as (typeof allowedStatuses)[number]);
 }
 
-function isAllowedPlanKey(value: string) {
-  return allowedPlanKeys.includes(value as (typeof allowedPlanKeys)[number]);
-}
-
-function isAllowedPlanStatus(value: string) {
-  return allowedPlanStatuses.includes(value as (typeof allowedPlanStatuses)[number]);
-}
-
-function hasAdminAccess(request: Request) {
-  const expectedCode = (process.env.ADMIN_ACCESS_CODE ?? "").trim();
-  const authorization = request.headers.get("authorization") ?? "";
-
-  if (!expectedCode || !authorization.startsWith("Basic ")) {
-    return false;
-  }
-
-  try {
-    const decoded = atob(authorization.slice(6));
-    const separatorIndex = decoded.indexOf(":");
-    return separatorIndex >= 0 && decoded.slice(separatorIndex + 1) === expectedCode;
-  } catch {
-    return false;
-  }
+function redirectToCompanyAdmin(request: Request, key?: string, value?: string) {
+  const url = new URL("/admin/foretag", request.url);
+  if (key && value) url.searchParams.set(key, value);
+  return NextResponse.redirect(url);
 }
 
 export async function POST(request: Request) {
-  const formData = await request.formData();
+  const admin = await getCompanyAdmin();
   const requestUrl = new URL(request.url);
   const requestOrigin = request.headers.get("origin");
 
-  if (!hasAdminAccess(request) || (requestOrigin && requestOrigin !== requestUrl.origin)) {
-    return NextResponse.redirect(new URL("/admin/foretag", request.url));
+  if (!admin || (requestOrigin && requestOrigin !== requestUrl.origin)) {
+    return redirectToCompanyAdmin(request, "access", "forbidden");
   }
 
+  const formData = await request.formData();
   const id = String(formData.get("id") ?? "");
   const action = String(formData.get("action") ?? "");
   const status = String(formData.get("status") ?? "");
   const services = String(formData.get("services") ?? "");
   const sql = getSql();
 
+  if (!sql) return redirectToCompanyAdmin(request, "access", "database");
+
   if (action === "workspace_access") {
     const workspaceId = String(formData.get("workspace_id") ?? "");
-    const planKey = String(formData.get("plan_key") ?? "");
-    const planStatus = String(formData.get("plan_status") ?? "");
-    const bookingEnabled = formData.get("booking_enabled") === "on";
-    const leadsEnabled = formData.get("leads_enabled") === "on";
-    const crmEnabled = formData.get("crm_enabled") === "on";
-    const url = new URL("/admin/foretag", request.url);
+    const requestedPlanKey = String(formData.get("plan_key") ?? "");
+    const requestedPlanStatus = String(formData.get("plan_status") ?? "");
 
-    if (!sql || !uuidPattern.test(workspaceId) || !isAllowedPlanKey(planKey) || !isAllowedPlanStatus(planStatus)) {
-      url.searchParams.set("access", "invalid");
-      return NextResponse.redirect(url);
+    if (!uuidPattern.test(workspaceId)) {
+      return redirectToCompanyAdmin(request, "access", "invalid");
     }
 
-    try {
-      const rows = await sql`
-        with selected_workspace as (
-          select id from workspaces where id = ${workspaceId}::uuid
-        ),
-        latest_plan as (
-          select wp.id
-          from workspace_plans wp
-          join selected_workspace sw on sw.id = wp.workspace_id
-          order by wp.created_at desc
-          limit 1
-        ),
-        updated_plan as (
-          update workspace_plans wp
-          set plan_key = ${planKey}, status = ${planStatus}, updated_at = now()
-          from latest_plan lp
-          where wp.id = lp.id
-          returning wp.id
-        ),
-        inserted_plan as (
-          insert into workspace_plans (id, workspace_id, plan_key, status, current_period_start, created_at, updated_at)
-          select gen_random_uuid(), sw.id, ${planKey}, ${planStatus}, now(), now(), now()
-          from selected_workspace sw
-          where not exists (select 1 from updated_plan)
-          returning id
-        ),
-        feature_values (feature_key, enabled) as (
-          values
-            ('booking_demo', ${bookingEnabled}),
-            ('crm_customers', ${crmEnabled}),
-            ('lead_inbox', ${leadsEnabled})
-        )
-        insert into workspace_feature_flags (id, workspace_id, feature_key, enabled, created_at, updated_at)
-        select gen_random_uuid(), sw.id, fv.feature_key, fv.enabled, now(), now()
-        from selected_workspace sw
-        cross join feature_values fv
-        on conflict (workspace_id, feature_key)
-        do update set enabled = excluded.enabled, updated_at = now()
-        returning workspace_id
-      `;
+    const currentRows = await sql`
+      select coalesce(p.plan_key, 'none') as plan_key, coalesce(p.status, 'none') as plan_status
+      from workspaces w
+      left join lateral (
+        select plan_key, status
+        from workspace_plans
+        where workspace_id = w.id
+        order by created_at desc
+        limit 1
+      ) p on true
+      where w.id = ${workspaceId}::uuid
+      limit 1
+    `;
+    const current = currentRows[0];
 
-      url.searchParams.set("access", rows.length > 0 ? "updated" : "missing");
-    } catch (error) {
-      console.error("Failed to update workspace plan and module access", error);
-      url.searchParams.set("access", "error");
-    }
-
-    return NextResponse.redirect(url);
+    await sql`
+      insert into admin_audit_logs (
+        admin_user_id, workspace_id, action, reason, previous_value, new_value
+      ) values (
+        ${admin.userId},
+        ${workspaceId}::uuid,
+        'billing.manual_change_blocked',
+        'Manual plan or subscription status changes are blocked because Stripe is the source of truth',
+        ${JSON.stringify({
+          plan_key: current?.plan_key ?? null,
+          status: current?.plan_status ?? null,
+        })}::jsonb,
+        ${JSON.stringify({
+          blocked: true,
+          requested_plan_key: requestedPlanKey || null,
+          requested_status: requestedPlanStatus || null,
+        })}::jsonb
+      )
+    `;
+    return redirectToCompanyAdmin(request, "access", "read_only");
   }
 
-  if (action === "invite" && id) {
-    const result = await createWorkspaceInvitation(id, new URL(request.url).origin);
-    const url = new URL("/admin/foretag", request.url);
-    url.searchParams.set("invite", result.ok ? "sent" : result.code);
-    return NextResponse.redirect(url);
+  if (!uuidPattern.test(id)) return redirectToCompanyAdmin(request, "access", "invalid");
+
+  if (action === "invite") {
+    const beforeRows = await sql`
+      select cr.id, cr.company_name, cr.email, cr.status,
+             wi.status as invitation_status, wi.expires_at
+      from company_registrations cr
+      left join workspace_invitations wi on wi.company_registration_id = cr.id
+      where cr.id = ${id}::uuid
+      limit 1
+    `;
+    const result = await createWorkspaceInvitation(id, requestUrl.origin);
+
+    await sql`
+      insert into admin_audit_logs (
+        admin_user_id, action, reason, previous_value, new_value
+      ) values (
+        ${admin.userId},
+        'company.invitation_requested',
+        ${`Workspace invitation requested for company registration ${id}`},
+        ${JSON.stringify(beforeRows[0] ?? null)}::jsonb,
+        ${JSON.stringify({ registration_id: id, result: result.ok ? "sent" : result.code })}::jsonb
+      )
+    `;
+    return redirectToCompanyAdmin(request, "invite", result.ok ? "sent" : result.code);
   }
 
-  if (sql && id) {
-    if (isAllowedStatus(status)) {
-      await sql`
-        update company_registrations
-        set status = ${status}, updated_at = now()
-        where id = ${id}
-      `;
-    }
+  const previousRows = await sql`
+    select id, status, services
+    from company_registrations
+    where id = ${id}::uuid
+    limit 1
+  `;
+  const previous = previousRows[0];
+  if (!previous) return redirectToCompanyAdmin(request, "access", "missing");
 
-    if (services.trim().length > 0 && services.length <= 300) {
-      await sql`
-        update company_registrations
-        set services = ${services}, updated_at = now()
-        where id = ${id}
-      `;
-    }
+  const nextStatus = isAllowedStatus(status) ? status : String(previous.status);
+  const cleanServices = services.trim();
+  const nextServices = cleanServices.length > 0 && cleanServices.length <= 300
+    ? cleanServices
+    : String(previous.services ?? "");
+
+  if (nextStatus === String(previous.status) && nextServices === String(previous.services ?? "")) {
+    return redirectToCompanyAdmin(request);
   }
 
-  return NextResponse.redirect(new URL("/admin/foretag", request.url));
+  await sql.transaction((tx) => [
+    tx`
+      update company_registrations
+      set status = ${nextStatus}, services = ${nextServices}, updated_at = now()
+      where id = ${id}::uuid
+    `,
+    tx`
+      insert into admin_audit_logs (
+        admin_user_id, action, reason, previous_value, new_value
+      ) values (
+        ${admin.userId},
+        'company.registration_updated',
+        ${`Company registration ${id} updated from Company Admin`},
+        ${JSON.stringify({
+          registration_id: id,
+          status: previous.status,
+          services: previous.services,
+        })}::jsonb,
+        ${JSON.stringify({
+          registration_id: id,
+          status: nextStatus,
+          services: nextServices,
+        })}::jsonb
+      )
+    `,
+  ]);
+
+  return redirectToCompanyAdmin(request);
 }

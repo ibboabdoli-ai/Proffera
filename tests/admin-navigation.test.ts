@@ -2,12 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   canAccessAdminArea,
+  canAccessCompanyAdmin,
   getAdminNavigationItems,
   resolveAdminArea,
 } from "../src/lib/admin-navigation";
 
 describe("admin navigation policy", () => {
-  it("gives super admins every admin area", () => {
+  it("gives super admins every navigation area", () => {
     expect(getAdminNavigationItems("super_admin").map((item) => item.area)).toEqual([
       "saas",
       "workspaces",
@@ -31,6 +32,12 @@ describe("admin navigation policy", () => {
     expect(canAccessAdminArea("support_admin", "quote_admin")).toBe(false);
     expect(canAccessAdminArea("billing_admin", "quote_admin")).toBe(false);
     expect(canAccessAdminArea("read_only_admin", "quote_admin")).toBe(false);
+  });
+
+  it("keeps legacy company administration super-admin only", () => {
+    expect(canAccessCompanyAdmin("super_admin")).toBe(true);
+    expect(canAccessCompanyAdmin("operations_admin")).toBe(false);
+    expect(canAccessCompanyAdmin("developer_admin")).toBe(false);
   });
 
   it("maps nested routes to the same server-side area", () => {

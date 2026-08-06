@@ -36,6 +36,10 @@ export function canAccessAdminArea(role: PlatformAdminRole, area: AdminArea) {
   return ROLE_AREAS[role].includes(area);
 }
 
+export function canAccessCompanyAdmin(role: PlatformAdminRole) {
+  return role === "super_admin";
+}
+
 export function getAdminNavigationItems(role: PlatformAdminRole) {
   return ADMIN_NAVIGATION_ITEMS.filter((item) => canAccessAdminArea(role, item.area));
 }
