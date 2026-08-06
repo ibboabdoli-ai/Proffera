@@ -1,94 +1,170 @@
 # Proffera Current Status
 
-Last updated: 2026-08-01
+Last updated: 2026-08-06
 
-## Production baseline
+## Release baselines
 
-Production deploys from `main`. The current production baseline is the merged
-PrimeView portfolio release (`b1b4dab`). The next controlled release is
-`work/proffera-international-billing`; it must not be deployed before its Neon
-migration is verified and applied.
+Proffera deploys from `main`, but source and Production are temporarily on
+different commits because Vercel has rate-limited new builds after a large
+number of rapid Preview deployments.
+
+- Source baseline: `d50631c` on `main`.
+- Production baseline: `5a8f3e5`, the merged PR #348 release.
+- Production is healthy and remains unchanged while the build limit is active.
+- The Verified Review email release in PR #349 and the trusted-origin hardening
+  in PR #351 are merged to `main` but are not yet live in Production.
+
+A release must not be described as live until the matching Production
+Deployment is `READY`, the production domains point to it, and the relevant
+runtime smoke checks pass.
 
 ## Delivered product capabilities
 
-- Swedish public routes remain canonical; English public marketing is available
-  under `/en`, with language-aware metadata and sitemap entries.
-- English dashboard navigation, booking/customer views, settings and billing
-  are available through `?lang=en` without changing the underlying workspace.
-- Gallery media is stored per workspace. The package lock now includes the
-  Blob client required by the optional Blob upload path; database media remains
-  the safe fallback.
-- Stripe subscriptions use hosted Checkout, a customer portal and webhook-led
-  entitlement synchronization. The two configured subscription Prices remain
-  the source of truth.
-- Booking reminders have a durable scheduler and duplicate-delivery protection.
-  A real due reminder still needs operational verification before it is claimed
-  as an end-to-end production success.
+### SaaS foundation
 
-## Workspace access and tenant isolation
+- Better Auth-backed sign-in and session handling.
+- Session-derived Workspace access with `owner`, `admin`, `staff`, and `viewer`
+  roles.
+- Workspace-scoped reads and writes for bookings, customers, leads, offers,
+  settings, reviews, billing and service work.
+- Central Platform Admin roles, route authorization and audit logging.
+- Separation between customer Workspace accounts and Platform Admin accounts.
 
-The application has session-derived workspace access with these roles:
-`owner`, `admin`, `staff`, and `viewer`.
+### Feature access and trials
 
-- Dashboard reads and writes resolve the active workspace from the authenticated
-  membership, never from a route parameter or form field.
-- Customer, booking, event, lead, status-update and rescheduling queries no
-  longer include the retired legacy workspace fallback.
-- The production database audit before this release found no customer or booking
-  rows assigned to the retired `default` workspace.
-- A live two-user sign-in smoke test remains a release verification step; it
-  must use designated test accounts, never a real customer workspace.
+- The Feature Catalog is the canonical source for dashboard capability access.
+- New active Trial Workspaces receive the active catalog capabilities without
+  customer-specific hardcoded provisioning.
+- Route guards protect Leads, Offers, Gallery and Verified Reviews directly.
+- After Trial expiry, normal plan-tier access applies again.
 
-## International B2B release (pending migration and deployment)
+### Booking, CRM and customer operations
 
-Migration: `db/migrations/20260801_0020_workspace_market_settings.sql`
+- Public booking, verification, availability and booking management.
+- Workspace booking hours, staff scheduling structures and time-off support.
+- Customer CRM, customer history, leads and booking events.
+- Swedish and English public and dashboard experiences.
+- Workspace country, currency and timezone foundations for Sweden, supported EU
+  markets and the United Kingdom.
+- Booking confirmations and a durable reminder scheduler with duplicate-delivery
+  protection.
 
-Each workspace will have a controlled B2B market setting:
+The reminder infrastructure exists, but a real due reminder has not yet been
+verified end to end in Production.
 
-| Market | Currency preference | Booking and staff time |
-| --- | --- | --- |
-| Sweden | SEK | `Europe/Stockholm` by default |
-| EU countries in the supported list | EUR | Workspace-selected supported IANA zone |
-| United Kingdom | GBP | `Europe/London` by default |
+### Billing and subscriptions
 
-- Existing workspaces stay Sweden-first by default.
-- PrimeView Window Care is moved to the UK market by the migration. It has no
-  booking records, so no historic appointment is reinterpreted.
-- Public booking, schedule blocks, staff scheduling, calendar moves, booking
-  notifications, reminders and customer booking pages use the workspace time
-  zone after the migration.
-- Checkout collects a billing address and VAT ID. The market and selected
-  currency are recorded in Stripe metadata, and an old open Checkout session is
-  expired if the workspace market changes.
-- Proffera does not invent EUR or GBP amounts in application code. Hosted
-  Checkout uses the configured Stripe Price; Adaptive Pricing is available only
-  when `STRIPE_ADAPTIVE_PRICING_ENABLED=true` is verified in the Stripe account.
-- `STRIPE_TAX_ENABLED` stays `false` until the business owner has configured
-  and verified the required Stripe Tax registrations. A country selection or a
-  VAT field alone is not legal/tax configuration.
+- Stripe-hosted Checkout and Customer Portal.
+- Webhook-synchronised subscription state.
+- Read-only Platform Billing views and alert detection.
+- Controlled internal Trial extension with audit logging.
+- Stripe remains the source of truth for Stripe-bound plans and statuses.
 
-See [International B2B billing](INTERNATIONAL_B2B_BILLING.md) for the release
-decision and operational hand-off.
+Automatic tax must remain disabled until the required registrations and legal
+review are complete. Proffera must not invent local-currency prices outside the
+configured Stripe Prices.
 
-## Verification status for this release
+### AI Chat
 
-- `npm test` — passing (45 tests)
-- `npm run typecheck` — passing
-- `npm run lint` — passing (four existing image-element warnings)
-- `npm run build` — passing locally
-- Neon migration — pending temporary-branch validation and explicit commit
-  approval
-- Production deployment and live checkout — not yet claimed or announced
+- Workspace-level AI Chat integrations exist and can be activated independently.
+- Tenant/client identifiers and lifecycle state are stored per Workspace.
+- The capability is available for pilot use; it is not yet presented as a fully
+  operationally proven mass-market module.
 
-## Remaining commercial prerequisites
+### Offers and service jobs
 
-1. Verify and apply the controlled Neon migration, then deploy the matching
-   application commit.
-2. Configure and test Stripe Adaptive Pricing only if local-currency display is
-   wanted; otherwise Checkout safely uses the configured Price currency.
-3. Obtain tax/legal review and configure the applicable Stripe Tax
-   registrations before switching on automatic tax.
-4. Run a Stripe Sandbox/Preview checkout for Sweden, an EU company and a UK
-   company; verify that an open session is replaced after a market change.
-5. Run the designated two-workspace authentication smoke test and confirm each
-   account sees only its own customers, bookings and settings.
+- Quote Request intake, Draft Offer editing, public offer links, PDF output and
+  customer Accept/Reject foundations exist.
+- Email-delivery and Service Job conversion structures exist.
+- Service Job notes, events, attachments and completion evidence are supported.
+
+The complete Request → Offer → Email → Accept → Job lifecycle still requires a
+controlled end-to-end Production verification.
+
+### Verified Reviews
+
+The central multi-tenant Verified Review flow is implemented:
+
+- invitations are issued only for eligible completed bookings;
+- only SHA-256 token hashes are persisted;
+- tenant, customer, booking and Workspace consistency are validated;
+- invitation redemption and review creation are atomic;
+- expired, revoked, reused and ineligible links are rejected;
+- anonymous PrimeView submission is closed;
+- only approved verified reviews are eligible for publication;
+- moderation decisions and email outcomes are audited without raw tokens or
+  review text leakage.
+
+PR #349 adds Swedish/English Brevo delivery after a real transition to
+`completed`, plus manual send/resend controls. PR #351 ensures private review
+links are generated only from configured trusted origins, never from an incoming
+request Host. Both changes are merged to `main` and await the next Production
+Deployment.
+
+## Verification status
+
+The latest Verified Review hardening branch passed:
+
+- lint;
+- TypeScript typecheck;
+- automated tests;
+- production build;
+- whitespace validation.
+
+Production remained on the previous healthy Deployment because Vercel reported:
+`Deployment rate limited — retry in 24 hours.`
+
+## Preview environment limitation
+
+Current Preview deployments do not have `DATABASE_URL`. Any Preview route that
+initializes Proffera Auth therefore fails closed instead of providing a usable
+authenticated Preview.
+
+The correct fix is to configure an isolated Preview Neon branch through
+branch-specific Vercel environment variables. Preview must not be connected to
+the Production database merely to make smoke tests pass.
+
+## Last read-only Production snapshot
+
+An earlier successful read-only snapshot on 2026-08-06 showed:
+
+| Metric | Count |
+| --- | ---: |
+| Workspaces | 4 |
+| Workspace memberships | 8 |
+| Customers | 16 |
+| Bookings | 43 |
+| Service jobs | 22 |
+| Website reviews | 3 |
+| Review invitations | 0 |
+| Billing subscriptions | 4 |
+| AI Chat integrations | 2 |
+
+A later Neon Connector read failed authorization before query execution. No
+Production database mutation was performed during that failure.
+
+## Required operational proof
+
+Before claiming broad production readiness, complete these controlled flows with
+designated test data and recipients:
+
+1. Deploy the current `main` after the Vercel build limit clears.
+2. Complete Booking → Verified Review email → one-time link → submission →
+   moderation → publication.
+3. Trigger one real due booking reminder and verify duplicate prevention.
+4. Complete Quote Request → Offer → Email → Accept/Reject → Service Job.
+5. Move one Service Job through assignment, progress and completion.
+6. Create test Staff schedules, time off and overlapping-booking checks.
+7. Run a two-account Workspace-isolation smoke test with dedicated test accounts.
+8. Verify Stripe Sandbox Checkout and webhook state for Sweden, an EU business
+   and a UK business.
+
+## Repository and operations cleanup
+
+- Consolidate the duplicated `db/migrations` and `database/migrations` history
+  into one documented migration source of truth.
+- Configure a safe Preview database and required Preview environment variables.
+- Reduce unnecessary Vercel Preview builds so rapid incremental commits do not
+  exhaust the build quota.
+- Keep this file aligned with the actual `main` commit and the separately
+  verified Production Deployment.
