@@ -4,6 +4,8 @@ export const PLATFORM_ADMIN_MANAGEMENT_ERROR_CODES = [
   "user_not_found",
   "workspace_member",
   "self_protection",
+  "last_super_admin",
+  "access_revoked",
 ] as const;
 
 export type PlatformAdminManagementErrorCode =
@@ -15,6 +17,8 @@ const errorMessages: Record<PlatformAdminManagementErrorCode, string> = {
   user_not_found: "User account not found",
   workspace_member: "Workspace members cannot be newly activated as platform admins",
   self_protection: "You cannot remove your own super admin access",
+  last_super_admin: "The final active super admin cannot be deactivated or demoted",
+  access_revoked: "Your super admin access changed before the update completed",
 };
 
 export class PlatformAdminManagementError extends Error {

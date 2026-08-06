@@ -10,6 +10,8 @@ const errorMessages: Record<string, string> = {
   user_not_found: "Kontot finns inte ännu. Användaren måste först skapa ett vanligt Proffera-konto.",
   workspace_member: "Kontot är redan ägare eller medlem i en kund-Workspace och kan därför inte aktiveras som ny Platform Admin. Använd ett separat internt konto.",
   self_protection: "Du kan inte ta bort eller ändra din egen super_admin-behörighet.",
+  last_super_admin: "Den sista aktiva super_admin kan inte inaktiveras eller få en lägre roll. Aktivera en annan super_admin först.",
+  access_revoked: "Din super_admin-behörighet ändrades medan uppdateringen pågick. Ladda om sidan och försök igen med ett behörigt konto.",
 };
 
 export default async function PlatformAdminsPage({
@@ -51,7 +53,7 @@ export default async function PlatformAdminsPage({
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-xl font-bold text-slate-950">Lägg till eller uppdatera admin</h2>
         <p className="mt-1 text-sm text-slate-600">
-          Användaren måste redan ha ett Proffera-konto. Nya Platform Admins måste använda ett separat internt konto utan medlemskap i någon kund-Workspace.
+          Användaren måste redan ha ett Proffera-konto. Nya Platform Admins måste använda ett separat internt konto utan medlemskap i någon kund-Workspace. Systemet tillåter aldrig att den sista aktiva super_admin inaktiveras eller degraderas.
         </p>
         <form action={savePlatformAdminAction} className="mt-5 grid gap-4 md:grid-cols-[1fr_240px_auto_auto] md:items-end">
           <label className="grid gap-1 text-sm font-semibold text-slate-700">E-post

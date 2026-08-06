@@ -66,13 +66,19 @@ describe("Platform Admin workspace separation", () => {
 
     const policyCheck = management.indexOf("canActivatePlatformAdmin");
     const mutation = management.indexOf("const mutationRows");
+    const serializedEligibility = management.indexOf("eligibility as materialized");
+    const auditedMutation = management.indexOf("audited as");
 
     expect(policyCheck).toBeGreaterThan(-1);
     expect(mutation).toBeGreaterThan(policyCheck);
+    expect(serializedEligibility).toBeGreaterThan(mutation);
+    expect(auditedMutation).toBeGreaterThan(serializedEligibility);
     expect(management).toContain("from workspace_memberships wm");
-    expect(management).toContain("with eligible as");
+    expect(management).toContain("current_target.has_workspace_membership");
+    expect(management).toContain("then 'workspace_member'");
+    expect(management).toContain("from eligibility\n      where outcome = 'ok'");
     expect(management).toContain("insert into admin_audit_logs");
-    expect(management).toContain("if (mutationRows.length === 0)");
+    expect(management).toContain('outcome === "workspace_member"');
     expect(action).toContain("error instanceof PlatformAdminManagementError");
     expect(action).toContain("error=${error.code}");
     expect(page).toContain("workspace_member");
