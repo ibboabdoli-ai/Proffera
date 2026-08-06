@@ -43,20 +43,20 @@ export default async function ReviewInvitationsPage({ searchParams }: Invitation
         title={isEnglish ? "Verified review invitations" : "Verifierade omdömesinbjudningar"}
         description={
           isEnglish
-            ? "Create a secure single-use review link only after a booking is completed."
-            : "Skapa en säker engångslänk först när en bokning är slutförd."
+            ? "Completed bookings receive a secure review invitation automatically when the customer has an email address."
+            : "Slutförda bokningar får automatiskt en säker omdömesinbjudan när kunden har en e-postadress."
         }
         icon={Link2}
       />
 
       <section className="rounded-2xl border border-[#dbe5f6] bg-[#f6f9ff] p-5 text-sm leading-6 text-[#29436f]">
         <p className="font-bold text-[#071b42]">
-          {isEnglish ? "Security model" : "Säkerhetsmodell"}
+          {isEnglish ? "Security and retry model" : "Säkerhets- och återförsöksmodell"}
         </p>
         <p className="mt-1">
           {isEnglish
-            ? "Only the SHA-256 hash is stored. The raw link appears once, expires after 30 days and cannot be used twice. Email delivery is not automatic in this phase."
-            : "Endast SHA-256-hashen lagras. Den råa länken visas en gång, går ut efter 30 dagar och kan inte användas två gånger. E-post skickas inte automatiskt i denna fas."}
+            ? "Only the SHA-256 hash is stored. The raw link appears once, expires after 30 days and cannot be used twice. Use this page to resend a rotated link when email delivery fails or to copy it for a customer without email."
+            : "Endast SHA-256-hashen lagras. Den råa länken visas en gång, går ut efter 30 dagar och kan inte användas två gånger. Använd sidan för att skicka en roterad länk på nytt när e-postleveransen misslyckas eller för att kopiera den åt en kund utan e-postadress."}
         </p>
       </section>
 
