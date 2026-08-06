@@ -12,7 +12,7 @@ describe("dynamic workspace media lint policy", () => {
     const config = source("eslint.config.mjs");
     const scopedBlock = config.slice(
       config.indexOf("Workspace media URLs may use"),
-      config.indexOf("globalIgnores"),
+      config.indexOf("  globalIgnores"),
     );
 
     expect(scopedBlock).toContain('"src/app/demo/primeview/gallery/page.tsx"');
