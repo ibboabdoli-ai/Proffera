@@ -18,30 +18,37 @@ afterEach(() => {
 });
 
 describe("proxy request boundary", () => {
-  it("rejects unauthenticated admin requests", () => {
+  it("allows admin pages to reach session and role authorization", () => {
     process.env.ADMIN_ACCESS_CODE = "test-admin-code";
 
     const response = proxy(request("/admin/saas"));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(response.headers.get("www-authenticate")).toBeNull();
+  });
+
+  it("rejects unauthenticated sensitive admin API requests", () => {
+    process.env.ADMIN_ACCESS_CODE = "test-admin-code";
+
+    const response = proxy(request("/api/outbox"));
 
     expect(response.status).toBe(401);
     expect(response.headers.get("www-authenticate")).toContain("Proffera Admin");
   });
 
-  it("allows valid Basic authentication and forwards the admin path", () => {
+  it("allows valid Basic authentication for sensitive admin APIs", () => {
     process.env.ADMIN_ACCESS_CODE = "test-admin-code";
     const authorization = `Basic ${btoa("admin:test-admin-code")}`;
 
     const response = proxy(
-      request("/admin/billing", {
+      request("/api/company-admin", {
         authorization,
       }),
     );
 
     expect(response.status).toBe(200);
     expect(response.headers.get("x-middleware-next")).toBe("1");
-    expect(response.headers.get("x-middleware-request-x-proffera-admin-path")).toBe(
-      "/admin/billing",
-    );
   });
 
   it("marks dashboard responses as noindex", () => {
