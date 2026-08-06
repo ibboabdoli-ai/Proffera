@@ -6,9 +6,7 @@ const DATABASE_URL_ENV_KEYS = [
   "DATABASE_URL_UNPOOLED",
 ] as const;
 
-type DatabaseUrlEnvironment = Partial<
-  Record<(typeof DATABASE_URL_ENV_KEYS)[number], string | undefined>
->;
+type DatabaseUrlEnvironment = Readonly<Record<string, string | undefined>>;
 
 export function resolveDatabaseUrl(env: DatabaseUrlEnvironment = process.env) {
   for (const key of DATABASE_URL_ENV_KEYS) {
