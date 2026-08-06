@@ -7,7 +7,6 @@ const CHAT_ORIGIN = "https://chat.proffera.se";
 const PROFFERA_TENANT = "proffera";
 const PROFFERA_CLIENT_ID = "proffera";
 const NOINDEX_VALUE = "noindex, nofollow";
-const ADMIN_PATH_HEADER = "x-proffera-admin-path";
 
 function unauthorized(realm = "Proffera Admin", noindex = false) {
   const headers = new Headers({
@@ -71,13 +70,8 @@ function isDashboardPath(pathname: string) {
   return pathname === "/dashboard" || pathname.startsWith("/dashboard/");
 }
 
-function shouldRequireAdminAuth(pathname: string) {
-  return (
-    pathname === "/admin" ||
-    pathname.startsWith("/admin/") ||
-    pathname === "/api/outbox" ||
-    pathname === "/api/company-admin"
-  );
+function shouldRequireAdminBasicAuth(pathname: string) {
+  return pathname === "/api/outbox" || pathname === "/api/company-admin";
 }
 
 function allowDashboardWithNoIndex() {
@@ -108,19 +102,7 @@ function requireAdminAuth(request: NextRequest) {
     return unauthorized();
   }
 
-  const requestHeaders = new Headers(request.headers);
-  if (
-    request.nextUrl.pathname === "/admin" ||
-    request.nextUrl.pathname.startsWith("/admin/")
-  ) {
-    requestHeaders.set(ADMIN_PATH_HEADER, request.nextUrl.pathname);
-  }
-
-  return NextResponse.next({
-    request: {
-      headers: requestHeaders,
-    },
-  });
+  return NextResponse.next();
 }
 
 export function proxy(request: NextRequest) {
@@ -145,7 +127,7 @@ export function proxy(request: NextRequest) {
     return allowDashboardWithNoIndex();
   }
 
-  if (shouldRequireAdminAuth(pathname)) {
+  if (shouldRequireAdminBasicAuth(pathname)) {
     return requireAdminAuth(request);
   }
 
