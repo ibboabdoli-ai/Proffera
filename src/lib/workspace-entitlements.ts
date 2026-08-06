@@ -6,10 +6,14 @@ import {
   normalizeWorkspacePlan,
   type WorkspacePlanKey,
 } from "@/lib/workspace-feature-policy";
+import {
+  resolveWorkspaceFeatureAccess,
+  type FeatureAccessState,
+} from "@/lib/workspace-feature-access";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 export type PlanKey = WorkspacePlanKey;
-export type FeatureAccessState = "included" | "trial" | "locked" | "disabled";
+export type { FeatureAccessState };
 
 export type WorkspaceEntitlement = {
   featureKey: string;
@@ -18,6 +22,7 @@ export type WorkspaceEntitlement = {
   minimumPlan: PlanKey;
   trialDays: number;
   workspaceEnabled: boolean;
+  adminOverrideEnabled: boolean | null;
   planKey: PlanKey | null;
   planStatus: string | null;
   trialStatus: string | null;
@@ -42,12 +47,15 @@ export async function getWorkspaceEntitlements(): Promise<WorkspaceEntitlement[]
     )
     select c.feature_key, c.name, c.description, c.minimum_plan, c.trial_days,
       coalesce(f.enabled, false) as workspace_enabled,
+      o.enabled as admin_override_enabled,
       p.plan_key, p.status as plan_status, p.current_period_end as plan_period_end,
       t.status as trial_status, t.ends_at as trial_ends_at,
       (t.workspace_id is not null) as trial_consumed
     from feature_catalog c
     left join workspace_feature_flags f
       on f.workspace_id = ${access.workspaceId}::uuid and f.feature_key = c.feature_key
+    left join workspace_feature_overrides o
+      on o.workspace_id = ${access.workspaceId}::uuid and o.feature_key = c.feature_key
     left join latest_plan p on true
     left join workspace_feature_trials t
       on t.workspace_id = ${access.workspaceId}::uuid and t.feature_key = c.feature_key
@@ -71,14 +79,15 @@ export async function getWorkspaceEntitlements(): Promise<WorkspaceEntitlement[]
       && Boolean(trialEndsAt)
       && new Date(trialEndsAt!).getTime() > now.getTime();
     const workspaceEnabled = Boolean(row.workspace_enabled);
-    const hasAccess = (included || trialActive) && workspaceEnabled;
-    const accessState: FeatureAccessState = !workspaceEnabled && (included || trialActive)
-      ? "disabled"
-      : included
-        ? "included"
-        : trialActive
-          ? "trial"
-          : "locked";
+    const adminOverrideEnabled = row.admin_override_enabled === null || row.admin_override_enabled === undefined
+      ? null
+      : Boolean(row.admin_override_enabled);
+    const { hasAccess, accessState } = resolveWorkspaceFeatureAccess({
+      includedInPlan: included,
+      trialActive,
+      workspaceEnabled,
+      adminOverrideEnabled,
+    });
 
     return {
       featureKey: String(row.feature_key),
@@ -87,13 +96,17 @@ export async function getWorkspaceEntitlements(): Promise<WorkspaceEntitlement[]
       minimumPlan,
       trialDays: Number(row.trial_days) || 0,
       workspaceEnabled,
+      adminOverrideEnabled,
       planKey,
       planStatus: row.plan_status ? String(row.plan_status) : null,
       trialStatus: row.trial_status ? String(row.trial_status) : null,
       trialEndsAt,
       accessState,
       hasAccess,
-      canStartTrial: !included && !Boolean(row.trial_consumed) && Number(row.trial_days) > 0,
+      canStartTrial: adminOverrideEnabled === null
+        && !included
+        && !Boolean(row.trial_consumed)
+        && Number(row.trial_days) > 0,
     } satisfies WorkspaceEntitlement;
   });
 }

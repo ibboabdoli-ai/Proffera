@@ -3,7 +3,8 @@ import { notFound, redirect } from "next/navigation";
 
 import { getAdminWorkspaceOverview } from "@/lib/admin-workspace-overview";
 import { getPlatformAdmin } from "@/lib/platform-admin";
-import { workspaceFeatureCatalog } from "@/lib/workspace-feature-catalog";
+import { resolveWorkspaceFeatureAccess } from "@/lib/workspace-feature-access";
+import { isWorkspacePlanFeatureIncluded } from "@/lib/workspace-feature-policy";
 
 function StatCard({ label, value, detail }: { label: string; value: string; detail?: string }) {
   return (
@@ -15,13 +16,46 @@ function StatCard({ label, value, detail }: { label: string; value: string; deta
   );
 }
 
+function FeatureActionForm({
+  workspaceId,
+  featureKey,
+  mode,
+  label,
+  primary = false,
+}: {
+  workspaceId: string;
+  featureKey: string;
+  mode: "enable" | "disable" | "plan";
+  label: string;
+  primary?: boolean;
+}) {
+  return (
+    <form action="/api/platform-admin/workspace-features" method="post">
+      <input type="hidden" name="workspace_id" value={workspaceId} />
+      <input type="hidden" name="feature_key" value={featureKey} />
+      <input type="hidden" name="mode" value={mode} />
+      <button
+        type="submit"
+        className={`min-h-10 rounded-lg px-3 py-2 text-sm font-semibold ${
+          primary
+            ? "bg-slate-950 text-white hover:bg-slate-800"
+            : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+        }`}
+      >
+        {label}
+      </button>
+    </form>
+  );
+}
+
 const featureMessages: Record<string, string> = {
-  enabled: "Modulen aktiverades.",
-  disabled: "Modulen inaktiverades.",
+  enabled: "Modulen aktiverades manuellt och gäller oavsett plan.",
+  disabled: "Modulen inaktiverades manuellt.",
+  plan: "Den manuella styrningen togs bort. Modulen följer nu plan och trial.",
   unchanged: "Modulen hade redan vald status.",
   forbidden: "Endast super_admin får ändra modulåtkomst.",
   invalid: "Ogiltig moduländring.",
-  missing: "Workspace kunde inte hittas.",
+  missing: "Workspace eller modul kunde inte hittas.",
   database: "Databasen är inte tillgänglig.",
 };
 
@@ -40,10 +74,10 @@ export default async function AdminWorkspaceOverviewPage({
   const overview = await getAdminWorkspaceOverview(workspaceId);
   if (!overview) notFound();
 
-  const { workspace, recentBookings, featureFlags } = overview;
-  const currentFeatures = new Map(featureFlags.map((row) => [String(row.feature_key), Boolean(row.enabled)]));
+  const { workspace, recentBookings, features } = overview;
   const trialEndsAt = workspace.current_period_end ? new Date(String(workspace.current_period_end)) : null;
   const canEditFeatures = admin.role === "super_admin";
+  const now = new Date();
 
   return (
     <main className="mx-auto max-w-7xl space-y-8 px-4 py-10 sm:px-6 lg:px-8">
@@ -65,7 +99,7 @@ export default async function AdminWorkspaceOverviewPage({
       </header>
 
       {feature && featureMessages[feature] ? (
-        <p className={`rounded-xl border px-4 py-3 text-sm font-semibold ${feature === "enabled" || feature === "disabled" || feature === "unchanged" ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-red-200 bg-red-50 text-red-900"}`} role="status">
+        <p className={`rounded-xl border px-4 py-3 text-sm font-semibold ${["enabled", "disabled", "plan", "unchanged"].includes(feature) ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-red-200 bg-red-50 text-red-900"}`} role="status">
           {featureMessages[feature]}
         </p>
       ) : null}
@@ -82,7 +116,7 @@ export default async function AdminWorkspaceOverviewPage({
       <section className="grid gap-5 lg:grid-cols-2">
         <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <h2 className="text-xl font-bold text-slate-950">Plan och trial</h2>
-          <dl className="mt-4 grid gap-4 sm:grid-cols-2 text-sm">
+          <dl className="mt-4 grid gap-4 text-sm sm:grid-cols-2">
             <div><dt className="text-slate-500">Plan</dt><dd className="mt-1 font-semibold text-slate-950">{String(workspace.plan_key)}</dd></div>
             <div><dt className="text-slate-500">Status</dt><dd className="mt-1 font-semibold text-slate-950">{String(workspace.plan_status)}</dd></div>
             <div><dt className="text-slate-500">Start</dt><dd className="mt-1 font-semibold text-slate-950">{workspace.current_period_start ? new Date(String(workspace.current_period_start)).toLocaleDateString("sv-SE") : "—"}</dd></div>
@@ -92,7 +126,7 @@ export default async function AdminWorkspaceOverviewPage({
 
         <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <h2 className="text-xl font-bold text-slate-950">Företagsuppgifter</h2>
-          <dl className="mt-4 grid gap-4 sm:grid-cols-2 text-sm">
+          <dl className="mt-4 grid gap-4 text-sm sm:grid-cols-2">
             <div><dt className="text-slate-500">Ort</dt><dd className="mt-1 font-semibold text-slate-950">{String(workspace.primary_city ?? "—")}</dd></div>
             <div><dt className="text-slate-500">E-post</dt><dd className="mt-1 font-semibold text-slate-950">{String(workspace.contact_email ?? "—")}</dd></div>
             <div><dt className="text-slate-500">Telefon</dt><dd className="mt-1 font-semibold text-slate-950">{String(workspace.contact_phone ?? "—")}</dd></div>
@@ -104,30 +138,93 @@ export default async function AdminWorkspaceOverviewPage({
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 px-5 py-4">
           <h2 className="text-xl font-bold text-slate-950">Modulåtkomst</h2>
-          <p className="mt-1 text-sm text-slate-600">Aktivera eller inaktivera befintliga workspace-moduler manuellt. Plan och betalstatus ändras inte här.</p>
+          <p className="mt-1 text-sm text-slate-600">
+            Manuell aktivering från Platform Admin har företräde framför plan och trial. Välj Följ plan för att återställa normal åtkomst.
+          </p>
+          <p className="mt-2 text-xs text-amber-700">
+            AI-assistent kan fortfarande visas som Planerad tills själva produktmodulen är färdig för produktion.
+          </p>
         </div>
         <div className="divide-y divide-slate-100">
-          {workspaceFeatureCatalog.map((module) => {
-            const enabled = currentFeatures.get(module.key) === true;
+          {features.map((module) => {
+            const featureKey = String(module.feature_key);
+            const workspaceEnabled = Boolean(module.workspace_enabled);
+            const adminOverrideEnabled = module.admin_override_enabled === null || module.admin_override_enabled === undefined
+              ? null
+              : Boolean(module.admin_override_enabled);
+            const includedInPlan = isWorkspacePlanFeatureIncluded({
+              planKey: workspace.plan_key,
+              planStatus: workspace.plan_status,
+              planPeriodEnd: workspace.current_period_end,
+              minimumPlan: module.minimum_plan,
+              now,
+            });
+            const moduleTrialEndsAt = module.trial_ends_at ? new Date(String(module.trial_ends_at)) : null;
+            const trialActive = String(module.trial_status ?? "") === "active"
+              && Boolean(moduleTrialEndsAt)
+              && moduleTrialEndsAt!.getTime() > now.getTime();
+            const { hasAccess } = resolveWorkspaceFeatureAccess({
+              includedInPlan,
+              trialActive,
+              workspaceEnabled,
+              adminOverrideEnabled,
+            });
+            const accessSource = adminOverrideEnabled === true
+              ? "Manuellt aktiverad"
+              : adminOverrideEnabled === false
+                ? "Manuellt inaktiverad"
+                : includedInPlan
+                  ? "Ingår i plan"
+                  : trialActive
+                    ? "Aktiv trial"
+                    : workspaceEnabled
+                      ? "Låst av plan"
+                      : "Inaktiverad i workspace";
+
             return (
-              <div key={module.key} className="flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <div key={featureKey} className="flex flex-col gap-4 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
                 <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="font-semibold text-slate-950">{module.label}</h3>
-                    <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${enabled ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-600"}`}>{enabled ? "Aktiv" : "Inaktiv"}</span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="font-semibold text-slate-950">{String(module.name)}</h3>
+                    <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${hasAccess ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-600"}`}>
+                      {hasAccess ? "Aktiv" : "Inaktiv"}
+                    </span>
+                    <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-800">{accessSource}</span>
                   </div>
-                  <p className="mt-1 text-sm text-slate-600">{module.description}</p>
-                  <p className="mt-1 font-mono text-xs text-slate-400">{module.key}</p>
+                  <p className="mt-1 text-sm text-slate-600">{String(module.description)}</p>
+                  <p className="mt-1 font-mono text-xs text-slate-400">
+                    {featureKey} · minsta plan {String(module.minimum_plan)}
+                  </p>
                 </div>
+
                 {canEditFeatures ? (
-                  <form action="/api/platform-admin/workspace-features" method="post">
-                    <input type="hidden" name="workspace_id" value={String(workspace.id)} />
-                    <input type="hidden" name="feature_key" value={module.key} />
-                    <input type="hidden" name="enabled" value={enabled ? "false" : "true"} />
-                    <button type="submit" className={`min-h-10 rounded-lg px-4 py-2 text-sm font-semibold ${enabled ? "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50" : "bg-slate-950 text-white hover:bg-slate-800"}`}>
-                      {enabled ? "Inaktivera" : "Aktivera"}
-                    </button>
-                  </form>
+                  <div className="flex flex-wrap gap-2">
+                    {adminOverrideEnabled !== true ? (
+                      <FeatureActionForm
+                        workspaceId={String(workspace.id)}
+                        featureKey={featureKey}
+                        mode="enable"
+                        label="Aktivera manuellt"
+                        primary={!hasAccess}
+                      />
+                    ) : null}
+                    {adminOverrideEnabled !== false ? (
+                      <FeatureActionForm
+                        workspaceId={String(workspace.id)}
+                        featureKey={featureKey}
+                        mode="disable"
+                        label="Inaktivera manuellt"
+                      />
+                    ) : null}
+                    {adminOverrideEnabled !== null ? (
+                      <FeatureActionForm
+                        workspaceId={String(workspace.id)}
+                        featureKey={featureKey}
+                        mode="plan"
+                        label="Följ plan"
+                      />
+                    ) : null}
+                  </div>
                 ) : (
                   <span className="text-sm font-semibold text-slate-500">Read-only</span>
                 )}
