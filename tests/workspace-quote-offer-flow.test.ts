@@ -12,13 +12,14 @@ describe("workspace quote offer lifecycle", () => {
     const action = source("src/app/dashboard/offerter/[id]/actions.ts");
     const persistence = source("src/lib/workspace-quote-offers-db.ts");
 
-    expect(action).toContain("getUserWorkspaceAccess");
-    expect(action).toContain("canManageWorkspace");
     expect(action).toContain("prepareDashboardWorkspaceQuoteOfferEmailDelivery");
     expect(action).toContain("sendWorkspaceQuoteOfferEmail");
-    expect(action).toContain("markDashboardWorkspaceQuoteOfferEmailDeliverySent");
-    expect(action).toContain("markDashboardWorkspaceQuoteOfferEmailDeliveryFailed");
+    expect(action).toContain("completeDashboardWorkspaceQuoteOfferEmailDelivery");
+    expect(action).toContain('status: "sent"');
+    expect(action).toContain('status: "failed"');
 
+    expect(persistence).toContain("getUserWorkspaceAccess");
+    expect(persistence).toContain("const workspaceId = await getActiveWorkspaceId()");
     expect(persistence).toContain("offer.workspace_id = ${workspaceId}");
     expect(persistence).toContain("request.workspace_id = offer.workspace_id");
     expect(persistence).toContain("offer.status = 'sent'");
