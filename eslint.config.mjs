@@ -29,6 +29,7 @@ const eslintConfig = defineConfig([
       "src/app/demo/primeview/gallery/page.tsx",
       "src/app/dashboard/galleri/page.tsx",
       "src/app/boka/*/page.tsx",
+      "src/components/public-workspace-gallery.tsx",
     ],
     rules: {
       "@next/next/no-img-element": "off",
