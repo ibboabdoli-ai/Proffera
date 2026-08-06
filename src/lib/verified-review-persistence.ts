@@ -125,8 +125,9 @@ export async function persistVerifiedReviewSubmission(input: {
   sql: VerifiedReviewSql;
   tokenHash: string;
   review: VerifiedReviewSubmission;
+  workspaceSlug: string;
 }) {
-  const { sql, tokenHash, review } = input;
+  const { sql, tokenHash, review, workspaceSlug } = input;
 
   return sql`
     with locked as (
@@ -143,11 +144,13 @@ export async function persistVerifiedReviewSubmission(input: {
         coalesce(nullif(b.service, ''), b.title) as service,
         nullif(coalesce(b.city, c.city, ''), '') as area
       from website_review_invitations i
+      join workspaces w on w.id = i.workspace_id
       join bookings b on b.id = i.booking_id
       left join customers c
         on c.id = i.customer_id
        and c.workspace_id = b.workspace_id
       where i.token_hash = ${tokenHash}
+        and w.slug = ${workspaceSlug}
       for update of i
     ),
     eligible as (

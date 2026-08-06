@@ -57,6 +57,7 @@ describe("verified review flow", () => {
     await persistVerifiedReviewSubmission({
       sql,
       tokenHash: "b".repeat(64),
+      workspaceSlug: "primeview-window-care",
       review: {
         reviewerName: "Alex Morgan",
         rating: 5,
@@ -69,6 +70,8 @@ describe("verified review flow", () => {
 
     expect(calls).toHaveLength(1);
     expect(calls[0]?.query).toContain("for update of i");
+    expect(calls[0]?.query).toContain("w.slug = $value");
+    expect(calls[0]?.values).toContain("primeview-window-care");
     expect(calls[0]?.query).toContain("invitation_status = 'pending'");
     expect(calls[0]?.query).toContain("expires_at > now()");
     expect(calls[0]?.query).toContain("booking_status = 'completed'");

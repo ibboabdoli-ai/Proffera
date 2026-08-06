@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getSql as getDatabaseSql } from "@/lib/db/server";
+import { primeViewWorkspaceSlug } from "@/features/primeview/review";
 import {
   canManageWorkspaceSettings,
   getUserWorkspaceAccess,
@@ -79,7 +80,14 @@ export async function listReviewInvitationCandidates(): Promise<ReviewInvitation
     Promise.resolve(getDatabaseSql()),
   ]);
 
-  if (!access.ok || !canManageWorkspaceSettings(access) || !sql) return [];
+  if (
+    !access.ok ||
+    !canManageWorkspaceSettings(access) ||
+    access.workspaceSlug !== primeViewWorkspaceSlug ||
+    !sql
+  ) {
+    return [];
+  }
 
   try {
     const rows = await sql`
@@ -150,7 +158,11 @@ export async function issueReviewInvitation(
     Promise.resolve(getDatabaseSql()),
   ]);
 
-  if (!access.ok || !canManageWorkspaceSettings(access)) {
+  if (
+    !access.ok ||
+    !canManageWorkspaceSettings(access) ||
+    access.workspaceSlug !== primeViewWorkspaceSlug
+  ) {
     return { ok: false, code: "access" };
   }
 
@@ -238,6 +250,7 @@ export async function getVerifiedReviewInvitation(
         on c.id = i.customer_id
        and c.workspace_id = b.workspace_id
       where i.token_hash = ${tokenHash}
+        and w.slug = ${primeViewWorkspaceSlug}
       limit 1
     `;
     const row = rows[0];
@@ -300,6 +313,7 @@ export async function submitVerifiedReview(
       sql,
       tokenHash: hashVerifiedReviewToken(parsedToken.data),
       review,
+      workspaceSlug: primeViewWorkspaceSlug,
     });
     const row = rows[0];
     const reviewId = toText(row?.review_id);
