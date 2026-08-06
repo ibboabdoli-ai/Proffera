@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 
 import { getWorkspaceExperienceSettings, updateWorkspaceExperienceSettings } from "@/lib/workspace-experience";
-import { getUserWorkspaceAccess } from "@/lib/workspace-access";
+import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 const themePresets = [
   { key: "clean", name: "Clean", description: "Luftig, trygg och tydlig", primary: "#17452f", accent: "#d9b44a", appearance: "light" as const, shell: "bg-[#f7f7f4]", card: "rounded-2xl bg-white", button: "rounded-xl bg-[#17452f]" },
@@ -30,12 +30,14 @@ async function applyThemePreset(formData: FormData) {
 }
 
 export default async function AppearanceLayout({ children }: { children: ReactNode }) {
-  const [settings, access] = await Promise.all([getWorkspaceExperienceSettings(), getUserWorkspaceAccess()]);
-  const previewHref = access.ok ? `/boka/${access.workspaceSlug}` : null;
+  const access = await getUserWorkspaceAccess();
+  if (!access.ok || !canManageWorkspaceSettings(access)) return children;
+  const settings = await getWorkspaceExperienceSettings();
+  const previewHref = `/boka/${access.workspaceSlug}`;
 
   return <div className="grid gap-6">
     <section className="rounded-[26px] border border-[#dfe6df] bg-white p-5 shadow-sm sm:p-6">
-      <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-[.16em] text-[#68736b]">Färdiga bokningsteman</p><h2 className="mt-2 text-2xl font-black text-[#17201a]">Välj design med en klick</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-[#667168]">Varje tema har egen layoutkänsla, typografi, hörn, kontrast och standardpalett. Färgerna kan finjusteras i formuläret nedanför.</p></div>{previewHref ? <a href={previewHref} target="_blank" rel="noreferrer" className="text-sm font-bold text-[#17452f]">Öppna bokningssidans förhandsvisning</a> : null}</div>
+      <div className="flex flex-wrap items-end justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-[.16em] text-[#68736b]">Färdiga bokningsteman</p><h2 className="mt-2 text-2xl font-black text-[#17201a]">Välj design med en klick</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-[#667168]">Varje tema har egen layoutkänsla, typografi, hörn, kontrast och standardpalett. Färgerna kan finjusteras i formuläret nedanför.</p></div><a href={previewHref} target="_blank" rel="noreferrer" className="text-sm font-bold text-[#17452f]">Öppna bokningssidans förhandsvisning</a></div>
       <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         {themePresets.map((theme) => {
           const active = settings.themeKey === theme.key;
