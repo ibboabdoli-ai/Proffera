@@ -1,5 +1,5 @@
 import { DashboardModuleGuard } from "@/components/dashboard/dashboard-module-guard";
 
 export default function LeadsLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <DashboardModuleGuard featureKey="lead_management" moduleName="Leadhantering">{children}</DashboardModuleGuard>;
+  return <DashboardModuleGuard featureKey="lead_management">{children}</DashboardModuleGuard>;
 }
