@@ -155,3 +155,53 @@ export async function persistWebsiteReviewEdit(input: {
     limit 1
   `;
 }
+
+export async function persistWebsiteReviewDeletion(input: {
+  sql: WebsiteReviewModerationSql;
+  actorUserId: string;
+  workspaceId: string;
+  reviewId: string;
+}) {
+  const { sql, actorUserId, workspaceId, reviewId } = input;
+
+  return sql`
+    with previous as (
+      select id, workspace_id, status, is_verified
+      from website_reviews
+      where id = ${reviewId}::uuid
+        and workspace_id = ${workspaceId}::uuid
+      for update
+    ),
+    deleted as (
+      delete from website_reviews review_row
+      using previous
+      where review_row.id = previous.id
+      returning review_row.id, review_row.workspace_id
+    ),
+    audited as (
+      insert into admin_audit_logs (
+        admin_user_id, workspace_id, action, reason, previous_value, new_value
+      )
+      select
+        ${actorUserId},
+        deleted.workspace_id,
+        'website_review.deleted',
+        'Website review permanently deleted from workspace dashboard',
+        jsonb_build_object(
+          'review_id', deleted.id,
+          'status', previous.status,
+          'is_verified', previous.is_verified
+        ),
+        jsonb_build_object(
+          'review_id', deleted.id,
+          'deleted', true
+        )
+      from deleted
+      join previous on previous.id = deleted.id
+      returning id
+    )
+    select deleted.id
+    from deleted
+    where exists (select 1 from audited)
+  `;
+}
