@@ -26,12 +26,12 @@ export const mainNav = [
 
 export const serviceCategories = [
   "Onlinebokning",
-  "AI-chattassistent (planerad)",
+  "AI-chattassistent (pilot)",
   "QR-bokning",
   "Leadhantering",
   "Kund-CRM",
   "Automatiska bekräftelser",
-  "Påminnelser (planerad)",
+  "Påminnelser (beta)",
   "Digitala formulär",
   "Webbplats för företag",
   "Affärsautomation (planerad)",
