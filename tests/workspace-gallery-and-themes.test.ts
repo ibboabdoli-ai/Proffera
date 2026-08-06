@@ -18,11 +18,12 @@ describe("Public workspace gallery", () => {
     expect(alias).toContain("@/app/galleri/[slug]/page");
   });
 
-  it("shows only published workspace media on the booking surface", () => {
+  it("shows only published workspace media on an active booking surface", () => {
     const layout = source("src/app/boka/[slug]/layout.tsx");
     const galleryDb = source("src/lib/website-gallery-db.ts");
 
     expect(layout).toContain("experience.galleryEnabled");
+    expect(layout).toContain("wp.status in ('active', 'trialing')");
     expect(layout).toContain("PublicWorkspaceGallery");
     expect(galleryDb).toContain("g.status='published'");
     expect(galleryDb).toContain("w.slug=${workspaceSlug}");
@@ -46,7 +47,7 @@ describe("Booking theme system", () => {
 
     expect(layout).toContain("data-booking-theme={themeKey}");
     for (const key of ["clean", "salon", "premium", "modern", "minimal"]) {
-      expect(css).toContain(`[data-booking-theme=\"${key}\"]`);
+      expect(css).toContain(`[data-booking-theme="${key}"]`);
     }
     expect(css).toContain("text-transform: uppercase");
     expect(css).toContain("border-radius: 999px");
