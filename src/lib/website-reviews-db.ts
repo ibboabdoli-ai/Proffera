@@ -3,6 +3,7 @@ import "server-only";
 import { getSql } from "@/lib/db/server";
 import {
   isWebsiteReviewStatus,
+  persistWebsiteReviewDeletion,
   persistWebsiteReviewEdit,
   persistWebsiteReviewModeration,
   websiteReviewEditSchema,
@@ -265,6 +266,35 @@ export async function updateDashboardWebsiteReview(id: string, input: unknown) {
     return Boolean(rows[0]?.id);
   } catch (error) {
     console.error("Failed to edit website review", error);
+    return false;
+  }
+}
+
+export async function deleteDashboardWebsiteReview(id: string) {
+  const [access, sql] = await Promise.all([
+    getUserWorkspaceAccess(),
+    Promise.resolve(getSql()),
+  ]);
+
+  if (
+    !access.ok ||
+    !canManageWorkspaceSettings(access) ||
+    !sql ||
+    !uuidPattern.test(id)
+  ) {
+    return false;
+  }
+
+  try {
+    const rows = await persistWebsiteReviewDeletion({
+      sql,
+      actorUserId: access.userId,
+      workspaceId: access.workspaceId,
+      reviewId: id,
+    });
+    return Boolean(rows[0]?.id);
+  } catch (error) {
+    console.error("Failed to delete website review", error);
     return false;
   }
 }
