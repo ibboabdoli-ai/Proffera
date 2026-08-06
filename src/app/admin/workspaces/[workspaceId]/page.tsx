@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { getAdminWorkspaceOverview } from "@/lib/admin-workspace-overview";
 import { getPlatformAdmin } from "@/lib/platform-admin";
+import { workspaceFeatureCatalog } from "@/lib/workspace-feature-catalog";
 
 function StatCard({ label, value, detail }: { label: string; value: string; detail?: string }) {
   return (
@@ -14,20 +15,35 @@ function StatCard({ label, value, detail }: { label: string; value: string; deta
   );
 }
 
+const featureMessages: Record<string, string> = {
+  enabled: "Modulen aktiverades.",
+  disabled: "Modulen inaktiverades.",
+  unchanged: "Modulen hade redan vald status.",
+  forbidden: "Endast super_admin får ändra modulåtkomst.",
+  invalid: "Ogiltig moduländring.",
+  missing: "Workspace kunde inte hittas.",
+  database: "Databasen är inte tillgänglig.",
+};
+
 export default async function AdminWorkspaceOverviewPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ workspaceId: string }>;
+  searchParams: Promise<{ feature?: string }>;
 }) {
   const admin = await getPlatformAdmin();
   if (!admin) redirect("/logga-in");
 
   const { workspaceId } = await params;
+  const { feature } = await searchParams;
   const overview = await getAdminWorkspaceOverview(workspaceId);
   if (!overview) notFound();
 
-  const { workspace, recentBookings } = overview;
+  const { workspace, recentBookings, featureFlags } = overview;
+  const currentFeatures = new Map(featureFlags.map((row) => [String(row.feature_key), Boolean(row.enabled)]));
   const trialEndsAt = workspace.current_period_end ? new Date(String(workspace.current_period_end)) : null;
+  const canEditFeatures = admin.role === "super_admin";
 
   return (
     <main className="mx-auto max-w-7xl space-y-8 px-4 py-10 sm:px-6 lg:px-8">
@@ -47,6 +63,12 @@ export default async function AdminWorkspaceOverviewPage({
           ) : null}
         </div>
       </header>
+
+      {feature && featureMessages[feature] ? (
+        <p className={`rounded-xl border px-4 py-3 text-sm font-semibold ${feature === "enabled" || feature === "disabled" || feature === "unchanged" ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-red-200 bg-red-50 text-red-900"}`} role="status">
+          {featureMessages[feature]}
+        </p>
+      ) : null}
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
         <StatCard label="Bokningar totalt" value={String(workspace.booking_count)} />
@@ -77,6 +99,42 @@ export default async function AdminWorkspaceOverviewPage({
             <div><dt className="text-slate-500">Timezone / valuta</dt><dd className="mt-1 font-semibold text-slate-950">{String(workspace.time_zone ?? "—")} · {String(workspace.billing_currency ?? "—")}</dd></div>
           </dl>
         </article>
+      </section>
+
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-200 px-5 py-4">
+          <h2 className="text-xl font-bold text-slate-950">Modulåtkomst</h2>
+          <p className="mt-1 text-sm text-slate-600">Aktivera eller inaktivera befintliga workspace-moduler manuellt. Plan och betalstatus ändras inte här.</p>
+        </div>
+        <div className="divide-y divide-slate-100">
+          {workspaceFeatureCatalog.map((module) => {
+            const enabled = currentFeatures.get(module.key) === true;
+            return (
+              <div key={module.key} className="flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-semibold text-slate-950">{module.label}</h3>
+                    <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${enabled ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-600"}`}>{enabled ? "Aktiv" : "Inaktiv"}</span>
+                  </div>
+                  <p className="mt-1 text-sm text-slate-600">{module.description}</p>
+                  <p className="mt-1 font-mono text-xs text-slate-400">{module.key}</p>
+                </div>
+                {canEditFeatures ? (
+                  <form action="/api/platform-admin/workspace-features" method="post">
+                    <input type="hidden" name="workspace_id" value={String(workspace.id)} />
+                    <input type="hidden" name="feature_key" value={module.key} />
+                    <input type="hidden" name="enabled" value={enabled ? "false" : "true"} />
+                    <button type="submit" className={`min-h-10 rounded-lg px-4 py-2 text-sm font-semibold ${enabled ? "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50" : "bg-slate-950 text-white hover:bg-slate-800"}`}>
+                      {enabled ? "Inaktivera" : "Aktivera"}
+                    </button>
+                  </form>
+                ) : (
+                  <span className="text-sm font-semibold text-slate-500">Read-only</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </section>
 
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
