@@ -1,2 +1,2 @@
-2026-08-06T21:47:00+02:00
-Reason: trigger CI validation for PR #377 after database migration verification.
+2026-08-06T16:40:00+02:00
+Reason: retry production deployment after Vercel daily build limit.
