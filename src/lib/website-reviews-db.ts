@@ -3,7 +3,9 @@ import "server-only";
 import { getSql } from "@/lib/db/server";
 import {
   isWebsiteReviewStatus,
+  persistWebsiteReviewEdit,
   persistWebsiteReviewModeration,
+  websiteReviewEditSchema,
   type WebsiteReviewModerationStatus,
 } from "@/lib/website-review-moderation";
 import {
@@ -231,6 +233,38 @@ export async function updateDashboardWebsiteReviewStatus(
     return Boolean(rows[0]?.id);
   } catch (error) {
     console.error("Failed to moderate website review", error);
+    return false;
+  }
+}
+
+export async function updateDashboardWebsiteReview(id: string, input: unknown) {
+  const parsed = websiteReviewEditSchema.safeParse(input);
+  const [access, sql] = await Promise.all([
+    getUserWorkspaceAccess(),
+    Promise.resolve(getSql()),
+  ]);
+
+  if (
+    !parsed.success ||
+    !access.ok ||
+    !canManageWorkspaceSettings(access) ||
+    !sql ||
+    !uuidPattern.test(id)
+  ) {
+    return false;
+  }
+
+  try {
+    const rows = await persistWebsiteReviewEdit({
+      sql,
+      actorUserId: access.userId,
+      workspaceId: access.workspaceId,
+      reviewId: id,
+      review: parsed.data,
+    });
+    return Boolean(rows[0]?.id);
+  } catch (error) {
+    console.error("Failed to edit website review", error);
     return false;
   }
 }

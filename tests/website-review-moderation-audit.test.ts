@@ -5,8 +5,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   isWebsiteReviewStatus,
+  persistWebsiteReviewEdit,
   persistWebsiteReviewModeration,
   WEBSITE_REVIEW_STATUSES,
+  websiteReviewEditSchema,
   type WebsiteReviewModerationSql,
 } from "../src/lib/website-review-moderation";
 
@@ -25,7 +27,35 @@ describe("website review moderation audit", () => {
     expect(isWebsiteReviewStatus(null)).toBe(false);
   });
 
-  it("locks, updates and audits a workspace review in one SQL statement", async () => {
+  it("normalizes and validates dashboard review edits", () => {
+    expect(
+      websiteReviewEditSchema.parse({
+        reviewerName: "  Alex Smith  ",
+        rating: "5",
+        service: "  Window cleaning  ",
+        area: "   ",
+        message: "  Excellent and careful work.  ",
+      }),
+    ).toEqual({
+      reviewerName: "Alex Smith",
+      rating: 5,
+      service: "Window cleaning",
+      area: null,
+      message: "Excellent and careful work.",
+    });
+
+    expect(
+      websiteReviewEditSchema.safeParse({
+        reviewerName: "A",
+        rating: 6,
+        service: "",
+        area: "",
+        message: "Too short",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("locks, updates and audits a workspace review status in one SQL statement", async () => {
     const calls: Array<{ query: string; values: readonly unknown[] }> = [];
     const sql = vi.fn(async (strings: TemplateStringsArray, ...values: readonly unknown[]) => {
       calls.push({
@@ -59,14 +89,77 @@ describe("website review moderation audit", () => {
     expect(calls[0]?.values).toContain("approved");
   });
 
-  it("keeps permission and workspace scope checks before the audited helper", () => {
-    const code = source("src/lib/website-reviews-db.ts");
-    const permissionCheck = code.indexOf("canManageWorkspaceSettings(access)");
-    const mutationCall = code.indexOf("persistWebsiteReviewModeration({");
+  it("locks, edits and audits review content without copying content into audit JSON", async () => {
+    const calls: Array<{ query: string; values: readonly unknown[] }> = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray, ...values: readonly unknown[]) => {
+      calls.push({
+        query: strings.join("$value").replace(/\s+/g, " ").trim(),
+        values,
+      });
+      return [{ id: "edit-audit-id" }];
+    }) as unknown as WebsiteReviewModerationSql;
 
-    expect(permissionCheck).toBeGreaterThan(-1);
-    expect(mutationCall).toBeGreaterThan(permissionCheck);
-    expect(code).toContain("workspaceId: access.workspaceId");
-    expect(code).toContain("actorUserId: access.userId");
+    const rows = await persistWebsiteReviewEdit({
+      sql,
+      actorUserId: "workspace-manager",
+      workspaceId: "d83e2f42-0c6f-4d12-a06d-9d455c432f30",
+      reviewId: "e9801b25-4ed8-4f93-864d-23ee7f822bc8",
+      review: {
+        reviewerName: "Alex Smith",
+        rating: 5,
+        service: "Window cleaning",
+        area: "Ealing",
+        message: "Excellent and careful work.",
+      },
+    });
+
+    expect(rows).toEqual([{ id: "edit-audit-id" }]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.query).toContain("with previous as");
+    expect(calls[0]?.query).toContain("for update");
+    expect(calls[0]?.query).toContain("and workspace_id = $value::uuid");
+    expect(calls[0]?.query).toContain("update website_reviews");
+    expect(calls[0]?.query).toContain("'website_review.content_updated'");
+    expect(calls[0]?.query).toContain("'changed_fields'");
+    expect(calls[0]?.query).toContain("select previous.id");
+    expect(calls[0]?.query).toContain("where not exists (select 1 from changed)");
+    expect(calls[0]?.query).toContain("where exists (select 1 from audited)");
+    expect(calls[0]?.query).not.toContain("'reviewer_name', changed");
+    expect(calls[0]?.query).not.toContain("'message', changed");
+    expect(calls[0]?.values).toContain("Excellent and careful work.");
+  });
+
+  it("keeps permission and workspace scope checks before audited mutations", () => {
+    const code = source("src/lib/website-reviews-db.ts");
+    const moderationSection = code.slice(
+      code.indexOf("export async function updateDashboardWebsiteReviewStatus"),
+      code.indexOf("export async function updateDashboardWebsiteReview("),
+    );
+    const editSection = code.slice(code.indexOf("export async function updateDashboardWebsiteReview("));
+
+    expect(moderationSection).toContain("canManageWorkspaceSettings(access)");
+    expect(moderationSection).toContain("persistWebsiteReviewModeration({");
+    expect(moderationSection).toContain("workspaceId: access.workspaceId");
+    expect(moderationSection).toContain("actorUserId: access.userId");
+
+    expect(editSection).toContain("websiteReviewEditSchema.safeParse(input)");
+    expect(editSection).toContain("canManageWorkspaceSettings(access)");
+    expect(editSection).toContain("persistWebsiteReviewEdit({");
+    expect(editSection).toContain("workspaceId: access.workspaceId");
+    expect(editSection).toContain("actorUserId: access.userId");
+  });
+
+  it("exposes a bilingual dashboard edit form with bounded inputs", () => {
+    const page = source("src/app/dashboard/omdomen/page.tsx");
+
+    expect(page).toContain("editReviewAction");
+    expect(page).toContain('name="reviewer_name"');
+    expect(page).toContain('name="rating"');
+    expect(page).toContain('name="service"');
+    expect(page).toContain('name="area"');
+    expect(page).toContain('name="message"');
+    expect(page).toContain("Edit review");
+    expect(page).toContain("Redigera omdöme");
+    expect(page).toContain("maxLength={1_000}");
   });
 });
