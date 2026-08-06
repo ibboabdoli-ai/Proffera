@@ -1,65 +1,103 @@
 import "server-only";
 
-import { getSql } from "@/lib/db/server";
 import {
   getProfferaModuleAccess,
   profferaModules,
   type ProfferaModuleAccess,
   type ProfferaModuleId,
 } from "@/lib/proffera-modules";
-import { getUserWorkspaceAccess } from "@/lib/workspace-access";
+import { getWorkspaceEntitlements } from "@/lib/workspace-entitlements";
 
-export type WorkspaceFeatureKey = "booking_demo" | "crm_customers" | "lead_inbox" | "ai_assistant";
+type CanonicalWorkspaceFeatureKey =
+  | "online_booking"
+  | "customer_crm"
+  | "lead_management"
+  | "ai_chatbot"
+  | "booking_reminders"
+  | "verified_reviews"
+  | "media_gallery"
+  | "quote_management"
+  | "website_builder"
+  | "customer_portal"
+  | "sms"
+  | "custom_domain"
+  | "video_upload"
+  | "multiple_staff"
+  | "advanced_automation"
+  | "payments"
+  | "analytics";
 
-const moduleFeatureKeys: Partial<Record<ProfferaModuleId, string[]>> = {
-  online_booking: ["booking_demo"],
-  customer_crm: ["crm_customers"],
-  ai_chat: ["ai_assistant"],
-  qr_booking: ["booking_demo"],
+type LegacyWorkspaceFeatureKey =
+  | "booking_demo"
+  | "crm_customers"
+  | "lead_inbox"
+  | "ai_assistant"
+  | "chat_widget";
+
+export type WorkspaceFeatureKey = CanonicalWorkspaceFeatureKey | LegacyWorkspaceFeatureKey;
+
+const featureAliases: Record<LegacyWorkspaceFeatureKey, CanonicalWorkspaceFeatureKey> = {
+  booking_demo: "online_booking",
+  crm_customers: "customer_crm",
+  lead_inbox: "lead_management",
+  ai_assistant: "ai_chatbot",
+  chat_widget: "ai_chatbot",
 };
 
-async function readEnabledFeatureKeys(): Promise<Set<string> | null> {
-  const sql = getSql();
-  const access = await getUserWorkspaceAccess();
+const knownFeatureKeys = new Set<CanonicalWorkspaceFeatureKey>([
+  "online_booking",
+  "customer_crm",
+  "lead_management",
+  "ai_chatbot",
+  "booking_reminders",
+  "verified_reviews",
+  "media_gallery",
+  "quote_management",
+  "website_builder",
+  "customer_portal",
+  "sms",
+  "custom_domain",
+  "video_upload",
+  "multiple_staff",
+  "advanced_automation",
+  "payments",
+  "analytics",
+]);
 
-  if (!sql || !access.ok) return null;
+const moduleFeatureKeys: Partial<Record<ProfferaModuleId, CanonicalWorkspaceFeatureKey[]>> = {
+  online_booking: ["online_booking"],
+  customer_crm: ["customer_crm"],
+  ai_chat: ["ai_chatbot"],
+  email_automation: ["booking_reminders"],
+  qr_booking: ["online_booking"],
+};
 
-  const rows = await sql`
-    with latest_plan as (
-      select wp.plan_key, wp.status
-      from workspace_plans wp
-      where wp.workspace_id = ${access.workspaceId}::uuid
-      order by wp.created_at desc
-      limit 1
-    )
-    select feature_key
-    from workspace_feature_flags
-    where workspace_id = ${access.workspaceId}::uuid
-      and enabled = true
-      and exists (select 1 from latest_plan where status in ('active', 'trialing'))
+function normalizeFeatureKey(featureKey: WorkspaceFeatureKey): CanonicalWorkspaceFeatureKey {
+  return featureKey in featureAliases
+    ? featureAliases[featureKey as LegacyWorkspaceFeatureKey]
+    : featureKey as CanonicalWorkspaceFeatureKey;
+}
 
-    union
-
-    -- Professional includes AI Chat. Keeping this derived from the current
-    -- plan also makes the feature available to subscriptions created before
-    -- the AI-specific feature flag existed.
-    select 'ai_assistant'::text as feature_key
-    from latest_plan
-    where plan_key = 'professional'
-      and status in ('active', 'trialing')
-  `;
-
-  return new Set(rows.map((row) => String(row.feature_key)));
+async function readEnabledFeatureKeys(): Promise<Set<CanonicalWorkspaceFeatureKey>> {
+  const entitlements = await getWorkspaceEntitlements();
+  return new Set(
+    entitlements
+      .filter((item) => item.hasAccess && knownFeatureKeys.has(item.featureKey as CanonicalWorkspaceFeatureKey))
+      .map((item) => item.featureKey as CanonicalWorkspaceFeatureKey),
+  );
 }
 
 export async function getDashboardEnabledFeatureKeys(): Promise<WorkspaceFeatureKey[]> {
   try {
     const enabledFeatures = await readEnabledFeatureKeys();
-    if (!enabledFeatures) return [];
+    const legacyAliases = (Object.entries(featureAliases) as Array<[
+      LegacyWorkspaceFeatureKey,
+      CanonicalWorkspaceFeatureKey,
+    ]>)
+      .filter(([, canonicalFeature]) => enabledFeatures.has(canonicalFeature))
+      .map(([legacyFeature]) => legacyFeature);
 
-    return [...enabledFeatures].filter((feature): feature is WorkspaceFeatureKey =>
-      ["booking_demo", "crm_customers", "lead_inbox", "ai_assistant"].includes(feature),
-    );
+    return [...enabledFeatures, ...legacyAliases];
   } catch (error) {
     console.error("Failed to read workspace feature access", error);
     return [];
@@ -67,8 +105,8 @@ export async function getDashboardEnabledFeatureKeys(): Promise<WorkspaceFeature
 }
 
 export async function hasDashboardFeatureAccess(featureKey: WorkspaceFeatureKey): Promise<boolean> {
-  const enabledFeatures = await getDashboardEnabledFeatureKeys();
-  return enabledFeatures.includes(featureKey);
+  const enabledFeatures = await readEnabledFeatureKeys();
+  return enabledFeatures.has(normalizeFeatureKey(featureKey));
 }
 
 export async function hasDashboardModuleAccess(moduleId: ProfferaModuleId): Promise<boolean> {
@@ -80,8 +118,6 @@ export async function hasDashboardModuleAccess(moduleId: ProfferaModuleId): Prom
 
   try {
     const enabledFeatures = await readEnabledFeatureKeys();
-    if (!enabledFeatures) return false;
-
     return requiredFeatures.every((feature) => enabledFeatures.has(feature));
   } catch (error) {
     console.error("Failed to verify workspace module access", error);
@@ -92,7 +128,6 @@ export async function hasDashboardModuleAccess(moduleId: ProfferaModuleId): Prom
 export async function getDashboardModuleAccess(): Promise<ProfferaModuleAccess[]> {
   try {
     const enabledFeatures = await readEnabledFeatureKeys();
-    if (!enabledFeatures) return getProfferaModuleAccess();
 
     return profferaModules.map((module) => {
       const requiredFeatures = moduleFeatureKeys[module.id];

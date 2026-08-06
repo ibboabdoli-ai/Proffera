@@ -41,7 +41,7 @@ export default async function DashboardLayout({ children }: Readonly<{ children:
   ]);
 
   return (
-    <DashboardShell workspaceName={access.workspaceName} workspaceId={access.workspaceId} workspaceSlug={access.workspaceSlug} workspaceOptions={workspaceOptions} moduleAccess={moduleAccess} enabledFeatures={enabledFeatures} canManageSettings={canManageWorkspaceSettings(access)}>
+    <DashboardShell workspaceName={access.workspaceName} workspaceId={access.workspaceId} workspaceOptions={workspaceOptions} moduleAccess={moduleAccess} enabledFeatures={enabledFeatures} canManageSettings={canManageWorkspaceSettings(access)}>
       <DashboardLanguageSwitchFix />
       <DashboardStripeCheckoutFix />
       <DashboardGlobalLocaleBoundary>
