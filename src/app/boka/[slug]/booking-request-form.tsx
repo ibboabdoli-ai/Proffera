@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowLeft, ArrowRight, CalendarDays, Check, MailCheck, Scissors, UserRound, UsersRound } from "lucide-react";
 
 import {
@@ -110,13 +110,13 @@ export function BookingRequestForm({ action, slug, services, bookingHours, busyB
     if (!weekDates.includes(date)) { setDate(weekDates[0]); setTime(""); setAssignedStaffId(""); }
   }, [date, weekDates]);
 
-  function slotsForStaff(member: BookingStaff, targetDate: string, service: BookingService) {
+  const slotsForStaff = useCallback((member: BookingStaff, targetDate: string, service: BookingService) => {
     const hours = member.schedules.find((item) => item.weekday === weekdayForDate(targetDate));
     if (!hours) return [];
     return getAvailableBookingTimes({ date: targetDate, service, hours, busyBookings: member.busy, referenceTimeMs: referenceTime, timeZone });
-  }
+  }, [referenceTime, timeZone]);
 
-  function slotsForDate(targetDate: string, service: BookingService) {
+  const slotsForDate = useCallback((targetDate: string, service: BookingService) => {
     if (staff.length) {
       const candidates = staffChoice === "any" ? staff : staff.filter((member) => member.id === staffChoice);
       const map = new Map<string, string>();
@@ -126,9 +126,9 @@ export function BookingRequestForm({ action, slug, services, bookingHours, busyB
     const hours = bookingHours.find((item) => item.weekday === weekdayForDate(targetDate));
     const slots = hours ? getAvailableBookingTimes({ date: targetDate, service, hours, busyBookings, referenceTimeMs: referenceTime, timeZone }) : [];
     return { slots, staffBySlot: new Map<string, string>() };
-  }
+  }, [bookingHours, busyBookings, referenceTime, slotsForStaff, staff, staffChoice, timeZone]);
 
-  const availability = useMemo(() => selectedService ? slotsForDate(date, selectedService) : { slots: [], staffBySlot: new Map<string, string>() }, [selectedService, date, staff, staffChoice, bookingHours, busyBookings, referenceTime, timeZone]);
+  const availability = useMemo(() => selectedService ? slotsForDate(date, selectedService) : { slots: [], staffBySlot: new Map<string, string>() }, [date, selectedService, slotsForDate]);
   const selectedTime = availability.slots.includes(time) ? time : "";
 
   const firstAvailability = useMemo(() => {
@@ -143,7 +143,7 @@ export function BookingRequestForm({ action, slug, services, bookingHours, busyB
       result.set(service.name, match);
     }
     return result;
-  }, [services, today, staff, staffChoice, bookingHours, busyBookings, referenceTime, timeZone]);
+  }, [services, slotsForDate, today]);
 
   function chooseService(name: string) {
     const first = firstAvailability.get(name);
