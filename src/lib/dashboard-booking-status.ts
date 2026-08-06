@@ -3,6 +3,7 @@ import "server-only";
 import { neon } from "@neondatabase/serverless";
 
 import { resolveBookingTimeZone } from "@/lib/public-booking-policy";
+import { issueAndDeliverReviewInvitation } from "@/lib/verified-review-delivery";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 const connectionString =
@@ -267,6 +268,14 @@ export async function updateDashboardBookingStatus(
   }
 
   const changed = Number(result.updated_count ?? 0) > 0;
+
+  if (changed && status === "completed") {
+    try {
+      await issueAndDeliverReviewInvitation(bookingId);
+    } catch (error) {
+      console.error("Failed to deliver verified review invitation after booking completion", error);
+    }
+  }
 
   return {
     changed,
