@@ -59,7 +59,7 @@ export async function getAdminWorkspaceOverview(workspaceId: string) {
   const workspace = rows[0];
   if (!workspace) return null;
 
-  const [recentBookings, featureFlags] = await Promise.all([
+  const [recentBookings, features] = await Promise.all([
     sql`
       select b.id, b.title, b.service, b.status, b.starts_at, b.created_at,
         c.name as customer_name, c.email as customer_email
@@ -70,12 +70,27 @@ export async function getAdminWorkspaceOverview(workspaceId: string) {
       limit 10
     `,
     sql`
-      select feature_key, enabled
-      from workspace_feature_flags
-      where workspace_id = ${workspaceId}::uuid
-      order by feature_key asc
+      select
+        c.feature_key,
+        c.name,
+        c.description,
+        c.minimum_plan,
+        c.trial_days,
+        coalesce(f.enabled, false) as workspace_enabled,
+        o.enabled as admin_override_enabled,
+        t.status as trial_status,
+        t.ends_at as trial_ends_at
+      from feature_catalog c
+      left join workspace_feature_flags f
+        on f.workspace_id = ${workspaceId}::uuid and f.feature_key = c.feature_key
+      left join workspace_feature_overrides o
+        on o.workspace_id = ${workspaceId}::uuid and o.feature_key = c.feature_key
+      left join workspace_feature_trials t
+        on t.workspace_id = ${workspaceId}::uuid and t.feature_key = c.feature_key
+      where c.is_active = true
+      order by c.minimum_plan, c.name
     `,
   ]);
 
-  return { workspace, recentBookings, featureFlags };
+  return { workspace, recentBookings, features };
 }
