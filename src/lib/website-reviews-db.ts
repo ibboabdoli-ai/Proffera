@@ -164,19 +164,57 @@ export async function updateDashboardWebsiteReviewStatus(id: string, status: Ext
 
   try {
     const rows = await sql`
-      update website_reviews
-      set
-        status = ${status},
-        moderated_at = now(),
-        moderated_by_user_id = ${access.userId},
-        published_at = case when ${status} = 'approved' then coalesce(published_at, now()) else null end
-      where id = ${id}::uuid
-        and workspace_id = ${access.workspaceId}::uuid
-        and status <> ${status}
-      returning id
+      with previous as (
+        select id, workspace_id, status, moderated_at, moderated_by_user_id, published_at
+        from website_reviews
+        where id = ${id}::uuid
+          and workspace_id = ${access.workspaceId}::uuid
+          and status <> ${status}
+        for update
+      ),
+      updated as (
+        update website_reviews review
+        set
+          status = ${status},
+          moderated_at = now(),
+          moderated_by_user_id = ${access.userId},
+          published_at = case when ${status} = 'approved' then coalesce(review.published_at, now()) else null end
+        from previous
+        where review.id = previous.id
+        returning review.id, review.workspace_id, review.status, review.moderated_at,
+          review.moderated_by_user_id, review.published_at
+      ),
+      audit as (
+        insert into admin_audit_logs (
+          admin_user_id, workspace_id, action, reason, previous_value, new_value
+        )
+        select
+          ${access.userId}, previous.workspace_id, 'website_review.status_updated',
+          ${`Website review status changed to ${status}`},
+          jsonb_build_object(
+            'review_id', previous.id,
+            'status', previous.status,
+            'moderated_at', previous.moderated_at,
+            'moderated_by_user_id', previous.moderated_by_user_id,
+            'published_at', previous.published_at
+          ),
+          jsonb_build_object(
+            'review_id', updated.id,
+            'status', updated.status,
+            'moderated_at', updated.moderated_at,
+            'moderated_by_user_id', updated.moderated_by_user_id,
+            'published_at', updated.published_at
+          )
+        from previous
+        join updated on updated.id = previous.id
+        returning id
+      )
+      select updated.id, audit.id as audit_id
+      from updated
+      join audit on true
     `;
 
-    return Boolean(rows[0]?.id);
+    return Boolean(rows[0]?.id && rows[0]?.audit_id);
   } catch (error) {
     console.error("Failed to moderate website review", error);
     return false;
