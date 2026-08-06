@@ -34,20 +34,24 @@ export function getModuleAccessLabel(accessState: ProfferaModuleAccessState) {
 }
 
 export function getProfferaModuleAccess(): ProfferaModuleAccess[] {
-  return profferaModules.map((module) => ({ ...module, isEnabled: module.accessState === "active", isLocked: module.accessState === "locked" }));
+  return profferaModules.map((module) => ({
+    ...module,
+    isEnabled: module.accessState === "active",
+    isLocked: module.accessState === "locked",
+  }));
 }
 
 export const dashboardNavigation = [
   { label: "Översikt", href: "/dashboard" },
-  { label: "Leads", href: "/dashboard/leads", featureKey: "lead_inbox" },
-  { label: "Offerter", href: "/dashboard/offerter" },
+  { label: "Leads", href: "/dashboard/leads", featureKey: "lead_management" },
+  { label: "Offerter", href: "/dashboard/offerter", featureKey: "quote_management" },
   { label: "Uppdrag", href: "/dashboard/uppdrag" },
   { label: "Kunder", href: "/dashboard/kunder", moduleId: "customer_crm" },
   { label: "Bokningar", href: "/dashboard/bokningar", moduleId: "online_booking" },
   { label: "Kalender", href: "/dashboard/kalender", moduleId: "online_booking" },
   { label: "Personal", href: "/dashboard/personal", moduleId: "online_booking" },
-  { label: "Galleri", href: "/dashboard/galleri" },
-  { label: "Omdömen", href: "/dashboard/omdomen" },
+  { label: "Galleri", href: "/dashboard/galleri", featureKey: "media_gallery" },
+  { label: "Omdömen", href: "/dashboard/omdomen", featureKey: "verified_reviews" },
   { label: "AI-assistent", href: "/dashboard/ai-assistent", moduleId: "ai_chat" },
   { label: "Inställningar", href: "/dashboard/installningar" },
 ] as const;

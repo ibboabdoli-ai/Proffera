@@ -1,9 +1,14 @@
 import "server-only";
 
 import { getSql } from "@/lib/db/server";
+import {
+  isWorkspacePlanFeatureIncluded,
+  normalizeWorkspacePlan,
+  type WorkspacePlanKey,
+} from "@/lib/workspace-feature-policy";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
-export type PlanKey = "starter" | "professional" | "business";
+export type PlanKey = WorkspacePlanKey;
 export type FeatureAccessState = "included" | "trial" | "locked" | "disabled";
 
 export type WorkspaceEntitlement = {
@@ -22,12 +27,6 @@ export type WorkspaceEntitlement = {
   canStartTrial: boolean;
 };
 
-const planRank: Record<PlanKey, number> = { starter: 1, professional: 2, business: 3 };
-
-function normalizePlan(value: unknown): PlanKey | null {
-  return value === "starter" || value === "professional" || value === "business" ? value : null;
-}
-
 export async function getWorkspaceEntitlements(): Promise<WorkspaceEntitlement[]> {
   const sql = getSql();
   const access = await getUserWorkspaceAccess();
@@ -35,7 +34,7 @@ export async function getWorkspaceEntitlements(): Promise<WorkspaceEntitlement[]
 
   const rows = await sql`
     with latest_plan as (
-      select plan_key, status
+      select plan_key, status, current_period_end
       from workspace_plans
       where workspace_id = ${access.workspaceId}::uuid
       order by created_at desc
@@ -43,7 +42,7 @@ export async function getWorkspaceEntitlements(): Promise<WorkspaceEntitlement[]
     )
     select c.feature_key, c.name, c.description, c.minimum_plan, c.trial_days,
       coalesce(f.enabled, false) as workspace_enabled,
-      p.plan_key, p.status as plan_status,
+      p.plan_key, p.status as plan_status, p.current_period_end as plan_period_end,
       t.status as trial_status, t.ends_at as trial_ends_at,
       (t.workspace_id is not null) as trial_consumed
     from feature_catalog c
@@ -56,14 +55,21 @@ export async function getWorkspaceEntitlements(): Promise<WorkspaceEntitlement[]
     order by c.minimum_plan, c.name
   `;
 
-  const now = Date.now();
+  const now = new Date();
   return rows.map((row) => {
-    const planKey = normalizePlan(row.plan_key);
-    const minimumPlan = normalizePlan(row.minimum_plan) ?? "starter";
-    const planActive = ["active", "trialing"].includes(String(row.plan_status ?? ""));
-    const included = Boolean(planKey && planActive && planRank[planKey] >= planRank[minimumPlan]);
+    const planKey = normalizeWorkspacePlan(row.plan_key);
+    const minimumPlan = normalizeWorkspacePlan(row.minimum_plan) ?? "starter";
+    const included = isWorkspacePlanFeatureIncluded({
+      planKey: row.plan_key,
+      planStatus: row.plan_status,
+      planPeriodEnd: row.plan_period_end,
+      minimumPlan: row.minimum_plan,
+      now,
+    });
     const trialEndsAt = row.trial_ends_at ? new Date(String(row.trial_ends_at)).toISOString() : null;
-    const trialActive = String(row.trial_status ?? "") === "active" && Boolean(trialEndsAt) && new Date(trialEndsAt!).getTime() > now;
+    const trialActive = String(row.trial_status ?? "") === "active"
+      && Boolean(trialEndsAt)
+      && new Date(trialEndsAt!).getTime() > now.getTime();
     const workspaceEnabled = Boolean(row.workspace_enabled);
     const hasAccess = (included || trialActive) && workspaceEnabled;
     const accessState: FeatureAccessState = !workspaceEnabled && (included || trialActive)
@@ -73,6 +79,7 @@ export async function getWorkspaceEntitlements(): Promise<WorkspaceEntitlement[]
         : trialActive
           ? "trial"
           : "locked";
+
     return {
       featureKey: String(row.feature_key),
       name: String(row.name),
