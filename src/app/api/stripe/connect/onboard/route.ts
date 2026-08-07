@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getStripeClient } from "@/lib/stripe";
+import { hasWorkspaceFeature } from "@/lib/workspace-entitlements";
 import { canManageWorkspaceMembers, getUserWorkspaceAccess } from "@/lib/workspace-access";
 import { ensureWorkspaceStripeConnectAccount } from "@/lib/workspace-payments-db";
 
@@ -25,6 +26,10 @@ export async function POST(request: Request) {
   const access = await getUserWorkspaceAccess();
   if (!access.ok || !canManageWorkspaceMembers(access)) {
     return NextResponse.redirect(paymentsUrl(requestUrl.origin, locale, "forbidden"), 303);
+  }
+
+  if (!(await hasWorkspaceFeature("payments"))) {
+    return NextResponse.redirect(paymentsUrl(requestUrl.origin, locale, "locked"), 303);
   }
 
   const stripe = getStripeClient();

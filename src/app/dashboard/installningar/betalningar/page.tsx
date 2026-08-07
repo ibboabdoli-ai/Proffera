@@ -1,7 +1,8 @@
-import { CheckCircle2, CircleAlert, CreditCard, Landmark } from "lucide-react";
+import { CheckCircle2, CircleAlert, CreditCard, Landmark, LockKeyhole } from "lucide-react";
 import { redirect } from "next/navigation";
 
 import { DashboardPageHeader } from "@/components/dashboard/dashboard-page-ui";
+import { hasWorkspaceFeature } from "@/lib/workspace-entitlements";
 import { canManageWorkspaceMembers, getUserWorkspaceAccess } from "@/lib/workspace-access";
 import { getWorkspacePaymentAccount, syncWorkspaceStripeConnectAccount } from "@/lib/workspace-payments-db";
 
@@ -20,6 +21,8 @@ const copy = {
     incompleteBody: "Fortsätt onboarding tills både betalningar och utbetalningar är aktiverade.",
     disconnected: "Stripe Connect är inte anslutet",
     disconnectedBody: "Anslut ett separat Stripe-konto för företagets kundbetalningar.",
+    locked: "Betalningar är låst för denna workspace",
+    lockedBody: "Aktivera Betalningar från Platform Admin eller använd en plan som inkluderar modulen.",
     connect: "Anslut Stripe",
     continue: "Fortsätt Stripe-onboarding",
     charges: "Ta emot betalningar",
@@ -42,6 +45,8 @@ const copy = {
     incompleteBody: "Continue onboarding until both payments and payouts are enabled.",
     disconnected: "Stripe Connect is not connected",
     disconnectedBody: "Connect a separate Stripe account for the business customer payments.",
+    locked: "Payments are locked for this workspace",
+    lockedBody: "Enable Payments from Platform Admin or use a plan that includes the module.",
     connect: "Connect Stripe",
     continue: "Continue Stripe onboarding",
     charges: "Accept payments",
@@ -70,9 +75,10 @@ export default async function PaymentsSettingsPage({ searchParams }: {
   const access = await getUserWorkspaceAccess();
   if (!access.ok) redirect(access.reason === "no_session" ? "/logga-in" : "/dashboard");
   const canManage = canManageWorkspaceMembers(access);
+  const featureEnabled = await hasWorkspaceFeature("payments");
 
-  let account = await getWorkspacePaymentAccount(access.workspaceId);
-  if (account?.stripeAccountId) {
+  let account = featureEnabled ? await getWorkspacePaymentAccount(access.workspaceId) : null;
+  if (featureEnabled && account?.stripeAccountId) {
     try {
       account = await syncWorkspaceStripeConnectAccount(access.workspaceId);
     } catch (error) {
@@ -81,10 +87,10 @@ export default async function PaymentsSettingsPage({ searchParams }: {
   }
 
   const ready = Boolean(account?.ready);
-  const statusTitle = ready ? text.ready : account ? text.incomplete : text.disconnected;
-  const statusBody = ready ? text.readyBody : account ? text.incompleteBody : text.disconnectedBody;
-  const StatusIcon = ready ? CheckCircle2 : CircleAlert;
-  const stateMessage = state === "error" ? text.error : state === "forbidden" ? text.forbidden : state === "unconfigured" ? text.unconfigured : "";
+  const statusTitle = !featureEnabled ? text.locked : ready ? text.ready : account ? text.incomplete : text.disconnected;
+  const statusBody = !featureEnabled ? text.lockedBody : ready ? text.readyBody : account ? text.incompleteBody : text.disconnectedBody;
+  const StatusIcon = !featureEnabled ? LockKeyhole : ready ? CheckCircle2 : CircleAlert;
+  const stateMessage = state === "error" ? text.error : state === "forbidden" ? text.forbidden : state === "unconfigured" ? text.unconfigured : state === "locked" ? text.lockedBody : "";
 
   return (
     <div className="grid gap-6" lang={locale}>
@@ -108,7 +114,7 @@ export default async function PaymentsSettingsPage({ searchParams }: {
               </div>
             ))}
           </div>
-          {canManage && !ready ? (
+          {featureEnabled && canManage && !ready ? (
             <form method="post" action="/api/stripe/connect/onboard" className="mt-6">
               <input type="hidden" name="lang" value={locale} />
               <button type="submit" className="min-h-11 rounded-xl bg-[#173e2b] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#0f3020]">
