@@ -1,8 +1,8 @@
-# Preview database isolation
+# Preview database and auth isolation
 
 ## Purpose
 
-Vercel Preview deployments must never read from or write to the Production database.
+Vercel Preview deployments must never read from or write to the Production database, and must never reuse Production auth secrets.
 
 ## Active Preview database
 
@@ -14,11 +14,22 @@ Vercel Preview deployments must never read from or write to the Production datab
 
 ## Vercel configuration
 
+### Database
+
 - Secret name: `PROFFERA_PREVIEW_DATABASE_URL`
 - Application code reads this secret only when `VERCEL_ENV=preview`.
 - Production ignores `PROFFERA_PREVIEW_DATABASE_URL`, even if the Vercel dashboard exposes the secret to a combined Production/Preview target.
 - Existing Production `DATABASE_URL` remains the Production source of truth.
-- No database credentials are committed to Git.
+
+### Auth
+
+- Secret name: `PROFFERA_PREVIEW_AUTH_SECRET`
+- Application code reads this secret only when `VERCEL_ENV=preview`.
+- Preview does not fall back to Production `BETTER_AUTH_SECRET` or `AUTH_SECRET`.
+- Production continues to use its existing Better Auth secret configuration and ignores `PROFFERA_PREVIEW_AUTH_SECRET`.
+- Preview auth secrets must be generated independently from Production secrets and rotated separately.
+
+No database credentials or auth secrets are committed to Git.
 
 ## Ownership
 
@@ -32,15 +43,17 @@ When the Production schema changes enough that Preview is stale:
 2. Sanitize all tenant, auth, customer, booking, job, payment, review, invitation and audit data before connecting it to Vercel.
 3. Verify the sanitized branch contains no real users/workspaces/customers/bookings/jobs.
 4. Update `PROFFERA_PREVIEW_DATABASE_URL` to the fresh branch connection string.
-5. Trigger a new Vercel Preview deployment and verify authenticated runtime behavior.
-6. Delete the superseded Preview branch only after the new branch is proven healthy.
+5. Keep or rotate `PROFFERA_PREVIEW_AUTH_SECRET` independently from Production.
+6. Trigger a new Vercel Preview deployment and verify authenticated runtime behavior.
+7. Delete the superseded Preview branch only after the new branch is proven healthy.
 
 ## Validation gate
 
-A Preview database configuration is accepted only when all of the following are true:
+A Preview isolation configuration is accepted only when all of the following are true:
 
 - CI, typecheck, tests and build pass.
-- A Vercel Preview created after the secret update is READY.
-- The Preview runtime can initialize auth without the missing-database error.
+- A Vercel Preview created after the secret updates is READY.
+- The Preview runtime can initialize Better Auth and create/sign in a disposable test account.
 - The Preview database is proven non-Production and sanitized.
+- Production ignores both Preview-only secrets.
 - No Production data is mutated during validation.
