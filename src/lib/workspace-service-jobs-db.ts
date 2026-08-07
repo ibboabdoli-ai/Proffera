@@ -2,6 +2,7 @@ import "server-only";
 
 import { neon } from "@neondatabase/serverless";
 
+import { deliverVerifiedReviewInvitation } from "@/lib/verified-review-email-delivery";
 import {
   canTransitionWorkspaceServiceJob,
   isWorkspaceServiceJobStatus,
@@ -478,10 +479,19 @@ export async function transitionDashboardWorkspaceServiceJob(
         and booking.status not in ('completed', 'cancelled', 'no_show')
       returning booking.id
     )
-    select id from updated_job
+    select id, booking_id from updated_job
   `;
 
   if (!rows[0]) throw new Error("Service job status did not update");
+
+  const bookingId = text(rows[0].booking_id);
+  if (nextStatus === "completed" && bookingId) {
+    try {
+      await deliverVerifiedReviewInvitation(bookingId);
+    } catch (error) {
+      console.error("Failed to deliver verified review invitation after service job completion", error);
+    }
+  }
 }
 
 export async function addDashboardWorkspaceServiceJobNote(jobId: string, body: string) {

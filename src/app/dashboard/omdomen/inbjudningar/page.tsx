@@ -55,8 +55,8 @@ export default async function ReviewInvitationsPage({ searchParams }: Invitation
         </p>
         <p className="mt-1">
           {isEnglish
-            ? "Only the SHA-256 hash is stored. The raw link appears once, expires after 30 days and cannot be used twice. Email delivery is not automatic in this phase."
-            : "Endast SHA-256-hashen lagras. Den råa länken visas en gång, går ut efter 30 dagar och kan inte användas två gånger. E-post skickas inte automatiskt i denna fas."}
+            ? "Only the SHA-256 hash is stored. The raw link appears once, expires after 30 days and cannot be used twice. When a booking-linked job is completed and the customer has an email address, Proffera sends the invitation automatically; you can resend or create a link here."
+            : "Endast SHA-256-hashen lagras. Den råa länken visas en gång, går ut efter 30 dagar och kan inte användas två gånger. När ett bokningskopplat uppdrag slutförs och kunden har en e-postadress skickar Proffera inbjudan automatiskt; här kan du skicka igen eller skapa en länk."}
         </p>
       </section>
 

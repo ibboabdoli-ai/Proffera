@@ -43,7 +43,7 @@ describe("central verified review flow", () => {
 
     expect(calls).toHaveLength(1);
     expect(calls[0]?.query).toContain("b.status = 'completed'");
-    expect(calls[0]?.query).toContain("feature.feature_key = 'verified_reviews'");
+    expect(calls[0]?.query).not.toContain("workspace_feature_flags feature");
     expect(calls[0]?.query).toContain("token_hash");
     expect(calls[0]?.query).toContain("on conflict (workspace_id, booking_id)");
     expect(calls[0]?.query).toContain("website_review_invitations.status <> 'used'");
@@ -58,6 +58,7 @@ describe("central verified review flow", () => {
     await persistVerifiedReviewSubmission({
       sql,
       tokenHash: "b".repeat(64),
+      featureEnabled: true,
       review: {
         reviewerName: "Alex Morgan",
         rating: 5,
@@ -82,14 +83,22 @@ describe("central verified review flow", () => {
     expect(calls[0]?.query).toContain("status = 'used'");
   });
 
-  it("uses token-derived tenant isolation and workspace branding", () => {
+  it("uses token-derived tenant isolation and canonical feature access", () => {
     const service = source("src/lib/verified-review-invitations.ts");
+    const persistence = source("src/lib/verified-review-persistence.ts");
+    const entitlement = source("src/lib/workspace-feature-entitlement-db.ts");
+    const serviceJobs = source("src/lib/workspace-service-jobs-db.ts");
     const invitationRoute = source("src/app/api/dashboard/review-invitations/route.ts");
     const reviewsPage = source("src/app/dashboard/omdomen/page.tsx");
 
     expect(service).not.toContain("primeViewWorkspaceSlug");
     expect(service).not.toContain('"primeview-window-care"');
     expect(service).toContain("where invitation.token_hash =");
+    expect(service).toContain('hasWorkspaceFeatureAccessForWorkspace(workspaceId, "verified_reviews")');
+    expect(persistence).not.toContain("workspace_feature_flags feature");
+    expect(entitlement).toContain("workspace_feature_overrides");
+    expect(entitlement).toContain("resolveWorkspaceFeatureAccess");
+    expect(serviceJobs).toContain("deliverVerifiedReviewInvitation(bookingId)");
     expect(service).toContain("workspace_experience_settings");
     expect(service).toContain("workspace_settings");
     expect(invitationRoute).toContain("buildVerifiedReviewUrl(result.token)");
