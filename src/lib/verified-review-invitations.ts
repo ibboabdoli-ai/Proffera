@@ -11,6 +11,7 @@ import {
   canManageWorkspaceSettings,
   getUserWorkspaceAccess,
 } from "@/lib/workspace-access";
+import { hasWorkspaceFeatureAccessForWorkspace } from "@/lib/workspace-feature-entitlement-db";
 import { hasDashboardFeatureAccess } from "@/lib/workspace-module-access";
 import {
   createVerifiedReviewToken,
@@ -306,12 +307,6 @@ export async function getVerifiedReviewInvitation(token: string): Promise<Verifi
         experience.custom_domain,
         experience.custom_domain_status,
         exists (
-          select 1 from workspace_feature_flags feature
-          where feature.workspace_id = invitation.workspace_id
-            and feature.feature_key = 'verified_reviews'
-            and feature.enabled = true
-        ) as feature_enabled,
-        exists (
           select 1
           from website_reviews review
           where review.review_invitation_id = invitation.id
@@ -337,12 +332,14 @@ export async function getVerifiedReviewInvitation(token: string): Promise<Verifi
     if (status === "revoked") return { state: "revoked", ...brand };
     if (new Date(toText(row.expires_at)).getTime() <= Date.now()) return { state: "expired", ...brand };
 
-    const workspaceMatches = toText(row.workspace_id) === toText(row.booking_workspace_id);
+    const workspaceId = toText(row.workspace_id);
+    const featureEnabled = await hasWorkspaceFeatureAccessForWorkspace(workspaceId, "verified_reviews");
+    const workspaceMatches = workspaceId === toText(row.booking_workspace_id);
     const customerMatches = !row.customer_id || toText(row.customer_id) === toText(row.booking_customer_id);
     if (
       status !== "pending" ||
       !["active", "trial"].includes(toText(row.workspace_status)) ||
-      !toBoolean(row.feature_enabled) ||
+      !featureEnabled ||
       toText(row.booking_status) !== "completed" ||
       !workspaceMatches ||
       !customerMatches
@@ -370,11 +367,26 @@ export async function submitVerifiedReview(token: string, review: VerifiedReview
   const sql = getDatabaseSql();
   if (!parsedToken.success || !sql) return { ok: false, code: "invalid" };
 
+  const tokenHash = hashVerifiedReviewToken(parsedToken.data);
+
   try {
+    const invitationRows = await sql`
+      select workspace_id
+      from website_review_invitations
+      where token_hash = ${tokenHash}
+      limit 1
+    `;
+    const workspaceId = toText(invitationRows[0]?.workspace_id);
+    if (!workspaceId) return { ok: false, code: "invalid" };
+
+    const featureEnabled = await hasWorkspaceFeatureAccessForWorkspace(workspaceId, "verified_reviews");
+    if (!featureEnabled) return { ok: false, code: "unavailable" };
+
     const rows = await persistVerifiedReviewSubmission({
       sql,
-      tokenHash: hashVerifiedReviewToken(parsedToken.data),
+      tokenHash,
       review,
+      featureEnabled,
     });
     const row = rows[0];
     const reviewId = toText(row?.review_id);

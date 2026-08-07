@@ -32,13 +32,6 @@ export async function persistReviewInvitation(input: {
       where b.id = ${bookingId}::uuid
         and b.workspace_id = ${workspaceId}
         and b.status = 'completed'
-        and exists (
-          select 1
-          from workspace_feature_flags feature
-          where feature.workspace_id = w.id
-            and feature.feature_key = 'verified_reviews'
-            and feature.enabled = true
-        )
       limit 1
     ),
     existing as (
@@ -99,7 +92,7 @@ export async function persistReviewInvitation(input: {
         ${actorUserId},
         ${workspaceId}::uuid,
         'website_review.invitation_issued',
-        'Verified review invitation issued from workspace dashboard',
+        'Verified review invitation issued for completed booking',
         jsonb_build_object(
           'booking_id', issued.booking_id,
           'status', coalesce((select status from existing limit 1), 'none')
@@ -129,8 +122,9 @@ export async function persistVerifiedReviewSubmission(input: {
   sql: VerifiedReviewSql;
   tokenHash: string;
   review: VerifiedReviewSubmission;
+  featureEnabled: boolean;
 }) {
-  const { sql, tokenHash, review } = input;
+  const { sql, tokenHash, review, featureEnabled } = input;
 
   return sql`
     with locked as (
@@ -147,13 +141,7 @@ export async function persistVerifiedReviewSubmission(input: {
         booking.customer_id as booking_customer_id,
         coalesce(nullif(booking.service, ''), booking.title) as service,
         nullif(coalesce(booking.city, customer.city, ''), '') as area,
-        exists (
-          select 1
-          from workspace_feature_flags feature
-          where feature.workspace_id = invitation.workspace_id
-            and feature.feature_key = 'verified_reviews'
-            and feature.enabled = true
-        ) as feature_enabled
+        ${featureEnabled}::boolean as feature_enabled
       from website_review_invitations invitation
       join workspaces workspace on workspace.id = invitation.workspace_id
       join bookings booking on booking.id = invitation.booking_id
