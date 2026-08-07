@@ -7,7 +7,30 @@ const testEnvironment = {
 } satisfies NodeJS.ProcessEnv;
 
 describe("database URL resolution", () => {
-  it("keeps DATABASE_URL as the first choice", () => {
+  it("uses the dedicated Preview database before every shared database variable", () => {
+    expect(
+      resolveDatabaseUrl({
+        ...testEnvironment,
+        VERCEL_ENV: "preview",
+        PROFFERA_PREVIEW_DATABASE_URL: "postgres://isolated-preview",
+        DATABASE_URL: "postgres://production",
+        POSTGRES_URL: "postgres://shared",
+      }),
+    ).toBe("postgres://isolated-preview");
+  });
+
+  it("ignores the Preview database variable outside Vercel Preview", () => {
+    expect(
+      resolveDatabaseUrl({
+        ...testEnvironment,
+        VERCEL_ENV: "production",
+        PROFFERA_PREVIEW_DATABASE_URL: "postgres://isolated-preview",
+        DATABASE_URL: "postgres://production",
+      }),
+    ).toBe("postgres://production");
+  });
+
+  it("keeps DATABASE_URL as the first shared choice", () => {
     expect(
       resolveDatabaseUrl({
         ...testEnvironment,
