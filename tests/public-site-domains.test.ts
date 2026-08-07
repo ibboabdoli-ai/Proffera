@@ -66,8 +66,8 @@ describe("public custom-domain routing", () => {
 
     expect(settingsPage).toContain('hasWorkspaceFeature("custom_domain")');
     expect(settingsPage).toContain("disabled={!customDomainEnabled}");
-    expect(settingsPage).toContain("error=domain_taken");
-    expect(settingsPage).toContain("error=domain");
+    expect(settingsPage).toContain('error: "domain_taken"');
+    expect(settingsPage).toContain('error: "domain"');
     expect(settingsPage).toContain("Väntar på anslutning");
   });
 });

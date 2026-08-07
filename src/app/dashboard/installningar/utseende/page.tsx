@@ -3,9 +3,42 @@ import { redirect } from "next/navigation";
 import { isPrimeViewHost, normalizeCustomDomainInput } from "@/lib/public-site-domains";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 import { hasWorkspaceFeature } from "@/lib/workspace-entitlements";
-import { getWorkspaceExperienceSettings, updateWorkspaceExperienceSettings } from "@/lib/workspace-experience";
+import {
+  getWorkspaceExperienceSettings,
+  setWorkspaceCustomDomainConnectionStatus,
+  updateWorkspaceExperienceSettings,
+} from "@/lib/workspace-experience";
+import {
+  ensureVercelCustomDomain,
+  getVercelCustomDomainStatus,
+} from "@/lib/vercel-custom-domains";
+import type { VercelCustomDomainState } from "@/lib/vercel-custom-domain-policy";
 
 export const dynamic = "force-dynamic";
+
+function appearanceUrl(input: { updated?: boolean; error?: string; domain?: VercelCustomDomainState }) {
+  const query = new URLSearchParams();
+  if (input.updated) query.set("updated", "1");
+  if (input.error) query.set("error", input.error);
+  if (input.domain) query.set("domain", input.domain);
+  const suffix = query.toString();
+  return `/dashboard/installningar/utseende${suffix ? `?${suffix}` : ""}`;
+}
+
+async function syncSavedCustomDomain() {
+  "use server";
+
+  if (!(await hasWorkspaceFeature("custom_domain"))) {
+    redirect("/dashboard/installningar/funktioner");
+  }
+
+  const settings = await getWorkspaceExperienceSettings();
+  if (!settings.customDomain) redirect(appearanceUrl({ error: "domain" }));
+
+  const status = await ensureVercelCustomDomain(settings.customDomain);
+  await setWorkspaceCustomDomainConnectionStatus(settings.customDomain, status.state === "connected");
+  redirect(appearanceUrl({ domain: status.state }));
+}
 
 async function saveAppearance(formData: FormData) {
   "use server";
@@ -15,18 +48,16 @@ async function saveAppearance(formData: FormData) {
 
   const swedishEnabled = formData.get("swedishEnabled") === "on";
   const englishEnabled = formData.get("englishEnabled") === "on";
-  if (!swedishEnabled && !englishEnabled) redirect("/dashboard/installningar/utseende?error=language");
+  if (!swedishEnabled && !englishEnabled) redirect(appearanceUrl({ error: "language" }));
 
+  const current = await getWorkspaceExperienceSettings();
   const canUseCustomDomain = await hasWorkspaceFeature("custom_domain");
-  let customDomain = "";
+  let customDomain = current.customDomain;
 
   if (canUseCustomDomain) {
     const rawCustomDomain = String(formData.get("customDomain") ?? "").trim();
     customDomain = normalizeCustomDomainInput(rawCustomDomain);
-    if (rawCustomDomain && !customDomain) redirect("/dashboard/installningar/utseende?error=domain");
-  } else {
-    const current = await getWorkspaceExperienceSettings();
-    customDomain = current.customDomain;
+    if (rawCustomDomain && !customDomain) redirect(appearanceUrl({ error: "domain" }));
   }
 
   try {
@@ -50,19 +81,31 @@ async function saveAppearance(formData: FormData) {
       heroImageUrl: String(formData.get("heroImageUrl") ?? ""),
       heroVideoUrl: String(formData.get("heroVideoUrl") ?? ""),
       customDomain,
-      customDomainStatus: "disconnected",
+      customDomainStatus: current.customDomainStatus,
     });
   } catch (error) {
     if (error instanceof Error && error.message === "CUSTOM_DOMAIN_TAKEN") {
-      redirect("/dashboard/installningar/utseende?error=domain_taken");
+      redirect(appearanceUrl({ error: "domain_taken" }));
     }
     if (error instanceof Error && error.message === "INVALID_CUSTOM_DOMAIN") {
-      redirect("/dashboard/installningar/utseende?error=domain");
+      redirect(appearanceUrl({ error: "domain" }));
     }
     throw error;
   }
 
-  redirect("/dashboard/installningar/utseende?updated=1");
+  const domainNeedsProvisioning =
+    canUseCustomDomain &&
+    Boolean(customDomain) &&
+    !isPrimeViewHost(customDomain) &&
+    (customDomain !== current.customDomain || current.customDomainStatus !== "connected");
+
+  if (domainNeedsProvisioning) {
+    const status = await ensureVercelCustomDomain(customDomain);
+    await setWorkspaceCustomDomainConnectionStatus(customDomain, status.state === "connected");
+    redirect(appearanceUrl({ updated: true, domain: status.state }));
+  }
+
+  redirect(appearanceUrl({ updated: true }));
 }
 
 const toggles = [
@@ -76,10 +119,20 @@ const toggles = [
   ["chatbotEnabled", "AI-chatt på bokningssidan"],
 ] as const;
 
+const domainMessages: Partial<Record<VercelCustomDomainState, string>> = {
+  connected: "Domänen är verifierad och DNS är korrekt. Den är klar att använda.",
+  verification: "Domänen är tillagd i Vercel men ägarskapet behöver verifieras. Lägg in TXT-posten som visas nedan och kontrollera igen.",
+  dns: "Domänen är verifierad men DNS behöver justeras enligt Vercels rekommendationer nedan.",
+  missing: "Domänen är sparad men har ännu inte lagts till i Vercel. Klicka på Kontrollera och anslut.",
+  conflict: "Vercel rapporterar att domänen redan används av ett annat projekt. Proffera flyttar aldrig en domän automatiskt.",
+  unconfigured: "Automatisk domänanslutning är ännu inte aktiverad på Proffera-servern. Den sparade domänen påverkas inte.",
+  error: "Vercel kunde inte kontrollera domänen just nu. Försök igen senare.",
+};
+
 export default async function AppearanceSettingsPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ updated?: string; error?: string }>;
+  searchParams?: Promise<{ updated?: string; error?: string; domain?: string }>;
 }) {
   const access = await getUserWorkspaceAccess();
   if (!access.ok || !canManageWorkspaceSettings(access)) redirect("/dashboard");
@@ -90,7 +143,23 @@ export default async function AppearanceSettingsPage({
     hasWorkspaceFeature("custom_domain"),
   ]);
   const params = searchParams ? await searchParams : {};
-  const domainConnected = settings.customDomainStatus === "connected" || isPrimeViewHost(settings.customDomain);
+  const bespokePrimeView = isPrimeViewHost(settings.customDomain);
+  const automationStatus = customDomainEnabled && settings.customDomain && !bespokePrimeView
+    ? await getVercelCustomDomainStatus(settings.customDomain)
+    : null;
+  const domainConnected = bespokePrimeView || (
+    automationStatus?.automationConfigured
+      ? automationStatus.state === "connected"
+      : settings.customDomainStatus === "connected"
+  );
+  const redirectDomainState = params.domain && Object.prototype.hasOwnProperty.call(domainMessages, params.domain)
+    ? (params.domain as VercelCustomDomainState)
+    : null;
+  const statusMessage = automationStatus
+    ? domainMessages[automationStatus.state]
+    : redirectDomainState
+      ? domainMessages[redirectDomainState]
+      : null;
 
   return (
     <div className="grid gap-6">
@@ -161,7 +230,7 @@ export default async function AppearanceSettingsPage({
             />
             <p className="text-xs leading-5 text-[#667168]">
               {customDomainEnabled
-                ? "Spara endast domännamnet. När DNS pekar mot Proffera markeras domänen som ansluten automatiskt vid första riktiga besöket."
+                ? "Spara domänen. Proffera försöker sedan lägga till och verifiera den automatiskt i Vercel och visar exakt vad som saknas i DNS."
                 : "Egen domän är låst för nuvarande plan. Befintlig inställning behålls men publiceras inte utan modulåtkomst."}
             </p>
             {!customDomainEnabled ? <a href="/dashboard/installningar/funktioner" className="text-sm font-bold text-[#17452f] underline underline-offset-4">Visa domänåtkomst</a> : null}
@@ -170,6 +239,45 @@ export default async function AppearanceSettingsPage({
 
         <button className="min-h-12 rounded-xl bg-[#173e2b] px-5 py-3 text-sm font-bold text-white">Spara inställningar</button>
       </form>
+
+      {customDomainEnabled && settings.customDomain && !bespokePrimeView ? (
+        <section className="rounded-[24px] border border-[#dfe6df] bg-white p-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.16em] text-[#68736b]">Automatisk domänanslutning</p>
+              <h2 className="mt-2 text-xl font-black text-[#17201a]">{settings.customDomain}</h2>
+              {statusMessage ? <p className="mt-2 max-w-3xl text-sm leading-6 text-[#5f6b63]">{statusMessage}</p> : null}
+            </div>
+            <form action={syncSavedCustomDomain}>
+              <button className="min-h-11 rounded-xl border border-[#bfcdbf] bg-white px-4 py-2.5 text-sm font-bold text-[#17452f]">Kontrollera och anslut</button>
+            </form>
+          </div>
+
+          {automationStatus?.verificationRecords.length ? (
+            <div className="mt-5 rounded-2xl bg-[#fff9e9] p-4 ring-1 ring-[#ead9ac]">
+              <h3 className="font-bold text-[#6f5512]">TXT för verifiering</h3>
+              <div className="mt-3 grid gap-3">
+                {automationStatus.verificationRecords.map((record, index) => (
+                  <div key={`${record.type}-${record.domain}-${index}`} className="grid gap-1 text-sm">
+                    <span><strong>Typ:</strong> {record.type}</span>
+                    {record.domain ? <span className="break-all"><strong>Namn:</strong> {record.domain}</span> : null}
+                    <span className="break-all font-mono text-xs"><strong>Värde:</strong> {record.value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {automationStatus?.recommendedCNAME.length || automationStatus?.recommendedIPv4.length ? (
+            <div className="mt-5 rounded-2xl bg-[#f7f9f6] p-4 ring-1 ring-[#dfe6df]">
+              <h3 className="font-bold text-[#17201a]">DNS som Vercel rekommenderar</h3>
+              {automationStatus.recommendedCNAME.length ? <p className="mt-3 break-all text-sm"><strong>CNAME:</strong> {automationStatus.recommendedCNAME.join(", ")}</p> : null}
+              {automationStatus.recommendedIPv4.length ? <p className="mt-2 break-all text-sm"><strong>A / IPv4:</strong> {automationStatus.recommendedIPv4.join(", ")}</p> : null}
+              <p className="mt-3 text-xs leading-5 text-[#667168]">Använd värdena som visas av Vercel för just den här domänen. Proffera flyttar eller skriver aldrig över en domän som tillhör ett annat Vercel-projekt.</p>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
     </div>
   );
 }
