@@ -3,13 +3,14 @@ import "server-only";
 import crypto from "node:crypto";
 import { neon } from "@neondatabase/serverless";
 
+import { resolveCustomerPortalSecret } from "@/lib/auth-secret";
 import { resolveDatabaseUrl } from "@/lib/db/database-url";
 import { sendBookingChangeEmails } from "@/features/email/booking-change-email";
 import { resolveBookingTimeZone } from "@/lib/public-booking-policy";
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
 
 const connectionString = resolveDatabaseUrl();
-const portalSecret = process.env.CUSTOMER_PORTAL_SECRET ?? process.env.BETTER_AUTH_SECRET ?? process.env.AUTH_SECRET;
+const portalSecret = resolveCustomerPortalSecret();
 const TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30;
 type TokenPayload = { workspaceId: string; customerId: string; exp: number };
 export type CustomerCalendarBooking = { id:string; title:string; service:string; city:string; status:string; startsAt:string; endsAt:string };

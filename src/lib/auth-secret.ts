@@ -13,3 +13,12 @@ export function resolveAuthSecret(env: NodeJS.ProcessEnv = process.env) {
 
   return null;
 }
+
+export function resolveCustomerPortalSecret(env: NodeJS.ProcessEnv = process.env) {
+  if (env.VERCEL_ENV === "preview") {
+    return resolveAuthSecret(env);
+  }
+
+  const customerPortalSecret = env.CUSTOMER_PORTAL_SECRET?.trim();
+  return customerPortalSecret || resolveAuthSecret(env);
+}
