@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { isEnglishPublicPath } from "./lib/public-locale";
-import { isPrimeViewHost } from "./lib/public-site-domains";
+import { resolvePublicCustomDomain } from "./lib/public-site-domain-routing";
+import {
+  isPlatformHost,
+  isPrimeViewHost,
+} from "./lib/public-site-domains";
 
 const CHAT_ORIGIN = "https://chat.proffera.se";
 const PROFFERA_TENANT = "proffera";
@@ -20,6 +24,13 @@ function unauthorized(realm = "Proffera Admin", noindex = false) {
   return new Response("Authentication required", {
     status: 401,
     headers,
+  });
+}
+
+function notFound() {
+  return new Response("Not found", {
+    status: 404,
+    headers: { "X-Robots-Tag": NOINDEX_VALUE },
   });
 }
 
@@ -105,14 +116,26 @@ function requireAdminAuth(request: NextRequest) {
   return NextResponse.next();
 }
 
-export function proxy(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
+  const host = request.headers.get("host");
 
-  // A custom customer domain must never fall through to the Proffera homepage.
-  // The PrimeView site remains on its existing internal preview route, while the
-  // browser keeps the customer's own domain in the address bar.
-  if (isPrimeViewHost(request.headers.get("host")) && pathname === "/") {
+  // PrimeView keeps its bespoke public site while generic customer domains use
+  // the workspace booking-site renderer below.
+  if (isPrimeViewHost(host) && pathname === "/") {
     return NextResponse.rewrite(new URL("/demo/primeview", request.url));
+  }
+
+  // Any custom domain already attached to this Vercel project resolves from the
+  // workspace database. Unknown custom hosts fail closed instead of showing the
+  // Proffera marketing homepage under somebody else's domain.
+  if (pathname === "/" && !isPlatformHost(host)) {
+    const target = await resolvePublicCustomDomain(host);
+    if (!target) return notFound();
+
+    const url = request.nextUrl.clone();
+    url.pathname = `/boka/${encodeURIComponent(target.bookingSlug)}`;
+    return NextResponse.rewrite(url);
   }
 
   if (pathname.startsWith("/app/")) {

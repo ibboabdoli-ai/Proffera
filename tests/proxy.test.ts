@@ -1,5 +1,9 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
+
+vi.mock("../src/lib/public-site-domain-routing", () => ({
+  resolvePublicCustomDomain: vi.fn(async () => null),
+}));
 
 import { proxy } from "../src/proxy";
 
@@ -18,30 +22,30 @@ afterEach(() => {
 });
 
 describe("proxy request boundary", () => {
-  it("allows admin pages to reach session and role authorization", () => {
+  it("allows admin pages to reach session and role authorization", async () => {
     process.env.ADMIN_ACCESS_CODE = "test-admin-code";
 
-    const response = proxy(request("/admin/saas"));
+    const response = await proxy(request("/admin/saas"));
 
     expect(response.status).toBe(200);
     expect(response.headers.get("x-middleware-next")).toBe("1");
     expect(response.headers.get("www-authenticate")).toBeNull();
   });
 
-  it("rejects unauthenticated sensitive admin API requests", () => {
+  it("rejects unauthenticated sensitive admin API requests", async () => {
     process.env.ADMIN_ACCESS_CODE = "test-admin-code";
 
-    const response = proxy(request("/api/outbox"));
+    const response = await proxy(request("/api/outbox"));
 
     expect(response.status).toBe(401);
     expect(response.headers.get("www-authenticate")).toContain("Proffera Admin");
   });
 
-  it("allows valid Basic authentication for sensitive admin APIs", () => {
+  it("allows valid Basic authentication for sensitive admin APIs", async () => {
     process.env.ADMIN_ACCESS_CODE = "test-admin-code";
     const authorization = `Basic ${btoa("admin:test-admin-code")}`;
 
-    const response = proxy(
+    const response = await proxy(
       request("/api/company-admin", {
         authorization,
       }),
@@ -51,15 +55,15 @@ describe("proxy request boundary", () => {
     expect(response.headers.get("x-middleware-next")).toBe("1");
   });
 
-  it("marks dashboard responses as noindex", () => {
-    const response = proxy(request("/dashboard"));
+  it("marks dashboard responses as noindex", async () => {
+    const response = await proxy(request("/dashboard"));
 
     expect(response.status).toBe(200);
     expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow");
   });
 
-  it("redirects chat app routes and preserves query parameters", () => {
-    const response = proxy(request("/app/inbox?conversation=123"));
+  it("redirects chat app routes and preserves query parameters", async () => {
+    const response = await proxy(request("/app/inbox?conversation=123"));
     const location = response.headers.get("location");
 
     expect(response.status).toBe(307);
@@ -68,8 +72,8 @@ describe("proxy request boundary", () => {
     );
   });
 
-  it("rewrites the PrimeView root without changing the customer-facing URL", () => {
-    const response = proxy(
+  it("rewrites the PrimeView root without changing the customer-facing URL", async () => {
+    const response = await proxy(
       new NextRequest("https://primeviewwindowcare.co.uk/", {
         headers: { host: "primeviewwindowcare.co.uk" },
       }),
@@ -81,8 +85,8 @@ describe("proxy request boundary", () => {
     );
   });
 
-  it("forwards the English locale for English public routes", () => {
-    const response = proxy(request("/en/pricing"));
+  it("forwards the English locale for English public routes", async () => {
+    const response = await proxy(request("/en/pricing"));
 
     expect(response.status).toBe(200);
     expect(response.headers.get("x-middleware-request-x-proffera-locale")).toBe("en");
