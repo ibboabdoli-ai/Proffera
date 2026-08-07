@@ -18,7 +18,7 @@ jobs:
           ref: fix/preview-auth-secret
           fetch-depth: 0
 
-      - name: Rewrite direct database environment access
+      - name: Repair resolver suffix and verify isolation
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPOSITORY: ${{ github.repository }}
@@ -32,56 +32,39 @@ jobs:
 
           root = Path("src")
           allowed = Path("src/lib/db/database-url.ts")
-          keys = r"(?:DATABASE_URL|POSTGRES_URL|POSTGRES_PRISMA_URL|POSTGRES_URL_NON_POOLING|DATABASE_URL_UNPOOLED)"
-          direct = re.compile(rf"process\.env\.(?:{keys})")
-          chain = re.compile(
-              rf"process\.env\.(?:{keys})(?:\s*\?\?\s*process\.env\.(?:{keys}))+",
-              re.MULTILINE,
-          )
+          db_keys = r"(?:DATABASE_URL|POSTGRES_URL|POSTGRES_PRISMA_URL|POSTGRES_URL_NON_POOLING|DATABASE_URL_UNPOOLED)"
+          direct = re.compile(rf"process\.env\.(?:{db_keys})(?![A-Z0-9_])")
+          malformed = re.compile(r"resolveDatabaseUrl\(\)_[A-Z0-9_]+")
           changed = []
 
           for path in sorted(root.rglob("*.ts")) + sorted(root.rglob("*.tsx")):
-              if path == allowed:
-                  continue
               text = path.read_text()
-              if not direct.search(text):
-                  continue
-
-              updated = chain.sub("resolveDatabaseUrl()", text)
-              if direct.search(updated):
-                  # Refuse to guess about a shape outside the known legacy nullish-coalescing chain.
-                  continue
-
-              if 'from "@/lib/db/database-url"' not in updated:
-                  import_line = 'import { resolveDatabaseUrl } from "@/lib/db/database-url";\n'
-                  neon_import = re.compile(r'(import[^\n]+from "@neondatabase/serverless";\n)')
-                  if neon_import.search(updated):
-                      updated = neon_import.sub(r'\1\n' + import_line, updated, count=1)
-                  else:
-                      imports = list(re.finditer(r'^import[^\n]*;\n', updated, re.MULTILINE))
-                      if imports:
-                          pos = imports[-1].end()
-                          updated = updated[:pos] + import_line + updated[pos:]
-                      else:
-                          updated = import_line + "\n" + updated
-
+              updated = text.replace("resolveDatabaseUrl()_NON_POOLING", "resolveDatabaseUrl()")
+              updated = updated.replace("resolveDatabaseUrl()_UNPOOLED", "resolveDatabaseUrl()")
               if updated != text:
                   path.write_text(updated)
                   changed.append(path)
 
           offenders = []
+          malformed_files = []
           for path in sorted(root.rglob("*.ts")) + sorted(root.rglob("*.tsx")):
-              if path == allowed:
-                  continue
-              if direct.search(path.read_text()):
+              text = path.read_text()
+              if path != allowed and direct.search(text):
                   offenders.append(str(path))
+              if malformed.search(text):
+                  malformed_files.append(str(path))
 
           print("CHANGED_COUNT", len(changed))
           for path in changed:
               print("CHANGED", path)
+          print("OFFENDER_COUNT", len(offenders))
+          print("MALFORMED_COUNT", len(malformed_files))
           if offenders:
               print("OFFENDERS", json.dumps(offenders))
               raise SystemExit(2)
+          if malformed_files:
+              print("MALFORMED", json.dumps(malformed_files))
+              raise SystemExit(3)
 
           token = os.environ["GH_TOKEN"]
           repo = os.environ["GH_REPOSITORY"]
