@@ -47,7 +47,8 @@ export function normalizeCustomDomainInput(input: string | null | undefined) {
 
     const hostname = hostnameFromHostHeader(url.hostname);
     if (!hostname || hostname.length > 253 || !hostname.includes(".")) return "";
-    if (isPlatformHost(hostname) || isPrimeViewHost(hostname)) return hostname;
+    if (isPlatformHost(hostname)) return "";
+    if (isPrimeViewHost(hostname)) return hostname;
 
     const labels = hostname.split(".");
     if (labels.some((label) => !hostnameLabel.test(label))) return "";

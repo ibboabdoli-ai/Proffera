@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getSql } from "@/lib/db/server";
+import { normalizeCustomDomainInput } from "@/lib/public-site-domains";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 export type WorkspaceLanguage = "sv" | "en";
@@ -111,17 +112,39 @@ export async function updateWorkspaceExperienceSettings(input: WorkspaceExperien
   if (!themes.has(input.themeKey)) throw new Error("Invalid theme");
   if (!/^#[0-9a-f]{6}$/i.test(input.primaryColor) || !/^#[0-9a-f]{6}$/i.test(input.accentColor)) throw new Error("Invalid color");
   if (!input.swedishEnabled && !input.englishEnabled) throw new Error("At least one language must be enabled");
+
+  const rawCustomDomain = input.customDomain.trim();
+  const customDomain = normalizeCustomDomainInput(rawCustomDomain);
+  if (rawCustomDomain && !customDomain) throw new Error("INVALID_CUSTOM_DOMAIN");
+
+  if (customDomain) {
+    const duplicate = await sql`
+      select workspace_id
+      from workspace_experience_settings
+      where workspace_id <> ${access.workspaceId}::uuid
+        and lower(
+          split_part(
+            regexp_replace(trim(coalesce(custom_domain, '')), '^https?://', '', 'i'),
+            '/',
+            1
+          )
+        ) = ${customDomain}
+      limit 1
+    `;
+    if (duplicate[0]) throw new Error("CUSTOM_DOMAIN_TAKEN");
+  }
+
   const defaultLanguage: WorkspaceLanguage = input.defaultLanguage === "en" && input.englishEnabled ? "en" : "sv";
   await sql`
     insert into workspace_experience_settings (
       workspace_id, theme_key, primary_color, accent_color, appearance, default_language, swedish_enabled, english_enabled,
       hero_enabled, services_enabled, staff_enabled, reviews_enabled, gallery_enabled, contact_enabled, faq_enabled,
-      chatbot_enabled, logo_url, hero_image_url, hero_video_url, custom_domain, updated_at
+      chatbot_enabled, logo_url, hero_image_url, hero_video_url, custom_domain, custom_domain_status, updated_at
     ) values (
       ${access.workspaceId}::uuid, ${input.themeKey}, ${input.primaryColor}, ${input.accentColor}, ${input.appearance}, ${defaultLanguage},
       ${input.swedishEnabled}, ${input.englishEnabled}, ${input.heroEnabled}, ${input.servicesEnabled}, ${input.staffEnabled},
       ${input.reviewsEnabled}, ${input.galleryEnabled}, ${input.contactEnabled}, ${input.faqEnabled}, ${input.chatbotEnabled},
-      ${input.logoUrl || null}, ${input.heroImageUrl || null}, ${input.heroVideoUrl || null}, ${input.customDomain || null}, now()
+      ${input.logoUrl || null}, ${input.heroImageUrl || null}, ${input.heroVideoUrl || null}, ${customDomain || null}, 'disconnected', now()
     ) on conflict (workspace_id) do update set
       theme_key = excluded.theme_key, primary_color = excluded.primary_color, accent_color = excluded.accent_color,
       appearance = excluded.appearance, default_language = excluded.default_language, swedish_enabled = excluded.swedish_enabled,
@@ -129,6 +152,10 @@ export async function updateWorkspaceExperienceSettings(input: WorkspaceExperien
       staff_enabled = excluded.staff_enabled, reviews_enabled = excluded.reviews_enabled, gallery_enabled = excluded.gallery_enabled,
       contact_enabled = excluded.contact_enabled, faq_enabled = excluded.faq_enabled, chatbot_enabled = excluded.chatbot_enabled,
       logo_url = excluded.logo_url, hero_image_url = excluded.hero_image_url, hero_video_url = excluded.hero_video_url,
+      custom_domain_status = case
+        when workspace_experience_settings.custom_domain is distinct from excluded.custom_domain then 'disconnected'
+        else workspace_experience_settings.custom_domain_status
+      end,
       custom_domain = excluded.custom_domain, updated_at = now()
   `;
 }
