@@ -11,16 +11,18 @@ import {
 import {
   ensureVercelCustomDomain,
   getVercelCustomDomainStatus,
+  removeVercelCustomDomain,
 } from "@/lib/vercel-custom-domains";
 import type { VercelCustomDomainState } from "@/lib/vercel-custom-domain-policy";
 
 export const dynamic = "force-dynamic";
 
-function appearanceUrl(input: { updated?: boolean; error?: string; domain?: VercelCustomDomainState }) {
+function appearanceUrl(input: { updated?: boolean; error?: string; domain?: VercelCustomDomainState; removed?: boolean }) {
   const query = new URLSearchParams();
   if (input.updated) query.set("updated", "1");
   if (input.error) query.set("error", input.error);
   if (input.domain) query.set("domain", input.domain);
+  if (input.removed) query.set("domainRemoved", "1");
   const suffix = query.toString();
   return `/dashboard/installningar/utseende${suffix ? `?${suffix}` : ""}`;
 }
@@ -38,6 +40,28 @@ async function syncSavedCustomDomain() {
   const status = await ensureVercelCustomDomain(settings.customDomain);
   await setWorkspaceCustomDomainConnectionStatus(settings.customDomain, status.state === "connected");
   redirect(appearanceUrl({ domain: status.state }));
+}
+
+async function disconnectSavedCustomDomain() {
+  "use server";
+
+  if (!(await hasWorkspaceFeature("custom_domain"))) {
+    redirect("/dashboard/installningar/funktioner");
+  }
+
+  const settings = await getWorkspaceExperienceSettings();
+  if (!settings.customDomain) redirect(appearanceUrl({ error: "domain" }));
+  if (isPrimeViewHost(settings.customDomain)) redirect(appearanceUrl({ error: "domain_protected" }));
+
+  const removal = await removeVercelCustomDomain(settings.customDomain);
+  if (!removal.ok) redirect(appearanceUrl({ error: "domain_remove" }));
+
+  await updateWorkspaceExperienceSettings({
+    ...settings,
+    customDomain: "",
+    customDomainStatus: "disconnected",
+  });
+  redirect(appearanceUrl({ removed: true }));
 }
 
 async function saveAppearance(formData: FormData) {
@@ -60,29 +84,41 @@ async function saveAppearance(formData: FormData) {
     if (rawCustomDomain && !customDomain) redirect(appearanceUrl({ error: "domain" }));
   }
 
+  const domainChanging = canUseCustomDomain && customDomain !== current.customDomain;
+  if (domainChanging && (isPrimeViewHost(current.customDomain) || isPrimeViewHost(customDomain))) {
+    redirect(appearanceUrl({ error: "domain_protected" }));
+  }
+
+  if (domainChanging && current.customDomain && !customDomain) {
+    const removal = await removeVercelCustomDomain(current.customDomain);
+    if (!removal.ok) redirect(appearanceUrl({ error: "domain_remove" }));
+  }
+
+  const nextSettings = {
+    themeKey: String(formData.get("themeKey") ?? "clean"),
+    primaryColor: String(formData.get("primaryColor") ?? "#17452f"),
+    accentColor: String(formData.get("accentColor") ?? "#d9b44a"),
+    appearance: formData.get("appearance") === "dark" ? "dark" as const : "light" as const,
+    defaultLanguage: formData.get("defaultLanguage") === "en" ? "en" as const : "sv" as const,
+    swedishEnabled,
+    englishEnabled,
+    heroEnabled: formData.get("heroEnabled") === "on",
+    servicesEnabled: formData.get("servicesEnabled") === "on",
+    staffEnabled: formData.get("staffEnabled") === "on",
+    reviewsEnabled: formData.get("reviewsEnabled") === "on",
+    galleryEnabled: formData.get("galleryEnabled") === "on",
+    contactEnabled: formData.get("contactEnabled") === "on",
+    faqEnabled: formData.get("faqEnabled") === "on",
+    chatbotEnabled: formData.get("chatbotEnabled") === "on",
+    logoUrl: String(formData.get("logoUrl") ?? ""),
+    heroImageUrl: String(formData.get("heroImageUrl") ?? ""),
+    heroVideoUrl: String(formData.get("heroVideoUrl") ?? ""),
+    customDomain,
+    customDomainStatus: current.customDomainStatus,
+  };
+
   try {
-    await updateWorkspaceExperienceSettings({
-      themeKey: String(formData.get("themeKey") ?? "clean"),
-      primaryColor: String(formData.get("primaryColor") ?? "#17452f"),
-      accentColor: String(formData.get("accentColor") ?? "#d9b44a"),
-      appearance: formData.get("appearance") === "dark" ? "dark" : "light",
-      defaultLanguage: formData.get("defaultLanguage") === "en" ? "en" : "sv",
-      swedishEnabled,
-      englishEnabled,
-      heroEnabled: formData.get("heroEnabled") === "on",
-      servicesEnabled: formData.get("servicesEnabled") === "on",
-      staffEnabled: formData.get("staffEnabled") === "on",
-      reviewsEnabled: formData.get("reviewsEnabled") === "on",
-      galleryEnabled: formData.get("galleryEnabled") === "on",
-      contactEnabled: formData.get("contactEnabled") === "on",
-      faqEnabled: formData.get("faqEnabled") === "on",
-      chatbotEnabled: formData.get("chatbotEnabled") === "on",
-      logoUrl: String(formData.get("logoUrl") ?? ""),
-      heroImageUrl: String(formData.get("heroImageUrl") ?? ""),
-      heroVideoUrl: String(formData.get("heroVideoUrl") ?? ""),
-      customDomain,
-      customDomainStatus: current.customDomainStatus,
-    });
+    await updateWorkspaceExperienceSettings(nextSettings);
   } catch (error) {
     if (error instanceof Error && error.message === "CUSTOM_DOMAIN_TAKEN") {
       redirect(appearanceUrl({ error: "domain_taken" }));
@@ -97,11 +133,42 @@ async function saveAppearance(formData: FormData) {
     canUseCustomDomain &&
     Boolean(customDomain) &&
     !isPrimeViewHost(customDomain) &&
-    (customDomain !== current.customDomain || current.customDomainStatus !== "connected");
+    (domainChanging || current.customDomainStatus !== "connected");
 
   if (domainNeedsProvisioning) {
     const status = await ensureVercelCustomDomain(customDomain);
+
+    if (!status.projectAttached) {
+      await updateWorkspaceExperienceSettings({
+        ...nextSettings,
+        customDomain: current.customDomain,
+        customDomainStatus: current.customDomainStatus,
+      });
+      redirect(appearanceUrl({ error: "domain_provision", domain: status.state }));
+    }
+
     await setWorkspaceCustomDomainConnectionStatus(customDomain, status.state === "connected");
+
+    const previousDomainNeedsCleanup =
+      domainChanging &&
+      Boolean(current.customDomain) &&
+      current.customDomain !== customDomain &&
+      !isPrimeViewHost(current.customDomain);
+
+    if (previousDomainNeedsCleanup) {
+      const cleanup = await removeVercelCustomDomain(current.customDomain);
+      if (!cleanup.ok) {
+        const compensation = await removeVercelCustomDomain(customDomain);
+        if (!compensation.ok) console.error("Failed to compensate custom-domain replacement cleanup");
+        await updateWorkspaceExperienceSettings({
+          ...nextSettings,
+          customDomain: current.customDomain,
+          customDomainStatus: current.customDomainStatus,
+        });
+        redirect(appearanceUrl({ error: "domain_cleanup" }));
+      }
+    }
+
     redirect(appearanceUrl({ updated: true, domain: status.state }));
   }
 
@@ -132,7 +199,7 @@ const domainMessages: Partial<Record<VercelCustomDomainState, string>> = {
 export default async function AppearanceSettingsPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ updated?: string; error?: string; domain?: string }>;
+  searchParams?: Promise<{ updated?: string; error?: string; domain?: string; domainRemoved?: string }>;
 }) {
   const access = await getUserWorkspaceAccess();
   if (!access.ok || !canManageWorkspaceSettings(access)) redirect("/dashboard");
@@ -170,9 +237,14 @@ export default async function AppearanceSettingsPage({
       </header>
 
       {params.updated === "1" ? <p className="rounded-xl bg-[#eaf6ed] p-4 text-sm font-bold text-[#17452f]">Inställningarna sparades.</p> : null}
+      {params.domainRemoved === "1" ? <p className="rounded-xl bg-[#eaf6ed] p-4 text-sm font-bold text-[#17452f]">Domänen kopplades från och togs bort från Profferas Vercel-projekt.</p> : null}
       {params.error === "language" ? <p className="rounded-xl bg-[#fff3ef] p-4 text-sm font-bold text-[#8f2f1b]">Minst ett språk måste vara aktivt.</p> : null}
       {params.error === "domain" ? <p className="rounded-xl bg-[#fff3ef] p-4 text-sm font-bold text-[#8f2f1b]">Ange bara ett giltigt domännamn, till exempel booking.foretagen.se.</p> : null}
       {params.error === "domain_taken" ? <p className="rounded-xl bg-[#fff3ef] p-4 text-sm font-bold text-[#8f2f1b]">Domänen används redan av en annan arbetsyta.</p> : null}
+      {params.error === "domain_remove" ? <p className="rounded-xl bg-[#fff3ef] p-4 text-sm font-bold text-[#8f2f1b]">Domänen kunde inte kopplas från Vercel. Ingen säker bortkoppling genomfördes.</p> : null}
+      {params.error === "domain_cleanup" ? <p className="rounded-xl bg-[#fff3ef] p-4 text-sm font-bold text-[#8f2f1b]">Den gamla domänen kunde inte städas bort säkert. Domänbytet återställdes.</p> : null}
+      {params.error === "domain_provision" ? <p className="rounded-xl bg-[#fff3ef] p-4 text-sm font-bold text-[#8f2f1b]">Den nya domänen kunde inte läggas till säkert i Vercel. Den tidigare domänen behölls.</p> : null}
+      {params.error === "domain_protected" ? <p className="rounded-xl bg-[#fff3ef] p-4 text-sm font-bold text-[#8f2f1b]">Den här domänen är skyddad och kan inte flyttas eller kopplas från via självservice.</p> : null}
 
       {!builderEnabled ? (
         <section className="rounded-2xl border border-[#ead9ac] bg-[#fff9e9] p-5">
@@ -248,9 +320,14 @@ export default async function AppearanceSettingsPage({
               <h2 className="mt-2 text-xl font-black text-[#17201a]">{settings.customDomain}</h2>
               {statusMessage ? <p className="mt-2 max-w-3xl text-sm leading-6 text-[#5f6b63]">{statusMessage}</p> : null}
             </div>
-            <form action={syncSavedCustomDomain}>
-              <button className="min-h-11 rounded-xl border border-[#bfcdbf] bg-white px-4 py-2.5 text-sm font-bold text-[#17452f]">Kontrollera och anslut</button>
-            </form>
+            <div className="flex flex-wrap gap-2">
+              <form action={syncSavedCustomDomain}>
+                <button className="min-h-11 rounded-xl border border-[#bfcdbf] bg-white px-4 py-2.5 text-sm font-bold text-[#17452f]">Kontrollera och anslut</button>
+              </form>
+              <form action={disconnectSavedCustomDomain}>
+                <button className="min-h-11 rounded-xl border border-[#e4c5c0] bg-white px-4 py-2.5 text-sm font-bold text-[#8f2f1b]">Koppla från domän</button>
+              </form>
+            </div>
           </div>
 
           {automationStatus?.verificationRecords.length ? (
