@@ -18,7 +18,7 @@ jobs:
           ref: fix/preview-auth-secret
           fetch-depth: 0
 
-      - name: Repair resolver suffix and verify isolation
+      - name: Isolate customer portal secret in Preview
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPOSITORY: ${{ github.repository }}
@@ -27,61 +27,36 @@ jobs:
           from pathlib import Path
           import json
           import os
-          import re
           import urllib.request
 
-          root = Path("src")
-          allowed = Path("src/lib/db/database-url.ts")
-          db_keys = r"(?:DATABASE_URL|POSTGRES_URL|POSTGRES_PRISMA_URL|POSTGRES_URL_NON_POOLING|DATABASE_URL_UNPOOLED)"
-          direct = re.compile(rf"process\.env\.(?:{db_keys})(?![A-Z0-9_])")
-          malformed = re.compile(r"resolveDatabaseUrl\(\)_[A-Z0-9_]+")
-          changed = []
+          path = Path("src/lib/customer-calendar.ts")
+          text = path.read_text()
+          old_import = 'import { resolveDatabaseUrl } from "@/lib/db/database-url";\n'
+          new_import = 'import { resolveCustomerPortalSecret } from "@/lib/auth-secret";\nimport { resolveDatabaseUrl } from "@/lib/db/database-url";\n'
+          old_secret = 'const portalSecret = process.env.CUSTOMER_PORTAL_SECRET ?? process.env.BETTER_AUTH_SECRET ?? process.env.AUTH_SECRET;'
+          new_secret = 'const portalSecret = resolveCustomerPortalSecret();'
 
-          for path in sorted(root.rglob("*.ts")) + sorted(root.rglob("*.tsx")):
-              text = path.read_text()
-              updated = text.replace("resolveDatabaseUrl()_NON_POOLING", "resolveDatabaseUrl()")
-              updated = updated.replace("resolveDatabaseUrl()_UNPOOLED", "resolveDatabaseUrl()")
-              if updated != text:
-                  path.write_text(updated)
-                  changed.append(path)
+          if old_import not in text or old_secret not in text:
+              raise SystemExit("Expected customer calendar secret pattern not found")
 
-          offenders = []
-          malformed_files = []
-          for path in sorted(root.rglob("*.ts")) + sorted(root.rglob("*.tsx")):
-              text = path.read_text()
-              if path != allowed and direct.search(text):
-                  offenders.append(str(path))
-              if malformed.search(text):
-                  malformed_files.append(str(path))
+          updated = text.replace(old_import, new_import, 1).replace(old_secret, new_secret, 1)
+          if "process.env.CUSTOMER_PORTAL_SECRET" in updated or "process.env.BETTER_AUTH_SECRET" in updated or "process.env.AUTH_SECRET" in updated:
+              raise SystemExit("Direct Production secret access still exists in customer-calendar.ts")
+          path.write_text(updated)
 
-          print("CHANGED_COUNT", len(changed))
-          for path in changed:
-              print("CHANGED", path)
-          print("OFFENDER_COUNT", len(offenders))
-          print("MALFORMED_COUNT", len(malformed_files))
-          if offenders:
-              print("OFFENDERS", json.dumps(offenders))
-              raise SystemExit(2)
-          if malformed_files:
-              print("MALFORMED", json.dumps(malformed_files))
-              raise SystemExit(3)
-
-          token = os.environ["GH_TOKEN"]
-          repo = os.environ["GH_REPOSITORY"]
-          for path in changed:
-              body = json.dumps({"content": path.read_text(), "encoding": "utf-8"}).encode()
-              req = urllib.request.Request(
-                  f"https://api.github.com/repos/{repo}/git/blobs",
-                  data=body,
-                  headers={
-                      "Authorization": f"Bearer {token}",
-                      "Accept": "application/vnd.github+json",
-                      "X-GitHub-Api-Version": "2022-11-28",
-                      "Content-Type": "application/json",
-                  },
-                  method="POST",
-              )
-              with urllib.request.urlopen(req) as response:
-                  result = json.load(response)
-              print("BLOB", path, result["sha"])
+          body = json.dumps({"content": updated, "encoding": "utf-8"}).encode()
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/{os.environ['GH_REPOSITORY']}/git/blobs",
+              data=body,
+              headers={
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "Accept": "application/vnd.github+json",
+                  "X-GitHub-Api-Version": "2022-11-28",
+                  "Content-Type": "application/json",
+              },
+              method="POST",
+          )
+          with urllib.request.urlopen(req) as response:
+              result = json.load(response)
+          print("BLOB", path, result["sha"])
           PY
