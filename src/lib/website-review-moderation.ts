@@ -22,7 +22,17 @@ export const websiteReviewEditSchema = z.object({
   message: z.string().trim().min(10).max(1_000),
 });
 
+export const websiteReviewPresentationSchema = z.object({
+  ownerReply: z
+    .string()
+    .trim()
+    .max(1_000)
+    .transform((value) => value || null),
+  isFeatured: z.boolean(),
+});
+
 export type WebsiteReviewEdit = z.infer<typeof websiteReviewEditSchema>;
+export type WebsiteReviewPresentation = z.infer<typeof websiteReviewPresentationSchema>;
 
 export function isWebsiteReviewStatus(value: unknown): value is WebsiteReviewStatus {
   return typeof value === "string" && WEBSITE_REVIEW_STATUSES.includes(value as WebsiteReviewStatus);
@@ -52,6 +62,7 @@ export async function persistWebsiteReviewModeration(input: {
         moderated_at = now(),
         moderated_by_user_id = ${actorUserId},
         published_at = case when ${nextStatus} = 'approved' then coalesce(r.published_at, now()) else null end,
+        is_featured = case when ${nextStatus} = 'approved' then r.is_featured else false end,
         updated_at = now()
       from previous p
       where r.id = p.id
@@ -147,6 +158,97 @@ export async function persistWebsiteReviewEdit(input: {
     )
     select previous.id
     from previous
+    where not exists (select 1 from changed)
+    union all
+    select updated.id
+    from updated
+    where exists (select 1 from audited)
+    limit 1
+  `;
+}
+
+export async function persistWebsiteReviewPresentation(input: {
+  sql: WebsiteReviewModerationSql;
+  actorUserId: string;
+  workspaceId: string;
+  reviewId: string;
+  presentation: WebsiteReviewPresentation;
+}) {
+  const { sql, actorUserId, workspaceId, reviewId, presentation } = input;
+
+  return sql`
+    with previous as (
+      select
+        id,
+        workspace_id,
+        owner_reply,
+        owner_replied_at,
+        is_featured,
+        status,
+        is_verified
+      from website_reviews
+      where id = ${reviewId}::uuid
+        and workspace_id = ${workspaceId}::uuid
+      for update
+    ),
+    eligible as (
+      select *
+      from previous
+      where status = 'approved'
+        and is_verified = true
+    ),
+    changed as (
+      select
+        eligible.*,
+        array_remove(array[
+          case when eligible.owner_reply is distinct from ${presentation.ownerReply} then 'owner_reply' end,
+          case when eligible.is_featured is distinct from ${presentation.isFeatured} then 'is_featured' end
+        ], null)::text[] as changed_fields
+      from eligible
+      where (eligible.owner_reply, eligible.is_featured)
+        is distinct from (${presentation.ownerReply}, ${presentation.isFeatured})
+    ),
+    updated as (
+      update website_reviews review_row
+      set
+        owner_reply = ${presentation.ownerReply},
+        owner_replied_at = case
+          when changed.owner_reply is distinct from ${presentation.ownerReply}
+            then case when ${presentation.ownerReply}::text is null then null else now() end
+          else changed.owner_replied_at
+        end,
+        is_featured = ${presentation.isFeatured},
+        updated_at = now()
+      from changed
+      where review_row.id = changed.id
+      returning review_row.id, review_row.workspace_id
+    ),
+    audited as (
+      insert into admin_audit_logs (
+        admin_user_id, workspace_id, action, reason, previous_value, new_value
+      )
+      select
+        ${actorUserId},
+        updated.workspace_id,
+        'website_review.presentation_updated',
+        'Website review owner reply or featured state changed from workspace dashboard',
+        jsonb_build_object(
+          'review_id', updated.id,
+          'owner_reply_present', changed.owner_reply is not null,
+          'is_featured', changed.is_featured
+        ),
+        jsonb_build_object(
+          'review_id', updated.id,
+          'owner_reply_present', ${presentation.ownerReply}::text is not null,
+          'is_featured', ${presentation.isFeatured},
+          'changed_fields', to_jsonb(changed.changed_fields)
+        )
+      from updated
+      join changed on changed.id = updated.id
+      returning id
+    )
+    select eligible.id
+    from eligible
     where not exists (select 1 from changed)
     union all
     select updated.id

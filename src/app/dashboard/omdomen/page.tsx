@@ -7,8 +7,10 @@ import {
   EyeOff,
   Link2,
   MessageSquareQuote,
+  MessageSquareReply,
   PencilLine,
   ShieldAlert,
+  Sparkles,
   Star,
   Trash2,
 } from "lucide-react";
@@ -21,6 +23,7 @@ import {
   deleteDashboardWebsiteReview,
   getDashboardWebsiteReviews,
   updateDashboardWebsiteReview,
+  updateDashboardWebsiteReviewPresentation,
   updateDashboardWebsiteReviewStatus,
 } from "@/lib/website-reviews-db";
 import { getReviewInvitationDashboardContext } from "@/lib/verified-review-invitations";
@@ -79,6 +82,21 @@ async function editReviewAction(formData: FormData) {
   redirect(localizedHref("/dashboard/omdomen?updated=1", isEnglish));
 }
 
+async function presentationReviewAction(formData: FormData) {
+  "use server";
+  const reviewId = String(formData.get("review_id") ?? "");
+  const isEnglish = String(formData.get("lang") ?? "") === "en";
+  const updated = await updateDashboardWebsiteReviewPresentation(reviewId, {
+    ownerReply: formData.get("owner_reply"),
+    isFeatured: formData.get("is_featured") === "true",
+  });
+
+  if (!updated) {
+    redirect(localizedHref("/dashboard/omdomen?error=1", isEnglish));
+  }
+  redirect(localizedHref("/dashboard/omdomen?updated=1", isEnglish));
+}
+
 async function deleteReviewAction(formData: FormData) {
   "use server";
   const reviewId = String(formData.get("review_id") ?? "");
@@ -126,6 +144,7 @@ export default async function WebsiteReviewsPage({ searchParams }: ReviewsPagePr
     (review) => review.status === "approved" && review.isVerified,
   );
   const hiddenReviews = reviews.filter((review) => review.status === "rejected");
+  const featuredReviews = publishedReviews.filter((review) => review.isFeatured);
   const statusLabels = isEnglish
     ? { pending: "Waiting for approval", approved: "Approved", rejected: "Hidden" }
     : { pending: "Väntar på godkännande", approved: "Godkänd", rejected: "Dold" };
@@ -186,6 +205,13 @@ export default async function WebsiteReviewsPage({ searchParams }: ReviewsPagePr
             tone: "bg-[#e8f5eb] text-[#17452f]",
           },
           {
+            label: isEnglish ? "Featured" : "Utvalda",
+            value: String(featuredReviews.length),
+            helper: isEnglish ? "Shown first on the website" : "Visas först på webbplatsen",
+            icon: Sparkles,
+            tone: "bg-[#fff7e5] text-[#805d14]",
+          },
+          {
             label: isEnglish ? "Hidden" : "Dolda",
             value: String(hiddenReviews.length),
             helper: isEnglish ? "Not visible publicly" : "Visas inte offentligt",
@@ -202,8 +228,8 @@ export default async function WebsiteReviewsPage({ searchParams }: ReviewsPagePr
           </h2>
           <p className="mt-1 text-sm leading-6 text-[#667168]">
             {isEnglish
-              ? "Only approved reviews carrying the verified badge can appear publicly. Older unverified records remain private even when approved."
-              : "Endast godkända omdömen med verifieringsmärke kan visas offentligt. Äldre overifierade poster förblir privata även om de godkänns."}
+              ? "Only approved verified reviews can appear publicly. Add an owner reply and feature the strongest reviews after publication."
+              : "Endast godkända verifierade omdömen kan visas offentligt. Lägg till företagets svar och markera de starkaste omdömena som utvalda efter publicering."}
           </p>
         </div>
 
@@ -228,6 +254,12 @@ export default async function WebsiteReviewsPage({ searchParams }: ReviewsPagePr
                             ? "Legacy unverified"
                             : "Äldre overifierad"}
                       </span>
+                      {review.isFeatured ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-[#fff7e5] px-2.5 py-1 text-xs font-bold text-[#805d14]">
+                          <Sparkles className="size-3.5" aria-hidden="true" />
+                          {isEnglish ? "Featured" : "Utvald"}
+                        </span>
+                      ) : null}
                     </div>
                     <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-[#5b665f]">
                       <span className="inline-flex items-center gap-1 font-semibold text-[#a86f13]">
@@ -274,7 +306,59 @@ export default async function WebsiteReviewsPage({ searchParams }: ReviewsPagePr
                   {review.message}
                 </p>
 
-                <details className="mt-4 rounded-2xl border border-[#e2e7df] bg-[#f7f9f6] open:bg-white">
+                {review.ownerReply ? (
+                  <div className="mt-4 rounded-2xl border border-[#d5e7da] bg-[#f1f8f3] p-4">
+                    <p className="flex items-center gap-2 text-xs font-black uppercase tracking-wide text-[#17452f]">
+                      <MessageSquareReply className="size-4" aria-hidden="true" />
+                      {isEnglish ? "Owner reply" : "Företagets svar"}
+                    </p>
+                    <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-[#36423a]">{review.ownerReply}</p>
+                  </div>
+                ) : null}
+
+                {review.status === "approved" && review.isVerified ? (
+                  <details className="mt-4 rounded-2xl border border-[#d5e7da] bg-[#f7faf7] open:bg-white">
+                    <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-bold text-[#17452f]">
+                      <MessageSquareReply className="size-4" aria-hidden="true" />
+                      {isEnglish ? "Owner reply & featured" : "Företagets svar & utvald"}
+                    </summary>
+                    <form action={presentationReviewAction} className="grid gap-4 border-t border-[#d5e7da] p-4">
+                      <input type="hidden" name="lang" value={isEnglish ? "en" : "sv"} />
+                      <input type="hidden" name="review_id" value={review.id} />
+                      <label className="grid gap-1.5 text-sm font-semibold text-[#36423a]">
+                        {isEnglish ? "Public owner reply" : "Offentligt svar från företaget"}
+                        <textarea
+                          name="owner_reply"
+                          defaultValue={review.ownerReply ?? ""}
+                          maxLength={1_000}
+                          rows={4}
+                          placeholder={isEnglish ? "Thank the customer or respond to their feedback..." : "Tacka kunden eller svara på feedbacken..."}
+                          className="rounded-xl border border-[#cfd8cd] bg-white px-3 py-2 font-normal leading-6"
+                        />
+                      </label>
+                      <label className="flex items-start gap-3 rounded-xl border border-[#e2e7df] bg-[#f7f9f6] p-4 text-sm leading-6 text-[#435047]">
+                        <input
+                          name="is_featured"
+                          value="true"
+                          type="checkbox"
+                          defaultChecked={review.isFeatured}
+                          className="mt-1 size-4 shrink-0"
+                        />
+                        <span>
+                          <strong className="block text-[#17201a]">{isEnglish ? "Feature this review" : "Markera som utvalt omdöme"}</strong>
+                          {isEnglish ? "Featured reviews are shown first on the public website." : "Utvalda omdömen visas först på den offentliga webbplatsen."}
+                        </span>
+                      </label>
+                      <div>
+                        <button type="submit" className="min-h-11 rounded-xl bg-[#173e2b] px-4 text-sm font-bold text-white">
+                          {isEnglish ? "Save reply & display" : "Spara svar & visning"}
+                        </button>
+                      </div>
+                    </form>
+                  </details>
+                ) : null}
+
+                <details className="mt-3 rounded-2xl border border-[#e2e7df] bg-[#f7f9f6] open:bg-white">
                   <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-bold text-[#435047]">
                     <PencilLine className="size-4" aria-hidden="true" />
                     {isEnglish ? "Edit review" : "Redigera omdöme"}
