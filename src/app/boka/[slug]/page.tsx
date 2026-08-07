@@ -9,6 +9,7 @@ import { getSql } from "@/lib/db/server";
 import { allowPublicSubmission } from "@/lib/public-form-protection";
 import { parseLocalDateTime, resolveBookingTimeZone, validatePublicBookingPolicy } from "@/lib/public-booking-policy";
 import { beginBookingEmailVerification } from "@/lib/public-booking-verification";
+import { hasWorkspaceFeatureAccessForWorkspace } from "@/lib/workspace-feature-entitlement-db";
 import { getPublicWorkspaceExperienceSettings, type WorkspaceLanguage } from "@/lib/workspace-experience";
 
 import { BookingRequestForm } from "./booking-request-form";
@@ -90,12 +91,13 @@ async function requestPublicBooking(formData: FormData) {
       coalesce(nullif(ws.time_zone, ''), 'Europe/Stockholm') as time_zone
     from workspaces w left join workspace_settings ws on ws.workspace_id = w.id::text
     where w.public_booking_slug = ${slug} and w.status in ('active', 'trial')
-      and exists (select 1 from workspace_feature_flags wff where wff.workspace_id = w.id and wff.feature_key in ('booking_demo','online_booking') and wff.enabled = true)
-      and (select wp.status from workspace_plans wp where wp.workspace_id = w.id order by wp.created_at desc limit 1) in ('active', 'trialing')
     limit 1
   `;
   const workspace = workspaces[0];
-  if (!workspace) redirect(withLang(slug, lang, "error=unavailable"));
+  const bookingEnabled = workspace
+    ? await hasWorkspaceFeatureAccessForWorkspace(String(workspace.id), "online_booking")
+    : false;
+  if (!workspace || !bookingEnabled) redirect(withLang(slug, lang, "error=unavailable"));
 
   const allowed = await allowPublicSubmission({ scope: "public_booking_verification", requestHeaders: await headers(), identity: `${slug}:${email}`, maxAttempts: 5, windowSeconds: 15 * 60 });
   if (!allowed) redirect(withLang(slug, lang, "error=rate_limit"));
@@ -185,25 +187,35 @@ export default async function PublicBookingPage({ params, searchParams }: PagePr
         nullif(ws.contact_phone, '') as contact_phone, coalesce(nullif(ws.time_zone, ''), 'Europe/Stockholm') as time_zone
       from workspaces w left join workspace_settings ws on ws.workspace_id = w.id::text
       where w.public_booking_slug = ${slug} and w.status in ('active', 'trial')
-        and exists (select 1 from workspace_feature_flags wff where wff.workspace_id = w.id and wff.feature_key in ('booking_demo','online_booking') and wff.enabled = true)
-        and (select wp.status from workspace_plans wp where wp.workspace_id = w.id order by wp.created_at desc limit 1) in ('active', 'trialing') limit 1
+      limit 1
     `;
     workspace = workspaces[0] as Record<string, unknown> | undefined;
     if (workspace) {
-      [services, publishedHours, busyBookings] = await Promise.all([
-        sql`select name, price_label, duration_minutes, buffer_before_minutes, buffer_after_minutes, minimum_notice_minutes, maximum_advance_days from workspace_services where workspace_id = ${String(workspace.id)} and is_active = true order by sort_order asc, name asc`,
-        sql`select weekday, opens_at::text as opens_at, closes_at::text as closes_at, is_closed from workspace_booking_hours where workspace_id = ${String(workspace.id)} order by weekday asc`,
-        sql`select starts_at, ends_at, 0 as buffer_before_minutes, 0 as buffer_after_minutes from bookings where workspace_id = ${String(workspace.id)} and status not in ('cancelled', 'no_show') and starts_at >= now() - interval '1 day' union all select starts_at, ends_at, 0, 0 from public_booking_verifications where workspace_id = ${String(workspace.id)}::uuid and consumed_at is null and expires_at > now()`,
-      ]);
-      try {
-        const integrations = await sql`
-          select i.remote_client_id from workspace_ai_chat_integrations i
-          where i.workspace_id = ${String(workspace.id)}::uuid and i.lifecycle_state = 'active'
-            and exists (select 1 from workspace_feature_flags f where f.workspace_id = i.workspace_id and f.feature_key in ('ai_chatbot','chat_widget') and f.enabled = true)
-          limit 1
-        `;
-        aiChatClientId = String(integrations[0]?.remote_client_id ?? "").trim() || null;
-      } catch { aiChatClientId = null; }
+      const workspaceId = String(workspace.id);
+      const bookingEnabled = await hasWorkspaceFeatureAccessForWorkspace(workspaceId, "online_booking");
+      if (!bookingEnabled) {
+        workspace = undefined;
+      } else {
+        [services, publishedHours, busyBookings] = await Promise.all([
+          sql`select name, price_label, duration_minutes, buffer_before_minutes, buffer_after_minutes, minimum_notice_minutes, maximum_advance_days from workspace_services where workspace_id = ${workspaceId} and is_active = true order by sort_order asc, name asc`,
+          sql`select weekday, opens_at::text as opens_at, closes_at::text as closes_at, is_closed from workspace_booking_hours where workspace_id = ${workspaceId} order by weekday asc`,
+          sql`select starts_at, ends_at, 0 as buffer_before_minutes, 0 as buffer_after_minutes from bookings where workspace_id = ${workspaceId} and status not in ('cancelled', 'no_show') and starts_at >= now() - interval '1 day' union all select starts_at, ends_at, 0, 0 from public_booking_verifications where workspace_id = ${workspaceId}::uuid and consumed_at is null and expires_at > now()`,
+        ]);
+
+        try {
+          const aiChatEnabled = await hasWorkspaceFeatureAccessForWorkspace(workspaceId, "ai_chatbot");
+          if (aiChatEnabled) {
+            const integrations = await sql`
+              select i.remote_client_id from workspace_ai_chat_integrations i
+              where i.workspace_id = ${workspaceId}::uuid and i.lifecycle_state = 'active'
+              limit 1
+            `;
+            aiChatClientId = String(integrations[0]?.remote_client_id ?? "").trim() || null;
+          }
+        } catch {
+          aiChatClientId = null;
+        }
+      }
     }
   } catch { workspace = undefined; }
   if (!workspace) return <Unavailable locale="sv" />;
