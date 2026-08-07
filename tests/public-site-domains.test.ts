@@ -21,11 +21,14 @@ describe("public custom-domain routing", () => {
     expect(hostnameFromHostHeader("Booking.Example.se:443")).toBe("booking.example.se");
   });
 
-  it("rejects URL shapes that are not host-only custom domains", () => {
+  it("rejects unsafe or reserved custom-domain inputs", () => {
     expect(normalizeCustomDomainInput("https://example.com/path")).toBe("");
     expect(normalizeCustomDomainInput("https://example.com?x=1")).toBe("");
     expect(normalizeCustomDomainInput("https://example.com:8443")).toBe("");
     expect(normalizeCustomDomainInput("localhost")).toBe("");
+    expect(normalizeCustomDomainInput("proffera.se")).toBe("");
+    expect(normalizeCustomDomainInput("www.proffera.se")).toBe("");
+    expect(normalizeCustomDomainInput("*.example.com")).toBe("");
   });
 
   it("keeps platform and bespoke PrimeView hosts distinguishable", () => {
@@ -33,6 +36,7 @@ describe("public custom-domain routing", () => {
     expect(isPlatformHost("proffera-jhap.vercel.app")).toBe(true);
     expect(isPlatformHost("customer.example.com")).toBe(false);
     expect(isPrimeViewHost("www.primeviewwindowcare.co.uk")).toBe(true);
+    expect(normalizeCustomDomainInput("https://www.primeviewwindowcare.co.uk/")).toBe("www.primeviewwindowcare.co.uk");
   });
 
   it("routes generic customer domains through canonical workspace entitlements", () => {
@@ -47,5 +51,23 @@ describe("public custom-domain routing", () => {
     expect(routing).toContain('hasWorkspaceFeatureAccessForWorkspace(workspaceId, "online_booking")');
     expect(routing).toContain("custom_domain_status = 'connected'");
     expect(routing).toContain("limit 2");
+  });
+
+  it("hardens self-service domain settings and resets connection state on change", () => {
+    const experience = source("src/lib/workspace-experience.ts");
+    const settingsPage = source("src/app/dashboard/installningar/utseende/page.tsx");
+
+    expect(experience).toContain("normalizeCustomDomainInput(rawCustomDomain)");
+    expect(experience).toContain('throw new Error("INVALID_CUSTOM_DOMAIN")');
+    expect(experience).toContain('throw new Error("CUSTOM_DOMAIN_TAKEN")');
+    expect(experience).toContain("workspace_id <> ${access.workspaceId}::uuid");
+    expect(experience).toContain("workspace_experience_settings.custom_domain is distinct from excluded.custom_domain");
+    expect(experience).toContain("then 'disconnected'");
+
+    expect(settingsPage).toContain('hasWorkspaceFeature("custom_domain")');
+    expect(settingsPage).toContain("disabled={!customDomainEnabled}");
+    expect(settingsPage).toContain("error=domain_taken");
+    expect(settingsPage).toContain("error=domain");
+    expect(settingsPage).toContain("Väntar på anslutning");
   });
 });
