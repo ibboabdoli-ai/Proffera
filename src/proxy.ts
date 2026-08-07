@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { isEnglishPublicPath } from "./lib/public-locale";
-import { isPrimeViewHost } from "./lib/public-site-domains";
+import {
+  isPlatformHost,
+  isPrimeViewHost,
+} from "./lib/public-site-domains";
 
 const CHAT_ORIGIN = "https://chat.proffera.se";
 const PROFFERA_TENANT = "proffera";
@@ -20,6 +23,13 @@ function unauthorized(realm = "Proffera Admin", noindex = false) {
   return new Response("Authentication required", {
     status: 401,
     headers,
+  });
+}
+
+function notFound() {
+  return new Response("Not found", {
+    status: 404,
+    headers: { "X-Robots-Tag": NOINDEX_VALUE },
   });
 }
 
@@ -105,14 +115,31 @@ function requireAdminAuth(request: NextRequest) {
   return NextResponse.next();
 }
 
-export function proxy(request: NextRequest) {
-  const { pathname, search } = request.nextUrl;
+async function resolveCustomDomainTarget(host: string | null) {
+  const { resolvePublicCustomDomain } = await import("./lib/public-site-domain-routing");
+  return resolvePublicCustomDomain(host);
+}
 
-  // A custom customer domain must never fall through to the Proffera homepage.
-  // The PrimeView site remains on its existing internal preview route, while the
-  // browser keeps the customer's own domain in the address bar.
-  if (isPrimeViewHost(request.headers.get("host")) && pathname === "/") {
+export async function proxy(request: NextRequest) {
+  const { pathname, search } = request.nextUrl;
+  const host = request.headers.get("host");
+
+  // PrimeView keeps its bespoke public site while generic customer domains use
+  // the workspace booking-site renderer below.
+  if (isPrimeViewHost(host) && pathname === "/") {
     return NextResponse.rewrite(new URL("/demo/primeview", request.url));
+  }
+
+  // Load tenant/database routing only for a real custom-domain root request.
+  // This keeps ordinary Proffera traffic and proxy unit tests independent from
+  // server-only database modules.
+  if (pathname === "/" && !isPlatformHost(host)) {
+    const target = await resolveCustomDomainTarget(host);
+    if (!target) return notFound();
+
+    const url = request.nextUrl.clone();
+    url.pathname = `/boka/${encodeURIComponent(target.bookingSlug)}`;
+    return NextResponse.rewrite(url);
   }
 
   if (pathname.startsWith("/app/")) {
