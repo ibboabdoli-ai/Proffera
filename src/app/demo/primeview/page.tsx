@@ -13,6 +13,7 @@ import {
   Mail,
   MapPin,
   MessageCircle,
+  MessageSquareReply,
   PanelsTopLeft,
   Phone,
   ShieldCheck,
@@ -27,7 +28,10 @@ import { PrimeViewReviewForm } from "./review-form";
 import { primeViewWorkspaceSlug } from "@/features/primeview/review";
 import { primeViewSite, primeViewStructuredData } from "@/lib/primeview-seo";
 import { isPrimeViewHost } from "@/lib/public-site-domains";
-import { getPublishedWebsiteReviews } from "@/lib/website-reviews-db";
+import {
+  getPublishedWebsiteReviews,
+  getPublishedWebsiteReviewSummary,
+} from "@/lib/website-reviews-db";
 
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
@@ -154,7 +158,10 @@ const reasons = [
 ];
 
 export default async function PrimeViewDemoPage() {
-  const reviews = await getPublishedWebsiteReviews(primeViewWorkspaceSlug);
+  const [reviews, reviewSummary] = await Promise.all([
+    getPublishedWebsiteReviews(primeViewWorkspaceSlug),
+    getPublishedWebsiteReviewSummary(primeViewWorkspaceSlug),
+  ]);
 
   return (
     <div className="min-h-screen bg-[#f4f6fb] text-[#09183a]">
@@ -336,23 +343,45 @@ export default async function PrimeViewDemoPage() {
               <p className="text-sm font-black uppercase tracking-[.18em] text-[#315997]">Verified customer reviews</p>
               <h2 className="mt-3 text-3xl font-black tracking-[-.03em] text-[#071b42] sm:text-4xl">Feedback linked to completed services.</h2>
               <p className="mt-4 text-base leading-7 text-slate-600">Read verified feedback from customers after a completed PrimeView service. Every public review is linked to a secure invitation and checked before publication.</p>
+              {reviewSummary.count > 0 && reviewSummary.averageRating !== null ? (
+                <div className="mt-5 inline-flex flex-wrap items-center gap-2 rounded-full border border-[#c9d8ef] bg-white px-4 py-2 text-sm font-black text-[#071b42] shadow-sm">
+                  <Star className="size-4 fill-current text-[#b17815]" aria-hidden="true" />
+                  {reviewSummary.averageRating.toFixed(1)} / 5
+                  <span className="font-semibold text-slate-500">· {reviewSummary.count} verified {reviewSummary.count === 1 ? "review" : "reviews"}</span>
+                </div>
+              ) : null}
             </div>
 
             <div className="mt-10 grid gap-6 xl:grid-cols-[minmax(0,1fr)_440px]">
               <div className="grid gap-4 sm:grid-cols-2">
                 {reviews.length ? reviews.map((review) => (
                   <article key={review.id} className="flex flex-col rounded-2xl border border-[#d7e1f2] bg-white p-6 shadow-[0_12px_28px_rgba(16,37,80,.07)]">
-                    <div className="flex items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="flex items-center gap-1 text-[#b17815]" aria-label={`${review.rating} out of 5 stars`}>
                         {Array.from({ length: 5 }, (_, index) => <Star key={index} className="size-4" fill={index < review.rating ? "currentColor" : "none"} aria-hidden="true" />)}
                       </div>
-                      {review.isVerified ? (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-[#e8f5eb] px-2.5 py-1 text-xs font-black text-[#17452f]">
-                          <BadgeCheck className="size-3.5" aria-hidden="true" /> Verified customer
-                        </span>
-                      ) : null}
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        {review.isFeatured ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-[#fff7e5] px-2.5 py-1 text-xs font-black text-[#805d14]">
+                            <Sparkles className="size-3.5" aria-hidden="true" /> Featured
+                          </span>
+                        ) : null}
+                        {review.isVerified ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-[#e8f5eb] px-2.5 py-1 text-xs font-black text-[#17452f]">
+                            <BadgeCheck className="size-3.5" aria-hidden="true" /> Verified customer
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
                     <p className="mt-4 flex-1 leading-7 text-slate-700">“{review.message}”</p>
+                    {review.ownerReply ? (
+                      <div className="mt-4 rounded-2xl border border-[#d7e1f2] bg-[#f6f9ff] p-4">
+                        <p className="flex items-center gap-2 text-xs font-black uppercase tracking-[.12em] text-[#315997]">
+                          <MessageSquareReply className="size-4" aria-hidden="true" /> PrimeView reply
+                        </p>
+                        <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-600">{review.ownerReply}</p>
+                      </div>
+                    ) : null}
                     <div className="mt-5 border-t border-slate-100 pt-4">
                       <p className="font-black text-[#071b42]">{review.reviewerName}</p>
                       <p className="mt-1 text-sm text-slate-500">{[review.service, review.area].filter(Boolean).join(" · ") || "PrimeView customer"}</p>
