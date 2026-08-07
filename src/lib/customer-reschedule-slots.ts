@@ -7,7 +7,7 @@ import { resolveDatabaseUrl } from "@/lib/db/database-url";
 import { parseLocalDateTime, resolveBookingTimeZone, validatePublicBookingPolicy } from "@/lib/public-booking-policy";
 import { verifyCustomerCalendarToken } from "@/lib/customer-calendar";
 
-const connectionString = resolveDatabaseUrl()_NON_POOLING;
+const connectionString = resolveDatabaseUrl();
 
 export type RescheduleDay = { date: string; label: string; shortLabel: string };
 export type RescheduleSlot = { startsAtLocal: string; label: string };

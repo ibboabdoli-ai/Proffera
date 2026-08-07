@@ -9,7 +9,7 @@ import { deliverVerifiedReviewInvitation } from "@/lib/verified-review-email-del
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 const connectionString =
-  resolveDatabaseUrl()_NON_POOLING;
+  resolveDatabaseUrl();
 
 const allowedBookingStatuses = ["requested", "confirmed", "completed", "cancelled"] as const;
 

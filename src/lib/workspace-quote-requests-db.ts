@@ -14,7 +14,7 @@ import {
 import { getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 const connectionString =
-  resolveDatabaseUrl()_NON_POOLING;
+  resolveDatabaseUrl();
 
 function getSqlClient() {
   return connectionString ? neon(connectionString) : null;

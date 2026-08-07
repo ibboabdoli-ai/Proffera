@@ -9,7 +9,7 @@ import { DEFAULT_WORKSPACE_MARKET } from "@/lib/workspace-market";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 const connectionString =
-  resolveDatabaseUrl()_NON_POOLING;
+  resolveDatabaseUrl();
 
 export type StaffScheduleRow = { id: string; staffId: string; staffName: string; weekday: number; startTime: string; endTime: string };
 export type StaffTimeOffRow = { id: string; staffId: string; staffName: string; kind: string; reason: string; startsAt: string; endsAt: string };

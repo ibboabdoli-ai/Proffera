@@ -8,7 +8,7 @@ import { resolveBookingTimeZone } from "@/lib/public-booking-policy";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 const connectionString =
-  resolveDatabaseUrl()_NON_POOLING;
+  resolveDatabaseUrl();
 
 export type StaffBookingAssignmentRow = {
   id: string;

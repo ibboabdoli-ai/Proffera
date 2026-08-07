@@ -12,7 +12,7 @@ import { hasDashboardModuleAccess } from "@/lib/workspace-module-access";
 
 export const dynamic = "force-dynamic";
 
-const connectionString = resolveDatabaseUrl()_NON_POOLING;
+const connectionString = resolveDatabaseUrl();
 type Locale = "sv" | "en";
 type ErrorKey = "access" | "disabled" | "title" | "note" | "save";
 type CustomerDetailPageProps = {

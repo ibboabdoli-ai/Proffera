@@ -8,7 +8,7 @@ import { isWorkspaceServicePriceType, type WorkspaceServicePriceType } from "@/l
 import { getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 const connectionString =
-  resolveDatabaseUrl()_NON_POOLING;
+  resolveDatabaseUrl();
 
 function getSqlClient() {
   if (!connectionString) {

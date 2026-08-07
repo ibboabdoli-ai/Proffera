@@ -8,7 +8,7 @@ import { sendBookingChangeEmails } from "@/features/email/booking-change-email";
 import { resolveBookingTimeZone } from "@/lib/public-booking-policy";
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
 
-const connectionString = resolveDatabaseUrl()_NON_POOLING;
+const connectionString = resolveDatabaseUrl();
 const portalSecret = process.env.CUSTOMER_PORTAL_SECRET ?? process.env.BETTER_AUTH_SECRET ?? process.env.AUTH_SECRET;
 const TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30;
 type TokenPayload = { workspaceId: string; customerId: string; exp: number };

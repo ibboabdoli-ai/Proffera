@@ -7,7 +7,7 @@ import { resolveDatabaseUrl } from "@/lib/db/database-url";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 const connectionString =
-  resolveDatabaseUrl()_NON_POOLING;
+  resolveDatabaseUrl();
 
 export type DashboardStaffMember = {
   id: string;

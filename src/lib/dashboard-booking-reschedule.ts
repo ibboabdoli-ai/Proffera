@@ -8,7 +8,7 @@ import { isValidLocalTime, localDateTimeToUtc, parseLocalDateTime, resolveBookin
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 const connectionString =
-  resolveDatabaseUrl()_NON_POOLING;
+  resolveDatabaseUrl();
 
 export class BookingRescheduleValidationError extends Error {
   constructor(public readonly code: "time" | "past" | "conflict" | "status") {

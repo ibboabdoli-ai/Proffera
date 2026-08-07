@@ -9,7 +9,7 @@ import { resolveBookingTimeZone } from "@/lib/public-booking-policy";
 import { getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 const connectionString =
-  resolveDatabaseUrl()_NON_POOLING;
+  resolveDatabaseUrl();
 
 function toText(value: unknown, fallback = "") {
   if (value === null || value === undefined) {

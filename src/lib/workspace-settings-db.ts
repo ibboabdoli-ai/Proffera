@@ -12,7 +12,7 @@ import {
 } from "@/lib/workspace-market";
 
 const connectionString =
-  resolveDatabaseUrl()_NON_POOLING;
+  resolveDatabaseUrl();
 
 function getSqlClient() {
   if (!connectionString) {
