@@ -43,7 +43,7 @@ describe("automatic Vercel custom-domain provisioning", () => {
     });
   });
 
-  it("keeps Vercel mutations server-only, production-only and non-destructive", () => {
+  it("keeps Vercel mutations server-only, production-only and scoped to the saved domain", () => {
     const client = source("src/lib/vercel-custom-domains.ts");
     const settings = source("src/app/dashboard/installningar/utseende/page.tsx");
     const experience = source("src/lib/workspace-experience.ts");
@@ -55,12 +55,19 @@ describe("automatic Vercel custom-domain provisioning", () => {
     expect(client).toContain("/v10/projects/${encodeURIComponent(config.projectId)}/domains");
     expect(client).toContain("/verify");
     expect(client).toContain("/v6/domains/${encodeURIComponent(domain)}/config");
-    expect(client).not.toContain('method: "DELETE"');
+    expect(client).toContain('if (isPrimeViewHost(domain)) return { ok: false, state: "protected" }');
+    expect(client).toContain('{ method: "DELETE" }');
+    expect(client).not.toContain('method: "PATCH"');
     expect(client).not.toContain("force");
 
     expect(settings).toContain("ensureVercelCustomDomain(customDomain)");
     expect(settings).toContain("syncSavedCustomDomain");
-    expect(settings).toContain("Kontrollera och anslut");
+    expect(settings).toContain("disconnectSavedCustomDomain");
+    expect(settings).toContain("removeVercelCustomDomain(settings.customDomain)");
+    expect(settings).toContain("removeVercelCustomDomain(current.customDomain)");
+    expect(settings).toContain("Koppla från domän");
+    expect(settings).toContain("domain_protected");
+    expect(settings).toContain("domain_cleanup");
     expect(experience).toContain("setWorkspaceCustomDomainConnectionStatus");
   });
 });

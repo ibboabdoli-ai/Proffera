@@ -1,6 +1,6 @@
 import "server-only";
 
-import { normalizeCustomDomainInput } from "@/lib/public-site-domains";
+import { isPrimeViewHost, normalizeCustomDomainInput } from "@/lib/public-site-domains";
 import {
   createUnconfiguredVercelCustomDomainStatus,
   deriveVercelCustomDomainState,
@@ -23,6 +23,11 @@ type ApiResult = {
   status: number;
   ok: boolean;
   body: Record<string, unknown> | null;
+};
+
+export type VercelCustomDomainRemovalResult = {
+  ok: boolean;
+  state: "removed" | "missing" | "unconfigured" | "protected" | "error";
 };
 
 function automationConfig(env: NodeJS.ProcessEnv = process.env): VercelAutomationConfig | null {
@@ -191,4 +196,23 @@ export async function ensureVercelCustomDomain(domainInput: string): Promise<Ver
   }
 
   return status;
+}
+
+export async function removeVercelCustomDomain(domainInput: string): Promise<VercelCustomDomainRemovalResult> {
+  const domain = normalizeCustomDomainInput(domainInput);
+  if (!domain) return { ok: false, state: "error" };
+  if (isPrimeViewHost(domain)) return { ok: false, state: "protected" };
+
+  const config = automationConfig();
+  if (!config) return { ok: false, state: "unconfigured" };
+
+  const pathname = `/v9/projects/${encodeURIComponent(config.projectId)}/domains/${encodeURIComponent(domain)}`;
+  const existing = await vercelRequest(config, pathname);
+  if (existing.status === 404) return { ok: true, state: "missing" };
+  if (!existing.ok) return { ok: false, state: "error" };
+
+  const removed = await vercelRequest(config, pathname, { method: "DELETE" });
+  if (removed.ok) return { ok: true, state: "removed" };
+  if (removed.status === 404) return { ok: true, state: "missing" };
+  return { ok: false, state: "error" };
 }
