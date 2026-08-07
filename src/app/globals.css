@@ -76,3 +76,30 @@ button:disabled {
   background: var(--accent);
   color: var(--brand-strong);
 }
+
+/*
+ * Contrast hardening for interactive controls.
+ * Some mobile WebKit/Chromium combinations can retain an inherited text fill
+ * on links and buttons even when Tailwind changes `color`. Keep CTA labels
+ * readable across Admin, Dashboard and booking/settings surfaces.
+ */
+:where(a, button)[class*="bg-slate-950"],
+:where(a, button)[class*="bg-slate-900"],
+:where(a, button)[class*="bg-black"],
+:where(a, button)[class*="bg-[#17452f]"],
+:where(a, button)[class*="bg-[#173e2b]"],
+:where(a, button)[class*="bg-[#142b20]"],
+:where(a, button)[class*="bg-[#102d20]"] {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+:where(a, button)[class*="bg-white"][class*="text-[#173e2b]"],
+:where(a, button)[class*="bg-white"][class*="text-[#17452f]"] {
+  color: #173e2b !important;
+  -webkit-text-fill-color: #173e2b !important;
+}
+
+:where(a, button) {
+  -webkit-text-fill-color: currentColor;
+}
