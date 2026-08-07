@@ -160,6 +160,27 @@ export async function updateWorkspaceExperienceSettings(input: WorkspaceExperien
   `;
 }
 
+export async function setWorkspaceCustomDomainConnectionStatus(domainInput: string, connected: boolean) {
+  const { sql, access } = await requireManager();
+  const domain = normalizeCustomDomainInput(domainInput);
+  if (!domain) return false;
+
+  const rows = await sql`
+    update workspace_experience_settings
+    set custom_domain_status = ${connected ? "connected" : "disconnected"}, updated_at = now()
+    where workspace_id = ${access.workspaceId}::uuid
+      and lower(
+        split_part(
+          regexp_replace(trim(coalesce(custom_domain, '')), '^https?://', '', 'i'),
+          '/',
+          1
+        )
+      ) = ${domain}
+    returning workspace_id
+  `;
+  return Boolean(rows[0]?.workspace_id);
+}
+
 export async function getWorkspaceOnboarding(): Promise<WorkspaceOnboarding> {
   const { sql, access } = await requireManager();
   await sql`insert into workspace_onboarding (workspace_id) values (${access.workspaceId}::uuid) on conflict (workspace_id) do nothing`;
