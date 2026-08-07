@@ -3,62 +3,43 @@ import type Stripe from "stripe";
 
 import { getStripeCheckoutPlanForPriceId, getStripeClient, getStripeWebhookSecret } from "@/lib/stripe";
 import { syncWorkspaceSubscription } from "@/lib/workspace-billing";
+import { applyServiceJobCheckoutCompleted } from "@/lib/workspace-service-job-payments";
 
 export const runtime = "nodejs";
 
-const subscriptionEvents = new Set([
-  "customer.subscription.created",
-  "customer.subscription.updated",
-  "customer.subscription.deleted",
-]);
+const subscriptionEvents = new Set(["customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted"]);
 
 export async function POST(request: Request) {
   const stripe = getStripeClient();
   const webhookSecret = getStripeWebhookSecret();
   const signature = request.headers.get("stripe-signature");
-
-  if (!stripe || !webhookSecret || !signature) {
-    return NextResponse.json({ error: "Webhook är inte konfigurerad." }, { status: 503 });
-  }
+  if (!stripe || !webhookSecret || !signature) return NextResponse.json({ error: "Webhook är inte konfigurerad." }, { status: 503 });
 
   let event: Stripe.Event;
+  try { event = await stripe.webhooks.constructEventAsync(await request.text(), signature, webhookSecret); }
+  catch (error) { console.error("Stripe webhook signature verification failed", error); return NextResponse.json({ error: "Ogiltig signatur." }, { status: 400 }); }
 
-  try {
-    event = await stripe.webhooks.constructEventAsync(await request.text(), signature, webhookSecret);
-  } catch (error) {
-    console.error("Stripe webhook signature verification failed", error);
-    return NextResponse.json({ error: "Ogiltig signatur." }, { status: 400 });
+  if (event.type === "checkout.session.completed") {
+    try {
+      const applied = await applyServiceJobCheckoutCompleted(event.data.object as Stripe.Checkout.Session);
+      return NextResponse.json({ received: true, applied });
+    } catch (error) {
+      console.error("Failed to apply service job payment", error);
+      return NextResponse.json({ error: "Kundbetalningen kunde inte sparas." }, { status: 500 });
+    }
   }
 
-  if (!subscriptionEvents.has(event.type)) {
-    return NextResponse.json({ received: true });
-  }
+  if (!subscriptionEvents.has(event.type)) return NextResponse.json({ received: true });
 
   const eventSubscription = event.data.object as Stripe.Subscription;
   let subscription: Stripe.Subscription;
-
-  try {
-    // Stripe can deliver subscription events out of order. Always synchronise
-    // from Stripe's current subscription snapshot rather than applying the
-    // event payload, which can already be stale when it reaches this endpoint.
-    subscription = await stripe.subscriptions.retrieve(eventSubscription.id);
-  } catch (error) {
-    console.error("Failed to retrieve current Stripe subscription state", error);
-    return NextResponse.json({ error: "Stripe-abonnemanget kunde inte läsas." }, { status: 502 });
-  }
+  try { subscription = await stripe.subscriptions.retrieve(eventSubscription.id); }
+  catch (error) { console.error("Failed to retrieve current Stripe subscription state", error); return NextResponse.json({ error: "Stripe-abonnemanget kunde inte läsas." }, { status: 502 }); }
 
   const priceId = subscription.items.data[0]?.price.id ?? "";
   const planKey = getStripeCheckoutPlanForPriceId(priceId);
-
-  if (!planKey) {
-    return NextResponse.json({ received: true, applied: false });
-  }
-
+  if (!planKey) return NextResponse.json({ received: true, applied: false });
   const result = await syncWorkspaceSubscription(subscription, event.created, planKey, priceId);
-
-  if (!result.ok && result.code === "database") {
-    return NextResponse.json({ error: "Databasen kunde inte uppdateras." }, { status: 500 });
-  }
-
+  if (!result.ok && result.code === "database") return NextResponse.json({ error: "Databasen kunde inte uppdateras." }, { status: 500 });
   return NextResponse.json({ received: true, applied: result.ok });
 }
