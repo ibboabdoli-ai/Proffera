@@ -1,0 +1,104 @@
+name: Preview DB codemod runner
+
+on:
+  push:
+    branches:
+      - chore/preview-db-codemod-runner-20260807
+
+permissions:
+  contents: write
+
+jobs:
+  codemod:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/preview-auth-secret
+          fetch-depth: 0
+
+      - name: Rewrite direct database environment access
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPOSITORY: ${{ github.repository }}
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          import os
+          import re
+          import urllib.request
+
+          root = Path("src")
+          allowed = Path("src/lib/db/database-url.ts")
+          keys = r"(?:DATABASE_URL|POSTGRES_URL|POSTGRES_PRISMA_URL|POSTGRES_URL_NON_POOLING|DATABASE_URL_UNPOOLED)"
+          direct = re.compile(rf"process\.env\.(?:{keys})")
+          chain = re.compile(
+              rf"process\.env\.(?:{keys})(?:\s*\?\?\s*process\.env\.(?:{keys}))+",
+              re.MULTILINE,
+          )
+          changed = []
+
+          for path in sorted(root.rglob("*.ts")) + sorted(root.rglob("*.tsx")):
+              if path == allowed:
+                  continue
+              text = path.read_text()
+              if not direct.search(text):
+                  continue
+
+              updated = chain.sub("resolveDatabaseUrl()", text)
+              if direct.search(updated):
+                  # Refuse to guess about a shape outside the known legacy nullish-coalescing chain.
+                  continue
+
+              if 'from "@/lib/db/database-url"' not in updated:
+                  import_line = 'import { resolveDatabaseUrl } from "@/lib/db/database-url";\n'
+                  neon_import = re.compile(r'(import[^\n]+from "@neondatabase/serverless";\n)')
+                  if neon_import.search(updated):
+                      updated = neon_import.sub(r'\1\n' + import_line, updated, count=1)
+                  else:
+                      imports = list(re.finditer(r'^import[^\n]*;\n', updated, re.MULTILINE))
+                      if imports:
+                          pos = imports[-1].end()
+                          updated = updated[:pos] + import_line + updated[pos:]
+                      else:
+                          updated = import_line + "\n" + updated
+
+              if updated != text:
+                  path.write_text(updated)
+                  changed.append(path)
+
+          offenders = []
+          for path in sorted(root.rglob("*.ts")) + sorted(root.rglob("*.tsx")):
+              if path == allowed:
+                  continue
+              if direct.search(path.read_text()):
+                  offenders.append(str(path))
+
+          print("CHANGED_COUNT", len(changed))
+          for path in changed:
+              print("CHANGED", path)
+          if offenders:
+              print("OFFENDERS", json.dumps(offenders))
+              raise SystemExit(2)
+
+          token = os.environ["GH_TOKEN"]
+          repo = os.environ["GH_REPOSITORY"]
+          for path in changed:
+              body = json.dumps({"content": path.read_text(), "encoding": "utf-8"}).encode()
+              req = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/git/blobs",
+                  data=body,
+                  headers={
+                      "Authorization": f"Bearer {token}",
+                      "Accept": "application/vnd.github+json",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                      "Content-Type": "application/json",
+                  },
+                  method="POST",
+              )
+              with urllib.request.urlopen(req) as response:
+                  result = json.load(response)
+              print("BLOB", path, result["sha"])
+          PY
