@@ -1,9 +1,11 @@
 import "server-only";
 
 import { neon } from "@neondatabase/serverless";
+
+import { resolveDatabaseUrl } from "@/lib/db/database-url";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
-const connectionString = process.env.DATABASE_URL ?? process.env.POSTGRES_URL ?? process.env.POSTGRES_PRISMA_URL ?? process.env.POSTGRES_URL_NON_POOLING;
+const connectionString = resolveDatabaseUrl()_NON_POOLING;
 
 export type BookingReminderSettings = {
   isEnabled: boolean;

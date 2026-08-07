@@ -2,15 +2,14 @@ import "server-only";
 
 import { neon } from "@neondatabase/serverless";
 
+import { resolveDatabaseUrl } from "@/lib/db/database-url";
+
 import type { DashboardBookingDetail } from "@/lib/dashboard-db";
 import { resolveBookingTimeZone } from "@/lib/public-booking-policy";
 import { getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 const connectionString =
-  process.env.DATABASE_URL ??
-  process.env.POSTGRES_URL ??
-  process.env.POSTGRES_PRISMA_URL ??
-  process.env.POSTGRES_URL_NON_POOLING;
+  resolveDatabaseUrl()_NON_POOLING;
 
 function toText(value: unknown, fallback = "") {
   if (value === null || value === undefined) {

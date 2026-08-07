@@ -4,6 +4,8 @@ import { randomUUID } from "node:crypto";
 
 import { neon } from "@neondatabase/serverless";
 
+import { resolveDatabaseUrl } from "@/lib/db/database-url";
+
 import type { PublicWorkspaceQuoteInput } from "@/features/workspace-quotes/public-quote";
 import {
   canTransitionWorkspaceQuote,
@@ -12,10 +14,7 @@ import {
 import { getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 const connectionString =
-  process.env.DATABASE_URL ??
-  process.env.POSTGRES_URL ??
-  process.env.POSTGRES_PRISMA_URL ??
-  process.env.POSTGRES_URL_NON_POOLING;
+  resolveDatabaseUrl()_NON_POOLING;
 
 function getSqlClient() {
   return connectionString ? neon(connectionString) : null;
