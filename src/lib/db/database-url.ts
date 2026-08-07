@@ -7,6 +7,13 @@ const DATABASE_URL_ENV_KEYS = [
 ] as const;
 
 export function resolveDatabaseUrl(env: NodeJS.ProcessEnv = process.env) {
+  if (env.VERCEL_ENV === "preview") {
+    const previewDatabaseUrl = env.PROFFERA_PREVIEW_DATABASE_URL?.trim();
+    if (previewDatabaseUrl) {
+      return previewDatabaseUrl;
+    }
+  }
+
   for (const key of DATABASE_URL_ENV_KEYS) {
     const value = env[key]?.trim();
 
