@@ -15,6 +15,7 @@ const dashboardBookingReaders = [
   "src/lib/dashboard-db.ts",
   "src/lib/dashboard-bookings-db.ts",
   "src/lib/dashboard-booking-detail-db.ts",
+  "src/lib/dashboard-booking-status.ts",
   "src/lib/dashboard-calendar.ts",
   "src/lib/dashboard-staff-bookings.ts",
 ] as const;
