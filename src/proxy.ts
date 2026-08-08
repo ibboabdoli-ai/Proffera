@@ -11,40 +11,13 @@ const CHAT_ORIGIN = "https://chat.proffera.se";
 const PROFFERA_TENANT = "proffera";
 const PROFFERA_CLIENT_ID = "proffera";
 const NOINDEX_VALUE = "noindex, nofollow";
-
-function unauthorized(realm = "Proffera Admin", noindex = false) {
-  const headers = new Headers({
-    "WWW-Authenticate": `Basic realm="${realm}"`,
-  });
-
-  if (noindex) {
-    headers.set("X-Robots-Tag", NOINDEX_VALUE);
-  }
-
-  return new Response("Authentication required", {
-    status: 401,
-    headers,
-  });
-}
+const ADMIN_PATH_HEADER = "x-proffera-admin-path";
 
 function notFound() {
   return new Response("Not found", {
     status: 404,
     headers: { "X-Robots-Tag": NOINDEX_VALUE },
   });
-}
-
-function basicAuthPassword(request: NextRequest) {
-  const authHeader = request.headers.get("authorization");
-
-  if (!authHeader || !authHeader.startsWith("Basic ")) {
-    return "";
-  }
-
-  const decoded = atob(authHeader.slice(6));
-  const separatorIndex = decoded.indexOf(":");
-
-  return separatorIndex >= 0 ? decoded.slice(separatorIndex + 1) : "";
 }
 
 function chatUrl(pathname: string, search = "") {
@@ -81,12 +54,25 @@ function isDashboardPath(pathname: string) {
   return pathname === "/dashboard" || pathname.startsWith("/dashboard/");
 }
 
-function shouldRequireAdminBasicAuth(pathname: string) {
-  return pathname === "/api/outbox" || pathname === "/api/company-admin";
+function isAdminPath(pathname: string) {
+  return pathname === "/admin" || pathname.startsWith("/admin/");
 }
 
 function allowDashboardWithNoIndex() {
   const response = NextResponse.next();
+  response.headers.set("X-Robots-Tag", NOINDEX_VALUE);
+  return response;
+}
+
+function allowAdminWithPath(request: NextRequest) {
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set(ADMIN_PATH_HEADER, request.nextUrl.pathname);
+
+  const response = NextResponse.next({
+    request: {
+      headers: requestHeaders,
+    },
+  });
   response.headers.set("X-Robots-Tag", NOINDEX_VALUE);
   return response;
 }
@@ -104,16 +90,6 @@ function allowPublicPath(request: NextRequest) {
       headers: requestHeaders,
     },
   });
-}
-
-function requireAdminAuth(request: NextRequest) {
-  const expectedCode = (process.env.ADMIN_ACCESS_CODE ?? "").trim();
-
-  if (!expectedCode || basicAuthPassword(request) !== expectedCode) {
-    return unauthorized();
-  }
-
-  return NextResponse.next();
 }
 
 export async function proxy(request: NextRequest) {
@@ -150,10 +126,13 @@ export async function proxy(request: NextRequest) {
     return allowDashboardWithNoIndex();
   }
 
-  if (shouldRequireAdminBasicAuth(pathname)) {
-    return requireAdminAuth(request);
+  if (isAdminPath(pathname)) {
+    return allowAdminWithPath(request);
   }
 
+  // Internal admin mutation routes authenticate with Better Auth / Platform
+  // Admin RBAC inside the route itself. They intentionally do not use a shared
+  // Basic Auth secret at the proxy boundary.
   return allowPublicPath(request);
 }
 
@@ -166,8 +145,7 @@ export const config = {
     "/api/widget-config",
     "/dashboard",
     "/dashboard/:path*",
+    "/admin",
     "/admin/:path*",
-    "/api/outbox",
-    "/api/company-admin",
   ],
 };
