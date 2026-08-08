@@ -18,6 +18,10 @@ function toNumber(value: unknown) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function toBoolean(value: unknown) {
+  return value === true || value === "true" || value === "t" || value === 1 || value === "1";
+}
+
 function isConfigured(value: string | undefined) {
   return Boolean(value?.trim());
 }
@@ -171,7 +175,7 @@ export async function getAdminOperationsHealth() {
     const pastDue = toNumber(row.billing_past_due);
     const legacyDefaultRows = toNumber(row.legacy_default_workspace_rows);
     const rlsTables = toNumber(row.rls_tables);
-    const roleBypassesRls = Boolean(row.role_bypasses_rls);
+    const roleBypassesRls = toBoolean(row.role_bypasses_rls);
 
     const dataSignals: OperationsHealthSignal[] = [
       {
