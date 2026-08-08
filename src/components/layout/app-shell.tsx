@@ -10,7 +10,8 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
   const locale = getPublicLocale(pathname);
   const isStandaloneRoute = pathname?.startsWith("/admin")
     || pathname?.startsWith("/dashboard")
-    || pathname?.startsWith("/demo/");
+    || pathname?.startsWith("/demo/")
+    || pathname?.startsWith("/boka");
 
   if (isStandaloneRoute) {
     return <main>{children}</main>;
