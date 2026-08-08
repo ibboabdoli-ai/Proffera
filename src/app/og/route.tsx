@@ -39,16 +39,25 @@ export async function GET() {
               marginRight: 56,
             }}
           >
-            <div
-              style={{
-                fontSize: 170,
-                lineHeight: 1,
-                fontWeight: 800,
-                color: "#17452f",
-              }}
+            <svg
+              width="205"
+              height="205"
+              viewBox="0 0 300 300"
+              xmlns="http://www.w3.org/2000/svg"
             >
-              P
-            </div>
+              <rect x="104" y="64" width="38" height="168" rx="18" fill="#17452f" />
+              <path
+                d="M123 64h62a58 58 0 0 1 0 116h-62"
+                fill="none"
+                stroke="#17452f"
+                strokeWidth="38"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <rect x="50" y="160" width="62" height="30" rx="15" fill="#17452f" />
+              <rect x="72" y="194" width="42" height="30" rx="15" fill="#17452f" />
+              <rect x="30" y="228" width="84" height="30" rx="15" fill="#17452f" />
+            </svg>
           </div>
 
           <div style={{ display: "flex", flexDirection: "column" }}>
