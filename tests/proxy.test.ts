@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 vi.mock("../src/lib/public-site-domain-routing", () => ({
@@ -7,52 +7,27 @@ vi.mock("../src/lib/public-site-domain-routing", () => ({
 
 import { proxy } from "../src/proxy";
 
-const originalAdminAccessCode = process.env.ADMIN_ACCESS_CODE;
-
 function request(path: string, headers?: HeadersInit) {
   return new NextRequest(`https://www.proffera.se${path}`, { headers });
 }
 
-afterEach(() => {
-  if (originalAdminAccessCode === undefined) {
-    delete process.env.ADMIN_ACCESS_CODE;
-  } else {
-    process.env.ADMIN_ACCESS_CODE = originalAdminAccessCode;
-  }
-});
-
 describe("proxy request boundary", () => {
-  it("allows admin pages to reach session and role authorization", async () => {
-    process.env.ADMIN_ACCESS_CODE = "test-admin-code";
+  it("passes the exact admin path to session and role authorization", async () => {
+    const response = await proxy(request("/admin/billing/alerts"));
 
-    const response = await proxy(request("/admin/saas"));
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(response.headers.get("x-middleware-request-x-proffera-admin-path")).toBe("/admin/billing/alerts");
+    expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow");
+    expect(response.headers.get("www-authenticate")).toBeNull();
+  });
+
+  it("does not require a shared Basic Auth secret before route-level Platform Admin authorization", async () => {
+    const response = await proxy(request("/api/outbox"));
 
     expect(response.status).toBe(200);
     expect(response.headers.get("x-middleware-next")).toBe("1");
     expect(response.headers.get("www-authenticate")).toBeNull();
-  });
-
-  it("rejects unauthenticated sensitive admin API requests", async () => {
-    process.env.ADMIN_ACCESS_CODE = "test-admin-code";
-
-    const response = await proxy(request("/api/outbox"));
-
-    expect(response.status).toBe(401);
-    expect(response.headers.get("www-authenticate")).toContain("Proffera Admin");
-  });
-
-  it("allows valid Basic authentication for sensitive admin APIs", async () => {
-    process.env.ADMIN_ACCESS_CODE = "test-admin-code";
-    const authorization = `Basic ${btoa("admin:test-admin-code")}`;
-
-    const response = await proxy(
-      request("/api/company-admin", {
-        authorization,
-      }),
-    );
-
-    expect(response.status).toBe(200);
-    expect(response.headers.get("x-middleware-next")).toBe("1");
   });
 
   it("marks dashboard responses as noindex", async () => {
