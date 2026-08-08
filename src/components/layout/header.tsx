@@ -24,7 +24,7 @@ export function Header({ locale }: HeaderProps) {
   const navigation = getPublicNavigation(locale);
   const alternateLocalePath = getAlternateLocalePath(pathname);
   const homeHref = getLocalizedRoute("/", locale);
-  const demoHref = getLocalizedRoute("/demo", locale);
+  const signupHref = getLocalizedRoute("/skapa-konto", locale);
   const loginHref = locale === "en" ? "/logga-in?lang=en" : "/logga-in?lang=sv";
 
   function closeMenu() {
@@ -81,7 +81,7 @@ export function Header({ locale }: HeaderProps) {
               {locale === "en" ? "SV" : "EN"}
             </Link>
           ) : null}
-          <ButtonLink href={demoHref}>{copy.primaryCtaLabel}</ButtonLink>
+          <ButtonLink href={signupHref}>{copy.primaryCtaLabel}</ButtonLink>
         </div>
 
         <details ref={menuRef} className="relative lg:hidden">
@@ -107,7 +107,7 @@ export function Header({ locale }: HeaderProps) {
                   {locale === "en" ? "Svenska" : "English"}
                 </Link>
               ) : null}
-              <ButtonLink href={demoHref} onClick={closeMenu} className="mt-2 w-full">
+              <ButtonLink href={signupHref} onClick={closeMenu} className="mt-2 w-full">
                 {copy.primaryCtaLabel}
               </ButtonLink>
             </nav>
