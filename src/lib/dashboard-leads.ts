@@ -3,7 +3,7 @@ import "server-only";
 import { neon } from "@neondatabase/serverless";
 
 import { resolveDatabaseUrl } from "@/lib/db/database-url";
-
+import { workspaceTenantContextQueries } from "@/lib/db/workspace-tenant-context";
 import { getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 const connectionString =
@@ -91,20 +91,23 @@ export async function getDashboardLeads(): Promise<DashboardLead[]> {
   const workspaceId = await getActiveWorkspaceId();
 
   try {
-    const rows = await sql`
-      select
-        id,
-        name,
-        city,
-        source,
-        primary_service_slug,
-        created_at
-      from customers
-      where workspace_id = ${workspaceId}
-        and status = 'prospect'
-      order by created_at desc
-      limit 50
-    `;
+    const [, , rows] = await sql.transaction([
+      ...workspaceTenantContextQueries(sql, workspaceId),
+      sql`
+        select
+          id,
+          name,
+          city,
+          source,
+          primary_service_slug,
+          created_at
+        from customers
+        where workspace_id = ${workspaceId}
+          and status = 'prospect'
+        order by created_at desc
+        limit 50
+      `,
+    ]);
 
     return rows.map((row) => {
       const id = toText(row.id);
