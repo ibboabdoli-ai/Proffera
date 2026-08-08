@@ -12,7 +12,7 @@ const benefits = ["Receive relevant enquiries in your service areas", "Build a c
 
 export default function EnglishJoinBusinessPage() {
   return (
-    <PageShell eyebrow="For businesses" title="Receive more relevant enquiries as the business workflow opens." description="Proffera gives approved businesses a structured way to view matched opportunities, respond to leads and build trust through their profile and reviews." ctaLabel="Register your business" ctaHref="/en/join-business/register">
+    <PageShell eyebrow="For businesses" title="Receive more relevant enquiries as the business workflow opens." description="Proffera gives approved businesses a structured way to view matched opportunities, respond to leads and build trust through their profile and reviews." ctaLabel="Book a demo" ctaHref="/en/join-business/register">
       <div className="grid gap-4 md:grid-cols-3">{benefits.map((benefit) => <article key={benefit} className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]"><h2 className="text-lg font-semibold">{benefit}</h2></article>)}</div>
     </PageShell>
   );
