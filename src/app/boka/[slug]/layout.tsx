@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 import { PublicWorkspaceGallery } from "@/components/public-workspace-gallery";
 import { getSql } from "@/lib/db/server";
+import { hasWorkspaceFeatureAccessForWorkspace } from "@/lib/workspace-feature-entitlement-db";
 import { getPublicWorkspaceExperienceSettings } from "@/lib/workspace-experience";
 import { getPublishedGalleryItems } from "@/lib/website-gallery-db";
 
@@ -24,23 +25,21 @@ export default async function PublicBookingLayout({ children, params }: { childr
       left join workspace_settings ws on ws.workspace_id = w.id::text
       where w.public_booking_slug = ${slug}
         and w.status in ('active', 'trial')
-        and coalesce((
-          select wp.status in ('active', 'trialing')
-          from workspace_plans wp
-          where wp.workspace_id = w.id
-          order by wp.created_at desc
-          limit 1
-        ), false)
       limit 1
     `;
     const workspace = rows[0];
     if (workspace) {
-      const experience = await getPublicWorkspaceExperienceSettings(String(workspace.id));
+      const workspaceId = String(workspace.id);
+      const experience = await getPublicWorkspaceExperienceSettings(workspaceId);
       themeKey = experience.themeKey;
       appearance = experience.appearance;
+
       if (experience.galleryEnabled) {
-        const items = await getPublishedGalleryItems(String(workspace.slug));
-        gallery = <PublicWorkspaceGallery items={items} companyName={String(workspace.company_name)} workspaceSlug={slug} compact />;
+        const galleryEnabled = await hasWorkspaceFeatureAccessForWorkspace(workspaceId, "media_gallery");
+        if (galleryEnabled) {
+          const items = await getPublishedGalleryItems(String(workspace.slug));
+          gallery = <PublicWorkspaceGallery items={items} companyName={String(workspace.company_name)} workspaceSlug={slug} compact />;
+        }
       }
     }
   }
