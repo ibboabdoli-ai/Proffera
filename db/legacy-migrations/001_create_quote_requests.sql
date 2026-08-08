@@ -1,3 +1,6 @@
+-- Historical pre-Workspace migration. Kept for audit/history only.
+-- Do not include this file in the active Proffera migration chain.
+
 create table if not exists quote_requests (
   id uuid primary key default gen_random_uuid(),
   category text not null,
