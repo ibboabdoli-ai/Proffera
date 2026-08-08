@@ -6,15 +6,16 @@ Last updated: 2026-08-08
 
 Proffera has enough product breadth for controlled customer pilots. The current priority is to prove and harden the existing end-to-end system rather than add major new modules.
 
+The Production tenant-relation migration is complete: migration `6f44f340-789b-4ca9-afd2-ac6c69f5ab56` was applied successfully on 2026-08-08 and post-migration checks showed 17/17 validated tenant constraints with zero rechecked cross-Workspace violations.
+
 ## P0 — Finish release safety
 
-1. Commit and verify `20260808_0033_tenant_relation_constraints.sql` through the controlled Neon migration workflow.
-2. Verify the current `main` Vercel Production deployment, domains and required runtime configuration independently.
-3. Run a dedicated two-account Workspace-isolation smoke test across Dashboard customer/booking/admin surfaces.
-4. Run the controlled Booking → reminder → completion → Verified Review lifecycle with designated test recipients.
-5. Run the controlled Quote Request → Offer → email → Accept/Reject → Service Job lifecycle.
-6. Run one Service Job through assignment, progress and completion evidence.
-7. Verify Stripe Sandbox Checkout/webhook behavior for Sweden, a supported EU business and a UK business.
+1. Verify the current `main` Vercel Production deployment, domains and required runtime configuration independently.
+2. Run a dedicated two-account Workspace-isolation smoke test across Dashboard customer/booking/admin surfaces.
+3. Run the controlled Booking → reminder → completion → Verified Review lifecycle with designated test recipients.
+4. Run the controlled Quote Request → Offer → email → Accept/Reject → Service Job lifecycle.
+5. Run one Service Job through assignment, progress and completion evidence.
+6. Verify Stripe Sandbox Checkout/webhook behavior for Sweden, a supported EU business and a UK business.
 
 ## P1 — Database tenant defense
 
@@ -23,6 +24,8 @@ Proffera has enough product breadth for controlled customer pilots. The current 
 3. Introduce a restricted application database role that cannot bypass RLS.
 4. Design and test per-request tenant context.
 5. Enable RLS incrementally on tenant-owned tables, with negative cross-tenant tests and rollback verification before Production rollout.
+
+The first database defense layer is now active in Production: type-compatible high-risk tenant relations are protected by database-enforced composite relation constraints even while full RLS remains deferred.
 
 ## P1 — Operations and automated release proof
 
