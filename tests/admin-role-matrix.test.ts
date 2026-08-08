@@ -10,12 +10,12 @@ import {
 import type { PlatformAdminRole } from "../src/lib/platform-admin";
 
 const expectedAreas: Record<PlatformAdminRole, readonly AdminArea[]> = {
-  super_admin: ["saas", "workspaces", "billing", "platform_admins", "audit", "quote_admin"],
-  support_admin: ["saas", "workspaces", "audit"],
-  billing_admin: ["saas", "workspaces", "billing", "audit"],
-  operations_admin: ["saas", "workspaces", "audit", "quote_admin"],
-  read_only_admin: ["saas", "workspaces", "audit"],
-  developer_admin: ["saas", "workspaces", "audit", "quote_admin"],
+  super_admin: ["saas", "operations", "workspaces", "billing", "platform_admins", "audit", "quote_admin"],
+  support_admin: ["saas", "operations", "workspaces", "audit"],
+  billing_admin: ["saas", "operations", "workspaces", "billing", "audit"],
+  operations_admin: ["saas", "operations", "workspaces", "audit", "quote_admin"],
+  read_only_admin: ["saas", "operations", "workspaces", "audit"],
+  developer_admin: ["saas", "operations", "workspaces", "audit", "quote_admin"],
 };
 
 const roles = Object.keys(expectedAreas) as PlatformAdminRole[];
