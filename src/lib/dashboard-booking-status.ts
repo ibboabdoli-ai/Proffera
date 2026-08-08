@@ -90,7 +90,9 @@ export async function updateDashboardBookingStatus(
         c.email as customer_email,
         c.phone as customer_phone
       from bookings b
-      left join customers c on c.id = b.customer_id
+      left join customers c
+        on c.id = b.customer_id
+       and c.workspace_id = b.workspace_id
       where b.workspace_id = ${workspaceId}
         and b.id = ${bookingId}
     ),
