@@ -8,20 +8,24 @@ function source(path: string) {
 }
 
 describe("admin UI authentication boundary", () => {
-  it("leaves admin pages to session and role authorization", () => {
+  it("passes admin pages to session and route-aware role authorization", () => {
     const code = source("src/proxy.ts");
 
-    expect(code).toContain("function shouldRequireAdminBasicAuth");
-    expect(code).not.toContain('pathname === "/admin" ||');
-    expect(code).not.toContain('pathname.startsWith("/admin/") ||');
-    expect(code).not.toContain("ADMIN_PATH_HEADER");
+    expect(code).toContain('const ADMIN_PATH_HEADER = "x-proffera-admin-path"');
+    expect(code).toContain("requestHeaders.set(ADMIN_PATH_HEADER, request.nextUrl.pathname)");
+    expect(code).toContain("if (isAdminPath(pathname))");
+    expect(code).not.toContain("ADMIN_ACCESS_CODE");
+    expect(code).not.toContain("WWW-Authenticate");
   });
 
-  it("keeps sensitive admin APIs behind Basic Auth", () => {
-    const code = source("src/proxy.ts");
+  it("leaves sensitive admin API authorization to Better Auth and Platform Admin RBAC", () => {
+    const proxyCode = source("src/proxy.ts");
+    const outboxCode = source("src/app/api/outbox/route.ts");
+    const companyAdminCode = source("src/app/api/company-admin/route.ts");
 
-    expect(code).toContain('pathname === "/api/outbox"');
-    expect(code).toContain('pathname === "/api/company-admin"');
-    expect(code).toContain("return requireAdminAuth(request)");
+    expect(proxyCode).not.toContain("shouldRequireAdminBasicAuth");
+    expect(proxyCode).not.toContain("requireAdminAuth");
+    expect(outboxCode).toContain('getAdminForArea("quote_admin")');
+    expect(companyAdminCode).toContain("getCompanyAdmin()");
   });
 });
