@@ -44,16 +44,17 @@ export default function EnglishHomePage() {
             <h1 className="max-w-3xl text-4xl font-bold leading-[1.06] tracking-[-0.04em] text-[#17201a] sm:text-5xl lg:text-6xl">Manage leads, bookings and customer conversations in one smarter system.</h1>
             <p className="mt-6 max-w-2xl text-lg leading-8 text-[#526057]">Proffera helps small businesses in Sweden receive enquiries, book customers and follow up leads from the same portal.</p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <ButtonLink href="/en/demo">Book a demo</ButtonLink>
-              <ButtonLink href="/en/pricing" variant="secondary">View pricing</ButtonLink>
+              <ButtonLink href="/en/create-account">Start free 14-day trial</ButtonLink>
+              <ButtonLink href="/en/demo" variant="secondary">Book a demo</ButtonLink>
             </div>
+            <p className="mt-3 text-sm font-medium text-[#667168]">No commitment • Get started in a few minutes</p>
           </div>
 
           <div className="relative rounded-[1.75rem] border border-white/70 bg-white p-5 shadow-2xl shadow-[#17452f]/10 ring-1 ring-[#dfe5dd] sm:p-6">
             <div className="absolute right-7 top-0 h-1 w-20 rounded-b-full bg-[#1f6b49]" />
             <div className="flex items-center justify-between border-b border-[#dfe5dd] pb-5">
               <div><p className="text-sm text-[#5b665f]">Customer portal</p><p className="text-xl font-bold text-[#17201a]">Proffera workspace</p></div>
-              <span className="rounded-full bg-[#e7f1eb] px-3 py-1 text-xs font-semibold text-[#17452f]">Ready for demo</span>
+              <span className="rounded-full bg-[#e7f1eb] px-3 py-1 text-xs font-semibold text-[#17452f]">Ready to start</span>
             </div>
             <div className="mt-6 grid gap-3 sm:grid-cols-2">
               {dashboardItems.map((item) => (
