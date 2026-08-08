@@ -42,7 +42,7 @@ const copy = {
     serviceIntro: "Se pris, behandlingstid och närmaste lediga tid.", available: "Ledig", noTimes: "Inga lediga tider",
     changeService: "Byt tjänst", chooseStaff: "Välj personal", staffIntro: "Välj en specifik person eller första lediga.",
     firstStaff: "Första lediga personal", fastest: "Snabbaste tillgängliga tiden", back: "Tillbaka", chooseDayTime: "Välj dag och tid",
-    noTimesDay: "Inga lediga tider denna dag.", continue: "Fortsätt", changeTime: "Byt tid", yourDetails: "Dina uppgifter",
+    noTimesDay: "Inga lediga tider denna dag.", nearestAvailable: "Visa närmaste lediga tid", continue: "Fortsätt", changeTime: "Byt tid", yourDetails: "Dina uppgifter",
     verificationInfo: "Vi skickar en sexsiffrig kod. Bokningen blir klar efter verifiering.", website: "Webbplats", at: "kl.", genericStaff: "Personal",
   },
   en: {
@@ -53,7 +53,7 @@ const copy = {
     serviceIntro: "See the price, duration and nearest available time.", available: "Available", noTimes: "No available times",
     changeService: "Change service", chooseStaff: "Choose staff", staffIntro: "Choose a specific person or the first available.",
     firstStaff: "First available staff", fastest: "Fastest available appointment", back: "Back", chooseDayTime: "Choose day and time",
-    noTimesDay: "No available times on this day.", continue: "Continue", changeTime: "Change time", yourDetails: "Your details",
+    noTimesDay: "No available times on this day.", nearestAvailable: "Show nearest available time", continue: "Continue", changeTime: "Change time", yourDetails: "Your details",
     verificationInfo: "We will send a six-digit code. The booking is completed after verification.", website: "Website", at: "at", genericStaff: "Staff",
   },
 } as const;
@@ -155,23 +155,31 @@ export function BookingRequestForm({ action, slug, services, bookingHours, busyB
     setStep(staffLoaded && staff.length ? "staff" : "time");
   }
 
+  function chooseDefaultService(name: string) {
+    const first = firstAvailability.get(name);
+    setServiceName(name);
+    setDate(first?.date ?? today);
+    setTime("");
+  }
+
   function chooseSlot(slot: string) {
     setTime(slot);
     setAssignedStaffId(availability.staffBySlot.get(slot) ?? (staffChoice === "any" ? "" : staffChoice));
   }
 
   if (variant !== "salon") {
-    const hours = bookingHours.find((item) => item.weekday === weekdayForDate(date));
-    const times = selectedService && hours ? getAvailableBookingTimes({ date, service: selectedService, hours, busyBookings, referenceTimeMs: referenceTime, timeZone }) : [];
-    return <form action={action} className="mt-8 grid gap-4">
+    const times = selectedService ? availability.slots : [];
+    const nearest = selectedService ? firstAvailability.get(selectedService.name) : null;
+    return <form action={action} data-booking-form="default" className="mt-8 grid gap-4">
       <input type="hidden" name="slug" value={slug} /><input type="hidden" name="lang" value={locale} /><input type="hidden" name="starts_at" value={date && time ? `${date}T${time}` : ""} /><input type="hidden" name="form_started_at" value={formStartedAt} />
       <label className="grid gap-2 text-sm font-semibold">{t.name}<input name="name" required className="rounded-xl border px-4 py-3" /></label>
       <label className="grid gap-2 text-sm font-semibold">{t.email}<input name="email" required type="email" className="rounded-xl border px-4 py-3" /></label>
       <label className="grid gap-2 text-sm font-semibold">{t.phone}<input name="phone" type="tel" className="rounded-xl border px-4 py-3" /></label>
-      <label className="grid gap-2 text-sm font-semibold">{t.service}<select name="service" required value={serviceName} onChange={(e) => { setServiceName(e.target.value); setTime(""); }} className="rounded-xl border px-4 py-3"><option value="">{t.chooseService}</option>{services.map((service) => <option key={service.name}>{service.name}</option>)}</select></label>
-      <input aria-label={t.chooseDayTime} type="date" required min={today} max={maximumDate} value={date} onChange={(e) => { setDate(e.target.value); setTime(""); }} className="rounded-xl border px-4 py-3" />
-      <select aria-label={t.chooseTime} required value={time} onChange={(e) => setTime(e.target.value)} className="rounded-xl border px-4 py-3"><option value="">{t.chooseTime}</option>{times.map((slot) => <option key={slot}>{slot}</option>)}</select>
-      <button className="rounded-xl bg-[#17452f] px-5 py-3 font-bold text-white">{t.sendCode}</button>
+      <label className="grid gap-2 text-sm font-semibold">{t.service}<select name="service" required value={serviceName} onChange={(e) => chooseDefaultService(e.target.value)} className="rounded-xl border px-4 py-3"><option value="">{t.chooseService}</option>{services.map((service) => <option key={service.name}>{service.name}</option>)}</select></label>
+      <input aria-label={t.chooseDayTime} type="date" required disabled={!selectedService} min={today} max={maximumDate} value={date} onChange={(e) => { setDate(e.target.value); setTime(""); }} className="rounded-xl border px-4 py-3 disabled:opacity-55" />
+      <select aria-label={t.chooseTime} required disabled={!selectedService || !times.length} value={time} onChange={(e) => setTime(e.target.value)} className="rounded-xl border px-4 py-3 disabled:opacity-55"><option value="">{selectedService && !times.length ? t.noTimesDay : t.chooseTime}</option>{times.map((slot) => <option key={slot}>{slot}</option>)}</select>
+      {selectedService && !times.length ? <div className="rounded-xl border border-black/10 bg-black/[.03] p-3 text-sm"><p>{t.noTimesDay}</p>{nearest && nearest.date !== date ? <button type="button" onClick={() => { setDate(nearest.date); setTime(""); }} className="mt-2 min-h-0 font-bold underline underline-offset-4">{t.nearestAvailable}: {formatDateLabel(nearest.date)} {t.at} {nearest.time}</button> : null}</div> : null}
+      <button disabled={!selectedService || !time} className="rounded-xl bg-[#17452f] px-5 py-3 font-bold text-white disabled:opacity-45">{t.sendCode}</button>
     </form>;
   }
 
@@ -179,7 +187,7 @@ export function BookingRequestForm({ action, slug, services, bookingHours, busyB
   const currentIndex = steps.findIndex(([key]) => key === step);
   const selectedStaff = staff.find((member) => member.id === assignedStaffId || member.id === staffChoice);
 
-  return <form action={action} className="mt-5">
+  return <form action={action} data-booking-form="guided" className="mt-5">
     <input type="hidden" name="slug" value={slug} /><input type="hidden" name="lang" value={locale} /><input type="hidden" name="service" value={serviceName} /><input type="hidden" name="staff_id" value={assignedStaffId} /><input type="hidden" name="starts_at" value={date && selectedTime ? `${date}T${selectedTime}` : ""} /><input type="hidden" name="form_started_at" value={formStartedAt} />
     <label className="absolute left-[-10000px]" aria-hidden="true">{t.website}<input name="website" tabIndex={-1} /></label>
 

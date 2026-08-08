@@ -108,7 +108,7 @@ export async function getPublicWorkspaceExperienceSettings(workspaceId: string):
 
 export async function updateWorkspaceExperienceSettings(input: WorkspaceExperienceSettings) {
   const { sql, access } = await requireManager();
-  const themes = new Set(["clean", "salon", "premium", "modern", "minimal"]);
+  const themes = new Set(["clean", "salon", "premium", "modern", "minimal", "restaurant"]);
   if (!themes.has(input.themeKey)) throw new Error("Invalid theme");
   if (!/^#[0-9a-f]{6}$/i.test(input.primaryColor) || !/^#[0-9a-f]{6}$/i.test(input.accentColor)) throw new Error("Invalid color");
   if (!input.swedishEnabled && !input.englishEnabled) throw new Error("At least one language must be enabled");
