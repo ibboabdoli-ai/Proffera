@@ -1,0 +1,24 @@
+[data-booking-theme] form[data-booking-form="default"] > button[type="submit"],
+[data-booking-theme] form[data-booking-form="default"] > button:not([type]) {
+  background: var(--booking-primary) !important;
+  color: #fff !important;
+}
+
+[data-booking-theme="premium"] form[data-booking-form="default"] > button[type="submit"],
+[data-booking-theme="premium"] form[data-booking-form="default"] > button:not([type]),
+[data-booking-theme="restaurant"] form[data-booking-form="default"] > button[type="submit"],
+[data-booking-theme="restaurant"] form[data-booking-form="default"] > button:not([type]) {
+  background: var(--booking-accent) !important;
+  color: #1b130c !important;
+}
+
+[data-booking-theme="salon"] form[data-booking-form="default"] > button,
+[data-booking-theme="restaurant"] form[data-booking-form="default"] > button {
+  border-radius: 999px !important;
+}
+
+[data-booking-theme="minimal"] form[data-booking-form="default"] > button {
+  background: #111 !important;
+  color: #fff !important;
+  border-radius: 0 !important;
+}
