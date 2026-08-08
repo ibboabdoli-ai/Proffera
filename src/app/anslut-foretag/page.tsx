@@ -18,7 +18,7 @@ export default function JoinCompanyPage() {
       eyebrow="För företag"
       title="Få fler relevanta förfrågningar när företagsflödet öppnar."
       description="Proffera kommer att ge godkända företag ett strukturerat sätt att se matchade uppdrag, svara på leads och bygga förtroende genom profil och omdömen."
-      ctaLabel="Registrera företag"
+      ctaLabel="Boka demo"
       ctaHref="/anslut-foretag/registrera"
     >
       <div className="grid gap-4 md:grid-cols-3">

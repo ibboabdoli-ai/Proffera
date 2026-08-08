@@ -56,11 +56,12 @@ export default function HomePage() {
             Proffera hjälper små företag i Sverige att ta emot förfrågningar, boka kunder och följa upp leads i samma portal.
           </p>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-            <ButtonLink href="/demo">{siteConfig.primaryCta}</ButtonLink>
-            <ButtonLink href="/priser" variant="secondary">
-              Se priser
+            <ButtonLink href="/skapa-konto">{siteConfig.primaryCta}</ButtonLink>
+            <ButtonLink href="/demo" variant="secondary">
+              Boka demo
             </ButtonLink>
           </div>
+          <p className="mt-3 text-sm font-medium text-[#667168]">Ingen bindningstid • Kom igång på några minuter</p>
         </div>
 
         <div className="relative rounded-[1.75rem] border border-white/70 bg-white p-5 shadow-2xl shadow-[#17452f]/10 ring-1 ring-[#dfe5dd] sm:p-6">

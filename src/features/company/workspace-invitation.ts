@@ -3,7 +3,7 @@ import "server-only";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 
 import { sendWorkspaceInvitationEmail } from "@/features/email/lead-email";
-import { provisionWorkspace } from "@/features/company/workspace-provisioning";
+import { createWorkspaceSlug, provisionWorkspace } from "@/features/company/workspace-provisioning";
 import { getAuth } from "@/lib/auth";
 import { getSql } from "@/lib/db/server";
 
@@ -22,18 +22,6 @@ type Result =
 
 function hashToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
-}
-
-function toSlug(value: string) {
-  const base = value
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 42);
-  const suffix = randomBytes(3).toString("hex");
-  return `${base || "foretag"}-${suffix}`;
 }
 
 export async function createWorkspaceInvitation(registrationId: string, origin: string): Promise<Result> {
@@ -214,7 +202,7 @@ export async function claimWorkspaceInvitation(token: string, password: string):
     }
 
     const workspaceId = randomUUID();
-    const workspaceSlug = toSlug(String(invitation.company_name));
+    const workspaceSlug = createWorkspaceSlug(String(invitation.company_name));
 
     await provisionWorkspace({
       workspaceId,

@@ -1,27 +1,43 @@
 import "server-only";
 
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 
+import type { CheckoutPlanKey } from "@/lib/billing-plans";
 import { getSql } from "@/lib/db/server";
 
 const TRIAL_DAYS = 14;
 
 type ProvisionWorkspaceInput = {
   workspaceId?: string;
-  invitationId: string;
+  invitationId?: string;
   userId: string;
   slug: string;
   companyName: string;
   city: string;
   email: string;
   phone: string;
+  planKey?: CheckoutPlanKey;
 };
+
+export function createWorkspaceSlug(value: string) {
+  const base = value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 42);
+  const suffix = randomBytes(3).toString("hex");
+  return `${base || "foretag"}-${suffix}`;
+}
 
 export async function provisionWorkspace(input: ProvisionWorkspaceInput) {
   const sql = getSql();
   if (!sql) throw new Error("Database is not configured");
 
   const workspaceId = input.workspaceId ?? randomUUID();
+  const planKey = input.planKey ?? "starter";
+  const invitationId = input.invitationId ?? null;
   const trialEnd = new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
   await sql.transaction((tx) => [
@@ -67,7 +83,7 @@ export async function provisionWorkspace(input: ProvisionWorkspaceInput) {
         id, workspace_id, plan_key, status, current_period_start,
         current_period_end, created_at, updated_at
       )
-      select gen_random_uuid(), ${workspaceId}::uuid, 'starter', 'trialing', now(),
+      select gen_random_uuid(), ${workspaceId}::uuid, ${planKey}, 'trialing', now(),
         ${trialEnd}::timestamptz, now(), now()
       where not exists (
         select 1 from workspace_plans where workspace_id = ${workspaceId}::uuid
@@ -112,7 +128,8 @@ export async function provisionWorkspace(input: ProvisionWorkspaceInput) {
     tx`
       update workspace_invitations
       set workspace_id = ${workspaceId}::uuid, updated_at = now()
-      where id = ${input.invitationId}::uuid
+      where ${invitationId}::uuid is not null
+        and id = ${invitationId}::uuid
         and status = 'accepted'
         and workspace_id is null
     `,

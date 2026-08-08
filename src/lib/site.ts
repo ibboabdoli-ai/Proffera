@@ -11,7 +11,7 @@ export const siteConfig = {
   description:
     "Proffera är en svensk SaaS-plattform som hjälper små tjänsteföretag att hantera leads, bokningar och kunder i ett tydligt arbetsflöde.",
   url: "https://proffera.se",
-  primaryCta: "Boka demo",
+  primaryCta: "Prova gratis i 14 dagar",
   providerCta: "Se priser",
 };
 
