@@ -7,6 +7,7 @@ import { getPublicWorkspaceExperienceSettings } from "@/lib/workspace-experience
 import { getPublishedGalleryItems } from "@/lib/website-gallery-db";
 
 import "./booking-themes.css";
+import "./booking-theme-controls.css";
 
 export default async function PublicBookingLayout({ children, params }: { children: ReactNode; params: Promise<{ slug: string }> }) {
   const { slug } = await params;
