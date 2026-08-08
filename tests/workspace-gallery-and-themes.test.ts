@@ -42,11 +42,15 @@ describe("Public workspace gallery", () => {
 });
 
 describe("Booking theme system", () => {
-  it("offers five visual one-click presets", () => {
+  it("offers six visual one-click presets including restaurant", () => {
     const layout = source("src/app/dashboard/installningar/utseende/layout.tsx");
+    const settings = source("src/app/dashboard/installningar/utseende/page.tsx");
+    const experience = source("src/lib/workspace-experience.ts");
 
-    for (const key of ["clean", "salon", "premium", "modern", "minimal"]) {
+    for (const key of ["clean", "salon", "premium", "modern", "minimal", "restaurant"]) {
       expect(layout).toContain(`key: "${key}"`);
+      expect(settings).toContain(`value="${key}"`);
+      expect(experience).toContain(`"${key}"`);
     }
     expect(layout).toContain("applyThemePreset");
     expect(layout).toContain("Öppna bokningssidans förhandsvisning");
@@ -58,10 +62,11 @@ describe("Booking theme system", () => {
 
     expect(layout).toContain("data-booking-theme={themeKey}");
     expect(layout).toContain("data-booking-appearance={appearance}");
-    for (const key of ["clean", "salon", "premium", "modern", "minimal"]) {
+    for (const key of ["clean", "salon", "premium", "modern", "minimal", "restaurant"]) {
       expect(css).toContain(`[data-booking-theme="${key}"]`);
     }
-    expect(css).toContain("text-transform: uppercase");
+    expect(css).toContain("@media (max-width: 640px)");
+    expect(css).toContain("data-booking-form");
     expect(css).toContain("border-radius: 999px");
   });
 });
