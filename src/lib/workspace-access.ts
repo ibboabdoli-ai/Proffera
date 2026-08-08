@@ -4,6 +4,7 @@ import { neon } from "@neondatabase/serverless";
 import { cookies } from "next/headers";
 
 import { getServerSession } from "@/lib/auth-session";
+import { resolveDatabaseUrl } from "@/lib/db/database-url";
 import { selectWorkspaceMembership } from "@/lib/workspace-access-selection";
 import {
   canRoleManageWorkspaceMembers,
@@ -11,12 +12,6 @@ import {
   isWorkspaceRole,
   type WorkspaceRole,
 } from "@/lib/workspace-role-policy";
-
-const connectionString =
-  process.env.DATABASE_URL ??
-  process.env.POSTGRES_URL ??
-  process.env.POSTGRES_PRISMA_URL ??
-  process.env.POSTGRES_URL_NON_POOLING;
 
 const allowedWorkspaceStatuses = ["active", "trial"] as const;
 export const selectedWorkspaceCookieName = "proffera_workspace_id";
@@ -69,6 +64,7 @@ export function canManageWorkspaceMembers(access: WorkspaceAccessResult) {
 }
 
 function getSqlClient() {
+  const connectionString = resolveDatabaseUrl();
   return connectionString ? neon(connectionString) : null;
 }
 

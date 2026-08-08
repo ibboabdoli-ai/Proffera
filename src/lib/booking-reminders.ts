@@ -1,10 +1,12 @@
 import "server-only";
 import { neon } from "@neondatabase/serverless";
+
+import { resolveDatabaseUrl } from "@/lib/db/database-url";
 import { sendBookingReminderEmail } from "@/features/email/booking-reminder-email";
 import { sendBookingReminderSms } from "@/features/sms/booking-reminder-sms";
 import { createCustomerCalendarToken } from "@/lib/customer-calendar";
 import { resolveBookingTimeZone } from "@/lib/public-booking-policy";
-const connectionString=process.env.DATABASE_URL??process.env.POSTGRES_URL??process.env.POSTGRES_PRISMA_URL??process.env.POSTGRES_URL_NON_POOLING;
+const connectionString=resolveDatabaseUrl();
 type ReminderRow={booking_id:string;workspace_id:string;customer_id:string;workspace_name:string;customer_name:string;customer_email:string;customer_phone:string;service:string;city:string;starts_at:string;time_zone:string;hours_before:number;email_enabled:boolean;sms_enabled:boolean};
 export async function processBookingReminders(){if(!connectionString)throw new Error("Missing database connection");const sql=neon(connectionString);const completed=await sql`update bookings b set status='completed',updated_at=now() from workspace_booking_reminder_settings s where s.workspace_id=b.workspace_id and s.auto_complete_enabled=true and b.status='confirmed' and b.ends_at<now() and b.source not in ('dashboard_availability_block','dashboard_availability_recurring_block') returning b.id`;
 const rows=await sql`select b.id booking_id,b.workspace_id,b.customer_id,coalesce(w.name,b.workspace_id) workspace_name,coalesce(c.name,'Kund') customer_name,coalesce(c.email,'') customer_email,coalesce(c.phone,'') customer_phone,coalesce(b.service,'Bokning') service,coalesce(b.city,'') city,b.starts_at,coalesce(nullif(ws.time_zone,''),'Europe/Stockholm') time_zone,coalesce(s.hours_before,24) hours_before,coalesce(s.email_enabled,true) email_enabled,coalesce(s.sms_enabled,true) sms_enabled from bookings b left join customers c on c.id=b.customer_id and c.workspace_id=b.workspace_id left join workspaces w on w.id=b.workspace_id left join workspace_settings ws on ws.workspace_id=b.workspace_id left join workspace_booking_reminder_settings s on s.workspace_id=b.workspace_id where b.status='confirmed' and b.customer_id is not null and b.source not in ('dashboard_availability_block','dashboard_availability_recurring_block') and coalesce(s.is_enabled,true)=true and b.starts_at>now() and b.starts_at<=now()+(coalesce(s.hours_before,24)||' hours')::interval and b.starts_at>now()+(greatest(coalesce(s.hours_before,24)-1,0)||' hours')::interval order by b.starts_at asc limit 250`;

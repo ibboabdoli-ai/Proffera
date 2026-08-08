@@ -1,4 +1,6 @@
 import { neon } from "@neondatabase/serverless";
+
+import { resolveDatabaseUrl } from "@/lib/db/database-url";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { Activity, ArrowLeft, CalendarCheck2, MessageSquareText, UserRound } from "lucide-react";
@@ -10,7 +12,7 @@ import { hasDashboardModuleAccess } from "@/lib/workspace-module-access";
 
 export const dynamic = "force-dynamic";
 
-const connectionString = process.env.DATABASE_URL ?? process.env.POSTGRES_URL ?? process.env.POSTGRES_PRISMA_URL ?? process.env.POSTGRES_URL_NON_POOLING;
+const connectionString = resolveDatabaseUrl();
 type Locale = "sv" | "en";
 type ErrorKey = "access" | "disabled" | "title" | "note" | "save";
 type CustomerDetailPageProps = {

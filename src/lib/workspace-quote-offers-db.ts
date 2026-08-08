@@ -2,6 +2,8 @@ import "server-only";
 
 import { neon } from "@neondatabase/serverless";
 
+import { resolveDatabaseUrl } from "@/lib/db/database-url";
+
 import type { WorkspaceBillingCurrency } from "@/lib/workspace-market";
 import type { NormalizedWorkspaceQuoteOfferDraft } from "@/lib/workspace-quote-offer-draft";
 import { canEditWorkspaceQuoteOffer, type WorkspaceQuoteOfferStatus } from "@/lib/workspace-quote-offer-policy";
@@ -13,10 +15,7 @@ import {
 import { getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 const connectionString =
-  process.env.DATABASE_URL ??
-  process.env.POSTGRES_URL ??
-  process.env.POSTGRES_PRISMA_URL ??
-  process.env.POSTGRES_URL_NON_POOLING;
+  resolveDatabaseUrl();
 
 function getSqlClient() {
   return connectionString ? neon(connectionString) : null;

@@ -2,15 +2,14 @@ import "server-only";
 
 import { neon } from "@neondatabase/serverless";
 
+import { resolveDatabaseUrl } from "@/lib/db/database-url";
+
 import { resolveBookingTimeZone } from "@/lib/public-booking-policy";
 import { deliverVerifiedReviewInvitation } from "@/lib/verified-review-email-delivery";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 const connectionString =
-  process.env.DATABASE_URL ??
-  process.env.POSTGRES_URL ??
-  process.env.POSTGRES_PRISMA_URL ??
-  process.env.POSTGRES_URL_NON_POOLING;
+  resolveDatabaseUrl();
 
 const allowedBookingStatuses = ["requested", "confirmed", "completed", "cancelled"] as const;
 

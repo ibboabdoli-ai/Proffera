@@ -19,6 +19,17 @@ describe("database URL resolution", () => {
     ).toBe("postgres://isolated-preview");
   });
 
+  it("fails closed in Preview when the dedicated Preview database is missing", () => {
+    expect(
+      resolveDatabaseUrl({
+        ...testEnvironment,
+        VERCEL_ENV: "preview",
+        DATABASE_URL: "postgres://production",
+        POSTGRES_URL: "postgres://shared",
+      }),
+    ).toBeNull();
+  });
+
   it("ignores the Preview database variable outside Vercel Preview", () => {
     expect(
       resolveDatabaseUrl({
@@ -35,18 +46,18 @@ describe("database URL resolution", () => {
       resolveDatabaseUrl({
         ...testEnvironment,
         DATABASE_URL: "postgres://production",
-        POSTGRES_URL: "postgres://preview",
+        POSTGRES_URL: "postgres://shared",
       }),
     ).toBe("postgres://production");
   });
 
-  it("uses the configured Vercel Postgres fallback when DATABASE_URL is absent", () => {
+  it("uses the configured Vercel Postgres fallback when DATABASE_URL is absent outside Preview", () => {
     expect(
       resolveDatabaseUrl({
         ...testEnvironment,
-        POSTGRES_URL: "postgres://preview",
+        POSTGRES_URL: "postgres://shared",
       }),
-    ).toBe("postgres://preview");
+    ).toBe("postgres://shared");
   });
 
   it("skips empty values and supports unpooled Neon URLs", () => {

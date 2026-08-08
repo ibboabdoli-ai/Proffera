@@ -2,15 +2,14 @@ import "server-only";
 
 import { neon } from "@neondatabase/serverless";
 
+import { resolveDatabaseUrl } from "@/lib/db/database-url";
+
 import { isValidLocalTime, localDateTimeToUtc, parseLocalDateTime, resolveBookingTimeZone } from "@/lib/public-booking-policy";
 import { DEFAULT_WORKSPACE_MARKET } from "@/lib/workspace-market";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 const connectionString =
-  process.env.DATABASE_URL ??
-  process.env.POSTGRES_URL ??
-  process.env.POSTGRES_PRISMA_URL ??
-  process.env.POSTGRES_URL_NON_POOLING;
+  resolveDatabaseUrl();
 
 export type StaffScheduleRow = { id: string; staffId: string; staffName: string; weekday: number; startTime: string; endTime: string };
 export type StaffTimeOffRow = { id: string; staffId: string; staffName: string; kind: string; reason: string; startsAt: string; endsAt: string };
