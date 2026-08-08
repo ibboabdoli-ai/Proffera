@@ -3,6 +3,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 
 import { getSql } from "@/lib/db/server";
+import { resolvePublicFormRateLimitSecret } from "@/lib/public-form-rate-limit-secret";
 
 type RateLimitInput = {
   scope: string;
@@ -17,8 +18,10 @@ function clientAddress(requestHeaders: Headers) {
   return forwarded || requestHeaders.get("x-real-ip")?.trim() || "unknown";
 }
 
-function fingerprint({ scope, requestHeaders, identity = "" }: Pick<RateLimitInput, "scope" | "requestHeaders" | "identity">) {
-  const secret = process.env.PUBLIC_FORM_RATE_LIMIT_SECRET?.trim() || "proffera-public-form-rate-limit-v1";
+function fingerprint(
+  { scope, requestHeaders, identity = "" }: Pick<RateLimitInput, "scope" | "requestHeaders" | "identity">,
+  secret: string,
+) {
   const normalizedIdentity = identity.trim().toLowerCase();
   return createHash("sha256")
     .update(`${secret}:${scope}:${clientAddress(requestHeaders)}:${normalizedIdentity}`)
@@ -26,9 +29,10 @@ function fingerprint({ scope, requestHeaders, identity = "" }: Pick<RateLimitInp
 }
 
 export async function allowPublicSubmission(input: RateLimitInput) {
+  const secret = resolvePublicFormRateLimitSecret();
   const sql = getSql();
 
-  if (!sql || input.maxAttempts < 1 || input.windowSeconds < 1) {
+  if (!secret || !sql || input.maxAttempts < 1 || input.windowSeconds < 1) {
     return false;
   }
 
@@ -44,7 +48,7 @@ export async function allowPublicSubmission(input: RateLimitInput) {
       )
       values (
         ${input.scope},
-        ${fingerprint(input)},
+        ${fingerprint(input, secret)},
         now(),
         1,
         now(),
