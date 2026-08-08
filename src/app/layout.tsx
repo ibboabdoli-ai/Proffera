@@ -13,6 +13,7 @@ const hankenGrotesk = Hanken_Grotesk({
   display: "swap",
   variable: "--font-hanken-grotesk",
 });
+
 export const metadata: Metadata = {
   metadataBase: new URL(siteConfig.url),
   applicationName: "Proffera",
@@ -48,12 +49,19 @@ export const metadata: Metadata = {
     type: "website",
     images: [
       {
-        url: "/brand/proffera-og.svg",
+        url: "/og",
         width: 1200,
         height: 630,
-        alt: "Proffera",
+        alt: "Proffera – Bokning, CRM och AI-assistent för tjänsteföretag",
+        type: "image/png",
       },
     ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: `${siteConfig.name} – SaaS för svenska tjänsteföretag`,
+    description: siteConfig.description,
+    images: ["/og"],
   },
 };
 
