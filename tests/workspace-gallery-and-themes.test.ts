@@ -15,6 +15,8 @@ describe("Public workspace gallery", () => {
     expect(page).toContain("w.slug = ${slug} or w.public_booking_slug = ${slug}");
     expect(page).toContain("getPublishedGalleryItems(String(workspace.slug))");
     expect(page).toContain("experience.galleryEnabled");
+    expect(page).toContain('hasWorkspaceFeatureAccessForWorkspace(workspaceId, "media_gallery")');
+    expect(page).not.toContain("from workspace_plans wp");
     expect(alias).toContain("@/app/galleri/[slug]/page");
   });
 
@@ -26,12 +28,13 @@ describe("Public workspace gallery", () => {
     expect(page).toContain("Publicerade medier visas här automatiskt");
   });
 
-  it("shows only published workspace media on an active booking surface", () => {
+  it("shows only published workspace media when the canonical gallery feature is available", () => {
     const layout = source("src/app/boka/[slug]/layout.tsx");
     const galleryDb = source("src/lib/website-gallery-db.ts");
 
     expect(layout).toContain("experience.galleryEnabled");
-    expect(layout).toContain("wp.status in ('active', 'trialing')");
+    expect(layout).toContain('hasWorkspaceFeatureAccessForWorkspace(workspaceId, "media_gallery")');
+    expect(layout).not.toContain("from workspace_plans wp");
     expect(layout).toContain("PublicWorkspaceGallery");
     expect(galleryDb).toContain("g.status='published'");
     expect(galleryDb).toContain("w.slug=${workspaceSlug}");
@@ -54,6 +57,7 @@ describe("Booking theme system", () => {
     const css = source("src/app/boka/[slug]/booking-themes.css");
 
     expect(layout).toContain("data-booking-theme={themeKey}");
+    expect(layout).toContain("data-booking-appearance={appearance}");
     for (const key of ["clean", "salon", "premium", "modern", "minimal"]) {
       expect(css).toContain(`[data-booking-theme="${key}"]`);
     }
