@@ -4,9 +4,11 @@ Last updated: 2026-08-08
 
 ## Release baseline
 
-The current verified source baseline includes technical changes through PR #400 (`8eb64d7` before this documentation-only update).
+The current verified source baseline includes the 2026-08-08 hardening series through PR #401 on `main`.
 
 Do not describe a source change as live in Production unless the corresponding Vercel Production deployment is independently verified as READY, the production domains point to it, and the affected runtime smoke checks pass. Vercel project/deployment state could not be independently read from the connected Vercel tool in the 2026-08-08 hardening session, so source readiness and Production deployment readiness remain separate claims.
+
+The database tenant-relation migration is a separate verified Production fact: migration `6f44f340-789b-4ca9-afd2-ac6c69f5ab56` was applied successfully to the Production Neon parent branch on 2026-08-08 and post-migration read-only verification passed.
 
 ## What is implemented and source-verified
 
@@ -64,20 +66,24 @@ Read-only inspection on 2026-08-08 found:
 
 Therefore, simply enabling RLS while continuing to connect as the current owner role would not provide effective tenant isolation.
 
-### Tenant relation migration staged, not yet applied to Production
+### Tenant relation migration applied to Production
 
-Migration `db/migrations/20260808_0033_tenant_relation_constraints.sql` is merged to source but has **not** been applied to Production yet.
+Migration `db/migrations/20260808_0033_tenant_relation_constraints.sql` is merged to source and the parser-safe equivalent was applied through the controlled Neon migration workflow on 2026-08-08.
 
-The exact migration was tested on two isolated Neon branches cloned from Production:
+Production migration details:
 
-- first execution succeeded;
-- final source version succeeded;
-- rerunning the final version succeeded;
-- all added constraints validated;
-- a negative test attempting to connect a Booking to a Customer from another Workspace was rejected by the database;
-- both temporary verification branches were deleted after testing.
+- Migration ID: `6f44f340-789b-4ca9-afd2-ac6c69f5ab56`;
+- Production parent branch: `br-lively-violet-adld7nyn`;
+- temporary migration branch: `br-summer-truth-adai7q03`;
+- the temporary branch was deleted automatically after successful completion.
 
-Production still reports 0/17 of these new validated tenant-aware constraints until the controlled Production migration is explicitly committed.
+Post-migration Production verification showed:
+
+- 17/17 tenant-aware relation constraints validated;
+- 7/7 supporting composite indexes present;
+- zero cross-Workspace violations across the rechecked Booking→Customer, Booking→Staff, Customer Event, Service Job→Offer/Request and Review→Invitation edges.
+
+This gives Proffera database-enforced referential tenant defense on the type-compatible high-risk relationships even while the runtime role can still bypass RLS.
 
 ### RLS follow-up blocker
 
@@ -104,7 +110,7 @@ Broader UUID normalization and effective RLS therefore remain a later controlled
 - the pre-Workspace Quote Request migration was preserved under `db/legacy-migrations/` for history only;
 - `docs/POSTGRES_SETUP.md` now documents the safe Neon branch-first workflow.
 
-A merged SQL file is not proof of Production execution.
+A merged SQL file is not proof of Production execution; migration #0033 now has separate Production execution evidence recorded above.
 
 ## Build and CI hardening
 
@@ -139,7 +145,9 @@ A read-only Production health snapshot during the hardening session showed:
 - Offer email failures in last 24h: 0;
 - stale pending Offer emails: 0;
 - past-due subscriptions: 0;
-- new tenant constraints active in Production: 0/17 (expected until migration #0033 is committed).
+- tenant constraints active in Production after migration: 17/17.
+
+The remaining database warning is the RLS posture: the runtime owner role can bypass RLS and full RLS rollout is intentionally deferred until the restricted-role/tenant-context design is proven.
 
 ## Read-only Production product snapshot
 
@@ -168,14 +176,13 @@ Cross-module Production invariant checks returned zero violations for:
 
 The following must still be treated as operational proof work rather than assumed complete from source tests:
 
-1. Commit and verify migration `20260808_0033_tenant_relation_constraints.sql` in Production through the controlled Neon migration workflow.
-2. Independently verify the current `main` Vercel Production deployment, domains and runtime environment configuration.
-3. Run a browser-level authenticated two-account Workspace isolation smoke test with dedicated test accounts.
-4. Complete a controlled real Booking → reminder → completion → review-email → one-time review → moderation → publication flow.
-5. Complete a controlled Quote Request → Offer → email → Accept/Reject → Service Job flow with designated test data.
-6. Complete a Service Job assignment → in-progress → completion flow with controlled evidence.
-7. Verify Stripe Sandbox Checkout + webhook state for Sweden, a supported EU business and a UK business.
-8. Verify Preview authentication/database behavior against the isolated Preview environment once its live Vercel deployment can be inspected.
+1. Independently verify the current `main` Vercel Production deployment, domains and runtime environment configuration.
+2. Run a browser-level authenticated two-account Workspace isolation smoke test with dedicated test accounts.
+3. Complete a controlled real Booking → reminder → completion → review-email → one-time review → moderation → publication flow.
+4. Complete a controlled Quote Request → Offer → email → Accept/Reject → Service Job flow with designated test data.
+5. Complete a Service Job assignment → in-progress → completion flow with controlled evidence.
+6. Verify Stripe Sandbox Checkout + webhook state for Sweden, a supported EU business and a UK business.
+7. Verify Preview authentication/database behavior against the isolated Preview environment once its live Vercel deployment can be inspected.
 
 ## Current blockers / non-goals
 
