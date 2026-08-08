@@ -77,7 +77,9 @@ export async function getDashboardBookingDetailInStockholm(bookingId: string): P
         c.notes as customer_notes,
         c.created_at as customer_created_at
       from bookings b
-      left join customers c on c.id = b.customer_id
+      left join customers c
+        on c.id = b.customer_id
+       and c.workspace_id = b.workspace_id
       where b.workspace_id = ${access.workspaceId}
         and b.id = ${bookingId}
       limit 1

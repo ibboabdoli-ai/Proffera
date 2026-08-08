@@ -62,7 +62,9 @@ export async function getDashboardBookingsInStockholm(): Promise<DashboardBookin
         b.starts_at,
         c.name as customer_name
       from bookings b
-      left join customers c on c.id = b.customer_id
+      left join customers c
+        on c.id = b.customer_id
+       and c.workspace_id = b.workspace_id
       where b.workspace_id = ${access.workspaceId}
       order by b.starts_at asc nulls last, b.created_at desc
       limit 20
