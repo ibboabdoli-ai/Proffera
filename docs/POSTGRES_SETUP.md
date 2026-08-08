@@ -1,43 +1,32 @@
-# PostgreSQL Setup
+# PostgreSQL / Neon setup
 
-## Status
+## Current source of truth
 
-Phase 04 uses a PostgreSQL database for quote request persistence.
+Proffera uses PostgreSQL on Neon. The active schema migration history lives only in:
 
-Recommended provider:
+- `db/migrations/`
 
-- Neon PostgreSQL
+Read `db/migrations/README.md` before adding or executing schema changes.
 
-## Required Vercel value
+## Runtime database configuration
 
-Add this value in Vercel Project Settings:
+Production uses a PostgreSQL connection string configured in the deployment environment. Preview must use its isolated Preview database URL and must never fall back to Production merely to make a Preview build work.
 
-- DATABASE_URL
+## Migration workflow
 
-Use the pooled connection string from your PostgreSQL provider when available.
+1. Add the new migration under `db/migrations/` with an ordered date/sequence prefix.
+2. Inspect current Production schema/data read-only.
+3. Test the exact migration against an isolated Neon branch cloned from Production.
+4. Run application CI and relevant regression tests.
+5. Execute the approved migration against Production through the controlled migration workflow.
+6. Verify the resulting schema and the affected user flow after execution.
 
-## Database setup
+Merging a migration file into Git is not proof that Production has been migrated. Production execution and verification must be recorded separately.
 
-Run this migration in your PostgreSQL SQL editor:
+## Historical migration
 
-- `database/migrations/001_create_quote_requests.sql`
+The original `quote_requests` migration predates the current Workspace architecture. It is preserved only for audit/history under:
 
-The migration creates:
+- `db/legacy-migrations/001_create_quote_requests.sql`
 
-- `quote_requests`
-- status constraint
-- basic indexes
-
-## Manual verification
-
-1. Add DATABASE_URL in Vercel.
-2. Run the migration in the database SQL editor.
-3. Open `/fa-offert`.
-4. Fill the form with valid data.
-5. Submit the form.
-6. Confirm that a row appears in `quote_requests`.
-7. Confirm that the form shows a reference number.
-
-## Current limitation
-
-Admin read access is not implemented yet. That belongs to the admin phase.
+It is not part of the active migration chain and must not be replayed as part of a current Proffera deployment.
