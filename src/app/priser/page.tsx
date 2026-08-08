@@ -22,6 +22,7 @@ export default function PricingPage() {
         <p className="mt-5 max-w-3xl text-lg leading-8 text-[#5b665f]">
           Starta enkelt med bokning och formulär. Lägg till kund-CRM när företaget behöver samla fler kundflöden på ett ställe.
         </p>
+        <p className="mt-3 text-sm font-medium text-[#526057]">Starter och Professional kan provas gratis i 14 dagar utan betalning vid start.</p>
       </section>
 
       <section className="mx-auto grid max-w-7xl gap-6 px-4 pb-16 sm:px-6 lg:grid-cols-3 lg:px-8">
@@ -40,10 +41,10 @@ export default function PricingPage() {
             </ul>
             <div className="mt-8">
               <ButtonLink
-                href={plan.name === "Business" ? "/kontakt" : `/logga-in?plan=${plan.name.toLowerCase()}`}
+                href={plan.name === "Business" ? "/kontakt" : `/skapa-konto?plan=${plan.name.toLowerCase()}`}
                 variant={plan.name === "Professional" ? "primary" : "secondary"}
               >
-                {plan.name === "Business" ? "Prata med oss" : `Välj ${plan.name}`}
+                {plan.name === "Business" ? "Prata med oss" : "Prova gratis i 14 dagar"}
               </ButtonLink>
             </div>
           </article>
