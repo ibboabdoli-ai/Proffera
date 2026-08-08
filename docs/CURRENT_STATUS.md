@@ -1,170 +1,185 @@
 # Proffera Current Status
 
-Last updated: 2026-08-06
+Last updated: 2026-08-08
 
-## Release baselines
+## Release baseline
 
-Proffera deploys from `main`, but source and Production are temporarily on
-different commits because Vercel has rate-limited new builds after a large
-number of rapid Preview deployments.
+The current verified source baseline includes technical changes through PR #400 (`8eb64d7` before this documentation-only update).
 
-- Source baseline: `d50631c` on `main`.
-- Production baseline: `5a8f3e5`, the merged PR #348 release.
-- Production is healthy and remains unchanged while the build limit is active.
-- The Verified Review email release in PR #349 and the trusted-origin hardening
-  in PR #351 are merged to `main` but are not yet live in Production.
+Do not describe a source change as live in Production unless the corresponding Vercel Production deployment is independently verified as READY, the production domains point to it, and the affected runtime smoke checks pass. Vercel project/deployment state could not be independently read from the connected Vercel tool in the 2026-08-08 hardening session, so source readiness and Production deployment readiness remain separate claims.
 
-A release must not be described as live until the matching Production
-Deployment is `READY`, the production domains point to it, and the relevant
-runtime smoke checks pass.
+## What is implemented and source-verified
 
-## Delivered product capabilities
-
-### SaaS foundation
+### Authentication, Workspace isolation and Platform Admin
 
 - Better Auth-backed sign-in and session handling.
-- Session-derived Workspace access with `owner`, `admin`, `staff`, and `viewer`
-  roles.
-- Workspace-scoped reads and writes for bookings, customers, leads, offers,
-  settings, reviews, billing and service work.
-- Central Platform Admin roles, route authorization and audit logging.
-- Separation between customer Workspace accounts and Platform Admin accounts.
+- Session-derived Workspace membership with `owner`, `admin`, `staff`, and `viewer` roles.
+- Workspace-scoped customer, booking, lead, offer, review, billing and service-work access.
+- Preview database/auth secret resolution fails closed instead of falling back to Production.
+- Dashboard Booking→Customer reads and the Booking status mutation bind related Customer rows to the same Workspace.
+- Permanent tenant-boundary regression coverage protects the active Dashboard Booking readers.
+- Platform Admin routing forwards the exact `/admin/...` path into the server-side role policy.
+- The old shared `ADMIN_ACCESS_CODE` Basic Auth proxy gate was removed; sensitive admin APIs continue to enforce Better Auth / Platform Admin RBAC and origin checks inside the route.
+- `/admin/status` is now a read-only Operations Health surface available to Platform Admin roles.
 
-### Feature access and trials
+### Feature access, Booking themes and Gallery
 
-- The Feature Catalog is the canonical source for dashboard capability access.
-- New active Trial Workspaces receive the active catalog capabilities without
-  customer-specific hardcoded provisioning.
-- Route guards protect Leads, Offers, Gallery and Verified Reviews directly.
-- After Trial expiry, normal plan-tier access applies again.
+- The database Feature Catalog / entitlement resolver is the canonical capability-access source.
+- Trial, plan, Workspace enablement and Platform Admin overrides are resolved centrally.
+- Public Booking and Gallery no longer use a second direct `workspace_plans.status` gate for theme/gallery rendering.
+- Saved Booking theme and appearance are resolved consistently for active/trial Workspaces.
+- Public Gallery publication requires both the Workspace gallery toggle and the canonical `media_gallery` entitlement.
+- Five Booking presets remain supported: `clean`, `salon`, `premium`, `modern`, and `minimal`.
 
-### Booking, CRM and customer operations
+### Booking, CRM, Jobs and Reviews
 
-- Public booking, verification, availability and booking management.
-- Workspace booking hours, staff scheduling structures and time-off support.
-- Customer CRM, customer history, leads and booking events.
-- Swedish and English public and dashboard experiences.
-- Workspace country, currency and timezone foundations for Sweden, supported EU
-  markets and the United Kingdom.
-- Booking confirmations and a durable reminder scheduler with duplicate-delivery
-  protection.
+- Public Booking, email verification, availability, booking management and customer portal foundations are implemented.
+- Booking hours, staff schedules, time off, overlap/conflict checks and rescheduling foundations are implemented.
+- Confirming a Booking creates at most one Booking-backed Service Job.
+- Completing/cancelling a Booking synchronizes its linked Service Job; Booking completion records completion evidence.
+- Quote/Offer acceptance creates at most one Offer-backed Service Job.
+- Booking completion and direct linked Service Job completion enter the Verified Review invitation path.
+- Verified Review token hashing, eligibility, one-time redemption, moderation and publication protections remain implemented.
+- A cross-module Golden Lifecycle Contract now blocks CI if the critical Booking/Offer→Job→Completion→Review connections drift apart.
 
-The reminder infrastructure exists, but a real due reminder has not yet been
-verified end to end in Production.
+### Billing and notifications
 
-### Billing and subscriptions
+- Stripe Checkout, Customer Portal, subscription webhook synchronization and billing-alert foundations are implemented.
+- Booking reminder delivery infrastructure and duplicate-delivery protection are implemented.
+- Offer email delivery tracking is implemented.
+- Automatic tax must remain disabled until required registrations and legal/business review are complete.
+- Application code must not invent unsupported currency prices outside configured Stripe Prices.
 
-- Stripe-hosted Checkout and Customer Portal.
-- Webhook-synchronised subscription state.
-- Read-only Platform Billing views and alert detection.
-- Controlled internal Trial extension with audit logging.
-- Stripe remains the source of truth for Stripe-bound plans and statuses.
+## Database hardening status
 
-Automatic tax must remain disabled until the required registrations and legal
-review are complete. Proffera must not invent local-currency prices outside the
-configured Stripe Prices.
+### Production observations
 
-### AI Chat
+Read-only inspection on 2026-08-08 found:
 
-- Workspace-level AI Chat integrations exist and can be activated independently.
-- Tenant/client identifiers and lifecycle state are stored per Workspace.
-- The capability is available for pilot use; it is not yet presented as a fully
-  operationally proven mass-market module.
+- 49 public tables;
+- all inspected public tables had primary keys;
+- 70 existing foreign-key constraints before the new tenant-relation migration;
+- zero public tables with RLS enabled;
+- the current Production connection role is `neondb_owner` and can bypass RLS.
 
-### Offers and service jobs
+Therefore, simply enabling RLS while continuing to connect as the current owner role would not provide effective tenant isolation.
 
-- Quote Request intake, Draft Offer editing, public offer links, PDF output and
-  customer Accept/Reject foundations exist.
-- Email-delivery and Service Job conversion structures exist.
-- Service Job notes, events, attachments and completion evidence are supported.
+### Tenant relation migration staged, not yet applied to Production
 
-The complete Request → Offer → Email → Accept → Job lifecycle still requires a
-controlled end-to-end Production verification.
+Migration `db/migrations/20260808_0033_tenant_relation_constraints.sql` is merged to source but has **not** been applied to Production yet.
 
-### Verified Reviews
+The exact migration was tested on two isolated Neon branches cloned from Production:
 
-The central multi-tenant Verified Review flow is implemented:
+- first execution succeeded;
+- final source version succeeded;
+- rerunning the final version succeeded;
+- all added constraints validated;
+- a negative test attempting to connect a Booking to a Customer from another Workspace was rejected by the database;
+- both temporary verification branches were deleted after testing.
 
-- invitations are issued only for eligible completed bookings;
-- only SHA-256 token hashes are persisted;
-- tenant, customer, booking and Workspace consistency are validated;
-- invitation redemption and review creation are atomic;
-- expired, revoked, reused and ineligible links are rejected;
-- anonymous PrimeView submission is closed;
-- only approved verified reviews are eligible for publication;
-- moderation decisions and email outcomes are audited without raw tokens or
-  review text leakage.
+Production still reports 0/17 of these new validated tenant-aware constraints until the controlled Production migration is explicitly committed.
 
-PR #349 adds Swedish/English Brevo delivery after a real transition to
-`completed`, plus manual send/resend controls. PR #351 ensures private review
-links are generated only from configured trusted origins, never from an incoming
-request Host. Both changes are merged to `main` and await the next Production
-Deployment.
+### RLS follow-up blocker
 
-## Verification status
+Legacy `workspace_id` columns are split between text and UUID storage. Read-only validation found five non-UUID legacy rows using `workspace_id='default'`:
 
-The latest Verified Review hardening branch passed:
+- four rows in `workspace_services`;
+- one row in `workspace_settings`.
 
-- lint;
+They describe an older Iboren seed/configuration. There is no sufficiently proven historical Workspace mapping to justify silently remapping them to a current Workspace. Do not guess this mapping.
+
+Broader UUID normalization and effective RLS therefore remain a later controlled phase requiring:
+
+1. an explicit legacy-default cleanup decision;
+2. a restricted application database role that does not bypass RLS;
+3. a tested per-request tenant-context design;
+4. corresponding deployment-environment changes and rollback verification.
+
+## Migration discipline
+
+`db/migrations/` is now the single active migration source of truth.
+
+- the split AI Chat migration was moved into the canonical sequence;
+- Gallery migrations were moved into the canonical history;
+- the pre-Workspace Quote Request migration was preserved under `db/legacy-migrations/` for history only;
+- `docs/POSTGRES_SETUP.md` now documents the safe Neon branch-first workflow.
+
+A merged SQL file is not proof of Production execution.
+
+## Build and CI hardening
+
+Top-level dependencies are pinned to the exact versions already resolved by the current lockfile. `npm ci` succeeded with those exact specs, proving the change did not intentionally upgrade or downgrade packages.
+
+Every focused hardening PR in the 2026-08-08 session passed the repository gate before merge:
+
+- dependency install;
+- ESLint;
 - TypeScript typecheck;
-- automated tests;
-- production build;
+- Vitest;
+- Next.js production build;
 - whitespace validation.
 
-Production remained on the previous healthy Deployment because Vercel reported:
-`Deployment rate limited — retry in 24 hours.`
+## Operations Health
 
-## Preview environment limitation
+The read-only Platform Admin Operations Health surface checks, without exposing secret values or customer content:
 
-Current Preview deployments do not have `DATABASE_URL`. Any Preview route that
-initializes Proffera Auth therefore fails closed instead of providing a usable
-authenticated Preview.
+- required deployed configuration presence;
+- database connectivity and current role posture;
+- tenant-constraint coverage;
+- RLS/BYPASSRLS posture;
+- reminder failures and overdue reminders;
+- Offer email failures/stale pending delivery;
+- past-due subscriptions;
+- legacy `workspace_id='default'` rows.
 
-The correct fix is to configure an isolated Preview Neon branch through
-branch-specific Vercel environment variables. Preview must not be connected to
-the Production database merely to make smoke tests pass.
+A read-only Production health snapshot during the hardening session showed:
 
-## Last read-only Production snapshot
+- reminder failures in last 24h: 0;
+- overdue pending reminders: 0;
+- Offer email failures in last 24h: 0;
+- stale pending Offer emails: 0;
+- past-due subscriptions: 0;
+- new tenant constraints active in Production: 0/17 (expected until migration #0033 is committed).
 
-An earlier successful read-only snapshot on 2026-08-06 showed:
+## Read-only Production product snapshot
+
+The latest read-only counts observed during the 2026-08-08 audit were:
 
 | Metric | Count |
 | --- | ---: |
-| Workspaces | 4 |
-| Workspace memberships | 8 |
+| Workspaces | 5 |
+| Workspace memberships | 9 |
 | Customers | 16 |
 | Bookings | 43 |
 | Service jobs | 22 |
-| Website reviews | 3 |
-| Review invitations | 0 |
+| Website reviews | 1 |
+| Quote requests | 0 |
+| Quote offers | 0 |
 | Billing subscriptions | 4 |
-| AI Chat integrations | 2 |
 
-A later Neon Connector read failed authorization before query execution. No
-Production database mutation was performed during that failure.
+Cross-module Production invariant checks returned zero violations for:
 
-## Required operational proof
+- confirmed Booking without linked Service Job;
+- completed Booking without linked Service Job;
+- accepted Offer without linked Service Job;
+- completed Booking with customer email but no Review Invitation.
 
-Before claiming broad production readiness, complete these controlled flows with
-designated test data and recipients:
+## Remaining release proof
 
-1. Deploy the current `main` after the Vercel build limit clears.
-2. Complete Booking → Verified Review email → one-time link → submission →
-   moderation → publication.
-3. Trigger one real due booking reminder and verify duplicate prevention.
-4. Complete Quote Request → Offer → Email → Accept/Reject → Service Job.
-5. Move one Service Job through assignment, progress and completion.
-6. Create test Staff schedules, time off and overlapping-booking checks.
-7. Run a two-account Workspace-isolation smoke test with dedicated test accounts.
-8. Verify Stripe Sandbox Checkout and webhook state for Sweden, an EU business
-   and a UK business.
+The following must still be treated as operational proof work rather than assumed complete from source tests:
 
-## Repository and operations cleanup
+1. Commit and verify migration `20260808_0033_tenant_relation_constraints.sql` in Production through the controlled Neon migration workflow.
+2. Independently verify the current `main` Vercel Production deployment, domains and runtime environment configuration.
+3. Run a browser-level authenticated two-account Workspace isolation smoke test with dedicated test accounts.
+4. Complete a controlled real Booking → reminder → completion → review-email → one-time review → moderation → publication flow.
+5. Complete a controlled Quote Request → Offer → email → Accept/Reject → Service Job flow with designated test data.
+6. Complete a Service Job assignment → in-progress → completion flow with controlled evidence.
+7. Verify Stripe Sandbox Checkout + webhook state for Sweden, a supported EU business and a UK business.
+8. Verify Preview authentication/database behavior against the isolated Preview environment once its live Vercel deployment can be inspected.
 
-- Consolidate the duplicated `db/migrations` and `database/migrations` history
-  into one documented migration source of truth.
-- Configure a safe Preview database and required Preview environment variables.
-- Reduce unnecessary Vercel Preview builds so rapid incremental commits do not
-  exhaust the build quota.
-- Keep this file aligned with the actual `main` commit and the separately
-  verified Production Deployment.
+## Current blockers / non-goals
+
+- Browser E2E is not yet automated with Playwright/Cypress in this repository.
+- Vercel Production/Preview projects and runtime environment values were not independently visible through the connected Vercel tool during this session; do not fabricate deployment claims.
+- Full RLS enforcement is intentionally deferred until legacy Workspace normalization and a restricted app DB role can be proven safely.
+- Do not add major new product features until the remaining Production proof above is completed.
