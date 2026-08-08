@@ -1,98 +1,316 @@
 [data-booking-theme] > main:first-child {
+  min-height: 100vh;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   transition: background-color 180ms ease, color 180ms ease;
 }
 
-[data-booking-theme="clean"] > main:first-child {
-  font-family: Arial, Helvetica, sans-serif;
+[data-booking-theme] > main:first-child > section:first-child,
+[data-booking-theme] > main:first-child > div > section,
+[data-booking-theme] > main:first-child > div > aside > section {
+  transition: background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
 }
 
-[data-booking-theme="salon"] > main:first-child {
-  background: linear-gradient(145deg, #fff7fa 0%, #f8e9ef 100%) !important;
-  font-family: Georgia, "Times New Roman", serif;
+[data-booking-theme] form[data-booking-form] input:not([type="hidden"]):not([type="checkbox"]),
+[data-booking-theme] form[data-booking-form] select {
+  width: 100%;
+  min-height: 3.5rem;
+  border: 1px solid rgb(23 32 26 / 16%);
+  background: rgb(255 255 255 / 96%);
+  color: #17201a;
+  font-size: 1rem;
+  line-height: 1.4;
+  box-shadow: 0 1px 2px rgb(16 24 20 / 4%);
+  transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
 }
-[data-booking-theme="salon"] > main:first-child > section:first-child,
-[data-booking-theme="salon"] > main:first-child section[class*="rounded-"] {
+
+[data-booking-theme] form[data-booking-form] input:not([type="hidden"]):not([type="checkbox"]):focus,
+[data-booking-theme] form[data-booking-form] select:focus {
+  outline: none;
+  border-color: var(--booking-primary);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--booking-primary) 14%, transparent);
+}
+
+[data-booking-theme] form[data-booking-form] button {
+  min-height: 3rem;
+  transition: transform 140ms ease, box-shadow 140ms ease, opacity 140ms ease, background-color 140ms ease;
+}
+
+[data-booking-theme] form[data-booking-form] button:not(:disabled):active {
+  transform: translateY(1px) scale(.995);
+}
+
+[data-booking-theme] form[data-booking-form] button:disabled {
+  cursor: not-allowed;
+}
+
+/* Clean — calm Scandinavian service design */
+[data-booking-theme="clean"] > main:first-child {
+  background: linear-gradient(180deg, #f4f7f4 0%, #eef3ef 100%) !important;
+}
+[data-booking-theme="clean"] > main:first-child > section:first-child {
+  border-radius: 1.75rem !important;
+  box-shadow: 0 24px 70px rgb(27 62 44 / 16%) !important;
+}
+[data-booking-theme="clean"] > main:first-child > div > section,
+[data-booking-theme="clean"] > main:first-child > div > aside > section {
+  border: 1px solid #dfe7e0 !important;
+  border-radius: 1.5rem !important;
+  box-shadow: 0 12px 36px rgb(20 43 32 / 6%) !important;
+}
+[data-booking-theme="clean"] form[data-booking-form] input:not([type="hidden"]):not([type="checkbox"]),
+[data-booking-theme="clean"] form[data-booking-form] select {
+  border-radius: .95rem !important;
+  background: #fbfcfb !important;
+}
+[data-booking-theme="clean"] form[data-booking-form] button {
+  border-radius: .95rem;
+  font-weight: 750;
+}
+
+/* Salon — soft editorial beauty experience */
+[data-booking-theme="salon"] > main:first-child {
+  background:
+    radial-gradient(circle at 20% 0%, rgb(239 182 200 / 34%), transparent 34rem),
+    linear-gradient(160deg, #fff9fb 0%, #f8e9ef 100%) !important;
+  color: #302126 !important;
+}
+[data-booking-theme="salon"] > main:first-child > section:first-child {
   border-radius: 2.5rem !important;
+  box-shadow: 0 28px 70px rgb(90 42 62 / 18%) !important;
+}
+[data-booking-theme="salon"] > main:first-child > div > section,
+[data-booking-theme="salon"] > main:first-child > div > aside > section,
+[data-booking-theme="salon"] > main:first-child section[class*="rounded-"] {
+  border-color: rgb(123 54 81 / 12%) !important;
+  border-radius: 2rem !important;
+  box-shadow: 0 14px 38px rgb(90 42 62 / 8%) !important;
 }
 [data-booking-theme="salon"] > main:first-child h1,
-[data-booking-theme="salon"] > main:first-child h2 {
-  letter-spacing: -0.025em;
+[data-booking-theme="salon"] > main:first-child h2,
+[data-booking-theme="salon"] > main:first-child h3 {
+  font-family: Georgia, "Times New Roman", serif;
+  letter-spacing: -.03em;
 }
-[data-booking-theme="salon"] > main:first-child button,
+[data-booking-theme="salon"] form[data-booking-form] input:not([type="hidden"]):not([type="checkbox"]),
+[data-booking-theme="salon"] form[data-booking-form] select {
+  border-color: rgb(123 54 81 / 18%);
+  border-radius: 1.2rem !important;
+  background: #fffafd !important;
+}
+[data-booking-theme="salon"] form[data-booking-form] button,
 [data-booking-theme="salon"] > main:first-child a[class*="rounded"] {
   border-radius: 999px !important;
 }
 
+/* Premium — understated black and gold */
 [data-booking-theme="premium"] > main:first-child {
-  background: radial-gradient(circle at top, #20283a 0%, #090d16 58%) !important;
-  color: #f8f2df !important;
-  font-family: Georgia, "Times New Roman", serif;
+  background:
+    radial-gradient(circle at 50% -10%, #3c3427 0%, #15130f 38%, #0d0c0a 72%) !important;
+  color: #f5efe3 !important;
 }
 [data-booking-theme="premium"] > main:first-child > section:first-child {
-  border: 1px solid color-mix(in srgb, var(--booking-accent) 65%, transparent) !important;
-  border-radius: 0 !important;
-  box-shadow: 0 30px 80px rgb(0 0 0 / 35%) !important;
+  border: 1px solid color-mix(in srgb, var(--booking-accent) 50%, transparent) !important;
+  border-radius: 1.25rem !important;
+  box-shadow: 0 34px 90px rgb(0 0 0 / 42%) !important;
 }
-[data-booking-theme="premium"] > main:first-child section[class*="rounded-"] {
-  border-radius: 0 !important;
-}
-[data-booking-theme="premium"] > main:first-child button,
-[data-booking-theme="premium"] > main:first-child a[class*="rounded"] {
-  border-radius: 0 !important;
-  letter-spacing: .08em;
-  text-transform: uppercase;
+[data-booking-theme="premium"] > main:first-child > div > section,
+[data-booking-theme="premium"] > main:first-child > div > aside > section {
+  background: #181611 !important;
+  color: #f5efe3 !important;
+  border: 1px solid rgb(200 169 107 / 22%) !important;
+  border-radius: 1rem !important;
+  box-shadow: 0 18px 50px rgb(0 0 0 / 24%) !important;
 }
 [data-booking-theme="premium"] > main:first-child h1,
-[data-booking-theme="premium"] > main:first-child h2 {
+[data-booking-theme="premium"] > main:first-child h2,
+[data-booking-theme="premium"] > main:first-child h3 {
+  font-family: Georgia, "Times New Roman", serif;
   font-weight: 600 !important;
-  letter-spacing: -.035em;
+  letter-spacing: -.025em;
+}
+[data-booking-theme="premium"] form[data-booking-form] label {
+  color: #e9dfca;
+}
+[data-booking-theme="premium"] form[data-booking-form] input:not([type="hidden"]):not([type="checkbox"]),
+[data-booking-theme="premium"] form[data-booking-form] select {
+  border-color: rgb(200 169 107 / 28%);
+  border-radius: .75rem !important;
+  background: #211e18 !important;
+  color: #fffaf0 !important;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 2%);
+}
+[data-booking-theme="premium"] form[data-booking-form] button {
+  border-radius: .75rem !important;
+  letter-spacing: .035em;
 }
 
+/* Modern — bright, structured, product-led */
 [data-booking-theme="modern"] > main:first-child {
   background:
-    linear-gradient(135deg, rgb(56 189 248 / 14%) 0 25%, transparent 25% 75%, rgb(7 94 115 / 12%) 75%),
-    #eaf8fb !important;
-  font-family: Arial, Helvetica, sans-serif;
+    radial-gradient(circle at 90% 8%, rgb(56 189 248 / 24%), transparent 28rem),
+    radial-gradient(circle at 5% 50%, rgb(7 94 115 / 10%), transparent 34rem),
+    #edf9fb !important;
 }
 [data-booking-theme="modern"] > main:first-child > section:first-child {
-  border-radius: .75rem 3rem .75rem 3rem !important;
-  transform: translateZ(0);
+  border-radius: 1.25rem 3.5rem 1.25rem 3.5rem !important;
+  box-shadow: 0 28px 70px rgb(7 94 115 / 18%) !important;
 }
+[data-booking-theme="modern"] > main:first-child > div > section,
+[data-booking-theme="modern"] > main:first-child > div > aside > section,
 [data-booking-theme="modern"] > main:first-child section[class*="rounded-"] {
-  border-radius: .75rem !important;
+  border-color: rgb(7 94 115 / 12%) !important;
+  border-radius: 1.25rem !important;
+  box-shadow: 0 14px 34px rgb(7 94 115 / 7%) !important;
 }
 [data-booking-theme="modern"] > main:first-child h1,
 [data-booking-theme="modern"] > main:first-child h2 {
-  letter-spacing: -.055em;
+  letter-spacing: -.05em;
+}
+[data-booking-theme="modern"] form[data-booking-form] input:not([type="hidden"]):not([type="checkbox"]),
+[data-booking-theme="modern"] form[data-booking-form] select {
+  border-color: rgb(7 94 115 / 18%);
+  border-radius: .9rem !important;
+  background: #f9feff !important;
+}
+[data-booking-theme="modern"] form[data-booking-form] button {
+  border-radius: .9rem !important;
+  box-shadow: 0 8px 20px rgb(7 94 115 / 12%);
 }
 
+/* Minimal — editorial black and white */
 [data-booking-theme="minimal"] > main:first-child {
-  background: #fff !important;
+  background: #f7f7f5 !important;
   color: #111 !important;
-  font-family: Arial, Helvetica, sans-serif;
 }
 [data-booking-theme="minimal"] > main:first-child > section:first-child {
   background: #fff !important;
   color: #111 !important;
-  border-block: 2px solid #111 !important;
+  border: 1px solid #111 !important;
   border-radius: 0 !important;
-  box-shadow: none !important;
+  box-shadow: 10px 10px 0 #111 !important;
 }
+[data-booking-theme="minimal"] > main:first-child > div > section,
+[data-booking-theme="minimal"] > main:first-child > div > aside > section,
 [data-booking-theme="minimal"] > main:first-child section[class*="rounded-"] {
+  background: #fff !important;
+  color: #111 !important;
+  border-color: #cfcfca !important;
   border-radius: 0 !important;
   box-shadow: none !important;
-}
-[data-booking-theme="minimal"] > main:first-child button,
-[data-booking-theme="minimal"] > main:first-child a[class*="rounded"] {
-  border-radius: 0 !important;
 }
 [data-booking-theme="minimal"] > main:first-child h1,
 [data-booking-theme="minimal"] > main:first-child h2 {
   font-weight: 900 !important;
-  letter-spacing: -.07em;
-  text-transform: uppercase;
+  letter-spacing: -.065em;
+}
+[data-booking-theme="minimal"] form[data-booking-form] input:not([type="hidden"]):not([type="checkbox"]),
+[data-booking-theme="minimal"] form[data-booking-form] select {
+  border: 1px solid #111 !important;
+  border-radius: 0 !important;
+  background: #fff !important;
+  color: #111 !important;
+  box-shadow: none !important;
+}
+[data-booking-theme="minimal"] form[data-booking-form] button,
+[data-booking-theme="minimal"] > main:first-child a[class*="rounded"] {
+  border-radius: 0 !important;
+}
+
+/* Restaurant — warm hospitality, wine and brass */
+[data-booking-theme="restaurant"] > main:first-child {
+  background:
+    radial-gradient(circle at 80% 0%, rgb(215 168 87 / 16%), transparent 30rem),
+    radial-gradient(circle at 10% 35%, rgb(116 49 30 / 20%), transparent 34rem),
+    linear-gradient(180deg, #160d09 0%, #0e0907 100%) !important;
+  color: #f8efe4 !important;
+}
+[data-booking-theme="restaurant"] > main:first-child > section:first-child {
+  background: linear-gradient(135deg, #4a2117 0%, #2d1510 100%) !important;
+  border: 1px solid rgb(215 168 87 / 35%) !important;
+  border-radius: 2rem !important;
+  box-shadow: 0 34px 90px rgb(0 0 0 / 40%) !important;
+}
+[data-booking-theme="restaurant"] > main:first-child > div > section,
+[data-booking-theme="restaurant"] > main:first-child > div > aside > section {
+  background: linear-gradient(145deg, #25140f 0%, #1b100c 100%) !important;
+  color: #f8efe4 !important;
+  border: 1px solid rgb(215 168 87 / 20%) !important;
+  border-radius: 1.6rem !important;
+  box-shadow: 0 18px 54px rgb(0 0 0 / 24%) !important;
+}
+[data-booking-theme="restaurant"] > main:first-child h1,
+[data-booking-theme="restaurant"] > main:first-child h2,
+[data-booking-theme="restaurant"] > main:first-child h3 {
+  font-family: Georgia, "Times New Roman", serif;
+  letter-spacing: -.025em;
+}
+[data-booking-theme="restaurant"] form[data-booking-form] label {
+  color: #f1e4d5;
+}
+[data-booking-theme="restaurant"] form[data-booking-form] input:not([type="hidden"]):not([type="checkbox"]),
+[data-booking-theme="restaurant"] form[data-booking-form] select {
+  border: 1px solid rgb(215 168 87 / 28%) !important;
+  border-radius: 1rem !important;
+  background: #f8efe4 !important;
+  color: #24130e !important;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 10%);
+}
+[data-booking-theme="restaurant"] form[data-booking-form] button {
+  border-radius: 999px !important;
+  font-weight: 800;
+  box-shadow: 0 10px 28px rgb(0 0 0 / 18%);
+}
+[data-booking-theme="restaurant"] > main:first-child a {
+  color: inherit;
+}
+
+[data-booking-appearance="dark"] form[data-booking-form] input::placeholder {
+  color: rgb(245 239 227 / 50%);
+}
+
+@media (max-width: 640px) {
+  [data-booking-theme] > main:first-child {
+    padding: 1rem .85rem 2.5rem !important;
+  }
+  [data-booking-theme] > main:first-child > section:first-child {
+    border-radius: 1.45rem !important;
+    padding: 1.15rem !important;
+  }
+  [data-booking-theme] > main:first-child > div {
+    margin-top: 1rem !important;
+    gap: 1rem !important;
+  }
+  [data-booking-theme] > main:first-child > div > section,
+  [data-booking-theme] > main:first-child > div > aside > section {
+    padding: 1.15rem !important;
+  }
+  [data-booking-theme] form[data-booking-form] {
+    margin-top: 1.25rem !important;
+    gap: .9rem !important;
+  }
+  [data-booking-theme] form[data-booking-form] input:not([type="hidden"]):not([type="checkbox"]),
+  [data-booking-theme] form[data-booking-form] select {
+    min-height: 3.6rem;
+    font-size: 16px;
+    padding-inline: 1rem !important;
+  }
+  [data-booking-theme] form[data-booking-form] button {
+    min-height: 3.5rem;
+  }
+  [data-booking-theme="minimal"] > main:first-child > section:first-child {
+    border-radius: 0 !important;
+    box-shadow: 6px 6px 0 #111 !important;
+  }
+  [data-booking-theme="modern"] > main:first-child > section:first-child {
+    border-radius: 1rem 2.2rem 1rem 2.2rem !important;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  [data-booking-theme] > main:first-child { transition: none; }
+  [data-booking-theme] > main:first-child,
+  [data-booking-theme] form[data-booking-form] button,
+  [data-booking-theme] form[data-booking-form] input,
+  [data-booking-theme] form[data-booking-form] select {
+    transition: none;
+  }
 }
