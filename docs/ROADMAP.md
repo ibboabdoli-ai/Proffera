@@ -6,7 +6,10 @@ Last updated: 2026-08-08
 
 Proffera has enough product breadth for controlled customer pilots. The current priority is to prove and harden the existing end-to-end system rather than add major new modules.
 
-The Production tenant-relation migration is complete: migration `6f44f340-789b-4ca9-afd2-ac6c69f5ab56` was applied successfully on 2026-08-08 and post-migration checks showed 17/17 validated tenant constraints with zero rechecked cross-Workspace violations.
+Two database defense layers are now complete in Production:
+
+- tenant-relation hardening: 17/17 validated constraints and zero rechecked cross-Workspace violations;
+- legacy default cleanup: five historical seed rows archived, zero active `workspace_id='default'` rows remaining, and recurrence guards active.
 
 ## P0 — Finish release safety
 
@@ -19,13 +22,19 @@ The Production tenant-relation migration is complete: migration `6f44f340-789b-4
 
 ## P1 — Database tenant defense
 
-1. Decide how the five historical `workspace_id='default'` Iboren rows should be archived or mapped; do not guess a current Workspace.
-2. Normalize legacy Workspace IDs only after that decision is evidenced and tested on a Neon branch.
-3. Introduce a restricted application database role that cannot bypass RLS.
-4. Design and test per-request tenant context.
-5. Enable RLS incrementally on tenant-owned tables, with negative cross-tenant tests and rollback verification before Production rollout.
+The historical `workspace_id='default'` blocker is closed. Do not remap the archived seed rows to a live Workspace.
 
-The first database defense layer is now active in Production: type-compatible high-risk tenant relations are protected by database-enforced composite relation constraints even while full RLS remains deferred.
+Next sequence:
+
+1. introduce a restricted application database role that cannot bypass RLS and does not own tenant tables;
+2. design one transaction-scoped Workspace context for application requests;
+3. prove that context against both legacy text Workspace-ID tables and UUID Workspace-ID tables on an isolated Neon branch;
+4. add RLS policies incrementally to the smallest high-value table set first;
+5. run positive same-Workspace and negative cross-Workspace tests using the restricted role;
+6. expand table-by-table only after rollback and application behavior are verified;
+7. migrate the Production runtime connection only after the branch proof, source changes, CI and deployment rollback path are complete.
+
+Do not perform broad text→UUID column rewrites merely for consistency. The cleaned legacy text IDs are UUID-shaped and can participate safely in a canonical tenant-context design; normalize types later only when it has a separately justified benefit.
 
 ## P1 — Operations and automated release proof
 
@@ -55,7 +64,8 @@ After P0 Production proof is green:
 
 - Never connect Preview to the Production database merely to make a smoke test pass.
 - Never claim a Git merge is live until the matching Production deployment is verified.
-- Never remap legacy tenant data to a current Workspace without evidence.
+- Never remap archived legacy tenant data to a current Workspace without evidence and a separate migration decision.
+- Never enable RLS while application traffic still relies on a table-owning/BYPASSRLS role and lacks transaction-scoped tenant context.
 - Never rely on application scoping alone when a database-level tenant invariant can safely reinforce it.
 - Never charge a currency/tax amount that is not configured and confirmed by Stripe.
 - Keep automatic tax disabled until required registrations and legal/business review are complete.
