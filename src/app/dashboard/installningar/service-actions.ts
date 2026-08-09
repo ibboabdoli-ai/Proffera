@@ -2,10 +2,7 @@
 
 import { redirect } from "next/navigation";
 
-import {
-  createDashboardWorkspaceService,
-  updateDashboardWorkspaceService,
-} from "@/lib/workspace-services-db";
+import { createDashboardWorkspaceService, updateDashboardWorkspaceService } from "@/lib/workspace-services-db";
 import { validateWorkspaceServiceDraft, type WorkspaceServiceValidationError } from "@/lib/workspace-service-policy";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
@@ -20,15 +17,14 @@ function redirectWithServiceError(error: ServiceSaveError): never {
 }
 
 async function requireWorkspaceManager() {
-  if (!canManageWorkspaceSettings(await getUserWorkspaceAccess())) {
-    redirectWithServiceError("access");
-  }
+  if (!canManageWorkspaceSettings(await getUserWorkspaceAccess())) redirectWithServiceError("access");
 }
 
 function getServiceInput(formData: FormData) {
   const result = validateWorkspaceServiceDraft({
     name: getFormText(formData, "name"),
     description: getFormText(formData, "description"),
+    shortDescription: getFormText(formData, "short_description"),
     category: getFormText(formData, "category"),
     priceLabel: getFormText(formData, "price_label"),
     basePriceSek: getFormText(formData, "base_price_sek"),
@@ -40,6 +36,11 @@ function getServiceInput(formData: FormData) {
     serviceArea: getFormText(formData, "service_area"),
     isActive: formData.get("is_active") === "on",
     sortOrder: getFormText(formData, "sort_order"),
+    publicSlug: getFormText(formData, "public_slug"),
+    publicStatus: getFormText(formData, "public_status") || "draft",
+    conversionMode: getFormText(formData, "conversion_mode") || "book",
+    seoTitle: getFormText(formData, "seo_title"),
+    seoDescription: getFormText(formData, "seo_description"),
   });
 
   if (!result.ok) redirectWithServiceError(result.error);
@@ -49,30 +50,26 @@ function getServiceInput(formData: FormData) {
 export async function createWorkspaceServiceAction(formData: FormData) {
   await requireWorkspaceManager();
   const input = getServiceInput(formData);
-
   try {
     await createDashboardWorkspaceService(input);
   } catch (error) {
     console.error("Failed to create workspace service", error);
     redirectWithServiceError("save");
   }
-
   redirect("/dashboard/installningar?service_updated=1#tjanster");
 }
 
 export async function updateWorkspaceServiceAction(formData: FormData) {
   await requireWorkspaceManager();
   const id = getFormText(formData, "service_id");
-  if (!id) redirectWithServiceError("id");
+  if (!id || !/^[0-9a-f-]{36}$/i.test(id)) redirectWithServiceError("id");
 
   const input = getServiceInput(formData);
-
   try {
     await updateDashboardWorkspaceService({ id, ...input });
   } catch (error) {
     console.error("Failed to update workspace service", error);
     redirectWithServiceError("save");
   }
-
   redirect("/dashboard/installningar?service_updated=1#tjanster");
 }
