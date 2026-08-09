@@ -98,6 +98,14 @@ describe("Public Business Hub architecture contract", () => {
     expect(servicePage).toContain("PublicBusinessContactForm");
   });
 
+  it("routes company-level contact requests into CRM instead of requiring email", () => {
+    const businessPage = source("src/app/foretag/[workspace]/page.tsx");
+    expect(businessPage).toContain("PublicBusinessContactForm");
+    expect(businessPage).toContain('href="#kontakt"');
+    expect(businessPage).toContain('id="kontakt"');
+    expect(businessPage).toContain("<PublicBusinessContactForm workspaceId={business.id} />");
+  });
+
   it("keeps connected custom domains booking-first until explicit website opt-in", () => {
     const migration = source("db/migrations/20260809_0036_public_business_hub.sql");
     const proxy = source("src/proxy.ts");
