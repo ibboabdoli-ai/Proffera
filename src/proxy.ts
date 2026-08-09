@@ -97,20 +97,21 @@ export async function proxy(request: NextRequest) {
   const host = request.headers.get("host");
 
   // PrimeView keeps its bespoke public site while generic customer domains use
-  // the workspace booking-site renderer below.
+  // the workspace-selected public destination below.
   if (isPrimeViewHost(host) && pathname === "/") {
     return NextResponse.rewrite(new URL("/demo/primeview", request.url));
   }
 
-  // Any custom domain already attached to this Vercel project resolves from the
-  // workspace database. Unknown custom hosts fail closed instead of showing the
-  // Proffera marketing homepage under somebody else's domain.
+  // Existing workspaces remain booking-first by default. A workspace can opt in
+  // to its public business site without changing or reattaching the domain.
   if (pathname === "/" && !isPlatformHost(host)) {
     const target = await resolvePublicCustomDomain(host);
     if (!target) return notFound();
 
     const url = request.nextUrl.clone();
-    url.pathname = `/boka/${encodeURIComponent(target.bookingSlug)}`;
+    url.pathname = target.publicHomeMode === "website"
+      ? `/foretag/${encodeURIComponent(target.workspaceSlug)}`
+      : `/boka/${encodeURIComponent(target.bookingSlug)}`;
     return NextResponse.rewrite(url);
   }
 
