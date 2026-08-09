@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, type MouseEvent, type ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 
 type EventKey = "business_view" | "service_view" | "book_clicked" | "quote_clicked" | "contact_clicked";
 
@@ -56,7 +56,7 @@ export function PublicBusinessTrackedLink({
   className?: string;
   children: ReactNode;
 }) {
-  function track(_: MouseEvent<HTMLAnchorElement>) {
+  function track() {
     sendEvent(workspaceId, eventKey, serviceId);
   }
   return <a href={href} onClick={track} className={className}>{children}</a>;
