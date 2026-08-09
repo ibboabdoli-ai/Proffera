@@ -56,6 +56,7 @@ describe("public custom-domain routing", () => {
   it("hardens self-service domain settings and resets connection state on change", () => {
     const experience = source("src/lib/workspace-experience.ts");
     const settingsPage = source("src/app/dashboard/installningar/utseende/page.tsx");
+    const builder = source("src/app/dashboard/installningar/utseende/booking-page-builder.tsx");
 
     expect(experience).toContain("normalizeCustomDomainInput(rawCustomDomain)");
     expect(experience).toContain('throw new Error("INVALID_CUSTOM_DOMAIN")');
@@ -65,9 +66,11 @@ describe("public custom-domain routing", () => {
     expect(experience).toContain("then 'disconnected'");
 
     expect(settingsPage).toContain('hasWorkspaceFeature("custom_domain")');
-    expect(settingsPage).toContain("disabled={!customDomainEnabled}");
     expect(settingsPage).toContain('error: "domain_taken"');
     expect(settingsPage).toContain('error: "domain"');
-    expect(settingsPage).toContain("Väntar på anslutning");
+    expect(settingsPage).toContain("ensureVercelCustomDomain");
+    expect(settingsPage).toContain("removeVercelCustomDomain");
+    expect(builder).toContain("disabled={!customDomainEnabled}");
+    expect(builder).toContain("Egen domän väntar på anslutning");
   });
 });

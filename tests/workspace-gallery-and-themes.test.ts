@@ -43,17 +43,18 @@ describe("Public workspace gallery", () => {
 
 describe("Booking theme system", () => {
   it("offers six visual one-click presets including restaurant", () => {
-    const layout = source("src/app/dashboard/installningar/utseende/layout.tsx");
-    const settings = source("src/app/dashboard/installningar/utseende/page.tsx");
+    const legacyLayout = source("src/app/dashboard/installningar/utseende/layout.tsx");
+    const builder = source("src/app/dashboard/installningar/utseende/booking-page-builder.tsx");
     const experience = source("src/lib/workspace-experience.ts");
 
     for (const key of ["clean", "salon", "premium", "modern", "minimal", "restaurant"]) {
-      expect(layout).toContain(`key: "${key}"`);
-      expect(settings).toContain(`value="${key}"`);
+      expect(legacyLayout).toContain(`key: "${key}"`);
+      expect(builder).toContain(`key: "${key}"`);
       expect(experience).toContain(`"${key}"`);
     }
-    expect(layout).toContain("applyThemePreset");
-    expect(layout).toContain("Öppna bokningssidans förhandsvisning");
+    expect(builder).toContain("applyTemplate");
+    expect(builder).toContain("Live design preview");
+    expect(builder).toContain("Öppna bokningssidan");
   });
 
   it("applies distinct runtime theme attributes and CSS contracts", () => {
