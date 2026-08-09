@@ -4,6 +4,7 @@ import {
   assessDirectoryCandidate,
   buildDirectoryPublicSlug,
   classifyOrganizationKind,
+  isDirectoryPilotLocation,
   mapSniToDirectoryCategory,
   normalizeSniCode,
   type NormalizedDirectoryCandidate,
@@ -64,11 +65,31 @@ describe("company directory policy", () => {
     expect(assessment.publicationStatus).toBe("blocked");
   });
 
-  it("marks a complete active juridical company ready", () => {
+  it("marks a complete active juridical company inside the pilot ready", () => {
     const assessment = assessDirectoryCandidate(candidate());
+    expect(isDirectoryPilotLocation(candidate())).toBe(true);
     expect(assessment.score).toBeGreaterThanOrEqual(80);
     expect(assessment.autoPublicEligible).toBe(true);
     expect(assessment.publicationStatus).toBe("ready");
+  });
+
+  it("keeps otherwise valid companies outside Stockholm and Södertälje out of auto-publication", () => {
+    const outside = candidate({ city: "Malmö", municipality: "Malmö" });
+    const assessment = assessDirectoryCandidate(outside);
+    expect(isDirectoryPilotLocation(outside)).toBe(false);
+    expect(assessment.reasons).toContain("outside_pilot_area");
+    expect(assessment.autoPublicEligible).toBe(false);
+    expect(assessment.publicationStatus).toBe("review");
+  });
+
+  it("does not award tax quality points for negative registration signals", () => {
+    const positive = assessDirectoryCandidate(candidate());
+    const negative = assessDirectoryCandidate(candidate({
+      fTaxStatus: "Ej registrerad",
+      vatStatus: "Inte registrerad",
+    }));
+    expect(negative.reasons).toContain("tax_status_not_confirmed");
+    expect(positive.score - negative.score).toBe(5);
   });
 
   it("does not publish an unsupported industry", () => {
