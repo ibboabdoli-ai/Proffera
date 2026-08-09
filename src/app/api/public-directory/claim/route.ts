@@ -33,7 +33,7 @@ export async function POST(request: Request) {
   const session = await getServerSession();
   const userId = session?.user?.id ? String(session.user.id) : "";
   if (!userId) {
-    const login = new URL("/login", request.url);
+    const login = new URL("/logga-in", request.url);
     login.searchParams.set("next", returnTo);
     return NextResponse.redirect(login, 303);
   }
