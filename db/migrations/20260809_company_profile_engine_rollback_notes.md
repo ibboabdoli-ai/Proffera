@@ -1,6 +1,6 @@
 # Company Profile Engine rollback notes
 
-Scope: migrations `20260809_0037_company_profile_engine_foundation.sql` through `20260809_0040_company_profile_claim_reservation.sql`.
+Scope: migrations `20260809_0037_company_profile_engine_foundation.sql` through `20260810_0041_company_profile_pilot_location_guard.sql`.
 
 These migrations are additive. Do not run the rollback in Production without first confirming that no claimed Workspace depends on `company_directory_profiles.claimed_workspace_id` for operational traceability.
 
@@ -8,6 +8,9 @@ Recommended rollback order on an isolated branch:
 
 ```sql
 begin;
+
+alter table if exists company_directory_profiles
+  drop constraint if exists company_directory_profiles_pilot_location_guard;
 
 drop index if exists company_directory_claim_reservation_unique_idx;
 alter table if exists company_directory_profiles
@@ -39,7 +42,7 @@ Before rollback, export at minimum:
 Application rollback:
 
 1. Disable the Company Profile Engine cron in `vercel.json` or in Vercel Cron Jobs.
-2. Keep `COMPANY_DIRECTORY_AUTO_PUBLISH=false` while rolling back.
+2. Keep `COMPANY_DIRECTORY_SYNC_ENABLED=false` and `COMPANY_DIRECTORY_AUTO_PUBLISH=false` while rolling back.
 3. Remove public `/foretag/listad/*` discovery links before dropping the tables.
 4. Revert the application commit/PR.
 5. Only then drop the additive tables on the target database branch.
