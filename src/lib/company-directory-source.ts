@@ -130,6 +130,39 @@ function normalizeOrganizationNumber(value: unknown) {
   return text(value).replace(/\D/g, "");
 }
 
+function isPositiveRegistrationStatus(value: string) {
+  const normalized = value.trim().toLocaleLowerCase("sv-SE");
+  if (!normalized) return false;
+  if (
+    normalized.startsWith("ej ")
+    || normalized.startsWith("inte ")
+    || normalized.includes("inte registrerad")
+    || normalized.includes("ej registrerad")
+    || normalized.includes("avregistr")
+    || normalized === "false"
+    || normalized === "nej"
+    || normalized === "no"
+    || normalized === "0"
+  ) return false;
+  return normalized === "registrerad"
+    || normalized === "godkänd"
+    || normalized === "godkand"
+    || normalized === "aktiv"
+    || normalized === "active"
+    || normalized === "verksam"
+    || normalized.startsWith("registrerad ");
+}
+
+function hasDeregistrationEvidence(value: unknown, depth = 0): boolean {
+  if (depth > 4 || value === null || value === undefined) return false;
+  if (typeof value === "boolean") return value;
+  if (Array.isArray(value)) return value.some((item) => hasDeregistrationEvidence(item, depth + 1));
+  const row = object(value);
+  if (row) return Object.values(row).some((item) => hasDeregistrationEvidence(item, depth + 1));
+  const normalized = text(value).toLocaleLowerCase("sv-SE");
+  return Boolean(normalized) && !["false", "0", "nej", "no", "null"].includes(normalized);
+}
+
 function nameFromRecord(row: AnyRecord) {
   const direct = text(firstPath(row, [
     ["legalName"],
@@ -242,6 +275,7 @@ function addressFromRecord(row: AnyRecord) {
 
 function statusFromValues(values: unknown[]) {
   for (const value of values) {
+    if (typeof value === "boolean") return value ? "Registrerad" : "Ej registrerad";
     if (bool(value)) return "Registrerad";
     const normalized = text(value);
     if (normalized) return normalized;
@@ -251,7 +285,10 @@ function statusFromValues(values: unknown[]) {
 
 function taxStatus(row: AnyRecord, keys: string[], deepPattern: RegExp) {
   const direct = first(row, keys);
-  if (direct !== undefined && direct !== null) return bool(direct) ? "Registrerad" : text(direct);
+  if (direct !== undefined && direct !== null) {
+    if (typeof direct === "boolean") return direct ? "Registrerad" : "Ej registrerad";
+    return bool(direct) ? "Registrerad" : text(direct);
+  }
   return statusFromValues(deepValuesForKeyPattern(first(row, ["verksamOrganisation", "verksam_organisation"]) ?? row, deepPattern));
 }
 
@@ -300,8 +337,8 @@ function normalizeSourceRecord(row: AnyRecord, provider: string): NormalizedDire
     ["deregisteredAt"],
   ]);
   const hasActiveTaxRegistration = [fTaxStatus, vatStatus, employerStatus]
-    .some((value) => value.toLocaleLowerCase("sv-SE").includes("registrerad"));
-  const isActive = text(deregistered)
+    .some(isPositiveRegistrationStatus);
+  const isActive = hasDeregistrationEvidence(deregistered)
     ? false
     : activeValue !== undefined
       ? bool(activeValue)
