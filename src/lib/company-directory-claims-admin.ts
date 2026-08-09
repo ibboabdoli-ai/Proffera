@@ -47,6 +47,7 @@ export async function listCompanyDirectoryClaims(limit = 100) {
       profile.official_source,
       profile.source_updated_at,
       profile.claimed_workspace_id::text,
+      profile.claim_reservation_id::text,
       u.id as claimant_user_id,
       u.name as claimant_name,
       u.email as claimant_email,
@@ -73,19 +74,26 @@ export async function rejectCompanyDirectoryClaim(input: { claimId: string; reas
   if (reason.length < 3 || reason.length > 500) throw new Error("A short rejection reason is required");
 
   const rows = await sql`
-    update company_directory_claims
+    update company_directory_claims claim
     set status = 'rejected', resolved_at = now(), verification_reference = ${reason}
-    where id = ${claimId}::uuid and status in ('pending', 'verified')
-    returning profile_id::text
+    where claim.id = ${claimId}::uuid
+      and claim.status in ('pending', 'verified')
+      and not exists (
+        select 1
+        from company_directory_profiles profile
+        where profile.id = claim.profile_id
+          and profile.claim_reservation_id = claim.id
+      )
+    returning claim.profile_id::text
   `;
   const profileId = String(rows[0]?.profile_id ?? "");
-  if (!profileId) throw new Error("Claim is no longer pending");
+  if (!profileId) throw new Error("Claim is no longer rejectable or is being provisioned");
 
   await sql`
     insert into admin_audit_logs (admin_user_id, action, reason, previous_value, new_value)
     values (
       ${admin.userId}, 'company_directory.claim.rejected', ${reason},
-      ${JSON.stringify({ claimId, profileId, status: "pending" })}::jsonb,
+      ${JSON.stringify({ claimId, profileId, status: "pending_or_verified" })}::jsonb,
       ${JSON.stringify({ claimId, profileId, status: "rejected" })}::jsonb
     )
   `;
@@ -114,6 +122,7 @@ export async function approveAndProvisionCompanyDirectoryClaim(input: { claimId:
       profile.city,
       profile.activity_description,
       profile.claimed_workspace_id::text,
+      profile.claim_reservation_id::text,
       u.id as claimant_user_id,
       u.email as claimant_email,
       u."emailVerified" as claimant_email_verified
@@ -134,9 +143,30 @@ export async function approveAndProvisionCompanyDirectoryClaim(input: { claimId:
   const claimantEmail = String(row.claimant_email).trim().toLowerCase();
   const companyName = String(row.display_name).trim();
   const city = String(row.city ?? "").trim();
+  const profileId = String(row.profile_id);
   if (!companyName || !city || !claimantEmail) throw new Error("Claim lacks required provisioning data");
 
-  await sql`
+  const reserved = await sql`
+    update company_directory_profiles profile
+    set claim_reservation_id = ${claimId}::uuid,
+        updated_at = now()
+    where profile.id = ${profileId}::uuid
+      and profile.claimed_workspace_id is null
+      and (profile.claim_reservation_id is null or profile.claim_reservation_id = ${claimId}::uuid)
+      and exists (
+        select 1
+        from company_directory_claims claim
+        where claim.id = ${claimId}::uuid
+          and claim.profile_id = profile.id
+          and claim.status in ('pending', 'verified')
+      )
+    returning profile.id::text
+  `;
+  if (!reserved[0]) {
+    throw new Error("Company profile is already reserved by another claim");
+  }
+
+  const verified = await sql`
     update company_directory_claims
     set requested_workspace_id = ${workspaceId}::uuid,
         status = 'verified',
@@ -144,8 +174,20 @@ export async function approveAndProvisionCompanyDirectoryClaim(input: { claimId:
         verification_reference = ${reference},
         verified_at = coalesce(verified_at, now())
     where id = ${claimId}::uuid
+      and profile_id = ${profileId}::uuid
       and status in ('pending', 'verified')
+    returning id::text
   `;
+  if (!verified[0]) {
+    await sql`
+      update company_directory_profiles
+      set claim_reservation_id = null, updated_at = now()
+      where id = ${profileId}::uuid
+        and claim_reservation_id = ${claimId}::uuid
+        and claimed_workspace_id is null
+    `;
+    throw new Error("Claim changed before provisioning could start");
+  }
 
   const provisioned = await provisionWorkspace({
     workspaceId,
@@ -158,23 +200,32 @@ export async function approveAndProvisionCompanyDirectoryClaim(input: { claimId:
     planKey: "starter",
   });
 
-  const activityDescription = String(row.activity_description ?? "").trim();
-  await sql.transaction((tx) => [
-    tx`
+  const finalized = await sql`
+    with claimed_profile as (
       update company_directory_profiles
       set claimed_workspace_id = ${workspaceId}::uuid,
+          claim_reservation_id = null,
           publication_status = 'claimed',
           updated_at = now()
-      where id = ${String(row.profile_id)}::uuid
+      where id = ${profileId}::uuid
         and claimed_workspace_id is null
-    `,
-    tx`
-      update company_directory_claims
-      set status = 'claimed', resolved_at = now()
-      where id = ${claimId}::uuid
-        and requested_workspace_id = ${workspaceId}::uuid
-        and status = 'verified'
-    `,
+        and claim_reservation_id = ${claimId}::uuid
+      returning id
+    )
+    update company_directory_claims
+    set status = 'claimed', resolved_at = now()
+    where id = ${claimId}::uuid
+      and requested_workspace_id = ${workspaceId}::uuid
+      and status = 'verified'
+      and exists (select 1 from claimed_profile)
+    returning profile_id::text
+  `;
+  if (!finalized[0]) {
+    throw new Error("Claim reservation was lost before finalization; manual review required");
+  }
+
+  const activityDescription = String(row.activity_description ?? "").trim();
+  await sql.transaction((tx) => [
     tx`
       update workspace_experience_settings
       set business_intro = case
@@ -189,8 +240,8 @@ export async function approveAndProvisionCompanyDirectoryClaim(input: { claimId:
         admin_user_id, workspace_id, action, reason, previous_value, new_value
       ) values (
         ${admin.userId}, ${workspaceId}::uuid, 'company_directory.claim.approved', ${reference},
-        ${JSON.stringify({ claimId, profileId: String(row.profile_id), status: String(row.status) })}::jsonb,
-        ${JSON.stringify({ claimId, profileId: String(row.profile_id), status: "claimed", workspaceId })}::jsonb
+        ${JSON.stringify({ claimId, profileId, status: String(row.status) })}::jsonb,
+        ${JSON.stringify({ claimId, profileId, status: "claimed", workspaceId })}::jsonb
       )
     `,
   ]);
