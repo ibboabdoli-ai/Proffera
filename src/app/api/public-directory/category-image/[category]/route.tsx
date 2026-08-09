@@ -4,6 +4,7 @@ export const runtime = "edge";
 
 const categories: Record<string, { label: string; icon: string; detail: string }> = {
   stadning: { label: "Städning", icon: "✦", detail: "Städning & lokalvård" },
+  hemservice: { label: "Hemservice", icon: "⌂", detail: "Konsumenttjänster i hemmet" },
   flytt: { label: "Flytt", icon: "↗", detail: "Flyttjänster" },
   elektriker: { label: "Elektriker", icon: "⚡", detail: "Elinstallationer" },
   vvs: { label: "VVS", icon: "◌", detail: "Värme & sanitet" },
