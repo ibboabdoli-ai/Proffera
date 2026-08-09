@@ -42,16 +42,25 @@ describe("company directory policy", () => {
   it("normalizes current SNI2025 codes", () => {
     expect(normalizeSniCode("81210")).toBe("81.210");
     expect(normalizeSniCode("49.420")).toBe("49.420");
+    expect(normalizeSniCode("96910")).toBe("96.910");
   });
 
   it("maps supported service-company SNI codes deterministically", () => {
     expect(mapSniToDirectoryCategory("81.210")?.categorySlug).toBe("stadning");
+    expect(mapSniToDirectoryCategory("81.221")?.categorySlug).toBe("stadning");
+    expect(mapSniToDirectoryCategory("96.910")?.categorySlug).toBe("hemservice");
     expect(mapSniToDirectoryCategory("49.420")?.categorySlug).toBe("flytt");
     expect(mapSniToDirectoryCategory("43.210")?.categorySlug).toBe("elektriker");
     expect(mapSniToDirectoryCategory("43.221")?.categorySlug).toBe("vvs");
     expect(mapSniToDirectoryCategory("43.341")?.categorySlug).toBe("maleri");
     expect(mapSniToDirectoryCategory("43.320")?.categorySlug).toBe("snickeri");
     expect(mapSniToDirectoryCategory("81.300")?.categorySlug).toBe("tradgard");
+  });
+
+  it("keeps broad household services distinct from the cleaning category", () => {
+    const homeService = mapSniToDirectoryCategory("96.910");
+    expect(homeService?.categoryLabel).toBe("Hemservice");
+    expect(homeService?.serviceSlugs).toEqual([]);
   });
 
   it("blocks sole traders from automatic public publication", () => {
