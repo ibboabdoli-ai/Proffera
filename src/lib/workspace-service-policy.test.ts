@@ -21,6 +21,7 @@ function draft(overrides: Partial<Parameters<typeof validateWorkspaceServiceDraf
     publicSlug: "",
     publicStatus: "draft",
     conversionMode: "book",
+    coverImageUrl: "",
     seoTitle: "",
     seoDescription: "",
     ...overrides,
@@ -46,5 +47,10 @@ describe("workspace service public policy", () => {
     const result = validateWorkspaceServiceDraft(draft({ isActive: false, publicStatus: "hidden" }));
     expect(result.ok && result.value.publicStatus).toBe("hidden");
     expect(result.ok && result.value.isActive).toBe(false);
+  });
+
+  it("accepts HTTP(S) cover images and rejects unsafe schemes", () => {
+    expect(validateWorkspaceServiceDraft(draft({ coverImageUrl: "https://cdn.example.com/service.jpg" })).ok).toBe(true);
+    expect(validateWorkspaceServiceDraft(draft({ coverImageUrl: "javascript:alert(1)" }))).toEqual({ ok: false, error: "cover_image" });
   });
 });
