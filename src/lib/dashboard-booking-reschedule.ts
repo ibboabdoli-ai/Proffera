@@ -207,11 +207,12 @@ export async function rescheduleDashboardBooking(
       workspace_id,
       customer_id,
       id,
-      'booking_rescheduled',
+      'booking',
       'Bokning ombokad',
       'Bokningens tid ändrades.',
       jsonb_build_object(
         'source', 'dashboard_manual',
+        'event_subtype', 'booking_rescheduled',
         'previous_starts_at', ${oldStart.toISOString()},
         'previous_ends_at', ${oldEnd.toISOString()},
         'starts_at', ${newStart.toISOString()},
