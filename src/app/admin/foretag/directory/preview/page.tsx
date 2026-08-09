@@ -1,6 +1,7 @@
 import { ArrowLeft, CircleAlert, FlaskConical, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 
+import { requireSuperAdmin } from "@/lib/admin-authorization";
 import {
   getCompanyDirectorySourceReadiness,
   previewCompanyDirectorySource,
@@ -17,6 +18,7 @@ function value(input?: string | string[]) {
 }
 
 export default async function DirectorySourcePreviewPage({ searchParams }: Props) {
+  await requireSuperAdmin();
   const params = searchParams ? await searchParams : undefined;
   const shouldRun = value(params?.run) === "1";
   const readiness = getCompanyDirectorySourceReadiness();
