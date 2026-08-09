@@ -33,7 +33,8 @@ const copy = {
       rate_limit: "För många försök. Vänta en stund och försök igen.", email: "Verifieringskoden kunde inte skickas. Kontrollera e-postadressen och försök igen.",
     },
     bookOnline: "Boka online", verification: "Vi skickar en sexsiffrig kod till din e-post. Bokningen skapas först efter verifiering.",
-    booked: "Tack! Din e-post är verifierad och bokningsförfrågan är mottagen.", hours: "Bokningstider", closed: "Stängt",
+    startHint: "Välj först en tjänst. Därefter visas närmaste lediga datum och tider.",
+    booked: "Tack! Din e-post är verifierad och bokningsförfrågan är mottagen.", bookAnother: "Gör en ny bokning", hours: "Bokningstider", closed: "Stängt",
     preparing: "Företaget förbereder onlinebokning.", services: "Tjänster", contact: "Kontakt", faq: "Vanliga frågor",
     faqTitle: "När blir bokningen klar?", faqBody: "Bokningen registreras efter att du har verifierat din e-postadress.",
     unavailableTitle: "Bokning är inte tillgänglig ännu", unavailableBody: "Företaget har ännu inte publicerat sin bokningssida.",
@@ -49,7 +50,8 @@ const copy = {
       rate_limit: "Too many attempts. Wait a moment and try again.", email: "The verification code could not be sent. Check the email address and try again.",
     },
     bookOnline: "Book online", verification: "We will send a six-digit code to your email. The booking is created after verification.",
-    booked: "Thank you! Your email is verified and the booking request has been received.", hours: "Booking hours", closed: "Closed",
+    startHint: "Choose a service first. The nearest available date and times will then appear.",
+    booked: "Thank you! Your email is verified and the booking request has been received.", bookAnother: "Make another booking", hours: "Booking hours", closed: "Closed",
     preparing: "The company is preparing online booking.", services: "Services", contact: "Contact", faq: "Frequently asked questions",
     faqTitle: "When is the booking completed?", faqBody: "The booking is registered after you verify your email address.",
     unavailableTitle: "Booking is not available yet", unavailableBody: "The company has not published its booking page yet.",
@@ -227,7 +229,7 @@ export default async function PublicBookingPage({ params, searchParams }: PagePr
   const error = t.errors[firstParam(query?.error) as keyof typeof t.errors];
   const booked = firstParam(query?.booked) === "1";
   const timeZone = resolveBookingTimeZone(workspace.time_zone);
-  const bookingForm = services.length && publishedHours.length ? <BookingRequestForm
+  const bookingForm = !booked && services.length && publishedHours.length ? <BookingRequestForm
     action={requestPublicBooking} slug={slug} locale={locale}
     services={services.map((service) => ({ name: String(service.name), durationMinutes: Number(service.duration_minutes) || 60, priceLabel: String(service.price_label ?? ""), bufferBeforeMinutes: Number(service.buffer_before_minutes) || 0, bufferAfterMinutes: Number(service.buffer_after_minutes) || 0, minimumNoticeMinutes: Number(service.minimum_notice_minutes) || 0, maximumAdvanceDays: Number(service.maximum_advance_days) || 365 }))}
     bookingHours={publishedHours.map((hour) => ({ weekday: Number(hour.weekday), opensAt: String(hour.opens_at).slice(0, 5), closesAt: String(hour.closes_at).slice(0, 5), isClosed: Boolean(hour.is_closed) }))}
@@ -236,10 +238,11 @@ export default async function PublicBookingPage({ params, searchParams }: PagePr
   /> : null;
 
   const languageSwitch = experience.swedishEnabled && experience.englishEnabled ? <nav className="flex justify-end gap-2" aria-label="Language"><a href={`/boka/${slug}?lang=sv`} className={`rounded-full px-3 py-2 text-xs font-bold ${locale === "sv" ? "bg-white text-black" : "bg-white/15 text-white"}`}>Svenska</a><a href={`/boka/${slug}?lang=en`} className={`rounded-full px-3 py-2 text-xs font-bold ${locale === "en" ? "bg-white text-black" : "bg-white/15 text-white"}`}>English</a></nav> : null;
-  const notices = <>{booked ? <p role="status" className="mt-5 rounded-xl bg-[#eef8f0] p-4 text-sm font-semibold text-[#17452f] ring-1 ring-[#c9e6d0]">{t.booked}</p> : null}{error ? <p role="alert" className="mt-5 rounded-xl bg-[#fff5f2] p-4 text-sm font-semibold text-[#8f2f1b] ring-1 ring-[#f4c7ba]">{error}</p> : null}</>;
+  const errorNotice = error ? <p role="alert" className="mt-4 rounded-xl bg-[#fff5f2] p-4 text-sm font-semibold text-[#8f2f1b] ring-1 ring-[#f4c7ba]">{error}</p> : null;
+  const successNotice = booked ? <div data-booking-success className="rounded-2xl bg-[#eef8f0] p-5 text-[#17452f] ring-1 ring-[#c9e6d0]"><p role="status" className="font-bold leading-6">{t.booked}</p><a href={`/boka/${slug}?lang=${locale}`} className="mt-4 inline-flex min-h-11 items-center justify-center rounded-xl bg-[#17452f] px-5 py-3 text-sm font-bold text-white">{t.bookAnother}</a></div> : null;
   const showChatbot = Boolean(aiChatClientId && experience.chatbotEnabled);
 
-  if (slug === "julius-salong") return <><div className="fixed right-4 top-4 z-50 rounded-full bg-[#173e2b] p-1 shadow-lg">{languageSwitch}</div><JuliusBookingDemo live bookingContent={<div className="mt-6 rounded-[1.7rem] bg-white p-4 text-[#17201a] shadow-2xl lg:mt-0 lg:p-6"><p className="text-xs font-bold uppercase tracking-wide text-[#17452f]">{t.bookOnline}</p><h2 className="mt-1 text-2xl font-black">{String(workspace.company_name)}</h2><p className="mt-4 rounded-2xl bg-[#e7f1eb] px-4 py-3 text-xs font-bold leading-5 text-[#17452f]">{t.verification}</p>{notices}{bookingForm}</div>} />{showChatbot ? <BookingAiChatWidget clientId={aiChatClientId!} /> : null}</>;
+  if (slug === "julius-salong") return <><div className="fixed right-4 top-4 z-50 rounded-full bg-[#173e2b] p-1 shadow-lg">{languageSwitch}</div><JuliusBookingDemo live bookingContent={<div className="mt-6 rounded-[1.7rem] bg-white p-4 text-[#17201a] shadow-2xl lg:mt-0 lg:p-6"><p className="text-xs font-bold uppercase tracking-wide text-[#17452f]">{t.bookOnline}</p><h2 className="mt-1 text-2xl font-black">{String(workspace.company_name)}</h2>{booked ? <div className="mt-4">{successNotice}</div> : <><p className="mt-4 rounded-2xl bg-[#e7f1eb] px-4 py-3 text-xs font-bold leading-5 text-[#17452f]">{t.verification}</p><p data-booking-start-hint className="mt-3 text-xs font-semibold leading-5 text-[#5b665f]">{t.startHint}</p>{errorNotice}{bookingForm}</>}</div>} />{showChatbot ? <BookingAiChatWidget clientId={aiChatClientId!} /> : null}</>;
 
   const dark = experience.appearance === "dark";
   const themeStyles = { "--booking-primary": experience.primaryColor, "--booking-accent": experience.accentColor } as CSSProperties;
@@ -259,9 +262,7 @@ export default async function PublicBookingPage({ params, searchParams }: PagePr
 
     <div className="mx-auto mt-6 grid max-w-5xl gap-6 lg:grid-cols-[1fr_360px]">
       <section style={{ background: cardBackground, color: textColor }} className="rounded-[2rem] p-6 shadow-sm ring-1 ring-black/10 sm:p-8">
-        <p style={{ background: dark ? "#26342b" : "#eef8f0", color: dark ? "#dce8df" : experience.primaryColor }} className="rounded-xl p-4 text-sm">{t.verification}</p>
-        {notices}
-        {bookingForm ?? <p style={{ color: mutedColor }} className="mt-8 rounded-xl border border-black/10 p-4 text-sm">{t.preparing}</p>}
+        {booked ? successNotice : <><p style={{ background: dark ? "#26342b" : "#eef8f0", color: dark ? "#dce8df" : experience.primaryColor }} className="rounded-xl p-4 text-sm">{t.verification}</p><p data-booking-start-hint style={{ color: mutedColor }} className="mt-3 text-xs font-semibold leading-5">{t.startHint}</p>{errorNotice}{bookingForm ?? <p style={{ color: mutedColor }} className="mt-6 rounded-xl border border-black/10 p-4 text-sm">{t.preparing}</p>}</>}
       </section>
 
       <aside className="grid content-start gap-5">
