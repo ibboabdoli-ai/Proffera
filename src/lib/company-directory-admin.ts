@@ -3,9 +3,18 @@ import "server-only";
 import { getPlatformAdmin } from "@/lib/platform-admin";
 import { getSql } from "@/lib/db/server";
 
+const PILOT_MAX_BATCH_SIZE = 10;
+const PILOT_MAX_PAGES_PER_RUN = 2;
+
 function number(value: unknown) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function boundedInteger(value: unknown, fallback: number, max: number) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(1, Math.min(max, Math.floor(parsed)));
 }
 
 function text(value: unknown) {
@@ -84,8 +93,8 @@ function configSnapshot() {
       && process.env.BOLAGSVERKET_CLIENT_SECRET?.trim(),
     ),
     provider: process.env.COMPANY_DIRECTORY_PROVIDER?.trim() || "bolagsverket_vardefulla_datamangder",
-    batchSize: Math.max(1, Math.min(60, Number(process.env.COMPANY_DIRECTORY_BATCH_SIZE || 10))),
-    maxPages: Math.max(1, Math.min(10, Number(process.env.COMPANY_DIRECTORY_MAX_PAGES_PER_RUN || 2))),
+    batchSize: boundedInteger(process.env.COMPANY_DIRECTORY_BATCH_SIZE, 10, PILOT_MAX_BATCH_SIZE),
+    maxPages: boundedInteger(process.env.COMPANY_DIRECTORY_MAX_PAGES_PER_RUN, 2, PILOT_MAX_PAGES_PER_RUN),
     pilotLocations: ["Stockholm", "Södertälje"],
   };
 }
