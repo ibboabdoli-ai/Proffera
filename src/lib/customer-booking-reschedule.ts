@@ -261,11 +261,12 @@ export async function rescheduleCustomerBooking(token: string, bookingId: string
         workspace_id,
         customer_id,
         id,
-        'booking_rescheduled',
+        'booking',
         'Bokning ombokad av kund',
         'Kunden ändrade bokningstiden via Mina bokningar.',
         jsonb_build_object(
           'source', 'customer_portal',
+          'event_subtype', 'booking_rescheduled',
           'previous_starts_at', ${oldStart},
           'previous_ends_at', ${oldEnd},
           'starts_at', ${start.toISOString()},
