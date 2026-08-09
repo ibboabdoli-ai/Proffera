@@ -13,6 +13,9 @@ import {
   verifyOfficialCompanyCandidate,
 } from "@/lib/company-directory-source";
 
+const PILOT_MAX_PAGES_PER_RUN = 2;
+const PILOT_MAX_BATCH_SIZE = 10;
+
 const PROVENANCE_FIELDS: Array<keyof NormalizedDirectoryCandidate> = [
   "organizationNumber",
   "legalName",
@@ -44,6 +47,12 @@ function autoPublishEnabled() {
 function number(value: unknown) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function boundedInteger(value: unknown, fallback: number, max: number) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(1, Math.min(max, Math.floor(parsed)));
 }
 
 export type CompanyDirectorySyncResult = {
@@ -88,22 +97,14 @@ async function startRun(provider: string) {
       and started_at < now() - interval '15 minutes'
   `;
 
-  const existing = await sql`
-    select id::text
-    from company_directory_sync_runs
-    where provider = ${provider} and status = 'running'
-    order by started_at desc
-    limit 1
-  `;
-  if (existing[0]?.id) throw new Error(`Company directory sync already running (${existing[0].id})`);
-
   const rows = await sql`
     insert into company_directory_sync_runs (provider, status)
     values (${provider}, 'running')
+    on conflict do nothing
     returning id::text
   `;
   const id = String(rows[0]?.id ?? "");
-  if (!id) throw new Error("Failed to create company directory sync run");
+  if (!id) throw new Error("Company directory sync already running");
   return id;
 }
 
@@ -168,7 +169,7 @@ async function upsertCandidate(candidate: NormalizedDirectoryCandidate) {
       auto_public_eligible = excluded.auto_public_eligible,
       official_source = excluded.official_source,
       source_record_id = excluded.source_record_id,
-      source_updated_at = excluded.source_updated_at,
+      source_updated_at = coalesce(excluded.source_updated_at, company_directory_profiles.source_updated_at),
       last_synced_at = now(),
       published_at = case
         when company_directory_profiles.claimed_workspace_id is not null then company_directory_profiles.published_at
@@ -182,21 +183,42 @@ async function upsertCandidate(candidate: NormalizedDirectoryCandidate) {
   const profileId = String(rows[0]?.id ?? "");
   if (!profileId) throw new Error(`Directory upsert failed for ${candidate.organizationNumber}`);
 
-  for (const field of PROVENANCE_FIELDS) {
-    await sql`
-      insert into company_directory_field_sources (
-        profile_id, field_name, source_name, source_record_id, value_hash, confidence, observed_at
-      ) values (
-        ${profileId}::uuid, ${String(field)}, ${candidate.officialSource}, ${candidate.sourceRecordId}, ${hashValue(candidate[field])}, 100, now()
-      )
-      on conflict (profile_id, field_name, source_name, value_hash)
-      do update set observed_at = excluded.observed_at
-    `;
-  }
+  const provenanceJson = JSON.stringify(PROVENANCE_FIELDS.map((field) => ({
+    fieldName: String(field),
+    valueHash: hashValue(candidate[field]),
+  })));
+  await sql`
+    insert into company_directory_field_sources (
+      profile_id, field_name, source_name, source_record_id, value_hash, confidence, observed_at
+    )
+    select
+      ${profileId}::uuid,
+      item->>'fieldName',
+      ${candidate.officialSource},
+      ${candidate.sourceRecordId},
+      item->>'valueHash',
+      100,
+      now()
+    from jsonb_array_elements(${provenanceJson}::jsonb) item
+    on conflict (profile_id, field_name, source_name, value_hash)
+    do update set observed_at = excluded.observed_at
+  `;
 
   const categorySlug = String(rows[0]?.category_slug ?? "");
   if (categorySlug) {
     const categoryImageUrl = `/api/public-directory/category-image/${encodeURIComponent(categorySlug)}`;
+
+    await sql`
+      update company_directory_media
+      set is_primary = false,
+          publication_status = 'rejected',
+          updated_at = now()
+      where profile_id = ${profileId}::uuid
+        and source_type = 'generated_category'
+        and publication_status = 'published'
+        and public_url <> ${categoryImageUrl}
+    `;
+
     await sql`
       insert into company_directory_media (
         profile_id, media_kind, source_type, public_url, attribution, license_status,
@@ -206,7 +228,9 @@ async function upsertCandidate(candidate: NormalizedDirectoryCandidate) {
         'Illustrationsbild från Proffera', 'generated', now(), false,
         not exists (
           select 1 from company_directory_media media
-          where media.profile_id = ${profileId}::uuid and media.publication_status = 'published' and media.is_primary = true
+          where media.profile_id = ${profileId}::uuid
+            and media.publication_status = 'published'
+            and media.is_primary = true
         ),
         'published'
       where not exists (
@@ -214,6 +238,7 @@ async function upsertCandidate(candidate: NormalizedDirectoryCandidate) {
         where media.profile_id = ${profileId}::uuid
           and media.source_type = 'generated_category'
           and media.public_url = ${categoryImageUrl}
+          and media.publication_status = 'published'
       )
     `;
   }
@@ -258,8 +283,8 @@ export async function syncCompanyDirectory(): Promise<CompanyDirectorySyncResult
   const provider = process.env.COMPANY_DIRECTORY_PROVIDER?.trim() || "bolagsverket_vardefulla_datamangder";
   const startCursor = await lastCompletedCursor(provider);
   const runId = await startRun(provider);
-  const maxPages = Math.max(1, Math.min(10, Number(process.env.COMPANY_DIRECTORY_MAX_PAGES_PER_RUN || 2)));
-  const batchSize = Math.max(1, Math.min(60, Number(process.env.COMPANY_DIRECTORY_BATCH_SIZE || 10)));
+  const maxPages = boundedInteger(process.env.COMPANY_DIRECTORY_MAX_PAGES_PER_RUN, 2, PILOT_MAX_PAGES_PER_RUN);
+  const batchSize = boundedInteger(process.env.COMPANY_DIRECTORY_BATCH_SIZE, 10, PILOT_MAX_BATCH_SIZE);
 
   let cursor = startCursor;
   let nextCursor: string | null = startCursor || null;
