@@ -29,8 +29,6 @@ export const englishMainNav = [
   { label: "Industries", href: "/en/industries" },
   { label: "Pricing", href: "/en/pricing" },
   { label: "Demo", href: "/en/demo" },
-  { label: "About", href: "/en/about" },
-  { label: "Contact", href: "/en/contact" },
 ] as const;
 
 export const localeCopy = {
@@ -40,10 +38,10 @@ export const localeCopy = {
     mobileNavigationLabel: "Huvudmeny mobil",
     menuLabel: "Meny",
     loginLabel: "Logga in",
-    primaryCtaLabel: "Prova gratis i 14 dagar",
+    primaryCtaLabel: "Starta gratis i 14 dagar",
     languageLabel: "Byt till engelska",
-    footerDescription: "En svensk SaaS-plattform för tjänsteföretag som vill hantera leads, bokningar och kunder i ett tydligt arbetsflöde.",
-    footerStatus: "Byggs stegvis för små företag i Sverige.",
+    footerDescription: "Visa tjänster, ta emot bokningar och offertförfrågningar och hantera kunder, uppdrag och uppföljning i ett tydligt arbetsflöde.",
+    footerStatus: "För tjänsteföretag som vill samla kundresan i ett system.",
     footerNavigation: "Navigering",
     footerLegal: "Juridiskt",
     legalLinks: [
@@ -61,8 +59,8 @@ export const localeCopy = {
     loginLabel: "Log in",
     primaryCtaLabel: "Start free 14-day trial",
     languageLabel: "Switch to Swedish",
-    footerDescription: "A Swedish SaaS platform for service businesses that want to manage leads, bookings and customers in one clear workflow.",
-    footerStatus: "Built step by step for small businesses in Sweden.",
+    footerDescription: "Show services, receive bookings and quote requests, and manage customers, jobs and follow-up in one clear workflow.",
+    footerStatus: "For service businesses that want the customer journey in one system.",
     footerNavigation: "Navigation",
     footerLegal: "Legal",
     legalLinks: [
