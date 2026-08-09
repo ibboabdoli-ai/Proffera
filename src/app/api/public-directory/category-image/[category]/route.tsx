@@ -55,6 +55,12 @@ export async function GET(_: Request, context: { params: Promise<{ category: str
         </div>
       </div>
     ),
-    { width: 1200, height: 720 },
+    {
+      width: 1200,
+      height: 720,
+      headers: {
+        "Cache-Control": "public, max-age=86400, s-maxage=2592000, stale-while-revalidate=604800",
+      },
+    },
   );
 }
