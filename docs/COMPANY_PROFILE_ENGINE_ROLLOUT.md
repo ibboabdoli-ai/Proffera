@@ -34,40 +34,21 @@ The application hard-caps the pilot at 10 source records per page and 2 pages pe
 
 ## Pilot discovery modes
 
-`seed` is the first-pilot mode. It accepts only explicit ten-digit organisation numbers from `COMPANY_DIRECTORY_SEED_ORGANIZATION_NUMBERS`. The Super Admin `Källtest` then verifies those records against the official detail API and writes nothing to Company Directory tables.
+`seed` is the first-pilot mode. It accepts only explicit ten-digit organisation numbers from `COMPANY_DIRECTORY_SEED_ORGANIZATION_NUMBERS`. The Super Admin `Källtest` verifies those records against the official detail API and writes nothing to Company Directory tables.
 
-For seed mode, Proffera refuses to run the Källtest until all of these are explicit:
-
-- test OAuth credentials;
-- official detail URL;
-- HTTP method;
-- documented POST body template when the operation uses POST.
-
-Proffera does not guess an official endpoint or request body.
+Seed Källtest refuses to run until test OAuth credentials, the official detail operation URL/method and any documented POST request-body template are explicitly configured. Proffera does not guess an official endpoint or request body.
 
 `feed` is reserved for broad discovery after the exact official/reusable free downloadable-file or feed URL and format have been verified. The paid Företagsinformation API must never be configured as the discovery feed.
 
 ## Pilot area
 
-Automatic/public pilot eligibility is limited to:
-
-- Stockholm
-- Södertälje
-
-This is enforced twice:
-
-1. application quality policy;
-2. PostgreSQL publication constraint.
-
-A company outside the pilot can be retained for review, but cannot become `published` while the pilot guard exists.
+Automatic/public pilot eligibility is limited to Stockholm and Södertälje. This is enforced both in application policy and by a PostgreSQL publication constraint. A company outside the pilot can be retained for review but cannot become `published` while the pilot guard exists.
 
 ## Initial SNI2025 scope
 
-Supported pilot categories are deliberately narrow and deterministic:
-
 - `81.210` → Städning / lokalvård;
 - `81.22*` → Städning / specialiserad rengöring, including fönsterputs;
-- `96.910` → Hemservice. This broader household-service code is intentionally kept separate from the Städning category and does not auto-infer detailed service slugs;
+- `96.910` → Hemservice; intentionally distinct from Städning and without inferred detailed service slugs;
 - `49.420` → Flytt;
 - `43.210` → Elektriker;
 - `43.22*` → VVS;
@@ -75,11 +56,9 @@ Supported pilot categories are deliberately narrow and deterministic:
 - `43.320` → Snickeri;
 - `81.300` → Trädgård.
 
-SNI determines the broad directory category. It does not prove exact services, prices or availability.
+SNI determines only the broad directory category. It does not prove exact services, prices or availability.
 
 ## Migrations
-
-The current additive migration chain is:
 
 1. `20260809_0037_company_profile_engine_foundation.sql`
 2. `20260809_0038_company_profile_engine_provenance.sql`
@@ -90,107 +69,62 @@ The current additive migration chain is:
 
 Rollback notes: `db/migrations/20260809_company_profile_engine_rollback_notes.md`.
 
-## Data quality/publication gates
+## Data quality and media
 
-A company is not automatically publishable unless all required checks pass, including:
+Automatic publication requires an active juridical person, supported SNI, pilot location, required identity/location fields, sufficient quality score and no privacy block. Negative signals such as `Ej registrerad`, `Inte registrerad` and deregistration are not treated as positive evidence.
 
-- active organisation;
-- juridical person;
-- supported SNI category;
-- Stockholm/Södertälje pilot location;
-- legal name and city present;
-- quality threshold;
-- no sole-trader privacy block.
-
-Negative signals such as `Ej registrerad`, `Inte registrerad` and deregistration do not count as positive tax/registration evidence.
-
-The engine does not invent exact services, prices, reviews, staff, opening hours or real-company images.
-
-## Media
-
-Unclaimed profiles may use a Proffera-generated category illustration labelled `Illustrationsbild`.
-
-Generated category illustrations are cached and are not created through a paid image API. When the official category changes, an old generated category image is retired so the public illustration cannot silently represent the wrong category.
-
-Owner/rights-confirmed media remains separate from generated fallback media.
+The engine does not invent exact services, prices, reviews, staff, opening hours or real-company images. Unclaimed profiles may use cached Proffera-generated category illustrations labelled `Illustrationsbild`. Unknown-rights external media cannot publish. If a generated category changes, the stale generated image is retired instead of silently remaining primary.
 
 ## Sync cost controls
 
-- one running sync per provider, acquired atomically at the database layer;
+- one running sync per provider, acquired atomically;
 - stale sync lease recovery after 15 minutes;
-- pilot hard cap of 20 source records per scheduled run;
-- field provenance is written as one batched JSONB insert per company rather than one database round-trip per field;
-- repeated provenance values are deduplicated;
-- source timestamp is preserved when an upstream response temporarily omits it;
-- scheduled route is a safe no-op unless sync is explicitly enabled and a source is configured.
+- hard cap of 20 source records per scheduled pilot run;
+- field provenance batched into one JSONB insert per company instead of one round-trip per field;
+- repeated provenance values deduplicated;
+- source timestamp preserved when an upstream response temporarily omits it;
+- scheduled route safely no-ops unless sync is explicitly enabled and a source is configured.
 
 ## Admin tools
 
 Super Admin only:
 
 - `/admin/foretag/directory` — read-only engine status, quality queue and sync history;
-- `/admin/foretag/directory/preview` — `Källtest`, displays discovery mode/seed count, reads up to five seed/feed records, normalizes/verifies them and writes nothing to Company Directory tables;
+- `/admin/foretag/directory/preview` — `Källtest`; shows discovery mode/seed count, reads up to five source records, normalizes/verifies them and writes nothing to Company Directory tables;
 - `/admin/foretag/claims` — claim verification, provisioning status and stale-reservation recovery.
 
-Direct URLs have an explicit Super Admin route guard. The ordinary company-admin view does not expose the engine/claim controls.
+Direct URLs use explicit Super Admin guards. Ordinary company admins do not see or access these engine controls.
 
-## Claim/provisioning safety
+## Claim and provisioning safety
 
-Claim submission never grants ownership and is accepted only for profiles already in `published`, privacy-safe, eligible state.
+Public claims are accepted only for already-published, privacy-safe, eligible profiles. Claim submission never grants ownership.
 
-Approval requires a Super Admin and verified claimant email. Provisioning uses the existing Proffera `provisionWorkspace` path.
-
-Concurrency/recovery protections:
-
-- per-profile claim reservation;
-- unique operation token for each approval attempt;
-- deterministic/reused requested Workspace ID on retry;
-- a second click or competing claim cannot provision concurrently;
-- the same claim may reacquire only after a 15-minute stale lease;
-- stale reservation release is refused when the reserved Workspace already exists;
-- claim decisions and stale recovery are audit logged.
+Approval requires Super Admin review and verified claimant email and reuses the existing Proffera `provisionWorkspace` path. Safety includes per-profile reservations, a unique operation token per approval attempt, a stable requested Workspace ID for retries, rejection of second clicks/competing claims during an active lease, same-claim recovery only after 15 minutes, stale-release refusal when the reserved Workspace already exists, and audit logging.
 
 ## SEO
 
-Only profiles already in `published` state and passing privacy/eligibility guards enter the platform sitemap.
+Only published, privacy-safe, eligible profiles enter the sitemap. Public directory pages use canonical metadata and factual LocalBusiness structured data without fake ratings, reviews, prices, phone numbers or service claims. Generated illustrations are not represented as actual-business media. Claim pages are `noindex`.
 
-Published directory pages use canonical metadata and factual LocalBusiness structured data without fake ratings, reviews, prices, phone numbers or service claims. Generated category images are not represented as actual-business media in structured data.
+## Validation completed
 
-`ready`, `review`, `blocked` and `inactive` records are not exposed to search engines through the sitemap. Claim pages are `noindex`.
+CI validates dependency install, lint, TypeScript, Vitest, production build and whitespace. Tests cover source parsing, negative registration signals, SNI policy, pilot-location guards, zero-cost caps, seed configuration, public-claim guards, Super Admin route guards and claim-lease contracts.
 
-## Validation already completed
-
-CI on the implementation branch validates dependency install, lint, TypeScript, Vitest, production build and whitespace. Tests cover source parsing, negative registration signals, SNI policy, pilot-location guards, zero-cost caps, seed configuration, public-claim publication guards, Super Admin route guards and claim-lease contracts.
-
-Isolated Neon testing has verified:
-
-- invalid/inactive profiles cannot publish;
-- valid pilot profiles can publish;
-- unknown-rights media cannot publish;
-- generated rights-safe media can publish;
-- Södertälje passes the pilot database guard while Malmö is rejected;
-- competing claims cannot both acquire a profile reservation;
-- active double-clicks on the same claim do not acquire a second operation token;
-- the same claim can reacquire after the stale lease;
-- stale recovery is refused if the reserved Workspace already exists.
-
-All temporary Neon validation branches were deleted without applying Company Profile Engine migrations to the parent/main database.
+Isolated Neon tests verified publication/media guards, Södertälje-vs-Malmö pilot enforcement, competing-claim exclusion, same-claim stale recovery, reservation pair integrity and refusal to release a stale reservation when its Workspace already exists. Temporary Neon validation branches were deleted without applying Company Profile Engine migrations to the parent/main database.
 
 ## Real-data activation sequence
 
 The free Bolagsverket access request has been submitted. When credentials arrive:
 
-1. configure **test** OAuth + the exact official detail operation URL/method/body schema in a non-Production environment;
-2. add a handful of known test organisation numbers to seed mode;
+1. configure **test** OAuth plus the exact official detail operation URL/method/body schema in a non-Production environment;
+2. add a handful of known test organisation numbers in seed mode;
 3. keep sync and auto-publish off;
-4. open `/admin/foretag/directory/preview` and run the five-record read-only `Källtest`;
-5. compare every normalized field with the official source response;
-6. confirm the official downloadable discovery source URL/format before broad discovery;
-7. create a fresh isolated Neon branch and apply migrations `0037`–`0042`;
-8. run a very small ready-only Stockholm/Södertälje sync after the broad discovery adapter is verified;
-9. inspect the Directory Admin queue and duplicate/media/privacy behavior;
-10. only after evidence is reviewed, plan Production migration/deploy while auto-publish remains false;
-11. enable automatic publication separately and explicitly.
+4. run the five-record read-only `Källtest` and compare every normalized field with the official response;
+5. confirm the official downloadable discovery source URL/format before broad discovery;
+6. create a fresh isolated Neon branch and apply migrations `0037`–`0042`;
+7. run a very small ready-only Stockholm/Södertälje sync after discovery is verified;
+8. inspect duplicate/media/privacy/claim behavior in Admin;
+9. only after evidence review, plan Production migration/deploy while auto-publish remains false;
+10. enable automatic publication separately and explicitly.
 
 ## Current release gate
 
