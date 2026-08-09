@@ -1,5 +1,6 @@
 import "server-only";
 
+import { normalizeBookingThemeAppearance } from "@/lib/booking-theme-contract";
 import { getSql } from "@/lib/db/server";
 import { normalizeCustomDomainInput } from "@/lib/public-site-domains";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
@@ -61,11 +62,13 @@ const defaultExperience: WorkspaceExperienceSettings = {
 
 function mapExperienceRow(row: Record<string, unknown> | undefined): WorkspaceExperienceSettings {
   if (!row) return defaultExperience;
+  const themeKey = String(row.theme_key ?? defaultExperience.themeKey);
+  const storedAppearance = row.appearance === "dark" ? "dark" : "light";
   return {
-    themeKey: String(row.theme_key ?? defaultExperience.themeKey),
+    themeKey,
     primaryColor: String(row.primary_color ?? defaultExperience.primaryColor),
     accentColor: String(row.accent_color ?? defaultExperience.accentColor),
-    appearance: row.appearance === "dark" ? "dark" : "light",
+    appearance: normalizeBookingThemeAppearance(themeKey, storedAppearance),
     defaultLanguage: row.default_language === "en" ? "en" : "sv",
     swedishEnabled: row.swedish_enabled !== false,
     englishEnabled: row.english_enabled !== false,
@@ -135,13 +138,14 @@ export async function updateWorkspaceExperienceSettings(input: WorkspaceExperien
   }
 
   const defaultLanguage: WorkspaceLanguage = input.defaultLanguage === "en" && input.englishEnabled ? "en" : "sv";
+  const appearance = normalizeBookingThemeAppearance(input.themeKey, input.appearance);
   await sql`
     insert into workspace_experience_settings (
       workspace_id, theme_key, primary_color, accent_color, appearance, default_language, swedish_enabled, english_enabled,
       hero_enabled, services_enabled, staff_enabled, reviews_enabled, gallery_enabled, contact_enabled, faq_enabled,
       chatbot_enabled, logo_url, hero_image_url, hero_video_url, custom_domain, custom_domain_status, updated_at
     ) values (
-      ${access.workspaceId}::uuid, ${input.themeKey}, ${input.primaryColor}, ${input.accentColor}, ${input.appearance}, ${defaultLanguage},
+      ${access.workspaceId}::uuid, ${input.themeKey}, ${input.primaryColor}, ${input.accentColor}, ${appearance}, ${defaultLanguage},
       ${input.swedishEnabled}, ${input.englishEnabled}, ${input.heroEnabled}, ${input.servicesEnabled}, ${input.staffEnabled},
       ${input.reviewsEnabled}, ${input.galleryEnabled}, ${input.contactEnabled}, ${input.faqEnabled}, ${input.chatbotEnabled},
       ${input.logoUrl || null}, ${input.heroImageUrl || null}, ${input.heroVideoUrl || null}, ${customDomain || null}, 'disconnected', now()
