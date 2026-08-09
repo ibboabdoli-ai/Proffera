@@ -14,6 +14,7 @@ export type WorkspaceServiceValidationError =
   | "public_slug"
   | "public_status"
   | "conversion"
+  | "cover_image"
   | "seo";
 
 export type WorkspaceServiceDraft = {
@@ -34,6 +35,7 @@ export type WorkspaceServiceDraft = {
   publicSlug: string;
   publicStatus: string;
   conversionMode: string;
+  coverImageUrl: string;
   seoTitle: string;
   seoDescription: string;
 };
@@ -56,6 +58,7 @@ export type NormalizedWorkspaceService = {
   publicSlug: string;
   publicStatus: WorkspaceServicePublicStatus;
   conversionMode: WorkspaceServiceConversionMode;
+  coverImageUrl: string;
   seoTitle: string;
   seoDescription: string;
 };
@@ -90,6 +93,17 @@ function requiredInteger(raw: string, min: number, max: number) {
     : { ok: false as const };
 }
 
+function isSafePublicImageUrl(value: string) {
+  if (!value) return true;
+  if (value.length > 2000) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
 export function normalizeWorkspaceServicePublicSlug(raw: string, fallbackName = "") {
   const source = raw.trim() || fallbackName.trim();
   let slug = source
@@ -121,6 +135,7 @@ export function validateWorkspaceServiceDraft(draft: WorkspaceServiceDraft): Wor
   const category = draft.category.trim();
   const priceLabel = draft.priceLabel.trim();
   const serviceArea = draft.serviceArea.trim();
+  const coverImageUrl = draft.coverImageUrl.trim();
   const seoTitle = draft.seoTitle.trim();
   const seoDescription = draft.seoDescription.trim();
 
@@ -130,6 +145,7 @@ export function validateWorkspaceServiceDraft(draft: WorkspaceServiceDraft): Wor
   if (category.length > 120) return { ok: false, error: "category" };
   if (priceLabel.length > 120) return { ok: false, error: "price" };
   if (serviceArea.length > 240) return { ok: false, error: "area" };
+  if (!isSafePublicImageUrl(coverImageUrl)) return { ok: false, error: "cover_image" };
   if (seoTitle.length > 180 || seoDescription.length > 320) return { ok: false, error: "seo" };
 
   const basePriceSek = optionalInteger(draft.basePriceSek.trim(), 0, 9_999_999);
@@ -185,6 +201,7 @@ export function validateWorkspaceServiceDraft(draft: WorkspaceServiceDraft): Wor
       publicSlug,
       publicStatus: draft.publicStatus,
       conversionMode: draft.conversionMode,
+      coverImageUrl,
       seoTitle,
       seoDescription,
     },
