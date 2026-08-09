@@ -32,6 +32,184 @@
   color: #17452f !important;
 }
 
+/* Keep the Restaurant builder preview visually aligned with the public V3 template. */
+[data-booking-page-builder]:has(input[name="themeKey"][value="restaurant"]) [data-booking-builder-preview] {
+  background: #e9e1d8 !important;
+}
+
+[data-booking-page-builder]:has(input[name="themeKey"][value="restaurant"]) [data-booking-builder-preview] > div:last-child {
+  overflow: hidden;
+  border-radius: 22px !important;
+  background: #f5efe7 !important;
+  color: #281710 !important;
+  box-shadow: 0 22px 70px rgb(46 27 18 / 18%) !important;
+}
+
+[data-booking-page-builder]:has(input[name="themeKey"][value="restaurant"]) [data-booking-builder-preview] > div:last-child > section:first-child {
+  position: relative;
+  min-height: 360px;
+  padding: 32px 34px 120px !important;
+  overflow: hidden;
+  background:
+    linear-gradient(90deg, rgb(7 4 2 / 90%) 0%, rgb(9 5 3 / 72%) 42%, rgb(9 5 3 / 25%) 72%, rgb(6 4 3 / 36%) 100%),
+    url("https://images.unsplash.com/photo-1753019491860-128b7763f8ee?auto=format&fit=crop&w=1800&q=82") center 52% / cover no-repeat !important;
+  color: #fff9f1 !important;
+}
+
+[data-booking-page-builder]:has(input[name="themeKey"][value="restaurant"]) [data-booking-builder-preview] > div:last-child > section:first-child::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 92px;
+  background: rgb(8 5 3 / 76%);
+  border-top: 1px solid rgb(255 255 255 / 12%);
+  backdrop-filter: blur(10px);
+}
+
+[data-booking-page-builder]:has(input[name="themeKey"][value="restaurant"]) [data-booking-builder-preview] > div:last-child > section:first-child > * {
+  position: relative;
+  z-index: 2;
+}
+
+[data-booking-page-builder]:has(input[name="themeKey"][value="restaurant"]) [data-booking-builder-preview] > div:last-child > section:first-child h2 {
+  max-width: 430px;
+  margin-top: 76px !important;
+  color: #fff9f1 !important;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(2rem, 4vw, 3.15rem) !important;
+  font-weight: 600 !important;
+  letter-spacing: -.05em;
+  line-height: .98;
+}
+
+[data-booking-page-builder]:has(input[name="themeKey"][value="restaurant"]) [data-booking-builder-preview] > div:last-child > section:first-child h2::before {
+  content: "God mat. Bra stämning.\A Minnen att dela.";
+  white-space: pre-line;
+}
+
+[data-booking-page-builder]:has(input[name="themeKey"][value="restaurant"]) [data-booking-builder-preview] > div:last-child > section:first-child h2 {
+  font-size: 0 !important;
+}
+
+[data-booking-page-builder]:has(input[name="themeKey"][value="restaurant"]) [data-booking-builder-preview] > div:last-child > section:first-child h2::before {
+  font-size: clamp(2rem, 4vw, 3.15rem);
+}
+
+[data-booking-page-builder]:has(input[name="themeKey"][value="restaurant"]) [data-booking-builder-preview] > div:last-child > section:first-child p {
+  color: #e8dbce !important;
+}
+
+[data-booking-page-builder]:has(input[name="themeKey"][value="restaurant"]) [data-booking-builder-preview] > div:last-child > section:first-child > div:last-child {
+  position: absolute;
+  bottom: 24px;
+  left: 34px;
+  z-index: 3;
+}
+
+[data-booking-page-builder]:has(input[name="themeKey"][value="restaurant"]) [data-booking-builder-preview] > div:last-child > div:last-child {
+  position: relative;
+  z-index: 4;
+  display: grid !important;
+  grid-template-columns: repeat(12, minmax(0, 1fr)) !important;
+  gap: 14px !important;
+  margin-top: -225px;
+  padding: 0 22px 24px !important;
+}
+
+[data-booking-page-builder]:has(input[name="themeKey"][value="restaurant"]) [data-booking-builder-preview] > div:last-child > div:last-child > div:first-child,
+[data-booking-page-builder]:has(input[name="themeKey"][value="restaurant"]) [data-booking-builder-preview] > div:last-child > div:last-child > div:last-child {
+  display: contents !important;
+}
+
+/* Floating booking panel. */
+[data-booking-page-builder]:has(input[name="themeKey"][value="restaurant"]) [data-booking-builder-preview] > div:last-child > div:last-child > div:first-child > div:first-child {
+  grid-column: 7 / 13;
+  grid-row: 1;
+  min-height: 250px;
+  border: 1px solid rgb(80 48 30 / 12%) !important;
+  border-radius: 18px !important;
+  background: rgb(255 253 249 / 98%) !important;
+  color: #2b1911 !important;
+  box-shadow: 0 24px 62px rgb(31 16 10 / 28%) !important;
+}
+
+[data-booking-page-builder]:has(input[name="themeKey"][value="restaurant"]) [data-booking-builder-preview] > div:last-child > div:last-child > div:first-child > div:first-child button {
+  border-radius: 9px !important;
+  background: #7b3d20 !important;
+  color: white !important;
+}
+
+/* Restaurant service block. */
+[data-booking-page-builder]:has(input[name="themeKey"][value="restaurant"]) [data-booking-builder-preview] > div:last-child > div:last-child > div:last-child > div:first-child {
+  grid-column: 1 / 13;
+  grid-row: 2;
+  margin-top: 36px;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+[data-booking-page-builder]:has(input[name="themeKey"][value="restaurant"]) [data-booking-builder-preview] > div:last-child > div:last-child > div:last-child > div:first-child > div {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px !important;
+}
+
+[data-booking-page-builder]:has(input[name="themeKey"][value="restaurant"]) [data-booking-builder-preview] > div:last-child > div:last-child > div:last-child > div:first-child > div > div {
+  min-height: 108px;
+  display: grid;
+  align-content: end;
+  border: 0 !important;
+  border-radius: 14px !important;
+  padding: 14px !important;
+  background:
+    linear-gradient(180deg, transparent 20%, rgb(12 7 4 / 84%) 100%),
+    url("https://images.unsplash.com/photo-1753019491860-128b7763f8ee?auto=format&fit=crop&w=900&q=80") center / cover no-repeat !important;
+  color: #fff9f1 !important;
+}
+
+/* Reviews as a dark editorial strip. */
+[data-booking-page-builder]:has(input[name="themeKey"][value="restaurant"]) [data-booking-builder-preview] > div:last-child > div:last-child > div:first-child > div:nth-child(2) {
+  grid-column: 1 / 13;
+  grid-row: 3;
+  border-color: #30231c !important;
+  border-radius: 16px !important;
+  background: #17120f !important;
+  color: #fff8f0 !important;
+}
+
+/* Contact / staff / FAQ cards below the review strip. */
+[data-booking-page-builder]:has(input[name="themeKey"][value="restaurant"]) [data-booking-builder-preview] > div:last-child > div:last-child > div:last-child > div:nth-child(n+2) {
+  grid-column: span 4;
+  grid-row: 4;
+  border-color: #e3d8cf !important;
+  border-radius: 14px !important;
+  background: #fffdf9 !important;
+  color: #2a1811 !important;
+  box-shadow: 0 8px 24px rgb(65 44 32 / 5%) !important;
+}
+
+[data-booking-page-builder]:has(input[name="themeKey"][value="restaurant"]) [data-booking-builder-preview] > div:last-child > div:last-child > div:last-child > div:nth-child(n+2) * {
+  color: inherit !important;
+}
+
+@media (max-width: 900px) {
+  [data-booking-page-builder]:has(input[name="themeKey"][value="restaurant"]) [data-booking-builder-preview] > div:last-child > div:last-child {
+    display: block !important;
+    margin-top: -74px;
+  }
+
+  [data-booking-page-builder]:has(input[name="themeKey"][value="restaurant"]) [data-booking-builder-preview] > div:last-child > div:last-child > div:first-child,
+  [data-booking-page-builder]:has(input[name="themeKey"][value="restaurant"]) [data-booking-builder-preview] > div:last-child > div:last-child > div:last-child {
+    display: grid !important;
+    gap: 12px;
+  }
+
+  [data-booking-page-builder]:has(input[name="themeKey"][value="restaurant"]) [data-booking-builder-preview] > div:last-child > div:last-child > div:last-child > div:first-child > div {
+    grid-template-columns: 1fr !important;
+  }
+}
+
 @media (max-width: 640px) {
   [data-appearance-builder-page] > div > header:first-child {
     padding: .9rem 1rem !important;
@@ -39,5 +217,14 @@
 
   [data-appearance-builder-page] > div > header:first-child h1 {
     font-size: 1.3rem !important;
+  }
+
+  [data-booking-page-builder]:has(input[name="themeKey"][value="restaurant"]) [data-booking-builder-preview] > div:last-child > section:first-child {
+    min-height: 320px;
+    padding: 24px 22px 100px !important;
+  }
+
+  [data-booking-page-builder]:has(input[name="themeKey"][value="restaurant"]) [data-booking-builder-preview] > div:last-child > section:first-child h2 {
+    margin-top: 48px !important;
   }
 }
