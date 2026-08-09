@@ -98,7 +98,7 @@ export type WriteDashboardWorkspaceServiceInput = {
 
 export type UpdateDashboardWorkspaceServiceInput = WriteDashboardWorkspaceServiceInput & { id: string };
 
-type SqlClient = ReturnType<typeof neon>;
+type SqlClient = NonNullable<ReturnType<typeof getSqlClient>>;
 
 async function resolveUniquePublicSlug(sql: SqlClient, workspaceId: string, baseSlug: string, excludeId?: string) {
   for (let suffix = 1; suffix <= 100; suffix += 1) {
