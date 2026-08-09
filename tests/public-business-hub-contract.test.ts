@@ -57,6 +57,31 @@ describe("Public Business Hub architecture contract", () => {
     expect(publicHub).toContain('service.priceType === "quote"');
   });
 
+  it("supports a safe per-service cover image through admin, storage and public rendering", () => {
+    const migration = source("db/migrations/20260809_0036_public_business_hub.sql");
+    const serviceUi = source("src/app/dashboard/installningar/services-read-only.tsx");
+    const servicePage = source("src/app/foretag/[workspace]/tjanster/[service]/page.tsx");
+    const publicHub = source("src/lib/public-business-hub.ts");
+
+    expect(migration).toContain("cover_image_url text not null default ''");
+    expect(serviceUi).toContain('name="cover_image_url"');
+    expect(publicHub).toContain("coverImageUrl");
+    expect(servicePage).toContain("item.coverImageUrl");
+  });
+
+  it("does not silently preselect the first service from the company-level booking CTA", () => {
+    const businessPage = source("src/app/foretag/[workspace]/page.tsx");
+    expect(businessPage).not.toContain("bookableService");
+    expect(businessPage).toContain('href="#tjanster"');
+    expect(businessPage).toContain("/boka/${encodeURIComponent(business.bookingSlug)}");
+  });
+
+  it("keeps book-or-quote limited to those two conversion actions", () => {
+    const servicePage = source("src/app/foretag/[workspace]/tjanster/[service]/page.tsx");
+    expect(servicePage).toContain('const canContact = item.conversionMode === "contact";');
+    expect(servicePage).not.toContain('item.conversionMode === "contact" || item.conversionMode === "book_or_quote"');
+  });
+
   it("keeps connected custom domains booking-first until explicit website opt-in", () => {
     const migration = source("db/migrations/20260809_0036_public_business_hub.sql");
     const proxy = source("src/proxy.ts");
