@@ -52,7 +52,7 @@
   overflow: hidden;
   background:
     linear-gradient(90deg, rgb(7 4 2 / 90%) 0%, rgb(9 5 3 / 72%) 42%, rgb(9 5 3 / 25%) 72%, rgb(6 4 3 / 36%) 100%),
-    url("https://images.unsplash.com/photo-1753019491860-128b7763f8ee?auto=format&fit=crop&w=1800&q=82") center 52% / cover no-repeat !important;
+    var(--booking-preview-image) center 52% / cover no-repeat !important;
   color: #fff9f1 !important;
 }
 
@@ -83,16 +83,7 @@
 }
 
 [data-booking-page-builder]:has(input[name="themeKey"][value="restaurant"]) [data-booking-builder-preview] > div:last-child > section:first-child h2::before {
-  content: "God mat. Bra stämning.\A Minnen att dela.";
-  white-space: pre-line;
-}
-
-[data-booking-page-builder]:has(input[name="themeKey"][value="restaurant"]) [data-booking-builder-preview] > div:last-child > section:first-child h2 {
-  font-size: 0 !important;
-}
-
-[data-booking-page-builder]:has(input[name="themeKey"][value="restaurant"]) [data-booking-builder-preview] > div:last-child > section:first-child h2::before {
-  font-size: clamp(2rem, 4vw, 3.15rem);
+  content: none !important;
 }
 
 [data-booking-page-builder]:has(input[name="themeKey"][value="restaurant"]) [data-booking-builder-preview] > div:last-child > section:first-child p {
@@ -164,7 +155,7 @@
   padding: 14px !important;
   background:
     linear-gradient(180deg, transparent 20%, rgb(12 7 4 / 84%) 100%),
-    url("https://images.unsplash.com/photo-1753019491860-128b7763f8ee?auto=format&fit=crop&w=900&q=80") center / cover no-repeat !important;
+    var(--booking-preview-image) center / cover no-repeat !important;
   color: #fff9f1 !important;
 }
 

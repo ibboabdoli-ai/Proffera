@@ -8,18 +8,18 @@ function source(path: string) {
 }
 
 describe("booking page builder foundation", () => {
-  it("provides a self-service visual builder with templates and responsive preview modes", () => {
+  it("provides a self-service visual builder with central templates and responsive preview modes", () => {
     const builder = source("src/app/dashboard/installningar/utseende/booking-page-builder.tsx");
+    const templates = source("src/lib/booking-theme-templates.ts");
 
     expect(builder).toContain("data-booking-page-builder");
     expect(builder).toContain("Live design preview");
     expect(builder).toContain('type Device = "desktop" | "tablet" | "mobile"');
-    expect(builder).toContain('key: "clean"');
-    expect(builder).toContain('key: "salon"');
-    expect(builder).toContain('key: "premium"');
-    expect(builder).toContain('key: "modern"');
-    expect(builder).toContain('key: "minimal"');
-    expect(builder).toContain('key: "restaurant"');
+    expect(builder).toContain("BOOKING_THEME_TEMPLATES");
+    for (const key of ["clean", "salon", "premium", "modern", "minimal", "restaurant"]) {
+      expect(templates).toContain(`${key}: {`);
+      expect(templates).toContain(`key: "${key}"`);
+    }
   });
 
   it("keeps existing booking sections and domain controls in the central builder", () => {
@@ -33,6 +33,7 @@ describe("booking page builder foundation", () => {
     expect(builder).toContain("Köp domän via Proffera");
     expect(page).toContain("public_booking_slug");
     expect(page).toContain("<BookingPageBuilder");
+    expect(page).toContain("<ThemeContentEditor");
     expect(page).toContain("data-domain-connection-status");
   });
 

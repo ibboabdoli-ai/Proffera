@@ -1,11 +1,17 @@
 import "server-only";
 
+import {
+  isBookingThemeKey,
+  normalizeBookingThemeContentOverrides,
+  type BookingThemeContentOverrides,
+  type BookingThemeLanguage,
+} from "@/lib/booking-theme-templates";
 import { normalizeBookingThemeAppearance } from "@/lib/booking-theme-contract";
 import { getSql } from "@/lib/db/server";
 import { normalizeCustomDomainInput } from "@/lib/public-site-domains";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
-export type WorkspaceLanguage = "sv" | "en";
+export type WorkspaceLanguage = BookingThemeLanguage;
 
 export type WorkspaceExperienceSettings = {
   themeKey: string;
@@ -28,6 +34,7 @@ export type WorkspaceExperienceSettings = {
   heroVideoUrl: string;
   customDomain: string;
   customDomainStatus: string;
+  themeContentOverrides: BookingThemeContentOverrides;
 };
 
 export type WorkspaceOnboarding = {
@@ -58,6 +65,7 @@ const defaultExperience: WorkspaceExperienceSettings = {
   heroVideoUrl: "",
   customDomain: "",
   customDomainStatus: "disconnected",
+  themeContentOverrides: {},
 };
 
 function mapExperienceRow(row: Record<string, unknown> | undefined): WorkspaceExperienceSettings {
@@ -85,6 +93,7 @@ function mapExperienceRow(row: Record<string, unknown> | undefined): WorkspaceEx
     heroVideoUrl: String(row.hero_video_url ?? ""),
     customDomain: String(row.custom_domain ?? ""),
     customDomainStatus: String(row.custom_domain_status ?? "disconnected"),
+    themeContentOverrides: normalizeBookingThemeContentOverrides(row.theme_content_overrides),
   };
 }
 
@@ -111,8 +120,7 @@ export async function getPublicWorkspaceExperienceSettings(workspaceId: string):
 
 export async function updateWorkspaceExperienceSettings(input: WorkspaceExperienceSettings) {
   const { sql, access } = await requireManager();
-  const themes = new Set(["clean", "salon", "premium", "modern", "minimal", "restaurant"]);
-  if (!themes.has(input.themeKey)) throw new Error("Invalid theme");
+  if (!isBookingThemeKey(input.themeKey)) throw new Error("Invalid theme");
   if (!/^#[0-9a-f]{6}$/i.test(input.primaryColor) || !/^#[0-9a-f]{6}$/i.test(input.accentColor)) throw new Error("Invalid color");
   if (!input.swedishEnabled && !input.englishEnabled) throw new Error("At least one language must be enabled");
 
@@ -139,16 +147,18 @@ export async function updateWorkspaceExperienceSettings(input: WorkspaceExperien
 
   const defaultLanguage: WorkspaceLanguage = input.defaultLanguage === "en" && input.englishEnabled ? "en" : "sv";
   const appearance = normalizeBookingThemeAppearance(input.themeKey, input.appearance);
+  const themeContentOverrides = normalizeBookingThemeContentOverrides(input.themeContentOverrides);
   await sql`
     insert into workspace_experience_settings (
       workspace_id, theme_key, primary_color, accent_color, appearance, default_language, swedish_enabled, english_enabled,
       hero_enabled, services_enabled, staff_enabled, reviews_enabled, gallery_enabled, contact_enabled, faq_enabled,
-      chatbot_enabled, logo_url, hero_image_url, hero_video_url, custom_domain, custom_domain_status, updated_at
+      chatbot_enabled, logo_url, hero_image_url, hero_video_url, custom_domain, custom_domain_status, theme_content_overrides, updated_at
     ) values (
       ${access.workspaceId}::uuid, ${input.themeKey}, ${input.primaryColor}, ${input.accentColor}, ${appearance}, ${defaultLanguage},
       ${input.swedishEnabled}, ${input.englishEnabled}, ${input.heroEnabled}, ${input.servicesEnabled}, ${input.staffEnabled},
       ${input.reviewsEnabled}, ${input.galleryEnabled}, ${input.contactEnabled}, ${input.faqEnabled}, ${input.chatbotEnabled},
-      ${input.logoUrl || null}, ${input.heroImageUrl || null}, ${input.heroVideoUrl || null}, ${customDomain || null}, 'disconnected', now()
+      ${input.logoUrl || null}, ${input.heroImageUrl || null}, ${input.heroVideoUrl || null}, ${customDomain || null}, 'disconnected',
+      ${JSON.stringify(themeContentOverrides)}::jsonb, now()
     ) on conflict (workspace_id) do update set
       theme_key = excluded.theme_key, primary_color = excluded.primary_color, accent_color = excluded.accent_color,
       appearance = excluded.appearance, default_language = excluded.default_language, swedish_enabled = excluded.swedish_enabled,
@@ -156,6 +166,7 @@ export async function updateWorkspaceExperienceSettings(input: WorkspaceExperien
       staff_enabled = excluded.staff_enabled, reviews_enabled = excluded.reviews_enabled, gallery_enabled = excluded.gallery_enabled,
       contact_enabled = excluded.contact_enabled, faq_enabled = excluded.faq_enabled, chatbot_enabled = excluded.chatbot_enabled,
       logo_url = excluded.logo_url, hero_image_url = excluded.hero_image_url, hero_video_url = excluded.hero_video_url,
+      theme_content_overrides = excluded.theme_content_overrides,
       custom_domain_status = case
         when workspace_experience_settings.custom_domain is distinct from excluded.custom_domain then 'disconnected'
         else workspace_experience_settings.custom_domain_status

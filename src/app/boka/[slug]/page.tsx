@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 
 import { BookingAiChatWidget } from "@/components/service-ai-chat-widget";
 import { JuliusBookingDemo } from "@/components/salon/julius-booking-demo";
+import { resolveBookingThemeContent } from "@/lib/booking-theme-templates";
 import { getSql } from "@/lib/db/server";
 import { allowPublicSubmission } from "@/lib/public-form-protection";
 import { parseLocalDateTime, resolveBookingTimeZone, validatePublicBookingPolicy } from "@/lib/public-booking-policy";
@@ -36,7 +37,6 @@ const copy = {
     startHint: "Välj först en tjänst. Därefter visas närmaste lediga datum och tider.",
     booked: "Tack! Din e-post är verifierad och bokningsförfrågan är mottagen.", bookAnother: "Gör en ny bokning", hours: "Bokningstider", closed: "Stängt",
     preparing: "Företaget förbereder onlinebokning.", services: "Tjänster", contact: "Kontakt", faq: "Vanliga frågor",
-    faqTitle: "När blir bokningen klar?", faqBody: "Bokningen registreras efter att du har verifierat din e-postadress.",
     unavailableTitle: "Bokning är inte tillgänglig ännu", unavailableBody: "Företaget har ännu inte publicerat sin bokningssida.",
   },
   en: {
@@ -53,7 +53,6 @@ const copy = {
     startHint: "Choose a service first. The nearest available date and times will then appear.",
     booked: "Thank you! Your email is verified and the booking request has been received.", bookAnother: "Make another booking", hours: "Booking hours", closed: "Closed",
     preparing: "The company is preparing online booking.", services: "Services", contact: "Contact", faq: "Frequently asked questions",
-    faqTitle: "When is the booking completed?", faqBody: "The booking is registered after you verify your email address.",
     unavailableTitle: "Booking is not available yet", unavailableBody: "The company has not published its booking page yet.",
   },
 } as const;
@@ -215,6 +214,7 @@ export default async function PublicBookingPage({ params, searchParams }: PagePr
   const requestedLanguage = firstParam(query?.lang) === "en" ? "en" : firstParam(query?.lang) === "sv" ? "sv" : experience.defaultLanguage;
   const locale: WorkspaceLanguage = requestedLanguage === "en" && experience.englishEnabled ? "en" : requestedLanguage === "sv" && experience.swedishEnabled ? "sv" : experience.englishEnabled ? "en" : "sv";
   const t = copy[locale];
+  const themeContent = resolveBookingThemeContent(experience.themeKey, locale, experience.themeContentOverrides);
   const error = t.errors[firstParam(query?.error) as keyof typeof t.errors];
   const booked = firstParam(query?.booked) === "1";
   const requestedServiceId = firstParam(query?.service_id) ?? "";
@@ -242,16 +242,20 @@ export default async function PublicBookingPage({ params, searchParams }: PagePr
   const cardBackground = dark ? "#1b241e" : "#ffffff";
   const textColor = dark ? "#f4f7f4" : "#17201a";
   const mutedColor = dark ? "#bac5bd" : "#5b665f";
+  const heroImageUrl = experience.heroImageUrl || themeContent.heroImageUrl;
+  const visibleServices = services.length
+    ? services.map((service) => ({ key: String(service.id), name: String(service.name), meta: `${Number(service.duration_minutes) || 60} min${service.price_label ? ` · ${String(service.price_label)}` : ""}` }))
+    : themeContent.serviceSamples.map((service, index) => ({ key: `sample-${index}`, name: service.name, meta: service.description }));
 
   return <main style={{ ...themeStyles, background: pageBackground, color: textColor }} className="min-h-screen px-4 py-8 sm:px-6">
-    <section style={{ background: experience.primaryColor }} className="mx-auto max-w-5xl rounded-[2rem] p-5 text-white shadow-lg sm:p-7">{languageSwitch}{experience.heroEnabled ? <div className="mt-4 grid items-center gap-6 md:grid-cols-[1fr_280px]"><div>{experience.logoUrl ? <img src={experience.logoUrl} alt="" className="mb-4 max-h-16 max-w-48 object-contain" /> : null}<p className="text-sm font-bold uppercase tracking-[.16em] text-white/75">{t.bookOnline}</p><h1 className="mt-3 text-3xl font-bold sm:text-4xl">{String(workspace.company_name)}</h1><p className="mt-3 flex gap-2 text-white/80"><MapPin className="h-5 w-5 shrink-0" />{String(workspace.primary_city ?? "")}</p></div>{experience.heroVideoUrl ? <video src={experience.heroVideoUrl} controls muted playsInline className="h-52 w-full rounded-2xl object-cover" /> : experience.heroImageUrl ? <img src={experience.heroImageUrl} alt="" className="h-52 w-full rounded-2xl object-cover" /> : null}</div> : null}</section>
+    <section style={{ background: experience.primaryColor }} className="mx-auto max-w-5xl rounded-[2rem] p-5 text-white shadow-lg sm:p-7">{languageSwitch}{experience.heroEnabled ? <div className="mt-4 grid items-center gap-6 md:grid-cols-[1fr_280px]"><div>{experience.logoUrl ? <img src={experience.logoUrl} alt="" className="mb-4 max-h-16 max-w-48 object-contain" /> : null}<p className="text-sm font-bold uppercase tracking-[.16em] text-white/75">{String(workspace.company_name)}</p><h1 className="mt-3 text-3xl font-bold sm:text-4xl">{themeContent.heroTitle}</h1><p className="mt-2 text-base font-bold text-white/90">{themeContent.heroSubtitle}</p><p className="mt-3 max-w-2xl text-sm leading-6 text-white/80">{themeContent.heroDescription}</p><p className="mt-3 flex gap-2 text-white/80"><MapPin className="h-5 w-5 shrink-0" />{String(workspace.primary_city ?? "")}</p><a href="#booking-form" className="mt-5 inline-flex min-h-11 items-center justify-center rounded-xl bg-white px-5 py-3 text-sm font-black text-[#17201a]">{themeContent.ctaLabel}</a></div>{experience.heroVideoUrl ? <video src={experience.heroVideoUrl} controls muted playsInline className="h-52 w-full rounded-2xl object-cover" /> : heroImageUrl ? <img src={heroImageUrl} alt="" className="h-52 w-full rounded-2xl object-cover" /> : null}</div> : null}</section>
     <div className="mx-auto mt-6 grid max-w-5xl gap-6 lg:grid-cols-[1fr_360px]">
-      <section style={{ background: cardBackground, color: textColor }} className="rounded-[2rem] p-6 shadow-sm ring-1 ring-black/10 sm:p-8">{booked ? successNotice : <><p style={{ background: dark ? "#26342b" : "#eef8f0", color: dark ? "#dce8df" : experience.primaryColor }} className="rounded-xl p-4 text-sm">{t.verification}</p><p data-booking-start-hint style={{ color: mutedColor }} className="mt-3 text-xs font-semibold leading-5">{t.startHint}</p>{errorNotice}{bookingForm ?? <p style={{ color: mutedColor }} className="mt-6 rounded-xl border border-black/10 p-4 text-sm">{t.preparing}</p>}</>}</section>
+      <section id="booking-form" style={{ background: cardBackground, color: textColor }} className="rounded-[2rem] p-6 shadow-sm ring-1 ring-black/10 sm:p-8">{booked ? successNotice : <><p style={{ background: dark ? "#26342b" : "#eef8f0", color: dark ? "#dce8df" : experience.primaryColor }} className="rounded-xl p-4 text-sm">{t.verification}</p><p data-booking-start-hint style={{ color: mutedColor }} className="mt-3 text-xs font-semibold leading-5">{t.startHint}</p>{errorNotice}{bookingForm ?? <p style={{ color: mutedColor }} className="mt-6 rounded-xl border border-black/10 p-4 text-sm">{t.preparing}</p>}</>}</section>
       <aside className="grid content-start gap-5">
-        {experience.servicesEnabled && services.length ? <section style={{ background: cardBackground, color: textColor }} className="rounded-3xl p-5 shadow-sm ring-1 ring-black/10"><h2 className="text-lg font-bold">{t.services}</h2><div className="mt-3 grid gap-2">{services.map((service) => <div key={String(service.id)} className="rounded-xl border border-black/10 p-3"><strong>{String(service.name)}</strong><p style={{ color: mutedColor }} className="mt-1 text-sm">{Number(service.duration_minutes) || 60} min{service.price_label ? ` · ${String(service.price_label)}` : ""}</p></div>)}</div></section> : null}
+        {experience.servicesEnabled && visibleServices.length ? <section style={{ background: cardBackground, color: textColor }} className="rounded-3xl p-5 shadow-sm ring-1 ring-black/10"><h2 className="text-lg font-bold">{t.services}</h2><div className="mt-3 grid gap-2">{visibleServices.map((service) => <div key={service.key} className="rounded-xl border border-black/10 p-3"><strong>{service.name}</strong><p style={{ color: mutedColor }} className="mt-1 text-sm">{service.meta}</p></div>)}</div></section> : null}
         {publishedHours.length ? <section style={{ background: cardBackground, color: textColor }} className="rounded-3xl p-5 shadow-sm ring-1 ring-black/10"><h2 className="text-lg font-bold">{t.hours}</h2><ul style={{ color: mutedColor }} className="mt-3 grid gap-1 text-sm">{publishedHours.map((hour) => <li key={String(hour.weekday)}><span className="font-semibold">{t.weekdays[Number(hour.weekday)]}:</span> {hour.is_closed ? t.closed : `${String(hour.opens_at).slice(0, 5)}–${String(hour.closes_at).slice(0, 5)}`}</li>)}</ul></section> : null}
         {experience.contactEnabled && (workspace.contact_email || workspace.contact_phone) ? <section style={{ background: cardBackground, color: textColor }} className="rounded-3xl p-5 shadow-sm ring-1 ring-black/10"><h2 className="text-lg font-bold">{t.contact}</h2><div style={{ color: mutedColor }} className="mt-3 grid gap-2 text-sm">{workspace.contact_email ? <a href={`mailto:${String(workspace.contact_email)}`}>{String(workspace.contact_email)}</a> : null}{workspace.contact_phone ? <a href={`tel:${String(workspace.contact_phone)}`}>{String(workspace.contact_phone)}</a> : null}</div></section> : null}
-        {experience.faqEnabled ? <section style={{ background: cardBackground, color: textColor }} className="rounded-3xl p-5 shadow-sm ring-1 ring-black/10"><h2 className="text-lg font-bold">{t.faq}</h2><h3 className="mt-3 font-semibold">{t.faqTitle}</h3><p style={{ color: mutedColor }} className="mt-1 text-sm leading-6">{t.faqBody}</p></section> : null}
+        {experience.faqEnabled ? <section style={{ background: cardBackground, color: textColor }} className="rounded-3xl p-5 shadow-sm ring-1 ring-black/10"><h2 className="text-lg font-bold">{t.faq}</h2><h3 className="mt-3 font-semibold">{themeContent.faqTitle}</h3><p style={{ color: mutedColor }} className="mt-1 text-sm leading-6">{themeContent.faqBody}</p></section> : null}
       </aside>
     </div>{showChatbot ? <BookingAiChatWidget clientId={aiChatClientId!} /> : null}
   </main>;
