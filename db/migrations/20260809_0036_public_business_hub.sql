@@ -160,6 +160,53 @@ create index if not exists workspace_service_jobs_workspace_service_idx
   on workspace_service_jobs (workspace_id, service_id, created_at desc)
   where service_id is not null;
 
+create or replace function sync_workspace_service_job_service_id()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if new.service_id is null and new.booking_id is not null then
+    select booking.service_id into new.service_id
+    from bookings booking
+    where booking.id = new.booking_id
+      and booking.workspace_id = new.workspace_id::text;
+  end if;
+
+  if new.service_id is null and new.quote_request_id is not null then
+    select request.service_id into new.service_id
+    from workspace_quote_requests request
+    where request.id = new.quote_request_id
+      and request.workspace_id = new.workspace_id;
+  end if;
+
+  if new.service_id is null and nullif(trim(new.service_name), '') is not null then
+    select service.id into new.service_id
+    from workspace_services service
+    where service.workspace_id = new.workspace_id::text
+      and service.name = new.service_name
+    limit 1;
+  end if;
+
+  if new.service_id is not null and not exists (
+    select 1
+    from workspace_services service
+    where service.id = new.service_id
+      and service.workspace_id = new.workspace_id::text
+  ) then
+    raise exception 'service_id does not belong to service job workspace' using errcode = '23503';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists workspace_service_jobs_sync_service_id on workspace_service_jobs;
+create trigger workspace_service_jobs_sync_service_id
+before insert or update of booking_id, quote_request_id, service_id, service_name
+on workspace_service_jobs
+for each row execute function sync_workspace_service_job_service_id();
+
 alter table workspace_experience_settings
   add column if not exists public_home_mode text not null default 'booking',
   add column if not exists business_intro text not null default '';
