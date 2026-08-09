@@ -6,6 +6,8 @@ import { createWorkspaceSlug, provisionWorkspace } from "@/features/company/work
 import { getPlatformAdmin } from "@/lib/platform-admin";
 import { getSql } from "@/lib/db/server";
 
+const CLAIM_RESERVATION_LEASE_MINUTES = 15;
+
 function safeUuid(value: string) {
   const cleaned = value.trim();
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(cleaned)
@@ -48,6 +50,7 @@ export async function listCompanyDirectoryClaims(limit = 100) {
       profile.source_updated_at,
       profile.claimed_workspace_id::text,
       profile.claim_reservation_id::text,
+      profile.claim_reserved_at,
       u.id as claimant_user_id,
       u.name as claimant_name,
       u.email as claimant_email,
@@ -101,6 +104,52 @@ export async function rejectCompanyDirectoryClaim(input: { claimId: string; reas
   return { claimId, profileId };
 }
 
+export async function releaseStaleCompanyDirectoryClaimReservation(input: { claimId: string; reason: string }) {
+  const admin = await requireSuperAdmin();
+  const sql = getSql();
+  if (!sql) throw new Error("Database is not configured");
+  const claimId = safeUuid(input.claimId);
+  if (!claimId) throw new Error("Invalid claim id");
+  const reason = input.reason.trim();
+  if (reason.length < 3 || reason.length > 500) throw new Error("A recovery reason is required");
+
+  const rows = await sql`
+    update company_directory_profiles profile
+    set claim_reservation_id = null,
+        claim_reservation_token = null,
+        claim_reserved_at = null,
+        updated_at = now()
+    from company_directory_claims claim
+    where claim.id = ${claimId}::uuid
+      and claim.profile_id = profile.id
+      and claim.status in ('pending', 'verified')
+      and profile.claimed_workspace_id is null
+      and profile.claim_reservation_id = claim.id
+      and profile.claim_reserved_at < now() - (${CLAIM_RESERVATION_LEASE_MINUTES}::text || ' minutes')::interval
+      and not exists (
+        select 1
+        from workspaces workspace
+        where workspace.id = claim.requested_workspace_id
+      )
+    returning profile.id::text
+  `;
+  const profileId = String(rows[0]?.id ?? "");
+  if (!profileId) {
+    throw new Error("Reservation is still active, already resolved, or its workspace already exists");
+  }
+
+  await sql`
+    insert into admin_audit_logs (admin_user_id, action, reason, previous_value, new_value)
+    values (
+      ${admin.userId}, 'company_directory.claim.reservation_released', ${reason},
+      ${JSON.stringify({ claimId, profileId, reservation: "stale" })}::jsonb,
+      ${JSON.stringify({ claimId, profileId, reservation: null })}::jsonb
+    )
+  `;
+
+  return { claimId, profileId };
+}
+
 export async function approveAndProvisionCompanyDirectoryClaim(input: { claimId: string; reference: string }) {
   const admin = await requireSuperAdmin();
   const sql = getSql();
@@ -123,6 +172,7 @@ export async function approveAndProvisionCompanyDirectoryClaim(input: { claimId:
       profile.activity_description,
       profile.claimed_workspace_id::text,
       profile.claim_reservation_id::text,
+      profile.claim_reserved_at,
       u.id as claimant_user_id,
       u.email as claimant_email,
       u."emailVerified" as claimant_email_verified
@@ -138,7 +188,8 @@ export async function approveAndProvisionCompanyDirectoryClaim(input: { claimId:
   if (row.claimed_workspace_id) throw new Error("Company profile is already claimed");
   if (row.status !== "pending" && row.status !== "verified") throw new Error("Claim is not approvable");
 
-  const workspaceId = String(row.requested_workspace_id ?? "") || randomUUID();
+  const generatedWorkspaceId = randomUUID();
+  const reservationToken = randomUUID();
   const claimantUserId = String(row.claimant_user_id);
   const claimantEmail = String(row.claimant_email).trim().toLowerCase();
   const companyName = String(row.display_name).trim();
@@ -149,10 +200,18 @@ export async function approveAndProvisionCompanyDirectoryClaim(input: { claimId:
   const reserved = await sql`
     update company_directory_profiles profile
     set claim_reservation_id = ${claimId}::uuid,
+        claim_reservation_token = ${reservationToken}::uuid,
+        claim_reserved_at = now(),
         updated_at = now()
     where profile.id = ${profileId}::uuid
       and profile.claimed_workspace_id is null
-      and (profile.claim_reservation_id is null or profile.claim_reservation_id = ${claimId}::uuid)
+      and (
+        profile.claim_reservation_id is null
+        or (
+          profile.claim_reservation_id = ${claimId}::uuid
+          and profile.claim_reserved_at < now() - (${CLAIM_RESERVATION_LEASE_MINUTES}::text || ' minutes')::interval
+        )
+      )
       and exists (
         select 1
         from company_directory_claims claim
@@ -163,12 +222,12 @@ export async function approveAndProvisionCompanyDirectoryClaim(input: { claimId:
     returning profile.id::text
   `;
   if (!reserved[0]) {
-    throw new Error("Company profile is already reserved by another claim");
+    throw new Error("Company profile is already reserved by an active claim operation");
   }
 
   const verified = await sql`
     update company_directory_claims
-    set requested_workspace_id = ${workspaceId}::uuid,
+    set requested_workspace_id = coalesce(requested_workspace_id, ${generatedWorkspaceId}::uuid),
         status = 'verified',
         verification_method = 'manual_review',
         verification_reference = ${reference},
@@ -176,14 +235,19 @@ export async function approveAndProvisionCompanyDirectoryClaim(input: { claimId:
     where id = ${claimId}::uuid
       and profile_id = ${profileId}::uuid
       and status in ('pending', 'verified')
-    returning id::text
+    returning id::text, requested_workspace_id::text
   `;
-  if (!verified[0]) {
+  const workspaceId = String(verified[0]?.requested_workspace_id ?? "");
+  if (!workspaceId) {
     await sql`
       update company_directory_profiles
-      set claim_reservation_id = null, updated_at = now()
+      set claim_reservation_id = null,
+          claim_reservation_token = null,
+          claim_reserved_at = null,
+          updated_at = now()
       where id = ${profileId}::uuid
         and claim_reservation_id = ${claimId}::uuid
+        and claim_reservation_token = ${reservationToken}::uuid
         and claimed_workspace_id is null
     `;
     throw new Error("Claim changed before provisioning could start");
@@ -201,27 +265,40 @@ export async function approveAndProvisionCompanyDirectoryClaim(input: { claimId:
   });
 
   const finalized = await sql`
-    with claimed_profile as (
-      update company_directory_profiles
+    with locked_pair as (
+      select claim.id as claim_id, profile.id as profile_id
+      from company_directory_claims claim
+      join company_directory_profiles profile on profile.id = claim.profile_id
+      where claim.id = ${claimId}::uuid
+        and claim.requested_workspace_id = ${workspaceId}::uuid
+        and claim.status = 'verified'
+        and profile.id = ${profileId}::uuid
+        and profile.claimed_workspace_id is null
+        and profile.claim_reservation_id = ${claimId}::uuid
+        and profile.claim_reservation_token = ${reservationToken}::uuid
+      for update of claim, profile
+    ),
+    claimed_profile as (
+      update company_directory_profiles profile
       set claimed_workspace_id = ${workspaceId}::uuid,
           claim_reservation_id = null,
+          claim_reservation_token = null,
+          claim_reserved_at = null,
           publication_status = 'claimed',
           updated_at = now()
-      where id = ${profileId}::uuid
-        and claimed_workspace_id is null
-        and claim_reservation_id = ${claimId}::uuid
-      returning id
+      from locked_pair pair
+      where profile.id = pair.profile_id
+      returning profile.id
     )
-    update company_directory_claims
+    update company_directory_claims claim
     set status = 'claimed', resolved_at = now()
-    where id = ${claimId}::uuid
-      and requested_workspace_id = ${workspaceId}::uuid
-      and status = 'verified'
-      and exists (select 1 from claimed_profile)
-    returning profile_id::text
+    from locked_pair pair, claimed_profile profile
+    where claim.id = pair.claim_id
+      and profile.id = pair.profile_id
+    returning claim.profile_id::text
   `;
   if (!finalized[0]) {
-    throw new Error("Claim reservation was lost before finalization; manual review required");
+    throw new Error("Claim reservation was lost before finalization; wait for lease recovery and review the provisioned workspace");
   }
 
   const activityDescription = String(row.activity_description ?? "").trim();
