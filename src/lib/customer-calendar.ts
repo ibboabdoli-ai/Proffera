@@ -162,7 +162,7 @@ export async function cancelCustomerCalendarBooking(token: string, bookingId: st
         and b.workspace_id = ${payload.workspaceId}
         and c.id = b.customer_id
         and c.workspace_id = b.workspace_id
-        and w.id = b.workspace_id
+        and w.id::text = b.workspace_id
         and coalesce(ps.customer_cancel_enabled, true) = true
         and b.status in ('requested', 'confirmed')
         and b.starts_at > now() + (coalesce(ps.cancel_notice_hours, 0) || ' hours')::interval
