@@ -129,7 +129,7 @@ Owner/rights-confirmed media remains separate from generated fallback media.
 Super Admin only:
 
 - `/admin/foretag/directory` — read-only engine status, quality queue and sync history;
-- `/admin/foretag/directory/preview` — `Källtest`, reads up to five seed/feed source records, normalizes/verifies them and writes nothing to Company Directory tables;
+- `/admin/foretag/directory/preview` — `Källtest`, displays discovery mode/seed count, reads up to five seed/feed records, normalizes/verifies them and writes nothing to Company Directory tables;
 - `/admin/foretag/claims` — claim verification, provisioning status and stale-reservation recovery.
 
 Direct URLs have an explicit Super Admin route guard. The ordinary company-admin view does not expose the engine/claim controls.
@@ -158,9 +158,27 @@ Published directory pages use canonical metadata and factual LocalBusiness struc
 
 `ready`, `review`, `blocked` and `inactive` records are not exposed to search engines through the sitemap. Claim pages are `noindex`.
 
+## Validation already completed
+
+CI on the implementation branch validates dependency install, lint, TypeScript, Vitest, production build and whitespace. Tests cover source parsing, negative registration signals, SNI policy, pilot-location guards, zero-cost caps, seed configuration, public-claim publication guards, Super Admin route guards and claim-lease contracts.
+
+Isolated Neon testing has verified:
+
+- invalid/inactive profiles cannot publish;
+- valid pilot profiles can publish;
+- unknown-rights media cannot publish;
+- generated rights-safe media can publish;
+- Södertälje passes the pilot database guard while Malmö is rejected;
+- competing claims cannot both acquire a profile reservation;
+- active double-clicks on the same claim do not acquire a second operation token;
+- the same claim can reacquire after the stale lease;
+- stale recovery is refused if the reserved Workspace already exists.
+
+All temporary Neon validation branches were deleted without applying Company Profile Engine migrations to the parent/main database.
+
 ## Real-data activation sequence
 
-When Bolagsverket sends the free credentials:
+The free Bolagsverket access request has been submitted. When credentials arrive:
 
 1. configure **test** OAuth + the exact official detail operation URL/method/body schema in a non-Production environment;
 2. add a handful of known test organisation numbers to seed mode;
