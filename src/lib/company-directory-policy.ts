@@ -127,6 +127,13 @@ export function mapSniToDirectoryCategory(value: unknown): DirectoryCategoryMatc
       serviceSlugs: ["fonsterputsning"],
     };
   }
+  if (code === "96.910") {
+    return {
+      categorySlug: "hemservice",
+      categoryLabel: "Hemservice",
+      serviceSlugs: [],
+    };
+  }
   if (code === "49.420") {
     return {
       categorySlug: "flytt",
