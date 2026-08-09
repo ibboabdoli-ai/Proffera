@@ -85,6 +85,15 @@ export async function POST(request: Request) {
             and lower(email) = lower(${input.email})
           order by created_at asc nulls last, id asc
           limit 1
+        ), updated_existing as (
+          update customers customer
+          set
+            phone = coalesce(nullif(customer.phone, ''), ${input.phone || null}),
+            primary_service_slug = coalesce(nullif(customer.primary_service_slug, ''), ${serviceSlug || null}),
+            updated_at = now()
+          where customer.id = (select id from existing_customer)
+            and customer.workspace_id = ${input.workspaceId}
+          returning customer.id
         ), inserted_customer as (
           insert into customers (
             workspace_id, name, email, phone, customer_type, status, source, primary_service_slug
@@ -94,19 +103,10 @@ export async function POST(request: Request) {
           where not exists (select 1 from existing_customer)
           returning id
         ), selected_customer as (
-          select id from existing_customer
+          select id from updated_existing
           union all
           select id from inserted_customer
           limit 1
-        ), refreshed_customer as (
-          update customers customer
-          set
-            phone = coalesce(nullif(customer.phone, ''), ${input.phone || null}),
-            primary_service_slug = coalesce(nullif(customer.primary_service_slug, ''), ${serviceSlug || null}),
-            updated_at = now()
-          where customer.id = (select id from selected_customer)
-            and customer.workspace_id = ${input.workspaceId}
-          returning customer.id
         ), contact_event as (
           insert into customer_events (
             workspace_id, customer_id, event_type, title, description, metadata
@@ -114,11 +114,11 @@ export async function POST(request: Request) {
           select
             ${input.workspaceId}, id, 'note', 'Ny kontaktförfrågan', ${input.message},
             jsonb_build_object('source', 'public_business', 'service_id', ${input.serviceId || null}, 'service_name', ${serviceName})
-          from refreshed_customer
+          from selected_customer
           returning id
         )
         select
-          (select id from refreshed_customer) as customer_id,
+          (select id from selected_customer) as customer_id,
           (select id from contact_event) as event_id
       `,
     ]);
