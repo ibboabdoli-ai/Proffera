@@ -10,7 +10,7 @@ import {
 import type { PlatformAdminRole } from "../src/lib/platform-admin";
 
 const expectedAreas: Record<PlatformAdminRole, readonly AdminArea[]> = {
-  super_admin: ["saas", "operations", "workspaces", "billing", "platform_admins", "audit", "quote_admin"],
+  super_admin: ["saas", "operations", "workspaces", "company_admin", "billing", "platform_admins", "audit", "quote_admin"],
   support_admin: ["saas", "operations", "workspaces", "audit"],
   billing_admin: ["saas", "operations", "workspaces", "billing", "audit"],
   operations_admin: ["saas", "operations", "workspaces", "audit", "quote_admin"],
@@ -34,10 +34,11 @@ describe("complete platform-admin role matrix", () => {
     });
   }
 
-  it("keeps legacy company administration super-admin only", () => {
+  it("keeps company administration super-admin only", () => {
     expect(canAccessCompanyAdmin("super_admin")).toBe(true);
     for (const role of roles.filter((value) => value !== "super_admin")) {
       expect(canAccessCompanyAdmin(role)).toBe(false);
+      expect(canAccessAdminArea(role, "company_admin")).toBe(false);
     }
   });
 });
