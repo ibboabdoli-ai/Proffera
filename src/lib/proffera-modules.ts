@@ -52,6 +52,7 @@ export const dashboardNavigation = [
   { label: "Personal", href: "/dashboard/personal", moduleId: "online_booking" },
   { label: "Galleri", href: "/dashboard/galleri", featureKey: "media_gallery" },
   { label: "Omdömen", href: "/dashboard/omdomen", featureKey: "verified_reviews" },
+  { label: "Analys", href: "/dashboard/analys", featureKey: "analytics" },
   { label: "AI-assistent", href: "/dashboard/ai-assistent", moduleId: "ai_chat" },
   { label: "Inställningar", href: "/dashboard/installningar" },
 ] as const;

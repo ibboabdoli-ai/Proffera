@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import {
+  BarChart3,
   Bot,
   BriefcaseBusiness,
   CalendarDays,
@@ -35,6 +36,7 @@ const navigationIcons: Record<string, LucideIcon> = {
   "/dashboard/bokningar": CalendarDays,
   "/dashboard/uppdrag": BriefcaseBusiness,
   "/dashboard/omdomen": MessageSquareQuote,
+  "/dashboard/analys": BarChart3,
   "/dashboard/ai-assistent": Bot,
   "/dashboard/installningar": Settings,
 };
@@ -49,6 +51,7 @@ const englishNavigationLabels: Record<string, string> = {
   "/dashboard/personal": "Staff",
   "/dashboard/galleri": "Gallery",
   "/dashboard/omdomen": "Reviews",
+  "/dashboard/analys": "Analytics",
   "/dashboard/ai-assistent": "AI assistant",
   "/dashboard/installningar": "Settings",
 };
