@@ -41,6 +41,7 @@ async function getServiceInput(formData: FormData) {
     publicSlug: getFormText(formData, "public_slug"),
     publicStatus: getFormText(formData, "public_status") || "draft",
     conversionMode: getFormText(formData, "conversion_mode") || "book",
+    coverImageUrl: getFormText(formData, "cover_image_url"),
     seoTitle: getFormText(formData, "seo_title"),
     seoDescription: getFormText(formData, "seo_description"),
   });
