@@ -1,5 +1,7 @@
 import "server-only";
 
+import { randomUUID } from "node:crypto";
+
 import {
   classifyOrganizationKind,
   normalizeSniCode,
@@ -7,6 +9,7 @@ import {
 } from "@/lib/company-directory-policy";
 
 type AnyRecord = Record<string, unknown>;
+type Path = readonly string[];
 
 export type CompanyDirectorySourceBatch = {
   items: NormalizedDirectoryCandidate[];
@@ -14,22 +17,58 @@ export type CompanyDirectorySourceBatch = {
   provider: string;
 };
 
+const DEFAULT_PROVIDER = "bolagsverket_vardefulla_datamangder";
+const DEFAULT_OAUTH_SCOPE = "vardefulla-datamangder:read";
+
 function object(value: unknown): AnyRecord | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as AnyRecord : null;
 }
 
-function text(value: unknown) {
+function text(value: unknown): string {
   if (value === null || value === undefined) return "";
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value).trim();
   const row = object(value);
   if (!row) return "";
-  return text(row.text ?? row.namn ?? row.name ?? row.beskrivning ?? row.description ?? row.varde ?? row.value ?? row.kod ?? row.code);
+  for (const key of [
+    "text",
+    "klartext",
+    "namn",
+    "name",
+    "organisationsnamn",
+    "foretagsnamn",
+    "företagsnamn",
+    "beskrivning",
+    "description",
+    "verksamhetsbeskrivning",
+    "varde",
+    "värde",
+    "value",
+    "kod",
+    "code",
+  ]) {
+    if (key in row) {
+      const nested = text(row[key]);
+      if (nested) return nested;
+    }
+  }
+  return "";
 }
 
 function bool(value: unknown) {
   if (typeof value === "boolean") return value;
   const normalized = text(value).toLocaleLowerCase("sv-SE");
-  return ["true", "1", "ja", "yes", "aktiv", "active", "verksam", "registrerad", "godkänd", "godkand"].includes(normalized);
+  return [
+    "true",
+    "1",
+    "ja",
+    "yes",
+    "aktiv",
+    "active",
+    "verksam",
+    "registrerad",
+    "godkänd",
+    "godkand",
+  ].includes(normalized);
 }
 
 function first(source: AnyRecord, keys: string[]) {
@@ -39,88 +78,254 @@ function first(source: AnyRecord, keys: string[]) {
   return undefined;
 }
 
-function firstArray(value: unknown) {
+function atPath(source: AnyRecord, path: Path): unknown {
+  let current: unknown = source;
+  for (const key of path) {
+    const row = object(current);
+    if (!row || !(key in row)) return undefined;
+    current = row[key];
+  }
+  return current;
+}
+
+function firstPath(source: AnyRecord, paths: Path[]) {
+  for (const path of paths) {
+    const value = atPath(source, path);
+    if (value !== undefined && value !== null) return value;
+  }
+  return undefined;
+}
+
+function firstArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : value === undefined || value === null ? [] : [value];
 }
 
+function firstObject(value: unknown): AnyRecord | null {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const row = object(item);
+      if (row) return row;
+    }
+    return null;
+  }
+  return object(value);
+}
+
+function deepValuesForKeyPattern(value: unknown, pattern: RegExp, depth = 0): unknown[] {
+  if (depth > 6) return [];
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => deepValuesForKeyPattern(item, pattern, depth + 1));
+  }
+  const row = object(value);
+  if (!row) return [];
+  const found: unknown[] = [];
+  for (const [key, nested] of Object.entries(row)) {
+    if (pattern.test(key)) found.push(nested);
+    if (nested && typeof nested === "object") found.push(...deepValuesForKeyPattern(nested, pattern, depth + 1));
+  }
+  return found;
+}
+
+function normalizeOrganizationNumber(value: unknown) {
+  return text(value).replace(/\D/g, "");
+}
+
 function nameFromRecord(row: AnyRecord) {
-  const direct = text(first(row, ["legalName", "displayName", "organisationsnamn", "organisationsNamn", "foretagsnamn", "företagsnamn", "namn", "name"]));
+  const direct = text(firstPath(row, [
+    ["legalName"],
+    ["displayName"],
+    ["organisationsnamn"],
+    ["organisationsNamn"],
+    ["foretagsnamn"],
+    ["företagsnamn"],
+    ["namn"],
+    ["name"],
+  ]));
   if (direct) return direct;
-  const names = firstArray(first(row, ["organisationsnamnLista", "organisationsnamn", "names", "namnLista"]));
-  for (const candidate of names) {
-    const value = text(candidate);
-    if (value) return value;
+
+  const containers = [
+    firstPath(row, [["organisationsnamn", "organisationsnamnLista"]]),
+    firstPath(row, [["organisationsnamnLista"]]),
+    firstPath(row, [["names"]]),
+    firstPath(row, [["namnLista"]]),
+  ];
+  for (const container of containers) {
+    for (const candidate of firstArray(container)) {
+      const value = text(candidate);
+      if (value) return value;
+    }
   }
   return "";
 }
 
 function sniFromRecord(row: AnyRecord) {
-  const directCode = text(first(row, ["primarySniCode", "sniKod", "snikod", "sni", "naringsgrenKod", "näringsgrenKod"]));
-  const directLabel = text(first(row, ["primarySniLabel", "sniText", "sniTextSv", "naringsgrenText", "näringsgrenText"]));
+  const directCode = text(firstPath(row, [
+    ["primarySniCode"],
+    ["sniKod"],
+    ["snikod"],
+    ["sni"],
+    ["naringsgrenKod"],
+    ["näringsgrenKod"],
+  ]));
+  const directLabel = text(firstPath(row, [
+    ["primarySniLabel"],
+    ["sniText"],
+    ["sniTextSv"],
+    ["naringsgrenText"],
+    ["näringsgrenText"],
+  ]));
   if (directCode) return { code: normalizeSniCode(directCode), label: directLabel };
 
-  const values = firstArray(first(row, [
-    "naringsgrenOrganisation",
-    "näringsgrenOrganisation",
-    "naringsgrenar",
-    "näringsgrenar",
-    "sniKoder",
-    "sniCodes",
-  ]));
-  for (const value of values) {
-    const item = object(value);
-    const code = item
-      ? text(first(item, ["kod", "code", "sniKod", "snikod", "näringsgrenKod", "naringsgrenKod"]))
-      : text(value);
-    if (!code) continue;
-    return {
-      code: normalizeSniCode(code),
-      label: item ? text(first(item, ["text", "namn", "name", "beskrivning", "description"])) : "",
-    };
+  const containers = [
+    firstPath(row, [["naringsgrenOrganisation", "naringsgrenLista"]]),
+    firstPath(row, [["näringsgrenOrganisation", "näringsgrenLista"]]),
+    firstPath(row, [["naringsgrenOrganisation"]]),
+    firstPath(row, [["näringsgrenOrganisation"]]),
+    firstPath(row, [["naringsgrenar"]]),
+    firstPath(row, [["näringsgrenar"]]),
+    firstPath(row, [["sniKoder"]]),
+    firstPath(row, [["sniCodes"]]),
+  ];
+
+  for (const container of containers) {
+    for (const value of firstArray(container)) {
+      const item = object(value);
+      const nestedList = item
+        ? firstArray(first(item, ["naringsgrenLista", "näringsgrenLista", "sniKoder", "sniCodes"]))
+        : [];
+      const candidates = nestedList.length ? nestedList : [value];
+      for (const candidate of candidates) {
+        const candidateRow = object(candidate);
+        const code = candidateRow
+          ? text(first(candidateRow, ["kod", "code", "sniKod", "snikod", "näringsgrenKod", "naringsgrenKod"]))
+          : text(candidate);
+        if (!code) continue;
+        return {
+          code: normalizeSniCode(code),
+          label: candidateRow
+            ? text(first(candidateRow, ["klartext", "text", "namn", "name", "beskrivning", "description"]))
+            : "",
+        };
+      }
+    }
   }
   return { code: "", label: "" };
 }
 
 function addressFromRecord(row: AnyRecord) {
-  const address = object(first(row, ["organisationspostadress", "postadress", "address", "postalAddress"])) ?? row;
-  const street1 = text(first(address, ["addressLine1", "utdelningsadress1", "gatuadress", "street", "streetAddress", "adressrad1"]));
+  const container = firstPath(row, [
+    ["postadressOrganisation", "postadress"],
+    ["postadressOrganisation"],
+    ["organisationspostadress"],
+    ["postadress"],
+    ["address"],
+    ["postalAddress"],
+  ]);
+  const address = firstObject(container) ?? row;
+  const street1 = text(first(address, [
+    "addressLine1",
+    "utdelningsadress1",
+    "gatuadress",
+    "street",
+    "streetAddress",
+    "adressrad1",
+  ]));
   const street2 = text(first(address, ["utdelningsadress2", "adressrad2", "addressLine2"]));
   return {
     addressLine1: [street1, street2].filter(Boolean).join(", "),
     postalCode: text(first(address, ["postalCode", "postnummer", "zip", "zipCode"])),
     city: text(first(address, ["city", "postort", "ort", "postalTown"])),
-    municipality: text(first(row, ["municipality", "kommun", "kommunnamn"])),
-    region: text(first(row, ["region", "lan", "län", "lansnamn", "länsnamn"])),
+    municipality: text(firstPath(row, [["municipality"], ["kommun"], ["kommunnamn"]])),
+    region: text(firstPath(row, [["region"], ["lan"], ["län"], ["lansnamn"], ["länsnamn"]])),
   };
 }
 
-function taxStatus(row: AnyRecord, keys: string[]) {
-  const value = first(row, keys);
-  if (value === undefined || value === null) return "";
-  return bool(value) ? "Registrerad" : text(value);
+function statusFromValues(values: unknown[]) {
+  for (const value of values) {
+    if (bool(value)) return "Registrerad";
+    const normalized = text(value);
+    if (normalized) return normalized;
+  }
+  return "";
+}
+
+function taxStatus(row: AnyRecord, keys: string[], deepPattern: RegExp) {
+  const direct = first(row, keys);
+  if (direct !== undefined && direct !== null) return bool(direct) ? "Registrerad" : text(direct);
+  return statusFromValues(deepValuesForKeyPattern(first(row, ["verksamOrganisation", "verksam_organisation"]) ?? row, deepPattern));
 }
 
 function normalizeSourceRecord(row: AnyRecord, provider: string): NormalizedDirectoryCandidate | null {
-  const organizationNumber = text(first(row, [
-    "organizationNumber",
-    "organisationNumber",
-    "organisationsnummer",
-    "identitetsbeteckning",
-    "identity",
-    "orgNumber",
-  ])).replace(/\s+/g, "");
-  if (!organizationNumber) return null;
+  const organizationNumber = normalizeOrganizationNumber(firstPath(row, [
+    ["organizationNumber"],
+    ["organisationNumber"],
+    ["organisationsnummer"],
+    ["identitetsbeteckning"],
+    ["organisationsidentitet", "identitetsbeteckning"],
+    ["organizationIdentity", "identifier"],
+    ["identity"],
+    ["orgNumber"],
+  ]));
+  if (organizationNumber.length !== 10) return null;
 
-  const legalFormValue = first(row, ["legalForm", "juridiskForm", "juridisk_form", "organisationsform", "organizationForm"]);
+  const legalFormValue = firstPath(row, [
+    ["legalForm"],
+    ["juridiskForm", "klartext"],
+    ["juridiskForm"],
+    ["organisationsform", "klartext"],
+    ["organisationsform", "organisationsform"],
+    ["organisationsform"],
+    ["organizationForm"],
+  ]);
   const legalForm = text(legalFormValue);
   const legalName = nameFromRecord(row);
   const sni = sniFromRecord(row);
   const address = addressFromRecord(row);
-  const activeValue = first(row, ["isActive", "verksamOrganisation", "verksam_organisation", "active", "statusAktiv"]);
-  const deregistered = first(row, ["avregistreradOrganisation", "avregistrerad", "deregisteredAt"]);
-  const isActive = activeValue !== undefined ? bool(activeValue) : !text(deregistered);
-  const sourceUpdatedRaw = text(first(row, ["sourceUpdatedAt", "updatedAt", "andradTidpunkt", "ändradTidpunkt", "lastUpdated", "hamtat", "hämtat"]));
+
+  const fTaxStatus = taxStatus(row, ["fTaxStatus", "fSkatt", "f_skatt", "fskatt"], /f.?skatt/i);
+  const vatStatus = taxStatus(row, ["vatStatus", "momsregistrerad", "momsreg", "vatRegistered"], /moms|vat/i);
+  const employerStatus = taxStatus(row, ["employerStatus", "arbetsgivarregistrerad", "arbetsgivarreg", "employerRegistered"], /arbetsgivar|employer/i);
+
+  const activeValue = firstPath(row, [
+    ["isActive"],
+    ["verksamOrganisation", "verksam"],
+    ["verksamOrganisation", "aktiv"],
+    ["verksam_organisation"],
+    ["active"],
+    ["statusAktiv"],
+  ]);
+  const deregistered = firstPath(row, [
+    ["avregistreradOrganisation"],
+    ["avregistrerad"],
+    ["deregisteredAt"],
+  ]);
+  const hasActiveTaxRegistration = [fTaxStatus, vatStatus, employerStatus]
+    .some((value) => value.toLocaleLowerCase("sv-SE").includes("registrerad"));
+  const isActive = text(deregistered)
+    ? false
+    : activeValue !== undefined
+      ? bool(activeValue)
+      : hasActiveTaxRegistration;
+
+  const sourceUpdatedRaw = text(firstPath(row, [
+    ["sourceUpdatedAt"],
+    ["updatedAt"],
+    ["andradTidpunkt"],
+    ["ändradTidpunkt"],
+    ["lastUpdated"],
+    ["hamtat"],
+    ["hämtat"],
+  ]));
   const parsedUpdated = sourceUpdatedRaw ? new Date(sourceUpdatedRaw) : null;
+
+  const activityDescription = text(firstPath(row, [
+    ["activityDescription"],
+    ["verksamhetsbeskrivning", "verksamhetsbeskrivning"],
+    ["verksamhetsbeskrivning", "beskrivning"],
+    ["verksamhetsbeskrivning"],
+    ["businessDescription"],
+    ["description"],
+  ]));
 
   return {
     countryCode: (text(first(row, ["countryCode", "registreringsland", "country"])) || "SE").toUpperCase().slice(0, 2),
@@ -129,17 +334,23 @@ function normalizeSourceRecord(row: AnyRecord, provider: string): NormalizedDire
     legalName,
     displayName: text(first(row, ["displayName", "marketingName"])) || legalName,
     legalForm,
-    organizationStatus: text(first(row, ["organizationStatus", "status", "registreringsstatus", "registrationStatus"])),
+    organizationStatus: text(firstPath(row, [
+      ["organizationStatus"],
+      ["status"],
+      ["registreringsstatus"],
+      ["registrationStatus"],
+      ["registreradOrganisation", "status"],
+    ])),
     isActive,
-    fTaxStatus: taxStatus(row, ["fTaxStatus", "fSkatt", "f_skatt", "fskatt"]),
-    vatStatus: taxStatus(row, ["vatStatus", "momsregistrerad", "momsreg", "vatRegistered"]),
-    employerStatus: taxStatus(row, ["employerStatus", "arbetsgivarregistrerad", "arbetsgivarreg", "employerRegistered"]),
+    fTaxStatus,
+    vatStatus,
+    employerStatus,
     primarySniCode: sni.code,
     primarySniLabel: sni.label,
-    activityDescription: text(first(row, ["activityDescription", "verksamhetsbeskrivning", "businessDescription", "description"])),
+    activityDescription,
     ...address,
     officialSource: provider,
-    sourceRecordId: text(first(row, ["sourceRecordId", "id", "recordId"])) || organizationNumber.replace(/\D/g, ""),
+    sourceRecordId: text(first(row, ["sourceRecordId", "id", "recordId"])) || organizationNumber,
     sourceUpdatedAt: parsedUpdated && Number.isFinite(parsedUpdated.getTime()) ? parsedUpdated : null,
   };
 }
@@ -148,7 +359,16 @@ function sourceItems(payload: unknown): unknown[] {
   if (Array.isArray(payload)) return payload;
   const row = object(payload);
   if (!row) return [];
-  for (const key of ["items", "data", "results", "organisations", "organisationer", "foretag", "företag", "records"]) {
+  for (const key of [
+    "items",
+    "data",
+    "results",
+    "organisations",
+    "organisationer",
+    "foretag",
+    "företag",
+    "records",
+  ]) {
     if (Array.isArray(row[key])) return row[key] as unknown[];
   }
   return [row];
@@ -157,6 +377,10 @@ function sourceItems(payload: unknown): unknown[] {
 function detailRecord(payload: unknown): AnyRecord | null {
   const root = object(payload);
   if (!root) return null;
+  for (const key of ["organisationer", "organisations", "organizations", "items", "results"]) {
+    const candidate = firstObject(root[key]);
+    if (candidate) return candidate;
+  }
   for (const key of ["organisation", "organization", "data", "result", "foretag", "företag"]) {
     const nested = object(root[key]);
     if (nested) return nested;
@@ -181,6 +405,8 @@ async function oauthAccessToken() {
   if (!tokenUrl || !clientId || !clientSecret) return "";
 
   const basic = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
+  const scope = process.env.COMPANY_DIRECTORY_OAUTH_SCOPE?.trim() || DEFAULT_OAUTH_SCOPE;
+  const body = new URLSearchParams({ grant_type: "client_credentials", scope });
   const response = await fetch(tokenUrl, {
     method: "POST",
     headers: {
@@ -188,7 +414,7 @@ async function oauthAccessToken() {
       "content-type": "application/x-www-form-urlencoded",
       accept: "application/json",
     },
-    body: "grant_type=client_credentials",
+    body: body.toString(),
     cache: "no-store",
     signal: AbortSignal.timeout(12_000),
   });
@@ -242,13 +468,14 @@ export async function fetchOfficialCompanyDirectoryBatch(input: { cursor?: strin
   const sourceUrl = process.env.COMPANY_DIRECTORY_SOURCE_URL?.trim();
   if (!sourceUrl) throw new Error("COMPANY_DIRECTORY_SOURCE_URL is not configured");
 
-  const provider = process.env.COMPANY_DIRECTORY_PROVIDER?.trim() || "bolagsverket_vardefulla_datamangder";
+  const provider = process.env.COMPANY_DIRECTORY_PROVIDER?.trim() || DEFAULT_PROVIDER;
   const limit = Math.max(1, Math.min(100, input.limit ?? Number(process.env.COMPANY_DIRECTORY_BATCH_SIZE || 20)));
   const token = await oauthAccessToken();
   const response = await fetch(withCursor(sourceUrl, input.cursor ?? "", limit), {
     headers: {
       accept: "application/json",
       ...(token ? { authorization: `Bearer ${token}` } : {}),
+      "x-request-id": randomUUID(),
     },
     cache: "no-store",
     signal: AbortSignal.timeout(20_000),
@@ -270,7 +497,7 @@ export async function verifyOfficialCompanyCandidate(candidate: NormalizedDirect
   if (!template) return candidate;
 
   const token = await oauthAccessToken();
-  const method = process.env.COMPANY_DIRECTORY_DETAIL_METHOD?.trim().toUpperCase() === "POST" ? "POST" : "GET";
+  const method = process.env.COMPANY_DIRECTORY_DETAIL_METHOD?.trim().toUpperCase() === "GET" ? "GET" : "POST";
   const organizationNumber = candidate.organizationNumber.replace(/\D/g, "");
   const url = replaceOrganizationNumber(template, organizationNumber);
   const bodyTemplate = process.env.COMPANY_DIRECTORY_DETAIL_BODY_TEMPLATE?.trim();
@@ -286,6 +513,7 @@ export async function verifyOfficialCompanyCandidate(candidate: NormalizedDirect
       accept: "application/json",
       ...(method === "POST" ? { "content-type": "application/json" } : {}),
       ...(token ? { authorization: `Bearer ${token}` } : {}),
+      "x-request-id": randomUUID(),
     },
     body,
     cache: "no-store",
@@ -298,7 +526,7 @@ export async function verifyOfficialCompanyCandidate(candidate: NormalizedDirect
   const provider = `${candidate.officialSource}:detail`;
   const verified = normalizeSourceRecord(row, provider);
   if (!verified) throw new Error("Official company verification record could not be normalized");
-  if (verified.organizationNumber.replace(/\D/g, "") !== organizationNumber) {
+  if (verified.organizationNumber !== organizationNumber) {
     throw new Error("Official company verification returned a different organization number");
   }
 
