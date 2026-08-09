@@ -105,7 +105,7 @@ export default async function ListedBusinessPage({ params }: Props) {
               <section className="rounded-2xl bg-[#f7f8f6] p-5">
                 <ShieldCheck className="h-5 w-5 text-[#173e2b]" />
                 <p className="mt-3 text-xs font-black uppercase tracking-wide text-[#667168]">Datakvalitet</p>
-                <p className="mt-1 font-bold">Kontrollerad profil</p>
+                <p className="mt-1 font-bold">Automatiskt datakontrollerad</p>
               </section>
             </div>
 
@@ -131,6 +131,7 @@ export default async function ListedBusinessPage({ params }: Props) {
               <p className="mt-1">
                 Grunduppgifterna kommer från officiell företagsdata och kvalitetssäkras automatiskt av Proffera. Senast uppdaterad: {updated}.
               </p>
+              <p className="mt-2">Detta betyder inte att företagets ägare har verifierat eller gjort anspråk på profilen.</p>
               {!business.media?.isActualBusinessMedia ? (
                 <p className="mt-2">Bilden är en Proffera-illustration för branschen och föreställer inte företagets verkliga lokal eller arbete.</p>
               ) : null}
