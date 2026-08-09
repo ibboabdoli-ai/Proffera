@@ -124,27 +124,39 @@ export async function verifyPublicBookingCode(id: string, code: string) {
   `;
   if (conflict[0]) return { ok: false as const, error: "conflict" };
 
-  const booked = await sql`
-    with customer as (
-      insert into customers (workspace_id, name, email, phone, city, status, source)
-      values (${String(challenge.workspace_id)}, ${String(challenge.customer_name)}, ${String(challenge.customer_email)}, ${challenge.customer_phone ? String(challenge.customer_phone) : null}, ${challenge.city ? String(challenge.city) : null}, 'prospect', 'public_booking')
-      on conflict do nothing
-      returning id
-    ), selected_customer as (
-      select id from customer
-      union all
-      select id from customers where workspace_id = ${String(challenge.workspace_id)} and lower(email) = lower(${String(challenge.customer_email)}) order by id limit 1
-    ), booking as (
-      insert into bookings (workspace_id, customer_id, staff_id, title, service, city, status, starts_at, ends_at, source)
-      select ${String(challenge.workspace_id)}, id, ${staffId}::uuid, ${String(challenge.service_name)}, ${String(challenge.service_name)}, ${challenge.city ? String(challenge.city) : null}, 'requested', ${startsAt}::timestamptz, ${endsAt}::timestamptz, 'public_booking'
-      from selected_customer limit 1 returning id, customer_id
-    )
-    update public_booking_verifications set verified_at = now(), consumed_at = now(), updated_at = now()
-    where id = ${id}::uuid
-    returning (select id from booking) as booking_id, (select customer_id from booking) as customer_id
-  `;
-  const bookingId = String(booked[0]?.booking_id ?? "");
-  const customerId = String(booked[0]?.customer_id ?? "");
+  const customerLockKey = `${String(challenge.workspace_id)}:${String(challenge.customer_email).toLowerCase()}`;
+  const [, booked] = await sql.transaction([
+    sql`select pg_advisory_xact_lock(hashtextextended(${customerLockKey}::text, 0))`,
+    sql`
+      with existing_customer as (
+        select id
+        from customers
+        where workspace_id = ${String(challenge.workspace_id)}
+          and lower(email) = lower(${String(challenge.customer_email)})
+        order by created_at asc nulls last, id asc
+        limit 1
+      ), inserted_customer as (
+        insert into customers (workspace_id, name, email, phone, city, status, source)
+        select ${String(challenge.workspace_id)}, ${String(challenge.customer_name)}, ${String(challenge.customer_email)}, ${challenge.customer_phone ? String(challenge.customer_phone) : null}, ${challenge.city ? String(challenge.city) : null}, 'prospect', 'public_booking'
+        where not exists (select 1 from existing_customer)
+        returning id
+      ), selected_customer as (
+        select id from existing_customer
+        union all
+        select id from inserted_customer
+        limit 1
+      ), booking as (
+        insert into bookings (workspace_id, customer_id, staff_id, title, service, city, status, starts_at, ends_at, source)
+        select ${String(challenge.workspace_id)}, id, ${staffId}::uuid, ${String(challenge.service_name)}, ${String(challenge.service_name)}, ${challenge.city ? String(challenge.city) : null}, 'requested', ${startsAt}::timestamptz, ${endsAt}::timestamptz, 'public_booking'
+        from selected_customer limit 1 returning id, customer_id
+      )
+      update public_booking_verifications set verified_at = now(), consumed_at = now(), updated_at = now()
+      where id = ${id}::uuid
+      returning (select id from booking) as booking_id, (select customer_id from booking) as customer_id
+    `,
+  ]);
+  const bookingId = String(booked?.[0]?.booking_id ?? "");
+  const customerId = String(booked?.[0]?.customer_id ?? "");
   if (!bookingId || !customerId) return { ok: false as const, error: "save" };
 
   const timeZone = String(challenge.time_zone) as WorkspaceTimeZone;
