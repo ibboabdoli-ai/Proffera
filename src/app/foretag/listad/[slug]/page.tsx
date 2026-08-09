@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import { ArrowRight, BadgeCheck, Building2, MapPin, ShieldCheck } from "lucide-react";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { getPublicDirectoryBusiness } from "@/lib/company-directory-engine";
+import { getClaimedDirectoryWorkspaceSlug } from "@/lib/company-directory-routing";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +40,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function ListedBusinessPage({ params }: Props) {
   const { slug } = await params;
   const business = await getPublicDirectoryBusiness(slug);
-  if (!business) notFound();
+  if (!business) {
+    const workspaceSlug = await getClaimedDirectoryWorkspaceSlug(slug);
+    if (workspaceSlug) redirect(`/foretag/${encodeURIComponent(workspaceSlug)}`);
+    notFound();
+  }
 
   const category = categoryLabels[business.categorySlug] ?? business.primarySniLabel ?? "Tjänsteföretag";
   const location = [business.postalCode, business.city].filter(Boolean).join(" ");
