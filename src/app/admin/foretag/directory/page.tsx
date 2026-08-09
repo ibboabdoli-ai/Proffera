@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
+import { requireSuperAdmin } from "@/lib/admin-authorization";
 import { getCompanyDirectoryAdminSnapshot } from "@/lib/company-directory-admin";
 
 export const dynamic = "force-dynamic";
@@ -47,6 +48,7 @@ const statusStyle: Record<string, string> = {
 };
 
 export default async function DirectoryEngineAdminPage() {
+  await requireSuperAdmin();
   const snapshot = await getCompanyDirectoryAdminSnapshot();
   const total = Object.values(snapshot.counts).reduce((sum, value) => sum + value, 0);
 
