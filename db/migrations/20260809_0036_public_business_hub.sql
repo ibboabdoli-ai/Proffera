@@ -12,6 +12,7 @@ alter table workspace_services
   add column if not exists public_status text not null default 'draft',
   add column if not exists conversion_mode text not null default 'book',
   add column if not exists short_description text not null default '',
+  add column if not exists cover_image_url text not null default '',
   add column if not exists seo_title text not null default '',
   add column if not exists seo_description text not null default '';
 
@@ -32,6 +33,11 @@ alter table workspace_services drop constraint if exists workspace_services_publ
 alter table workspace_services add constraint workspace_services_public_copy_check
   check (char_length(short_description) <= 280 and char_length(seo_title) <= 180 and char_length(seo_description) <= 320) not valid;
 alter table workspace_services validate constraint workspace_services_public_copy_check;
+
+alter table workspace_services drop constraint if exists workspace_services_cover_image_url_check;
+alter table workspace_services add constraint workspace_services_cover_image_url_check
+  check (char_length(cover_image_url) <= 2000) not valid;
+alter table workspace_services validate constraint workspace_services_cover_image_url_check;
 
 alter table workspace_services drop constraint if exists workspace_services_published_slug_check;
 alter table workspace_services add constraint workspace_services_published_slug_check check (public_status <> 'published' or public_slug is not null) not valid;
@@ -218,6 +224,7 @@ for each row execute function enforce_uuid_workspace_service_identity();
 
 comment on column workspace_services.public_status is 'Public Business Hub publication state. Operational is_active remains independent.';
 comment on column workspace_services.conversion_mode is 'Customer action shown for a published service: book, quote, both, or contact.';
+comment on column workspace_services.cover_image_url is 'Optional validated public HTTP(S) cover image for service cards and detail pages.';
 comment on column bookings.service_id is 'Stable workspace service identity. The legacy service text remains the historical display snapshot.';
 comment on column public_booking_verifications.service_id is 'Stable service identity carried through the short-lived email-verification flow.';
 comment on column workspace_service_jobs.service_id is 'Stable service identity where known. service_name remains the historical display snapshot.';
