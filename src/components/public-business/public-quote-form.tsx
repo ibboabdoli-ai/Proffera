@@ -37,7 +37,7 @@ export function PublicBusinessQuoteForm({
     };
 
     try {
-      const response = await fetch(`/api/public/workspaces/${encodeURIComponent(workspaceSlug)}/quotes`, {
+      const response = await fetch(`/api/public-business/workspaces/${encodeURIComponent(workspaceSlug)}/quotes`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
