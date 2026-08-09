@@ -76,7 +76,7 @@ async function saveAppearance(formData: FormData) {
   const canUseCustomDomain = await hasWorkspaceFeature("custom_domain");
   let customDomain = current.customDomain;
 
-  if (canUseCustomDomain) {
+  if (canUseCustomDomain && formData.has("customDomain")) {
     const rawCustomDomain = String(formData.get("customDomain") ?? "").trim();
     customDomain = normalizeCustomDomainInput(rawCustomDomain);
     if (rawCustomDomain && !customDomain) redirect(appearanceUrl({ error: "domain" }));
@@ -117,9 +117,9 @@ async function saveAppearance(formData: FormData) {
     contactEnabled: formData.get("contactEnabled") === "on",
     faqEnabled: formData.get("faqEnabled") === "on",
     chatbotEnabled: formData.get("chatbotEnabled") === "on",
-    logoUrl: String(formData.get("logoUrl") ?? ""),
-    heroImageUrl: String(formData.get("heroImageUrl") ?? ""),
-    heroVideoUrl: String(formData.get("heroVideoUrl") ?? ""),
+    logoUrl: formData.has("logoUrl") ? String(formData.get("logoUrl") ?? "") : current.logoUrl,
+    heroImageUrl: formData.has("heroImageUrl") ? String(formData.get("heroImageUrl") ?? "") : current.heroImageUrl,
+    heroVideoUrl: formData.has("heroVideoUrl") ? String(formData.get("heroVideoUrl") ?? "") : current.heroVideoUrl,
     customDomain,
     customDomainStatus: current.customDomainStatus,
   };
