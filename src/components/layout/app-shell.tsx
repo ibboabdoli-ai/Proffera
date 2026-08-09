@@ -11,7 +11,8 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
   const isStandaloneRoute = pathname?.startsWith("/admin")
     || pathname?.startsWith("/dashboard")
     || pathname?.startsWith("/demo/")
-    || pathname?.startsWith("/boka");
+    || pathname?.startsWith("/boka")
+    || pathname?.startsWith("/review/");
 
   if (isStandaloneRoute) {
     return <main>{children}</main>;
