@@ -42,13 +42,15 @@ describe("Public workspace gallery", () => {
 });
 
 describe("Booking theme system", () => {
-  it("offers six visual one-click presets including restaurant", () => {
-    const legacyLayout = source("src/app/dashboard/installningar/utseende/layout.tsx");
+  it("offers six visual one-click presets from one canonical builder", () => {
+    const appearanceLayout = source("src/app/dashboard/installningar/utseende/layout.tsx");
     const builder = source("src/app/dashboard/installningar/utseende/booking-page-builder.tsx");
     const experience = source("src/lib/workspace-experience.ts");
 
+    expect(appearanceLayout).not.toContain("Färdiga bokningsteman");
+    expect(appearanceLayout).not.toContain("applyThemePreset");
+
     for (const key of ["clean", "salon", "premium", "modern", "minimal", "restaurant"]) {
-      expect(legacyLayout).toContain(`key: "${key}"`);
       expect(builder).toContain(`key: "${key}"`);
       expect(experience).toContain(`"${key}"`);
     }
