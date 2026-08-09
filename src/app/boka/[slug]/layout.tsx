@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import { PublicWorkspaceGallery } from "@/components/public-workspace-gallery";
+import { normalizeBookingThemeAppearance } from "@/lib/booking-theme-contract";
 import { getSql } from "@/lib/db/server";
 import { hasWorkspaceFeatureAccessForWorkspace } from "@/lib/workspace-feature-entitlement-db";
 import { getPublicWorkspaceExperienceSettings } from "@/lib/workspace-experience";
@@ -10,6 +11,7 @@ import { getPublishedWebsiteReviews } from "@/lib/website-reviews-db";
 import "./booking-themes.css";
 import "./booking-theme-controls.css";
 import "./booking-polish.css";
+import "./booking-contrast.css";
 
 type PublicStaffMember = {
   id: string;
@@ -23,7 +25,7 @@ export default async function PublicBookingLayout({ children, params }: { childr
   let publicSections: ReactNode = null;
   let gallery: ReactNode = null;
   let themeKey = "clean";
-  let appearance = "light";
+  let appearance: "light" | "dark" = "light";
 
   if (sql) {
     const rows = await sql`
@@ -43,7 +45,7 @@ export default async function PublicBookingLayout({ children, params }: { childr
       const workspaceSlug = String(workspace.slug);
       const experience = await getPublicWorkspaceExperienceSettings(workspaceId);
       themeKey = experience.themeKey;
-      appearance = experience.appearance;
+      appearance = normalizeBookingThemeAppearance(experience.themeKey, experience.appearance);
 
       if (slug !== "julius-salong") {
         const reviews = experience.reviewsEnabled
