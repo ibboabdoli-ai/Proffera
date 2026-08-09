@@ -1,0 +1,259 @@
+/* Salon builder preview — aligned with the premium public Salon theme. */
+[data-booking-page-builder]:has(input[name="themeKey"][value="salon"]) [data-booking-builder-preview] {
+  background: #f6eeee !important;
+}
+
+[data-booking-page-builder]:has(input[name="themeKey"][value="salon"]) [data-booking-builder-preview] > div:last-child {
+  overflow: hidden;
+  border-radius: 22px !important;
+  background: #fff8f7 !important;
+  color: #332429 !important;
+  box-shadow: 0 22px 64px rgb(103 63 74 / 14%) !important;
+}
+
+/* Salon photographic hero. */
+[data-booking-page-builder]:has(input[name="themeKey"][value="salon"]) [data-booking-builder-preview] > div:last-child > section:first-child {
+  position: relative;
+  min-height: 370px;
+  overflow: hidden;
+  padding: 30px 34px 112px !important;
+  background:
+    linear-gradient(90deg, rgb(48 29 33 / 72%) 0%, rgb(48 29 33 / 44%) 44%, rgb(48 29 33 / 10%) 74%, rgb(48 29 33 / 16%) 100%),
+    url("https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&w=1800&q=84") center 52% / cover no-repeat !important;
+  color: #fff9f7 !important;
+}
+
+[data-booking-page-builder]:has(input[name="themeKey"][value="salon"]) [data-booking-builder-preview] > div:last-child > section:first-child::before {
+  content: "SALON • HAIR • BEAUTY";
+  position: absolute;
+  top: 28px;
+  left: 34px;
+  z-index: 3;
+  color: #f0c6ce;
+  font-size: .58rem;
+  font-weight: 900;
+  letter-spacing: .2em;
+}
+
+[data-booking-page-builder]:has(input[name="themeKey"][value="salon"]) [data-booking-builder-preview] > div:last-child > section:first-child::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 88px;
+  background: rgb(47 28 33 / 48%);
+  border-top: 1px solid rgb(255 255 255 / 13%);
+  backdrop-filter: blur(12px);
+}
+
+[data-booking-page-builder]:has(input[name="themeKey"][value="salon"]) [data-booking-builder-preview] > div:last-child > section:first-child > * {
+  position: relative;
+  z-index: 2;
+}
+
+[data-booking-page-builder]:has(input[name="themeKey"][value="salon"]) [data-booking-builder-preview] > div:last-child > section:first-child h2 {
+  max-width: 430px;
+  margin-top: 76px !important;
+  color: #fff9f7 !important;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 0 !important;
+  font-weight: 500 !important;
+  letter-spacing: -.05em;
+  line-height: 1;
+}
+
+[data-booking-page-builder]:has(input[name="themeKey"][value="salon"]):has(input[name="defaultLanguage"][value="sv"]) [data-booking-builder-preview] > div:last-child > section:first-child h2::before {
+  content: "Din stil.\A Vårt hantverk.";
+}
+
+[data-booking-page-builder]:has(input[name="themeKey"][value="salon"]):has(input[name="defaultLanguage"][value="en"]) [data-booking-builder-preview] > div:last-child > section:first-child h2::before {
+  content: "Your style.\A Our craft.";
+}
+
+[data-booking-page-builder]:has(input[name="themeKey"][value="salon"]) [data-booking-builder-preview] > div:last-child > section:first-child h2::before {
+  display: block;
+  white-space: pre-line;
+  font-size: clamp(2.1rem, 4vw, 3.35rem);
+}
+
+[data-booking-page-builder]:has(input[name="themeKey"][value="salon"]) [data-booking-builder-preview] > div:last-child > section:first-child p {
+  max-width: 430px;
+  color: #f4e8e6 !important;
+}
+
+[data-booking-page-builder]:has(input[name="themeKey"][value="salon"]) [data-booking-builder-preview] > div:last-child > section:first-child > div:last-child {
+  position: absolute;
+  bottom: 22px;
+  left: 34px;
+  z-index: 4;
+}
+
+/* Convert generic builder body into Salon composition. */
+[data-booking-page-builder]:has(input[name="themeKey"][value="salon"]) [data-booking-builder-preview] > div:last-child > div:last-child {
+  position: relative;
+  z-index: 5;
+  display: grid !important;
+  grid-template-columns: repeat(12, minmax(0, 1fr)) !important;
+  gap: 14px !important;
+  margin-top: -230px;
+  padding: 0 22px 26px !important;
+}
+
+[data-booking-page-builder]:has(input[name="themeKey"][value="salon"]) [data-booking-builder-preview] > div:last-child > div:last-child > div:first-child,
+[data-booking-page-builder]:has(input[name="themeKey"][value="salon"]) [data-booking-builder-preview] > div:last-child > div:last-child > div:last-child {
+  display: contents !important;
+}
+
+/* Floating appointment card. */
+[data-booking-page-builder]:has(input[name="themeKey"][value="salon"]) [data-booking-builder-preview] > div:last-child > div:last-child > div:first-child > div:first-child {
+  grid-column: 7 / 13;
+  grid-row: 1;
+  min-height: 258px;
+  border: 1px solid rgb(96 58 68 / 10%) !important;
+  border-radius: 18px !important;
+  background: rgb(255 253 252 / 98%) !important;
+  color: #39282d !important;
+  box-shadow: 0 24px 62px rgb(83 46 56 / 22%) !important;
+}
+
+[data-booking-page-builder]:has(input[name="themeKey"][value="salon"]) [data-booking-builder-preview] > div:last-child > div:last-child > div:first-child > div:first-child > p:first-child::before {
+  content: "✂ ";
+}
+
+[data-booking-page-builder]:has(input[name="themeKey"][value="salon"]) [data-booking-builder-preview] > div:last-child > div:last-child > div:first-child > div:first-child button {
+  border-radius: 10px !important;
+  background: linear-gradient(135deg, #c27484, #a95f72) !important;
+  color: #fff !important;
+}
+
+/* Service cards become visual salon treatments. */
+[data-booking-page-builder]:has(input[name="themeKey"][value="salon"]) [data-booking-builder-preview] > div:last-child > div:last-child > div:last-child > div:first-child {
+  grid-column: 1 / 13;
+  grid-row: 2;
+  margin-top: 38px;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+[data-booking-page-builder]:has(input[name="themeKey"][value="salon"]) [data-booking-builder-preview] > div:last-child > div:last-child > div:last-child > div:first-child::before {
+  content: "VÅRA BEHANDLINGAR";
+  display: block;
+  margin-bottom: 10px;
+  color: #8b5a66;
+  font-size: .62rem;
+  font-weight: 900;
+  letter-spacing: .18em;
+}
+
+[data-booking-page-builder]:has(input[name="themeKey"][value="salon"]):has(input[name="defaultLanguage"][value="en"]) [data-booking-builder-preview] > div:last-child > div:last-child > div:last-child > div:first-child::before {
+  content: "OUR TREATMENTS";
+}
+
+[data-booking-page-builder]:has(input[name="themeKey"][value="salon"]) [data-booking-builder-preview] > div:last-child > div:last-child > div:last-child > div:first-child > div {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px !important;
+}
+
+[data-booking-page-builder]:has(input[name="themeKey"][value="salon"]) [data-booking-builder-preview] > div:last-child > div:last-child > div:last-child > div:first-child > div > div {
+  min-height: 124px;
+  display: grid;
+  align-content: end;
+  overflow: hidden;
+  border: 0 !important;
+  border-radius: 14px !important;
+  padding: 14px !important;
+  background:
+    linear-gradient(180deg, transparent 16%, rgb(51 31 36 / 80%) 100%),
+    url("https://images.unsplash.com/photo-1562322140-8baeececf3df?auto=format&fit=crop&w=900&q=82") center / cover no-repeat !important;
+  color: #fff !important;
+}
+
+[data-booking-page-builder]:has(input[name="themeKey"][value="salon"]) [data-booking-builder-preview] > div:last-child > div:last-child > div:last-child > div:first-child > div > div:nth-child(2) {
+  background-image:
+    linear-gradient(180deg, transparent 16%, rgb(51 31 36 / 80%) 100%),
+    url("https://images.unsplash.com/photo-1522337660859-02fbefca4702?auto=format&fit=crop&w=900&q=82") !important;
+}
+
+[data-booking-page-builder]:has(input[name="themeKey"][value="salon"]) [data-booking-builder-preview] > div:last-child > div:last-child > div:last-child > div:first-child > div > div * {
+  color: #fff !important;
+}
+
+/* Reviews. */
+[data-booking-page-builder]:has(input[name="themeKey"][value="salon"]) [data-booking-builder-preview] > div:last-child > div:last-child > div:first-child > div:nth-child(2) {
+  grid-column: 1 / 8;
+  grid-row: 3;
+  border-color: #efdce1 !important;
+  border-radius: 16px !important;
+  background: #fffdfc !important;
+  color: #3b292f !important;
+}
+
+/* Gallery becomes a visual strip. */
+[data-booking-page-builder]:has(input[name="themeKey"][value="salon"]) [data-booking-builder-preview] > div:last-child > div:last-child > div:first-child > div:nth-child(3) {
+  grid-column: 8 / 13;
+  grid-row: 3;
+  border-color: #efdce1 !important;
+  border-radius: 16px !important;
+  background: #fffdfc !important;
+  color: #3b292f !important;
+}
+
+[data-booking-page-builder]:has(input[name="themeKey"][value="salon"]) [data-booking-builder-preview] > div:last-child > div:last-child > div:first-child > div:nth-child(3) > div > div {
+  background:
+    linear-gradient(180deg, rgb(90 50 62 / 3%), rgb(90 50 62 / 14%)),
+    url("https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&w=600&q=80") center / cover no-repeat !important;
+}
+
+/* Staff / contact / FAQ cards. */
+[data-booking-page-builder]:has(input[name="themeKey"][value="salon"]) [data-booking-builder-preview] > div:last-child > div:last-child > div:last-child > div:nth-child(n+2) {
+  grid-column: span 4;
+  grid-row: 4;
+  border-color: #efdee2 !important;
+  border-radius: 14px !important;
+  background: #fffdfc !important;
+  color: #3b292f !important;
+  box-shadow: 0 8px 22px rgb(93 57 67 / 5%) !important;
+}
+
+[data-booking-page-builder]:has(input[name="themeKey"][value="salon"]) [data-booking-builder-preview] > div:last-child > div:last-child > div:last-child > div:nth-child(n+2) * {
+  color: inherit !important;
+}
+
+[data-booking-page-builder]:has(input[name="themeKey"][value="salon"]) [data-booking-builder-preview] > div:last-child > div:last-child > div:last-child > div:last-child {
+  background: #c27484 !important;
+  color: #fff !important;
+}
+
+@media (max-width: 900px) {
+  [data-booking-page-builder]:has(input[name="themeKey"][value="salon"]) [data-booking-builder-preview] > div:last-child > div:last-child {
+    display: block !important;
+    margin-top: -72px;
+  }
+
+  [data-booking-page-builder]:has(input[name="themeKey"][value="salon"]) [data-booking-builder-preview] > div:last-child > div:last-child > div:first-child,
+  [data-booking-page-builder]:has(input[name="themeKey"][value="salon"]) [data-booking-builder-preview] > div:last-child > div:last-child > div:last-child {
+    display: grid !important;
+    gap: 12px;
+  }
+
+  [data-booking-page-builder]:has(input[name="themeKey"][value="salon"]) [data-booking-builder-preview] > div:last-child > div:last-child > div:last-child > div:first-child > div {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+@media (max-width: 640px) {
+  [data-booking-page-builder]:has(input[name="themeKey"][value="salon"]) [data-booking-builder-preview] > div:last-child > section:first-child {
+    min-height: 330px;
+    padding: 24px 22px 94px !important;
+  }
+
+  [data-booking-page-builder]:has(input[name="themeKey"][value="salon"]) [data-booking-builder-preview] > div:last-child > section:first-child::before {
+    top: 22px;
+    left: 22px;
+  }
+
+  [data-booking-page-builder]:has(input[name="themeKey"][value="salon"]) [data-booking-builder-preview] > div:last-child > section:first-child h2 {
+    margin-top: 52px !important;
+  }
+}
