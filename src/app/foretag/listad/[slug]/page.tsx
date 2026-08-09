@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import Image from "next/image";
+import Link from "next/link";
 import { ArrowRight, BadgeCheck, Building2, MapPin, ShieldCheck } from "lucide-react";
 import { notFound, redirect } from "next/navigation";
 
@@ -55,15 +57,18 @@ export default async function ListedBusinessPage({ params }: Props) {
   return (
     <main className="min-h-screen bg-[#f6f7f5] px-4 py-8 text-[#17201a] sm:px-6 sm:py-12">
       <div className="mx-auto max-w-5xl">
-        <a href="/" className="text-lg font-black text-[#173e2b]">Proffera</a>
+        <Link href="/" className="text-lg font-black text-[#173e2b]">Proffera</Link>
 
         <article className="mt-7 overflow-hidden rounded-[2rem] bg-white shadow-sm ring-1 ring-black/10">
           {business.media ? (
-            <div className="relative">
-              <img
+            <div className="relative h-64 sm:h-80">
+              <Image
                 src={business.media.url}
                 alt={business.media.isActualBusinessMedia ? business.companyName : `${category} – illustrationsbild`}
-                className="h-64 w-full object-cover sm:h-80"
+                fill
+                unoptimized
+                sizes="(max-width: 1024px) 100vw, 960px"
+                className="object-cover"
               />
               {!business.media.isActualBusinessMedia ? (
                 <span className="absolute bottom-4 left-4 rounded-full bg-black/70 px-3 py-1.5 text-xs font-bold text-white">
@@ -88,12 +93,12 @@ export default async function ListedBusinessPage({ params }: Props) {
                 ) : null}
               </div>
 
-              <a
+              <Link
                 href={`/foretag/claim/${encodeURIComponent(business.slug)}`}
                 className="inline-flex min-h-12 shrink-0 items-center justify-center rounded-xl bg-[#173e2b] px-5 font-black text-white"
               >
                 Äger du företaget? <ArrowRight className="ml-2 h-4 w-4" />
-              </a>
+              </Link>
             </div>
 
             <div className="mt-9 grid gap-4 md:grid-cols-3">
