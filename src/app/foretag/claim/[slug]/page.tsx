@@ -87,7 +87,7 @@ export default async function ClaimCompanyPage({ params, searchParams }: Props) 
               <p className="mt-3 text-center text-xs leading-5 text-[#707870]">Inloggad som {session.user.email ?? "Proffera-användare"}</p>
             </form>
           ) : (
-            <a href={`/login?next=${encodeURIComponent(returnTo)}`} className="mt-8 flex min-h-12 w-full items-center justify-center rounded-xl bg-[#173e2b] px-5 font-black text-white">
+            <a href={`/logga-in?next=${encodeURIComponent(returnTo)}`} className="mt-8 flex min-h-12 w-full items-center justify-center rounded-xl bg-[#173e2b] px-5 font-black text-white">
               Logga in för att fortsätta
             </a>
           ) : null}
