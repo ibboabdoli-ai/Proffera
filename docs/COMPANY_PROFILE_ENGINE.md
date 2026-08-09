@@ -15,6 +15,27 @@ The engine is deliberately fail-closed:
 - a public profile cannot become a customer Workspace until a claim is verified;
 - approved claims reuse the existing Proffera Workspace provisioning path.
 
+## Cost policy
+
+The first production path must not require a new paid data service.
+
+Allowed core sources/infrastructure:
+
+- Bolagsverket/SCB `Värdefulla datamängder` because the official dataset is provided without a data fee;
+- the free downloadable version of the same high-value dataset when it is operationally preferable for discovery;
+- Proffera's existing Neon database and Vercel deployment/cron capacity, subject to the limits of the plans already in use;
+- Proffera-owned/generated category illustrations.
+
+Not allowed as a dependency of the core directory engine:
+
+- the paid Bolagsverket `Företagsinformation` API;
+- paid lead/company databases;
+- paid image scraping/enrichment services;
+- per-profile AI image generation;
+- Google/third-party content copied into Proffera without a compliant license and storage policy.
+
+If an optional paid enrichment is ever introduced, it must be feature-gated and the free official-data path must continue to work without it.
+
 ## Data flow
 
 ```text
@@ -38,6 +59,8 @@ Owner claim request
         ↓
 Super Admin verification
         ↓
+Atomic claim reservation
+        ↓
 Existing Proffera Workspace provisioning
         ↓
 Claimed profile redirects to tenant public business page
@@ -45,25 +68,29 @@ Claimed profile redirects to tenant public business page
 
 ## Source strategy
 
-Preferred Swedish source: Bolagsverket/SCB Värdefulla datamängder.
+Preferred Swedish source: Bolagsverket/SCB `Värdefulla datamängder`.
+
+Bolagsverket and SCB publish this high-value company information through an API and as downloadable files. The Proffera core path must use those no-data-fee sources rather than the separate paid `Företagsinformation` API.
 
 The engine supports two source stages:
 
-1. `COMPANY_DIRECTORY_SOURCE_URL` — a paginated JSON discovery feed containing reusable official company records.
-2. `COMPANY_DIRECTORY_DETAIL_URL_TEMPLATE` — optional second-stage official verification by organisation number.
+1. `COMPANY_DIRECTORY_SOURCE_URL` — discovery feed containing reusable official company records. During the pilot this stays explicitly configured rather than guessed.
+2. `COMPANY_DIRECTORY_DETAIL_URL_TEMPLATE` — second-stage official verification by organisation number using the high-value dataset API.
 
-The exact test/production endpoints and request body must be copied from the current provider Swagger after Proffera receives API access. The repository intentionally does not guess or hard-code an undocumented operation URL.
+The exact test/production URLs must be copied from the current Bolagsverket developer portal after the free credentials are issued. The repository intentionally does not hard-code an environment URL so test credentials cannot accidentally be sent to production or vice versa.
 
 OAuth variables:
 
 - `COMPANY_DIRECTORY_TOKEN_URL`
+- `COMPANY_DIRECTORY_OAUTH_SCOPE` (default `vardefulla-datamangder:read`)
 - `BOLAGSVERKET_CLIENT_ID`
 - `BOLAGSVERKET_CLIENT_SECRET`
 
-For a detail API that uses POST, set:
+The organisation lookup uses POST so the organisation number is not placed in the URL. The default body template is:
 
-- `COMPANY_DIRECTORY_DETAIL_METHOD=POST`
-- `COMPANY_DIRECTORY_DETAIL_BODY_TEMPLATE` to the JSON structure documented by the provider. `{organizationNumber}` is replaced with the ten-digit Swedish organisation number.
+`{"identitetsbeteckning":"{organizationNumber}"}`
+
+The source adapter also accepts the official response shape where organisations are returned in an `organisationer` array and reads nested organisation identity, company name, SNI, activity-description, address and registration signals conservatively.
 
 ## Publication policy
 
@@ -80,6 +107,8 @@ Current automatic gate:
 - quality score is at least 80/100.
 
 `COMPANY_DIRECTORY_AUTO_PUBLISH` must stay `false` during source integration and pilot verification. With it disabled, eligible profiles stop at `ready`.
+
+If the official source does not provide enough evidence that an organisation is active, the adapter does not assume active status. This intentionally lowers recall before it lowers accuracy.
 
 ## Quality score
 
@@ -157,14 +186,20 @@ Super Admin route:
 
 The admin must record verification evidence. Approval requires the claimant's Proffera email to already be verified. The approval path then:
 
-1. reserves a deterministic Workspace UUID on the claim;
-2. invokes the existing `provisionWorkspace` function;
-3. creates/updates the claimant as Workspace owner;
-4. creates the normal 14-day starter trial and default Workspace configuration;
-5. copies the official activity description into the new Workspace intro only when the intro is empty;
-6. links the directory profile to the Workspace;
-7. records the admin decision in `admin_audit_logs`;
-8. changes the directory record to `claimed`.
+1. atomically reserves the directory profile to the exact claim;
+2. reserves/reuses the Workspace UUID on that claim;
+3. invokes the existing idempotent `provisionWorkspace` function;
+4. creates/updates the claimant as Workspace owner;
+5. creates the normal 14-day starter trial and default Workspace configuration;
+6. copies the official activity description into the new Workspace intro only when the intro is empty;
+7. finalizes the profile only if the same claim still owns the reservation;
+8. clears the reservation and links the directory profile to the Workspace;
+9. records the admin decision in `admin_audit_logs`;
+10. changes the directory record and claim to `claimed`.
+
+A different claim for the same profile cannot pass the atomic reservation update. Retrying the same claim is allowed, which keeps the flow recoverable/idempotent.
+
+A claim that already owns the reservation cannot be rejected mid-provisioning.
 
 The original imported URL redirects to `/foretag/<workspace-slug>` after claim so external links do not become dead ends.
 
@@ -186,7 +221,8 @@ Concurrency protections:
 - stale running leases older than 15 minutes are marked failed before a new run starts;
 - source cursor is stored in completed sync runs;
 - profile upsert is unique by country + organisation number;
-- provenance values are deduplicated by profile + field + source + value hash.
+- provenance values are deduplicated by profile + field + source + value hash;
+- profile claim provisioning is reserved by one claim at a time.
 
 ## Required rollout sequence
 
@@ -205,17 +241,18 @@ Apply only the new additive migrations:
 - `20260809_0037_company_profile_engine_foundation.sql`
 - `20260809_0038_company_profile_engine_provenance.sql`
 - `20260809_0039_company_profile_claim_guard.sql`
+- `20260809_0040_company_profile_claim_reservation.sql`
 
-Then verify constraints and indexes before loading test records.
+Then verify constraints, indexes, publication/media guards and the two-claim reservation race before loading real pilot records.
 
 ### 3. Bolagsverket test environment
 
-- request API access;
-- configure test OAuth values;
-- copy the current source/detail operation URLs and POST schema from Swagger;
+- request the no-data-fee `Värdefulla datamängder` API access;
+- configure the issued test OAuth values;
+- copy the current test operation/token URLs from the official developer portal;
 - keep `COMPANY_DIRECTORY_AUTO_PUBLISH=false`;
 - run a small sync;
-- compare every normalized field against the source response.
+- compare every normalized field against the official source response.
 
 ### 4. Pilot dataset
 
@@ -231,6 +268,8 @@ Acceptance gate before any auto-publish:
 - no false services/prices generated;
 - source/update information visible;
 - claim cannot grant access without admin verification;
+- competing claims cannot both provision a Workspace;
+- retry of the same reserved claim remains safe;
 - claimed profile resolves to the correct tenant Workspace.
 
 ### 5. Production activation
@@ -238,7 +277,7 @@ Acceptance gate before any auto-publish:
 Only after the Preview/pilot evidence is reviewed:
 
 1. apply migrations with branch-first production workflow;
-2. configure Production Bolagsverket credentials/endpoints;
+2. configure Production Bolagsverket high-value-dataset credentials/endpoints;
 3. deploy while `COMPANY_DIRECTORY_AUTO_PUBLISH=false`;
 4. run a read-only/ready-only production sync;
 5. inspect the ready queue;
@@ -249,6 +288,8 @@ Only after the Preview/pilot evidence is reviewed:
 The engine cannot guarantee that an unclaimed company's marketing photos, exact prices, detailed services, opening hours or staff roster are correct unless a reusable authoritative source provides those fields. It therefore does not invent them.
 
 This is a correctness feature, not missing enrichment: official facts are automated; marketing facts become owner-confirmed after claim or licensed/verified enrichment later.
+
+The current free official API lookup is organisation-number driven. Automatic broad discovery must therefore use an official reusable discovery/bulk source, not brute-force organisation-number guessing. The high-value dataset is also offered as downloadable files; the exact production ingestion format/URL must be verified before enabling scheduled bulk discovery.
 
 ## Rollback
 
