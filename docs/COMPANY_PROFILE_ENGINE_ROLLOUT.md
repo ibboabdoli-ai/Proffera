@@ -107,7 +107,7 @@ Only published, privacy-safe, eligible profiles enter the sitemap. Public direct
 
 ## Validation completed
 
-CI validates dependency install, lint, TypeScript, Vitest, production build and whitespace. Tests cover source parsing, negative registration signals, SNI policy, pilot-location guards, zero-cost caps, seed configuration, public-claim guards, Super Admin route guards and claim-lease contracts.
+Latest full CI validated dependency install, lint, TypeScript, Vitest, production build and whitespace. Tests cover source parsing, negative registration signals, SNI policy, pilot-location guards, zero-cost caps, seed configuration, public-claim guards, Super Admin route guards and claim-lease contracts.
 
 Isolated Neon tests verified publication/media guards, Södertälje-vs-Malmö pilot enforcement, competing-claim exclusion, same-claim stale recovery, reservation pair integrity and refusal to release a stale reservation when its Workspace already exists. Temporary Neon validation branches were deleted without applying Company Profile Engine migrations to the parent/main database.
 
