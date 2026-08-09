@@ -77,7 +77,7 @@ describe("company directory policy", () => {
     expect(assessment.publicationStatus).toBe("review");
   });
 
-  it("builds stable non-personal public slugs", () => {
-    expect(buildDirectoryPublicSlug(candidate())).toBe("exempel-stad-ab-123456");
+  it("builds stable public slugs for juridical companies", () => {
+    expect(buildDirectoryPublicSlug(candidate())).toBe("exempel-stad-ab-234567");
   });
 });
