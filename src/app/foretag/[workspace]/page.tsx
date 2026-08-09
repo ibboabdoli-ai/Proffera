@@ -32,8 +32,7 @@ export default async function PublicBusinessPage({ params }: Props) {
   const text = dark ? "#f5f7f5" : "#17201a";
   const muted = dark ? "#b9c3bc" : "#5d685f";
   const style = { "--business-primary": experience.primaryColor, "--business-accent": experience.accentColor, background, color: text } as CSSProperties;
-  const bookableService = services.find((service) => (service.conversionMode === "book" || service.conversionMode === "book_or_quote") && business.bookingEnabled && business.bookingSlug);
-  const topBookingHref = bookableService ? `/boka/${encodeURIComponent(business.bookingSlug)}?service_id=${encodeURIComponent(bookableService.id)}` : business.bookingEnabled && business.bookingSlug ? `/boka/${encodeURIComponent(business.bookingSlug)}` : "";
+  const bookingHref = business.bookingEnabled && business.bookingSlug ? `/boka/${encodeURIComponent(business.bookingSlug)}` : "";
 
   return (
     <main style={style} className="min-h-screen px-4 py-6 sm:px-6 sm:py-10">
@@ -44,7 +43,7 @@ export default async function PublicBusinessPage({ params }: Props) {
             {experience.logoUrl ? <img src={experience.logoUrl} alt={`${business.companyName} logotyp`} className="max-h-12 max-w-40 object-contain" /> : <div style={{ background: experience.primaryColor }} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-lg font-black text-white">{business.companyName.slice(0, 1).toUpperCase()}</div>}
             <div className="min-w-0"><p className="truncate text-lg font-black">{business.companyName}</p>{business.primaryCity ? <p style={{ color: muted }} className="truncate text-sm">{business.primaryCity}</p> : null}</div>
           </div>
-          {topBookingHref ? <PublicBusinessTrackedLink workspaceId={business.id} serviceId={bookableService?.id} eventKey="book_clicked" href={topBookingHref} className="hidden min-h-11 items-center justify-center rounded-xl bg-[var(--business-primary)] px-5 text-sm font-black text-white sm:inline-flex">Boka tid</PublicBusinessTrackedLink> : null}
+          {bookingHref ? <PublicBusinessTrackedLink workspaceId={business.id} eventKey="book_clicked" href={bookingHref} className="hidden min-h-11 items-center justify-center rounded-xl bg-[var(--business-primary)] px-5 text-sm font-black text-white sm:inline-flex">Boka tid</PublicBusinessTrackedLink> : null}
         </header>
 
         {experience.heroEnabled ? <section style={{ background: experience.primaryColor }} className="overflow-hidden rounded-[2rem] text-white shadow-xl">
@@ -55,7 +54,7 @@ export default async function PublicBusinessPage({ params }: Props) {
               {business.primaryCity ? <p className="mt-4 flex items-center gap-2 text-white/80"><MapPin className="h-5 w-5" /> {business.primaryCity}</p> : null}
               <p className="mt-6 max-w-2xl text-base leading-7 text-white/85">{business.businessIntro || "Se våra tjänster, välj det som passar och boka eller skicka en offertförfrågan direkt."}</p>
               <div className="mt-7 flex flex-wrap gap-3">
-                {topBookingHref ? <PublicBusinessTrackedLink workspaceId={business.id} serviceId={bookableService?.id} eventKey="book_clicked" href={topBookingHref} className="inline-flex min-h-12 items-center justify-center rounded-xl bg-white px-5 font-black text-[#173e2b]">Boka online <ArrowRight className="ml-2 h-4 w-4" /></PublicBusinessTrackedLink> : null}
+                {services.length ? <a href="#tjanster" className="inline-flex min-h-12 items-center justify-center rounded-xl bg-white px-5 font-black text-[#173e2b]">Se tjänster <ArrowRight className="ml-2 h-4 w-4" /></a> : bookingHref ? <PublicBusinessTrackedLink workspaceId={business.id} eventKey="book_clicked" href={bookingHref} className="inline-flex min-h-12 items-center justify-center rounded-xl bg-white px-5 font-black text-[#173e2b]">Boka online <ArrowRight className="ml-2 h-4 w-4" /></PublicBusinessTrackedLink> : null}
                 {business.contactEmail ? <PublicBusinessTrackedLink workspaceId={business.id} eventKey="contact_clicked" href={`mailto:${business.contactEmail}`} className="inline-flex min-h-12 items-center justify-center rounded-xl border border-white/35 px-5 font-black text-white">Kontakta oss</PublicBusinessTrackedLink> : null}
               </div>
             </div>
@@ -67,7 +66,10 @@ export default async function PublicBusinessPage({ params }: Props) {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--business-primary)]">Våra tjänster</p><h2 className="mt-2 text-3xl font-black">Vad kan vi hjälpa dig med?</h2></div><p style={{ color: muted }} className="max-w-xl text-sm leading-6">Välj en tjänst för mer information, pris och nästa steg.</p></div>
           {services.length ? <div className="mt-7 grid gap-4 md:grid-cols-2 lg:grid-cols-3">{services.map((service) => {
             const price = formatPublicBusinessPrice(service, business.billingCurrency);
-            return <a key={service.id} href={`/foretag/${encodeURIComponent(business.slug)}/tjanster/${encodeURIComponent(service.publicSlug)}`} style={{ background: card }} className="group rounded-[1.6rem] p-6 shadow-sm ring-1 ring-black/10 transition hover:-translate-y-1 hover:shadow-lg"><div className="flex items-start justify-between gap-3"><div>{service.category ? <p style={{ color: muted }} className="text-xs font-black uppercase tracking-wide">{service.category}</p> : null}<h3 className="mt-2 text-xl font-black">{service.name}</h3></div><ArrowRight className="h-5 w-5 shrink-0 text-[var(--business-primary)] transition group-hover:translate-x-1" /></div><p style={{ color: muted }} className="mt-4 line-clamp-3 text-sm leading-6">{service.shortDescription || service.description || "Läs mer om tjänsten och se hur du går vidare."}</p><div className="mt-5 flex flex-wrap items-center gap-3 text-sm font-bold">{price ? <span className="text-[var(--business-primary)]">{price}</span> : null}{service.durationMinutes ? <span style={{ color: muted }} className="inline-flex items-center gap-1"><Clock3 className="h-4 w-4" /> {service.durationMinutes} min</span> : null}</div></a>;
+            return <a key={service.id} href={`/foretag/${encodeURIComponent(business.slug)}/tjanster/${encodeURIComponent(service.publicSlug)}`} style={{ background: card }} className="group overflow-hidden rounded-[1.6rem] shadow-sm ring-1 ring-black/10 transition hover:-translate-y-1 hover:shadow-lg">
+              {service.coverImageUrl ? <img src={service.coverImageUrl} alt={service.name} loading="lazy" className="h-48 w-full object-cover" /> : null}
+              <div className="p-6"><div className="flex items-start justify-between gap-3"><div>{service.category ? <p style={{ color: muted }} className="text-xs font-black uppercase tracking-wide">{service.category}</p> : null}<h3 className="mt-2 text-xl font-black">{service.name}</h3></div><ArrowRight className="h-5 w-5 shrink-0 text-[var(--business-primary)] transition group-hover:translate-x-1" /></div><p style={{ color: muted }} className="mt-4 line-clamp-3 text-sm leading-6">{service.shortDescription || service.description || "Läs mer om tjänsten och se hur du går vidare."}</p><div className="mt-5 flex flex-wrap items-center gap-3 text-sm font-bold">{price ? <span className="text-[var(--business-primary)]">{price}</span> : null}{service.durationMinutes ? <span style={{ color: muted }} className="inline-flex items-center gap-1"><Clock3 className="h-4 w-4" /> {service.durationMinutes} min</span> : null}</div></div>
+            </a>;
           })}</div> : <div style={{ background: card, color: muted }} className="mt-7 rounded-3xl p-6 ring-1 ring-black/10">Företaget har inte publicerat några tjänster ännu.</div>}
         </section> : null}
 
