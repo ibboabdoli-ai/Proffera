@@ -8,6 +8,7 @@ import { getPublicWorkspaceExperienceSettings } from "@/lib/workspace-experience
 import { getPublishedGalleryItems } from "@/lib/website-gallery-db";
 import { getPublishedWebsiteReviews } from "@/lib/website-reviews-db";
 
+import { BookingMediaGuard } from "./booking-media-guard";
 import "./booking-themes.css";
 import "./booking-theme-controls.css";
 import "./booking-polish.css";
@@ -137,5 +138,5 @@ export default async function PublicBookingLayout({ children, params }: { childr
     }
   }
 
-  return <div data-booking-theme={themeKey} data-booking-appearance={appearance}>{children}{publicSections}{gallery}</div>;
+  return <div data-booking-theme={themeKey} data-booking-appearance={appearance}><BookingMediaGuard />{children}{publicSections}{gallery}</div>;
 }
