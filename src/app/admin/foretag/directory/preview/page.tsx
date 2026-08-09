@@ -98,7 +98,7 @@ export default async function DirectorySourcePreviewPage({ searchParams }: Props
                       <h3 className="text-xl font-black text-[#17201a]">{result.candidate.legalName || "Namn saknas"}</h3>
                       <p className="mt-1 text-sm text-[#687169]">{result.candidate.city || "Ort saknas"} · {result.candidate.legalForm || "Företagsform saknas"}</p>
                     </div>
-                    <span className="rounded-full bg-[#eef3ef] px-3 py-1 text-xs font-black text-[#17452f]">{result.assessment.qualityScore ?? result.assessment.score}/100</span>
+                    <span className="rounded-full bg-[#eef3ef] px-3 py-1 text-xs font-black text-[#17452f]">{result.assessment.score}/100</span>
                   </div>
                   <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
                     <div><dt className="text-[#778079]">Org.nr</dt><dd className="mt-1 font-bold">{result.candidate.organizationNumber}</dd></div>
