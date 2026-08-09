@@ -1,6 +1,12 @@
 import { redirect } from "next/navigation";
 
 import { BookingPageBuilder } from "./booking-page-builder";
+import { ThemeContentEditor } from "./theme-content-editor";
+import {
+  isBookingThemeKey,
+  withBookingThemeContentOverride,
+  type BookingThemeContentOverride,
+} from "@/lib/booking-theme-templates";
 import { getSql } from "@/lib/db/server";
 import { isPrimeViewHost, normalizeCustomDomainInput } from "@/lib/public-site-domains";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
@@ -60,6 +66,38 @@ async function disconnectSavedCustomDomain() {
     customDomainStatus: "disconnected",
   });
   redirect(appearanceUrl({ removed: true }));
+}
+
+async function saveThemeContent(formData: FormData) {
+  "use server";
+
+  if (!(await hasWorkspaceFeature("website_builder"))) redirect("/dashboard/installningar/funktioner");
+  const themeKeyInput = String(formData.get("themeContentKey") ?? "");
+  if (!isBookingThemeKey(themeKeyInput)) redirect(appearanceUrl({ error: "theme_content" }));
+
+  const current = await getWorkspaceExperienceSettings();
+  const reset = formData.get("resetThemeContent") === "1";
+  const override: BookingThemeContentOverride | null = reset ? null : {
+    heroTitleSv: String(formData.get("heroTitleSv") ?? "").trim(),
+    heroTitleEn: String(formData.get("heroTitleEn") ?? "").trim(),
+    heroSubtitleSv: String(formData.get("heroSubtitleSv") ?? "").trim(),
+    heroSubtitleEn: String(formData.get("heroSubtitleEn") ?? "").trim(),
+    heroDescriptionSv: String(formData.get("heroDescriptionSv") ?? "").trim(),
+    heroDescriptionEn: String(formData.get("heroDescriptionEn") ?? "").trim(),
+    ctaLabelSv: String(formData.get("ctaLabelSv") ?? "").trim(),
+    ctaLabelEn: String(formData.get("ctaLabelEn") ?? "").trim(),
+    faqTitleSv: String(formData.get("faqTitleSv") ?? "").trim(),
+    faqTitleEn: String(formData.get("faqTitleEn") ?? "").trim(),
+    faqBodySv: String(formData.get("faqBodySv") ?? "").trim(),
+    faqBodyEn: String(formData.get("faqBodyEn") ?? "").trim(),
+    heroImageUrl: String(formData.get("themeHeroImageUrl") ?? "").trim(),
+  };
+
+  await updateWorkspaceExperienceSettings({
+    ...current,
+    themeContentOverrides: withBookingThemeContentOverride(current.themeContentOverrides, themeKeyInput, override),
+  });
+  redirect(appearanceUrl({ updated: true }));
 }
 
 async function saveAppearance(formData: FormData) {
@@ -122,6 +160,7 @@ async function saveAppearance(formData: FormData) {
     heroVideoUrl: formData.has("heroVideoUrl") ? String(formData.get("heroVideoUrl") ?? "") : current.heroVideoUrl,
     customDomain,
     customDomainStatus: current.customDomainStatus,
+    themeContentOverrides: current.themeContentOverrides,
   };
 
   try {
@@ -241,9 +280,10 @@ export default async function AppearanceSettingsPage({
         </div>
       </header>
 
-      {params.updated === "1" ? <p className="rounded-xl bg-[#eaf6ed] p-4 text-sm font-bold text-[#17452f]">Designen sparades och publicerades.</p> : null}
+      {params.updated === "1" ? <p className="rounded-xl bg-[#eaf6ed] p-4 text-sm font-bold text-[#17452f]">Designen och temainnehållet sparades och publicerades.</p> : null}
       {params.domainRemoved === "1" ? <p className="rounded-xl bg-[#eaf6ed] p-4 text-sm font-bold text-[#17452f]">Domänen kopplades från och togs bort från Profferas Vercel-projekt.</p> : null}
       {params.error === "language" ? <p className="rounded-xl bg-[#fff3ef] p-4 text-sm font-bold text-[#8f2f1b]">Minst ett språk måste vara aktivt.</p> : null}
+      {params.error === "theme_content" ? <p className="rounded-xl bg-[#fff3ef] p-4 text-sm font-bold text-[#8f2f1b]">Temainnehållet kunde inte sparas. Välj ett giltigt tema.</p> : null}
       {params.error === "domain" ? <p className="rounded-xl bg-[#fff3ef] p-4 text-sm font-bold text-[#8f2f1b]">Ange bara ett giltigt domännamn, till exempel booking.foretagen.se.</p> : null}
       {params.error === "domain_taken" ? <p className="rounded-xl bg-[#fff3ef] p-4 text-sm font-bold text-[#8f2f1b]">Domänen används redan av en annan arbetsyta.</p> : null}
       {params.error === "domain_remove" ? <p className="rounded-xl bg-[#fff3ef] p-4 text-sm font-bold text-[#8f2f1b]">Domänen kunde inte kopplas från Vercel. Ingen säker bortkoppling genomfördes.</p> : null}
@@ -268,6 +308,8 @@ export default async function AppearanceSettingsPage({
         workspaceName={access.workspaceName}
         saveAction={saveAppearance}
       />
+
+      {builderEnabled ? <ThemeContentEditor activeThemeKey={settings.themeKey} overrides={settings.themeContentOverrides} saveAction={saveThemeContent} /> : null}
 
       {customDomainEnabled && settings.customDomain && !bespokePrimeView ? (
         <section className="rounded-[24px] border border-[#dfe6df] bg-white p-6" data-domain-connection-status>
