@@ -75,6 +75,9 @@ describe("Public Business Hub architecture contract", () => {
     expect(migration).toContain("public_business_events_service_identity");
     expect(migration).not.toContain("public_business_events_customer_email");
     expect(events).toContain('eventKey: z.enum(["business_view", "service_view", "book_clicked", "quote_clicked", "contact_clicked"])');
+    expect(events).toContain('hasWorkspaceFeatureAccessForWorkspace(event.workspaceId, "website_builder")');
+    expect(events).toContain("and is_active = true");
+    expect(events).toContain("and public_status = 'published'");
     expect(events).not.toContain("customerEmail");
     expect(events).not.toContain("customerPhone");
   });
