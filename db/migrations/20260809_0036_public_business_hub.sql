@@ -124,19 +124,27 @@ alter table workspace_service_jobs
   add column if not exists service_id uuid;
 
 update workspace_service_jobs job
-set service_id = coalesce(booking.service_id, quote_request.service_id, service.id)
-from workspaces workspace
-left join bookings booking
-  on booking.id = job.booking_id
- and booking.workspace_id = workspace.id::text
-left join workspace_quote_requests quote_request
-  on quote_request.id = job.quote_request_id
- and quote_request.workspace_id = workspace.id
-left join workspace_services service
-  on service.workspace_id = workspace.id::text
- and service.name = job.service_name
-where job.workspace_id = workspace.id
-  and job.service_id is null;
+set service_id = booking.service_id
+from bookings booking
+where job.service_id is null
+  and job.booking_id = booking.id
+  and booking.workspace_id = job.workspace_id::text
+  and booking.service_id is not null;
+
+update workspace_service_jobs job
+set service_id = request.service_id
+from workspace_quote_requests request
+where job.service_id is null
+  and job.quote_request_id = request.id
+  and request.workspace_id = job.workspace_id
+  and request.service_id is not null;
+
+update workspace_service_jobs job
+set service_id = service.id
+from workspace_services service
+where job.service_id is null
+  and service.workspace_id = job.workspace_id::text
+  and service.name = job.service_name;
 
 alter table workspace_service_jobs
   drop constraint if exists workspace_service_jobs_service_fk;
