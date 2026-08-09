@@ -116,11 +116,10 @@ export function VerifiedReviewForm({
   }
 
   return (
-    <form onSubmit={submitReview} className="grid gap-5">
-      <label className="sr-only" aria-hidden="true">
-        Website
+    <form onSubmit={submitReview} className="relative grid gap-5">
+      <div aria-hidden="true" className="pointer-events-none absolute -left-[10000px] top-auto size-px overflow-hidden">
         <input name="website" type="text" tabIndex={-1} autoComplete="off" />
-      </label>
+      </div>
 
       <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
         <p className="font-black text-slate-900">{service}</p>
