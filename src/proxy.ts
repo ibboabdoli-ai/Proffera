@@ -12,6 +12,7 @@ const PROFFERA_TENANT = "proffera";
 const PROFFERA_CLIENT_ID = "proffera";
 const NOINDEX_VALUE = "noindex, nofollow";
 const ADMIN_PATH_HEADER = "x-proffera-admin-path";
+const PUBLIC_SERVICE_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 function notFound() {
   return new Response("Not found", {
@@ -115,6 +116,27 @@ export async function proxy(request: NextRequest) {
     return NextResponse.rewrite(url);
   }
 
+  // Website-mode custom domains expose clean service URLs while the internal
+  // tenant route remains workspace-scoped. Platform /tjanster routes are not changed.
+  if (!isPlatformHost(host) && !isPrimeViewHost(host) && (pathname === "/tjanster" || pathname.startsWith("/tjanster/"))) {
+    const target = await resolvePublicCustomDomain(host);
+    if (!target || target.publicHomeMode !== "website") return notFound();
+
+    if (pathname === "/tjanster") {
+      const url = request.nextUrl.clone();
+      url.pathname = "/";
+      url.hash = "tjanster";
+      return NextResponse.redirect(url);
+    }
+
+    const serviceSlug = decodeURIComponent(pathname.slice("/tjanster/".length)).trim().toLowerCase();
+    if (!PUBLIC_SERVICE_SLUG.test(serviceSlug)) return notFound();
+
+    const url = request.nextUrl.clone();
+    url.pathname = `/foretag/${encodeURIComponent(target.workspaceSlug)}/tjanster/${encodeURIComponent(serviceSlug)}`;
+    return NextResponse.rewrite(url);
+  }
+
   if (pathname.startsWith("/app/")) {
     return NextResponse.redirect(chatUrl(pathname, search));
   }
@@ -140,6 +162,7 @@ export async function proxy(request: NextRequest) {
 export const config = {
   matcher: [
     "/",
+    "/tjanster/:path*",
     "/en",
     "/en/:path*",
     "/app/:path*",
