@@ -25,11 +25,27 @@ Not allowed in the core path:
 ```text
 COMPANY_DIRECTORY_SYNC_ENABLED=false
 COMPANY_DIRECTORY_AUTO_PUBLISH=false
+COMPANY_DIRECTORY_DISCOVERY_MODE=seed
 COMPANY_DIRECTORY_BATCH_SIZE=10
 COMPANY_DIRECTORY_MAX_PAGES_PER_RUN=2
 ```
 
 The application hard-caps the pilot at 10 source records per page and 2 pages per run even if environment values are accidentally larger.
+
+## Pilot discovery modes
+
+`seed` is the first-pilot mode. It accepts only explicit ten-digit organisation numbers from `COMPANY_DIRECTORY_SEED_ORGANIZATION_NUMBERS`. The Super Admin `Källtest` then verifies those records against the official detail API and writes nothing to Company Directory tables.
+
+For seed mode, Proffera refuses to run the Källtest until all of these are explicit:
+
+- test OAuth credentials;
+- official detail URL;
+- HTTP method;
+- documented POST body template when the operation uses POST.
+
+Proffera does not guess an official endpoint or request body.
+
+`feed` is reserved for broad discovery after the exact official/reusable free downloadable-file or feed URL and format have been verified. The paid Företagsinformation API must never be configured as the discovery feed.
 
 ## Pilot area
 
@@ -44,6 +60,22 @@ This is enforced twice:
 2. PostgreSQL publication constraint.
 
 A company outside the pilot can be retained for review, but cannot become `published` while the pilot guard exists.
+
+## Initial SNI2025 scope
+
+Supported pilot categories are deliberately narrow and deterministic:
+
+- `81.210` → Städning / lokalvård;
+- `81.22*` → Städning / specialiserad rengöring, including fönsterputs;
+- `96.910` → Hemservice. This broader household-service code is intentionally kept separate from the Städning category and does not auto-infer detailed service slugs;
+- `49.420` → Flytt;
+- `43.210` → Elektriker;
+- `43.22*` → VVS;
+- `43.341` → Måleri;
+- `43.320` → Snickeri;
+- `81.300` → Trädgård.
+
+SNI determines the broad directory category. It does not prove exact services, prices or availability.
 
 ## Migrations
 
@@ -97,14 +129,14 @@ Owner/rights-confirmed media remains separate from generated fallback media.
 Super Admin only:
 
 - `/admin/foretag/directory` — read-only engine status, quality queue and sync history;
-- `/admin/foretag/directory/preview` — `Källtest`, reads up to five source records, normalizes/verifies them and writes nothing to Company Directory tables;
+- `/admin/foretag/directory/preview` — `Källtest`, reads up to five seed/feed source records, normalizes/verifies them and writes nothing to Company Directory tables;
 - `/admin/foretag/claims` — claim verification, provisioning status and stale-reservation recovery.
 
-The ordinary company-admin view does not expose the engine/claim controls.
+Direct URLs have an explicit Super Admin route guard. The ordinary company-admin view does not expose the engine/claim controls.
 
 ## Claim/provisioning safety
 
-Claim submission never grants ownership.
+Claim submission never grants ownership and is accepted only for profiles already in `published`, privacy-safe, eligible state.
 
 Approval requires a Super Admin and verified claimant email. Provisioning uses the existing Proffera `provisionWorkspace` path.
 
@@ -122,22 +154,25 @@ Concurrency/recovery protections:
 
 Only profiles already in `published` state and passing privacy/eligibility guards enter the platform sitemap.
 
-`ready`, `review`, `blocked` and `inactive` records are not exposed to search engines through the sitemap.
+Published directory pages use canonical metadata and factual LocalBusiness structured data without fake ratings, reviews, prices, phone numbers or service claims. Generated category images are not represented as actual-business media in structured data.
+
+`ready`, `review`, `blocked` and `inactive` records are not exposed to search engines through the sitemap. Claim pages are `noindex`.
 
 ## Real-data activation sequence
 
 When Bolagsverket sends the free credentials:
 
-1. configure **test** OAuth + official operation URLs in a non-Production environment;
-2. keep sync and auto-publish off;
-3. open `/admin/foretag/directory/preview` and run the five-record read-only `Källtest`;
-4. compare every normalized field with the official source response;
-5. confirm official downloadable discovery source URL/format if used;
-6. create a fresh isolated Neon branch and apply migrations `0037`–`0042`;
-7. run a very small ready-only Stockholm/Södertälje sync;
-8. inspect the Directory Admin queue and duplicate/media/privacy behavior;
-9. only after evidence is reviewed, plan Production migration/deploy while auto-publish remains false;
-10. enable automatic publication separately and explicitly.
+1. configure **test** OAuth + the exact official detail operation URL/method/body schema in a non-Production environment;
+2. add a handful of known test organisation numbers to seed mode;
+3. keep sync and auto-publish off;
+4. open `/admin/foretag/directory/preview` and run the five-record read-only `Källtest`;
+5. compare every normalized field with the official source response;
+6. confirm the official downloadable discovery source URL/format before broad discovery;
+7. create a fresh isolated Neon branch and apply migrations `0037`–`0042`;
+8. run a very small ready-only Stockholm/Södertälje sync after the broad discovery adapter is verified;
+9. inspect the Directory Admin queue and duplicate/media/privacy behavior;
+10. only after evidence is reviewed, plan Production migration/deploy while auto-publish remains false;
+11. enable automatic publication separately and explicitly.
 
 ## Current release gate
 
