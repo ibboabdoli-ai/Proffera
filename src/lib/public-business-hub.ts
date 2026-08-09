@@ -17,6 +17,7 @@ export type PublicBusinessService = {
   serviceArea: string;
   publicSlug: string;
   conversionMode: "book" | "quote" | "book_or_quote" | "contact";
+  coverImageUrl: string;
   seoTitle: string;
   seoDescription: string;
 };
@@ -134,7 +135,7 @@ export async function getPublicBusinessHub(workspaceSlug: string): Promise<Publi
       sql`
         select id, name, description, short_description, category, price_label, price_type,
           price_amount_minor, duration_minutes, service_area, public_slug, conversion_mode,
-          seo_title, seo_description
+          cover_image_url, seo_title, seo_description
         from workspace_services
         where workspace_id = ${workspaceId}
           and is_active = true
@@ -187,6 +188,7 @@ export async function getPublicBusinessHub(workspaceSlug: string): Promise<Publi
         serviceArea: text(service.service_area),
         publicSlug: text(service.public_slug),
         conversionMode: conversionMode(service.conversion_mode),
+        coverImageUrl: text(service.cover_image_url),
         seoTitle: text(service.seo_title),
         seoDescription: text(service.seo_description),
       })),
