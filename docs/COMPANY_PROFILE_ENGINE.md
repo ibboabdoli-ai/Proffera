@@ -2,53 +2,32 @@
 
 Status: implementation branch only. Not approved for Production rollout until the free Bolagsverket real-data pilot passes.
 
-The current operational source of truth is:
-
-`docs/COMPANY_PROFILE_ENGINE_ROLLOUT.md`
-
-That document defines the zero-extra-cost policy, seed/feed discovery modes, SNI2025 scope, Stockholm/Södertälje pilot guards, migrations `0037`–`0042`, Super Admin tooling, claim reservation recovery, SEO behavior and the real-data activation sequence.
+The operational source of truth is `docs/COMPANY_PROFILE_ENGINE_ROLLOUT.md`.
 
 ## Core architecture
 
 ```text
 Official free company data
-        ↓
-Seed Källtest or verified free discovery feed
-        ↓
-Official detail verification by organisationsnummer
-        ↓
-SNI2025 mapping + legal-form/privacy classification
-        ↓
-Stockholm/Södertälje pilot guard + quality score
-        ↓
-Directory profile + field provenance
-        ↓
-Rights-aware media selection
-        ↓
-Public unclaimed profile + factual SEO
-        ↓
-Owner claim request
-        ↓
-Super Admin verification
-        ↓
-Tokenized claim reservation / stale-lease recovery
-        ↓
-Existing Proffera Workspace provisioning
-        ↓
-Claimed profile redirects to tenant public business page
+→ seed Källtest or verified free discovery feed
+→ official detail verification by organisationsnummer
+→ SNI2025 + privacy + Stockholm/Södertälje quality gates
+→ directory profile + provenance + rights-aware media
+→ factual public profile + SEO
+→ verified owner claim
+→ tokenized reservation / stale-lease recovery
+→ existing Proffera Workspace provisioning
 ```
 
 ## Non-negotiable rules
 
-- The core path does not require a new paid data, enrichment, lead or image service.
-- `COMPANY_DIRECTORY_SYNC_ENABLED=false` by default.
-- `COMPANY_DIRECTORY_AUTO_PUBLISH=false` by default.
-- The first real-data test uses explicit organisation-number seeds rather than guessed bulk discovery.
-- Broad discovery is not enabled until the exact official/reusable free bulk/feed source is verified.
-- Unverified sole traders are not automatically published.
-- Unknown-rights external media cannot be published.
-- SNI determines only a broad category; exact services, prices, reviews, staff and opening hours are not invented.
-- Company Directory migrations are not applied to the Neon main branch before real-data pilot review.
+- No new paid data, enrichment, lead or image service is required by the core path.
+- Sync and auto-publication default to off.
+- The first real-data pilot uses explicit organisation-number seeds and does not guess official API request schemas.
+- Broad discovery waits for a verified official/reusable free bulk/feed source.
+- Sole traders are not automatically published in the first rollout.
+- Unknown-rights external media cannot publish.
+- SNI is only a broad category signal; exact services, prices, reviews, staff and opening hours are not invented.
+- Company Profile Engine migrations do not reach the Neon main branch before real-data pilot review.
 - Paid Bolagsverket `Företagsinformation` is not part of the core engine.
 
 See `docs/COMPANY_PROFILE_ENGINE_ROLLOUT.md` for the complete rollout contract and `db/migrations/20260809_company_profile_engine_rollback_notes.md` for rollback guidance.
