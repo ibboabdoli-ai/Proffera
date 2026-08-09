@@ -3,6 +3,8 @@ import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { normalizeBookingThemeAppearance, readableBookingTextColor } from "../src/lib/booking-theme-contract";
+
 function source(path: string) {
   return readFileSync(resolve(process.cwd(), path), "utf8");
 }
@@ -71,5 +73,24 @@ describe("Booking theme system", () => {
     expect(css).toContain("@media (max-width: 640px)");
     expect(css).toContain("data-booking-form");
     expect(css).toContain("border-radius: 999px");
+  });
+
+  it("normalizes fixed-surface themes and keeps their public text readable", () => {
+    const layout = source("src/app/boka/[slug]/layout.tsx");
+    const contrast = source("src/app/boka/[slug]/booking-contrast.css");
+
+    expect(normalizeBookingThemeAppearance("premium", "light")).toBe("dark");
+    expect(normalizeBookingThemeAppearance("restaurant", "light")).toBe("dark");
+    expect(normalizeBookingThemeAppearance("minimal", "dark")).toBe("light");
+    expect(normalizeBookingThemeAppearance("clean", "dark")).toBe("dark");
+    expect(readableBookingTextColor("#ffffff")).toBe("#17201a");
+    expect(readableBookingTextColor("#111111")).toBe("#ffffff");
+
+    expect(layout).toContain("normalizeBookingThemeAppearance(experience.themeKey, experience.appearance)");
+    expect(layout).toContain('import "./booking-contrast.css"');
+    expect(contrast).toContain('[data-booking-theme="premium"]');
+    expect(contrast).toContain('[data-booking-theme="restaurant"]');
+    expect(contrast).toContain('[data-booking-theme="minimal"]');
+    expect(contrast).toContain("data-booking-start-hint");
   });
 });
