@@ -7,7 +7,7 @@ import {
   mapSniToDirectoryCategory,
   normalizeSniCode,
   type NormalizedDirectoryCandidate,
-} from "@/lib/company-directory-policy";
+} from "./company-directory-policy";
 
 function candidate(overrides: Partial<NormalizedDirectoryCandidate> = {}): NormalizedDirectoryCandidate {
   return {
