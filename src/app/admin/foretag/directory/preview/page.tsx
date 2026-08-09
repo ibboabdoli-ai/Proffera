@@ -22,6 +22,7 @@ export default async function DirectorySourcePreviewPage({ searchParams }: Props
   const params = searchParams ? await searchParams : undefined;
   const shouldRun = value(params?.run) === "1";
   const readiness = getCompanyDirectorySourceReadiness();
+  const sourceReady = readiness.sourceConfigured && readiness.detailConfigured && readiness.oauthConfigured;
 
   let preview: Awaited<ReturnType<typeof previewCompanyDirectorySource>> | null = null;
   let error = "";
@@ -52,7 +53,12 @@ export default async function DirectorySourcePreviewPage({ searchParams }: Props
           </p>
         </div>
 
-        <section className="mt-6 grid gap-3 sm:grid-cols-3">
+        <section className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-2xl bg-white p-5 ring-1 ring-black/5">
+            <p className="text-xs font-black uppercase text-[#68756d]">Discovery mode</p>
+            <p className="mt-2 font-black">{readiness.mode === "seed" ? "Seed pilot" : "Verified feed"}</p>
+            {readiness.mode === "seed" ? <p className="mt-1 text-xs text-[#747e77]">{readiness.seedCount} org.nr konfigurerade</p> : null}
+          </div>
           <div className="rounded-2xl bg-white p-5 ring-1 ring-black/5"><p className="text-xs font-black uppercase text-[#68756d]">Discovery</p><p className="mt-2 font-black">{readiness.sourceConfigured ? "Konfigurerad" : "Väntar"}</p></div>
           <div className="rounded-2xl bg-white p-5 ring-1 ring-black/5"><p className="text-xs font-black uppercase text-[#68756d]">OAuth</p><p className="mt-2 font-black">{readiness.oauthConfigured ? "Konfigurerad" : "Väntar"}</p></div>
           <div className="rounded-2xl bg-white p-5 ring-1 ring-black/5"><p className="text-xs font-black uppercase text-[#68756d]">Detail verify</p><p className="mt-2 font-black">{readiness.detailConfigured ? "Konfigurerad" : "Väntar"}</p></div>
@@ -60,19 +66,19 @@ export default async function DirectorySourcePreviewPage({ searchParams }: Props
 
         <div className="mt-6 rounded-2xl border border-[#d6e2d8] bg-[#f1f7f2] p-5 text-sm text-[#465349]">
           <p className="flex items-center gap-2 font-black text-[#17452f]"><ShieldCheck className="h-5 w-5" /> Säkerhetsregel</p>
-          <p className="mt-2">Den här sidan skriver aldrig till Company Directory-tabellerna. Den är avsedd för första kontrollen när Bolagsverket skickat anslutningsuppgifterna.</p>
+          <p className="mt-2">Den här sidan skriver aldrig till Company Directory-tabellerna. I seed-läge testas endast uttryckligen angivna organisationsnummer efter att officiell OAuth, endpoint och request-schema har konfigurerats.</p>
         </div>
 
         {!shouldRun ? (
           <div className="mt-7">
             <Link
               href="/admin/foretag/directory/preview?run=1"
-              className={`inline-flex min-h-12 items-center justify-center rounded-xl px-5 font-black text-white ${readiness.sourceConfigured ? "bg-[#17452f]" : "pointer-events-none bg-[#8f9992]"}`}
-              aria-disabled={!readiness.sourceConfigured}
+              className={`inline-flex min-h-12 items-center justify-center rounded-xl px-5 font-black text-white ${sourceReady ? "bg-[#17452f]" : "pointer-events-none bg-[#8f9992]"}`}
+              aria-disabled={!sourceReady}
             >
               Testa 5 poster utan att spara
             </Link>
-            {!readiness.sourceConfigured ? <p className="mt-3 text-sm text-[#727b75]">Knappen blir aktiv när den officiella gratiskällan är konfigurerad.</p> : null}
+            {!sourceReady ? <p className="mt-3 text-sm text-[#727b75]">Knappen aktiveras först när seed/feed-källan, officiell detaljverifiering och OAuth är kompletta.</p> : null}
           </div>
         ) : null}
 
