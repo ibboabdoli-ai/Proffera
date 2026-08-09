@@ -94,6 +94,10 @@ describe("Public Business Hub architecture contract", () => {
     expect(contactRoute).toContain("insert into customer_events");
     expect(contactRoute).toContain("'note', 'Ny kontaktförfrågan'");
     expect(contactRoute).toContain("conversion_mode = 'contact'");
+    expect(contactRoute).toContain("updated_existing as");
+    expect(contactRoute).toContain("select id from updated_existing");
+    expect(contactRoute).toContain("from selected_customer");
+    expect(contactRoute).not.toContain("refreshed_customer");
     expect(contactForm).toContain('fetch("/api/public-business/contact"');
     expect(servicePage).toContain("PublicBusinessContactForm");
   });
