@@ -34,13 +34,14 @@ describe("self-service signup contract", () => {
   });
 
   it("preserves Starter and Professional plan selection through signup", () => {
-    const swedishPricing = source("src/app/priser/page.tsx");
-    const englishPricing = source("src/app/en/pricing/page.tsx");
+    const pricing = source("src/components/marketing/marketing-pricing.tsx");
     const swedishSignup = source("src/app/skapa-konto/page.tsx");
     const englishSignup = source("src/app/en/create-account/page.tsx");
 
-    expect(swedishPricing).toContain("/skapa-konto?plan=");
-    expect(englishPricing).toContain("/en/create-account?plan=");
+    expect(pricing).toContain('href: "/skapa-konto?plan=starter"');
+    expect(pricing).toContain('href: "/skapa-konto?plan=professional"');
+    expect(pricing).toContain('href: "/en/create-account?plan=starter"');
+    expect(pricing).toContain('href: "/en/create-account?plan=professional"');
     expect(swedishSignup).toContain("isCheckoutPlanKey");
     expect(englishSignup).toContain("isCheckoutPlanKey");
   });
