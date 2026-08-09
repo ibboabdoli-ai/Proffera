@@ -14,7 +14,7 @@ import {
 } from "@/lib/public-booking-availability";
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
 
-type BookingService = BookingAvailabilityService & { name: string; priceLabel: string };
+type BookingService = BookingAvailabilityService & { id: string; name: string; priceLabel: string };
 type BookingHour = BookingAvailabilityHour & { weekday: number };
 type BusyBooking = BookingAvailabilityBusyBooking;
 type BookingStaff = { id: string; name: string; roleLabel: string; schedules: BookingHour[]; busy: BusyBooking[] };
@@ -29,6 +29,7 @@ type Props = {
   timeZone: WorkspaceTimeZone;
   variant?: "default" | "salon";
   locale?: Locale;
+  initialServiceId?: string;
 };
 
 type SalonStep = "service" | "staff" | "time" | "details";
@@ -68,7 +69,7 @@ function dateParts(value: string) {
   return { month, day, weekday: new Date(Date.UTC(year, month - 1, day)).getUTCDay() };
 }
 
-export function BookingRequestForm({ action, slug, services, bookingHours, busyBookings, timeZone, variant = "default", locale = "sv" }: Props) {
+export function BookingRequestForm({ action, slug, services, bookingHours, busyBookings, timeZone, variant = "default", locale = "sv", initialServiceId = "" }: Props) {
   const t = copy[locale];
   const formatDateLabel = (value: string) => {
     const { day, month, weekday } = dateParts(value);
@@ -77,7 +78,7 @@ export function BookingRequestForm({ action, slug, services, bookingHours, busyB
   const [formStartedAt] = useState(() => Date.now());
   const [referenceTime, setReferenceTime] = useState(formStartedAt);
   const today = dateInputInTimeZone(new Date(referenceTime), timeZone);
-  const [serviceName, setServiceName] = useState("");
+  const [serviceId, setServiceId] = useState(() => services.some((service) => service.id === initialServiceId) ? initialServiceId : "");
   const [staff, setStaff] = useState<BookingStaff[]>([]);
   const [staffLoaded, setStaffLoaded] = useState(false);
   const [staffChoice, setStaffChoice] = useState("any");
@@ -102,7 +103,7 @@ export function BookingRequestForm({ action, slug, services, bookingHours, busyB
     return () => window.clearInterval(timer);
   }, []);
 
-  const selectedService = services.find((service) => service.name === serviceName);
+  const selectedService = services.find((service) => service.id === serviceId);
   const maximumDate = selectedService ? addDaysToDateInput(today, selectedService.maximumAdvanceDays) : undefined;
   const weekDates = useMemo(() => Array.from({ length: 7 }, (_, index) => addDaysToDateInput(today, weekOffset * 7 + index)), [today, weekOffset]);
 
@@ -140,14 +141,14 @@ export function BookingRequestForm({ action, slug, services, bookingHours, busyB
         const found = slotsForDate(candidate, service).slots[0];
         if (found) { match = { date: candidate, time: found }; break; }
       }
-      result.set(service.name, match);
+      result.set(service.id, match);
     }
     return result;
   }, [services, slotsForDate, today]);
 
-  function chooseService(name: string) {
-    const first = firstAvailability.get(name);
-    setServiceName(name); setDate(first?.date ?? today); setTime(""); setAssignedStaffId(""); setStaffChoice("any");
+  function chooseService(id: string) {
+    const first = firstAvailability.get(id);
+    setServiceId(id); setDate(first?.date ?? today); setTime(""); setAssignedStaffId(""); setStaffChoice("any");
     if (first) {
       const distance = new Date(`${first.date}T00:00:00Z`).getTime() - new Date(`${today}T00:00:00Z`).getTime();
       setWeekOffset(Math.max(0, Math.floor(distance / 604800000)));
@@ -155,9 +156,9 @@ export function BookingRequestForm({ action, slug, services, bookingHours, busyB
     setStep(staffLoaded && staff.length ? "staff" : "time");
   }
 
-  function chooseDefaultService(name: string) {
-    const first = firstAvailability.get(name);
-    setServiceName(name);
+  function chooseDefaultService(id: string) {
+    const first = firstAvailability.get(id);
+    setServiceId(id);
     setDate(first?.date ?? today);
     setTime("");
   }
@@ -169,13 +170,14 @@ export function BookingRequestForm({ action, slug, services, bookingHours, busyB
 
   if (variant !== "salon") {
     const times = selectedService ? availability.slots : [];
-    const nearest = selectedService ? firstAvailability.get(selectedService.name) : null;
+    const nearest = selectedService ? firstAvailability.get(selectedService.id) : null;
     return <form action={action} data-booking-form="default" className="mt-8 grid gap-4">
       <input type="hidden" name="slug" value={slug} /><input type="hidden" name="lang" value={locale} /><input type="hidden" name="starts_at" value={date && time ? `${date}T${time}` : ""} /><input type="hidden" name="form_started_at" value={formStartedAt} />
+      <label className="absolute left-[-10000px]" aria-hidden="true">{t.website}<input name="website" tabIndex={-1} /></label>
       <label className="grid gap-2 text-sm font-semibold">{t.name}<input name="name" required className="rounded-xl border px-4 py-3" /></label>
       <label className="grid gap-2 text-sm font-semibold">{t.email}<input name="email" required type="email" className="rounded-xl border px-4 py-3" /></label>
       <label className="grid gap-2 text-sm font-semibold">{t.phone}<input name="phone" type="tel" className="rounded-xl border px-4 py-3" /></label>
-      <label className="grid gap-2 text-sm font-semibold">{t.service}<select name="service" required value={serviceName} onChange={(e) => chooseDefaultService(e.target.value)} className="rounded-xl border px-4 py-3"><option value="">{t.chooseService}</option>{services.map((service) => <option key={service.name}>{service.name}</option>)}</select></label>
+      <label className="grid gap-2 text-sm font-semibold">{t.service}<select name="service_id" required value={serviceId} onChange={(e) => chooseDefaultService(e.target.value)} className="rounded-xl border px-4 py-3"><option value="">{t.chooseService}</option>{services.map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}</select></label>
       <input aria-label={t.chooseDayTime} type="date" required disabled={!selectedService} min={today} max={maximumDate} value={date} onChange={(e) => { setDate(e.target.value); setTime(""); }} className="rounded-xl border px-4 py-3 disabled:opacity-55" />
       <select aria-label={t.chooseTime} required disabled={!selectedService || !times.length} value={time} onChange={(e) => setTime(e.target.value)} className="rounded-xl border px-4 py-3 disabled:opacity-55"><option value="">{selectedService && !times.length ? t.noTimesDay : t.chooseTime}</option>{times.map((slot) => <option key={slot}>{slot}</option>)}</select>
       {selectedService && !times.length ? <div className="rounded-xl border border-black/10 bg-black/[.03] p-3 text-sm"><p>{t.noTimesDay}</p>{nearest && nearest.date !== date ? <button type="button" onClick={() => { setDate(nearest.date); setTime(""); }} className="mt-2 min-h-0 font-bold underline underline-offset-4">{t.nearestAvailable}: {formatDateLabel(nearest.date)} {t.at} {nearest.time}</button> : null}</div> : null}
@@ -188,12 +190,12 @@ export function BookingRequestForm({ action, slug, services, bookingHours, busyB
   const selectedStaff = staff.find((member) => member.id === assignedStaffId || member.id === staffChoice);
 
   return <form action={action} data-booking-form="guided" className="mt-5">
-    <input type="hidden" name="slug" value={slug} /><input type="hidden" name="lang" value={locale} /><input type="hidden" name="service" value={serviceName} /><input type="hidden" name="staff_id" value={assignedStaffId} /><input type="hidden" name="starts_at" value={date && selectedTime ? `${date}T${selectedTime}` : ""} /><input type="hidden" name="form_started_at" value={formStartedAt} />
+    <input type="hidden" name="slug" value={slug} /><input type="hidden" name="lang" value={locale} /><input type="hidden" name="service_id" value={serviceId} /><input type="hidden" name="staff_id" value={assignedStaffId} /><input type="hidden" name="starts_at" value={date && selectedTime ? `${date}T${selectedTime}` : ""} /><input type="hidden" name="form_started_at" value={formStartedAt} />
     <label className="absolute left-[-10000px]" aria-hidden="true">{t.website}<input name="website" tabIndex={-1} /></label>
 
     <div className={`mb-5 grid gap-2 ${steps.length === 4 ? "grid-cols-4" : "grid-cols-3"}`}>{steps.map(([key, label], index) => <div key={key} className="text-center"><div className={`mx-auto flex h-8 w-8 items-center justify-center rounded-full text-xs font-black ${index === currentIndex ? "bg-[#17452f] text-white" : index < currentIndex ? "bg-[#dceee2] text-[#17452f]" : "bg-[#eef1ed] text-[#7a857e]"}`}>{index < currentIndex ? <Check className="h-4 w-4" /> : index + 1}</div><p className="mt-1 text-[11px] font-bold text-[#5b665f]">{label}</p></div>)}</div>
 
-    {step === "service" ? <section><h3 className="text-2xl font-black">{t.chooseService}</h3><p className="mt-2 text-sm text-[#5b665f]">{t.serviceIntro}</p><div className="mt-4 grid gap-3">{services.map((service) => { const first = firstAvailability.get(service.name); return <article key={service.name} className="rounded-3xl border bg-white p-5 shadow-sm"><div className="flex gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#edf5ef]"><Scissors className="h-5 w-5 text-[#17452f]" /></div><div className="flex-1"><h4 className="font-black">{service.name}</h4><p className="mt-2 text-sm font-bold text-[#5b665f]">{service.durationMinutes} min{service.priceLabel ? ` · ${service.priceLabel}` : ""}</p><p className="mt-2 text-sm font-bold text-[#2873b9]">{first ? `${t.available} ${formatDateLabel(first.date)} ${t.at} ${first.time}` : t.noTimes}</p></div></div><button type="button" disabled={!first} onClick={() => chooseService(service.name)} className="mt-4 w-full rounded-2xl bg-[#17452f] p-3 font-black text-white disabled:opacity-40">{t.book}</button></article>; })}</div></section> : null}
+    {step === "service" ? <section><h3 className="text-2xl font-black">{t.chooseService}</h3><p className="mt-2 text-sm text-[#5b665f]">{t.serviceIntro}</p><div className="mt-4 grid gap-3">{services.map((service) => { const first = firstAvailability.get(service.id); return <article key={service.id} className="rounded-3xl border bg-white p-5 shadow-sm"><div className="flex gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#edf5ef]"><Scissors className="h-5 w-5 text-[#17452f]" /></div><div className="flex-1"><h4 className="font-black">{service.name}</h4><p className="mt-2 text-sm font-bold text-[#5b665f]">{service.durationMinutes} min{service.priceLabel ? ` · ${service.priceLabel}` : ""}</p><p className="mt-2 text-sm font-bold text-[#2873b9]">{first ? `${t.available} ${formatDateLabel(first.date)} ${t.at} ${first.time}` : t.noTimes}</p></div></div><button type="button" disabled={!first} onClick={() => chooseService(service.id)} className="mt-4 w-full rounded-2xl bg-[#17452f] p-3 font-black text-white disabled:opacity-40">{t.book}</button></article>; })}</div></section> : null}
 
     {step === "staff" && selectedService ? <section><button type="button" onClick={() => setStep("service")} className="mb-4 inline-flex items-center gap-2 font-black text-[#17452f]"><ArrowLeft className="h-4 w-4" /> {t.changeService}</button><h3 className="text-2xl font-black">{t.chooseStaff}</h3><p className="mt-2 text-sm text-[#5b665f]">{t.staffIntro}</p><div className="mt-4 grid gap-3"><button type="button" onClick={() => { setStaffChoice("any"); setTime(""); setAssignedStaffId(""); setStep("time"); }} className="flex items-center gap-3 rounded-3xl border bg-white p-4 text-left"><UsersRound className="h-6 w-6 text-[#17452f]" /><span><strong className="block">{t.firstStaff}</strong><span className="text-sm text-[#5b665f]">{t.fastest}</span></span></button>{staff.map((member) => <button key={member.id} type="button" onClick={() => { setStaffChoice(member.id); setTime(""); setAssignedStaffId(member.id); setStep("time"); }} className="flex items-center gap-3 rounded-3xl border bg-white p-4 text-left"><UserRound className="h-6 w-6 text-[#17452f]" /><span><strong className="block">{member.name}</strong><span className="text-sm text-[#5b665f]">{member.roleLabel || t.genericStaff}</span></span></button>)}</div></section> : null}
 

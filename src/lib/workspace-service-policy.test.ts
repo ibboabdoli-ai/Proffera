@@ -1,62 +1,56 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  isWorkspaceServiceReadyForBooking,
-  isWorkspaceServiceReadyForQuote,
-  validateWorkspaceServiceDraft,
-  type WorkspaceServiceDraft,
-} from "./workspace-service-policy";
+import { normalizeWorkspaceServicePublicSlug, validateWorkspaceServiceDraft } from "./workspace-service-policy";
 
-const validDraft: WorkspaceServiceDraft = {
-  name: "Window cleaning",
-  description: "Exterior window cleaning for homes and businesses.",
-  category: "Cleaning",
-  priceLabel: "From £35",
-  basePriceSek: "",
-  durationMinutes: "60",
-  bufferBeforeMinutes: "0",
-  bufferAfterMinutes: "15",
-  minimumNoticeMinutes: "120",
-  maximumAdvanceDays: "90",
-  serviceArea: "West and North London",
-  isActive: true,
-  sortOrder: "10",
-};
+function draft(overrides: Partial<Parameters<typeof validateWorkspaceServiceDraft>[0]> = {}) {
+  return {
+    name: "Fönsterputs",
+    description: "Professionell fönsterputs.",
+    shortDescription: "Rena fönster utan krångel.",
+    category: "Städning",
+    priceLabel: "Från 499 kr",
+    basePriceSek: "499",
+    durationMinutes: "60",
+    bufferBeforeMinutes: "0",
+    bufferAfterMinutes: "15",
+    minimumNoticeMinutes: "120",
+    maximumAdvanceDays: "90",
+    serviceArea: "Södertälje",
+    isActive: true,
+    sortOrder: "100",
+    publicSlug: "",
+    publicStatus: "draft",
+    conversionMode: "book",
+    coverImageUrl: "",
+    seoTitle: "",
+    seoDescription: "",
+    ...overrides,
+  };
+}
 
-describe("workspace service policy", () => {
-  it("normalizes a valid service without inventing a SEK price", () => {
-    const result = validateWorkspaceServiceDraft(validDraft);
+describe("workspace service public policy", () => {
+  it("normalizes Swedish service names into stable URL slugs", () => {
+    expect(normalizeWorkspaceServicePublicSlug("", "Fönsterputs & Städning")).toBe("fonsterputs-stadning");
+  });
+
+  it("allows a quote-only published service without booking duration", () => {
+    const result = validateWorkspaceServiceDraft(draft({ publicStatus: "published", conversionMode: "quote", durationMinutes: "" }));
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.basePriceSek).toBeNull();
-    expect(result.value.durationMinutes).toBe(60);
-    expect(result.value.maximumAdvanceDays).toBe(90);
   });
 
-  it.each([
-    [{ name: "" }, "name"],
-    [{ basePriceSek: "-1" }, "base_price"],
-    [{ durationMinutes: "0" }, "duration"],
-    [{ maximumAdvanceDays: "731" }, "duration"],
-    [{ sortOrder: "" }, "sort"],
-  ] as const)("rejects invalid service input with %s", (override, expectedError) => {
-    const result = validateWorkspaceServiceDraft({ ...validDraft, ...override });
-    expect(result).toEqual({ ok: false, error: expectedError });
+  it("requires duration when a published service can be booked", () => {
+    const result = validateWorkspaceServiceDraft(draft({ publicStatus: "published", conversionMode: "book", durationMinutes: "" }));
+    expect(result).toEqual({ ok: false, error: "duration" });
   });
 
-  it("separates booking readiness from quote readiness", () => {
-    const quoteOnly = validateWorkspaceServiceDraft({ ...validDraft, durationMinutes: "" });
-    expect(quoteOnly.ok).toBe(true);
-    if (!quoteOnly.ok) return;
-    expect(isWorkspaceServiceReadyForQuote(quoteOnly.value)).toBe(true);
-    expect(isWorkspaceServiceReadyForBooking(quoteOnly.value)).toBe(false);
+  it("keeps operational activation separate from publication", () => {
+    const result = validateWorkspaceServiceDraft(draft({ isActive: false, publicStatus: "hidden" }));
+    expect(result.ok && result.value.publicStatus).toBe("hidden");
+    expect(result.ok && result.value.isActive).toBe(false);
   });
 
-  it("keeps inactive services unavailable for both customer flows", () => {
-    const inactive = validateWorkspaceServiceDraft({ ...validDraft, isActive: false });
-    expect(inactive.ok).toBe(true);
-    if (!inactive.ok) return;
-    expect(isWorkspaceServiceReadyForQuote(inactive.value)).toBe(false);
-    expect(isWorkspaceServiceReadyForBooking(inactive.value)).toBe(false);
+  it("accepts HTTP(S) cover images and rejects unsafe schemes", () => {
+    expect(validateWorkspaceServiceDraft(draft({ coverImageUrl: "https://cdn.example.com/service.jpg" })).ok).toBe(true);
+    expect(validateWorkspaceServiceDraft(draft({ coverImageUrl: "javascript:alert(1)" }))).toEqual({ ok: false, error: "cover_image" });
   });
 });

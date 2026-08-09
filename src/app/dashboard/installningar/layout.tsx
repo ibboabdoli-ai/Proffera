@@ -8,6 +8,7 @@ const settingsNavigation = [
   { href: "/dashboard/installningar", sv: "Översikt", en: "Overview" },
   { href: "/dashboard/installningar/funktioner", sv: "Funktioner", en: "Features" },
   { href: "/dashboard/installningar/utseende", sv: "Utseende & tema", en: "Appearance & theme" },
+  { href: "/dashboard/installningar/foretagssida", sv: "Företagssida", en: "Business page" },
   { href: "/dashboard/installningar/paminnelser", sv: "Påminnelser", en: "Reminders" },
   { href: "/dashboard/installningar/betalningar", sv: "Betalningar", en: "Payments" },
 ] as const;

@@ -12,6 +12,7 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
     || pathname?.startsWith("/dashboard")
     || pathname?.startsWith("/demo/")
     || pathname?.startsWith("/boka")
+    || pathname?.startsWith("/foretag/")
     || pathname?.startsWith("/review/");
 
   if (isStandaloneRoute) {

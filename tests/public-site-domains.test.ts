@@ -47,8 +47,13 @@ describe("public custom-domain routing", () => {
     expect(proxy).toContain("resolvePublicCustomDomain(host)");
     expect(proxy).toContain("if (!target) return notFound()");
     expect(proxy).toContain('new URL("/demo/primeview", request.url)');
+    expect(proxy).toContain('target.publicHomeMode === "website"');
+    expect(proxy).toContain("/foretag/${encodeURIComponent(target.workspaceSlug)}");
+    expect(proxy).toContain("/boka/${encodeURIComponent(target.bookingSlug)}");
+
     expect(routing).toContain('hasWorkspaceFeatureAccessForWorkspace(workspaceId, "custom_domain")');
-    expect(routing).toContain('hasWorkspaceFeatureAccessForWorkspace(workspaceId, "online_booking")');
+    expect(routing).toContain('publicHomeMode === "website" ? "website_builder" : "online_booking"');
+    expect(routing).toContain("coalesce(experience.public_home_mode, 'booking')");
     expect(routing).toContain("custom_domain_status = 'connected'");
     expect(routing).toContain("limit 2");
   });
