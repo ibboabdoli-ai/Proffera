@@ -2,6 +2,7 @@ import type { CSSProperties, ReactNode } from "react";
 import QRCode from "qrcode";
 
 import { PublicWorkspaceGallery } from "@/components/public-workspace-gallery";
+import { resolveBookingThemeContent } from "@/lib/booking-theme-templates";
 import { normalizeBookingThemeAppearance } from "@/lib/booking-theme-contract";
 import { getSql } from "@/lib/db/server";
 import { hasWorkspaceFeatureAccessForWorkspace } from "@/lib/workspace-feature-entitlement-db";
@@ -56,7 +57,9 @@ function safeCssUrl(value: string) {
 function RestaurantV3Hero({
   companyName,
   city,
-  intro,
+  headline,
+  subtitle,
+  description,
   logoUrl,
   slug,
   swedishEnabled,
@@ -64,16 +67,14 @@ function RestaurantV3Hero({
 }: {
   companyName: string;
   city: string;
-  intro: string;
+  headline: string;
+  subtitle: string;
+  description: string;
   logoUrl: string;
   slug: string;
   swedishEnabled: boolean;
   englishEnabled: boolean;
 }) {
-  const introLines = intro.split("\n").map((line) => line.trim()).filter(Boolean);
-  const headline = introLines[0] || "God mat. Bra stämning. Minnen att dela.";
-  const description = introLines.slice(1).join(" ") || "Njut av omsorgsfullt lagad mat i en varm miljö. Boka ditt bord enkelt online.";
-
   return (
     <section data-restaurant-v3-hero>
       <div className="restaurant-v3-nav">
@@ -96,7 +97,7 @@ function RestaurantV3Hero({
       <div className="restaurant-v3-copy">
         <p className="restaurant-v3-eyebrow">VÄLKOMMEN TILL {companyName.toUpperCase()}</p>
         <h1>{headline}</h1>
-        <p className="restaurant-v3-description">{description}</p>
+        <p className="restaurant-v3-description"><strong>{subtitle}</strong><br />{description}</p>
         <div className="restaurant-v3-proof">
           <span aria-label="5 av 5 stjärnor">★★★★★</span>
           <strong>4,9</strong>
@@ -125,6 +126,9 @@ function RestaurantV3Content({
   hours,
   reviews,
   qrDataUrl,
+  fallbackImageUrl,
+  faqTitle,
+  faqBody,
 }: {
   slug: string;
   companyName: string;
@@ -135,6 +139,9 @@ function RestaurantV3Content({
   hours: RestaurantHour[];
   reviews: RestaurantReview[];
   qrDataUrl: string;
+  fallbackImageUrl: string;
+  faqTitle: string;
+  faqBody: string;
 }) {
   return (
     <div data-restaurant-v3-content>
@@ -144,7 +151,7 @@ function RestaurantV3Content({
             <article
               key={service.id}
               className="restaurant-v3-service-card"
-              style={{ "--restaurant-service-image": safeCssUrl(service.coverImageUrl || RESTAURANT_V3_FALLBACK_IMAGE), "--restaurant-service-position": `${50 + index * 7}%` } as CSSProperties}
+              style={{ "--restaurant-service-image": safeCssUrl(service.coverImageUrl || fallbackImageUrl), "--restaurant-service-position": `${50 + index * 7}%` } as CSSProperties}
             >
               <div>
                 <span className="restaurant-v3-service-icon" aria-hidden="true">{index === 0 ? "◫" : index === 1 ? "♙" : "◇"}</span>
@@ -200,10 +207,10 @@ function RestaurantV3Content({
       <section className="restaurant-v3-faq">
         <h2>Vanliga frågor</h2>
         <div>
+          <details><summary>{faqTitle}</summary><p>{faqBody}</p></details>
           <details><summary>Hur avbokar jag min bokning?</summary><p>Använd länken i bokningsmejlet för att hantera din bokning.</p></details>
           <details><summary>Kan jag ändra min bokning?</summary><p>Ja, när ombokning är tillgänglig för bokningen kan du hantera den via kundlänken.</p></details>
           <details><summary>Kan jag boka samma dag?</summary><p>Lediga tider visas automatiskt utifrån restaurangens bokningsregler och tillgänglighet.</p></details>
-          <details><summary>När är bokningen bekräftad?</summary><p>Bokningen registreras efter e-postverifiering och följer restaurangens bekräftelseflöde.</p></details>
         </div>
       </section>
 
@@ -256,8 +263,7 @@ export default async function PublicBookingLayout({ children, params }: { childr
         : [];
 
       if (experience.themeKey === "restaurant" && slug !== "julius-salong") {
-        const [introRows, serviceRows, hourRows] = await Promise.all([
-          sql`select business_intro from workspace_experience_settings where workspace_id = ${workspaceId}::uuid limit 1`,
+        const [serviceRows, hourRows] = await Promise.all([
           sql`
             select id, name, coalesce(nullif(short_description, ''), nullif(description, ''), '') as description,
               duration_minutes, coalesce(nullif(cover_image_url, ''), '') as cover_image_url
@@ -269,7 +275,7 @@ export default async function PublicBookingLayout({ children, params }: { childr
           `,
           sql`select weekday, opens_at::text as opens_at, closes_at::text as closes_at, is_closed from workspace_booking_hours where workspace_id = ${workspaceId} order by weekday asc`,
         ]);
-        const intro = String(introRows[0]?.business_intro ?? "").trim();
+        const themeContent = resolveBookingThemeContent("restaurant", experience.defaultLanguage, experience.themeContentOverrides);
         const restaurantServices: RestaurantService[] = serviceRows.map((row) => ({
           id: String(row.id),
           name: String(row.name ?? ""),
@@ -284,14 +290,16 @@ export default async function PublicBookingLayout({ children, params }: { childr
           isClosed: Boolean(row.is_closed),
         }));
         const fallbackServiceImage = restaurantServices.find((service) => service.coverImageUrl)?.coverImageUrl || "";
-        restaurantImageUrl = experience.heroImageUrl || fallbackServiceImage || RESTAURANT_V3_FALLBACK_IMAGE;
+        restaurantImageUrl = experience.heroImageUrl || fallbackServiceImage || themeContent.heroImageUrl || RESTAURANT_V3_FALLBACK_IMAGE;
         const qrDataUrl = await QRCode.toDataURL(`https://www.proffera.se/boka/${encodeURIComponent(slug)}`, { width: 180, margin: 1, color: { dark: "#1d120d", light: "#fffdf9" } });
 
         restaurantHero = (
           <RestaurantV3Hero
             companyName={String(workspace.company_name)}
             city={String(workspace.primary_city ?? "")}
-            intro={intro}
+            headline={themeContent.heroTitle}
+            subtitle={themeContent.heroSubtitle}
+            description={themeContent.heroDescription}
             logoUrl={experience.logoUrl}
             slug={slug}
             swedishEnabled={experience.swedishEnabled}
@@ -309,6 +317,9 @@ export default async function PublicBookingLayout({ children, params }: { childr
             hours={restaurantHours}
             reviews={reviews as RestaurantReview[]}
             qrDataUrl={qrDataUrl}
+            fallbackImageUrl={themeContent.heroImageUrl || RESTAURANT_V3_FALLBACK_IMAGE}
+            faqTitle={themeContent.faqTitle}
+            faqBody={themeContent.faqBody}
           />
         );
       } else if (slug !== "julius-salong") {
