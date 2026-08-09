@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { getSql } from "@/lib/db/server";
 import { allowPublicSubmission } from "@/lib/public-form-protection";
+import { hasWorkspaceFeatureAccessForWorkspace } from "@/lib/workspace-feature-entitlement-db";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,12 +19,18 @@ const eventSchema = z.object({
 
 export async function POST(request: Request) {
   let body: unknown;
-  try { body = await request.json(); } catch { return NextResponse.json({ ok: false }, { status: 400 }); }
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ ok: false }, { status: 400 });
+  }
+
   const parsed = eventSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ ok: false }, { status: 400 });
 
   const sql = getSql();
   if (!sql) return NextResponse.json({ ok: false }, { status: 503 });
+
   const event = parsed.data;
   const allowed = await allowPublicSubmission({
     scope: `public_business_event:${event.workspaceId}`,
@@ -34,11 +41,28 @@ export async function POST(request: Request) {
   });
   if (!allowed) return NextResponse.json({ ok: true }, { status: 202 });
 
-  const workspaces = await sql`select id from workspaces where id = ${event.workspaceId}::uuid and status in ('active', 'trial') limit 1`;
+  const workspaces = await sql`
+    select id
+    from workspaces
+    where id = ${event.workspaceId}::uuid
+      and status in ('active', 'trial')
+    limit 1
+  `;
   if (!workspaces[0]) return NextResponse.json({ ok: false }, { status: 404 });
 
+  const websiteEnabled = await hasWorkspaceFeatureAccessForWorkspace(event.workspaceId, "website_builder");
+  if (!websiteEnabled) return NextResponse.json({ ok: false }, { status: 404 });
+
   if (event.serviceId) {
-    const services = await sql`select id from workspace_services where id = ${event.serviceId}::uuid and workspace_id = ${event.workspaceId} limit 1`;
+    const services = await sql`
+      select id
+      from workspace_services
+      where id = ${event.serviceId}::uuid
+        and workspace_id = ${event.workspaceId}
+        and is_active = true
+        and public_status = 'published'
+      limit 1
+    `;
     if (!services[0]) return NextResponse.json({ ok: false }, { status: 400 });
   }
 
