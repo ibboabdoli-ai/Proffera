@@ -21,6 +21,14 @@ function notFound() {
   });
 }
 
+function decodePublicServiceSlug(pathname: string) {
+  try {
+    return decodeURIComponent(pathname.slice("/tjanster/".length)).trim().toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
 function chatUrl(pathname: string, search = "") {
   const url = new URL(pathname, CHAT_ORIGIN);
   const params = new URLSearchParams(search);
@@ -129,7 +137,7 @@ export async function proxy(request: NextRequest) {
       return NextResponse.redirect(url);
     }
 
-    const serviceSlug = decodeURIComponent(pathname.slice("/tjanster/".length)).trim().toLowerCase();
+    const serviceSlug = decodePublicServiceSlug(pathname);
     if (!PUBLIC_SERVICE_SLUG.test(serviceSlug)) return notFound();
 
     const url = request.nextUrl.clone();
