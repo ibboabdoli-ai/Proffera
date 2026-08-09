@@ -28,6 +28,98 @@
   opacity: .86;
 }
 
+/* Minimal v2 — quiet Scandinavian design instead of a harsh brutalist surface. */
+[data-booking-theme="minimal"] > main:first-child {
+  background: #f3f5f2 !important;
+  color: #17201a !important;
+}
+
+[data-booking-theme="minimal"] > main:first-child > section:first-child {
+  background: #fff !important;
+  color: #17201a !important;
+  border: 1px solid #dce2dc !important;
+  border-radius: 1.4rem !important;
+  box-shadow: none !important;
+  padding: 1.4rem 1.6rem !important;
+}
+
+[data-booking-theme="minimal"] > main:first-child > section:first-child > div {
+  margin-top: .8rem !important;
+  gap: 1.25rem !important;
+}
+
+[data-booking-theme="minimal"] > main:first-child > section:first-child h1 {
+  color: #17201a !important;
+  letter-spacing: -.045em !important;
+}
+
+[data-booking-theme="minimal"] > main:first-child > section:first-child p,
+[data-booking-theme="minimal"] > main:first-child > section:first-child svg {
+  color: #5f6b63 !important;
+}
+
+[data-booking-theme="minimal"] nav[aria-label="Language"] a {
+  border: 1px solid #d7ddd7 !important;
+  border-radius: 999px !important;
+  background: #f4f6f3 !important;
+  color: #243028 !important;
+  box-shadow: none !important;
+}
+
+[data-booking-theme="minimal"] > main:first-child > section:first-child > div > img,
+[data-booking-theme="minimal"] > main:first-child > section:first-child > div > video {
+  height: auto !important;
+  max-height: 10rem !important;
+  min-height: 0 !important;
+  border: 1px solid #e0e4df !important;
+  border-radius: 1rem !important;
+  background: #f5f6f4 !important;
+  box-shadow: none !important;
+}
+
+[data-booking-theme="minimal"] > main:first-child > div {
+  margin-top: 1.15rem !important;
+  gap: 1rem !important;
+}
+
+[data-booking-theme="minimal"] > main:first-child > div > section,
+[data-booking-theme="minimal"] > main:first-child > div > aside > section {
+  background: #fff !important;
+  color: #17201a !important;
+  border: 1px solid #dfe4df !important;
+  border-radius: 1.15rem !important;
+  box-shadow: none !important;
+}
+
+[data-booking-theme="minimal"] > main:first-child > div > aside {
+  gap: 1rem !important;
+}
+
+[data-booking-theme="minimal"] > main:first-child > div > section > p:first-child {
+  border-radius: .85rem !important;
+  background: #eef5ef !important;
+}
+
+[data-booking-theme="minimal"] form[data-booking-form] input:not([type="hidden"]):not([type="checkbox"]),
+[data-booking-theme="minimal"] form[data-booking-form] select {
+  border: 1px solid #cbd3cc !important;
+  border-radius: .8rem !important;
+  background: #fbfcfa !important;
+  color: #17201a !important;
+  box-shadow: none !important;
+}
+
+[data-booking-theme="minimal"] form[data-booking-form] input:not([type="hidden"]):not([type="checkbox"]):focus,
+[data-booking-theme="minimal"] form[data-booking-form] select:focus {
+  border-color: var(--booking-primary) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--booking-primary) 12%, transparent) !important;
+}
+
+[data-booking-theme="minimal"] form[data-booking-form] button,
+[data-booking-theme="minimal"] > main:first-child a[class*="rounded"] {
+  border-radius: .8rem !important;
+}
+
 @media (max-width: 640px) {
   [data-booking-theme] > main:first-child {
     padding: .6rem .6rem 1.75rem !important;
@@ -96,5 +188,15 @@
     margin-top: .8rem !important;
     min-height: 2.8rem !important;
     width: 100%;
+  }
+
+  [data-booking-theme="minimal"] > main:first-child > section:first-child {
+    border-radius: 1rem !important;
+    padding: 1rem !important;
+  }
+
+  [data-booking-theme="minimal"] > main:first-child > div > section,
+  [data-booking-theme="minimal"] > main:first-child > div > aside > section {
+    border-radius: 1rem !important;
   }
 }
