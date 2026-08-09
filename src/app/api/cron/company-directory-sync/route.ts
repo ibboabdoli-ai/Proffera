@@ -12,6 +12,23 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
+  const enabled = process.env.COMPANY_DIRECTORY_SYNC_ENABLED === "true";
+  if (!enabled) {
+    return NextResponse.json({
+      ok: true,
+      skipped: true,
+      reason: "Company directory sync is disabled",
+    });
+  }
+
+  if (!process.env.COMPANY_DIRECTORY_SOURCE_URL?.trim()) {
+    return NextResponse.json({
+      ok: true,
+      skipped: true,
+      reason: "Company directory source is not configured",
+    });
+  }
+
   try {
     const result = await syncCompanyDirectory();
     return NextResponse.json({ ok: true, ...result });
