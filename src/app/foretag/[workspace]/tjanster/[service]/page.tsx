@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { ArrowLeft, CalendarCheck2, Clock3, Languages, Mail, MapPin, Phone } from "lucide-react";
 import { notFound } from "next/navigation";
 
@@ -13,6 +14,11 @@ import {
   resolvePublicBusinessLocale,
   withPublicBusinessLocale,
 } from "@/lib/public-business-locale";
+import {
+  buildPublicServiceJsonLd,
+  resolvePublicBusinessUrlContext,
+  serializePublicBusinessJsonLd,
+} from "@/lib/public-business-seo";
 
 export const dynamic = "force-dynamic";
 
@@ -24,32 +30,44 @@ type Props = {
 export async function generateMetadata({ params, searchParams }: Props): Promise<Metadata> {
   const { workspace, service } = await params;
   const query = searchParams ? await searchParams : undefined;
-  const result = await getPublicBusinessService(workspace, service);
+  const [result, requestHeaders] = await Promise.all([getPublicBusinessService(workspace, service), headers()]);
   if (!result) return {};
+
   const locale = resolvePublicBusinessLocale(result.workspace.experience, firstPublicBusinessLocaleParam(query?.lang));
+  const urls = await resolvePublicBusinessUrlContext(requestHeaders.get("host"), result.workspace.slug);
+  const canonical = urls.serviceCanonical(result.service.publicSlug);
   const title = result.service.seoTitle || `${result.service.name} – ${result.workspace.companyName}`;
   const description = result.service.seoDescription || result.service.shortDescription || result.service.description || (locale === "en"
     ? `Learn more about ${result.service.name} from ${result.workspace.companyName}.`
     : `Läs mer om ${result.service.name} hos ${result.workspace.companyName}.`);
   const images = result.service.coverImageUrl ? [{ url: result.service.coverImageUrl, alt: result.service.name }] : undefined;
-  return { title, description, openGraph: { title, description, type: "website", images } };
+
+  return {
+    title,
+    description,
+    alternates: { canonical },
+    robots: { index: true, follow: true },
+    openGraph: { title, description, type: "website", url: canonical, images },
+  };
 }
 
 export default async function PublicServicePage({ params, searchParams }: Props) {
   const { workspace, service } = await params;
   const query = searchParams ? await searchParams : undefined;
-  const result = await getPublicBusinessService(workspace, service);
+  const [result, requestHeaders] = await Promise.all([getPublicBusinessService(workspace, service), headers()]);
   if (!result) notFound();
 
   const { workspace: business, service: item } = result;
   const experience = business.experience;
   const locale = resolvePublicBusinessLocale(experience, firstPublicBusinessLocaleParam(query?.lang));
+  const urls = await resolvePublicBusinessUrlContext(requestHeaders.get("host"), business.slug);
+  const jsonLd = buildPublicServiceJsonLd(business, item, urls);
   const t = publicBusinessCopy[locale];
   const serviceCopy = t.service;
   const otherLocale = locale === "sv" ? "en" : "sv";
   const showLanguageSwitch = experience.swedishEnabled && experience.englishEnabled;
-  const companyHref = withPublicBusinessLocale(`/foretag/${encodeURIComponent(business.slug)}`, locale);
-  const languageSwitchHref = withPublicBusinessLocale(`/foretag/${encodeURIComponent(business.slug)}/tjanster/${encodeURIComponent(item.publicSlug)}`, otherLocale);
+  const companyHref = withPublicBusinessLocale(urls.companyHref, locale);
+  const languageSwitchHref = withPublicBusinessLocale(urls.serviceHref(item.publicSlug), otherLocale);
 
   const dark = experience.appearance === "dark";
   const background = dark ? "#101512" : experience.themeKey === "premium" ? "#f4f0e8" : experience.themeKey === "modern" ? "#edf4f6" : "#f7f8f5";
@@ -66,6 +84,7 @@ export default async function PublicServicePage({ params, searchParams }: Props)
 
   return (
     <main lang={locale} style={style} className="min-h-screen px-4 py-6 sm:px-6 sm:py-10">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializePublicBusinessJsonLd(jsonLd) }} />
       <PublicBusinessViewEvent workspaceId={business.id} serviceId={item.id} />
       <div className="mx-auto max-w-5xl">
         <div className="flex items-center justify-between gap-3">
