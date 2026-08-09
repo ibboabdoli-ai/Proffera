@@ -94,7 +94,7 @@ export async function rescheduleCustomerBooking(token: string, bookingId: string
       coalesce(ps.company_confirmation_required, true) as company_confirmation_required
     from bookings b
     join customers c on c.id = b.customer_id and c.workspace_id = b.workspace_id
-    join workspaces w on w.id = b.workspace_id
+    join workspaces w on w.id::text = b.workspace_id
     join workspace_services sv on sv.workspace_id = b.workspace_id and sv.name = b.service and sv.is_active = true
     left join workspace_settings ws on ws.workspace_id = b.workspace_id
     left join workspace_booking_reminder_settings ps on ps.workspace_id = b.workspace_id
