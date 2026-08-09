@@ -1,9 +1,13 @@
 import type { MetadataRoute } from "next";
 import { headers } from "next/headers";
 
+import { getPublicBusinessHub } from "@/lib/public-business-hub";
+import { listPublicBusinessSitemapEntries } from "@/lib/public-business-seo";
 import { primeViewSite } from "@/lib/primeview-seo";
 import { primeViewAreaPages, primeViewServicePages } from "@/lib/primeview-seo-pages";
 import { isPrimeViewHost } from "@/lib/public-site-domains";
+import { resolvePublicCustomDomain } from "@/lib/public-site-domain-routing";
+import { hostnameFromHostHeader, isPlatformHost } from "@/lib/public-site-domains";
 import { localizedPublicRoutes } from "@/lib/public-locale";
 import { siteConfig } from "@/lib/site";
 
@@ -19,8 +23,9 @@ export const dynamic = "force-dynamic";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const requestHeaders = await headers();
+  const host = requestHeaders.get("host");
 
-  if (isPrimeViewHost(requestHeaders.get("host"))) {
+  if (isPrimeViewHost(host)) {
     const lastModified = new Date();
     return primeViewRoutes.map((route) => ({
       url: new URL(route.path, primeViewSite.origin).toString(),
@@ -30,7 +35,54 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     }));
   }
 
+  if (!isPlatformHost(host)) {
+    const target = await resolvePublicCustomDomain(host);
+    if (!target || target.publicHomeMode !== "website") return [];
+
+    const hub = await getPublicBusinessHub(target.workspaceSlug);
+    if (!hub) return [];
+
+    const hostname = hostnameFromHostHeader(host);
+    const origin = `https://${hostname}`;
+    const lastModified = new Date();
+    return [
+      { url: `${origin}/`, lastModified, changeFrequency: "weekly" as const, priority: 1 },
+      ...hub.services.map((service) => ({
+        url: `${origin}/tjanster/${encodeURIComponent(service.publicSlug)}`,
+        lastModified,
+        changeFrequency: "monthly" as const,
+        priority: 0.9,
+      })),
+    ];
+  }
+
+  const [publicBusinessEntries] = await Promise.all([
+    listPublicBusinessSitemapEntries(),
+  ]);
   const lastModified = new Date();
+  const seenBusinesses = new Set<string>();
+  const publicBusinessRoutes: MetadataRoute.Sitemap = [];
+
+  for (const entry of publicBusinessEntries) {
+    if (!seenBusinesses.has(entry.workspaceSlug)) {
+      seenBusinesses.add(entry.workspaceSlug);
+      publicBusinessRoutes.push({
+        url: `${siteConfig.url}/foretag/${encodeURIComponent(entry.workspaceSlug)}`,
+        lastModified,
+        changeFrequency: "weekly",
+        priority: 0.75,
+      });
+    }
+    if (entry.serviceSlug) {
+      publicBusinessRoutes.push({
+        url: `${siteConfig.url}/foretag/${encodeURIComponent(entry.workspaceSlug)}/tjanster/${encodeURIComponent(entry.serviceSlug)}`,
+        lastModified,
+        changeFrequency: "monthly",
+        priority: 0.7,
+      });
+    }
+  }
+
   return [
     ...localizedPublicRoutes.flatMap((route) => {
       const languages = { "sv-SE": `${siteConfig.url}${route.sv}`, en: `${siteConfig.url}${route.en}` };
@@ -40,5 +92,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       ];
     }),
     ...swedishOnlyRoutes.map((route) => ({ url: `${siteConfig.url}${route}`, lastModified, changeFrequency: "monthly" as const, priority: 0.8 })),
+    ...publicBusinessRoutes,
   ];
 }
