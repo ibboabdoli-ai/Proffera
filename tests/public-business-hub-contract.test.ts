@@ -110,6 +110,24 @@ describe("Public Business Hub architecture contract", () => {
     expect(businessPage).toContain("<PublicBusinessContactForm workspaceId={business.id} />");
   });
 
+  it("uses a guarded quote endpoint for Public Business Hub services without changing the legacy quote endpoint", () => {
+    const quoteForm = source("src/components/public-business/public-quote-form.tsx");
+    const hubQuoteRoute = source("src/app/api/public-business/workspaces/[workspaceSlug]/quotes/route.ts");
+    const legacyQuoteRoute = source("src/app/api/public/workspaces/[workspaceSlug]/quotes/route.ts");
+    const quoteDb = source("src/lib/workspace-quote-requests-db.ts");
+
+    expect(quoteForm).toContain("/api/public-business/workspaces/");
+    expect(quoteForm).not.toContain("/api/public/workspaces/");
+    expect(hubQuoteRoute).toContain('hasWorkspaceFeatureAccessForWorkspace(workspaceId, "website_builder")');
+    expect(hubQuoteRoute).toContain("requirePublishedQuoteService: true");
+    expect(hubQuoteRoute).toContain("allowPublicSubmission");
+    expect(quoteDb).toContain("requirePublishedQuoteService?: boolean");
+    expect(quoteDb).toContain("public_status = 'published'");
+    expect(quoteDb).toContain("conversion_mode in ('quote', 'book_or_quote')");
+    expect(legacyQuoteRoute).toContain("createPublicWorkspaceQuoteRequest(normalizedSlug, quote)");
+    expect(legacyQuoteRoute).not.toContain("requirePublishedQuoteService");
+  });
+
   it("keeps connected custom domains booking-first until explicit website opt-in", () => {
     const migration = source("db/migrations/20260809_0036_public_business_hub.sql");
     const proxy = source("src/proxy.ts");
