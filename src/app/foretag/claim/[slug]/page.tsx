@@ -1,8 +1,13 @@
+import type { Metadata } from "next";
 import { ArrowLeft, BadgeCheck, Building2, ShieldCheck } from "lucide-react";
 import { notFound } from "next/navigation";
 
 import { getServerSession } from "@/lib/auth-session";
 import { getPublicDirectoryBusiness } from "@/lib/company-directory-engine";
+
+export const metadata: Metadata = {
+  robots: { index: false, follow: false },
+};
 
 type Props = {
   params: Promise<{ slug: string }>;
