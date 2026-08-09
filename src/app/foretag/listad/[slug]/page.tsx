@@ -6,6 +6,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { getPublicDirectoryBusiness } from "@/lib/company-directory-engine";
 import { getClaimedDirectoryWorkspaceSlug } from "@/lib/company-directory-routing";
+import { siteConfig } from "@/lib/site";
 
 export const dynamic = "force-dynamic";
 
@@ -21,21 +22,34 @@ const categoryLabels: Record<string, string> = {
   tradgard: "Trädgård",
 };
 
+function absoluteUrl(value: string) {
+  return new URL(value, siteConfig.url).toString();
+}
+
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const business = await getPublicDirectoryBusiness(slug);
   if (!business) return {};
   const category = categoryLabels[business.categorySlug] ?? business.primarySniLabel ?? "Tjänster";
   const description = business.activityDescription || `${business.companyName} i ${business.city} – ${category}.`;
+  const canonical = `${siteConfig.url}/foretag/listad/${encodeURIComponent(business.slug)}`;
   return {
     title: `${business.companyName} | Proffera`,
     description,
+    alternates: { canonical },
     robots: { index: true, follow: true },
-    openGraph: business.media?.url ? {
+    openGraph: {
       title: business.companyName,
       description,
-      images: [{ url: business.media.url, alt: business.media.isActualBusinessMedia ? business.companyName : `${category} – illustrationsbild` }],
-    } : undefined,
+      url: canonical,
+      type: "website",
+      ...(business.media?.url ? {
+        images: [{
+          url: absoluteUrl(business.media.url),
+          alt: business.media.isActualBusinessMedia ? business.companyName : `${category} – illustrationsbild`,
+        }],
+      } : {}),
+    },
   };
 }
 
@@ -53,9 +67,34 @@ export default async function ListedBusinessPage({ params }: Props) {
   const updated = business.sourceUpdatedAt
     ? new Intl.DateTimeFormat("sv-SE", { dateStyle: "medium", timeZone: "Europe/Stockholm" }).format(new Date(business.sourceUpdatedAt))
     : "kontrollerad vid senaste synk";
+  const canonical = `${siteConfig.url}/foretag/listad/${encodeURIComponent(business.slug)}`;
+  const description = business.activityDescription || `${business.companyName} i ${business.city} – ${category}.`;
+  const structuredData = {
+    "@context": "https://schema.org",
+    "@type": "LocalBusiness",
+    name: business.companyName,
+    url: canonical,
+    description,
+    category,
+    ...(business.city || business.addressLine1 || business.postalCode ? {
+      address: {
+        "@type": "PostalAddress",
+        ...(business.addressLine1 ? { streetAddress: business.addressLine1 } : {}),
+        ...(business.postalCode ? { postalCode: business.postalCode } : {}),
+        ...(business.city ? { addressLocality: business.city } : {}),
+        addressCountry: "SE",
+      },
+    } : {}),
+    ...(business.city ? { areaServed: business.city } : {}),
+    ...(business.media?.isActualBusinessMedia && business.media.url ? { image: absoluteUrl(business.media.url) } : {}),
+  };
 
   return (
     <main className="min-h-screen bg-[#f6f7f5] px-4 py-8 text-[#17201a] sm:px-6 sm:py-12">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData).replace(/</g, "\\u003c") }}
+      />
       <div className="mx-auto max-w-5xl">
         <Link href="/" className="text-lg font-black text-[#173e2b]">Proffera</Link>
 
