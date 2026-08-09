@@ -1,6 +1,6 @@
 # Company Profile Engine rollback notes
 
-Scope: migrations `20260809_0037_company_profile_engine_foundation.sql` through `20260809_0039_company_profile_claim_guard.sql`.
+Scope: migrations `20260809_0037_company_profile_engine_foundation.sql` through `20260809_0040_company_profile_claim_reservation.sql`.
 
 These migrations are additive. Do not run the rollback in Production without first confirming that no claimed Workspace depends on `company_directory_profiles.claimed_workspace_id` for operational traceability.
 
@@ -8,6 +8,12 @@ Recommended rollback order on an isolated branch:
 
 ```sql
 begin;
+
+drop index if exists company_directory_claim_reservation_unique_idx;
+alter table if exists company_directory_profiles
+  drop constraint if exists company_directory_profiles_claim_reservation_id_fkey;
+alter table if exists company_directory_profiles
+  drop column if exists claim_reservation_id;
 
 drop index if exists company_directory_claims_one_active_per_user_idx;
 drop index if exists company_directory_field_sources_value_unique_idx;
@@ -24,6 +30,7 @@ commit;
 Before rollback, export at minimum:
 
 - claimed directory profile ID → Workspace ID mappings;
+- active claim reservation → claim ID mappings;
 - claim decisions and verification references;
 - field provenance hashes/source identifiers;
 - media rights/attribution records;
