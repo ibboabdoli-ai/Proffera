@@ -9,51 +9,49 @@ export const chatLinks = {
 export const siteConfig = {
   name: "Proffera",
   description:
-    "Proffera är en svensk SaaS-plattform som hjälper små tjänsteföretag att hantera leads, bokningar och kunder i ett tydligt arbetsflöde.",
+    "Proffera hjälper tjänsteföretag att visa tjänster, ta emot bokningar och offertförfrågningar och hantera kunder, uppdrag och uppföljning i ett tydligt arbetsflöde.",
   url: "https://proffera.se",
-  primaryCta: "Prova gratis i 14 dagar",
+  primaryCta: "Starta gratis i 14 dagar",
   providerCta: "Se priser",
 };
 
 export const mainNav = [
-  { label: "Tjänster", href: "/tjanster" },
+  { label: "Funktioner", href: "/tjanster" },
   { label: "Branscher", href: "/branscher" },
   { label: "Priser", href: "/priser" },
   { label: "Demo", href: "/demo" },
-  { label: "Om", href: "/om" },
-  { label: "Kontakt", href: "/kontakt" },
 ] as const;
 
 export const serviceCategories = [
   "Onlinebokning",
-  "AI-chattassistent (pilot)",
-  "QR-bokning",
   "Leadhantering",
   "Kund-CRM",
-  "Automatiska bekräftelser",
-  "Påminnelser (beta)",
-  "Digitala formulär",
-  "Webbplats för företag",
-  "Affärsautomation (planerad)",
+  "Offerter",
+  "Kundportal",
+  "Företagssida",
+  "Galleri",
+  "Verifierade omdömen",
+  "Analys",
+  "Påminnelser",
 ] as const;
 
 export const pricingPlans = [
   {
     name: "Starter",
     price: "Från 299 kr/mån",
-    description: "För små företag som vill komma igång med digitala förfrågningar och bokningar.",
-    features: ["Bokningsflöde", "E-postnotiser", "Kontaktformulär", "Grundläggande leadlista"],
+    description: "För små företag som vill samla bokningar, leads och kunder i ett system.",
+    features: ["Onlinebokning", "Leadhantering", "Kund-CRM", "Kundportal", "Påminnelser"],
   },
   {
     name: "Professional",
     price: "Från 699 kr/mån",
-    description: "För växande företag som vill samla leads, kunder och bokningar i ett system.",
-    features: ["Allt i Starter", "Kund-CRM", "Bokningshistorik", "Tjänstekatalog", "Automatiska bokningsbekräftelser"],
+    description: "För företag som vill visa tjänster online och hantera fler delar av kundresan i Proffera.",
+    features: ["Allt i Starter", "Företagssida", "Offerter", "Galleri och verifierade omdömen", "Analys", "Flera medarbetare"],
   },
   {
     name: "Business",
-    price: "Offert",
-    description: "För företag med flera team, orter eller behov av anpassade integrationer.",
-    features: ["Allt i Professional", "Prioriterad support", "Flera platser", "Anpassade integrationer"],
+    price: "Anpassat pris",
+    description: "För större eller mer avancerade upplägg med behov utöver standardflödet.",
+    features: ["Allt i Professional", "Egen domän", "Avancerade arbetsflöden", "Anpassad uppsättning", "Prioriterad dialog"],
   },
 ] as const;
