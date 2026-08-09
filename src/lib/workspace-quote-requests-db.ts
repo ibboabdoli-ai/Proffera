@@ -172,9 +172,14 @@ export async function transitionDashboardWorkspaceQuoteRequest(
   if (!updated[0]) throw new Error("Quote request changed before the transition completed");
 }
 
+type CreatePublicWorkspaceQuoteOptions = {
+  requirePublishedQuoteService?: boolean;
+};
+
 export async function createPublicWorkspaceQuoteRequest(
   workspaceSlug: string,
   input: PublicWorkspaceQuoteInput,
+  options: CreatePublicWorkspaceQuoteOptions = {},
 ) {
   const sql = getSqlClient();
   if (!sql) throw new Error("Missing database connection for public quote submission");
@@ -190,16 +195,31 @@ export async function createPublicWorkspaceQuoteRequest(
   const workspaceId = workspaces[0]?.id ? String(workspaces[0].id) : null;
   if (!workspaceId) return { ok: false as const, reason: "workspace" as const };
 
+  if (options.requirePublishedQuoteService && !input.serviceId) {
+    return { ok: false as const, reason: "service" as const };
+  }
+
   let serviceId: string | null = null;
   if (input.serviceId) {
-    const services = await sql`
-      select id
-      from workspace_services
-      where id = ${input.serviceId}
-        and workspace_id = ${workspaceId}
-        and is_active = true
-      limit 1
-    `;
+    const services = options.requirePublishedQuoteService
+      ? await sql`
+          select id
+          from workspace_services
+          where id = ${input.serviceId}
+            and workspace_id = ${workspaceId}
+            and is_active = true
+            and public_status = 'published'
+            and conversion_mode in ('quote', 'book_or_quote')
+          limit 1
+        `
+      : await sql`
+          select id
+          from workspace_services
+          where id = ${input.serviceId}
+            and workspace_id = ${workspaceId}
+            and is_active = true
+          limit 1
+        `;
 
     if (!services[0]) return { ok: false as const, reason: "service" as const };
     serviceId = input.serviceId;
