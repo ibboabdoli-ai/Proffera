@@ -5,10 +5,9 @@ import { getPublicBusinessHub } from "@/lib/public-business-hub";
 import { listPublicBusinessSitemapEntries } from "@/lib/public-business-seo";
 import { primeViewSite } from "@/lib/primeview-seo";
 import { primeViewAreaPages, primeViewServicePages } from "@/lib/primeview-seo-pages";
-import { isPrimeViewHost } from "@/lib/public-site-domains";
-import { resolvePublicCustomDomain } from "@/lib/public-site-domain-routing";
-import { hostnameFromHostHeader, isPlatformHost } from "@/lib/public-site-domains";
 import { localizedPublicRoutes } from "@/lib/public-locale";
+import { resolvePublicCustomDomain } from "@/lib/public-site-domain-routing";
+import { hostnameFromHostHeader, isPlatformHost, isPrimeViewHost } from "@/lib/public-site-domains";
 import { siteConfig } from "@/lib/site";
 
 const swedishOnlyRoutes = ["/logga-in"] as const;
@@ -56,9 +55,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     ];
   }
 
-  const [publicBusinessEntries] = await Promise.all([
-    listPublicBusinessSitemapEntries(),
-  ]);
+  const publicBusinessEntries = await listPublicBusinessSitemapEntries();
   const lastModified = new Date();
   const seenBusinesses = new Set<string>();
   const publicBusinessRoutes: MetadataRoute.Sitemap = [];
