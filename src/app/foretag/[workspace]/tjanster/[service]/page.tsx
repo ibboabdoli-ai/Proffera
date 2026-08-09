@@ -17,7 +17,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (!result) return {};
   const title = result.service.seoTitle || `${result.service.name} – ${result.workspace.companyName}`;
   const description = result.service.seoDescription || result.service.shortDescription || result.service.description;
-  return { title, description, openGraph: { title, description, type: "website" } };
+  const images = result.service.coverImageUrl ? [{ url: result.service.coverImageUrl, alt: result.service.name }] : undefined;
+  return { title, description, openGraph: { title, description, type: "website", images } };
 }
 
 export default async function PublicServicePage({ params }: Props) {
@@ -36,7 +37,7 @@ export default async function PublicServicePage({ params }: Props) {
   const price = formatPublicBusinessPrice(item, business.billingCurrency);
   const canBook = business.bookingEnabled && Boolean(business.bookingSlug) && (item.conversionMode === "book" || item.conversionMode === "book_or_quote");
   const canQuote = item.conversionMode === "quote" || item.conversionMode === "book_or_quote";
-  const canContact = item.conversionMode === "contact" || item.conversionMode === "book_or_quote";
+  const canContact = item.conversionMode === "contact";
   const bookingHref = `/boka/${encodeURIComponent(business.bookingSlug)}?service_id=${encodeURIComponent(item.id)}`;
 
   return (
@@ -62,7 +63,7 @@ export default async function PublicServicePage({ params }: Props) {
                 {canContact && business.contactEmail ? <PublicBusinessTrackedLink workspaceId={business.id} serviceId={item.id} eventKey="contact_clicked" href={`mailto:${business.contactEmail}?subject=${encodeURIComponent(item.name)}`} className="inline-flex min-h-12 items-center justify-center rounded-xl border border-black/15 px-5 font-black"><Mail className="mr-2 h-4 w-4" /> Kontakta</PublicBusinessTrackedLink> : null}
               </div>
             </div>
-            <div style={{ background: experience.primaryColor }} className="flex min-h-56 items-center justify-center p-8 text-white"><div className="text-center"><div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl bg-white/15 text-3xl font-black">{item.name.slice(0, 1).toUpperCase()}</div><p className="mt-4 text-sm font-black uppercase tracking-[0.16em] text-white/70">{business.companyName}</p>{business.primaryCity ? <p className="mt-2 text-white/80">{business.primaryCity}</p> : null}</div></div>
+            {item.coverImageUrl ? <img src={item.coverImageUrl} alt={item.name} className="h-full min-h-72 w-full object-cover" /> : <div style={{ background: experience.primaryColor }} className="flex min-h-56 items-center justify-center p-8 text-white"><div className="text-center"><div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl bg-white/15 text-3xl font-black">{item.name.slice(0, 1).toUpperCase()}</div><p className="mt-4 text-sm font-black uppercase tracking-[0.16em] text-white/70">{business.companyName}</p>{business.primaryCity ? <p className="mt-2 text-white/80">{business.primaryCity}</p> : null}</div></div>}
           </div>
         </section>
 
