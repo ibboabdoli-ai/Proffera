@@ -1,6 +1,7 @@
 import { ArrowLeft, BadgeCheck, Building2, Clock3, Mail, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 
+import { requireSuperAdmin } from "@/lib/admin-authorization";
 import { listCompanyDirectoryClaims } from "@/lib/company-directory-claims-admin";
 
 import {
@@ -28,6 +29,7 @@ function staleReservation(value: unknown) {
 }
 
 export default async function DirectoryClaimsPage() {
+  await requireSuperAdmin();
   const { rows } = await listCompanyDirectoryClaims();
   const pending = rows.filter((row) => row.status === "pending" || row.status === "verified");
 
