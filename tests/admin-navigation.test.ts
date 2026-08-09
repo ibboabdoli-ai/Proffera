@@ -13,6 +13,7 @@ describe("admin navigation policy", () => {
       "saas",
       "operations",
       "workspaces",
+      "company_admin",
       "billing",
       "platform_admins",
       "audit",
@@ -44,15 +45,18 @@ describe("admin navigation policy", () => {
     expect(canAccessAdminArea("read_only_admin", "quote_admin")).toBe(false);
   });
 
-  it("keeps legacy company administration super-admin only", () => {
+  it("keeps company administration super-admin only", () => {
     expect(canAccessCompanyAdmin("super_admin")).toBe(true);
     expect(canAccessCompanyAdmin("operations_admin")).toBe(false);
     expect(canAccessCompanyAdmin("developer_admin")).toBe(false);
+    expect(canAccessAdminArea("super_admin", "company_admin")).toBe(true);
+    expect(canAccessAdminArea("support_admin", "company_admin")).toBe(false);
   });
 
   it("maps nested routes to the same server-side area", () => {
     expect(resolveAdminArea("/admin/billing/alerts")).toBe("billing");
     expect(resolveAdminArea("/admin/workspaces/11111111-1111-4111-8111-111111111111")).toBe("workspaces");
+    expect(resolveAdminArea("/admin/foretag/claims")).toBe("company_admin");
     expect(resolveAdminArea("/admin/platform-admins")).toBe("platform_admins");
     expect(resolveAdminArea("/admin/status")).toBe("operations");
     expect(resolveAdminArea("/admin/status/details")).toBe("operations");
