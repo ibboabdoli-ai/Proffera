@@ -4,7 +4,7 @@ import {
   canAccessAdminArea,
   getAdminNavigationItems,
   resolveAdminArea,
-} from "@/lib/admin-navigation";
+} from "./admin-navigation";
 
 describe("admin navigation", () => {
   it("routes company administration to its own protected area", () => {
