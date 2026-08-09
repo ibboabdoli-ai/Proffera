@@ -3,7 +3,8 @@ import Link from "next/link";
 import { requireCompanyAdmin } from "@/lib/admin-authorization";
 
 export default async function Layout({ children }: { children: React.ReactNode }) {
-  await requireCompanyAdmin();
+  const admin = await requireCompanyAdmin();
+  const isSuperAdmin = admin.role === "super_admin";
 
   return (
     <>
@@ -12,15 +13,19 @@ export default async function Layout({ children }: { children: React.ReactNode }
           <Link className="rounded-xl px-3 py-2 text-sm font-bold text-[#17452f] hover:bg-[#eef5ef]" href="/admin/foretag">
             Kundkonton
           </Link>
-          <Link className="rounded-xl px-3 py-2 text-sm font-bold text-[#17452f] hover:bg-[#eef5ef]" href="/admin/foretag/directory">
-            Directory Engine
-          </Link>
-          <Link className="rounded-xl px-3 py-2 text-sm font-bold text-[#17452f] hover:bg-[#eef5ef]" href="/admin/foretag/directory/preview">
-            Källtest
-          </Link>
-          <Link className="rounded-xl px-3 py-2 text-sm font-bold text-[#17452f] hover:bg-[#eef5ef]" href="/admin/foretag/claims">
-            Anspråk
-          </Link>
+          {isSuperAdmin ? (
+            <>
+              <Link className="rounded-xl px-3 py-2 text-sm font-bold text-[#17452f] hover:bg-[#eef5ef]" href="/admin/foretag/directory">
+                Directory Engine
+              </Link>
+              <Link className="rounded-xl px-3 py-2 text-sm font-bold text-[#17452f] hover:bg-[#eef5ef]" href="/admin/foretag/directory/preview">
+                Källtest
+              </Link>
+              <Link className="rounded-xl px-3 py-2 text-sm font-bold text-[#17452f] hover:bg-[#eef5ef]" href="/admin/foretag/claims">
+                Anspråk
+              </Link>
+            </>
+          ) : null}
         </nav>
       </div>
       {children}
