@@ -314,3 +314,356 @@
     transition: none;
   }
 }
+
+/* Salon V3 — premium bilingual hair & beauty booking experience. */
+[data-booking-theme="salon"] > main:first-child {
+  padding: 0 20px 64px !important;
+  background: #fff8f7 !important;
+  color: #2d2023 !important;
+}
+
+[data-booking-theme="salon"] > main:first-child > section:first-child {
+  position: relative;
+  isolation: isolate;
+  min-height: 510px;
+  max-width: 1180px !important;
+  overflow: hidden;
+  border: 1px solid rgb(91 55 63 / 10%) !important;
+  border-radius: 0 0 32px 32px !important;
+  padding: 30px 44px 112px !important;
+  background:
+    linear-gradient(90deg, rgb(47 28 31 / 74%) 0%, rgb(47 28 31 / 48%) 42%, rgb(47 28 31 / 15%) 72%, rgb(47 28 31 / 20%) 100%),
+    url("https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&w=1800&q=84") center 50% / cover no-repeat !important;
+  color: #fff9f6 !important;
+  box-shadow: 0 28px 80px rgb(97 57 67 / 16%) !important;
+}
+
+[data-booking-theme="salon"] > main:first-child > section:first-child::before {
+  content: "SALON • HAIR • BEAUTY";
+  position: absolute;
+  top: 30px;
+  left: 44px;
+  z-index: 2;
+  color: #f0c6ce;
+  font-size: .68rem;
+  font-weight: 850;
+  letter-spacing: .2em;
+}
+
+[data-booking-theme="salon"] > main:first-child > section:first-child::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  z-index: 1;
+  height: 92px;
+  border-top: 1px solid rgb(255 255 255 / 14%);
+  background: rgb(42 24 28 / 50%);
+  backdrop-filter: blur(14px);
+}
+
+[data-booking-theme="salon"] > main:first-child > section:first-child > nav,
+[data-booking-theme="salon"] > main:first-child > section:first-child > div {
+  position: relative;
+  z-index: 3;
+}
+
+[data-booking-theme="salon"] > main:first-child > section:first-child > nav {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+[data-booking-theme="salon"] > main:first-child > section:first-child > nav a {
+  border: 1px solid rgb(255 255 255 / 28%);
+  background: rgb(255 255 255 / 12%) !important;
+  color: #fff !important;
+  backdrop-filter: blur(10px);
+}
+
+[data-booking-theme="salon"] > main:first-child > section:first-child > nav a.bg-white {
+  background: #fff9f6 !important;
+  color: #5e3b44 !important;
+}
+
+[data-booking-theme="salon"] > main:first-child > section:first-child > div {
+  display: block !important;
+  margin-top: 70px !important;
+}
+
+[data-booking-theme="salon"] > main:first-child > section:first-child > div > div:first-child {
+  max-width: 520px;
+}
+
+[data-booking-theme="salon"] > main:first-child > section:first-child h1 {
+  max-width: 520px;
+  margin-top: 14px !important;
+  color: #fff9f6 !important;
+  font-family: Georgia, "Times New Roman", serif !important;
+  font-size: clamp(2.8rem, 5vw, 4.7rem) !important;
+  font-weight: 500 !important;
+  letter-spacing: -.055em !important;
+  line-height: .98 !important;
+  text-wrap: balance;
+}
+
+[data-booking-theme="salon"] > main:first-child > section:first-child p {
+  color: #f5e8e6 !important;
+}
+
+[data-booking-theme="salon"] > main:first-child > section:first-child img:not(:first-child),
+[data-booking-theme="salon"] > main:first-child > section:first-child video {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  width: 100% !important;
+  height: 100% !important;
+  border-radius: 0 !important;
+  object-fit: cover !important;
+  opacity: .72;
+}
+
+/* Pull the real booking form into the hero on desktop. */
+[data-booking-theme="salon"] > main:first-child > div {
+  position: relative;
+  z-index: 8;
+  display: grid !important;
+  grid-template-columns: repeat(12, minmax(0, 1fr)) !important;
+  gap: 18px !important;
+  width: min(1180px, 100%);
+  max-width: none !important;
+  margin-top: -350px !important;
+}
+
+[data-booking-theme="salon"] > main:first-child > div > section {
+  grid-column: 8 / 13;
+  grid-row: 1;
+  min-height: 380px;
+  border: 1px solid rgb(91 55 63 / 10%) !important;
+  border-radius: 22px !important;
+  background: rgb(255 253 252 / 98%) !important;
+  color: #2d2023 !important;
+  box-shadow: 0 28px 74px rgb(72 38 47 / 20%) !important;
+  backdrop-filter: blur(16px);
+}
+
+[data-booking-theme="salon"] > main:first-child > div > section > p:first-child {
+  border: 0 !important;
+  background: #fff0f2 !important;
+  color: #7d4b59 !important;
+}
+
+[data-booking-theme="salon"] > main:first-child > div > section [data-booking-start-hint] {
+  color: #806d73 !important;
+}
+
+[data-booking-theme="salon"] form[data-booking-form] {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px !important;
+}
+
+[data-booking-theme="salon"] form[data-booking-form] label {
+  color: #4a3339 !important;
+  font-size: .76rem !important;
+  font-weight: 800 !important;
+}
+
+[data-booking-theme="salon"] form[data-booking-form] input:not([type="hidden"]):not([type="checkbox"]),
+[data-booking-theme="salon"] form[data-booking-form] select {
+  min-height: 48px !important;
+  border: 1px solid #ead7db !important;
+  border-radius: 11px !important;
+  background: #fff !important;
+  color: #332328 !important;
+  box-shadow: none !important;
+  font-size: .86rem !important;
+}
+
+[data-booking-theme="salon"] form[data-booking-form] button {
+  min-height: 50px;
+  border-radius: 11px !important;
+  background: linear-gradient(135deg, #c27484, #a95f72) !important;
+  color: #fff !important;
+  box-shadow: 0 12px 28px rgb(170 92 111 / 24%) !important;
+}
+
+/* Salon information grid. */
+[data-booking-theme="salon"] > main:first-child > div > aside {
+  grid-column: 1 / 13;
+  grid-row: 2;
+  display: grid !important;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 14px !important;
+  margin-top: 64px;
+}
+
+[data-booking-theme="salon"] > main:first-child > div > aside > section {
+  min-width: 0;
+  border: 1px solid #f0dde1 !important;
+  border-radius: 18px !important;
+  background: #fffdfc !important;
+  color: #34252a !important;
+  box-shadow: 0 10px 28px rgb(89 55 63 / 5%) !important;
+}
+
+[data-booking-theme="salon"] > main:first-child > div > aside > section:first-child {
+  grid-column: 1 / 13;
+  padding: 22px !important;
+}
+
+[data-booking-theme="salon"] > main:first-child > div > aside > section:first-child > div {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px !important;
+}
+
+[data-booking-theme="salon"] > main:first-child > div > aside > section:first-child > div > div {
+  position: relative;
+  min-height: 148px;
+  display: grid;
+  align-content: end;
+  overflow: hidden;
+  border: 0 !important;
+  border-radius: 16px !important;
+  padding: 18px !important;
+  background:
+    linear-gradient(180deg, rgb(50 31 36 / 4%) 0%, rgb(50 31 36 / 78%) 100%),
+    url("https://images.unsplash.com/photo-1562322140-8baeececf3df?auto=format&fit=crop&w=900&q=82") center / cover no-repeat !important;
+  color: #fff !important;
+}
+
+[data-booking-theme="salon"] > main:first-child > div > aside > section:first-child > div > div:nth-child(2) {
+  background-image:
+    linear-gradient(180deg, rgb(50 31 36 / 4%) 0%, rgb(50 31 36 / 78%) 100%),
+    url("https://images.unsplash.com/photo-1522337660859-02fbefca4702?auto=format&fit=crop&w=900&q=82") !important;
+}
+
+[data-booking-theme="salon"] > main:first-child > div > aside > section:first-child > div > div:nth-child(3) {
+  background-position: 62% center !important;
+}
+
+[data-booking-theme="salon"] > main:first-child > div > aside > section:first-child > div > div:nth-child(4) {
+  background-position: 78% center !important;
+}
+
+[data-booking-theme="salon"] > main:first-child > div > aside > section:first-child > div > div strong,
+[data-booking-theme="salon"] > main:first-child > div > aside > section:first-child > div > div p {
+  color: #fff !important;
+}
+
+[data-booking-theme="salon"] > main:first-child > div > aside > section:nth-child(2),
+[data-booking-theme="salon"] > main:first-child > div > aside > section:nth-child(3),
+[data-booking-theme="salon"] > main:first-child > div > aside > section:nth-child(4) {
+  grid-column: span 4;
+}
+
+[data-booking-theme="salon"] > main:first-child > div > aside h2,
+[data-booking-theme="salon"] > main:first-child > div > aside h3,
+[data-booking-theme="salon"] > main:first-child > div > aside strong {
+  color: #402b31 !important;
+}
+
+[data-booking-theme="salon"] > main:first-child > div > aside p,
+[data-booking-theme="salon"] > main:first-child > div > aside li,
+[data-booking-theme="salon"] > main:first-child > div > aside a {
+  color: #7b656c !important;
+}
+
+/* Reviews and staff are real Proffera data, styled for Salon. */
+[data-booking-theme="salon"] [data-booking-public-sections] {
+  width: min(1180px, 100%);
+  max-width: none !important;
+  gap: 18px !important;
+  padding-top: 8px;
+  padding-bottom: 54px;
+}
+
+[data-booking-theme="salon"] [data-booking-reviews],
+[data-booking-theme="salon"] [data-booking-staff] {
+  border: 1px solid #efdce1 !important;
+  border-radius: 22px !important;
+  background: #fffdfc !important;
+  color: #35262b !important;
+  box-shadow: 0 14px 38px rgb(94 57 67 / 7%) !important;
+}
+
+[data-booking-theme="salon"] [data-booking-reviews] article,
+[data-booking-theme="salon"] [data-booking-staff] article {
+  border-color: #f0e0e3 !important;
+  background: #fff7f8 !important;
+}
+
+[data-booking-theme="salon"] [data-booking-reviews] article *,
+[data-booking-theme="salon"] [data-booking-staff] article * {
+  color: inherit;
+}
+
+[data-booking-theme="salon"] [data-booking-reviews] article span[aria-label] {
+  color: #d7a449 !important;
+}
+
+@media (max-width: 900px) {
+  [data-booking-theme="salon"] > main:first-child > div {
+    display: block !important;
+    margin-top: -72px !important;
+  }
+
+  [data-booking-theme="salon"] > main:first-child > div > section {
+    min-height: 0;
+  }
+
+  [data-booking-theme="salon"] > main:first-child > div > aside {
+    margin-top: 18px;
+  }
+
+  [data-booking-theme="salon"] > main:first-child > div > aside > section:first-child > div {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  [data-booking-theme="salon"] > main:first-child {
+    padding: 0 12px 42px !important;
+  }
+
+  [data-booking-theme="salon"] > main:first-child > section:first-child {
+    min-height: 430px;
+    border-radius: 0 0 24px 24px !important;
+    padding: 22px 22px 90px !important;
+  }
+
+  [data-booking-theme="salon"] > main:first-child > section:first-child::before {
+    top: 22px;
+    left: 22px;
+  }
+
+  [data-booking-theme="salon"] > main:first-child > section:first-child > div {
+    margin-top: 78px !important;
+  }
+
+  [data-booking-theme="salon"] > main:first-child > section:first-child h1 {
+    font-size: 2.6rem !important;
+  }
+
+  [data-booking-theme="salon"] > main:first-child > div {
+    margin-top: -54px !important;
+  }
+
+  [data-booking-theme="salon"] > main:first-child > div > aside {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+  }
+
+  [data-booking-theme="salon"] > main:first-child > div > aside > section,
+  [data-booking-theme="salon"] > main:first-child > div > aside > section:nth-child(n) {
+    grid-column: 1 !important;
+  }
+
+  [data-booking-theme="salon"] > main:first-child > div > aside > section:first-child > div {
+    grid-template-columns: 1fr !important;
+  }
+
+  [data-booking-theme="salon"] > main:first-child > div > aside > section:first-child > div > div {
+    min-height: 136px;
+  }
+}
