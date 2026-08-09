@@ -21,7 +21,8 @@ export function PublicBusinessQuoteForm({
     setStatus("submitting");
     setReferenceId("");
 
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const payload = {
       serviceId,
       name: String(form.get("name") ?? ""),
@@ -48,7 +49,7 @@ export function PublicBusinessQuoteForm({
       }
       setReferenceId(String(result.referenceId ?? ""));
       setStatus("success");
-      event.currentTarget.reset();
+      formElement.reset();
     } catch {
       setStatus("error");
     }
