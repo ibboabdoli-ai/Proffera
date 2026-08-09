@@ -8,7 +8,10 @@ import {
   buildDirectoryPublicSlug,
   type NormalizedDirectoryCandidate,
 } from "@/lib/company-directory-policy";
-import { fetchOfficialCompanyDirectoryBatch } from "@/lib/company-directory-source";
+import {
+  fetchOfficialCompanyDirectoryBatch,
+  verifyOfficialCompanyCandidate,
+} from "@/lib/company-directory-source";
 
 const PROVENANCE_FIELDS: Array<keyof NormalizedDirectoryCandidate> = [
   "organizationNumber",
@@ -71,6 +74,20 @@ async function startRun(provider: string) {
   const sql = getSql();
   if (!sql) throw new Error("Database is not configured");
 
+  await sql`
+    update company_directory_sync_runs
+    set status = 'failed',
+        error_count = greatest(error_count, 1),
+        error_summary = case
+          when error_summary = '' then 'stale sync lease recovered automatically'
+          else error_summary
+        end,
+        completed_at = now()
+    where provider = ${provider}
+      and status = 'running'
+      and started_at < now() - interval '15 minutes'
+  `;
+
   const existing = await sql`
     select id::text
     from company_directory_sync_runs
@@ -99,7 +116,7 @@ async function upsertCandidate(candidate: NormalizedDirectoryCandidate) {
     ? "published"
     : assessment.publicationStatus;
   const publicSlug = buildDirectoryPublicSlug(candidate);
-  const services = assessment.category?.serviceSlugs ?? [];
+  const servicesJson = JSON.stringify(assessment.category?.serviceSlugs ?? []);
   const reasons = JSON.stringify(assessment.reasons);
   const sourceUpdatedAt = candidate.sourceUpdatedAt?.toISOString() ?? null;
 
@@ -114,7 +131,8 @@ async function upsertCandidate(candidate: NormalizedDirectoryCandidate) {
     ) values (
       ${candidate.countryCode}, ${candidate.organizationNumber}, ${candidate.organizationKind}, ${candidate.legalName}, ${candidate.displayName},
       ${candidate.legalForm}, ${candidate.organizationStatus}, ${candidate.isActive}, ${candidate.fTaxStatus}, ${candidate.vatStatus}, ${candidate.employerStatus},
-      ${candidate.primarySniCode}, ${candidate.primarySniLabel}, ${assessment.category?.categorySlug ?? ""}, ${services}, ${candidate.activityDescription},
+      ${candidate.primarySniCode}, ${candidate.primarySniLabel}, ${assessment.category?.categorySlug ?? ""},
+      array(select jsonb_array_elements_text(${servicesJson}::jsonb)), ${candidate.activityDescription},
       ${candidate.addressLine1}, ${candidate.postalCode}, ${candidate.city}, ${candidate.municipality}, ${candidate.region}, ${publicSlug},
       ${desiredStatus}, ${assessment.score}, ${reasons}::jsonb, ${assessment.privacyBlocked}, ${assessment.autoPublicEligible},
       ${candidate.officialSource}, ${candidate.sourceRecordId}, ${sourceUpdatedAt}::timestamptz, now(),
@@ -238,10 +256,10 @@ export async function syncCompanyDirectory(): Promise<CompanyDirectorySyncResult
   if (!getSql()) throw new Error("Database is not configured");
 
   const provider = process.env.COMPANY_DIRECTORY_PROVIDER?.trim() || "bolagsverket_vardefulla_datamangder";
-  const runId = await startRun(provider);
   const startCursor = await lastCompletedCursor(provider);
-  const maxPages = Math.max(1, Math.min(10, Number(process.env.COMPANY_DIRECTORY_MAX_PAGES_PER_RUN || 3)));
-  const batchSize = Math.max(1, Math.min(100, Number(process.env.COMPANY_DIRECTORY_BATCH_SIZE || 20)));
+  const runId = await startRun(provider);
+  const maxPages = Math.max(1, Math.min(10, Number(process.env.COMPANY_DIRECTORY_MAX_PAGES_PER_RUN || 2)));
+  const batchSize = Math.max(1, Math.min(60, Number(process.env.COMPANY_DIRECTORY_BATCH_SIZE || 10)));
 
   let cursor = startCursor;
   let nextCursor: string | null = startCursor || null;
@@ -257,8 +275,9 @@ export async function syncCompanyDirectory(): Promise<CompanyDirectorySyncResult
       const batch = await fetchOfficialCompanyDirectoryBatch({ cursor, limit: batchSize });
       scanned += batch.items.length;
 
-      for (const candidate of batch.items) {
+      for (const discoveredCandidate of batch.items) {
         try {
+          const candidate = await verifyOfficialCompanyCandidate(discoveredCandidate);
           const result = await upsertCandidate(candidate);
           upserted += 1;
           if (result.publicationStatus === "published") published += 1;
