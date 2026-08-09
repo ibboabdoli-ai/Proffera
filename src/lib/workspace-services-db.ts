@@ -70,6 +70,7 @@ export type DashboardWorkspaceService = {
   publicSlug: string;
   publicStatus: WorkspaceServicePublicStatus;
   conversionMode: WorkspaceServiceConversionMode;
+  coverImageUrl: string;
   seoTitle: string;
   seoDescription: string;
 };
@@ -94,6 +95,7 @@ export type WriteDashboardWorkspaceServiceInput = {
   publicSlug: string;
   publicStatus: WorkspaceServicePublicStatus;
   conversionMode: WorkspaceServiceConversionMode;
+  coverImageUrl: string;
   seoTitle: string;
   seoDescription: string;
 };
@@ -126,7 +128,7 @@ export async function getDashboardWorkspaceServices(): Promise<DashboardWorkspac
         price_type, price_amount_minor, base_price_sek, duration_minutes,
         buffer_before_minutes, buffer_after_minutes, minimum_notice_minutes, maximum_advance_days,
         service_area, is_active, sort_order, public_slug, public_status, conversion_mode,
-        seo_title, seo_description
+        cover_image_url, seo_title, seo_description
       from workspace_services
       where workspace_id = ${workspaceId}
       order by sort_order asc, name asc
@@ -154,6 +156,7 @@ export async function getDashboardWorkspaceServices(): Promise<DashboardWorkspac
       publicSlug: toText(row.public_slug),
       publicStatus: toPublicStatus(row.public_status),
       conversionMode: toConversionMode(row.conversion_mode),
+      coverImageUrl: toText(row.cover_image_url),
       seoTitle: toText(row.seo_title),
       seoDescription: toText(row.seo_description),
     }));
@@ -174,13 +177,13 @@ export async function createDashboardWorkspaceService(input: WriteDashboardWorks
       workspace_id, name, description, short_description, category, price_label, price_type, price_amount_minor,
       base_price_sek, duration_minutes, buffer_before_minutes, buffer_after_minutes, minimum_notice_minutes,
       maximum_advance_days, service_area, is_active, sort_order, public_slug, public_status,
-      conversion_mode, seo_title, seo_description
+      conversion_mode, cover_image_url, seo_title, seo_description
     ) values (
       ${workspaceId}, ${input.name}, ${input.description}, ${input.shortDescription}, ${input.category}, ${input.priceLabel},
       ${input.priceType}, ${input.priceAmountMinor}, ${input.basePriceSek}, ${input.durationMinutes}, ${input.bufferBeforeMinutes},
       ${input.bufferAfterMinutes}, ${input.minimumNoticeMinutes}, ${input.maximumAdvanceDays}, ${input.serviceArea},
       ${input.isActive}, ${input.sortOrder}, ${publicSlug}, ${input.publicStatus}, ${input.conversionMode},
-      ${input.seoTitle}, ${input.seoDescription}
+      ${input.coverImageUrl}, ${input.seoTitle}, ${input.seoDescription}
     )
     returning id
   `;
@@ -203,8 +206,8 @@ export async function updateDashboardWorkspaceService(input: UpdateDashboardWork
       buffer_after_minutes = ${input.bufferAfterMinutes}, minimum_notice_minutes = ${input.minimumNoticeMinutes},
       maximum_advance_days = ${input.maximumAdvanceDays}, service_area = ${input.serviceArea},
       is_active = ${input.isActive}, sort_order = ${input.sortOrder}, public_slug = ${publicSlug},
-      public_status = ${input.publicStatus}, conversion_mode = ${input.conversionMode}, seo_title = ${input.seoTitle},
-      seo_description = ${input.seoDescription}, updated_at = now()
+      public_status = ${input.publicStatus}, conversion_mode = ${input.conversionMode}, cover_image_url = ${input.coverImageUrl},
+      seo_title = ${input.seoTitle}, seo_description = ${input.seoDescription}, updated_at = now()
     where id = ${input.id}::uuid
       and workspace_id = ${workspaceId}
     returning id
