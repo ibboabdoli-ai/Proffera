@@ -90,7 +90,7 @@ create or replace function enforce_uuid_workspace_service_identity()
 returns trigger
 language plpgsql
 set search_path = public
-as $$
+as $func$
 begin
   if new.service_id is not null and not exists (
     select 1 from workspace_services service
@@ -101,7 +101,7 @@ begin
   end if;
   return new;
 end;
-$$;
+$func$;
 
 drop trigger if exists public_booking_verifications_service_identity on public_booking_verifications;
 create trigger public_booking_verifications_service_identity
@@ -146,7 +146,7 @@ create or replace function sync_workspace_service_job_service_id()
 returns trigger
 language plpgsql
 set search_path = public
-as $$
+as $func$
 begin
   if new.service_id is null and new.booking_id is not null then
     select booking.service_id into new.service_id
@@ -176,7 +176,7 @@ begin
 
   return new;
 end;
-$$;
+$func$;
 
 drop trigger if exists workspace_service_jobs_sync_service_id on workspace_service_jobs;
 create trigger workspace_service_jobs_sync_service_id
