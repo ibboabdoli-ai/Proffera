@@ -2,6 +2,12 @@
 
 import { useMemo, useState } from "react";
 
+import {
+  bookingThemeAppearanceIsFixed,
+  normalizeBookingThemeAppearance,
+  readableBookingTextColor,
+} from "@/lib/booking-theme-contract";
+
 type BuilderSettings = {
   themeKey: string;
   primaryColor: string;
@@ -54,7 +60,7 @@ const templates = [
   { key: "salon", name: "Salon", description: "Mjuk och personlig", primary: "#843a5a", accent: "#e8b7ca", appearance: "light" as const },
   { key: "premium", name: "Premium", description: "Mörk och exklusiv", primary: "#17130f", accent: "#b69257", appearance: "dark" as const },
   { key: "minimal", name: "Minimal", description: "Ren och avskalad", primary: "#184f39", accent: "#d6e3db", appearance: "light" as const },
-  { key: "restaurant", name: "Restaurant", description: "Varm och elegant", primary: "#5b2a1d", accent: "#d9aa68", appearance: "light" as const },
+  { key: "restaurant", name: "Restaurant", description: "Varm och elegant", primary: "#5b2a1d", accent: "#d9aa68", appearance: "dark" as const },
 ] as const;
 
 const sections: Array<{ key: SectionKey; label: string; helper: string }> = [
@@ -67,15 +73,6 @@ const sections: Array<{ key: SectionKey; label: string; helper: string }> = [
   { key: "faqEnabled", label: "FAQ", helper: "Vanliga frågor före bokningen" },
   { key: "chatbotEnabled", label: "AI-chatt", helper: "AI-assistent på den publika bokningssidan" },
 ];
-
-function readableText(hex: string) {
-  const value = hex.replace("#", "");
-  if (!/^[0-9a-f]{6}$/i.test(value)) return "#ffffff";
-  const r = Number.parseInt(value.slice(0, 2), 16);
-  const g = Number.parseInt(value.slice(2, 4), 16);
-  const b = Number.parseInt(value.slice(4, 6), 16);
-  return (r * 299 + g * 587 + b * 114) / 1000 > 150 ? "#17201a" : "#ffffff";
-}
 
 function PreviewCard({ children, dark }: { children: React.ReactNode; dark: boolean }) {
   return (
@@ -97,7 +94,7 @@ export function BookingPageBuilder({
   const [tab, setTab] = useState<Tab>("design");
   const [device, setDevice] = useState<Device>("desktop");
   const [themeKey, setThemeKey] = useState(settings.themeKey);
-  const [appearance, setAppearance] = useState(settings.appearance);
+  const [appearance, setAppearance] = useState(() => normalizeBookingThemeAppearance(settings.themeKey, settings.appearance));
   const [primaryColor, setPrimaryColor] = useState(settings.primaryColor);
   const [accentColor, setAccentColor] = useState(settings.accentColor);
   const [swedishEnabled, setSwedishEnabled] = useState(settings.swedishEnabled);
@@ -115,13 +112,15 @@ export function BookingPageBuilder({
   }));
 
   const previewWidth = device === "desktop" ? "max-w-[920px]" : device === "tablet" ? "max-w-[660px]" : "max-w-[390px]";
-  const dark = appearance === "dark";
-  const primaryText = useMemo(() => readableText(primaryColor), [primaryColor]);
-  const accentText = useMemo(() => readableText(accentColor), [accentColor]);
+  const resolvedAppearance = normalizeBookingThemeAppearance(themeKey, appearance);
+  const fixedAppearance = bookingThemeAppearanceIsFixed(themeKey);
+  const dark = resolvedAppearance === "dark";
+  const primaryText = useMemo(() => readableBookingTextColor(primaryColor), [primaryColor]);
+  const accentText = useMemo(() => readableBookingTextColor(accentColor), [accentColor]);
 
   function applyTemplate(template: (typeof templates)[number]) {
     setThemeKey(template.key);
-    setAppearance(template.appearance);
+    setAppearance(normalizeBookingThemeAppearance(template.key, template.appearance));
     setPrimaryColor(template.primary);
     setAccentColor(template.accent);
   }
@@ -135,7 +134,7 @@ export function BookingPageBuilder({
   return (
     <form action={saveAction} className={builderEnabled ? "grid gap-5" : "pointer-events-none grid gap-5 opacity-55"} data-booking-page-builder>
       <input type="hidden" name="themeKey" value={themeKey} />
-      <input type="hidden" name="appearance" value={appearance} />
+      <input type="hidden" name="appearance" value={resolvedAppearance} />
       <input type="hidden" name="primaryColor" value={primaryColor} />
       <input type="hidden" name="accentColor" value={accentColor} />
       <input type="hidden" name="defaultLanguage" value={defaultLanguage} />
@@ -213,7 +212,19 @@ export function BookingPageBuilder({
                 <div className="mt-4 grid gap-4">
                   <label className="grid gap-2 text-sm font-bold text-[#263129]">Primär färg<input type="color" value={primaryColor} onChange={(event) => setPrimaryColor(event.target.value)} className="h-12 w-full rounded-xl border border-[#d7dfd7] p-1" /></label>
                   <label className="grid gap-2 text-sm font-bold text-[#263129]">Accentfärg<input type="color" value={accentColor} onChange={(event) => setAccentColor(event.target.value)} className="h-12 w-full rounded-xl border border-[#d7dfd7] p-1" /></label>
-                  <label className="grid gap-2 text-sm font-bold text-[#263129]">Läge<select value={appearance} onChange={(event) => setAppearance(event.target.value === "dark" ? "dark" : "light")} className="rounded-xl border border-[#d7dfd7] px-4 py-3 font-normal"><option value="light">Ljust</option><option value="dark">Mörkt</option></select></label>
+                  <label className="grid gap-2 text-sm font-bold text-[#263129]">
+                    Läge
+                    <select
+                      value={resolvedAppearance}
+                      disabled={fixedAppearance}
+                      onChange={(event) => setAppearance(event.target.value === "dark" ? "dark" : "light")}
+                      className="rounded-xl border border-[#d7dfd7] px-4 py-3 font-normal disabled:cursor-not-allowed disabled:bg-[#f2f4f1] disabled:text-[#667168]"
+                    >
+                      <option value="light">Ljust</option>
+                      <option value="dark">Mörkt</option>
+                    </select>
+                    {fixedAppearance ? <span className="text-xs font-normal leading-5 text-[#68736b]">Det här temat använder ett fast läge för att behålla rätt kontrast och design.</span> : null}
+                  </label>
                 </div>
               </section>
             </>
@@ -301,7 +312,7 @@ export function BookingPageBuilder({
               <p className="text-xs font-black uppercase tracking-[0.14em] text-[#68736b]">Live design preview</p>
               <p className="mt-1 text-sm text-[#5f6b63]">Ändringar visas här direkt. Spara för att publicera dem på den riktiga bokningssidan.</p>
             </div>
-            <span className="rounded-full bg-white px-3 py-1.5 text-xs font-bold text-[#5f6b63] shadow-sm">{themeKey} · {appearance}</span>
+            <span className="rounded-full bg-white px-3 py-1.5 text-xs font-bold text-[#5f6b63] shadow-sm">{themeKey} · {resolvedAppearance}</span>
           </div>
 
           <div className={`mx-auto overflow-hidden rounded-[26px] shadow-xl transition-all ${previewWidth}`} style={{ backgroundColor: dark ? "#0e110f" : "#f7f7f4", color: dark ? "#ffffff" : "#17201a" }}>
