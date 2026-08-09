@@ -107,7 +107,7 @@ describe("Public Business Hub architecture contract", () => {
     expect(businessPage).toContain("PublicBusinessContactForm");
     expect(businessPage).toContain('href="#kontakt"');
     expect(businessPage).toContain('id="kontakt"');
-    expect(businessPage).toContain("<PublicBusinessContactForm workspaceId={business.id} />");
+    expect(businessPage).toContain("<PublicBusinessContactForm workspaceId={business.id} locale={locale} />");
   });
 
   it("uses a guarded quote endpoint for Public Business Hub services without changing the legacy quote endpoint", () => {
