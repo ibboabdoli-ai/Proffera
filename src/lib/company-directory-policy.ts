@@ -61,6 +61,38 @@ const juridicalLegalForms = [
   "ideell forening",
 ];
 
+const pilotLocations = new Set(["stockholm", "södertälje"]);
+
+function normalizeLocation(value: unknown) {
+  return String(value ?? "").trim().toLocaleLowerCase("sv-SE");
+}
+
+function isPositiveRegistrationSignal(value: unknown) {
+  const normalized = String(value ?? "").trim().toLocaleLowerCase("sv-SE");
+  if (!normalized) return false;
+  if (
+    normalized.startsWith("ej ")
+    || normalized.startsWith("inte ")
+    || normalized.includes("ej registrerad")
+    || normalized.includes("inte registrerad")
+    || normalized.includes("avregistr")
+    || ["false", "nej", "no", "0"].includes(normalized)
+  ) return false;
+  return normalized === "registrerad"
+    || normalized === "godkänd"
+    || normalized === "godkand"
+    || normalized === "aktiv"
+    || normalized === "active"
+    || normalized === "ja"
+    || normalized === "yes"
+    || normalized.startsWith("registrerad ");
+}
+
+export function isDirectoryPilotLocation(candidate: Pick<NormalizedDirectoryCandidate, "city" | "municipality">) {
+  return pilotLocations.has(normalizeLocation(candidate.city))
+    || pilotLocations.has(normalizeLocation(candidate.municipality));
+}
+
 export function normalizeSniCode(value: unknown) {
   const raw = String(value ?? "").trim().replace(",", ".");
   if (!raw) return "";
@@ -143,6 +175,7 @@ export function buildDirectoryPublicSlug(candidate: Pick<NormalizedDirectoryCand
 export function assessDirectoryCandidate(candidate: NormalizedDirectoryCandidate): DirectoryQualityAssessment {
   const reasons: string[] = [];
   const category = mapSniToDirectoryCategory(candidate.primarySniCode);
+  const pilotLocation = isDirectoryPilotLocation(candidate);
   let score = 0;
 
   if (candidate.isActive) score += 25;
@@ -160,18 +193,23 @@ export function assessDirectoryCandidate(candidate: NormalizedDirectoryCandidate
   if (candidate.city.trim()) score += 10;
   else reasons.push("missing_city");
 
+  if (!pilotLocation) reasons.push("outside_pilot_area");
+
   if (candidate.addressLine1.trim() && candidate.postalCode.trim()) score += 5;
   else reasons.push("incomplete_address");
 
   if (candidate.officialSource.trim()) score += 5;
   else reasons.push("missing_official_source");
 
-  const taxSignal = `${candidate.fTaxStatus} ${candidate.vatStatus}`.toLocaleLowerCase("sv-SE");
-  if (/registr|godk|aktiv|ja|yes/.test(taxSignal)) score += 5;
+  if (isPositiveRegistrationSignal(candidate.fTaxStatus) || isPositiveRegistrationSignal(candidate.vatStatus)) score += 5;
   else reasons.push("tax_status_not_confirmed");
 
   const privacyBlocked = candidate.organizationKind !== "juridical_person";
-  const autoPublicEligible = candidate.isActive && !privacyBlocked && Boolean(category) && Boolean(candidate.city.trim());
+  const autoPublicEligible = candidate.isActive
+    && !privacyBlocked
+    && Boolean(category)
+    && Boolean(candidate.city.trim())
+    && pilotLocation;
 
   let publicationStatus: DirectoryQualityAssessment["publicationStatus"] = "review";
   if (!candidate.isActive) publicationStatus = "inactive";
