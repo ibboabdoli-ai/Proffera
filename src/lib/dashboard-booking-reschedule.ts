@@ -7,8 +7,7 @@ import { resolveDatabaseUrl } from "@/lib/db/database-url";
 import { isValidLocalTime, localDateTimeToUtc, parseLocalDateTime, resolveBookingTimeZone } from "@/lib/public-booking-policy";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
-const connectionString =
-  resolveDatabaseUrl();
+const connectionString = resolveDatabaseUrl();
 
 export class BookingRescheduleValidationError extends Error {
   constructor(public readonly code: "time" | "past" | "conflict" | "status") {
@@ -77,7 +76,9 @@ export async function rescheduleDashboardBooking(
       c.email as customer_email,
       c.phone as customer_phone
     from bookings b
-    left join customers c on c.id = b.customer_id
+    left join customers c
+      on c.id = b.customer_id
+     and c.workspace_id = b.workspace_id
     where b.workspace_id = ${access.workspaceId}
       and b.id = ${bookingId}
     limit 1
@@ -85,7 +86,7 @@ export async function rescheduleDashboardBooking(
 
   const existing = existingRows[0];
   if (!existing) throw new Error("Booking reschedule did not match a booking");
-  if (String(existing.status) === "cancelled" || String(existing.status) === "no_show") {
+  if (!["requested", "confirmed"].includes(String(existing.status))) {
     throw new BookingRescheduleValidationError("status");
   }
 
@@ -149,15 +150,50 @@ export async function rescheduleDashboardBooking(
   if (!changed) return { changed: false, timeZone, notification: null };
 
   await sql`
-    update bookings
-    set starts_at = ${newStart.toISOString()}::timestamptz,
-        ends_at = ${newEnd.toISOString()}::timestamptz,
-        updated_at = now()
-    where workspace_id = ${access.workspaceId}
-      and id = ${bookingId}
-  `;
-
-  await sql`
+    with updated_booking as (
+      update bookings
+      set starts_at = ${newStart.toISOString()}::timestamptz,
+          ends_at = ${newEnd.toISOString()}::timestamptz,
+          updated_at = now()
+      where workspace_id = ${access.workspaceId}
+        and id = ${bookingId}
+        and status in ('requested', 'confirmed')
+      returning id, workspace_id, customer_id
+    ),
+    updated_job as (
+      update workspace_service_jobs job
+      set scheduled_starts_at = ${newStart.toISOString()}::timestamptz,
+          scheduled_ends_at = ${newEnd.toISOString()}::timestamptz,
+          updated_at = now()
+      from updated_booking
+      where job.booking_id = updated_booking.id
+        and job.workspace_id = ${access.workspaceId}::uuid
+        and job.status not in ('completed', 'cancelled')
+      returning job.id, job.workspace_id
+    ),
+    job_event as (
+      insert into workspace_service_job_events (
+        workspace_id,
+        service_job_id,
+        event_type,
+        summary,
+        metadata
+      )
+      select
+        workspace_id,
+        id,
+        'status_changed',
+        'Service job schedule synchronized with its booking.',
+        jsonb_build_object(
+          'source', 'dashboard_booking_reschedule',
+          'previous_starts_at', ${oldStart.toISOString()},
+          'previous_ends_at', ${oldEnd.toISOString()},
+          'starts_at', ${newStart.toISOString()},
+          'ends_at', ${newEnd.toISOString()}
+        )
+      from updated_job
+      returning id
+    )
     insert into customer_events (
       workspace_id,
       customer_id,
@@ -167,21 +203,22 @@ export async function rescheduleDashboardBooking(
       description,
       metadata
     )
-    values (
-      ${String(existing.workspace_id)},
-      ${existing.customer_id ? String(existing.customer_id) : null},
-      ${bookingId},
-      'booking_rescheduled',
+    select
+      workspace_id,
+      customer_id,
+      id,
+      'booking',
       'Bokning ombokad',
       'Bokningens tid ändrades.',
       jsonb_build_object(
         'source', 'dashboard_manual',
+        'event_subtype', 'booking_rescheduled',
         'previous_starts_at', ${oldStart.toISOString()},
         'previous_ends_at', ${oldEnd.toISOString()},
         'starts_at', ${newStart.toISOString()},
         'ends_at', ${newEnd.toISOString()}
       )
-    )
+    from updated_booking
   `;
 
   return {
