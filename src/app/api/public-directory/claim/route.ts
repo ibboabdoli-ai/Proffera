@@ -56,8 +56,9 @@ export async function POST(request: Request) {
     select id::text, claimed_workspace_id::text
     from company_directory_profiles
     where public_slug = ${slug}
-      and publication_status in ('published', 'ready')
+      and publication_status = 'published'
       and privacy_blocked = false
+      and auto_public_eligible = true
     limit 1
   `;
   const profile = profiles[0];
