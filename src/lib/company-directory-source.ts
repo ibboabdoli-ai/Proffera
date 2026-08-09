@@ -119,7 +119,7 @@ function normalizeSourceRecord(row: AnyRecord, provider: string): NormalizedDire
   const activeValue = first(row, ["isActive", "verksamOrganisation", "verksam_organisation", "active", "statusAktiv"]);
   const deregistered = first(row, ["avregistreradOrganisation", "avregistrerad", "deregisteredAt"]);
   const isActive = activeValue !== undefined ? bool(activeValue) : !text(deregistered);
-  const sourceUpdatedRaw = text(first(row, ["sourceUpdatedAt", "updatedAt", "andradTidpunkt", "ändradTidpunkt", "lastUpdated"]));
+  const sourceUpdatedRaw = text(first(row, ["sourceUpdatedAt", "updatedAt", "andradTidpunkt", "ändradTidpunkt", "lastUpdated", "hamtat", "hämtat"]));
   const parsedUpdated = sourceUpdatedRaw ? new Date(sourceUpdatedRaw) : null;
 
   return {
@@ -152,6 +152,16 @@ function sourceItems(payload: unknown): unknown[] {
     if (Array.isArray(row[key])) return row[key] as unknown[];
   }
   return [row];
+}
+
+function detailRecord(payload: unknown): AnyRecord | null {
+  const root = object(payload);
+  if (!root) return null;
+  for (const key of ["organisation", "organization", "data", "result", "foretag", "företag"]) {
+    const nested = object(root[key]);
+    if (nested) return nested;
+  }
+  return root;
 }
 
 function nextCursorFromPayload(payload: unknown) {
@@ -196,6 +206,38 @@ function withCursor(urlString: string, cursor: string, limit: number) {
   return url;
 }
 
+function replaceOrganizationNumber(template: string, organizationNumber: string) {
+  const normalized = organizationNumber.replace(/\D/g, "");
+  return template.replaceAll("{organizationNumber}", encodeURIComponent(normalized));
+}
+
+function mergeVerifiedCandidate(discovered: NormalizedDirectoryCandidate, verified: NormalizedDirectoryCandidate) {
+  const pick = (verifiedValue: string, discoveredValue: string) => verifiedValue.trim() || discoveredValue;
+  return {
+    ...discovered,
+    ...verified,
+    countryCode: pick(verified.countryCode, discovered.countryCode),
+    organizationNumber: verified.organizationNumber || discovered.organizationNumber,
+    legalName: pick(verified.legalName, discovered.legalName),
+    displayName: pick(verified.displayName, discovered.displayName),
+    legalForm: pick(verified.legalForm, discovered.legalForm),
+    organizationStatus: pick(verified.organizationStatus, discovered.organizationStatus),
+    fTaxStatus: pick(verified.fTaxStatus, discovered.fTaxStatus),
+    vatStatus: pick(verified.vatStatus, discovered.vatStatus),
+    employerStatus: pick(verified.employerStatus, discovered.employerStatus),
+    primarySniCode: pick(verified.primarySniCode, discovered.primarySniCode),
+    primarySniLabel: pick(verified.primarySniLabel, discovered.primarySniLabel),
+    activityDescription: pick(verified.activityDescription, discovered.activityDescription),
+    addressLine1: pick(verified.addressLine1, discovered.addressLine1),
+    postalCode: pick(verified.postalCode, discovered.postalCode),
+    city: pick(verified.city, discovered.city),
+    municipality: pick(verified.municipality, discovered.municipality),
+    region: pick(verified.region, discovered.region),
+    sourceRecordId: verified.sourceRecordId || discovered.sourceRecordId,
+    sourceUpdatedAt: verified.sourceUpdatedAt ?? discovered.sourceUpdatedAt,
+  } satisfies NormalizedDirectoryCandidate;
+}
+
 export async function fetchOfficialCompanyDirectoryBatch(input: { cursor?: string; limit?: number } = {}): Promise<CompanyDirectorySourceBatch> {
   const sourceUrl = process.env.COMPANY_DIRECTORY_SOURCE_URL?.trim();
   if (!sourceUrl) throw new Error("COMPANY_DIRECTORY_SOURCE_URL is not configured");
@@ -221,4 +263,44 @@ export async function fetchOfficialCompanyDirectoryBatch(input: { cursor?: strin
     .filter((value): value is NormalizedDirectoryCandidate => Boolean(value));
 
   return { items, nextCursor: nextCursorFromPayload(payload), provider };
+}
+
+export async function verifyOfficialCompanyCandidate(candidate: NormalizedDirectoryCandidate) {
+  const template = process.env.COMPANY_DIRECTORY_DETAIL_URL_TEMPLATE?.trim();
+  if (!template) return candidate;
+
+  const token = await oauthAccessToken();
+  const method = process.env.COMPANY_DIRECTORY_DETAIL_METHOD?.trim().toUpperCase() === "POST" ? "POST" : "GET";
+  const organizationNumber = candidate.organizationNumber.replace(/\D/g, "");
+  const url = replaceOrganizationNumber(template, organizationNumber);
+  const bodyTemplate = process.env.COMPANY_DIRECTORY_DETAIL_BODY_TEMPLATE?.trim();
+  const body = method === "POST"
+    ? (bodyTemplate
+      ? replaceOrganizationNumber(bodyTemplate, organizationNumber)
+      : JSON.stringify({ identitetsbeteckning: organizationNumber }))
+    : undefined;
+
+  const response = await fetch(url, {
+    method,
+    headers: {
+      accept: "application/json",
+      ...(method === "POST" ? { "content-type": "application/json" } : {}),
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
+    body,
+    cache: "no-store",
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) throw new Error(`Official company verification failed (${response.status})`);
+
+  const row = detailRecord(await response.json());
+  if (!row) throw new Error("Official company verification returned no record");
+  const provider = `${candidate.officialSource}:detail`;
+  const verified = normalizeSourceRecord(row, provider);
+  if (!verified) throw new Error("Official company verification record could not be normalized");
+  if (verified.organizationNumber.replace(/\D/g, "") !== organizationNumber) {
+    throw new Error("Official company verification returned a different organization number");
+  }
+
+  return mergeVerifiedCandidate(candidate, verified);
 }
