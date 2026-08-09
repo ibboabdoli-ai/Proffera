@@ -58,7 +58,7 @@ export default async function PublicServicePage({ params }: Props) {
               </div>
               <div className="mt-8 flex flex-wrap gap-3">
                 {canBook ? <PublicBusinessTrackedLink workspaceId={business.id} serviceId={item.id} eventKey="book_clicked" href={bookingHref} className="inline-flex min-h-12 items-center justify-center rounded-xl bg-[var(--business-primary)] px-5 font-black text-white"><CalendarCheck2 className="mr-2 h-5 w-5" /> Boka online</PublicBusinessTrackedLink> : null}
-                {canQuote ? <a href="#offert" className="inline-flex min-h-12 items-center justify-center rounded-xl border border-black/15 px-5 font-black">Begär offert</a> : null}
+                {canQuote ? <PublicBusinessTrackedLink workspaceId={business.id} serviceId={item.id} eventKey="quote_clicked" href="#offert" className="inline-flex min-h-12 items-center justify-center rounded-xl border border-black/15 px-5 font-black">Begär offert</PublicBusinessTrackedLink> : null}
                 {canContact && business.contactEmail ? <PublicBusinessTrackedLink workspaceId={business.id} serviceId={item.id} eventKey="contact_clicked" href={`mailto:${business.contactEmail}?subject=${encodeURIComponent(item.name)}`} className="inline-flex min-h-12 items-center justify-center rounded-xl border border-black/15 px-5 font-black"><Mail className="mr-2 h-4 w-4" /> Kontakta</PublicBusinessTrackedLink> : null}
               </div>
             </div>
