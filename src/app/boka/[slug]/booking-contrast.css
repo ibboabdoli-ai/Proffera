@@ -1,0 +1,66 @@
+/*
+ * Contrast safety net for themes with intentionally fixed surface palettes.
+ * The builder may contain older or manually edited appearance values; these
+ * rules keep public booking copy readable even when that stored mode conflicts
+ * with the theme's visual surface contract.
+ */
+
+[data-booking-theme="premium"] > main:first-child,
+[data-booking-theme="restaurant"] > main:first-child {
+  color: #f8efe4 !important;
+}
+
+[data-booking-theme="premium"] > main:first-child > div > section,
+[data-booking-theme="premium"] > main:first-child > div > aside > section,
+[data-booking-theme="restaurant"] > main:first-child > div > section,
+[data-booking-theme="restaurant"] > main:first-child > div > aside > section {
+  color: #f8efe4 !important;
+}
+
+[data-booking-theme="premium"] [data-booking-start-hint],
+[data-booking-theme="restaurant"] [data-booking-start-hint] {
+  color: #c8d2ca !important;
+}
+
+[data-booking-theme="premium"] > main:first-child > div > aside > section :where(p, ul, li, a),
+[data-booking-theme="restaurant"] > main:first-child > div > aside > section :where(p, ul, li, a) {
+  color: #d9dfda !important;
+}
+
+[data-booking-theme="premium"] > main:first-child > div > aside > section :where(h2, h3, strong),
+[data-booking-theme="restaurant"] > main:first-child > div > aside > section :where(h2, h3, strong) {
+  color: #fffaf0 !important;
+}
+
+/* Minimal deliberately uses white editorial surfaces. Keep copy dark even if
+ * an older workspace saved appearance=dark before the builder contract changed.
+ */
+[data-booking-theme="minimal"] > main:first-child,
+[data-booking-theme="minimal"] > main:first-child > div > section,
+[data-booking-theme="minimal"] > main:first-child > div > aside > section {
+  color: #111111 !important;
+}
+
+[data-booking-theme="minimal"] [data-booking-start-hint] {
+  color: #4f5a52 !important;
+}
+
+[data-booking-theme="minimal"] > main:first-child > div > aside > section :where(p, ul, li, a) {
+  color: #4f5a52 !important;
+}
+
+[data-booking-theme="minimal"] > main:first-child > div > aside > section :where(h2, h3, strong) {
+  color: #111111 !important;
+}
+
+/* Disabled controls must remain readable; opacity is still enough to signal
+ * state without making the value/placeholder disappear on dark themes.
+ */
+[data-booking-theme="premium"] form[data-booking-form] :disabled,
+[data-booking-theme="restaurant"] form[data-booking-form] :disabled {
+  opacity: .72 !important;
+}
+
+[data-booking-theme="minimal"] form[data-booking-form] :disabled {
+  opacity: .62 !important;
+}
