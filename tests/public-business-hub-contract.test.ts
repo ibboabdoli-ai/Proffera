@@ -82,6 +82,22 @@ describe("Public Business Hub architecture contract", () => {
     expect(servicePage).not.toContain('item.conversionMode === "contact" || item.conversionMode === "book_or_quote"');
   });
 
+  it("routes contact-mode services into the existing CRM prospect model safely", () => {
+    const contactRoute = source("src/app/api/public-business/contact/route.ts");
+    const contactForm = source("src/components/public-business/public-contact-form.tsx");
+    const servicePage = source("src/app/foretag/[workspace]/tjanster/[service]/page.tsx");
+
+    expect(contactRoute).toContain("allowPublicSubmission");
+    expect(contactRoute).toContain("pg_advisory_xact_lock");
+    expect(contactRoute).toContain("lower(email) = lower");
+    expect(contactRoute).toContain("'prospect', 'web_form'");
+    expect(contactRoute).toContain("insert into customer_events");
+    expect(contactRoute).toContain("'note', 'Ny kontaktförfrågan'");
+    expect(contactRoute).toContain("conversion_mode = 'contact'");
+    expect(contactForm).toContain('fetch("/api/public-business/contact"');
+    expect(servicePage).toContain("PublicBusinessContactForm");
+  });
+
   it("keeps connected custom domains booking-first until explicit website opt-in", () => {
     const migration = source("db/migrations/20260809_0036_public_business_hub.sql");
     const proxy = source("src/proxy.ts");
