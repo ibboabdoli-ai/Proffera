@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
 
+import { BookingPageBuilder } from "./booking-page-builder";
+import { getSql } from "@/lib/db/server";
 import { isPrimeViewHost, normalizeCustomDomainInput } from "@/lib/public-site-domains";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 import { hasWorkspaceFeature } from "@/lib/workspace-entitlements";
@@ -30,9 +32,7 @@ function appearanceUrl(input: { updated?: boolean; error?: string; domain?: Verc
 async function syncSavedCustomDomain() {
   "use server";
 
-  if (!(await hasWorkspaceFeature("custom_domain"))) {
-    redirect("/dashboard/installningar/funktioner");
-  }
+  if (!(await hasWorkspaceFeature("custom_domain"))) redirect("/dashboard/installningar/funktioner");
 
   const settings = await getWorkspaceExperienceSettings();
   if (!settings.customDomain) redirect(appearanceUrl({ error: "domain" }));
@@ -45,9 +45,7 @@ async function syncSavedCustomDomain() {
 async function disconnectSavedCustomDomain() {
   "use server";
 
-  if (!(await hasWorkspaceFeature("custom_domain"))) {
-    redirect("/dashboard/installningar/funktioner");
-  }
+  if (!(await hasWorkspaceFeature("custom_domain"))) redirect("/dashboard/installningar/funktioner");
 
   const settings = await getWorkspaceExperienceSettings();
   if (!settings.customDomain) redirect(appearanceUrl({ error: "domain" }));
@@ -94,12 +92,21 @@ async function saveAppearance(formData: FormData) {
     if (!removal.ok) redirect(appearanceUrl({ error: "domain_remove" }));
   }
 
+  const requestedDefaultLanguage = formData.get("defaultLanguage") === "en" ? "en" as const : "sv" as const;
+  const defaultLanguage = requestedDefaultLanguage === "en" && englishEnabled
+    ? "en" as const
+    : requestedDefaultLanguage === "sv" && swedishEnabled
+      ? "sv" as const
+      : englishEnabled
+        ? "en" as const
+        : "sv" as const;
+
   const nextSettings = {
     themeKey: String(formData.get("themeKey") ?? "clean"),
     primaryColor: String(formData.get("primaryColor") ?? "#17452f"),
     accentColor: String(formData.get("accentColor") ?? "#d9b44a"),
     appearance: formData.get("appearance") === "dark" ? "dark" as const : "light" as const,
-    defaultLanguage: formData.get("defaultLanguage") === "en" ? "en" as const : "sv" as const,
+    defaultLanguage,
     swedishEnabled,
     englishEnabled,
     heroEnabled: formData.get("heroEnabled") === "on",
@@ -120,12 +127,8 @@ async function saveAppearance(formData: FormData) {
   try {
     await updateWorkspaceExperienceSettings(nextSettings);
   } catch (error) {
-    if (error instanceof Error && error.message === "CUSTOM_DOMAIN_TAKEN") {
-      redirect(appearanceUrl({ error: "domain_taken" }));
-    }
-    if (error instanceof Error && error.message === "INVALID_CUSTOM_DOMAIN") {
-      redirect(appearanceUrl({ error: "domain" }));
-    }
+    if (error instanceof Error && error.message === "CUSTOM_DOMAIN_TAKEN") redirect(appearanceUrl({ error: "domain_taken" }));
+    if (error instanceof Error && error.message === "INVALID_CUSTOM_DOMAIN") redirect(appearanceUrl({ error: "domain" }));
     throw error;
   }
 
@@ -175,17 +178,6 @@ async function saveAppearance(formData: FormData) {
   redirect(appearanceUrl({ updated: true }));
 }
 
-const toggles = [
-  ["heroEnabled", "Hero"],
-  ["servicesEnabled", "Tjänster"],
-  ["staffEnabled", "Medarbetare"],
-  ["reviewsEnabled", "Omdömen"],
-  ["galleryEnabled", "Galleri"],
-  ["contactEnabled", "Kontakt"],
-  ["faqEnabled", "FAQ"],
-  ["chatbotEnabled", "AI-chatt på bokningssidan"],
-] as const;
-
 const domainMessages: Partial<Record<VercelCustomDomainState, string>> = {
   connected: "Domänen är verifierad och DNS är korrekt. Den är klar att använda.",
   verification: "Domänen är tillagd i Vercel men ägarskapet behöver verifieras. Lägg in TXT-posten som visas nedan och kontrollera igen.",
@@ -209,6 +201,14 @@ export default async function AppearanceSettingsPage({
     hasWorkspaceFeature("website_builder"),
     hasWorkspaceFeature("custom_domain"),
   ]);
+
+  const sql = getSql();
+  const bookingSlugRows = sql
+    ? await sql`select public_booking_slug from workspaces where id = ${access.workspaceId}::uuid limit 1`
+    : [];
+  const publicBookingSlug = String(bookingSlugRows[0]?.public_booking_slug ?? "").trim();
+  const publicBookingUrl = publicBookingSlug ? `/boka/${encodeURIComponent(publicBookingSlug)}` : "";
+
   const params = searchParams ? await searchParams : {};
   const bespokePrimeView = isPrimeViewHost(settings.customDomain);
   const automationStatus = customDomainEnabled && settings.customDomain && !bespokePrimeView
@@ -229,14 +229,19 @@ export default async function AppearanceSettingsPage({
       : null;
 
   return (
-    <div className="grid gap-6">
-      <header className="rounded-[28px] bg-[#173e2b] p-7 text-white">
+    <div className="grid gap-5">
+      <header className="rounded-[28px] bg-[#173e2b] p-6 text-white sm:p-7">
         <p className="text-xs font-bold uppercase tracking-[0.18em] text-white/65">Bokningssida / Booking page</p>
-        <h1 className="mt-2 text-3xl font-bold">Tema, språk och visuellt innehåll</h1>
-        <p className="mt-3 text-sm leading-7 text-white/80">Alla arbetsytor använder samma självserviceverktyg. Planen avgör vilka delar som kan publiceras.</p>
+        <div className="mt-2 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h1 className="text-3xl font-black">Bygg din bokningssida</h1>
+            <p className="mt-3 max-w-3xl text-sm leading-7 text-white/80">Välj en professionell mall, anpassa varumärket och bestäm vilka sektioner kunderna ska se. Förhandsvisningen reagerar direkt och samma verktyg används av alla arbetsytor.</p>
+          </div>
+          {publicBookingUrl ? <a href={publicBookingUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center justify-center rounded-xl bg-white px-4 py-2.5 text-sm font-black text-[#173e2b]">Visa publik sida</a> : null}
+        </div>
       </header>
 
-      {params.updated === "1" ? <p className="rounded-xl bg-[#eaf6ed] p-4 text-sm font-bold text-[#17452f]">Inställningarna sparades.</p> : null}
+      {params.updated === "1" ? <p className="rounded-xl bg-[#eaf6ed] p-4 text-sm font-bold text-[#17452f]">Designen sparades och publicerades.</p> : null}
       {params.domainRemoved === "1" ? <p className="rounded-xl bg-[#eaf6ed] p-4 text-sm font-bold text-[#17452f]">Domänen kopplades från och togs bort från Profferas Vercel-projekt.</p> : null}
       {params.error === "language" ? <p className="rounded-xl bg-[#fff3ef] p-4 text-sm font-bold text-[#8f2f1b]">Minst ett språk måste vara aktivt.</p> : null}
       {params.error === "domain" ? <p className="rounded-xl bg-[#fff3ef] p-4 text-sm font-bold text-[#8f2f1b]">Ange bara ett giltigt domännamn, till exempel booking.foretagen.se.</p> : null}
@@ -254,66 +259,18 @@ export default async function AppearanceSettingsPage({
         </section>
       ) : null}
 
-      <form action={saveAppearance} className={`grid gap-6 ${builderEnabled ? "" : "pointer-events-none opacity-55"}`}>
-        <section className="grid gap-4 rounded-[24px] border border-[#dfe6df] bg-white p-6 lg:grid-cols-2">
-          <label className="grid gap-2 text-sm font-bold">Tema<select name="themeKey" defaultValue={settings.themeKey} className="rounded-xl border border-[#d7dfd7] px-4 py-3 font-normal"><option value="clean">Clean</option><option value="salon">Salon</option><option value="premium">Premium</option><option value="modern">Modern</option><option value="minimal">Minimal</option><option value="restaurant">Restaurant</option></select></label>
-          <label className="grid gap-2 text-sm font-bold">Läge / Appearance<select name="appearance" defaultValue={settings.appearance} className="rounded-xl border border-[#d7dfd7] px-4 py-3 font-normal"><option value="light">Ljust / Light</option><option value="dark">Mörkt / Dark</option></select></label>
-          <label className="grid gap-2 text-sm font-bold">Primär färg<input name="primaryColor" type="color" defaultValue={settings.primaryColor} className="h-12 w-full rounded-xl border border-[#d7dfd7] p-1" /></label>
-          <label className="grid gap-2 text-sm font-bold">Accentfärg<input name="accentColor" type="color" defaultValue={settings.accentColor} className="h-12 w-full rounded-xl border border-[#d7dfd7] p-1" /></label>
-        </section>
-
-        <section className="rounded-[24px] border border-[#dfe6df] bg-white p-6">
-          <h2 className="text-xl font-bold">Språk / Languages</h2>
-          <p className="mt-2 text-sm text-[#5f6b63]">Kunden ser en språkväljare när båda språken är aktiva.</p>
-          <div className="mt-4 grid gap-3 md:grid-cols-3">
-            <label className="flex items-center justify-between rounded-xl border border-[#e0e5dd] p-4 text-sm font-bold"><span>Svenska</span><input name="swedishEnabled" type="checkbox" defaultChecked={settings.swedishEnabled} className="h-5 w-5" /></label>
-            <label className="flex items-center justify-between rounded-xl border border-[#e0e5dd] p-4 text-sm font-bold"><span>English</span><input name="englishEnabled" type="checkbox" defaultChecked={settings.englishEnabled} className="h-5 w-5" /></label>
-            <label className="grid gap-2 rounded-xl border border-[#e0e5dd] p-4 text-sm font-bold">Standardspråk<select name="defaultLanguage" defaultValue={settings.defaultLanguage} className="rounded-lg border border-[#d7dfd7] px-3 py-2 font-normal"><option value="sv">Svenska</option><option value="en">English</option></select></label>
-          </div>
-        </section>
-
-        <section className="rounded-[24px] border border-[#dfe6df] bg-white p-6">
-          <h2 className="text-xl font-bold">Sektioner</h2>
-          <div className="mt-4 grid gap-3 md:grid-cols-2">
-            {toggles.map(([name, label]) => <label key={name} className="flex items-center justify-between rounded-xl border border-[#e0e5dd] p-4 text-sm font-bold"><span>{label}</span><input name={name} type="checkbox" defaultChecked={settings[name]} className="h-5 w-5" /></label>)}
-          </div>
-        </section>
-
-        <section className="grid gap-4 rounded-[24px] border border-[#dfe6df] bg-white p-6 lg:grid-cols-2">
-          <label className="grid gap-2 text-sm font-bold">Logotyp URL<input name="logoUrl" defaultValue={settings.logoUrl} className="rounded-xl border border-[#d7dfd7] px-4 py-3 font-normal" /></label>
-          <label className="grid gap-2 text-sm font-bold">Hero-bild URL<input name="heroImageUrl" defaultValue={settings.heroImageUrl} className="rounded-xl border border-[#d7dfd7] px-4 py-3 font-normal" /></label>
-          <label className="grid gap-2 text-sm font-bold">Hero-video URL<input name="heroVideoUrl" defaultValue={settings.heroVideoUrl} className="rounded-xl border border-[#d7dfd7] px-4 py-3 font-normal" /></label>
-
-          <div className="grid gap-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="text-sm font-bold">Egen domän</span>
-              {settings.customDomain ? (
-                <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${domainConnected ? "bg-[#eaf6ed] text-[#17452f]" : "bg-[#fff7e5] text-[#805d14]"}`}>
-                  {domainConnected ? "Ansluten" : "Väntar på anslutning"}
-                </span>
-              ) : null}
-            </div>
-            <input
-              name="customDomain"
-              defaultValue={settings.customDomain}
-              placeholder="booking.foretagen.se"
-              disabled={!customDomainEnabled}
-              className="rounded-xl border border-[#d7dfd7] px-4 py-3 font-normal disabled:cursor-not-allowed disabled:bg-[#f2f4f1] disabled:text-[#7a857d]"
-            />
-            <p className="text-xs leading-5 text-[#667168]">
-              {customDomainEnabled
-                ? "Spara domänen. Proffera försöker sedan lägga till och verifiera den automatiskt i Vercel och visar exakt vad som saknas i DNS."
-                : "Egen domän är låst för nuvarande plan. Befintlig inställning behålls men publiceras inte utan modulåtkomst."}
-            </p>
-            {!customDomainEnabled ? <a href="/dashboard/installningar/funktioner" className="text-sm font-bold text-[#17452f] underline underline-offset-4">Visa domänåtkomst</a> : null}
-          </div>
-        </section>
-
-        <button className="min-h-12 rounded-xl bg-[#173e2b] px-5 py-3 text-sm font-bold text-white">Spara inställningar</button>
-      </form>
+      <BookingPageBuilder
+        settings={settings}
+        builderEnabled={builderEnabled}
+        customDomainEnabled={customDomainEnabled}
+        domainConnected={domainConnected}
+        publicBookingUrl={publicBookingUrl}
+        workspaceName={access.workspaceName}
+        saveAction={saveAppearance}
+      />
 
       {customDomainEnabled && settings.customDomain && !bespokePrimeView ? (
-        <section className="rounded-[24px] border border-[#dfe6df] bg-white p-6">
+        <section className="rounded-[24px] border border-[#dfe6df] bg-white p-6" data-domain-connection-status>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.16em] text-[#68736b]">Automatisk domänanslutning</p>
