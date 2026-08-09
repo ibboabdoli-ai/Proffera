@@ -79,20 +79,20 @@ function conversionMode(value: unknown): PublicBusinessService["conversionMode"]
 }
 
 export function formatPublicBusinessPrice(service: PublicBusinessService, currency: string, locale = "sv-SE") {
-  if (service.priceLabel.trim()) return service.priceLabel.trim();
   if (service.priceType === "quote") return locale.startsWith("en") ? "Price on request" : "Pris efter offert";
-  if (service.priceAmountMinor === null) return "";
-
-  const amount = service.priceAmountMinor / 100;
-  let formatted = `${amount} ${currency}`;
-  try {
-    formatted = new Intl.NumberFormat(locale, { style: "currency", currency, maximumFractionDigits: 2 }).format(amount);
-  } catch {
-    // Keep a readable fallback for an unexpected workspace currency.
+  if ((service.priceType === "fixed" || service.priceType === "from") && service.priceAmountMinor !== null) {
+    const amount = service.priceAmountMinor / 100;
+    let formatted = `${amount} ${currency}`;
+    try {
+      formatted = new Intl.NumberFormat(locale, { style: "currency", currency, maximumFractionDigits: 2 }).format(amount);
+    } catch {
+      // Keep a readable fallback for an unexpected workspace currency.
+    }
+    return service.priceType === "from"
+      ? `${locale.startsWith("en") ? "From" : "Från"} ${formatted}`
+      : formatted;
   }
-  return service.priceType === "from"
-    ? `${locale.startsWith("en") ? "From" : "Från"} ${formatted}`
-    : formatted;
+  return service.priceLabel.trim();
 }
 
 export async function getPublicBusinessHub(workspaceSlug: string): Promise<PublicBusinessHub | null> {

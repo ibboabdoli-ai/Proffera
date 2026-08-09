@@ -2,8 +2,10 @@
 
 import { redirect } from "next/navigation";
 
-import { createDashboardWorkspaceService, updateDashboardWorkspaceService } from "@/lib/workspace-services-db";
+import { formatWorkspaceServicePrice, validateWorkspaceServicePrice } from "@/lib/workspace-service-pricing";
 import { validateWorkspaceServiceDraft, type WorkspaceServiceValidationError } from "@/lib/workspace-service-policy";
+import { createDashboardWorkspaceService, updateDashboardWorkspaceService } from "@/lib/workspace-services-db";
+import { getDashboardWorkspaceSettings } from "@/lib/workspace-settings-db";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 type ServiceSaveError = "access" | "id" | WorkspaceServiceValidationError | "save";
@@ -20,13 +22,13 @@ async function requireWorkspaceManager() {
   if (!canManageWorkspaceSettings(await getUserWorkspaceAccess())) redirectWithServiceError("access");
 }
 
-function getServiceInput(formData: FormData) {
+async function getServiceInput(formData: FormData) {
   const result = validateWorkspaceServiceDraft({
     name: getFormText(formData, "name"),
     description: getFormText(formData, "description"),
     shortDescription: getFormText(formData, "short_description"),
     category: getFormText(formData, "category"),
-    priceLabel: getFormText(formData, "price_label"),
+    priceLabel: "",
     basePriceSek: getFormText(formData, "base_price_sek"),
     durationMinutes: getFormText(formData, "duration_minutes"),
     bufferBeforeMinutes: getFormText(formData, "buffer_before_minutes"),
@@ -44,12 +46,26 @@ function getServiceInput(formData: FormData) {
   });
 
   if (!result.ok) redirectWithServiceError(result.error);
-  return result.value;
+
+  const workspaceSettings = await getDashboardWorkspaceSettings();
+  const pricing = validateWorkspaceServicePrice({
+    priceType: getFormText(formData, "price_type"),
+    amount: getFormText(formData, "price_amount"),
+    currency: workspaceSettings.billingCurrency,
+  });
+  if (!pricing.ok) redirectWithServiceError("price");
+
+  return {
+    ...result.value,
+    priceLabel: formatWorkspaceServicePrice(pricing.value, "sv"),
+    priceType: pricing.value.priceType,
+    priceAmountMinor: pricing.value.amountMinor,
+  };
 }
 
 export async function createWorkspaceServiceAction(formData: FormData) {
   await requireWorkspaceManager();
-  const input = getServiceInput(formData);
+  const input = await getServiceInput(formData);
   try {
     await createDashboardWorkspaceService(input);
   } catch (error) {
@@ -64,7 +80,7 @@ export async function updateWorkspaceServiceAction(formData: FormData) {
   const id = getFormText(formData, "service_id");
   if (!id || !/^[0-9a-f-]{36}$/i.test(id)) redirectWithServiceError("id");
 
-  const input = getServiceInput(formData);
+  const input = await getServiceInput(formData);
   try {
     await updateDashboardWorkspaceService({ id, ...input });
   } catch (error) {

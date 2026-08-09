@@ -80,6 +80,8 @@ export type WriteDashboardWorkspaceServiceInput = {
   shortDescription: string;
   category: string;
   priceLabel: string;
+  priceType: WorkspaceServicePriceType;
+  priceAmountMinor: number | null;
   basePriceSek: number | null;
   durationMinutes: number | null;
   bufferBeforeMinutes: number;
@@ -169,15 +171,16 @@ export async function createDashboardWorkspaceService(input: WriteDashboardWorks
   const publicSlug = await resolveUniquePublicSlug(sql, workspaceId, input.publicSlug);
   const rows = await sql`
     insert into workspace_services (
-      workspace_id, name, description, short_description, category, price_label, base_price_sek,
-      duration_minutes, buffer_before_minutes, buffer_after_minutes, minimum_notice_minutes,
+      workspace_id, name, description, short_description, category, price_label, price_type, price_amount_minor,
+      base_price_sek, duration_minutes, buffer_before_minutes, buffer_after_minutes, minimum_notice_minutes,
       maximum_advance_days, service_area, is_active, sort_order, public_slug, public_status,
       conversion_mode, seo_title, seo_description
     ) values (
       ${workspaceId}, ${input.name}, ${input.description}, ${input.shortDescription}, ${input.category}, ${input.priceLabel},
-      ${input.basePriceSek}, ${input.durationMinutes}, ${input.bufferBeforeMinutes}, ${input.bufferAfterMinutes},
-      ${input.minimumNoticeMinutes}, ${input.maximumAdvanceDays}, ${input.serviceArea}, ${input.isActive}, ${input.sortOrder},
-      ${publicSlug}, ${input.publicStatus}, ${input.conversionMode}, ${input.seoTitle}, ${input.seoDescription}
+      ${input.priceType}, ${input.priceAmountMinor}, ${input.basePriceSek}, ${input.durationMinutes}, ${input.bufferBeforeMinutes},
+      ${input.bufferAfterMinutes}, ${input.minimumNoticeMinutes}, ${input.maximumAdvanceDays}, ${input.serviceArea},
+      ${input.isActive}, ${input.sortOrder}, ${publicSlug}, ${input.publicStatus}, ${input.conversionMode},
+      ${input.seoTitle}, ${input.seoDescription}
     )
     returning id
   `;
@@ -194,7 +197,8 @@ export async function updateDashboardWorkspaceService(input: UpdateDashboardWork
     update workspace_services
     set
       name = ${input.name}, description = ${input.description}, short_description = ${input.shortDescription},
-      category = ${input.category}, price_label = ${input.priceLabel}, base_price_sek = ${input.basePriceSek},
+      category = ${input.category}, price_label = ${input.priceLabel}, price_type = ${input.priceType},
+      price_amount_minor = ${input.priceAmountMinor}, base_price_sek = ${input.basePriceSek},
       duration_minutes = ${input.durationMinutes}, buffer_before_minutes = ${input.bufferBeforeMinutes},
       buffer_after_minutes = ${input.bufferAfterMinutes}, minimum_notice_minutes = ${input.minimumNoticeMinutes},
       maximum_advance_days = ${input.maximumAdvanceDays}, service_area = ${input.serviceArea},

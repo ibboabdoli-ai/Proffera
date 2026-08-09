@@ -32,6 +32,7 @@ describe("Public Business Hub architecture contract", () => {
     expect(verification).toContain("service_id, title, service");
     expect(migration).toContain("add column if not exists service_id uuid");
     expect(migration).toContain("bookings_service_ws_fk");
+    expect(migration).toContain("public_booking_verifications_service_identity");
   });
 
   it("keeps public visibility independent from operational activation", () => {
@@ -44,6 +45,18 @@ describe("Public Business Hub architecture contract", () => {
     expect(serviceUi).toContain('name="is_active"');
   });
 
+  it("uses the currency-safe structured service price instead of duplicating a public price model", () => {
+    const actions = source("src/app/dashboard/installningar/service-actions.ts");
+    const database = source("src/lib/workspace-services-db.ts");
+    const publicHub = source("src/lib/public-business-hub.ts");
+
+    expect(actions).toContain("validateWorkspaceServicePrice");
+    expect(actions).toContain("workspaceSettings.billingCurrency");
+    expect(database).toContain("price_type = ${input.priceType}");
+    expect(database).toContain("price_amount_minor = ${input.priceAmountMinor}");
+    expect(publicHub).toContain('service.priceType === "quote"');
+  });
+
   it("keeps connected custom domains booking-first until explicit website opt-in", () => {
     const migration = source("db/migrations/20260809_0036_public_business_hub.sql");
     const proxy = source("src/proxy.ts");
@@ -54,11 +67,12 @@ describe("Public Business Hub architecture contract", () => {
     expect(proxy).toContain("/boka/${encodeURIComponent(target.bookingSlug)}");
   });
 
-  it("stores only non-PII funnel telemetry in the public business event table", () => {
+  it("stores only non-PII funnel telemetry and enforces workspace/service identity", () => {
     const migration = source("db/migrations/20260809_0036_public_business_hub.sql");
     const events = source("src/app/api/public-business/events/route.ts");
 
     expect(migration).toContain("create table if not exists public_business_events");
+    expect(migration).toContain("public_business_events_service_identity");
     expect(migration).not.toContain("public_business_events_customer_email");
     expect(events).toContain('eventKey: z.enum(["business_view", "service_view", "book_clicked", "quote_clicked", "contact_clicked"])');
     expect(events).not.toContain("customerEmail");
