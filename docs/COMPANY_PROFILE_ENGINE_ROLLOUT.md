@@ -1,6 +1,6 @@
 # Company Profile Engine rollout
 
-Current scope: implementation branch only. Do not merge or migrate Production before the real-data Bolagsverket pilot passes.
+Current scope: implementation branch + isolated Preview/Neon pilot only. Do not merge or migrate Production before the final Preview review is explicitly approved.
 
 ## Core zero-extra-cost rule
 
@@ -8,15 +8,16 @@ The Company Profile Engine must not require a new paid data, image, enrichment o
 
 Allowed core dependencies:
 
-- Bolagsverket/SCB Värdefulla datamängder (official no-data-fee source);
-- Bolagsverket's official downloadable high-value dataset for broad discovery;
-- data.europa.eu metadata only to resolve the current official Bolagsverket distribution when an explicit URL is not configured;
+- SCB/Bolagsverket `Värdefulla datamängder` (official no-data-fee source);
+- the official SCB HVD bulk ZIP for broad discovery;
+- Bolagsverket HVD `/organisationer` for official detail verification;
+- data.europa.eu metadata only to locate the current official SCB distribution when an explicit URL is not configured;
 - existing Proffera Neon/Vercel/GitHub capacity;
 - Proffera-owned/generated category illustrations.
 
 Not allowed in the core path:
 
-- paid Bolagsverket Företagsinformation API;
+- paid Bolagsverket `Företagsinformation` API;
 - paid company/lead databases;
 - guessed organisation numbers;
 - paid per-profile image generation/enrichment;
@@ -33,60 +34,109 @@ COMPANY_DIRECTORY_MAX_PAGES_PER_RUN=2
 COMPANY_DIRECTORY_QUEUE_BATCH_SIZE=15
 ```
 
-Automatic discovery, sync and publication are separate switches. Moving discovery to `automatic` does not itself publish anything, and `COMPANY_DIRECTORY_SYNC_ENABLED=false` makes scheduler endpoints no-op.
+Automatic discovery, sync and publication are separate switches. Moving discovery to `automatic` does not itself publish anything. The isolated pilot enables discovery/sync only in Preview and keeps `COMPANY_DIRECTORY_AUTO_PUBLISH=false`.
 
 ## Discovery modes
 
-`seed` is the safe integration-test mode. It accepts explicit documented TEST organisation numbers and the Super Admin `Källtest` writes nothing to Company Directory tables.
+`seed` is the safe integration-test mode for documented TEST identities.
 
 `feed` is compatibility mode for a verified JSON feed with cursor pagination.
 
-`automatic` is the target production mode:
+`automatic` is the target operational mode:
 
 ```text
-Official Bolagsverket HVD bulk ZIP
-→ scheduled discovery worker
-→ Stockholm/Södertälje + supported-SNI prefilter
+Official SCB HVD bulk ZIP
+→ primary SNI (Ng1) + JurForm + Stockholm/Södertälje discovery filter
 → durable discovery queue
-→ official /organisationer detail verification
-→ normalization + policy
+→ official Bolagsverket /organisationer verification
+→ normalization + privacy/quality policy
 → directory profile + provenance + rights-safe media
 → ready/review/blocked/inactive
 → optional publication only when the separate auto-publish switch is enabled
 ```
 
-The bulk worker never invents organisation numbers. It accepts a final download only when the URL is HTTPS on `bolagsverket.se` or one of its subdomains. Raw bulk rows are not posted to Proffera; only official organisation identifiers that match the pilot-area/SNI prefilter are enqueued.
+### Official bulk source
 
-The queue is persistent and idempotent. It uses a per-item processing lease, `FOR UPDATE SKIP LOCKED`, stale-lease recovery, bounded retries and exponential retry delay. A source fingerprint re-queues changed official records while already-claimed companies remain protected.
+Current data.europa.eu resource:
+
+```text
+https-metadata-bolagsverket-se-store-2-resource-76
+```
+
+Current official discovery distribution:
+
+```text
+https://vardefulla-datamangder.bolagsverket.se/scb/scb_bulkfil.zip
+```
+
+The worker accepts only the exact official SCB HVD ZIP path on `bolagsverket.se`. It uses verified HTTP Range segments, validates the expected byte ranges and final size, verifies the ZIP, and records a SHA-256 source fingerprint. This avoids the silent truncation observed with one long streaming download.
+
+Raw SCB bulk rows are never posted to Proffera or stored in Neon. Only official organisation identifiers that pass the discovery prefilter are enqueued.
+
+## Discovery precision
+
+SCB `PeOrgNr` is normalized from `16` + ten-digit Swedish organisation number to the ten-digit identifier expected by Bolagsverket `/organisationer`.
+
+The production-target worker uses:
+
+- `Ng1` only as the primary/`huvudnäringsgren` SNI signal;
+- `PostOrt` for the pilot-area discovery prefilter;
+- `JurForm` to limit automatic discovery to supported registered organisation forms;
+- legal-form priority so ordinary Swedish companies are considered before foreign branches.
+
+`Ng2`–`Ng5` are secondary activities and do not make a company discoverable. This rule was added after a real pilot showed that secondary-SNI matching admitted companies whose actual primary business was parking, property management, accounting or other unrelated activity.
+
+The first rollout blocks sole traders from automatic publication. Registered `Filial` organisations are not treated as personal/sole-trader data, but ordinary Swedish company forms are prioritized ahead of them for discovery.
+
+## Pilot area
+
+Automatic/public pilot eligibility is limited to Stockholm and Södertälje. Discovery uses the SCB location as a prefilter; Bolagsverket detail verification is authoritative before profile assessment. If verified detail resolves outside the pilot area, the profile remains review-only and cannot publish.
+
+## Initial SNI2025 scope
+
+- `81.210` → Städning / lokalvård;
+- `81.221` → Städning / building cleaning, including specialist building cleaning/fönsterputs;
+- `96.910` → Hemservice; intentionally distinct from Städning and without inferred detailed service slugs;
+- `49.420` → Flytt;
+- `43.210` → Elektriker;
+- `43.22*` → VVS/installationsarbete for the current first rollout;
+- `43.341` → Måleri;
+- `43.320` → Snickeri;
+- `81.300` → Trädgård.
+
+`81.222` (Skorstensfejarverksamhet) is deliberately not mapped to Städning in this rollout.
+
+SNI determines only the broad directory category. It does not prove exact services, prices or availability.
+
+## Detail verification and activity status
+
+Every discovered organisation is verified through Bolagsverket HVD `/organisationer` before a profile write.
+
+The HVD detail dataset provides the aggregate `verksamOrganisation` activity signal. Individual F-tax/VAT/employer fields are not required for quality scoring when they are absent from this HVD response; an active verified HVD organisation is treated as satisfying the available registration-quality signal. Explicit negative registration information, when present, remains fail-closed.
+
+## Durable queue
+
+The queue is persistent and idempotent. It uses:
+
+- atomic `FOR UPDATE SKIP LOCKED` claims;
+- per-item processing leases;
+- stale-lease recovery;
+- bounded retries and exponential retry delay;
+- source fingerprinting for changed official snapshots;
+- protected already-claimed profiles.
+
+Transient Bolagsverket timeouts were exercised in the real pilot and recovered on retry without publishing or losing the queue item.
 
 ## Automatic scheduler
 
 `.github/workflows/company-directory-automation.yml` provides two independent jobs:
 
-- daily discovery of candidates from the official bulk distribution;
-- frequent small queue-processing runs that verify candidates against Bolagsverket and build/update profiles.
+- daily discovery from the official SCB HVD distribution;
+- frequent small queue-processing runs that verify candidates and build/update profiles.
 
-The workflow reuses the existing protected Proffera cron origin/secret pattern. Before downloading a bulk file, it probes the authenticated discovery endpoint. If automatic sync is disabled, it exits successfully before downloading anything.
+The workflow reuses the protected Proffera cron origin/secret pattern. Before downloading the bulk file, it probes the authenticated discovery endpoint and exits before download when automatic sync is disabled.
 
-This workflow is intentionally inert while it exists only on the implementation branch. Scheduled GitHub Actions run from the default branch after an approved merge; the backend still no-ops until automatic sync is explicitly enabled.
-
-## Pilot area
-
-Automatic/public pilot eligibility is limited to Stockholm and Södertälje. This is enforced by application policy and a PostgreSQL publication constraint. A company outside the pilot can be retained for review but cannot become `published` while the pilot guard exists.
-
-## Initial SNI2025 scope
-
-- `81.210` → Städning / lokalvård;
-- `81.22*` → Städning / specialiserad rengöring, including fönsterputs;
-- `96.910` → Hemservice; intentionally distinct from Städning and without inferred detailed service slugs;
-- `49.420` → Flytt;
-- `43.210` → Elektriker;
-- `43.22*` → VVS;
-- `43.341` → Måleri;
-- `43.320` → Snickeri;
-- `81.300` → Trädgård.
-
-SNI determines only the broad directory category. It does not prove exact services, prices or availability.
+Scheduled operation remains inert while this implementation exists only on the feature branch. Do not merge merely to activate schedules.
 
 ## Migrations
 
@@ -104,22 +154,9 @@ Rollback notes: `db/migrations/20260809_company_profile_engine_rollback_notes.md
 
 ## Data quality and media
 
-Automatic publication requires an active juridical person, supported SNI, pilot location, required identity/location fields, sufficient quality score and no privacy block. Negative registration/deregistration signals are fail-closed.
+Automatic publication requires an active juridical organisation, supported primary SNI, pilot location, required identity/location fields, sufficient quality score and no privacy block.
 
-The engine does not invent exact services, prices, reviews, staff, opening hours or real-company images. Unclaimed profiles may use cached Proffera-generated category illustrations labelled `Illustrationsbild`. Unknown-rights external media cannot publish. If a generated category changes, the stale generated image is retired.
-
-## Sync and retry controls
-
-- one running legacy sync per provider, acquired atomically;
-- queue items claimed atomically with `FOR UPDATE SKIP LOCKED`;
-- queue processing lease expires after 15 minutes;
-- maximum five verification attempts before terminal `failed` state;
-- exponential retry delay for transient candidate failures;
-- maximum 20 queued candidates verified in one backend run;
-- provenance values are batched and deduplicated;
-- source timestamps are preserved when upstream temporarily omits them;
-- all scheduled endpoints require `CRON_SECRET`;
-- discovery ingest accepts only an official Bolagsverket HTTPS source URL.
+The engine does not invent exact services, prices, reviews, staff, opening hours or real-company images. Unclaimed profiles may use Proffera-generated category illustrations labelled `Illustrationsbild`. Unknown-rights external media cannot publish. Generated category media is recorded with generated-license provenance and is never represented as actual business photography.
 
 ## Admin tools
 
@@ -127,50 +164,66 @@ Super Admin only:
 
 - `/admin/foretag/directory` — engine status, quality queue and sync history;
 - `/admin/foretag/directory/preview` — read-only Källtest;
-- `/admin/foretag/directory/auto-scan` — Preview-only scan of all documented Bolagsverket TEST identities;
+- `/admin/foretag/directory/auto-scan` — Preview-only TEST scan;
 - `/admin/foretag/claims` — claim verification, provisioning status and stale-reservation recovery.
 
-The automatic production engine does not depend on any Admin page being open and does not require a human to enter organisation numbers.
+The automatic engine does not depend on an Admin page being open and does not require manual organisation-number entry.
 
 ## Claim and provisioning safety
 
 Public claims are accepted only for already-published, privacy-safe, eligible profiles. Claim submission never grants ownership.
 
-Claim approval remains deliberately separate from automatic company discovery. Workspace ownership is granted only after claimant verification and reuses the existing `provisionWorkspace` source of truth. Claim reservation/token/lease guards prevent double provisioning and competing claims.
+Workspace ownership is granted only after claimant verification and reuses the existing `provisionWorkspace` source of truth. Claim reservation/token/lease guards prevent double provisioning and competing claims.
 
-This is the one area that must not be made unauthenticated simply to achieve zero-click directory creation. Company discovery/profile creation is automatic; company ownership must remain verified.
+Company discovery/profile creation may be automated. Company ownership must remain verified.
 
 ## SEO
 
 Only published, privacy-safe, eligible profiles enter the sitemap. Public directory pages use canonical metadata and factual LocalBusiness structured data without fake ratings, reviews, prices, phone numbers or service claims. Generated illustrations are not represented as actual-business media. Claim pages are `noindex`.
 
-## Validation already completed
+## Validation completed
 
-The TEST OAuth flow, `/isalive`, `/organisationer`, normalization and policy engine have been exercised against official Bolagsverket TEST data. The documented TEST set contains no candidate that simultaneously matches the current pilot area and supported SNI set; that is a limitation of the TEST fixtures, not a reason to weaken policy.
+Official Bolagsverket TEST validation completed before the real-data pilot:
 
-Previous isolated Neon tests verified publication/media guards, Södertälje-vs-Malmö enforcement, competing-claim exclusion, stale recovery and reservation integrity without applying Company Profile Engine migrations to Neon main.
+- OAuth token: OK;
+- `/isalive`: OK;
+- `/organisationer`: OK;
+- documented TEST identities scanned without weakening policy.
 
-## Real-data activation sequence
+### Real-data isolated pilot
 
-Bolagsverket has issued both TEST and Production API access. Production credentials are not committed and must not be activated on this branch.
+The real-data path was executed only against a Preview deployment connected to isolated Neon branch `br-twilight-queen-adwl0qn8`. Production/Main were not changed and auto-publication remained off.
 
-1. keep this PR Draft and run full CI for the automatic discovery implementation;
-2. verify the current official bulk ZIP structure against `scripts/company-directory-discovery.py` in a non-Production run;
-3. create a fresh isolated Neon branch and apply migrations `0037`–`0043` there only;
-4. configure TEST/detail verification plus automatic discovery against the isolated Preview environment while keeping `COMPANY_DIRECTORY_AUTO_PUBLISH=false`;
-5. run a small real-data Stockholm/Södertälje discovery and inspect normalized/profile/provenance results field-by-field;
-6. inspect duplicate, privacy, media, retry and claim behavior;
-7. only after evidence review, plan the Production migration/deploy with auto-publish still false;
-8. configure Production Bolagsverket credentials privately and enable `COMPANY_DIRECTORY_DISCOVERY_MODE=automatic` plus `COMPANY_DIRECTORY_SYNC_ENABLED=true`;
-9. observe several successful sync cycles;
-10. enable automatic publication separately and explicitly only after that final review.
+Evidence gathered across successive hardening passes:
 
-## Current release gate
+1. Initial discovery proved SCB bulk download, queue ingestion and Bolagsverket Production detail verification end-to-end. It exposed over-broad legal-form/SNI selection.
+2. `JurForm` filtering/prioritization produced a 20-company batch consisting entirely of `Aktiebolag`; 12 were immediately eligible, 2 verified inactive and 6 exposed secondary-SNI/location precision issues.
+3. Restricting discovery to official primary SNI `Ng1` removed the secondary-SNI false positives. The next run added six replacement active `Aktiebolag` with matching verified primary industries.
+4. The same run exposed `81.222` chimney sweeping as distinct from `81.221` building cleaning; the mapping and worker scope were tightened accordingly.
+5. A transient Bolagsverket timeout was safely retried to completion.
 
-Until the real-data pilot is complete:
+At the end of the Ng1 pilot before historical-row cleanup/reassessment, the isolated database contained 46 verified profiles/queue rows, zero failed queue items and **zero published profiles**. Historical rows from earlier deliberately broader pilot passes remain in the isolated branch for audit evidence and are not evidence of the final discovery filter.
+
+Provenance and generated-category media were also checked: official detail fields carry source provenance and generated illustrations remain rights-safe/non-business media.
+
+## Final release gate
+
+The real-data pilot now proves the core discovery/verification/queue/profile path. Before any Production change:
+
+1. keep PR #440 Draft;
+2. run full CI after final cleanup;
+3. deploy one final Preview containing the latest Ng1, SNI-boundary and quality-policy code;
+4. re-evaluate a small canary set and confirm `COMPANY_DIRECTORY_AUTO_PUBLISH=false` still yields zero published profiles;
+5. remove/keep removed all temporary pilot/probe workflows and trigger markers;
+6. review PR diff and migration plan;
+7. only then explicitly decide whether to apply migrations `0037`–`0043` to Production/Main;
+8. if Production rollout is approved, keep auto-publication false through initial production sync observation;
+9. enable automatic publication only as a separate final explicit decision.
+
+Until those steps are explicitly approved:
 
 - PR remains Draft;
 - no Company Profile Engine migration goes to Neon main;
 - no Production deploy/promotion;
-- Production sync stays disabled;
+- Production sync stays unchanged;
 - automatic publication stays disabled.
