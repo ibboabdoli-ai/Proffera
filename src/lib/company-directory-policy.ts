@@ -209,7 +209,10 @@ export function assessDirectoryCandidate(candidate: NormalizedDirectoryCandidate
   if (candidate.officialSource.trim()) score += 5;
   else reasons.push("missing_official_source");
 
-  if (isPositiveRegistrationSignal(candidate.fTaxStatus) || isPositiveRegistrationSignal(candidate.vatStatus)) score += 5;
+  const taxSignals = [candidate.fTaxStatus, candidate.vatStatus, candidate.employerStatus];
+  const hasTaxRegistrationDetail = taxSignals.some((value) => String(value ?? "").trim().length > 0);
+  const hasPositiveTaxRegistration = taxSignals.some(isPositiveRegistrationSignal);
+  if (hasPositiveTaxRegistration || (!hasTaxRegistrationDetail && candidate.isActive)) score += 5;
   else reasons.push("tax_status_not_confirmed");
 
   const privacyBlocked = candidate.organizationKind !== "juridical_person";
