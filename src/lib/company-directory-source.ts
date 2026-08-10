@@ -18,7 +18,6 @@ export type CompanyDirectorySourceBatch = {
 };
 
 const DEFAULT_PROVIDER = "bolagsverket_vardefulla_datamangder";
-const DEFAULT_OAUTH_SCOPE = "vardefulla-datamangder:read";
 
 function object(value: unknown): AnyRecord | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as AnyRecord : null;
@@ -153,12 +152,22 @@ function isPositiveRegistrationStatus(value: string) {
     || normalized.startsWith("registrerad ");
 }
 
-function hasDeregistrationEvidence(value: unknown, depth = 0): boolean {
-  if (depth > 4 || value === null || value === undefined) return false;
+function hasDeregistrationEvidence(value: unknown): boolean {
+  if (value === null || value === undefined) return false;
   if (typeof value === "boolean") return value;
-  if (Array.isArray(value)) return value.some((item) => hasDeregistrationEvidence(item, depth + 1));
+  if (Array.isArray(value)) return value.some((item) => hasDeregistrationEvidence(item));
+
   const row = object(value);
-  if (row) return Object.values(row).some((item) => hasDeregistrationEvidence(item, depth + 1));
+  if (row) {
+    const date = first(row, ["avregistreringsdatum", "deregisteredAt", "date", "datum"]);
+    if (date !== undefined && date !== null && text(date)) return true;
+
+    const flag = first(row, ["avregistrerad", "deregistered", "isDeregistered"]);
+    if (flag !== undefined && flag !== null) return bool(flag);
+
+    return false;
+  }
+
   const normalized = text(value).toLocaleLowerCase("sv-SE");
   return Boolean(normalized) && !["false", "0", "nej", "no", "null"].includes(normalized);
 }
@@ -210,6 +219,8 @@ function sniFromRecord(row: AnyRecord) {
   if (directCode) return { code: normalizeSniCode(directCode), label: directLabel };
 
   const containers = [
+    firstPath(row, [["naringsgrenOrganisation", "sni"]]),
+    firstPath(row, [["näringsgrenOrganisation", "sni"]]),
     firstPath(row, [["naringsgrenOrganisation", "naringsgrenLista"]]),
     firstPath(row, [["näringsgrenOrganisation", "näringsgrenLista"]]),
     firstPath(row, [["naringsgrenOrganisation"]]),
@@ -224,7 +235,7 @@ function sniFromRecord(row: AnyRecord) {
     for (const value of firstArray(container)) {
       const item = object(value);
       const nestedList = item
-        ? firstArray(first(item, ["naringsgrenLista", "näringsgrenLista", "sniKoder", "sniCodes"]))
+        ? firstArray(first(item, ["sni", "naringsgrenLista", "näringsgrenLista", "sniKoder", "sniCodes"]))
         : [];
       const candidates = nestedList.length ? nestedList : [value];
       for (const candidate of candidates) {
@@ -257,6 +268,7 @@ function addressFromRecord(row: AnyRecord) {
   const address = firstObject(container) ?? row;
   const street1 = text(first(address, [
     "addressLine1",
+    "utdelningsadress",
     "utdelningsadress1",
     "gatuadress",
     "street",
@@ -290,6 +302,20 @@ function taxStatus(row: AnyRecord, keys: string[], deepPattern: RegExp) {
     return bool(direct) ? "Registrerad" : text(direct);
   }
   return statusFromValues(deepValuesForKeyPattern(first(row, ["verksamOrganisation", "verksam_organisation"]) ?? row, deepPattern));
+}
+
+function countryCodeFromRecord(row: AnyRecord) {
+  const direct = text(firstPath(row, [["countryCode"], ["country"]]));
+  if (direct) return direct.toUpperCase().slice(0, 2);
+
+  const official = text(firstPath(row, [
+    ["registreringsland", "kod"],
+    ["registreringsland", "klartext"],
+    ["registreringsland"],
+  ])).toLocaleUpperCase("sv-SE");
+
+  if (!official || official === "SVERIGE" || official.startsWith("SE")) return "SE";
+  return official.slice(0, 2);
 }
 
 function normalizeSourceRecord(row: AnyRecord, provider: string): NormalizedDirectoryCandidate | null {
@@ -327,6 +353,7 @@ function normalizeSourceRecord(row: AnyRecord, provider: string): NormalizedDire
     ["isActive"],
     ["verksamOrganisation", "verksam"],
     ["verksamOrganisation", "aktiv"],
+    ["verksamOrganisation", "kod"],
     ["verksam_organisation"],
     ["active"],
     ["statusAktiv"],
@@ -365,7 +392,7 @@ function normalizeSourceRecord(row: AnyRecord, provider: string): NormalizedDire
   ]));
 
   return {
-    countryCode: (text(first(row, ["countryCode", "registreringsland", "country"])) || "SE").toUpperCase().slice(0, 2),
+    countryCode: countryCodeFromRecord(row),
     organizationNumber,
     organizationKind: classifyOrganizationKind(legalForm),
     legalName,
@@ -442,8 +469,10 @@ async function oauthAccessToken() {
   if (!tokenUrl || !clientId || !clientSecret) return "";
 
   const basic = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
-  const scope = process.env.COMPANY_DIRECTORY_OAUTH_SCOPE?.trim() || DEFAULT_OAUTH_SCOPE;
-  const body = new URLSearchParams({ grant_type: "client_credentials", scope });
+  const scope = process.env.COMPANY_DIRECTORY_OAUTH_SCOPE?.trim();
+  const body = new URLSearchParams({ grant_type: "client_credentials" });
+  if (scope) body.set("scope", scope);
+
   const response = await fetch(tokenUrl, {
     method: "POST",
     headers: {
