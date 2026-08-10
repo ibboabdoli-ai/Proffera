@@ -10,83 +10,87 @@ permissions:
 
 jobs:
   probe:
-    name: Inspect Bolagsverket and SCB bulk schemas
+    name: Validate SCB discovery fields without exposing records
     if: github.event.head_commit.message == 'Probe official company directory source'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Read ZIP member headers without company values
+      - name: Aggregate SCB sample field shapes
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           import csv
           import io
-          import json
+          import re
           import struct
           import urllib.request
           import zlib
+          from collections import Counter
 
-          urls = [
-              ('bolagsverket', 'https://vardefulla-datamangder.bolagsverket.se/bolagsverket/bolagsverket_bulkfil.zip'),
-              ('scb', 'https://vardefulla-datamangder.bolagsverket.se/scb/scb_bulkfil.zip'),
-          ]
+          url='https://vardefulla-datamangder.bolagsverket.se/scb/scb_bulkfil.zip'
+          request=urllib.request.Request(url, headers={
+              'User-Agent':'proffera-company-directory-source-probe/1.0',
+              'Range':'bytes=0-8388607',
+          })
+          with urllib.request.urlopen(request, timeout=90) as response:
+              data=response.read()
+          if data[:4] != b'PK\x03\x04':
+              raise SystemExit('SCB: missing ZIP local header')
+          fields=struct.unpack_from('<IHHHHHIIIHH', data, 0)
+          _sig,_ver,_flags,method,_time,_date,_crc,_csize,_usize,name_len,extra_len=fields
+          offset=30+name_len+extra_len
+          if method != 8:
+              raise SystemExit(f'Unexpected compression method {method}')
+          out=zlib.decompressobj(-15).decompress(data[offset:], 8*1024*1024)
+          text=out.decode('utf-8-sig','replace')
+          lines=text.splitlines()
+          if len(lines) < 2:
+              raise SystemExit('Not enough decompressed SCB rows')
+          reader=csv.DictReader(io.StringIO('\n'.join(lines)), delimiter='\t')
 
-          for label, url in urls:
-              print(f'=== {label} ===')
-              head = urllib.request.Request(url, method='HEAD', headers={'User-Agent':'proffera-company-directory-source-probe/1.0'})
-              with urllib.request.urlopen(head, timeout=60) as response:
-                  print('content_length=', response.headers.get('Content-Length'))
-                  print('content_type=', response.headers.get('Content-Type'))
+          org_lengths=Counter()
+          ng_lengths=Counter()
+          rows=0
+          supported=0
+          pilot=0
+          both=0
+          pilot_names=Counter()
 
-              request = urllib.request.Request(
-                  url,
-                  headers={
-                      'User-Agent':'proffera-company-directory-source-probe/1.0',
-                      'Range':'bytes=0-4194303',
-                  },
+          def supported_sni(value):
+              digits=re.sub(r'\D','',value or '')[:5]
+              return (
+                  digits == '81210' or digits.startswith('8122') or digits == '96910'
+                  or digits == '49420' or digits == '43210' or digits.startswith('4322')
+                  or digits == '43341' or digits == '43320' or digits == '81300'
               )
-              with urllib.request.urlopen(request, timeout=90) as response:
-                  data = response.read()
-              if data[:4] != b'PK\x03\x04':
-                  raise SystemExit(f'{label}: missing ZIP local header')
 
-              fields = struct.unpack_from('<IHHHHHIIIHH', data, 0)
-              _sig, _ver, flags, method, _time, _date, _crc, _csize, _usize, name_len, extra_len = fields
-              name = data[30:30+name_len].decode('utf-8', 'replace')
-              offset = 30 + name_len + extra_len
-              compressed = data[offset:]
-              if method == 8:
-                  out = zlib.decompressobj(-15).decompress(compressed, 131072)
-              elif method == 0:
-                  out = compressed[:131072]
-              else:
-                  raise SystemExit(f'{label}: unsupported compression method {method}')
-              text = out.decode('utf-8-sig', 'replace')
-              first_line = text.splitlines()[0] if text.splitlines() else ''
-              print('member=', name)
-              print('flags=', flags, 'compression_method=', method)
-              stripped = first_line.lstrip()
-              if stripped.startswith('{'):
-                  try:
-                      record = json.loads(first_line)
-                      print('record_format=jsonl')
-                      print('top_level_keys=', sorted(record.keys()) if isinstance(record, dict) else type(record).__name__)
-                  except Exception:
-                      print('record_format=json-like')
-                      print('prefix=', stripped[:160])
-              else:
-                  sample = text[:8192]
-                  try:
-                      dialect = csv.Sniffer().sniff(sample, delimiters=',;\t|')
-                      delimiter = dialect.delimiter
-                  except csv.Error:
-                      delimiter = None
-                  print('record_format=delimited-text')
-                  print('delimiter=', repr(delimiter))
-                  if delimiter:
-                      header = next(csv.reader([first_line], delimiter=delimiter))
-                      print('columns=', [value.strip() for value in header])
-                  else:
-                      print('header_prefix=', first_line[:500])
+          for row in reader:
+              rows += 1
+              digits=re.sub(r'\D','',row.get('PeOrgNr') or '')
+              org_lengths[len(digits)] += 1
+              for key in ('Ng1','Ng2','Ng3','Ng4','Ng5'):
+                  value=row.get(key) or ''
+                  if value:
+                      ng_lengths[len(re.sub(r'\D','',value))] += 1
+              has_sni=any(supported_sni(row.get(key) or '') for key in ('Ng1','Ng2','Ng3','Ng4','Ng5'))
+              postort=(row.get('PostOrt') or '').strip().casefold()
+              has_pilot=postort in {'stockholm','södertälje','sodertalje'}
+              supported += int(has_sni)
+              pilot += int(has_pilot)
+              both += int(has_sni and has_pilot)
+              if has_pilot:
+                  pilot_names[postort] += 1
+              if rows >= 20000:
+                  break
+
+          print('sample_rows=', rows)
+          print('org_digit_lengths=', dict(org_lengths))
+          print('sni_digit_lengths=', dict(ng_lengths))
+          print('supported_sni_rows=', supported)
+          print('pilot_location_rows=', pilot)
+          print('both_supported_and_pilot_rows=', both)
+          print('pilot_location_counts=', dict(pilot_names))
+          if org_lengths.get(10,0) == 0:
+              raise SystemExit('No 10-digit PeOrgNr values in SCB sample')
           PY
