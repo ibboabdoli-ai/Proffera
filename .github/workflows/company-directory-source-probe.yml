@@ -10,26 +10,34 @@ permissions:
 
 jobs:
   probe:
-    name: Verify current Bolagsverket HVD dataset endpoint
+    name: Inspect official Bolagsverket bulk response
     if: github.event.head_commit.message == 'Probe official company directory source'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Verify resource 76 and official ZIP
+      - name: Inspect headers and first bytes
         shell: bash
         run: |
-          set -euo pipefail
-          url='https://data.europa.eu/api/hub/search/datasets/https-metadata-bolagsverket-se-store-2-resource-76'
-          code="$(curl -L --silent --show-error --connect-timeout 10 --max-time 30 -w '%{http_code}' -o /tmp/body "$url")"
-          echo "HTTP $code"
-          test "$code" = '200'
+          set -u
+          url='https://vardefulla-datamangder.bolagsverket.se/bolagsverket/bolagsverket_bulkfil.zip'
+          echo '=== HEAD ==='
+          curl -I -L --silent --show-error --connect-timeout 10 --max-time 60 \
+            -A 'proffera-company-directory-source-probe/1.0' "$url" || true
+          echo '=== RANGE GET ==='
+          curl -L --silent --show-error --connect-timeout 10 --max-time 90 \
+            -A 'proffera-company-directory-source-probe/1.0' \
+            -H 'Range: bytes=0-1023' \
+            -D /tmp/headers -o /tmp/body \
+            -w '\nhttp_code=%{http_code}\ncontent_type=%{content_type}\nurl_effective=%{url_effective}\nsize_download=%{size_download}\n' \
+            "$url" || true
+          cat /tmp/headers || true
+          echo '=== FIRST BYTES HEX ==='
           python - <<'PY'
-          import json
-          data=json.load(open('/tmp/body',encoding='utf-8'))
-          blob=json.dumps(data,ensure_ascii=False)
-          expected='https://vardefulla-datamangder.bolagsverket.se/bolagsverket/bolagsverket_bulkfil.zip'
-          print('contains_expected_zip=', expected in blob)
-          if expected not in blob:
-              raise SystemExit('Current dataset endpoint does not expose expected official Bolagsverket ZIP')
-          print(expected)
+          from pathlib import Path
+          p=Path('/tmp/body')
+          if p.exists():
+              data=p.read_bytes()
+              print('bytes_received=', len(data))
+              print('hex=', data[:128].hex())
+              print('text=', data[:1000].decode('utf-8','replace'))
           PY
