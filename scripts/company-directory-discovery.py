@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Discover Proffera service companies from Bolagsverket's official HVD bulk file.
+"""Discover Proffera service companies from official Bolagsverket/SCB HVD bulk data.
 
 The worker is intentionally fail-closed:
 - the final downloadable source must be HTTPS on bolagsverket.se;
+- discovery uses the official SCB bulk because SNI and PostOrt are SCB fields;
 - organisation numbers are only extracted from the official bulk payload;
 - only Stockholm/Södertälje + supported service SNI candidates are enqueued;
-- raw bulk records are never posted to Proffera or persisted by this script.
+- raw bulk records are never posted to Proffera or persisted by this script;
+- large ZIP downloads use verified HTTP Range segments to prevent silent truncation.
 """
 
 from __future__ import annotations
@@ -26,13 +28,15 @@ import urllib.request
 import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
-from typing import Any, Iterable, Iterator
+from typing import Any, Iterator
 
-DATASET_ID = "https-metadata-bolagsverket-se-store-2-resource-41"
+DATASET_ID = "https-metadata-bolagsverket-se-store-2-resource-76"
 DATASET_API = f"https://data.europa.eu/api/hub/search/datasets/{DATASET_ID}"
-DEFAULT_PROVIDER = "bolagsverket_hvd_bulk"
+DEFAULT_PROVIDER = "scb_hvd_bulk"
 ALLOWED_HOST = "bolagsverket.se"
 MAX_DOWNLOAD_BYTES = 6 * 1024 * 1024 * 1024
+RANGE_SEGMENT_BYTES = 8 * 1024 * 1024
+RANGE_RETRIES = 4
 POST_BATCH_SIZE = 400
 
 ORG_KEYS = {
@@ -42,6 +46,8 @@ ORG_KEYS = {
     "organisationnumber",
     "orgnumber",
 }
+SCB_ORG_KEYS = {"peorgnr"}
+SCB_SNI_KEYS = {"ng1", "ng2", "ng3", "ng4", "ng5"}
 SNI_KEY_MARKERS = ("sni", "naringsgren", "näringsgren")
 LOCATION_KEY_MARKERS = (
     "postort",
@@ -61,6 +67,15 @@ def normalize_key(value: str) -> str:
 def normalize_org(value: Any) -> str:
     digits = re.sub(r"\D", "", str(value or ""))
     return digits if len(digits) == 10 else ""
+
+
+def normalize_scb_org(value: Any) -> str:
+    """SCB PeOrgNr is represented as country prefix 16 + 10-digit Swedish org number."""
+    digits = re.sub(r"\D", "", str(value or ""))
+    if len(digits) != 12 or not digits.startswith("16"):
+        return ""
+    organization_number = digits[2:]
+    return organization_number if len(organization_number) == 10 else ""
 
 
 def normalize_text(value: Any) -> str:
@@ -133,44 +148,101 @@ def resolve_bulk_url(override: str = "") -> str:
     result = payload.get("result", payload) if isinstance(payload, dict) else payload
     urls = list(dict.fromkeys(find_urls(result)))
     candidates = [url for url in urls if is_allowed_source_url(url)]
-    if not candidates:
-        raise RuntimeError("No official Bolagsverket download URL was found in data.europa.eu metadata")
 
-    zip_like = [url for url in candidates if ".zip" in urllib.parse.urlparse(url).path.lower()]
-    return (zip_like or candidates)[0]
+    exact_scb = [
+        url
+        for url in candidates
+        if urllib.parse.urlparse(url).path.lower().endswith("/scb/scb_bulkfil.zip")
+    ]
+    if exact_scb:
+        return exact_scb[0]
+
+    scb_zip = [
+        url
+        for url in candidates
+        if "/scb/" in urllib.parse.urlparse(url).path.lower()
+        and ".zip" in urllib.parse.urlparse(url).path.lower()
+    ]
+    if scb_zip:
+        return scb_zip[0]
+
+    raise RuntimeError("No official SCB HVD ZIP URL was found in current data.europa.eu metadata")
+
+
+def _official_head(url: str) -> tuple[str, int]:
+    request = urllib.request.Request(
+        url,
+        method="HEAD",
+        headers={"User-Agent": "proffera-company-directory-discovery/1.0"},
+    )
+    with urllib.request.urlopen(request, timeout=60) as response:
+        final_url = response.geturl()
+        if not is_allowed_source_url(final_url):
+            raise RuntimeError("Official bulk HEAD redirected outside the official Bolagsverket domain")
+        content_length = int(response.headers.get("Content-Length") or "0")
+        content_type = (response.headers.get("Content-Type") or "").lower()
+        if content_length <= 0 or content_length > MAX_DOWNLOAD_BYTES:
+            raise RuntimeError(f"Official bulk file has unsafe Content-Length: {content_length}")
+        if "zip" not in content_type:
+            raise RuntimeError("Official bulk source is not advertised as a ZIP archive")
+        return final_url, content_length
+
+
+def _download_range(url: str, start: int, end: int) -> bytes:
+    expected = end - start + 1
+    last_error: Exception | None = None
+    for _attempt in range(1, RANGE_RETRIES + 1):
+        try:
+            request = urllib.request.Request(
+                url,
+                headers={
+                    "User-Agent": "proffera-company-directory-discovery/1.0",
+                    "Range": f"bytes={start}-{end}",
+                },
+            )
+            with urllib.request.urlopen(request, timeout=90) as response:
+                if response.status != 206:
+                    raise RuntimeError(f"Official bulk range request returned HTTP {response.status}, expected 206")
+                final_url = response.geturl()
+                if not is_allowed_source_url(final_url):
+                    raise RuntimeError("Official bulk range request redirected outside the official domain")
+                payload = response.read()
+            if len(payload) != expected:
+                raise RuntimeError(
+                    f"Official bulk range {start}-{end} was truncated: {len(payload)} of {expected} bytes"
+                )
+            return payload
+        except Exception as error:  # noqa: BLE001 - bounded retry then fail closed
+            last_error = error
+    raise RuntimeError(f"Official bulk range {start}-{end} failed after retries: {last_error}")
 
 
 def download_to_temp(url: str) -> tuple[Path, str]:
     if not is_allowed_source_url(url):
         raise RuntimeError("Refusing to download a non-Bolagsverket source")
 
+    final_url, total_size = _official_head(url)
+    fd, path_string = tempfile.mkstemp(prefix="proffera-official-hvd-", suffix=".zip")
+    os.close(fd)
+    path = Path(path_string)
     digest = hashlib.sha256()
-    total = 0
-    request = urllib.request.Request(url, headers={"User-Agent": "proffera-company-directory-discovery/1.0"})
-    temp = tempfile.NamedTemporaryFile(prefix="proffera-bolagsverket-", suffix=".zip", delete=False)
-    path = Path(temp.name)
+
     try:
-        with temp, urllib.request.urlopen(request, timeout=90) as response:
-            final_url = response.geturl()
-            if not is_allowed_source_url(final_url):
-                raise RuntimeError("Bolagsverket download redirected outside the official domain")
-            while True:
-                chunk = response.read(1024 * 1024)
-                if not chunk:
-                    break
-                total += len(chunk)
-                if total > MAX_DOWNLOAD_BYTES:
-                    raise RuntimeError("Official bulk file exceeds the configured safety limit")
+        with path.open("wb") as output:
+            for start in range(0, total_size, RANGE_SEGMENT_BYTES):
+                end = min(total_size - 1, start + RANGE_SEGMENT_BYTES - 1)
+                chunk = _download_range(final_url, start, end)
+                output.write(chunk)
                 digest.update(chunk)
-                temp.write(chunk)
+
+        if path.stat().st_size != total_size:
+            raise RuntimeError("Official bulk segmented download size did not match Content-Length")
+        if not zipfile.is_zipfile(path):
+            raise RuntimeError("Official bulk distribution was not a valid ZIP archive")
+        return path, digest.hexdigest()
     except Exception:
         path.unlink(missing_ok=True)
         raise
-
-    if not zipfile.is_zipfile(path):
-        path.unlink(missing_ok=True)
-        raise RuntimeError("Official bulk distribution was not a ZIP archive")
-    return path, digest.hexdigest()
 
 
 def scalar_values(value: Any) -> Iterator[str]:
@@ -203,7 +275,13 @@ def facts_from_mapping(record: dict[str, Any]) -> tuple[set[str], bool, bool]:
                         org = normalize_org(scalar)
                         if org:
                             orgs.add(org)
-                if any(marker in normalized_key for marker in SNI_KEY_MARKERS):
+                elif normalized_key in SCB_ORG_KEYS:
+                    for scalar in scalar_values(nested):
+                        org = normalize_scb_org(scalar)
+                        if org:
+                            orgs.add(org)
+
+                if normalized_key in SCB_SNI_KEYS or any(marker in normalized_key for marker in SNI_KEY_MARKERS):
                     if any(supported_sni(scalar) for scalar in scalar_values(nested)):
                         has_supported_sni = True
                 if any(marker in normalized_key for marker in LOCATION_KEY_MARKERS):
@@ -230,8 +308,6 @@ def iter_json_records(stream: io.BufferedReader, name: str) -> Iterator[dict[str
                 yield value
         return
 
-    # Full JSON may be large. Use ijson when installed; fail closed rather than
-    # loading an unbounded official file into memory.
     try:
         import ijson  # type: ignore
     except ImportError as exc:
@@ -280,8 +356,6 @@ def element_to_mapping(element: ET.Element) -> dict[str, Any]:
 
 
 def iter_xml_records(stream: io.BufferedReader) -> Iterator[dict[str, Any]]:
-    # Organisation records in official exports are expected to contain an
-    # identitetsbeteckning. Clear processed elements to keep memory bounded.
     for _event, element in ET.iterparse(stream, events=("end",)):
         mapping = element_to_mapping(element)
         orgs, _sni, _location = facts_from_mapping(mapping)
@@ -412,6 +486,7 @@ def post_candidates(
             "fingerprint": fingerprint,
             "organizationNumbers": chunk,
             "discoveredCount": discovered_count,
+            "acceptedCount": len(candidates),
             "final": index == len(chunks) - 1,
         }
         result = api_request(ingest_url, secret, "POST", payload)
@@ -438,7 +513,7 @@ def main() -> int:
     finally:
         archive_path.unlink(missing_ok=True)
 
-    print(f"Official records scanned: {records_seen}")
+    print(f"Official SCB records scanned: {records_seen}")
     print(f"Pilot + supported-SNI candidates: {len(candidates)}")
     post_candidates(args.ingest_url, args.secret, source_url, fingerprint, candidates, records_seen)
     return 0
