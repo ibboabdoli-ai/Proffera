@@ -34,7 +34,7 @@ class CompanyDirectoryDiscoveryWorkerTests(unittest.TestCase):
     def test_supported_sni_scope_is_explicit(self):
         for code in ["81210", "81221", "96910", "49420", "43210", "43221", "43341", "43320", "81300"]:
             self.assertTrue(MODULE.supported_sni(code), code)
-        for code in ["62010", "68204", "46699"]:
+        for code in ["81222", "62010", "68204", "46699"]:
             self.assertFalse(MODULE.supported_sni(code), code)
         self.assertEqual(MODULE.SCB_SNI_KEYS, {"ng1"})
 
@@ -110,6 +110,8 @@ class CompanyDirectoryDiscoveryWorkerTests(unittest.TestCase):
             "165569999998\t81210\t\t\t\t\tStockholm\t49\n"
             # Secondary-only service SNI: excluded because Ng1 is the official primary industry.
             "165561222222\t52219\t81210\t\t\t\tStockholm\t49\n"
+            # Chimney sweeping is outside the first cleaning rollout.
+            "165561333333\t81222\t\t\t\t\tStockholm\t49\n"
             # Unknown/unsupported legal form: excluded from automatic discovery.
             "165561111111\t81210\t\t\t\t\tStockholm\t99\n"
             # Unsupported primary SNI: excluded.
@@ -123,7 +125,7 @@ class CompanyDirectoryDiscoveryWorkerTests(unittest.TestCase):
                 archive.writestr("scb_bulkfil.txt", header + rows)
             candidates, records_seen = MODULE.collect_candidates(archive_path)
 
-        self.assertEqual(records_seen, 6)
+        self.assertEqual(records_seen, 7)
         self.assertEqual(candidates, ["5569999998", "5169999999"])
 
     def test_csv_bulk_files_merge_sni_location_and_legal_form_by_org_number(self):
