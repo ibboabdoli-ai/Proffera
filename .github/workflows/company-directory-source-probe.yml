@@ -10,50 +10,83 @@ permissions:
 
 jobs:
   probe:
-    name: Reproduce Bolagsverket bulk download integrity
+    name: Inspect Bolagsverket and SCB bulk schemas
     if: github.event.head_commit.message == 'Probe official company directory source'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
-      - name: Compare urllib full download with official size
+      - name: Read ZIP member headers without company values
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
-          import hashlib
+          import csv
+          import io
+          import json
+          import struct
           import urllib.request
-          import zipfile
-          from pathlib import Path
+          import zlib
 
-          url='https://vardefulla-datamangder.bolagsverket.se/bolagsverket/bolagsverket_bulkfil.zip'
-          path=Path('/tmp/bolagsverket.zip')
-          req=urllib.request.Request(url, headers={'User-Agent':'proffera-company-directory-source-probe/1.0'})
-          total=0
-          digest=hashlib.sha256()
-          with urllib.request.urlopen(req, timeout=90) as response, path.open('wb') as f:
-              print('status=', response.status)
-              print('url=', response.geturl())
-              print('content_length=', response.headers.get('Content-Length'))
-              print('content_type=', response.headers.get('Content-Type'))
-              while True:
-                  chunk=response.read(1024*1024)
-                  if not chunk:
-                      break
-                  total += len(chunk)
-                  digest.update(chunk)
-                  f.write(chunk)
-          print('downloaded=', total)
-          print('sha256=', digest.hexdigest())
-          print('first4=', path.read_bytes()[:4].hex())
-          with path.open('rb') as f:
-              f.seek(max(0,total-128))
-              tail=f.read()
-          print('last128=', tail.hex())
-          print('has_eocd=', b'PK\x05\x06' in tail or b'PK\x06\x06' in tail)
-          print('is_zipfile=', zipfile.is_zipfile(path))
-          if zipfile.is_zipfile(path):
-              with zipfile.ZipFile(path) as z:
-                  print('members=', [(i.filename,i.file_size,i.compress_size) for i in z.infolist()[:20]])
-                  bad=z.testzip()
-                  print('testzip_bad=', bad)
+          urls = [
+              ('bolagsverket', 'https://vardefulla-datamangder.bolagsverket.se/bolagsverket/bolagsverket_bulkfil.zip'),
+              ('scb', 'https://vardefulla-datamangder.bolagsverket.se/scb/scb_bulkfil.zip'),
+          ]
+
+          for label, url in urls:
+              print(f'=== {label} ===')
+              head = urllib.request.Request(url, method='HEAD', headers={'User-Agent':'proffera-company-directory-source-probe/1.0'})
+              with urllib.request.urlopen(head, timeout=60) as response:
+                  print('content_length=', response.headers.get('Content-Length'))
+                  print('content_type=', response.headers.get('Content-Type'))
+
+              request = urllib.request.Request(
+                  url,
+                  headers={
+                      'User-Agent':'proffera-company-directory-source-probe/1.0',
+                      'Range':'bytes=0-4194303',
+                  },
+              )
+              with urllib.request.urlopen(request, timeout=90) as response:
+                  data = response.read()
+              if data[:4] != b'PK\x03\x04':
+                  raise SystemExit(f'{label}: missing ZIP local header')
+
+              fields = struct.unpack_from('<IHHHHHIIIHH', data, 0)
+              _sig, _ver, flags, method, _time, _date, _crc, _csize, _usize, name_len, extra_len = fields
+              name = data[30:30+name_len].decode('utf-8', 'replace')
+              offset = 30 + name_len + extra_len
+              compressed = data[offset:]
+              if method == 8:
+                  out = zlib.decompressobj(-15).decompress(compressed, 131072)
+              elif method == 0:
+                  out = compressed[:131072]
+              else:
+                  raise SystemExit(f'{label}: unsupported compression method {method}')
+              text = out.decode('utf-8-sig', 'replace')
+              first_line = text.splitlines()[0] if text.splitlines() else ''
+              print('member=', name)
+              print('flags=', flags, 'compression_method=', method)
+              stripped = first_line.lstrip()
+              if stripped.startswith('{'):
+                  try:
+                      record = json.loads(first_line)
+                      print('record_format=jsonl')
+                      print('top_level_keys=', sorted(record.keys()) if isinstance(record, dict) else type(record).__name__)
+                  except Exception:
+                      print('record_format=json-like')
+                      print('prefix=', stripped[:160])
+              else:
+                  sample = text[:8192]
+                  try:
+                      dialect = csv.Sniffer().sniff(sample, delimiters=',;\t|')
+                      delimiter = dialect.delimiter
+                  except csv.Error:
+                      delimiter = None
+                  print('record_format=delimited-text')
+                  print('delimiter=', repr(delimiter))
+                  if delimiter:
+                      header = next(csv.reader([first_line], delimiter=delimiter))
+                      print('columns=', [value.strip() for value in header])
+                  else:
+                      print('header_prefix=', first_line[:500])
           PY
