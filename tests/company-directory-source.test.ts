@@ -6,7 +6,7 @@ import type { NormalizedDirectoryCandidate } from "../src/lib/company-directory-
 function discoveredCandidate(): NormalizedDirectoryCandidate {
   return {
     countryCode: "SE",
-    organizationNumber: "5591234567",
+    organizationNumber: "5299999994",
     organizationKind: "juridical_person",
     legalName: "Discovery Name AB",
     displayName: "Discovery Name AB",
@@ -25,37 +25,55 @@ function discoveredCandidate(): NormalizedDirectoryCandidate {
     municipality: "",
     region: "",
     officialSource: "bolagsverket_vardefulla_datamangder",
-    sourceRecordId: "5591234567",
+    sourceRecordId: "5299999994",
     sourceUpdatedAt: null,
   };
 }
 
-function officialPayload(registration: boolean | string) {
+function officialPayload(options: { activeCode?: string; deregisteredAt?: string | null } = {}) {
   return {
     organisationer: [
       {
-        organisationsidentitet: { identitetsbeteckning: "5591234567" },
+        organisationsidentitet: { identitetsbeteckning: "5299999994" },
         organisationsnamn: {
-          organisationsnamnLista: [{ organisationsnamn: "Exempel Städ AB" }],
+          organisationsnamnLista: [{
+            registreringsdatum: "2020-03-15",
+            namn: "Cykelbolaget AB",
+            organisationsnamntyp: { kod: "FORETAGSNAMN", klartext: "Företagsnamn" },
+          }],
         },
-        juridiskForm: { klartext: "Aktiebolag" },
+        registreringsland: { kod: "SE-LAND", klartext: "Sverige" },
+        organisationsform: { kod: "AB", klartext: "Aktiebolag" },
+        juridiskForm: { kod: "49", klartext: "Övriga aktiebolag" },
         verksamOrganisation: {
-          fSkatt: registration,
-          momsregistrerad: false,
-          arbetsgivarregistrerad: false,
-        },
-        naringsgrenOrganisation: {
-          naringsgrenLista: [{ kod: "81210", klartext: "Lokalvård" }],
+          kod: options.activeCode ?? "JA",
+          fel: null,
+          dataproducent: "SCB",
         },
         postadressOrganisation: {
           postadress: {
-            utdelningsadress1: "Exempelvägen 1",
-            postnummer: "15100",
-            postort: "Södertälje",
+            postnummer: "12345",
+            utdelningsadress: "Jobbstigen 2",
+            land: "Sverige",
+            postort: "Grönköping",
           },
+          fel: null,
+          dataproducent: "SCB",
         },
         verksamhetsbeskrivning: {
-          verksamhetsbeskrivning: "Lokalvård för företag och hushåll.",
+          fel: null,
+          dataproducent: "Bolagsverket",
+          beskrivning: "Bedriva handel med cyklar och tillbehör till cyklar",
+        },
+        avregistreradOrganisation: {
+          avregistreringsdatum: options.deregisteredAt ?? null,
+          fel: null,
+          dataproducent: "Bolagsverket",
+        },
+        naringsgrenOrganisation: {
+          fel: null,
+          dataproducent: "Bolagsverket",
+          sni: [{ kod: "47642", klartext: "Specialiserad butikshandel med cyklar" }],
         },
       },
     ],
@@ -74,6 +92,7 @@ function mockOfficialResponse(payload: unknown) {
   delete process.env.BOLAGSVERKET_CLIENT_ID;
   delete process.env.BOLAGSVERKET_CLIENT_SECRET;
   delete process.env.COMPANY_DIRECTORY_SOURCE_BEARER_TOKEN;
+  delete process.env.COMPANY_DIRECTORY_OAUTH_SCOPE;
 }
 
 afterEach(() => {
@@ -84,35 +103,42 @@ afterEach(() => {
 });
 
 describe("official company directory source adapter", () => {
-  it("normalizes the nested organisation response conservatively", async () => {
-    mockOfficialResponse(officialPayload(true));
+  it("normalizes the documented VärdefullaDatamängder organisation response", async () => {
+    mockOfficialResponse(officialPayload());
 
     const result = await verifyOfficialCompanyCandidate(discoveredCandidate());
 
-    expect(result.organizationNumber).toBe("5591234567");
-    expect(result.legalName).toBe("Exempel Städ AB");
-    expect(result.legalForm).toBe("Aktiebolag");
-    expect(result.primarySniCode).toBe("81.210");
-    expect(result.primarySniLabel).toBe("Lokalvård");
-    expect(result.addressLine1).toBe("Exempelvägen 1");
-    expect(result.postalCode).toBe("15100");
-    expect(result.city).toBe("Södertälje");
-    expect(result.activityDescription).toBe("Lokalvård för företag och hushåll.");
-    expect(result.fTaxStatus).toBe("Registrerad");
+    expect(result.countryCode).toBe("SE");
+    expect(result.organizationNumber).toBe("5299999994");
+    expect(result.legalName).toBe("Cykelbolaget AB");
+    expect(result.legalForm).toBe("Övriga aktiebolag");
+    expect(result.primarySniCode).toBe("47.642");
+    expect(result.primarySniLabel).toBe("Specialiserad butikshandel med cyklar");
+    expect(result.addressLine1).toBe("Jobbstigen 2");
+    expect(result.postalCode).toBe("12345");
+    expect(result.city).toBe("Grönköping");
+    expect(result.activityDescription).toBe("Bedriva handel med cyklar och tillbehör till cyklar");
     expect(result.isActive).toBe(true);
   });
 
-  it("does not treat 'Ej registrerad' as proof that the organisation is active", async () => {
-    mockOfficialResponse(officialPayload("Ej registrerad"));
+  it("does not treat the wrapper dataproducent as deregistration evidence", async () => {
+    mockOfficialResponse(officialPayload({ activeCode: "JA", deregisteredAt: null }));
 
     const result = await verifyOfficialCompanyCandidate(discoveredCandidate());
 
-    expect(result.fTaxStatus).toBe("Ej registrerad");
+    expect(result.isActive).toBe(true);
+  });
+
+  it("treats an official deregistration date as inactive", async () => {
+    mockOfficialResponse(officialPayload({ activeCode: "JA", deregisteredAt: "2023-05-05T00:00:00.000+00:00" }));
+
+    const result = await verifyOfficialCompanyCandidate(discoveredCandidate());
+
     expect(result.isActive).toBe(false);
   });
 
   it("rejects a verification response for a different organisation number", async () => {
-    const payload = officialPayload(true);
+    const payload = officialPayload();
     payload.organisationer[0].organisationsidentitet.identitetsbeteckning = "5599999999";
     mockOfficialResponse(payload);
 
