@@ -1,0 +1,107 @@
+name: Isolated company directory pilot
+
+on:
+  push:
+    branches:
+      - work/proffera-company-profile-engine
+
+permissions:
+  contents: read
+
+concurrency:
+  group: company-directory-isolated-pilot
+  cancel-in-progress: false
+
+jobs:
+  pilot:
+    name: Scan official bulk data and process at most 20 pilot candidates
+    if: github.event.head_commit.message == 'Run isolated company directory pilot'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PREVIEW_ORIGIN: https://proffera-jhap-q8sktm4fv-wzardmn.vercel.app
+      CRON_SECRET: ${{ secrets.PROFFERA_REMINDER_CRON_SECRET }}
+      BOLAGSVERKET_BULK_URL: ${{ vars.BOLAGSVERKET_BULK_URL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Fail closed on configuration
+        run: |
+          set -euo pipefail
+          test -n "$CRON_SECRET"
+          case "$PREVIEW_ORIGIN" in
+            https://proffera-jhap-q8sktm4fv-wzardmn.vercel.app) ;;
+            *) echo "Unexpected Preview origin" >&2; exit 1 ;;
+          esac
+
+      - name: Verify Preview automatic discovery is enabled
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error \
+            --connect-timeout 10 \
+            --max-time 30 \
+            --header "Authorization: Bearer $CRON_SECRET" \
+            --header "User-Agent: proffera-company-directory-isolated-pilot" \
+            "$PREVIEW_ORIGIN/api/cron/company-directory-discovery-ingest" \
+            | tee /tmp/discovery-probe.json
+          python - <<'PY'
+          import json
+          with open('/tmp/discovery-probe.json', encoding='utf-8') as f:
+              payload = json.load(f)
+          if payload.get('ok') is not True or payload.get('enabled') is not True or payload.get('mode') != 'automatic':
+              raise SystemExit(f"Preview discovery is not safely enabled: {payload}")
+          PY
+
+      - name: Install streaming JSON parser
+        run: python -m pip install --disable-pip-version-check --quiet ijson
+
+      - name: Scan official Bolagsverket bulk and enqueue first 20 matching candidates
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import importlib.util
+          import os
+          from pathlib import Path
+
+          script = Path('scripts/company-directory-discovery.py')
+          spec = importlib.util.spec_from_file_location('company_directory_discovery', script)
+          module = importlib.util.module_from_spec(spec)
+          assert spec and spec.loader
+          spec.loader.exec_module(module)
+
+          ingest_url = os.environ['PREVIEW_ORIGIN'].rstrip('/') + '/api/cron/company-directory-discovery-ingest'
+          secret = os.environ['CRON_SECRET']
+          override = os.environ.get('BOLAGSVERKET_BULK_URL', '')
+
+          source_url = module.resolve_bulk_url(override)
+          archive_path, fingerprint = module.download_to_temp(source_url)
+          try:
+              candidates, records_seen = module.collect_candidates(archive_path)
+          finally:
+              archive_path.unlink(missing_ok=True)
+
+          pilot_candidates = candidates[:20]
+          print(f'Official records scanned: {records_seen}')
+          print(f'All pilot + supported-SNI candidates found: {len(candidates)}')
+          print(f'Candidates enqueued for isolated pilot: {len(pilot_candidates)}')
+          module.post_candidates(
+              ingest_url,
+              secret,
+              source_url,
+              fingerprint,
+              pilot_candidates,
+              records_seen,
+          )
+          PY
+
+      - name: Process one bounded queue batch
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error \
+            --connect-timeout 10 \
+            --max-time 75 \
+            --header "Authorization: Bearer $CRON_SECRET" \
+            --header "User-Agent: proffera-company-directory-isolated-pilot" \
+            "$PREVIEW_ORIGIN/api/cron/company-directory-sync" \
+            | tee /tmp/process-result.json
