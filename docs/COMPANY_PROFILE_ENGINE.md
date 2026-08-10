@@ -24,6 +24,7 @@ Official SCB HVD bulk
 - No new paid data, enrichment, lead or image service is required by the core path.
 - SCB bulk discovery never guesses organisation numbers and stores no raw bulk rows in Neon.
 - Only the official primary SNI (`Ng1`) drives automatic discovery; secondary SNI codes do not qualify a company.
+- `81.222` chimney sweeping is not silently classified as first-rollout Städning; the current cleaning scope is `81.210` and `81.221`.
 - Bolagsverket detail verification occurs before any directory profile write.
 - Sync and auto-publication are separate controls; auto-publication remains off through pilot/release review.
 - Sole traders are not automatically published in the first rollout.
@@ -35,5 +36,7 @@ Official SCB HVD bulk
 ## Real-data pilot result
 
 The isolated Preview/Neon pilot proved the full free-data path from SCB bulk discovery through Bolagsverket Production detail verification and durable profile creation. Legal-form filtering, primary-SNI filtering, retry handling and category boundaries were tightened using the pilot evidence. No pilot profile was automatically published and Production/Main remained untouched.
+
+The branch is now in final-Preview-gate state: full CI must remain green, the cleaned-up branch must be deployed once more to Preview, and a small canary recheck must confirm the final policy behavior with auto-publication still disabled before any Production decision.
 
 See `docs/COMPANY_PROFILE_ENGINE_ROLLOUT.md` for the complete rollout contract and `db/migrations/20260809_company_profile_engine_rollback_notes.md` for rollback guidance.
