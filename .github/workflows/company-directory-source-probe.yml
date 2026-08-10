@@ -10,12 +10,12 @@ permissions:
 
 jobs:
   probe:
-    name: Validate SCB discovery fields without exposing records
+    name: Validate SCB organisation-number encoding
     if: github.event.head_commit.message == 'Probe official company directory source'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Aggregate SCB sample field shapes
+      - name: Aggregate PeOrgNr prefixes and legal forms
         shell: bash
         run: |
           set -euo pipefail
@@ -35,27 +35,20 @@ jobs:
           })
           with urllib.request.urlopen(request, timeout=90) as response:
               data=response.read()
-          if data[:4] != b'PK\x03\x04':
-              raise SystemExit('SCB: missing ZIP local header')
           fields=struct.unpack_from('<IHHHHHIIIHH', data, 0)
           _sig,_ver,_flags,method,_time,_date,_crc,_csize,_usize,name_len,extra_len=fields
+          if data[:4] != b'PK\x03\x04' or method != 8:
+              raise SystemExit('Unexpected SCB ZIP structure')
           offset=30+name_len+extra_len
-          if method != 8:
-              raise SystemExit(f'Unexpected compression method {method}')
           out=zlib.decompressobj(-15).decompress(data[offset:], 8*1024*1024)
-          text=out.decode('utf-8-sig','replace')
-          lines=text.splitlines()
-          if len(lines) < 2:
-              raise SystemExit('Not enough decompressed SCB rows')
-          reader=csv.DictReader(io.StringIO('\n'.join(lines)), delimiter='\t')
+          reader=csv.DictReader(io.StringIO(out.decode('utf-8-sig','replace')), delimiter='\t')
 
-          org_lengths=Counter()
-          ng_lengths=Counter()
+          prefixes=Counter()
+          legal_forms=Counter()
+          match_prefixes=Counter()
+          match_forms=Counter()
           rows=0
-          supported=0
-          pilot=0
           both=0
-          pilot_names=Counter()
 
           def supported_sni(value):
               digits=re.sub(r'\D','',value or '')[:5]
@@ -68,29 +61,25 @@ jobs:
           for row in reader:
               rows += 1
               digits=re.sub(r'\D','',row.get('PeOrgNr') or '')
-              org_lengths[len(digits)] += 1
-              for key in ('Ng1','Ng2','Ng3','Ng4','Ng5'):
-                  value=row.get(key) or ''
-                  if value:
-                      ng_lengths[len(re.sub(r'\D','',value))] += 1
+              prefixes[digits[:2]] += 1
+              jur=(row.get('JurForm') or '').strip()
+              legal_forms[jur] += 1
               has_sni=any(supported_sni(row.get(key) or '') for key in ('Ng1','Ng2','Ng3','Ng4','Ng5'))
               postort=(row.get('PostOrt') or '').strip().casefold()
               has_pilot=postort in {'stockholm','södertälje','sodertalje'}
-              supported += int(has_sni)
-              pilot += int(has_pilot)
-              both += int(has_sni and has_pilot)
-              if has_pilot:
-                  pilot_names[postort] += 1
+              if has_sni and has_pilot:
+                  both += 1
+                  match_prefixes[digits[:2]] += 1
+                  match_forms[jur] += 1
               if rows >= 20000:
                   break
 
           print('sample_rows=', rows)
-          print('org_digit_lengths=', dict(org_lengths))
-          print('sni_digit_lengths=', dict(ng_lengths))
-          print('supported_sni_rows=', supported)
-          print('pilot_location_rows=', pilot)
-          print('both_supported_and_pilot_rows=', both)
-          print('pilot_location_counts=', dict(pilot_names))
-          if org_lengths.get(10,0) == 0:
-              raise SystemExit('No 10-digit PeOrgNr values in SCB sample')
+          print('PeOrgNr_prefix_counts=', dict(prefixes))
+          print('legal_form_counts=', dict(legal_forms))
+          print('matching_rows=', both)
+          print('matching_prefix_counts=', dict(match_prefixes))
+          print('matching_legal_form_counts=', dict(match_forms))
+          if not match_prefixes:
+              raise SystemExit('No pilot+SNI matches in sample')
           PY
