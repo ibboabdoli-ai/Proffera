@@ -5,7 +5,7 @@ The worker is intentionally fail-closed:
 - the final downloadable source must be the official SCB HVD ZIP on bolagsverket.se;
 - discovery uses the official SCB bulk because SNI, JurForm and PostOrt are SCB fields;
 - organisation numbers are only extracted from the official bulk payload;
-- only Stockholm/Södertälje + supported service SNI + supported registered organisation forms are enqueued;
+- only Stockholm/Södertälje + supported primary service SNI + supported registered organisation forms are enqueued;
 - common Swedish company forms are prioritised before foreign branches;
 - raw bulk records are never posted to Proffera or persisted by this script;
 - large ZIP downloads use verified HTTP Range segments to prevent silent truncation.
@@ -48,7 +48,9 @@ ORG_KEYS = {
     "orgnumber",
 }
 SCB_ORG_KEYS = {"peorgnr"}
-SCB_SNI_KEYS = {"ng1", "ng2", "ng3", "ng4", "ng5"}
+# SCB documents Ng1 as huvudnäringsgren; Ng2-Ng5 are secondary activities.
+# Automatic directory discovery deliberately keys only on the primary activity.
+SCB_SNI_KEYS = {"ng1"}
 SCB_LEGAL_FORM_KEYS = {"jurform"}
 SNI_KEY_MARKERS = ("sni", "naringsgren", "näringsgren")
 LOCATION_KEY_MARKERS = (
@@ -548,7 +550,7 @@ def main() -> int:
         archive_path.unlink(missing_ok=True)
 
     print(f"Official SCB records scanned: {records_seen}")
-    print(f"Pilot + supported-SNI + supported-form candidates: {len(candidates)}")
+    print(f"Pilot + primary-supported-SNI + supported-form candidates: {len(candidates)}")
     post_candidates(args.ingest_url, args.secret, source_url, fingerprint, candidates, records_seen)
     return 0
 
