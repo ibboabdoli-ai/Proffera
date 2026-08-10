@@ -36,6 +36,7 @@ class CompanyDirectoryDiscoveryWorkerTests(unittest.TestCase):
             self.assertTrue(MODULE.supported_sni(code), code)
         for code in ["62010", "68204", "46699"]:
             self.assertFalse(MODULE.supported_sni(code), code)
+        self.assertEqual(MODULE.SCB_SNI_KEYS, {"ng1"})
 
     def test_scb_legal_form_priority_is_explicit(self):
         self.assertEqual(MODULE.LEGAL_FORM_PRIORITY["49"], 0)
@@ -83,6 +84,23 @@ class CompanyDirectoryDiscoveryWorkerTests(unittest.TestCase):
         self.assertTrue(pilot)
         self.assertEqual(legal_form_priority, 0)
 
+    def test_scb_secondary_sni_does_not_make_company_discoverable(self):
+        record = {
+            "PeOrgNr": "165561234567",
+            "Ng1": "52219",
+            "Ng2": "81210",
+            "Ng3": "",
+            "Ng4": "",
+            "Ng5": "",
+            "PostOrt": "STOCKHOLM",
+            "JurForm": "49",
+        }
+        orgs, supported, pilot, legal_form_priority = MODULE.facts_from_mapping(record)
+        self.assertEqual(orgs, {"5561234567"})
+        self.assertFalse(supported)
+        self.assertTrue(pilot)
+        self.assertEqual(legal_form_priority, 0)
+
     def test_real_scb_tsv_bulk_filters_and_prioritizes_supported_company_forms(self):
         header = "PeOrgNr\tNg1\tNg2\tNg3\tNg4\tNg5\tPostOrt\tJurForm\n"
         rows = (
@@ -90,9 +108,11 @@ class CompanyDirectoryDiscoveryWorkerTests(unittest.TestCase):
             "165169999999\t81210\t\t\t\t\tStockholm\t96\n"
             # Supported Stockholm AB: must sort before code 96 even with a larger org number.
             "165569999998\t81210\t\t\t\t\tStockholm\t49\n"
+            # Secondary-only service SNI: excluded because Ng1 is the official primary industry.
+            "165561222222\t52219\t81210\t\t\t\tStockholm\t49\n"
             # Unknown/unsupported legal form: excluded from automatic discovery.
             "165561111111\t81210\t\t\t\t\tStockholm\t99\n"
-            # Unsupported SNI: excluded.
+            # Unsupported primary SNI: excluded.
             "165567654321\t62010\t\t\t\t\tStockholm\t49\n"
             # Outside pilot area: excluded.
             "165569999997\t81210\t\t\t\t\tUppsala\t49\n"
@@ -103,7 +123,7 @@ class CompanyDirectoryDiscoveryWorkerTests(unittest.TestCase):
                 archive.writestr("scb_bulkfil.txt", header + rows)
             candidates, records_seen = MODULE.collect_candidates(archive_path)
 
-        self.assertEqual(records_seen, 5)
+        self.assertEqual(records_seen, 6)
         self.assertEqual(candidates, ["5569999998", "5169999999"])
 
     def test_csv_bulk_files_merge_sni_location_and_legal_form_by_org_number(self):
