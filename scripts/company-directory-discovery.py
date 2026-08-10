@@ -113,7 +113,7 @@ def supported_sni(value: Any) -> bool:
     digits = normalize_sni(value)
     return (
         digits == "81210"
-        or digits.startswith("8122")
+        or digits == "81221"
         or digits == "96910"
         or digits == "49420"
         or digits == "43210"
