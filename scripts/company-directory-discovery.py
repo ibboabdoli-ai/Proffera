@@ -2,10 +2,11 @@
 """Discover Proffera service companies from official Bolagsverket/SCB HVD bulk data.
 
 The worker is intentionally fail-closed:
-- the final downloadable source must be HTTPS on bolagsverket.se;
-- discovery uses the official SCB bulk because SNI and PostOrt are SCB fields;
+- the final downloadable source must be the official SCB HVD ZIP on bolagsverket.se;
+- discovery uses the official SCB bulk because SNI, JurForm and PostOrt are SCB fields;
 - organisation numbers are only extracted from the official bulk payload;
-- only Stockholm/Södertälje + supported service SNI candidates are enqueued;
+- only Stockholm/Södertälje + supported service SNI + supported registered organisation forms are enqueued;
+- common Swedish company forms are prioritised before foreign branches;
 - raw bulk records are never posted to Proffera or persisted by this script;
 - large ZIP downloads use verified HTTP Range segments to prevent silent truncation.
 """
@@ -48,6 +49,7 @@ ORG_KEYS = {
 }
 SCB_ORG_KEYS = {"peorgnr"}
 SCB_SNI_KEYS = {"ng1", "ng2", "ng3", "ng4", "ng5"}
+SCB_LEGAL_FORM_KEYS = {"jurform"}
 SNI_KEY_MARKERS = ("sni", "naringsgren", "näringsgren")
 LOCATION_KEY_MARKERS = (
     "postort",
@@ -58,6 +60,19 @@ LOCATION_KEY_MARKERS = (
     "addresslocality",
 )
 PILOT_LOCATIONS = {"stockholm", "sodertalje", "södertälje"}
+
+# Official SCB JurForm values used by the first directory rollout.
+# 49: Övriga aktiebolag, 31: Handelsbolag/kommanditbolag,
+# 51: Ekonomiska föreningar, 61: Ideella föreningar,
+# 96: Utländska juridiska personer (including registered branches).
+LEGAL_FORM_PRIORITY = {
+    "49": 0,
+    "31": 1,
+    "51": 2,
+    "61": 3,
+    "96": 4,
+}
+UNKNOWN_LEGAL_FORM_PRIORITY = 99
 
 
 def normalize_key(value: str) -> str:
@@ -85,6 +100,11 @@ def normalize_text(value: Any) -> str:
 def normalize_sni(value: Any) -> str:
     digits = re.sub(r"\D", "", str(value or ""))
     return digits[:5] if len(digits) >= 4 else ""
+
+
+def normalize_legal_form_code(value: Any) -> str:
+    digits = re.sub(r"\D", "", str(value or ""))
+    return digits[:2] if len(digits) >= 2 else ""
 
 
 def supported_sni(value: Any) -> bool:
@@ -117,6 +137,16 @@ def is_allowed_source_url(raw: str) -> bool:
     return parsed.scheme == "https" and (host == ALLOWED_HOST or host.endswith(f".{ALLOWED_HOST}"))
 
 
+def is_allowed_scb_bulk_url(raw: str) -> bool:
+    if not is_allowed_source_url(raw):
+        return False
+    try:
+        path = urllib.parse.urlparse(raw).path.lower()
+    except ValueError:
+        return False
+    return path.endswith("/scb/scb_bulkfil.zip")
+
+
 def request_json(url: str) -> Any:
     request = urllib.request.Request(
         url,
@@ -140,31 +170,17 @@ def find_urls(value: Any, key_hint: str = "") -> Iterator[str]:
 
 def resolve_bulk_url(override: str = "") -> str:
     if override:
-        if not is_allowed_source_url(override):
-            raise RuntimeError("BOLAGSVERKET_BULK_URL must be an official Bolagsverket HTTPS URL")
+        if not is_allowed_scb_bulk_url(override):
+            raise RuntimeError("BOLAGSVERKET_BULK_URL must be the official Bolagsverket SCB HVD ZIP URL")
         return override
 
     payload = request_json(DATASET_API)
     result = payload.get("result", payload) if isinstance(payload, dict) else payload
     urls = list(dict.fromkeys(find_urls(result)))
-    candidates = [url for url in urls if is_allowed_source_url(url)]
+    candidates = [url for url in urls if is_allowed_scb_bulk_url(url)]
 
-    exact_scb = [
-        url
-        for url in candidates
-        if urllib.parse.urlparse(url).path.lower().endswith("/scb/scb_bulkfil.zip")
-    ]
-    if exact_scb:
-        return exact_scb[0]
-
-    scb_zip = [
-        url
-        for url in candidates
-        if "/scb/" in urllib.parse.urlparse(url).path.lower()
-        and ".zip" in urllib.parse.urlparse(url).path.lower()
-    ]
-    if scb_zip:
-        return scb_zip[0]
+    if candidates:
+        return candidates[0]
 
     raise RuntimeError("No official SCB HVD ZIP URL was found in current data.europa.eu metadata")
 
@@ -177,8 +193,8 @@ def _official_head(url: str) -> tuple[str, int]:
     )
     with urllib.request.urlopen(request, timeout=60) as response:
         final_url = response.geturl()
-        if not is_allowed_source_url(final_url):
-            raise RuntimeError("Official bulk HEAD redirected outside the official Bolagsverket domain")
+        if not is_allowed_scb_bulk_url(final_url):
+            raise RuntimeError("Official bulk HEAD redirected away from the official SCB HVD ZIP")
         content_length = int(response.headers.get("Content-Length") or "0")
         content_type = (response.headers.get("Content-Type") or "").lower()
         if content_length <= 0 or content_length > MAX_DOWNLOAD_BYTES:
@@ -204,8 +220,8 @@ def _download_range(url: str, start: int, end: int) -> bytes:
                 if response.status != 206:
                     raise RuntimeError(f"Official bulk range request returned HTTP {response.status}, expected 206")
                 final_url = response.geturl()
-                if not is_allowed_source_url(final_url):
-                    raise RuntimeError("Official bulk range request redirected outside the official domain")
+                if not is_allowed_scb_bulk_url(final_url):
+                    raise RuntimeError("Official bulk range request redirected away from the official SCB HVD ZIP")
                 payload = response.read()
             if len(payload) != expected:
                 raise RuntimeError(
@@ -218,8 +234,8 @@ def _download_range(url: str, start: int, end: int) -> bytes:
 
 
 def download_to_temp(url: str) -> tuple[Path, str]:
-    if not is_allowed_source_url(url):
-        raise RuntimeError("Refusing to download a non-Bolagsverket source")
+    if not is_allowed_scb_bulk_url(url):
+        raise RuntimeError("Refusing to download anything except the official SCB HVD ZIP")
 
     final_url, total_size = _official_head(url)
     fd, path_string = tempfile.mkstemp(prefix="proffera-official-hvd-", suffix=".zip")
@@ -258,13 +274,14 @@ def scalar_values(value: Any) -> Iterator[str]:
             yield from scalar_values(nested)
 
 
-def facts_from_mapping(record: dict[str, Any]) -> tuple[set[str], bool, bool]:
+def facts_from_mapping(record: dict[str, Any]) -> tuple[set[str], bool, bool, int]:
     orgs: set[str] = set()
     has_supported_sni = False
     has_pilot_location = False
+    legal_form_priority = UNKNOWN_LEGAL_FORM_PRIORITY
 
     def walk(value: Any, parent_key: str = "", depth: int = 0) -> None:
-        nonlocal has_supported_sni, has_pilot_location
+        nonlocal has_supported_sni, has_pilot_location, legal_form_priority
         if depth > 10:
             return
         if isinstance(value, dict):
@@ -284,6 +301,13 @@ def facts_from_mapping(record: dict[str, Any]) -> tuple[set[str], bool, bool]:
                 if normalized_key in SCB_SNI_KEYS or any(marker in normalized_key for marker in SNI_KEY_MARKERS):
                     if any(supported_sni(scalar) for scalar in scalar_values(nested)):
                         has_supported_sni = True
+                if normalized_key in SCB_LEGAL_FORM_KEYS:
+                    for scalar in scalar_values(nested):
+                        code = normalize_legal_form_code(scalar)
+                        legal_form_priority = min(
+                            legal_form_priority,
+                            LEGAL_FORM_PRIORITY.get(code, UNKNOWN_LEGAL_FORM_PRIORITY),
+                        )
                 if any(marker in normalized_key for marker in LOCATION_KEY_MARKERS):
                     if any(pilot_location(scalar) for scalar in scalar_values(nested)):
                         has_pilot_location = True
@@ -293,7 +317,7 @@ def facts_from_mapping(record: dict[str, Any]) -> tuple[set[str], bool, bool]:
                 walk(nested, parent_key, depth + 1)
 
     walk(record)
-    return orgs, has_supported_sni, has_pilot_location
+    return orgs, has_supported_sni, has_pilot_location, legal_form_priority
 
 
 def iter_json_records(stream: io.BufferedReader, name: str) -> Iterator[dict[str, Any]]:
@@ -358,7 +382,7 @@ def element_to_mapping(element: ET.Element) -> dict[str, Any]:
 def iter_xml_records(stream: io.BufferedReader) -> Iterator[dict[str, Any]]:
     for _event, element in ET.iterparse(stream, events=("end",)):
         mapping = element_to_mapping(element)
-        orgs, _sni, _location = facts_from_mapping(mapping)
+        orgs, _sni, _location, _legal_form_priority = facts_from_mapping(mapping)
         if orgs:
             yield mapping
             element.clear()
@@ -406,7 +430,8 @@ def open_state_db() -> tuple[sqlite3.Connection, Path]:
         create table candidate_facts (
           organization_number text primary key,
           supported_sni integer not null default 0,
-          pilot_location integer not null default 0
+          pilot_location integer not null default 0,
+          legal_form_priority integer not null default 99
         )
         """
     )
@@ -425,19 +450,20 @@ def collect_candidates(path: Path) -> tuple[list[str], int]:
             recognized_members += 1
             for record in iter_member_records(name, source):
                 records_seen += 1
-                orgs, has_sni, has_location = facts_from_mapping(record)
+                orgs, has_sni, has_location, legal_form_priority = facts_from_mapping(record)
                 if not orgs:
                     continue
                 for org in orgs:
                     database.execute(
                         """
-                        insert into candidate_facts (organization_number, supported_sni, pilot_location)
-                        values (?, ?, ?)
+                        insert into candidate_facts (organization_number, supported_sni, pilot_location, legal_form_priority)
+                        values (?, ?, ?, ?)
                         on conflict(organization_number) do update set
                           supported_sni = max(candidate_facts.supported_sni, excluded.supported_sni),
-                          pilot_location = max(candidate_facts.pilot_location, excluded.pilot_location)
+                          pilot_location = max(candidate_facts.pilot_location, excluded.pilot_location),
+                          legal_form_priority = min(candidate_facts.legal_form_priority, excluded.legal_form_priority)
                         """,
-                        (org, int(has_sni), int(has_location)),
+                        (org, int(has_sni), int(has_location), legal_form_priority),
                     )
                 if records_seen % 5000 == 0:
                     database.commit()
@@ -445,7 +471,15 @@ def collect_candidates(path: Path) -> tuple[list[str], int]:
         if recognized_members == 0:
             raise RuntimeError("The official ZIP contained no supported machine-readable files")
         rows = database.execute(
-            "select organization_number from candidate_facts where supported_sni = 1 and pilot_location = 1 order by organization_number"
+            """
+            select organization_number
+            from candidate_facts
+            where supported_sni = 1
+              and pilot_location = 1
+              and legal_form_priority < ?
+            order by legal_form_priority asc, organization_number asc
+            """,
+            (UNKNOWN_LEGAL_FORM_PRIORITY,),
         ).fetchall()
         return [str(row[0]) for row in rows], records_seen
     finally:
@@ -514,7 +548,7 @@ def main() -> int:
         archive_path.unlink(missing_ok=True)
 
     print(f"Official SCB records scanned: {records_seen}")
-    print(f"Pilot + supported-SNI candidates: {len(candidates)}")
+    print(f"Pilot + supported-SNI + supported-form candidates: {len(candidates)}")
     post_candidates(args.ingest_url, args.secret, source_url, fingerprint, candidates, records_seen)
     return 0
 
@@ -522,6 +556,7 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (RuntimeError, urllib.error.URLError, zipfile.BadZipFile, json.JSONDecodeError) as error:
-        print(f"Company directory discovery failed: {error}", file=sys.stderr)
-        raise SystemExit(1)
+    except urllib.error.HTTPError as error:
+        body = error.read().decode("utf-8", errors="replace")[:1000]
+        print(f"HTTP {error.code}: {body}", file=sys.stderr)
+        raise
