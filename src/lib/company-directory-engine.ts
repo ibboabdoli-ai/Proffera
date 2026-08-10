@@ -108,7 +108,7 @@ async function startRun(provider: string) {
   return id;
 }
 
-async function upsertCandidate(candidate: NormalizedDirectoryCandidate) {
+export async function upsertCompanyDirectoryCandidate(candidate: NormalizedDirectoryCandidate) {
   const sql = getSql();
   if (!sql) throw new Error("Database is not configured");
 
@@ -244,6 +244,7 @@ async function upsertCandidate(candidate: NormalizedDirectoryCandidate) {
   }
 
   return {
+    profileId,
     publicationStatus: String(rows[0]?.publication_status ?? desiredStatus),
     blocked: assessment.privacyBlocked || assessment.publicationStatus === "blocked",
   };
@@ -303,7 +304,7 @@ export async function syncCompanyDirectory(): Promise<CompanyDirectorySyncResult
       for (const discoveredCandidate of batch.items) {
         try {
           const candidate = await verifyOfficialCompanyCandidate(discoveredCandidate);
-          const result = await upsertCandidate(candidate);
+          const result = await upsertCompanyDirectoryCandidate(candidate);
           upserted += 1;
           if (result.publicationStatus === "published") published += 1;
           if (result.blocked) blocked += 1;
