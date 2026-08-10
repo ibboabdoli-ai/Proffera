@@ -13,9 +13,14 @@ function safeText(value: unknown) {
   return "";
 }
 
+function fullString(value: unknown) {
+  return typeof value === "string" ? value : "";
+}
+
 function safeResponseDetail(raw: string, wwwAuthenticate: string | null) {
   const parts: string[] = [];
   if (wwwAuthenticate) parts.push(`www-authenticate: ${wwwAuthenticate.slice(0, 500)}`);
+
   try {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     for (const key of ["code", "message", "description", "error", "error_description"]) {
@@ -35,6 +40,7 @@ function safeResponseDetail(raw: string, wwwAuthenticate: string | null) {
     const plain = raw.trim();
     if (plain) parts.push(`body: ${plain.slice(0, 500)}`);
   }
+
   return parts.join(" · ") || "Ingen säker felbeskrivning returnerades.";
 }
 
@@ -87,23 +93,27 @@ async function runDiagnostic() {
   let grantedScope = "";
   try {
     const tokenJson = JSON.parse(tokenRaw) as Record<string, unknown>;
-    token = safeText(tokenJson.access_token);
+    // Keep the full access token only in server memory. Never render or log it.
+    token = fullString(tokenJson.access_token);
     grantedScope = safeText(tokenJson.scope);
   } catch {
     return { token: "Token response was not valid JSON", alive: "–", organisation: "–", scope: "–" };
   }
-  if (!token) return { token: "No access_token returned", alive: "–", organisation: "–", scope: grantedScope || "(none)" };
+
+  if (!token) {
+    return { token: "No access_token returned", alive: "–", organisation: "–", scope: grantedScope || "(none)" };
+  }
 
   const detailUrl = replaceOrg(detailTemplate, org);
   const baseUrl = detailUrl.replace(/\/organisationer(?:\?.*)?$/, "");
-  const authHeaders = {
-    authorization: `Bearer ${token}`,
-    "x-request-id": randomUUID(),
-  };
 
   const aliveResponse = await fetch(`${baseUrl}/isalive`, {
     method: "GET",
-    headers: { ...authHeaders, accept: "application/json, text/plain" },
+    headers: {
+      authorization: `Bearer ${token}`,
+      "x-request-id": randomUUID(),
+      accept: "application/json, text/plain",
+    },
     cache: "no-store",
     signal: AbortSignal.timeout(12_000),
   });
@@ -115,7 +125,7 @@ async function runDiagnostic() {
   const organisationResponse = await fetch(detailUrl, {
     method: "POST",
     headers: {
-      ...authHeaders,
+      authorization: `Bearer ${token}`,
       "x-request-id": randomUUID(),
       accept: "application/json",
       "content-type": "application/json",
