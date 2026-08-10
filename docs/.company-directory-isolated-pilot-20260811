@@ -1,2 +1,0 @@
-Isolated real-data pilot trigger for hardened SCB discovery. Preview and isolated Neon only; production remains untouched.
-Pilot 3: validate primary Ng1-only service discovery after secondary-SNI false-positive finding.
