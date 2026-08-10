@@ -83,6 +83,7 @@ export async function POST(request: Request) {
       fingerprint: typeof payload.fingerprint === "string" ? payload.fingerprint : "",
       organizationNumbers: payload.organizationNumbers.map((value) => String(value ?? "")),
       discoveredCount: Number(payload.discoveredCount) || 0,
+      acceptedCount: Number(payload.acceptedCount) || 0,
       final: payload.final === true,
     });
     return NextResponse.json({ ok: true, ...result });
