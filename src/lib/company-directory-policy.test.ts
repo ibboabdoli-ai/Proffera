@@ -48,6 +48,7 @@ describe("company directory policy", () => {
   it("maps supported service-company SNI codes deterministically", () => {
     expect(mapSniToDirectoryCategory("81.210")?.categorySlug).toBe("stadning");
     expect(mapSniToDirectoryCategory("81.221")?.categorySlug).toBe("stadning");
+    expect(mapSniToDirectoryCategory("81.222")).toBeNull();
     expect(mapSniToDirectoryCategory("96.910")?.categorySlug).toBe("hemservice");
     expect(mapSniToDirectoryCategory("49.420")?.categorySlug).toBe("flytt");
     expect(mapSniToDirectoryCategory("43.210")?.categorySlug).toBe("elektriker");
