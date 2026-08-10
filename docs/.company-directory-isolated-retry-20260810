@@ -1,1 +1,2 @@
-Isolated retry trigger for the 2026-08-10 real-data pilot. Preview only; production remains untouched.
+Isolated retry trigger for the 2026-08-10/11 real-data pilot. Preview only; production remains untouched.
+Canary: one active supported Filial profile re-evaluated after policy hardening.
