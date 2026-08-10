@@ -44,7 +44,7 @@ describe("automatic company directory discovery contract", () => {
     expect(route).toContain("COMPANY_DIRECTORY_SYNC_ENABLED");
   });
 
-  it("discovers only from the current official SCB bulk source and prefilters pilot service and legal-form scope", () => {
+  it("discovers only from the current official SCB bulk source and prefilters primary service and legal-form scope", () => {
     const worker = source("scripts/company-directory-discovery.py");
 
     expect(worker).toContain("https-metadata-bolagsverket-se-store-2-resource-76");
@@ -53,7 +53,8 @@ describe("automatic company directory discovery contract", () => {
     expect(worker).toContain("is_allowed_scb_bulk_url");
     expect(worker).toContain('/scb/scb_bulkfil.zip');
     expect(worker).toContain("SCB_ORG_KEYS");
-    expect(worker).toContain("SCB_SNI_KEYS");
+    expect(worker).toContain('SCB_SNI_KEYS = {"ng1"}');
+    expect(worker).toContain("Ng2-Ng5 are secondary activities");
     expect(worker).toContain("SCB_LEGAL_FORM_KEYS");
     expect(worker).toContain("LEGAL_FORM_PRIORITY");
     expect(worker).toContain('"49": 0');
@@ -66,7 +67,7 @@ describe("automatic company directory discovery contract", () => {
     expect(worker).toContain("RANGE_SEGMENT_BYTES");
     expect(worker).toContain("sqlite3");
     expect(worker).toContain("Official SCB records scanned");
-    expect(worker).toContain("supported-SNI + supported-form candidates");
+    expect(worker).toContain("primary-supported-SNI + supported-form candidates");
   });
 
   it("schedules discovery separately from queue processing", () => {
