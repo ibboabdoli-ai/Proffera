@@ -121,7 +121,7 @@ export function mapSniToDirectoryCategory(value: unknown): DirectoryCategoryMatc
       serviceSlugs: ["hemstadning", "kontorsstadning", "flyttstadning"],
     };
   }
-  if (code === "81.221" || code.startsWith("81.22")) {
+  if (code === "81.221") {
     return {
       categorySlug: "stadning",
       categoryLabel: "Städning",
