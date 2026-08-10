@@ -33,6 +33,9 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Validate discovery worker
+        run: python3 -m py_compile scripts/company-directory-discovery.py
+
       - name: Build
         run: npm run build
 
