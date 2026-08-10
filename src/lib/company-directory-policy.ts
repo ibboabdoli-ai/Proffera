@@ -59,6 +59,7 @@ const juridicalLegalForms = [
   "ekonomisk forening",
   "ideell förening",
   "ideell forening",
+  "filial",
 ];
 
 const pilotLocations = new Set(["stockholm", "södertälje"]);
