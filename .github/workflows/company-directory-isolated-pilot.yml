@@ -21,7 +21,7 @@ jobs:
     env:
       PREVIEW_ORIGIN: https://proffera-jhap-q8sktm4fv-wzardmn.vercel.app
       CRON_SECRET: ${{ secrets.PROFFERA_REMINDER_CRON_SECRET }}
-      BOLAGSVERKET_BULK_URL: ${{ vars.BOLAGSVERKET_BULK_URL }}
+      BOLAGSVERKET_BULK_URL: https://vardefulla-datamangder.bolagsverket.se/bolagsverket/bolagsverket_bulkfil.zip
     steps:
       - name: Checkout
         uses: actions/checkout@v7
