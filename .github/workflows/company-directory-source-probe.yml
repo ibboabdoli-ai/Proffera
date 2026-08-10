@@ -10,28 +10,39 @@ permissions:
 
 jobs:
   probe:
-    name: Search current data.europa catalog for Bolagsverket HVD
+    name: Filter current data.europa Bolagsverket datasets
     if: github.event.head_commit.message == 'Probe official company directory source'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Search current catalog API
+      - name: Find official Bolagsverket candidates
         shell: bash
         run: |
           set -euo pipefail
-          base='https://data.europa.eu/api/hub/search/search'
-          urls=(
-            "$base?query=Bolagsverket&limit=20"
-            "$base?q=Bolagsverket&limit=20"
-            "$base?query=v%C3%A4rdefulla%20datam%C3%A4ngder&limit=20"
-            "$base?query=organisationer%20Bolagsverket&limit=20"
-          )
-          i=0
-          for url in "${urls[@]}"; do
-            i=$((i+1))
-            echo "===== QUERY $i: $url ====="
-            code="$(curl -L --silent --show-error --connect-timeout 10 --max-time 30 -w '%{http_code}' -o /tmp/body "$url")"
-            echo "HTTP $code"
-            head -c 12000 /tmp/body
-            echo
-          done
+          url='https://data.europa.eu/api/hub/search/search?q=Bolagsverket&limit=100'
+          curl -L --silent --show-error --connect-timeout 10 --max-time 30 -o /tmp/results.json "$url"
+          python - <<'PY'
+          import json
+          data = json.load(open('/tmp/results.json', encoding='utf-8'))
+          rows = data.get('result', {}).get('results', [])
+          print('result_count=', data.get('result', {}).get('count'))
+          for row in rows:
+              blob = json.dumps(row, ensure_ascii=False).lower()
+              if 'bolagsverket.se' not in blob and 'metadata.bolagsverket' not in blob and 'bolagsverket' not in str(row.get('publisher', '')).lower():
+                  continue
+              print('\n=== MATCH ===')
+              print('id:', row.get('id'))
+              print('resource:', row.get('resource'))
+              print('title:', json.dumps(row.get('title'), ensure_ascii=False))
+              print('publisher:', json.dumps(row.get('publisher'), ensure_ascii=False))
+              print('landing_page:', json.dumps(row.get('landing_page'), ensure_ascii=False))
+              print('distributions:')
+              for dist in row.get('distributions') or []:
+                  print(json.dumps({
+                      'id': dist.get('id'),
+                      'title': dist.get('title'),
+                      'format': dist.get('format'),
+                      'access_url': dist.get('access_url'),
+                      'download_url': dist.get('download_url'),
+                  }, ensure_ascii=False))
+          PY
