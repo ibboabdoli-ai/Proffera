@@ -333,12 +333,12 @@ function normalizeSourceRecord(row: AnyRecord, provider: string): NormalizedDire
 
   const legalFormValue = firstPath(row, [
     ["legalForm"],
-    ["juridiskForm", "klartext"],
-    ["juridiskForm"],
     ["organisationsform", "klartext"],
     ["organisationsform", "organisationsform"],
     ["organisationsform"],
     ["organizationForm"],
+    ["juridiskForm", "klartext"],
+    ["juridiskForm"],
   ]);
   const legalForm = text(legalFormValue);
   const legalName = nameFromRecord(row);
