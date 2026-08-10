@@ -2,6 +2,10 @@ import "server-only";
 
 import { getPlatformAdmin } from "@/lib/platform-admin";
 import {
+  BOLAGSVERKET_VDM_TEST_ORGANIZATION_NUMBERS,
+  isBolagsverketVdmTestOrganizationNumber,
+} from "@/lib/company-directory-bolagsverket-testdata";
+import {
   assessDirectoryCandidate,
   type NormalizedDirectoryCandidate,
 } from "@/lib/company-directory-policy";
@@ -28,12 +32,12 @@ function seedOrganizationNumbers() {
   return [...new Set(values.map((value) => value.replace(/\D/g, "")).filter((value) => value.length === 10))];
 }
 
+function normalizeRequestedOrganizationNumbers(values: string[]) {
+  return [...new Set(values.map((value) => value.replace(/\D/g, "")).filter(Boolean))];
+}
+
 function detailRequestConfigured() {
-  const url = process.env.COMPANY_DIRECTORY_DETAIL_URL_TEMPLATE?.trim();
-  if (!url) return false;
-  const method = process.env.COMPANY_DIRECTORY_DETAIL_METHOD?.trim().toUpperCase() === "POST" ? "POST" : "GET";
-  if (method === "POST" && !process.env.COMPANY_DIRECTORY_DETAIL_BODY_TEMPLATE?.trim()) return false;
-  return true;
+  return Boolean(process.env.COMPANY_DIRECTORY_DETAIL_URL_TEMPLATE?.trim());
 }
 
 function seedCandidate(organizationNumber: string): NormalizedDirectoryCandidate {
@@ -73,6 +77,7 @@ export function getCompanyDirectorySourceReadiness() {
       ? seeds.length > 0
       : Boolean(process.env.COMPANY_DIRECTORY_SOURCE_URL?.trim()),
     seedCount: seeds.length,
+    officialTestCount: BOLAGSVERKET_VDM_TEST_ORGANIZATION_NUMBERS.length,
     detailConfigured: detailRequestConfigured(),
     oauthConfigured: Boolean(
       process.env.COMPANY_DIRECTORY_TOKEN_URL?.trim()
@@ -82,27 +87,37 @@ export function getCompanyDirectorySourceReadiness() {
   };
 }
 
-export async function previewCompanyDirectorySource(limit = 5) {
+export async function previewCompanyDirectorySource(limit = 5, requestedOrganizationNumbers: string[] = []) {
   await requireSuperAdmin();
   const readiness = getCompanyDirectorySourceReadiness();
-  if (!readiness.sourceConfigured) {
+  const requested = normalizeRequestedOrganizationNumbers(requestedOrganizationNumbers);
+
+  if (readiness.mode === "seed" && requested.length) {
+    const invalid = requested.filter((organizationNumber) => !isBolagsverketVdmTestOrganizationNumber(organizationNumber));
+    if (invalid.length) {
+      throw new Error("Endast officiellt dokumenterade Bolagsverket TEST-identiteter får användas i Källtest");
+    }
+  }
+
+  if (!readiness.sourceConfigured && !(readiness.mode === "seed" && requested.length)) {
     throw new Error(readiness.mode === "seed"
       ? "Pilot seed organisation numbers are not configured"
       : "Official discovery feed is not configured");
   }
   if (readiness.mode === "seed" && !readiness.detailConfigured) {
-    throw new Error("Official detail endpoint and its documented request schema are required for seed mode");
+    throw new Error("Official detail endpoint is required for seed mode; the documented /organisationer request body is built in");
   }
   if (readiness.mode === "seed" && !readiness.oauthConfigured) {
     throw new Error("Official test OAuth credentials are required for seed mode");
   }
 
   const safeLimit = Math.max(1, Math.min(5, limit));
+  const selectedSeedNumbers = requested.length ? requested : seedOrganizationNumbers();
   const batch = readiness.mode === "seed"
     ? {
-        items: seedOrganizationNumbers().slice(0, safeLimit).map(seedCandidate),
+        items: selectedSeedNumbers.slice(0, safeLimit).map(seedCandidate),
         nextCursor: null,
-        provider: `${DEFAULT_PROVIDER}:seed`,
+        provider: requested.length ? `${DEFAULT_PROVIDER}:testdata` : `${DEFAULT_PROVIDER}:seed`,
       }
     : await fetchOfficialCompanyDirectoryBatch({ limit: safeLimit });
   const results = [];
