@@ -61,6 +61,8 @@ describe("automatic company directory discovery contract", () => {
     expect(worker).toContain('"96": 4');
     expect(worker).toContain("PILOT_LOCATIONS");
     expect(worker).toContain('digits == "81210"');
+    expect(worker).toContain('digits == "81221"');
+    expect(worker).not.toContain('digits.startswith("8122")');
     expect(worker).toContain('digits == "43210"');
     expect(worker).toContain("legal_form_priority < ?");
     expect(worker).toContain("order by legal_form_priority asc");
