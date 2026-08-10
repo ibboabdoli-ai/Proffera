@@ -8,7 +8,7 @@ function source(path: string) {
 }
 
 describe("automatic company directory discovery contract", () => {
-  it("uses a durable idempotent queue with leases", () => {
+  it("uses a durable idempotent queue with leases and official detail verification", () => {
     const migration = source("db/migrations/20260810_0043_company_profile_discovery_queue.sql");
     const queue = source("src/lib/company-directory-discovery-queue.ts");
 
@@ -19,6 +19,8 @@ describe("automatic company directory discovery contract", () => {
     expect(queue).toContain("for update skip locked");
     expect(queue).toContain("LEASE_MINUTES = 15");
     expect(queue).toContain("MAX_ATTEMPTS = 5");
+    expect(queue).toContain("detailVerificationConfigured");
+    expect(queue).toContain("Automatic discovery requires official detail verification and credentials");
     expect(queue).toContain("verifyOfficialCompanyCandidate");
     expect(queue).toContain("upsertCompanyDirectoryCandidate");
   });
