@@ -82,6 +82,14 @@ describe("company directory policy", () => {
     expect(assessment.publicationStatus).toBe("ready");
   });
 
+  it("keeps an otherwise complete pilot company ready when tax fields are unavailable", () => {
+    const assessment = assessDirectoryCandidate(candidate({ fTaxStatus: "", vatStatus: "" }));
+    expect(assessment.reasons).toContain("tax_status_not_confirmed");
+    expect(assessment.score).toBeGreaterThanOrEqual(80);
+    expect(assessment.autoPublicEligible).toBe(true);
+    expect(assessment.publicationStatus).toBe("ready");
+  });
+
   it("keeps otherwise valid companies outside Stockholm and Södertälje out of auto-publication", () => {
     const outside = candidate({ city: "Malmö", municipality: "Malmö" });
     const assessment = assessDirectoryCandidate(outside);
