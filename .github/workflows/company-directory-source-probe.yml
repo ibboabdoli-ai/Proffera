@@ -10,38 +10,28 @@ permissions:
 
 jobs:
   probe:
-    name: Probe current data.europa API used by dataset frontend
+    name: Search current data.europa catalog for Bolagsverket HVD
     if: github.event.head_commit.message == 'Probe official company directory source'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Inspect current frontend API references
+      - name: Search current catalog API
         shell: bash
         run: |
           set -euo pipefail
-          base='https://data.europa.eu'
-          page="$base/data/datasets/https-metadata-bolagsverket-se-store-2-resource-41?locale=sv"
-          curl -L --silent --show-error --connect-timeout 10 --max-time 30 -o /tmp/page "$page"
-          asset="$(grep -oE 'src="/[^"]+\.js"' /tmp/page | head -n1 | cut -d'"' -f2)"
-          echo "Frontend asset: $asset"
-          test -n "$asset"
-          curl -L --silent --show-error --connect-timeout 10 --max-time 60 -o /tmp/app.js "$base$asset"
-          echo '--- API-looking strings ---'
-          python - <<'PY'
-          import re
-          text = open('/tmp/app.js', encoding='utf-8', errors='replace').read()
-          patterns = [
-              r'https://[^"\' ]+',
-              r'/api/[A-Za-z0-9_./?=&{}:-]+',
-              r'api/hub[^"\' ]*',
-              r'datasets?[^"\' ]{0,180}',
-          ]
-          seen = []
-          for pattern in patterns:
-              for match in re.findall(pattern, text, flags=re.I):
-                  value = match[:500]
-                  if ('api' in value.lower() or 'dataset' in value.lower()) and value not in seen:
-                      seen.append(value)
-          for value in seen[:160]:
-              print(value)
-          PY
+          base='https://data.europa.eu/api/hub/search/search'
+          urls=(
+            "$base?query=Bolagsverket&limit=20"
+            "$base?q=Bolagsverket&limit=20"
+            "$base?query=v%C3%A4rdefulla%20datam%C3%A4ngder&limit=20"
+            "$base?query=organisationer%20Bolagsverket&limit=20"
+          )
+          i=0
+          for url in "${urls[@]}"; do
+            i=$((i+1))
+            echo "===== QUERY $i: $url ====="
+            code="$(curl -L --silent --show-error --connect-timeout 10 --max-time 30 -w '%{http_code}' -o /tmp/body "$url")"
+            echo "HTTP $code"
+            head -c 12000 /tmp/body
+            echo
+          done
