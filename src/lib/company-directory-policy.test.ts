@@ -81,6 +81,7 @@ describe("company directory policy", () => {
       legalForm: "Filial",
       fTaxStatus: "",
       vatStatus: "",
+      employerStatus: "",
     }));
     expect(assessment.privacyBlocked).toBe(false);
     expect(assessment.autoPublicEligible).toBe(true);
@@ -95,10 +96,14 @@ describe("company directory policy", () => {
     expect(assessment.publicationStatus).toBe("ready");
   });
 
-  it("keeps an otherwise complete pilot company ready when tax fields are unavailable", () => {
-    const assessment = assessDirectoryCandidate(candidate({ fTaxStatus: "", vatStatus: "" }));
-    expect(assessment.reasons).toContain("tax_status_not_confirmed");
-    expect(assessment.score).toBeGreaterThanOrEqual(80);
+  it("uses the HVD active signal when individual tax fields are unavailable", () => {
+    const assessment = assessDirectoryCandidate(candidate({
+      fTaxStatus: "",
+      vatStatus: "",
+      employerStatus: "",
+    }));
+    expect(assessment.reasons).not.toContain("tax_status_not_confirmed");
+    expect(assessment.score).toBe(100);
     expect(assessment.autoPublicEligible).toBe(true);
     expect(assessment.publicationStatus).toBe("ready");
   });
@@ -112,11 +117,12 @@ describe("company directory policy", () => {
     expect(assessment.publicationStatus).toBe("review");
   });
 
-  it("does not award tax quality points for negative registration signals", () => {
+  it("does not award tax quality points when explicit registration details are all negative", () => {
     const positive = assessDirectoryCandidate(candidate());
     const negative = assessDirectoryCandidate(candidate({
       fTaxStatus: "Ej registrerad",
       vatStatus: "Inte registrerad",
+      employerStatus: "Ej registrerad",
     }));
     expect(negative.reasons).toContain("tax_status_not_confirmed");
     expect(positive.score - negative.score).toBe(5);
