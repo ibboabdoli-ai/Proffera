@@ -6,7 +6,8 @@ on:
     - cron: "9,24,39,54 * * * *"
   workflow_dispatch:
 
-permissions: {}
+permissions:
+  contents: read
 
 concurrency:
   group: company-directory-automation
@@ -20,7 +21,7 @@ jobs:
     timeout-minutes: 25
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Verify scheduler configuration
         env:
@@ -47,7 +48,7 @@ jobs:
           PY
 
       - name: Install streaming JSON parser
-        run: python -m pip install --disable-pip-version-check --quiet ijson==3.4.0
+        run: python -m pip install --disable-pip-version-check --quiet ijson
 
       - name: Discover Stockholm and Södertälje service companies
         env:
