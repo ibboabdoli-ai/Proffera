@@ -10,39 +10,26 @@ permissions:
 
 jobs:
   probe:
-    name: Filter current data.europa Bolagsverket datasets
+    name: Verify current Bolagsverket HVD dataset endpoint
     if: github.event.head_commit.message == 'Probe official company directory source'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Find official Bolagsverket candidates
+      - name: Verify resource 76 and official ZIP
         shell: bash
         run: |
           set -euo pipefail
-          url='https://data.europa.eu/api/hub/search/search?q=Bolagsverket&limit=100'
-          curl -L --silent --show-error --connect-timeout 10 --max-time 30 -o /tmp/results.json "$url"
+          url='https://data.europa.eu/api/hub/search/datasets/https-metadata-bolagsverket-se-store-2-resource-76'
+          code="$(curl -L --silent --show-error --connect-timeout 10 --max-time 30 -w '%{http_code}' -o /tmp/body "$url")"
+          echo "HTTP $code"
+          test "$code" = '200'
           python - <<'PY'
           import json
-          data = json.load(open('/tmp/results.json', encoding='utf-8'))
-          rows = data.get('result', {}).get('results', [])
-          print('result_count=', data.get('result', {}).get('count'))
-          for row in rows:
-              blob = json.dumps(row, ensure_ascii=False).lower()
-              if 'bolagsverket.se' not in blob and 'metadata.bolagsverket' not in blob and 'bolagsverket' not in str(row.get('publisher', '')).lower():
-                  continue
-              print('\n=== MATCH ===')
-              print('id:', row.get('id'))
-              print('resource:', row.get('resource'))
-              print('title:', json.dumps(row.get('title'), ensure_ascii=False))
-              print('publisher:', json.dumps(row.get('publisher'), ensure_ascii=False))
-              print('landing_page:', json.dumps(row.get('landing_page'), ensure_ascii=False))
-              print('distributions:')
-              for dist in row.get('distributions') or []:
-                  print(json.dumps({
-                      'id': dist.get('id'),
-                      'title': dist.get('title'),
-                      'format': dist.get('format'),
-                      'access_url': dist.get('access_url'),
-                      'download_url': dist.get('download_url'),
-                  }, ensure_ascii=False))
+          data=json.load(open('/tmp/body',encoding='utf-8'))
+          blob=json.dumps(data,ensure_ascii=False)
+          expected='https://vardefulla-datamangder.bolagsverket.se/bolagsverket/bolagsverket_bulkfil.zip'
+          print('contains_expected_zip=', expected in blob)
+          if expected not in blob:
+              raise SystemExit('Current dataset endpoint does not expose expected official Bolagsverket ZIP')
+          print(expected)
           PY
