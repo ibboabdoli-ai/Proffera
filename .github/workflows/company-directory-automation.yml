@@ -1,0 +1,98 @@
+name: Company directory automation
+
+on:
+  schedule:
+    - cron: "31 3 * * *"
+    - cron: "9,24,39,54 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: company-directory-automation
+  cancel-in-progress: false
+
+jobs:
+  discover:
+    name: Discover official company candidates
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '31 3 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify scheduler configuration
+        env:
+          REMINDER_CRON_URL: ${{ secrets.PROFFERA_REMINDER_CRON_URL }}
+          CRON_SECRET: ${{ secrets.PROFFERA_REMINDER_CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          test -n "$REMINDER_CRON_URL"
+          test -n "$CRON_SECRET"
+
+      - name: Resolve protected automation endpoint
+        id: endpoint
+        env:
+          REMINDER_CRON_URL: ${{ secrets.PROFFERA_REMINDER_CRON_URL }}
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import os
+          import urllib.parse
+          url = urllib.parse.urlparse(os.environ["REMINDER_CRON_URL"])
+          if url.scheme != "https" or not url.netloc:
+              raise SystemExit("PROFFERA_REMINDER_CRON_URL must be an HTTPS URL")
+          origin = f"{url.scheme}://{url.netloc}"
+          print(f"ingest_url={origin}/api/cron/company-directory-discovery-ingest")
+          PY
+
+      - name: Install streaming JSON parser
+        run: python -m pip install --disable-pip-version-check --quiet ijson==3.4.0
+
+      - name: Discover Stockholm and Södertälje service companies
+        env:
+          INGEST_URL: ${{ steps.endpoint.outputs.ingest_url }}
+          CRON_SECRET: ${{ secrets.PROFFERA_REMINDER_CRON_SECRET }}
+          BOLAGSVERKET_BULK_URL: ${{ vars.BOLAGSVERKET_BULK_URL }}
+        run: |
+          set -euo pipefail
+          python scripts/company-directory-discovery.py \
+            --ingest-url "$INGEST_URL" \
+            --secret "$CRON_SECRET"
+
+  process:
+    name: Verify and build queued company profiles
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '9,24,39,54 * * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Verify scheduler configuration
+        env:
+          REMINDER_CRON_URL: ${{ secrets.PROFFERA_REMINDER_CRON_URL }}
+          CRON_SECRET: ${{ secrets.PROFFERA_REMINDER_CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          test -n "$REMINDER_CRON_URL"
+          test -n "$CRON_SECRET"
+
+      - name: Process discovery queue
+        env:
+          REMINDER_CRON_URL: ${{ secrets.PROFFERA_REMINDER_CRON_URL }}
+          CRON_SECRET: ${{ secrets.PROFFERA_REMINDER_CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          PROCESS_URL="$(python - <<'PY'
+          import os
+          import urllib.parse
+          url = urllib.parse.urlparse(os.environ["REMINDER_CRON_URL"])
+          if url.scheme != "https" or not url.netloc:
+              raise SystemExit("PROFFERA_REMINDER_CRON_URL must be an HTTPS URL")
+          print(f"{url.scheme}://{url.netloc}/api/cron/company-directory-sync")
+          PY
+          )"
+          curl --fail-with-body --silent --show-error \
+            --connect-timeout 10 \
+            --max-time 75 \
+            --header "Authorization: Bearer $CRON_SECRET" \
+            --header "User-Agent: proffera-company-directory-github-actions" \
+            "$PROCESS_URL"
