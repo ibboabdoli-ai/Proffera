@@ -74,6 +74,19 @@ describe("company directory policy", () => {
     expect(assessment.publicationStatus).toBe("blocked");
   });
 
+  it("treats registered foreign branches as non-personal organizations", () => {
+    expect(classifyOrganizationKind("Filial")).toBe("juridical_person");
+    const assessment = assessDirectoryCandidate(candidate({
+      organizationKind: classifyOrganizationKind("Filial"),
+      legalForm: "Filial",
+      fTaxStatus: "",
+      vatStatus: "",
+    }));
+    expect(assessment.privacyBlocked).toBe(false);
+    expect(assessment.autoPublicEligible).toBe(true);
+    expect(assessment.publicationStatus).toBe("ready");
+  });
+
   it("marks a complete active juridical company inside the pilot ready", () => {
     const assessment = assessDirectoryCandidate(candidate());
     expect(isDirectoryPilotLocation(candidate())).toBe(true);
