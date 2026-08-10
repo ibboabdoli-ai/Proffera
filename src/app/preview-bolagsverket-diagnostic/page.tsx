@@ -23,11 +23,23 @@ function safeResponseDetail(raw: string, wwwAuthenticate: string | null) {
 
   try {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
-    for (const key of ["code", "message", "description", "error", "error_description"]) {
+    for (const key of [
+      "code",
+      "message",
+      "description",
+      "error",
+      "error_description",
+      "type",
+      "instance",
+      "status",
+      "title",
+      "detail",
+      "requestId",
+    ]) {
       const value = parsed[key];
       if (value && typeof value === "object" && !Array.isArray(value)) {
         const nested = value as Record<string, unknown>;
-        for (const nestedKey of ["code", "message", "description"]) {
+        for (const nestedKey of ["code", "message", "description", "title", "detail"]) {
           const nestedValue = safeText(nested[nestedKey]);
           if (nestedValue) parts.push(`${key}.${nestedKey}: ${nestedValue}`);
         }
