@@ -16,7 +16,13 @@ class CompanyDirectoryDiscoveryWorkerTests(unittest.TestCase):
     def test_accepts_only_official_bolagsverket_https_sources(self):
         self.assertTrue(MODULE.is_allowed_source_url("https://bolagsverket.se/example.zip"))
         self.assertTrue(MODULE.is_allowed_source_url("https://files.bolagsverket.se/example.zip"))
-        self.assertTrue(MODULE.is_allowed_source_url("https://vardefulla-datamangder.bolagsverket.se/scb/scb_bulkfil.zip"))
+        scb_url = "https://vardefulla-datamangder.bolagsverket.se/scb/scb_bulkfil.zip"
+        self.assertTrue(MODULE.is_allowed_source_url(scb_url))
+        self.assertTrue(MODULE.is_allowed_scb_bulk_url(scb_url))
+        self.assertFalse(MODULE.is_allowed_scb_bulk_url(
+            "https://vardefulla-datamangder.bolagsverket.se/bolagsverket/bolagsverket_bulkfil.zip"
+        ))
+        self.assertFalse(MODULE.is_allowed_scb_bulk_url("https://bolagsverket.se/example.zip"))
         self.assertFalse(MODULE.is_allowed_source_url("http://bolagsverket.se/example.zip"))
         self.assertFalse(MODULE.is_allowed_source_url("https://bolagsverket.se.evil.example/example.zip"))
         self.assertFalse(MODULE.is_allowed_source_url("https://example.com/example.zip"))
@@ -31,22 +37,34 @@ class CompanyDirectoryDiscoveryWorkerTests(unittest.TestCase):
         for code in ["62010", "68204", "46699"]:
             self.assertFalse(MODULE.supported_sni(code), code)
 
+    def test_scb_legal_form_priority_is_explicit(self):
+        self.assertEqual(MODULE.LEGAL_FORM_PRIORITY["49"], 0)
+        self.assertEqual(MODULE.LEGAL_FORM_PRIORITY["31"], 1)
+        self.assertEqual(MODULE.LEGAL_FORM_PRIORITY["51"], 2)
+        self.assertEqual(MODULE.LEGAL_FORM_PRIORITY["61"], 3)
+        self.assertEqual(MODULE.LEGAL_FORM_PRIORITY["96"], 4)
+        self.assertEqual(MODULE.normalize_legal_form_code("49"), "49")
+        self.assertEqual(MODULE.normalize_legal_form_code(" 096 "), "09")
+        self.assertEqual(MODULE.normalize_legal_form_code(""), "")
+
     def test_scb_peorgnr_requires_country_prefix_and_returns_ten_digits(self):
         self.assertEqual(MODULE.normalize_scb_org("165561234567"), "5561234567")
         self.assertEqual(MODULE.normalize_scb_org("16-5561234567"), "5561234567")
         self.assertEqual(MODULE.normalize_scb_org("5561234567"), "")
         self.assertEqual(MODULE.normalize_scb_org("175561234567"), "")
 
-    def test_mapping_extracts_official_identity_sni_and_pilot_location(self):
+    def test_mapping_extracts_official_identity_sni_pilot_location_and_form(self):
         record = {
             "organisationsidentitet": {"identitetsbeteckning": "556123-4567"},
             "naringsgrenOrganisation": {"sni": [{"kod": "81210", "klartext": "Lokalvård"}]},
             "postadressOrganisation": {"postadress": {"postort": "SÖDERTÄLJE"}},
+            "JurForm": "49",
         }
-        orgs, supported, pilot = MODULE.facts_from_mapping(record)
+        orgs, supported, pilot, legal_form_priority = MODULE.facts_from_mapping(record)
         self.assertEqual(orgs, {"5561234567"})
         self.assertTrue(supported)
         self.assertTrue(pilot)
+        self.assertEqual(legal_form_priority, 0)
 
     def test_mapping_extracts_real_scb_bulk_fields(self):
         record = {
@@ -57,18 +75,27 @@ class CompanyDirectoryDiscoveryWorkerTests(unittest.TestCase):
             "Ng4": "",
             "Ng5": "",
             "PostOrt": "STOCKHOLM",
+            "JurForm": "49",
         }
-        orgs, supported, pilot = MODULE.facts_from_mapping(record)
+        orgs, supported, pilot, legal_form_priority = MODULE.facts_from_mapping(record)
         self.assertEqual(orgs, {"5561234567"})
         self.assertTrue(supported)
         self.assertTrue(pilot)
+        self.assertEqual(legal_form_priority, 0)
 
-    def test_real_scb_tsv_bulk_finds_supported_pilot_company(self):
-        header = "PeOrgNr\tNg1\tNg2\tNg3\tNg4\tNg5\tPostOrt\n"
+    def test_real_scb_tsv_bulk_filters_and_prioritizes_supported_company_forms(self):
+        header = "PeOrgNr\tNg1\tNg2\tNg3\tNg4\tNg5\tPostOrt\tJurForm\n"
         rows = (
-            "165561234567\t81210\t\t\t\t\tStockholm\n"
-            "165567654321\t62010\t\t\t\t\tStockholm\n"
-            "165569999999\t81210\t\t\t\t\tUppsala\n"
+            # Supported Stockholm foreign juridical person / branch candidate.
+            "165169999999\t81210\t\t\t\t\tStockholm\t96\n"
+            # Supported Stockholm AB: must sort before code 96 even with a larger org number.
+            "165569999998\t81210\t\t\t\t\tStockholm\t49\n"
+            # Unknown/unsupported legal form: excluded from automatic discovery.
+            "165561111111\t81210\t\t\t\t\tStockholm\t99\n"
+            # Unsupported SNI: excluded.
+            "165567654321\t62010\t\t\t\t\tStockholm\t49\n"
+            # Outside pilot area: excluded.
+            "165569999997\t81210\t\t\t\t\tUppsala\t49\n"
         )
         with tempfile.TemporaryDirectory() as directory:
             archive_path = Path(directory) / "scb.zip"
@@ -76,10 +103,10 @@ class CompanyDirectoryDiscoveryWorkerTests(unittest.TestCase):
                 archive.writestr("scb_bulkfil.txt", header + rows)
             candidates, records_seen = MODULE.collect_candidates(archive_path)
 
-        self.assertEqual(records_seen, 3)
-        self.assertEqual(candidates, ["5561234567"])
+        self.assertEqual(records_seen, 5)
+        self.assertEqual(candidates, ["5569999998", "5169999999"])
 
-    def test_csv_bulk_files_merge_sni_and_location_by_org_number(self):
+    def test_csv_bulk_files_merge_sni_location_and_legal_form_by_org_number(self):
         with tempfile.TemporaryDirectory() as directory:
             archive_path = Path(directory) / "official.zip"
             with zipfile.ZipFile(archive_path, "w") as archive:
@@ -91,9 +118,13 @@ class CompanyDirectoryDiscoveryWorkerTests(unittest.TestCase):
                     "address.csv",
                     "identitetsbeteckning;postort\n5561234567;Stockholm\n5567654321;Stockholm\n",
                 )
+                archive.writestr(
+                    "legal.csv",
+                    "identitetsbeteckning;JurForm\n5561234567;49\n5567654321;49\n",
+                )
             candidates, records_seen = MODULE.collect_candidates(archive_path)
 
-        self.assertEqual(records_seen, 4)
+        self.assertEqual(records_seen, 6)
         self.assertEqual(candidates, ["5561234567"])
 
 
