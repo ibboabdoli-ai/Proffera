@@ -1,0 +1,37 @@
+name: Probe official company directory source
+
+on:
+  push:
+    branches:
+      - work/proffera-company-profile-engine
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Probe current Bolagsverket HVD metadata locations
+    if: github.event.head_commit.message == 'Probe official company directory source'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe known metadata endpoints
+        shell: bash
+        run: |
+          set -u
+          urls=(
+            'https://metadata.bolagsverket.se/store/2/resource/41'
+            'https://data.europa.eu/data/datasets/https-metadata-bolagsverket-se-store-2-resource-41?locale=sv'
+            'https://data.europa.eu/data/datasets/https-metadata-bolagsverket-se-store-2-resource-41?locale=en'
+            'https://data.europa.eu/api/hub/search/datasets/https-metadata-bolagsverket-se-store-2-resource-41?locale=sv'
+          )
+          for url in "${urls[@]}"; do
+            echo "===== $url ====="
+            curl -L --silent --show-error --connect-timeout 10 --max-time 30 \
+              -A 'proffera-company-directory-source-probe/1.0' \
+              -D /tmp/headers -o /tmp/body "$url" || true
+            head -n 8 /tmp/headers || true
+            echo '--- body preview ---'
+            head -c 4000 /tmp/body || true
+            echo
+          done
