@@ -82,10 +82,13 @@ export type CompanyDirectoryAdminSnapshot = {
 };
 
 function configSnapshot() {
+  const discoveryMode = process.env.COMPANY_DIRECTORY_DISCOVERY_MODE?.trim().toLowerCase() || "seed";
+
   return {
     syncEnabled: process.env.COMPANY_DIRECTORY_SYNC_ENABLED === "true",
     autoPublishEnabled: process.env.COMPANY_DIRECTORY_AUTO_PUBLISH === "true",
-    sourceConfigured: Boolean(process.env.COMPANY_DIRECTORY_SOURCE_URL?.trim()),
+    sourceConfigured: discoveryMode === "automatic"
+      || Boolean(process.env.COMPANY_DIRECTORY_SOURCE_URL?.trim()),
     detailConfigured: Boolean(process.env.COMPANY_DIRECTORY_DETAIL_URL_TEMPLATE?.trim()),
     oauthConfigured: Boolean(
       process.env.COMPANY_DIRECTORY_TOKEN_URL?.trim()
