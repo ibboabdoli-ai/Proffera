@@ -10,28 +10,38 @@ permissions:
 
 jobs:
   probe:
-    name: Probe current Bolagsverket HVD metadata locations
+    name: Probe current data.europa API used by dataset frontend
     if: github.event.head_commit.message == 'Probe official company directory source'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Probe known metadata endpoints
+      - name: Inspect current frontend API references
         shell: bash
         run: |
-          set -u
-          urls=(
-            'https://metadata.bolagsverket.se/store/2/resource/41'
-            'https://data.europa.eu/data/datasets/https-metadata-bolagsverket-se-store-2-resource-41?locale=sv'
-            'https://data.europa.eu/data/datasets/https-metadata-bolagsverket-se-store-2-resource-41?locale=en'
-            'https://data.europa.eu/api/hub/search/datasets/https-metadata-bolagsverket-se-store-2-resource-41?locale=sv'
-          )
-          for url in "${urls[@]}"; do
-            echo "===== $url ====="
-            curl -L --silent --show-error --connect-timeout 10 --max-time 30 \
-              -A 'proffera-company-directory-source-probe/1.0' \
-              -D /tmp/headers -o /tmp/body "$url" || true
-            head -n 8 /tmp/headers || true
-            echo '--- body preview ---'
-            head -c 4000 /tmp/body || true
-            echo
-          done
+          set -euo pipefail
+          base='https://data.europa.eu'
+          page="$base/data/datasets/https-metadata-bolagsverket-se-store-2-resource-41?locale=sv"
+          curl -L --silent --show-error --connect-timeout 10 --max-time 30 -o /tmp/page "$page"
+          asset="$(grep -oE 'src="/[^"]+\.js"' /tmp/page | head -n1 | cut -d'"' -f2)"
+          echo "Frontend asset: $asset"
+          test -n "$asset"
+          curl -L --silent --show-error --connect-timeout 10 --max-time 60 -o /tmp/app.js "$base$asset"
+          echo '--- API-looking strings ---'
+          python - <<'PY'
+          import re
+          text = open('/tmp/app.js', encoding='utf-8', errors='replace').read()
+          patterns = [
+              r'https://[^"\' ]+',
+              r'/api/[A-Za-z0-9_./?=&{}:-]+',
+              r'api/hub[^"\' ]*',
+              r'datasets?[^"\' ]{0,180}',
+          ]
+          seen = []
+          for pattern in patterns:
+              for match in re.findall(pattern, text, flags=re.I):
+                  value = match[:500]
+                  if ('api' in value.lower() or 'dataset' in value.lower()) and value not in seen:
+                      seen.append(value)
+          for value in seen[:160]:
+              print(value)
+          PY
