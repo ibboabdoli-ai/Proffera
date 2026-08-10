@@ -1,0 +1,72 @@
+name: Isolated company directory retry
+
+on:
+  push:
+    branches:
+      - work/proffera-company-profile-engine
+
+permissions:
+  contents: read
+
+concurrency:
+  group: company-directory-isolated-retry
+  cancel-in-progress: true
+
+jobs:
+  retry:
+    name: Retry existing pilot queue on latest isolated Preview
+    if: github.event.head_commit.message == 'Run isolated company directory retry'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    env:
+      PREVIEW_ORIGIN: https://proffera-jhap-im4xcoleh-wzardmn.vercel.app
+      CRON_SECRET: ${{ secrets.PROFFERA_REMINDER_CRON_SECRET }}
+    steps:
+      - name: Fail closed on configuration
+        run: |
+          set -euo pipefail
+          test -n "$CRON_SECRET"
+          case "$PREVIEW_ORIGIN" in
+            https://proffera-jhap-im4xcoleh-wzardmn.vercel.app) ;;
+            *) echo "Unexpected Preview origin" >&2; exit 1 ;;
+          esac
+
+      - name: Verify Preview automatic discovery is enabled
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error \
+            --connect-timeout 10 \
+            --max-time 30 \
+            --header "Authorization: Bearer $CRON_SECRET" \
+            --header "User-Agent: proffera-company-directory-isolated-retry" \
+            "$PREVIEW_ORIGIN/api/cron/company-directory-discovery-ingest" \
+            | tee /tmp/discovery-probe.json
+          python - <<'PY'
+          import json
+          with open('/tmp/discovery-probe.json', encoding='utf-8') as f:
+              payload = json.load(f)
+          if payload.get('ok') is not True or payload.get('enabled') is not True or payload.get('mode') != 'automatic':
+              raise SystemExit(f"Preview discovery is not safely enabled: {payload}")
+          PY
+
+      - name: Process first bounded queue batch
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error \
+            --connect-timeout 10 \
+            --max-time 75 \
+            --header "Authorization: Bearer $CRON_SECRET" \
+            --header "User-Agent: proffera-company-directory-isolated-retry" \
+            "$PREVIEW_ORIGIN/api/cron/company-directory-sync" \
+            | tee /tmp/process-result-1.json
+
+      - name: Process second bounded queue batch
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error \
+            --connect-timeout 10 \
+            --max-time 75 \
+            --header "Authorization: Bearer $CRON_SECRET" \
+            --header "User-Agent: proffera-company-directory-isolated-retry" \
+            "$PREVIEW_ORIGIN/api/cron/company-directory-sync" \
+            | tee /tmp/process-result-2.json
