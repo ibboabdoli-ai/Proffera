@@ -2,6 +2,7 @@ import { ArrowLeft, CircleAlert, FlaskConical, ShieldCheck } from "lucide-react"
 import Link from "next/link";
 
 import { requireSuperAdmin } from "@/lib/admin-authorization";
+import { BOLAGSVERKET_VDM_TEST_ORGANIZATION_NUMBERS } from "@/lib/company-directory-bolagsverket-testdata";
 import {
   getCompanyDirectorySourceReadiness,
   previewCompanyDirectorySource,
@@ -10,30 +11,54 @@ import {
 export const dynamic = "force-dynamic";
 
 type Props = {
-  searchParams?: Promise<{ run?: string | string[] }>;
+  searchParams?: Promise<{
+    run?: string | string[];
+    org?: string | string[];
+    batch?: string | string[];
+    offset?: string | string[];
+  }>;
 };
 
 function value(input?: string | string[]) {
   return Array.isArray(input) ? input[0] : input;
 }
 
+function safeOffset(input?: string) {
+  const parsed = Number.parseInt(input ?? "0", 10);
+  if (!Number.isFinite(parsed) || parsed < 0) return 0;
+  return Math.min(parsed, Math.max(0, BOLAGSVERKET_VDM_TEST_ORGANIZATION_NUMBERS.length - 1));
+}
+
 export default async function DirectorySourcePreviewPage({ searchParams }: Props) {
   await requireSuperAdmin();
   const params = searchParams ? await searchParams : undefined;
   const shouldRun = value(params?.run) === "1";
+  const requestedOrg = value(params?.org)?.replace(/\D/g, "") ?? "";
+  const testBatch = value(params?.batch) === "1";
+  const offset = safeOffset(value(params?.offset));
+  const testBatchNumbers = BOLAGSVERKET_VDM_TEST_ORGANIZATION_NUMBERS.slice(offset, offset + 5);
   const readiness = getCompanyDirectorySourceReadiness();
-  const sourceReady = readiness.sourceConfigured && readiness.detailConfigured && readiness.oauthConfigured;
+  const sourceReady = readiness.detailConfigured && readiness.oauthConfigured
+    && (readiness.sourceConfigured || readiness.officialTestCount > 0);
 
   let preview: Awaited<ReturnType<typeof previewCompanyDirectorySource>> | null = null;
   let error = "";
 
   if (shouldRun) {
     try {
-      preview = await previewCompanyDirectorySource(5);
+      const requested = requestedOrg
+        ? [requestedOrg]
+        : testBatch
+          ? [...testBatchNumbers]
+          : [];
+      preview = await previewCompanyDirectorySource(requested.length || 5, requested);
     } catch (caught) {
       error = caught instanceof Error ? caught.message : "Källtestet misslyckades";
     }
   }
+
+  const nextOffset = offset + 5 < BOLAGSVERKET_VDM_TEST_ORGANIZATION_NUMBERS.length ? offset + 5 : null;
+  const previousOffset = offset > 0 ? Math.max(0, offset - 5) : null;
 
   return (
     <main className="min-h-screen bg-[#f7f7f4] px-4 py-10 sm:px-6 lg:px-8">
@@ -66,8 +91,52 @@ export default async function DirectorySourcePreviewPage({ searchParams }: Props
 
         <div className="mt-6 rounded-2xl border border-[#d6e2d8] bg-[#f1f7f2] p-5 text-sm text-[#465349]">
           <p className="flex items-center gap-2 font-black text-[#17452f]"><ShieldCheck className="h-5 w-5" /> Säkerhetsregel</p>
-          <p className="mt-2">Den här sidan skriver aldrig till Company Directory-tabellerna. I seed-läge testas endast uttryckligen angivna organisationsnummer efter att officiell OAuth, endpoint och request-schema har konfigurerats.</p>
+          <p className="mt-2">Den här sidan skriver aldrig till Company Directory-tabellerna. Manuella tester tillåter endast organisationsnummer som finns i Bolagsverkets officiella TEST-data.</p>
         </div>
+
+        <section className="mt-6 rounded-2xl bg-white p-5 ring-1 ring-black/5">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.14em] text-[#607066]">Officiell TEST-data</p>
+              <h2 className="mt-2 text-xl font-black text-[#17201a]">Testa utan Vercel-ändring</h2>
+              <p className="mt-1 text-sm text-[#707970]">{readiness.officialTestCount} dokumenterade organisationsnummer finns i den säkra TEST-listan.</p>
+            </div>
+          </div>
+
+          <form method="get" className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-end">
+            <input type="hidden" name="run" value="1" />
+            <label className="flex-1 text-sm font-bold text-[#344139]">
+              Org.nr
+              <input
+                name="org"
+                inputMode="numeric"
+                pattern="[0-9 -]{10,13}"
+                defaultValue={requestedOrg}
+                placeholder="5560021361"
+                className="mt-2 min-h-12 w-full rounded-xl border border-[#ccd7cf] bg-white px-4 text-[#17201a] outline-none focus:border-[#17452f]"
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={!sourceReady}
+              className="inline-flex min-h-12 items-center justify-center rounded-xl bg-[#17452f] px-5 font-black text-white disabled:cursor-not-allowed disabled:bg-[#8f9992]"
+            >
+              Testa org.nr
+            </button>
+          </form>
+
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <Link
+              href={`/admin/foretag/directory/preview?run=1&batch=1&offset=${offset}`}
+              className={`inline-flex min-h-11 items-center rounded-xl px-4 text-sm font-black ${sourceReady ? "bg-[#e8f1eb] text-[#17452f]" : "pointer-events-none bg-[#eef0ee] text-[#929a94]"}`}
+              aria-disabled={!sourceReady}
+            >
+              Testa 5 officiella ({offset + 1}–{Math.min(offset + 5, readiness.officialTestCount)})
+            </Link>
+            {previousOffset !== null ? <Link href={`/admin/foretag/directory/preview?batch=1&offset=${previousOffset}`} className="rounded-xl px-3 py-2 text-sm font-bold text-[#536159] hover:bg-[#f1f4f2]">Föregående 5</Link> : null}
+            {nextOffset !== null ? <Link href={`/admin/foretag/directory/preview?batch=1&offset=${nextOffset}`} className="rounded-xl px-3 py-2 text-sm font-bold text-[#536159] hover:bg-[#f1f4f2]">Nästa 5</Link> : null}
+          </div>
+        </section>
 
         {!shouldRun ? (
           <div className="mt-7">
@@ -76,9 +145,9 @@ export default async function DirectorySourcePreviewPage({ searchParams }: Props
               className={`inline-flex min-h-12 items-center justify-center rounded-xl px-5 font-black text-white ${sourceReady ? "bg-[#17452f]" : "pointer-events-none bg-[#8f9992]"}`}
               aria-disabled={!sourceReady}
             >
-              Testa 5 poster utan att spara
+              Testa konfigurerad seed utan att spara
             </Link>
-            {!sourceReady ? <p className="mt-3 text-sm text-[#727b75]">Knappen aktiveras först när seed/feed-källan, officiell detaljverifiering och OAuth är kompletta.</p> : null}
+            {!sourceReady ? <p className="mt-3 text-sm text-[#727b75]">Knappen aktiveras först när officiell detaljverifiering och OAuth är kompletta.</p> : null}
           </div>
         ) : null}
 
