@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 6
     env:
-      PREVIEW_ORIGIN: https://proffera-jhap-im4xcoleh-wzardmn.vercel.app
+      PREVIEW_ORIGIN: https://proffera-jhap-h691gyg3n-wzardmn.vercel.app
       CRON_SECRET: ${{ secrets.PROFFERA_REMINDER_CRON_SECRET }}
     steps:
       - name: Fail closed on configuration
@@ -27,7 +27,7 @@ jobs:
           set -euo pipefail
           test -n "$CRON_SECRET"
           case "$PREVIEW_ORIGIN" in
-            https://proffera-jhap-im4xcoleh-wzardmn.vercel.app) ;;
+            https://proffera-jhap-h691gyg3n-wzardmn.vercel.app) ;;
             *) echo "Unexpected Preview origin" >&2; exit 1 ;;
           esac
 
