@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { processCompanyDirectoryDiscoveryQueue } from "@/lib/company-directory-discovery-queue";
 import { syncCompanyDirectory } from "@/lib/company-directory-engine";
 
 export const dynamic = "force-dynamic";
@@ -21,17 +22,24 @@ export async function GET(request: Request) {
     });
   }
 
-  if (!process.env.COMPANY_DIRECTORY_SOURCE_URL?.trim()) {
-    return NextResponse.json({
-      ok: true,
-      skipped: true,
-      reason: "Company directory source is not configured",
-    });
-  }
+  const mode = process.env.COMPANY_DIRECTORY_DISCOVERY_MODE?.trim().toLowerCase();
 
   try {
+    if (mode === "automatic") {
+      const result = await processCompanyDirectoryDiscoveryQueue();
+      return NextResponse.json({ ok: true, mode: "automatic_queue", ...result });
+    }
+
+    if (!process.env.COMPANY_DIRECTORY_SOURCE_URL?.trim()) {
+      return NextResponse.json({
+        ok: true,
+        skipped: true,
+        reason: "Company directory source is not configured",
+      });
+    }
+
     const result = await syncCompanyDirectory();
-    return NextResponse.json({ ok: true, ...result });
+    return NextResponse.json({ ok: true, mode: mode || "seed", ...result });
   } catch (error) {
     console.error("Company directory sync cron failed", error);
     return NextResponse.json(
