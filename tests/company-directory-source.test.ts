@@ -30,7 +30,12 @@ function discoveredCandidate(): NormalizedDirectoryCandidate {
   };
 }
 
-function officialPayload(options: { activeCode?: string; deregisteredAt?: string | null } = {}) {
+function officialPayload(options: {
+  activeCode?: string;
+  deregisteredAt?: string | null;
+  organizationForm?: string;
+  juridicalForm?: string;
+} = {}) {
   return {
     organisationer: [
       {
@@ -43,8 +48,8 @@ function officialPayload(options: { activeCode?: string; deregisteredAt?: string
           }],
         },
         registreringsland: { kod: "SE-LAND", klartext: "Sverige" },
-        organisationsform: { kod: "AB", klartext: "Aktiebolag" },
-        juridiskForm: { kod: "49", klartext: "Övriga aktiebolag" },
+        organisationsform: { kod: "AB", klartext: options.organizationForm ?? "Aktiebolag" },
+        juridiskForm: { kod: "49", klartext: options.juridicalForm ?? "Övriga aktiebolag" },
         verksamOrganisation: {
           kod: options.activeCode ?? "JA",
           fel: null,
@@ -111,7 +116,7 @@ describe("official company directory source adapter", () => {
     expect(result.countryCode).toBe("SE");
     expect(result.organizationNumber).toBe("5299999994");
     expect(result.legalName).toBe("Cykelbolaget AB");
-    expect(result.legalForm).toBe("Övriga aktiebolag");
+    expect(result.legalForm).toBe("Aktiebolag");
     expect(result.primarySniCode).toBe("47.642");
     expect(result.primarySniLabel).toBe("Specialiserad butikshandel med cyklar");
     expect(result.addressLine1).toBe("Jobbstigen 2");
@@ -119,6 +124,18 @@ describe("official company directory source adapter", () => {
     expect(result.city).toBe("Grönköping");
     expect(result.activityDescription).toBe("Bedriva handel med cyklar och tillbehör till cyklar");
     expect(result.isActive).toBe(true);
+  });
+
+  it("uses organisationsform for classification instead of the broader juridiskForm label", async () => {
+    mockOfficialResponse(officialPayload({
+      organizationForm: "Handelsbolag",
+      juridicalForm: "Bostadsrättsföreningar",
+    }));
+
+    const result = await verifyOfficialCompanyCandidate(discoveredCandidate());
+
+    expect(result.legalForm).toBe("Handelsbolag");
+    expect(result.organizationKind).toBe("juridical_person");
   });
 
   it("does not treat the wrapper dataproducent as deregistration evidence", async () => {
