@@ -60,8 +60,12 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
+          import hashlib
           import importlib.util
           import os
+          import tempfile
+          import urllib.request
+          import zipfile
           from pathlib import Path
 
           script = Path('scripts/company-directory-discovery.py')
@@ -72,27 +76,84 @@ jobs:
 
           ingest_url = os.environ['PREVIEW_ORIGIN'].rstrip('/') + '/api/cron/company-directory-discovery-ingest'
           secret = os.environ['CRON_SECRET']
-          override = os.environ.get('BOLAGSVERKET_BULK_URL', '')
+          source_url = module.resolve_bulk_url(os.environ['BOLAGSVERKET_BULK_URL'])
+          if not module.is_allowed_source_url(source_url):
+              raise RuntimeError('Refusing non-Bolagsverket source')
 
-          source_url = module.resolve_bulk_url(override)
-          archive_path, fingerprint = module.download_to_temp(source_url)
+          head = urllib.request.Request(
+              source_url,
+              method='HEAD',
+              headers={'User-Agent': 'proffera-company-directory-isolated-pilot'},
+          )
+          with urllib.request.urlopen(head, timeout=60) as response:
+              final_url = response.geturl()
+              if not module.is_allowed_source_url(final_url):
+                  raise RuntimeError('HEAD redirected outside official Bolagsverket domain')
+              total_size = int(response.headers.get('Content-Length') or '0')
+              if total_size <= 0 or total_size > module.MAX_DOWNLOAD_BYTES:
+                  raise RuntimeError(f'Unsafe official bulk size: {total_size}')
+
+          fd, temp_name = tempfile.mkstemp(prefix='proffera-bolagsverket-segmented-', suffix='.zip')
+          os.close(fd)
+          archive_path = Path(temp_name)
+          segment_size = 8 * 1024 * 1024
           try:
+              with archive_path.open('wb') as output:
+                  for start in range(0, total_size, segment_size):
+                      end = min(total_size - 1, start + segment_size - 1)
+                      expected = end - start + 1
+                      data = None
+                      last_error = None
+                      for attempt in range(1, 5):
+                          try:
+                              request = urllib.request.Request(
+                                  source_url,
+                                  headers={
+                                      'User-Agent': 'proffera-company-directory-isolated-pilot',
+                                      'Range': f'bytes={start}-{end}',
+                                  },
+                              )
+                              with urllib.request.urlopen(request, timeout=90) as response:
+                                  if response.status != 206:
+                                      raise RuntimeError(f'Expected HTTP 206, got {response.status}')
+                                  if not module.is_allowed_source_url(response.geturl()):
+                                      raise RuntimeError('Range request redirected outside official domain')
+                                  candidate = response.read()
+                              if len(candidate) != expected:
+                                  raise RuntimeError(f'Short segment {start}-{end}: {len(candidate)} of {expected}')
+                              data = candidate
+                              break
+                          except Exception as error:
+                              last_error = error
+                              print(f'Retrying official segment {start}-{end}, attempt {attempt}: {error}')
+                      if data is None:
+                          raise RuntimeError(f'Could not download segment {start}-{end}: {last_error}')
+                      output.write(data)
+                      print(f'Downloaded {end + 1}/{total_size} official bytes')
+
+              if archive_path.stat().st_size != total_size:
+                  raise RuntimeError('Segmented official download size mismatch')
+              if not zipfile.is_zipfile(archive_path):
+                  raise RuntimeError('Segmented official download is not a valid ZIP')
+              fingerprint = hashlib.sha256(archive_path.read_bytes()).hexdigest()
+              with zipfile.ZipFile(archive_path) as archive:
+                  print('Official ZIP members:', [(item.filename, item.file_size) for item in archive.infolist()[:10]])
+
               candidates, records_seen = module.collect_candidates(archive_path)
+              pilot_candidates = candidates[:20]
+              print(f'Official records scanned: {records_seen}')
+              print(f'All pilot + supported-SNI candidates found: {len(candidates)}')
+              print(f'Candidates enqueued for isolated pilot: {len(pilot_candidates)}')
+              module.post_candidates(
+                  ingest_url,
+                  secret,
+                  source_url,
+                  fingerprint,
+                  pilot_candidates,
+                  records_seen,
+              )
           finally:
               archive_path.unlink(missing_ok=True)
-
-          pilot_candidates = candidates[:20]
-          print(f'Official records scanned: {records_seen}')
-          print(f'All pilot + supported-SNI candidates found: {len(candidates)}')
-          print(f'Candidates enqueued for isolated pilot: {len(pilot_candidates)}')
-          module.post_candidates(
-              ingest_url,
-              secret,
-              source_url,
-              fingerprint,
-              pilot_candidates,
-              records_seen,
-          )
           PY
 
       - name: Process one bounded queue batch
