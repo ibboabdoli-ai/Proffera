@@ -19,6 +19,7 @@ type EnqueueInput = {
   fingerprint: string;
   organizationNumbers: string[];
   discoveredCount?: number;
+  acceptedCount?: number;
   final?: boolean;
 };
 
@@ -45,7 +46,9 @@ function safeSourceUrl(value: unknown) {
   if (!raw) return "";
   try {
     const url = new URL(raw);
+    const host = url.hostname.toLowerCase();
     if (url.protocol !== "https:") return "";
+    if (host !== "bolagsverket.se" && !host.endsWith(".bolagsverket.se")) return "";
     return url.toString().slice(0, 2000);
   } catch {
     return "";
@@ -55,6 +58,15 @@ function safeSourceUrl(value: unknown) {
 function safeFingerprint(value: unknown) {
   const normalized = text(value).toLowerCase();
   return /^[a-f0-9]{32,128}$/.test(normalized) ? normalized : "";
+}
+
+function detailVerificationConfigured() {
+  const detail = process.env.COMPANY_DIRECTORY_DETAIL_URL_TEMPLATE?.trim();
+  const staticToken = process.env.COMPANY_DIRECTORY_SOURCE_BEARER_TOKEN?.trim();
+  const oauth = process.env.COMPANY_DIRECTORY_TOKEN_URL?.trim()
+    && process.env.BOLAGSVERKET_CLIENT_ID?.trim()
+    && process.env.BOLAGSVERKET_CLIENT_SECRET?.trim();
+  return Boolean(detail && (staticToken || oauth));
 }
 
 function seedCandidate(organizationNumber: string, provider: string): NormalizedDirectoryCandidate {
@@ -91,6 +103,7 @@ export async function enqueueCompanyDirectoryCandidates(input: EnqueueInput) {
   const provider = safeProvider(input.provider);
   const sourceUrl = safeSourceUrl(input.sourceUrl);
   const fingerprint = safeFingerprint(input.fingerprint);
+  if (!sourceUrl) throw new Error("An official Bolagsverket source URL is required");
   if (!fingerprint) throw new Error("A valid discovery fingerprint is required");
 
   const organizationNumbers = [...new Set(
@@ -99,6 +112,10 @@ export async function enqueueCompanyDirectoryCandidates(input: EnqueueInput) {
       .filter((value) => value.length === 10),
   )].slice(0, MAX_INGEST_PER_REQUEST);
   const discoveredCount = Math.max(0, Math.floor(Number(input.discoveredCount) || 0));
+  const acceptedCount = Math.max(
+    organizationNumbers.length,
+    Math.floor(Number(input.acceptedCount) || 0),
+  );
   const itemsJson = JSON.stringify(organizationNumbers);
 
   await sql.transaction((tx) => [
@@ -108,14 +125,14 @@ export async function enqueueCompanyDirectoryCandidates(input: EnqueueInput) {
         first_seen_at, last_seen_at, completed_at
       ) values (
         ${provider}, ${sourceUrl}, ${fingerprint}, ${input.final ? "completed" : "processing"},
-        ${discoveredCount}, ${organizationNumbers.length}, now(), now(),
+        ${discoveredCount}, ${acceptedCount}, now(), now(),
         case when ${Boolean(input.final)} then now() else null end
       )
       on conflict (provider, fingerprint) do update set
         source_url = case when excluded.source_url <> '' then excluded.source_url else company_directory_source_snapshots.source_url end,
         status = case when excluded.status = 'completed' then 'completed' else company_directory_source_snapshots.status end,
         discovered_count = greatest(company_directory_source_snapshots.discovered_count, excluded.discovered_count),
-        accepted_count = company_directory_source_snapshots.accepted_count + excluded.accepted_count,
+        accepted_count = greatest(company_directory_source_snapshots.accepted_count, excluded.accepted_count),
         last_seen_at = now(),
         completed_at = case when excluded.status = 'completed' then now() else company_directory_source_snapshots.completed_at end
     `,
@@ -134,7 +151,7 @@ export async function enqueueCompanyDirectoryCandidates(input: EnqueueInput) {
         last_seen_at = now(),
         state = case
           when company_directory_discovery_queue.source_fingerprint <> excluded.source_fingerprint
-            and company_directory_discovery_queue.state not in ('claimed')
+            and company_directory_discovery_queue.state <> 'claimed'
             then 'pending_verify'
           else company_directory_discovery_queue.state
         end,
@@ -158,6 +175,7 @@ export async function enqueueCompanyDirectoryCandidates(input: EnqueueInput) {
     provider,
     fingerprint,
     accepted: organizationNumbers.length,
+    acceptedTotal: acceptedCount,
     final: Boolean(input.final),
   };
 }
@@ -269,6 +287,9 @@ async function failQueueItem(input: {
 
 export async function processCompanyDirectoryDiscoveryQueue(limit?: number) {
   if (!getSql()) throw new Error("Database is not configured");
+  if (!detailVerificationConfigured()) {
+    throw new Error("Automatic discovery requires official detail verification and credentials");
+  }
   await recoverStaleQueueLeases();
 
   const safeLimit = boundedInteger(
