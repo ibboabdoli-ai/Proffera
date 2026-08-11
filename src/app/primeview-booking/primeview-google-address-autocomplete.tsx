@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Loader2, MapPin, Search } from "lucide-react";
 
 type AddressSelection = {
   address: string;
@@ -19,21 +20,37 @@ type GooglePlace = {
   fetchFields: (options: { fields: string[] }) => Promise<void>;
 };
 
+type GoogleFormattableText = {
+  toString: () => string;
+};
+
 type GooglePlacePrediction = {
+  text?: GoogleFormattableText;
+  mainText?: GoogleFormattableText;
+  secondaryText?: GoogleFormattableText;
   toPlace: () => GooglePlace;
 };
 
-type GooglePlaceSelectEvent = Event & {
+type GoogleAutocompleteSuggestion = {
   placePrediction?: GooglePlacePrediction;
 };
 
-type GooglePlaceAutocompleteElement = HTMLElement & {
-  includedRegionCodes: string[];
-  placeholder: string;
+type GoogleAutocompleteSessionToken = object;
+
+type GoogleAutocompleteRequest = {
+  input: string;
+  includedRegionCodes?: string[];
+  locationBias?: { center: { lat: number; lng: number }; radius: number };
+  language?: string;
+  region?: string;
+  sessionToken?: GoogleAutocompleteSessionToken;
 };
 
 type GooglePlacesLibrary = {
-  PlaceAutocompleteElement: new () => GooglePlaceAutocompleteElement;
+  AutocompleteSessionToken: new () => GoogleAutocompleteSessionToken;
+  AutocompleteSuggestion: {
+    fetchAutocompleteSuggestions: (request: GoogleAutocompleteRequest) => Promise<{ suggestions: GoogleAutocompleteSuggestion[] }>;
+  };
 };
 
 type GoogleMapsGlobal = {
@@ -50,6 +67,7 @@ declare global {
 }
 
 const GOOGLE_SCRIPT_SELECTOR = 'script[data-primeview-google-maps="true"]';
+const UK_POSTCODE = /^[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}$/i;
 
 function loadGoogleMaps(apiKey: string) {
   if (window.google?.maps?.importLibrary) return Promise.resolve();
@@ -58,6 +76,10 @@ function loadGoogleMaps(apiKey: string) {
   window.__primeViewGoogleMapsPromise = new Promise<void>((resolve, reject) => {
     const existing = document.querySelector<HTMLScriptElement>(GOOGLE_SCRIPT_SELECTOR);
     if (existing) {
+      if (window.google?.maps?.importLibrary) {
+        resolve();
+        return;
+      }
       existing.addEventListener("load", () => resolve(), { once: true });
       existing.addEventListener("error", () => reject(new Error("Google Maps failed to load.")), { once: true });
       return;
@@ -85,84 +107,190 @@ function cleanFormattedAddress(value: string | null | undefined) {
   return (value ?? "").replace(/,\s*(United Kingdom|UK)$/i, "").trim();
 }
 
+function normalizePostcode(value: string) {
+  const compact = value.toUpperCase().replace(/\s+/g, "");
+  if (compact.length < 5) return value.toUpperCase().trim();
+  return `${compact.slice(0, -3)} ${compact.slice(-3)}`;
+}
+
+function currentPostcode() {
+  const input = document.querySelector<HTMLInputElement>('input[name="postcode"]');
+  const value = input?.value.trim() ?? "";
+  return UK_POSTCODE.test(value) ? normalizePostcode(value) : "";
+}
+
+function predictionText(prediction: GooglePlacePrediction) {
+  const main = prediction.mainText?.toString().trim() ?? "";
+  const secondary = prediction.secondaryText?.toString().trim() ?? "";
+  const full = prediction.text?.toString().trim() ?? "";
+  return {
+    main: main || full,
+    secondary: secondary || (main && full.startsWith(main) ? full.slice(main.length).replace(/^,\s*/, "") : ""),
+  };
+}
+
 export function PrimeViewGoogleAddressAutocomplete({ onSelect }: { onSelect: (selection: AddressSelection) => void }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const onSelectRef = useRef(onSelect);
+  const [query, setQuery] = useState("");
+  const [suggestions, setSuggestions] = useState<GooglePlacePrediction[]>([]);
+  const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const [open, setOpen] = useState(false);
+  const placesRef = useRef<GooglePlacesLibrary | null>(null);
+  const tokenRef = useRef<GoogleAutocompleteSessionToken | null>(null);
+  const requestIdRef = useRef(0);
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.trim() ?? "";
 
   useEffect(() => {
-    onSelectRef.current = onSelect;
-  }, [onSelect]);
-
-  useEffect(() => {
-    const container = containerRef.current;
     let disposed = false;
-    let autocomplete: GooglePlaceAutocompleteElement | null = null;
-    let handleSelect: ((event: Event) => void) | null = null;
-
-    if (!container || !apiKey) return;
+    if (!apiKey) return;
 
     void loadGoogleMaps(apiKey)
       .then(async () => {
         const googleMaps = window.google;
         if (!googleMaps?.maps?.importLibrary) throw new Error("Google Maps is unavailable.");
-
         const places = await googleMaps.maps.importLibrary("places");
-        if (disposed) return;
-
-        autocomplete = new places.PlaceAutocompleteElement();
-        autocomplete.includedRegionCodes = ["gb"];
-        autocomplete.placeholder = "Start typing house number or street";
-        autocomplete.style.display = "block";
-        autocomplete.style.width = "100%";
-
-        handleSelect = (event: Event) => {
-          void (async () => {
-            const prediction = (event as GooglePlaceSelectEvent).placePrediction;
-            if (!prediction) return;
-
-            const place = prediction.toPlace();
-            await place.fetchFields({ fields: ["formattedAddress", "addressComponents"] });
-
-            const address = cleanFormattedAddress(place.formattedAddress);
-            const postcode = postcodeFromComponents(place.addressComponents);
-            if (!address) {
-              setMessage("We could not read that address. Please enter it manually below.");
-              return;
-            }
-
-            onSelectRef.current({ address, postcode });
-            setMessage(postcode ? "Address selected — postcode filled automatically." : "Address selected.");
-          })().catch(() => {
-            if (!disposed) setMessage("We could not read that address. Please enter it manually below.");
-          });
-        };
-
-        autocomplete.addEventListener("gmp-select", handleSelect);
-        container.replaceChildren(autocomplete);
+        if (!disposed) placesRef.current = places;
       })
       .catch(() => {
-        if (!disposed) setMessage("Google address suggestions could not load. Enter the address manually below.");
+        if (!disposed) setMessage("Google address search could not load. Enter the address manually below.");
       });
 
     return () => {
       disposed = true;
-      if (autocomplete && handleSelect) autocomplete.removeEventListener("gmp-select", handleSelect);
-      container.replaceChildren();
     };
   }, [apiKey]);
 
+  useEffect(() => {
+    const text = query.trim();
+    if (!apiKey || text.length < 2) return;
+
+    const timer = window.setTimeout(() => {
+      const places = placesRef.current;
+      if (!places) return;
+
+      const postcode = currentPostcode();
+      const input = postcode && !text.toUpperCase().includes(postcode.replace(/\s+/g, "")) && !text.toUpperCase().includes(postcode)
+        ? `${text}, ${postcode}`
+        : text;
+      const requestId = ++requestIdRef.current;
+      if (!tokenRef.current) tokenRef.current = new places.AutocompleteSessionToken();
+      setLoading(true);
+      setMessage("");
+
+      void places.AutocompleteSuggestion.fetchAutocompleteSuggestions({
+        input,
+        includedRegionCodes: ["gb"],
+        locationBias: { center: { lat: 51.515, lng: -0.18 }, radius: 35_000 },
+        language: "en-GB",
+        region: "gb",
+        sessionToken: tokenRef.current,
+      })
+        .then(({ suggestions: next }) => {
+          if (requestId !== requestIdRef.current) return;
+          const predictions = next.map((item) => item.placePrediction).filter((item): item is GooglePlacePrediction => Boolean(item));
+          setSuggestions(predictions.slice(0, 6));
+          setOpen(predictions.length > 0);
+          if (!predictions.length) setMessage(postcode ? `No match yet. Try adding the house number or street within ${postcode}.` : "No address matches yet. Keep typing the house number or street.");
+        })
+        .catch(() => {
+          if (requestId === requestIdRef.current) {
+            setSuggestions([]);
+            setOpen(false);
+            setMessage("Address suggestions are temporarily unavailable. You can enter the full address manually below.");
+          }
+        })
+        .finally(() => {
+          if (requestId === requestIdRef.current) setLoading(false);
+        });
+    }, 260);
+
+    return () => window.clearTimeout(timer);
+  }, [apiKey, query]);
+
+  async function choosePrediction(prediction: GooglePlacePrediction) {
+    setLoading(true);
+    setOpen(false);
+    try {
+      const place = prediction.toPlace();
+      await place.fetchFields({ fields: ["formattedAddress", "addressComponents"] });
+      const address = cleanFormattedAddress(place.formattedAddress);
+      const postcode = postcodeFromComponents(place.addressComponents);
+      if (!address) throw new Error("Missing address");
+      onSelect({ address, postcode });
+      setQuery(address);
+      setSuggestions([]);
+      setMessage(postcode ? `Address selected — postcode ${postcode} filled automatically.` : "Address selected.");
+      const places = placesRef.current;
+      tokenRef.current = places ? new places.AutocompleteSessionToken() : null;
+    } catch {
+      setMessage("We could not read that result. Please enter the full address manually below.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const postcode = typeof document === "undefined" ? "" : currentPostcode();
   const helperText = !apiKey
-    ? "Address suggestions are unavailable. Enter the address manually below."
-    : message || "Start typing your address and choose the correct UK result. Address and postcode will fill automatically.";
+    ? "Address suggestions are unavailable. Enter the full address manually below."
+    : message || (postcode
+      ? `Postcode ${postcode} is applied. Type the house number or street to find the exact address.`
+      : "Type a house number, street or full UK address. Selecting a result fills the postcode automatically.");
 
   return (
-    <div className="mt-3">
-      <div ref={containerRef} />
-      <p className={`mt-2 text-xs leading-5 ${message || !apiKey ? "font-semibold text-[#667b91]" : "text-[#667b91]"}`}>
-        {helperText}
-      </p>
+    <div className="relative mt-3 min-w-0 max-w-full">
+      <div className="relative min-w-0 max-w-full">
+        <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-[#5f7690]" />
+        <input
+          type="search"
+          inputMode="search"
+          autoComplete="off"
+          aria-label="Search for your UK address"
+          aria-expanded={open}
+          aria-controls="primeview-address-suggestions"
+          placeholder={postcode ? "House number or street" : "House number, street or postcode"}
+          value={query}
+          onFocus={() => suggestions.length && setOpen(true)}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setMessage("");
+            if (!event.target.value.trim()) {
+              requestIdRef.current += 1;
+              setSuggestions([]);
+              setOpen(false);
+              setLoading(false);
+            }
+          }}
+          className="min-h-12 w-full min-w-0 max-w-full rounded-xl border border-[#cbd8e6] bg-white py-3 pl-12 pr-11 text-[16px] text-[#0b2a4a] outline-none transition placeholder:text-[#7b8da1] focus:border-[#2f80ed] focus:ring-4 focus:ring-[#2f80ed]/10"
+        />
+        {loading ? <Loader2 className="pointer-events-none absolute right-4 top-1/2 h-5 w-5 -translate-y-1/2 animate-spin text-[#1769c2]" /> : null}
+      </div>
+
+      {open && suggestions.length ? (
+        <div id="primeview-address-suggestions" role="listbox" className="absolute z-50 mt-2 max-h-72 w-full min-w-0 max-w-full overflow-y-auto rounded-2xl border border-[#cbd8e6] bg-white p-1.5 shadow-[0_18px_45px_rgba(11,42,74,.18)]">
+          {suggestions.map((prediction, index) => {
+            const label = predictionText(prediction);
+            return (
+              <button
+                key={`${label.main}-${label.secondary}-${index}`}
+                type="button"
+                role="option"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => void choosePrediction(prediction)}
+                className="flex w-full min-w-0 items-start gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-[#eef6ff] focus:bg-[#eef6ff]"
+              >
+                <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-[#1769c2]" />
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-black text-[#183e63]">{label.main}</span>
+                  {label.secondary ? <span className="mt-0.5 block truncate text-xs text-[#667b91]">{label.secondary}</span> : null}
+                </span>
+              </button>
+            );
+          })}
+          <p className="px-3 pb-2 pt-1 text-[10px] font-bold uppercase tracking-[.12em] text-[#8a9aac]">Powered by Google</p>
+        </div>
+      ) : null}
+
+      <p className={`mt-2 text-xs leading-5 ${message || !apiKey ? "font-semibold text-[#667b91]" : "text-[#667b91]"}`}>{helperText}</p>
     </div>
   );
 }
