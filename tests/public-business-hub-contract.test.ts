@@ -25,7 +25,7 @@ describe("Public Business Hub architecture contract", () => {
     const verification = source("src/lib/public-booking-verification.ts");
     const migration = source("db/migrations/20260809_0036_public_business_hub.sql");
 
-    expect(bookingPage).toContain('const serviceId = String(formData.get("service_id")');
+    expect(bookingPage).toContain('const serviceId = formText(formData, "service_id", 80)');
     expect(bookingPage).toContain("id = ${serviceId}::uuid");
     expect(verification).toContain("serviceId: string");
     expect(verification).toContain("service_id, service_name");
