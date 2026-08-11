@@ -56,6 +56,7 @@ export async function generateMetadata(): Promise<Metadata> {
       "window cleaning West London",
       "window cleaning North London",
       "gutter cleaning London",
+      "pressure washing London",
       "fascia and soffit cleaning",
       "conservatory roof cleaning",
       "solar panel cleaning London",
@@ -135,11 +136,18 @@ const services = [
     imageAlt: "Professional gutter cleaning at a home",
   },
   {
-    title: "Driveway & Patio Cleaning",
+    title: "Pressure Washing",
     description: "Pressure washing for driveways, patios, paths and outdoor areas that need a fresh start.",
     icon: Wrench,
     image: "/primeview/services/driveway-patio-cleaning.webp",
     imageAlt: "Professional pressure washing of a driveway and patio",
+  },
+  {
+    title: "Gutter + Pressure Washing",
+    description: "Book both services together and get an automatic package saving shown in the calculator.",
+    icon: Droplets,
+    image: "/primeview/services/gutter-cleaning.webp",
+    imageAlt: "Gutter cleaning and pressure washing package",
   },
   {
     title: "Solar Panel Cleaning",
@@ -228,7 +236,7 @@ export default async function PrimeViewDemoPage() {
               Window, gutter &amp; exterior cleaning in <span className="text-[#b8ceff]">West &amp; North London.</span>
             </h1>
             <p className="mt-6 max-w-xl text-lg leading-8 text-slate-200 sm:text-xl">
-              Reliable window, gutter, fascia, conservatory, patio and solar panel cleaning for homes and businesses across West & North London.
+              Reliable window, gutter, fascia, conservatory, pressure washing and solar panel cleaning for homes and businesses across West & North London.
             </p>
 
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
