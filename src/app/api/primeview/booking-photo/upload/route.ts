@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic";
 
 const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
+const MAX_PHOTOS_PER_SESSION = 5;
 
 function parseSessionId(clientPayload: string | null | undefined) {
   try {
@@ -45,18 +46,20 @@ export async function POST(request: Request) {
           allowPublicSubmission({
             scope: "primeview_booking_photo_ip",
             requestHeaders: request.headers,
-            maxAttempts: 20,
+            maxAttempts: 10,
             windowSeconds: 15 * 60,
           }),
           allowPublicSubmission({
             scope: "primeview_booking_photo_session",
             requestHeaders: request.headers,
             identity: sessionId,
-            maxAttempts: 8,
+            maxAttempts: MAX_PHOTOS_PER_SESSION,
             windowSeconds: 15 * 60,
           }),
         ]);
-        if (!ipAllowed || !sessionAllowed) throw new Error("Too many photo upload attempts. Please try again later.");
+        if (!ipAllowed || !sessionAllowed) {
+          throw new Error(`A maximum of ${MAX_PHOTOS_PER_SESSION} photos can be uploaded for this booking.`);
+        }
 
         return {
           allowedContentTypes: ["image/jpeg", "image/png", "image/webp"],

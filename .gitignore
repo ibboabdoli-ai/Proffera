@@ -3,3 +3,8 @@
 !.env.example
 
 node_modules
+
+# Generated local/build caches
+*.tsbuildinfo
+__pycache__/
+*.py[cod]
