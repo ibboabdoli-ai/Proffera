@@ -96,9 +96,12 @@ export function PrimeViewGoogleAddressAutocomplete({ onSelect }: { onSelect: (se
   }, [onSelect]);
 
   useEffect(() => {
+    const container = containerRef.current;
     let disposed = false;
     let autocomplete: GooglePlaceAutocompleteElement | null = null;
     let handleSelect: ((event: Event) => void) | null = null;
+
+    if (!container) return;
 
     if (!apiKey) {
       setMessage("Address suggestions are unavailable. Enter the address manually below.");
@@ -113,7 +116,7 @@ export function PrimeViewGoogleAddressAutocomplete({ onSelect }: { onSelect: (se
         if (!googleMaps?.maps?.importLibrary) throw new Error("Google Maps is unavailable.");
 
         const places = await googleMaps.maps.importLibrary("places");
-        if (disposed || !containerRef.current) return;
+        if (disposed) return;
 
         autocomplete = new places.PlaceAutocompleteElement();
         autocomplete.includedRegionCodes = ["gb"];
@@ -144,7 +147,7 @@ export function PrimeViewGoogleAddressAutocomplete({ onSelect }: { onSelect: (se
         };
 
         autocomplete.addEventListener("gmp-select", handleSelect);
-        containerRef.current.replaceChildren(autocomplete);
+        container.replaceChildren(autocomplete);
       })
       .catch(() => {
         if (!disposed) setMessage("Google address suggestions could not load. Enter the address manually below.");
@@ -153,7 +156,7 @@ export function PrimeViewGoogleAddressAutocomplete({ onSelect }: { onSelect: (se
     return () => {
       disposed = true;
       if (autocomplete && handleSelect) autocomplete.removeEventListener("gmp-select", handleSelect);
-      containerRef.current?.replaceChildren();
+      container.replaceChildren();
     };
   }, [apiKey]);
 
