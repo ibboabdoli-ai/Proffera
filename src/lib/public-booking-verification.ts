@@ -32,6 +32,17 @@ function portalTokenLifetimeSeconds(bookingEndsAt: string) {
   return Math.max(30 * DAY_SECONDS, Math.ceil((cappedMs - Date.now()) / 1000));
 }
 
+function buildBookingNote(address: string, postcode: string, bookingDetails: string) {
+  const detailLines = bookingDetails.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const hasAddress = detailLines.some((line) => /^address\s*:/i.test(line));
+  const hasPostcode = detailLines.some((line) => /^postcode\s*:/i.test(line));
+  return [
+    address && !hasAddress ? `Address: ${address}` : "",
+    postcode && !hasPostcode ? `Postcode: ${postcode}` : "",
+    ...detailLines,
+  ].filter(Boolean).join("\n");
+}
+
 export type BeginBookingVerificationInput = {
   workspaceId: string;
   slug: string;
@@ -136,7 +147,7 @@ export async function verifyPublicBookingCode(id: string, code: string) {
   const address = challenge.address ? String(challenge.address) : "";
   const postcode = challenge.postcode ? String(challenge.postcode) : "";
   const bookingDetails = challenge.booking_details ? String(challenge.booking_details) : "";
-  const bookingNote = [address ? `Address: ${address}` : "", postcode ? `Postcode: ${postcode}` : "", bookingDetails].filter(Boolean).join("\n");
+  const bookingNote = buildBookingNote(address, postcode, bookingDetails);
 
   const conflict = await sql`
     select id from bookings
@@ -168,6 +179,18 @@ export async function verifyPublicBookingCode(id: string, code: string) {
         insert into bookings (workspace_id, customer_id, staff_id, service_id, title, service, city, status, starts_at, ends_at, source, notes)
         select ${String(challenge.workspace_id)}, id, ${staffId}::uuid, ${serviceId}::uuid, ${String(challenge.service_name)}, ${String(challenge.service_name)}, ${challenge.city ? String(challenge.city) : null}, 'requested', ${startsAt}::timestamptz, ${endsAt}::timestamptz, 'public_booking', ${bookingNote || null}
         from selected_customer limit 1 returning id, customer_id
+      ), created_event as (
+        insert into customer_events (workspace_id, customer_id, booking_id, event_type, title, description, metadata)
+        select
+          ${String(challenge.workspace_id)},
+          booking.customer_id,
+          booking.id,
+          'booking',
+          'Booking created',
+          'Booking request created after customer email verification.',
+          jsonb_build_object('source', 'public_booking', 'service', ${String(challenge.service_name)})
+        from booking
+        returning id
       )
       update public_booking_verifications set verified_at = now(), consumed_at = now(), updated_at = now()
       where id = ${id}::uuid
