@@ -25,6 +25,14 @@ export const metadata: Metadata = {
 
 const SLUG = "primeview";
 const UK_POSTCODE = /^[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}$/i;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const PROPERTY_TYPES = ["Detached", "Semi-detached", "Terraced", "End of terrace", "Bungalow", "Flat / Apartment", "Commercial (Shop/Office)"] as const;
+const REAR_ACCESS = ["Side access", "Through the property only", "No access / arrangement required"] as const;
+const FLOOR_COUNTS = ["1", "2", "3+", "Unknown"] as const;
+const WORKING_HEIGHTS = ["Ground floor only", "First floor", "Second floor+", "Long ladder required"] as const;
+const PARKING_OPTIONS = ["Parking directly outside", "Parking nearby", "Difficult / paid parking"] as const;
+const WINDOW_ACCESS_OPTIONS = ["Easy access", "Hard access", "Skylight / Roof windows"] as const;
+const PET_OPTIONS = ["Yes", "No"] as const;
 
 function first(value: string | string[] | undefined) { return Array.isArray(value) ? value[0] : value; }
 function text(formData: FormData, key: string, max = 1200) { return String(formData.get(key) ?? "").trim().slice(0, max); }
@@ -35,11 +43,15 @@ function bookingUrl(params: string) { return `/booking?${params}`; }
 function pricingInputFromForm(serviceName: string, formData: FormData): PrimeViewPricingInput | null {
   const serviceKey = serviceKeyFromName(serviceName);
   if (!serviceKey) return null;
+  const floorCount = text(formData, "floor_count", 20) as PrimeViewPricingInput["floorCount"];
   return {
     serviceKey,
     access: text(formData, "access", 40) as PrimeViewPricingInput["access"],
     condition: text(formData, "condition", 40) as PrimeViewPricingInput["condition"],
-    floors: text(formData, "floors", 60) as PrimeViewPricingInput["floors"],
+    floors: floorCount === "3+" ? "3rd floor or higher" : floorCount === "2" ? "Ground + 1st floor" : floorCount === "1" ? "Ground floor only" : undefined,
+    floorCount,
+    workingHeight: text(formData, "working_height", 60) as PrimeViewPricingInput["workingHeight"],
+    windowAccess: text(formData, "window_access", 60) as PrimeViewPricingInput["windowAccess"],
     cleaningScope: text(formData, "cleaning_scope", 40) as PrimeViewPricingInput["cleaningScope"],
     standardWindows: numberField(formData, "standard_windows"),
     largeWindows: numberField(formData, "large_windows"),
@@ -72,15 +84,25 @@ async function requestPrimeViewBooking(formData: FormData) {
   const website = text(formData, "website", 200);
   const formStartedAt = Number(formData.get("form_started_at"));
   const propertyType = text(formData, "property_type", 80);
+  const rearGardenAccess = text(formData, "rear_garden_access", 80);
+  const floorCount = text(formData, "floor_count", 20);
+  const workingHeight = text(formData, "working_height", 80);
+  const parking = text(formData, "parking", 80);
+  const windowAccess = text(formData, "window_access", 80);
+  const pets = text(formData, "pets", 20);
   const address = text(formData, "address", 300);
   const postcode = text(formData, "postcode", 20).toUpperCase();
   const framesSills = text(formData, "frames_sills", 20);
-  const additionalNotes = text(formData, "additional_notes", 1200);
+  const arrivalNotes = text(formData, "arrival_notes", 1200);
+  const photoSession = text(formData, "photo_session", 80);
+  const photoPaths = formData.getAll("photo_path").map((value) => String(value).trim()).filter(Boolean);
 
   if (website) redirect(bookingUrl("booked=1"));
   const elapsed = Date.now() - formStartedAt;
   if (!Number.isFinite(elapsed) || elapsed < 2_500 || elapsed > 24 * 60 * 60 * 1_000) redirect(bookingUrl("error=rate_limit"));
-  if (!name || !email || !phone || !serviceId || !startsAt || !propertyType || !address || !postcode || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !/^[0-9a-f-]{36}$/i.test(serviceId)) redirect(bookingUrl("error=invalid"));
+  if (!name || !email || !phone || !serviceId || !startsAt || !propertyType || !rearGardenAccess || !floorCount || !workingHeight || !parking || !pets || !address || !postcode || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !/^[0-9a-f-]{36}$/i.test(serviceId)) redirect(bookingUrl("error=invalid"));
+  if (!PROPERTY_TYPES.includes(propertyType as (typeof PROPERTY_TYPES)[number]) || !REAR_ACCESS.includes(rearGardenAccess as (typeof REAR_ACCESS)[number]) || !FLOOR_COUNTS.includes(floorCount as (typeof FLOOR_COUNTS)[number]) || !WORKING_HEIGHTS.includes(workingHeight as (typeof WORKING_HEIGHTS)[number]) || !PARKING_OPTIONS.includes(parking as (typeof PARKING_OPTIONS)[number]) || !PET_OPTIONS.includes(pets as (typeof PET_OPTIONS)[number])) redirect(bookingUrl("error=invalid"));
+  if (photoPaths.length > 5 || (photoPaths.length > 0 && (!UUID.test(photoSession) || photoPaths.some((pathname) => !pathname.startsWith(`primeview-booking/${photoSession}/`) || pathname.includes("..") || pathname.length > 800)))) redirect(bookingUrl("error=invalid"));
   if (!UK_POSTCODE.test(postcode)) redirect(bookingUrl("error=postcode"));
 
   const sql = getSql();
@@ -113,8 +135,9 @@ async function requestPrimeViewBooking(formData: FormData) {
   const key = pricingInput.serviceKey;
   if (!pricingInput.access || (key !== "patio" && !pricingInput.condition)) redirect(bookingUrl("error=invalid"));
   if (key === "window") {
+    if (!WINDOW_ACCESS_OPTIONS.includes(windowAccess as (typeof WINDOW_ACCESS_OPTIONS)[number])) redirect(bookingUrl("error=invalid"));
     const totalWindows = (pricingInput.standardWindows || 0) + (pricingInput.largeWindows || 0) + (pricingInput.bayWindows || 0);
-    if (!pricingInput.cleaningScope || !pricingInput.frequency || !pricingInput.floors || totalWindows < 1) redirect(bookingUrl("error=invalid"));
+    if (!pricingInput.cleaningScope || !pricingInput.frequency || !pricingInput.floorCount || totalWindows < 1) redirect(bookingUrl("error=invalid"));
   }
   if ((key === "gutter" || key === "fascia") && !pricingInput.propertySize) redirect(bookingUrl("error=invalid"));
   if (key === "conservatory" && !pricingInput.conservatorySize) redirect(bookingUrl("error=invalid"));
@@ -156,15 +179,21 @@ async function requestPrimeViewBooking(formData: FormData) {
 
   const detailLines = [
     `Property type: ${propertyType}`,
+    `Rear garden access: ${rearGardenAccess}`,
+    `Number of floors: ${floorCount}`,
+    `Working height: ${workingHeight}`,
+    `Parking: ${parking}`,
+    `Pets at property: ${pets}`,
     `Address: ${address}`,
     `Postcode: ${postcode}`,
     `Pricing: ${pricingResultSummary(price)}`,
   ];
   if (framesSills) detailLines.push(`Frames & sills: ${framesSills}`);
-  if (additionalNotes) detailLines.push(`Additional details: ${additionalNotes}`);
+  if (windowAccess) detailLines.push(`Window access: ${windowAccess}`);
+  for (const pathname of photoPaths) detailLines.push(`Photo: ${pathname}`);
+  if (arrivalNotes) detailLines.push(`Arrival notes: ${arrivalNotes}`);
 
   const fieldSummary = [
-    pricingInput.floors && `Floors: ${pricingInput.floors}`,
     pricingInput.cleaningScope && `Cleaning: ${pricingInput.cleaningScope}`,
     pricingInput.standardWindows ? `Standard windows: ${pricingInput.standardWindows}` : "",
     pricingInput.largeWindows ? `Large windows: ${pricingInput.largeWindows}` : "",
@@ -193,7 +222,7 @@ async function requestPrimeViewBooking(formData: FormData) {
     ownerPhone: workspace.contact_phone ? String(workspace.contact_phone) : undefined,
     customerName: name, customerEmail: email, customerPhone: phone, serviceId, serviceName,
     city: String(workspace.primary_city ?? "London"), address, postcode, bookingDetails: detailLines.join("\n"),
-    startsAt: start.toISOString(), endsAt: end.toISOString(), timeZone,
+    startsAt: start.toISOString(), endsAt: end.toISOString(), timeZone, language: "en",
   });
   if (!result.ok) redirect(bookingUrl(`error=${result.error === "email" ? "email" : result.error === "service" ? "service" : "conflict"}`));
   redirect(`/boka/verifiera/${result.verificationId}?lang=en`);

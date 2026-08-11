@@ -9,6 +9,9 @@ export type PrimeViewPricingInput = {
   condition?: PrimeViewCondition;
   multiServiceCount?: number;
   floors?: "Ground floor only" | "Ground + 1st floor" | "Ground + 2 floors" | "3rd floor or higher";
+  floorCount?: "1" | "2" | "3+" | "Unknown";
+  workingHeight?: "Ground floor only" | "First floor" | "Second floor+" | "Long ladder required";
+  windowAccess?: "Easy access" | "Hard access" | "Skylight / Roof windows";
 
   cleaningScope?: "Outside only" | "Inside only" | "Inside & outside";
   standardWindows?: number;
@@ -149,17 +152,17 @@ export function calculatePrimeViewPrice(input: PrimeViewPricingInput): PrimeView
     const insideOnly = input.cleaningScope === "Inside only";
     const both = input.cleaningScope === "Inside & outside";
     const lines: PrimeViewPricingLine[] = [];
-    const standardRate = insideOnly ? 2 : both ? 6 : 4;
-    const largeRate = insideOnly ? 2 : both ? 8 : 6;
-    const bayRate = insideOnly ? 2 : both ? 10 : 8;
+    const standardRate = both ? 5.5 : 3;
+    const largeRate = insideOnly ? 3 : both ? 7.5 : 6;
+    const bayRate = insideOnly ? 3 : both ? 9 : 8;
     if (standard) lines.push({ label: `${standard} standard window${standard === 1 ? "" : "s"} × £${standardRate}`, amount: standard * standardRate });
     if (large) lines.push({ label: `${large} large window${large === 1 ? "" : "s"} × £${largeRate}`, amount: large * largeRate });
     if (bay) lines.push({ label: `${bay} very large / bay window${bay === 1 ? "" : "s"} × £${bayRate}`, amount: bay * bayRate });
     if (hard) lines.push({ label: `${hard} hard-access window${hard === 1 ? "" : "s"} × £3`, amount: hard * 3 });
 
     let subtotal = lines.reduce((sum, line) => sum + line.amount, 0);
-    if (input.floors === "3rd floor or higher") {
-      const line = pctLine("3rd floor or higher +25%", subtotal, 0.25);
+    if (input.floorCount === "3+" || input.floors === "3rd floor or higher") {
+      const line = pctLine("3+ floors / 3rd floor or higher +25%", subtotal, 0.25);
       lines.push(line); subtotal += line.amount;
     }
 
@@ -188,7 +191,11 @@ export function calculatePrimeViewPrice(input: PrimeViewPricingInput): PrimeView
       minimumCharge: 40,
       lines,
       multiServiceCount: input.multiServiceCount,
-      estimated: (large + bay > 0 && input.cleaningScope !== "Outside only") || input.access === "Difficult",
+      estimated: (large + bay > 0 && input.cleaningScope !== "Outside only")
+        || input.access === "Difficult"
+        || input.floorCount === "Unknown"
+        || input.workingHeight === "Long ladder required"
+        || (input.windowAccess !== undefined && input.windowAccess !== "Easy access"),
     });
   }
 
@@ -205,7 +212,7 @@ export function calculatePrimeViewPrice(input: PrimeViewPricingInput): PrimeView
     const lines: PrimeViewPricingLine[] = [{ label: `Gutter cleaning – ${input.propertySize}`, amount: base }];
     let subtotal = base;
 
-    const difficultSpecific = input.floors === "3rd floor or higher" || input.access === "Difficult";
+    const difficultSpecific = input.floorCount === "3+" || input.floors === "3rd floor or higher" || input.access === "Difficult";
     if (difficultSpecific) {
       const line = pctLine("3rd floor / difficult access +25%", subtotal, 0.25); lines.push(line); subtotal += line.amount;
     } else if (input.access === "Moderately difficult") {

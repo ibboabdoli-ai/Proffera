@@ -62,6 +62,7 @@ export type BeginBookingVerificationInput = {
   startsAt: string;
   endsAt: string;
   timeZone: WorkspaceTimeZone;
+  language?: "sv" | "en";
 };
 
 export async function beginBookingEmailVerification(input: BeginBookingVerificationInput) {
@@ -97,7 +98,7 @@ export async function beginBookingEmailVerification(input: BeginBookingVerificat
   if (!id) return { ok: false as const, error: "database" };
   await sql`update public_booking_verifications set code_hash = ${hashCode(id, code)} where id = ${id}::uuid`;
 
-  const sent = await sendBookingVerificationEmail({ customerName: input.customerName, customerEmail: input.customerEmail, companyName: input.companyName, code, expiresMinutes: EXPIRY_MINUTES });
+  const sent = await sendBookingVerificationEmail({ customerName: input.customerName, customerEmail: input.customerEmail, companyName: input.companyName, code, expiresMinutes: EXPIRY_MINUTES, language: input.language });
   if (!sent.ok) {
     await sql`delete from public_booking_verifications where id = ${id}::uuid`;
     return { ok: false as const, error: "email" };

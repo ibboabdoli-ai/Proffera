@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ChangeEvent } from "react";
 import { useSearchParams } from "next/navigation";
-import { CalendarDays, Check, ChevronRight, CirclePoundSterling, Home, Mail, MapPin, Sparkles } from "lucide-react";
+import { upload } from "@vercel/blob/client";
+import { CalendarDays, Camera, Check, ChevronRight, CirclePoundSterling, Home, Loader2, Mail, MapPin, Sparkles } from "lucide-react";
 
 import { calculatePrimeViewPrice, serviceKeyFromName, type PrimeViewAccess, type PrimeViewCondition, type PrimeViewPricingInput } from "@/features/primeview/pricing";
 import {
@@ -71,9 +72,18 @@ export function PrimeViewPrecisionBookingForm({ action, services, bookingHours, 
   const [time, setTime] = useState("");
 
   const [propertyType, setPropertyType] = useState("");
+  const [rearGardenAccess, setRearGardenAccess] = useState("Side access");
+  const [floorCount, setFloorCount] = useState<NonNullable<PrimeViewPricingInput["floorCount"]>>("2");
+  const [workingHeight, setWorkingHeight] = useState<NonNullable<PrimeViewPricingInput["workingHeight"]>>("First floor");
+  const [parking, setParking] = useState("Parking directly outside");
+  const [windowAccess, setWindowAccess] = useState<NonNullable<PrimeViewPricingInput["windowAccess"]>>("Easy access");
+  const [pets, setPets] = useState("No");
+  const [photoSession] = useState(() => crypto.randomUUID());
+  const [photoPaths, setPhotoPaths] = useState<string[]>([]);
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [photoMessage, setPhotoMessage] = useState("");
   const [access, setAccess] = useState<PrimeViewAccess>("Normal");
   const [condition, setCondition] = useState<PrimeViewCondition>("Normal");
-  const [floors, setFloors] = useState<NonNullable<PrimeViewPricingInput["floors"]>>("Ground floor only");
 
   const [scope, setScope] = useState<NonNullable<PrimeViewPricingInput["cleaningScope"]>>("Outside only");
   const [standardWindows, setStandardWindows] = useState("");
@@ -110,7 +120,9 @@ export function PrimeViewPrecisionBookingForm({ action, services, bookingHours, 
     serviceKey,
     access,
     condition,
-    floors,
+    floorCount,
+    workingHeight,
+    windowAccess,
     cleaningScope: scope,
     standardWindows: Number(standardWindows),
     largeWindows: Number(largeWindows),
@@ -129,9 +141,48 @@ export function PrimeViewPrecisionBookingForm({ action, services, bookingHours, 
     resanding,
     sealing,
     multiServiceCount: 1,
-  }) : null, [access, areaM2, bayWindows, condition, conservatorySize, firstClean, floors, frequency, hardAccessWindows, heavyBlockage, heavyDirtMoss, largeWindows, oilTreatment, propertySize, resanding, scope, sealing, serviceKey, solarPanels, standardWindows, weedTreatment]);
+  }) : null, [access, areaM2, bayWindows, condition, conservatorySize, firstClean, floorCount, frequency, hardAccessWindows, heavyBlockage, heavyDirtMoss, largeWindows, oilTreatment, propertySize, resanding, scope, sealing, serviceKey, solarPanels, standardWindows, weedTreatment, windowAccess, workingHeight]);
 
   const price = useMemo(() => pricingInput ? calculatePrimeViewPrice(pricingInput) : null, [pricingInput]);
+
+  async function handlePhotoSelection(event: ChangeEvent<HTMLInputElement>) {
+    const selectedFiles = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    if (!selectedFiles.length) return;
+
+    const remaining = 5 - photoPaths.length;
+    if (remaining <= 0) {
+      setPhotoMessage("You can upload a maximum of 5 photos.");
+      return;
+    }
+
+    const files = selectedFiles.slice(0, remaining);
+    const invalid = files.find((file) => !["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 5 * 1024 * 1024);
+    if (invalid) {
+      setPhotoMessage("Use JPG, PNG or WebP images up to 5 MB each.");
+      return;
+    }
+
+    setPhotoUploading(true);
+    setPhotoMessage("");
+    try {
+      for (const file of files) {
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "-").slice(-120) || "property-photo.jpg";
+        const blob = await upload(`primeview-booking/${photoSession}/${safeName}`, file, {
+          access: "private",
+          handleUploadUrl: "/api/primeview/booking-photo/upload",
+          clientPayload: JSON.stringify({ sessionId: photoSession }),
+        });
+        setPhotoPaths((current) => current.includes(blob.pathname) ? current : [...current, blob.pathname]);
+      }
+      setPhotoMessage(selectedFiles.length > remaining ? `Uploaded ${remaining} photo${remaining === 1 ? "" : "s"}. Maximum 5 photos.` : "Photos uploaded securely.");
+    } catch (error) {
+      console.error("PrimeView booking photo upload failed", error);
+      setPhotoMessage("Photo upload failed. You can still continue the booking without photos.");
+    } finally {
+      setPhotoUploading(false);
+    }
+  }
 
   function chooseService(id: string) {
     setServiceId(id);
@@ -170,7 +221,12 @@ export function PrimeViewPrecisionBookingForm({ action, services, bookingHours, 
           <div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#eaf3ff] text-[#1769c2]"><Home className="h-5 w-5" /></div><div><h2 className="text-xl font-black text-[#0b2a4a]">2. Property & price details</h2><p className="mt-1 text-sm text-[#667b91]">Use real quantities where possible — the total updates instantly.</p></div></div>
 
           <div className="mt-5 grid gap-4 sm:grid-cols-2">
-            <label className={labelClass}>Property type<select name="property_type" required value={propertyType} onChange={(event) => setPropertyType(event.target.value)} className={fieldClass}><option value="">Choose</option><option>House</option><option>Flat</option><option>Commercial</option></select></label>
+            <label className={labelClass}>Property type<select name="property_type" required value={propertyType} onChange={(event) => setPropertyType(event.target.value)} className={fieldClass}><option value="">Choose</option><option>Detached</option><option>Semi-detached</option><option>Terraced</option><option>End of terrace</option><option>Bungalow</option><option>Flat / Apartment</option><option>Commercial (Shop/Office)</option></select></label>
+            <label className={labelClass}>Rear garden access<select name="rear_garden_access" required value={rearGardenAccess} onChange={(event) => setRearGardenAccess(event.target.value)} className={fieldClass}><option>Side access</option><option>Through the property only</option><option>No access / arrangement required</option></select></label>
+            <label className={labelClass}>Number of floors<select name="floor_count" required value={floorCount} onChange={(event) => setFloorCount(event.target.value as typeof floorCount)} className={fieldClass}><option>1</option><option>2</option><option>3+</option><option>Unknown</option></select></label>
+            <label className={labelClass}>Working height<select name="working_height" required value={workingHeight} onChange={(event) => setWorkingHeight(event.target.value as typeof workingHeight)} className={fieldClass}><option>Ground floor only</option><option>First floor</option><option>Second floor+</option><option>Long ladder required</option></select></label>
+            <label className={labelClass}>Parking<select name="parking" required value={parking} onChange={(event) => setParking(event.target.value)} className={fieldClass}><option>Parking directly outside</option><option>Parking nearby</option><option>Difficult / paid parking</option></select></label>
+            <label className={labelClass}>Pets at property<select name="pets" required value={pets} onChange={(event) => setPets(event.target.value)} className={fieldClass}><option>No</option><option>Yes</option></select></label>
             <label className={labelClass}>UK postcode<input name="postcode" required autoComplete="postal-code" placeholder="W4 3ES" pattern="[A-Za-z]{1,2}[0-9][A-Za-z0-9]? ?[0-9][A-Za-z]{2}" value={postcode} onChange={(event) => setPostcode(event.target.value.toUpperCase())} className={fieldClass} /></label>
             <label className={`${labelClass} sm:col-span-2`}>Full address<input name="address" required autoComplete="street-address" placeholder="House number and street" className={fieldClass} /></label>
 
@@ -178,9 +234,9 @@ export function PrimeViewPrecisionBookingForm({ action, services, bookingHours, 
               <label className={labelClass}>Standard windows<input name="standard_windows" required type="number" min="0" max="500" value={standardWindows} onChange={(event) => setStandardWindows(event.target.value)} placeholder="e.g. 10" className={fieldClass} /></label>
               <label className={labelClass}>Large windows<input name="large_windows" type="number" min="0" max="500" value={largeWindows} onChange={(event) => setLargeWindows(event.target.value)} className={fieldClass} /></label>
               <label className={labelClass}>Very large / bay windows<input name="bay_windows" type="number" min="0" max="500" value={bayWindows} onChange={(event) => setBayWindows(event.target.value)} className={fieldClass} /></label>
-              <label className={labelClass}>Hard-access windows<input name="hard_access_windows" type="number" min="0" max="500" value={hardAccessWindows} onChange={(event) => setHardAccessWindows(event.target.value)} className={fieldClass} /></label>
+              <label className={labelClass}>Windows needing difficult access<input name="hard_access_windows" type="number" min="0" max="500" value={hardAccessWindows} onChange={(event) => setHardAccessWindows(event.target.value)} className={fieldClass} /></label>
               <label className={labelClass}>Cleaning required<select name="cleaning_scope" value={scope} onChange={(event) => setScope(event.target.value as typeof scope)} className={fieldClass}><option>Outside only</option><option>Inside only</option><option>Inside & outside</option></select></label>
-              <label className={labelClass}>Number of floors<select name="floors" value={floors} onChange={(event) => setFloors(event.target.value as typeof floors)} className={fieldClass}><option>Ground floor only</option><option>Ground + 1st floor</option><option>Ground + 2 floors</option><option>3rd floor or higher</option></select></label>
+              <label className={labelClass}>Window access type<select name="window_access" required value={windowAccess} onChange={(event) => setWindowAccess(event.target.value as typeof windowAccess)} className={fieldClass}><option>Easy access</option><option>Hard access</option><option>Skylight / Roof windows</option></select></label>
               <label className={labelClass}>How often?<select name="frequency" value={frequency} onChange={(event) => setFrequency(event.target.value as typeof frequency)} className={fieldClass}><option>One-off</option><option>Every 4 weeks</option><option>Every 6 weeks</option><option>Every 8 weeks</option></select></label>
               <label className={labelClass}>Frames & sills<select name="frames_sills" value={framesSills} onChange={(event) => setFramesSills(event.target.value)} className={fieldClass}><option>Yes</option><option>No</option></select></label>
               <div className="sm:col-span-2"><Checkbox name="first_clean" checked={firstClean} onChange={setFirstClean} label="First clean / unusually dirty first visit (+25% where applicable)" /></div>
@@ -188,7 +244,6 @@ export function PrimeViewPrecisionBookingForm({ action, services, bookingHours, 
 
             {(serviceKey === "gutter" || serviceKey === "fascia") ? <>
               <label className={labelClass}>Property size<select name="property_size" value={propertySize} onChange={(event) => setPropertySize(event.target.value as typeof propertySize)} className={fieldClass}><option>Small property</option><option>Terraced house</option><option>Semi-detached house</option><option>Detached house</option><option>Large property</option></select></label>
-              {serviceKey === "gutter" ? <label className={labelClass}>Height<select name="floors" value={floors} onChange={(event) => setFloors(event.target.value as typeof floors)} className={fieldClass}><option>Ground floor only</option><option>Ground + 1st floor</option><option>Ground + 2 floors</option><option>3rd floor or higher</option></select></label> : null}
               {serviceKey === "gutter" ? <div className="sm:col-span-2"><Checkbox name="heavy_blockage" checked={heavyBlockage} onChange={setHeavyBlockage} label="Heavy blockage (+20%)" /></div> : null}
             </> : null}
 
@@ -201,10 +256,20 @@ export function PrimeViewPrecisionBookingForm({ action, services, bookingHours, 
               <div className="grid gap-3 sm:col-span-2 sm:grid-cols-2"><Checkbox name="heavy_dirt_moss" checked={heavyDirtMoss} onChange={setHeavyDirtMoss} label="Heavy dirt / moss (£11/m²)" /><Checkbox name="oil_treatment" checked={oilTreatment} onChange={setOilTreatment} label="Oil / stain treatment (+£3/m²)" /><Checkbox name="weed_treatment" checked={weedTreatment} onChange={setWeedTreatment} label="Weed treatment (+£2/m²)" /><Checkbox name="resanding" checked={resanding} onChange={setResanding} label="Re-sanding (+£4/m²)" /><Checkbox name="sealing" checked={sealing} onChange={setSealing} label="Sealing (manual quote)" /></div>
             </> : null}
 
-            <label className={labelClass}>Access<select name="access" value={access} onChange={(event) => setAccess(event.target.value as PrimeViewAccess)} className={fieldClass}><option>Normal</option><option>Moderately difficult</option><option>Difficult</option><option>Very difficult</option></select></label>
+            <label className={labelClass}>Overall property access<select name="access" value={access} onChange={(event) => setAccess(event.target.value as PrimeViewAccess)} className={fieldClass}><option>Normal</option><option>Moderately difficult</option><option>Difficult</option><option>Very difficult</option></select></label>
             {serviceKey !== "patio" ? <label className={labelClass}>Property condition<select name="condition" value={condition} onChange={(event) => setCondition(event.target.value as PrimeViewCondition)} className={fieldClass}><option>Normal</option><option>Dirty</option><option>Very dirty</option><option>Extreme</option></select></label> : <input type="hidden" name="condition" value="Normal" />}
 
-            <label className={`${labelClass} sm:col-span-2`}>Additional details<textarea name="additional_notes" rows={3} maxLength={1200} placeholder="Parking, gate access, unusual surfaces, special equipment or anything else we should know" className={fieldClass} /></label>
+            <div className="sm:col-span-2 rounded-2xl border border-[#d9e4ef] bg-[#f9fbfe] p-4">
+              <div className="flex items-start gap-3"><Camera className="mt-0.5 h-5 w-5 shrink-0 text-[#1769c2]" /><div><p className="text-sm font-black text-[#183e63]">Property photos (optional)</p><p className="mt-1 text-xs leading-5 text-[#667b91]">Upload up to 5 photos. 3–5 clear photos are ideal for confirming access and the final price.</p></div></div>
+              <input type="hidden" name="photo_session" value={photoSession} />
+              {photoPaths.map((pathname) => <input key={pathname} type="hidden" name="photo_path" value={pathname} />)}
+              <label className={`mt-4 flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-[#9fb9d6] bg-white px-4 py-3 text-sm font-black text-[#1769c2] ${photoUploading || photoPaths.length >= 5 ? "pointer-events-none opacity-55" : ""}`}>
+                {photoUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}{photoUploading ? "Uploading photos…" : photoPaths.length ? `Add more photos (${photoPaths.length}/5)` : "Choose photos"}
+                <input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={handlePhotoSelection} disabled={photoUploading || photoPaths.length >= 5} className="sr-only" />
+              </label>
+              {photoMessage ? <p className="mt-2 text-xs font-semibold text-[#5d7187]">{photoMessage}</p> : null}
+            </div>
+            <label className={`${labelClass} sm:col-span-2`}>Anything we should know before arriving?<textarea name="arrival_notes" rows={3} maxLength={1200} placeholder="Dog in the property, locked gate, no side access, fragile plants, or anything else we should know" className={fieldClass} /></label>
           </div>
         </section>
 
@@ -217,7 +282,7 @@ export function PrimeViewPrecisionBookingForm({ action, services, bookingHours, 
         <section className={cardClass}>
           <div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#eaf3ff] text-[#1769c2]"><Mail className="h-5 w-5" /></div><h2 className="text-xl font-black text-[#0b2a4a]">4. Contact details</h2></div>
           <div className="mt-5 grid gap-4 sm:grid-cols-2"><label className={labelClass}>Name<input name="name" required autoComplete="name" className={fieldClass} /></label><label className={labelClass}>Phone<input name="phone" required type="tel" autoComplete="tel" placeholder="07... or +44..." className={fieldClass} /></label><label className={`${labelClass} sm:col-span-2`}>Email<input name="email" required type="email" autoComplete="email" className={fieldClass} /></label></div>
-          <button disabled={!selectedService || !time} className="mt-5 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-[#0a3c8f] px-5 py-4 text-base font-black text-white shadow-lg shadow-[#0a3c8f]/20 transition hover:bg-[#061b42] disabled:cursor-not-allowed disabled:opacity-45">Send verification code<ChevronRight className="h-5 w-5" /></button>
+          <button disabled={!selectedService || !time || photoUploading} className="mt-5 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-[#0a3c8f] px-5 py-4 text-base font-black text-white shadow-lg shadow-[#0a3c8f]/20 transition hover:bg-[#061b42] disabled:cursor-not-allowed disabled:opacity-45">Send verification code<ChevronRight className="h-5 w-5" /></button>
           <p className="mt-3 text-center text-xs leading-5 text-[#6b7f94]">The booking request is created after you verify the six-digit code sent to your email.</p>
         </section>
       </div>

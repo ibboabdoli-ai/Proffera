@@ -37,7 +37,36 @@ describe("PrimeView precision pricing", () => {
       floors: "Ground + 1st floor",
     });
     expect(result.kind).toBe("price");
-    if (result.kind === "price") expect(result.total).toBe(60);
+    if (result.kind === "price") expect(result.total).toBe(45);
+  });
+
+  it("uses £3 for inside-only windows and £5.50 for standard inside + outside", () => {
+    const inside = calculatePrimeViewPrice({ serviceKey: "window", cleaningScope: "Inside only", standardWindows: 15, frequency: "One-off", access: "Normal", condition: "Normal", floorCount: "2" });
+    const both = calculatePrimeViewPrice({ serviceKey: "window", cleaningScope: "Inside & outside", standardWindows: 10, frequency: "One-off", access: "Normal", condition: "Normal", floorCount: "2" });
+    expect(inside.kind === "price" && inside.total).toBe(45);
+    expect(both.kind === "price" && both.total).toBe(55);
+    if (both.kind === "price") expect(both.lines.some((line) => line.label.includes("× £5.5"))).toBe(true);
+  });
+
+  it("preserves large and bay outside rates while discounting inside + outside", () => {
+    const outside = calculatePrimeViewPrice({ serviceKey: "window", cleaningScope: "Outside only", largeWindows: 2, bayWindows: 2, frequency: "One-off", access: "Normal", condition: "Normal", floorCount: "2" });
+    const inside = calculatePrimeViewPrice({ serviceKey: "window", cleaningScope: "Inside only", largeWindows: 2, bayWindows: 2, frequency: "One-off", access: "Normal", condition: "Normal", floorCount: "2" });
+    const both = calculatePrimeViewPrice({ serviceKey: "window", cleaningScope: "Inside & outside", standardWindows: 10, largeWindows: 2, bayWindows: 2, frequency: "One-off", access: "Normal", condition: "Normal", floorCount: "2" });
+    expect(outside.kind).toBe("price");
+    expect(inside.kind).toBe("price");
+    expect(both.kind).toBe("price");
+    if (outside.kind === "price") {
+      expect(outside.lines.some((line) => line.label.includes("2 large windows × £6"))).toBe(true);
+      expect(outside.lines.some((line) => line.label.includes("2 very large / bay windows × £8"))).toBe(true);
+    }
+    if (inside.kind === "price") {
+      expect(inside.lines.some((line) => line.label.includes("2 large windows × £3"))).toBe(true);
+      expect(inside.lines.some((line) => line.label.includes("2 very large / bay windows × £3"))).toBe(true);
+    }
+    if (both.kind === "price") {
+      expect(both.lines.some((line) => line.label.includes("2 large windows × £7.5"))).toBe(true);
+      expect(both.lines.some((line) => line.label.includes("2 very large / bay windows × £9"))).toBe(true);
+    }
   });
 
   it("applies recurring, condition, floor and access rules before minimum", () => {
@@ -55,7 +84,7 @@ describe("PrimeView precision pricing", () => {
     });
     expect(result.kind).toBe("price");
     if (result.kind === "price") {
-      expect(result.total).toBeGreaterThan(100);
+      expect(result.total).toBe(96.42);
       expect(result.lines.some((line) => line.label.includes("Every 4 weeks"))).toBe(true);
       expect(result.lines.some((line) => line.label.includes("3rd floor"))).toBe(true);
     }
