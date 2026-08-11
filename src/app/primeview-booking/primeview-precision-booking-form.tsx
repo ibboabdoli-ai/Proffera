@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { upload } from "@vercel/blob/client";
-import { CalendarDays, Camera, Check, ChevronRight, CirclePoundSterling, Home, Loader2, Mail, MapPin, Sparkles } from "lucide-react";
+import { CalendarDays, Check, ChevronRight, CirclePoundSterling, Home, Loader2, Mail, MapPin, Sparkles } from "lucide-react";
 
 import { calculatePrimeViewPrice, serviceKeyFromName, type PrimeViewAccess, type PrimeViewCondition, type PrimeViewPricingInput } from "@/features/primeview/pricing";
 import {
@@ -82,10 +81,6 @@ export function PrimeViewPrecisionBookingForm({ action, services, bookingHours, 
   const [parking, setParking] = useState("Parking directly outside");
   const [windowAccess, setWindowAccess] = useState<NonNullable<PrimeViewPricingInput["windowAccess"]>>("Easy access");
   const [pets, setPets] = useState("No");
-  const [photoSession] = useState(() => crypto.randomUUID());
-  const [photoPaths, setPhotoPaths] = useState<string[]>([]);
-  const [photoUploading, setPhotoUploading] = useState(false);
-  const [photoMessage, setPhotoMessage] = useState("");
   const [access, setAccess] = useState<PrimeViewAccess>("Normal");
   const [condition, setCondition] = useState<PrimeViewCondition>("Normal");
 
@@ -163,7 +158,7 @@ export function PrimeViewPrecisionBookingForm({ action, services, bookingHours, 
     hardAccessWindows: Number(hardAccessWindows),
     frequency,
     firstClean,
-    propertySize,
+    propertySize: serviceKey === "window" ? (propertyType === "Terraced" ? "Terraced house" : undefined) : propertySize,
     heavyBlockage,
     conservatorySize,
     solarPanels: Number(solarPanels),
@@ -174,48 +169,9 @@ export function PrimeViewPrecisionBookingForm({ action, services, bookingHours, 
     resanding,
     sealing,
     multiServiceCount: 1,
-  }) : null, [access, areaM2, bayWindows, condition, conservatorySize, firstClean, floorCount, frequency, hardAccessWindows, heavyBlockage, heavyDirtMoss, largeWindows, oilTreatment, propertySize, resanding, scope, sealing, serviceKey, solarPanels, standardWindows, weedTreatment, windowAccess, workingHeight]);
+  }) : null, [access, areaM2, bayWindows, condition, conservatorySize, firstClean, floorCount, frequency, hardAccessWindows, heavyBlockage, heavyDirtMoss, largeWindows, oilTreatment, propertySize, propertyType, resanding, scope, sealing, serviceKey, solarPanels, standardWindows, weedTreatment, windowAccess, workingHeight]);
 
   const price = useMemo(() => pricingInput ? calculatePrimeViewPrice(pricingInput) : null, [pricingInput]);
-
-  async function handlePhotoSelection(event: ChangeEvent<HTMLInputElement>) {
-    const selectedFiles = Array.from(event.target.files ?? []);
-    event.target.value = "";
-    if (!selectedFiles.length) return;
-
-    const remaining = 5 - photoPaths.length;
-    if (remaining <= 0) {
-      setPhotoMessage("You can upload a maximum of 5 photos.");
-      return;
-    }
-
-    const files = selectedFiles.slice(0, remaining);
-    const invalid = files.find((file) => !["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 5 * 1024 * 1024);
-    if (invalid) {
-      setPhotoMessage("Use JPG, PNG or WebP images up to 5 MB each.");
-      return;
-    }
-
-    setPhotoUploading(true);
-    setPhotoMessage("");
-    try {
-      for (const file of files) {
-        const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "-").slice(-120) || "property-photo.jpg";
-        const blob = await upload(`primeview-booking/${photoSession}/${safeName}`, file, {
-          access: "private",
-          handleUploadUrl: "/api/primeview/booking-photo/upload",
-          clientPayload: JSON.stringify({ sessionId: photoSession }),
-        });
-        setPhotoPaths((current) => current.includes(blob.pathname) ? current : [...current, blob.pathname]);
-      }
-      setPhotoMessage(selectedFiles.length > remaining ? `Uploaded ${remaining} photo${remaining === 1 ? "" : "s"}. Maximum 5 photos.` : "Photos uploaded securely.");
-    } catch (error) {
-      console.error("PrimeView booking photo upload failed", error);
-      setPhotoMessage("Photo upload failed. You can still continue the booking without photos.");
-    } finally {
-      setPhotoUploading(false);
-    }
-  }
 
   function chooseService(id: string) {
     setServiceId(id);
@@ -236,6 +192,7 @@ export function PrimeViewPrecisionBookingForm({ action, services, bookingHours, 
       <input type="hidden" name="service_id" value={serviceId} />
       <input type="hidden" name="starts_at" value={date && time ? `${date}T${time}` : ""} />
       <input type="hidden" name="form_started_at" value={formStartedAt} />
+      {serviceKey === "window" ? <input type="hidden" name="property_size" value={propertyType === "Terraced" ? "Terraced house" : ""} /> : null}
       <label className="absolute left-[-10000px]" aria-hidden="true">Website<input name="website" tabIndex={-1} /></label>
 
       <div className="grid gap-5">
@@ -299,16 +256,6 @@ export function PrimeViewPrecisionBookingForm({ action, services, bookingHours, 
             <label className={labelClass}>Overall property access<select name="access" value={access} onChange={(event) => setAccess(event.target.value as PrimeViewAccess)} className={fieldClass}><option>Normal</option><option>Moderately difficult</option><option>Difficult</option><option>Very difficult</option></select></label>
             {serviceKey !== "patio" ? <label className={labelClass}>Property condition<select name="condition" value={condition} onChange={(event) => setCondition(event.target.value as PrimeViewCondition)} className={fieldClass}><option>Normal</option><option>Dirty</option><option>Very dirty</option><option>Extreme</option></select></label> : <input type="hidden" name="condition" value="Normal" />}
 
-            <div className="sm:col-span-2 rounded-2xl border border-[#d9e4ef] bg-[#f9fbfe] p-4">
-              <div className="flex items-start gap-3"><Camera className="mt-0.5 h-5 w-5 shrink-0 text-[#1769c2]" /><div><p className="text-sm font-black text-[#183e63]">Property photos (optional)</p><p className="mt-1 text-xs leading-5 text-[#667b91]">Upload up to 5 photos. 3–5 clear photos are ideal for confirming access and the final price.</p></div></div>
-              <input type="hidden" name="photo_session" value={photoSession} />
-              {photoPaths.map((pathname) => <input key={pathname} type="hidden" name="photo_path" value={pathname} />)}
-              <label className={`mt-4 flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-[#9fb9d6] bg-white px-4 py-3 text-sm font-black text-[#1769c2] ${photoUploading || photoPaths.length >= 5 ? "pointer-events-none opacity-55" : ""}`}>
-                {photoUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}{photoUploading ? "Uploading photos…" : photoPaths.length ? `Add more photos (${photoPaths.length}/5)` : "Choose photos"}
-                <input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={handlePhotoSelection} disabled={photoUploading || photoPaths.length >= 5} className="sr-only" />
-              </label>
-              {photoMessage ? <p className="mt-2 text-xs font-semibold text-[#5d7187]">{photoMessage}</p> : null}
-            </div>
             <label className={`${labelClass} sm:col-span-2`}>Anything we should know before arriving?<textarea name="arrival_notes" rows={3} maxLength={1200} placeholder="Dog in the property, locked gate, no side access, fragile plants, or anything else we should know" className={fieldClass} /></label>
           </div>
         </section>
@@ -322,7 +269,7 @@ export function PrimeViewPrecisionBookingForm({ action, services, bookingHours, 
         <section className={cardClass}>
           <div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#eaf3ff] text-[#1769c2]"><Mail className="h-5 w-5" /></div><h2 className="text-xl font-black text-[#0b2a4a]">4. Contact details</h2></div>
           <div className="mt-5 grid gap-4 sm:grid-cols-2"><label className={labelClass}>Name<input name="name" required autoComplete="name" className={fieldClass} /></label><label className={labelClass}>Phone<input name="phone" required type="tel" autoComplete="tel" placeholder="07... or +44..." className={fieldClass} /></label><label className={`${labelClass} sm:col-span-2`}>Email<input name="email" required type="email" autoComplete="email" className={fieldClass} /></label></div>
-          <button disabled={!selectedService || !time || photoUploading} className="mt-5 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-[#0a3c8f] px-5 py-4 text-base font-black text-white shadow-lg shadow-[#0a3c8f]/20 transition hover:bg-[#061b42] disabled:cursor-not-allowed disabled:opacity-45">Send verification code<ChevronRight className="h-5 w-5" /></button>
+          <button disabled={!selectedService || !time} className="mt-5 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl bg-[#0a3c8f] px-5 py-4 text-base font-black text-white shadow-lg shadow-[#0a3c8f]/20 transition hover:bg-[#061b42] disabled:cursor-not-allowed disabled:opacity-45">Send verification code<ChevronRight className="h-5 w-5" /></button>
           <p className="mt-3 text-center text-xs leading-5 text-[#6b7f94]">The booking request is created after you verify the six-digit code sent to your email.</p>
         </section>
       </div>
@@ -333,7 +280,7 @@ export function PrimeViewPrecisionBookingForm({ action, services, bookingHours, 
           <div className="p-5">
             {!price ? <><p className="text-2xl font-black">Choose a service</p><p className="mt-3 text-sm text-[#d3e2f2]">The pricing rules will appear here.</p></> : price.kind === "manual" ? <><p className="text-2xl font-black">Manual quote</p><p className="mt-3 text-sm leading-6 text-[#d3e2f2]">{price.reason}</p><p className="mt-4 rounded-xl bg-white/10 p-3 text-xs leading-5 text-[#dbeafe]">{price.note}</p></> : <><p className="text-xs font-bold uppercase tracking-[.16em] text-[#a9caee]">Estimated price</p><p className="mt-2 text-5xl font-black tracking-tight">£{price.total.toFixed(2)}</p>{price.minimumApplied ? <p className="mt-2 inline-flex rounded-full bg-[#1e5c91] px-3 py-1 text-xs font-black">Minimum charge applied</p> : null}<div className="mt-5 grid gap-2 border-t border-white/10 pt-4 text-xs text-[#d3e2f2]">{price.lines.map((line, index) => <div key={`${line.label}-${index}`} className="flex items-start justify-between gap-3"><span>{line.label}</span><strong className={line.amount < 0 ? "text-[#8fe3b5]" : "text-white"}>{line.amount < 0 ? "−" : "+"}£{Math.abs(line.amount).toFixed(2)}</strong></div>)}</div><p className="mt-5 rounded-xl bg-white/10 p-3 text-xs leading-5 text-[#dbeafe]">{price.note}</p></>}
           </div>
-          <div className="border-t border-white/10 bg-[#09243f] p-5 text-xs leading-5 text-[#c8d9eb]"><p><strong>Minimums:</strong> Windows £40 · Gutter £75 · Fascia £80 · Conservatory £90 · Solar £60 · Patio/Driveway £180.</p><p className="mt-2">Recurring window discounts are applied before the minimum charge. Very difficult access, extreme condition, sealing and 30+ solar panels require manual review.</p></div>
+          <div className="border-t border-white/10 bg-[#09243f] p-5 text-xs leading-5 text-[#c8d9eb]"><p><strong>Minimums:</strong> Windows £30 for Terraced · £40 other properties · Gutter £75 · Fascia £80 · Conservatory £90 · Solar £60 · Patio/Driveway £180.</p><p className="mt-2">Recurring window discounts are applied before the minimum charge. Very difficult access, extreme condition, sealing and 30+ solar panels require manual review.</p></div>
         </section>
 
         <section className="rounded-3xl border border-[#d9e4ef] bg-white p-5 shadow-[0_12px_36px_rgba(11,42,74,.06)]"><h3 className="font-black text-[#0b2a4a]">Booking summary</h3><div className="mt-4 grid gap-3 text-sm"><div className="flex gap-3"><Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-[#2f80ed]" /><div><p className="text-xs font-bold uppercase tracking-wide text-[#7990a6]">Service</p><p className="mt-1 font-bold text-[#183e63]">{selectedService?.name ?? "—"}</p></div></div><div className="flex gap-3"><MapPin className="mt-0.5 h-4 w-4 shrink-0 text-[#2f80ed]" /><div><p className="text-xs font-bold uppercase tracking-wide text-[#7990a6]">Area</p><p className="mt-1 font-bold text-[#183e63]">West & North London</p></div></div><div className="flex gap-3"><CalendarDays className="mt-0.5 h-4 w-4 shrink-0 text-[#2f80ed]" /><div><p className="text-xs font-bold uppercase tracking-wide text-[#7990a6]">Preferred visit</p><p className="mt-1 font-bold text-[#183e63]">{date}{time ? ` · ${time}` : ""}</p></div></div></div></section>
