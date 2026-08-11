@@ -111,6 +111,15 @@ export async function proxy(request: NextRequest) {
     return NextResponse.rewrite(new URL("/demo/primeview", request.url));
   }
 
+  // Keep the customer on the PrimeView domain while the booking engine is
+  // served by Proffera's dedicated PrimeView booking route.
+  if (isPrimeViewHost(host) && pathname === "/booking") {
+    const url = request.nextUrl.clone();
+    url.pathname = "/boka/primeview";
+    if (!url.searchParams.has("lang")) url.searchParams.set("lang", "en");
+    return NextResponse.rewrite(url);
+  }
+
   // Existing workspaces remain booking-first by default. A workspace can opt in
   // to its public business site without changing or reattaching the domain.
   if (pathname === "/" && !isPlatformHost(host)) {
@@ -170,6 +179,7 @@ export async function proxy(request: NextRequest) {
 export const config = {
   matcher: [
     "/",
+    "/booking",
     "/tjanster/:path*",
     "/en",
     "/en/:path*",
