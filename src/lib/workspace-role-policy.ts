@@ -13,3 +13,7 @@ export function canRoleManageWorkspaceSettings(role: WorkspaceRole) {
 export function canRoleManageWorkspaceMembers(role: WorkspaceRole) {
   return role === "owner";
 }
+
+export function canRoleManageWorkspaceBilling(role: WorkspaceRole) {
+  return role === "owner" || role === "admin";
+}
