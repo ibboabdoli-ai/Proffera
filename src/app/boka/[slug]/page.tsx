@@ -59,18 +59,29 @@ const copy = {
 
 function firstParam(value: string | string[] | undefined) { return Array.isArray(value) ? value[0] : value; }
 function withLang(slug: string, lang: WorkspaceLanguage, params: string) { return `/boka/${slug}?${params}&lang=${lang}`; }
+function formText(formData: FormData, key: string, maxLength = 1200) { return String(formData.get(key) ?? "").trim().slice(0, maxLength); }
 
 async function requestPublicBooking(formData: FormData) {
   "use server";
   const slug = String(formData.get("slug") ?? "").trim();
   const lang: WorkspaceLanguage = formData.get("lang") === "en" ? "en" : "sv";
-  const name = String(formData.get("name") ?? "").trim();
-  const email = String(formData.get("email") ?? "").trim();
-  const phone = String(formData.get("phone") ?? "").trim();
-  const serviceId = String(formData.get("service_id") ?? "").trim();
-  const staffId = String(formData.get("staff_id") ?? "").trim();
-  const startsAt = String(formData.get("starts_at") ?? "").trim();
-  const website = String(formData.get("website") ?? "").trim();
+  const name = formText(formData, "name", 160);
+  const email = formText(formData, "email", 320);
+  const phone = formText(formData, "phone", 80);
+  const serviceId = formText(formData, "service_id", 80);
+  const staffId = formText(formData, "staff_id", 80);
+  const startsAt = formText(formData, "starts_at", 80);
+  const website = formText(formData, "website", 200);
+  const address = formText(formData, "address", 300);
+  const postcode = formText(formData, "postcode", 24).toUpperCase();
+  const propertyType = formText(formData, "property_type", 80);
+  const floors = formText(formData, "floors", 80);
+  const windowCount = formText(formData, "window_count", 12);
+  const cleaningScope = formText(formData, "cleaning_scope", 80);
+  const framesSills = formText(formData, "frames_sills", 40);
+  const frequency = formText(formData, "frequency", 80);
+  const difficultAccess = formText(formData, "difficult_access", 40);
+  const additionalNotes = formText(formData, "additional_notes", 1200);
   const formStartedAt = Number(formData.get("form_started_at"));
   const sql = getSql();
 
@@ -106,6 +117,28 @@ async function requestPublicBooking(formData: FormData) {
   const selectedService = services[0];
   if (!selectedService) redirect(withLang(slug, lang, "error=service"));
   const serviceName = String(selectedService.name);
+
+  let bookingDetails = "";
+  if (slug === "primeview") {
+    if (!address || !postcode || !propertyType) redirect(withLang(slug, lang, "error=invalid"));
+    const detailLines = [`Property type: ${propertyType}`];
+    if (serviceName.toLowerCase().includes("window cleaning")) {
+      const count = Number(windowCount);
+      if (!floors || !Number.isInteger(count) || count < 1 || count > 500 || !cleaningScope || !framesSills || !frequency || !difficultAccess) {
+        redirect(withLang(slug, lang, "error=invalid"));
+      }
+      detailLines.push(
+        `Floors: ${floors}`,
+        `Approx. windows: ${count}`,
+        `Cleaning: ${cleaningScope}`,
+        `Frames & sills: ${framesSills}`,
+        `Frequency: ${frequency}`,
+        `Difficult access: ${difficultAccess}`,
+      );
+    }
+    if (additionalNotes) detailLines.push(`Additional details: ${additionalNotes}`);
+    bookingDetails = detailLines.join("\n");
+  }
 
   const localStart = parseLocalDateTime(startsAt);
   if (!localStart) redirect(withLang(slug, lang, "error=time"));
@@ -160,7 +193,8 @@ async function requestPublicBooking(formData: FormData) {
   const result = await beginBookingEmailVerification({
     workspaceId: String(workspace.id), slug, companyName: String(workspace.company_name), ownerEmail: workspace.contact_email ? String(workspace.contact_email) : undefined,
     ownerPhone: workspace.contact_phone ? String(workspace.contact_phone) : undefined, customerName: name, customerEmail: email, customerPhone: phone || undefined,
-    serviceId, serviceName, staffId: staffId || undefined, city: String(workspace.primary_city ?? ""), startsAt: start.toISOString(), endsAt: end.toISOString(), timeZone,
+    serviceId, serviceName, staffId: staffId || undefined, city: String(workspace.primary_city ?? ""), address: address || undefined, postcode: postcode || undefined,
+    bookingDetails: bookingDetails || undefined, startsAt: start.toISOString(), endsAt: end.toISOString(), timeZone,
   });
   if (!result.ok) redirect(withLang(slug, lang, `error=${result.error === "email" ? "email" : result.error === "service" ? "service" : "conflict"}`));
   redirect(`/boka/verifiera/${result.verificationId}?lang=${lang}`);
