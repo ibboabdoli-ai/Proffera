@@ -110,7 +110,7 @@ function finalize(input: {
     lines: input.lines,
     estimated: Boolean(input.estimated),
     note: input.estimated
-      ? "Estimated price – final price confirmed after photo/property review."
+      ? "Estimated price – final price confirmed after the property and job details are reviewed."
       : "Calculated from the details provided. PrimeView confirms the final job details before attendance.",
   };
 }
@@ -120,7 +120,7 @@ function manual(reason: string, lines: PrimeViewPricingLine[] = []): PrimeViewPr
     kind: "manual",
     reason,
     lines,
-    note: "Estimated price – final price confirmed after photo/property review.",
+    note: "Estimated price – final price confirmed after the property and job details are reviewed.",
   };
 }
 

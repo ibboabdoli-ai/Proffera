@@ -75,7 +75,7 @@ export function PrimeViewQuoteForm({ serviceOptions }: PrimeViewQuoteFormProps) 
       </button>
 
       <div className="flex flex-col gap-3 border-t border-[#e2e8f2] pt-4 text-xs leading-5 text-slate-500 sm:flex-row sm:items-center sm:justify-between">
-        <p>No payment required. Final price is confirmed after property or photo review when needed.</p>
+        <p>No payment required. Final price is confirmed after the property and job details are reviewed. <a href="/privacy" className="font-bold text-[#0a3c8f] underline underline-offset-2">Privacy Policy</a></p>
         <a href="https://wa.me/447500338585" target="_blank" rel="noreferrer" className="inline-flex shrink-0 items-center gap-2 font-black text-[#0a3c8f] hover:text-[#06183b]">
           <MessageCircle className="size-4" aria-hidden="true" /> Complex job? WhatsApp us
         </a>
