@@ -1,0 +1,92 @@
+name: PrimeView verification delivery fix
+
+on:
+  push:
+    branches:
+      - fix/primeview-verification-delivery
+    paths:
+      - .github/workflows/primeview-verification-delivery-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/primeview-verification-delivery
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Apply verification delivery changes
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str):
+              p = Path(path)
+              text = p.read_text()
+              if text.count(old) != 1:
+                  raise SystemExit(f"{path}: expected one match, found {text.count(old)}")
+              p.write_text(text.replace(old, new, 1))
+
+          # Add customer verification SMS support.
+          replace_once(
+              'src/features/sms/booking-sms.ts',
+              '''type SendBookingCustomerSmsInput = {\n  customerPhone: string;\n  companyName: string;\n  status: "confirmed" | "cancelled" | "rescheduled";\n  service: string;\n  startsAt: string;\n  previousStartsAt?: string;\n  timeZone?: WorkspaceTimeZone;\n};\n''',
+              '''type SendBookingCustomerSmsInput = {\n  customerPhone: string;\n  companyName: string;\n  status: "confirmed" | "cancelled" | "rescheduled";\n  service: string;\n  startsAt: string;\n  previousStartsAt?: string;\n  timeZone?: WorkspaceTimeZone;\n};\n\ntype SendBookingVerificationSmsInput = {\n  customerPhone: string;\n  companyName: string;\n  code: string;\n  expiresMinutes?: number;\n  language?: "sv" | "en";\n};\n'''
+          )
+          replace_once(
+              'src/features/sms/booking-sms.ts',
+              '''export async function sendBookingOwnerSms(input: SendBookingOwnerSmsInput) {''',
+              '''export async function sendBookingVerificationSms(input: SendBookingVerificationSmsInput) {\n  const apiKey = process.env.BREVO_API_KEY;\n  const sender = process.env.BREVO_SMS_SENDER?.trim();\n  if (!apiKey || !sender) {\n    return { ok: false as const, skipped: true as const, message: "Brevo SMS is not enabled." };\n  }\n\n  const recipient = normalizeInternationalPhone(input.customerPhone);\n  if (!recipient) {\n    return { ok: false as const, skipped: true as const, message: "Customer phone number is invalid." };\n  }\n\n  const expiresMinutes = input.expiresMinutes ?? 10;\n  const content = input.language === "en"\n    ? `${input.code} is your ${input.companyName} booking verification code. Valid for ${expiresMinutes} minutes.`\n    : `${input.code} är din verifieringskod för bokningen hos ${input.companyName}. Gäller i ${expiresMinutes} minuter.`;\n\n  try {\n    const response = await fetch("https://api.brevo.com/v3/transactionalSMS/sms", {\n      method: "POST",\n      headers: { "api-key": apiKey, "Content-Type": "application/json" },\n      body: JSON.stringify({ sender: sender.slice(0, 11), recipient, content, type: "transactional" }),\n    });\n    const data = (await response.json().catch(() => ({}))) as BrevoSmsResponse;\n    if (!response.ok) {\n      return { ok: false as const, skipped: false as const, message: data.message ?? data.code ?? "Could not send verification SMS via Brevo." };\n    }\n    return { ok: true as const, skipped: false as const, providerId: data.messageId ?? null };\n  } catch {\n    return { ok: false as const, skipped: false as const, message: "Could not contact Brevo SMS." };\n  }\n}\n\nexport async function sendBookingOwnerSms(input: SendBookingOwnerSmsInput) {'''
+          )
+
+          # Send PrimeView verification codes over both email and SMS, and support resend.
+          replace_once(
+              'src/lib/public-booking-verification.ts',
+              '''import { sendBookingOwnerSms } from "@/features/sms/booking-sms";''',
+              '''import { sendBookingOwnerSms, sendBookingVerificationSms } from "@/features/sms/booking-sms";'''
+          )
+          replace_once(
+              'src/lib/public-booking-verification.ts',
+              '''  language?: "sv" | "en";\n};''',
+              '''  language?: "sv" | "en";\n  verificationSms?: boolean;\n};'''
+          )
+          replace_once(
+              'src/lib/public-booking-verification.ts',
+              '''  const sent = await sendBookingVerificationEmail({ customerName: input.customerName, customerEmail: input.customerEmail, companyName: input.companyName, code, expiresMinutes: EXPIRY_MINUTES, language: input.language });\n  if (!sent.ok) {\n    await sql`delete from public_booking_verifications where id = ${id}::uuid`;\n    return { ok: false as const, error: "email" };\n  }\n  return { ok: true as const, verificationId: id };\n}\n\nexport async function verifyPublicBookingCode(id: string, code: string) {''',
+              '''  const [emailSent, smsSent] = await Promise.all([\n    sendBookingVerificationEmail({ customerName: input.customerName, customerEmail: input.customerEmail, companyName: input.companyName, code, expiresMinutes: EXPIRY_MINUTES, language: input.language }),\n    input.verificationSms && input.customerPhone\n      ? sendBookingVerificationSms({ customerPhone: input.customerPhone, companyName: input.companyName, code, expiresMinutes: EXPIRY_MINUTES, language: input.language })\n      : Promise.resolve({ ok: false as const, skipped: true as const, message: "SMS verification not requested." }),\n  ]);\n  if (!emailSent.ok && !smsSent.ok) {\n    await sql`delete from public_booking_verifications where id = ${id}::uuid`;\n    return { ok: false as const, error: "email" };\n  }\n  const delivery = emailSent.ok && smsSent.ok ? "email_sms" : smsSent.ok ? "sms" : "email";\n  return { ok: true as const, verificationId: id, delivery };\n}\n\nexport async function resendPublicBookingCode(id: string, language: "sv" | "en" = "sv") {\n  const sql = getSql();\n  if (!sql || !/^[0-9a-f-]{36}$/i.test(id)) return { ok: false as const, error: "invalid" };\n\n  const rows = await sql`\n    select v.*, coalesce(nullif(ws.company_name, ''), w.company_name, w.name) as company_name\n    from public_booking_verifications v\n    join workspaces w on w.id = v.workspace_id\n    left join workspace_settings ws on ws.workspace_id = w.id::text\n    where v.id = ${id}::uuid\n    limit 1\n  `;\n  const challenge = rows[0];\n  if (!challenge || challenge.consumed_at || challenge.verified_at) return { ok: false as const, error: "invalid" };\n\n  const createdAt = new Date(String(challenge.created_at)).getTime();\n  const updatedAt = new Date(String(challenge.updated_at ?? challenge.created_at)).getTime();\n  if (!Number.isFinite(createdAt) || Date.now() - createdAt > 60 * 60 * 1000) return { ok: false as const, error: "expired" };\n  if (Number.isFinite(updatedAt) && Date.now() - updatedAt < 30_000) return { ok: false as const, error: "wait" };\n\n  const code = String(randomInt(0, 1_000_000)).padStart(6, "0");\n  const companyName = String(challenge.company_name);\n  const customerName = String(challenge.customer_name);\n  const customerEmail = String(challenge.customer_email);\n  const customerPhone = challenge.customer_phone ? String(challenge.customer_phone) : "";\n  const useSms = String(challenge.public_booking_slug) === "primeview" && Boolean(customerPhone);\n\n  const [emailSent, smsSent] = await Promise.all([\n    sendBookingVerificationEmail({ customerName, customerEmail, companyName, code, expiresMinutes: EXPIRY_MINUTES, language }),\n    useSms\n      ? sendBookingVerificationSms({ customerPhone, companyName, code, expiresMinutes: EXPIRY_MINUTES, language })\n      : Promise.resolve({ ok: false as const, skipped: true as const, message: "SMS verification not requested." }),\n  ]);\n  if (!emailSent.ok && !smsSent.ok) return { ok: false as const, error: "email" };\n\n  const expiresAt = new Date(Date.now() + EXPIRY_MINUTES * 60_000).toISOString();\n  await sql`\n    update public_booking_verifications\n    set code_hash = ${hashCode(id, code)}, expires_at = ${expiresAt}::timestamptz, attempts = 0, updated_at = now()\n    where id = ${id}::uuid and consumed_at is null and verified_at is null\n  `;\n  const delivery = emailSent.ok && smsSent.ok ? "email_sms" : smsSent.ok ? "sms" : "email";\n  return { ok: true as const, delivery };\n}\n\nexport async function verifyPublicBookingCode(id: string, code: string) {'''
+          )
+
+          # PrimeView opts into SMS verification and carries the successful delivery channel to the verification page.
+          replace_once(
+              'src/app/primeview-booking/page.tsx',
+              '''    startsAt: start.toISOString(), endsAt: end.toISOString(), timeZone, language: "en",\n  });\n  if (!result.ok) redirect(bookingUrl(`error=${result.error === "email" ? "email" : result.error === "service" ? "service" : "conflict"}`));\n  redirect(`/boka/verifiera/${result.verificationId}?lang=en`);''',
+              '''    startsAt: start.toISOString(), endsAt: end.toISOString(), timeZone, language: "en", verificationSms: true,\n  });\n  if (!result.ok) redirect(bookingUrl(`error=${result.error === "email" ? "email" : result.error === "service" ? "service" : "conflict"}`));\n  redirect(`/boka/verifiera/${result.verificationId}?lang=en&channel=${encodeURIComponent(result.delivery)}`);'''
+          )
+
+          # Improve verification UX and add a real resend action that can revive a recently expired challenge.
+          verify_page = Path('src/app/boka/verifiera/[id]/page.tsx')
+          verify_page.write_text('''import { redirect } from "next/navigation";\n\nimport { resendPublicBookingCode, verifyPublicBookingCode } from "@/lib/public-booking-verification";\n\nexport const dynamic = "force-dynamic";\n\ntype PageProps = {\n  params: Promise<{ id: string }>;\n  searchParams?: Promise<{ error?: string | string[]; lang?: string | string[]; resent?: string | string[]; channel?: string | string[] }>;\n};\n\ntype Locale = "sv" | "en";\nconst messages: Record<Locale, Record<string, string>> = {\n  sv: {\n    invalid: "Verifieringsförfrågan är ogiltig.", expired: "Koden har gått ut. Skicka en ny kod.", attempts: "För många felaktiga försök. Skicka en ny kod.", code: "Koden stämmer inte. Kontrollera mejlet eller SMS:et och försök igen.", conflict: "Tiden hann bli bokad. Välj en ny tid.", save: "Bokningen kunde inte sparas. Försök igen.", wait: "Vänta minst 30 sekunder innan du skickar en ny kod.", email: "Koden kunde inte skickas just nu. Försök igen om en stund.",\n  },\n  en: {\n    invalid: "The verification request is invalid.", expired: "The code has expired. Send a new code.", attempts: "Too many incorrect attempts. Send a new code.", code: "That code is incorrect. Check your email or SMS and try again.", conflict: "That time has just been booked. Please choose a new time.", save: "The booking could not be saved. Please try again.", wait: "Please wait at least 30 seconds before sending another code.", email: "We could not send a code right now. Please try again in a moment.",\n  },\n};\n\nfunction first(value: string | string[] | undefined) { return Array.isArray(value) ? value[0] : value; }\nfunction channelSuffix(channel: string) { return channel ? `&channel=${encodeURIComponent(channel)}` : ""; }\n\nasync function verify(formData: FormData) {\n  "use server";\n  const id = String(formData.get("id") ?? "");\n  const code = String(formData.get("code") ?? "").trim();\n  const locale: Locale = formData.get("lang") === "en" ? "en" : "sv";\n  const channel = String(formData.get("channel") ?? "");\n  const result = await verifyPublicBookingCode(id, code);\n  if (!result.ok) redirect(`/boka/verifiera/${id}?error=${result.error}${locale === "en" ? "&lang=en" : ""}${channelSuffix(channel)}`);\n  if (result.slug === "primeview") redirect("/booking?booked=1");\n  redirect(`/boka/${result.slug}?booked=1${locale === "en" ? "&lang=en" : ""}`);\n}\n\nasync function resend(formData: FormData) {\n  "use server";\n  const id = String(formData.get("id") ?? "");\n  const locale: Locale = formData.get("lang") === "en" ? "en" : "sv";\n  const result = await resendPublicBookingCode(id, locale);\n  if (!result.ok) redirect(`/boka/verifiera/${id}?error=${result.error}${locale === "en" ? "&lang=en" : ""}`);\n  redirect(`/boka/verifiera/${id}?resent=1${locale === "en" ? "&lang=en" : ""}&channel=${encodeURIComponent(result.delivery)}`);\n}\n\nexport default async function VerifyBookingPage({ params, searchParams }: PageProps) {\n  const { id } = await params;\n  const query = searchParams ? await searchParams : undefined;\n  const locale: Locale = first(query?.lang) === "en" ? "en" : "sv";\n  const isEnglish = locale === "en";\n  const error = messages[locale][first(query?.error) ?? ""];\n  const resent = first(query?.resent) === "1";\n  const channel = first(query?.channel) ?? "email";\n  const deliveryText = isEnglish\n    ? channel === "sms"\n      ? "We sent a six-digit code by SMS. It is valid for 10 minutes."\n      : channel === "email_sms"\n        ? "We sent a six-digit code to your email and phone. It is valid for 10 minutes."\n        : "We sent a six-digit code to your email. It is valid for 10 minutes."\n    : channel === "sms"\n      ? "Vi har skickat en sexsiffrig kod via SMS. Koden gäller i 10 minuter."\n      : channel === "email_sms"\n        ? "Vi har skickat en sexsiffrig kod till din e-post och telefon. Koden gäller i 10 minuter."\n        : "Vi har skickat en sexsiffrig kod till din e-post. Koden gäller i 10 minuter.";\n\n  return (\n    <main className="min-h-screen bg-[#f7f7f4] px-4 py-16 sm:px-6">\n      <section className="mx-auto max-w-md rounded-[2rem] bg-white p-7 shadow-sm ring-1 ring-[#dfe5dd] sm:p-9">\n        <p className="text-sm font-bold uppercase tracking-[.16em] text-[#17452f]">{isEnglish ? "Verify booking" : "Verifiera bokning"}</p>\n        <h1 className="mt-3 text-3xl font-bold text-[#17201a]">{isEnglish ? "Enter your verification code" : "Ange din verifieringskod"}</h1>\n        <p className="mt-3 text-sm leading-6 text-[#5b665f]">{deliveryText} {isEnglish ? "The booking is created only after the code is verified." : "Bokningen skapas först när koden har verifierats."}</p>\n        {resent ? <p className="mt-5 rounded-xl bg-[#eef8f1] p-4 text-sm font-semibold text-[#17452f] ring-1 ring-[#c9e2d0]">{isEnglish ? "A new code has been sent." : "En ny kod har skickats."}</p> : null}\n        {error ? <p role="alert" className="mt-5 rounded-xl bg-[#fff5f2] p-4 text-sm font-semibold text-[#8f2f1b] ring-1 ring-[#f4c7ba]">{error}</p> : null}\n        <form action={verify} className="mt-6 grid gap-4">\n          <input type="hidden" name="id" value={id} />\n          <input type="hidden" name="lang" value={locale} />\n          <input type="hidden" name="channel" value={channel} />\n          <label className="grid gap-2 text-sm font-bold text-[#17201a]">\n            {isEnglish ? "Verification code" : "Verifieringskod"}\n            <input name="code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" minLength={6} maxLength={6} required autoFocus className="rounded-xl border border-[#cfd9d0] px-4 py-3 text-center text-2xl font-black tracking-[.35em] outline-none focus:border-[#17452f]" />\n          </label>\n          <button className="rounded-xl bg-[#17452f] px-4 py-3 font-bold text-white hover:bg-[#123923]">{isEnglish ? "Verify and create booking" : "Verifiera och skapa bokning"}</button>\n        </form>\n        <form action={resend} className="mt-4">\n          <input type="hidden" name="id" value={id} />\n          <input type="hidden" name="lang" value={locale} />\n          <button type="submit" className="w-full rounded-xl border border-[#cfd9d0] bg-white px-4 py-3 text-sm font-bold text-[#17452f] hover:bg-[#f5f8f5]">{isEnglish ? "Didn't receive it? Send a new code" : "Fick du ingen kod? Skicka en ny"}</button>\n        </form>\n      </section>\n    </main>\n  );\n}\n''')
+          PY
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Test
+        run: npm test
+      - name: Lint
+        run: npm run lint
+      - name: Commit validated fix
+        run: |
+          rm .github/workflows/primeview-verification-delivery-fix.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/features/sms/booking-sms.ts src/lib/public-booking-verification.ts src/app/primeview-booking/page.tsx src/app/boka/verifiera/[id]/page.tsx .github/workflows/primeview-verification-delivery-fix.yml
+          git commit -m "fix: make PrimeView verification delivery resilient"
+          git push origin HEAD:fix/primeview-verification-delivery
