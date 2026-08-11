@@ -137,7 +137,7 @@ async function requestPrimeViewBooking(formData: FormData) {
   if (key === "window") {
     if (!WINDOW_ACCESS_OPTIONS.includes(windowAccess as (typeof WINDOW_ACCESS_OPTIONS)[number])) redirect(bookingUrl("error=invalid"));
     const totalWindows = (pricingInput.standardWindows || 0) + (pricingInput.largeWindows || 0) + (pricingInput.bayWindows || 0);
-    if (!pricingInput.cleaningScope || !pricingInput.frequency || !pricingInput.floors || totalWindows < 1) redirect(bookingUrl("error=invalid"));
+    if (!pricingInput.cleaningScope || !pricingInput.frequency || !pricingInput.floorCount || totalWindows < 1) redirect(bookingUrl("error=invalid"));
   }
   if ((key === "gutter" || key === "fascia") && !pricingInput.propertySize) redirect(bookingUrl("error=invalid"));
   if (key === "conservatory" && !pricingInput.conservatorySize) redirect(bookingUrl("error=invalid"));
@@ -194,7 +194,6 @@ async function requestPrimeViewBooking(formData: FormData) {
   if (arrivalNotes) detailLines.push(`Arrival notes: ${arrivalNotes}`);
 
   const fieldSummary = [
-    pricingInput.floors && `Floors: ${pricingInput.floors}`,
     pricingInput.cleaningScope && `Cleaning: ${pricingInput.cleaningScope}`,
     pricingInput.standardWindows ? `Standard windows: ${pricingInput.standardWindows}` : "",
     pricingInput.largeWindows ? `Large windows: ${pricingInput.largeWindows}` : "",

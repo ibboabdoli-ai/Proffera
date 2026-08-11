@@ -11,8 +11,10 @@ function notFound() {
 }
 
 export async function GET(request: Request) {
-  const pathname = new URL(request.url).searchParams.get("pathname")?.trim() ?? "";
-  if (!pathname.startsWith("primeview-booking/") || pathname.includes("..") || pathname.length > 800) return notFound();
+  const searchParams = new URL(request.url).searchParams;
+  const pathname = searchParams.get("pathname")?.trim() ?? "";
+  const bookingId = searchParams.get("bookingId")?.trim() ?? "";
+  if (!/^[0-9a-f-]{36}$/i.test(bookingId) || !pathname.startsWith("primeview-booking/") || pathname.includes("..") || pathname.length > 800) return notFound();
 
   const access = await getUserWorkspaceAccess();
   if (!access.ok || !canManageWorkspaceSettings(access)) return notFound();
@@ -28,6 +30,16 @@ export async function GET(request: Request) {
     limit 1
   `;
   if (!rows[0]) return notFound();
+
+  const bookingRows = await sql`
+    select id
+    from bookings
+    where id::text = ${bookingId}
+      and workspace_id = ${access.workspaceId}
+      and position(${`Photo: ${pathname}`} in coalesce(notes, '')) > 0
+    limit 1
+  `;
+  if (!bookingRows[0]) return notFound();
 
   try {
     const result = await get(pathname, { access: "private" });

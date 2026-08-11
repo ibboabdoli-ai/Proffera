@@ -149,11 +149,12 @@ export function calculatePrimeViewPrice(input: PrimeViewPricingInput): PrimeView
     if (!count || !input.cleaningScope) return manual("Enter the window quantities and cleaning type to calculate a price.");
     if (hard > count) return manual("Hard-access window count cannot be greater than the total window count.");
 
+    const insideOnly = input.cleaningScope === "Inside only";
     const both = input.cleaningScope === "Inside & outside";
     const lines: PrimeViewPricingLine[] = [];
     const standardRate = both ? 5.5 : 3;
-    const largeRate = both ? 7.5 : 5;
-    const bayRate = both ? 9.5 : 7;
+    const largeRate = insideOnly ? 3 : both ? 7.5 : 6;
+    const bayRate = insideOnly ? 3 : both ? 9 : 8;
     if (standard) lines.push({ label: `${standard} standard window${standard === 1 ? "" : "s"} × £${standardRate}`, amount: standard * standardRate });
     if (large) lines.push({ label: `${large} large window${large === 1 ? "" : "s"} × £${largeRate}`, amount: large * largeRate });
     if (bay) lines.push({ label: `${bay} very large / bay window${bay === 1 ? "" : "s"} × £${bayRate}`, amount: bay * bayRate });
