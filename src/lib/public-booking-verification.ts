@@ -45,6 +45,9 @@ export type BeginBookingVerificationInput = {
   serviceName: string;
   staffId?: string;
   city?: string;
+  address?: string;
+  postcode?: string;
+  bookingDetails?: string;
   startsAt: string;
   endsAt: string;
   timeZone: WorkspaceTimeZone;
@@ -70,10 +73,12 @@ export async function beginBookingEmailVerification(input: BeginBookingVerificat
   const rows = await sql`
     insert into public_booking_verifications (
       workspace_id, public_booking_slug, customer_name, customer_email, customer_phone,
-      service_id, service_name, staff_id, city, starts_at, ends_at, code_hash, expires_at
+      service_id, service_name, staff_id, city, address, postcode, booking_details,
+      starts_at, ends_at, code_hash, expires_at
     ) values (
       ${input.workspaceId}::uuid, ${input.slug}, ${input.customerName}, ${input.customerEmail.toLowerCase()},
       ${input.customerPhone || null}, ${input.serviceId}::uuid, ${input.serviceName}, ${input.staffId || null}::uuid, ${input.city || null},
+      ${input.address || null}, ${input.postcode || null}, ${input.bookingDetails || null},
       ${input.startsAt}::timestamptz, ${input.endsAt}::timestamptz, '', ${expiresAt}::timestamptz
     ) returning id
   `;
@@ -128,6 +133,10 @@ export async function verifyPublicBookingCode(id: string, code: string) {
   const startsAt = toIsoTimestamp(challenge.starts_at);
   const endsAt = toIsoTimestamp(challenge.ends_at);
   const staffId = challenge.staff_id ? String(challenge.staff_id) : null;
+  const address = challenge.address ? String(challenge.address) : "";
+  const postcode = challenge.postcode ? String(challenge.postcode) : "";
+  const bookingDetails = challenge.booking_details ? String(challenge.booking_details) : "";
+  const bookingNote = [address ? `Address: ${address}` : "", postcode ? `Postcode: ${postcode}` : "", bookingDetails].filter(Boolean).join("\n");
 
   const conflict = await sql`
     select id from bookings
@@ -149,15 +158,15 @@ export async function verifyPublicBookingCode(id: string, code: string) {
         where workspace_id = ${String(challenge.workspace_id)} and lower(email) = lower(${String(challenge.customer_email)})
         order by created_at asc nulls last, id asc limit 1
       ), inserted_customer as (
-        insert into customers (workspace_id, name, email, phone, city, status, source)
-        select ${String(challenge.workspace_id)}, ${String(challenge.customer_name)}, ${String(challenge.customer_email)}, ${challenge.customer_phone ? String(challenge.customer_phone) : null}, ${challenge.city ? String(challenge.city) : null}, 'prospect', 'public_booking'
+        insert into customers (workspace_id, name, email, phone, city, status, source, notes)
+        select ${String(challenge.workspace_id)}, ${String(challenge.customer_name)}, ${String(challenge.customer_email)}, ${challenge.customer_phone ? String(challenge.customer_phone) : null}, ${challenge.city ? String(challenge.city) : null}, 'prospect', 'public_booking', ${bookingNote || null}
         where not exists (select 1 from existing_customer)
         returning id
       ), selected_customer as (
         select id from existing_customer union all select id from inserted_customer limit 1
       ), booking as (
-        insert into bookings (workspace_id, customer_id, staff_id, service_id, title, service, city, status, starts_at, ends_at, source)
-        select ${String(challenge.workspace_id)}, id, ${staffId}::uuid, ${serviceId}::uuid, ${String(challenge.service_name)}, ${String(challenge.service_name)}, ${challenge.city ? String(challenge.city) : null}, 'requested', ${startsAt}::timestamptz, ${endsAt}::timestamptz, 'public_booking'
+        insert into bookings (workspace_id, customer_id, staff_id, service_id, title, service, city, status, starts_at, ends_at, source, notes)
+        select ${String(challenge.workspace_id)}, id, ${staffId}::uuid, ${serviceId}::uuid, ${String(challenge.service_name)}, ${String(challenge.service_name)}, ${challenge.city ? String(challenge.city) : null}, 'requested', ${startsAt}::timestamptz, ${endsAt}::timestamptz, 'public_booking', ${bookingNote || null}
         from selected_customer limit 1 returning id, customer_id
       )
       update public_booking_verifications set verified_at = now(), consumed_at = now(), updated_at = now()

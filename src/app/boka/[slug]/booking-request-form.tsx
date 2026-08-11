@@ -45,6 +45,14 @@ const copy = {
     firstStaff: "Första lediga personal", fastest: "Snabbaste tillgängliga tiden", back: "Tillbaka", chooseDayTime: "Välj dag och tid",
     noTimesDay: "Inga lediga tider denna dag.", nearestAvailable: "Visa närmaste lediga tid", continue: "Fortsätt", changeTime: "Byt tid", yourDetails: "Dina uppgifter",
     verificationInfo: "Vi skickar en sexsiffrig kod. Bokningen blir klar efter verifiering.", website: "Webbplats", at: "kl.", genericStaff: "Personal",
+    propertyDetails: "Information om fastigheten",
+    propertyHelp: "Ge oss detaljerna nedan så att PrimeView kan planera jobbet och bekräfta rätt pris.",
+    address: "Fullständig adress", postcode: "Postnummer", propertyType: "Typ av fastighet", choose: "Välj",
+    house: "Hus", flat: "Lägenhet", commercial: "Företag / lokal",
+    floors: "Antal våningar", groundOnly: "Endast bottenvåning", groundFirst: "Botten + 1:a våningen", groundTwo: "Botten + 2 våningar", other: "Annat",
+    windows: "Ungefärligt antal fönster", cleaningScope: "Vad ska rengöras?", outsideOnly: "Endast utsida", insideOutside: "In- och utsida",
+    framesSills: "Ramar och fönsterbleck?", yes: "Ja", no: "Nej", frequency: "Hur ofta?", oneOff: "Engångsjobb", every4: "Var 4:e vecka", every6: "Var 6:e vecka", every8: "Var 8:e vecka",
+    difficultAccess: "Finns fönster med svår åtkomst?", notSure: "Osäker", extraNotes: "Övrig information", extraNotesPlaceholder: "Exempel: fönster ovanför uterum, låst grind eller annan information som hjälper oss att planera jobbet.",
   },
   en: {
     weekdays: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
@@ -56,6 +64,14 @@ const copy = {
     firstStaff: "First available staff", fastest: "Fastest available appointment", back: "Back", chooseDayTime: "Choose day and time",
     noTimesDay: "No available times on this day.", nearestAvailable: "Show nearest available time", continue: "Continue", changeTime: "Change time", yourDetails: "Your details",
     verificationInfo: "We will send a six-digit code. The booking is completed after verification.", website: "Website", at: "at", genericStaff: "Staff",
+    propertyDetails: "Property details",
+    propertyHelp: "Tell us about the property so PrimeView can plan the job and confirm the correct price.",
+    address: "Full address", postcode: "Postcode", propertyType: "Property type", choose: "Choose",
+    house: "House", flat: "Flat", commercial: "Commercial",
+    floors: "Number of floors", groundOnly: "Ground floor only", groundFirst: "Ground + 1st floor", groundTwo: "Ground + 2 floors", other: "Other",
+    windows: "Approx. number of windows", cleaningScope: "Cleaning required", outsideOnly: "Outside only", insideOutside: "Inside & outside",
+    framesSills: "Include frames & sills?", yes: "Yes", no: "No", frequency: "How often?", oneOff: "One-off", every4: "Every 4 weeks", every6: "Every 6 weeks", every8: "Every 8 weeks",
+    difficultAccess: "Any difficult-access windows?", notSure: "Not sure", extraNotes: "Additional details", extraNotesPlaceholder: "For example: windows above a conservatory, locked gate, access restrictions, or anything else that helps us plan the job.",
   },
 } as const;
 
@@ -106,6 +122,8 @@ export function BookingRequestForm({ action, slug, services, bookingHours, busyB
   const selectedService = services.find((service) => service.id === serviceId);
   const maximumDate = selectedService ? addDaysToDateInput(today, selectedService.maximumAdvanceDays) : undefined;
   const weekDates = useMemo(() => Array.from({ length: 7 }, (_, index) => addDaysToDateInput(today, weekOffset * 7 + index)), [today, weekOffset]);
+  const isPrimeView = slug === "primeview";
+  const isWindowCleaning = isPrimeView && selectedService?.name.toLowerCase().includes("window cleaning");
 
   useEffect(() => {
     if (!weekDates.includes(date)) { setDate(weekDates[0]); setTime(""); setAssignedStaffId(""); }
@@ -174,13 +192,31 @@ export function BookingRequestForm({ action, slug, services, bookingHours, busyB
     return <form action={action} data-booking-form="default" className="mt-8 grid gap-4">
       <input type="hidden" name="slug" value={slug} /><input type="hidden" name="lang" value={locale} /><input type="hidden" name="starts_at" value={date && time ? `${date}T${time}` : ""} /><input type="hidden" name="form_started_at" value={formStartedAt} />
       <label className="absolute left-[-10000px]" aria-hidden="true">{t.website}<input name="website" tabIndex={-1} /></label>
-      <label className="grid gap-2 text-sm font-semibold">{t.name}<input name="name" required className="rounded-xl border px-4 py-3" /></label>
-      <label className="grid gap-2 text-sm font-semibold">{t.email}<input name="email" required type="email" className="rounded-xl border px-4 py-3" /></label>
-      <label className="grid gap-2 text-sm font-semibold">{t.phone}<input name="phone" type="tel" className="rounded-xl border px-4 py-3" /></label>
       <label className="grid gap-2 text-sm font-semibold">{t.service}<select name="service_id" required value={serviceId} onChange={(e) => chooseDefaultService(e.target.value)} className="rounded-xl border px-4 py-3"><option value="">{t.chooseService}</option>{services.map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}</select></label>
+
+      {isPrimeView && selectedService ? <fieldset className="grid gap-4 rounded-2xl border border-current/15 p-4">
+        <legend className="px-2 text-sm font-black">{t.propertyDetails}</legend>
+        <p className="text-xs leading-5 opacity-75">{t.propertyHelp}</p>
+        <label className="grid gap-2 text-sm font-semibold">{t.propertyType}<select name="property_type" required className="rounded-xl border px-4 py-3"><option value="">{t.choose}</option><option value="House">{t.house}</option><option value="Flat">{t.flat}</option><option value="Commercial">{t.commercial}</option></select></label>
+        <label className="grid gap-2 text-sm font-semibold">{t.address}<input name="address" required autoComplete="street-address" className="rounded-xl border px-4 py-3" /></label>
+        <label className="grid gap-2 text-sm font-semibold">{t.postcode}<input name="postcode" required autoComplete="postal-code" inputMode="text" className="rounded-xl border px-4 py-3" placeholder="W4 3ES" /></label>
+        {isWindowCleaning ? <>
+          <label className="grid gap-2 text-sm font-semibold">{t.floors}<select name="floors" required className="rounded-xl border px-4 py-3"><option value="">{t.choose}</option><option value="Ground floor only">{t.groundOnly}</option><option value="Ground + 1st floor">{t.groundFirst}</option><option value="Ground + 2 floors">{t.groundTwo}</option><option value="Other">{t.other}</option></select></label>
+          <label className="grid gap-2 text-sm font-semibold">{t.windows}<input name="window_count" required type="number" min="1" max="500" inputMode="numeric" className="rounded-xl border px-4 py-3" /></label>
+          <label className="grid gap-2 text-sm font-semibold">{t.cleaningScope}<select name="cleaning_scope" required className="rounded-xl border px-4 py-3"><option value="">{t.choose}</option><option value="Outside only">{t.outsideOnly}</option><option value="Inside & outside">{t.insideOutside}</option></select></label>
+          <label className="grid gap-2 text-sm font-semibold">{t.framesSills}<select name="frames_sills" required className="rounded-xl border px-4 py-3"><option value="">{t.choose}</option><option value="Yes">{t.yes}</option><option value="No">{t.no}</option></select></label>
+          <label className="grid gap-2 text-sm font-semibold">{t.frequency}<select name="frequency" required className="rounded-xl border px-4 py-3"><option value="">{t.choose}</option><option value="One-off">{t.oneOff}</option><option value="Every 4 weeks">{t.every4}</option><option value="Every 6 weeks">{t.every6}</option><option value="Every 8 weeks">{t.every8}</option></select></label>
+          <label className="grid gap-2 text-sm font-semibold">{t.difficultAccess}<select name="difficult_access" required className="rounded-xl border px-4 py-3"><option value="">{t.choose}</option><option value="Yes">{t.yes}</option><option value="No">{t.no}</option><option value="Not sure">{t.notSure}</option></select></label>
+        </> : null}
+        <label className="grid gap-2 text-sm font-semibold">{t.extraNotes}<textarea name="additional_notes" rows={3} maxLength={1200} className="rounded-xl border px-4 py-3" placeholder={t.extraNotesPlaceholder} /></label>
+      </fieldset> : null}
+
       <input aria-label={t.chooseDayTime} type="date" required disabled={!selectedService} min={today} max={maximumDate} value={date} onChange={(e) => { setDate(e.target.value); setTime(""); }} className="rounded-xl border px-4 py-3 disabled:opacity-55" />
       <select aria-label={t.chooseTime} required disabled={!selectedService || !times.length} value={time} onChange={(e) => setTime(e.target.value)} className="rounded-xl border px-4 py-3 disabled:opacity-55"><option value="">{selectedService && !times.length ? t.noTimesDay : t.chooseTime}</option>{times.map((slot) => <option key={slot}>{slot}</option>)}</select>
       {selectedService && !times.length ? <div className="rounded-xl border border-black/10 bg-black/[.03] p-3 text-sm"><p>{t.noTimesDay}</p>{nearest && nearest.date !== date ? <button type="button" onClick={() => { setDate(nearest.date); setTime(""); }} className="mt-2 min-h-0 font-bold underline underline-offset-4">{t.nearestAvailable}: {formatDateLabel(nearest.date)} {t.at} {nearest.time}</button> : null}</div> : null}
+      <label className="grid gap-2 text-sm font-semibold">{t.name}<input name="name" required autoComplete="name" className="rounded-xl border px-4 py-3" /></label>
+      <label className="grid gap-2 text-sm font-semibold">{t.phone}<input name="phone" type="tel" autoComplete="tel" className="rounded-xl border px-4 py-3" /></label>
+      <label className="grid gap-2 text-sm font-semibold">{t.email}<input name="email" required type="email" autoComplete="email" className="rounded-xl border px-4 py-3" /></label>
       <button disabled={!selectedService || !time} className="rounded-xl bg-[#17452f] px-5 py-3 font-bold text-white disabled:opacity-45">{t.sendCode}</button>
     </form>;
   }
