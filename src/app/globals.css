@@ -25,6 +25,8 @@ html {
 
 /* PrimeView is a standalone customer site; preserve native document scrolling on mobile. */
 html.primeview-site {
+  inline-size: 100%;
+  max-inline-size: 100%;
   background: #030f28;
   overscroll-behavior-y: none;
   scroll-behavior: auto;
@@ -40,11 +42,31 @@ body {
 }
 
 html.primeview-site body {
+  inline-size: 100%;
+  max-inline-size: 100%;
   min-block-size: 100dvh;
   overflow-x: hidden;
   overflow-x: clip;
   background: #030f28;
   overscroll-behavior-y: none;
+}
+
+/* Keep third-party controls and responsive grids from widening the iPhone viewport. */
+html.primeview-site body > main,
+html.primeview-site body > main > main {
+  inline-size: 100%;
+  max-inline-size: 100%;
+  min-inline-size: 0;
+  overflow-x: clip;
+}
+
+html.primeview-site :where(header, section, form, aside, div, label, input, select, textarea) {
+  min-inline-size: 0;
+  max-inline-size: 100%;
+}
+
+html.primeview-site :where(input, select, textarea) {
+  font-size: max(16px, 1em);
 }
 
 :where(a) {
