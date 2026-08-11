@@ -1,0 +1,55 @@
+name: PrimeView homepage service sync
+
+on:
+  push:
+    branches:
+      - fix/primeview-homepage-service-package
+    paths:
+      - .github/workflows/primeview-homepage-service-sync.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-homepage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: fix/primeview-homepage-service-package
+          fetch-depth: 0
+      - name: Align PrimeView homepage services
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("src/app/demo/primeview/page.tsx")
+          text = path.read_text()
+
+          old_keywords = '''      "gutter cleaning London",\n      "fascia and soffit cleaning",'''
+          new_keywords = '''      "gutter cleaning London",\n      "pressure washing London",\n      "fascia and soffit cleaning",'''
+          if old_keywords not in text:
+              raise SystemExit("keyword anchor not found")
+          text = text.replace(old_keywords, new_keywords, 1)
+
+          old_service = '''  {\n    title: "Driveway & Patio Cleaning",\n    description: "Pressure washing for driveways, patios, paths and outdoor areas that need a fresh start.",\n    icon: Wrench,\n    image: "/primeview/services/driveway-patio-cleaning.webp",\n    imageAlt: "Professional pressure washing of a driveway and patio",\n  },\n  {\n    title: "Solar Panel Cleaning",'''
+          new_service = '''  {\n    title: "Pressure Washing",\n    description: "Pressure washing for driveways, patios, paths and outdoor areas that need a fresh start.",\n    icon: Wrench,\n    image: "/primeview/services/driveway-patio-cleaning.webp",\n    imageAlt: "Professional pressure washing of a driveway and patio",\n  },\n  {\n    title: "Gutter + Pressure Washing",\n    description: "Book both services together and get an automatic package saving shown in the calculator.",\n    icon: Droplets,\n    image: "/primeview/services/gutter-cleaning.webp",\n    imageAlt: "Gutter cleaning and pressure washing package",\n  },\n  {\n    title: "Solar Panel Cleaning",'''
+          if old_service not in text:
+              raise SystemExit("service anchor not found")
+          text = text.replace(old_service, new_service, 1)
+
+          old_hero = "Reliable window, gutter, fascia, conservatory, patio and solar panel cleaning for homes and businesses across West & North London."
+          new_hero = "Reliable window, gutter, fascia, conservatory, pressure washing and solar panel cleaning for homes and businesses across West & North London."
+          if old_hero not in text:
+              raise SystemExit("hero anchor not found")
+          text = text.replace(old_hero, new_hero, 1)
+
+          path.write_text(text)
+      - name: Commit homepage alignment
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/demo/primeview/page.tsx
+          git diff --cached --quiet && exit 0
+          git commit -m "fix: align PrimeView homepage services"
+          git push origin HEAD:fix/primeview-homepage-service-package
