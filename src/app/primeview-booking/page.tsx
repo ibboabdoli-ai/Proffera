@@ -184,7 +184,7 @@ async function requestPrimeViewBooking(formData: FormData) {
     pricingInput.sealing ? "Sealing requested: Yes" : "",
     pricingInput.access && `Access: ${pricingInput.access}`,
     pricingInput.condition && `Condition: ${pricingInput.condition}`,
-  ].filter(Boolean);
+  ].filter((value): value is string => Boolean(value));
   detailLines.push(...fieldSummary);
 
   const result = await beginBookingEmailVerification({
