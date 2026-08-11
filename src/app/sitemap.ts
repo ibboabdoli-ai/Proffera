@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 
 import { getPublicBusinessHub } from "@/lib/public-business-hub";
 import { listPublicBusinessSitemapEntries } from "@/lib/public-business-seo";
+import { listPublishedDirectorySitemapEntries } from "@/lib/company-directory-seo";
 import { primeViewSite } from "@/lib/primeview-seo";
 import { primeViewAreaPages, primeViewServicePages } from "@/lib/primeview-seo-pages";
 import { localizedPublicRoutes } from "@/lib/public-locale";
@@ -55,7 +56,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     ];
   }
 
-  const publicBusinessEntries = await listPublicBusinessSitemapEntries();
+  const [publicBusinessEntries, directoryEntries] = await Promise.all([
+    listPublicBusinessSitemapEntries(),
+    listPublishedDirectorySitemapEntries(),
+  ]);
   const lastModified = new Date();
   const seenBusinesses = new Set<string>();
   const publicBusinessRoutes: MetadataRoute.Sitemap = [];
@@ -80,6 +84,13 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     }
   }
 
+  const directoryRoutes: MetadataRoute.Sitemap = directoryEntries.map((entry) => ({
+    url: `${siteConfig.url}/foretag/listad/${encodeURIComponent(entry.slug)}`,
+    lastModified: entry.lastModified,
+    changeFrequency: "weekly",
+    priority: 0.65,
+  }));
+
   return [
     ...localizedPublicRoutes.flatMap((route) => {
       const languages = { "sv-SE": `${siteConfig.url}${route.sv}`, en: `${siteConfig.url}${route.en}` };
@@ -90,5 +101,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     }),
     ...swedishOnlyRoutes.map((route) => ({ url: `${siteConfig.url}${route}`, lastModified, changeFrequency: "monthly" as const, priority: 0.8 })),
     ...publicBusinessRoutes,
+    ...directoryRoutes,
   ];
 }

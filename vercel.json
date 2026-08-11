@@ -4,5 +4,11 @@
     "deploymentEnabled": {
       "work/proffera-*": false
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/cron/company-directory-sync",
+      "schedule": "17 2 * * *"
+    }
+  ]
 }

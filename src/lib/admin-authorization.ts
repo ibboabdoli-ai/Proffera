@@ -34,3 +34,10 @@ export async function requireCompanyAdmin() {
   if (!canAccessCompanyAdmin(admin.role)) redirect("/admin/saas?denied=1");
   return admin;
 }
+
+export async function requireSuperAdmin() {
+  const admin = await getPlatformAdmin();
+  if (!admin) redirect("/logga-in");
+  if (admin.role !== "super_admin") redirect("/admin/saas?denied=1");
+  return admin;
+}
