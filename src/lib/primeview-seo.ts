@@ -5,7 +5,7 @@ export const primeViewSite = {
   galleryUrl: "https://www.primeviewwindowcare.co.uk/gallery",
   title: "Window, Gutter & Exterior Cleaning in West & North London | PrimeView",
   description:
-    "Professional window, gutter and exterior cleaning for homes and businesses across West and North London. Request a free, no-obligation quote from PrimeView Window Care.",
+    "Professional window, gutter, pressure washing and exterior cleaning for homes and businesses across West and North London. Request a free, no-obligation quote from PrimeView Window Care.",
   telephone: "+447500338585",
   telephoneDisplay: "07500 338 585",
   email: "am@primeviewlondon.co.uk",
@@ -31,8 +31,12 @@ export const primeViewServices = [
     description: "Clear gutters and downpipes to help protect your home from overflowing rainwater.",
   },
   {
-    title: "Driveway & Patio Cleaning",
+    title: "Pressure Washing",
     description: "Pressure washing for driveways, patios, paths and outdoor areas that need a fresh start.",
+  },
+  {
+    title: "Gutter + Pressure Washing",
+    description: "A discounted package combining gutter cleaning and pressure washing in one visit.",
   },
   {
     title: "Solar Panel Cleaning",
