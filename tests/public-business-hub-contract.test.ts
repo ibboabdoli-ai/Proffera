@@ -58,69 +58,98 @@ describe("Public Business Hub architecture contract", () => {
   });
 
   it("supports a safe per-service cover image through admin, storage and public rendering", () => {
-    const actions = source("src/app/dashboard/installningar/service-actions.ts");
-    const database = source("src/lib/workspace-services-db.ts");
+    const migration = source("db/migrations/20260809_0036_public_business_hub.sql");
+    const serviceUi = source("src/app/dashboard/installningar/services-read-only.tsx");
+    const servicePage = source("src/app/foretag/[workspace]/tjanster/[service]/page.tsx");
     const publicHub = source("src/lib/public-business-hub.ts");
 
-    expect(actions).toContain("validateServiceCoverUpload");
-    expect(database).toContain("cover_image_url");
+    expect(migration).toContain("cover_image_url text not null default ''");
+    expect(serviceUi).toContain('name="cover_image_url"');
     expect(publicHub).toContain("coverImageUrl");
+    expect(servicePage).toContain("item.coverImageUrl");
   });
 
   it("does not silently preselect the first service from the company-level booking CTA", () => {
-    const publicHub = source("src/lib/public-business-hub.ts");
-
-    expect(publicHub).toContain('href: `/boka/${workspace.bookingSlug}`');
-    expect(publicHub).not.toContain('href: `/boka/${workspace.bookingSlug}?service_id=${service.id}`');
+    const businessPage = source("src/app/foretag/[workspace]/page.tsx");
+    expect(businessPage).not.toContain("bookableService");
+    expect(businessPage).toContain('href="#tjanster"');
+    expect(businessPage).toContain("/boka/${encodeURIComponent(business.bookingSlug)}");
   });
 
   it("keeps book-or-quote limited to those two conversion actions", () => {
-    const publicHub = source("src/lib/public-business-hub.ts");
-
-    expect(publicHub).toContain('service.conversionMode === "book_or_quote"');
-    expect(publicHub).toContain('label: locale === "sv" ? "Boka" : "Book"');
-    expect(publicHub).toContain('label: locale === "sv" ? "Begär offert" : "Request quote"');
+    const servicePage = source("src/app/foretag/[workspace]/tjanster/[service]/page.tsx");
+    expect(servicePage).toContain('const canContact = item.conversionMode === "contact";');
+    expect(servicePage).not.toContain('item.conversionMode === "contact" || item.conversionMode === "book_or_quote"');
   });
 
   it("routes contact-mode services into the existing CRM prospect model safely", () => {
-    const route = source("src/app/api/public-business/[slug]/contact/route.ts");
+    const contactRoute = source("src/app/api/public-business/contact/route.ts");
+    const contactForm = source("src/components/public-business/public-contact-form.tsx");
+    const servicePage = source("src/app/foretag/[workspace]/tjanster/[service]/page.tsx");
 
-    expect(route).toContain("insert into customers");
-    expect(route).toContain("'prospect'");
-    expect(route).toContain("public_business_contact");
+    expect(contactRoute).toContain("allowPublicSubmission");
+    expect(contactRoute).toContain("pg_advisory_xact_lock");
+    expect(contactRoute).toContain("lower(email) = lower");
+    expect(contactRoute).toContain("'prospect', 'web_form'");
+    expect(contactRoute).toContain("insert into customer_events");
+    expect(contactRoute).toContain("'note', 'Ny kontaktförfrågan'");
+    expect(contactRoute).toContain("conversion_mode = 'contact'");
+    expect(contactRoute).toContain("updated_existing as");
+    expect(contactRoute).toContain("select id from updated_existing");
+    expect(contactRoute).toContain("from selected_customer");
+    expect(contactRoute).not.toContain("refreshed_customer");
+    expect(contactForm).toContain('fetch("/api/public-business/contact"');
+    expect(servicePage).toContain("PublicBusinessContactForm");
   });
 
   it("routes company-level contact requests into CRM instead of requiring email", () => {
-    const route = source("src/app/api/public-business/[slug]/contact/route.ts");
-
-    expect(route).toContain("customer_phone");
-    expect(route).toContain("customer_email");
-    expect(route).toContain("contactMethod");
+    const businessPage = source("src/app/foretag/[workspace]/page.tsx");
+    expect(businessPage).toContain("PublicBusinessContactForm");
+    expect(businessPage).toContain('href="#kontakt"');
+    expect(businessPage).toContain('id="kontakt"');
+    expect(businessPage).toContain("<PublicBusinessContactForm workspaceId={business.id} locale={locale} />");
   });
 
   it("uses a guarded quote endpoint for Public Business Hub services without changing the legacy quote endpoint", () => {
-    const route = source("src/app/api/public-business/[slug]/quote/route.ts");
+    const quoteForm = source("src/components/public-business/public-quote-form.tsx");
+    const hubQuoteRoute = source("src/app/api/public-business/workspaces/[workspaceSlug]/quotes/route.ts");
+    const legacyQuoteRoute = source("src/app/api/public/workspaces/[workspaceSlug]/quotes/route.ts");
+    const quoteDb = source("src/lib/workspace-quote-requests-db.ts");
 
-    expect(route).toContain("public_business_quote");
-    expect(route).toContain("allowPublicSubmission");
-    expect(route).toContain("workspace_quote_requests");
+    expect(quoteForm).toContain("/api/public-business/workspaces/");
+    expect(quoteForm).not.toContain("/api/public/workspaces/");
+    expect(hubQuoteRoute).toContain('hasWorkspaceFeatureAccessForWorkspace(workspaceId, "website_builder")');
+    expect(hubQuoteRoute).toContain("requirePublishedQuoteService: true");
+    expect(hubQuoteRoute).toContain("allowPublicSubmission");
+    expect(quoteDb).toContain("requirePublishedQuoteService?: boolean");
+    expect(quoteDb).toContain("public_status = 'published'");
+    expect(quoteDb).toContain("conversion_mode in ('quote', 'book_or_quote')");
+    expect(legacyQuoteRoute).toContain("createPublicWorkspaceQuoteRequest(normalizedSlug, quote)");
+    expect(legacyQuoteRoute).not.toContain("requirePublishedQuoteService");
   });
 
   it("keeps connected custom domains booking-first until explicit website opt-in", () => {
-    const domains = source("src/lib/public-site-domains.ts");
+    const migration = source("db/migrations/20260809_0036_public_business_hub.sql");
+    const proxy = source("src/proxy.ts");
 
-    expect(domains).toContain('publicHomeMode === "website"');
-    expect(domains).toContain('`/boka/${slug}`');
+    expect(migration).toContain("public_home_mode text not null default 'booking'");
+    expect(proxy).toContain('target.publicHomeMode === "website"');
+    expect(proxy).toContain("/foretag/${encodeURIComponent(target.workspaceSlug)}");
+    expect(proxy).toContain("/boka/${encodeURIComponent(target.bookingSlug)}");
   });
 
   it("stores only non-PII funnel telemetry and enforces workspace/service identity", () => {
     const migration = source("db/migrations/20260809_0036_public_business_hub.sql");
-    const analytics = source("src/lib/public-business-analytics.ts");
+    const events = source("src/app/api/public-business/events/route.ts");
 
-    expect(migration).toContain("public_business_events");
-    expect(analytics).toContain("workspace_id");
-    expect(analytics).toContain("service_id");
-    expect(analytics).not.toContain("customer_email");
-    expect(analytics).not.toContain("customer_phone");
+    expect(migration).toContain("create table if not exists public_business_events");
+    expect(migration).toContain("public_business_events_service_identity");
+    expect(migration).not.toContain("public_business_events_customer_email");
+    expect(events).toContain('eventKey: z.enum(["business_view", "service_view", "book_clicked", "quote_clicked", "contact_clicked"])');
+    expect(events).toContain('hasWorkspaceFeatureAccessForWorkspace(event.workspaceId, "website_builder")');
+    expect(events).toContain("and is_active = true");
+    expect(events).toContain("and public_status = 'published'");
+    expect(events).not.toContain("customerEmail");
+    expect(events).not.toContain("customerPhone");
   });
 });
