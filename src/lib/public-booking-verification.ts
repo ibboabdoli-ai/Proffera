@@ -241,7 +241,7 @@ export async function verifyPublicBookingCode(id: string, code: string) {
           'booking',
           'Booking created',
           'Booking request created after customer email verification.',
-          jsonb_build_object('source', 'public_booking', 'service', ${String(challenge.service_name)})
+          jsonb_build_object('source', 'public_booking', 'service', ${String(challenge.service_name)}::text)
         from booking
         returning id
       )
