@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { CalendarDays, Check, ChevronRight, CirclePoundSterling, Home, Loader2, Mail, MapPin, Sparkles } from "lucide-react";
+import { CalendarDays, Check, ChevronRight, CirclePoundSterling, Home, Mail, MapPin, Sparkles } from "lucide-react";
 
 import { calculatePrimeViewPrice, serviceKeyFromName, type PrimeViewAccess, type PrimeViewCondition, type PrimeViewPricingInput } from "@/features/primeview/pricing";
 import {
@@ -14,6 +14,7 @@ import {
   type BookingAvailabilityService,
 } from "@/lib/public-booking-availability";
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
+import { PrimeViewGoogleAddressAutocomplete } from "./primeview-google-address-autocomplete";
 
 type BookingService = BookingAvailabilityService & { id: string; name: string };
 type BookingHour = BookingAvailabilityHour & { weekday: number };
@@ -68,9 +69,6 @@ export function PrimeViewPrecisionBookingForm({ action, services, bookingHours, 
   });
   const [postcode, setPostcode] = useState(() => UK_POSTCODE.test(requestedPostcode) ? requestedPostcode : "");
   const [address, setAddress] = useState("");
-  const [addressSuggestions, setAddressSuggestions] = useState<string[]>([]);
-  const [addressLookupLoading, setAddressLookupLoading] = useState(false);
-  const [addressLookupMessage, setAddressLookupMessage] = useState("");
   const [date, setDate] = useState(today);
   const [time, setTime] = useState("");
 
@@ -103,35 +101,6 @@ export function PrimeViewPrecisionBookingForm({ action, services, bookingHours, 
   const [weedTreatment, setWeedTreatment] = useState(false);
   const [resanding, setResanding] = useState(false);
   const [sealing, setSealing] = useState(false);
-
-  useEffect(() => {
-    if (!UK_POSTCODE.test(postcode)) return;
-
-    const controller = new AbortController();
-    const timer = window.setTimeout(async () => {
-      setAddressLookupLoading(true);
-      setAddressLookupMessage("");
-      try {
-        const response = await fetch(`/api/primeview/address-lookup?postcode=${encodeURIComponent(postcode)}`, { signal: controller.signal });
-        const data = await response.json().catch(() => ({})) as { addresses?: unknown; error?: unknown };
-        if (!response.ok) throw new Error(typeof data.error === "string" ? data.error : "Address lookup is unavailable.");
-        const nextAddresses = Array.isArray(data.addresses) ? data.addresses.filter((value): value is string => typeof value === "string" && Boolean(value.trim())) : [];
-        setAddressSuggestions(nextAddresses);
-        if (!nextAddresses.length) setAddressLookupMessage("No addresses were found. You can enter the address manually.");
-      } catch (error) {
-        if (controller.signal.aborted) return;
-        setAddressSuggestions([]);
-        setAddressLookupMessage(error instanceof Error ? error.message : "Address lookup is unavailable. Enter the address manually.");
-      } finally {
-        if (!controller.signal.aborted) setAddressLookupLoading(false);
-      }
-    }, 450);
-
-    return () => {
-      window.clearTimeout(timer);
-      controller.abort();
-    };
-  }, [postcode]);
 
   const selectedService = services.find((service) => service.id === serviceId);
   const serviceKey = selectedService ? serviceKeyFromName(selectedService.name) : null;
@@ -217,14 +186,14 @@ export function PrimeViewPrecisionBookingForm({ action, services, bookingHours, 
             <label className={labelClass}>Working height<select name="working_height" required value={workingHeight} onChange={(event) => setWorkingHeight(event.target.value as typeof workingHeight)} className={fieldClass}><option>Ground floor only</option><option>First floor</option><option>Second floor+</option><option>Long ladder required</option></select></label>
             <label className={labelClass}>Parking<select name="parking" required value={parking} onChange={(event) => setParking(event.target.value)} className={fieldClass}><option>Parking directly outside</option><option>Parking nearby</option><option>Difficult / paid parking</option></select></label>
             <label className={labelClass}>Pets at property<select name="pets" required value={pets} onChange={(event) => setPets(event.target.value)} className={fieldClass}><option>No</option><option>Yes</option></select></label>
-            <label className={labelClass}>UK postcode<input name="postcode" required autoComplete="postal-code" placeholder="W4 3ES" pattern="[A-Za-z]{1,2}[0-9][A-Za-z0-9]? ?[0-9][A-Za-z]{2}" value={postcode} onChange={(event) => { setPostcode(event.target.value.toUpperCase()); setAddress(""); setAddressSuggestions([]); setAddressLookupMessage(""); }} className={fieldClass} /></label>
-            {UK_POSTCODE.test(postcode) ? <div className="sm:col-span-2 rounded-2xl border border-[#d9e4ef] bg-[#f9fbfe] p-4">
+            <label className={labelClass}>UK postcode<input name="postcode" required autoComplete="postal-code" placeholder="W4 3ES" pattern="[A-Za-z]{1,2}[0-9][A-Za-z0-9]? ?[0-9][A-Za-z]{2}" value={postcode} onChange={(event) => { setPostcode(event.target.value.toUpperCase()); setAddress(""); }} className={fieldClass} /></label>
+            <div className="sm:col-span-2 rounded-2xl border border-[#d9e4ef] bg-[#f9fbfe] p-4">
               <div className="flex items-center gap-2 text-sm font-black text-[#183e63]"><MapPin className="h-4 w-4 text-[#1769c2]" />Find your address</div>
-              {addressLookupLoading ? <p className="mt-2 flex items-center gap-2 text-sm text-[#667b91]"><Loader2 className="h-4 w-4 animate-spin" />Finding addresses for {postcode}…</p> : null}
-              {!addressLookupLoading && addressSuggestions.length ? <select aria-label="Choose your address" value={address} onChange={(event) => setAddress(event.target.value)} className={`${fieldClass} mt-3`}><option value="">Choose your address</option>{addressSuggestions.map((item) => <option key={item} value={item}>{item}</option>)}</select> : null}
-              {addressLookupMessage ? <p className="mt-2 text-xs font-semibold leading-5 text-[#667b91]">{addressLookupMessage}</p> : null}
-              {!addressLookupLoading && addressSuggestions.length ? <p className="mt-2 text-xs text-[#667b91]">Select the property above, or type the address manually below.</p> : null}
-            </div> : null}
+              <PrimeViewGoogleAddressAutocomplete onSelect={({ address: nextAddress, postcode: nextPostcode }) => {
+                setAddress(nextAddress);
+                if (nextPostcode) setPostcode(nextPostcode);
+              }} />
+            </div>
             <label className={`${labelClass} sm:col-span-2`}>Full address<input name="address" required autoComplete="street-address" placeholder="House number and street" value={address} onChange={(event) => setAddress(event.target.value)} className={fieldClass} /></label>
 
             {serviceKey === "window" ? <>
