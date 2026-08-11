@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Book Online | PrimeView Window Care",
-  description: "Book window, gutter and exterior cleaning with PrimeView Window Care in West & North London.",
+  description: "Book window, gutter, pressure washing and exterior cleaning with PrimeView Window Care in West & North London.",
   alternates: { canonical: "https://www.primeviewwindowcare.co.uk/booking" },
   robots: { index: true, follow: true },
 };
@@ -139,10 +139,10 @@ async function requestPrimeViewBooking(formData: FormData) {
     const totalWindows = (pricingInput.standardWindows || 0) + (pricingInput.largeWindows || 0) + (pricingInput.bayWindows || 0);
     if (!pricingInput.cleaningScope || !pricingInput.frequency || !pricingInput.floorCount || totalWindows < 1) redirect(bookingUrl("error=invalid"));
   }
-  if ((key === "gutter" || key === "fascia") && !pricingInput.propertySize) redirect(bookingUrl("error=invalid"));
+  if ((key === "gutter" || key === "fascia" || key === "package") && !pricingInput.propertySize) redirect(bookingUrl("error=invalid"));
   if (key === "conservatory" && !pricingInput.conservatorySize) redirect(bookingUrl("error=invalid"));
   if (key === "solar" && (!pricingInput.solarPanels || pricingInput.solarPanels < 1)) redirect(bookingUrl("error=invalid"));
-  if (key === "patio" && (!pricingInput.areaM2 || pricingInput.areaM2 <= 0)) redirect(bookingUrl("error=invalid"));
+  if ((key === "patio" || key === "package") && (!pricingInput.areaM2 || pricingInput.areaM2 <= 0)) redirect(bookingUrl("error=invalid"));
 
   const price = calculatePrimeViewPrice(pricingInput);
 
@@ -293,7 +293,7 @@ export default async function PrimeViewBookingPage({ searchParams }: PageProps) 
         <div className="relative mx-auto max-w-[1280px]">
           <div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-xs font-black uppercase tracking-[.14em] text-[#dbeafe]"><ShieldCheck className="h-4 w-4" /> Live price calculator</div>
           <h1 className="mt-5 max-w-4xl text-4xl font-black tracking-[-.04em] sm:text-5xl">Book online with a price that updates as you describe the job.</h1>
-          <p className="mt-5 max-w-3xl text-lg leading-8 text-slate-200">Window size, floor level, access, dirt level, recurring frequency and service-specific extras are included in the calculation. Minimum charges protect small call-outs.</p>
+          <p className="mt-5 max-w-3xl text-lg leading-8 text-slate-200">Property type, window quantities, height, access and service-specific extras are included. Gutter and Pressure Washing stay separate unless you choose the discounted package.</p>
           <div className="mt-7 flex flex-wrap gap-4 text-sm font-bold text-[#dbeafe]"><span className="flex items-center gap-2"><MapPin className="h-4 w-4" />West & North London</span><span className="flex items-center gap-2"><CalendarCheck2 className="h-4 w-4" />Preferred time, confirmed after review</span></div>
         </div>
       </section>

@@ -1,4 +1,4 @@
-export type PrimeViewServiceKey = "window" | "gutter" | "fascia" | "conservatory" | "solar" | "patio";
+export type PrimeViewServiceKey = "window" | "gutter" | "fascia" | "conservatory" | "solar" | "patio" | "package";
 
 export type PrimeViewAccess = "Normal" | "Moderately difficult" | "Difficult" | "Very difficult";
 export type PrimeViewCondition = "Normal" | "Dirty" | "Very dirty" | "Extreme";
@@ -51,6 +51,8 @@ export type PrimeViewPricingResult =
       lines: PrimeViewPricingLine[];
       estimated: boolean;
       note: string;
+      compareAtTotal?: number;
+      saving?: number;
     }
   | {
       kind: "manual";
@@ -126,6 +128,7 @@ function manual(reason: string, lines: PrimeViewPricingLine[] = []): PrimeViewPr
 
 export function serviceKeyFromName(name: string): PrimeViewServiceKey | null {
   const normalized = name.trim().toLowerCase();
+  if (normalized.includes("gutter") && normalized.includes("pressure")) return "package";
   if (normalized.includes("window cleaning")) return "window";
   if (normalized.includes("gutter")) return "gutter";
   if (normalized.includes("fascia") || normalized.includes("soffit")) return "fascia";
@@ -135,10 +138,49 @@ export function serviceKeyFromName(name: string): PrimeViewServiceKey | null {
   return null;
 }
 
+function windowMinimum(propertySize: PrimeViewPricingInput["propertySize"]) {
+  if (propertySize === "Terraced house") return 30;
+  if (propertySize === "Semi-detached house") return 39;
+  if (propertySize === "Detached house") return 45;
+  return 40;
+}
+
+function calculatePackagePrice(input: PrimeViewPricingInput): PrimeViewPricingResult {
+  const gutter = calculatePrimeViewPrice({ ...input, serviceKey: "gutter", multiServiceCount: 1 });
+  if (gutter.kind === "manual") return manual(`Gutter part: ${gutter.reason}`);
+
+  const pressure = calculatePrimeViewPrice({ ...input, serviceKey: "patio", multiServiceCount: 1 });
+  if (pressure.kind === "manual") return manual(`Pressure washing part: ${pressure.reason}`);
+
+  const separateTotal = roundMoney(gutter.total + pressure.total);
+  const saving = Math.min(separateTotal - 1, Math.max(5, Math.round((separateTotal * 0.1) / 5) * 5));
+  const total = roundMoney(separateTotal - saving);
+  const lines: PrimeViewPricingLine[] = [
+    { label: "Gutter Cleaning", amount: gutter.total },
+    { label: "Pressure Washing", amount: pressure.total },
+    { label: `Package saving – Save £${saving.toFixed(0)}`, amount: -saving },
+  ];
+
+  return {
+    kind: "price",
+    total,
+    subtotalBeforeMinimum: total,
+    minimumCharge: 0,
+    minimumApplied: false,
+    lines,
+    estimated: gutter.estimated || pressure.estimated,
+    compareAtTotal: separateTotal,
+    saving,
+    note: "Package price includes both Gutter Cleaning and Pressure Washing. The package is only applied when this package is selected.",
+  };
+}
+
 export function calculatePrimeViewPrice(input: PrimeViewPricingInput): PrimeViewPricingResult {
   if (input.access === "Very difficult" || input.condition === "Extreme") {
     return manual(input.access === "Very difficult" ? "Very difficult access / special equipment requires a manual quote." : "Extreme property condition requires a manual quote.");
   }
+
+  if (input.serviceKey === "package") return calculatePackagePrice(input);
 
   if (input.serviceKey === "window") {
     const standard = Math.max(0, Math.floor(Number(input.standardWindows) || 0));
@@ -148,6 +190,16 @@ export function calculatePrimeViewPrice(input: PrimeViewPricingInput): PrimeView
     const count = standard + large + bay;
     if (!count || !input.cleaningScope) return manual("Enter the window quantities and cleaning type to calculate a price.");
     if (hard > count) return manual("Hard-access window count cannot be greater than the total window count.");
+
+    const detachedNeedsQuote = input.propertySize === "Detached house" && (
+      count >= 30
+      || input.floorCount === "3+"
+      || input.workingHeight === "Second floor+"
+      || input.workingHeight === "Long ladder required"
+    );
+    if (input.propertySize === "Large property" || detachedNeedsQuote) {
+      return manual("Large or high detached properties require a custom quote.");
+    }
 
     const insideOnly = input.cleaningScope === "Inside only";
     const both = input.cleaningScope === "Inside & outside";
@@ -188,7 +240,7 @@ export function calculatePrimeViewPrice(input: PrimeViewPricingInput): PrimeView
 
     return finalize({
       subtotal,
-      minimumCharge: input.propertySize === "Terraced house" ? 30 : 40,
+      minimumCharge: windowMinimum(input.propertySize),
       lines,
       multiServiceCount: input.multiServiceCount,
       estimated: (large + bay > 0 && input.cleaningScope !== "Outside only")
@@ -201,14 +253,14 @@ export function calculatePrimeViewPrice(input: PrimeViewPricingInput): PrimeView
 
   if (input.serviceKey === "gutter") {
     const baseByProperty: Partial<Record<NonNullable<PrimeViewPricingInput["propertySize"]>, number>> = {
-      "Small property": 75,
-      "Terraced house": 85,
-      "Semi-detached house": 100,
-      "Detached house": 120,
-      "Large property": 150,
+      "Small property": 69,
+      "Terraced house": 79,
+      "Semi-detached house": 99,
+      "Detached house": 129,
     };
+    if (input.propertySize === "Large property") return manual("Large properties require a custom gutter-cleaning quote.");
     const base = input.propertySize ? baseByProperty[input.propertySize] : undefined;
-    if (!base) return manual("Choose the property size to calculate gutter cleaning.");
+    if (!base) return manual("Choose the property type to calculate gutter cleaning.");
     const lines: PrimeViewPricingLine[] = [{ label: `Gutter cleaning – ${input.propertySize}`, amount: base }];
     let subtotal = base;
 
@@ -225,7 +277,7 @@ export function calculatePrimeViewPrice(input: PrimeViewPricingInput): PrimeView
     if (conditionPct) {
       const line = pctLine(`${input.condition} condition +${Math.round(conditionPct * 100)}%`, subtotal, conditionPct); lines.push(line); subtotal += line.amount;
     }
-    return finalize({ subtotal, minimumCharge: 75, lines, multiServiceCount: input.multiServiceCount, estimated: difficultSpecific || Boolean(input.heavyBlockage) });
+    return finalize({ subtotal, minimumCharge: 69, lines, multiServiceCount: input.multiServiceCount, estimated: difficultSpecific || Boolean(input.heavyBlockage) });
   }
 
   if (input.serviceKey === "fascia") {
@@ -275,10 +327,10 @@ export function calculatePrimeViewPrice(input: PrimeViewPricingInput): PrimeView
   }
 
   const area = Math.max(0, Number(input.areaM2) || 0);
-  if (!area) return manual("Enter the patio / driveway area in m² to calculate a price.");
+  if (!area) return manual("Enter the pressure-washing area in m² to calculate a price.");
   if (input.sealing) return manual("Sealing is priced manually after inspection.");
   const baseRate = input.heavyDirtMoss ? 11 : 9;
-  const lines: PrimeViewPricingLine[] = [{ label: `${area} m² × £${baseRate}${input.heavyDirtMoss ? " heavy dirt / moss" : " standard cleaning"}`, amount: area * baseRate }];
+  const lines: PrimeViewPricingLine[] = [{ label: `${area} m² × £${baseRate}${input.heavyDirtMoss ? " heavy dirt / moss" : " standard pressure washing"}`, amount: area * baseRate }];
   if (input.oilTreatment) lines.push({ label: `Oil / stain treatment ${area} m² × £3`, amount: area * 3 });
   if (input.weedTreatment) lines.push({ label: `Weed treatment ${area} m² × £2`, amount: area * 2 });
   if (input.resanding) lines.push({ label: `Re-sanding ${area} m² × £4`, amount: area * 4 });
@@ -291,5 +343,6 @@ export function calculatePrimeViewPrice(input: PrimeViewPricingInput): PrimeView
 export function pricingResultSummary(result: PrimeViewPricingResult) {
   if (result.kind === "manual") return `Manual quote required: ${result.reason}`;
   const breakdown = result.lines.map((line) => `${line.label}: ${line.amount >= 0 ? "+" : ""}£${line.amount.toFixed(2)}`).join(" | ");
-  return `Calculated estimate: £${result.total.toFixed(2)} | Minimum charge: £${result.minimumCharge.toFixed(2)} | ${breakdown} | ${result.note}`;
+  const saving = result.saving ? ` | Package saving: £${result.saving.toFixed(2)}` : "";
+  return `Calculated estimate: £${result.total.toFixed(2)} | Minimum charge: £${result.minimumCharge.toFixed(2)}${saving} | ${breakdown} | ${result.note}`;
 }
