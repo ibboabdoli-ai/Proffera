@@ -23,6 +23,24 @@ describe("PrimeView precision pricing", () => {
     }
   });
 
+  it("uses a £30 minimum for terraced window cleaning", () => {
+    const result = calculatePrimeViewPrice({
+      serviceKey: "window",
+      cleaningScope: "Outside only",
+      standardWindows: 2,
+      frequency: "One-off",
+      access: "Normal",
+      condition: "Normal",
+      propertySize: "Terraced house",
+    });
+    expect(result.kind).toBe("price");
+    if (result.kind === "price") {
+      expect(result.total).toBe(30);
+      expect(result.minimumCharge).toBe(30);
+      expect(result.minimumApplied).toBe(true);
+    }
+  });
+
   it("calculates standard outside window cleaning", () => {
     const result = calculatePrimeViewPrice({
       serviceKey: "window",
