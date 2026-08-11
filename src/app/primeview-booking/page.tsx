@@ -222,10 +222,10 @@ async function requestPrimeViewBooking(formData: FormData) {
     ownerPhone: workspace.contact_phone ? String(workspace.contact_phone) : undefined,
     customerName: name, customerEmail: email, customerPhone: phone, serviceId, serviceName,
     city: String(workspace.primary_city ?? "London"), address, postcode, bookingDetails: detailLines.join("\n"),
-    startsAt: start.toISOString(), endsAt: end.toISOString(), timeZone, language: "en",
+    startsAt: start.toISOString(), endsAt: end.toISOString(), timeZone, language: "en", verificationSms: true,
   });
   if (!result.ok) redirect(bookingUrl(`error=${result.error === "email" ? "email" : result.error === "service" ? "service" : "conflict"}`));
-  redirect(`/boka/verifiera/${result.verificationId}?lang=en`);
+  redirect(`/boka/verifiera/${result.verificationId}?lang=en&channel=${encodeURIComponent(result.delivery)}`);
 }
 
 type PageProps = { searchParams?: Promise<{ error?: string | string[]; booked?: string | string[]; service_id?: string | string[] }> };

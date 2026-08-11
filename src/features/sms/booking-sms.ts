@@ -20,6 +20,14 @@ type SendBookingCustomerSmsInput = {
   timeZone?: WorkspaceTimeZone;
 };
 
+type SendBookingVerificationSmsInput = {
+  customerPhone: string;
+  companyName: string;
+  code: string;
+  expiresMinutes?: number;
+  language?: "sv" | "en";
+};
+
 type BrevoSmsResponse = {
   messageId?: number;
   code?: string;
@@ -44,6 +52,39 @@ function formatBookingDate(value: string, timeZone: WorkspaceTimeZone = "Europe/
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+export async function sendBookingVerificationSms(input: SendBookingVerificationSmsInput) {
+  const apiKey = process.env.BREVO_API_KEY;
+  const sender = process.env.BREVO_SMS_SENDER?.trim();
+  if (!apiKey || !sender) {
+    return { ok: false as const, skipped: true as const, message: "Brevo SMS is not enabled." };
+  }
+
+  const recipient = normalizeInternationalPhone(input.customerPhone);
+  if (!recipient) {
+    return { ok: false as const, skipped: true as const, message: "Customer phone number is invalid." };
+  }
+
+  const expiresMinutes = input.expiresMinutes ?? 10;
+  const content = input.language === "en"
+    ? `${input.code} is your ${input.companyName} booking verification code. Valid for ${expiresMinutes} minutes.`
+    : `${input.code} är din verifieringskod för bokningen hos ${input.companyName}. Gäller i ${expiresMinutes} minuter.`;
+
+  try {
+    const response = await fetch("https://api.brevo.com/v3/transactionalSMS/sms", {
+      method: "POST",
+      headers: { "api-key": apiKey, "Content-Type": "application/json" },
+      body: JSON.stringify({ sender: sender.slice(0, 11), recipient, content, type: "transactional" }),
+    });
+    const data = (await response.json().catch(() => ({}))) as BrevoSmsResponse;
+    if (!response.ok) {
+      return { ok: false as const, skipped: false as const, message: data.message ?? data.code ?? "Could not send verification SMS via Brevo." };
+    }
+    return { ok: true as const, skipped: false as const, providerId: data.messageId ?? null };
+  } catch {
+    return { ok: false as const, skipped: false as const, message: "Could not contact Brevo SMS." };
+  }
 }
 
 export async function sendBookingOwnerSms(input: SendBookingOwnerSmsInput) {

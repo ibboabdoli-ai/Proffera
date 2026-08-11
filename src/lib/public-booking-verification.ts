@@ -5,7 +5,7 @@ import { createHash, randomInt } from "node:crypto";
 import { sendBookingOwnerNotificationEmail } from "@/features/email/lead-email";
 import { sendBookingVerificationEmail } from "@/features/email/booking-verification-email";
 import { sendUnifiedBookingConfirmationEmail } from "@/features/email/unified-booking-confirmation-email";
-import { sendBookingOwnerSms } from "@/features/sms/booking-sms";
+import { sendBookingOwnerSms, sendBookingVerificationSms } from "@/features/sms/booking-sms";
 import { createCustomerCalendarToken } from "@/lib/customer-calendar";
 import { getSql } from "@/lib/db/server";
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
@@ -63,6 +63,7 @@ export type BeginBookingVerificationInput = {
   endsAt: string;
   timeZone: WorkspaceTimeZone;
   language?: "sv" | "en";
+  verificationSms?: boolean;
 };
 
 export async function beginBookingEmailVerification(input: BeginBookingVerificationInput) {
@@ -98,12 +99,63 @@ export async function beginBookingEmailVerification(input: BeginBookingVerificat
   if (!id) return { ok: false as const, error: "database" };
   await sql`update public_booking_verifications set code_hash = ${hashCode(id, code)} where id = ${id}::uuid`;
 
-  const sent = await sendBookingVerificationEmail({ customerName: input.customerName, customerEmail: input.customerEmail, companyName: input.companyName, code, expiresMinutes: EXPIRY_MINUTES, language: input.language });
-  if (!sent.ok) {
+  const [emailSent, smsSent] = await Promise.all([
+    sendBookingVerificationEmail({ customerName: input.customerName, customerEmail: input.customerEmail, companyName: input.companyName, code, expiresMinutes: EXPIRY_MINUTES, language: input.language }),
+    input.verificationSms && input.customerPhone
+      ? sendBookingVerificationSms({ customerPhone: input.customerPhone, companyName: input.companyName, code, expiresMinutes: EXPIRY_MINUTES, language: input.language })
+      : Promise.resolve({ ok: false as const, skipped: true as const, message: "SMS verification not requested." }),
+  ]);
+  if (!emailSent.ok && !smsSent.ok) {
     await sql`delete from public_booking_verifications where id = ${id}::uuid`;
     return { ok: false as const, error: "email" };
   }
-  return { ok: true as const, verificationId: id };
+  const delivery = emailSent.ok && smsSent.ok ? "email_sms" : smsSent.ok ? "sms" : "email";
+  return { ok: true as const, verificationId: id, delivery };
+}
+
+export async function resendPublicBookingCode(id: string, language: "sv" | "en" = "sv") {
+  const sql = getSql();
+  if (!sql || !/^[0-9a-f-]{36}$/i.test(id)) return { ok: false as const, error: "invalid" };
+
+  const rows = await sql`
+    select v.*, coalesce(nullif(ws.company_name, ''), w.company_name, w.name) as company_name
+    from public_booking_verifications v
+    join workspaces w on w.id = v.workspace_id
+    left join workspace_settings ws on ws.workspace_id = w.id::text
+    where v.id = ${id}::uuid
+    limit 1
+  `;
+  const challenge = rows[0];
+  if (!challenge || challenge.consumed_at || challenge.verified_at) return { ok: false as const, error: "invalid" };
+
+  const createdAt = new Date(String(challenge.created_at)).getTime();
+  const updatedAt = new Date(String(challenge.updated_at ?? challenge.created_at)).getTime();
+  if (!Number.isFinite(createdAt) || Date.now() - createdAt > 60 * 60 * 1000) return { ok: false as const, error: "expired" };
+  if (Number.isFinite(updatedAt) && Date.now() - updatedAt < 30_000) return { ok: false as const, error: "wait" };
+
+  const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
+  const companyName = String(challenge.company_name);
+  const customerName = String(challenge.customer_name);
+  const customerEmail = String(challenge.customer_email);
+  const customerPhone = challenge.customer_phone ? String(challenge.customer_phone) : "";
+  const useSms = String(challenge.public_booking_slug) === "primeview" && Boolean(customerPhone);
+
+  const [emailSent, smsSent] = await Promise.all([
+    sendBookingVerificationEmail({ customerName, customerEmail, companyName, code, expiresMinutes: EXPIRY_MINUTES, language }),
+    useSms
+      ? sendBookingVerificationSms({ customerPhone, companyName, code, expiresMinutes: EXPIRY_MINUTES, language })
+      : Promise.resolve({ ok: false as const, skipped: true as const, message: "SMS verification not requested." }),
+  ]);
+  if (!emailSent.ok && !smsSent.ok) return { ok: false as const, error: "email" };
+
+  const expiresAt = new Date(Date.now() + EXPIRY_MINUTES * 60_000).toISOString();
+  await sql`
+    update public_booking_verifications
+    set code_hash = ${hashCode(id, code)}, expires_at = ${expiresAt}::timestamptz, attempts = 0, updated_at = now()
+    where id = ${id}::uuid and consumed_at is null and verified_at is null
+  `;
+  const delivery = emailSent.ok && smsSent.ok ? "email_sms" : smsSent.ok ? "sms" : "email";
+  return { ok: true as const, delivery };
 }
 
 export async function verifyPublicBookingCode(id: string, code: string) {
