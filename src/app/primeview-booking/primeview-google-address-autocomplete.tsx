@@ -101,14 +101,7 @@ export function PrimeViewGoogleAddressAutocomplete({ onSelect }: { onSelect: (se
     let autocomplete: GooglePlaceAutocompleteElement | null = null;
     let handleSelect: ((event: Event) => void) | null = null;
 
-    if (!container) return;
-
-    if (!apiKey) {
-      setMessage("Address suggestions are unavailable. Enter the address manually below.");
-      return;
-    }
-
-    setMessage("");
+    if (!container || !apiKey) return;
 
     void loadGoogleMaps(apiKey)
       .then(async () => {
@@ -160,11 +153,15 @@ export function PrimeViewGoogleAddressAutocomplete({ onSelect }: { onSelect: (se
     };
   }, [apiKey]);
 
+  const helperText = !apiKey
+    ? "Address suggestions are unavailable. Enter the address manually below."
+    : message || "Start typing your address and choose the correct UK result. Address and postcode will fill automatically.";
+
   return (
     <div className="mt-3">
       <div ref={containerRef} />
-      <p className={`mt-2 text-xs leading-5 ${message ? "font-semibold text-[#667b91]" : "text-[#667b91]"}`}>
-        {message || "Start typing your address and choose the correct UK result. Address and postcode will fill automatically."}
+      <p className={`mt-2 text-xs leading-5 ${message || !apiKey ? "font-semibold text-[#667b91]" : "text-[#667b91]"}`}>
+        {helperText}
       </p>
     </div>
   );
