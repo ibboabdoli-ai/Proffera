@@ -26,7 +26,8 @@ jobs:
           u=urllib.parse.urlparse(os.environ['REMINDER_CRON_URL'])
           if u.scheme != 'https' or not u.netloc:
               raise SystemExit('Invalid production cron URL')
-          origin=f'{u.scheme}://{u.netloc}'
+          host = 'www.proffera.se' if u.netloc == 'proffera.se' else u.netloc
+          origin=f'https://{host}'
           print(f'INGEST_URL={origin}/api/cron/company-directory-discovery-ingest')
           print(f'SYNC_URL={origin}/api/cron/company-directory-sync')
           PY
