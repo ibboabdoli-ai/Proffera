@@ -169,7 +169,9 @@ export function PrimeViewGoogleAddressAutocomplete({ onSelect }: { onSelect: (se
       if (!places) return;
 
       const postcode = currentPostcode();
-      const input = postcode && !text.toUpperCase().includes(postcode.replace(/\s+/g, "")) && !text.toUpperCase().includes(postcode)
+      const compactPostcode = postcode.replace(/\s+/g, "");
+      const upperText = text.toUpperCase();
+      const input = postcode && !upperText.includes(postcode) && !upperText.includes(compactPostcode)
         ? `${text}, ${postcode}`
         : text;
       const requestId = ++requestIdRef.current;
@@ -190,7 +192,7 @@ export function PrimeViewGoogleAddressAutocomplete({ onSelect }: { onSelect: (se
           const predictions = next.map((item) => item.placePrediction).filter((item): item is GooglePlacePrediction => Boolean(item));
           setSuggestions(predictions.slice(0, 6));
           setOpen(predictions.length > 0);
-          if (!predictions.length) setMessage(postcode ? `No match yet. Try adding the house number or street within ${postcode}.` : "No address matches yet. Keep typing the house number or street.");
+          if (!predictions.length) setMessage(postcode ? `No match yet. Add the house number or street within ${postcode}.` : "No address matches yet. Keep typing the house number or street.");
         })
         .catch(() => {
           if (requestId === requestIdRef.current) {
@@ -229,12 +231,9 @@ export function PrimeViewGoogleAddressAutocomplete({ onSelect }: { onSelect: (se
     }
   }
 
-  const postcode = typeof document === "undefined" ? "" : currentPostcode();
   const helperText = !apiKey
     ? "Address suggestions are unavailable. Enter the full address manually below."
-    : message || (postcode
-      ? `Postcode ${postcode} is applied. Type the house number or street to find the exact address.`
-      : "Type a house number, street or full UK address. Selecting a result fills the postcode automatically.");
+    : message || "Type a house number or street. If you entered a postcode above, it is automatically used to narrow the search.";
 
   return (
     <div className="relative mt-3 min-w-0 max-w-full">
@@ -247,7 +246,7 @@ export function PrimeViewGoogleAddressAutocomplete({ onSelect }: { onSelect: (se
           aria-label="Search for your UK address"
           aria-expanded={open}
           aria-controls="primeview-address-suggestions"
-          placeholder={postcode ? "House number or street" : "House number, street or postcode"}
+          placeholder="House number or street"
           value={query}
           onFocus={() => suggestions.length && setOpen(true)}
           onChange={(event) => {
