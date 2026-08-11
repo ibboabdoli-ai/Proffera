@@ -40,9 +40,6 @@ type GoogleAutocompleteSessionToken = object;
 type GoogleAutocompleteRequest = {
   input: string;
   includedRegionCodes?: string[];
-  locationBias?: { center: { lat: number; lng: number }; radius: number };
-  language?: string;
-  region?: string;
   sessionToken?: GoogleAutocompleteSessionToken;
 };
 
@@ -129,6 +126,15 @@ function predictionText(prediction: GooglePlacePrediction) {
   };
 }
 
+function diagnosticMessage(error: unknown) {
+  const raw = error instanceof Error ? error.message : String(error ?? "Unknown Google error");
+  return raw
+    .replace(/AIza[0-9A-Za-z_-]+/g, "[API key hidden]")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 260);
+}
+
 export function PrimeViewGoogleAddressAutocomplete({ onSelect }: { onSelect: (selection: AddressSelection) => void }) {
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<GooglePlacePrediction[]>([]);
@@ -151,8 +157,8 @@ export function PrimeViewGoogleAddressAutocomplete({ onSelect }: { onSelect: (se
         const places = await googleMaps.maps.importLibrary("places");
         if (!disposed) placesRef.current = places;
       })
-      .catch(() => {
-        if (!disposed) setMessage("Google address search could not load. Enter the address manually below.");
+      .catch((error: unknown) => {
+        if (!disposed) setMessage(`Google load error: ${diagnosticMessage(error)}`);
       });
 
     return () => {
@@ -182,9 +188,6 @@ export function PrimeViewGoogleAddressAutocomplete({ onSelect }: { onSelect: (se
       void places.AutocompleteSuggestion.fetchAutocompleteSuggestions({
         input,
         includedRegionCodes: ["gb"],
-        locationBias: { center: { lat: 51.515, lng: -0.18 }, radius: 35_000 },
-        language: "en-GB",
-        region: "gb",
         sessionToken: tokenRef.current,
       })
         .then(({ suggestions: next }) => {
@@ -194,11 +197,11 @@ export function PrimeViewGoogleAddressAutocomplete({ onSelect }: { onSelect: (se
           setOpen(predictions.length > 0);
           if (!predictions.length) setMessage(postcode ? `No match yet. Add the house number or street within ${postcode}.` : "No address matches yet. Keep typing the house number or street.");
         })
-        .catch(() => {
+        .catch((error: unknown) => {
           if (requestId === requestIdRef.current) {
             setSuggestions([]);
             setOpen(false);
-            setMessage("Address suggestions are temporarily unavailable. You can enter the full address manually below.");
+            setMessage(`Google autocomplete error: ${diagnosticMessage(error)}`);
           }
         })
         .finally(() => {
@@ -224,15 +227,15 @@ export function PrimeViewGoogleAddressAutocomplete({ onSelect }: { onSelect: (se
       setMessage(postcode ? `Address selected — postcode ${postcode} filled automatically.` : "Address selected.");
       const places = placesRef.current;
       tokenRef.current = places ? new places.AutocompleteSessionToken() : null;
-    } catch {
-      setMessage("We could not read that result. Please enter the full address manually below.");
+    } catch (error: unknown) {
+      setMessage(`Google place details error: ${diagnosticMessage(error)}`);
     } finally {
       setLoading(false);
     }
   }
 
   const helperText = !apiKey
-    ? "Address suggestions are unavailable. Enter the full address manually below."
+    ? "Address suggestions are unavailable because the Google API key is missing from this deployment."
     : message || "Type a house number or street. If you entered a postcode above, it is automatically used to narrow the search.";
 
   return (
@@ -289,7 +292,7 @@ export function PrimeViewGoogleAddressAutocomplete({ onSelect }: { onSelect: (se
         </div>
       ) : null}
 
-      <p className={`mt-2 text-xs leading-5 ${message || !apiKey ? "font-semibold text-[#667b91]" : "text-[#667b91]"}`}>{helperText}</p>
+      <p className={`mt-2 break-words text-xs leading-5 ${message || !apiKey ? "font-semibold text-[#667b91]" : "text-[#667b91]"}`}>{helperText}</p>
     </div>
   );
 }
