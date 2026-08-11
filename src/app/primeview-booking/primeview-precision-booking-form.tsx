@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { CalendarDays, Check, ChevronRight, CirclePoundSterling, Home, Mail, MapPin, Sparkles } from "lucide-react";
 
 import { calculatePrimeViewPrice, serviceKeyFromName, type PrimeViewAccess, type PrimeViewCondition, type PrimeViewPricingInput } from "@/features/primeview/pricing";
@@ -27,6 +28,8 @@ type Props = {
   initialServiceId?: string;
 };
 
+const UK_POSTCODE = /^[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}$/i;
+
 const serviceDescriptions: Record<string, string> = {
   "window cleaning": "Price by window size, inside/outside, floor, dirt, access and frequency.",
   "gutter cleaning": "Price by property type, height, blockage, condition and access.",
@@ -50,10 +53,20 @@ function Checkbox({ name, checked, onChange, label }: { name: string; checked: b
 }
 
 export function PrimeViewPrecisionBookingForm({ action, services, bookingHours, busyBookings, timeZone, initialServiceId = "" }: Props) {
+  const searchParams = useSearchParams();
+  const requestedServiceName = (searchParams.get("service") ?? "").trim();
+  const requestedPostcode = (searchParams.get("postcode") ?? "").trim().toUpperCase();
   const [formStartedAt] = useState(() => Date.now());
   const [referenceTime] = useState(() => Date.now());
   const today = dateInputInTimeZone(new Date(referenceTime), timeZone);
-  const [serviceId, setServiceId] = useState(() => services.some((service) => service.id === initialServiceId) ? initialServiceId : services[0]?.id ?? "");
+  const [serviceId, setServiceId] = useState(() => {
+    if (services.some((service) => service.id === initialServiceId)) return initialServiceId;
+    const requestedService = requestedServiceName
+      ? services.find((service) => service.name.toLowerCase() === requestedServiceName.toLowerCase())
+      : undefined;
+    return requestedService?.id ?? services[0]?.id ?? "";
+  });
+  const [postcode, setPostcode] = useState(() => UK_POSTCODE.test(requestedPostcode) ? requestedPostcode : "");
   const [date, setDate] = useState(today);
   const [time, setTime] = useState("");
 
@@ -158,7 +171,7 @@ export function PrimeViewPrecisionBookingForm({ action, services, bookingHours, 
 
           <div className="mt-5 grid gap-4 sm:grid-cols-2">
             <label className={labelClass}>Property type<select name="property_type" required value={propertyType} onChange={(event) => setPropertyType(event.target.value)} className={fieldClass}><option value="">Choose</option><option>House</option><option>Flat</option><option>Commercial</option></select></label>
-            <label className={labelClass}>UK postcode<input name="postcode" required autoComplete="postal-code" placeholder="W4 3ES" pattern="[A-Za-z]{1,2}[0-9][A-Za-z0-9]? ?[0-9][A-Za-z]{2}" className={fieldClass} /></label>
+            <label className={labelClass}>UK postcode<input name="postcode" required autoComplete="postal-code" placeholder="W4 3ES" pattern="[A-Za-z]{1,2}[0-9][A-Za-z0-9]? ?[0-9][A-Za-z]{2}" value={postcode} onChange={(event) => setPostcode(event.target.value.toUpperCase())} className={fieldClass} /></label>
             <label className={`${labelClass} sm:col-span-2`}>Full address<input name="address" required autoComplete="street-address" placeholder="House number and street" className={fieldClass} /></label>
 
             {serviceKey === "window" ? <>
