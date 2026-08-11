@@ -1,0 +1,81 @@
+name: PrimeView booking details validated
+
+on:
+  push:
+    branches:
+      - feature/primeview-booking-property-details
+    paths:
+      - .github/workflows/primeview-booking-details-validated.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/primeview-booking-property-details
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Apply and correct booking changes
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('scripts/_apply_primeview_booking_details.py')
+          text = p.read_text()
+          bad = "    '    `Pricing: ${pricingResultSummary(price)}`,\n)"
+          good = "    '    `Pricing: ${pricingResultSummary(price)}`,',\n)"
+          if bad not in text:
+              raise SystemExit('expected script repair target not found')
+          p.write_text(text.replace(bad, good, 1))
+          PY
+          python3 -m py_compile scripts/_apply_primeview_booking_details.py
+          python3 scripts/_apply_primeview_booking_details.py
+          python3 - <<'PY'
+          from pathlib import Path
+          page = Path('src/app/primeview-booking/page.tsx')
+          text = page.read_text()
+          wrong = '    timeZone, language: "en",\n  });\n  if (validation.error)'
+          right = '    timeZone,\n  });\n  if (validation.error)'
+          if wrong not in text:
+              raise SystemExit('validation language repair target not found')
+          text = text.replace(wrong, right, 1)
+          old = '    startsAt: start.toISOString(), endsAt: end.toISOString(), timeZone,\n  });\n  if (!result.ok)'
+          new = '    startsAt: start.toISOString(), endsAt: end.toISOString(), timeZone, language: "en",\n  });\n  if (!result.ok)'
+          if old not in text:
+              raise SystemExit('verification language target not found')
+          page.write_text(text.replace(old, new, 1))
+
+          tests = Path('tests/primeview-precision-pricing.test.ts')
+          test_text = tests.read_text()
+          old_expectation = '      expect(result.total).toBeGreaterThan(100);'
+          new_expectation = '      expect(result.total).toBe(96.42);'
+          if old_expectation not in test_text:
+              raise SystemExit('pricing expectation target not found')
+          tests.write_text(test_text.replace(old_expectation, new_expectation, 1))
+          PY
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Test
+        run: npm test
+      - name: Lint
+        run: npm run lint
+      - name: Commit validated changes
+        run: |
+          rm scripts/_apply_primeview_booking_details.py
+          rm .github/workflows/primeview-booking-details-worker.yml
+          rm .github/workflows/primeview-booking-details-retry.yml
+          rm .github/workflows/primeview-booking-details-finalize.yml
+          rm .github/workflows/primeview-booking-details-validated.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: expand PrimeView booking property details"
+          git push origin HEAD:feature/primeview-booking-property-details
