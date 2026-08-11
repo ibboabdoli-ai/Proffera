@@ -1,0 +1,3 @@
+{
+  "/api/outbox/route": "app/api/outbox/route.js"
+}

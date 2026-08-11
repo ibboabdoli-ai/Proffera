@@ -1,0 +1,29 @@
+{
+  "node": {
+    "4041d1039bfd6b1681cc40fa0cd6d0bc94b4e781f1": {
+      "workers": {
+        "app/boka/verifiera/[id]/page": {
+          "moduleId": 349418,
+          "async": false,
+          "exportedName": "$$RSC_SERVER_ACTION_1",
+          "filename": "src/app/boka/verifiera/[id]/page.tsx"
+        }
+      },
+      "exportedName": "$$RSC_SERVER_ACTION_1",
+      "filename": "src/app/boka/verifiera/[id]/page.tsx"
+    },
+    "40774ee6944abf98bca558202775bc85e580c531aa": {
+      "workers": {
+        "app/boka/verifiera/[id]/page": {
+          "moduleId": 349418,
+          "async": false,
+          "exportedName": "$$RSC_SERVER_ACTION_0",
+          "filename": "src/app/boka/verifiera/[id]/page.tsx"
+        }
+      },
+      "exportedName": "$$RSC_SERVER_ACTION_0",
+      "filename": "src/app/boka/verifiera/[id]/page.tsx"
+    }
+  },
+  "edge": {}
+}

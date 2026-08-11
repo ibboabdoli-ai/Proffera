@@ -1,0 +1,3 @@
+module.exports=[821533,a=>{"use strict";a.s(["default",0,function({children:a}){return a},"metadata",0,{title:{default:"Booking, leads and CRM for service businesses",template:"%s | Proffera"},description:"Proffera helps service businesses in Sweden manage leads, bookings and customers in one clear workflow."}])},421027,a=>{a.n(a.i(821533))}];
+
+//# sourceMappingURL=src_app_en_layout_tsx_0h7z0q_._.js.map

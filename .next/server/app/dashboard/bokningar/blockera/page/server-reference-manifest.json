@@ -1,0 +1,53 @@
+{
+  "node": {
+    "4068e27ed13f1f3adac9ee8279e91982c5554507df": {
+      "workers": {
+        "app/dashboard/bokningar/blockera/page": {
+          "moduleId": 574129,
+          "async": true,
+          "exportedName": "switchWorkspaceAction",
+          "filename": "src/app/dashboard/workspace-actions.ts"
+        }
+      },
+      "exportedName": "switchWorkspaceAction",
+      "filename": "src/app/dashboard/workspace-actions.ts"
+    },
+    "401c5bbf54139cb99e6e2ced14c09d6235139cb26d": {
+      "workers": {
+        "app/dashboard/bokningar/blockera/page": {
+          "moduleId": 574129,
+          "async": true,
+          "exportedName": "$$RSC_SERVER_ACTION_1",
+          "filename": "src/app/dashboard/bokningar/blockera/page.tsx"
+        }
+      },
+      "exportedName": "$$RSC_SERVER_ACTION_1",
+      "filename": "src/app/dashboard/bokningar/blockera/page.tsx"
+    },
+    "40768616bf8e94df9a02b645260f30c41fcd5d7c21": {
+      "workers": {
+        "app/dashboard/bokningar/blockera/page": {
+          "moduleId": 574129,
+          "async": true,
+          "exportedName": "$$RSC_SERVER_ACTION_0",
+          "filename": "src/app/dashboard/bokningar/blockera/page.tsx"
+        }
+      },
+      "exportedName": "$$RSC_SERVER_ACTION_0",
+      "filename": "src/app/dashboard/bokningar/blockera/page.tsx"
+    },
+    "407f735eb30be373effe03ebc8b6234c0b5944f110": {
+      "workers": {
+        "app/dashboard/bokningar/blockera/page": {
+          "moduleId": 574129,
+          "async": true,
+          "exportedName": "$$RSC_SERVER_ACTION_2",
+          "filename": "src/app/dashboard/bokningar/blockera/page.tsx"
+        }
+      },
+      "exportedName": "$$RSC_SERVER_ACTION_2",
+      "filename": "src/app/dashboard/bokningar/blockera/page.tsx"
+    }
+  },
+  "edge": {}
+}

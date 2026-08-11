@@ -1,0 +1,125 @@
+{
+  "node": {
+    "4068e27ed13f1f3adac9ee8279e91982c5554507df": {
+      "workers": {
+        "app/dashboard/installningar/page": {
+          "moduleId": 46978,
+          "async": true,
+          "exportedName": "switchWorkspaceAction",
+          "filename": "src/app/dashboard/workspace-actions.ts"
+        }
+      },
+      "exportedName": "switchWorkspaceAction",
+      "filename": "src/app/dashboard/workspace-actions.ts"
+    },
+    "40b2d483eaca8b1903e4693726c5fdcbc7821a228f": {
+      "workers": {
+        "app/dashboard/installningar/page": {
+          "moduleId": 46978,
+          "async": true,
+          "exportedName": "updateWorkspaceSettingsAction",
+          "filename": "src/app/dashboard/installningar/actions.ts"
+        }
+      },
+      "exportedName": "updateWorkspaceSettingsAction",
+      "filename": "src/app/dashboard/installningar/actions.ts"
+    },
+    "400761dfd7c10640dcfc992389428c9b4c5201c95a": {
+      "workers": {
+        "app/dashboard/installningar/page": {
+          "moduleId": 46978,
+          "async": true,
+          "exportedName": "updateWorkspaceBookingHoursAction",
+          "filename": "src/app/dashboard/installningar/booking-hours-actions.ts"
+        }
+      },
+      "exportedName": "updateWorkspaceBookingHoursAction",
+      "filename": "src/app/dashboard/installningar/booking-hours-actions.ts"
+    },
+    "407664bf18370b7a9063e5afbabb3e3a056fe321d7": {
+      "workers": {
+        "app/dashboard/installningar/page": {
+          "moduleId": 46978,
+          "async": true,
+          "exportedName": "updateWorkspaceServiceAction",
+          "filename": "src/app/dashboard/installningar/service-actions.ts"
+        }
+      },
+      "exportedName": "updateWorkspaceServiceAction",
+      "filename": "src/app/dashboard/installningar/service-actions.ts"
+    },
+    "408af65319132557669e6c4385304317a471ce329b": {
+      "workers": {
+        "app/dashboard/installningar/page": {
+          "moduleId": 46978,
+          "async": true,
+          "exportedName": "createWorkspaceServiceAction",
+          "filename": "src/app/dashboard/installningar/service-actions.ts"
+        }
+      },
+      "exportedName": "createWorkspaceServiceAction",
+      "filename": "src/app/dashboard/installningar/service-actions.ts"
+    },
+    "405243d5b2849e2dc584fa56ce71b0e22a04ff39f6": {
+      "workers": {
+        "app/dashboard/installningar/page": {
+          "moduleId": 46978,
+          "async": true,
+          "exportedName": "revokeWorkspaceMemberInvitationAction",
+          "filename": "src/app/dashboard/installningar/member-actions.ts"
+        }
+      },
+      "exportedName": "revokeWorkspaceMemberInvitationAction",
+      "filename": "src/app/dashboard/installningar/member-actions.ts"
+    },
+    "40586babddc8d866f6ee0f79a7aa0b07984e224418": {
+      "workers": {
+        "app/dashboard/installningar/page": {
+          "moduleId": 46978,
+          "async": true,
+          "exportedName": "addWorkspaceMemberAction",
+          "filename": "src/app/dashboard/installningar/member-actions.ts"
+        }
+      },
+      "exportedName": "addWorkspaceMemberAction",
+      "filename": "src/app/dashboard/installningar/member-actions.ts"
+    },
+    "4084c3aa10b1da70ee976c8e97eb2d9c6d9bc95578": {
+      "workers": {
+        "app/dashboard/installningar/page": {
+          "moduleId": 46978,
+          "async": true,
+          "exportedName": "resendWorkspaceMemberInvitationAction",
+          "filename": "src/app/dashboard/installningar/member-actions.ts"
+        }
+      },
+      "exportedName": "resendWorkspaceMemberInvitationAction",
+      "filename": "src/app/dashboard/installningar/member-actions.ts"
+    },
+    "409fcb7a691df9e186a376f36fe0ca1e033a2e0e14": {
+      "workers": {
+        "app/dashboard/installningar/page": {
+          "moduleId": 46978,
+          "async": true,
+          "exportedName": "removeWorkspaceMemberAction",
+          "filename": "src/app/dashboard/installningar/member-actions.ts"
+        }
+      },
+      "exportedName": "removeWorkspaceMemberAction",
+      "filename": "src/app/dashboard/installningar/member-actions.ts"
+    },
+    "40c5c74d5877a5329bc8638b2743f5d307a87827e5": {
+      "workers": {
+        "app/dashboard/installningar/page": {
+          "moduleId": 46978,
+          "async": true,
+          "exportedName": "updateWorkspaceMemberRoleAction",
+          "filename": "src/app/dashboard/installningar/member-actions.ts"
+        }
+      },
+      "exportedName": "updateWorkspaceMemberRoleAction",
+      "filename": "src/app/dashboard/installningar/member-actions.ts"
+    }
+  },
+  "edge": {}
+}

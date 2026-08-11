@@ -1,0 +1,53 @@
+{
+  "node": {
+    "4068e27ed13f1f3adac9ee8279e91982c5554507df": {
+      "workers": {
+        "app/dashboard/uppdrag/[id]/page": {
+          "moduleId": 532998,
+          "async": true,
+          "exportedName": "switchWorkspaceAction",
+          "filename": "src/app/dashboard/workspace-actions.ts"
+        }
+      },
+      "exportedName": "switchWorkspaceAction",
+      "filename": "src/app/dashboard/workspace-actions.ts"
+    },
+    "60060e1fd86596328c0d8f730f5ae10431d3d4cef0": {
+      "workers": {
+        "app/dashboard/uppdrag/[id]/page": {
+          "moduleId": 532998,
+          "async": true,
+          "exportedName": "$$RSC_SERVER_ACTION_2",
+          "filename": "src/app/dashboard/uppdrag/[id]/page.tsx"
+        }
+      },
+      "exportedName": "$$RSC_SERVER_ACTION_2",
+      "filename": "src/app/dashboard/uppdrag/[id]/page.tsx"
+    },
+    "6067ceee7d51a4e5a6d88d0cbd5dfdbb5bc14696ee": {
+      "workers": {
+        "app/dashboard/uppdrag/[id]/page": {
+          "moduleId": 532998,
+          "async": true,
+          "exportedName": "$$RSC_SERVER_ACTION_0",
+          "filename": "src/app/dashboard/uppdrag/[id]/page.tsx"
+        }
+      },
+      "exportedName": "$$RSC_SERVER_ACTION_0",
+      "filename": "src/app/dashboard/uppdrag/[id]/page.tsx"
+    },
+    "60f9e5712debce91d6da934af0e2500ca472c2e37d": {
+      "workers": {
+        "app/dashboard/uppdrag/[id]/page": {
+          "moduleId": 532998,
+          "async": true,
+          "exportedName": "$$RSC_SERVER_ACTION_1",
+          "filename": "src/app/dashboard/uppdrag/[id]/page.tsx"
+        }
+      },
+      "exportedName": "$$RSC_SERVER_ACTION_1",
+      "filename": "src/app/dashboard/uppdrag/[id]/page.tsx"
+    }
+  },
+  "edge": {}
+}

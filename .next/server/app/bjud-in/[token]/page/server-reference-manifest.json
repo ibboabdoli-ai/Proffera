@@ -1,0 +1,17 @@
+{
+  "node": {
+    "600e976d64e01a3f25b0f6e30b5788f208ea53afb8": {
+      "workers": {
+        "app/bjud-in/[token]/page": {
+          "moduleId": 732153,
+          "async": true,
+          "exportedName": "acceptMemberInvitationAction",
+          "filename": "src/app/bjud-in/[token]/actions.ts"
+        }
+      },
+      "exportedName": "acceptMemberInvitationAction",
+      "filename": "src/app/bjud-in/[token]/actions.ts"
+    }
+  },
+  "edge": {}
+}

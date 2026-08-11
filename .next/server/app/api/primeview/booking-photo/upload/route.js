@@ -1,0 +1,12 @@
+var R=require("../../../../../chunks/[turbopack]_runtime.js")("server/app/api/primeview/booking-photo/upload/route.js")
+R.c("server/chunks/[root-of-the-server]__0q3ytn.._.js")
+R.c("server/chunks/node_modules_next_dist_esm_build_templates_app-route_0s8.p.n.js")
+R.c("server/chunks/node_modules_next_11synfn._.js")
+R.c("server/chunks/node_modules_@neondatabase_serverless_index_mjs_07pist1._.js")
+R.c("server/chunks/node_modules_0cesmh_._.js")
+R.c("server/chunks/node_modules_next_dist_0npcise._.js")
+R.c("server/chunks/node_modules_10ox9ei._.js")
+R.c("server/chunks/[root-of-the-server]__0e6esfj._.js")
+R.c("server/chunks/0zjb_server_app_api_primeview_booking-photo_upload_route_actions_12_cre8.js")
+R.m(354711)
+module.exports=R.m(354711).exports

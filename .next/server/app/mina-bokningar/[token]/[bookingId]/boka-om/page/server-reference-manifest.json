@@ -1,0 +1,17 @@
+{
+  "node": {
+    "60835968b2a51d09b1cdf68f48ad085671df8f42af": {
+      "workers": {
+        "app/mina-bokningar/[token]/[bookingId]/boka-om/page": {
+          "moduleId": 366994,
+          "async": false,
+          "exportedName": "$$RSC_SERVER_ACTION_0",
+          "filename": "src/app/mina-bokningar/[token]/[bookingId]/boka-om/page.tsx"
+        }
+      },
+      "exportedName": "$$RSC_SERVER_ACTION_0",
+      "filename": "src/app/mina-bokningar/[token]/[bookingId]/boka-om/page.tsx"
+    }
+  },
+  "edge": {}
+}

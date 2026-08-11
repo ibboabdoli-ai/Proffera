@@ -1,0 +1,17 @@
+{
+  "node": {
+    "40e0564bc638513fc00c745868c1aa57954b9a0be2": {
+      "workers": {
+        "app/mina-bokningar/[token]/page": {
+          "moduleId": 906146,
+          "async": false,
+          "exportedName": "$$RSC_SERVER_ACTION_0",
+          "filename": "src/app/mina-bokningar/[token]/page.tsx"
+        }
+      },
+      "exportedName": "$$RSC_SERVER_ACTION_0",
+      "filename": "src/app/mina-bokningar/[token]/page.tsx"
+    }
+  },
+  "edge": {}
+}

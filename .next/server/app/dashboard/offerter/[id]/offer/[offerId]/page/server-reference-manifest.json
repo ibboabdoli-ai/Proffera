@@ -1,0 +1,29 @@
+{
+  "node": {
+    "4068e27ed13f1f3adac9ee8279e91982c5554507df": {
+      "workers": {
+        "app/dashboard/offerter/[id]/offer/[offerId]/page": {
+          "moduleId": 472511,
+          "async": true,
+          "exportedName": "switchWorkspaceAction",
+          "filename": "src/app/dashboard/workspace-actions.ts"
+        }
+      },
+      "exportedName": "switchWorkspaceAction",
+      "filename": "src/app/dashboard/workspace-actions.ts"
+    },
+    "605adec549e8b41a087ae7f58c21286fd239da0c3c": {
+      "workers": {
+        "app/dashboard/offerter/[id]/offer/[offerId]/page": {
+          "moduleId": 472511,
+          "async": true,
+          "exportedName": "$$RSC_SERVER_ACTION_0",
+          "filename": "src/app/dashboard/offerter/[id]/offer/[offerId]/page.tsx"
+        }
+      },
+      "exportedName": "$$RSC_SERVER_ACTION_0",
+      "filename": "src/app/dashboard/offerter/[id]/offer/[offerId]/page.tsx"
+    }
+  },
+  "edge": {}
+}

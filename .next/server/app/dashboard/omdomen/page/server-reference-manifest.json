@@ -1,0 +1,65 @@
+{
+  "node": {
+    "4068e27ed13f1f3adac9ee8279e91982c5554507df": {
+      "workers": {
+        "app/dashboard/omdomen/page": {
+          "moduleId": 646988,
+          "async": true,
+          "exportedName": "switchWorkspaceAction",
+          "filename": "src/app/dashboard/workspace-actions.ts"
+        }
+      },
+      "exportedName": "switchWorkspaceAction",
+      "filename": "src/app/dashboard/workspace-actions.ts"
+    },
+    "40355c66085724ef6d7dca40ce3f750f439d117bc3": {
+      "workers": {
+        "app/dashboard/omdomen/page": {
+          "moduleId": 646988,
+          "async": true,
+          "exportedName": "$$RSC_SERVER_ACTION_1",
+          "filename": "src/app/dashboard/omdomen/page.tsx"
+        }
+      },
+      "exportedName": "$$RSC_SERVER_ACTION_1",
+      "filename": "src/app/dashboard/omdomen/page.tsx"
+    },
+    "404b26cdac90620847c7555aeb07ec61352dc923af": {
+      "workers": {
+        "app/dashboard/omdomen/page": {
+          "moduleId": 646988,
+          "async": true,
+          "exportedName": "$$RSC_SERVER_ACTION_3",
+          "filename": "src/app/dashboard/omdomen/page.tsx"
+        }
+      },
+      "exportedName": "$$RSC_SERVER_ACTION_3",
+      "filename": "src/app/dashboard/omdomen/page.tsx"
+    },
+    "40c66f0803aa272be69fa16bf22d3bad8eff0690ed": {
+      "workers": {
+        "app/dashboard/omdomen/page": {
+          "moduleId": 646988,
+          "async": true,
+          "exportedName": "$$RSC_SERVER_ACTION_2",
+          "filename": "src/app/dashboard/omdomen/page.tsx"
+        }
+      },
+      "exportedName": "$$RSC_SERVER_ACTION_2",
+      "filename": "src/app/dashboard/omdomen/page.tsx"
+    },
+    "40cf2a312b87f696d395563aea950b74d3395171d6": {
+      "workers": {
+        "app/dashboard/omdomen/page": {
+          "moduleId": 646988,
+          "async": true,
+          "exportedName": "$$RSC_SERVER_ACTION_0",
+          "filename": "src/app/dashboard/omdomen/page.tsx"
+        }
+      },
+      "exportedName": "$$RSC_SERVER_ACTION_0",
+      "filename": "src/app/dashboard/omdomen/page.tsx"
+    }
+  },
+  "edge": {}
+}

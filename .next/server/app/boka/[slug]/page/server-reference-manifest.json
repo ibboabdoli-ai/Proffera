@@ -1,0 +1,17 @@
+{
+  "node": {
+    "40535a9781e5509a760505d42877caceb749c8e08e": {
+      "workers": {
+        "app/boka/[slug]/page": {
+          "moduleId": 40129,
+          "async": true,
+          "exportedName": "$$RSC_SERVER_ACTION_0",
+          "filename": "src/app/boka/[slug]/page.tsx"
+        }
+      },
+      "exportedName": "$$RSC_SERVER_ACTION_0",
+      "filename": "src/app/boka/[slug]/page.tsx"
+    }
+  },
+  "edge": {}
+}

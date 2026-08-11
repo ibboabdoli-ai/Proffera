@@ -1,0 +1,53 @@
+{
+  "node": {
+    "4068e27ed13f1f3adac9ee8279e91982c5554507df": {
+      "workers": {
+        "app/dashboard/personal/tider/page": {
+          "moduleId": 886505,
+          "async": true,
+          "exportedName": "switchWorkspaceAction",
+          "filename": "src/app/dashboard/workspace-actions.ts"
+        }
+      },
+      "exportedName": "switchWorkspaceAction",
+      "filename": "src/app/dashboard/workspace-actions.ts"
+    },
+    "4007489a8d25fdd69561c56e302f8aff4f75d78a9f": {
+      "workers": {
+        "app/dashboard/personal/tider/page": {
+          "moduleId": 886505,
+          "async": true,
+          "exportedName": "$$RSC_SERVER_ACTION_0",
+          "filename": "src/app/dashboard/personal/tider/page.tsx"
+        }
+      },
+      "exportedName": "$$RSC_SERVER_ACTION_0",
+      "filename": "src/app/dashboard/personal/tider/page.tsx"
+    },
+    "401380f6457dec705a61cdea44d2fd3e6a6e8b4cef": {
+      "workers": {
+        "app/dashboard/personal/tider/page": {
+          "moduleId": 886505,
+          "async": true,
+          "exportedName": "$$RSC_SERVER_ACTION_2",
+          "filename": "src/app/dashboard/personal/tider/page.tsx"
+        }
+      },
+      "exportedName": "$$RSC_SERVER_ACTION_2",
+      "filename": "src/app/dashboard/personal/tider/page.tsx"
+    },
+    "40e88007ee1b30306ae1febaea3167b9f3009091c6": {
+      "workers": {
+        "app/dashboard/personal/tider/page": {
+          "moduleId": 886505,
+          "async": true,
+          "exportedName": "$$RSC_SERVER_ACTION_1",
+          "filename": "src/app/dashboard/personal/tider/page.tsx"
+        }
+      },
+      "exportedName": "$$RSC_SERVER_ACTION_1",
+      "filename": "src/app/dashboard/personal/tider/page.tsx"
+    }
+  },
+  "edge": {}
+}

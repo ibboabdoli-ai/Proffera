@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "functions": {
+    "/_middleware": {
+      "runtime": "nodejs",
+      "matchers": [
+        {
+          "regexp": "^(?:\\/(_next\\/data\\/[^/]{1,}))?(?:\\/(\\/?index|\\/?index\\.json))?[\\/#\\?]?$",
+          "originalSource": "/"
+        },
+        {
+          "regexp": "^(?:\\/(_next\\/data\\/[^/]{1,}))?\\/booking(\\.json)?[\\/#\\?]?$",
+          "originalSource": "/booking"
+        },
+        {
+          "regexp": "^(?:\\/(_next\\/data\\/[^/]{1,}))?\\/tjanster(?:\\/((?:[^\\/#\\?]+?)(?:\\/(?:[^\\/#\\?]+?))*))?(\\.json)?[\\/#\\?]?$",
+          "originalSource": "/tjanster/:path*"
+        },
+        {
+          "regexp": "^(?:\\/(_next\\/data\\/[^/]{1,}))?\\/en(\\.json)?[\\/#\\?]?$",
+          "originalSource": "/en"
+        },
+        {
+          "regexp": "^(?:\\/(_next\\/data\\/[^/]{1,}))?\\/en(?:\\/((?:[^\\/#\\?]+?)(?:\\/(?:[^\\/#\\?]+?))*))?(\\.json)?[\\/#\\?]?$",
+          "originalSource": "/en/:path*"
+        },
+        {
+          "regexp": "^(?:\\/(_next\\/data\\/[^/]{1,}))?\\/app(?:\\/((?:[^\\/#\\?]+?)(?:\\/(?:[^\\/#\\?]+?))*))?(\\.json)?[\\/#\\?]?$",
+          "originalSource": "/app/:path*"
+        },
+        {
+          "regexp": "^(?:\\/(_next\\/data\\/[^/]{1,}))?\\/api\\/widget-config(\\.json)?[\\/#\\?]?$",
+          "originalSource": "/api/widget-config"
+        },
+        {
+          "regexp": "^(?:\\/(_next\\/data\\/[^/]{1,}))?\\/dashboard(\\.json)?[\\/#\\?]?$",
+          "originalSource": "/dashboard"
+        },
+        {
+          "regexp": "^(?:\\/(_next\\/data\\/[^/]{1,}))?\\/dashboard(?:\\/((?:[^\\/#\\?]+?)(?:\\/(?:[^\\/#\\?]+?))*))?(\\.json)?[\\/#\\?]?$",
+          "originalSource": "/dashboard/:path*"
+        },
+        {
+          "regexp": "^(?:\\/(_next\\/data\\/[^/]{1,}))?\\/admin(\\.json)?[\\/#\\?]?$",
+          "originalSource": "/admin"
+        },
+        {
+          "regexp": "^(?:\\/(_next\\/data\\/[^/]{1,}))?\\/admin(?:\\/((?:[^\\/#\\?]+?)(?:\\/(?:[^\\/#\\?]+?))*))?(\\.json)?[\\/#\\?]?$",
+          "originalSource": "/admin/:path*"
+        }
+      ]
+    },
+    "/api/auth/[...all]": {},
+    "/api/cron/booking-reminders": {
+      "maxDuration": 60
+    },
+    "/api/cron/company-directory-discovery-ingest": {
+      "maxDuration": 60
+    },
+    "/api/cron/company-directory-sync": {
+      "maxDuration": 60
+    },
+    "/api/dashboard/gallery/upload": {},
+    "/api/dashboard/review-invitations": {},
+    "/api/dashboard/service-job-payments": {},
+    "/api/dashboard/service-jobs/attachments": {},
+    "/api/gallery/media/[id]": {},
+    "/api/integrations/chat-lead": {},
+    "/api/primeview/address-lookup": {},
+    "/api/primeview/booking-photo": {},
+    "/api/primeview/booking-photo/upload": {},
+    "/api/primeview/quote": {},
+    "/api/primeview/reviews": {},
+    "/api/public-business/contact": {},
+    "/api/public-business/events": {},
+    "/api/public-business/workspaces/[workspaceSlug]/quotes": {},
+    "/api/public-directory/category-image/[category]": {},
+    "/api/public/payments/checkout": {},
+    "/api/public/workspaces/[workspaceSlug]/quotes": {},
+    "/api/reviews/[token]": {},
+    "/api/signup/provision": {},
+    "/api/stripe/checkout": {},
+    "/api/stripe/connect/onboard": {},
+    "/api/stripe/portal": {},
+    "/api/stripe/upgrade": {},
+    "/api/stripe/webhook": {},
+    "/offert/[token]/pdf": {},
+    "/og": {}
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "node": {
+    "400c77f934ab19fe1937937b46cf0b5a51df657d30": {
+      "workers": {
+        "app/admin/support/[sessionId]/page": {
+          "moduleId": 808328,
+          "async": true,
+          "exportedName": "endSupportSessionAction",
+          "filename": "src/app/admin/workspaces/actions.ts"
+        }
+      },
+      "exportedName": "endSupportSessionAction",
+      "filename": "src/app/admin/workspaces/actions.ts"
+    },
+    "402e320cf36c6ec384f5ab4fbcacd7c0052863e3c7": {
+      "workers": {
+        "app/admin/support/[sessionId]/page": {
+          "moduleId": 808328,
+          "async": true,
+          "exportedName": "elevateSupportSessionAction",
+          "filename": "src/app/admin/workspaces/actions.ts"
+        }
+      },
+      "exportedName": "elevateSupportSessionAction",
+      "filename": "src/app/admin/workspaces/actions.ts"
+    },
+    "40d4e4f62c920e59083962e6e43d47b72ee2957203": {
+      "workers": {
+        "app/admin/support/[sessionId]/page": {
+          "moduleId": 808328,
+          "async": true,
+          "exportedName": "startSupportSessionAction",
+          "filename": "src/app/admin/workspaces/actions.ts"
+        }
+      },
+      "exportedName": "startSupportSessionAction",
+      "filename": "src/app/admin/workspaces/actions.ts"
+    },
+    "40ede3bd620225348da7c66e87865477724a711eb5": {
+      "workers": {
+        "app/admin/support/[sessionId]/page": {
+          "moduleId": 808328,
+          "async": true,
+          "exportedName": "downgradeSupportSessionAction",
+          "filename": "src/app/admin/workspaces/actions.ts"
+        }
+      },
+      "exportedName": "downgradeSupportSessionAction",
+      "filename": "src/app/admin/workspaces/actions.ts"
+    },
+    "40b7fc40ae457529ba572d1c4be811ebfbb1792b9f": {
+      "workers": {
+        "app/admin/support/[sessionId]/page": {
+          "moduleId": 808328,
+          "async": true,
+          "exportedName": "updateWorkspaceContactAction",
+          "filename": "src/app/admin/support/[sessionId]/actions.ts"
+        }
+      },
+      "exportedName": "updateWorkspaceContactAction",
+      "filename": "src/app/admin/support/[sessionId]/actions.ts"
+    }
+  },
+  "edge": {}
+}

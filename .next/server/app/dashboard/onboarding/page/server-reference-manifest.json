@@ -1,0 +1,29 @@
+{
+  "node": {
+    "4068e27ed13f1f3adac9ee8279e91982c5554507df": {
+      "workers": {
+        "app/dashboard/onboarding/page": {
+          "moduleId": 289619,
+          "async": true,
+          "exportedName": "switchWorkspaceAction",
+          "filename": "src/app/dashboard/workspace-actions.ts"
+        }
+      },
+      "exportedName": "switchWorkspaceAction",
+      "filename": "src/app/dashboard/workspace-actions.ts"
+    },
+    "40ebc0ff7fbc90f6da17348771f606f0a0f5429daa": {
+      "workers": {
+        "app/dashboard/onboarding/page": {
+          "moduleId": 289619,
+          "async": true,
+          "exportedName": "$$RSC_SERVER_ACTION_0",
+          "filename": "src/app/dashboard/onboarding/page.tsx"
+        }
+      },
+      "exportedName": "$$RSC_SERVER_ACTION_0",
+      "filename": "src/app/dashboard/onboarding/page.tsx"
+    }
+  },
+  "edge": {}
+}

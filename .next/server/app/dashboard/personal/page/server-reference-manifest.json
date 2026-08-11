@@ -1,0 +1,41 @@
+{
+  "node": {
+    "4068e27ed13f1f3adac9ee8279e91982c5554507df": {
+      "workers": {
+        "app/dashboard/personal/page": {
+          "moduleId": 222192,
+          "async": true,
+          "exportedName": "switchWorkspaceAction",
+          "filename": "src/app/dashboard/workspace-actions.ts"
+        }
+      },
+      "exportedName": "switchWorkspaceAction",
+      "filename": "src/app/dashboard/workspace-actions.ts"
+    },
+    "40d187d59315e433859ce520b2c4aa04a7b171ad7e": {
+      "workers": {
+        "app/dashboard/personal/page": {
+          "moduleId": 222192,
+          "async": true,
+          "exportedName": "$$RSC_SERVER_ACTION_1",
+          "filename": "src/app/dashboard/personal/page.tsx"
+        }
+      },
+      "exportedName": "$$RSC_SERVER_ACTION_1",
+      "filename": "src/app/dashboard/personal/page.tsx"
+    },
+    "40e581cfe1375b75d128aa5fa1aa597f41a1ec8abf": {
+      "workers": {
+        "app/dashboard/personal/page": {
+          "moduleId": 222192,
+          "async": true,
+          "exportedName": "$$RSC_SERVER_ACTION_0",
+          "filename": "src/app/dashboard/personal/page.tsx"
+        }
+      },
+      "exportedName": "$$RSC_SERVER_ACTION_0",
+      "filename": "src/app/dashboard/personal/page.tsx"
+    }
+  },
+  "edge": {}
+}

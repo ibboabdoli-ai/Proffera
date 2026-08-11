@@ -1,0 +1,29 @@
+{
+  "node": {
+    "4068e27ed13f1f3adac9ee8279e91982c5554507df": {
+      "workers": {
+        "app/dashboard/bokningar/ny/page": {
+          "moduleId": 801946,
+          "async": true,
+          "exportedName": "switchWorkspaceAction",
+          "filename": "src/app/dashboard/workspace-actions.ts"
+        }
+      },
+      "exportedName": "switchWorkspaceAction",
+      "filename": "src/app/dashboard/workspace-actions.ts"
+    },
+    "40638566f0bd9b95f933cbbbc6d2d995c0005ec182": {
+      "workers": {
+        "app/dashboard/bokningar/ny/page": {
+          "moduleId": 801946,
+          "async": true,
+          "exportedName": "$$RSC_SERVER_ACTION_0",
+          "filename": "src/app/dashboard/bokningar/ny/page.tsx"
+        }
+      },
+      "exportedName": "$$RSC_SERVER_ACTION_0",
+      "filename": "src/app/dashboard/bokningar/ny/page.tsx"
+    }
+  },
+  "edge": {}
+}

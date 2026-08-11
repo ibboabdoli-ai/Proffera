@@ -1,0 +1,3 @@
+{
+  "/gallery/[slug]/page": "app/gallery/[slug]/page.js"
+}

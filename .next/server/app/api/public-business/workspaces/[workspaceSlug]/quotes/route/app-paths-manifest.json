@@ -1,0 +1,3 @@
+{
+  "/api/public-business/workspaces/[workspaceSlug]/quotes/route": "app/api/public-business/workspaces/[workspaceSlug]/quotes/route.js"
+}

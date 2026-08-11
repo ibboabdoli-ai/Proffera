@@ -1,0 +1,17 @@
+{
+  "node": {
+    "401100b219274e5ec6f299c9685436a822ce20ad2b": {
+      "workers": {
+        "app/admin/billing/page": {
+          "moduleId": 824575,
+          "async": true,
+          "exportedName": "extendTrialAction",
+          "filename": "src/app/admin/billing/actions.ts"
+        }
+      },
+      "exportedName": "extendTrialAction",
+      "filename": "src/app/admin/billing/actions.ts"
+    }
+  },
+  "edge": {}
+}

@@ -1,0 +1,3 @@
+module.exports=[300191,a=>{"use strict";var b=a.i(187924);a.s(["default",0,function({reset:a}){return(0,b.jsxs)("div",{className:"rounded-2xl bg-[#fff5f2] p-6 text-sm text-[#8f2f1b]",children:[(0,b.jsx)("p",{children:"Personalplaneringen kunde inte laddas."}),(0,b.jsx)("button",{type:"button",onClick:a,className:"mt-3 rounded-xl border border-[#e0b7b7] bg-white px-4 py-2 font-bold",children:"Försök igen"})]})}])}];
+
+//# sourceMappingURL=src_app_dashboard_personal_tider_error_tsx_0f32jj6._.js.map

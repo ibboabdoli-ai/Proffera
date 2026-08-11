@@ -1,0 +1,17 @@
+{
+  "node": {
+    "4019e35a5605129e5d5e75cae9e607c47ff5a0f3e9": {
+      "workers": {
+        "app/fa-offert/page": {
+          "moduleId": 368023,
+          "async": false,
+          "exportedName": "submitQuoteRequest",
+          "filename": "src/features/quote-request/actions.ts"
+        }
+      },
+      "exportedName": "submitQuoteRequest",
+      "filename": "src/features/quote-request/actions.ts"
+    }
+  },
+  "edge": {}
+}

@@ -1,0 +1,63 @@
+module.exports=[238444,a=>{"use strict";var b=a.i(907997);a.s(["DashboardDataPanel",0,function({title:a,description:c,count:d,children:e}){return(0,b.jsxs)("section",{className:"overflow-hidden rounded-[24px] border border-[#e0e5dd] bg-white shadow-[0_1px_2px_rgba(20,43,32,0.03),0_14px_36px_rgba(20,43,32,0.045)]",children:[(0,b.jsxs)("div",{className:"flex flex-col gap-3 border-b border-[#e5e9e2] px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6",children:[(0,b.jsxs)("div",{children:[(0,b.jsx)("h3",{className:"text-lg font-bold tracking-tight text-[#17201a]",children:a}),(0,b.jsx)("p",{className:"mt-1 text-sm leading-6 text-[#667168]",children:c})]}),(0,b.jsxs)("span",{className:"inline-flex w-fit items-center rounded-full bg-[#eaf2ec] px-3 py-1.5 text-xs font-bold text-[#17452f]",children:[d," ",1===d?"post":"poster"]})]}),e]})},"DashboardMetricGrid",0,function({items:a}){return(0,b.jsx)("section",{className:"grid gap-3 sm:grid-cols-2 xl:grid-cols-4","aria-label":"Sidöversikt",children:a.map(a=>(0,b.jsxs)("article",{className:"rounded-2xl border border-[#e0e5dd] bg-white p-5 shadow-[0_1px_2px_rgba(20,43,32,0.03),0_10px_26px_rgba(20,43,32,0.035)] transition hover:-translate-y-0.5 hover:border-[#cfd8cd] hover:shadow-[0_14px_30px_rgba(20,43,32,0.07)]",children:[(0,b.jsxs)("div",{className:"flex items-start justify-between gap-4",children:[(0,b.jsxs)("div",{children:[(0,b.jsx)("p",{className:"text-[11px] font-bold uppercase tracking-[0.1em] text-[#778179]",children:a.label}),(0,b.jsx)("p",{className:"mt-3 text-3xl font-bold tracking-tight text-[#173e2b]",children:a.value})]}),(0,b.jsx)("span",{className:`flex h-10 w-10 items-center justify-center rounded-xl ${a.tone}`,children:(0,b.jsx)(a.icon,{className:"h-[18px] w-[18px]","aria-hidden":"true"})})]}),(0,b.jsx)("p",{className:"mt-3 text-sm leading-5 text-[#6a756d]",children:a.helper})]},a.label))})},"DashboardPageHeader",0,function({eyebrow:a,title:c,description:d,icon:e,actions:f}){return(0,b.jsxs)("section",{className:"relative overflow-hidden rounded-[24px] border border-[#dfe5dd] bg-white px-5 py-6 shadow-[0_1px_2px_rgba(20,43,32,0.03),0_14px_36px_rgba(20,43,32,0.05)] sm:px-7 sm:py-7 lg:px-8",children:[(0,b.jsx)("div",{className:"absolute right-0 top-0 h-32 w-32 translate-x-1/3 -translate-y-1/3 rounded-full bg-[#eaf2ec] blur-2xl","aria-hidden":"true"}),(0,b.jsxs)("div",{className:"relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between",children:[(0,b.jsxs)("div",{className:"flex max-w-3xl items-start gap-4",children:[(0,b.jsx)("span",{className:"flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#173e2b] text-white shadow-lg shadow-[#173e2b]/15",children:(0,b.jsx)(e,{className:"h-5 w-5","aria-hidden":"true"})}),(0,b.jsxs)("div",{children:[(0,b.jsx)("p",{className:"text-xs font-bold uppercase tracking-[0.14em] text-[#17452f]",children:a}),(0,b.jsx)("h2",{className:"mt-2 text-2xl font-bold tracking-[-0.025em] text-[#17201a] sm:text-3xl",children:c}),(0,b.jsx)("p",{className:"mt-3 text-sm leading-7 text-[#667168] sm:text-[15px]",children:d})]})]}),f?(0,b.jsx)("div",{className:"flex shrink-0 flex-col gap-2 sm:flex-row",children:f}):null]})]})}])},137936,(a,b,c)=>{"use strict";Object.defineProperty(c,"__esModule",{value:!0}),Object.defineProperty(c,"registerServerReference",{enumerable:!0,get:function(){return d.registerServerReference}});let d=a.r(211857)},713095,(a,b,c)=>{"use strict";function d(a){for(let b=0;b<a.length;b++){let c=a[b];if("function"!=typeof c)throw Object.defineProperty(Error(`A "use server" file can only export async functions, found ${typeof c}.
+Read more: https://nextjs.org/docs/messages/invalid-use-server-value`),"__NEXT_ERROR_CODE",{value:"E352",enumerable:!1,configurable:!0})}}Object.defineProperty(c,"__esModule",{value:!0}),Object.defineProperty(c,"ensureServerEntryExports",{enumerable:!0,get:function(){return d}})},67693,a=>a.a(async(b,c)=>{try{var d=a.i(137936),e=a.i(905246);a.i(570396);var f=a.i(673727),g=a.i(87921),h=a.i(713095),i=b([g]);async function j(a){let b=String(a.get("workspace_id")??"");(await (0,g.getUserWorkspaceOptions)()).some(a=>a.id===b)||(0,f.redirect)("/dashboard?workspace=invalid"),(await (0,e.cookies)()).set(g.selectedWorkspaceCookieName,b,{httpOnly:!0,sameSite:"lax",secure:!0,path:"/",maxAge:31536e3}),(0,f.redirect)("/dashboard")}[g]=i.then?(await i)():i,(0,h.ensureServerEntryExports)([j]),(0,d.registerServerReference)(j,"4068e27ed13f1f3adac9ee8279e91982c5554507df",null),a.s(["switchWorkspaceAction",0,j]),c()}catch(a){c(a)}},!1),784930,a=>{"use strict";let b=(0,a.i(892277).default)("arrow-left",[["path",{d:"m12 19-7-7 7-7",key:"1l729n"}],["path",{d:"M19 12H5",key:"x3x0zl"}]]);a.s(["ArrowLeft",0,b],784930)},737185,a=>{"use strict";let b=(0,a.i(892277).default)("file-text",[["path",{d:"M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z",key:"1oefj6"}],["path",{d:"M14 2v5a1 1 0 0 0 1 1h5",key:"wfsgrz"}],["path",{d:"M10 9H8",key:"b1mrlr"}],["path",{d:"M16 13H8",key:"t4e002"}],["path",{d:"M16 17H8",key:"z1uh3a"}]]);a.s(["FileText",0,b],737185)},95679,a=>{"use strict";let b=(0,a.i(892277).default)("user-round",[["circle",{cx:"12",cy:"8",r:"5",key:"1hypcn"}],["path",{d:"M20 21a8 8 0 0 0-16 0",key:"rfgkzh"}]]);a.s(["UserRound",0,b],95679)},881005,a=>{"use strict";let b=(0,a.i(892277).default)("map-pin",[["path",{d:"M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0",key:"1r0f0z"}],["circle",{cx:"12",cy:"10",r:"3",key:"ilqhr7"}]]);a.s(["MapPin",0,b],881005)},29581,a=>{"use strict";let b=(0,a.i(892277).default)("phone",[["path",{d:"M13.832 16.568a1 1 0 0 0 1.213-.303l.355-.465A2 2 0 0 1 17 15h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2A18 18 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-.8 1.6l-.468.351a1 1 0 0 0-.292 1.233 14 14 0 0 0 6.392 6.384",key:"9njp5v"}]]);a.s(["Phone",0,b],29581)},951615,(a,b,c)=>{b.exports=a.x("node:buffer",()=>require("node:buffer"))},903062,a=>{"use strict";let b=(0,a.i(892277).default)("mail",[["path",{d:"m22 7-8.991 5.727a2 2 0 0 1-2.009 0L2 7",key:"132q7q"}],["rect",{x:"2",y:"4",width:"20",height:"16",rx:"2",key:"izxlao"}]]);a.s(["Mail",0,b],903062)},818133,a=>{"use strict";let b=(0,a.i(892277).default)("calendar-days",[["path",{d:"M8 2v4",key:"1cmpym"}],["path",{d:"M16 2v4",key:"4m81vk"}],["rect",{width:"18",height:"18",x:"3",y:"4",rx:"2",key:"1hopcy"}],["path",{d:"M3 10h18",key:"8toen8"}],["path",{d:"M8 14h.01",key:"6423bh"}],["path",{d:"M12 14h.01",key:"1etili"}],["path",{d:"M16 14h.01",key:"1gbofw"}],["path",{d:"M8 18h.01",key:"lrp35t"}],["path",{d:"M12 18h.01",key:"mhygvu"}],["path",{d:"M16 18h.01",key:"kzsmim"}]]);a.s(["CalendarDays",0,b],818133)},398184,a=>{"use strict";let b=["fixed","from","quote"];function c(a){return"string"==typeof a&&b.includes(a)}a.s(["formatWorkspaceServicePrice",0,function(a,b){if("quote"===a.priceType)return"en"===b?"Request a quote":"Begär offert";let c=new Intl.NumberFormat("en"===b?"en-GB":"sv-SE",{style:"currency",currency:a.currency,minimumFractionDigits:2*(a.amountMinor%100!=0),maximumFractionDigits:2}).format(a.amountMinor/100);return"from"===a.priceType?"en"===b?`From ${c}`:`Fr\xe5n ${c}`:c},"isWorkspaceServicePriceType",0,c,"validateWorkspaceServicePrice",0,function(a){if(!c(a.priceType))return{ok:!1,error:"price_type"};if("quote"===a.priceType)return String(a.amount??"").trim()?{ok:!1,error:"price_amount"}:{ok:!0,value:{priceType:"quote",amountMinor:null,currency:a.currency}};let b=function(a){let b=String(a??"").trim().replace(",",".");if(!/^\d+(?:\.\d{1,2})?$/.test(b))return null;let[c,d=""]=b.split("."),e=100*Number(c)+Number(d.padEnd(2,"0"));return Number.isSafeInteger(e)&&e>=0&&e<=0x174876e79c?e:null}(a.amount);return null===b?{ok:!1,error:"price_amount"}:{ok:!0,value:{priceType:a.priceType,amountMinor:b,currency:a.currency}}}])},260394,a=>{"use strict";var b=a.i(938612),c=a.i(398184);a.s(["validateWorkspaceQuoteOfferDraft",0,function(a){let d=(0,c.validateWorkspaceServicePrice)({priceType:"fixed",amount:a.amount,currency:a.currency});if(!d.ok||null===d.value.amountMinor)return{ok:!1,error:"amount"};let e=function(a){let b=String(a??"").trim().replace(",",".");if(!/^\d{1,3}(?:\.\d{1,2})?$/.test(b))return null;let c=Math.round(100*Number(b));return Number.isInteger(c)&&c>=0&&c<=1e4?c:null}(a.vatRate);if(null===e)return{ok:!1,error:"vat_rate"};let f=String(a.title??"").trim();if(!f||f.length>160)return{ok:!1,error:"title"};let g=String(a.terms??"").trim();if(g.length>5e3)return{ok:!1,error:"terms"};let h=function(a){let b=String(a??"").trim();if(!b)return null;if(!/^\d{4}-\d{2}-\d{2}$/.test(b))return;let c=new Date(`${b}T00:00:00Z`);return Number.isNaN(c.getTime())||c.toISOString().slice(0,10)!==b?void 0:b}(a.validUntil);if(void 0===h)return{ok:!1,error:"valid_until"};let i=(0,b.calculateQuoteOfferTotals)(d.value.amountMinor,e);return{ok:!0,value:{currency:a.currency,...i,title:f,terms:g,validUntil:h}}}])},463787,a=>{"use strict";let b=["submitted","reviewing","quoted","accepted","rejected","cancelled"],c={submitted:["reviewing","cancelled"],reviewing:["quoted","rejected","cancelled"],quoted:["accepted","rejected","cancelled"],accepted:[],rejected:[],cancelled:[]};a.s(["canTransitionWorkspaceQuote",0,function(a,b){return c[a].includes(b)},"getWorkspaceQuoteTransitions",0,function(a){return c[a]},"isWorkspaceQuoteStatus",0,function(a){return"string"==typeof a&&b.includes(a)}])},194207,a=>a.a(async(b,c)=>{try{a.i(666680);var d=a.i(546767),e=a.i(612147),f=a.i(463787),g=a.i(87921),h=b([g]);[g]=h.then?(await h)():h;let p=(0,e.resolveDatabaseUrl)();function i(){return p?(0,d.neon)(p):null}async function j(){let a=await (0,g.getUserWorkspaceAccess)();if(!a.ok)throw Error("A valid workspace membership is required for quote requests");return a.workspaceId}function k(a){return null==a?"":String(a)}function l(a){return{id:k(a.id),referenceId:k(a.reference_id),status:k(a.status),serviceId:a.service_id?k(a.service_id):null,serviceName:k(a.service_name),customerName:k(a.customer_name),customerEmail:k(a.customer_email),customerPhone:k(a.customer_phone),city:k(a.city),postalCode:k(a.postal_code),description:k(a.description),preferredDate:k(a.preferred_date),source:k(a.source),createdAt:k(a.created_at),updatedAt:k(a.updated_at)}}async function m(){let a=i();if(!a)return[];let b=await j();return(await a`
+    select
+      q.id,
+      q.reference_id,
+      q.status,
+      q.service_id,
+      coalesce(s.name, '') as service_name,
+      q.customer_name,
+      q.customer_email,
+      q.customer_phone,
+      q.city,
+      q.postal_code,
+      q.description,
+      q.preferred_date,
+      q.source,
+      q.created_at,
+      q.updated_at
+    from workspace_quote_requests q
+    left join workspace_services s
+      on s.id = q.service_id
+     and s.workspace_id = q.workspace_id::text
+    where q.workspace_id = ${b}
+    order by q.created_at desc
+  `).map(a=>l(a))}async function n(a){let b=i();if(!b)return null;let c=await j(),d=await b`
+    select
+      q.id,
+      q.reference_id,
+      q.status,
+      q.service_id,
+      coalesce(s.name, '') as service_name,
+      q.customer_name,
+      q.customer_email,
+      q.customer_phone,
+      q.city,
+      q.postal_code,
+      q.description,
+      q.preferred_date,
+      q.source,
+      q.created_at,
+      q.updated_at
+    from workspace_quote_requests q
+    left join workspace_services s
+      on s.id = q.service_id
+     and s.workspace_id = q.workspace_id::text
+    where q.workspace_id = ${c}
+      and q.id = ${a}
+    limit 1
+  `;return d[0]?l(d[0]):null}async function o(a,b){let c=i();if(!c)throw Error("Missing database connection for quote transition");let d=await j(),e=await c`
+    select status
+    from workspace_quote_requests
+    where id = ${a} and workspace_id = ${d}
+    limit 1
+  `,g=e[0]?.status;if(!g)throw Error("Quote request was not found for the active workspace");if(!(0,f.canTransitionWorkspaceQuote)(g,b))throw Error(`Invalid quote transition: ${g} -> ${b}`);if(!(await c`
+    update workspace_quote_requests
+    set status = ${b}, updated_at = now()
+    where id = ${a}
+      and workspace_id = ${d}
+      and status = ${g}
+    returning id
+  `)[0])throw Error("Quote request changed before the transition completed")}a.s(["getDashboardWorkspaceQuoteRequest",0,n,"getDashboardWorkspaceQuoteRequests",0,m,"transitionDashboardWorkspaceQuoteRequest",0,o]),c()}catch(a){c(a)}},!1)];
+
+//# sourceMappingURL=%5Broot-of-the-server%5D__0iec03q._.js.map

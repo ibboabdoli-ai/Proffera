@@ -1,0 +1,3 @@
+{
+  "/api/cron/company-directory-sync/route": "app/api/cron/company-directory-sync/route.js"
+}

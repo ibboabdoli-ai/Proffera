@@ -1,0 +1,3 @@
+{
+  "/api/mina-bokningar/[token]/[bookingId]/calendar/route": "app/api/mina-bokningar/[token]/[bookingId]/calendar/route.js"
+}

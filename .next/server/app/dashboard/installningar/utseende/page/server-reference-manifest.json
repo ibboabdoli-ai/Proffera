@@ -1,0 +1,65 @@
+{
+  "node": {
+    "4068e27ed13f1f3adac9ee8279e91982c5554507df": {
+      "workers": {
+        "app/dashboard/installningar/utseende/page": {
+          "moduleId": 925068,
+          "async": true,
+          "exportedName": "switchWorkspaceAction",
+          "filename": "src/app/dashboard/workspace-actions.ts"
+        }
+      },
+      "exportedName": "switchWorkspaceAction",
+      "filename": "src/app/dashboard/workspace-actions.ts"
+    },
+    "00b5d8d8c5f9728cdc650d1e413db84b00b41f9f83": {
+      "workers": {
+        "app/dashboard/installningar/utseende/page": {
+          "moduleId": 925068,
+          "async": true,
+          "exportedName": "$$RSC_SERVER_ACTION_1",
+          "filename": "src/app/dashboard/installningar/utseende/page.tsx"
+        }
+      },
+      "exportedName": "$$RSC_SERVER_ACTION_1",
+      "filename": "src/app/dashboard/installningar/utseende/page.tsx"
+    },
+    "00c006ba469fa1531aa6e0cb834593db61dc87a656": {
+      "workers": {
+        "app/dashboard/installningar/utseende/page": {
+          "moduleId": 925068,
+          "async": true,
+          "exportedName": "$$RSC_SERVER_ACTION_0",
+          "filename": "src/app/dashboard/installningar/utseende/page.tsx"
+        }
+      },
+      "exportedName": "$$RSC_SERVER_ACTION_0",
+      "filename": "src/app/dashboard/installningar/utseende/page.tsx"
+    },
+    "4009451c71553292acc233a3d253fc2f7b2f400c29": {
+      "workers": {
+        "app/dashboard/installningar/utseende/page": {
+          "moduleId": 925068,
+          "async": true,
+          "exportedName": "$$RSC_SERVER_ACTION_2",
+          "filename": "src/app/dashboard/installningar/utseende/page.tsx"
+        }
+      },
+      "exportedName": "$$RSC_SERVER_ACTION_2",
+      "filename": "src/app/dashboard/installningar/utseende/page.tsx"
+    },
+    "402e10e0e0329f970f901359216f104ae8a13b29c4": {
+      "workers": {
+        "app/dashboard/installningar/utseende/page": {
+          "moduleId": 925068,
+          "async": true,
+          "exportedName": "$$RSC_SERVER_ACTION_3",
+          "filename": "src/app/dashboard/installningar/utseende/page.tsx"
+        }
+      },
+      "exportedName": "$$RSC_SERVER_ACTION_3",
+      "filename": "src/app/dashboard/installningar/utseende/page.tsx"
+    }
+  },
+  "edge": {}
+}

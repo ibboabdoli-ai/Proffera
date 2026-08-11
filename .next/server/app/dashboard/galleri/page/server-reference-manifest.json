@@ -1,0 +1,29 @@
+{
+  "node": {
+    "4068e27ed13f1f3adac9ee8279e91982c5554507df": {
+      "workers": {
+        "app/dashboard/galleri/page": {
+          "moduleId": 106959,
+          "async": true,
+          "exportedName": "switchWorkspaceAction",
+          "filename": "src/app/dashboard/workspace-actions.ts"
+        }
+      },
+      "exportedName": "switchWorkspaceAction",
+      "filename": "src/app/dashboard/workspace-actions.ts"
+    },
+    "404d455c64a99f87ee72965e6cb1e77507cbdcb5d8": {
+      "workers": {
+        "app/dashboard/galleri/page": {
+          "moduleId": 106959,
+          "async": true,
+          "exportedName": "$$RSC_SERVER_ACTION_0",
+          "filename": "src/app/dashboard/galleri/page.tsx"
+        }
+      },
+      "exportedName": "$$RSC_SERVER_ACTION_0",
+      "filename": "src/app/dashboard/galleri/page.tsx"
+    }
+  },
+  "edge": {}
+}

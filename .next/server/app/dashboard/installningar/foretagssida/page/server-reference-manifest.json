@@ -1,0 +1,29 @@
+{
+  "node": {
+    "4068e27ed13f1f3adac9ee8279e91982c5554507df": {
+      "workers": {
+        "app/dashboard/installningar/foretagssida/page": {
+          "moduleId": 394631,
+          "async": true,
+          "exportedName": "switchWorkspaceAction",
+          "filename": "src/app/dashboard/workspace-actions.ts"
+        }
+      },
+      "exportedName": "switchWorkspaceAction",
+      "filename": "src/app/dashboard/workspace-actions.ts"
+    },
+    "40d7247095d056a8ea61e756e2918c43192de83b57": {
+      "workers": {
+        "app/dashboard/installningar/foretagssida/page": {
+          "moduleId": 394631,
+          "async": true,
+          "exportedName": "$$RSC_SERVER_ACTION_0",
+          "filename": "src/app/dashboard/installningar/foretagssida/page.tsx"
+        }
+      },
+      "exportedName": "$$RSC_SERVER_ACTION_0",
+      "filename": "src/app/dashboard/installningar/foretagssida/page.tsx"
+    }
+  },
+  "edge": {}
+}

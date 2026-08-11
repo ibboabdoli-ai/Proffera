@@ -1,0 +1,3 @@
+module.exports=[577273,a=>{"use strict";var b=a.i(572131);a.s(["BookingMediaGuard",0,function(){return(0,b.useEffect)(()=>{let a=a=>{let b=a.target;(b instanceof HTMLImageElement||b instanceof HTMLVideoElement)&&b.closest("[data-booking-theme] > main:first-child > section:first-child")&&(b.style.display="none",b.setAttribute("aria-hidden","true"))};return document.addEventListener("error",a,!0),()=>document.removeEventListener("error",a,!0)},[]),null}])}];
+
+//# sourceMappingURL=src_app_boka_%5Bslug%5D_booking-media-guard_tsx_0uqq.g5._.js.map

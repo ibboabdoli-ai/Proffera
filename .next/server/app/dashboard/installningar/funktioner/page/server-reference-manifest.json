@@ -1,0 +1,41 @@
+{
+  "node": {
+    "4068e27ed13f1f3adac9ee8279e91982c5554507df": {
+      "workers": {
+        "app/dashboard/installningar/funktioner/page": {
+          "moduleId": 644091,
+          "async": true,
+          "exportedName": "switchWorkspaceAction",
+          "filename": "src/app/dashboard/workspace-actions.ts"
+        }
+      },
+      "exportedName": "switchWorkspaceAction",
+      "filename": "src/app/dashboard/workspace-actions.ts"
+    },
+    "405eb26f65f1feff7482e3d4388f0dad5a55e1db3e": {
+      "workers": {
+        "app/dashboard/installningar/funktioner/page": {
+          "moduleId": 644091,
+          "async": true,
+          "exportedName": "$$RSC_SERVER_ACTION_0",
+          "filename": "src/app/dashboard/installningar/funktioner/page.tsx"
+        }
+      },
+      "exportedName": "$$RSC_SERVER_ACTION_0",
+      "filename": "src/app/dashboard/installningar/funktioner/page.tsx"
+    },
+    "4093901c067f68b5a20c6b4e5d619d37add6eaa05e": {
+      "workers": {
+        "app/dashboard/installningar/funktioner/page": {
+          "moduleId": 644091,
+          "async": true,
+          "exportedName": "$$RSC_SERVER_ACTION_1",
+          "filename": "src/app/dashboard/installningar/funktioner/page.tsx"
+        }
+      },
+      "exportedName": "$$RSC_SERVER_ACTION_1",
+      "filename": "src/app/dashboard/installningar/funktioner/page.tsx"
+    }
+  },
+  "edge": {}
+}

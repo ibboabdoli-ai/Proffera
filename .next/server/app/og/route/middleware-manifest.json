@@ -1,0 +1,55 @@
+{
+  "sorted_middleware": [
+    "/og/route"
+  ],
+  "middleware": {},
+  "instrumentation": null,
+  "functions": {
+    "/og/route": {
+      "files": [
+        "server/middleware-build-manifest.js",
+        "server/interception-route-rewrite-manifest.js",
+        "required-server-files.js",
+        "server/server-reference-manifest.js",
+        "server/app/og/route_client-reference-manifest.js",
+        "server/edge/chunks/_next-internal_server_app_og_route_actions_0kf_xx1.js",
+        "server/edge/chunks/[root-of-the-server]__0~o237-._.js",
+        "server/edge/chunks/node_modules_next_dist_02~z.uc._.js",
+        "server/edge/chunks/node_modules_next_dist_compiled_@vercel_og_11csqje._.js",
+        "server/edge/chunks/turbopack-node_modules_next_dist_esm_build_templates_edge-wrapper_0e85j0y.js"
+      ],
+      "name": "app/og/route",
+      "page": "/og/route",
+      "entrypoint": "server/edge/chunks/turbopack-node_modules_next_dist_esm_build_templates_edge-wrapper_0e85j0y.js",
+      "matchers": [
+        {
+          "regexp": "^/og(?:/)?$",
+          "originalSource": "/og"
+        }
+      ],
+      "wasm": [
+        {
+          "name": "wasm_10a187050363648b49a36c79d5266d2c",
+          "filePath": "server/edge/chunks/node_modules_next_dist_compiled_@vercel_og_yoga_0656eb_.wasm"
+        },
+        {
+          "name": "wasm_151b7f7b511bd6dda63695d2c75c87a3",
+          "filePath": "server/edge/chunks/node_modules_next_dist_compiled_@vercel_og_resvg_0656eb_.wasm"
+        }
+      ],
+      "assets": [
+        {
+          "name": "server/edge/assets/Geist-Regular.01xk7kbsv57y-.ttf",
+          "filePath": "server/edge/assets/Geist-Regular.01xk7kbsv57y-.ttf"
+        }
+      ],
+      "env": {
+        "__NEXT_BUILD_ID": "oxQkAk2woHynj3Uf_Phq2",
+        "NEXT_SERVER_ACTIONS_ENCRYPTION_KEY": "++5yiWtltwoIIW4jRHiFt0Jk/6lKUO3rQGeadlqOTnM=",
+        "__NEXT_PREVIEW_MODE_ID": "f37d4e4571fdc79d15a61fa36823371d",
+        "__NEXT_PREVIEW_MODE_ENCRYPTION_KEY": "4052c0014053bb74665968b3d755d1605f81c42de4b84a410cf210b48d7f1062",
+        "__NEXT_PREVIEW_MODE_SIGNING_KEY": "f3dbaa47aa9eae421803dcae3dfee15190b954287e9daf9422ecfc74059c18df"
+      }
+    }
+  }
+}

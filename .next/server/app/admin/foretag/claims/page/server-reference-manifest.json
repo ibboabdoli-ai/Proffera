@@ -1,0 +1,41 @@
+{
+  "node": {
+    "401891f0192b583c5d25f9f02f50d905dceded724f": {
+      "workers": {
+        "app/admin/foretag/claims/page": {
+          "moduleId": 19855,
+          "async": true,
+          "exportedName": "approveDirectoryClaimAction",
+          "filename": "src/app/admin/foretag/claims/actions.ts"
+        }
+      },
+      "exportedName": "approveDirectoryClaimAction",
+      "filename": "src/app/admin/foretag/claims/actions.ts"
+    },
+    "40359bca865726296242cdd7d9c076e4e5aed2ce7b": {
+      "workers": {
+        "app/admin/foretag/claims/page": {
+          "moduleId": 19855,
+          "async": true,
+          "exportedName": "rejectDirectoryClaimAction",
+          "filename": "src/app/admin/foretag/claims/actions.ts"
+        }
+      },
+      "exportedName": "rejectDirectoryClaimAction",
+      "filename": "src/app/admin/foretag/claims/actions.ts"
+    },
+    "40679fce77a171efc676f8315b5f5adc802b36bcc0": {
+      "workers": {
+        "app/admin/foretag/claims/page": {
+          "moduleId": 19855,
+          "async": true,
+          "exportedName": "releaseStaleDirectoryClaimReservationAction",
+          "filename": "src/app/admin/foretag/claims/actions.ts"
+        }
+      },
+      "exportedName": "releaseStaleDirectoryClaimReservationAction",
+      "filename": "src/app/admin/foretag/claims/actions.ts"
+    }
+  },
+  "edge": {}
+}

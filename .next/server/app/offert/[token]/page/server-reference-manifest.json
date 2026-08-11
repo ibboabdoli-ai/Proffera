@@ -1,0 +1,17 @@
+{
+  "node": {
+    "6033361383493c6855ba8a5bf27ee3e4e1eb3956a8": {
+      "workers": {
+        "app/offert/[token]/page": {
+          "moduleId": 846363,
+          "async": true,
+          "exportedName": "respondToPublicQuoteOfferAction",
+          "filename": "src/app/offert/[token]/actions.ts"
+        }
+      },
+      "exportedName": "respondToPublicQuoteOfferAction",
+      "filename": "src/app/offert/[token]/actions.ts"
+    }
+  },
+  "edge": {}
+}

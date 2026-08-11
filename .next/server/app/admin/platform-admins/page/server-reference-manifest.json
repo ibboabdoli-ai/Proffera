@@ -1,0 +1,17 @@
+{
+  "node": {
+    "4079c32114035137ec40b9a4b79a859d0d7522eed3": {
+      "workers": {
+        "app/admin/platform-admins/page": {
+          "moduleId": 491686,
+          "async": true,
+          "exportedName": "savePlatformAdminAction",
+          "filename": "src/app/admin/platform-admins/actions.ts"
+        }
+      },
+      "exportedName": "savePlatformAdminAction",
+      "filename": "src/app/admin/platform-admins/actions.ts"
+    }
+  },
+  "edge": {}
+}

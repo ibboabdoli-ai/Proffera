@@ -1,0 +1,17 @@
+{
+  "node": {
+    "403b16997c3fc3d833a07d018ee44e731ad0d68dad": {
+      "workers": {
+        "app/boka/primeview/page": {
+          "moduleId": 904119,
+          "async": false,
+          "exportedName": "$$RSC_SERVER_ACTION_0",
+          "filename": "src/app/boka/primeview/page.tsx"
+        }
+      },
+      "exportedName": "$$RSC_SERVER_ACTION_0",
+      "filename": "src/app/boka/primeview/page.tsx"
+    }
+  },
+  "edge": {}
+}

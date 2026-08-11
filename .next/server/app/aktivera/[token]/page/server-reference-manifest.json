@@ -1,0 +1,17 @@
+{
+  "node": {
+    "609ecf26c67a4e91b6fb25b3789faf8d14bd41a240": {
+      "workers": {
+        "app/aktivera/[token]/page": {
+          "moduleId": 637527,
+          "async": true,
+          "exportedName": "activateWorkspaceAction",
+          "filename": "src/app/aktivera/[token]/actions.ts"
+        }
+      },
+      "exportedName": "activateWorkspaceAction",
+      "filename": "src/app/aktivera/[token]/actions.ts"
+    }
+  },
+  "edge": {}
+}

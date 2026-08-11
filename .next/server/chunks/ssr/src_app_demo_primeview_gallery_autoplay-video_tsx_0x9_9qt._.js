@@ -1,0 +1,3 @@
+module.exports=[138204,a=>{"use strict";var b=a.i(187924),c=a.i(572131);a.s(["AutoplayVideo",0,function({src:a,className:d}){let e=(0,c.useRef)(null);return(0,c.useEffect)(()=>{let a=e.current;if(!a)return;let b=new IntersectionObserver(([b])=>{b.isIntersecting&&b.intersectionRatio>=.55?a.play().catch(()=>void 0):a.pause()},{threshold:[0,.55,1]});return b.observe(a),()=>b.disconnect()},[]),(0,b.jsx)("video",{ref:e,src:a,className:d,muted:!0,playsInline:!0,loop:!0,controls:!0,preload:"metadata"})}])}];
+
+//# sourceMappingURL=src_app_demo_primeview_gallery_autoplay-video_tsx_0x9_9qt._.js.map

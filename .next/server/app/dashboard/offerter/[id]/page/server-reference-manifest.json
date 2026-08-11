@@ -1,0 +1,53 @@
+{
+  "node": {
+    "4068e27ed13f1f3adac9ee8279e91982c5554507df": {
+      "workers": {
+        "app/dashboard/offerter/[id]/page": {
+          "moduleId": 37543,
+          "async": true,
+          "exportedName": "switchWorkspaceAction",
+          "filename": "src/app/dashboard/workspace-actions.ts"
+        }
+      },
+      "exportedName": "switchWorkspaceAction",
+      "filename": "src/app/dashboard/workspace-actions.ts"
+    },
+    "603aed80597aa0d427b47fb61b18598d06f6c7f3fc": {
+      "workers": {
+        "app/dashboard/offerter/[id]/page": {
+          "moduleId": 37543,
+          "async": true,
+          "exportedName": "$$RSC_SERVER_ACTION_1",
+          "filename": "src/app/dashboard/offerter/[id]/page.tsx"
+        }
+      },
+      "exportedName": "$$RSC_SERVER_ACTION_1",
+      "filename": "src/app/dashboard/offerter/[id]/page.tsx"
+    },
+    "60cb7b1c0055a4c63402287182239e43eb3bf01087": {
+      "workers": {
+        "app/dashboard/offerter/[id]/page": {
+          "moduleId": 37543,
+          "async": true,
+          "exportedName": "$$RSC_SERVER_ACTION_0",
+          "filename": "src/app/dashboard/offerter/[id]/page.tsx"
+        }
+      },
+      "exportedName": "$$RSC_SERVER_ACTION_0",
+      "filename": "src/app/dashboard/offerter/[id]/page.tsx"
+    },
+    "6004cea1474b63cb1046619d7037ba186689147346": {
+      "workers": {
+        "app/dashboard/offerter/[id]/page": {
+          "moduleId": 37543,
+          "async": true,
+          "exportedName": "sendWorkspaceQuoteOfferAction",
+          "filename": "src/app/dashboard/offerter/[id]/actions.ts"
+        }
+      },
+      "exportedName": "sendWorkspaceQuoteOfferAction",
+      "filename": "src/app/dashboard/offerter/[id]/actions.ts"
+    }
+  },
+  "edge": {}
+}

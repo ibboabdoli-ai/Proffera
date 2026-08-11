@@ -1,0 +1,17 @@
+{
+  "node": {
+    "4010c475b380611d3d1748f1804c362fa7bf34144b": {
+      "workers": {
+        "app/primeview-booking/page": {
+          "moduleId": 835752,
+          "async": false,
+          "exportedName": "$$RSC_SERVER_ACTION_0",
+          "filename": "src/app/primeview-booking/page.tsx"
+        }
+      },
+      "exportedName": "$$RSC_SERVER_ACTION_0",
+      "filename": "src/app/primeview-booking/page.tsx"
+    }
+  },
+  "edge": {}
+}

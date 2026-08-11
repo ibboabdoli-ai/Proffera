@@ -1,0 +1,355 @@
+{
+  "app": {
+    "[project]/src/app/_not-found/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/admin/audit/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/admin/billing/alerts/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/admin/billing/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/admin/foretag/claims/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/admin/foretag/directory/auto-scan/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/admin/foretag/directory/oauth-diagnostic/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/admin/foretag/directory/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/admin/foretag/directory/preview/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/admin/foretag/hantera/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/admin/foretag/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/admin/leverans/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/admin/matchning/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/admin/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/admin/platform-admins/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/admin/saas/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/admin/skicka-lead/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/admin/status/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/admin/support/[sessionId]/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/admin/workspaces/[workspaceId]/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/admin/workspaces/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/aktivera/[token]/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/anslut-foretag/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/anslut-foretag/registrera/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/anslut-foretag/tack/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/areas/[slug]/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/betala/[token]/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/bjud-in/[token]/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/boka/[slug]/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/boka/primeview/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/boka/verifiera/[id]/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/branscher/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/cookies/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/dashboard/ai-assistent/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/dashboard/analys/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/dashboard/bokningar/[id]/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/dashboard/bokningar/blockera/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/dashboard/bokningar/ny/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/dashboard/bokningar/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/dashboard/galleri/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/dashboard/installningar/betalningar/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/dashboard/installningar/foretagssida/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/dashboard/installningar/funktioner/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/dashboard/installningar/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/dashboard/installningar/paminnelser/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/dashboard/installningar/utseende/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/dashboard/kalender/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/dashboard/kunder/[id]/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/dashboard/kunder/ny/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/dashboard/kunder/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/dashboard/leads/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/dashboard/offerter/[id]/offer/[offerId]/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/dashboard/offerter/[id]/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/dashboard/offerter/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/dashboard/omdomen/inbjudningar/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/dashboard/omdomen/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/dashboard/onboarding/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/dashboard/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/dashboard/personal/bokningar/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/dashboard/personal/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/dashboard/personal/tider/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/dashboard/salon/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/dashboard/uppdrag/[id]/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/dashboard/uppdrag/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/demo/julius-salong/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/demo/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/demo/primeview/gallery/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/demo/primeview/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/demo/primeview/seo/[slug]/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/en/about/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/en/contact/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/en/cookies/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/en/create-account/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/en/demo/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/en/features/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/en/industries/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/en/join-business/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/en/join-business/register/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/en/join-business/thank-you/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/en/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/en/portfolio/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/en/portfolio/primeview/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/en/pricing/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/en/privacy/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/en/services/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/en/terms/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/fa-offert/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/foretag/[workspace]/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/foretag/[workspace]/tjanster/[service]/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/foretag/claim/[slug]/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/foretag/listad/[slug]/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/funktioner/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/galleri/[slug]/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/gallery/[slug]/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/gallery/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/hur-det-fungerar/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/integritetspolicy/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/kategorier/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/kontakt/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/logga-in/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/mina-bokningar/[token]/[bookingId]/boka-om/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/mina-bokningar/[token]/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/offert/[token]/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/om/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/portfolio/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/portfolio/primeview/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/preview-admin-setup/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/preview-bolagsverket-diagnostic/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/primeview-booking/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/priser/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/review/[token]/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/services/[slug]/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/skapa-konto/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/tjanster/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ],
+    "[project]/src/app/villkor/page": [
+      "static/media/c47649aa31f9e140-s.p.11uo_35nso9mn.woff2"
+    ]
+  },
+  "appUsingSizeAdjust": true,
+  "pages": {},
+  "pagesUsingSizeAdjust": false
+}
