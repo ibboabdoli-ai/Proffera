@@ -15,6 +15,7 @@ const swedishOnlyRoutes = ["/logga-in"] as const;
 const primeViewRoutes = [
   { path: "/", changeFrequency: "weekly" as const, priority: 1 },
   { path: "/gallery", changeFrequency: "weekly" as const, priority: 0.8 },
+  { path: "/privacy", changeFrequency: "yearly" as const, priority: 0.3 },
   ...primeViewServicePages.map(({ slug }) => ({ path: `/services/${slug}`, changeFrequency: "monthly" as const, priority: 0.9 })),
   ...primeViewAreaPages.map(({ slug }) => ({ path: `/areas/${slug}`, changeFrequency: "monthly" as const, priority: 0.85 })),
 ];

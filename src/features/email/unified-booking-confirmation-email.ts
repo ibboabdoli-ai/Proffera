@@ -22,6 +22,8 @@ type BrevoResponse = {
   code?: string;
 };
 
+const primeViewLogo = "https://www.primeviewwindowcare.co.uk/brand/primeview-window-care-logo.jpeg";
+
 function escapeHtml(value: string) {
   return value
     .replaceAll("&", "&amp;")
@@ -105,35 +107,37 @@ export function buildUnifiedBookingConfirmationEmail(input: Input) {
       ].filter(Boolean).join("\n");
 
   const html = isEnglish ? `
-    <div style="font-family:Arial,sans-serif;line-height:1.6;color:#17201a;max-width:640px;margin:0 auto;">
-      <div style="border:1px solid #dfe6df;border-radius:20px;overflow:hidden;background:#ffffff;">
-        <div style="background:#173e2b;color:#ffffff;padding:24px 28px;">
-          <p style="margin:0;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#dce9df;">Booking request</p>
-          <h1 style="margin:8px 0 0;font-size:25px;line-height:1.25;">${escapeHtml(input.companyName)}</h1>
+    <div style="font-family:Arial,sans-serif;line-height:1.6;color:#0b2a4a;max-width:640px;margin:0 auto;">
+      <div style="border:1px solid #d9e4ef;border-radius:20px;overflow:hidden;background:#ffffff;box-shadow:0 10px 30px rgba(11,42,74,.08);">
+        <div style="background:#06183b;color:#ffffff;padding:22px 28px;">
+          <table role="presentation" style="width:100%;border-collapse:collapse;"><tr>
+            <td style="width:58px;vertical-align:middle;"><img src="${primeViewLogo}" width="48" height="48" alt="PrimeView Window Care" style="display:block;width:48px;height:48px;border-radius:11px;object-fit:cover;border:1px solid rgba(255,255,255,.25);" /></td>
+            <td style="vertical-align:middle;"><p style="margin:0;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#b8ceff;">Booking request</p><h1 style="margin:5px 0 0;font-size:24px;line-height:1.25;color:#ffffff;">${escapeHtml(input.companyName)}</h1></td>
+          </tr></table>
         </div>
         <div style="padding:26px 28px;">
           <p>Hello ${escapeHtml(input.customerName)},</p>
-          <p>We have received your booking request. The company will confirm the appointment separately.</p>
-          <table role="presentation" style="width:100%;border-collapse:collapse;margin:22px 0;background:#f4f7f3;border-radius:14px;">
-            <tr><td style="padding:14px 16px 6px;font-weight:700;width:110px;">Service</td><td style="padding:14px 16px 6px;">${escapeHtml(input.service)}</td></tr>
-            <tr><td style="padding:6px 16px;font-weight:700;">Start</td><td style="padding:6px 16px;">${escapeHtml(start)}</td></tr>
-            <tr><td style="padding:6px 16px;font-weight:700;">End</td><td style="padding:6px 16px;">${escapeHtml(end)}</td></tr>
-            ${input.city ? `<tr><td style="padding:6px 16px 14px;font-weight:700;">Location</td><td style="padding:6px 16px 14px;">${escapeHtml(input.city)}</td></tr>` : ""}
+          <p>We have received your booking request. PrimeView will confirm the appointment separately.</p>
+          <table role="presentation" style="width:100%;border-collapse:collapse;margin:22px 0;background:#f4f7fb;border-radius:14px;">
+            <tr><td style="padding:14px 16px 6px;font-weight:700;width:110px;color:#183e63;">Service</td><td style="padding:14px 16px 6px;">${escapeHtml(input.service)}</td></tr>
+            <tr><td style="padding:6px 16px;font-weight:700;color:#183e63;">Start</td><td style="padding:6px 16px;">${escapeHtml(start)}</td></tr>
+            <tr><td style="padding:6px 16px;font-weight:700;color:#183e63;">End</td><td style="padding:6px 16px;">${escapeHtml(end)}</td></tr>
+            ${input.city ? `<tr><td style="padding:6px 16px 14px;font-weight:700;color:#183e63;">Location</td><td style="padding:6px 16px 14px;">${escapeHtml(input.city)}</td></tr>` : ""}
           </table>
-          <h2 style="font-size:19px;margin:26px 0 8px;">Manage your booking</h2>
-          <p style="margin-top:0;color:#526158;">You can view, reschedule or cancel your booking without creating an account.</p>
+          <h2 style="font-size:19px;margin:26px 0 8px;color:#071b42;">Manage your booking</h2>
+          <p style="margin-top:0;color:#5d7187;">You can view, reschedule or cancel your booking without creating an account.</p>
           <p style="margin:22px 0 12px;">
-            <a href="${escapeHtml(input.portalUrl)}" style="display:inline-block;background:#17452f;color:#ffffff;text-decoration:none;font-weight:700;padding:14px 20px;border-radius:12px;">Manage booking</a>
+            <a href="${escapeHtml(input.portalUrl)}" style="display:inline-block;background:#0a3c8f;color:#ffffff;text-decoration:none;font-weight:700;padding:14px 20px;border-radius:12px;">Manage booking</a>
           </p>
           <p style="margin:0 0 22px;">
-            <a href="${escapeHtml(input.rescheduleUrl)}" style="display:inline-block;border:1px solid #17452f;color:#17452f;text-decoration:none;font-weight:700;padding:12px 18px;border-radius:12px;margin-right:8px;margin-bottom:8px;">Reschedule</a>
+            <a href="${escapeHtml(input.rescheduleUrl)}" style="display:inline-block;border:1px solid #0a3c8f;color:#0a3c8f;text-decoration:none;font-weight:700;padding:12px 18px;border-radius:12px;margin-right:8px;margin-bottom:8px;">Reschedule</a>
             <a href="${escapeHtml(input.portalUrl)}" style="display:inline-block;border:1px solid #d9aaa3;color:#9d3429;text-decoration:none;font-weight:700;padding:12px 18px;border-radius:12px;margin-bottom:8px;">Cancel or view terms</a>
           </p>
-          <p style="font-size:13px;color:#667168;">These links are personal and should not be shared with anyone else.</p>
+          <p style="font-size:13px;color:#667b91;">These links are personal and should not be shared with anyone else.</p>
           <p style="margin-top:26px;">Kind regards<br /><strong>${escapeHtml(input.companyName)}</strong></p>
         </div>
       </div>
-      <p style="text-align:center;font-size:12px;color:#8a938d;margin-top:14px;">Powered by Proffera</p>
+      <p style="text-align:center;font-size:12px;color:#8a98aa;margin-top:14px;">PrimeView Window Care · Powered by Proffera</p>
     </div>
   ` : `
     <div style="font-family:Arial,sans-serif;line-height:1.6;color:#17201a;max-width:640px;margin:0 auto;">
