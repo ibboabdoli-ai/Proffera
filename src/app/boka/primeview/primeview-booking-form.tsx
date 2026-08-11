@@ -98,8 +98,8 @@ function calculateWindowEstimate(input: {
 }): PriceRange {
   if (!Number.isFinite(input.count) || input.count < 1 || !input.scope) return null;
 
-  let low = input.count * (input.scope === "Inside & outside" ? 7 : 4);
-  let high = input.count * (input.scope === "Inside & outside" ? 9 : 5);
+  const low = input.count * (input.scope === "Inside & outside" ? 7 : 4);
+  const high = input.count * (input.scope === "Inside & outside" ? 9 : 5);
 
   let multiplier = 1;
   if (input.propertyType === "Commercial") multiplier *= 1.1;
@@ -107,9 +107,7 @@ function calculateWindowEstimate(input: {
   if (input.floors === "Other") multiplier *= 1.15;
   if (input.access === "Yes") multiplier *= 1.15;
 
-  low = Math.ceil(low * multiplier);
-  high = Math.ceil(high * multiplier);
-  return { low, high };
+  return { low: Math.ceil(low * multiplier), high: Math.ceil(high * multiplier) };
 }
 
 function fieldClass() {
@@ -119,7 +117,8 @@ function fieldClass() {
 export function PrimeViewBookingForm({ action, services, bookingHours, busyBookings, timeZone, locale, initialServiceId = "" }: Props) {
   const t = copy[locale];
   const [formStartedAt] = useState(() => Date.now());
-  const today = dateInputInTimeZone(new Date(), timeZone);
+  const [referenceTime] = useState(() => Date.now());
+  const today = dateInputInTimeZone(new Date(referenceTime), timeZone);
   const [serviceId, setServiceId] = useState(() => services.some((service) => service.id === initialServiceId) ? initialServiceId : services[0]?.id ?? "");
   const [propertyType, setPropertyType] = useState("");
   const [floors, setFloors] = useState("");
@@ -139,8 +138,8 @@ export function PrimeViewBookingForm({ action, services, bookingHours, busyBooki
     if (!selectedService || !date) return [];
     const hour = bookingHours.find((item) => item.weekday === weekdayForDate(date));
     if (!hour) return [];
-    return getAvailableBookingTimes({ date, service: selectedService, hours: hour, busyBookings, referenceTimeMs: Date.now(), timeZone });
-  }, [bookingHours, busyBookings, date, selectedService, timeZone]);
+    return getAvailableBookingTimes({ date, service: selectedService, hours: hour, busyBookings, referenceTimeMs: referenceTime, timeZone });
+  }, [bookingHours, busyBookings, date, referenceTime, selectedService, timeZone]);
 
   const estimate = useMemo(() => calculateWindowEstimate({
     count: Number(windowCount), scope, propertyType, floors, access,
@@ -155,7 +154,7 @@ export function PrimeViewBookingForm({ action, services, bookingHours, busyBooki
       const candidate = addDaysToDateInput(today, offset);
       const hour = bookingHours.find((item) => item.weekday === weekdayForDate(candidate));
       if (!hour) continue;
-      const slots = getAvailableBookingTimes({ date: candidate, service, hours: hour, busyBookings, referenceTimeMs: Date.now(), timeZone });
+      const slots = getAvailableBookingTimes({ date: candidate, service, hours: hour, busyBookings, referenceTimeMs: referenceTime, timeZone });
       if (slots.length) { setDate(candidate); return; }
     }
   }
