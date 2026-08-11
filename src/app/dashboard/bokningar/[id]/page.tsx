@@ -1,9 +1,11 @@
+import Image from "next/image";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import {
   Activity,
   ArrowLeft,
   CalendarClock,
+  Camera,
   CirclePoundSterling,
   CircleUserRound,
   ListChecks,
@@ -38,6 +40,7 @@ type ParsedBookingNotes = {
   priceNotice: string;
   propertyRows: Array<{ label: string; value: string }>;
   customerNote: string;
+  photoPaths: string[];
   rawNote: string;
 };
 
@@ -67,6 +70,7 @@ const structuredLabels = new Set([
   "large windows", "very large / bay windows", "hard-access windows", "frequency", "access", "condition",
   "property size", "heavy blockage", "conservatory size", "solar panels", "area", "heavy dirt / moss",
   "oil / stain treatment", "weed treatment", "re-sanding", "sealing requested", "first clean",
+  "rear garden access", "number of floors", "working height", "parking", "window access", "pets at property",
 ]);
 
 function getFormText(formData: FormData, key: string) { return String(formData.get(key) ?? "").trim(); }
@@ -81,6 +85,7 @@ function parseBookingNotes(notes: string): ParsedBookingNotes {
     priceNotice: "",
     propertyRows: [],
     customerNote: "",
+    photoPaths: [],
     rawNote: "",
   };
   const lines = notes.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
@@ -122,9 +127,15 @@ function parseBookingNotes(notes: string): ParsedBookingNotes {
       continue;
     }
 
-    if (normalizedLabel === "additional details") {
+    if (normalizedLabel === "additional details" || normalizedLabel === "arrival notes") {
       recognizedStructuredLine = true;
       result.customerNote = value;
+      continue;
+    }
+
+    if (normalizedLabel === "photo") {
+      recognizedStructuredLine = true;
+      if (value.startsWith("primeview-booking/") && !value.includes("..") && value.length <= 800 && result.photoPaths.length < 5) result.photoPaths.push(value);
       continue;
     }
 
@@ -267,6 +278,12 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
         {parsedNotes.propertyRows.length ? <article className="rounded-[24px] border border-[#e0e5dd] bg-white p-6 shadow-sm">
           <div className="flex items-center gap-3"><ListChecks className="h-5 w-5 text-[#17452f]" /><h3 className="text-xl font-bold text-[#17201a]">{isEnglish ? "Property & job details" : "Fastighet & jobbdetaljer"}</h3></div>
           <div className="mt-5 grid gap-3 sm:grid-cols-2">{parsedNotes.propertyRows.map((row) => <div key={row.label.toLowerCase()} className="rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4"><p className="text-xs font-bold uppercase tracking-wide text-[#718077]">{row.label}</p><p className="mt-1 font-semibold text-[#26362d]">{row.value}</p></div>)}</div>
+        </article> : null}
+
+        {parsedNotes.photoPaths.length ? <article className="rounded-[24px] border border-[#e0e5dd] bg-white p-6 shadow-sm">
+          <div className="flex items-center gap-3"><Camera className="h-5 w-5 text-[#17452f]" /><h3 className="text-xl font-bold text-[#17201a]">{isEnglish ? "Property photos" : "Fastighetsbilder"}</h3></div>
+          <p className="mt-2 text-sm text-[#5b665f]">{isEnglish ? "Photos supplied by the customer for access and price review." : "Bilder som kunden skickade för åtkomst- och prisbedömning."}</p>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">{parsedNotes.photoPaths.map((pathname, index) => { const src = `/api/primeview/booking-photo?pathname=${encodeURIComponent(pathname)}`; return <a key={pathname} href={src} target="_blank" rel="noreferrer" className="overflow-hidden rounded-xl border border-[#e4e9e2] bg-[#f7f9f6]"><Image src={src} alt={`Property photo ${index + 1}`} width={720} height={480} unoptimized className="aspect-[3/2] w-full object-cover" /></a>; })}</div>
         </article> : null}
 
         {parsedNotes.customerNote || parsedNotes.rawNote ? <article className="rounded-[24px] border border-[#e0e5dd] bg-white p-6 shadow-sm">
