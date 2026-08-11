@@ -283,7 +283,7 @@ export default async function PrimeViewBookingPage({ searchParams }: PageProps) 
           </Link>
           <div className="flex items-center gap-2">
             {workspace.contact_phone ? <a href={`tel:${String(workspace.contact_phone)}`} className="hidden rounded-xl border border-white/25 px-4 py-3 text-sm font-bold sm:inline-flex"><Phone className="mr-2 h-4 w-4" />{String(workspace.contact_phone)}</a> : null}
-            <Link href="/" className="rounded-xl bg-white px-4 py-3 text-sm font-black text-[#06183b]">Back to website</Link>
+            <Link href="/" className="whitespace-nowrap rounded-xl bg-[#1769c2] px-4 py-3 text-sm font-black text-white ring-1 ring-white/25 transition hover:bg-[#2f80ed]">Back to website</Link>
           </div>
         </div>
       </header>
