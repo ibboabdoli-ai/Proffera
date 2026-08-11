@@ -188,7 +188,7 @@ export function calculatePrimeViewPrice(input: PrimeViewPricingInput): PrimeView
 
     return finalize({
       subtotal,
-      minimumCharge: 40,
+      minimumCharge: input.propertySize === "Terraced house" ? 30 : 40,
       lines,
       multiServiceCount: input.multiServiceCount,
       estimated: (large + bay > 0 && input.cleaningScope !== "Outside only")
