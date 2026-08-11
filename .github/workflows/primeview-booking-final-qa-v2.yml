@@ -1,0 +1,44 @@
+name: PrimeView booking final QA v2
+
+on:
+  push:
+    branches:
+      - feature/primeview-booking-property-details
+    paths:
+      - .github/workflows/primeview-booking-final-qa-v2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/primeview-booking-property-details
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Apply final corrections
+        run: python3 scripts/_primeview_final_qa.py
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Test
+        run: npm test
+      - name: Lint
+        run: npm run lint
+      - name: Commit validated corrections
+        run: |
+          rm scripts/_primeview_final_qa.py
+          rm .github/workflows/primeview-booking-final-qa.yml
+          rm .github/workflows/primeview-booking-final-qa-v2.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: harden PrimeView booking intake and pricing"
+          git push origin HEAD:feature/primeview-booking-property-details
