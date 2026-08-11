@@ -144,10 +144,10 @@ export default async function PrimeViewPrivacyPage() {
         <section className={sectionClass}>
           <h2 className="text-2xl font-black">10. Complaints</h2>
           <p className="mt-4 leading-7 text-slate-600">
-            Please contact PrimeView first if you have a concern about how we use your personal information. You also have the right to complain to the UK Information Commissioner's Office (ICO).
+            Please contact PrimeView first if you have a concern about how we use your personal information. You also have the right to complain to the UK Information Commissioner&apos;s Office (ICO).
           </p>
           <a className="mt-4 inline-flex font-black text-[#0a3c8f] underline underline-offset-4" href="https://ico.org.uk/make-a-complaint/" target="_blank" rel="noreferrer">
-            Information Commissioner's Office complaint guidance
+            Information Commissioner&apos;s Office complaint guidance
           </a>
         </section>
 
