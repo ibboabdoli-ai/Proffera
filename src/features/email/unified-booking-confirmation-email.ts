@@ -48,7 +48,7 @@ function formatBookingTime(value: string, timeZone: WorkspaceTimeZone = "Europe/
 }
 
 export function buildUnifiedBookingConfirmationEmail(input: Input) {
-  const language = input.language ?? "sv";
+  const language = input.language ?? (input.companyName.trim().toLowerCase() === "primeview window care" ? "en" : "sv");
   const isEnglish = language === "en";
   const start = formatBookingTime(input.startsAt, input.timeZone, language);
   const end = formatBookingTime(input.endsAt, input.timeZone, language);
