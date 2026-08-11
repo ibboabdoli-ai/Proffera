@@ -8,7 +8,10 @@ function notFound() {
   return new Response("Not found", { status: 404 });
 }
 
-function cacheHeaders(status: "draft" | "published" | "hidden", etag: string) {
+function cacheHeaders(
+  status: "draft" | "published" | "hidden",
+  etag: string,
+): Record<string, string> {
   if (status !== "published") {
     return {
       "Cache-Control": "private, no-store",
