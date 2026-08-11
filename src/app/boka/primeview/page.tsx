@@ -1,5 +1,6 @@
-import { CheckCircle2, Clock3, MapPin, Phone, ShieldCheck, Sparkles } from "lucide-react";
+import { CheckCircle2, Clock3, MapPin, Phone, ShieldCheck } from "lucide-react";
 import { headers } from "next/headers";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { getSql } from "@/lib/db/server";
@@ -55,8 +56,8 @@ function bookingUrl(lang: Locale, params: string) { return `/boka/primeview?lang
 
 function estimateWindowCleaning(input: { count: number; scope: string; propertyType: string; floors: string; access: string }) {
   if (!Number.isFinite(input.count) || input.count < 1 || !input.scope) return null;
-  let low = input.count * (input.scope === "Inside & outside" ? 7 : 4);
-  let high = input.count * (input.scope === "Inside & outside" ? 9 : 5);
+  const low = input.count * (input.scope === "Inside & outside" ? 7 : 4);
+  const high = input.count * (input.scope === "Inside & outside" ? 9 : 5);
   let multiplier = 1;
   if (input.propertyType === "Commercial") multiplier *= 1.1;
   if (input.floors === "Ground + 2 floors") multiplier *= 1.1;
@@ -224,7 +225,7 @@ export default async function PrimeViewBookingPage({ searchParams }: PageProps) 
             <div><p className="text-sm font-black tracking-wide text-[#0b2a4a]">PRIMEVIEW</p><p className="text-xs font-bold text-[#52708d]">WINDOW CARE</p></div>
           </a>
           <div className="flex items-center gap-2">
-            <nav className="flex rounded-full bg-[#eef4fb] p-1 text-xs font-bold"><a href="/boka/primeview?lang=en" className={`rounded-full px-3 py-2 ${locale === "en" ? "bg-white text-[#0b2a4a] shadow-sm" : "text-[#627b93]"}`}>English</a><a href="/boka/primeview?lang=sv" className={`rounded-full px-3 py-2 ${locale === "sv" ? "bg-white text-[#0b2a4a] shadow-sm" : "text-[#627b93]"}`}>Svenska</a></nav>
+            <nav className="flex rounded-full bg-[#eef4fb] p-1 text-xs font-bold"><Link href="/boka/primeview?lang=en" className={`rounded-full px-3 py-2 ${locale === "en" ? "bg-white text-[#0b2a4a] shadow-sm" : "text-[#627b93]"}`}>English</Link><Link href="/boka/primeview?lang=sv" className={`rounded-full px-3 py-2 ${locale === "sv" ? "bg-white text-[#0b2a4a] shadow-sm" : "text-[#627b93]"}`}>Svenska</Link></nav>
             <a href="https://www.primeviewwindowcare.co.uk/" className="hidden rounded-xl border border-[#cddbea] px-4 py-2.5 text-sm font-bold text-[#174f83] hover:bg-[#f5f9fd] sm:inline-flex">{t.backSite}</a>
           </div>
         </div>
@@ -255,7 +256,7 @@ export default async function PrimeViewBookingPage({ searchParams }: PageProps) 
 
         {error ? <p role="alert" className="mb-6 rounded-2xl border border-[#f0c7c1] bg-[#fff5f3] p-4 text-sm font-bold text-[#9c3a2e]">{error}</p> : null}
 
-        {booked ? <section className="max-w-2xl rounded-3xl border border-[#cfe4d7] bg-white p-7 shadow-[0_14px_45px_rgba(11,42,74,.07)]"><div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#e7f7ed] text-[#18703d]"><CheckCircle2 className="h-7 w-7" /></div><h2 className="mt-5 text-2xl font-black text-[#0b2a4a]">{t.successTitle}</h2><p className="mt-3 leading-7 text-[#60778e]">{t.successBody}</p><a href={`/boka/primeview?lang=${locale}`} className="mt-6 inline-flex rounded-xl bg-[#1769c2] px-5 py-3 font-black text-white">{t.another}</a></section> : workspace && services.length && bookingHours.length ? <PrimeViewBookingForm
+        {booked ? <section className="max-w-2xl rounded-3xl border border-[#cfe4d7] bg-white p-7 shadow-[0_14px_45px_rgba(11,42,74,.07)]"><div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#e7f7ed] text-[#18703d]"><CheckCircle2 className="h-7 w-7" /></div><h2 className="mt-5 text-2xl font-black text-[#0b2a4a]">{t.successTitle}</h2><p className="mt-3 leading-7 text-[#60778e]">{t.successBody}</p><Link href={`/boka/primeview?lang=${locale}`} className="mt-6 inline-flex rounded-xl bg-[#1769c2] px-5 py-3 font-black text-white">{t.another}</Link></section> : workspace && services.length && bookingHours.length ? <PrimeViewBookingForm
           action={requestPrimeViewBooking}
           locale={locale}
           initialServiceId={initialServiceId}
