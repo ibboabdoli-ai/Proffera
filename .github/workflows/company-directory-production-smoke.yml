@@ -39,7 +39,7 @@ jobs:
           set -euo pipefail
           RESPONSE="$(curl --fail-with-body --silent --show-error --max-time 30 \
             --header "Authorization: Bearer $CRON_SECRET" "$INGEST_URL")"
-          printf '%s' "$RESPONSE" | python -c "import json,sys; d=json.load(sys.stdin); assert d.get('ok') is True; assert d.get('enabled') is True; assert d.get('mode') == 'automatic'; print('Production discovery mode: automatic')"
+          printf '%s' "$RESPONSE" | python -c "import json,sys; d=json.load(sys.stdin); print('enabled=%s mode=%s' % (d.get('enabled'), d.get('mode'))); assert d.get('ok') is True; assert d.get('enabled') is True; assert d.get('mode') == 'automatic'"
 
       - name: Enqueue one known-good production smoke candidate
         env:
