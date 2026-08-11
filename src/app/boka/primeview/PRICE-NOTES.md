@@ -1,0 +1,1 @@
+The Window Cleaning calculator intentionally shows a range and labels it as a guide estimate. The confirmed PrimeView exterior rate supplied for this project is £4–£5 per window. The inside-and-outside guide and access multipliers are provisional UX assumptions until PrimeView confirms a formal pricing matrix. No payment is taken from this estimate.
