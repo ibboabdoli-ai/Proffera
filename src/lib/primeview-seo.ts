@@ -10,7 +10,7 @@ export const primeViewSite = {
   telephoneDisplay: "07500 338 585",
   email: "am@primeviewlondon.co.uk",
   logoUrl: "https://www.primeviewwindowcare.co.uk/brand/primeview-window-care-logo.jpeg",
-  openGraphImageUrl: "https://www.primeviewwindowcare.co.uk/demo/primeview/opengraph-image",
+  openGraphImageUrl: "https://www.primeviewwindowcare.co.uk/brand/primeview-window-care-logo.jpeg?v=2",
 } as const;
 
 export const primeViewServices = [
