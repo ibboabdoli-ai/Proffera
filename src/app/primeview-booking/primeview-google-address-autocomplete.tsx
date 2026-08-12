@@ -39,6 +39,7 @@ type GoogleAutocompleteSessionToken = object;
 
 type GoogleAutocompleteRequest = {
   input: string;
+  includedPrimaryTypes?: string[];
   includedRegionCodes?: string[];
   locationBias?: { center: { lat: number; lng: number }; radius: number };
   language?: string;
@@ -68,6 +69,8 @@ declare global {
 
 const GOOGLE_SCRIPT_SELECTOR = 'script[data-primeview-google-maps="true"]';
 const UK_POSTCODE = /^[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}$/i;
+const PRECISE_ADDRESS_TYPES = ["street_address", "premise", "subpremise"];
+const PREMISE_COMPONENT_TYPES = ["street_number", "premise", "subpremise"];
 
 function loadGoogleMaps(apiKey: string) {
   if (window.google?.maps?.importLibrary) return Promise.resolve();
@@ -101,6 +104,12 @@ function loadGoogleMaps(apiKey: string) {
 function postcodeFromComponents(components: GoogleAddressComponent[] | null | undefined) {
   const component = components?.find((item) => item.types?.includes("postal_code"));
   return (component?.longText ?? component?.shortText ?? "").trim().toUpperCase();
+}
+
+function hasPremiseIdentifier(components: GoogleAddressComponent[] | null | undefined) {
+  return Boolean(
+    components?.some((item) => item.types?.some((type) => PREMISE_COMPONENT_TYPES.includes(type))),
+  );
 }
 
 function cleanFormattedAddress(value: string | null | undefined) {
@@ -162,7 +171,7 @@ export function PrimeViewGoogleAddressAutocomplete({ onSelect }: { onSelect: (se
 
   useEffect(() => {
     const text = query.trim();
-    if (!apiKey || text.length < 2) return;
+    if (!apiKey || text.length < 1) return;
 
     const timer = window.setTimeout(() => {
       const places = placesRef.current;
@@ -181,6 +190,7 @@ export function PrimeViewGoogleAddressAutocomplete({ onSelect }: { onSelect: (se
 
       void places.AutocompleteSuggestion.fetchAutocompleteSuggestions({
         input,
+        includedPrimaryTypes: PRECISE_ADDRESS_TYPES,
         includedRegionCodes: ["gb"],
         locationBias: { center: { lat: 51.515, lng: -0.18 }, radius: 35_000 },
         language: "en-GB",
@@ -192,7 +202,13 @@ export function PrimeViewGoogleAddressAutocomplete({ onSelect }: { onSelect: (se
           const predictions = next.map((item) => item.placePrediction).filter((item): item is GooglePlacePrediction => Boolean(item));
           setSuggestions(predictions.slice(0, 6));
           setOpen(predictions.length > 0);
-          if (!predictions.length) setMessage(postcode ? `No match yet. Add the house number or street within ${postcode}.` : "No address matches yet. Keep typing the house number or street.");
+          if (!predictions.length) {
+            setMessage(
+              postcode
+                ? `Enter the house number or building name for ${postcode}. Street-only and postcode-only results are hidden so an incomplete address cannot be selected.`
+                : "Enter a house number or building name with the street. Only complete property addresses are shown.",
+            );
+          }
         })
         .catch(() => {
           if (requestId === requestIdRef.current) {
@@ -217,11 +233,26 @@ export function PrimeViewGoogleAddressAutocomplete({ onSelect }: { onSelect: (se
       await place.fetchFields({ fields: ["formattedAddress", "addressComponents"] });
       const address = cleanFormattedAddress(place.formattedAddress);
       const postcode = postcodeFromComponents(place.addressComponents);
+      const expectedPostcode = currentPostcode();
+
       if (!address) throw new Error("Missing address");
+
+      if (!hasPremiseIdentifier(place.addressComponents)) {
+        setSuggestions([]);
+        setMessage("That result is only a street or area. Add the house number or building name so we can save the complete address.");
+        return;
+      }
+
+      if (expectedPostcode && postcode && normalizePostcode(postcode) !== expectedPostcode) {
+        setSuggestions([]);
+        setMessage(`That property is outside ${expectedPostcode}. Choose an address within the postcode entered above.`);
+        return;
+      }
+
       onSelect({ address, postcode });
       setQuery(address);
       setSuggestions([]);
-      setMessage(postcode ? `Address selected — postcode ${postcode} filled automatically.` : "Address selected.");
+      setMessage(postcode ? `Complete address selected — postcode ${postcode} confirmed.` : "Complete address selected.");
       const places = placesRef.current;
       tokenRef.current = places ? new places.AutocompleteSessionToken() : null;
     } catch {
@@ -233,7 +264,7 @@ export function PrimeViewGoogleAddressAutocomplete({ onSelect }: { onSelect: (se
 
   const helperText = !apiKey
     ? "Address suggestions are unavailable. Enter the full address manually below."
-    : message || "Type a house number or street. If you entered a postcode above, it is automatically used to narrow the search.";
+    : message || "Enter the house number or building name first. With a postcode above, you can simply type a number such as 25.";
 
   return (
     <div className="relative mt-3 min-w-0 max-w-full">
@@ -241,12 +272,14 @@ export function PrimeViewGoogleAddressAutocomplete({ onSelect }: { onSelect: (se
         <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-[#5f7690]" />
         <input
           type="search"
+          role="combobox"
           inputMode="search"
           autoComplete="off"
-          aria-label="Search for your UK address"
+          aria-label="Search for your complete UK property address"
+          aria-autocomplete="list"
           aria-expanded={open}
           aria-controls="primeview-address-suggestions"
-          placeholder="House number or street"
+          placeholder="House number or building name"
           value={query}
           onFocus={() => suggestions.length && setOpen(true)}
           onChange={(event) => {
@@ -273,6 +306,7 @@ export function PrimeViewGoogleAddressAutocomplete({ onSelect }: { onSelect: (se
                 key={`${label.main}-${label.secondary}-${index}`}
                 type="button"
                 role="option"
+                aria-selected="false"
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => void choosePrediction(prediction)}
                 className="flex w-full min-w-0 items-start gap-3 rounded-xl px-3 py-3 text-left transition hover:bg-[#eef6ff] focus:bg-[#eef6ff]"
