@@ -67,7 +67,7 @@ export async function POST(request: Request) {
       limit 1
     `,
     sql`
-      select email, "emailVerified"
+      select email
       from "user"
       where id = ${userId}
       limit 1
@@ -81,7 +81,7 @@ export async function POST(request: Request) {
 
   const account = accountRows[0];
   const accountEmail = String(account?.email ?? "").trim().toLowerCase();
-  if (!accountEmail || !account?.emailVerified) {
+  if (!validBusinessEmail(accountEmail)) {
     return NextResponse.redirect(new URL(`${returnTo}?status=account_email_unverified`, request.url), 303);
   }
 
