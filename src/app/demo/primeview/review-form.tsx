@@ -112,15 +112,11 @@ export function PrimeViewReviewForm({ serviceOptions }: PrimeViewReviewFormProps
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.trim() ?? "";
   const [place, setPlace] = useState<GooglePlace | null>(null);
   const [loading, setLoading] = useState(Boolean(apiKey));
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState(!apiKey);
 
   useEffect(() => {
+    if (!apiKey) return;
     let disposed = false;
-    if (!apiKey) {
-      setLoading(false);
-      setFailed(true);
-      return;
-    }
 
     void loadGoogleMaps(apiKey)
       .then(async () => {
@@ -209,7 +205,11 @@ export function PrimeViewReviewForm({ serviceOptions }: PrimeViewReviewFormProps
               <article key={`${author?.displayName ?? "review"}-${index}`} className="rounded-2xl border border-[#d7e1f2] bg-white p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-3">
-                    {author?.photoURI ? <img src={author.photoURI} alt="" width={36} height={36} referrerPolicy="no-referrer" className="size-9 shrink-0 rounded-full object-cover" /> : <span className="grid size-9 shrink-0 place-items-center rounded-full bg-[#eef3fc] text-sm font-black text-[#315997]">G</span>}
+                    {author?.photoURI ? (
+                      <span aria-hidden="true" className="size-9 shrink-0 rounded-full bg-cover bg-center" style={{ backgroundImage: `url(${JSON.stringify(author.photoURI)})` }} />
+                    ) : (
+                      <span className="grid size-9 shrink-0 place-items-center rounded-full bg-[#eef3fc] text-sm font-black text-[#315997]">G</span>
+                    )}
                     <div className="min-w-0">
                       {author?.uri ? (
                         <a href={author.uri} target="_blank" rel="noreferrer" className="block truncate text-sm font-black text-[#071b42] hover:underline">{author.displayName || "Google customer"}</a>
