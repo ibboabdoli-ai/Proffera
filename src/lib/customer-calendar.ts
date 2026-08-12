@@ -218,7 +218,7 @@ export async function cancelCustomerCalendarBooking(token: string, bookingId: st
         old_status,
         'cancelled',
         'Service job cancelled because the customer cancelled its booking.',
-        jsonb_build_object('source', 'customer_portal_cancellation', 'booking_id', ${bookingId})
+        jsonb_build_object('source', 'customer_portal_cancellation', 'booking_id', ${bookingId}::text)
       from cancelled_job
       returning id
     ),
