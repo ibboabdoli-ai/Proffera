@@ -1,0 +1,393 @@
+import "server-only";
+
+import { createHash, randomUUID } from "node:crypto";
+
+import { getSql } from "@/lib/db/server";
+
+type AnyRecord = Record<string, unknown>;
+
+type OfficialFacts = {
+  registrationCountryCode: string;
+  registrationCountryLabel: string;
+  organizationFormCode: string;
+  organizationFormLabel: string;
+  legalFormCode: string;
+  legalFormLabel: string;
+  registrationDate: string | null;
+  scbRegisteredDate: string | null;
+  deregistrationDate: string | null;
+  deregistrationReasonCode: string;
+  deregistrationReasonLabel: string;
+  advertisingBlocked: boolean | null;
+  coAddress: string;
+  addressCountry: string;
+  registeredNames: Array<{
+    name: string;
+    registrationDate: string;
+    typeCode: string;
+    typeLabel: string;
+    specialBusinessDescription: string;
+  }>;
+  sniCodes: Array<{ code: string; label: string }>;
+  ongoingProcedures: Array<{ code: string; label: string; fromDate: string }>;
+  dataProducers: Record<string, string>;
+  sourcePayloadHash: string;
+};
+
+const MAX_ENRICH_PER_RUN = 10;
+
+function object(value: unknown): AnyRecord | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as AnyRecord : null;
+}
+
+function text(value: unknown) {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value).trim();
+  }
+  return "";
+}
+
+function first(row: AnyRecord | null, keys: string[]) {
+  if (!row) return undefined;
+  for (const key of keys) {
+    if (row[key] !== undefined && row[key] !== null) return row[key];
+  }
+  return undefined;
+}
+
+function list(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  return value === null || value === undefined ? [] : [value];
+}
+
+function codeLabel(value: unknown) {
+  const row = object(value);
+  return {
+    code: text(first(row, ["kod", "code"])),
+    label: text(first(row, ["klartext", "text", "label", "namn", "name"])),
+  };
+}
+
+function dateOnly(value: unknown): string | null {
+  const raw = text(value);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+  return raw;
+}
+
+function timestamp(value: unknown): string | null {
+  const raw = text(value);
+  if (!raw) return null;
+  const parsed = new Date(raw);
+  return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : null;
+}
+
+function yesNo(value: unknown): boolean | null {
+  const normalized = text(value).toLocaleLowerCase("sv-SE");
+  if (!normalized) return null;
+  if (["ja", "yes", "true", "1"].includes(normalized)) return true;
+  if (["nej", "no", "false", "0"].includes(normalized)) return false;
+  return null;
+}
+
+function normalizeSni(value: unknown) {
+  return text(value).replace(/\D/g, "");
+}
+
+function detailRecord(payload: unknown): AnyRecord | null {
+  const root = object(payload);
+  if (!root) return null;
+  for (const key of ["organisationer", "organisations", "organizations", "items", "results"]) {
+    const value = root[key];
+    const candidate = Array.isArray(value) ? object(value[0]) : object(value);
+    if (candidate) return candidate;
+  }
+  for (const key of ["organisation", "organization", "data", "result", "foretag", "företag"]) {
+    const candidate = object(root[key]);
+    if (candidate) return candidate;
+  }
+  return root;
+}
+
+function namesFromRecord(row: AnyRecord) {
+  const container = object(row.organisationsnamn);
+  return list(container?.organisationsnamnLista)
+    .map((value) => object(value))
+    .filter((value): value is AnyRecord => Boolean(value))
+    .map((value) => {
+      const type = codeLabel(value.organisationsnamntyp);
+      return {
+        name: text(value.namn),
+        registrationDate: dateOnly(value.registreringsdatum) ?? "",
+        typeCode: type.code,
+        typeLabel: type.label,
+        specialBusinessDescription: text(value.verksamhetsbeskrivningSarskiltForetagsnamn),
+      };
+    })
+    .filter((value) => value.name);
+}
+
+function sniFromRecord(row: AnyRecord) {
+  const container = object(row.naringsgrenOrganisation ?? row["näringsgrenOrganisation"]);
+  const values = list(container?.sni);
+  const result: Array<{ code: string; label: string }> = [];
+
+  for (const value of values) {
+    const item = object(value);
+    if (item) {
+      const code = normalizeSni(first(item, ["kod", "code"]));
+      const label = text(first(item, ["klartext", "text", "label"]));
+      if (code) result.push({ code, label });
+      continue;
+    }
+
+    const raw = text(value);
+    const match = raw.match(/kod\s*=\s*([0-9.]+)(?:\s*,\s*klartext\s*=\s*(.*))?/i);
+    if (match?.[1]) result.push({ code: normalizeSni(match[1]), label: text(match[2]) });
+  }
+
+  return [...new Map(result.map((item) => [`${item.code}:${item.label}`, item])).values()];
+}
+
+function proceduresFromRecord(row: AnyRecord) {
+  const container = object(row.pagaendeAvvecklingsEllerOmstruktureringsforfarande);
+  return list(container?.pagaendeAvvecklingsEllerOmstruktureringsforfarandeLista)
+    .map((value) => object(value))
+    .filter((value): value is AnyRecord => Boolean(value))
+    .map((value) => ({
+      code: text(value.kod),
+      label: text(value.klartext),
+      fromDate: dateOnly(value.fromDatum) ?? "",
+    }))
+    .filter((value) => value.code || value.label);
+}
+
+function dataProducersFromRecord(row: AnyRecord) {
+  const sections = [
+    "organisationsnamn",
+    "reklamsparr",
+    "organisationsform",
+    "avregistreradOrganisation",
+    "avregistreringsorsak",
+    "pagaendeAvvecklingsEllerOmstruktureringsforfarande",
+    "juridiskForm",
+    "verksamOrganisation",
+    "organisationsdatum",
+    "verksamhetsbeskrivning",
+    "naringsgrenOrganisation",
+    "postadressOrganisation",
+  ];
+  const result: Record<string, string> = {};
+  for (const section of sections) {
+    const producer = text(object(row[section])?.dataproducent);
+    if (producer) result[section] = producer;
+  }
+  return result;
+}
+
+function extractOfficialFacts(row: AnyRecord): OfficialFacts {
+  const registrationCountry = codeLabel(row.registreringsland);
+  const organizationForm = codeLabel(row.organisationsform);
+  const legalForm = codeLabel(row.juridiskForm);
+  const dates = object(row.organisationsdatum);
+  const deregistered = object(row.avregistreradOrganisation);
+  const deregistrationReason = codeLabel(row.avregistreringsorsak);
+  const advertising = object(row.reklamsparr);
+  const postalContainer = object(row.postadressOrganisation);
+  const postal = object(postalContainer?.postadress);
+
+  return {
+    registrationCountryCode: registrationCountry.code,
+    registrationCountryLabel: registrationCountry.label,
+    organizationFormCode: organizationForm.code,
+    organizationFormLabel: organizationForm.label,
+    legalFormCode: legalForm.code,
+    legalFormLabel: legalForm.label,
+    registrationDate: dateOnly(dates?.registreringsdatum),
+    scbRegisteredDate: dateOnly(dates?.infortHosScb),
+    deregistrationDate: timestamp(deregistered?.avregistreringsdatum),
+    deregistrationReasonCode: deregistrationReason.code,
+    deregistrationReasonLabel: deregistrationReason.label,
+    advertisingBlocked: yesNo(advertising?.kod),
+    coAddress: text(postal?.coAdress),
+    addressCountry: text(postal?.land),
+    registeredNames: namesFromRecord(row),
+    sniCodes: sniFromRecord(row),
+    ongoingProcedures: proceduresFromRecord(row),
+    dataProducers: dataProducersFromRecord(row),
+    sourcePayloadHash: createHash("sha256").update(JSON.stringify(row)).digest("hex"),
+  };
+}
+
+async function oauthAccessToken() {
+  const staticToken = process.env.COMPANY_DIRECTORY_SOURCE_BEARER_TOKEN?.trim();
+  if (staticToken) return staticToken;
+
+  const tokenUrl = process.env.COMPANY_DIRECTORY_TOKEN_URL?.trim();
+  const clientId = process.env.BOLAGSVERKET_CLIENT_ID?.trim();
+  const clientSecret = process.env.BOLAGSVERKET_CLIENT_SECRET?.trim();
+  if (!tokenUrl || !clientId || !clientSecret) return "";
+
+  const basic = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
+  const scope = process.env.COMPANY_DIRECTORY_OAUTH_SCOPE?.trim();
+  const body = new URLSearchParams({ grant_type: "client_credentials" });
+  if (scope) body.set("scope", scope);
+
+  const response = await fetch(tokenUrl, {
+    method: "POST",
+    headers: {
+      authorization: `Basic ${basic}`,
+      "content-type": "application/x-www-form-urlencoded",
+      accept: "application/json",
+    },
+    body: body.toString(),
+    cache: "no-store",
+    signal: AbortSignal.timeout(12_000),
+  });
+  if (!response.ok) throw new Error(`Official facts OAuth failed (${response.status})`);
+  const payload = object(await response.json());
+  const token = text(payload?.access_token);
+  if (!token) throw new Error("Official facts OAuth response did not contain access_token");
+  return token;
+}
+
+function detailRequest(template: string, organizationNumber: string) {
+  const normalized = organizationNumber.replace(/\D/g, "");
+  const method = process.env.COMPANY_DIRECTORY_DETAIL_METHOD?.trim().toUpperCase() === "GET" ? "GET" : "POST";
+  const url = template.replaceAll("{organizationNumber}", encodeURIComponent(normalized));
+  const bodyTemplate = process.env.COMPANY_DIRECTORY_DETAIL_BODY_TEMPLATE?.trim();
+  const body = method === "POST"
+    ? (bodyTemplate
+      ? bodyTemplate.replaceAll("{organizationNumber}", normalized)
+      : JSON.stringify({ identitetsbeteckning: normalized }))
+    : undefined;
+  return { method, url, body } as const;
+}
+
+async function fetchOfficialFacts(organizationNumber: string, token: string) {
+  const template = process.env.COMPANY_DIRECTORY_DETAIL_URL_TEMPLATE?.trim();
+  if (!template) throw new Error("Official detail endpoint is not configured");
+  const request = detailRequest(template, organizationNumber);
+
+  const response = await fetch(request.url, {
+    method: request.method,
+    headers: {
+      accept: "application/json",
+      ...(request.method === "POST" ? { "content-type": "application/json" } : {}),
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      "x-request-id": randomUUID(),
+    },
+    body: request.body,
+    cache: "no-store",
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) throw new Error(`Official facts lookup failed (${response.status})`);
+
+  const row = detailRecord(await response.json());
+  if (!row) throw new Error("Official facts lookup returned no record");
+  const returnedOrg = text(object(row.organisationsidentitet)?.identitetsbeteckning).replace(/\D/g, "");
+  if (returnedOrg && returnedOrg !== organizationNumber.replace(/\D/g, "")) {
+    throw new Error("Official facts lookup returned a different organization number");
+  }
+  return extractOfficialFacts(row);
+}
+
+async function saveOfficialFacts(profileId: string, facts: OfficialFacts) {
+  const sql = getSql();
+  if (!sql) throw new Error("Database is not configured");
+  const names = JSON.stringify(facts.registeredNames);
+  const sni = JSON.stringify(facts.sniCodes);
+  const procedures = JSON.stringify(facts.ongoingProcedures);
+  const producers = JSON.stringify(facts.dataProducers);
+
+  await sql`
+    insert into company_directory_official_facts (
+      profile_id, registration_country_code, registration_country_label,
+      organization_form_code, organization_form_label, legal_form_code, legal_form_label,
+      registration_date, scb_registered_date, deregistration_date,
+      deregistration_reason_code, deregistration_reason_label, advertising_blocked,
+      co_address, address_country, registered_names, sni_codes, ongoing_procedures,
+      data_producers, source_payload_hash, last_synced_at, updated_at
+    ) values (
+      ${profileId}::uuid, ${facts.registrationCountryCode}, ${facts.registrationCountryLabel},
+      ${facts.organizationFormCode}, ${facts.organizationFormLabel}, ${facts.legalFormCode}, ${facts.legalFormLabel},
+      ${facts.registrationDate}::date, ${facts.scbRegisteredDate}::date, ${facts.deregistrationDate}::timestamptz,
+      ${facts.deregistrationReasonCode}, ${facts.deregistrationReasonLabel}, ${facts.advertisingBlocked},
+      ${facts.coAddress}, ${facts.addressCountry}, ${names}::jsonb, ${sni}::jsonb, ${procedures}::jsonb,
+      ${producers}::jsonb, ${facts.sourcePayloadHash}, now(), now()
+    )
+    on conflict (profile_id) do update set
+      registration_country_code = excluded.registration_country_code,
+      registration_country_label = excluded.registration_country_label,
+      organization_form_code = excluded.organization_form_code,
+      organization_form_label = excluded.organization_form_label,
+      legal_form_code = excluded.legal_form_code,
+      legal_form_label = excluded.legal_form_label,
+      registration_date = excluded.registration_date,
+      scb_registered_date = excluded.scb_registered_date,
+      deregistration_date = excluded.deregistration_date,
+      deregistration_reason_code = excluded.deregistration_reason_code,
+      deregistration_reason_label = excluded.deregistration_reason_label,
+      advertising_blocked = excluded.advertising_blocked,
+      co_address = excluded.co_address,
+      address_country = excluded.address_country,
+      registered_names = excluded.registered_names,
+      sni_codes = excluded.sni_codes,
+      ongoing_procedures = excluded.ongoing_procedures,
+      data_producers = excluded.data_producers,
+      source_payload_hash = excluded.source_payload_hash,
+      last_synced_at = now(),
+      updated_at = now()
+  `;
+}
+
+function boundedLimit(value: unknown) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 5;
+  return Math.max(1, Math.min(MAX_ENRICH_PER_RUN, Math.floor(parsed)));
+}
+
+export async function enrichCompanyDirectoryOfficialFacts(limit?: number) {
+  const sql = getSql();
+  if (!sql) throw new Error("Database is not configured");
+  const safeLimit = boundedLimit(limit);
+  const token = await oauthAccessToken();
+  if (!token) throw new Error("Official facts enrichment requires Bolagsverket credentials");
+
+  const rows = await sql`
+    select profile.id::text, profile.organization_number
+    from company_directory_profiles profile
+    left join company_directory_official_facts facts on facts.profile_id = profile.id
+    where profile.country_code = 'SE'
+      and length(regexp_replace(profile.organization_number, '\\D', '', 'g')) = 10
+      and (facts.profile_id is null or facts.last_synced_at < profile.last_synced_at)
+    order by profile.last_synced_at asc, profile.organization_number asc
+    limit ${safeLimit}
+  `;
+
+  let processed = 0;
+  let errors = 0;
+  const errorSummary: string[] = [];
+
+  for (const row of rows) {
+    const profileId = text(row.id);
+    const organizationNumber = text(row.organization_number).replace(/\D/g, "");
+    try {
+      const facts = await fetchOfficialFacts(organizationNumber, token);
+      await saveOfficialFacts(profileId, facts);
+      processed += 1;
+    } catch (error) {
+      errors += 1;
+      if (errorSummary.length < 5) {
+        errorSummary.push(`${organizationNumber}: ${error instanceof Error ? error.message : "Unknown error"}`);
+      }
+    }
+  }
+
+  return {
+    selected: rows.length,
+    processed,
+    errors,
+    errorSummary: errorSummary.join(" | "),
+  };
+}
