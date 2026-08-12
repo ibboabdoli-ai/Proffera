@@ -1,0 +1,39 @@
+name: Production official facts enrichment smoke
+
+on:
+  push:
+    branches:
+      - ops/company-directory-official-facts-smoke-20260812
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Call protected Production official-facts endpoint
+        env:
+          REMINDER_CRON_URL: ${{ secrets.PROFFERA_REMINDER_CRON_URL }}
+          CRON_SECRET: ${{ secrets.PROFFERA_REMINDER_CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          ORIGIN="$(python - <<'PY'
+          import os
+          import urllib.parse
+          url = urllib.parse.urlparse(os.environ["REMINDER_CRON_URL"])
+          if url.scheme != "https" or not url.netloc:
+              raise SystemExit("invalid production origin")
+          host = url.netloc.lower()
+          if host in {"proffera.se", "www.proffera.se"}:
+              host = "www.proffera.se"
+          print(f"https://{host}")
+          PY
+          )"
+          RESPONSE="$(curl --fail-with-body --silent --show-error --connect-timeout 10 --max-time 60 \
+            --header "Authorization: Bearer $CRON_SECRET" \
+            --header "User-Agent: proffera-company-directory-official-facts-smoke" \
+            "$ORIGIN/api/cron/company-directory-official-facts?limit=3")"
+          printf '%s\n' "$RESPONSE"
+          printf '%s' "$RESPONSE" | python -c "import json,sys; d=json.load(sys.stdin); assert d.get('ok') is True; assert d.get('errors',0) == 0; assert d.get('processed',0) >= 1"
