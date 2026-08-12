@@ -1,2 +1,2 @@
-2026-08-06T16:40:00+02:00
-Reason: retry production deployment after Vercel daily build limit.
+2026-08-12T12:50:00+02:00
+Reason: retry production deployment after Vercel build-rate-limit for Company Directory business-email verification.
