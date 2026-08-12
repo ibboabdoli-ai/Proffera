@@ -1,0 +1,103 @@
+name: Production live directory discovery canary
+
+on:
+  push:
+    branches: [ops/company-directory-live-discovery-10-20260812]
+
+permissions:
+  contents: read
+
+jobs:
+  discover-canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install streaming JSON parser
+        run: python -m pip install --disable-pip-version-check --quiet ijson
+
+      - name: Scan current official SCB HVD bulk and enqueue only first 10 candidates
+        env:
+          REMINDER_CRON_URL: ${{ secrets.PROFFERA_REMINDER_CRON_URL }}
+          CRON_SECRET: ${{ secrets.PROFFERA_REMINDER_CRON_SECRET }}
+          BOLAGSVERKET_BULK_URL: ${{ vars.BOLAGSVERKET_BULK_URL }}
+        run: |
+          set -euo pipefail
+          test -n "$REMINDER_CRON_URL"
+          test -n "$CRON_SECRET"
+          python - <<'PY'
+          import importlib.util
+          import os
+          import pathlib
+          import urllib.parse
+
+          spec = importlib.util.spec_from_file_location("directory_discovery", "scripts/company-directory-discovery.py")
+          module = importlib.util.module_from_spec(spec)
+          assert spec.loader is not None
+          spec.loader.exec_module(module)
+
+          u = urllib.parse.urlparse(os.environ["REMINDER_CRON_URL"])
+          if u.scheme != "https" or not u.netloc:
+              raise SystemExit("Invalid production cron URL")
+          host = "www.proffera.se" if u.netloc in {"proffera.se", "www.proffera.se"} else u.netloc
+          ingest_url = f"https://{host}/api/cron/company-directory-discovery-ingest"
+          secret = os.environ["CRON_SECRET"]
+
+          probe = module.api_request(ingest_url, secret)
+          if not (probe.get("ok") is True and probe.get("enabled") is True and probe.get("mode") == "automatic"):
+              raise SystemExit(f"Automatic discovery not ready: {probe}")
+
+          source_url = module.resolve_bulk_url(os.environ.get("BOLAGSVERKET_BULK_URL", ""))
+          archive_path, fingerprint = module.download_to_temp(source_url)
+          try:
+              candidates, records_seen = module.collect_candidates(archive_path)
+          finally:
+              pathlib.Path(archive_path).unlink(missing_ok=True)
+
+          selected = candidates[:10]
+          if len(selected) < 2:
+              raise SystemExit(f"Too few live candidates: {len(selected)}")
+
+          payload = {
+              "provider": module.DEFAULT_PROVIDER,
+              "sourceUrl": source_url,
+              "fingerprint": fingerprint,
+              "organizationNumbers": selected,
+              "discoveredCount": records_seen,
+              "acceptedCount": len(selected),
+              "final": False,
+          }
+          result = module.api_request(ingest_url, secret, "POST", payload)
+          if result.get("ok") is not True:
+              raise SystemExit(f"Ingest failed: {result}")
+          print(f"records_seen={records_seen}")
+          print(f"all_matching_candidates={len(candidates)}")
+          print(f"selected={','.join(selected)}")
+          print(f"ingest={result}")
+          PY
+
+      - name: Verify queued canary candidates through Production Bolagsverket
+        env:
+          REMINDER_CRON_URL: ${{ secrets.PROFFERA_REMINDER_CRON_URL }}
+          CRON_SECRET: ${{ secrets.PROFFERA_REMINDER_CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          PROCESS_URL="$(python - <<'PY'
+          import os, urllib.parse
+          u = urllib.parse.urlparse(os.environ['REMINDER_CRON_URL'])
+          if u.scheme != 'https' or not u.netloc:
+              raise SystemExit('Invalid production cron URL')
+          host = 'www.proffera.se' if u.netloc in {'proffera.se', 'www.proffera.se'} else u.netloc
+          print(f'https://{host}/api/cron/company-directory-sync')
+          PY
+          )"
+          for i in 1 2; do
+            RESPONSE="$(curl --fail-with-body --silent --show-error --connect-timeout 10 --max-time 75 \
+              --header "Authorization: Bearer $CRON_SECRET" \
+              --header "User-Agent: proffera-company-directory-live-canary" \
+              "$PROCESS_URL")"
+            printf 'sync%s=%s\n' "$i" "$RESPONSE"
+            printf '%s' "$RESPONSE" | python -c "import json,sys; d=json.load(sys.stdin); assert d.get('ok') is True; assert d.get('published',0) == 0; assert d.get('errors',0) == 0"
+          done
