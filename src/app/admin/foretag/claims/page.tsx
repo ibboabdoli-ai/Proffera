@@ -112,7 +112,7 @@ export default async function DirectoryClaimsPage() {
                       <p className="flex items-center gap-2"><Building2 className="h-4 w-4" /> {String(row.legal_form || "–")} · {String(row.city || "–")}</p>
                       <p className="flex items-center gap-2"><Mail className="h-4 w-4" /> {String(row.claimant_email)}</p>
                       <p className="flex items-center gap-2"><ShieldCheck className="h-4 w-4" /> {String(row.primary_sni_code || "–")} {String(row.primary_sni_label || "")}</p>
-                      <p className="flex items-center gap-2"><BadgeCheck className="h-4 w-4" /> Konto-e-post {accountVerified ? "verifierad" : "inte verifierad"}</p>
+                      <p className="flex items-center gap-2"><BadgeCheck className="h-4 w-4" /> Konto-e-post {accountVerified ? "separat verifierad" : "inte separat verifierad"}</p>
                     </div>
 
                     <div className="mt-4 rounded-2xl border border-[#dce6df] bg-[#f8fbf9] p-4">
@@ -157,9 +157,12 @@ export default async function DirectoryClaimsPage() {
                         placeholder="Exempel: firmatecknare kontrollerad mot officiell källa / annan behörighetskontroll"
                         className="mt-2 min-h-20 w-full rounded-xl border border-[#cad8ce] bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#17452f]/20"
                       />
+                      {!accountVerified ? (
+                        <p className="mt-2 text-xs leading-5 text-[#5f6c63]">Konto-e-posten är inte separat verifierad. Företagsmejlen är verifierad; gör därför den manuella behörighetskontrollen innan godkännande.</p>
+                      ) : null}
                       <button
                         type="submit"
-                        disabled={!accountVerified || reservationActive}
+                        disabled={reservationActive}
                         className="mt-3 min-h-11 w-full rounded-xl bg-[#17452f] px-4 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
                       >
                         {reservationStale ? "Försök provisionering igen" : reservationActive ? "Provisionering pågår" : "Verifiera och skapa workspace"}
