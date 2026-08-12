@@ -40,7 +40,7 @@ describe("assessCompanyDirectoryCategoryConfidence", () => {
     expect(result.warnings).toContain("Ingen oberoende textsignal stödjer kategorin");
   });
 
-  it("penalizes competing supported categories in the official SNI list", () => {
+  it("keeps competing supported categories in manual review", () => {
     const result = assessCompanyDirectoryCategoryConfidence(base({
       legalName: "Rör & Elservice AB",
       displayName: "Rör & Elservice AB",
@@ -51,8 +51,8 @@ describe("assessCompanyDirectoryCategoryConfidence", () => {
       ],
     }));
 
-    expect(result.score).toBe(95);
-    expect(result.level).toBe("high");
+    expect(result.score).toBe(85);
+    expect(result.level).toBe("review");
     expect(result.competingCategories).toEqual(["elektriker"]);
   });
 
