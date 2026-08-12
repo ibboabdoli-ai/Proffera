@@ -107,15 +107,16 @@ describe("central verified review flow", () => {
     expect(reviewsPage).not.toContain("primeViewWorkspaceSlug");
   });
 
-  it("closes anonymous submissions and publishes only approved verified reviews", () => {
+  it("closes anonymous submissions, preserves verified-review moderation and shows PrimeView Google reviews", () => {
     const route = source("src/app/api/primeview/reviews/route.ts");
-    const publicForm = source("src/app/demo/primeview/review-form.tsx");
+    const publicReviews = source("src/app/demo/primeview/review-form.tsx");
     const database = source("src/lib/website-reviews-db.ts");
 
     expect(route).toContain("status: 410");
     expect(route).not.toContain("submitWebsiteReview");
-    expect(publicForm).toContain("Verified customers only");
-    expect(publicForm).not.toContain("<form");
+    expect(publicReviews).toContain("Google Reviews");
+    expect(publicReviews).toContain("Place.searchByText");
+    expect(publicReviews).not.toContain("<form");
     expect(database).toContain("review.status = 'approved'");
     expect(database).toContain("review.is_verified = true");
   });
