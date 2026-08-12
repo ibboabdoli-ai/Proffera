@@ -5,6 +5,7 @@ import {
   checkClaimEmailCode,
   parseClaimEmailEvidence,
   serializeClaimEmailEvidence,
+  validBusinessEmail,
 } from "@/lib/company-directory-claim-email";
 import { getSql } from "@/lib/db/server";
 import { allowPublicSubmission } from "@/lib/public-form-protection";
@@ -66,8 +67,7 @@ export async function POST(request: Request) {
       claim.verification_reference,
       profile.claimed_workspace_id::text,
       profile.claim_reservation_id::text,
-      u.email as account_email,
-      u."emailVerified" as account_email_verified
+      u.email as account_email
     from company_directory_claims claim
     join company_directory_profiles profile on profile.id = claim.profile_id
     join "user" u on u.id = claim.claimant_user_id
@@ -84,7 +84,7 @@ export async function POST(request: Request) {
   if (row.claim_reservation_id) return NextResponse.redirect(new URL(`${returnTo}?status=unavailable`, request.url), 303);
 
   const accountEmail = String(row.account_email ?? "").trim().toLowerCase();
-  if (!accountEmail || !row.account_email_verified) {
+  if (!validBusinessEmail(accountEmail)) {
     return NextResponse.redirect(new URL(`${returnTo}?status=account_email_unverified`, request.url), 303);
   }
 
