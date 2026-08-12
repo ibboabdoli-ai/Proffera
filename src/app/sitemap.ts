@@ -14,6 +14,8 @@ import { siteConfig } from "@/lib/site";
 const swedishOnlyRoutes = ["/logga-in"] as const;
 const primeViewRoutes = [
   "/",
+  "/services",
+  "/areas",
   "/gallery",
   "/privacy",
   ...primeViewServicePages.map(({ slug }) => `/services/${slug}`),
