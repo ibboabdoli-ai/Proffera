@@ -40,10 +40,15 @@ jobs:
           python - <<'PY' >> "$GITHUB_OUTPUT"
           import os
           import urllib.parse
+
           url = urllib.parse.urlparse(os.environ["REMINDER_CRON_URL"])
           if url.scheme != "https" or not url.netloc:
               raise SystemExit("PROFFERA_REMINDER_CRON_URL must be an HTTPS URL")
-          origin = f"{url.scheme}://{url.netloc}"
+
+          host = url.netloc.lower()
+          if host in {"proffera.se", "www.proffera.se"}:
+              host = "www.proffera.se"
+          origin = f"https://{host}"
           print(f"ingest_url={origin}/api/cron/company-directory-discovery-ingest")
           PY
 
@@ -85,10 +90,15 @@ jobs:
           PROCESS_URL="$(python - <<'PY'
           import os
           import urllib.parse
+
           url = urllib.parse.urlparse(os.environ["REMINDER_CRON_URL"])
           if url.scheme != "https" or not url.netloc:
               raise SystemExit("PROFFERA_REMINDER_CRON_URL must be an HTTPS URL")
-          print(f"{url.scheme}://{url.netloc}/api/cron/company-directory-sync")
+
+          host = url.netloc.lower()
+          if host in {"proffera.se", "www.proffera.se"}:
+              host = "www.proffera.se"
+          print(f"https://{host}/api/cron/company-directory-sync")
           PY
           )"
           curl --fail-with-body --silent --show-error \
