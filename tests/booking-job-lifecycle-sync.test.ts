@@ -29,6 +29,7 @@ describe("booking and service job lifecycle synchronization", () => {
     expect(code).toContain("status = 'cancelled'");
     expect(code).toContain("cancelled_at = now()");
     expect(code).toContain("customer_portal_cancellation");
+    expect(code).toContain("'booking_id', ${bookingId}::text");
     expect(code).toContain("Bokning avbokad av kund");
   });
 
@@ -41,7 +42,13 @@ describe("booking and service job lifecycle synchronization", () => {
     expect(code).toContain("scheduled_starts_at = ${start.toISOString()}::timestamptz");
     expect(code).toContain("scheduled_ends_at = ${end.toISOString()}::timestamptz");
     expect(code).toContain("customer_portal_reschedule");
+    expect(code).toContain("'booking_id', ${bookingId}::text");
+    expect(code).toContain("'previous_starts_at', ${oldStart}::text");
+    expect(code).toContain("'starts_at', ${start.toISOString()}::text");
+    expect(code).toContain("'booking_status', ${nextStatus}::text");
     expect(code).toContain("'event_subtype', 'booking_rescheduled'");
+    expect(code).toContain("'old_status', ${String(booking.old_status)}::text");
+    expect(code).toContain("'new_status', ${nextStatus}::text");
     expect(code).toContain("Bokning ombokad av kund");
   });
 
