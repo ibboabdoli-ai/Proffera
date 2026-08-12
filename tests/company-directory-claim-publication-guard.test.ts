@@ -4,9 +4,9 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("company directory public claim guard", () => {
-  it("accepts claims only for published privacy-safe eligible profiles", () => {
+  it("starts email verification only for published privacy-safe eligible profiles", () => {
     const source = readFileSync(
-      resolve(process.cwd(), "src/app/api/public-directory/claim/route.ts"),
+      resolve(process.cwd(), "src/app/api/public-directory/claim-email/send/route.ts"),
       "utf8",
     );
 
@@ -14,5 +14,15 @@ describe("company directory public claim guard", () => {
     expect(source).toContain("privacy_blocked = false");
     expect(source).toContain("auto_public_eligible = true");
     expect(source).not.toContain("publication_status in ('published', 'ready')");
+  });
+
+  it("keeps the legacy direct claim endpoint fail-closed", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "src/app/api/public-directory/claim/route.ts"),
+      "utf8",
+    );
+
+    expect(source).toContain("email_verification_required");
+    expect(source).not.toContain("insert into company_directory_claims");
   });
 });

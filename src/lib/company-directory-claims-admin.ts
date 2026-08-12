@@ -3,6 +3,11 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 
 import { createWorkspaceSlug, provisionWorkspace } from "@/features/company/workspace-provisioning";
+import {
+  isClaimBusinessEmailVerified,
+  parseClaimEmailEvidence,
+  serializeClaimEmailEvidence,
+} from "@/lib/company-directory-claim-email";
 import { getPlatformAdmin } from "@/lib/platform-admin";
 import { getSql } from "@/lib/db/server";
 
@@ -32,6 +37,7 @@ export async function listCompanyDirectoryClaims(limit = 100) {
       claim.id::text,
       claim.status,
       claim.verification_method,
+      claim.verification_reference,
       claim.requested_at,
       claim.verified_at,
       claim.resolved_at,
@@ -165,6 +171,8 @@ export async function approveAndProvisionCompanyDirectoryClaim(input: { claimId:
     select
       claim.id::text,
       claim.status,
+      claim.verification_method,
+      claim.verification_reference,
       claim.requested_workspace_id::text,
       profile.id::text as profile_id,
       profile.display_name,
@@ -187,6 +195,12 @@ export async function approveAndProvisionCompanyDirectoryClaim(input: { claimId:
   if (!row.claimant_email_verified) throw new Error("Claimant email must be verified before approval");
   if (row.claimed_workspace_id) throw new Error("Company profile is already claimed");
   if (row.status !== "pending" && row.status !== "verified") throw new Error("Claim is not approvable");
+
+  const emailEvidence = parseClaimEmailEvidence(row.verification_reference);
+  if (String(row.verification_method) !== "email_domain" || !isClaimBusinessEmailVerified(emailEvidence)) {
+    throw new Error("Business email must be verified before this claim can be approved");
+  }
+  if (!emailEvidence) throw new Error("Business email verification evidence is missing");
 
   const generatedWorkspaceId = randomUUID();
   const reservationToken = randomUUID();
@@ -225,12 +239,18 @@ export async function approveAndProvisionCompanyDirectoryClaim(input: { claimId:
     throw new Error("Company profile is already reserved by an active claim operation");
   }
 
+  const approvedEvidence = serializeClaimEmailEvidence({
+    ...emailEvidence,
+    adminReference: reference,
+    adminReviewedAt: new Date().toISOString(),
+  });
+
   const verified = await sql`
     update company_directory_claims
     set requested_workspace_id = coalesce(requested_workspace_id, ${generatedWorkspaceId}::uuid),
         status = 'verified',
-        verification_method = 'manual_review',
-        verification_reference = ${reference},
+        verification_method = 'email_domain',
+        verification_reference = ${approvedEvidence},
         verified_at = coalesce(verified_at, now())
     where id = ${claimId}::uuid
       and profile_id = ${profileId}::uuid
@@ -260,7 +280,7 @@ export async function approveAndProvisionCompanyDirectoryClaim(input: { claimId:
     companyName,
     city,
     email: claimantEmail,
-    phone: "",
+    phone: emailEvidence.phone,
     planKey: "starter",
   });
 
@@ -317,7 +337,7 @@ export async function approveAndProvisionCompanyDirectoryClaim(input: { claimId:
         admin_user_id, workspace_id, action, reason, previous_value, new_value
       ) values (
         ${admin.userId}, ${workspaceId}::uuid, 'company_directory.claim.approved', ${reference},
-        ${JSON.stringify({ claimId, profileId, status: String(row.status) })}::jsonb,
+        ${JSON.stringify({ claimId, profileId, status: String(row.status), businessEmail: emailEvidence.businessEmail })}::jsonb,
         ${JSON.stringify({ claimId, profileId, status: "claimed", workspaceId })}::jsonb
       )
     `,
