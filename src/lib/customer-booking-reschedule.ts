@@ -237,12 +237,12 @@ export async function rescheduleCustomerBooking(token: string, bookingId: string
         'Service job schedule synchronized with a customer reschedule.',
         jsonb_build_object(
           'source', 'customer_portal_reschedule',
-          'booking_id', ${bookingId},
-          'previous_starts_at', ${oldStart},
-          'previous_ends_at', ${oldEnd},
-          'starts_at', ${start.toISOString()},
-          'ends_at', ${end.toISOString()},
-          'booking_status', ${nextStatus}
+          'booking_id', ${bookingId}::text,
+          'previous_starts_at', ${oldStart}::text,
+          'previous_ends_at', ${oldEnd}::text,
+          'starts_at', ${start.toISOString()}::text,
+          'ends_at', ${end.toISOString()}::text,
+          'booking_status', ${nextStatus}::text
         )
       from updated_job
       returning id
@@ -267,12 +267,12 @@ export async function rescheduleCustomerBooking(token: string, bookingId: string
         jsonb_build_object(
           'source', 'customer_portal',
           'event_subtype', 'booking_rescheduled',
-          'previous_starts_at', ${oldStart},
-          'previous_ends_at', ${oldEnd},
-          'starts_at', ${start.toISOString()},
-          'ends_at', ${end.toISOString()},
-          'old_status', ${String(booking.old_status)},
-          'new_status', ${nextStatus}
+          'previous_starts_at', ${oldStart}::text,
+          'previous_ends_at', ${oldEnd}::text,
+          'starts_at', ${start.toISOString()}::text,
+          'ends_at', ${end.toISOString()}::text,
+          'old_status', ${String(booking.old_status)}::text,
+          'new_status', ${nextStatus}::text
         )
       from updated_booking
       returning id
