@@ -96,6 +96,14 @@ export async function POST(request: Request) {
     limit 1
   `;
   const existing = existingRows[0];
+  const existingEvidence = parseClaimEmailEvidence(existing?.verification_reference);
+
+  // Once the business email has been verified, freeze the claimant evidence.
+  // This prevents a claimant from changing or cancelling the evidence while an
+  // administrator is reviewing the same pending claim.
+  if (existingEvidence?.stage === "business_email_verified") {
+    return NextResponse.redirect(new URL(`${returnTo}?status=sent`, request.url), 303);
+  }
 
   if (action === "reset") {
     if (existing?.id && existing.status === "pending") {
@@ -117,16 +125,15 @@ export async function POST(request: Request) {
   let confirmed = String(form.get("confirmAuthority") ?? "") === "yes";
 
   if (action === "resend") {
-    const evidence = parseClaimEmailEvidence(existing?.verification_reference);
-    if (!evidence || existing?.status !== "pending") {
+    if (!existingEvidence || existing?.status !== "pending") {
       return NextResponse.redirect(new URL(`${returnTo}?status=invalid_details`, request.url), 303);
     }
-    claimantName = evidence.claimantName;
-    role = evidence.role;
-    businessEmail = evidence.businessEmail;
-    phone = evidence.phone;
+    claimantName = existingEvidence.claimantName;
+    role = existingEvidence.role;
+    businessEmail = existingEvidence.businessEmail;
+    phone = existingEvidence.phone;
     confirmed = true;
-    if (evidence.accountEmail !== accountEmail) {
+    if (existingEvidence.accountEmail !== accountEmail) {
       return NextResponse.redirect(new URL(`${returnTo}?status=account_email_unverified`, request.url), 303);
     }
   }
@@ -188,10 +195,14 @@ export async function POST(request: Request) {
         verified_at = null,
         resolved_at = null
       where company_directory_claims.status = 'pending'
+        and not (
+          company_directory_claims.verification_method = 'email_domain'
+          and company_directory_claims.verification_reference like '%"stage":"business_email_verified"%'
+        )
       returning id::text
     `;
     if (!rows[0]?.id) {
-      return NextResponse.redirect(new URL(`${returnTo}?status=unavailable`, request.url), 303);
+      return NextResponse.redirect(new URL(`${returnTo}?status=sent`, request.url), 303);
     }
   } catch (error) {
     console.error("Failed to persist company claim business email challenge", error);
