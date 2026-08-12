@@ -36,7 +36,7 @@ type SniFact = {
 const categoryKeywords: Record<string, string[]> = {
   stadning: ["stadning", "stadservice", "lokalvard", "rengor", "fonsterputs", "hemstad", "kontorsstad"],
   elektriker: ["elektr", "elinstall", "eltekn", "elkraft", "elservice"],
-  vvs: ["vvs", "rorlagg", "rorinstall", "varme", "sanitet", "ventilation", "kylinstall"],
+  vvs: ["vvs", "rorlagg", "rorinstall", "varme", "sanitar", "sanitet", "ventilation", "kylinstall"],
   maleri: ["maleri", "malar", "malning"],
   snickeri: ["snicker", "byggnadssnicker", "carpentry"],
   tradgard: ["tradgard", "markskotsel", "gronyt", "landskap"],
