@@ -16,11 +16,11 @@ function base(overrides: Partial<Parameters<typeof assessCompanyDirectoryCategor
 }
 
 describe("assessCompanyDirectoryCategoryConfidence", () => {
-  it("gives high confidence when official SNI and business text corroborate VVS", () => {
+  it("gives high confidence when official SNI and sanitary business text corroborate VVS", () => {
     const result = assessCompanyDirectoryCategoryConfidence(base({
       legalName: "Carl Hanssons Rör & Värme Aktiebolag",
       displayName: "Carl Hanssons Rör & Värme Aktiebolag",
-      activityDescription: "Bolaget utför rörinstallationer, värme och sanitetsarbeten.",
+      activityDescription: "Bolaget utför fastighetssanitära installations- och underhållsarbeten.",
     }));
 
     expect(result.score).toBe(100);
