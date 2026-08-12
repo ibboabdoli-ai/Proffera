@@ -46,30 +46,31 @@ type GooglePlacesLibrary = {
   Place: GooglePlaceClass;
 };
 
-type GoogleMapsGlobal = {
-  maps: {
-    importLibrary: (library: "places") => Promise<GooglePlacesLibrary>;
+type PrimeViewWindow = Window & {
+  google?: {
+    maps: {
+      importLibrary: (library: "places") => Promise<GooglePlacesLibrary>;
+    };
   };
+  __primeViewGoogleMapsPromise?: Promise<void>;
 };
-
-declare global {
-  interface Window {
-    google?: GoogleMapsGlobal;
-    __primeViewGoogleMapsPromise?: Promise<void>;
-  }
-}
 
 const GOOGLE_SCRIPT_SELECTOR = 'script[data-primeview-google-maps="true"]';
 const PRIMEVIEW_NAME = "primeview window care";
 
-function loadGoogleMaps(apiKey: string) {
-  if (window.google?.maps?.importLibrary) return Promise.resolve();
-  if (window.__primeViewGoogleMapsPromise) return window.__primeViewGoogleMapsPromise;
+function primeViewWindow() {
+  return window as PrimeViewWindow;
+}
 
-  window.__primeViewGoogleMapsPromise = new Promise<void>((resolve, reject) => {
+function loadGoogleMaps(apiKey: string) {
+  const target = primeViewWindow();
+  if (target.google?.maps?.importLibrary) return Promise.resolve();
+  if (target.__primeViewGoogleMapsPromise) return target.__primeViewGoogleMapsPromise;
+
+  target.__primeViewGoogleMapsPromise = new Promise<void>((resolve, reject) => {
     const existing = document.querySelector<HTMLScriptElement>(GOOGLE_SCRIPT_SELECTOR);
     if (existing) {
-      if (window.google?.maps?.importLibrary) {
+      if (primeViewWindow().google?.maps?.importLibrary) {
         resolve();
         return;
       }
@@ -88,7 +89,7 @@ function loadGoogleMaps(apiKey: string) {
     document.head.appendChild(script);
   });
 
-  return window.__primeViewGoogleMapsPromise;
+  return target.__primeViewGoogleMapsPromise;
 }
 
 function normalizedName(value: string | undefined) {
@@ -123,7 +124,7 @@ export function PrimeViewReviewForm({ serviceOptions }: PrimeViewReviewFormProps
 
     void loadGoogleMaps(apiKey)
       .then(async () => {
-        const googleMaps = window.google;
+        const googleMaps = primeViewWindow().google;
         if (!googleMaps?.maps?.importLibrary) throw new Error("Google Maps is unavailable.");
         const { Place } = await googleMaps.maps.importLibrary("places");
         const { places } = await Place.searchByText({
@@ -172,9 +173,9 @@ export function PrimeViewReviewForm({ serviceOptions }: PrimeViewReviewFormProps
       <section className="rounded-2xl border border-[#cbd9ef] bg-[#f6f9ff] p-6 text-[#29436f]">
         <p className="text-sm font-black uppercase tracking-[0.14em] text-[#0a3c8f]">Google Reviews</p>
         <h3 className="mt-3 text-xl font-black text-[#071b42]">PrimeView on Google</h3>
-        <p className="mt-3 text-sm leading-6">Google Reviews are temporarily unavailable here. You can still open the PrimeView profile on Google.</p>
+        <p className="mt-3 text-sm leading-6">Google Reviews are temporarily unavailable here. You can still open the PrimeView profile on Google Maps.</p>
         <a href={googleUrl} target="_blank" rel="noreferrer" className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[#0a3c8f] px-4 py-3 text-sm font-black !text-white hover:bg-[#061b42]">
-          Open Google <ExternalLink className="size-4" aria-hidden="true" />
+          Open Google Maps <ExternalLink className="size-4" aria-hidden="true" />
         </a>
       </section>
     );
@@ -187,7 +188,7 @@ export function PrimeViewReviewForm({ serviceOptions }: PrimeViewReviewFormProps
           <p className="text-sm font-black uppercase tracking-[0.14em] text-[#0a3c8f]">Google Reviews</p>
           <h3 className="mt-2 text-2xl font-black tracking-tight text-[#071b42]">What customers say on Google</h3>
         </div>
-        <span className="rounded-full bg-white px-3 py-1.5 text-xs font-black text-[#4285f4] shadow-sm">Google</span>
+        <span translate="no" className="whitespace-nowrap text-xs font-normal text-[#5e5e5e]">Google Maps</span>
       </div>
 
       {typeof place.rating === "number" ? (
@@ -204,33 +205,37 @@ export function PrimeViewReviewForm({ serviceOptions }: PrimeViewReviewFormProps
         <div className="mt-4 grid gap-3">
           {reviews.map((review, index) => {
             const author = review.authorAttribution;
-            const content = (
-              <>
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-black text-[#071b42]">{author?.displayName || "Google customer"}</p>
-                    {review.relativePublishTimeDescription ? <p className="mt-0.5 text-xs text-slate-500">{review.relativePublishTimeDescription}</p> : null}
+            return (
+              <article key={`${author?.displayName ?? "review"}-${index}`} className="rounded-2xl border border-[#d7e1f2] bg-white p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-3">
+                    {author?.photoURI ? <img src={author.photoURI} alt="" width={36} height={36} referrerPolicy="no-referrer" className="size-9 shrink-0 rounded-full object-cover" /> : <span className="grid size-9 shrink-0 place-items-center rounded-full bg-[#eef3fc] text-sm font-black text-[#315997]">G</span>}
+                    <div className="min-w-0">
+                      {author?.uri ? (
+                        <a href={author.uri} target="_blank" rel="noreferrer" className="block truncate text-sm font-black text-[#071b42] hover:underline">{author.displayName || "Google customer"}</a>
+                      ) : (
+                        <p className="truncate text-sm font-black text-[#071b42]">{author?.displayName || "Google customer"}</p>
+                      )}
+                      {review.relativePublishTimeDescription ? <p className="mt-0.5 text-xs text-slate-500">{review.relativePublishTimeDescription}</p> : null}
+                    </div>
                   </div>
                   {typeof review.rating === "number" ? <Stars rating={review.rating} size="size-3.5" /> : null}
                 </div>
-                <p className="mt-3 line-clamp-4 text-sm leading-6 text-slate-650">{review.text}</p>
-              </>
-            );
-
-            return author?.uri ? (
-              <a key={`${author.displayName ?? "review"}-${index}`} href={author.uri} target="_blank" rel="noreferrer" className="block rounded-2xl border border-[#d7e1f2] bg-white p-4 transition hover:border-[#9fb9e2] hover:shadow-sm">
-                {content}
-              </a>
-            ) : (
-              <article key={`${author?.displayName ?? "review"}-${index}`} className="rounded-2xl border border-[#d7e1f2] bg-white p-4">
-                {content}
+                <p className="mt-3 line-clamp-4 text-sm leading-6 text-slate-600">{review.text}</p>
+                {review.googleMapsURI ? (
+                  <a href={review.googleMapsURI} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1 text-xs font-bold text-[#0a3c8f] hover:underline">
+                    View this review on Google Maps <ExternalLink className="size-3" aria-hidden="true" />
+                  </a>
+                ) : null}
               </article>
             );
           })}
         </div>
       ) : (
-        <p className="mt-4 rounded-2xl border border-[#d7e1f2] bg-white p-4 text-sm leading-6 text-slate-600">Open Google to read the latest PrimeView customer reviews.</p>
+        <p className="mt-4 rounded-2xl border border-[#d7e1f2] bg-white p-4 text-sm leading-6 text-slate-600">Open Google Maps to read the latest PrimeView customer reviews.</p>
       )}
+
+      <p className="mt-4 text-[11px] leading-5 text-slate-500">Showing up to 3 reviews returned by Google Maps, ordered by relevance. Google checks reviews for policy violations but does not verify individual customer experiences.</p>
 
       <div className="mt-5 grid gap-2 sm:grid-cols-2">
         <a href={googleUrl} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#0a3c8f] px-4 py-3 text-sm font-black !text-white hover:bg-[#061b42]">
@@ -240,7 +245,6 @@ export function PrimeViewReviewForm({ serviceOptions }: PrimeViewReviewFormProps
           Leave a Google review <Star className="size-4" aria-hidden="true" />
         </a>
       </div>
-      <p className="mt-4 text-[11px] leading-5 text-slate-500">Reviews and ratings are provided by Google. Reviewer names link to their Google Maps profiles where available.</p>
     </section>
   );
 }
