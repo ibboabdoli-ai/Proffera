@@ -192,7 +192,6 @@ export async function approveAndProvisionCompanyDirectoryClaim(input: { claimId:
   `;
   const row = rows[0];
   if (!row) throw new Error("Claim not found");
-  if (!row.claimant_email_verified) throw new Error("Claimant email must be verified before approval");
   if (row.claimed_workspace_id) throw new Error("Company profile is already claimed");
   if (row.status !== "pending" && row.status !== "verified") throw new Error("Claim is not approvable");
 
