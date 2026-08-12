@@ -1,3 +1,5 @@
+import { primeViewSite } from "@/lib/primeview-seo";
+
 export type ReviewInvitationEmailLanguage = "sv" | "en";
 
 export type SendVerifiedReviewInvitationEmailInput = {
@@ -24,6 +26,14 @@ export type VerifiedReviewInvitationEmailResult =
       code: "configuration" | "provider" | "network";
       message: string;
     };
+
+const PRIMEVIEW_GOOGLE_REVIEWS_URL =
+  "https://www.google.com/maps/place/PrimeView+Window+Care/@51.5665682,-0.4737333,11z/data=!4m8!3m7!1s0x893cb4b7e3dcc37b:0x47fd0c4bc2acaa07!8m2!3d51.5664702!4d-0.308927!9m1!1b1!16s%2Fg%2F11zh9kb89p";
+
+function isPrimeViewCompany(companyName: string) {
+  const normalized = companyName.trim().toLowerCase().replace(/\s+/g, " ");
+  return normalized === "primeview" || normalized === "primeview window care";
+}
 
 function escapeHtml(value: string) {
   return value
@@ -61,9 +71,102 @@ function formatExpiry(value: string, language: ReviewInvitationEmailLanguage, ti
   }
 }
 
+function buildPrimeViewReviewInvitationEmail(input: SendVerifiedReviewInvitationEmailInput) {
+  const expiresAt = formatExpiry(input.expiresAt, "en", "Europe/London");
+  const subject = "How did we do? Leave a review – PrimeView Window Care";
+  const text = [
+    `Hello ${input.customerName},`,
+    "",
+    "Thank you for choosing PrimeView Window Care.",
+    `Your completed service: ${input.bookingTitle}`,
+    "",
+    "We would really appreciate your feedback.",
+    "",
+    "Leave a Google review:",
+    PRIMEVIEW_GOOGLE_REVIEWS_URL,
+    "",
+    "Or leave a verified review on the PrimeView website:",
+    input.reviewUrl,
+    "",
+    `Your secure PrimeView website review link can be used once and expires on ${expiresAt}.`,
+    "",
+    `Phone: ${primeViewSite.telephoneDisplay}`,
+    `Email: ${primeViewSite.email}`,
+    "",
+    "Kind regards,",
+    "PrimeView Window Care",
+  ].join("\n");
+
+  const html = `<!doctype html>
+<html lang="en">
+  <body style="margin:0;padding:0;background:#eef3fc;font-family:Arial,Helvetica,sans-serif;color:#09183a;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;background:#eef3fc;padding:24px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:640px;background:#ffffff;border-radius:20px;overflow:hidden;box-shadow:0 14px 36px rgba(6,24,59,.12);">
+            <tr>
+              <td style="background:#06183b;padding:24px 28px;">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                  <tr>
+                    <td style="vertical-align:middle;">
+                      <img src="${escapeHtml(primeViewSite.logoUrl)}" width="64" height="60" alt="PrimeView Window Care" style="display:block;border:0;border-radius:12px;object-fit:cover;" />
+                    </td>
+                    <td align="right" style="vertical-align:middle;color:#ffffff;font-size:14px;font-weight:700;">PrimeView Window Care</td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:30px 28px 8px;">
+                <span style="display:inline-block;border-radius:999px;background:#fff6dd;color:#8a5b00;padding:8px 12px;font-size:12px;font-weight:800;letter-spacing:.08em;">YOUR FEEDBACK</span>
+                <h1 style="margin:18px 0 10px;font-size:30px;line-height:1.15;color:#071b42;">How did we do?</h1>
+                <p style="margin:0;color:#52647c;font-size:16px;line-height:1.7;">Hello ${escapeHtml(input.customerName)},</p>
+                <p style="margin:12px 0 0;color:#52647c;font-size:16px;line-height:1.7;">Thank you for choosing PrimeView Window Care. We would really appreciate a quick review of your experience.</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:18px 28px;">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;border:1px solid #d7e1f2;border-radius:16px;background:#f8fbff;">
+                  <tr><td style="padding:16px 18px 8px;font-size:12px;font-weight:800;color:#315997;text-transform:uppercase;letter-spacing:.08em;">Completed service</td></tr>
+                  <tr><td style="padding:6px 18px 16px;color:#071b42;font-size:16px;font-weight:700;">${escapeHtml(input.bookingTitle)}</td></tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:4px 28px 30px;">
+                <p style="margin:0 0 12px;color:#071b42;font-size:17px;font-weight:800;">Review PrimeView on Google</p>
+                <p style="margin:0 0 18px;color:#52647c;font-size:14px;line-height:1.7;">Google reviews help local customers find and choose PrimeView Window Care.</p>
+                <a href="${escapeHtml(PRIMEVIEW_GOOGLE_REVIEWS_URL)}" style="display:inline-block;border-radius:12px;background:#0a3c8f;color:#ffffff;text-decoration:none;padding:14px 20px;font-size:14px;font-weight:800;">Leave a Google review</a>
+
+                <div style="height:1px;background:#e1e8f4;margin:28px 0;"></div>
+
+                <p style="margin:0 0 12px;color:#071b42;font-size:17px;font-weight:800;">Leave a verified website review</p>
+                <p style="margin:0 0 18px;color:#52647c;font-size:14px;line-height:1.7;">You can also leave a verified review directly on the PrimeView website using your secure one-time link.</p>
+                <a href="${escapeHtml(input.reviewUrl)}" style="display:inline-block;border-radius:12px;border:2px solid #0a3c8f;background:#ffffff;color:#0a3c8f;text-decoration:none;padding:12px 18px;font-size:14px;font-weight:800;">Leave a verified review</a>
+                <p style="margin:18px 0 0;color:#6a7890;font-size:12px;line-height:1.6;">The secure website review link can be used once and expires on ${escapeHtml(expiresAt)}.</p>
+                <p style="margin:24px 0 0;color:#52647c;font-size:13px;line-height:1.7;">Call <a href="tel:${escapeHtml(primeViewSite.telephone)}" style="color:#0a3c8f;font-weight:700;">${escapeHtml(primeViewSite.telephoneDisplay)}</a> · Email <a href="mailto:${escapeHtml(primeViewSite.email)}" style="color:#0a3c8f;font-weight:700;">${escapeHtml(primeViewSite.email)}</a></p>
+              </td>
+            </tr>
+            <tr>
+              <td style="background:#030f28;padding:18px 28px;color:#cbd5e1;font-size:12px;line-height:1.6;">PrimeView Window Care · Professional exterior cleaning across West &amp; North London.</td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+
+  return { subject, text, html };
+}
+
 export function buildVerifiedReviewInvitationEmail(
   input: SendVerifiedReviewInvitationEmailInput,
 ) {
+  if (isPrimeViewCompany(input.companyName)) {
+    return buildPrimeViewReviewInvitationEmail(input);
+  }
+
   const language = input.language === "en" ? "en" : "sv";
   const timeZone = input.timeZone || "Europe/Stockholm";
   const expiresAt = formatExpiry(input.expiresAt, language, timeZone);
@@ -143,7 +246,11 @@ export async function sendVerifiedReviewInvitationEmail(
     };
   }
 
-  const sender = parseSender(from);
+  const parsedSender = parseSender(from);
+  const primeView = isPrimeViewCompany(input.companyName);
+  const sender = primeView
+    ? { name: primeViewSite.name, email: parsedSender.email }
+    : parsedSender;
   const email = buildVerifiedReviewInvitationEmail(input);
 
   try {
@@ -156,6 +263,9 @@ export async function sendVerifiedReviewInvitationEmail(
       body: JSON.stringify({
         sender,
         to: [{ email: input.customerEmail, name: input.customerName }],
+        ...(primeView
+          ? { replyTo: { email: primeViewSite.email, name: primeViewSite.name } }
+          : {}),
         subject: email.subject,
         textContent: email.text,
         htmlContent: email.html,
