@@ -31,7 +31,6 @@ const REAR_ACCESS = ["Side access", "Through the property only", "No access / ar
 const FLOOR_COUNTS = ["1", "2", "3+", "Unknown"] as const;
 const WORKING_HEIGHTS = ["Ground floor only", "First floor", "Second floor+", "Long ladder required"] as const;
 const PARKING_OPTIONS = ["Parking directly outside", "Parking nearby", "Difficult / paid parking"] as const;
-const WINDOW_ACCESS_OPTIONS = ["Easy access", "Hard access", "Skylight / Roof windows"] as const;
 const PET_OPTIONS = ["Yes", "No"] as const;
 
 function first(value: string | string[] | undefined) { return Array.isArray(value) ? value[0] : value; }
@@ -135,12 +134,9 @@ async function requestPrimeViewBooking(formData: FormData) {
   const key = pricingInput.serviceKey;
   if (!pricingInput.access || (key !== "patio" && !pricingInput.condition)) redirect(bookingUrl("error=invalid"));
   if (key === "window") {
-    if (!WINDOW_ACCESS_OPTIONS.includes(windowAccess as (typeof WINDOW_ACCESS_OPTIONS)[number])) redirect(bookingUrl("error=invalid"));
-    const totalWindows = (pricingInput.standardWindows || 0) + (pricingInput.largeWindows || 0) + (pricingInput.bayWindows || 0);
-    if (!pricingInput.cleaningScope || !pricingInput.frequency || !pricingInput.floorCount || totalWindows < 1) redirect(bookingUrl("error=invalid"));
-  }
-  if ((key === "gutter" || key === "fascia" || key === "package") && !pricingInput.propertySize) redirect(bookingUrl("error=invalid"));
-  if (key === "conservatory" && !pricingInput.conservatorySize) redirect(bookingUrl("error=invalid"));
+  if (!pricingInput.standardWindows || pricingInput.standardWindows < 1) redirect(bookingUrl("error=invalid"));
+}
+  if ((key === "gutter" || key === "fascia" || key === "fascia_gutter" || key === "package") && !pricingInput.propertySize) redirect(bookingUrl("error=invalid"));
   if (key === "solar" && (!pricingInput.solarPanels || pricingInput.solarPanels < 1)) redirect(bookingUrl("error=invalid"));
   if ((key === "patio" || key === "package") && (!pricingInput.areaM2 || pricingInput.areaM2 <= 0)) redirect(bookingUrl("error=invalid"));
 

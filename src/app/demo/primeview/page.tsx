@@ -57,7 +57,7 @@ export async function generateMetadata(): Promise<Metadata> {
       "window cleaning North London",
       "gutter cleaning London",
       "pressure washing London",
-      "fascia and soffit cleaning",
+      "fascia and gutter cleaning",
       "conservatory roof cleaning",
       "solar panel cleaning London",
     ],
@@ -115,11 +115,11 @@ const services = [
     imageAlt: "Professional window cleaning at a home",
   },
   {
-    title: "Fascia & Soffit Cleaning",
-    description: "A careful refresh for fascias, soffits, cladding and trims around your home.",
+    title: "Fascia & Gutter Cleaning",
+    description: "Fascia and gutter cleaning with simple property-based starting prices.",
     icon: House,
     image: "/primeview/services/fascia-soffit-cleaning.webp",
-    imageAlt: "Professional fascia and soffit cleaning at a home",
+    imageAlt: "Professional fascia and gutter cleaning at a home",
   },
   {
     title: "Conservatory Roof Cleaning",
@@ -141,13 +141,6 @@ const services = [
     icon: Wrench,
     image: "/primeview/services/driveway-patio-cleaning.webp",
     imageAlt: "Professional pressure washing of a driveway and patio",
-  },
-  {
-    title: "Gutter + Pressure Washing",
-    description: "Book both services together and get an automatic package saving shown in the calculator.",
-    icon: Droplets,
-    image: "/primeview/services/gutter-cleaning.webp",
-    imageAlt: "Gutter cleaning and pressure washing package",
   },
   {
     title: "Solar Panel Cleaning",

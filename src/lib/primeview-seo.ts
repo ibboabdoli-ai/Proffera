@@ -19,8 +19,8 @@ export const primeViewServices = [
     description: "Streak-free windows for homes, shops and business premises, finished with care.",
   },
   {
-    title: "Fascia & Soffit Cleaning",
-    description: "A careful refresh for fascias, soffits, cladding and trims around your home.",
+    title: "Fascia & Gutter Cleaning",
+    description: "Fascia and gutter cleaning with simple property-based starting prices.",
   },
   {
     title: "Conservatory Roof Cleaning",
@@ -33,10 +33,6 @@ export const primeViewServices = [
   {
     title: "Pressure Washing",
     description: "Pressure washing for driveways, patios, paths and outdoor areas that need a fresh start.",
-  },
-  {
-    title: "Gutter + Pressure Washing",
-    description: "A discounted package combining gutter cleaning and pressure washing in one visit.",
   },
   {
     title: "Solar Panel Cleaning",
