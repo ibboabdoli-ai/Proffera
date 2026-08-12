@@ -19,6 +19,7 @@
       }
     ],
     "paths": {
+      "@/features/email/lead-email": ["./src/features/email/lead-email-entry.ts"],
       "@/*": ["./src/*"]
     }
   },
