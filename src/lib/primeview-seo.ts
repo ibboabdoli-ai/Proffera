@@ -1,8 +1,11 @@
 export const primeViewSite = {
   name: "PrimeView Window Care",
+  alternateName: "PrimeView",
   origin: "https://www.primeviewwindowcare.co.uk",
   canonicalUrl: "https://www.primeviewwindowcare.co.uk/",
   galleryUrl: "https://www.primeviewwindowcare.co.uk/gallery",
+  googleMapsUrl:
+    "https://www.google.com/maps/place/PrimeView+Window+Care/@51.5665682,-0.4737333,11z/data=!4m8!3m7!1s0x893cb4b7e3dcc37b:0x47fd0c4bc2acaa07!8m2!3d51.5664702!4d-0.308927!9m1!1b1!16s%2Fg%2F11zh9kb89p",
   title: "Window, Gutter & Exterior Cleaning in West & North London | PrimeView",
   description:
     "Professional window, gutter, pressure washing and exterior cleaning for homes and businesses across West and North London. Request a free, no-obligation quote from PrimeView Window Care.",
@@ -47,6 +50,7 @@ export const primeViewStructuredData = {
       "@type": "WebSite",
       "@id": `${primeViewSite.canonicalUrl}#website`,
       name: primeViewSite.name,
+      alternateName: primeViewSite.alternateName,
       url: primeViewSite.canonicalUrl,
       inLanguage: "en-GB",
       publisher: { "@id": `${primeViewSite.canonicalUrl}#business` },
@@ -65,6 +69,7 @@ export const primeViewStructuredData = {
       "@type": "ProfessionalService",
       "@id": `${primeViewSite.canonicalUrl}#business`,
       name: primeViewSite.name,
+      alternateName: primeViewSite.alternateName,
       description: primeViewSite.description,
       url: primeViewSite.canonicalUrl,
       logo: primeViewSite.logoUrl,
@@ -72,6 +77,7 @@ export const primeViewStructuredData = {
       telephone: primeViewSite.telephone,
       email: primeViewSite.email,
       priceRange: "££",
+      sameAs: [primeViewSite.googleMapsUrl],
       areaServed: [
         { "@type": "AdministrativeArea", name: "West London" },
         { "@type": "AdministrativeArea", name: "North London" },
