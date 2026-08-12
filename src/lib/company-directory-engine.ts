@@ -161,6 +161,11 @@ export async function upsertCompanyDirectoryCandidate(candidate: NormalizedDirec
       region = excluded.region,
       publication_status = case
         when company_directory_profiles.claimed_workspace_id is not null then 'claimed'
+        when company_directory_profiles.publication_status = 'published'
+          and excluded.publication_status = 'ready'
+          and excluded.privacy_blocked = false
+          and excluded.auto_public_eligible = true
+          then 'published'
         else excluded.publication_status
       end,
       quality_score = excluded.quality_score,
@@ -173,6 +178,11 @@ export async function upsertCompanyDirectoryCandidate(candidate: NormalizedDirec
       last_synced_at = now(),
       published_at = case
         when company_directory_profiles.claimed_workspace_id is not null then company_directory_profiles.published_at
+        when company_directory_profiles.publication_status = 'published'
+          and excluded.publication_status = 'ready'
+          and excluded.privacy_blocked = false
+          and excluded.auto_public_eligible = true
+          then coalesce(company_directory_profiles.published_at, now())
         when excluded.publication_status = 'published' then coalesce(company_directory_profiles.published_at, now())
         else null
       end,
