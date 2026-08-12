@@ -6,7 +6,10 @@ const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTypescript,
   {
-    files: ["src/app/boka/[slug]/booking-request-form.tsx"],
+    files: [
+      "src/app/boka/[slug]/booking-request-form.tsx",
+      "src/app/demo/primeview/review-form.tsx",
+    ],
     rules: {
       "react-hooks/set-state-in-effect": "off",
     },
