@@ -93,7 +93,7 @@ export default async function ClaimCompanyPage({ params, searchParams }: Props) 
   const profileHref = `/foretag/listad/${encodeURIComponent(business.slug)}`;
   const returnTo = `/foretag/claim/${business.slug}`;
 
-  let emailEvidence = null;
+  let emailEvidence: ReturnType<typeof parseClaimEmailEvidence> = null;
   if (session?.user?.id) {
     const sql = getSql();
     if (sql) {
@@ -179,8 +179,8 @@ export default async function ClaimCompanyPage({ params, searchParams }: Props) 
                     <KeyRound className="mt-0.5 h-6 w-6 shrink-0 text-[#173e2b]" />
                     <div>
                       <p className="font-black">Verifiera företagsmejlen</p>
-                      <p className="mt-1 text-sm leading-6 text-[#5f6c63]">En sexsiffrig kod skickades till <strong>{emailEvidence.businessEmail}</strong>.</p>
-                      {emailEvidence.emailDomainKind === "public_mailbox" ? (
+                      <p className="mt-1 text-sm leading-6 text-[#5f6c63]">En sexsiffrig kod skickades till <strong>{emailEvidence?.businessEmail ?? "företagsmejlen"}</strong>.</p>
+                      {emailEvidence?.emailDomainKind === "public_mailbox" ? (
                         <p className="mt-2 rounded-lg bg-[#fff5da] px-3 py-2 text-xs leading-5 text-[#76580d]">Det här är en extern e-postleverantör. Proffera kommer därför att kräva extra manuell kontroll innan anspråket kan godkännas.</p>
                       ) : null}
                     </div>
