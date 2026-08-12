@@ -13,12 +13,12 @@ import { siteConfig } from "@/lib/site";
 
 const swedishOnlyRoutes = ["/logga-in"] as const;
 const primeViewRoutes = [
-  { path: "/", changeFrequency: "weekly" as const, priority: 1 },
-  { path: "/gallery", changeFrequency: "weekly" as const, priority: 0.8 },
-  { path: "/privacy", changeFrequency: "yearly" as const, priority: 0.3 },
-  ...primeViewServicePages.map(({ slug }) => ({ path: `/services/${slug}`, changeFrequency: "monthly" as const, priority: 0.9 })),
-  ...primeViewAreaPages.map(({ slug }) => ({ path: `/areas/${slug}`, changeFrequency: "monthly" as const, priority: 0.85 })),
-];
+  "/",
+  "/gallery",
+  "/privacy",
+  ...primeViewServicePages.map(({ slug }) => `/services/${slug}`),
+  ...primeViewAreaPages.map(({ slug }) => `/areas/${slug}`),
+] as const;
 
 export const dynamic = "force-dynamic";
 
@@ -27,12 +27,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const host = requestHeaders.get("host");
 
   if (isPrimeViewHost(host)) {
-    const lastModified = new Date();
-    return primeViewRoutes.map((route) => ({
-      url: new URL(route.path, primeViewSite.origin).toString(),
-      lastModified,
-      changeFrequency: route.changeFrequency,
-      priority: route.priority,
+    return primeViewRoutes.map((path) => ({
+      url: new URL(path, primeViewSite.origin).toString(),
     }));
   }
 
