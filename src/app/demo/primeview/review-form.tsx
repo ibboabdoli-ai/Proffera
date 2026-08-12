@@ -46,7 +46,7 @@ type GooglePlacesLibrary = {
   Place: GooglePlaceClass;
 };
 
-type PrimeViewWindow = Window & {
+type PrimeViewWindow = {
   google?: {
     maps: {
       importLibrary: (library: "places") => Promise<GooglePlacesLibrary>;
@@ -59,7 +59,7 @@ const GOOGLE_SCRIPT_SELECTOR = 'script[data-primeview-google-maps="true"]';
 const PRIMEVIEW_NAME = "primeview window care";
 
 function primeViewWindow() {
-  return window as PrimeViewWindow;
+  return window as unknown as PrimeViewWindow;
 }
 
 function loadGoogleMaps(apiKey: string) {
@@ -133,7 +133,7 @@ export function PrimeViewReviewForm({ serviceOptions }: PrimeViewReviewFormProps
           locationBias: { center: { lat: 51.515, lng: -0.18 }, radius: 40_000 },
         });
 
-        const exact = places.find((item) => normalizedName(item.displayName) === PRIMEVIEW_NAME) ?? null;
+        const exact = places.find((item: GooglePlace) => normalizedName(item.displayName) === PRIMEVIEW_NAME) ?? null;
         if (!disposed) {
           setPlace(exact);
           setFailed(!exact);
