@@ -33,6 +33,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const category = categoryLabels[business.categorySlug] ?? business.primarySniLabel ?? "Tjänster";
   const description = business.activityDescription || `${business.companyName} i ${business.city} – ${category}.`;
   const canonical = `${siteConfig.url}/foretag/listad/${encodeURIComponent(business.slug)}`;
+  const hasActualBusinessMedia = Boolean(business.media?.isActualBusinessMedia && business.media.url);
   return {
     title: `${business.companyName} | Proffera`,
     description,
@@ -43,10 +44,10 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       description,
       url: canonical,
       type: "website",
-      ...(business.media?.url ? {
+      ...(hasActualBusinessMedia ? {
         images: [{
-          url: absoluteUrl(business.media.url),
-          alt: business.media.isActualBusinessMedia ? business.companyName : `${category} – illustrationsbild`,
+          url: absoluteUrl(business.media!.url),
+          alt: business.companyName,
         }],
       } : {}),
     },
@@ -69,6 +70,7 @@ export default async function ListedBusinessPage({ params }: Props) {
     : "kontrollerad vid senaste synk";
   const canonical = `${siteConfig.url}/foretag/listad/${encodeURIComponent(business.slug)}`;
   const description = business.activityDescription || `${business.companyName} i ${business.city} – ${category}.`;
+  const hasActualBusinessMedia = Boolean(business.media?.isActualBusinessMedia && business.media.url);
   const structuredData = {
     "@context": "https://schema.org",
     "@type": "LocalBusiness",
@@ -86,7 +88,7 @@ export default async function ListedBusinessPage({ params }: Props) {
       },
     } : {}),
     ...(business.city ? { areaServed: business.city } : {}),
-    ...(business.media?.isActualBusinessMedia && business.media.url ? { image: absoluteUrl(business.media.url) } : {}),
+    ...(hasActualBusinessMedia ? { image: absoluteUrl(business.media!.url) } : {}),
   };
 
   return (
@@ -99,23 +101,20 @@ export default async function ListedBusinessPage({ params }: Props) {
         <Link href="/" className="text-lg font-black text-[#173e2b]">Proffera</Link>
 
         <article className="mt-7 overflow-hidden rounded-[2rem] bg-white shadow-sm ring-1 ring-black/10">
-          {business.media ? (
-            <div className="relative h-64 sm:h-80">
+          {hasActualBusinessMedia ? (
+            <div className="relative h-52 sm:h-64">
               <Image
-                src={business.media.url}
-                alt={business.media.isActualBusinessMedia ? business.companyName : `${category} – illustrationsbild`}
+                src={business.media!.url}
+                alt={business.companyName}
                 fill
                 unoptimized
                 sizes="(max-width: 1024px) 100vw, 960px"
                 className="object-cover"
               />
-              {!business.media.isActualBusinessMedia ? (
-                <span className="absolute bottom-4 left-4 rounded-full bg-black/70 px-3 py-1.5 text-xs font-bold text-white">
-                  Illustrationsbild
-                </span>
-              ) : null}
             </div>
-          ) : null}
+          ) : (
+            <div className="h-2 bg-[#173e2b]" aria-hidden="true" />
+          )}
 
           <div className="p-6 sm:p-9">
             <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
@@ -168,10 +167,10 @@ export default async function ListedBusinessPage({ params }: Props) {
             <section className="mt-9 border-t border-black/10 pt-6">
               <h2 className="text-base font-black">Företagsuppgifter</h2>
               <dl className="mt-4 grid gap-4 text-sm sm:grid-cols-2">
-                <div><dt className="text-[#6b746d]">Företagsform</dt><dd className="mt-1 font-bold">{business.legalForm || "–"}</dd></div>
-                <div><dt className="text-[#6b746d]">Ort</dt><dd className="mt-1 font-bold">{business.city || "–"}</dd></div>
-                <div><dt className="text-[#6b746d]">Kommun</dt><dd className="mt-1 font-bold">{business.municipality || "–"}</dd></div>
-                <div><dt className="text-[#6b746d]">Adress</dt><dd className="mt-1 font-bold">{business.addressLine1 || "–"}</dd></div>
+                {business.legalForm ? <div><dt className="text-[#6b746d]">Företagsform</dt><dd className="mt-1 font-bold">{business.legalForm}</dd></div> : null}
+                {business.city ? <div><dt className="text-[#6b746d]">Ort</dt><dd className="mt-1 font-bold">{business.city}</dd></div> : null}
+                {business.municipality ? <div><dt className="text-[#6b746d]">Kommun</dt><dd className="mt-1 font-bold">{business.municipality}</dd></div> : null}
+                {business.addressLine1 ? <div><dt className="text-[#6b746d]">Adress</dt><dd className="mt-1 font-bold">{business.addressLine1}</dd></div> : null}
               </dl>
             </section>
 
@@ -181,8 +180,8 @@ export default async function ListedBusinessPage({ params }: Props) {
                 Grunduppgifterna kommer från officiell företagsdata och kvalitetssäkras automatiskt av Proffera. Senast uppdaterad: {updated}.
               </p>
               <p className="mt-2">Detta betyder inte att företagets ägare har verifierat eller gjort anspråk på profilen.</p>
-              {!business.media?.isActualBusinessMedia ? (
-                <p className="mt-2">Bilden är en Proffera-illustration för branschen och föreställer inte företagets verkliga lokal eller arbete.</p>
+              {!hasActualBusinessMedia ? (
+                <p className="mt-2">Ingen företagsbild visas förrän en verifierad bild finns tillgänglig.</p>
               ) : null}
             </aside>
           </div>
