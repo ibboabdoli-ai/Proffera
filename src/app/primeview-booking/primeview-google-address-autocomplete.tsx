@@ -39,22 +39,25 @@ export function PrimeViewGoogleAddressAutocomplete({ onSelect }: { onSelect: (se
     const postcodeInput = document.querySelector<HTMLInputElement>('input[name="postcode"]');
     if (!postcodeInput) return;
 
-    const syncPostcode = () => setPostcode(postcodeInput.value);
-    syncPostcode();
+    const syncPostcode = () => {
+      const nextPostcode = postcodeInput.value;
+      setPostcode(nextPostcode);
+      setSelectedIndex("");
+      setAddresses([]);
+      setLoading(false);
+      if (!UK_POSTCODE.test(nextPostcode.trim())) {
+        setMessage("Enter a complete UK postcode above. We’ll then show all matching addresses.");
+      }
+    };
+
+    queueMicrotask(syncPostcode);
     postcodeInput.addEventListener("input", syncPostcode);
     return () => postcodeInput.removeEventListener("input", syncPostcode);
   }, []);
 
   useEffect(() => {
     const raw = postcode.trim();
-    setSelectedIndex("");
-    setAddresses([]);
-
-    if (!UK_POSTCODE.test(raw)) {
-      setLoading(false);
-      setMessage("Enter a complete UK postcode above. We’ll then show all matching addresses.");
-      return;
-    }
+    if (!UK_POSTCODE.test(raw)) return;
 
     const normalized = normalizePostcode(raw);
     const controller = new AbortController();
