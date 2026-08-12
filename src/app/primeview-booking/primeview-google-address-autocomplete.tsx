@@ -103,9 +103,13 @@ function loadGoogleMaps(apiKey: string) {
   return window.__primeViewGoogleMapsPromise;
 }
 
+function componentText(components: GoogleAddressComponent[] | null | undefined, type: string) {
+  const component = components?.find((item) => item.types?.includes(type));
+  return (component?.longText ?? component?.shortText ?? "").trim();
+}
+
 function postcodeFromComponents(components: GoogleAddressComponent[] | null | undefined) {
-  const component = components?.find((item) => item.types?.includes("postal_code"));
-  return (component?.longText ?? component?.shortText ?? "").trim().toUpperCase();
+  return componentText(components, "postal_code").toUpperCase();
 }
 
 function hasPremiseIdentifier(components: GoogleAddressComponent[] | null | undefined) {
@@ -116,6 +120,42 @@ function hasPremiseIdentifier(components: GoogleAddressComponent[] | null | unde
 
 function cleanFormattedAddress(value: string | null | undefined) {
   return (value ?? "").replace(/,\s*(United Kingdom|UK)$/i, "").trim();
+}
+
+function unitFromQuery(value: string) {
+  const match = value.trim().match(/^(flat|unit|apartment|apt)\s+([A-Z0-9-]+)/i);
+  if (!match) return "";
+  const label = match[1].toLowerCase() === "apt" ? "Flat" : `${match[1][0].toUpperCase()}${match[1].slice(1).toLowerCase()}`;
+  return `${label} ${match[2]}`;
+}
+
+function structuredAddressFromComponents(
+  components: GoogleAddressComponent[] | null | undefined,
+  fallback: string | null | undefined,
+  searchQuery: string,
+) {
+  const streetNumber = componentText(components, "street_number");
+  const route = componentText(components, "route");
+  const premise = componentText(components, "premise");
+  const subpremise = componentText(components, "subpremise");
+  const postalTown =
+    componentText(components, "postal_town") ||
+    componentText(components, "locality") ||
+    componentText(components, "sublocality_level_1");
+  const postcode = postcodeFromComponents(components);
+  const unit = unitFromQuery(searchQuery) || (subpremise ? (/^\d+[A-Z]?$/i.test(subpremise) ? `Flat ${subpremise}` : subpremise) : "");
+
+  if (streetNumber && route) {
+    const line1 = [unit, `${streetNumber} ${route}`].filter(Boolean).join(", ");
+    return [line1, postalTown, postcode].filter(Boolean).join(", ");
+  }
+
+  if (premise && route) {
+    const line1 = [unit, premise, route].filter(Boolean).join(", ");
+    return [line1, postalTown, postcode].filter(Boolean).join(", ");
+  }
+
+  return cleanFormattedAddress(fallback);
 }
 
 function normalizePostcode(value: string) {
@@ -236,10 +276,11 @@ export function PrimeViewGoogleAddressAutocomplete({ onSelect }: { onSelect: (se
     setLoading(true);
     setOpen(false);
     try {
+      const selectedQuery = query;
       const place = prediction.toPlace();
       await place.fetchFields({ fields: ["formattedAddress", "addressComponents"] });
-      const address = cleanFormattedAddress(place.formattedAddress);
       const postcode = postcodeFromComponents(place.addressComponents);
+      const address = structuredAddressFromComponents(place.addressComponents, place.formattedAddress, selectedQuery);
       const expectedPostcode = currentPostcode();
 
       if (!address) throw new Error("Missing address");
