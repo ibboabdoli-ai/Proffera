@@ -69,6 +69,8 @@ declare global {
 
 const GOOGLE_SCRIPT_SELECTOR = 'script[data-primeview-google-maps="true"]';
 const UK_POSTCODE = /^[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}$/i;
+const NUMBER_ONLY = /^\d+[A-Z]?$/i;
+const UNIT_ONLY = /^(flat|unit|apartment|apt)\s+[A-Z0-9-]+$/i;
 const PRECISE_ADDRESS_TYPES = ["street_address", "premise", "subpremise"];
 const PREMISE_COMPONENT_TYPES = ["street_number", "premise", "subpremise"];
 
@@ -128,6 +130,11 @@ function currentPostcode() {
   return UK_POSTCODE.test(value) ? normalizePostcode(value) : "";
 }
 
+function queryNeedsStreet(value: string) {
+  const text = value.trim();
+  return NUMBER_ONLY.test(text) || UNIT_ONLY.test(text);
+}
+
 function predictionText(prediction: GooglePlacePrediction) {
   const main = prediction.mainText?.toString().trim() ?? "";
   const secondary = prediction.secondaryText?.toString().trim() ?? "";
@@ -171,7 +178,7 @@ export function PrimeViewGoogleAddressAutocomplete({ onSelect }: { onSelect: (se
 
   useEffect(() => {
     const text = query.trim();
-    if (!apiKey || text.length < 1) return;
+    if (!apiKey || text.length < 3 || UK_POSTCODE.test(text) || queryNeedsStreet(text)) return;
 
     const timer = window.setTimeout(() => {
       const places = placesRef.current;
@@ -205,8 +212,8 @@ export function PrimeViewGoogleAddressAutocomplete({ onSelect }: { onSelect: (se
           if (!predictions.length) {
             setMessage(
               postcode
-                ? `Enter the house number or building name for ${postcode}. Street-only and postcode-only results are hidden so an incomplete address cannot be selected.`
-                : "Enter a house number or building name with the street. Only complete property addresses are shown.",
+                ? `No exact property found yet in ${postcode}. Enter the house or flat number together with the street name, for example 25 Denbigh Drive.`
+                : "No exact property found yet. Enter the house or flat number together with the street name.",
             );
           }
         })
@@ -239,7 +246,7 @@ export function PrimeViewGoogleAddressAutocomplete({ onSelect }: { onSelect: (se
 
       if (!hasPremiseIdentifier(place.addressComponents)) {
         setSuggestions([]);
-        setMessage("That result is only a street or area. Add the house number or building name so we can save the complete address.");
+        setMessage("That result is only a street or area. Add the house or flat number and street name so we can save the complete address.");
         return;
       }
 
@@ -264,7 +271,7 @@ export function PrimeViewGoogleAddressAutocomplete({ onSelect }: { onSelect: (se
 
   const helperText = !apiKey
     ? "Address suggestions are unavailable. Enter the full address manually below."
-    : message || "Enter the house number or building name first. With a postcode above, you can simply type a number such as 25.";
+    : message || "Enter house/flat number + street name. Example: 25 Denbigh Drive or Flat 4 Denbigh Drive. The postcode above is added automatically.";
 
   return (
     <div className="relative mt-3 min-w-0 max-w-full">
@@ -279,18 +286,42 @@ export function PrimeViewGoogleAddressAutocomplete({ onSelect }: { onSelect: (se
           aria-autocomplete="list"
           aria-expanded={open}
           aria-controls="primeview-address-suggestions"
-          placeholder="House number or building name"
+          placeholder="e.g. 25 Denbigh Drive"
           value={query}
           onFocus={() => suggestions.length && setOpen(true)}
           onChange={(event) => {
-            setQuery(event.target.value);
-            setMessage("");
-            if (!event.target.value.trim()) {
+            const value = event.target.value;
+            const text = value.trim();
+            setQuery(value);
+
+            if (!text) {
               requestIdRef.current += 1;
               setSuggestions([]);
               setOpen(false);
               setLoading(false);
+              setMessage("");
+              return;
             }
+
+            if (UK_POSTCODE.test(text)) {
+              requestIdRef.current += 1;
+              setSuggestions([]);
+              setOpen(false);
+              setLoading(false);
+              setMessage("The postcode is already entered above. Add the house or flat number and street name here, for example 25 Denbigh Drive.");
+              return;
+            }
+
+            if (queryNeedsStreet(text)) {
+              requestIdRef.current += 1;
+              setSuggestions([]);
+              setOpen(false);
+              setLoading(false);
+              setMessage("Add the street name too — for example 25 Denbigh Drive or Flat 4 Denbigh Drive.");
+              return;
+            }
+
+            setMessage("");
           }}
           className="min-h-12 w-full min-w-0 max-w-full rounded-xl border border-[#cbd8e6] bg-white py-3 pl-12 pr-11 text-[16px] text-[#0b2a4a] outline-none transition placeholder:text-[#7b8da1] focus:border-[#2f80ed] focus:ring-4 focus:ring-[#2f80ed]/10"
         />
