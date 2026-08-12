@@ -114,9 +114,7 @@ export default async function ClaimCompanyPage({ params, searchParams }: Props) 
 
   const challengeActive = emailEvidence?.stage === "business_email_code_sent" || emailEvidence?.stage === "business_email_locked";
   const challengeLocked = emailEvidence?.stage === "business_email_locked";
-  const challengeExpired = emailEvidence?.codeExpiresAt
-    ? new Date(emailEvidence.codeExpiresAt).getTime() < Date.now()
-    : false;
+  const challengeExpired = status === "email_code_expired";
 
   return (
     <main className="min-h-screen bg-[#f6f7f5] px-4 py-10 text-[#17201a] sm:px-6">
