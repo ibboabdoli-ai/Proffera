@@ -1,0 +1,325 @@
+name: PrimeView simple customer pricing
+
+on:
+  push:
+    branches:
+      - feature/primeview-simple-customer-pricing
+    paths:
+      - .github/workflows/primeview-simple-customer-pricing.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-pricing:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/primeview-simple-customer-pricing
+          fetch-depth: 0
+      - name: Apply customer pricing rules
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          pricing = r'''export type PrimeViewServiceKey = "window" | "gutter" | "fascia_gutter" | "fascia" | "conservatory" | "solar" | "patio" | "package";
+
+          export type PrimeViewAccess = "Normal" | "Moderately difficult" | "Difficult" | "Very difficult";
+          export type PrimeViewCondition = "Normal" | "Dirty" | "Very dirty" | "Extreme";
+
+          export type PrimeViewPricingInput = {
+            serviceKey: PrimeViewServiceKey;
+            access?: PrimeViewAccess;
+            condition?: PrimeViewCondition;
+            multiServiceCount?: number;
+            floors?: "Ground floor only" | "Ground + 1st floor" | "Ground + 2 floors" | "3rd floor or higher";
+            floorCount?: "1" | "2" | "3+" | "Unknown";
+            workingHeight?: "Ground floor only" | "First floor" | "Second floor+" | "Long ladder required";
+            windowAccess?: "Easy access" | "Hard access" | "Skylight / Roof windows";
+            cleaningScope?: "Outside only" | "Inside only" | "Inside & outside";
+            standardWindows?: number;
+            largeWindows?: number;
+            bayWindows?: number;
+            hardAccessWindows?: number;
+            frequency?: "One-off" | "Every 4 weeks" | "Every 6 weeks" | "Every 8 weeks";
+            firstClean?: boolean;
+            propertySize?: "Small property" | "Terraced house" | "Semi-detached house" | "Detached house" | "Large property";
+            heavyBlockage?: boolean;
+            conservatorySize?: "Small" | "Medium" | "Large";
+            solarPanels?: number;
+            areaM2?: number;
+            heavyDirtMoss?: boolean;
+            oilTreatment?: boolean;
+            weedTreatment?: boolean;
+            resanding?: boolean;
+            sealing?: boolean;
+          };
+
+          export type PrimeViewPricingLine = { label: string; amount: number };
+
+          export type PrimeViewPricingResult =
+            | {
+                kind: "price";
+                total: number;
+                subtotalBeforeMinimum: number;
+                minimumCharge: number;
+                minimumApplied: boolean;
+                lines: PrimeViewPricingLine[];
+                estimated: boolean;
+                note: string;
+                compareAtTotal?: number;
+                saving?: number;
+              }
+            | { kind: "manual"; reason: string; lines: PrimeViewPricingLine[]; note: string };
+
+          const roundMoney = (value: number) => Math.round(value * 100) / 100;
+
+          function priced(subtotal: number, minimumCharge: number, lines: PrimeViewPricingLine[], note: string): PrimeViewPricingResult {
+            const roundedSubtotal = roundMoney(subtotal);
+            const total = roundMoney(Math.max(minimumCharge, roundedSubtotal));
+            const minimumApplied = roundedSubtotal < minimumCharge;
+            const nextLines = [...lines];
+            if (minimumApplied) nextLines.push({ label: `Minimum charge £${minimumCharge.toFixed(2)}`, amount: roundMoney(minimumCharge - roundedSubtotal) });
+            return {
+              kind: "price",
+              total,
+              subtotalBeforeMinimum: roundedSubtotal,
+              minimumCharge,
+              minimumApplied,
+              lines: nextLines,
+              estimated: true,
+              note,
+            };
+          }
+
+          function manual(reason: string): PrimeViewPricingResult {
+            return {
+              kind: "manual",
+              reason,
+              lines: [],
+              note: "Request a quote and PrimeView will confirm the price after reviewing the property details.",
+            };
+          }
+
+          export function serviceKeyFromName(name: string): PrimeViewServiceKey | null {
+            const normalized = name.trim().toLowerCase();
+            if (normalized.includes("gutter") && normalized.includes("pressure")) return "package";
+            if (normalized.includes("fascia") && normalized.includes("gutter")) return "fascia_gutter";
+            if (normalized.includes("window cleaning")) return "window";
+            if (normalized.includes("gutter")) return "gutter";
+            if (normalized.includes("fascia") || normalized.includes("soffit")) return "fascia_gutter";
+            if (normalized.includes("conservatory")) return "conservatory";
+            if (normalized.includes("solar")) return "solar";
+            if (normalized.includes("driveway") || normalized.includes("patio") || normalized.includes("pressure")) return "patio";
+            return null;
+          }
+
+          export function calculatePrimeViewPrice(input: PrimeViewPricingInput): PrimeViewPricingResult {
+            if (input.serviceKey === "package") {
+              return manual("This old package is no longer offered. Choose Gutter Cleaning, Fascia & Gutter Cleaning or Pressure Washing.");
+            }
+
+            if (input.serviceKey === "window") {
+              const windows = Math.max(0, Math.floor(Number(input.standardWindows) || 0));
+              if (!windows) return manual("Enter the number of normal-size windows.");
+              const subtotal = windows * 3;
+              return priced(subtotal, 29.99, [{ label: `${windows} normal-size window${windows === 1 ? "" : "s"} × £3 outside only`, amount: subtotal }], "Starting price for normal-size outside-only window cleaning. No automatic access, height, dirt or first-clean surcharges are added.");
+            }
+
+            if (input.serviceKey === "gutter") {
+              if (input.propertySize === "Terraced house") return priced(59.99, 59.99, [{ label: "Gutter Cleaning – Terraced", amount: 59.99 }], "Starting price. No automatic access, blockage, height or condition surcharges are added.");
+              if (input.propertySize === "Semi-detached house" || input.propertySize === "Detached house") return priced(69.99, 69.99, [{ label: `Gutter Cleaning – ${input.propertySize === "Semi-detached house" ? "Semi-detached" : "Detached"}`, amount: 69.99 }], "Starting price. No automatic access, blockage, height or condition surcharges are added.");
+              return manual("For this property type, please request a gutter-cleaning quote.");
+            }
+
+            if (input.serviceKey === "fascia_gutter" || input.serviceKey === "fascia") {
+              if (input.propertySize === "Terraced house") return priced(89.99, 89.99, [{ label: "Fascia & Gutter Cleaning – Terraced", amount: 89.99 }], "Starting price. No automatic access, height or condition surcharges are added.");
+              if (input.propertySize === "Semi-detached house" || input.propertySize === "Detached house") return priced(139.99, 139.99, [{ label: `Fascia & Gutter Cleaning – ${input.propertySize === "Semi-detached house" ? "Semi-detached" : "Detached"}`, amount: 139.99 }], "Starting price. No automatic access, height or condition surcharges are added.");
+              return manual("For this property type, please request a Fascia & Gutter Cleaning quote.");
+            }
+
+            if (input.serviceKey === "conservatory") {
+              return priced(89.99, 89.99, [{ label: "Conservatory Cleaning – starting price", amount: 89.99 }], "Starting price. Size, access and condition do not add automatic calculator surcharges.");
+            }
+
+            if (input.serviceKey === "solar") {
+              const panels = Math.max(0, Math.floor(Number(input.solarPanels) || 0));
+              if (!panels) return manual("Enter the number of solar panels.");
+              if (panels > 30) return manual("30+ solar panels require a quote.");
+              const subtotal = panels <= 8 ? 59.99 : panels <= 16 ? panels * 6 : panels * 5;
+              const label = panels <= 8 ? "Solar Panel Cleaning – minimum" : panels <= 16 ? `${panels} panels × £6` : `${panels} panels × £5`;
+              return priced(subtotal, 59.99, [{ label, amount: subtotal }], "£59.99 minimum. No automatic roof-access or condition surcharges are added.");
+            }
+
+            const area = Math.max(0, Number(input.areaM2) || 0);
+            if (!area) return manual("Enter the pressure-washing area in m².");
+            const subtotal = area * 9;
+            return priced(subtotal, 179.99, [{ label: `${area} m² × £9 pressure washing`, amount: subtotal }], "£179.99 minimum. Optional dirt, oil, weed, re-sanding, sealing and access surcharges are not added by the calculator.");
+          }
+
+          export function pricingResultSummary(result: PrimeViewPricingResult) {
+            if (result.kind === "manual") return `Quote required: ${result.reason}`;
+            const breakdown = result.lines.map((line) => `${line.label}: ${line.amount >= 0 ? "+" : ""}£${line.amount.toFixed(2)}`).join(" | ");
+            return `Starting estimate: £${result.total.toFixed(2)} | Minimum charge: £${result.minimumCharge.toFixed(2)} | ${breakdown} | ${result.note}`;
+          }
+          '''
+          Path("src/features/primeview/pricing.ts").write_text(pricing)
+
+          tests = r'''import { describe, expect, it } from "vitest";
+
+          import { calculatePrimeViewPrice, serviceKeyFromName } from "@/features/primeview/pricing";
+
+          describe("PrimeView simple customer pricing", () => {
+            it("uses £3 per normal outside window with a £29.99 minimum", () => {
+              const small = calculatePrimeViewPrice({ serviceKey: "window", standardWindows: 2 });
+              const larger = calculatePrimeViewPrice({ serviceKey: "window", standardWindows: 20 });
+              expect(small.kind === "price" && small.total).toBe(29.99);
+              expect(larger.kind === "price" && larger.total).toBe(60);
+            });
+
+            it("does not add old window surcharges", () => {
+              const result = calculatePrimeViewPrice({ serviceKey: "window", standardWindows: 10, access: "Difficult", condition: "Very dirty", floorCount: "3+", firstClean: true, hardAccessWindows: 10 });
+              expect(result.kind === "price" && result.total).toBe(30);
+            });
+
+            it("uses the requested gutter starting prices", () => {
+              const terraced = calculatePrimeViewPrice({ serviceKey: "gutter", propertySize: "Terraced house", access: "Difficult", heavyBlockage: true });
+              const semi = calculatePrimeViewPrice({ serviceKey: "gutter", propertySize: "Semi-detached house", condition: "Very dirty" });
+              const detached = calculatePrimeViewPrice({ serviceKey: "gutter", propertySize: "Detached house" });
+              expect(terraced.kind === "price" && terraced.total).toBe(59.99);
+              expect(semi.kind === "price" && semi.total).toBe(69.99);
+              expect(detached.kind === "price" && detached.total).toBe(69.99);
+            });
+
+            it("prices Fascia & Gutter by property type", () => {
+              const terraced = calculatePrimeViewPrice({ serviceKey: "fascia_gutter", propertySize: "Terraced house" });
+              const semi = calculatePrimeViewPrice({ serviceKey: "fascia_gutter", propertySize: "Semi-detached house", access: "Difficult" });
+              const detached = calculatePrimeViewPrice({ serviceKey: "fascia_gutter", propertySize: "Detached house", condition: "Very dirty" });
+              expect(terraced.kind === "price" && terraced.total).toBe(89.99);
+              expect(semi.kind === "price" && semi.total).toBe(139.99);
+              expect(detached.kind === "price" && detached.total).toBe(139.99);
+            });
+
+            it("uses £89.99 as the conservatory starting price without add-on surcharges", () => {
+              const result = calculatePrimeViewPrice({ serviceKey: "conservatory", conservatorySize: "Large", access: "Difficult", condition: "Very dirty" });
+              expect(result.kind === "price" && result.total).toBe(89.99);
+            });
+
+            it("uses a £59.99 solar minimum and keeps quantity tiers", () => {
+              const small = calculatePrimeViewPrice({ serviceKey: "solar", solarPanels: 4, access: "Difficult" });
+              const twelve = calculatePrimeViewPrice({ serviceKey: "solar", solarPanels: 12, condition: "Very dirty" });
+              expect(small.kind === "price" && small.total).toBe(59.99);
+              expect(twelve.kind === "price" && twelve.total).toBe(72);
+            });
+
+            it("uses a £179.99 pressure-washing minimum and ignores old add-ons", () => {
+              const small = calculatePrimeViewPrice({ serviceKey: "patio", areaM2: 10, heavyDirtMoss: true, oilTreatment: true, weedTreatment: true, resanding: true, access: "Difficult" });
+              const larger = calculatePrimeViewPrice({ serviceKey: "patio", areaM2: 25 });
+              expect(small.kind === "price" && small.total).toBe(179.99);
+              expect(larger.kind === "price" && larger.total).toBe(225);
+            });
+
+            it("maps the new Fascia & Gutter service correctly", () => {
+              expect(serviceKeyFromName("Fascia & Gutter Cleaning")).toBe("fascia_gutter");
+              expect(serviceKeyFromName("Fascia & Soffit Cleaning")).toBe("fascia_gutter");
+              expect(serviceKeyFromName("Gutter Cleaning")).toBe("gutter");
+              expect(serviceKeyFromName("Pressure Washing")).toBe("patio");
+            });
+
+            it("does not use the old Gutter + Pressure package", () => {
+              expect(calculatePrimeViewPrice({ serviceKey: "package", propertySize: "Terraced house", areaM2: 20 }).kind).toBe("manual");
+            });
+          });
+          '''
+          Path("tests/primeview-precision-pricing.test.ts").write_text(tests)
+
+          def must_replace(path, old, new):
+            p = Path(path)
+            text = p.read_text()
+            if old not in text:
+              raise SystemExit(f"anchor not found in {path}: {old[:100]!r}")
+            p.write_text(text.replace(old, new, 1))
+
+          form_path = "src/app/primeview-booking/primeview-precision-booking-form.tsx"
+          must_replace(form_path, '  "window cleaning": "Price by property type, real window count, inside/outside, height, access and frequency.",', '  "window cleaning": "Normal-size windows, outside only: £3 each with a £29.99 minimum.",')
+          must_replace(form_path, '  "gutter cleaning": "A separate gutter service priced by property type, height, blockage, condition and access.",', '  "gutter cleaning": "From £59.99 Terraced; £69.99 Semi-detached or Detached.",')
+          must_replace(form_path, '  "pressure washing": "A separate pressure-washing service priced by m², dirt / moss and optional treatments.",', '  "pressure washing": "£9 per m² with a £179.99 minimum.",')
+          must_replace(form_path, '  "driveway & patio cleaning": "Pressure washing priced by m², dirt / moss and optional treatments.",', '  "driveway & patio cleaning": "£9 per m² with a £179.99 minimum.",')
+          must_replace(form_path, '  "gutter + pressure washing": "Best-value package. Both services are priced together with an automatic package saving.",', '  "gutter + pressure washing": "This previous package is no longer offered.",')
+          must_replace(form_path, '  "fascia & soffit cleaning": "Price by property type, condition and access.",', '  "fascia & soffit cleaning": "Fascia & Gutter: from £89.99 Terraced; £139.99 Semi-detached or Detached.",\n  "fascia & gutter cleaning": "From £89.99 Terraced; £139.99 Semi-detached or Detached.",')
+          must_replace(form_path, '  "conservatory roof cleaning": "Price by conservatory size, algae / dirt and access.",', '  "conservatory roof cleaning": "Starting from £89.99 with no automatic add-on surcharges.",')
+          must_replace(form_path, '  "solar panel cleaning": "Price by panel count, roof access and condition.",', '  "solar panel cleaning": "£59.99 minimum; panel quantity determines the base price above the minimum.",')
+          must_replace(form_path, '    propertySize: serviceKey === "window" || serviceKey === "gutter" || serviceKey === "package" ? inferredPropertySize : propertySize,', '    propertySize: serviceKey === "window" || serviceKey === "gutter" || serviceKey === "fascia_gutter" || serviceKey === "package" ? inferredPropertySize : propertySize,')
+          must_replace(form_path, '      {(serviceKey === "window" || serviceKey === "gutter" || serviceKey === "package") ? <input type="hidden" name="property_size" value={inferredPropertySize ?? ""} /> : null}', '      {(serviceKey === "window" || serviceKey === "gutter" || serviceKey === "fascia_gutter" || serviceKey === "package") ? <input type="hidden" name="property_size" value={inferredPropertySize ?? ""} /> : null}')
+          must_replace(form_path, '<div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#eaf3ff] text-[#1769c2]"><Home className="h-5 w-5" /></div><div><h2 className="text-xl font-black text-[#0b2a4a]">2. Property & price details</h2><p className="mt-1 text-sm text-[#667b91]">Property type, real quantities, height and access all affect the calculation.</p></div></div>', '<div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#eaf3ff] text-[#1769c2]"><Home className="h-5 w-5" /></div><div><h2 className="text-xl font-black text-[#0b2a4a]">2. Property & price details</h2><p className="mt-1 text-sm text-[#667b91]">The calculator now uses simple starting prices. Access, height and condition do not add automatic surcharges.</p></div></div>')
+
+          p = Path(form_path)
+          text = p.read_text()
+          text, count = re.subn(r'            \{serviceKey === "window" \? <>.*?</> : null\}', '''            {serviceKey === "window" ? <>
+              <label className={labelClass}>Normal-size windows<input name="standard_windows" required type="number" min="1" max="500" value={standardWindows} onChange={(event) => setStandardWindows(event.target.value)} placeholder="e.g. 10" className={fieldClass} /></label>
+              <input type="hidden" name="cleaning_scope" value="Outside only" />
+              <div className="rounded-xl border border-[#d9e4ef] bg-[#f9fbfe] px-4 py-3 text-sm font-bold text-[#183e63]">Outside only · £3 per normal-size window · £29.99 minimum</div>
+              <label className={labelClass}>Frames & sills<select name="frames_sills" value={framesSills} onChange={(event) => setFramesSills(event.target.value)} className={fieldClass}><option>Yes</option><option>No</option></select></label>
+            </> : null}''', text, count=1, flags=re.S)
+          if count != 1: raise SystemExit("window block replacement failed")
+          text, count = re.subn(r'\n            \{serviceKey === "fascia" \? <label.*?</label> : null\}', '', text, count=1, flags=re.S)
+          if count != 1: raise SystemExit("fascia block removal failed")
+          text, count = re.subn(r'\n            \{\(serviceKey === "gutter" \|\| serviceKey === "package"\) \? <div.*?</div> : null\}', '', text, count=1, flags=re.S)
+          if count != 1: raise SystemExit("gutter addon removal failed")
+          text, count = re.subn(r'            \{serviceKey === "conservatory" \? <label.*?</label> : null\}', '            {serviceKey === "conservatory" ? <div className="rounded-xl border border-[#d9e4ef] bg-[#f9fbfe] px-4 py-3 text-sm font-bold text-[#183e63]">Conservatory Cleaning starts from £89.99.</div> : null}', text, count=1, flags=re.S)
+          if count != 1: raise SystemExit("conservatory replacement failed")
+          text, count = re.subn(r'            \{\(serviceKey === "patio" \|\| serviceKey === "package"\) \? <>.*?</> : null\}', '''            {serviceKey === "patio" ? <label className={labelClass}>Pressure-washing area in m²<input name="area_m2" required type="number" min="1" step="0.5" value={areaM2} onChange={(event) => setAreaM2(event.target.value)} placeholder="e.g. 35" className={fieldClass} /></label> : null}''', text, count=1, flags=re.S)
+          if count != 1: raise SystemExit("pressure block replacement failed")
+          text, count = re.subn(r'            <label className=\{labelClass\}>Overall property access.*?<input type="hidden" name="condition" value="Normal" />\}', '            <input type="hidden" name="access" value="Normal" />\n            <input type="hidden" name="condition" value="Normal" />', text, count=1, flags=re.S)
+          if count != 1: raise SystemExit("access/condition replacement failed")
+          text = text.replace('<strong>Window minimums:</strong> Terraced £30 · Semi-detached £39 · Detached £45 · other standard properties £40.</p><p className="mt-2"><strong>Gutter:</strong> from £69, with Terraced £79 · Semi-detached £99 · Detached £129. Large / unusual jobs use Request a Quote.</p><p className="mt-2"><strong>Pressure Washing:</strong> £180 minimum. The Gutter + Pressure Washing package is cheaper than booking the two services separately and shows the exact saving.', '<strong>Window:</strong> £29.99 minimum · £3 per normal-size window · outside only.</p><p className="mt-2"><strong>Gutter:</strong> Terraced from £59.99 · Semi-detached / Detached from £69.99.</p><p className="mt-2"><strong>Fascia & Gutter:</strong> Terraced from £89.99 · Semi-detached / Detached from £139.99.</p><p className="mt-2"><strong>Other minimums:</strong> Conservatory £89.99 · Solar £59.99 · Pressure Washing £179.99. No automatic surcharge options are added by the calculator.')
+          if 'Window minimums:' in text: raise SystemExit("sidebar replacement failed")
+          text, count = re.subn(r'\nfunction Checkbox\(.*?\n\}', '', text, count=1, flags=re.S)
+          if count != 1: raise SystemExit("unused Checkbox removal failed")
+          p.write_text(text)
+
+          page_path = "src/app/primeview-booking/page.tsx"
+          must_replace(page_path, 'const WINDOW_ACCESS_OPTIONS = ["Easy access", "Hard access", "Skylight / Roof windows"] as const;\n', '')
+          p = Path(page_path)
+          text = p.read_text()
+          old_window_validation = '''  if (key === "window") {
+            if (!WINDOW_ACCESS_OPTIONS.includes(windowAccess as (typeof WINDOW_ACCESS_OPTIONS)[number])) redirect(bookingUrl("error=invalid"));
+            const totalWindows = (pricingInput.standardWindows || 0) + (pricingInput.largeWindows || 0) + (pricingInput.bayWindows || 0);
+            if (!pricingInput.cleaningScope || !pricingInput.frequency || !pricingInput.floorCount || totalWindows < 1) redirect(bookingUrl("error=invalid"));
+          }'''
+          new_window_validation = '''  if (key === "window") {
+            if (!pricingInput.standardWindows || pricingInput.standardWindows < 1) redirect(bookingUrl("error=invalid"));
+          }'''
+          if old_window_validation not in text: raise SystemExit("server window validation anchor not found")
+          text = text.replace(old_window_validation, new_window_validation, 1)
+          text = text.replace('if ((key === "gutter" || key === "fascia" || key === "package") && !pricingInput.propertySize)', 'if ((key === "gutter" || key === "fascia" || key === "fascia_gutter" || key === "package") && !pricingInput.propertySize)', 1)
+          text = text.replace('  if (key === "conservatory" && !pricingInput.conservatorySize) redirect(bookingUrl("error=invalid"));\n', '', 1)
+          p.write_text(text)
+
+          homepage = "src/app/demo/primeview/page.tsx"
+          must_replace(homepage, '      "fascia and soffit cleaning",', '      "fascia and gutter cleaning",')
+          must_replace(homepage, '    title: "Fascia & Soffit Cleaning",\n    description: "A careful refresh for fascias, soffits, cladding and trims around your home.",', '    title: "Fascia & Gutter Cleaning",\n    description: "Fascia and gutter cleaning with simple property-based starting prices.",')
+          must_replace(homepage, '    imageAlt: "Professional fascia and soffit cleaning at a home",', '    imageAlt: "Professional fascia and gutter cleaning at a home",')
+          p = Path(homepage)
+          text = p.read_text()
+          text, count = re.subn(r'\n  \{\n    title: "Gutter \+ Pressure Washing",.*?\n  \},', '', text, count=1, flags=re.S)
+          if count != 1: raise SystemExit("homepage old package removal failed")
+          p.write_text(text)
+
+          seo = "src/lib/primeview-seo.ts"
+          must_replace(seo, '    title: "Fascia & Soffit Cleaning",\n    description: "A careful refresh for fascias, soffits, cladding and trims around your home.",', '    title: "Fascia & Gutter Cleaning",\n    description: "Fascia and gutter cleaning with simple property-based starting prices.",')
+          p = Path(seo)
+          text = p.read_text()
+          text, count = re.subn(r'\n  \{\n    title: "Gutter \+ Pressure Washing",.*?\n  \},', '', text, count=1, flags=re.S)
+          if count != 1: raise SystemExit("SEO old package removal failed")
+          p.write_text(text)
+      - name: Commit pricing update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/features/primeview/pricing.ts tests/primeview-precision-pricing.test.ts src/app/primeview-booking/primeview-precision-booking-form.tsx src/app/primeview-booking/page.tsx src/app/demo/primeview/page.tsx src/lib/primeview-seo.ts
+          git diff --cached --quiet && exit 0
+          git commit -m "feat: simplify PrimeView customer pricing"
+          git push origin HEAD:feature/primeview-simple-customer-pricing
