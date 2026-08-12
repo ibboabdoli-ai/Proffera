@@ -1,0 +1,67 @@
+name: Production company directory canary
+
+on:
+  push:
+    branches: [ops/company-directory-prod-canary-20260812]
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Resolve production endpoints
+        env:
+          REMINDER_CRON_URL: ${{ secrets.PROFFERA_REMINDER_CRON_URL }}
+          CRON_SECRET: ${{ secrets.PROFFERA_REMINDER_CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          test -n "$REMINDER_CRON_URL"
+          test -n "$CRON_SECRET"
+          python - <<'PY' >> "$GITHUB_ENV"
+          import os, urllib.parse
+          u = urllib.parse.urlparse(os.environ['REMINDER_CRON_URL'])
+          if u.scheme != 'https' or not u.netloc:
+              raise SystemExit('Invalid production cron URL')
+          host = 'www.proffera.se' if u.netloc in {'proffera.se', 'www.proffera.se'} else u.netloc
+          origin = f'https://{host}'
+          print(f'INGEST_URL={origin}/api/cron/company-directory-discovery-ingest')
+          print(f'SYNC_URL={origin}/api/cron/company-directory-sync')
+          PY
+
+      - name: Confirm automatic discovery is enabled
+        env:
+          CRON_SECRET: ${{ secrets.PROFFERA_REMINDER_CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          RESPONSE="$(curl --fail-with-body --silent --show-error --max-time 30 \
+            --header "Authorization: Bearer $CRON_SECRET" "$INGEST_URL")"
+          printf '%s' "$RESPONSE" | python -c "import json,sys; d=json.load(sys.stdin); print('enabled=%s mode=%s' % (d.get('enabled'), d.get('mode'))); assert d.get('ok') is True; assert d.get('enabled') is True; assert d.get('mode') == 'automatic'"
+
+      - name: Enqueue two known-good real candidates
+        env:
+          CRON_SECRET: ${{ secrets.PROFFERA_REMINDER_CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          RESPONSE="$(curl --fail-with-body --silent --show-error --max-time 30 \
+            --request POST \
+            --header "Authorization: Bearer $CRON_SECRET" \
+            --header "Content-Type: application/json" \
+            --data '{"provider":"scb_hvd_bulk","sourceUrl":"https://vardefulla-datamangder.bolagsverket.se/scb/scb_bulkfil.zip","fingerprint":"a5bd6f0a2e9c326c75bc968bc77386e21aa51a2fd14f4a4bc63f5ac59fdb2275","organizationNumbers":["5560110743","5560906033"],"discoveredCount":2,"acceptedCount":2,"final":true}' \
+            "$INGEST_URL")"
+          printf '%s\n' "$RESPONSE"
+          printf '%s' "$RESPONSE" | python -c "import json,sys; d=json.load(sys.stdin); assert d.get('ok') is True; assert d.get('acceptedTotal',0) >= 2"
+
+      - name: Verify and build candidates through Production Bolagsverket
+        env:
+          CRON_SECRET: ${{ secrets.PROFFERA_REMINDER_CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          for i in 1 2; do
+            RESPONSE="$(curl --fail-with-body --silent --show-error --max-time 75 \
+              --header "Authorization: Bearer $CRON_SECRET" "$SYNC_URL")"
+            printf 'sync%s=%s\n' "$i" "$RESPONSE"
+            printf '%s' "$RESPONSE" | python -c "import json,sys; d=json.load(sys.stdin); assert d.get('ok') is True; assert d.get('published',0) == 0; assert d.get('errors',0) == 0"
+          done
