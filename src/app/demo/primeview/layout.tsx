@@ -9,21 +9,33 @@ export default function PrimeViewLayout({ children }: { children: ReactNode }) {
       <style>{`
         #reviews .grid:has(> aside) {
           align-items: start;
+          min-width: 0;
         }
 
         #reviews .grid:has(> aside) > div:first-child {
           align-content: start;
           align-items: start;
+          min-width: 0;
         }
 
         #reviews .grid:has(> aside) > div:first-child > article {
           align-self: start;
           height: auto;
           min-height: 0;
+          min-width: 0;
+          max-width: 100%;
         }
 
         #reviews .grid:has(> aside) > aside {
           align-self: start;
+          width: 100%;
+          min-width: 0;
+          max-width: 100%;
+        }
+
+        #reviews .grid:has(> aside) > aside > * {
+          min-width: 0;
+          max-width: 100%;
         }
 
         @media (min-width: 1280px) {
