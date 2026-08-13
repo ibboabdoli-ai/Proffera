@@ -21,7 +21,7 @@ export async function GET(request: Request) {
   }
 
   const url = new URL(request.url);
-  const limit = Number(url.searchParams.get("limit") || "5");
+  const limit = Number(url.searchParams.get("limit") || "10");
 
   try {
     const result = await enrichCompanyDirectoryOfficialFacts(limit);
