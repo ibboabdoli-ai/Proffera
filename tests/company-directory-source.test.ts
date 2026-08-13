@@ -160,6 +160,6 @@ describe("official company directory source adapter", () => {
     mockOfficialResponse(payload);
 
     await expect(verifyOfficialCompanyCandidate(discoveredCandidate()))
-      .rejects.toThrow("different organization number");
+      .rejects.toThrow("no matching organization identity");
   });
 });
