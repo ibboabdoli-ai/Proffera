@@ -1,8 +1,10 @@
 import Link from "next/link";
-import { Search } from "lucide-react";
+import { MapPin, Search } from "lucide-react";
 
 import { requireSuperAdmin } from "@/lib/admin-authorization";
+import { getDirectoryGeocodingStatus } from "@/lib/company-directory-geocoding";
 import { searchCompanyDirectory } from "@/lib/company-directory-search";
+import { geocodeDirectoryPilotAction } from "./actions";
 import { NearbySearchFields } from "./NearbySearchFields";
 
 export const dynamic = "force-dynamic";
@@ -14,6 +16,12 @@ type PageProps = {
     latitude?: string | string[];
     longitude?: string | string[];
     radius?: string | string[];
+    geocode?: string | string[];
+    attempted?: string | string[];
+    geocoded?: string | string[];
+    noMatch?: string | string[];
+    errors?: string | string[];
+    remaining?: string | string[];
   }>;
 };
 
@@ -21,15 +29,27 @@ function firstParam(value?: string | string[]) {
   return Array.isArray(value) ? value[0] : value;
 }
 
+function StatusPill({ ok, children }: { ok: boolean; children: React.ReactNode }) {
+  return (
+    <span className={`rounded-full px-3 py-1 text-xs font-black ${ok ? "bg-[#e7f1eb] text-[#17452f]" : "bg-[#fff4d9] text-[#76580d]"}`}>
+      {children}
+    </span>
+  );
+}
+
 export default async function DirectorySearchPreviewPage({ searchParams }: PageProps) {
   await requireSuperAdmin();
-  const params = await (searchParams ?? Promise.resolve(undefined));
+  const [params, geocodingStatus] = await Promise.all([
+    searchParams ?? Promise.resolve(undefined),
+    getDirectoryGeocodingStatus(),
+  ]);
   const service = firstParam(params?.service) ?? "Rörmokare";
   const latitude = firstParam(params?.latitude) ?? "";
   const longitude = firstParam(params?.longitude) ?? "";
   const radius = firstParam(params?.radius) ?? "25";
   const nearbyParamsPresent = Boolean(latitude || longitude);
   const location = firstParam(params?.location) ?? (nearbyParamsPresent ? "" : "Stockholm");
+  const geocodeResult = firstParam(params?.geocode) ?? "";
 
   const search = await searchCompanyDirectory({
     service,
@@ -56,6 +76,60 @@ export default async function DirectorySearchPreviewPage({ searchParams }: PageP
             Tillbaka till Directory-kontroll
           </Link>
         </div>
+
+        <section className="mt-7 rounded-2xl bg-white p-5 ring-1 ring-black/5">
+          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <MapPin className="h-5 w-5 text-[#17452f]" />
+                <p className="text-xs font-black uppercase tracking-[0.14em] text-[#607066]">Officiell geocoding · Pilot</p>
+              </div>
+              <h2 className="mt-2 text-xl font-black text-[#17201a]">{geocodingStatus.geocoded} / {geocodingStatus.pilotTotal} företag har koordinater</h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-[#657068]">
+                Endast de 26 utvalda pilotföretagen behandlas. Adresser som inte matchar entydigt sparas inte.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <StatusPill ok={geocodingStatus.configured}>Lantmäteriet {geocodingStatus.configured ? "klar" : "saknar access"}</StatusPill>
+              <StatusPill ok={geocodingStatus.postgisReady}>PostGIS {geocodingStatus.postgisReady ? "klar" : "inte aktiv"}</StatusPill>
+              <StatusPill ok={geocodingStatus.enabled}>Geocoding {geocodingStatus.enabled ? "på" : "av"}</StatusPill>
+            </div>
+          </div>
+
+          {geocodeResult === "done" ? (
+            <div className="mt-4 rounded-xl border border-[#b8d9c2] bg-[#eef8f0] p-4 text-sm font-semibold text-[#17452f]">
+              Batch klar: {firstParam(params?.geocoded) ?? "0"} geocodade · {firstParam(params?.noMatch) ?? "0"} utan säker träff · {firstParam(params?.errors) ?? "0"} fel · {firstParam(params?.remaining) ?? geocodingStatus.remaining} kvar.
+            </div>
+          ) : null}
+          {geocodeResult === "not_configured" ? (
+            <div className="mt-4 rounded-xl border border-[#e5cf9a] bg-[#fff8e4] p-4 text-sm font-semibold text-[#6d5418]">
+              Lantmäteriet-access är inte konfigurerad ännu.
+            </div>
+          ) : null}
+          {geocodeResult === "postgis_missing" ? (
+            <div className="mt-4 rounded-xl border border-[#e5cf9a] bg-[#fff8e4] p-4 text-sm font-semibold text-[#6d5418]">
+              PostGIS måste aktiveras innan SWEREF-koordinater kan konverteras säkert.
+            </div>
+          ) : null}
+          {geocodeResult === "failed" ? (
+            <div className="mt-4 rounded-xl border border-[#e7b8b1] bg-[#fff4f2] p-4 text-sm font-semibold text-[#8a2b20]">
+              Geocoding-batchen misslyckades. Inga osäkra koordinater sparades.
+            </div>
+          ) : null}
+
+          <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-[#657068]">{geocodingStatus.remaining} pilotföretag saknar fortfarande koordinater.</p>
+            <form action={geocodeDirectoryPilotAction}>
+              <button
+                type="submit"
+                disabled={!geocodingStatus.configured || !geocodingStatus.postgisReady || geocodingStatus.remaining === 0}
+                className="min-h-11 rounded-xl bg-[#173e2b] px-4 text-sm font-black text-white disabled:cursor-not-allowed disabled:bg-[#d9dedb] disabled:text-[#7b847e]"
+              >
+                Geocode nästa 5
+              </button>
+            </form>
+          </div>
+        </section>
 
         <form className="mt-7 grid gap-5 rounded-2xl bg-white p-5 ring-1 ring-black/5" method="get">
           <div className="grid gap-4 sm:grid-cols-[1fr_1fr_auto]">
