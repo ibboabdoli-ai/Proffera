@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Languages, Navigation, ShieldCheck, Sparkles } from "lucide-react";
 
-import { directoryCopy, directoryPaths, directoryServiceLabel, popularDirectoryServices } from "@/components/company-directory/public-directory-copy";
+import { directoryCopy, directoryPaths, directoryServiceLabel, normalizeDirectoryPublicServiceQuery, popularDirectoryServices } from "@/components/company-directory/public-directory-copy";
 import { PublicDirectoryResults } from "@/components/company-directory/public-directory-results";
 import { PublicDirectorySearchForm } from "@/components/company-directory/public-directory-search-form";
 import { getPublishedDirectoryLocationSuggestions, searchPublishedCompanyDirectory } from "@/lib/company-directory-public-search";
@@ -23,10 +23,11 @@ export async function PublicDirectorySearchPage({ locale, searchParams }: { loca
   const t = directoryCopy[locale];
   const paths = directoryPaths[locale];
   const otherLocale: PublicLocale = locale === "sv" ? "en" : "sv";
+  const searchService = normalizeDirectoryPublicServiceQuery(service, locale);
 
   const [locationSuggestions, search] = await Promise.all([
     getPublishedDirectoryLocationSuggestions(60),
-    searched ? searchPublishedCompanyDirectory({ service, location, latitude, longitude, radiusKm: radius, limit: 30 }) : Promise.resolve(null),
+    searched ? searchPublishedCompanyDirectory({ service: searchService, location, latitude, longitude, radiusKm: radius, limit: 30 }) : Promise.resolve(null),
   ]);
   const serviceSuggestions = DIRECTORY_SERVICES.map((item) => directoryServiceLabel(item.slug, item.label, locale));
   const nearbyActive = Boolean(search?.nearbyEnabled);
