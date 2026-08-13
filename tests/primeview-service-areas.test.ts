@@ -10,7 +10,7 @@ describe("PrimeView service areas", () => {
   });
 
   it("includes the requested west and north London coverage", () => {
-    const names = new Set(primeViewAreaPages.map((area) => area.name));
+    const names = new Set<string>(primeViewAreaPages.map((area) => area.name));
     for (const area of [
       "Hammersmith",
       "Chiswick",
