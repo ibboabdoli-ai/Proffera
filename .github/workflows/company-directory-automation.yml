@@ -67,7 +67,7 @@ jobs:
             --secret "$CRON_SECRET"
 
   process:
-    name: Verify and build queued company profiles
+    name: Enrich official company facts
     if: github.event_name == 'workflow_dispatch' || github.event.schedule == '9,24,39,54 * * * *'
     runs-on: ubuntu-latest
     timeout-minutes: 4
@@ -81,7 +81,7 @@ jobs:
           test -n "$REMINDER_CRON_URL"
           test -n "$CRON_SECRET"
 
-      - name: Process discovery queue and enrich official facts
+      - name: Enrich official facts for existing pilot profiles
         env:
           REMINDER_CRON_URL: ${{ secrets.PROFFERA_REMINDER_CRON_URL }}
           CRON_SECRET: ${{ secrets.PROFFERA_REMINDER_CRON_SECRET }}
@@ -101,16 +101,7 @@ jobs:
           print(f"https://{host}")
           PY
           )"
-          PROCESS_URL="$ORIGIN/api/cron/company-directory-sync"
-          FACTS_URL="$ORIGIN/api/cron/company-directory-official-facts?limit=5"
-
-          curl --fail-with-body --silent --show-error \
-            --connect-timeout 10 \
-            --max-time 75 \
-            --header "Authorization: Bearer $CRON_SECRET" \
-            --header "User-Agent: proffera-company-directory-github-actions" \
-            "$PROCESS_URL"
-          printf '\n'
+          FACTS_URL="$ORIGIN/api/cron/company-directory-official-facts?limit=10"
 
           curl --fail-with-body --silent --show-error \
             --connect-timeout 10 \
