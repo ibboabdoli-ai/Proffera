@@ -2,6 +2,10 @@ import "server-only";
 
 import { createHash, randomUUID } from "node:crypto";
 
+import {
+  collectBolagsverketApiErrors,
+  formatBolagsverketApiErrors,
+} from "@/lib/company-directory-official-facts-errors";
 import { getSql } from "@/lib/db/server";
 
 type AnyRecord = Record<string, unknown>;
@@ -219,6 +223,29 @@ function extractOfficialFacts(row: AnyRecord): OfficialFacts {
   };
 }
 
+function timeoutError(error: unknown) {
+  return error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
+}
+
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+  operation: string,
+) {
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (error) {
+    if (timeoutError(error)) {
+      throw new Error(`${operation} timed out after ${timeoutMs}ms`);
+    }
+    throw error;
+  }
+}
+
 async function oauthAccessToken() {
   const staticToken = process.env.COMPANY_DIRECTORY_SOURCE_BEARER_TOKEN?.trim();
   if (staticToken) return staticToken;
@@ -233,7 +260,7 @@ async function oauthAccessToken() {
   const body = new URLSearchParams({ grant_type: "client_credentials" });
   if (scope) body.set("scope", scope);
 
-  const response = await fetch(tokenUrl, {
+  const response = await fetchWithTimeout(tokenUrl, {
     method: "POST",
     headers: {
       authorization: `Basic ${basic}`,
@@ -242,8 +269,7 @@ async function oauthAccessToken() {
     },
     body: body.toString(),
     cache: "no-store",
-    signal: AbortSignal.timeout(12_000),
-  });
+  }, 12_000, "Official facts OAuth");
   if (!response.ok) throw new Error(`Official facts OAuth failed (${response.status})`);
   const payload = object(await response.json());
   const token = text(payload?.access_token);
@@ -269,7 +295,7 @@ async function fetchOfficialFacts(organizationNumber: string, token: string) {
   if (!template) throw new Error("Official detail endpoint is not configured");
   const request = detailRequest(template, organizationNumber);
 
-  const response = await fetch(request.url, {
+  const response = await fetchWithTimeout(request.url, {
     method: request.method,
     headers: {
       accept: "application/json",
@@ -279,8 +305,7 @@ async function fetchOfficialFacts(organizationNumber: string, token: string) {
     },
     body: request.body,
     cache: "no-store",
-    signal: AbortSignal.timeout(15_000),
-  });
+  }, 15_000, "Official facts lookup");
   if (!response.ok) throw new Error(`Official facts lookup failed (${response.status})`);
 
   const row = detailRecord(await response.json());
@@ -289,6 +314,12 @@ async function fetchOfficialFacts(organizationNumber: string, token: string) {
   if (returnedOrg && returnedOrg !== organizationNumber.replace(/\D/g, "")) {
     throw new Error("Official facts lookup returned a different organization number");
   }
+
+  const apiErrors = collectBolagsverketApiErrors(row);
+  if (apiErrors.length > 0) {
+    throw new Error(`Official facts lookup returned partial data: ${formatBolagsverketApiErrors(apiErrors)}`);
+  }
+
   return extractOfficialFacts(row);
 }
 
