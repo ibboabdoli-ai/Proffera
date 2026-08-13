@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowRight, BadgeCheck, Building2, MapPin, ShieldCheck } from "lucide-react";
+import { ArrowRight, BadgeCheck, Building2, Languages, MapPin, ShieldCheck } from "lucide-react";
 import { notFound, redirect } from "next/navigation";
 
 import { getPublicDirectoryBusiness } from "@/lib/company-directory-engine";
@@ -32,12 +32,20 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (!business) return {};
   const category = categoryLabels[business.categorySlug] ?? business.primarySniLabel ?? "Tjänster";
   const description = business.activityDescription || `${business.companyName} i ${business.city} – ${category}.`;
-  const canonical = `${siteConfig.url}/foretag/listad/${encodeURIComponent(business.slug)}`;
+  const swedishPath = `/foretag/listad/${encodeURIComponent(business.slug)}`;
+  const englishPath = `/en/companies/${encodeURIComponent(business.slug)}`;
+  const canonical = `${siteConfig.url}${swedishPath}`;
   const hasActualBusinessMedia = Boolean(business.media?.isActualBusinessMedia && business.media.url);
   return {
     title: `${business.companyName} | Proffera`,
     description,
-    alternates: { canonical },
+    alternates: {
+      canonical,
+      languages: {
+        "sv-SE": swedishPath,
+        en: englishPath,
+      },
+    },
     robots: { index: true, follow: true },
     openGraph: {
       title: business.companyName,
@@ -98,7 +106,15 @@ export default async function ListedBusinessPage({ params }: Props) {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData).replace(/</g, "\\u003c") }}
       />
       <div className="mx-auto max-w-5xl">
-        <Link href="/" className="text-lg font-black text-[#173e2b]">Proffera</Link>
+        <header className="flex items-center justify-between gap-3">
+          <Link href="/" className="text-lg font-black text-[#173e2b]">Proffera</Link>
+          <Link
+            href={`/en/companies/${encodeURIComponent(business.slug)}`}
+            className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-[#173e2b]/15 bg-white px-3 text-sm font-black text-[#173e2b]"
+          >
+            <Languages className="h-4 w-4" /> EN English
+          </Link>
+        </header>
 
         <article className="mt-7 overflow-hidden rounded-[2rem] bg-white shadow-sm ring-1 ring-black/10">
           {hasActualBusinessMedia ? (
