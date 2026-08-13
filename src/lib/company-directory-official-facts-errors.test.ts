@@ -59,4 +59,19 @@ describe("collectBolagsverketApiErrors", () => {
       "organisation.organisationsform.fel: TIMEOUT; organisation.juridiskForm.fel: OTILLGANGLIG_UPPGIFTSKALLA",
     );
   });
+
+  it("truncates unusually long upstream error fields and the final summary", () => {
+    const errors = Array.from({ length: 8 }, (_, index) => ({
+      path: `organisation.${"nested.".repeat(40)}fel${index}`,
+      type: `TIMEOUT-${"X".repeat(200)}`,
+      description: `upstream-${"Y".repeat(2_000)}`,
+    }));
+
+    const summary = formatBolagsverketApiErrors(errors);
+
+    expect(summary.length).toBeLessThanOrEqual(1600);
+    expect(summary).toContain("…");
+    expect(summary).not.toContain("Y".repeat(300));
+    expect(summary).not.toContain("fel5");
+  });
 });
