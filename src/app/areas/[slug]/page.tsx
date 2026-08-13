@@ -8,6 +8,9 @@ import { primeViewSite } from "@/lib/primeview-seo";
 
 type PageProps = { params: Promise<{ slug: string }> };
 
+const whiteCtaText = { color: "#ffffff", WebkitTextFillColor: "#ffffff" } as const;
+const darkCtaText = { color: "#06183b", WebkitTextFillColor: "#06183b" } as const;
+
 export function generateStaticParams() {
   return primeViewAreaPages.map(({ slug }) => ({ slug }));
 }
@@ -83,10 +86,10 @@ export default async function PrimeViewAreaPage({ params }: PageProps) {
 
       <header className="bg-[#06183b] text-white">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-5 py-5">
-          <Link href="/" className="text-xl font-black text-white">PrimeView Window Care</Link>
+          <Link href="/" className="text-xl font-black text-white" style={whiteCtaText}>PrimeView Window Care</Link>
           <div className="flex items-center gap-2">
-            <Link href="/booking" className="hidden rounded-xl border border-white/30 px-4 py-3 text-sm font-black text-white sm:inline-flex">Book online</Link>
-            <Link href="/#quote" className="shrink-0 rounded-xl bg-[#0a3c8f] px-4 py-3 text-sm font-black text-white">Free quote</Link>
+            <Link href="/booking" className="hidden rounded-xl border border-white/30 px-4 py-3 text-sm font-black text-white sm:inline-flex" style={whiteCtaText}>Book online</Link>
+            <Link href="/#quote" className="shrink-0 rounded-xl bg-[#0a3c8f] px-4 py-3 text-sm font-black text-white" style={whiteCtaText}>Free quote</Link>
           </div>
         </div>
       </header>
@@ -102,9 +105,9 @@ export default async function PrimeViewAreaPage({ params }: PageProps) {
           <h1 className="mt-4 max-w-4xl text-4xl font-black tracking-[-.04em] sm:text-6xl">Window & Exterior Cleaning in {area.name}</h1>
           <p className="mt-6 max-w-3xl text-lg leading-8 text-slate-200">{area.intro}</p>
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-            <Link href="/booking" className="inline-flex min-h-14 items-center justify-center rounded-xl bg-[#0a3c8f] px-5 py-4 text-center font-black !text-white">Book online</Link>
-            <Link href="/#quote" className="inline-flex min-h-14 items-center justify-center rounded-xl bg-white px-5 py-4 text-center font-black !text-[#06183b]">Request a free quote</Link>
-            <a href={`tel:${primeViewSite.telephone}`} className="inline-flex min-h-14 items-center justify-center rounded-xl border border-white/40 px-5 py-4 text-center font-black !text-white">Call {primeViewSite.telephoneDisplay}</a>
+            <Link href="/booking" className="inline-flex min-h-14 items-center justify-center rounded-xl bg-[#0a3c8f] px-5 py-4 text-center font-black !text-white" style={whiteCtaText}>Book online</Link>
+            <Link href="/#quote" className="inline-flex min-h-14 items-center justify-center rounded-xl bg-white px-5 py-4 text-center font-black !text-[#06183b]" style={darkCtaText}>Request a free quote</Link>
+            <a href={`tel:${primeViewSite.telephone}`} className="inline-flex min-h-14 items-center justify-center rounded-xl border border-white/40 px-5 py-4 text-center font-black !text-white" style={whiteCtaText}>Call {primeViewSite.telephoneDisplay}</a>
           </div>
         </div>
       </section>
@@ -164,7 +167,7 @@ export default async function PrimeViewAreaPage({ params }: PageProps) {
       <section className="bg-[#06183b] px-5 py-14 text-white">
         <div className="mx-auto flex max-w-6xl flex-col justify-between gap-6 md:flex-row md:items-center">
           <div><h2 className="text-3xl font-black">Ready to get a quote?</h2><p className="mt-2 text-slate-300">Tell PrimeView what needs cleaning and where the property is located.</p></div>
-          <div className="flex flex-wrap gap-3"><Link href="/booking" className="rounded-xl bg-[#0a3c8f] px-5 py-3.5 font-black text-white">Book online</Link><Link href="/#quote" className="rounded-xl bg-white px-5 py-3.5 font-black text-[#06183b]">Free quote</Link></div>
+          <div className="flex flex-wrap gap-3"><Link href="/booking" className="rounded-xl bg-[#0a3c8f] px-5 py-3.5 font-black text-white" style={whiteCtaText}>Book online</Link><Link href="/#quote" className="rounded-xl bg-white px-5 py-3.5 font-black text-[#06183b]" style={darkCtaText}>Free quote</Link></div>
         </div>
       </section>
     </main>
