@@ -164,6 +164,7 @@ export function assessCompanyDirectoryCategoryConfidence(
   if (competingCategories.length) {
     const penalty = Math.min(15, competingCategories.length * 5);
     score -= penalty;
+    score = Math.min(score, 90);
     warnings.push(`Andra stödda kategorier finns i SNI-listan: ${competingCategories.join(", ")}`);
   }
 
