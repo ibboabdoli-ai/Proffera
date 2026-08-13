@@ -110,12 +110,15 @@ export function calculatePrimeViewPrice(input: PrimeViewPricingInput): PrimeView
   if (input.serviceKey === "window") {
     const windows = Math.max(0, Math.floor(Number(input.standardWindows) || 0));
     if (!windows) return manual("Enter the number of normal-size windows.");
-    const subtotal = windows * 3;
+    const cleaningScope = input.cleaningScope ?? "Outside only";
+    const rate = cleaningScope === "Inside only" ? 5 : cleaningScope === "Inside & outside" ? 8 : 3;
+    const scopeLabel = cleaningScope === "Inside & outside" ? "inside & outside" : cleaningScope.toLowerCase();
+    const subtotal = windows * rate;
     return priced(
       subtotal,
       29.99,
-      [{ label: `${windows} normal-size window${windows === 1 ? "" : "s"} × £3 outside only`, amount: subtotal }],
-      "Normal-size outside-only window cleaning. No automatic access, height, dirt or first-clean surcharges are added.",
+      [{ label: `${windows} normal-size window${windows === 1 ? "" : "s"} × £${rate} ${scopeLabel}`, amount: subtotal }],
+      `Normal-size ${scopeLabel} window cleaning. No automatic access, height, dirt or first-clean surcharges are added.`,
     );
   }
 
