@@ -58,6 +58,24 @@ describe("company directory policy", () => {
     expect(mapSniToDirectoryCategory("81.300")?.categorySlug).toBe("tradgard");
   });
 
+  it("uses SNI only for broad category inference, never granular services", () => {
+    const supportedCodes = [
+      "81.210",
+      "81.221",
+      "96.910",
+      "49.420",
+      "43.210",
+      "43.221",
+      "43.341",
+      "43.320",
+      "81.300",
+    ];
+
+    for (const code of supportedCodes) {
+      expect(mapSniToDirectoryCategory(code)?.serviceSlugs).toEqual([]);
+    }
+  });
+
   it("keeps broad household services distinct from the cleaning category", () => {
     const homeService = mapSniToDirectoryCategory("96.910");
     expect(homeService?.categoryLabel).toBe("Hemservice");
