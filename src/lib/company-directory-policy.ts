@@ -111,51 +111,36 @@ export function classifyOrganizationKind(legalForm: unknown): DirectoryOrganizat
   return "unknown";
 }
 
+function categoryOnly(categorySlug: string, categoryLabel: string): DirectoryCategoryMatch {
+  return { categorySlug, categoryLabel, serviceSlugs: [] };
+}
+
 export function mapSniToDirectoryCategory(value: unknown): DirectoryCategoryMatch | null {
   const code = normalizeSniCode(value);
 
-  if (code === "81.210") {
-    return {
-      categorySlug: "stadning",
-      categoryLabel: "Städning",
-      serviceSlugs: ["hemstadning", "kontorsstadning", "flyttstadning"],
-    };
-  }
-  if (code === "81.221") {
-    return {
-      categorySlug: "stadning",
-      categoryLabel: "Städning",
-      serviceSlugs: ["fonsterputsning"],
-    };
+  if (code === "81.210" || code === "81.221") {
+    return categoryOnly("stadning", "Städning");
   }
   if (code === "96.910") {
-    return {
-      categorySlug: "hemservice",
-      categoryLabel: "Hemservice",
-      serviceSlugs: [],
-    };
+    return categoryOnly("hemservice", "Hemservice");
   }
   if (code === "49.420") {
-    return {
-      categorySlug: "flytt",
-      categoryLabel: "Flytt",
-      serviceSlugs: ["flytthjalp"],
-    };
+    return categoryOnly("flytt", "Flytt");
   }
   if (code === "43.210") {
-    return { categorySlug: "elektriker", categoryLabel: "Elektriker", serviceSlugs: ["elinstallation"] };
+    return categoryOnly("elektriker", "Elektriker");
   }
   if (code === "43.221" || code.startsWith("43.22")) {
-    return { categorySlug: "vvs", categoryLabel: "VVS", serviceSlugs: ["vvs"] };
+    return categoryOnly("vvs", "VVS");
   }
   if (code === "43.341") {
-    return { categorySlug: "maleri", categoryLabel: "Måleri", serviceSlugs: ["malning"] };
+    return categoryOnly("maleri", "Måleri");
   }
   if (code === "43.320") {
-    return { categorySlug: "snickeri", categoryLabel: "Snickeri", serviceSlugs: ["snickeri"] };
+    return categoryOnly("snickeri", "Snickeri");
   }
   if (code === "81.300") {
-    return { categorySlug: "tradgard", categoryLabel: "Trädgård", serviceSlugs: ["tradgardshjalp"] };
+    return categoryOnly("tradgard", "Trädgård");
   }
 
   return null;
