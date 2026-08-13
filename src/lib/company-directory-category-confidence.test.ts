@@ -56,6 +56,22 @@ describe("assessCompanyDirectoryCategoryConfidence", () => {
     expect(result.competingCategories).toEqual(["elektriker"]);
   });
 
+  it("never gives high confidence when a competing official category is present", () => {
+    const result = assessCompanyDirectoryCategoryConfidence(base({
+      legalName: "VVS Rörinstallation & El AB",
+      displayName: "VVS Rörinstallation & El AB",
+      activityDescription: "VVS, rörinstallation och värmeservice.",
+      sniCodes: [
+        { code: "43221", label: "Värme- och sanitetsarbeten" },
+        { code: "43210", label: "Elinstallationer" },
+      ],
+    }));
+
+    expect(result.score).toBe(90);
+    expect(result.level).toBe("review");
+    expect(result.competingCategories).toEqual(["elektriker"]);
+  });
+
   it("caps confidence while Official Facts has not been enriched", () => {
     const result = assessCompanyDirectoryCategoryConfidence(base({
       legalName: "Rör & Värme AB",
