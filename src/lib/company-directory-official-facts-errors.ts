@@ -6,6 +6,12 @@ export type BolagsverketApiError = {
   description: string;
 };
 
+const MAX_FORMATTED_ERRORS = 5;
+const MAX_ERROR_PATH_LENGTH = 160;
+const MAX_ERROR_TYPE_LENGTH = 80;
+const MAX_ERROR_DESCRIPTION_LENGTH = 240;
+const MAX_ERROR_SUMMARY_LENGTH = 1600;
+
 function object(value: unknown): AnyRecord | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as AnyRecord : null;
 }
@@ -16,6 +22,12 @@ function text(value: unknown) {
     return String(value).trim();
   }
   return "";
+}
+
+function truncate(value: string, maxLength: number) {
+  if (value.length <= maxLength) return value;
+  if (maxLength <= 1) return value.slice(0, maxLength);
+  return `${value.slice(0, maxLength - 1)}…`;
 }
 
 function errorFromValue(value: unknown, path: string): BolagsverketApiError | null {
@@ -73,8 +85,15 @@ export function collectBolagsverketApiErrors(value: unknown): BolagsverketApiErr
 }
 
 export function formatBolagsverketApiErrors(errors: BolagsverketApiError[]) {
-  return errors
-    .slice(0, 5)
-    .map((error) => `${error.path}: ${error.type}${error.description ? ` (${error.description})` : ""}`)
+  const summary = errors
+    .slice(0, MAX_FORMATTED_ERRORS)
+    .map((error) => {
+      const path = truncate(error.path, MAX_ERROR_PATH_LENGTH);
+      const type = truncate(error.type, MAX_ERROR_TYPE_LENGTH);
+      const description = truncate(error.description, MAX_ERROR_DESCRIPTION_LENGTH);
+      return `${path}: ${type}${description ? ` (${description})` : ""}`;
+    })
     .join("; ");
+
+  return truncate(summary, MAX_ERROR_SUMMARY_LENGTH);
 }
