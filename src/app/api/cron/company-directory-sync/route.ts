@@ -22,6 +22,15 @@ export async function GET(request: Request) {
     });
   }
 
+  const profileProcessingEnabled = process.env.COMPANY_DIRECTORY_PROFILE_PROCESSING_ENABLED === "true";
+  if (!profileProcessingEnabled) {
+    return NextResponse.json({
+      ok: true,
+      skipped: true,
+      reason: "Company directory profile processing is paused while Official Facts catch up",
+    });
+  }
+
   const mode = process.env.COMPANY_DIRECTORY_DISCOVERY_MODE?.trim().toLowerCase();
 
   try {
