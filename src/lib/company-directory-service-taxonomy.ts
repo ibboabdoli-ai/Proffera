@@ -34,15 +34,17 @@ export const DIRECTORY_SERVICES: DirectoryServiceDefinition[] = [
   { slug: "laddbox", categorySlug: "elektriker", parentServiceSlug: "elinstallation", label: "Laddbox", aliases: ["elbilsladdare", "laddbox installation"] },
   { slug: "elcentral", categorySlug: "elektriker", parentServiceSlug: "elinstallation", label: "Elcentral", aliases: ["säkringsskåp", "sakringsskap", "centralbyte"] },
 
-  { slug: "hemstadning", categorySlug: "stadning", parentServiceSlug: null, label: "Hemstädning", aliases: ["hemstäd", "hemstad", "städning hemma", "stadning hemma"] },
-  { slug: "kontorsstadning", categorySlug: "stadning", parentServiceSlug: null, label: "Kontorsstädning", aliases: ["kontorsstäd", "kontorsstad", "lokalvård", "lokalvard"] },
-  { slug: "flyttstadning", categorySlug: "stadning", parentServiceSlug: null, label: "Flyttstädning", aliases: ["flyttstäd", "flyttstad"] },
-  { slug: "fonsterputsning", categorySlug: "stadning", parentServiceSlug: null, label: "Fönsterputsning", aliases: ["fönsterputs", "fonsterputs", "fönstertvätt", "fonstertvatt"] },
+  { slug: "lokalvard", categorySlug: "stadning", parentServiceSlug: null, label: "Städning / Lokalvård", aliases: ["städning", "stadning", "städ", "stad", "lokalvård", "lokalvard", "städfirma", "stadfirma"] },
+  { slug: "hemstadning", categorySlug: "stadning", parentServiceSlug: "lokalvard", label: "Hemstädning", aliases: ["hemstäd", "hemstad", "städning hemma", "stadning hemma"] },
+  { slug: "kontorsstadning", categorySlug: "stadning", parentServiceSlug: "lokalvard", label: "Kontorsstädning", aliases: ["kontorsstäd", "kontorsstad"] },
+  { slug: "flyttstadning", categorySlug: "stadning", parentServiceSlug: "lokalvard", label: "Flyttstädning", aliases: ["flyttstäd", "flyttstad"] },
+  { slug: "fonsterputsning", categorySlug: "stadning", parentServiceSlug: "lokalvard", label: "Fönsterputsning", aliases: ["fönsterputs", "fonsterputs", "fönstertvätt", "fonstertvatt"] },
 
   { slug: "malning", categorySlug: "maleri", parentServiceSlug: null, label: "Målning", aliases: ["målare", "malare", "måleri", "maleri"] },
   { slug: "snickeri", categorySlug: "snickeri", parentServiceSlug: null, label: "Snickeri", aliases: ["snickare", "byggnadssnickeri"] },
   { slug: "flytthjalp", categorySlug: "flytt", parentServiceSlug: null, label: "Flytthjälp", aliases: ["flyttfirma", "flytthjälp", "flytthjalp"] },
   { slug: "tradgardshjalp", categorySlug: "tradgard", parentServiceSlug: null, label: "Trädgårdshjälp", aliases: ["trädgård", "tradgard", "trädgårdshjälp", "tradgardshjalp"] },
+  { slug: "hemservice", categorySlug: "hemservice", parentServiceSlug: null, label: "Hemservice", aliases: ["hemservice", "hushållsnära tjänster", "hushallsnara tjanster"] },
 ];
 
 function normalizeDirectorySearchTerm(value: string) {
@@ -58,6 +60,15 @@ function normalizeDirectorySearchTerm(value: string) {
     .replace(/\s+/g, " ");
 }
 
+function normalizeSni(value: string) {
+  const raw = value.trim().replace(",", ".");
+  const digits = raw.replace(/[^0-9]/g, "");
+  if (digits.length === 5 || digits.length === 4) {
+    return `${digits.slice(0, 2)}.${digits.slice(2)}`;
+  }
+  return raw;
+}
+
 function matchesSearchTerm(term: string, values: string[]) {
   return values.some((value) => normalizeDirectorySearchTerm(value) === term);
 }
@@ -68,6 +79,20 @@ export function getDirectoryServiceDefinition(slug: string) {
 
 export function getDirectoryCategoryDefinition(slug: string) {
   return DIRECTORY_SERVICE_CATEGORIES.find((category) => category.slug === slug) ?? null;
+}
+
+export function mapPrimarySniToDirectorySearchService(value: string) {
+  const code = normalizeSni(value);
+  if (code === "81.210") return "lokalvard";
+  if (code === "81.221") return "fonsterputsning";
+  if (code === "96.910") return "hemservice";
+  if (code === "49.420") return "flytthjalp";
+  if (code === "43.210") return "elinstallation";
+  if (code.startsWith("43.22")) return "vvs";
+  if (code === "43.341") return "malning";
+  if (code === "43.320") return "snickeri";
+  if (code === "81.300") return "tradgardshjalp";
+  return null;
 }
 
 export type DirectoryServiceSearchResolution =
