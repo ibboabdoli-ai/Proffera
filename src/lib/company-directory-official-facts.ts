@@ -5,6 +5,7 @@ import { createHash, randomUUID } from "node:crypto";
 import {
   collectBolagsverketApiErrors,
   formatBolagsverketApiErrors,
+  resolveBolagsverketOrganizationRecord,
 } from "@/lib/company-directory-official-facts-errors";
 import { getSql } from "@/lib/db/server";
 
@@ -96,21 +97,6 @@ function yesNo(value: unknown): boolean | null {
 
 function normalizeSni(value: unknown) {
   return text(value).replace(/\D/g, "");
-}
-
-function detailRecord(payload: unknown): AnyRecord | null {
-  const root = object(payload);
-  if (!root) return null;
-  for (const key of ["organisationer", "organisations", "organizations", "items", "results"]) {
-    const value = root[key];
-    const candidate = Array.isArray(value) ? object(value[0]) : object(value);
-    if (candidate) return candidate;
-  }
-  for (const key of ["organisation", "organization", "data", "result", "foretag", "företag"]) {
-    const candidate = object(root[key]);
-    if (candidate) return candidate;
-  }
-  return root;
 }
 
 function namesFromRecord(row: AnyRecord) {
@@ -308,18 +294,13 @@ async function fetchOfficialFacts(organizationNumber: string, token: string) {
   }, 15_000, "Official facts lookup");
   if (!response.ok) throw new Error(`Official facts lookup failed (${response.status})`);
 
-  const row = detailRecord(await response.json());
-  if (!row) throw new Error("Official facts lookup returned no record");
-  const returnedOrg = text(object(row.organisationsidentitet)?.identitetsbeteckning).replace(/\D/g, "");
-  if (returnedOrg && returnedOrg !== organizationNumber.replace(/\D/g, "")) {
-    throw new Error("Official facts lookup returned a different organization number");
-  }
-
-  const apiErrors = collectBolagsverketApiErrors(row);
+  const payload = await response.json();
+  const apiErrors = collectBolagsverketApiErrors(payload);
   if (apiErrors.length > 0) {
     throw new Error(`Official facts lookup returned partial data: ${formatBolagsverketApiErrors(apiErrors)}`);
   }
 
+  const row = resolveBolagsverketOrganizationRecord(payload, organizationNumber);
   return extractOfficialFacts(row);
 }
 
