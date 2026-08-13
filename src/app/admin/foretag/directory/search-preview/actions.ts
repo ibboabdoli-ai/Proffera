@@ -18,6 +18,7 @@ export async function geocodeDirectoryPilotAction() {
       noMatch: String(result.noMatch),
       errors: String(result.errors),
       remaining: String(result.remaining),
+      needsReview: String(result.needsReview),
     });
     destination = `/admin/foretag/directory/search-preview?${params.toString()}`;
   } catch (error) {
