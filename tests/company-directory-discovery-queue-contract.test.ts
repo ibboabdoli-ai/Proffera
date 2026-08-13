@@ -72,13 +72,14 @@ describe("automatic company directory discovery contract", () => {
     expect(worker).toContain("primary-supported-SNI + supported-form candidates");
   });
 
-  it("schedules discovery separately from queue processing", () => {
+  it("pauses scheduled queue processing while official facts catch up", () => {
     const workflow = source(".github/workflows/company-directory-automation.yml");
 
     expect(workflow).toContain("Discover official company candidates");
-    expect(workflow).toContain("Verify and build queued company profiles");
+    expect(workflow).toContain("Enrich official company facts");
     expect(workflow).toContain("PROFFERA_REMINDER_CRON_SECRET");
     expect(workflow).toContain("company-directory-discovery-ingest");
-    expect(workflow).toContain("company-directory-sync");
+    expect(workflow).toContain("company-directory-official-facts?limit=10");
+    expect(workflow).not.toContain("company-directory-sync");
   });
 });
