@@ -99,7 +99,7 @@ function normalizedName(value: string | undefined) {
 function Stars({ rating, size = "size-4" }: { rating: number; size?: string }) {
   const rounded = Math.round(rating);
   return (
-    <span className="inline-flex items-center gap-1 text-[#f4b400]" aria-label={`${rating.toFixed(1)} out of 5 stars`}>
+    <span className="inline-flex shrink-0 items-center gap-1 text-[#f4b400]" aria-label={`${rating.toFixed(1)} out of 5 stars`}>
       {Array.from({ length: 5 }, (_, index) => (
         <Star key={index} className={size} fill={index < rounded ? "currentColor" : "none"} aria-hidden="true" />
       ))}
@@ -156,9 +156,9 @@ export function PrimeViewReviewForm({ serviceOptions }: PrimeViewReviewFormProps
 
   if (loading) {
     return (
-      <section className="rounded-2xl border border-[#cbd9ef] bg-[#f6f9ff] p-6 text-[#29436f]">
-        <div className="flex items-center gap-3 text-sm font-black text-[#0a3c8f]">
-          <Loader2 className="size-5 animate-spin" aria-hidden="true" /> Loading Google Reviews…
+      <section className="w-full min-w-0 max-w-full rounded-2xl border border-[#cbd9ef] bg-[#f6f9ff] p-6 text-[#29436f]">
+        <div className="flex min-w-0 items-center gap-3 text-sm font-black text-[#0a3c8f]">
+          <Loader2 className="size-5 shrink-0 animate-spin" aria-hidden="true" /> Loading Google Reviews…
         </div>
       </section>
     );
@@ -166,65 +166,65 @@ export function PrimeViewReviewForm({ serviceOptions }: PrimeViewReviewFormProps
 
   if (failed || !place) {
     return (
-      <section className="rounded-2xl border border-[#cbd9ef] bg-[#f6f9ff] p-6 text-[#29436f]">
+      <section className="w-full min-w-0 max-w-full rounded-2xl border border-[#cbd9ef] bg-[#f6f9ff] p-6 text-[#29436f]">
         <p className="text-sm font-black uppercase tracking-[0.14em] text-[#0a3c8f]">Google Reviews</p>
         <h3 className="mt-3 text-xl font-black text-[#071b42]">PrimeView on Google</h3>
         <p className="mt-3 text-sm leading-6">Google Reviews are temporarily unavailable here. You can still open the PrimeView profile on Google Maps.</p>
-        <a href={googleUrl} target="_blank" rel="noreferrer" className="mt-5 inline-flex items-center gap-2 rounded-xl bg-[#0a3c8f] px-4 py-3 text-sm font-black !text-white hover:bg-[#061b42]">
-          Open Google Maps <ExternalLink className="size-4" aria-hidden="true" />
+        <a href={googleUrl} target="_blank" rel="noreferrer" className="mt-5 inline-flex max-w-full items-center gap-2 rounded-xl bg-[#0a3c8f] px-4 py-3 text-sm font-black !text-white hover:bg-[#061b42]">
+          <span className="min-w-0 break-words">Open Google Maps</span> <ExternalLink className="size-4 shrink-0" aria-hidden="true" />
         </a>
       </section>
     );
   }
 
   return (
-    <section className="rounded-2xl border border-[#cbd9ef] bg-[#f6f9ff] p-5 text-[#29436f] sm:p-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
+    <section className="w-full min-w-0 max-w-full rounded-2xl border border-[#cbd9ef] bg-[#f6f9ff] p-5 text-[#29436f] sm:p-6">
+      <div className="flex min-w-0 flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
           <p className="text-sm font-black uppercase tracking-[0.14em] text-[#0a3c8f]">Google Reviews</p>
-          <h3 className="mt-2 text-2xl font-black tracking-tight text-[#071b42]">What customers say on Google</h3>
+          <h3 className="mt-2 break-words text-2xl font-black tracking-tight text-[#071b42]">What customers say on Google</h3>
         </div>
-        <span translate="no" className="whitespace-nowrap text-xs font-normal text-[#5e5e5e]">Google Maps</span>
+        <span translate="no" className="shrink-0 whitespace-nowrap text-xs font-normal text-[#5e5e5e]">Google Maps</span>
       </div>
 
       {typeof place.rating === "number" ? (
-        <div className="mt-5 rounded-2xl border border-[#d7e1f2] bg-white p-4">
-          <div className="flex flex-wrap items-center gap-2">
+        <div className="mt-5 w-full min-w-0 max-w-full rounded-2xl border border-[#d7e1f2] bg-white p-4">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <span className="text-2xl font-black text-[#071b42]">{place.rating.toFixed(1)}</span>
             <Stars rating={place.rating} />
-            {typeof place.userRatingCount === "number" ? <span className="text-sm font-semibold text-slate-500">({place.userRatingCount} reviews)</span> : null}
+            {typeof place.userRatingCount === "number" ? <span className="min-w-0 text-sm font-semibold text-slate-500">({place.userRatingCount} reviews)</span> : null}
           </div>
         </div>
       ) : null}
 
       {reviews.length ? (
-        <div className="mt-4 grid gap-3">
+        <div className="mt-4 grid min-w-0 max-w-full gap-3">
           {reviews.map((review, index) => {
             const author = review.authorAttribution;
             return (
-              <article key={`${author?.displayName ?? "review"}-${index}`} className="rounded-2xl border border-[#d7e1f2] bg-white p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex min-w-0 items-center gap-3">
+              <article key={`${author?.displayName ?? "review"}-${index}`} className="w-full min-w-0 max-w-full rounded-2xl border border-[#d7e1f2] bg-white p-4">
+                <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+                  <div className="flex min-w-0 flex-1 items-center gap-3">
                     {author?.photoURI ? (
                       <span aria-hidden="true" className="size-9 shrink-0 rounded-full bg-cover bg-center" style={{ backgroundImage: `url(${JSON.stringify(author.photoURI)})` }} />
                     ) : (
                       <span className="grid size-9 shrink-0 place-items-center rounded-full bg-[#eef3fc] text-sm font-black text-[#315997]">G</span>
                     )}
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       {author?.uri ? (
-                        <a href={author.uri} target="_blank" rel="noreferrer" className="block truncate text-sm font-black text-[#071b42] hover:underline">{author.displayName || "Google customer"}</a>
+                        <a href={author.uri} target="_blank" rel="noreferrer" className="block max-w-full truncate text-sm font-black text-[#071b42] hover:underline">{author.displayName || "Google customer"}</a>
                       ) : (
-                        <p className="truncate text-sm font-black text-[#071b42]">{author?.displayName || "Google customer"}</p>
+                        <p className="max-w-full truncate text-sm font-black text-[#071b42]">{author?.displayName || "Google customer"}</p>
                       )}
                       {review.relativePublishTimeDescription ? <p className="mt-0.5 text-xs text-slate-500">{review.relativePublishTimeDescription}</p> : null}
                     </div>
                   </div>
                   {typeof review.rating === "number" ? <Stars rating={review.rating} size="size-3.5" /> : null}
                 </div>
-                <p className="mt-3 line-clamp-4 text-sm leading-6 text-slate-600">{review.text}</p>
+                <p className="mt-3 line-clamp-4 break-words text-sm leading-6 text-slate-600">{review.text}</p>
                 {review.googleMapsURI ? (
-                  <a href={review.googleMapsURI} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1 text-xs font-bold text-[#0a3c8f] hover:underline">
-                    View this review on Google Maps <ExternalLink className="size-3" aria-hidden="true" />
+                  <a href={review.googleMapsURI} target="_blank" rel="noreferrer" className="mt-3 inline-flex max-w-full items-center gap-1 text-xs font-bold text-[#0a3c8f] hover:underline">
+                    <span className="min-w-0 break-words">View this review on Google Maps</span> <ExternalLink className="size-3 shrink-0" aria-hidden="true" />
                   </a>
                 ) : null}
               </article>
@@ -232,17 +232,17 @@ export function PrimeViewReviewForm({ serviceOptions }: PrimeViewReviewFormProps
           })}
         </div>
       ) : (
-        <p className="mt-4 rounded-2xl border border-[#d7e1f2] bg-white p-4 text-sm leading-6 text-slate-600">Open Google Maps to read the latest PrimeView customer reviews.</p>
+        <p className="mt-4 w-full min-w-0 max-w-full rounded-2xl border border-[#d7e1f2] bg-white p-4 text-sm leading-6 text-slate-600">Open Google Maps to read the latest PrimeView customer reviews.</p>
       )}
 
-      <p className="mt-4 text-[11px] leading-5 text-slate-500">Showing up to 3 reviews returned by Google Maps, ordered by relevance. Google checks reviews for policy violations but does not verify individual customer experiences.</p>
+      <p className="mt-4 break-words text-[11px] leading-5 text-slate-500">Showing up to 3 reviews returned by Google Maps, ordered by relevance. Google checks reviews for policy violations but does not verify individual customer experiences.</p>
 
-      <div className="mt-5 grid gap-2 sm:grid-cols-2">
-        <a href={googleUrl} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#0a3c8f] px-4 py-3 text-sm font-black !text-white hover:bg-[#061b42]">
-          View all reviews <ExternalLink className="size-4" aria-hidden="true" />
+      <div className="mt-5 grid min-w-0 max-w-full gap-2 sm:grid-cols-2">
+        <a href={googleUrl} target="_blank" rel="noreferrer" className="inline-flex min-w-0 max-w-full items-center justify-center gap-2 rounded-xl bg-[#0a3c8f] px-4 py-3 text-sm font-black !text-white hover:bg-[#061b42]">
+          <span className="min-w-0 break-words">View all reviews</span> <ExternalLink className="size-4 shrink-0" aria-hidden="true" />
         </a>
-        <a href={googleUrl} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center gap-2 rounded-xl border border-[#9fb9e2] bg-white px-4 py-3 text-sm font-black text-[#0a3c8f] hover:bg-[#eef4ff]">
-          Leave a Google review <Star className="size-4" aria-hidden="true" />
+        <a href={googleUrl} target="_blank" rel="noreferrer" className="inline-flex min-w-0 max-w-full items-center justify-center gap-2 rounded-xl border border-[#9fb9e2] bg-white px-4 py-3 text-sm font-black text-[#0a3c8f] hover:bg-[#eef4ff]">
+          <span className="min-w-0 break-words">Leave a Google review</span> <Star className="size-4 shrink-0" aria-hidden="true" />
         </a>
       </div>
     </section>
