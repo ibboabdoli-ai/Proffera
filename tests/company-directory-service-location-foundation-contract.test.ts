@@ -22,10 +22,11 @@ describe("company directory service + location foundation", () => {
     expect(sql).toContain("source_type in ('website', 'admin', 'owner')");
   });
 
-  it("backfills only existing SNI-derived service slugs", () => {
-    expect(sql).toContain("unnest(profile.service_slugs)");
-    expect(sql).toContain("'sni'");
-    expect(sql).toContain("fine-grained child services");
+  it("backfills one broad service from primary SNI instead of legacy guessed specifics", () => {
+    expect(sql).toContain("profile.primary_sni_code = '81.210' then 'lokalvard'");
+    expect(sql).toContain("profile.primary_sni_code like '43.22%' then 'vvs'");
+    expect(sql).toContain("specific services such as hemstädning");
+    expect(sql).not.toContain("unnest(profile.service_slugs)");
   });
 
   it("does not change publication state", () => {
