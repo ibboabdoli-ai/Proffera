@@ -63,7 +63,12 @@ export function LocalizedQuoteRequestForm({ locale }: { locale: PublicLocale }) 
     startTransition(() => {
       void submitQuoteRequest({ ...data, website, formStartedAt: startedAt }).then((result) => {
         if (!result.ok) {
-          setErrors(locale === "en" ? { ...result.errors, form: result.errors.form ? t.serverError : undefined } : result.errors);
+          if (locale === "en") {
+            const localizedErrors = validate(data);
+            setErrors(Object.keys(localizedErrors).length > 0 ? localizedErrors : { form: t.serverError });
+          } else {
+            setErrors(result.errors);
+          }
           return;
         }
         setReference(result.referenceId);
