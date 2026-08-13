@@ -4,21 +4,8 @@ import { MapPin, Navigation, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { FormEvent, useRef, useState } from "react";
 
-import { directoryCopy, directoryPaths } from "@/components/company-directory/public-directory-copy";
+import { directoryCopy, directoryPaths, normalizeDirectoryPublicServiceQuery } from "@/components/company-directory/public-directory-copy";
 import type { PublicLocale } from "@/lib/public-locale";
-
-const englishQueryMap: Record<string, string> = {
-  "plumber": "vvs", "plumber / plumbing": "vvs", "plumbing": "vvs",
-  "drain cleaning": "avloppsrensning", "water leak": "vattenlacka", "heat pump": "varmepump",
-  "electrician": "elinstallation", "electrical troubleshooting": "felsokning-el", "ev charger": "laddbox", "electrical panel": "elcentral",
-  "cleaning": "lokalvard", "home cleaning": "hemstadning", "office cleaning": "kontorsstadning", "move-out cleaning": "flyttstadning",
-  "window cleaning": "fonsterputsning", "painting": "malning", "painter": "malning", "carpentry": "snickeri", "carpenter": "snickeri",
-  "moving help": "flytthjalp", "gardening": "tradgardshjalp", "home services": "hemservice",
-};
-
-function normalize(value: string) {
-  return value.trim().toLocaleLowerCase("en-US").replace(/\s+/g, " ");
-}
 
 export function PublicDirectorySearchForm({
   locale,
@@ -42,16 +29,11 @@ export function PublicDirectorySearchForm({
   const t = directoryCopy[locale];
   const searchPath = directoryPaths[locale].search;
 
-  function getServiceQuery(value: string) {
-    if (locale !== "en") return value.trim();
-    return englishQueryMap[normalize(value)] ?? value.trim();
-  }
-
   function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
     const params = new URLSearchParams();
-    const serviceValue = getServiceQuery(String(formData.get("service") ?? ""));
+    const serviceValue = normalizeDirectoryPublicServiceQuery(String(formData.get("service") ?? ""), locale);
     const locationValue = String(formData.get("location") ?? "").trim();
     if (serviceValue) params.set("service", serviceValue);
     if (locationValue) params.set("location", locationValue);
@@ -70,7 +52,7 @@ export function PublicDirectorySearchForm({
       (position) => {
         const form = formRef.current;
         const formData = form ? new FormData(form) : new FormData();
-        const currentService = getServiceQuery(String(formData.get("service") ?? ""));
+        const currentService = normalizeDirectoryPublicServiceQuery(String(formData.get("service") ?? ""), locale);
         const params = new URLSearchParams();
         if (currentService) params.set("service", currentService);
         params.set("latitude", position.coords.latitude.toFixed(6));
