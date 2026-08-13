@@ -20,6 +20,7 @@ export type NormalizedDirectoryCandidate = {
   employerStatus: string;
   primarySniCode: string;
   primarySniLabel: string;
+  primarySniVerified?: boolean;
   activityDescription: string;
   addressLine1: string;
   postalCode: string;
@@ -169,6 +170,7 @@ export function assessDirectoryCandidate(candidate: NormalizedDirectoryCandidate
   const reasons: string[] = [];
   const category = mapSniToDirectoryCategory(candidate.primarySniCode);
   const pilotLocation = isDirectoryPilotLocation(candidate);
+  const primarySniVerified = candidate.primarySniVerified !== false;
   let score = 0;
 
   if (candidate.isActive) score += 25;
@@ -182,6 +184,8 @@ export function assessDirectoryCandidate(candidate: NormalizedDirectoryCandidate
 
   if (category) score += 20;
   else reasons.push("unsupported_sni");
+
+  if (!primarySniVerified) reasons.push("primary_sni_not_confirmed");
 
   if (candidate.city.trim()) score += 10;
   else reasons.push("missing_city");
@@ -204,6 +208,7 @@ export function assessDirectoryCandidate(candidate: NormalizedDirectoryCandidate
   const autoPublicEligible = candidate.isActive
     && !privacyBlocked
     && Boolean(category)
+    && primarySniVerified
     && Boolean(candidate.city.trim())
     && pilotLocation;
 

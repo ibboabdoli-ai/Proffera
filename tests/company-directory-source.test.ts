@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { verifyOfficialCompanyCandidate } from "../src/lib/company-directory-source";
 import type { NormalizedDirectoryCandidate } from "../src/lib/company-directory-policy";
 
-function discoveredCandidate(): NormalizedDirectoryCandidate {
+function discoveredCandidate(overrides: Partial<NormalizedDirectoryCandidate> = {}): NormalizedDirectoryCandidate {
   return {
     countryCode: "SE",
     organizationNumber: "5299999994",
@@ -27,6 +27,7 @@ function discoveredCandidate(): NormalizedDirectoryCandidate {
     officialSource: "bolagsverket_vardefulla_datamangder",
     sourceRecordId: "5299999994",
     sourceUpdatedAt: null,
+    ...overrides,
   };
 }
 
@@ -35,6 +36,7 @@ function officialPayload(options: {
   deregisteredAt?: string | null;
   organizationForm?: string;
   juridicalForm?: string;
+  sni?: Array<{ kod: string; klartext: string }>;
 } = {}) {
   return {
     organisationer: [
@@ -77,8 +79,8 @@ function officialPayload(options: {
         },
         naringsgrenOrganisation: {
           fel: null,
-          dataproducent: "Bolagsverket",
-          sni: [{ kod: "47642", klartext: "Specialiserad butikshandel med cyklar" }],
+          dataproducent: "SCB",
+          sni: options.sni ?? [{ kod: "47642", klartext: "Specialiserad butikshandel med cyklar" }],
         },
       },
     ],
@@ -152,6 +154,56 @@ describe("official company directory source adapter", () => {
     const result = await verifyOfficialCompanyCandidate(discoveredCandidate());
 
     expect(result.isActive).toBe(false);
+  });
+
+  it("preserves SCB Ng1 when the matching official SNI is not the first item", async () => {
+    mockOfficialResponse(officialPayload({
+      sni: [
+        { kod: "43210", klartext: "Elinstallationer" },
+        { kod: "81210", klartext: "Lokalvård" },
+      ],
+    }));
+
+    const result = await verifyOfficialCompanyCandidate(discoveredCandidate({
+      primarySniCode: "81.210",
+      primarySniLabel: "",
+      primarySniVerified: false,
+    }));
+
+    expect(result.primarySniCode).toBe("81.210");
+    expect(result.primarySniLabel).toBe("Lokalvård");
+    expect(result.primarySniVerified).toBe(true);
+  });
+
+  it("keeps SCB Ng1 but marks it unverified when the official SNI list does not contain it", async () => {
+    mockOfficialResponse(officialPayload({
+      sni: [{ kod: "43210", klartext: "Elinstallationer" }],
+    }));
+
+    const result = await verifyOfficialCompanyCandidate(discoveredCandidate({
+      primarySniCode: "81.210",
+      primarySniLabel: "",
+      primarySniVerified: false,
+    }));
+
+    expect(result.primarySniCode).toBe("81.210");
+    expect(result.primarySniLabel).toBe("");
+    expect(result.primarySniVerified).toBe(false);
+  });
+
+  it("does not guess a primary SNI for a legacy discovery queue row", async () => {
+    mockOfficialResponse(officialPayload({
+      sni: [{ kod: "43210", klartext: "Elinstallationer" }],
+    }));
+
+    const result = await verifyOfficialCompanyCandidate(discoveredCandidate({
+      primarySniCode: "",
+      primarySniVerified: false,
+    }));
+
+    expect(result.primarySniCode).toBe("");
+    expect(result.primarySniLabel).toBe("");
+    expect(result.primarySniVerified).toBe(false);
   });
 
   it("rejects a verification response for a different organisation number", async () => {

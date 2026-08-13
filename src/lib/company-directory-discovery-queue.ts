@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 
 import { getSql } from "@/lib/db/server";
 import { upsertCompanyDirectoryCandidate } from "@/lib/company-directory-engine";
-import type { NormalizedDirectoryCandidate } from "@/lib/company-directory-policy";
+import { normalizeSniCode, type NormalizedDirectoryCandidate } from "@/lib/company-directory-policy";
 import { verifyOfficialCompanyCandidate } from "@/lib/company-directory-source";
 
 const DEFAULT_PROVIDER = "bolagsverket_vardefulla_datamangder";
@@ -17,7 +17,10 @@ type EnqueueInput = {
   provider?: string;
   sourceUrl?: string;
   fingerprint: string;
-  organizationNumbers: string[];
+  candidates: Array<{
+    organizationNumber: string;
+    primarySniCode: string;
+  }>;
   discoveredCount?: number;
   acceptedCount?: number;
   final?: boolean;
@@ -29,6 +32,11 @@ function text(value: unknown) {
 
 function normalizeOrganizationNumber(value: unknown) {
   return text(value).replace(/\D/g, "");
+}
+
+function normalizePrimarySniCode(value: unknown) {
+  const digits = text(value).replace(/\D/g, "");
+  return /^\d{4,5}$/.test(digits) ? digits : "";
 }
 
 function boundedInteger(value: unknown, fallback: number, max: number) {
@@ -69,7 +77,11 @@ function detailVerificationConfigured() {
   return Boolean(detail && (staticToken || oauth));
 }
 
-function seedCandidate(organizationNumber: string, provider: string): NormalizedDirectoryCandidate {
+function seedCandidate(
+  organizationNumber: string,
+  provider: string,
+  primarySniCode: string,
+): NormalizedDirectoryCandidate {
   return {
     countryCode: "SE",
     organizationNumber,
@@ -82,8 +94,9 @@ function seedCandidate(organizationNumber: string, provider: string): Normalized
     fTaxStatus: "",
     vatStatus: "",
     employerStatus: "",
-    primarySniCode: "",
+    primarySniCode: normalizeSniCode(primarySniCode),
     primarySniLabel: "",
+    primarySniVerified: false,
     activityDescription: "",
     addressLine1: "",
     postalCode: "",
@@ -106,17 +119,30 @@ export async function enqueueCompanyDirectoryCandidates(input: EnqueueInput) {
   if (!sourceUrl) throw new Error("An official Bolagsverket source URL is required");
   if (!fingerprint) throw new Error("A valid discovery fingerprint is required");
 
-  const organizationNumbers = [...new Set(
-    input.organizationNumbers
-      .map(normalizeOrganizationNumber)
-      .filter((value) => value.length === 10),
-  )].slice(0, MAX_INGEST_PER_REQUEST);
+  const candidatesByOrganizationNumber = new Map<string, string>();
+  for (const candidate of input.candidates.slice(0, MAX_INGEST_PER_REQUEST)) {
+    const organizationNumber = normalizeOrganizationNumber(candidate.organizationNumber);
+    if (organizationNumber.length !== 10) continue;
+    const primarySniCode = normalizePrimarySniCode(candidate.primarySniCode);
+    const existing = candidatesByOrganizationNumber.get(organizationNumber) ?? "";
+    if (existing && primarySniCode && existing !== primarySniCode) {
+      throw new Error(`Conflicting primary SNI codes for ${organizationNumber}`);
+    }
+    candidatesByOrganizationNumber.set(organizationNumber, primarySniCode || existing);
+  }
+  const candidates = [...candidatesByOrganizationNumber].map(([organizationNumber, primarySniCode]) => ({
+    organizationNumber,
+    primarySniCode,
+  }));
   const discoveredCount = Math.max(0, Math.floor(Number(input.discoveredCount) || 0));
   const acceptedCount = Math.max(
-    organizationNumbers.length,
+    candidates.length,
     Math.floor(Number(input.acceptedCount) || 0),
   );
-  const itemsJson = JSON.stringify(organizationNumbers);
+  const itemsJson = JSON.stringify(candidates.map((candidate) => ({
+    organization_number: candidate.organizationNumber,
+    primary_sni_code: candidate.primarySniCode,
+  })));
 
   await sql.transaction((tx) => [
     tx`
@@ -138,34 +164,60 @@ export async function enqueueCompanyDirectoryCandidates(input: EnqueueInput) {
     `,
     tx`
       insert into company_directory_discovery_queue (
-        country_code, organization_number, provider, source_fingerprint, source_url,
+        country_code, organization_number, primary_sni_code, provider, source_fingerprint, source_url,
         state, attempt_count, next_attempt_at, first_seen_at, last_seen_at
       )
       select
-        'SE', item.value, ${provider}, ${fingerprint}, ${sourceUrl},
+        'SE', item.organization_number, item.primary_sni_code, ${provider}, ${fingerprint}, ${sourceUrl},
         'pending_verify', 0, now(), now(), now()
-      from jsonb_array_elements_text(${itemsJson}::jsonb) item(value)
+      from jsonb_to_recordset(${itemsJson}::jsonb)
+        as item(organization_number text, primary_sni_code text)
       on conflict (country_code, organization_number) do update set
+        primary_sni_code = case
+          when excluded.primary_sni_code <> '' then excluded.primary_sni_code
+          else company_directory_discovery_queue.primary_sni_code
+        end,
         provider = excluded.provider,
         source_url = case when excluded.source_url <> '' then excluded.source_url else company_directory_discovery_queue.source_url end,
         last_seen_at = now(),
         state = case
-          when company_directory_discovery_queue.source_fingerprint <> excluded.source_fingerprint
+          when (
+            company_directory_discovery_queue.source_fingerprint <> excluded.source_fingerprint
+            or (
+              excluded.primary_sni_code <> ''
+              and company_directory_discovery_queue.primary_sni_code <> excluded.primary_sni_code
+            )
+          )
             and company_directory_discovery_queue.state <> 'claimed'
             then 'pending_verify'
           else company_directory_discovery_queue.state
         end,
         attempt_count = case
-          when company_directory_discovery_queue.source_fingerprint <> excluded.source_fingerprint then 0
+          when company_directory_discovery_queue.source_fingerprint <> excluded.source_fingerprint
+            or (
+              excluded.primary_sni_code <> ''
+              and company_directory_discovery_queue.primary_sni_code <> excluded.primary_sni_code
+            )
+            then 0
           else company_directory_discovery_queue.attempt_count
         end,
         next_attempt_at = case
-          when company_directory_discovery_queue.source_fingerprint <> excluded.source_fingerprint then now()
+          when company_directory_discovery_queue.source_fingerprint <> excluded.source_fingerprint
+            or (
+              excluded.primary_sni_code <> ''
+              and company_directory_discovery_queue.primary_sni_code <> excluded.primary_sni_code
+            )
+            then now()
           else company_directory_discovery_queue.next_attempt_at
         end,
         source_fingerprint = excluded.source_fingerprint,
         last_error = case
-          when company_directory_discovery_queue.source_fingerprint <> excluded.source_fingerprint then ''
+          when company_directory_discovery_queue.source_fingerprint <> excluded.source_fingerprint
+            or (
+              excluded.primary_sni_code <> ''
+              and company_directory_discovery_queue.primary_sni_code <> excluded.primary_sni_code
+            )
+            then ''
           else company_directory_discovery_queue.last_error
         end
     `,
@@ -174,7 +226,7 @@ export async function enqueueCompanyDirectoryCandidates(input: EnqueueInput) {
   return {
     provider,
     fingerprint,
-    accepted: organizationNumbers.length,
+    accepted: candidates.length,
     acceptedTotal: acceptedCount,
     final: Boolean(input.final),
   };
@@ -227,6 +279,7 @@ async function claimQueueBatch(limit: number) {
     returning
       queue.id::text,
       queue.organization_number,
+      queue.primary_sni_code,
       queue.provider,
       queue.attempt_count,
       queue.lock_token::text
@@ -235,6 +288,7 @@ async function claimQueueBatch(limit: number) {
   return rows.map((row) => ({
     id: text(row.id),
     organizationNumber: normalizeOrganizationNumber(row.organization_number),
+    primarySniCode: normalizePrimarySniCode(row.primary_sni_code),
     provider: safeProvider(row.provider),
     attemptCount: Number(row.attempt_count) || 1,
     lockToken: text(row.lock_token),
@@ -308,7 +362,7 @@ export async function processCompanyDirectoryDiscoveryQueue(limit?: number) {
   for (const item of claimed) {
     try {
       const verified = await verifyOfficialCompanyCandidate(
-        seedCandidate(item.organizationNumber, `${item.provider}:discovery`),
+        seedCandidate(item.organizationNumber, `${item.provider}:discovery`, item.primarySniCode),
       );
       const result = await upsertCompanyDirectoryCandidate(verified);
       await completeQueueItem({

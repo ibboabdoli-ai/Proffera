@@ -201,7 +201,8 @@ function nameFromRecord(row: AnyRecord) {
   return "";
 }
 
-function sniFromRecord(row: AnyRecord) {
+function sniEntriesFromRecord(row: AnyRecord) {
+  const entries: Array<{ code: string; label: string }> = [];
   const directCode = text(firstPath(row, [
     ["primarySniCode"],
     ["sniKod"],
@@ -217,7 +218,7 @@ function sniFromRecord(row: AnyRecord) {
     ["naringsgrenText"],
     ["näringsgrenText"],
   ]));
-  if (directCode) return { code: normalizeSniCode(directCode), label: directLabel };
+  if (directCode) entries.push({ code: normalizeSniCode(directCode), label: directLabel });
 
   const containers = [
     firstPath(row, [["naringsgrenOrganisation", "sni"]]),
@@ -245,16 +246,20 @@ function sniFromRecord(row: AnyRecord) {
           ? text(first(candidateRow, ["kod", "code", "sniKod", "snikod", "näringsgrenKod", "naringsgrenKod"]))
           : text(candidate);
         if (!code) continue;
-        return {
+        entries.push({
           code: normalizeSniCode(code),
           label: candidateRow
             ? text(first(candidateRow, ["klartext", "text", "namn", "name", "beskrivning", "description"]))
             : "",
-        };
+        });
       }
     }
   }
-  return { code: "", label: "" };
+  return [...new Map(entries.filter((entry) => entry.code).map((entry) => [entry.code, entry])).values()];
+}
+
+function sniFromRecord(row: AnyRecord) {
+  return sniEntriesFromRecord(row)[0] ?? { code: "", label: "" };
 }
 
 function addressFromRecord(row: AnyRecord) {
@@ -494,8 +499,17 @@ function replaceOrganizationNumber(template: string, organizationNumber: string)
   return template.replaceAll("{organizationNumber}", encodeURIComponent(normalized));
 }
 
-function mergeVerifiedCandidate(discovered: NormalizedDirectoryCandidate, verified: NormalizedDirectoryCandidate) {
+function mergeVerifiedCandidate(
+  discovered: NormalizedDirectoryCandidate,
+  verified: NormalizedDirectoryCandidate,
+  officialSniEntries: Array<{ code: string; label: string }>,
+) {
   const pick = (verifiedValue: string, discoveredValue: string) => verifiedValue.trim() || discoveredValue;
+  const discoveredPrimarySniCode = normalizeSniCode(discovered.primarySniCode);
+  const officialPrimarySniMatch = officialSniEntries.find(
+    (entry) => normalizeSniCode(entry.code) === discoveredPrimarySniCode,
+  );
+  const preserveDiscoveredPrimarySni = discovered.primarySniVerified !== undefined;
   return {
     ...discovered,
     ...verified,
@@ -508,8 +522,15 @@ function mergeVerifiedCandidate(discovered: NormalizedDirectoryCandidate, verifi
     fTaxStatus: pick(verified.fTaxStatus, discovered.fTaxStatus),
     vatStatus: pick(verified.vatStatus, discovered.vatStatus),
     employerStatus: pick(verified.employerStatus, discovered.employerStatus),
-    primarySniCode: pick(verified.primarySniCode, discovered.primarySniCode),
-    primarySniLabel: pick(verified.primarySniLabel, discovered.primarySniLabel),
+    primarySniCode: preserveDiscoveredPrimarySni
+      ? discoveredPrimarySniCode
+      : pick(verified.primarySniCode, discovered.primarySniCode),
+    primarySniLabel: preserveDiscoveredPrimarySni
+      ? pick(discovered.primarySniLabel, officialPrimarySniMatch?.label ?? "")
+      : pick(verified.primarySniLabel, discovered.primarySniLabel),
+    primarySniVerified: preserveDiscoveredPrimarySni
+      ? Boolean(discoveredPrimarySniCode && officialPrimarySniMatch)
+      : discovered.primarySniVerified,
     activityDescription: pick(verified.activityDescription, discovered.activityDescription),
     addressLine1: pick(verified.addressLine1, discovered.addressLine1),
     postalCode: pick(verified.postalCode, discovered.postalCode),
@@ -586,5 +607,5 @@ export async function verifyOfficialCompanyCandidate(candidate: NormalizedDirect
     throw new Error("Official company verification returned a different organization number");
   }
 
-  return mergeVerifiedCandidate(candidate, verified);
+  return mergeVerifiedCandidate(candidate, verified, sniEntriesFromRecord(row));
 }
