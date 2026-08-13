@@ -126,14 +126,12 @@ button:disabled {
   -webkit-text-fill-color: currentColor;
 }
 
-a[href^="/foretag/listad/"],
-a[href^="/en/companies/"] {
+.directory-profile-result-cta {
   color: #173e2b !important;
   -webkit-text-fill-color: #173e2b !important;
 }
 
-a[href^="/foretag/listad/"]:hover,
-a[href^="/en/companies/"]:hover {
+.directory-profile-result-cta:hover {
   color: #ffffff !important;
   -webkit-text-fill-color: #ffffff !important;
 }
