@@ -6,6 +6,7 @@ import { getSql } from "@/lib/db/server";
 const DEFAULT_LANTMATERIET_BASE_URL =
   "https://api.lantmateriet.se/distribution/produkter/belagenhetsadress/v4.2";
 const GEOCODE_SOURCE = "lantmateriet_belagenhetsadress_v4_2";
+const NO_MATCH_SOURCE = "lantmateriet_no_match_v4_2";
 
 export const DIRECTORY_GEOCODING_PILOT_ORGS = [
   "5563115707",
@@ -62,6 +63,7 @@ export type DirectoryGeocodingBatchResult = {
   noMatch: number;
   errors: number;
   remaining: number;
+  needsReview: number;
 };
 
 export type DirectoryGeocodingStatus = {
@@ -71,6 +73,7 @@ export type DirectoryGeocodingStatus = {
   pilotTotal: number;
   geocoded: number;
   remaining: number;
+  needsReview: number;
 };
 
 function normalizeText(value: unknown) {
@@ -218,12 +221,18 @@ async function postgisReady() {
 
 async function pilotCounts() {
   const sql = getSql();
-  if (!sql) return { geocoded: 0, remaining: DIRECTORY_GEOCODING_PILOT_ORGS.length };
+  if (!sql) {
+    return { geocoded: 0, remaining: DIRECTORY_GEOCODING_PILOT_ORGS.length, needsReview: 0 };
+  }
   const orgsJson = JSON.stringify(DIRECTORY_GEOCODING_PILOT_ORGS);
   const rows = await sql`
     select
       count(*) filter (where location.latitude is not null and location.longitude is not null)::int as geocoded,
-      count(*) filter (where location.latitude is null or location.longitude is null)::int as remaining
+      count(*) filter (where location.geocode_source = ${NO_MATCH_SOURCE})::int as needs_review,
+      count(*) filter (
+        where (location.latitude is null or location.longitude is null)
+          and coalesce(location.geocode_source, '') <> ${NO_MATCH_SOURCE}
+      )::int as remaining
     from company_directory_profiles profile
     left join company_directory_business_locations location on location.profile_id = profile.id
     where profile.organization_number in (
@@ -232,6 +241,7 @@ async function pilotCounts() {
   `;
   return {
     geocoded: Number(rows[0]?.geocoded ?? 0),
+    needsReview: Number(rows[0]?.needs_review ?? 0),
     remaining: Number(rows[0]?.remaining ?? DIRECTORY_GEOCODING_PILOT_ORGS.length),
   };
 }
@@ -246,7 +256,30 @@ export async function getDirectoryGeocodingStatus(): Promise<DirectoryGeocodingS
     pilotTotal: DIRECTORY_GEOCODING_PILOT_ORGS.length,
     geocoded: counts.geocoded,
     remaining: counts.remaining,
+    needsReview: counts.needsReview,
   };
+}
+
+async function markNoMatch(profileId: string) {
+  const sql = getSql();
+  if (!sql) return;
+  await sql`
+    insert into company_directory_business_locations (
+      profile_id, geocode_source, geocode_precision, geocode_confidence,
+      is_public, geocoded_at, updated_at
+    ) values (
+      ${profileId}::uuid, ${NO_MATCH_SOURCE}, 'unknown', 0, false, now(), now()
+    )
+    on conflict (profile_id) do update set
+      geocode_source = excluded.geocode_source,
+      geocode_precision = excluded.geocode_precision,
+      geocode_confidence = excluded.geocode_confidence,
+      is_public = false,
+      geocoded_at = excluded.geocoded_at,
+      updated_at = now()
+    where company_directory_business_locations.latitude is null
+       or company_directory_business_locations.longitude is null
+  `;
 }
 
 export async function geocodeDirectoryPilotFromAdmin(limit = 5): Promise<DirectoryGeocodingBatchResult> {
@@ -279,6 +312,7 @@ export async function geocodeDirectoryPilotFromAdmin(limit = 5): Promise<Directo
       and lower(profile.address_line1) not like 'box %'
       and lower(profile.address_line1) not like 'kivra:%'
       and (location.latitude is null or location.longitude is null)
+      and coalesce(location.geocode_source, '') <> ${NO_MATCH_SOURCE}
     order by profile.category_slug, profile.display_name
     limit ${boundedLimit}
   `;
@@ -299,10 +333,11 @@ export async function geocodeDirectoryPilotFromAdmin(limit = 5): Promise<Directo
     try {
       const resolved = await resolveOfficialAddress(profile, config);
       if (!resolved) {
+        await markNoMatch(profile.id);
         noMatch += 1;
         continue;
       }
-      await sql`
+      const saved = await sql`
         with transformed as (
           select ST_Transform(
             ST_SetSRID(ST_MakePoint(${resolved.easting}, ${resolved.northing}), 3006),
@@ -335,8 +370,9 @@ export async function geocodeDirectoryPilotFromAdmin(limit = 5): Promise<Directo
           updated_at = now()
         where company_directory_business_locations.latitude is null
            or company_directory_business_locations.longitude is null
+        returning profile_id
       `;
-      geocoded += 1;
+      if (saved[0]) geocoded += 1;
     } catch {
       errors += 1;
     }
@@ -349,5 +385,6 @@ export async function geocodeDirectoryPilotFromAdmin(limit = 5): Promise<Directo
     noMatch,
     errors,
     remaining: counts.remaining,
+    needsReview: counts.needsReview,
   };
 }
