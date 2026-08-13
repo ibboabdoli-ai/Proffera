@@ -7,7 +7,7 @@
   },
   "crons": [
     {
-      "path": "/api/cron/company-directory-sync",
+      "path": "/api/cron/company-directory-official-facts",
       "schedule": "17 2 * * *"
     }
   ]
