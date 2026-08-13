@@ -2,6 +2,7 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 
+import { resolveCompleteBolagsverketOrganizationRecord } from "@/lib/company-directory-detail-validation";
 import {
   classifyOrganizationKind,
   normalizeSniCode,
@@ -438,18 +439,8 @@ function sourceItems(payload: unknown): unknown[] {
   return [row];
 }
 
-function detailRecord(payload: unknown): AnyRecord | null {
-  const root = object(payload);
-  if (!root) return null;
-  for (const key of ["organisationer", "organisations", "organizations", "items", "results"]) {
-    const candidate = firstObject(root[key]);
-    if (candidate) return candidate;
-  }
-  for (const key of ["organisation", "organization", "data", "result", "foretag", "företag"]) {
-    const nested = object(root[key]);
-    if (nested) return nested;
-  }
-  return root;
+function detailRecord(payload: unknown, organizationNumber: string): AnyRecord {
+  return resolveCompleteBolagsverketOrganizationRecord(payload, organizationNumber);
 }
 
 function nextCursorFromPayload(payload: unknown) {
@@ -587,8 +578,7 @@ export async function verifyOfficialCompanyCandidate(candidate: NormalizedDirect
   });
   if (!response.ok) throw new Error(`Official company verification failed (${response.status})`);
 
-  const row = detailRecord(await response.json());
-  if (!row) throw new Error("Official company verification returned no record");
+  const row = detailRecord(await response.json(), organizationNumber);
   const provider = `${candidate.officialSource}:detail`;
   const verified = normalizeSourceRecord(row, provider);
   if (!verified) throw new Error("Official company verification record could not be normalized");

@@ -1,12 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import { primeViewAreaPages } from "@/lib/primeview-seo-pages";
+import { primeViewAreaPages } from "@/lib/primeview-area-pages";
 import { primeViewSite } from "@/lib/primeview-seo";
 
 const canonical = `${primeViewSite.origin}/areas`;
 const title = "Window Cleaning Service Areas | PrimeView Window Care";
-const description = "PrimeView provides window, gutter and exterior cleaning across West, North and North West London. Explore local service information for Ealing, Harrow, Wembley, Uxbridge and nearby areas.";
+const description = "PrimeView provides window, gutter and exterior cleaning across London and nearby areas. Explore local service information and book online.";
+const whiteCtaText = { color: "#ffffff", WebkitTextFillColor: "#ffffff" } as const;
+const blueCtaText = { color: "#0a3c8f", WebkitTextFillColor: "#0a3c8f" } as const;
 
 export const metadata: Metadata = {
   metadataBase: new URL(primeViewSite.origin),
@@ -45,7 +47,7 @@ export default function PrimeViewAreasPage() {
       <header className="bg-[#06183b] text-white">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-5 py-5">
           <Link href="/" className="text-xl font-black text-white">PrimeView Window Care</Link>
-          <Link href="/booking" className="rounded-xl bg-[#0a3c8f] px-4 py-3 text-sm font-black text-white">Book online</Link>
+          <Link href="/booking" className="rounded-xl bg-[#0a3c8f] px-4 py-3 text-sm font-black text-white" style={whiteCtaText}>Book online</Link>
         </div>
       </header>
 
@@ -53,7 +55,7 @@ export default function PrimeViewAreasPage() {
         <div className="mx-auto max-w-6xl">
           <nav aria-label="Breadcrumb" className="text-sm font-semibold text-slate-300"><Link href="/" className="hover:text-white">Home</Link> <span aria-hidden="true">/</span> <span className="text-white">Service Areas</span></nav>
           <h1 className="mt-8 max-w-4xl text-4xl font-black tracking-[-.04em] sm:text-6xl">Window & exterior cleaning service areas</h1>
-          <p className="mt-6 max-w-3xl text-lg leading-8 text-slate-200">PrimeView works across West, North and North West London. Select your area for local service information, or send your postcode if you are nearby and want us to confirm coverage.</p>
+          <p className="mt-6 max-w-3xl text-lg leading-8 text-slate-200">PrimeView serves locations across London and nearby areas. Select your area for local service information, or send your postcode if you want us to confirm coverage.</p>
         </div>
       </section>
 
@@ -73,7 +75,7 @@ export default function PrimeViewAreasPage() {
       <section className="border-t border-[#d9e0ed] bg-white px-5 py-14">
         <div className="mx-auto flex max-w-6xl flex-col justify-between gap-6 md:flex-row md:items-center">
           <div><h2 className="text-3xl font-black">Not sure if we cover your postcode?</h2><p className="mt-2 max-w-2xl leading-7 text-slate-600">Send the postcode with your property details and PrimeView will confirm coverage before the appointment.</p></div>
-          <div className="flex flex-wrap gap-3"><Link href="/services" className="rounded-xl border border-[#a9b9d1] px-5 py-3.5 font-black text-[#0a3c8f]">View services</Link><Link href="/booking" className="rounded-xl bg-[#0a3c8f] px-5 py-3.5 font-black text-white">Book online</Link></div>
+          <div className="flex flex-wrap gap-3"><Link href="/services" className="rounded-xl border border-[#a9b9d1] px-5 py-3.5 font-black text-[#0a3c8f]" style={blueCtaText}>View services</Link><Link href="/booking" className="rounded-xl bg-[#0a3c8f] px-5 py-3.5 font-black text-white" style={whiteCtaText}>Book online</Link></div>
         </div>
       </section>
     </main>

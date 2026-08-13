@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveCompleteBolagsverketOrganizationRecord } from "./company-directory-official-facts-errors";
+import { resolveCompleteBolagsverketOrganizationRecord } from "./company-directory-detail-validation";
 
 describe("complete Bolagsverket detail validation", () => {
   const requested = "5561234567";
@@ -32,5 +32,16 @@ describe("complete Bolagsverket detail validation", () => {
         { organisationsidentitet: { identitetsbeteckning: requested } },
       ],
     }, requested)).toThrow("multiple matching organization records");
+  });
+
+  it("rejects an explicit non-organization identity type", () => {
+    expect(() => resolveCompleteBolagsverketOrganizationRecord({
+      organisationer: [{
+        organisationsidentitet: {
+          identitetsbeteckning: requested,
+          typ: "PERSONNUMMER",
+        },
+      }],
+    }, requested)).toThrow("unsupported identity type");
   });
 });
