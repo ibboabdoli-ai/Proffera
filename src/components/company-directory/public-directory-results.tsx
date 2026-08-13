@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowRight, MapPin, Navigation, ShieldCheck } from "lucide-react";
 
 import { directoryCopy, directoryPaths, directoryServiceLabel } from "@/components/company-directory/public-directory-copy";
+import { quoteRequestPaths } from "@/features/quote-request/localization";
 import type { PublishedDirectorySearchResponse } from "@/lib/company-directory-public-search";
 import type { PublicLocale } from "@/lib/public-locale";
 
@@ -27,6 +28,16 @@ export function PublicDirectoryResults({ locale, search }: { locale: PublicLocal
           <h2 className="mt-1 text-2xl font-black">{t.companyCount(search.results.length)}</h2>
         </div>
         <p className="text-xs font-semibold text-[#758078]">{nearbyActive ? t.nearest(search.radiusKm) : t.publishedOnly}</p>
+      </div>
+
+      <div className="mt-4 flex flex-col gap-4 rounded-2xl bg-[#102a1c] p-5 text-white sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="font-black">{locale === "en" ? "Want to compare quotes?" : "Vill du jämföra offerter?"}</p>
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-white/70">{locale === "en" ? "Send one request and let Proffera match it with suitable companies." : "Skicka en förfrågan så kan Proffera matcha den med lämpliga företag."}</p>
+        </div>
+        <Link href={quoteRequestPaths[locale]} className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl bg-white px-4 text-sm font-black text-[#173e2b]">
+          {locale === "en" ? "Get quotes" : "Få offerter"}<ArrowRight className="ml-2 h-4 w-4" />
+        </Link>
       </div>
 
       <div className="mt-4 grid gap-3">
