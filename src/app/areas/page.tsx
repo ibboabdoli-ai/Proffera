@@ -7,6 +7,8 @@ import { primeViewSite } from "@/lib/primeview-seo";
 const canonical = `${primeViewSite.origin}/areas`;
 const title = "Window Cleaning Service Areas | PrimeView Window Care";
 const description = "PrimeView provides window, gutter and exterior cleaning across London and nearby areas. Explore local service information and book online.";
+const whiteCtaText = { color: "#ffffff", WebkitTextFillColor: "#ffffff" } as const;
+const blueCtaText = { color: "#0a3c8f", WebkitTextFillColor: "#0a3c8f" } as const;
 
 export const metadata: Metadata = {
   metadataBase: new URL(primeViewSite.origin),
@@ -45,7 +47,7 @@ export default function PrimeViewAreasPage() {
       <header className="bg-[#06183b] text-white">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-5 py-5">
           <Link href="/" className="text-xl font-black text-white">PrimeView Window Care</Link>
-          <Link href="/booking" className="rounded-xl bg-[#0a3c8f] px-4 py-3 text-sm font-black text-white">Book online</Link>
+          <Link href="/booking" className="rounded-xl bg-[#0a3c8f] px-4 py-3 text-sm font-black text-white" style={whiteCtaText}>Book online</Link>
         </div>
       </header>
 
@@ -73,7 +75,7 @@ export default function PrimeViewAreasPage() {
       <section className="border-t border-[#d9e0ed] bg-white px-5 py-14">
         <div className="mx-auto flex max-w-6xl flex-col justify-between gap-6 md:flex-row md:items-center">
           <div><h2 className="text-3xl font-black">Not sure if we cover your postcode?</h2><p className="mt-2 max-w-2xl leading-7 text-slate-600">Send the postcode with your property details and PrimeView will confirm coverage before the appointment.</p></div>
-          <div className="flex flex-wrap gap-3"><Link href="/services" className="rounded-xl border border-[#a9b9d1] px-5 py-3.5 font-black text-[#0a3c8f]">View services</Link><Link href="/booking" className="rounded-xl bg-[#0a3c8f] px-5 py-3.5 font-black text-white">Book online</Link></div>
+          <div className="flex flex-wrap gap-3"><Link href="/services" className="rounded-xl border border-[#a9b9d1] px-5 py-3.5 font-black text-[#0a3c8f]" style={blueCtaText}>View services</Link><Link href="/booking" className="rounded-xl bg-[#0a3c8f] px-5 py-3.5 font-black text-white" style={whiteCtaText}>Book online</Link></div>
         </div>
       </section>
     </main>
