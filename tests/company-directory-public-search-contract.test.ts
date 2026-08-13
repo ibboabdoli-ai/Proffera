@@ -26,9 +26,10 @@ describe("public company directory search contract", () => {
     expect(searchSource).toContain("company_directory_services");
   });
 
-  it("keeps mailbox-style addresses out of public local search", () => {
-    expect(searchSource).toContain("lower(profile.address_line1) not like 'box %'");
-    expect(searchSource).toContain("lower(profile.address_line1) not like 'kivra:%'");
+  it("keeps city search separate from nearby geocoding eligibility", () => {
+    expect(searchSource).not.toContain("requireCoordinates");
+    expect(searchSource).not.toContain("company_directory_business_locations");
+    expect(searchSource).not.toContain("lower(profile.address_line1) not like 'box %'");
   });
 
   it("links results only to the existing public listed-company profile route", () => {

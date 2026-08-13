@@ -98,9 +98,6 @@ export async function searchPublishedCompanyDirectory(
           or lower(profile.city) = ${normalizedLocation}
           or lower(profile.municipality) = ${normalizedLocation}
         )
-        and profile.address_line1 <> ''
-        and lower(profile.address_line1) not like 'box %'
-        and lower(profile.address_line1) not like 'kivra:%'
     )
     select *
     from matches
