@@ -4,6 +4,7 @@ import { mapSniToDirectoryCategory } from "./company-directory-policy";
 import {
   DIRECTORY_SERVICES,
   getDirectoryServiceDefinition,
+  mapPrimarySniToDirectorySearchService,
   resolveDirectoryServiceQuery,
 } from "./company-directory-service-taxonomy";
 
@@ -19,7 +20,7 @@ const supportedSniCodes = [
 ];
 
 describe("company directory service taxonomy", () => {
-  it("contains every legacy SNI-derived service slug", () => {
+  it("contains every legacy SNI-derived service slug for compatibility", () => {
     for (const sniCode of supportedSniCodes) {
       const match = mapSniToDirectoryCategory(sniCode);
       expect(match).not.toBeNull();
@@ -40,6 +41,11 @@ describe("company directory service taxonomy", () => {
       serviceSlug: "elinstallation",
       categorySlug: "elektriker",
     });
+    expect(resolveDirectoryServiceQuery("städfirma")).toEqual({
+      kind: "service",
+      serviceSlug: "lokalvard",
+      categorySlug: "stadning",
+    });
     expect(resolveDirectoryServiceQuery("fönsterputs")).toEqual({
       kind: "service",
       serviceSlug: "fonsterputsning",
@@ -47,12 +53,24 @@ describe("company directory service taxonomy", () => {
     });
   });
 
-  it("supports fine-grained services without assigning them from broad SNI data", () => {
+  it("maps primary SNI to one broad defensible searchable service", () => {
+    expect(mapPrimarySniToDirectorySearchService("81.210")).toBe("lokalvard");
+    expect(mapPrimarySniToDirectorySearchService("81.221")).toBe("fonsterputsning");
+    expect(mapPrimarySniToDirectorySearchService("96.910")).toBe("hemservice");
+    expect(mapPrimarySniToDirectorySearchService("43.221")).toBe("vvs");
+    expect(mapPrimarySniToDirectorySearchService("43.210")).toBe("elinstallation");
+  });
+
+  it("keeps fine-grained services available without inferring them from broad SNI", () => {
+    expect(getDirectoryServiceDefinition("hemstadning")?.parentServiceSlug).toBe("lokalvard");
+    expect(getDirectoryServiceDefinition("flyttstadning")?.parentServiceSlug).toBe("lokalvard");
     expect(getDirectoryServiceDefinition("vattenlacka")?.parentServiceSlug).toBe("vvs");
     expect(getDirectoryServiceDefinition("laddbox")?.parentServiceSlug).toBe("elinstallation");
 
-    expect(mapSniToDirectoryCategory("43.221")?.serviceSlugs).toEqual(["vvs"]);
-    expect(mapSniToDirectoryCategory("43.210")?.serviceSlugs).toEqual(["elinstallation"]);
+    expect(mapPrimarySniToDirectorySearchService("81.210")).not.toBe("hemstadning");
+    expect(mapPrimarySniToDirectorySearchService("81.210")).not.toBe("flyttstadning");
+    expect(mapPrimarySniToDirectorySearchService("43.221")).not.toBe("vattenlacka");
+    expect(mapPrimarySniToDirectorySearchService("43.210")).not.toBe("laddbox");
   });
 
   it("keeps service slugs unique", () => {
@@ -62,5 +80,6 @@ describe("company directory service taxonomy", () => {
 
   it("returns null for unsupported search terms", () => {
     expect(resolveDirectoryServiceQuery("hundfrisör")).toBeNull();
+    expect(mapPrimarySniToDirectorySearchService("62.100")).toBeNull();
   });
 });
