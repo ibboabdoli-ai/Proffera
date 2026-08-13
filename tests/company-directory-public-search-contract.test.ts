@@ -3,19 +3,17 @@ import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+function source(path: string) {
+  return readFileSync(resolve(process.cwd(), path), "utf8");
+}
+
 describe("public company directory search contract", () => {
-  const searchSource = readFileSync(
-    resolve(process.cwd(), "src/lib/company-directory-public-search.ts"),
-    "utf8",
-  );
-  const pageSource = readFileSync(
-    resolve(process.cwd(), "src/app/foretag/listad/page.tsx"),
-    "utf8",
-  );
-  const formSource = readFileSync(
-    resolve(process.cwd(), "src/app/foretag/listad/PublicDirectorySearchForm.tsx"),
-    "utf8",
-  );
+  const searchSource = source("src/lib/company-directory-public-search.ts");
+  const pageSource = source("src/app/foretag/listad/page.tsx");
+  const shellSource = source("src/components/company-directory/public-directory-search-page.tsx");
+  const resultsSource = source("src/components/company-directory/public-directory-results.tsx");
+  const formSource = source("src/components/company-directory/public-directory-search-form.tsx");
+  const copySource = source("src/components/company-directory/public-directory-copy.ts");
 
   it("never exposes ready directory profiles through the public search", () => {
     expect(searchSource).toContain("profile.publication_status = 'published'");
@@ -46,19 +44,23 @@ describe("public company directory search contract", () => {
   });
 
   it("adds autocomplete, nearby search, popular services and richer result cards", () => {
-    expect(pageSource).toContain("PublicDirectorySearchForm");
-    expect(pageSource).toContain("Populära tjänster");
-    expect(pageSource).toContain("result.activityDescription");
-    expect(pageSource).toContain("result.distanceKm.toFixed(1)");
+    expect(pageSource).toContain('PublicDirectorySearchPage locale="sv"');
+    expect(shellSource).toContain("PublicDirectorySearchForm");
+    expect(shellSource).toContain("popularDirectoryServices");
+    expect(resultsSource).toContain("result.activityDescription");
+    expect(resultsSource).toContain("result.distanceKm");
+    expect(copySource).toContain("toFixed(1)");
     expect(formSource).toContain("directory-service-suggestions");
     expect(formSource).toContain("directory-location-suggestions");
     expect(formSource).toContain("navigator.geolocation.getCurrentPosition");
-    expect(formSource).toContain("Nära mig");
+    expect(copySource).toContain("Nära mig");
   });
 
-  it("links results only to the existing public listed-company profile route", () => {
-    expect(pageSource).toContain("searchPublishedCompanyDirectory");
-    expect(pageSource).toContain("/foretag/listad/${encodeURIComponent(result.slug)}");
-    expect(pageSource).toContain("registrerade adress");
+  it("keeps search and profile routing in the shared public directory graph", () => {
+    expect(shellSource).toContain("searchPublishedCompanyDirectory");
+    expect(resultsSource).toContain("${profileBase}/${encodeURIComponent(result.slug)}");
+    expect(copySource).toContain("registrerade adress");
+    expect(copySource).toContain('search: "/foretag/listad"');
+    expect(copySource).toContain('search: "/en/companies"');
   });
 });
