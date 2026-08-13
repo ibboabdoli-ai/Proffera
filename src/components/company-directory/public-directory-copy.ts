@@ -26,6 +26,31 @@ export const directoryServiceLabelsEn: Record<string, string> = {
   hemservice: "Home services",
 };
 
+const directoryServiceQueriesEn: Record<string, string> = {
+  plumber: "vvs",
+  "plumber / plumbing": "vvs",
+  plumbing: "vvs",
+  "drain cleaning": "avloppsrensning",
+  "water leak": "vattenlacka",
+  "heat pump": "varmepump",
+  electrician: "elinstallation",
+  "electrical troubleshooting": "felsokning-el",
+  "ev charger": "laddbox",
+  "electrical panel": "elcentral",
+  cleaning: "lokalvard",
+  "home cleaning": "hemstadning",
+  "office cleaning": "kontorsstadning",
+  "move-out cleaning": "flyttstadning",
+  "window cleaning": "fonsterputsning",
+  painting: "malning",
+  painter: "malning",
+  carpentry: "snickeri",
+  carpenter: "snickeri",
+  "moving help": "flytthjalp",
+  gardening: "tradgardshjalp",
+  "home services": "hemservice",
+};
+
 export const directoryCategoryLabels: Record<PublicLocale, Record<string, string>> = {
   sv: {
     stadning: "Städning", flytt: "Flytt", elektriker: "Elektriker", vvs: "VVS",
@@ -89,4 +114,11 @@ export const directoryCopy = {
 
 export function directoryServiceLabel(slug: string, swedishLabel: string, locale: PublicLocale) {
   return locale === "en" ? directoryServiceLabelsEn[slug] ?? swedishLabel : swedishLabel;
+}
+
+export function normalizeDirectoryPublicServiceQuery(value: string, locale: PublicLocale) {
+  const trimmed = value.trim();
+  if (locale !== "en") return trimmed;
+  const normalized = trimmed.toLocaleLowerCase("en-US").replace(/\s+/g, " ");
+  return directoryServiceQueriesEn[normalized] ?? trimmed;
 }
