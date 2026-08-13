@@ -150,15 +150,17 @@ values
   ('laddbox', 'elektriker', 'elinstallation', 'Laddbox', array['elbilsladdare', 'laddbox installation'], 30),
   ('elcentral', 'elektriker', 'elinstallation', 'Elcentral', array['säkringsskåp', 'sakringsskap', 'centralbyte'], 40),
 
-  ('hemstadning', 'stadning', null, 'Hemstädning', array['hemstäd', 'hemstad', 'städning hemma', 'stadning hemma'], 10),
-  ('kontorsstadning', 'stadning', null, 'Kontorsstädning', array['kontorsstäd', 'kontorsstad', 'lokalvård', 'lokalvard'], 20),
-  ('flyttstadning', 'stadning', null, 'Flyttstädning', array['flyttstäd', 'flyttstad'], 30),
-  ('fonsterputsning', 'stadning', null, 'Fönsterputsning', array['fönsterputs', 'fonsterputs', 'fönstertvätt', 'fonstertvatt'], 40),
+  ('lokalvard', 'stadning', null, 'Städning / Lokalvård', array['städning', 'stadning', 'städ', 'stad', 'lokalvård', 'lokalvard', 'städfirma', 'stadfirma'], 10),
+  ('hemstadning', 'stadning', 'lokalvard', 'Hemstädning', array['hemstäd', 'hemstad', 'städning hemma', 'stadning hemma'], 20),
+  ('kontorsstadning', 'stadning', 'lokalvard', 'Kontorsstädning', array['kontorsstäd', 'kontorsstad'], 30),
+  ('flyttstadning', 'stadning', 'lokalvard', 'Flyttstädning', array['flyttstäd', 'flyttstad'], 40),
+  ('fonsterputsning', 'stadning', 'lokalvard', 'Fönsterputsning', array['fönsterputs', 'fonsterputs', 'fönstertvätt', 'fonstertvatt'], 50),
 
   ('malning', 'maleri', null, 'Målning', array['målare', 'malare', 'måleri', 'maleri'], 10),
   ('snickeri', 'snickeri', null, 'Snickeri', array['snickare', 'byggnadssnickeri'], 10),
   ('flytthjalp', 'flytt', null, 'Flytthjälp', array['flyttfirma', 'flytthjälp', 'flytthjalp'], 10),
-  ('tradgardshjalp', 'tradgard', null, 'Trädgårdshjälp', array['trädgård', 'tradgard', 'trädgårdshjälp', 'tradgardshjalp'], 10)
+  ('tradgardshjalp', 'tradgard', null, 'Trädgårdshjälp', array['trädgård', 'tradgard', 'trädgårdshjälp', 'tradgardshjalp'], 10),
+  ('hemservice', 'hemservice', null, 'Hemservice', array['hemservice', 'hushållsnära tjänster', 'hushallsnara tjanster'], 10)
 on conflict (slug) do update set
   category_slug = excluded.category_slug,
   parent_service_slug = excluded.parent_service_slug,
@@ -168,23 +170,37 @@ on conflict (slug) do update set
   is_active = true,
   updated_at = now();
 
--- Preserve current official SNI-derived service assignments as relational rows.
--- We deliberately do not infer fine-grained child services such as water leaks,
--- drain clearing or EV chargers from a broad SNI code.
+-- Create one broad, defensible SNI-derived searchable service per profile.
+-- Specific services such as hemstädning, flyttstädning, water leaks or EV
+-- chargers require stronger evidence from the website, an admin or the owner.
 insert into company_directory_profile_services (
   profile_id, service_slug, source_type, confidence, is_primary, is_active, public_visible
 )
 select
   profile.id,
-  service_slug,
+  mapped.service_slug,
   'sni',
-  80,
-  row_number() over (partition by profile.id order by service_slug) = 1,
+  85,
+  true,
   true,
   true
 from company_directory_profiles profile
-cross join lateral unnest(profile.service_slugs) service_slug
-join company_directory_services service on service.slug = service_slug
+cross join lateral (
+  select case
+    when profile.primary_sni_code = '81.210' then 'lokalvard'
+    when profile.primary_sni_code = '81.221' then 'fonsterputsning'
+    when profile.primary_sni_code = '96.910' then 'hemservice'
+    when profile.primary_sni_code = '49.420' then 'flytthjalp'
+    when profile.primary_sni_code = '43.210' then 'elinstallation'
+    when profile.primary_sni_code like '43.22%' then 'vvs'
+    when profile.primary_sni_code = '43.341' then 'malning'
+    when profile.primary_sni_code = '43.320' then 'snickeri'
+    when profile.primary_sni_code = '81.300' then 'tradgardshjalp'
+    else null
+  end as service_slug
+) mapped
+join company_directory_services service on service.slug = mapped.service_slug
+where mapped.service_slug is not null
 on conflict (profile_id, service_slug) do nothing;
 
 comment on table company_directory_service_categories is
