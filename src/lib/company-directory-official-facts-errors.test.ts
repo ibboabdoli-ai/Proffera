@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   collectBolagsverketApiErrors,
   formatBolagsverketApiErrors,
+  resolveBolagsverketOrganizationRecord,
 } from "./company-directory-official-facts-errors";
 
 describe("collectBolagsverketApiErrors", () => {
@@ -73,5 +74,70 @@ describe("collectBolagsverketApiErrors", () => {
     expect(summary).toContain("…");
     expect(summary).not.toContain("Y".repeat(300));
     expect(summary).not.toContain("fel5");
+  });
+});
+
+describe("resolveBolagsverketOrganizationRecord", () => {
+  const requested = "5561234567";
+
+  it("accepts one exact record when the optional identity type is omitted", () => {
+    const row = resolveBolagsverketOrganizationRecord({
+      organisationer: [{
+        organisationsidentitet: { identitetsbeteckning: requested },
+        organisationsnamn: { organisationsnamnLista: [{ namn: "Testbolaget AB" }] },
+      }],
+    }, requested);
+
+    expect(row.organisationsidentitet).toEqual({ identitetsbeteckning: requested });
+  });
+
+  it("accepts an explicit organization-number identity type", () => {
+    const row = resolveBolagsverketOrganizationRecord({
+      organisationer: [{
+        organisationsidentitet: {
+          identitetsbeteckning: requested,
+          typ: "ORGANISATIONSNUMMER",
+        },
+      }],
+    }, requested);
+
+    expect(row).toBeTruthy();
+  });
+
+  it("rejects a record with no matching identity", () => {
+    expect(() => resolveBolagsverketOrganizationRecord({
+      organisationer: [{ organisationsidentitet: {} }],
+    }, requested)).toThrow("no matching organization identity");
+  });
+
+  it("rejects a different returned organization number", () => {
+    expect(() => resolveBolagsverketOrganizationRecord({
+      organisationer: [{ organisationsidentitet: { identitetsbeteckning: "5567654321" } }],
+    }, requested)).toThrow("no matching organization identity");
+  });
+
+  it("rejects multiple exact matches instead of selecting the first record", () => {
+    expect(() => resolveBolagsverketOrganizationRecord({
+      organisationer: [
+        { organisationsidentitet: { identitetsbeteckning: requested } },
+        { organisationsidentitet: { identitetsbeteckning: requested } },
+      ],
+    }, requested)).toThrow("multiple matching organization records");
+  });
+
+  it.each(["PERSONNUMMER", "SAMORDNINGSNUMMER", "GDNUMMER"])(
+    "rejects explicit unsupported identity type %s",
+    (typ) => {
+      expect(() => resolveBolagsverketOrganizationRecord({
+        organisationer: [{
+          organisationsidentitet: { identitetsbeteckning: requested, typ },
+        }],
+      }, requested)).toThrow("unsupported identity type");
+    },
+  );
+
+  it("rejects a malformed requested organization number", () => {
+    expect(() => resolveBolagsverketOrganizationRecord({ organisationer: [] }, "123"))
+      .toThrow("requires a 10-digit organization number");
   });
 });
