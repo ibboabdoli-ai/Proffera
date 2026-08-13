@@ -4,7 +4,10 @@ export type DirectoryCoordinates = {
 };
 
 function finiteNumber(value: unknown) {
-  const parsed = typeof value === "number" ? value : Number(String(value ?? "").trim());
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  const parsed = Number(raw);
   return Number.isFinite(parsed) ? parsed : null;
 }
 
