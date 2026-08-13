@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import { primeViewAreaPages } from "@/lib/primeview-seo-pages";
+import { primeViewAreaPages } from "@/lib/primeview-area-pages";
 import { primeViewSite } from "@/lib/primeview-seo";
 
 const canonical = `${primeViewSite.origin}/areas`;
 const title = "Window Cleaning Service Areas | PrimeView Window Care";
-const description = "PrimeView provides window, gutter and exterior cleaning across West, North and North West London. Explore local service information for Ealing, Harrow, Wembley, Uxbridge and nearby areas.";
+const description = "PrimeView provides window, gutter and exterior cleaning across London and nearby areas. Explore local service information and book online.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(primeViewSite.origin),
@@ -53,7 +53,7 @@ export default function PrimeViewAreasPage() {
         <div className="mx-auto max-w-6xl">
           <nav aria-label="Breadcrumb" className="text-sm font-semibold text-slate-300"><Link href="/" className="hover:text-white">Home</Link> <span aria-hidden="true">/</span> <span className="text-white">Service Areas</span></nav>
           <h1 className="mt-8 max-w-4xl text-4xl font-black tracking-[-.04em] sm:text-6xl">Window & exterior cleaning service areas</h1>
-          <p className="mt-6 max-w-3xl text-lg leading-8 text-slate-200">PrimeView works across West, North and North West London. Select your area for local service information, or send your postcode if you are nearby and want us to confirm coverage.</p>
+          <p className="mt-6 max-w-3xl text-lg leading-8 text-slate-200">PrimeView serves locations across London and nearby areas. Select your area for local service information, or send your postcode if you want us to confirm coverage.</p>
         </div>
       </section>
 
