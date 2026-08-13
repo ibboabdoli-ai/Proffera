@@ -3,6 +3,7 @@ import { Search } from "lucide-react";
 
 import { requireSuperAdmin } from "@/lib/admin-authorization";
 import { searchCompanyDirectory } from "@/lib/company-directory-search";
+import { NearbySearchFields } from "./NearbySearchFields";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +11,9 @@ type PageProps = {
   searchParams?: Promise<{
     service?: string | string[];
     location?: string | string[];
+    latitude?: string | string[];
+    longitude?: string | string[];
+    radius?: string | string[];
   }>;
 };
 
@@ -21,11 +25,18 @@ export default async function DirectorySearchPreviewPage({ searchParams }: PageP
   await requireSuperAdmin();
   const params = await (searchParams ?? Promise.resolve(undefined));
   const service = firstParam(params?.service) ?? "Rörmokare";
-  const location = firstParam(params?.location) ?? "Stockholm";
+  const latitude = firstParam(params?.latitude) ?? "";
+  const longitude = firstParam(params?.longitude) ?? "";
+  const radius = firstParam(params?.radius) ?? "25";
+  const nearbyParamsPresent = Boolean(latitude || longitude);
+  const location = firstParam(params?.location) ?? (nearbyParamsPresent ? "" : "Stockholm");
 
   const search = await searchCompanyDirectory({
     service,
     location,
+    latitude,
+    longitude,
+    radiusKm: radius,
     streetAddressOnly: true,
     limit: 30,
   });
@@ -36,9 +47,9 @@ export default async function DirectorySearchPreviewPage({ searchParams }: PageP
         <div className="flex flex-col gap-4 rounded-[1.75rem] bg-[#102a1c] p-7 text-white shadow-xl shadow-[#17452f]/10 sm:p-9">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#a9dbb9]">Directory Search Pilot</p>
-            <h1 className="mt-2 text-3xl font-black sm:text-4xl">Service + Location</h1>
+            <h1 className="mt-2 text-3xl font-black sm:text-4xl">Service + Location + Nära mig</h1>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-white/75">
-              Intern söktest mot Ready-profiler. Resultaten är inte offentliga och visar bara företag med användbar gatuadress.
+              Intern söktest mot Ready-profiler. Resultaten är inte offentliga. Nära mig använder bara sparade, verifierade företagskoordinater.
             </p>
           </div>
           <Link href="/admin/foretag/directory" className="w-fit text-sm font-bold text-[#d6eadd] underline underline-offset-4">
@@ -46,28 +57,39 @@ export default async function DirectorySearchPreviewPage({ searchParams }: PageP
           </Link>
         </div>
 
-        <form className="mt-7 grid gap-4 rounded-2xl bg-white p-5 ring-1 ring-black/5 sm:grid-cols-[1fr_1fr_auto]" method="get">
-          <label className="grid gap-2 text-sm font-bold text-[#2c392f]">
-            Service
-            <input
-              name="service"
-              defaultValue={search.serviceQuery}
-              placeholder="Rörmokare"
-              className="min-h-12 rounded-xl border border-black/10 bg-[#fafaf8] px-4 font-medium outline-none focus:border-[#17452f]"
+        <form className="mt-7 grid gap-5 rounded-2xl bg-white p-5 ring-1 ring-black/5" method="get">
+          <div className="grid gap-4 sm:grid-cols-[1fr_1fr_auto]">
+            <label className="grid gap-2 text-sm font-bold text-[#2c392f]">
+              Service
+              <input
+                name="service"
+                defaultValue={search.serviceQuery}
+                placeholder="Rörmokare"
+                className="min-h-12 rounded-xl border border-black/10 bg-[#fafaf8] px-4 font-medium outline-none focus:border-[#17452f]"
+              />
+            </label>
+            <label className="grid gap-2 text-sm font-bold text-[#2c392f]">
+              Plats
+              <input
+                name="location"
+                defaultValue={search.locationQuery}
+                placeholder="Stockholm eller lämna tomt för Nära mig"
+                className="min-h-12 rounded-xl border border-black/10 bg-[#fafaf8] px-4 font-medium outline-none focus:border-[#17452f]"
+              />
+            </label>
+            <button className="mt-auto inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-[#173e2b] px-5 font-black text-white" type="submit">
+              <Search className="h-4 w-4" /> Sök
+            </button>
+          </div>
+
+          <div className="border-t border-black/5 pt-5">
+            <p className="mb-3 text-xs font-black uppercase tracking-[0.14em] text-[#607066]">Nära mig · valfritt</p>
+            <NearbySearchFields
+              defaultLatitude={latitude}
+              defaultLongitude={longitude}
+              defaultRadius={String(search.radiusKm)}
             />
-          </label>
-          <label className="grid gap-2 text-sm font-bold text-[#2c392f]">
-            Plats
-            <input
-              name="location"
-              defaultValue={search.locationQuery}
-              placeholder="Stockholm"
-              className="min-h-12 rounded-xl border border-black/10 bg-[#fafaf8] px-4 font-medium outline-none focus:border-[#17452f]"
-            />
-          </label>
-          <button className="mt-auto inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-[#173e2b] px-5 font-black text-white" type="submit">
-            <Search className="h-4 w-4" /> Sök
-          </button>
+          </div>
         </form>
 
         {!search.serviceResolved ? (
@@ -76,12 +98,26 @@ export default async function DirectorySearchPreviewPage({ searchParams }: PageP
           </div>
         ) : null}
 
+        {search.nearbyRequested && !search.nearbyEnabled ? (
+          <div className="mt-5 rounded-2xl border border-[#e5cf9a] bg-[#fff8e4] p-4 text-sm font-semibold text-[#6d5418]">
+            Latitude och longitude måste båda vara giltiga för Nära mig.
+          </div>
+        ) : null}
+
+        {search.nearbyEnabled ? (
+          <div className="mt-5 rounded-2xl border border-[#b8d9c2] bg-[#eef8f0] p-4 text-sm font-semibold text-[#17452f]">
+            Nära mig är aktivt: företag inom {search.radiusKm} km visas när verifierade företagskoordinater finns.
+          </div>
+        ) : null}
+
         <div className="mt-7 flex items-end justify-between gap-4">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.14em] text-[#607066]">Pilotresultat</p>
             <h2 className="mt-1 text-2xl font-black text-[#17201a]">{search.results.length} företag</h2>
           </div>
-          <p className="text-xs text-[#727d75]">Ready + street address · max 30</p>
+          <p className="text-xs text-[#727d75]">
+            {search.nearbyEnabled ? `Avstånd · ${search.radiusKm} km` : "Ready + street address"} · max 30
+          </p>
         </div>
 
         <div className="mt-4 grid gap-3">
@@ -94,6 +130,9 @@ export default async function DirectorySearchPreviewPage({ searchParams }: PageP
                   <p className="mt-2 text-sm text-[#5b665f]">
                     {[result.addressLine1, result.postalCode, result.city].filter(Boolean).join(", ")}
                   </p>
+                  {result.distanceKm !== null ? (
+                    <p className="mt-2 text-sm font-black text-[#17452f]">{result.distanceKm.toFixed(1)} km bort</p>
+                  ) : null}
                 </div>
                 <div className="flex flex-wrap gap-2 text-xs font-black">
                   <span className="rounded-full bg-[#edf4ef] px-3 py-1 text-[#17452f]">Quality {result.qualityScore}</span>
@@ -105,7 +144,9 @@ export default async function DirectorySearchPreviewPage({ searchParams }: PageP
 
           {search.serviceResolved && search.results.length === 0 ? (
             <div className="rounded-2xl bg-white p-6 text-sm text-[#68736b] ring-1 ring-black/5">
-              Inga matchande Ready-profiler med gatuadress hittades för den här kombinationen.
+              {search.nearbyEnabled
+                ? "Inga matchande företag med verifierade koordinater finns ännu inom den valda radien."
+                : "Inga matchande Ready-profiler med gatuadress hittades för den här kombinationen."}
             </div>
           ) : null}
         </div>
