@@ -10,12 +10,18 @@ function source(path: string) {
 describe("automatic company directory discovery contract", () => {
   it("uses a durable idempotent queue with leases and official detail verification", () => {
     const migration = source("db/migrations/20260810_0043_company_profile_discovery_queue.sql");
+    const primarySniMigration = source("db/migrations/20260813_0047_company_directory_discovery_primary_sni.sql");
     const queue = source("src/lib/company-directory-discovery-queue.ts");
 
     expect(migration).toContain("company_directory_source_snapshots");
     expect(migration).toContain("company_directory_discovery_queue");
     expect(migration).toContain("company_directory_discovery_country_org_unique_idx");
     expect(migration).toContain("lock_token");
+    expect(primarySniMigration).toContain("add column if not exists primary_sni_code");
+    expect(queue).toContain("primary_sni_code");
+    expect(queue).toContain("primarySniVerified: false");
+    expect(queue).toContain("company_directory_discovery_queue.primary_sni_code <> excluded.primary_sni_code");
+    expect(queue).toContain("company_directory_discovery_queue.state <> 'claimed'");
     expect(queue).toContain("for update skip locked");
     expect(queue).toContain("LEASE_MINUTES = 15");
     expect(queue).toContain("MAX_ATTEMPTS = 5");
@@ -34,6 +40,7 @@ describe("automatic company directory discovery contract", () => {
     expect(route).toContain('host !== "bolagsverket.se"');
     expect(route).toContain('host.endsWith(".bolagsverket.se")');
     expect(route).toContain("MAX_ORGANIZATION_NUMBERS = 500");
+    expect(route).toContain("payload.candidates");
   });
 
   it("processes the durable queue automatically without requiring a source URL", () => {
@@ -54,6 +61,7 @@ describe("automatic company directory discovery contract", () => {
     expect(worker).toContain('/scb/scb_bulkfil.zip');
     expect(worker).toContain("SCB_ORG_KEYS");
     expect(worker).toContain('SCB_SNI_KEYS = {"ng1"}');
+    expect(worker).toContain('"primarySniCode": str(row[1])');
     expect(worker).toContain("Ng2-Ng5 are secondary activities");
     expect(worker).toContain("SCB_LEGAL_FORM_KEYS");
     expect(worker).toContain("LEGAL_FORM_PRIORITY");

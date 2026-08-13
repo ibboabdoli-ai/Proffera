@@ -3,6 +3,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "company-directory-discovery.py"
@@ -61,9 +62,9 @@ class CompanyDirectoryDiscoveryWorkerTests(unittest.TestCase):
             "postadressOrganisation": {"postadress": {"postort": "SÖDERTÄLJE"}},
             "JurForm": "49",
         }
-        orgs, supported, pilot, legal_form_priority = MODULE.facts_from_mapping(record)
+        orgs, primary_sni_codes, pilot, legal_form_priority = MODULE.facts_from_mapping(record)
         self.assertEqual(orgs, {"5561234567"})
-        self.assertTrue(supported)
+        self.assertEqual(primary_sni_codes, {"81210"})
         self.assertTrue(pilot)
         self.assertEqual(legal_form_priority, 0)
 
@@ -78,9 +79,9 @@ class CompanyDirectoryDiscoveryWorkerTests(unittest.TestCase):
             "PostOrt": "STOCKHOLM",
             "JurForm": "49",
         }
-        orgs, supported, pilot, legal_form_priority = MODULE.facts_from_mapping(record)
+        orgs, primary_sni_codes, pilot, legal_form_priority = MODULE.facts_from_mapping(record)
         self.assertEqual(orgs, {"5561234567"})
-        self.assertTrue(supported)
+        self.assertEqual(primary_sni_codes, {"81210"})
         self.assertTrue(pilot)
         self.assertEqual(legal_form_priority, 0)
 
@@ -95,9 +96,9 @@ class CompanyDirectoryDiscoveryWorkerTests(unittest.TestCase):
             "PostOrt": "STOCKHOLM",
             "JurForm": "49",
         }
-        orgs, supported, pilot, legal_form_priority = MODULE.facts_from_mapping(record)
+        orgs, primary_sni_codes, pilot, legal_form_priority = MODULE.facts_from_mapping(record)
         self.assertEqual(orgs, {"5561234567"})
-        self.assertFalse(supported)
+        self.assertEqual(primary_sni_codes, {"52219"})
         self.assertTrue(pilot)
         self.assertEqual(legal_form_priority, 0)
 
@@ -126,7 +127,10 @@ class CompanyDirectoryDiscoveryWorkerTests(unittest.TestCase):
             candidates, records_seen = MODULE.collect_candidates(archive_path)
 
         self.assertEqual(records_seen, 7)
-        self.assertEqual(candidates, ["5569999998", "5169999999"])
+        self.assertEqual(candidates, [
+            {"organizationNumber": "5569999998", "primarySniCode": "81210"},
+            {"organizationNumber": "5169999999", "primarySniCode": "81210"},
+        ])
 
     def test_csv_bulk_files_merge_sni_location_and_legal_form_by_org_number(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -147,7 +151,40 @@ class CompanyDirectoryDiscoveryWorkerTests(unittest.TestCase):
             candidates, records_seen = MODULE.collect_candidates(archive_path)
 
         self.assertEqual(records_seen, 6)
-        self.assertEqual(candidates, ["5561234567"])
+        self.assertEqual(candidates, [
+            {"organizationNumber": "5561234567", "primarySniCode": "81210"},
+        ])
+
+    def test_conflicting_primary_sni_rows_are_not_enqueued(self):
+        with tempfile.TemporaryDirectory() as directory:
+            archive_path = Path(directory) / "official.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr(
+                    "scb_bulkfil.txt",
+                    "PeOrgNr\tNg1\tPostOrt\tJurForm\n"
+                    "165561234567\t81210\tStockholm\t49\n"
+                    "165561234567\t43210\tStockholm\t49\n",
+                )
+            candidates, records_seen = MODULE.collect_candidates(archive_path)
+
+        self.assertEqual(records_seen, 2)
+        self.assertEqual(candidates, [])
+
+    def test_ingest_payload_carries_structured_primary_sni_and_rolling_compatibility_ids(self):
+        candidates = [{"organizationNumber": "5561234567", "primarySniCode": "81210"}]
+        with patch.object(MODULE, "api_request", return_value={"ok": True}) as request:
+            MODULE.post_candidates(
+                "https://example.invalid/ingest",
+                "secret",
+                "https://vardefulla-datamangder.bolagsverket.se/scb/scb_bulkfil.zip",
+                "a" * 64,
+                candidates,
+                1,
+            )
+
+        payload = request.call_args.args[3]
+        self.assertEqual(payload["candidates"], candidates)
+        self.assertEqual(payload["organizationNumbers"], ["5561234567"])
 
 
 if __name__ == "__main__":

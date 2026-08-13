@@ -115,6 +115,14 @@ describe("company directory policy", () => {
     expect(assessment.publicationStatus).toBe("ready");
   });
 
+  it("keeps a company in review when Official Facts does not confirm SCB Ng1", () => {
+    const assessment = assessDirectoryCandidate(candidate({ primarySniVerified: false }));
+
+    expect(assessment.reasons).toContain("primary_sni_not_confirmed");
+    expect(assessment.autoPublicEligible).toBe(false);
+    expect(assessment.publicationStatus).toBe("review");
+  });
+
   it("uses the HVD active signal when individual tax fields are unavailable", () => {
     const assessment = assessDirectoryCandidate(candidate({
       fTaxStatus: "",

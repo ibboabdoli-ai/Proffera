@@ -44,4 +44,31 @@ describe("complete Bolagsverket detail validation", () => {
       }],
     }, requested)).toThrow("unsupported identity type");
   });
+
+  it("rejects the documented PERSONNR identity code inside a type object", () => {
+    expect(() => resolveCompleteBolagsverketOrganizationRecord({
+      organisationer: [{
+        organisationsidentitet: {
+          identitetsbeteckning: requested,
+          typ: { kod: "PERSONNR", klartext: "Personnummer" },
+        },
+      }],
+    }, requested)).toThrow("unsupported identity type");
+  });
+
+  it("accepts the documented ORGNR identity code inside a type object", () => {
+    const row = resolveCompleteBolagsverketOrganizationRecord({
+      organisationer: [{
+        organisationsidentitet: {
+          identitetsbeteckning: requested,
+          typ: { kod: "ORGNR", klartext: "Organisationsnummer" },
+        },
+      }],
+    }, requested);
+
+    expect(row.organisationsidentitet).toEqual({
+      identitetsbeteckning: requested,
+      typ: { kod: "ORGNR", klartext: "Organisationsnummer" },
+    });
+  });
 });

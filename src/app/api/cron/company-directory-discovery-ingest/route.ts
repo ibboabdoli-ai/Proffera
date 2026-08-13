@@ -72,8 +72,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: "Only official Bolagsverket HTTPS source URLs are accepted" }, { status: 400 });
   }
 
-  if (!Array.isArray(payload.organizationNumbers) || payload.organizationNumbers.length > MAX_ORGANIZATION_NUMBERS) {
-    return NextResponse.json({ ok: false, error: `organizationNumbers must contain at most ${MAX_ORGANIZATION_NUMBERS} values` }, { status: 400 });
+  const rawCandidates = Array.isArray(payload.candidates)
+    ? payload.candidates
+    : Array.isArray(payload.organizationNumbers)
+      ? payload.organizationNumbers.map((organizationNumber) => ({ organizationNumber, primarySniCode: "" }))
+      : null;
+  if (!rawCandidates || rawCandidates.length > MAX_ORGANIZATION_NUMBERS) {
+    return NextResponse.json({ ok: false, error: `candidates must contain at most ${MAX_ORGANIZATION_NUMBERS} values` }, { status: 400 });
   }
 
   try {
@@ -81,7 +86,15 @@ export async function POST(request: Request) {
       provider: typeof payload.provider === "string" ? payload.provider : undefined,
       sourceUrl,
       fingerprint: typeof payload.fingerprint === "string" ? payload.fingerprint : "",
-      organizationNumbers: payload.organizationNumbers.map((value) => String(value ?? "")),
+      candidates: rawCandidates.map((value) => {
+        const candidate: Record<string, unknown> = value && typeof value === "object" && !Array.isArray(value)
+          ? value as Record<string, unknown>
+          : { organizationNumber: value };
+        return {
+          organizationNumber: String(candidate.organizationNumber ?? ""),
+          primarySniCode: String(candidate.primarySniCode ?? ""),
+        };
+      }),
       discoveredCount: Number(payload.discoveredCount) || 0,
       acceptedCount: Number(payload.acceptedCount) || 0,
       final: payload.final === true,

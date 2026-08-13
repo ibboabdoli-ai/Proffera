@@ -276,14 +276,14 @@ def scalar_values(value: Any) -> Iterator[str]:
             yield from scalar_values(nested)
 
 
-def facts_from_mapping(record: dict[str, Any]) -> tuple[set[str], bool, bool, int]:
+def facts_from_mapping(record: dict[str, Any]) -> tuple[set[str], set[str], bool, int]:
     orgs: set[str] = set()
-    has_supported_sni = False
+    primary_sni_codes: set[str] = set()
     has_pilot_location = False
     legal_form_priority = UNKNOWN_LEGAL_FORM_PRIORITY
 
     def walk(value: Any, parent_key: str = "", depth: int = 0) -> None:
-        nonlocal has_supported_sni, has_pilot_location, legal_form_priority
+        nonlocal has_pilot_location, legal_form_priority
         if depth > 10:
             return
         if isinstance(value, dict):
@@ -301,8 +301,10 @@ def facts_from_mapping(record: dict[str, Any]) -> tuple[set[str], bool, bool, in
                             orgs.add(org)
 
                 if normalized_key in SCB_SNI_KEYS or any(marker in normalized_key for marker in SNI_KEY_MARKERS):
-                    if any(supported_sni(scalar) for scalar in scalar_values(nested)):
-                        has_supported_sni = True
+                    for scalar in scalar_values(nested):
+                        code = normalize_sni(scalar)
+                        if code:
+                            primary_sni_codes.add(code)
                 if normalized_key in SCB_LEGAL_FORM_KEYS:
                     for scalar in scalar_values(nested):
                         code = normalize_legal_form_code(scalar)
@@ -319,7 +321,7 @@ def facts_from_mapping(record: dict[str, Any]) -> tuple[set[str], bool, bool, in
                 walk(nested, parent_key, depth + 1)
 
     walk(record)
-    return orgs, has_supported_sni, has_pilot_location, legal_form_priority
+    return orgs, primary_sni_codes, has_pilot_location, legal_form_priority
 
 
 def iter_json_records(stream: io.BufferedReader, name: str) -> Iterator[dict[str, Any]]:
@@ -432,6 +434,8 @@ def open_state_db() -> tuple[sqlite3.Connection, Path]:
         create table candidate_facts (
           organization_number text primary key,
           supported_sni integer not null default 0,
+          primary_sni_code text not null default '',
+          primary_sni_conflict integer not null default 0,
           pilot_location integer not null default 0,
           legal_form_priority integer not null default 99
         )
@@ -440,7 +444,7 @@ def open_state_db() -> tuple[sqlite3.Connection, Path]:
     return connection, path
 
 
-def collect_candidates(path: Path) -> tuple[list[str], int]:
+def collect_candidates(path: Path) -> tuple[list[dict[str, str]], int]:
     database, database_path = open_state_db()
     records_seen = 0
     recognized_members = 0
@@ -452,20 +456,49 @@ def collect_candidates(path: Path) -> tuple[list[str], int]:
             recognized_members += 1
             for record in iter_member_records(name, source):
                 records_seen += 1
-                orgs, has_sni, has_location, legal_form_priority = facts_from_mapping(record)
+                orgs, primary_sni_codes, has_location, legal_form_priority = facts_from_mapping(record)
                 if not orgs:
                     continue
+                primary_sni_code = next(iter(primary_sni_codes)) if len(primary_sni_codes) == 1 else ""
+                primary_sni_conflict = int(len(primary_sni_codes) > 1)
                 for org in orgs:
                     database.execute(
                         """
-                        insert into candidate_facts (organization_number, supported_sni, pilot_location, legal_form_priority)
-                        values (?, ?, ?, ?)
+                        insert into candidate_facts (
+                          organization_number, supported_sni, primary_sni_code, primary_sni_conflict,
+                          pilot_location, legal_form_priority
+                        )
+                        values (?, ?, ?, ?, ?, ?)
                         on conflict(organization_number) do update set
                           supported_sni = max(candidate_facts.supported_sni, excluded.supported_sni),
+                          primary_sni_code = case
+                            when candidate_facts.primary_sni_code = '' then excluded.primary_sni_code
+                            when excluded.primary_sni_code = '' then candidate_facts.primary_sni_code
+                            when candidate_facts.primary_sni_code = excluded.primary_sni_code then candidate_facts.primary_sni_code
+                            else ''
+                          end,
+                          primary_sni_conflict = max(
+                            candidate_facts.primary_sni_conflict,
+                            excluded.primary_sni_conflict,
+                            case
+                              when candidate_facts.primary_sni_code <> ''
+                                and excluded.primary_sni_code <> ''
+                                and candidate_facts.primary_sni_code <> excluded.primary_sni_code
+                                then 1
+                              else 0
+                            end
+                          ),
                           pilot_location = max(candidate_facts.pilot_location, excluded.pilot_location),
                           legal_form_priority = min(candidate_facts.legal_form_priority, excluded.legal_form_priority)
                         """,
-                        (org, int(has_sni), int(has_location), legal_form_priority),
+                        (
+                            org,
+                            int(any(supported_sni(code) for code in primary_sni_codes)),
+                            primary_sni_code,
+                            primary_sni_conflict,
+                            int(has_location),
+                            legal_form_priority,
+                        ),
                     )
                 if records_seen % 5000 == 0:
                     database.commit()
@@ -474,16 +507,21 @@ def collect_candidates(path: Path) -> tuple[list[str], int]:
             raise RuntimeError("The official ZIP contained no supported machine-readable files")
         rows = database.execute(
             """
-            select organization_number
+            select organization_number, primary_sni_code
             from candidate_facts
             where supported_sni = 1
+              and primary_sni_code <> ''
+              and primary_sni_conflict = 0
               and pilot_location = 1
               and legal_form_priority < ?
             order by legal_form_priority asc, organization_number asc
             """,
             (UNKNOWN_LEGAL_FORM_PRIORITY,),
         ).fetchall()
-        return [str(row[0]) for row in rows], records_seen
+        return [
+            {"organizationNumber": str(row[0]), "primarySniCode": str(row[1])}
+            for row in rows
+        ], records_seen
     finally:
         database.close()
         database_path.unlink(missing_ok=True)
@@ -509,7 +547,7 @@ def post_candidates(
     secret: str,
     source_url: str,
     fingerprint: str,
-    candidates: list[str],
+    candidates: list[dict[str, str]],
     discovered_count: int,
 ) -> None:
     chunks = [candidates[index:index + POST_BATCH_SIZE] for index in range(0, len(candidates), POST_BATCH_SIZE)]
@@ -520,7 +558,10 @@ def post_candidates(
             "provider": DEFAULT_PROVIDER,
             "sourceUrl": source_url,
             "fingerprint": fingerprint,
-            "organizationNumbers": chunk,
+            # Keep organizationNumbers during the rolling deploy so an older ingest endpoint
+            # can still accept the batch. The structured candidates are the source of Ng1.
+            "organizationNumbers": [candidate["organizationNumber"] for candidate in chunk],
+            "candidates": chunk,
             "discoveredCount": discovered_count,
             "acceptedCount": len(candidates),
             "final": index == len(chunks) - 1,

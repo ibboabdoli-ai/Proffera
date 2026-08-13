@@ -165,8 +165,9 @@ export function resolveBolagsverketOrganizationRecord(
 
   const row = matches[0];
   const identity = object(row.organisationsidentitet);
-  const identityType = text(identity?.typ).toUpperCase();
-  if (identityType && identityType !== "ORGANISATIONSNUMMER") {
+  const identityTypeValue = identity?.typ;
+  const identityType = text(object(identityTypeValue)?.kod ?? identityTypeValue).toUpperCase();
+  if (identityType && !["ORGNR", "ORGANISATIONSNUMMER"].includes(identityType)) {
     throw new Error("Official facts lookup returned an unsupported identity type");
   }
 
