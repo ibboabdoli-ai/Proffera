@@ -97,3 +97,78 @@ export function formatBolagsverketApiErrors(errors: BolagsverketApiError[]) {
 
   return truncate(summary, MAX_ERROR_SUMMARY_LENGTH);
 }
+
+function normalizeIdentity(value: unknown) {
+  return text(value).replace(/\D/g, "");
+}
+
+function organizationRecords(payload: unknown): AnyRecord[] {
+  if (Array.isArray(payload)) {
+    return payload.map((value) => object(value)).filter((value): value is AnyRecord => Boolean(value));
+  }
+
+  const root = object(payload);
+  if (!root) return [];
+
+  for (const key of ["organisationer", "organisations", "organizations", "items", "results"]) {
+    const value = root[key];
+    if (Array.isArray(value)) {
+      const rows = value.map((item) => object(item)).filter((item): item is AnyRecord => Boolean(item));
+      if (rows.length > 0) return rows;
+    }
+    const row = object(value);
+    if (row) return [row];
+  }
+
+  for (const key of ["organisation", "organization", "data", "result", "foretag", "företag"]) {
+    const value = root[key];
+    if (Array.isArray(value)) {
+      const rows = value.map((item) => object(item)).filter((item): item is AnyRecord => Boolean(item));
+      if (rows.length > 0) return rows;
+    }
+    const row = object(value);
+    if (row) return [row];
+  }
+
+  return [root];
+}
+
+/**
+ * Resolve one exact organisation response without silently selecting the first item.
+ * The documented identity type is optional because an official Aktiebolag example omits it.
+ */
+export function resolveBolagsverketOrganizationRecord(
+  payload: unknown,
+  requestedOrganizationNumber: string,
+): AnyRecord {
+  const requested = normalizeIdentity(requestedOrganizationNumber);
+  if (!/^\d{10}$/.test(requested)) {
+    throw new Error("Official facts lookup requires a 10-digit organization number");
+  }
+
+  const candidates = organizationRecords(payload);
+  if (candidates.length === 0) {
+    throw new Error("Official facts lookup returned no organization record");
+  }
+
+  const matches = candidates.filter((row) => {
+    const identity = object(row.organisationsidentitet);
+    return normalizeIdentity(identity?.identitetsbeteckning) === requested;
+  });
+
+  if (matches.length === 0) {
+    throw new Error("Official facts lookup returned no matching organization identity");
+  }
+  if (matches.length > 1) {
+    throw new Error("Official facts lookup returned multiple matching organization records");
+  }
+
+  const row = matches[0];
+  const identity = object(row.organisationsidentitet);
+  const identityType = text(identity?.typ).toUpperCase();
+  if (identityType && identityType !== "ORGANISATIONSNUMMER") {
+    throw new Error("Official facts lookup returned an unsupported identity type");
+  }
+
+  return row;
+}
