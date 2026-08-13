@@ -10,6 +10,8 @@ describe("bilingual public directory contract", () => {
   const form = source("src/components/company-directory/public-directory-search-form.tsx");
   const shell = source("src/components/company-directory/public-directory-search-page.tsx");
   const results = source("src/components/company-directory/public-directory-results.tsx");
+  const globals = source("src/app/globals.css");
+  const swedishProfile = source("src/app/foretag/listad/[slug]/page.tsx");
   const englishSearch = source("src/app/en/companies/page.tsx");
   const englishProfile = source("src/app/en/companies/[slug]/page.tsx");
   const profile = source("src/components/company-directory/public-directory-profile.tsx");
@@ -21,19 +23,36 @@ describe("bilingual public directory contract", () => {
     expect(shell).toContain("directoryPaths[otherLocale].search");
     expect(englishSearch).toContain('locale="en"');
     expect(englishProfile).toContain('locale="en"');
+    expect(swedishProfile).toContain("/en/companies/");
+    expect(swedishProfile).toContain("EN English");
   });
 
-  it("accepts customer-facing English service terms without changing backend taxonomy", () => {
-    expect(form).toContain('"plumber": "vvs"');
-    expect(form).toContain('"electrician": "elinstallation"');
-    expect(form).toContain('"window cleaning": "fonsterputsning"');
-    expect(form).toContain("getServiceQuery");
+  it("normalizes customer-facing English service terms on both client and server", () => {
+    expect(copy).toContain('plumber: "vvs"');
+    expect(copy).toContain('electrician: "elinstallation"');
+    expect(copy).toContain('"window cleaning": "fonsterputsning"');
+    expect(copy).toContain("normalizeDirectoryPublicServiceQuery");
+    expect(form).toContain("normalizeDirectoryPublicServiceQuery");
+    expect(shell).toContain("const searchService = normalizeDirectoryPublicServiceQuery(service, locale)");
+    expect(shell).toContain("service: searchService");
   });
 
   it("localizes result labels while preserving official Swedish source text", () => {
     expect(results).toContain("directoryServiceLabel");
     expect(results).toContain('lang="sv"');
     expect(profile).toContain('lang="sv"');
+  });
+
+  it("scopes the contrast override to result CTAs so locale links remain readable", () => {
+    expect(results).toContain("directory-profile-result-cta");
+    expect(globals).toContain(".directory-profile-result-cta");
+    expect(globals).not.toContain('a[href^="/en/companies/"]');
+    expect(globals).not.toContain('a[href^="/foretag/listad/"]');
+  });
+
+  it("publishes reciprocal language metadata for Swedish company profiles", () => {
+    expect(swedishProfile).toContain('"sv-SE": swedishPath');
+    expect(swedishProfile).toContain("en: englishPath");
   });
 
   it("does not weaken the public publication boundary", () => {
