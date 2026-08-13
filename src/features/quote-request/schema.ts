@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import type { PublicLocale } from "@/lib/public-locale";
+
 export const serviceTypesByCategory = {
   "Hemstädning": ["Engångsstädning", "Återkommande städning", "Storstädning"],
   "Flyttstädning": ["Lägenhet", "Villa", "Kontor"],
@@ -11,65 +13,62 @@ export const serviceTypesByCategory = {
   "Renovering": ["Målning", "Golv", "Mindre renovering"],
 } as const;
 
+const validationCopy = {
+  sv: {
+    category: "Välj en kategori.", serviceTypeRequired: "Välj tjänstetyp.", serviceTypeLong: "Tjänstetypen är för lång.",
+    cityRequired: "Ange stad.", cityLong: "Orten är för lång.", postalRequired: "Ange postnummer.", postalLong: "Postnumret är för långt.",
+    postalFormat: "Postnummer får bara innehålla siffror, mellanslag eller bindestreck.", descriptionShort: "Beskriv uppdraget med minst 20 tecken.", descriptionLong: "Beskrivningen är för lång.",
+    dateRequired: "Välj ungefärlig tidpunkt.", dateLong: "Tidpunkten är för lång.", nameRequired: "Ange namn.", nameLong: "Namnet är för långt.",
+    emailInvalid: "Ange en giltig e-postadress.", emailLong: "E-postadressen är för lång.", phoneRequired: "Ange telefonnummer.", phoneLong: "Telefonnumret är för långt.",
+    phoneFormat: "Telefonnummer får bara innehålla siffror, +, mellanslag eller bindestreck.", consent: "Du måste godkänna att Proffera behandlar uppgifterna för att hantera förfrågan.",
+    serviceCategory: "Välj en tjänstetyp som hör till kategorin.",
+  },
+  en: {
+    category: "Choose a category.", serviceTypeRequired: "Choose a service type.", serviceTypeLong: "The service type is too long.",
+    cityRequired: "Enter a city.", cityLong: "The city name is too long.", postalRequired: "Enter a postal code.", postalLong: "The postal code is too long.",
+    postalFormat: "The postal code may only contain numbers, spaces or hyphens.", descriptionShort: "Describe the job using at least 20 characters.", descriptionLong: "The description is too long.",
+    dateRequired: "Choose an approximate time.", dateLong: "The preferred time is too long.", nameRequired: "Enter your name.", nameLong: "The name is too long.",
+    emailInvalid: "Enter a valid email address.", emailLong: "The email address is too long.", phoneRequired: "Enter a phone number.", phoneLong: "The phone number is too long.",
+    phoneFormat: "The phone number may only contain numbers, +, spaces or hyphens.", consent: "You must allow Proffera to process your details in order to handle the request.",
+    serviceCategory: "Choose a service type that belongs to the selected category.",
+  },
+} as const;
+
 function isServiceCategory(value: string) {
   return Object.hasOwn(serviceTypesByCategory, value);
 }
 
-export const quoteRequestSchema = z.object({
-  category: z
-    .string()
-    .trim()
-    .refine(isServiceCategory, "Välj en kategori."),
-  serviceType: z.string().trim().min(1, "Välj tjänstetyp.").max(120, "Tjänstetypen är för lång."),
-  city: z.string().trim().min(2, "Ange stad.").max(120, "Orten är för lång."),
-  postalCode: z
-    .string()
-    .trim()
-    .min(3, "Ange postnummer.")
-    .max(16, "Postnumret är för långt.")
-    .regex(/^[0-9\s-]+$/, "Postnummer får bara innehålla siffror, mellanslag eller bindestreck."),
-  description: z.string().trim().min(20, "Beskriv uppdraget med minst 20 tecken.").max(2_000, "Beskrivningen är för lång."),
-  preferredDate: z.string().trim().min(1, "Välj ungefärlig tidpunkt.").max(80, "Tidpunkten är för lång."),
-  contactName: z.string().trim().min(2, "Ange namn.").max(120, "Namnet är för långt."),
-  contactEmail: z.string().trim().email("Ange en giltig e-postadress.").max(180, "E-postadressen är för lång."),
-  contactPhone: z
-    .string()
-    .trim()
-    .min(6, "Ange telefonnummer.")
-    .max(40, "Telefonnumret är för långt.")
-    .regex(/^[0-9+\s-]+$/, "Telefonnummer får bara innehålla siffror, +, mellanslag eller bindestreck."),
-  consentAccepted: z
-    .boolean()
-    .refine((value) => value, "Du måste godkänna att Proffera behandlar uppgifterna för att hantera förfrågan."),
-}).superRefine((input, context) => {
-  const availableServiceTypes = isServiceCategory(input.category)
-    ? serviceTypesByCategory[input.category as keyof typeof serviceTypesByCategory]
-    : null;
+export function createQuoteRequestSchema(locale: PublicLocale = "sv") {
+  const copy = validationCopy[locale];
 
-  if (availableServiceTypes && !availableServiceTypes.includes(input.serviceType as never)) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["serviceType"],
-      message: "Välj en tjänstetyp som hör till kategorin.",
-    });
-  }
-});
+  return z.object({
+    category: z.string().trim().refine(isServiceCategory, copy.category),
+    serviceType: z.string().trim().min(1, copy.serviceTypeRequired).max(120, copy.serviceTypeLong),
+    city: z.string().trim().min(2, copy.cityRequired).max(120, copy.cityLong),
+    postalCode: z.string().trim().min(3, copy.postalRequired).max(16, copy.postalLong).regex(/^[0-9\s-]+$/, copy.postalFormat),
+    description: z.string().trim().min(20, copy.descriptionShort).max(2_000, copy.descriptionLong),
+    preferredDate: z.string().trim().min(1, copy.dateRequired).max(80, copy.dateLong),
+    contactName: z.string().trim().min(2, copy.nameRequired).max(120, copy.nameLong),
+    contactEmail: z.string().trim().email(copy.emailInvalid).max(180, copy.emailLong),
+    contactPhone: z.string().trim().min(6, copy.phoneRequired).max(40, copy.phoneLong).regex(/^[0-9+\s-]+$/, copy.phoneFormat),
+    consentAccepted: z.boolean().refine((value) => value, copy.consent),
+  }).superRefine((input, context) => {
+    const availableServiceTypes = isServiceCategory(input.category)
+      ? serviceTypesByCategory[input.category as keyof typeof serviceTypesByCategory]
+      : null;
 
+    if (availableServiceTypes && !availableServiceTypes.includes(input.serviceType as never)) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["serviceType"], message: copy.serviceCategory });
+    }
+  });
+}
+
+export const quoteRequestSchema = createQuoteRequestSchema("sv");
 export type QuoteRequestInput = z.infer<typeof quoteRequestSchema>;
-
 export type QuoteRequestField = keyof QuoteRequestInput;
-
 export type QuoteRequestErrors = Partial<Record<QuoteRequestField | "form", string>>;
 
 export const initialQuoteRequest: QuoteRequestInput = {
-  category: "",
-  serviceType: "",
-  city: "",
-  postalCode: "",
-  description: "",
-  preferredDate: "",
-  contactName: "",
-  contactEmail: "",
-  contactPhone: "",
-  consentAccepted: false,
+  category: "", serviceType: "", city: "", postalCode: "", description: "", preferredDate: "",
+  contactName: "", contactEmail: "", contactPhone: "", consentAccepted: false,
 };

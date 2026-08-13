@@ -1,20 +1,29 @@
 import type { Metadata } from "next";
+import Link from "next/link";
+
 import { PageShell } from "@/components/layout/page-shell";
 import { QuoteRequestForm } from "@/features/quote-request/quote-request-form";
 
 export const metadata: Metadata = {
-  title: "Få offert",
-  description: "Beskriv ditt uppdrag i Profferas flerstegsformulär.",
+  title: "Få offerter",
+  description: "Beskriv ditt uppdrag och bli matchad med lämpliga företag via Proffera.",
+  alternates: {
+    canonical: "/fa-offert",
+    languages: { "sv-SE": "/fa-offert", en: "/en/get-quote" },
+  },
 };
 
 export default function QuotePage() {
   return (
     <PageShell
-      eyebrow="Få offert"
+      eyebrow="Få offerter"
       title="Beskriv ditt uppdrag steg för steg."
-      description="Fyll i tjänst, plats, beskrivning och kontaktuppgifter. Formuläret validerar uppgifterna både i flödet och på serversidan."
+      description="Fyll i tjänst, plats, beskrivning och kontaktuppgifter. Proffera använder uppgifterna för att hantera förfrågan och matcha den med lämpliga företag."
     >
-      <QuoteRequestForm />
+      <div className="mb-4 flex justify-end">
+        <Link href="/en/get-quote" className="rounded-full border border-[#dfe5dd] bg-white px-4 py-2 text-sm font-semibold text-[#17452f]">EN English</Link>
+      </div>
+      <QuoteRequestForm locale="sv" />
     </PageShell>
   );
 }
