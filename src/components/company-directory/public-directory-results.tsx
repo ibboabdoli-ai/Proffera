@@ -43,7 +43,7 @@ export function PublicDirectoryResults({ locale, search }: { locale: PublicLocal
                 <p className="mt-2 flex items-center gap-2 text-sm text-[#5f6a62]"><MapPin className="h-4 w-4 shrink-0" /> {[result.postalCode, result.city].filter(Boolean).join(" ") || result.municipality || t.country}</p>
                 {result.activityDescription ? <div className="mt-3 max-w-3xl">{locale === "en" ? <p className="mb-1 text-[11px] font-black uppercase tracking-wide text-[#7a847d]">{t.sourceDescription}</p> : null}<p lang="sv" className="break-words text-sm leading-6 text-[#69736c]">{compactDescription(result.activityDescription)}</p></div> : null}
               </div>
-              <Link href={`${profileBase}/${encodeURIComponent(result.slug)}`} className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl border border-[#173e2b] px-4 text-sm font-black text-[#173e2b] transition hover:bg-[#173e2b] hover:text-white">{t.viewProfile}<ArrowRight className="ml-2 h-4 w-4" /></Link>
+              <Link href={`${profileBase}/${encodeURIComponent(result.slug)}`} className="directory-profile-result-cta inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl border border-[#173e2b] px-4 text-sm font-black text-[#173e2b] transition hover:bg-[#173e2b] hover:text-white">{t.viewProfile}<ArrowRight className="ml-2 h-4 w-4" /></Link>
             </div>
           </article>
         ))}
