@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 
 import { getSql } from "@/lib/db/server";
 import { upsertCompanyDirectoryCandidate } from "@/lib/company-directory-engine";
+import { enrichCompanyDirectoryOfficialFactsForProfile } from "@/lib/company-directory-official-facts";
 import { normalizeSniCode, type NormalizedDirectoryCandidate } from "@/lib/company-directory-policy";
 import { verifyOfficialCompanyCandidate } from "@/lib/company-directory-source";
 
@@ -277,11 +278,17 @@ async function claimQueueBatch(limit: number, options: QueueClaimOptions = {}) {
           not ${requireUnprofiled}
           or (
             queue.primary_sni_code <> ''
-            and not exists (
-              select 1
-              from company_directory_profiles profile
-              where profile.country_code = queue.country_code
-                and regexp_replace(profile.organization_number, '[^0-9]', '', 'g') = queue.organization_number
+            and (
+              not exists (
+                select 1
+                from company_directory_profiles profile
+                where profile.country_code = queue.country_code
+                  and regexp_replace(profile.organization_number, '[^0-9]', '', 'g') = queue.organization_number
+              )
+              or (
+                queue.profile_id is not null
+                and queue.last_error like 'targeted pilot retry:%'
+              )
             )
           )
         )
@@ -357,6 +364,42 @@ async function failQueueItem(input: {
     where id = ${input.id}::uuid
       and lock_token = ${input.lockToken}::uuid
   `;
+}
+
+async function requeueTargetedPilotItem(input: {
+  id: string;
+  profileId: string;
+  attemptCount: number;
+  error: string;
+}) {
+  const sql = getSql();
+  if (!sql) return;
+  const terminal = input.attemptCount >= MAX_ATTEMPTS;
+  const delayMinutes = terminal ? 24 * 60 : Math.min(360, 2 ** Math.max(0, input.attemptCount - 1));
+  await sql`
+    update company_directory_discovery_queue
+    set state = ${terminal ? "failed" : "pending_verify"},
+        locked_at = null,
+        lock_token = null,
+        last_error = ${`targeted pilot retry: ${input.error}`.slice(0, 1000)},
+        next_attempt_at = now() + (${delayMinutes}::text || ' minutes')::interval
+    where id = ${input.id}::uuid
+      and profile_id = ${input.profileId}::uuid
+  `;
+}
+
+async function targetedPilotProfileId(queueId: string, organizationNumber: string) {
+  const sql = getSql();
+  if (!sql) return "";
+  const rows = await sql`
+    select profile_id::text
+    from company_directory_discovery_queue
+    where id = ${queueId}::uuid
+      and organization_number = ${organizationNumber}
+      and profile_id is not null
+    limit 1
+  `;
+  return text(rows[0]?.profile_id);
 }
 
 export async function processCompanyDirectoryDiscoveryQueue(limit?: number) {
@@ -442,29 +485,45 @@ export async function processNewCompanyDirectoryDiscoveryQueueCandidate(organiza
   const errorMessages: string[] = [];
 
   for (const item of claimed) {
+    let itemProfileId = "";
     try {
       const verified = await verifyOfficialCompanyCandidate(
         seedCandidate(item.organizationNumber, `${item.provider}:discovery`, item.primarySniCode),
       );
       const result = await upsertCompanyDirectoryCandidate(verified);
-      profileId = result.profileId;
+      itemProfileId = result.profileId;
+      await enrichCompanyDirectoryOfficialFactsForProfile(result.profileId);
       await completeQueueItem({
         id: item.id,
         lockToken: item.lockToken,
         state: result.publicationStatus,
         profileId: result.profileId,
       });
+      profileId = result.profileId;
       processed += 1;
       if (result.publicationStatus === "published") published += 1;
       if (result.blocked) blocked += 1;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown queue processing error";
-      await failQueueItem({
-        id: item.id,
-        lockToken: item.lockToken,
-        attemptCount: item.attemptCount,
-        error: message,
-      });
+      const retryProfileId = itemProfileId || await targetedPilotProfileId(
+        item.id,
+        item.organizationNumber,
+      );
+      if (retryProfileId) {
+        await requeueTargetedPilotItem({
+          id: item.id,
+          profileId: retryProfileId,
+          attemptCount: item.attemptCount,
+          error: message,
+        });
+      } else {
+        await failQueueItem({
+          id: item.id,
+          lockToken: item.lockToken,
+          attemptCount: item.attemptCount,
+          error: message,
+        });
+      }
       errors += 1;
       errorMessages.push(`${item.organizationNumber}: ${message}`);
     }

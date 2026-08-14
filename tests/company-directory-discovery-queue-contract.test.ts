@@ -98,7 +98,7 @@ describe("automatic company directory discovery contract", () => {
 
     expect(route).toContain("process.env.CRON_SECRET");
     expect(route).toContain("processNewCompanyDirectoryDiscoveryQueueCandidate");
-    expect(route).toContain("enrichCompanyDirectoryOfficialFactsForProfile");
+    expect(route).toContain("result.errors > 0");
     expect(route).toContain("organization_number");
     expect(route).toContain("A 10-digit organization_number is required");
     expect(route).toContain('COMPANY_DIRECTORY_DISCOVERY_MODE?.trim().toLowerCase() !== "automatic"');
@@ -109,6 +109,10 @@ describe("automatic company directory discovery contract", () => {
     expect(queue).toContain("requireUnprofiled: true");
     expect(queue).toContain("queue.primary_sni_code <> ''");
     expect(queue).toContain("not exists (");
+    expect(queue).toContain("queue.last_error like 'targeted pilot retry:%'");
+    expect(queue).toContain("requeueTargetedPilotItem");
+    expect(queue).toContain("targetedPilotProfileId");
+    expect(queue).toContain("enrichCompanyDirectoryOfficialFactsForProfile(result.profileId)");
     expect(source("src/lib/company-directory-official-facts.ts")).toContain("enrichCompanyDirectoryOfficialFactsForProfile");
     expect(workflow).toContain("workflow_dispatch:");
     expect(workflow).toContain("organization_number:");

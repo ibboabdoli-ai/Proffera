@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 
 import { processNewCompanyDirectoryDiscoveryQueueCandidate } from "@/lib/company-directory-discovery-queue";
-import { enrichCompanyDirectoryOfficialFactsForProfile } from "@/lib/company-directory-official-facts";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -74,17 +73,23 @@ export async function GET(request: Request) {
       });
     }
 
-    if (!result.profileId) {
-      throw new Error("Targeted pilot did not create a company profile");
+    if (result.errors > 0) {
+      return NextResponse.json(
+        {
+          ok: false,
+          mode: "targeted_manual_pilot",
+          limit: 1,
+          ...result,
+        },
+        { status: 500 },
+      );
     }
 
-    const officialFacts = await enrichCompanyDirectoryOfficialFactsForProfile(result.profileId);
     return NextResponse.json({
       ok: true,
       mode: "targeted_manual_pilot",
       limit: 1,
       ...result,
-      officialFacts,
     });
   } catch (error) {
     console.error("Company directory pilot failed", error);
