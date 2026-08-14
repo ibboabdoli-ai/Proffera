@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   rememberCompleteBolagsverketOrganizationRecord,
@@ -24,6 +24,42 @@ describe("company directory verified-detail reuse", () => {
     expect(takeCompleteBolagsverketOrganizationRecord("5560000001")).toBe(record);
     expect(takeCompleteBolagsverketOrganizationRecord("5560000001")).toBeNull();
     expect(takeCompleteBolagsverketOrganizationRecord("5560000002")).toBeNull();
+  });
+
+  it("expires verified detail records after 60 seconds", () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+    const record = { marker: "expires" };
+
+    try {
+      rememberCompleteBolagsverketOrganizationRecord("5560000011", record);
+
+      now.mockReturnValue(61_000);
+      expect(takeCompleteBolagsverketOrganizationRecord("5560000011")).toBeNull();
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it("evicts the oldest record when more than 50 verified details are cached", () => {
+    const records = Array.from({ length: 51 }, (_, index) => ({
+      organizationNumber: String(5561000000 + index),
+      record: { marker: index },
+    }));
+
+    for (const entry of records) {
+      rememberCompleteBolagsverketOrganizationRecord(entry.organizationNumber, entry.record);
+    }
+
+    expect(
+      takeCompleteBolagsverketOrganizationRecord(records[0].organizationNumber),
+    ).toBeNull();
+    expect(
+      takeCompleteBolagsverketOrganizationRecord(records[50].organizationNumber),
+    ).toBe(records[50].record);
+
+    for (const entry of records.slice(1, 50)) {
+      takeCompleteBolagsverketOrganizationRecord(entry.organizationNumber);
+    }
   });
 
   it("remembers only detail responses that passed complete Bolagsverket validation", () => {
@@ -63,12 +99,9 @@ describe("company directory verified-detail reuse", () => {
     expect(batch).toContain("await fetchOfficialFacts(organizationNumber, token)");
   });
 
-  it("bounds transient raw-detail memory and does not persist the cache", () => {
+  it("does not persist the transient raw-detail cache", () => {
     const cache = source("src/lib/company-directory-detail-cache.ts");
 
-    expect(cache).toContain("CACHE_TTL_MS = 60_000");
-    expect(cache).toContain("MAX_CACHE_ENTRIES = 50");
-    expect(cache).toContain("verifiedDetails.delete(normalized)");
     expect(cache).not.toContain("getSql");
     expect(cache).not.toContain("process.env");
   });
