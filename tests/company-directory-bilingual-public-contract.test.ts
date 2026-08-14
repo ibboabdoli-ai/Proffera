@@ -50,6 +50,8 @@ describe("bilingual public directory contract", () => {
     expect(copy).toContain('lastChecked: "Senast kontrollerad"');
     expect(copy).toContain('lastChecked: "Last checked"');
     expect(profile).toContain("business.lastCheckedAt");
+    expect(swedishProfile).toContain("business.lastCheckedAt");
+    expect(swedishProfile).toContain("Senast kontrollerad");
     expect(engine).toContain("profile.last_synced_at");
     expect(engine).toContain("lastCheckedAt: row.last_synced_at");
   });
