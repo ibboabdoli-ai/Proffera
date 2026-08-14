@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { processCompanyDirectoryDiscoveryQueue } from "@/lib/company-directory-discovery-queue";
 import { syncCompanyDirectory } from "@/lib/company-directory-engine";
+import { getCompanyDirectoryOfficialFactsBacklog } from "@/lib/company-directory-official-facts";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -31,9 +32,18 @@ export async function GET(request: Request) {
     });
   }
 
-  const mode = process.env.COMPANY_DIRECTORY_DISCOVERY_MODE?.trim().toLowerCase();
-
   try {
+    const pendingOfficialFacts = await getCompanyDirectoryOfficialFactsBacklog();
+    if (pendingOfficialFacts > 0) {
+      return NextResponse.json({
+        ok: true,
+        skipped: true,
+        pendingOfficialFacts,
+        reason: "Company directory profile processing is paused until Official Facts catch up",
+      });
+    }
+
+    const mode = process.env.COMPANY_DIRECTORY_DISCOVERY_MODE?.trim().toLowerCase();
     if (mode === "automatic") {
       const result = await processCompanyDirectoryDiscoveryQueue();
       return NextResponse.json({ ok: true, mode: "automatic_queue", ...result });
