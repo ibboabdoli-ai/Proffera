@@ -43,6 +43,17 @@ describe("bilingual public directory contract", () => {
     expect(profile).toContain('lang="sv"');
   });
 
+  it("shows the real profile check date in both public languages", () => {
+    const copy = source("src/components/company-directory/public-directory-profile-copy.ts");
+    const engine = source("src/lib/company-directory-engine.ts");
+
+    expect(copy).toContain('lastChecked: "Senast kontrollerad"');
+    expect(copy).toContain('lastChecked: "Last checked"');
+    expect(profile).toContain("business.lastCheckedAt");
+    expect(engine).toContain("profile.last_synced_at");
+    expect(engine).toContain("lastCheckedAt: row.last_synced_at");
+  });
+
   it("scopes the contrast override to result CTAs so locale links remain readable", () => {
     expect(results).toContain("directory-profile-result-cta");
     expect(globals).toContain(".directory-profile-result-cta");
