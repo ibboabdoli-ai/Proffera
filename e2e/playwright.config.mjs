@@ -8,12 +8,20 @@ const repositoryRoot = path.resolve(configDir, "..");
 const localBaseUrl = "http://127.0.0.1:3000";
 const baseURL = process.env.E2E_BASE_URL ?? localBaseUrl;
 const parsedBaseUrl = new URL(baseURL);
-const localHosts = new Set(["127.0.0.1", "localhost", "::1"]);
-const productionHosts = new Set(["proffera.se", "www.proffera.se"]);
+const localHosts = new Set(["127.0.0.1", "localhost", "[::1]"]);
+const productionHosts = new Set(["proffera.se", "www.proffera.se", "chat.proffera.se"]);
 const isLocal = localHosts.has(parsedBaseUrl.hostname);
 
 if (productionHosts.has(parsedBaseUrl.hostname)) {
   throw new Error("Playwright E2E is intentionally blocked from running against Proffera Production.");
+}
+
+if (isLocal && parsedBaseUrl.protocol !== "http:") {
+  throw new Error("Local Playwright targets must use http://.");
+}
+
+if (isLocal && !parsedBaseUrl.port) {
+  throw new Error("Local Playwright targets must include an explicit port.");
 }
 
 if (!isLocal && process.env.E2E_ALLOW_REMOTE !== "true") {
@@ -21,6 +29,10 @@ if (!isLocal && process.env.E2E_ALLOW_REMOTE !== "true") {
     "Remote Playwright targets require E2E_ALLOW_REMOTE=true after Preview/Staging isolation has been verified.",
   );
 }
+
+const localServerHost = parsedBaseUrl.hostname === "[::1]" ? "::1" : parsedBaseUrl.hostname;
+const localServerPort = parsedBaseUrl.port;
+const localServerUrl = parsedBaseUrl.origin;
 
 export default defineConfig({
   testDir: "./tests",
@@ -43,9 +55,9 @@ export default defineConfig({
   ],
   webServer: isLocal
     ? {
-        command: "npm run dev -- --hostname 127.0.0.1 --port 3000",
+        command: `npm run dev -- --hostname ${localServerHost} --port ${localServerPort}`,
         cwd: repositoryRoot,
-        url: localBaseUrl,
+        url: localServerUrl,
         reuseExistingServer: !process.env.CI,
         timeout: 120_000,
         stdout: "ignore",

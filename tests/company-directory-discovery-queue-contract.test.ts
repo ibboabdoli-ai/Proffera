@@ -21,7 +21,7 @@ describe("automatic company directory discovery contract", () => {
     expect(queue).toContain("primary_sni_code");
     expect(queue).toContain("primarySniVerified: false");
     expect(queue).toContain("company_directory_discovery_queue.primary_sni_code <> excluded.primary_sni_code");
-    expect(queue).toContain("company_directory_discovery_queue.state <> 'claimed'");
+    expect(queue).toContain("company_directory_discovery_queue.state not in ('claimed', 'processing')");
     expect(queue).toContain("for update skip locked");
     expect(queue).toContain("LEASE_MINUTES = 15");
     expect(queue).toContain("MAX_ATTEMPTS = 5");
@@ -30,6 +30,18 @@ describe("automatic company directory discovery contract", () => {
     expect(queue).toContain("verifyOfficialCompanyCandidate");
     expect(queue).toContain("upsertCompanyDirectoryCandidate");
     expect(queue).toContain("await enrichCompanyDirectoryOfficialFactsForProfile(result.profileId)");
+  });
+
+  it("preserves active leases when discovery changes and rejects stale worker completion", () => {
+    const queue = source("src/lib/company-directory-discovery-queue.ts");
+
+    expect(queue).toContain("discovery source changed during processing");
+    expect(queue).toContain("source_fingerprint = ${input.sourceFingerprint}");
+    expect(queue).toContain("primary_sni_code = ${input.primarySniCode}");
+    expect(queue).toContain("attempt_count = case when source_fingerprint = ${input.sourceFingerprint}");
+    expect(queue).toContain("returning profile_id::text,");
+    expect(queue).toContain("source_unchanged");
+    expect(queue).toContain("Directory queue source changed during processing");
   });
 
   it("keeps discovery ingest secret-protected and restricted to official Bolagsverket HTTPS URLs", () => {
@@ -125,6 +137,9 @@ describe("automatic company directory discovery contract", () => {
     expect(workflow).toContain("Process one new company directory candidate");
     expect(workflow).toContain("/api/cron/company-directory-pilot");
     expect(workflow).toContain("PROFFERA_REMINDER_CRON_SECRET");
+    expect(workflow).toContain('RESPONSE_FILE="$(mktemp)"');
+    expect(workflow).toContain('payload.get("skipped") is True');
+    expect(workflow).toContain('payload.get("claimed") != 1 or payload.get("processed") != 1');
   });
 
   it("keeps the controlled batch pilot manual, capped, official-facts-first, and unpublished", () => {

@@ -17,15 +17,25 @@ Use Graphify as a local code-intelligence layer for architecture and dependency 
 
 ## Ensure Graphify is available
 
-Use Graphify `0.9.42` for this repository integration.
+Use Graphify `0.9.42` for this repository integration. An arbitrary preinstalled `graphify` binary is not accepted: verify the version, install/upgrade the pinned release when needed, and fail if the executable still does not report `0.9.42`.
 
 ```bash
-if command -v graphify >/dev/null 2>&1; then
+GRAPHIFY_VERSION="0.9.42"
+GRAPHIFY_VERSION_PATTERN='(^|[^0-9])0\.9\.42([^0-9]|$)'
+
+if command -v graphify >/dev/null 2>&1 \
+  && graphify --version 2>&1 | grep -Eq "$GRAPHIFY_VERSION_PATTERN"; then
   graphify --version
 elif command -v uv >/dev/null 2>&1; then
-  uv tool install 'graphifyy==0.9.42'
+  uv tool install --force "graphifyy==$GRAPHIFY_VERSION"
 else
-  python3 -m pip install 'graphifyy==0.9.42'
+  python3 -m pip install --upgrade "graphifyy==$GRAPHIFY_VERSION"
+fi
+
+if ! command -v graphify >/dev/null 2>&1 \
+  || ! graphify --version 2>&1 | grep -Eq "$GRAPHIFY_VERSION_PATTERN"; then
+  echo "Graphify $GRAPHIFY_VERSION is required, but the active graphify executable does not match." >&2
+  exit 1
 fi
 ```
 
