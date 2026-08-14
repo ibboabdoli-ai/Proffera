@@ -171,7 +171,12 @@ export async function getCompanyDirectoryAdminSnapshot(): Promise<CompanyDirecto
           p.quality_score, p.privacy_blocked, p.auto_public_eligible,
           p.is_active, p.official_source, p.last_synced_at, p.claimed_workspace_id,
           f.registered_names, f.sni_codes, f.deregistration_date,
-          f.advertising_blocked, f.ongoing_procedures
+          f.advertising_blocked, f.ongoing_procedures,
+          (
+            f.profile_id is not null
+            and f.last_synced_at >= p.last_synced_at
+            and f.source_payload_hash <> ''
+          ) as official_facts_fresh
         from company_directory_profiles p
         left join company_directory_official_facts f on f.profile_id = p.id
         order by
@@ -210,6 +215,7 @@ export async function getCompanyDirectoryAdminSnapshot(): Promise<CompanyDirecto
       if (!Boolean(row.auto_public_eligible)) publishSafetyReasons.push("not_public_eligible");
       if (row.claimed_workspace_id) publishSafetyReasons.push("already_claimed");
       if (!categoryConfidence.officialFactsReady) publishSafetyReasons.push("official_facts_missing");
+      if (!Boolean(row.official_facts_fresh)) publishSafetyReasons.push("official_facts_stale");
       if (categoryConfidence.score < 95) publishSafetyReasons.push("category_confidence_below_95");
       if (row.deregistration_date) publishSafetyReasons.push("deregistered");
       if (jsonArray(row.ongoing_procedures).length > 0) publishSafetyReasons.push("ongoing_legal_procedure");
