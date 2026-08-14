@@ -52,6 +52,7 @@ export type CompanyDirectoryAdminSnapshot = {
   schemaReady: boolean;
   config: {
     syncEnabled: boolean;
+    profileProcessingEnabled: boolean;
     autoPublishEnabled: boolean;
     sourceConfigured: boolean;
     detailConfigured: boolean;
@@ -109,6 +110,7 @@ function configSnapshot() {
 
   return {
     syncEnabled: process.env.COMPANY_DIRECTORY_SYNC_ENABLED === "true",
+    profileProcessingEnabled: process.env.COMPANY_DIRECTORY_PROFILE_PROCESSING_ENABLED === "true",
     autoPublishEnabled: process.env.COMPANY_DIRECTORY_AUTO_PUBLISH === "true",
     sourceConfigured: discoveryMode === "automatic"
       || Boolean(process.env.COMPANY_DIRECTORY_SOURCE_URL?.trim()),
@@ -184,7 +186,6 @@ export async function getCompanyDirectoryAdminSnapshot(): Promise<CompanyDirecto
           end,
           p.quality_score desc,
           p.updated_at desc
-        limit 100
       `,
     ]);
 
