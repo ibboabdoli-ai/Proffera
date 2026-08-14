@@ -90,4 +90,22 @@ describe("automatic company directory discovery contract", () => {
     expect(workflow).toContain("company-directory-official-facts?limit=10");
     expect(workflow).not.toContain("company-directory-sync");
   });
+
+  it("allows only an isolated manual batch while regular profile processing is paused", () => {
+    const route = source("src/app/api/cron/company-directory-pilot/route.ts");
+    const workflow = source(".github/workflows/company-directory-pilot.yml");
+
+    expect(route).toContain("process.env.CRON_SECRET");
+    expect(route).toContain('const PILOT_BATCH_SIZE = 10');
+    expect(route).toContain("processCompanyDirectoryDiscoveryQueue(PILOT_BATCH_SIZE)");
+    expect(route).toContain('COMPANY_DIRECTORY_DISCOVERY_MODE?.trim().toLowerCase() !== "automatic"');
+    expect(route).toContain('COMPANY_DIRECTORY_PROFILE_PROCESSING_ENABLED === "true"');
+    expect(route).toContain('COMPANY_DIRECTORY_AUTO_PUBLISH?.trim().toLowerCase() === "true"');
+    expect(route).toContain("Pilot processing requires automatic publishing to remain disabled");
+    expect(workflow).toContain("workflow_dispatch:");
+    expect(workflow).not.toContain("schedule:");
+    expect(workflow).toContain("Process 10 company directory candidates");
+    expect(workflow).toContain("/api/cron/company-directory-pilot");
+    expect(workflow).toContain("PROFFERA_REMINDER_CRON_SECRET");
+  });
 });
