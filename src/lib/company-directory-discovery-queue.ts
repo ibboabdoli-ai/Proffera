@@ -254,18 +254,38 @@ async function recoverStaleQueueLeases() {
   `;
 }
 
-async function claimQueueBatch(limit: number) {
+type QueueClaimOptions = {
+  organizationNumber?: string;
+  requireUnprofiled?: boolean;
+};
+
+async function claimQueueBatch(limit: number, options: QueueClaimOptions = {}) {
   const sql = getSql();
   if (!sql) throw new Error("Database is not configured");
   const token = randomUUID();
+  const organizationNumber = normalizeOrganizationNumber(options.organizationNumber);
+  const requireUnprofiled = Boolean(options.requireUnprofiled);
 
   const rows = await sql`
     with candidates as (
-      select id
-      from company_directory_discovery_queue
-      where state = 'pending_verify'
-        and next_attempt_at <= now()
-      order by first_seen_at asc, organization_number asc
+      select queue.id
+      from company_directory_discovery_queue queue
+      where queue.state = 'pending_verify'
+        and queue.next_attempt_at <= now()
+        and (${organizationNumber} = '' or queue.organization_number = ${organizationNumber})
+        and (
+          not ${requireUnprofiled}
+          or (
+            queue.primary_sni_code <> ''
+            and not exists (
+              select 1
+              from company_directory_profiles profile
+              where profile.country_code = queue.country_code
+                and regexp_replace(profile.organization_number, '[^0-9]', '', 'g') = queue.organization_number
+            )
+          )
+        )
+      order by queue.first_seen_at asc, queue.organization_number asc
       for update skip locked
       limit ${limit}
     )
@@ -388,6 +408,71 @@ export async function processCompanyDirectoryDiscoveryQueue(limit?: number) {
   }
 
   return {
+    claimed: claimed.length,
+    processed,
+    published,
+    blocked,
+    errors,
+    errorSummary: errorMessages.join(" | "),
+  };
+}
+
+export async function processNewCompanyDirectoryDiscoveryQueueCandidate(organizationNumber: unknown) {
+  if (!getSql()) throw new Error("Database is not configured");
+  if (!detailVerificationConfigured()) {
+    throw new Error("Automatic discovery requires official detail verification and credentials");
+  }
+
+  const normalizedOrganizationNumber = normalizeOrganizationNumber(organizationNumber);
+  if (normalizedOrganizationNumber.length !== 10) {
+    throw new Error("A 10-digit organization number is required");
+  }
+
+  await recoverStaleQueueLeases();
+  const claimed = await claimQueueBatch(1, {
+    organizationNumber: normalizedOrganizationNumber,
+    requireUnprofiled: true,
+  });
+
+  let processed = 0;
+  let published = 0;
+  let blocked = 0;
+  let errors = 0;
+  let profileId = "";
+  const errorMessages: string[] = [];
+
+  for (const item of claimed) {
+    try {
+      const verified = await verifyOfficialCompanyCandidate(
+        seedCandidate(item.organizationNumber, `${item.provider}:discovery`, item.primarySniCode),
+      );
+      const result = await upsertCompanyDirectoryCandidate(verified);
+      profileId = result.profileId;
+      await completeQueueItem({
+        id: item.id,
+        lockToken: item.lockToken,
+        state: result.publicationStatus,
+        profileId: result.profileId,
+      });
+      processed += 1;
+      if (result.publicationStatus === "published") published += 1;
+      if (result.blocked) blocked += 1;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown queue processing error";
+      await failQueueItem({
+        id: item.id,
+        lockToken: item.lockToken,
+        attemptCount: item.attemptCount,
+        error: message,
+      });
+      errors += 1;
+      errorMessages.push(`${item.organizationNumber}: ${message}`);
+    }
+  }
+
+  return {
+    organizationNumber: normalizedOrganizationNumber,
+    profileId,
     claimed: claimed.length,
     processed,
     published,

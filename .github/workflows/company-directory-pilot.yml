@@ -2,6 +2,11 @@ name: Company directory pilot
 
 on:
   workflow_dispatch:
+    inputs:
+      organization_number:
+        description: "Swedish organization number for one new pending candidate"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -12,7 +17,7 @@ concurrency:
 
 jobs:
   pilot:
-    name: Process 10 company directory candidates
+    name: Process one new company directory candidate
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
@@ -20,15 +25,18 @@ jobs:
         env:
           REMINDER_CRON_URL: ${{ secrets.PROFFERA_REMINDER_CRON_URL }}
           CRON_SECRET: ${{ secrets.PROFFERA_REMINDER_CRON_SECRET }}
+          ORGANIZATION_NUMBER: ${{ inputs.organization_number }}
         run: |
           set -euo pipefail
           test -n "$REMINDER_CRON_URL"
           test -n "$CRON_SECRET"
+          test -n "$ORGANIZATION_NUMBER"
 
-      - name: Process one isolated pilot batch
+      - name: Process one targeted new-company pilot
         env:
           REMINDER_CRON_URL: ${{ secrets.PROFFERA_REMINDER_CRON_URL }}
           CRON_SECRET: ${{ secrets.PROFFERA_REMINDER_CRON_SECRET }}
+          ORGANIZATION_NUMBER: ${{ inputs.organization_number }}
         run: |
           set -euo pipefail
           ORIGIN="$(python - <<'PY'
@@ -45,7 +53,14 @@ jobs:
           print(f"https://{host}")
           PY
           )"
-          PILOT_URL="$ORIGIN/api/cron/company-directory-pilot"
+          TARGET_QUERY="$(python - <<'PY'
+          import os
+          import urllib.parse
+
+          print(urllib.parse.urlencode({"organization_number": os.environ["ORGANIZATION_NUMBER"]}))
+          PY
+          )"
+          PILOT_URL="$ORIGIN/api/cron/company-directory-pilot?$TARGET_QUERY"
 
           curl --fail-with-body --silent --show-error \
             --connect-timeout 10 \

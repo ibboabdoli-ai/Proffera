@@ -359,6 +359,34 @@ function boundedLimit(value: unknown) {
   return Math.max(1, Math.min(MAX_ENRICH_PER_RUN, Math.floor(parsed)));
 }
 
+export async function enrichCompanyDirectoryOfficialFactsForProfile(profileId: string) {
+  const sql = getSql();
+  if (!sql) throw new Error("Database is not configured");
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(profileId)) {
+    throw new Error("A valid company profile ID is required");
+  }
+
+  const rows = await sql`
+    select organization_number
+    from company_directory_profiles
+    where id = ${profileId}::uuid
+      and country_code = 'SE'
+    limit 1
+  `;
+  const organizationNumber = text(rows[0]?.organization_number).replace(/\D/g, "");
+  if (organizationNumber.length !== 10) {
+    throw new Error("A Swedish 10-digit organization number is required");
+  }
+
+  const token = await oauthAccessToken();
+  if (!token) throw new Error("Official facts enrichment requires Bolagsverket credentials");
+
+  const facts = await fetchOfficialFacts(organizationNumber, token);
+  await saveOfficialFacts(profileId, facts);
+
+  return { profileId, organizationNumber };
+}
+
 export async function enrichCompanyDirectoryOfficialFacts(limit?: number) {
   const sql = getSql();
   if (!sql) throw new Error("Database is not configured");
