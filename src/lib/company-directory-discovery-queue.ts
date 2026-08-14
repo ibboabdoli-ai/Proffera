@@ -6,6 +6,7 @@ import { getSql } from "@/lib/db/server";
 import { upsertCompanyDirectoryCandidate } from "@/lib/company-directory-engine";
 import { enrichCompanyDirectoryOfficialFactsForProfile } from "@/lib/company-directory-official-facts";
 import { normalizeSniCode, type NormalizedDirectoryCandidate } from "@/lib/company-directory-policy";
+import { autoPublishCompanyDirectoryProfileIfSafe } from "@/lib/company-directory-publication";
 import { verifyOfficialCompanyCandidate } from "@/lib/company-directory-source";
 
 const DEFAULT_PROVIDER = "bolagsverket_vardefulla_datamangder";
@@ -432,14 +433,16 @@ export async function processCompanyDirectoryDiscoveryQueue(limit?: number) {
       );
       const result = await upsertCompanyDirectoryCandidate(verified);
       await enrichCompanyDirectoryOfficialFactsForProfile(result.profileId);
+      const autoPublication = await autoPublishCompanyDirectoryProfileIfSafe(result.profileId);
+      const publicationStatus = autoPublication?.ok ? "published" : result.publicationStatus;
       await completeQueueItem({
         id: item.id,
         lockToken: item.lockToken,
-        state: result.publicationStatus,
+        state: publicationStatus,
         profileId: result.profileId,
       });
       processed += 1;
-      if (result.publicationStatus === "published") published += 1;
+      if (publicationStatus === "published") published += 1;
       if (result.blocked) blocked += 1;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown queue processing error";
