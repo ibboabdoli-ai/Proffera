@@ -26,12 +26,6 @@ function jsonArray(value: unknown): unknown[] {
   return [];
 }
 
-function timestamp(value: unknown) {
-  if (!value) return null;
-  const parsed = new Date(String(value));
-  return Number.isFinite(parsed.getTime()) ? parsed : null;
-}
-
 export async function publishCompanyDirectoryProfileIfSafe(
   profileId: string,
 ): Promise<CompanyDirectoryPublicationResult> {
@@ -48,13 +42,17 @@ export async function publishCompanyDirectoryProfileIfSafe(
       p.category_slug, p.primary_sni_code, p.activity_description,
       p.publication_status, p.is_active, p.privacy_blocked,
       p.auto_public_eligible, p.claimed_workspace_id,
-      p.last_synced_at as profile_last_synced_at,
-      p.updated_at as profile_updated_at,
+      p.updated_at::text as profile_updated_token,
       f.profile_id::text as facts_profile_id,
       f.registered_names, f.sni_codes, f.deregistration_date,
       f.advertising_blocked, f.ongoing_procedures,
-      f.last_synced_at as facts_last_synced_at,
-      f.source_payload_hash as facts_source_payload_hash
+      f.last_synced_at::text as facts_last_synced_token,
+      f.source_payload_hash as facts_source_payload_hash,
+      (
+        f.profile_id is not null
+        and f.last_synced_at >= p.last_synced_at
+        and f.source_payload_hash <> ''
+      ) as official_facts_fresh
     from company_directory_profiles p
     left join company_directory_official_facts f on f.profile_id = p.id
     where p.id = ${profileId}::uuid
@@ -74,33 +72,29 @@ export async function publishCompanyDirectoryProfileIfSafe(
     sniCodes: row.sni_codes,
   });
 
-  const profileLastSyncedAt = timestamp(row.profile_last_synced_at);
-  const profileUpdatedAt = timestamp(row.profile_updated_at);
-  const factsLastSyncedAt = timestamp(row.facts_last_synced_at);
+  const profileUpdatedToken = text(row.profile_updated_token);
+  const factsLastSyncedToken = text(row.facts_last_synced_token);
   const factsSourcePayloadHash = text(row.facts_source_payload_hash);
-  const officialFactsFresh = Boolean(
-    row.facts_profile_id
-      && profileLastSyncedAt
-      && profileUpdatedAt
-      && factsLastSyncedAt
-      && factsSourcePayloadHash
-      && factsLastSyncedAt.getTime() >= profileLastSyncedAt.getTime(),
-  );
+  const officialFactsFresh = Boolean(row.official_facts_fresh);
+
+  if (!confidence.officialFactsReady || !officialFactsFresh) {
+    return { ok: false, code: "not_ready" };
+  }
 
   const unsafe = !Boolean(row.is_active)
     || Boolean(row.privacy_blocked)
     || !Boolean(row.auto_public_eligible)
     || Boolean(row.claimed_workspace_id)
-    || !confidence.officialFactsReady
-    || !officialFactsFresh
     || Boolean(row.deregistration_date)
     || Boolean(row.advertising_blocked)
     || jsonArray(row.ongoing_procedures).length > 0;
   if (unsafe) return { ok: false, code: "unsafe" };
   if (confidence.score < 95) return { ok: false, code: "low_confidence" };
 
-  const profileUpdatedIso = profileUpdatedAt!.toISOString();
-  const factsLastSyncedIso = factsLastSyncedAt!.toISOString();
+  if (!profileUpdatedToken || !factsLastSyncedToken || !factsSourcePayloadHash) {
+    return { ok: false, code: "not_ready" };
+  }
+
   const updated = await sql`
     update company_directory_profiles p
     set publication_status = 'published',
@@ -112,12 +106,12 @@ export async function publishCompanyDirectoryProfileIfSafe(
       and p.privacy_blocked = false
       and p.auto_public_eligible = true
       and p.claimed_workspace_id is null
-      and p.updated_at = ${profileUpdatedIso}::timestamptz
+      and p.updated_at::text = ${profileUpdatedToken}
       and exists (
         select 1
         from company_directory_official_facts f
         where f.profile_id = p.id
-          and f.last_synced_at = ${factsLastSyncedIso}::timestamptz
+          and f.last_synced_at::text = ${factsLastSyncedToken}
           and f.last_synced_at >= p.last_synced_at
           and f.source_payload_hash = ${factsSourcePayloadHash}
           and f.deregistration_date is null
