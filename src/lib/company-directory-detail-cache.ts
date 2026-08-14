@@ -1,5 +1,3 @@
-import "server-only";
-
 type AnyRecord = Record<string, unknown>;
 
 type CachedDetail = {
