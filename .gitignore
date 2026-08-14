@@ -8,3 +8,7 @@ node_modules
 *.tsbuildinfo
 __pycache__/
 *.py[cod]
+
+# Graphify local knowledge-graph output
+graphify-out/
+graph.json
