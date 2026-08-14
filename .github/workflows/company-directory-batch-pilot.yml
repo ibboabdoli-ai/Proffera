@@ -1,0 +1,55 @@
+name: Company directory controlled batch pilot
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: company-directory-controlled-batch-pilot
+  cancel-in-progress: false
+
+jobs:
+  pilot:
+    name: Process up to five new company directory candidates
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Verify scheduler configuration
+        env:
+          REMINDER_CRON_URL: ${{ secrets.PROFFERA_REMINDER_CRON_URL }}
+          CRON_SECRET: ${{ secrets.PROFFERA_REMINDER_CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          test -n "$REMINDER_CRON_URL"
+          test -n "$CRON_SECRET"
+
+      - name: Process controlled new-company batch pilot
+        env:
+          REMINDER_CRON_URL: ${{ secrets.PROFFERA_REMINDER_CRON_URL }}
+          CRON_SECRET: ${{ secrets.PROFFERA_REMINDER_CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          ORIGIN="$(python - <<'PY'
+          import os
+          import urllib.parse
+
+          url = urllib.parse.urlparse(os.environ["REMINDER_CRON_URL"])
+          if url.scheme != "https" or not url.netloc:
+              raise SystemExit("PROFFERA_REMINDER_CRON_URL must be an HTTPS URL")
+
+          host = url.netloc.lower()
+          if host in {"proffera.se", "www.proffera.se"}:
+              host = "www.proffera.se"
+          print(f"https://{host}")
+          PY
+          )"
+          PILOT_URL="$ORIGIN/api/cron/company-directory-batch-pilot"
+
+          curl --fail-with-body --silent --show-error \
+            --connect-timeout 10 \
+            --max-time 330 \
+            --header "Authorization: Bearer $CRON_SECRET" \
+            --header "User-Agent: proffera-company-directory-github-actions" \
+            "$PILOT_URL"
