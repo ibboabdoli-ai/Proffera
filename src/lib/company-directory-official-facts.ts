@@ -2,6 +2,7 @@ import "server-only";
 
 import { createHash, randomUUID } from "node:crypto";
 
+import { takeCompleteBolagsverketOrganizationRecord } from "@/lib/company-directory-detail-cache";
 import {
   collectBolagsverketApiErrors,
   formatBolagsverketApiErrors,
@@ -209,6 +210,13 @@ function extractOfficialFacts(row: AnyRecord): OfficialFacts {
   };
 }
 
+function takeCachedOfficialFacts(organizationNumber: string): OfficialFacts | null {
+  const cachedRecord = takeCompleteBolagsverketOrganizationRecord(organizationNumber);
+  if (!cachedRecord) return null;
+  const verifiedRecord = resolveBolagsverketOrganizationRecord(cachedRecord, organizationNumber);
+  return extractOfficialFacts(verifiedRecord);
+}
+
 function timeoutError(error: unknown) {
   return error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
 }
@@ -394,13 +402,19 @@ export async function enrichCompanyDirectoryOfficialFactsForProfile(profileId: s
     throw new Error("A Swedish 10-digit organization number is required");
   }
 
+  const cachedFacts = takeCachedOfficialFacts(organizationNumber);
+  if (cachedFacts) {
+    await saveOfficialFacts(profileId, cachedFacts);
+    return { profileId, organizationNumber, reusedVerifiedDetail: true };
+  }
+
   const token = await oauthAccessToken();
   if (!token) throw new Error("Official facts enrichment requires Bolagsverket credentials");
 
   const facts = await fetchOfficialFacts(organizationNumber, token);
   await saveOfficialFacts(profileId, facts);
 
-  return { profileId, organizationNumber };
+  return { profileId, organizationNumber, reusedVerifiedDetail: false };
 }
 
 export async function enrichCompanyDirectoryOfficialFacts(limit?: number) {
