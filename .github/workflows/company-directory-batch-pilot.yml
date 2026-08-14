@@ -14,7 +14,7 @@ jobs:
   pilot:
     name: Process up to five new company directory candidates
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 8
     steps:
       - name: Verify scheduler configuration
         env:
@@ -49,7 +49,7 @@ jobs:
 
           curl --fail-with-body --silent --show-error \
             --connect-timeout 10 \
-            --max-time 180 \
+            --max-time 330 \
             --header "Authorization: Bearer $CRON_SECRET" \
             --header "User-Agent: proffera-company-directory-github-actions" \
             "$PILOT_URL"

@@ -128,6 +128,7 @@ describe("automatic company directory discovery contract", () => {
     const queue = source("src/lib/company-directory-discovery-queue.ts");
 
     expect(route).toContain("const CONTROLLED_BATCH_SIZE = 5");
+    expect(route).toContain("export const maxDuration = 300");
     expect(route).toContain("processNewCompanyDirectoryDiscoveryQueueBatch");
     expect(route).toContain("result.errors > 0");
     expect(route).toContain('COMPANY_DIRECTORY_PROFILE_PROCESSING_ENABLED === "true"');
@@ -138,6 +139,8 @@ describe("automatic company directory discovery contract", () => {
     expect(workflow).toContain("workflow_dispatch:");
     expect(workflow).not.toContain("schedule:");
     expect(workflow).toContain("Process up to five new company directory candidates");
+    expect(workflow).toContain("timeout-minutes: 8");
+    expect(workflow).toContain("--max-time 330");
     expect(workflow).toContain("/api/cron/company-directory-batch-pilot");
     expect(workflow).toContain("PROFFERA_REMINDER_CRON_SECRET");
   });

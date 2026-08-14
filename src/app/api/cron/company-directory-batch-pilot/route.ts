@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { processNewCompanyDirectoryDiscoveryQueueBatch } from "@/lib/company-directory-discovery-queue";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 const CONTROLLED_BATCH_SIZE = 5;
 
