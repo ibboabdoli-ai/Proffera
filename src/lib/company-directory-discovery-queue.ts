@@ -431,6 +431,7 @@ export async function processCompanyDirectoryDiscoveryQueue(limit?: number) {
         seedCandidate(item.organizationNumber, `${item.provider}:discovery`, item.primarySniCode),
       );
       const result = await upsertCompanyDirectoryCandidate(verified);
+      await enrichCompanyDirectoryOfficialFactsForProfile(result.profileId);
       await completeQueueItem({
         id: item.id,
         lockToken: item.lockToken,
