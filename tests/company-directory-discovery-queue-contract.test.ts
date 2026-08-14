@@ -38,7 +38,7 @@ describe("automatic company directory discovery contract", () => {
     expect(queue).toContain("discovery source changed during processing");
     expect(queue).toContain("source_fingerprint = ${input.sourceFingerprint}");
     expect(queue).toContain("primary_sni_code = ${input.primarySniCode}");
-    expect(queue).toContain("attempt_count = case when source_fingerprint = ${input.sourceFingerprint}");
+    expect(queue).toMatch(/attempt_count = case\s+when source_fingerprint = \$\{input\.sourceFingerprint\}/);
     expect(queue).toContain("returning profile_id::text,");
     expect(queue).toContain("source_unchanged");
     expect(queue).toContain("Directory queue source changed during processing");
