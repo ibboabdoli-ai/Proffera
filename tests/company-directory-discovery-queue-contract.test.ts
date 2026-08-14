@@ -29,6 +29,7 @@ describe("automatic company directory discovery contract", () => {
     expect(queue).toContain("Automatic discovery requires official detail verification and credentials");
     expect(queue).toContain("verifyOfficialCompanyCandidate");
     expect(queue).toContain("upsertCompanyDirectoryCandidate");
+    expect(queue).toContain("await enrichCompanyDirectoryOfficialFactsForProfile(result.profileId)");
   });
 
   it("keeps discovery ingest secret-protected and restricted to official Bolagsverket HTTPS URLs", () => {
@@ -49,6 +50,8 @@ describe("automatic company directory discovery contract", () => {
     expect(route).toContain('mode === "automatic"');
     expect(route).toContain("processCompanyDirectoryDiscoveryQueue");
     expect(route).toContain("COMPANY_DIRECTORY_SYNC_ENABLED");
+    expect(route).toContain("getCompanyDirectoryOfficialFactsBacklog");
+    expect(route).toContain("pendingOfficialFacts");
   });
 
   it("discovers only from the current official SCB bulk source and prefilters primary service and legal-form scope", () => {
@@ -80,7 +83,7 @@ describe("automatic company directory discovery contract", () => {
     expect(worker).toContain("primary-supported-SNI + supported-form candidates");
   });
 
-  it("pauses scheduled queue processing while official facts catch up", () => {
+  it("enriches official facts before guarded queue processing", () => {
     const workflow = source(".github/workflows/company-directory-automation.yml");
 
     expect(workflow).toContain("Discover official company candidates");
@@ -88,7 +91,7 @@ describe("automatic company directory discovery contract", () => {
     expect(workflow).toContain("PROFFERA_REMINDER_CRON_SECRET");
     expect(workflow).toContain("company-directory-discovery-ingest");
     expect(workflow).toContain("company-directory-official-facts?limit=10");
-    expect(workflow).not.toContain("company-directory-sync");
+    expect(workflow).toContain("company-directory-sync");
   });
 
   it("allows only one targeted new-company pilot while regular profile processing is paused", () => {
