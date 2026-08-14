@@ -61,10 +61,35 @@ jobs:
           PY
           )"
           PILOT_URL="$ORIGIN/api/cron/company-directory-pilot?$TARGET_QUERY"
+          RESPONSE_FILE="$(mktemp)"
+          trap 'rm -f "$RESPONSE_FILE"' EXIT
 
           curl --fail-with-body --silent --show-error \
             --connect-timeout 10 \
             --max-time 75 \
+            --output "$RESPONSE_FILE" \
             --header "Authorization: Bearer $CRON_SECRET" \
             --header "User-Agent: proffera-company-directory-github-actions" \
             "$PILOT_URL"
+
+          python - "$RESPONSE_FILE" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as response_file:
+              payload = json.load(response_file)
+
+          if payload.get("ok") is not True:
+              raise SystemExit("Company Directory pilot response was not ok")
+          if payload.get("skipped") is True:
+              raise SystemExit(f"Company Directory pilot was skipped: {payload.get('reason', 'unknown reason')}")
+          if payload.get("claimed") != 1 or payload.get("processed") != 1:
+              raise SystemExit(
+                  "Company Directory pilot must claim and process exactly one candidate "
+                  f"(claimed={payload.get('claimed')}, processed={payload.get('processed')})"
+              )
+          if payload.get("errors", 0) != 0:
+              raise SystemExit(f"Company Directory pilot reported {payload.get('errors')} error(s)")
+
+          print("Company Directory pilot processed exactly one candidate successfully")
+          PY

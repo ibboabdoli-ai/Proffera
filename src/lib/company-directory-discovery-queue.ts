@@ -190,35 +190,44 @@ export async function enqueueCompanyDirectoryCandidates(input: EnqueueInput) {
               and company_directory_discovery_queue.primary_sni_code <> excluded.primary_sni_code
             )
           )
-            and company_directory_discovery_queue.state <> 'claimed'
+            and company_directory_discovery_queue.state not in ('claimed', 'processing')
             then 'pending_verify'
           else company_directory_discovery_queue.state
         end,
         attempt_count = case
-          when company_directory_discovery_queue.source_fingerprint <> excluded.source_fingerprint
+          when (
+            company_directory_discovery_queue.source_fingerprint <> excluded.source_fingerprint
             or (
               excluded.primary_sni_code <> ''
               and company_directory_discovery_queue.primary_sni_code <> excluded.primary_sni_code
             )
+          )
+            and company_directory_discovery_queue.state not in ('claimed', 'processing')
             then 0
           else company_directory_discovery_queue.attempt_count
         end,
         next_attempt_at = case
-          when company_directory_discovery_queue.source_fingerprint <> excluded.source_fingerprint
+          when (
+            company_directory_discovery_queue.source_fingerprint <> excluded.source_fingerprint
             or (
               excluded.primary_sni_code <> ''
               and company_directory_discovery_queue.primary_sni_code <> excluded.primary_sni_code
             )
+          )
+            and company_directory_discovery_queue.state not in ('claimed', 'processing')
             then now()
           else company_directory_discovery_queue.next_attempt_at
         end,
         source_fingerprint = excluded.source_fingerprint,
         last_error = case
-          when company_directory_discovery_queue.source_fingerprint <> excluded.source_fingerprint
+          when (
+            company_directory_discovery_queue.source_fingerprint <> excluded.source_fingerprint
             or (
               excluded.primary_sni_code <> ''
               and company_directory_discovery_queue.primary_sni_code <> excluded.primary_sni_code
             )
+          )
+            and company_directory_discovery_queue.state not in ('claimed', 'processing')
             then ''
           else company_directory_discovery_queue.last_error
         end
@@ -379,25 +388,66 @@ async function restoreQueueLeaseAfterProfileUpsert(input: {
   profileId: string;
   attemptCount: number;
   sourceFingerprint: string;
+  primarySniCode: string;
+  errorPrefix?: string;
 }) {
   const sql = getSql();
   if (!sql) throw new Error("Database is not configured");
+  const sourceChangedError = `${input.errorPrefix ?? ""}discovery source changed during processing`.slice(0, 1000);
   const rows = await sql`
     update company_directory_discovery_queue
-    set state = 'processing',
+    set state = case
+          when source_fingerprint = ${input.sourceFingerprint}
+            and primary_sni_code = ${input.primarySniCode}
+            then 'processing'
+          else 'pending_verify'
+        end,
         profile_id = ${input.profileId}::uuid,
-        locked_at = now(),
-        lock_token = ${input.lockToken}::uuid
+        attempt_count = case
+          when source_fingerprint = ${input.sourceFingerprint}
+            and primary_sni_code = ${input.primarySniCode}
+            then attempt_count
+          else 0
+        end,
+        locked_at = case
+          when source_fingerprint = ${input.sourceFingerprint}
+            and primary_sni_code = ${input.primarySniCode}
+            then now()
+          else null
+        end,
+        lock_token = case
+          when source_fingerprint = ${input.sourceFingerprint}
+            and primary_sni_code = ${input.primarySniCode}
+            then ${input.lockToken}::uuid
+          else null
+        end,
+        last_error = case
+          when source_fingerprint = ${input.sourceFingerprint}
+            and primary_sni_code = ${input.primarySniCode}
+            then last_error
+          else ${sourceChangedError}
+        end,
+        next_attempt_at = case
+          when source_fingerprint = ${input.sourceFingerprint}
+            and primary_sni_code = ${input.primarySniCode}
+            then next_attempt_at
+          else now()
+        end
     where id = ${input.id}::uuid
       and profile_id = ${input.profileId}::uuid
       and attempt_count = ${input.attemptCount}
-      and source_fingerprint = ${input.sourceFingerprint}
       and locked_at is null
       and lock_token is null
-    returning id::text
+    returning (
+      source_fingerprint = ${input.sourceFingerprint}
+      and primary_sni_code = ${input.primarySniCode}
+    ) as source_unchanged
   `;
   if (!rows[0]) {
     throw new Error("Directory queue lease changed during profile upsert");
+  }
+  if (rows[0].source_unchanged !== true) {
+    throw new Error("Directory queue source changed during processing");
   }
 }
 
@@ -406,27 +456,65 @@ async function completeQueueItem(input: {
   lockToken: string;
   state: string;
   profileId: string;
+  sourceFingerprint: string;
+  primarySniCode: string;
+  attemptCount: number;
+  errorPrefix?: string;
 }) {
   const sql = getSql();
   if (!sql) return;
-  await sql`
+  const sourceChangedError = `${input.errorPrefix ?? ""}discovery source changed during processing`.slice(0, 1000);
+  const rows = await sql`
     update company_directory_discovery_queue
-    set state = ${input.state},
+    set state = case
+          when source_fingerprint = ${input.sourceFingerprint}
+            and primary_sni_code = ${input.primarySniCode}
+            then ${input.state}
+          else 'pending_verify'
+        end,
         profile_id = ${input.profileId}::uuid,
-        verified_at = now(),
+        attempt_count = case
+          when source_fingerprint = ${input.sourceFingerprint}
+            and primary_sni_code = ${input.primarySniCode}
+            then attempt_count
+          else 0
+        end,
+        verified_at = case
+          when source_fingerprint = ${input.sourceFingerprint}
+            and primary_sni_code = ${input.primarySniCode}
+            then now()
+          else verified_at
+        end,
         locked_at = null,
         lock_token = null,
-        last_error = '',
+        last_error = case
+          when source_fingerprint = ${input.sourceFingerprint}
+            and primary_sni_code = ${input.primarySniCode}
+            then ''
+          else ${sourceChangedError}
+        end,
         next_attempt_at = now()
     where id = ${input.id}::uuid
       and lock_token = ${input.lockToken}::uuid
+      and attempt_count = ${input.attemptCount}
+    returning (
+      source_fingerprint = ${input.sourceFingerprint}
+      and primary_sni_code = ${input.primarySniCode}
+    ) as source_unchanged
   `;
+  if (!rows[0]) {
+    throw new Error("Directory queue lease changed before completion");
+  }
+  if (rows[0].source_unchanged !== true) {
+    throw new Error("Directory queue source changed during processing");
+  }
 }
 
 async function failQueueItem(input: {
   id: string;
   lockToken: string;
   sourceFingerprint: string;
+  primarySniCode: string;
   attemptCount: number;
   error: string;
   profileId?: string;
@@ -438,20 +526,47 @@ async function failQueueItem(input: {
   const delayMinutes = terminal ? 24 * 60 : Math.min(360, 2 ** Math.max(0, input.attemptCount - 1));
   const profileId = text(input.profileId);
   const error = `${input.errorPrefix ?? ""}${input.error}`.slice(0, 1000);
+  const sourceChangedError = `${input.errorPrefix ?? ""}discovery source changed during processing`.slice(0, 1000);
   const failedRows = await sql`
     update company_directory_discovery_queue
-    set state = ${terminal ? "failed" : "pending_verify"},
+    set state = case
+          when source_fingerprint = ${input.sourceFingerprint}
+            and primary_sni_code = ${input.primarySniCode}
+            then ${terminal ? "failed" : "pending_verify"}
+          else 'pending_verify'
+        end,
+        attempt_count = case
+          when source_fingerprint = ${input.sourceFingerprint}
+            and primary_sni_code = ${input.primarySniCode}
+            then attempt_count
+          else 0
+        end,
         profile_id = coalesce(nullif(${profileId}, '')::uuid, profile_id),
         locked_at = null,
         lock_token = null,
-        last_error = ${error},
-        next_attempt_at = now() + (${delayMinutes}::text || ' minutes')::interval
+        last_error = case
+          when source_fingerprint = ${input.sourceFingerprint}
+            and primary_sni_code = ${input.primarySniCode}
+            then ${error}
+          else ${sourceChangedError}
+        end,
+        next_attempt_at = case
+          when source_fingerprint = ${input.sourceFingerprint}
+            and primary_sni_code = ${input.primarySniCode}
+            then now() + (${delayMinutes}::text || ' minutes')::interval
+          else now()
+        end
     where id = ${input.id}::uuid
       and lock_token = ${input.lockToken}::uuid
       and attempt_count = ${input.attemptCount}
-      and source_fingerprint = ${input.sourceFingerprint}
-    returning profile_id::text
+    returning profile_id::text,
+      (
+        source_fingerprint = ${input.sourceFingerprint}
+        and primary_sni_code = ${input.primarySniCode}
+      ) as source_unchanged
   `;
+  const sourceUnchanged = failedRows[0]?.source_unchanged === true;
+  if (!sourceUnchanged) return;
   const failedProfileId = text(failedRows[0]?.profile_id);
   if (!terminal || !failedProfileId) return;
 
@@ -476,6 +591,7 @@ async function requeueTargetedPilotItem(input: {
   lockToken: string;
   profileId: string;
   sourceFingerprint: string;
+  primarySniCode: string;
   attemptCount: number;
   error: string;
 }) {
@@ -533,6 +649,7 @@ export async function processCompanyDirectoryDiscoveryQueue(limit?: number) {
         profileId: result.profileId,
         attemptCount: item.attemptCount,
         sourceFingerprint: item.sourceFingerprint,
+        primarySniCode: item.primarySniCode,
       });
       await enrichCompanyDirectoryOfficialFactsForProfile(result.profileId);
       const autoPublication = result.publicationStatus === "ready"
@@ -552,6 +669,9 @@ export async function processCompanyDirectoryDiscoveryQueue(limit?: number) {
         lockToken: item.lockToken,
         state: publicationStatus,
         profileId: result.profileId,
+        sourceFingerprint: item.sourceFingerprint,
+        primarySniCode: item.primarySniCode,
+        attemptCount: item.attemptCount,
       });
       processed += 1;
       if (publicationStatus === "published") published += 1;
@@ -562,6 +682,7 @@ export async function processCompanyDirectoryDiscoveryQueue(limit?: number) {
         id: item.id,
         lockToken: item.lockToken,
         sourceFingerprint: item.sourceFingerprint,
+        primarySniCode: item.primarySniCode,
         attemptCount: item.attemptCount,
         error: message,
         profileId: itemProfileId,
@@ -586,6 +707,7 @@ async function requeueControlledBatchPilotItem(input: {
   lockToken: string;
   profileId: string;
   sourceFingerprint: string;
+  primarySniCode: string;
   attemptCount: number;
   error: string;
 }) {
@@ -634,6 +756,8 @@ export async function processNewCompanyDirectoryDiscoveryQueueCandidate(organiza
         profileId: result.profileId,
         attemptCount: item.attemptCount,
         sourceFingerprint: item.sourceFingerprint,
+        primarySniCode: item.primarySniCode,
+        errorPrefix: "targeted pilot retry: ",
       });
       await enrichCompanyDirectoryOfficialFactsForProfile(result.profileId);
       await completeQueueItem({
@@ -641,6 +765,10 @@ export async function processNewCompanyDirectoryDiscoveryQueueCandidate(organiza
         lockToken: item.lockToken,
         state: result.publicationStatus,
         profileId: result.profileId,
+        sourceFingerprint: item.sourceFingerprint,
+        primarySniCode: item.primarySniCode,
+        attemptCount: item.attemptCount,
+        errorPrefix: "targeted pilot retry: ",
       });
       profileId = result.profileId;
       processed += 1;
@@ -658,6 +786,7 @@ export async function processNewCompanyDirectoryDiscoveryQueueCandidate(organiza
           lockToken: item.lockToken,
           profileId: retryProfileId,
           sourceFingerprint: item.sourceFingerprint,
+          primarySniCode: item.primarySniCode,
           attemptCount: item.attemptCount,
           error: message,
         });
@@ -666,6 +795,7 @@ export async function processNewCompanyDirectoryDiscoveryQueueCandidate(organiza
           id: item.id,
           lockToken: item.lockToken,
           sourceFingerprint: item.sourceFingerprint,
+          primarySniCode: item.primarySniCode,
           attemptCount: item.attemptCount,
           error: message,
         });
@@ -720,6 +850,8 @@ export async function processNewCompanyDirectoryDiscoveryQueueBatch(limit?: numb
         profileId: result.profileId,
         attemptCount: item.attemptCount,
         sourceFingerprint: item.sourceFingerprint,
+        primarySniCode: item.primarySniCode,
+        errorPrefix: "controlled batch pilot retry: ",
       });
       await enrichCompanyDirectoryOfficialFactsForProfile(result.profileId);
       await completeQueueItem({
@@ -727,6 +859,10 @@ export async function processNewCompanyDirectoryDiscoveryQueueBatch(limit?: numb
         lockToken: item.lockToken,
         state: result.publicationStatus,
         profileId: result.profileId,
+        sourceFingerprint: item.sourceFingerprint,
+        primarySniCode: item.primarySniCode,
+        attemptCount: item.attemptCount,
+        errorPrefix: "controlled batch pilot retry: ",
       });
       processed += 1;
       if (result.publicationStatus === "published") published += 1;
@@ -743,6 +879,7 @@ export async function processNewCompanyDirectoryDiscoveryQueueBatch(limit?: numb
           lockToken: item.lockToken,
           profileId: retryProfileId,
           sourceFingerprint: item.sourceFingerprint,
+          primarySniCode: item.primarySniCode,
           attemptCount: item.attemptCount,
           error: message,
         });
@@ -751,6 +888,7 @@ export async function processNewCompanyDirectoryDiscoveryQueueBatch(limit?: numb
           id: item.id,
           lockToken: item.lockToken,
           sourceFingerprint: item.sourceFingerprint,
+          primarySniCode: item.primarySniCode,
           attemptCount: item.attemptCount,
           error: message,
         });
