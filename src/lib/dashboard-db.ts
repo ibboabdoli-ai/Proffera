@@ -499,9 +499,9 @@ export async function createDashboardBooking(input: CreateDashboardBookingInput)
       ${workspaceId},
       ${customerId},
       ${bookingId},
-      'booking_created',
-      'Bokning skapad fran lead',
-      'Lead konverterades till bokning och kunden markerades som aktiv.'
+      'booking',
+      'Bokning skapad manuellt',
+      'En manuell bokning skapades och kunden markerades som aktiv.'
     )
   `;
 
