@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 
-import { processCompanyDirectoryDiscoveryQueue } from "@/lib/company-directory-discovery-queue";
+import { processNewCompanyDirectoryDiscoveryQueueCandidate } from "@/lib/company-directory-discovery-queue";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const PILOT_BATCH_SIZE = 10;
+function organizationNumber(value: string | null) {
+  return String(value ?? "").replace(/\D/g, "");
+}
 
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET;
@@ -48,12 +50,45 @@ export async function GET(request: Request) {
     });
   }
 
+  const targetOrganizationNumber = organizationNumber(
+    new URL(request.url).searchParams.get("organization_number"),
+  );
+  if (targetOrganizationNumber.length !== 10) {
+    return NextResponse.json(
+      { ok: false, error: "A 10-digit organization_number is required" },
+      { status: 400 },
+    );
+  }
+
   try {
-    const result = await processCompanyDirectoryDiscoveryQueue(PILOT_BATCH_SIZE);
+    const result = await processNewCompanyDirectoryDiscoveryQueueCandidate(targetOrganizationNumber);
+    if (result.claimed === 0) {
+      return NextResponse.json({
+        ok: true,
+        mode: "targeted_manual_pilot",
+        limit: 1,
+        skipped: true,
+        reason: "The organization is not an eligible new pending candidate",
+        ...result,
+      });
+    }
+
+    if (result.errors > 0) {
+      return NextResponse.json(
+        {
+          ok: false,
+          mode: "targeted_manual_pilot",
+          limit: 1,
+          ...result,
+        },
+        { status: 500 },
+      );
+    }
+
     return NextResponse.json({
       ok: true,
-      mode: "manual_pilot",
-      limit: PILOT_BATCH_SIZE,
+      mode: "targeted_manual_pilot",
+      limit: 1,
       ...result,
     });
   } catch (error) {

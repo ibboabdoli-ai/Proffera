@@ -91,20 +91,33 @@ describe("automatic company directory discovery contract", () => {
     expect(workflow).not.toContain("company-directory-sync");
   });
 
-  it("allows only an isolated manual batch while regular profile processing is paused", () => {
+  it("allows only one targeted new-company pilot while regular profile processing is paused", () => {
     const route = source("src/app/api/cron/company-directory-pilot/route.ts");
     const workflow = source(".github/workflows/company-directory-pilot.yml");
+    const queue = source("src/lib/company-directory-discovery-queue.ts");
 
     expect(route).toContain("process.env.CRON_SECRET");
-    expect(route).toContain('const PILOT_BATCH_SIZE = 10');
-    expect(route).toContain("processCompanyDirectoryDiscoveryQueue(PILOT_BATCH_SIZE)");
+    expect(route).toContain("processNewCompanyDirectoryDiscoveryQueueCandidate");
+    expect(route).toContain("result.errors > 0");
+    expect(route).toContain("organization_number");
+    expect(route).toContain("A 10-digit organization_number is required");
     expect(route).toContain('COMPANY_DIRECTORY_DISCOVERY_MODE?.trim().toLowerCase() !== "automatic"');
     expect(route).toContain('COMPANY_DIRECTORY_PROFILE_PROCESSING_ENABLED === "true"');
     expect(route).toContain('COMPANY_DIRECTORY_AUTO_PUBLISH?.trim().toLowerCase() === "true"');
     expect(route).toContain("Pilot processing requires automatic publishing to remain disabled");
+    expect(queue).toContain("processNewCompanyDirectoryDiscoveryQueueCandidate");
+    expect(queue).toContain("requireUnprofiled: true");
+    expect(queue).toContain("queue.primary_sni_code <> ''");
+    expect(queue).toContain("not exists (");
+    expect(queue).toContain("queue.last_error like 'targeted pilot retry:%'");
+    expect(queue).toContain("requeueTargetedPilotItem");
+    expect(queue).toContain("targetedPilotProfileId");
+    expect(queue).toContain("enrichCompanyDirectoryOfficialFactsForProfile(result.profileId)");
+    expect(source("src/lib/company-directory-official-facts.ts")).toContain("enrichCompanyDirectoryOfficialFactsForProfile");
     expect(workflow).toContain("workflow_dispatch:");
+    expect(workflow).toContain("organization_number:");
     expect(workflow).not.toContain("schedule:");
-    expect(workflow).toContain("Process 10 company directory candidates");
+    expect(workflow).toContain("Process one new company directory candidate");
     expect(workflow).toContain("/api/cron/company-directory-pilot");
     expect(workflow).toContain("PROFFERA_REMINDER_CRON_SECRET");
   });
