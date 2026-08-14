@@ -417,6 +417,18 @@ export async function enrichCompanyDirectoryOfficialFacts(limit?: number) {
     where profile.country_code = 'SE'
       and length(regexp_replace(profile.organization_number, '\\D', '', 'g')) = 10
       and (facts.profile_id is null or facts.last_synced_at < profile.last_synced_at)
+      and not exists (
+        select 1
+        from company_directory_discovery_queue queue
+        where queue.state = 'failed'
+          and (
+            queue.profile_id = profile.id
+            or (
+              queue.country_code = profile.country_code
+              and queue.organization_number = regexp_replace(profile.organization_number, '\\D', '', 'g')
+            )
+          )
+      )
     order by profile.last_synced_at asc, profile.organization_number asc
     limit ${safeLimit}
   `;
