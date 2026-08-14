@@ -24,6 +24,7 @@ if (!isLocal && process.env.E2E_ALLOW_REMOTE !== "true") {
 
 export default defineConfig({
   testDir: "./tests",
+  testMatch: "**/*.e2e.mjs",
   fullyParallel: true,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
