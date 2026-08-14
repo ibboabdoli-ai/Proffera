@@ -1,3 +1,4 @@
+import { rememberCompleteBolagsverketOrganizationRecord } from "./company-directory-detail-cache";
 import {
   collectBolagsverketApiErrors,
   formatBolagsverketApiErrors,
@@ -19,5 +20,7 @@ export function resolveCompleteBolagsverketOrganizationRecord(
     );
   }
 
-  return resolveBolagsverketOrganizationRecord(payload, requestedOrganizationNumber);
+  const record = resolveBolagsverketOrganizationRecord(payload, requestedOrganizationNumber);
+  rememberCompleteBolagsverketOrganizationRecord(requestedOrganizationNumber, record);
+  return record;
 }
