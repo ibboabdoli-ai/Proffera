@@ -359,6 +359,22 @@ function boundedLimit(value: unknown) {
   return Math.max(1, Math.min(MAX_ENRICH_PER_RUN, Math.floor(parsed)));
 }
 
+export async function getCompanyDirectoryOfficialFactsBacklog() {
+  const sql = getSql();
+  if (!sql) throw new Error("Database is not configured");
+
+  const rows = await sql`
+    select count(*)::int as count
+    from company_directory_profiles profile
+    left join company_directory_official_facts facts on facts.profile_id = profile.id
+    where profile.country_code = 'SE'
+      and length(regexp_replace(profile.organization_number, '\\D', '', 'g')) = 10
+      and (facts.profile_id is null or facts.last_synced_at < profile.last_synced_at)
+  `;
+
+  return Number(rows[0]?.count ?? 0);
+}
+
 export async function enrichCompanyDirectoryOfficialFactsForProfile(profileId: string) {
   const sql = getSql();
   if (!sql) throw new Error("Database is not configured");
