@@ -234,36 +234,71 @@ export async function enqueueCompanyDirectoryCandidates(input: EnqueueInput) {
   };
 }
 
+async function reassertTerminalQueueFailure(input: {
+  id: string;
+  profileId: string;
+  attemptCount: number;
+  sourceFingerprint: string;
+  error: string;
+}) {
+  const sql = getSql();
+  if (!sql) return;
+  await sql`
+    update company_directory_discovery_queue
+    set state = 'failed',
+        locked_at = null,
+        lock_token = null,
+        last_error = ${input.error.slice(0, 1000)},
+        next_attempt_at = now() + interval '24 hours'
+    where id = ${input.id}::uuid
+      and profile_id = ${input.profileId}::uuid
+      and attempt_count = ${input.attemptCount}
+      and source_fingerprint = ${input.sourceFingerprint}
+  `;
+}
+
 async function recoverStaleQueueLeases() {
   const sql = getSql();
   if (!sql) throw new Error("Database is not configured");
 
-  await sql`
-    with recovered as (
-      update company_directory_discovery_queue
-      set state = case when attempt_count >= ${MAX_ATTEMPTS} then 'failed' else 'pending_verify' end,
-          locked_at = null,
-          lock_token = null,
-          next_attempt_at = case
-            when attempt_count >= ${MAX_ATTEMPTS} then now() + interval '24 hours'
-            else now()
-          end,
-          last_error = case
-            when last_error = '' then 'verification lease expired before completion'
-            else last_error
-          end
-      where state = 'processing'
-        and locked_at < now() - (${LEASE_MINUTES}::text || ' minutes')::interval
-      returning profile_id, attempt_count
-    )
-    update company_directory_profiles profile
-    set publication_status = 'review',
-        updated_at = now()
-    from recovered
-    where recovered.attempt_count >= ${MAX_ATTEMPTS}
-      and recovered.profile_id = profile.id
-      and profile.publication_status = 'ready'
+  const recovered = await sql`
+    update company_directory_discovery_queue
+    set state = case when attempt_count >= ${MAX_ATTEMPTS} then 'failed' else 'pending_verify' end,
+        locked_at = null,
+        lock_token = null,
+        next_attempt_at = case
+          when attempt_count >= ${MAX_ATTEMPTS} then now() + interval '24 hours'
+          else now()
+        end,
+        last_error = case
+          when last_error = '' then 'verification lease expired before completion'
+          else last_error
+        end
+    where state = 'processing'
+      and locked_at < now() - (${LEASE_MINUTES}::text || ' minutes')::interval
+    returning id::text, profile_id::text, source_fingerprint, attempt_count, last_error
   `;
+
+  for (const row of recovered) {
+    const attemptCount = Number(row.attempt_count) || 0;
+    const profileId = text(row.profile_id);
+    if (attemptCount < MAX_ATTEMPTS || !profileId) continue;
+
+    await sql`
+      update company_directory_profiles
+      set publication_status = 'review',
+          updated_at = now()
+      where id = ${profileId}::uuid
+        and publication_status = 'ready'
+    `;
+    await reassertTerminalQueueFailure({
+      id: text(row.id),
+      profileId,
+      attemptCount,
+      sourceFingerprint: text(row.source_fingerprint),
+      error: text(row.last_error) || "verification lease expired before completion",
+    });
+  }
 }
 
 type QueueClaimOptions = {
@@ -322,6 +357,7 @@ async function claimQueueBatch(limit: number, options: QueueClaimOptions = {}) {
       queue.organization_number,
       queue.primary_sni_code,
       queue.provider,
+      queue.source_fingerprint,
       queue.attempt_count,
       queue.lock_token::text
   `;
@@ -331,24 +367,38 @@ async function claimQueueBatch(limit: number, options: QueueClaimOptions = {}) {
     organizationNumber: normalizeOrganizationNumber(row.organization_number),
     primarySniCode: normalizePrimarySniCode(row.primary_sni_code),
     provider: safeProvider(row.provider),
+    sourceFingerprint: text(row.source_fingerprint),
     attemptCount: Number(row.attempt_count) || 1,
     lockToken: text(row.lock_token),
   }));
 }
 
-async function attachQueueProfile(input: {
+async function restoreQueueLeaseAfterProfileUpsert(input: {
   id: string;
   lockToken: string;
   profileId: string;
+  attemptCount: number;
+  sourceFingerprint: string;
 }) {
   const sql = getSql();
-  if (!sql) return;
-  await sql`
+  if (!sql) throw new Error("Database is not configured");
+  const rows = await sql`
     update company_directory_discovery_queue
-    set profile_id = ${input.profileId}::uuid
+    set state = 'processing',
+        profile_id = ${input.profileId}::uuid,
+        locked_at = now(),
+        lock_token = ${input.lockToken}::uuid
     where id = ${input.id}::uuid
-      and lock_token = ${input.lockToken}::uuid
+      and profile_id = ${input.profileId}::uuid
+      and attempt_count = ${input.attemptCount}
+      and source_fingerprint = ${input.sourceFingerprint}
+      and locked_at is null
+      and lock_token is null
+    returning id::text
   `;
+  if (!rows[0]) {
+    throw new Error("Directory queue lease changed during profile upsert");
+  }
 }
 
 async function completeQueueItem(input: {
@@ -376,68 +426,63 @@ async function completeQueueItem(input: {
 async function failQueueItem(input: {
   id: string;
   lockToken: string;
+  sourceFingerprint: string;
   attemptCount: number;
   error: string;
   profileId?: string;
+  errorPrefix?: string;
 }) {
   const sql = getSql();
   if (!sql) return;
   const terminal = input.attemptCount >= MAX_ATTEMPTS;
   const delayMinutes = terminal ? 24 * 60 : Math.min(360, 2 ** Math.max(0, input.attemptCount - 1));
   const profileId = text(input.profileId);
+  const error = `${input.errorPrefix ?? ""}${input.error}`.slice(0, 1000);
+  const failedRows = await sql`
+    update company_directory_discovery_queue
+    set state = ${terminal ? "failed" : "pending_verify"},
+        profile_id = coalesce(nullif(${profileId}, '')::uuid, profile_id),
+        locked_at = null,
+        lock_token = null,
+        last_error = ${error},
+        next_attempt_at = now() + (${delayMinutes}::text || ' minutes')::interval
+    where id = ${input.id}::uuid
+      and lock_token = ${input.lockToken}::uuid
+      and attempt_count = ${input.attemptCount}
+      and source_fingerprint = ${input.sourceFingerprint}
+    returning profile_id::text
+  `;
+  const failedProfileId = text(failedRows[0]?.profile_id);
+  if (!terminal || !failedProfileId) return;
+
   await sql`
-    with failed_item as (
-      update company_directory_discovery_queue
-      set state = ${terminal ? "failed" : "pending_verify"},
-          profile_id = coalesce(nullif(${profileId}, '')::uuid, profile_id),
-          locked_at = null,
-          lock_token = null,
-          last_error = ${input.error.slice(0, 1000)},
-          next_attempt_at = now() + (${delayMinutes}::text || ' minutes')::interval
-      where id = ${input.id}::uuid
-        and lock_token = ${input.lockToken}::uuid
-      returning profile_id
-    )
-    update company_directory_profiles profile
+    update company_directory_profiles
     set publication_status = 'review',
         updated_at = now()
-    from failed_item
-    where ${terminal}
-      and failed_item.profile_id = profile.id
-      and profile.publication_status = 'ready'
+    where id = ${failedProfileId}::uuid
+      and publication_status = 'ready'
   `;
+  await reassertTerminalQueueFailure({
+    id: input.id,
+    profileId: failedProfileId,
+    attemptCount: input.attemptCount,
+    sourceFingerprint: input.sourceFingerprint,
+    error,
+  });
 }
 
 async function requeueTargetedPilotItem(input: {
   id: string;
+  lockToken: string;
   profileId: string;
+  sourceFingerprint: string;
   attemptCount: number;
   error: string;
 }) {
-  const sql = getSql();
-  if (!sql) return;
-  const terminal = input.attemptCount >= MAX_ATTEMPTS;
-  const delayMinutes = terminal ? 24 * 60 : Math.min(360, 2 ** Math.max(0, input.attemptCount - 1));
-  await sql`
-    with failed_item as (
-      update company_directory_discovery_queue
-      set state = ${terminal ? "failed" : "pending_verify"},
-          locked_at = null,
-          lock_token = null,
-          last_error = ${`targeted pilot retry: ${input.error}`.slice(0, 1000)},
-          next_attempt_at = now() + (${delayMinutes}::text || ' minutes')::interval
-      where id = ${input.id}::uuid
-        and profile_id = ${input.profileId}::uuid
-      returning profile_id
-    )
-    update company_directory_profiles profile
-    set publication_status = 'review',
-        updated_at = now()
-    from failed_item
-    where ${terminal}
-      and failed_item.profile_id = profile.id
-      and profile.publication_status = 'ready'
-  `;
+  return failQueueItem({
+    ...input,
+    errorPrefix: "targeted pilot retry: ",
+  });
 }
 
 async function targetedPilotProfileId(queueId: string, organizationNumber: string) {
@@ -482,9 +527,17 @@ export async function processCompanyDirectoryDiscoveryQueue(limit?: number) {
       );
       const result = await upsertCompanyDirectoryCandidate(verified);
       itemProfileId = result.profileId;
-      await attachQueueProfile({ id: item.id, lockToken: item.lockToken, profileId: result.profileId });
+      await restoreQueueLeaseAfterProfileUpsert({
+        id: item.id,
+        lockToken: item.lockToken,
+        profileId: result.profileId,
+        attemptCount: item.attemptCount,
+        sourceFingerprint: item.sourceFingerprint,
+      });
       await enrichCompanyDirectoryOfficialFactsForProfile(result.profileId);
-      const autoPublication = await autoPublishCompanyDirectoryProfileIfSafe(result.profileId);
+      const autoPublication = result.publicationStatus === "ready"
+        ? await autoPublishCompanyDirectoryProfileIfSafe(result.profileId)
+        : null;
       if (
         autoPublication
         && !autoPublication.ok
@@ -508,6 +561,7 @@ export async function processCompanyDirectoryDiscoveryQueue(limit?: number) {
       await failQueueItem({
         id: item.id,
         lockToken: item.lockToken,
+        sourceFingerprint: item.sourceFingerprint,
         attemptCount: item.attemptCount,
         error: message,
         profileId: itemProfileId,
@@ -529,34 +583,16 @@ export async function processCompanyDirectoryDiscoveryQueue(limit?: number) {
 
 async function requeueControlledBatchPilotItem(input: {
   id: string;
+  lockToken: string;
   profileId: string;
+  sourceFingerprint: string;
   attemptCount: number;
   error: string;
 }) {
-  const sql = getSql();
-  if (!sql) return;
-  const terminal = input.attemptCount >= MAX_ATTEMPTS;
-  const delayMinutes = terminal ? 24 * 60 : Math.min(360, 2 ** Math.max(0, input.attemptCount - 1));
-  await sql`
-    with failed_item as (
-      update company_directory_discovery_queue
-      set state = ${terminal ? "failed" : "pending_verify"},
-          locked_at = null,
-          lock_token = null,
-          last_error = ${`controlled batch pilot retry: ${input.error}`.slice(0, 1000)},
-          next_attempt_at = now() + (${delayMinutes}::text || ' minutes')::interval
-      where id = ${input.id}::uuid
-        and profile_id = ${input.profileId}::uuid
-      returning profile_id
-    )
-    update company_directory_profiles profile
-    set publication_status = 'review',
-        updated_at = now()
-    from failed_item
-    where ${terminal}
-      and failed_item.profile_id = profile.id
-      and profile.publication_status = 'ready'
-  `;
+  return failQueueItem({
+    ...input,
+    errorPrefix: "controlled batch pilot retry: ",
+  });
 }
 
 export async function processNewCompanyDirectoryDiscoveryQueueCandidate(organizationNumber: unknown) {
@@ -592,7 +628,13 @@ export async function processNewCompanyDirectoryDiscoveryQueueCandidate(organiza
       );
       const result = await upsertCompanyDirectoryCandidate(verified);
       itemProfileId = result.profileId;
-      await attachQueueProfile({ id: item.id, lockToken: item.lockToken, profileId: result.profileId });
+      await restoreQueueLeaseAfterProfileUpsert({
+        id: item.id,
+        lockToken: item.lockToken,
+        profileId: result.profileId,
+        attemptCount: item.attemptCount,
+        sourceFingerprint: item.sourceFingerprint,
+      });
       await enrichCompanyDirectoryOfficialFactsForProfile(result.profileId);
       await completeQueueItem({
         id: item.id,
@@ -613,7 +655,9 @@ export async function processNewCompanyDirectoryDiscoveryQueueCandidate(organiza
       if (retryProfileId) {
         await requeueTargetedPilotItem({
           id: item.id,
+          lockToken: item.lockToken,
           profileId: retryProfileId,
+          sourceFingerprint: item.sourceFingerprint,
           attemptCount: item.attemptCount,
           error: message,
         });
@@ -621,6 +665,7 @@ export async function processNewCompanyDirectoryDiscoveryQueueCandidate(organiza
         await failQueueItem({
           id: item.id,
           lockToken: item.lockToken,
+          sourceFingerprint: item.sourceFingerprint,
           attemptCount: item.attemptCount,
           error: message,
         });
@@ -669,7 +714,13 @@ export async function processNewCompanyDirectoryDiscoveryQueueBatch(limit?: numb
       );
       const result = await upsertCompanyDirectoryCandidate(verified);
       itemProfileId = result.profileId;
-      await attachQueueProfile({ id: item.id, lockToken: item.lockToken, profileId: result.profileId });
+      await restoreQueueLeaseAfterProfileUpsert({
+        id: item.id,
+        lockToken: item.lockToken,
+        profileId: result.profileId,
+        attemptCount: item.attemptCount,
+        sourceFingerprint: item.sourceFingerprint,
+      });
       await enrichCompanyDirectoryOfficialFactsForProfile(result.profileId);
       await completeQueueItem({
         id: item.id,
@@ -689,7 +740,9 @@ export async function processNewCompanyDirectoryDiscoveryQueueBatch(limit?: numb
       if (retryProfileId) {
         await requeueControlledBatchPilotItem({
           id: item.id,
+          lockToken: item.lockToken,
           profileId: retryProfileId,
+          sourceFingerprint: item.sourceFingerprint,
           attemptCount: item.attemptCount,
           error: message,
         });
@@ -697,6 +750,7 @@ export async function processNewCompanyDirectoryDiscoveryQueueBatch(limit?: numb
         await failQueueItem({
           id: item.id,
           lockToken: item.lockToken,
+          sourceFingerprint: item.sourceFingerprint,
           attemptCount: item.attemptCount,
           error: message,
         });
