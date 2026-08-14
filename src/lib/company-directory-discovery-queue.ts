@@ -258,6 +258,7 @@ async function recoverStaleQueueLeases() {
 type QueueClaimOptions = {
   organizationNumber?: string;
   requireUnprofiled?: boolean;
+  pilotRetryPrefix?: string;
 };
 
 async function claimQueueBatch(limit: number, options: QueueClaimOptions = {}) {
@@ -266,6 +267,7 @@ async function claimQueueBatch(limit: number, options: QueueClaimOptions = {}) {
   const token = randomUUID();
   const organizationNumber = normalizeOrganizationNumber(options.organizationNumber);
   const requireUnprofiled = Boolean(options.requireUnprofiled);
+  const pilotRetryPrefix = text(options.pilotRetryPrefix);
 
   const rows = await sql`
     with candidates as (
@@ -286,8 +288,9 @@ async function claimQueueBatch(limit: number, options: QueueClaimOptions = {}) {
                   and regexp_replace(profile.organization_number, '[^0-9]', '', 'g') = queue.organization_number
               )
               or (
-                queue.profile_id is not null
-                and queue.last_error like 'targeted pilot retry:%'
+                ${pilotRetryPrefix} <> ''
+                and queue.profile_id is not null
+                and queue.last_error like ${`${pilotRetryPrefix}%`}
               )
             )
           )
@@ -460,6 +463,28 @@ export async function processCompanyDirectoryDiscoveryQueue(limit?: number) {
   };
 }
 
+async function requeueControlledBatchPilotItem(input: {
+  id: string;
+  profileId: string;
+  attemptCount: number;
+  error: string;
+}) {
+  const sql = getSql();
+  if (!sql) return;
+  const terminal = input.attemptCount >= MAX_ATTEMPTS;
+  const delayMinutes = terminal ? 24 * 60 : Math.min(360, 2 ** Math.max(0, input.attemptCount - 1));
+  await sql`
+    update company_directory_discovery_queue
+    set state = ${terminal ? "failed" : "pending_verify"},
+        locked_at = null,
+        lock_token = null,
+        last_error = ${`controlled batch pilot retry: ${input.error}`.slice(0, 1000)},
+        next_attempt_at = now() + (${delayMinutes}::text || ' minutes')::interval
+    where id = ${input.id}::uuid
+      and profile_id = ${input.profileId}::uuid
+  `;
+}
+
 export async function processNewCompanyDirectoryDiscoveryQueueCandidate(organizationNumber: unknown) {
   if (!getSql()) throw new Error("Database is not configured");
   if (!detailVerificationConfigured()) {
@@ -475,6 +500,7 @@ export async function processNewCompanyDirectoryDiscoveryQueueCandidate(organiza
   const claimed = await claimQueueBatch(1, {
     organizationNumber: normalizedOrganizationNumber,
     requireUnprofiled: true,
+    pilotRetryPrefix: "targeted pilot retry:",
   });
 
   let processed = 0;
@@ -532,6 +558,80 @@ export async function processNewCompanyDirectoryDiscoveryQueueCandidate(organiza
   return {
     organizationNumber: normalizedOrganizationNumber,
     profileId,
+    claimed: claimed.length,
+    processed,
+    published,
+    blocked,
+    errors,
+    errorSummary: errorMessages.join(" | "),
+  };
+}
+
+export async function processNewCompanyDirectoryDiscoveryQueueBatch(limit?: number) {
+  if (!getSql()) throw new Error("Database is not configured");
+  if (!detailVerificationConfigured()) {
+    throw new Error("Automatic discovery requires official detail verification and credentials");
+  }
+
+  const safeLimit = boundedInteger(limit, 5, 5);
+  await recoverStaleQueueLeases();
+  const claimed = await claimQueueBatch(safeLimit, {
+    requireUnprofiled: true,
+    pilotRetryPrefix: "controlled batch pilot retry:",
+  });
+
+  let processed = 0;
+  let published = 0;
+  let blocked = 0;
+  let errors = 0;
+  const errorMessages: string[] = [];
+
+  for (const item of claimed) {
+    let itemProfileId = "";
+    try {
+      const verified = await verifyOfficialCompanyCandidate(
+        seedCandidate(item.organizationNumber, `${item.provider}:discovery`, item.primarySniCode),
+      );
+      const result = await upsertCompanyDirectoryCandidate(verified);
+      itemProfileId = result.profileId;
+      await enrichCompanyDirectoryOfficialFactsForProfile(result.profileId);
+      await completeQueueItem({
+        id: item.id,
+        lockToken: item.lockToken,
+        state: result.publicationStatus,
+        profileId: result.profileId,
+      });
+      processed += 1;
+      if (result.publicationStatus === "published") published += 1;
+      if (result.blocked) blocked += 1;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown queue processing error";
+      const retryProfileId = itemProfileId || await targetedPilotProfileId(
+        item.id,
+        item.organizationNumber,
+      );
+      if (retryProfileId) {
+        await requeueControlledBatchPilotItem({
+          id: item.id,
+          profileId: retryProfileId,
+          attemptCount: item.attemptCount,
+          error: message,
+        });
+      } else {
+        await failQueueItem({
+          id: item.id,
+          lockToken: item.lockToken,
+          attemptCount: item.attemptCount,
+          error: message,
+        });
+      }
+      errors += 1;
+      if (errorMessages.length < 8) errorMessages.push(`${item.organizationNumber}: ${message}`);
+    }
+  }
+
+  return {
+    limit: safeLimit,
     claimed: claimed.length,
     processed,
     published,
