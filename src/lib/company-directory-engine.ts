@@ -40,10 +40,6 @@ function hashValue(value: unknown) {
   return createHash("sha256").update(normalized).digest("hex");
 }
 
-function autoPublishEnabled() {
-  return process.env.COMPANY_DIRECTORY_AUTO_PUBLISH?.trim().toLowerCase() === "true";
-}
-
 function number(value: unknown) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -113,9 +109,7 @@ export async function upsertCompanyDirectoryCandidate(candidate: NormalizedDirec
   if (!sql) throw new Error("Database is not configured");
 
   const assessment = assessDirectoryCandidate(candidate);
-  const desiredStatus = assessment.publicationStatus === "ready" && autoPublishEnabled()
-    ? "published"
-    : assessment.publicationStatus;
+  const desiredStatus = assessment.publicationStatus;
   const publicSlug = buildDirectoryPublicSlug(candidate);
   const servicesJson = JSON.stringify(assessment.category?.serviceSlugs ?? []);
   const reasons = JSON.stringify(assessment.reasons);
