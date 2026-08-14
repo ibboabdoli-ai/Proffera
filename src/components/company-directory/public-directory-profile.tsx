@@ -23,8 +23,8 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
   const otherLocale: PublicLocale = locale === "sv" ? "en" : "sv";
   const profileBase = directoryPaths[locale].search;
   const alternateBase = directoryPaths[otherLocale].search;
-  const updated = business.sourceUpdatedAt
-    ? new Intl.DateTimeFormat(locale === "en" ? "en-SE" : "sv-SE", { dateStyle: "medium", timeZone: "Europe/Stockholm" }).format(new Date(business.sourceUpdatedAt))
+  const lastChecked = business.lastCheckedAt
+    ? new Intl.DateTimeFormat(locale === "en" ? "en-SE" : "sv-SE", { dateStyle: "medium", timeZone: "Europe/Stockholm" }).format(new Date(business.lastCheckedAt))
     : t.synced;
   const hasMedia = Boolean(business.media?.isActualBusinessMedia && business.media.url);
 
@@ -61,7 +61,7 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
 
             <section className="mt-9 border-t border-black/10 pt-6"><h2 className="text-base font-black">{t.details}</h2><dl className="mt-4 grid gap-4 text-sm sm:grid-cols-2">{business.legalForm ? <div><dt className="text-[#6b746d]">{t.legalForm}</dt><dd className="mt-1 font-bold">{business.legalForm}</dd></div> : null}{business.city ? <div><dt className="text-[#6b746d]">{t.city}</dt><dd className="mt-1 font-bold">{business.city}</dd></div> : null}{business.municipality ? <div><dt className="text-[#6b746d]">{t.municipality}</dt><dd className="mt-1 font-bold">{business.municipality}</dd></div> : null}{business.addressLine1 ? <div><dt className="text-[#6b746d]">{t.address}</dt><dd className="mt-1 font-bold">{business.addressLine1}</dd></div> : null}</dl></section>
 
-            <aside className="mt-8 rounded-2xl border border-[#d7e4da] bg-[#f2f8f4] p-5 text-sm leading-6 text-[#425047]"><p className="font-black text-[#173e2b]">{t.sourceTitle}</p><p className="mt-1">{t.sourceLead} {t.updated}: {updated}.</p><p className="mt-2">{t.sourceOwner}</p>{!hasMedia ? <p className="mt-2">{t.noImage}</p> : null}</aside>
+            <aside className="mt-8 rounded-2xl border border-[#d7e4da] bg-[#f2f8f4] p-5 text-sm leading-6 text-[#425047]"><p className="font-black text-[#173e2b]">{t.sourceTitle}</p><p className="mt-1">{t.sourceLead} {t.lastChecked}: {lastChecked}.</p><p className="mt-2">{t.sourceOwner}</p>{!hasMedia ? <p className="mt-2">{t.noImage}</p> : null}</aside>
           </div>
         </article>
       </div>

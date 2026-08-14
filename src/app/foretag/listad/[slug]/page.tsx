@@ -73,8 +73,8 @@ export default async function ListedBusinessPage({ params }: Props) {
 
   const category = categoryLabels[business.categorySlug] ?? business.primarySniLabel ?? "Tjänsteföretag";
   const location = [business.postalCode, business.city].filter(Boolean).join(" ");
-  const updated = business.sourceUpdatedAt
-    ? new Intl.DateTimeFormat("sv-SE", { dateStyle: "medium", timeZone: "Europe/Stockholm" }).format(new Date(business.sourceUpdatedAt))
+  const lastChecked = business.lastCheckedAt
+    ? new Intl.DateTimeFormat("sv-SE", { dateStyle: "medium", timeZone: "Europe/Stockholm" }).format(new Date(business.lastCheckedAt))
     : "kontrollerad vid senaste synk";
   const canonical = `${siteConfig.url}/foretag/listad/${encodeURIComponent(business.slug)}`;
   const description = business.activityDescription || `${business.companyName} i ${business.city} – ${category}.`;
@@ -193,7 +193,7 @@ export default async function ListedBusinessPage({ params }: Props) {
             <aside className="mt-8 rounded-2xl border border-[#d7e4da] bg-[#f2f8f4] p-5 text-sm leading-6 text-[#425047]">
               <p className="font-black text-[#173e2b]">Var kommer informationen från?</p>
               <p className="mt-1">
-                Grunduppgifterna kommer från officiell företagsdata och kvalitetssäkras automatiskt av Proffera. Senast uppdaterad: {updated}.
+                Grunduppgifterna kommer från officiell företagsdata och kvalitetssäkras automatiskt av Proffera. Senast kontrollerad: {lastChecked}.
               </p>
               <p className="mt-2">Detta betyder inte att företagets ägare har verifierat eller gjort anspråk på profilen.</p>
               {!hasActualBusinessMedia ? (

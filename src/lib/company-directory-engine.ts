@@ -378,6 +378,7 @@ export type PublicDirectoryBusiness = {
   qualityScore: number;
   officialSource: string;
   sourceUpdatedAt: string;
+  lastCheckedAt: string;
   media: {
     url: string;
     kind: string;
@@ -410,6 +411,7 @@ export async function getPublicDirectoryBusiness(slug: string): Promise<PublicDi
       profile.quality_score,
       profile.official_source,
       profile.source_updated_at,
+      profile.last_synced_at,
       media.public_url as media_url,
       media.media_kind,
       media.attribution,
@@ -448,6 +450,7 @@ export async function getPublicDirectoryBusiness(slug: string): Promise<PublicDi
     qualityScore: number(row.quality_score),
     officialSource: String(row.official_source ?? ""),
     sourceUpdatedAt: row.source_updated_at ? new Date(String(row.source_updated_at)).toISOString() : "",
+    lastCheckedAt: row.last_synced_at ? new Date(String(row.last_synced_at)).toISOString() : "",
     media: row.media_url ? {
       url: String(row.media_url),
       kind: String(row.media_kind ?? ""),
