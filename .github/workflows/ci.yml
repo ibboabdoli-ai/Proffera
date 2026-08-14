@@ -43,3 +43,38 @@ jobs:
 
       - name: Check whitespace errors
         run: git diff --check
+
+  e2e-public-smoke:
+    name: E2E public smoke
+    runs-on: ubuntu-latest
+    needs: validate
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            e2e/package-lock.json
+
+      - name: Install app dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Install E2E dependencies
+        working-directory: e2e
+        run: npm ci --no-audit --no-fund
+
+      - name: Install Chromium
+        working-directory: e2e
+        run: npx playwright install --with-deps chromium
+
+      - name: Run non-destructive public smoke tests
+        working-directory: e2e
+        env:
+          E2E_BASE_URL: http://127.0.0.1:3000
+        run: npm test
