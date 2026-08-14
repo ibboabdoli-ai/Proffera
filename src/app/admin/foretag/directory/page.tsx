@@ -107,6 +107,7 @@ export default async function DirectoryEngineAdminPage({ searchParams }: PagePro
   const manualReview = snapshot.profiles.filter(
     (profile) => profile.status === "ready" && !profile.publishSafe,
   ).length;
+  const reviewProfiles = snapshot.profiles.slice(0, 100);
   const publishResult = firstParam(params?.publish);
   const publishMessage = publishResult ? publishMessages[publishResult] : undefined;
 
@@ -152,12 +153,12 @@ export default async function DirectoryEngineAdminPage({ searchParams }: PagePro
           </div>
           <div className="rounded-2xl bg-white p-5 ring-1 ring-black/5">
             <BadgeCheck className="h-5 w-5 text-[#17452f]" />
-            <p className="mt-4 text-xs font-black uppercase tracking-wide text-[#718078]">95%+ och säkra</p>
+            <p className="mt-4 text-xs font-black uppercase tracking-wide text-[#718078]">95%+ och säkra · alla</p>
             <p className="mt-1 text-3xl font-black text-[#17201a]">{highConfidenceReady}</p>
           </div>
           <div className="rounded-2xl bg-white p-5 ring-1 ring-black/5">
             <CircleAlert className="h-5 w-5 text-[#76580d]" />
-            <p className="mt-4 text-xs font-black uppercase tracking-wide text-[#718078]">Manuell granskning</p>
+            <p className="mt-4 text-xs font-black uppercase tracking-wide text-[#718078]">Manuell granskning · alla</p>
             <p className="mt-1 text-3xl font-black text-[#17201a]">{manualReview}</p>
           </div>
           <div className="rounded-2xl bg-white p-5 ring-1 ring-black/5">
@@ -181,6 +182,7 @@ export default async function DirectoryEngineAdminPage({ searchParams }: PagePro
               <Flag ok={snapshot.config.detailConfigured} label="Officiell detaljverifiering" />
               <Flag ok={snapshot.config.oauthConfigured} label="Bolagsverket OAuth" />
               <Flag ok={snapshot.config.syncEnabled} label="Automatisk sync" />
+              <Flag ok={snapshot.config.profileProcessingEnabled} label="Automatisk profilbearbetning" />
               <Flag ok={snapshot.config.autoPublishEnabled} label="Automatisk publicering" />
             </div>
             <div className="mt-5 rounded-2xl bg-[#f6f8f5] p-4 text-sm leading-6 text-[#5b665f]">
@@ -237,7 +239,7 @@ export default async function DirectoryEngineAdminPage({ searchParams }: PagePro
                 </tr>
               </thead>
               <tbody className="divide-y divide-black/5">
-                {snapshot.profiles.map((profile) => (
+                {reviewProfiles.map((profile) => (
                   <tr key={profile.id} className="align-top">
                     <td className="px-3 py-4">
                       <p className="font-bold text-[#253129]">{profile.companyName}</p>
