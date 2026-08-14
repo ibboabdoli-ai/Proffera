@@ -109,3 +109,11 @@ jobs:
             --header "Authorization: Bearer $CRON_SECRET" \
             --header "User-Agent: proffera-company-directory-github-actions" \
             "$FACTS_URL"
+
+          SYNC_URL="$ORIGIN/api/cron/company-directory-sync"
+          curl --fail-with-body --silent --show-error \
+            --connect-timeout 10 \
+            --max-time 75 \
+            --header "Authorization: Bearer $CRON_SECRET" \
+            --header "User-Agent: proffera-company-directory-github-actions" \
+            "$SYNC_URL"
