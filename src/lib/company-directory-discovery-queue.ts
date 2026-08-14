@@ -434,6 +434,14 @@ export async function processCompanyDirectoryDiscoveryQueue(limit?: number) {
       const result = await upsertCompanyDirectoryCandidate(verified);
       await enrichCompanyDirectoryOfficialFactsForProfile(result.profileId);
       const autoPublication = await autoPublishCompanyDirectoryProfileIfSafe(result.profileId);
+      if (
+        autoPublication
+        && !autoPublication.ok
+        && autoPublication.code !== "unsafe"
+        && autoPublication.code !== "low_confidence"
+      ) {
+        throw new Error(`Automatic publication requires retry (${autoPublication.code})`);
+      }
       const publicationStatus = autoPublication?.ok ? "published" : result.publicationStatus;
       await completeQueueItem({
         id: item.id,
