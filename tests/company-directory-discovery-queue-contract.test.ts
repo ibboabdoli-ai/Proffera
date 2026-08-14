@@ -44,14 +44,15 @@ describe("automatic company directory discovery contract", () => {
     expect(route).toContain("payload.candidates");
   });
 
-  it("processes the durable queue automatically without requiring a source URL", () => {
+  it("processes the durable queue automatically without requiring a source URL or a zero global facts backlog", () => {
     const route = source("src/app/api/cron/company-directory-sync/route.ts");
 
     expect(route).toContain('mode === "automatic"');
     expect(route).toContain("processCompanyDirectoryDiscoveryQueue");
     expect(route).toContain("COMPANY_DIRECTORY_SYNC_ENABLED");
-    expect(route).toContain("getCompanyDirectoryOfficialFactsBacklog");
-    expect(route).toContain("pendingOfficialFacts");
+    expect(route).toContain("COMPANY_DIRECTORY_PROFILE_PROCESSING_ENABLED");
+    expect(route).not.toContain("getCompanyDirectoryOfficialFactsBacklog");
+    expect(route).not.toContain("pendingOfficialFacts");
   });
 
   it("discovers only from the current official SCB bulk source and prefilters primary service and legal-form scope", () => {
