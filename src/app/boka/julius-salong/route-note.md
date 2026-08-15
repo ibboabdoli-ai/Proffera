@@ -1,0 +1,1 @@
+Julius Salong uses a dedicated static booking route so its route-specific layout, metadata, PWA manifest, and scoped styling apply to `/boka/julius-salong` while reusing the shared public booking implementation.
