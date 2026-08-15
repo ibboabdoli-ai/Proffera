@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import "./julius.css";
 
 export const metadata: Metadata = {
@@ -25,15 +25,13 @@ export const metadata: Metadata = {
 };
 
 export default function JuliusBookingLayout({ children }: { children: ReactNode }) {
+  const bookingTheme = {
+    "--booking-primary": "#173e2b",
+    "--booking-accent": "#d7a940",
+  } as CSSProperties;
+
   return (
-    <div
-      data-booking-theme="salon"
-      data-booking-appearance="light"
-      style={{
-        "--booking-primary": "#173e2b",
-        "--booking-accent": "#d7a940",
-      } as React.CSSProperties}
-    >
+    <div data-booking-theme="salon" data-booking-appearance="light" style={bookingTheme}>
       {children}
     </div>
   );
