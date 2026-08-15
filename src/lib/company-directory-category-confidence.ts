@@ -80,11 +80,13 @@ function hasExactSwedishToken(values: string[], token: string) {
   const haystack = values
     .filter(Boolean)
     .join(" ")
+    .normalize("NFC")
     .toLocaleLowerCase("sv-SE")
     .replace(/[^a-z0-9åäö]+/g, " ")
     .trim();
   if (!haystack) return false;
-  return ` ${haystack} `.includes(` ${token.toLocaleLowerCase("sv-SE")} `);
+  const normalizedToken = token.normalize("NFC").toLocaleLowerCase("sv-SE");
+  return ` ${haystack} `.includes(` ${normalizedToken} `);
 }
 
 function hasCategoryKeyword(categorySlug: string, values: string[]) {
@@ -92,13 +94,13 @@ function hasCategoryKeyword(categorySlug: string, values: string[]) {
   if (!keywords.length) return false;
 
   // Keep the Swedish distinction between "Städ" (cleaning) and "Stad"
-  // (city) before accent folding. This safely recognizes company names such
-  // as "Evelinas Städ AB" without treating "Stockholm Stad" as cleaning.
+  // (city) before accent folding. NFC normalization also makes canonically
+  // decomposed Swedish text behave identically to its precomposed form.
   if (categorySlug === "stadning" && hasExactSwedishToken(values, "städ")) {
     return true;
   }
 
-  let sourceText = values.filter(Boolean).join(" \n ");
+  let sourceText = values.filter(Boolean).join(" \n ").normalize("NFC");
 
   // Contiguous, correctly spelled Swedish flyttstäd* forms describe move-out
   // cleaning rather than moving services. Space- or hyphen-separated forms
