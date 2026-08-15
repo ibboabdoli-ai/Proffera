@@ -67,6 +67,32 @@ describe("company directory category confidence", () => {
     expect(result.conflictingTextCategories).toEqual([]);
   });
 
+  it("does not misclassify flyttstädning as moving-service evidence", () => {
+    const result = assess({
+      activityDescription: "Flyttstädning, hemstädning och fönsterputs",
+      legalName: "Trygg Städservice AB",
+    });
+
+    expect(result.score).toBe(100);
+    expect(result.level).toBe("high");
+    expect(result.conflictingTextCategories).not.toContain("flytt");
+  });
+
+  it("still recognizes real moving-service terms", () => {
+    const result = assess({
+      categorySlug: "flytt",
+      primarySniCode: "49.420",
+      activityDescription: "Flyttfirma med flyttservice och flyttning av bohag",
+      legalName: "Exempel AB",
+      displayName: "Exempel AB",
+      sniCodes: [{ code: "49.420", label: "Flyttjänster" }],
+    });
+
+    expect(result.score).toBe(90);
+    expect(result.level).toBe("review");
+    expect(result.signals).toContain("Verksamhetsbeskrivningen stödjer kategorin");
+  });
+
   it("keeps profiles with competing supported official SNI categories below 95", () => {
     const result = assess({
       categorySlug: "elektriker",
