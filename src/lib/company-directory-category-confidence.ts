@@ -112,10 +112,11 @@ function hasCategoryKeyword(categorySlug: string, values: string[]) {
 
   let haystack = fold(sourceText);
 
-  // Fail-safe for already transliterated contiguous official text such as
-  // "flyttstadning". The "stadn" stem does not erase Flyttstaden.
+  // Fail-safe for already transliterated contiguous cleaning forms. Match the
+  // exact bare "flyttstad" token plus verb/noun continuations (flyttstada*,
+  // flyttstadn*) while deliberately preserving "Flyttstaden" (next letter e).
   if (categorySlug === "flytt") {
-    haystack = haystack.replace(/flyttstadn\w*/g, " ");
+    haystack = haystack.replace(/flyttstad(?:\b|a\w*|n\w*)/g, " ");
   }
 
   return keywords.some((keyword) => haystack.includes(keyword));
