@@ -64,7 +64,7 @@ describe("company directory manual refresh contract", () => {
     const layout = source("src/app/admin/foretag/directory/layout.tsx");
 
     expect(control).toContain("Uppdatera profiler under 95%");
-    expect(control).toContain("BATCH_PAUSE_MS = 4_000");
+    expect(control).toContain("BATCH_PAUSE_MS = 7_000");
     expect(control).toContain("MAX_BATCHES_PER_CLICK = 500");
     expect(control).toContain("result.rateLimited");
     expect(control).toContain("result.retryAfterSeconds * 1_000");
