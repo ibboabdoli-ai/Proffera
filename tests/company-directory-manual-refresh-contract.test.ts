@@ -59,6 +59,14 @@ describe("company directory manual refresh contract", () => {
     expect(manualRefresh).toContain("retryAfterSeconds");
   });
 
+  it("does not scan the entire low-confidence backlog twice per batch", () => {
+    const manualRefresh = source("src/lib/company-directory-manual-refresh.ts");
+    const candidateCalls = manualRefresh.match(/await lowConfidenceCandidates\(sql, scanStartedAt\)/g) ?? [];
+
+    expect(candidateCalls).toHaveLength(1);
+    expect(manualRefresh).toContain("const remaining = Math.max(0, candidates.length - refreshed)");
+  });
+
   it("paces the single-click admin control below the documented 60-requests-per-minute limit", () => {
     const control = source("src/app/admin/foretag/directory/DirectoryLowConfidenceRefreshButton.tsx");
     const layout = source("src/app/admin/foretag/directory/layout.tsx");
@@ -73,5 +81,16 @@ describe("company directory manual refresh contract", () => {
     expect(control).toContain('pathname !== "/admin/foretag/directory"');
     expect(control).not.toContain("batch < 100");
     expect(layout).toContain("DirectoryLowConfidenceRefreshButton");
+  });
+
+  it("retries transient server-action failures without refreshing the route between every batch", () => {
+    const control = source("src/app/admin/foretag/directory/DirectoryLowConfidenceRefreshButton.tsx");
+    const routeRefreshes = control.match(/router\.refresh\(\)/g) ?? [];
+
+    expect(control).toContain("ACTION_RETRY_DELAYS_MS = [3_000, 10_000, 30_000]");
+    expect(control).toContain("runBatchWithRetry");
+    expect(control).toContain("Tillfälligt serverfel. Nytt försök");
+    expect(control).toContain("Redan uppdaterade profiler är sparade");
+    expect(routeRefreshes).toHaveLength(1);
   });
 });
