@@ -82,11 +82,11 @@ function hasCategoryKeyword(categorySlug: string, values: string[]) {
   let haystack = fold(values.filter(Boolean).join(" \n "));
 
   // "Flyttstädning" is a cleaning service, not evidence that the company
-  // offers moving services. Strip that cleaning compound before evaluating
-  // the intentionally broad "flytt" stem; real moving terms such as
-  // flyttfirma, flyttservice and flyttning remain detectable.
+  // offers moving services. Strip only the normalized cleaning compound
+  // (flyttstadning...), while preserving legitimate moving names/terms such
+  // as Flyttstaden, flyttfirma, flyttservice and flyttning.
   if (categorySlug === "flytt") {
-    haystack = haystack.replace(/flytt[\s-]*stad\w*/g, " ");
+    haystack = haystack.replace(/flytt[\s-]*stadn\w*/g, " ");
   }
 
   return keywords.some((keyword) => haystack.includes(keyword));
