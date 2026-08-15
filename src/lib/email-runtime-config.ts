@@ -19,6 +19,11 @@ export function resolveBrevoApiKey(env: NodeJS.ProcessEnv = process.env) {
   return trimmed(env.BREVO_API_KEY);
 }
 
+export function resolvePreviewEmailRecipient(env: NodeJS.ProcessEnv = process.env) {
+  const previewRecipient = trimmed(env.PROFFERA_PREVIEW_EMAIL_RECIPIENT)?.toLowerCase() ?? null;
+  return previewRecipient && isValidEmail(previewRecipient) ? previewRecipient : null;
+}
+
 export function resolveEmailRecipient(
   recipient: EmailRecipient,
   env: NodeJS.ProcessEnv = process.env,
@@ -27,8 +32,8 @@ export function resolveEmailRecipient(
     return recipient;
   }
 
-  const previewRecipient = trimmed(env.PROFFERA_PREVIEW_EMAIL_RECIPIENT)?.toLowerCase() ?? null;
-  if (!previewRecipient || !isValidEmail(previewRecipient)) {
+  const previewRecipient = resolvePreviewEmailRecipient(env);
+  if (!previewRecipient) {
     return null;
   }
 
