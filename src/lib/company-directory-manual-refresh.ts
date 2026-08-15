@@ -7,7 +7,6 @@ import { getSql } from "@/lib/db/server";
 
 const DEFAULT_BATCH_SIZE = 3;
 const MAX_BATCH_SIZE = 5;
-const MAX_CANDIDATES_PER_SCAN = 1000;
 
 function text(value: unknown) {
   return value === null || value === undefined ? "" : String(value);
@@ -63,7 +62,6 @@ async function lowConfidenceCandidates(
       and f.source_payload_hash <> ''
       and f.last_synced_at < ${scanStartedAt}::timestamptz
     order by f.last_synced_at asc, p.organization_number asc
-    limit ${MAX_CANDIDATES_PER_SCAN}
   `;
 
   return rows.filter((row) => {
