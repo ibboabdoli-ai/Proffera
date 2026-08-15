@@ -7,6 +7,7 @@ import { getSql } from "@/lib/db/server";
 
 const DEFAULT_BATCH_SIZE = 3;
 const MAX_BATCH_SIZE = 5;
+const RATE_LIMIT_RETRY_SECONDS = 65;
 
 function text(value: unknown) {
   return value === null || value === undefined ? "" : String(value);
@@ -22,6 +23,11 @@ function validTimestamp(value: unknown) {
   if (typeof value !== "string" || !value.trim()) return "";
   const parsed = new Date(value);
   return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : "";
+}
+
+function isOfficialFactsRateLimit(error: unknown) {
+  return error instanceof Error
+    && /Official facts (?:lookup|OAuth) failed \(429\)/.test(error.message);
 }
 
 async function resolveScanStartedAt(
@@ -90,6 +96,8 @@ export type CompanyDirectoryManualRefreshBatch = {
   errors: number;
   remaining: number;
   completed: boolean;
+  rateLimited: boolean;
+  retryAfterSeconds: number;
   publishedSlugs: string[];
   errorSummary: string;
 };
@@ -112,6 +120,8 @@ export async function refreshLowConfidenceCompanyDirectoryBatch(input?: {
   let blockedBySafety = 0;
   let deferred = 0;
   let errors = 0;
+  let rateLimited = false;
+  let retryAfterSeconds = 0;
   const publishedSlugs: string[] = [];
   const errorSummary: string[] = [];
 
@@ -134,6 +144,16 @@ export async function refreshLowConfidenceCompanyDirectoryBatch(input?: {
         deferred += 1;
       }
     } catch (error) {
+      if (isOfficialFactsRateLimit(error)) {
+        rateLimited = true;
+        retryAfterSeconds = RATE_LIMIT_RETRY_SECONDS;
+        deferred += 1;
+        if (errorSummary.length < 3) {
+          errorSummary.push(`Bolagsverket rate limit nådd. Vänta ${RATE_LIMIT_RETRY_SECONDS} sekunder.`);
+        }
+        break;
+      }
+
       errors += 1;
       if (errorSummary.length < 3) {
         errorSummary.push(error instanceof Error ? error.message : "Unknown refresh error");
@@ -155,6 +175,8 @@ export async function refreshLowConfidenceCompanyDirectoryBatch(input?: {
     errors,
     remaining,
     completed: remaining === 0,
+    rateLimited,
+    retryAfterSeconds,
     publishedSlugs,
     errorSummary: errorSummary.join(" | "),
   };
