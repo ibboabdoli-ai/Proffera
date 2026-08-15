@@ -28,12 +28,21 @@ const EMPTY_PROGRESS: Progress = {
   errorSummary: "",
 };
 
+const BATCH_PAUSE_MS = 4_000;
+const RATE_LIMIT_BUFFER_MS = 2_000;
+const MAX_BATCHES_PER_CLICK = 500;
+
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
 export default function DirectoryLowConfidenceRefreshButton({ initialCount }: { initialCount?: number }) {
   const pathname = usePathname();
   const router = useRouter();
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<Progress>({ ...EMPTY_PROGRESS, remaining: initialCount ?? 0 });
   const [finished, setFinished] = useState(false);
+  const [notice, setNotice] = useState("");
 
   if (pathname !== "/admin/foretag/directory") return null;
 
@@ -42,11 +51,12 @@ export default function DirectoryLowConfidenceRefreshButton({ initialCount }: { 
 
     setRunning(true);
     setFinished(false);
+    setNotice("");
     let scanStartedAt: string | undefined;
     let totals: Progress = { ...EMPTY_PROGRESS, remaining: initialCount ?? 0 };
 
     try {
-      for (let batch = 0; batch < 100; batch += 1) {
+      for (let batch = 0; batch < MAX_BATCHES_PER_CLICK; batch += 1) {
         const result = await refreshLowConfidenceDirectoryBatchAction(scanStartedAt);
         scanStartedAt = result.scanStartedAt;
         totals = {
@@ -66,6 +76,17 @@ export default function DirectoryLowConfidenceRefreshButton({ initialCount }: { 
           setFinished(result.completed && result.errors === 0);
           break;
         }
+
+        if (result.rateLimited) {
+          setNotice(`Bolagsverkets gräns på 60 frågor/minut nåddes. Väntar ${result.retryAfterSeconds} sekunder och fortsätter automatiskt…`);
+          await sleep((result.retryAfterSeconds * 1_000) + RATE_LIMIT_BUFFER_MS);
+          setNotice("");
+          continue;
+        }
+
+        setNotice("Kör långsamt för att hålla sig under Bolagsverkets gräns på 60 frågor/minut…");
+        await sleep(BATCH_PAUSE_MS);
+        setNotice("");
       }
     } catch {
       totals = {
@@ -76,6 +97,7 @@ export default function DirectoryLowConfidenceRefreshButton({ initialCount }: { 
       setProgress(totals);
     } finally {
       setRunning(false);
+      setNotice("");
       router.refresh();
     }
   }
@@ -88,7 +110,7 @@ export default function DirectoryLowConfidenceRefreshButton({ initialCount }: { 
             <ShieldCheck className="h-5 w-5" /> Säker uppdatering under 95%
           </p>
           <p className="mt-2 max-w-xl text-sm leading-6 text-[#526057]">
-            Hämtar nya Official Facts för Ready-profiler under 95%, räknar om kategorisäkerheten och publicerar endast om den befintliga säkerhetskontrollen efter uppdateringen ger minst 95% och inga spärrar finns.
+            Hämtar nya Official Facts för Ready-profiler under 95%, räknar om kategorisäkerheten och publicerar endast om den befintliga säkerhetskontrollen efter uppdateringen ger minst 95% och inga spärrar finns. Anropen körs med paus för att hålla sig under Bolagsverkets gräns på 60 frågor per minut.
           </p>
         </div>
         <button
@@ -105,6 +127,10 @@ export default function DirectoryLowConfidenceRefreshButton({ initialCount }: { 
               : `Uppdatera under 95% (${initialCount})`}
         </button>
       </div>
+
+      {notice ? (
+        <p className="mt-3 text-sm font-bold text-[#17452f]" role="status" aria-live="polite">{notice}</p>
+      ) : null}
 
       {(running || progress.refreshed > 0 || progress.errors > 0) ? (
         <div className="mt-4 grid gap-2 text-xs font-bold text-[#526057] sm:grid-cols-2" role="status" aria-live="polite">
