@@ -26,6 +26,17 @@ describe("company directory category confidence", () => {
     expect(result.warnings).toContain("Ingen oberoende textsignal stödjer kategorin");
   });
 
+  it("does not treat an exact stored SNI match in Official Facts as an extra confidence signal", () => {
+    const result = assess({
+      primarySniCode: "81.210",
+      sniCodes: [{ code: "81.210", label: "Lokalvård" }],
+    });
+
+    expect(result.score).toBe(80);
+    expect(result.level).toBe("review");
+    expect(result.signals.some((signal) => signal.includes("Verifierad primär SNI"))).toBe(false);
+  });
+
   it("keeps one independent activity-text signal below the high-confidence threshold", () => {
     const result = assess({
       activityDescription: "Städning, lokalvård och fönsterputs",
