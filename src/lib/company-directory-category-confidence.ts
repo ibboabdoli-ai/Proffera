@@ -150,22 +150,6 @@ export function assessCompanyDirectoryCategoryConfidence(
     warnings.push("Official Facts saknas ännu");
   }
 
-  const primarySniOfficiallyConfirmed = Boolean(
-    normalizedPrimarySniCode
-    && officialSniCodes.some((item) => item.code === normalizedPrimarySniCode),
-  );
-  const officialSniConsensus = primaryCategoryMatches
-    && primarySniOfficiallyConfirmed
-    && officialCategories.size === 1
-    && officialCategories.has(input.categorySlug);
-
-  if (officialSniConsensus) {
-    score += 15;
-    signals.push("Verifierad primär SNI och fullständig officiell SNI-lista pekar entydigt på kategorin");
-  } else if (officialFactsReady && primaryCategoryMatches && !primarySniOfficiallyConfirmed) {
-    warnings.push("Primär SNI saknar exakt bekräftelse i Official Facts");
-  }
-
   const activitySupportsCategory = hasCategoryKeyword(input.categorySlug, [input.activityDescription]);
   if (activitySupportsCategory) {
     score += 10;
@@ -216,11 +200,7 @@ export function assessCompanyDirectoryCategoryConfidence(
     || nameSupportsCategory
     || specialDescriptionSupportsCategory;
   if (!hasIndependentTextSignal) {
-    warnings.push(
-      officialSniConsensus
-        ? "Ingen oberoende textsignal stödjer kategorin; hög confidence bygger på entydiga verifierade SNI-uppgifter"
-        : "Ingen oberoende textsignal stödjer kategorin",
-    );
+    warnings.push("Ingen oberoende textsignal stödjer kategorin");
   }
 
   score = Math.max(0, Math.min(100, score));
