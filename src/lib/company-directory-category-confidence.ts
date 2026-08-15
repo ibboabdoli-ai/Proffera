@@ -18,6 +18,7 @@ export type CompanyDirectoryCategoryConfidence = {
   signals: string[];
   warnings: string[];
   competingCategories: string[];
+  conflictingTextCategories: string[];
   officialFactsReady: boolean;
 };
 
@@ -75,11 +76,52 @@ function fold(value: unknown) {
     .replace(/ö/g, "o");
 }
 
+function hasExactSwedishToken(values: string[], token: string) {
+  const haystack = values
+    .filter(Boolean)
+    .join(" ")
+    .normalize("NFC")
+    .toLocaleLowerCase("sv-SE")
+    .replace(/[^a-z0-9åäö]+/g, " ")
+    .trim();
+  if (!haystack) return false;
+  const normalizedToken = token.normalize("NFC").toLocaleLowerCase("sv-SE");
+  return ` ${haystack} `.includes(` ${normalizedToken} `);
+}
+
 function hasCategoryKeyword(categorySlug: string, values: string[]) {
   const keywords = categoryKeywords[categorySlug] ?? [];
   if (!keywords.length) return false;
-  const haystack = fold(values.filter(Boolean).join(" \n "));
+
+  // Keep the Swedish distinction between "Städ" (cleaning) and "Stad"
+  // (city) before accent folding. NFC normalization also makes canonically
+  // decomposed Swedish text behave identically to its precomposed form.
+  if (categorySlug === "stadning" && hasExactSwedishToken(values, "städ")) {
+    return true;
+  }
+
+  let sourceText = values.filter(Boolean).join(" \n ").normalize("NFC");
+
+  // Contiguous, correctly spelled Swedish flyttstäd* forms describe move-out
+  // cleaning rather than moving services. Space- or hyphen-separated forms
+  // are intentionally preserved because they may mean two separate services.
+  // ASCII "flyttstad*" is also preserved: without the Swedish ä it is
+  // ambiguous (for example Flyttstaden) and fail-closed review is safer than
+  // assuming it means cleaning.
+  if (categorySlug === "flytt") {
+    sourceText = sourceText
+      .toLocaleLowerCase("sv-SE")
+      .replace(/flyttstäd[a-zåäö]*/g, " ");
+  }
+
+  const haystack = fold(sourceText);
   return keywords.some((keyword) => haystack.includes(keyword));
+}
+
+function categoriesWithKeywords(values: string[]) {
+  return Object.keys(categoryKeywords)
+    .filter((categorySlug) => hasCategoryKeyword(categorySlug, values))
+    .sort();
 }
 
 function registeredNameFacts(value: unknown): RegisteredNameFact[] {
@@ -118,8 +160,10 @@ export function assessCompanyDirectoryCategoryConfidence(
   const officialFactsReady = officialSniCodes.length > 0;
   let score = 0;
 
-  const primaryCategory = mapSniToDirectoryCategory(input.primarySniCode)?.categorySlug ?? "";
-  if (primaryCategory && primaryCategory === input.categorySlug) {
+  const normalizedPrimarySniCode = normalizeSniCode(input.primarySniCode);
+  const primaryCategory = mapSniToDirectoryCategory(normalizedPrimarySniCode)?.categorySlug ?? "";
+  const primaryCategoryMatches = Boolean(primaryCategory && primaryCategory === input.categorySlug);
+  if (primaryCategoryMatches) {
     score += 65;
     signals.push("Primär SNI matchar kategorin");
   } else {
@@ -141,21 +185,26 @@ export function assessCompanyDirectoryCategoryConfidence(
     warnings.push("Official Facts saknas ännu");
   }
 
-  if (hasCategoryKeyword(input.categorySlug, [input.activityDescription])) {
+  const activitySupportsCategory = hasCategoryKeyword(input.categorySlug, [input.activityDescription]);
+  if (activitySupportsCategory) {
     score += 10;
     signals.push("Verksamhetsbeskrivningen stödjer kategorin");
   }
 
-  if (hasCategoryKeyword(input.categorySlug, [
+  const registeredNameValues = registeredNames.map((item) => item.name);
+  const nameSupportsCategory = hasCategoryKeyword(input.categorySlug, [
     input.legalName,
     input.displayName,
-    ...registeredNames.map((item) => item.name),
-  ])) {
+    ...registeredNameValues,
+  ]);
+  if (nameSupportsCategory) {
     score += 10;
     signals.push("Företagsnamn stödjer kategorin");
   }
 
-  if (hasCategoryKeyword(input.categorySlug, registeredNames.map((item) => item.specialBusinessDescription))) {
+  const specialBusinessDescriptions = registeredNames.map((item) => item.specialBusinessDescription);
+  const specialDescriptionSupportsCategory = hasCategoryKeyword(input.categorySlug, specialBusinessDescriptions);
+  if (specialDescriptionSupportsCategory) {
     score += 5;
     signals.push("Registrerad särskild verksamhetsbeskrivning stödjer kategorin");
   }
@@ -168,7 +217,24 @@ export function assessCompanyDirectoryCategoryConfidence(
     warnings.push(`Andra stödda kategorier finns i SNI-listan: ${competingCategories.join(", ")}`);
   }
 
-  if (!signals.some((signal) => signal.includes("Verksamhetsbeskrivningen") || signal.includes("Företagsnamn") || signal.includes("särskild"))) {
+  const officialTextValues = [
+    input.activityDescription,
+    input.legalName,
+    input.displayName,
+    ...registeredNameValues,
+    ...specialBusinessDescriptions,
+  ];
+  const conflictingTextCategories = categoriesWithKeywords(officialTextValues)
+    .filter((category) => category !== input.categorySlug);
+  if (conflictingTextCategories.length) {
+    score = Math.min(score, 90);
+    warnings.push(`Officiell företagstext stödjer även andra kategorier: ${conflictingTextCategories.join(", ")}`);
+  }
+
+  const hasIndependentTextSignal = activitySupportsCategory
+    || nameSupportsCategory
+    || specialDescriptionSupportsCategory;
+  if (!hasIndependentTextSignal) {
     warnings.push("Ingen oberoende textsignal stödjer kategorin");
   }
 
@@ -181,6 +247,7 @@ export function assessCompanyDirectoryCategoryConfidence(
     signals,
     warnings,
     competingCategories,
+    conflictingTextCategories,
     officialFactsReady,
   };
 }
