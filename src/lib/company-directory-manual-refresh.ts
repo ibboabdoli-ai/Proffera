@@ -147,7 +147,6 @@ export async function refreshLowConfidenceCompanyDirectoryBatch(input?: {
       if (isOfficialFactsRateLimit(error)) {
         rateLimited = true;
         retryAfterSeconds = RATE_LIMIT_RETRY_SECONDS;
-        deferred += 1;
         if (errorSummary.length < 3) {
           errorSummary.push(`Bolagsverket rate limit nådd. Vänta ${RATE_LIMIT_RETRY_SECONDS} sekunder.`);
         }
