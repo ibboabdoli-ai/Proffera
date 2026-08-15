@@ -111,7 +111,7 @@ describe("company directory category confidence", () => {
     expect(result.level).not.toBe("high");
   });
 
-  it("does not rescue a primary SNI/category mismatch", () => {
+  it("does not rescue a stored SNI/category mismatch", () => {
     const result = assess({
       categorySlug: "vvs",
       primarySniCode: "43.210",
