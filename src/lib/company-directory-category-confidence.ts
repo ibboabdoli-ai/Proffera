@@ -100,25 +100,19 @@ function hasCategoryKeyword(categorySlug: string, values: string[]) {
 
   let sourceText = values.filter(Boolean).join(" \n ");
 
-  // Contiguous Swedish flyttstäd* forms describe move-out cleaning rather
-  // than moving services. Space- or hyphen-separated forms are intentionally
-  // preserved because they may represent separate moving + cleaning services;
-  // keeping them as moving evidence is the safer fail-closed interpretation.
+  // Contiguous, correctly spelled Swedish flyttstäd* forms describe move-out
+  // cleaning rather than moving services. Space- or hyphen-separated forms
+  // are intentionally preserved because they may mean two separate services.
+  // ASCII "flyttstad*" is also preserved: without the Swedish ä it is
+  // ambiguous (for example Flyttstaden) and fail-closed review is safer than
+  // assuming it means cleaning.
   if (categorySlug === "flytt") {
     sourceText = sourceText
       .toLocaleLowerCase("sv-SE")
       .replace(/flyttstäd[a-zåäö]*/g, " ");
   }
 
-  let haystack = fold(sourceText);
-
-  // Fail-safe for already transliterated contiguous cleaning forms. Match the
-  // exact bare "flyttstad" token plus verb/noun continuations (flyttstada*,
-  // flyttstadn*) while deliberately preserving "Flyttstaden" (next letter e).
-  if (categorySlug === "flytt") {
-    haystack = haystack.replace(/flyttstad(?:\b|a\w*|n\w*)/g, " ");
-  }
-
+  const haystack = fold(sourceText);
   return keywords.some((keyword) => haystack.includes(keyword));
 }
 
