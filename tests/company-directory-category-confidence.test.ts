@@ -78,6 +78,21 @@ describe("company directory category confidence", () => {
     expect(result.conflictingTextCategories).not.toContain("flytt");
   });
 
+  it("preserves Flyttstaden as genuine moving-name evidence", () => {
+    const result = assess({
+      categorySlug: "flytt",
+      primarySniCode: "49.420",
+      legalName: "Flyttstaden AB",
+      displayName: "Flyttstaden AB",
+      activityDescription: "",
+      sniCodes: [{ code: "49.420", label: "Flyttjänster" }],
+    });
+
+    expect(result.score).toBe(90);
+    expect(result.level).toBe("review");
+    expect(result.signals).toContain("Företagsnamn stödjer kategorin");
+  });
+
   it("still recognizes real moving-service terms", () => {
     const result = assess({
       categorySlug: "flytt",
