@@ -1,0 +1,66 @@
+/* Julius Salong route-specific booking polish. */
+[data-booking-theme="salon"] {
+  background: #f7f7f4 !important;
+}
+
+[data-booking-theme="salon"] > main:first-child {
+  background: #f7f7f4 !important;
+  color: #17201a !important;
+}
+
+[data-booking-theme="salon"] form[data-booking-form="guided"] button {
+  border-color: #d8e1da !important;
+  box-shadow: none !important;
+}
+
+[data-booking-theme="salon"] form[data-booking-form="guided"] button[class*="bg-[#17452f]"] {
+  background: #173e2b !important;
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+  border-color: #173e2b !important;
+}
+
+[data-booking-theme="salon"] form[data-booking-form="guided"] button[class*="bg-[#eef8f1]"] {
+  background: #ffffff !important;
+  color: #173e2b !important;
+  -webkit-text-fill-color: #173e2b !important;
+}
+
+[data-booking-theme="salon"] form[data-booking-form="guided"] button[class*="bg-white"] {
+  background: #ffffff !important;
+  color: #17201a !important;
+  -webkit-text-fill-color: #17201a !important;
+}
+
+[data-booking-theme="salon"] form[data-booking-form="guided"] button:disabled {
+  opacity: .38 !important;
+}
+
+[data-booking-theme="salon"] form[data-booking-form="guided"] article,
+[data-booking-theme="salon"] form[data-booking-form="guided"] section > div[class*="rounded-3xl"] {
+  border-color: #d8e1da !important;
+}
+
+[data-booking-theme="salon"] form[data-booking-form="guided"] h1,
+[data-booking-theme="salon"] form[data-booking-form="guided"] h2,
+[data-booking-theme="salon"] form[data-booking-form="guided"] h3,
+[data-booking-theme="salon"] form[data-booking-form="guided"] h4 {
+  font-family: inherit !important;
+  color: #17201a !important;
+}
+
+[data-booking-theme="salon"] .fixed span[class*="bg-white"] {
+  color: #173e2b !important;
+  -webkit-text-fill-color: #173e2b !important;
+}
+
+@media (display-mode: standalone) {
+  body {
+    background: #f7f7f4;
+  }
+
+  [data-booking-theme="salon"] {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
