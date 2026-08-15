@@ -18,6 +18,18 @@ describe("company directory manual refresh contract", () => {
     expect(manualRefresh).toContain("MAX_BATCH_SIZE = 5");
   });
 
+  it("does not pre-limit candidate rows before applying the confidence predicate", () => {
+    const manualRefresh = source("src/lib/company-directory-manual-refresh.ts");
+    const candidateQueryStart = manualRefresh.indexOf("async function lowConfidenceCandidates");
+    const candidateFilter = manualRefresh.indexOf("return rows.filter", candidateQueryStart);
+    const candidateSection = manualRefresh.slice(candidateQueryStart, candidateFilter);
+
+    expect(candidateQueryStart).toBeGreaterThanOrEqual(0);
+    expect(candidateFilter).toBeGreaterThan(candidateQueryStart);
+    expect(candidateSection).not.toContain("MAX_CANDIDATES_PER_SCAN");
+    expect(candidateSection).not.toContain("limit ${");
+  });
+
   it("reuses the shared fail-closed publication gate and never writes published state directly", () => {
     const manualRefresh = source("src/lib/company-directory-manual-refresh.ts");
 
