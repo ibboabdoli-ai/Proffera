@@ -31,6 +31,7 @@ const EMPTY_PROGRESS: Progress = {
 const BATCH_PAUSE_MS = 7_000;
 const RATE_LIMIT_BUFFER_MS = 2_000;
 const MAX_BATCHES_PER_CLICK = 500;
+const ACTION_RETRY_DELAYS_MS = [3_000, 10_000, 30_000] as const;
 
 function sleep(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -46,6 +47,27 @@ export default function DirectoryLowConfidenceRefreshButton({ initialCount }: { 
 
   if (pathname !== "/admin/foretag/directory") return null;
 
+  async function runBatchWithRetry(scanStartedAt?: string) {
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt <= ACTION_RETRY_DELAYS_MS.length; attempt += 1) {
+      try {
+        return await refreshLowConfidenceDirectoryBatchAction(scanStartedAt);
+      } catch (error) {
+        lastError = error;
+        const retryDelay = ACTION_RETRY_DELAYS_MS[attempt];
+        if (retryDelay === undefined) break;
+
+        setNotice(
+          `Tillfälligt serverfel. Nytt försök ${attempt + 2}/${ACTION_RETRY_DELAYS_MS.length + 1} om ${Math.ceil(retryDelay / 1_000)} sekunder…`,
+        );
+        await sleep(retryDelay);
+      }
+    }
+
+    throw lastError instanceof Error ? lastError : new Error("Manual directory refresh action failed");
+  }
+
   async function refreshAll() {
     if (running || initialCount === 0) return;
 
@@ -57,7 +79,7 @@ export default function DirectoryLowConfidenceRefreshButton({ initialCount }: { 
 
     try {
       for (let batch = 0; batch < MAX_BATCHES_PER_CLICK; batch += 1) {
-        const result = await refreshLowConfidenceDirectoryBatchAction(scanStartedAt);
+        const result = await runBatchWithRetry(scanStartedAt);
         scanStartedAt = result.scanStartedAt;
         totals = {
           refreshed: totals.refreshed + result.refreshed,
@@ -70,7 +92,7 @@ export default function DirectoryLowConfidenceRefreshButton({ initialCount }: { 
           errorSummary: result.errorSummary || totals.errorSummary,
         };
         setProgress(totals);
-        router.refresh();
+        setNotice("");
 
         if (result.errors > 0 || result.completed || result.selected === 0) {
           setFinished(result.completed && result.errors === 0);
@@ -92,7 +114,7 @@ export default function DirectoryLowConfidenceRefreshButton({ initialCount }: { 
       totals = {
         ...totals,
         errors: totals.errors + 1,
-        errorSummary: "Körningen avbröts. Inga profiler publiceras utan att säkerhetskontrollen godkänner dem.",
+        errorSummary: "Ett tillfälligt serverfel kvarstod efter automatiska återförsök. Redan uppdaterade profiler är sparade. Ladda om sidan och fortsätt körningen.",
       };
       setProgress(totals);
     } finally {
