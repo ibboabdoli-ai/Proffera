@@ -99,6 +99,20 @@ describe("company directory category confidence", () => {
     expect(result.conflictingTextCategories).not.toContain("flytt");
   });
 
+  it.each([
+    "Flyttstäd och hemstädning",
+    "Vi kan flyttstäda och utföra hemstädning",
+    "Vi flyttstädar och utför hemstädning",
+  ])("does not treat Swedish move-out-cleaning form %s as moving evidence", (activityDescription) => {
+    const result = assess({
+      activityDescription,
+      legalName: "Trygg Städservice AB",
+    });
+
+    expect(result.level).toBe("high");
+    expect(result.conflictingTextCategories).not.toContain("flytt");
+  });
+
   it("preserves Flyttstaden as genuine moving-name evidence", () => {
     const result = assess({
       categorySlug: "flytt",
