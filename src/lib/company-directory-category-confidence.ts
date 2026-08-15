@@ -98,12 +98,22 @@ function hasCategoryKeyword(categorySlug: string, values: string[]) {
     return true;
   }
 
-  let haystack = fold(values.filter(Boolean).join(" \n "));
+  let sourceText = values.filter(Boolean).join(" \n ");
 
-  // "Flyttstädning" is a cleaning service, not evidence that the company
-  // offers moving services. Strip only the normalized cleaning compound
-  // (flyttstadning...), while preserving legitimate moving names/terms such
-  // as Flyttstaden, flyttfirma, flyttservice and flyttning.
+  // Swedish flyttstäd*, including flyttstäd, flyttstäda, flyttstädar and
+  // flyttstädning, describes move-out cleaning rather than moving services.
+  // Strip it before accent folding so genuine moving names such as
+  // "Flyttstaden" (with a) remain distinguishable and detectable.
+  if (categorySlug === "flytt") {
+    sourceText = sourceText
+      .toLocaleLowerCase("sv-SE")
+      .replace(/flytt[\s-]*städ[a-zåäö]*/g, " ");
+  }
+
+  let haystack = fold(sourceText);
+
+  // Fail-safe for already transliterated official text such as
+  // "flyttstadning". The narrower "stadn" stem does not erase Flyttstaden.
   if (categorySlug === "flytt") {
     haystack = haystack.replace(/flytt[\s-]*stadn\w*/g, " ");
   }
