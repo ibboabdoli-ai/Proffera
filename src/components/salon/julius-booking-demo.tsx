@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import QRCode from "qrcode";
-import { Clock, MapPin, QrCode, Star } from "lucide-react";
+import { Clock, ExternalLink, MapPin, QrCode, Star } from "lucide-react";
 import { BookingWidget } from "@/components/salon/booking-widget";
 import { juliusSalon, salonReviews, salonServices } from "@/lib/salon-demo";
 
@@ -16,6 +16,7 @@ type JuliusBookingDemoProps = {
 export function JuliusBookingDemo({ bookingContent, live = false }: JuliusBookingDemoProps) {
   const popularServices = salonServices.slice(0, 3);
   const bookingUrl = "https://www.proffera.se/boka/julius-salong";
+  const googleMapsUrl = "https://maps.app.goo.gl/VatYFyFyAm7Jy1Xg7?g_st=ic";
   const [qrCodeUrl, setQrCodeUrl] = useState("");
 
   useEffect(() => {
@@ -29,7 +30,7 @@ export function JuliusBookingDemo({ bookingContent, live = false }: JuliusBookin
   }, [live]);
 
   return (
-    <div className="bg-[#f7f7f4] pb-24 text-[#17201a] lg:pb-0">
+    <div data-julius-booking className="bg-[#f7f7f4] pb-24 text-[#17201a] lg:pb-0">
       <section className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8 lg:py-14">
         <div className="rounded-[2rem] bg-[#17201a] p-5 text-white shadow-xl shadow-black/10 lg:grid lg:grid-cols-[0.9fr_1.1fr] lg:gap-8 lg:p-8">
           <div>
@@ -45,7 +46,7 @@ export function JuliusBookingDemo({ bookingContent, live = false }: JuliusBookin
               <div className="rounded-2xl bg-white/10 p-3 ring-1 ring-white/10">
                 <Star className="h-4 w-4 text-[#e8b44d]" aria-hidden="true" />
                 <p className="mt-2 text-lg font-black">5/5</p>
-                <p className="text-[11px] text-white/65">92 betyg</p>
+                <p className="text-[11px] text-white/65">99 betyg</p>
               </div>
               <div className="rounded-2xl bg-white/10 p-3 ring-1 ring-white/10">
                 <Clock className="h-4 w-4 text-[#e8b44d]" aria-hidden="true" />
@@ -97,27 +98,38 @@ export function JuliusBookingDemo({ bookingContent, live = false }: JuliusBookin
       </section>
 
       <section className="bg-white py-10">
-        <div className="mx-auto grid max-w-6xl gap-4 px-4 sm:px-6 lg:grid-cols-3 lg:px-8">
-          <div className="rounded-3xl bg-[#17452f] p-6 text-white lg:col-span-1">
-            <QrCode className="h-9 w-9" aria-hidden="true" />
-            <h2 className="mt-4 text-2xl font-black">Skanna och boka direkt</h2>
-            <p className="mt-2 text-sm leading-6 text-white/75">QR-koden kan sättas på spegeln, disken, visitkortet eller Instagram.</p>
-            <div className="mt-6 flex h-44 w-44 items-center justify-center overflow-hidden rounded-3xl bg-white p-2 text-center text-sm font-black text-[#17452f]">
-              {live && qrCodeUrl ? (
-                <Image src={qrCodeUrl} width={160} height={160} unoptimized alt="QR-kod till Julius Salongs bokningssida" className="h-40 w-40 rounded-2xl" />
-              ) : <>QR<br />Julius Salong</>}
+        <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
+          <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.14em] text-[#607067]">Omdömen</p>
+              <h2 className="mt-2 text-2xl font-black">Vad kunderna säger</h2>
             </div>
-            <p className="mt-4 break-all text-xs font-bold text-white/70">{live ? "proffera.se/boka/julius-salong" : "julius.proffera.se"}</p>
+            <a href={googleMapsUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-full border border-[#d8e1da] bg-white px-4 py-2 text-sm font-black text-[#173e2b] shadow-sm">
+              Se på Google <ExternalLink className="h-4 w-4" aria-hidden="true" />
+            </a>
           </div>
-          <div className="grid gap-4 lg:col-span-2">
-            {salonReviews.map((review) => (
-              <article key={review} className="rounded-3xl bg-[#fbfbf8] p-5 ring-1 ring-[#dfe5dd]">
-                <div className="flex gap-1 text-[#17452f]" aria-label="5 stjärnor">
-                  {Array.from({ length: 5 }).map((_, index) => <Star key={index} className="h-4 w-4 fill-current" aria-hidden="true" />)}
-                </div>
-                <p className="mt-3 text-sm leading-6 text-[#344139]">“{review}”</p>
-              </article>
-            ))}
+          <div className="grid gap-4 lg:grid-cols-3">
+            <div className="rounded-3xl bg-[#17452f] p-6 text-white">
+              <QrCode className="h-9 w-9" aria-hidden="true" />
+              <h2 className="mt-4 text-2xl font-black">Skanna och boka direkt</h2>
+              <p className="mt-2 text-sm leading-6 text-white/75">QR-koden kan sättas på spegeln, disken, visitkortet eller Instagram.</p>
+              <div className="mt-6 flex h-44 w-44 items-center justify-center overflow-hidden rounded-3xl bg-white p-2 text-center text-sm font-black text-[#17452f]">
+                {live && qrCodeUrl ? (
+                  <Image src={qrCodeUrl} width={160} height={160} unoptimized alt="QR-kod till Julius Salongs bokningssida" className="h-40 w-40 rounded-2xl" />
+                ) : <>QR<br />Julius Salong</>}
+              </div>
+              <p className="mt-4 break-all text-xs font-bold text-white/70">{live ? "proffera.se/boka/julius-salong" : "julius.proffera.se"}</p>
+            </div>
+            <div className="grid gap-4 lg:col-span-2">
+              {salonReviews.map((review) => (
+                <article key={review} className="rounded-3xl bg-[#fbfbf8] p-5 ring-1 ring-[#dfe5dd]">
+                  <div className="flex gap-1 text-[#17452f]" aria-label="5 stjärnor">
+                    {Array.from({ length: 5 }).map((_, index) => <Star key={index} className="h-4 w-4 fill-current" aria-hidden="true" />)}
+                  </div>
+                  <p className="mt-3 text-sm leading-6 text-[#344139]">“{review}”</p>
+                </article>
+              ))}
+            </div>
           </div>
         </div>
       </section>
@@ -139,6 +151,9 @@ export function JuliusBookingDemo({ bookingContent, live = false }: JuliusBookin
           <p className="mt-3 text-sm font-bold text-[#344139]">{juliusSalon.address}</p>
           <p className="mt-2 text-sm leading-6 text-[#5b665f]">Nedre Torekällgatan 5, nära Södertälje centrum.</p>
           <div className="mt-5 rounded-3xl bg-[#f7f7f4] p-5 text-sm font-bold text-[#17452f]">Södertälje centrum • Nära kunderna</div>
+          <a href={googleMapsUrl} target="_blank" rel="noreferrer" className="mt-4 inline-flex items-center gap-2 rounded-full bg-[#173e2b] px-4 py-3 text-sm font-black text-white">
+            Öppna i Google Maps <ExternalLink className="h-4 w-4" aria-hidden="true" />
+          </a>
         </div>
       </section>
 
@@ -160,7 +175,7 @@ export function JuliusBookingDemo({ bookingContent, live = false }: JuliusBookin
             <span className="block text-xs font-bold text-white/70">Julius Salong</span>
             <span className="block text-sm font-black">Boka tid online</span>
           </span>
-          <span className="rounded-full bg-white px-4 py-2 text-sm font-black text-[#17452f]">Från 299 kr</span>
+          <span style={{ color: "#17452f", WebkitTextFillColor: "#17452f" }} className="rounded-full bg-white px-4 py-2 text-sm font-black">Från 299 kr</span>
         </a>
       </div>
     </div>
