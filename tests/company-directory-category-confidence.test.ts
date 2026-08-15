@@ -55,6 +55,27 @@ describe("company directory category confidence", () => {
     expect(result.level).toBe("review");
   });
 
+  it("recognizes exact Swedish Städ as cleaning-name evidence", () => {
+    const result = assess({
+      legalName: "Evelinas Städ AB",
+      activityDescription: "Bolaget skall bedriva lokalvård hos privatpersoner och företag",
+    });
+
+    expect(result.score).toBe(100);
+    expect(result.level).toBe("high");
+    expect(result.signals).toContain("Företagsnamn stödjer kategorin");
+  });
+
+  it("does not treat Swedish Stad as Städ cleaning evidence", () => {
+    const result = assess({
+      legalName: "Stockholm Stad Service AB",
+    });
+
+    expect(result.score).toBe(80);
+    expect(result.level).toBe("review");
+    expect(result.signals).not.toContain("Företagsnamn stödjer kategorin");
+  });
+
   it("reaches high confidence only when multiple independent same-category signals agree", () => {
     const result = assess({
       activityDescription: "Städning, lokalvård och fönsterputs",
