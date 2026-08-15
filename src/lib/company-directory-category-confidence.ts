@@ -76,9 +76,28 @@ function fold(value: unknown) {
     .replace(/ö/g, "o");
 }
 
+function hasExactSwedishToken(values: string[], token: string) {
+  const haystack = values
+    .filter(Boolean)
+    .join(" ")
+    .toLocaleLowerCase("sv-SE")
+    .replace(/[^a-z0-9åäö]+/g, " ")
+    .trim();
+  if (!haystack) return false;
+  return ` ${haystack} `.includes(` ${token.toLocaleLowerCase("sv-SE")} `);
+}
+
 function hasCategoryKeyword(categorySlug: string, values: string[]) {
   const keywords = categoryKeywords[categorySlug] ?? [];
   if (!keywords.length) return false;
+
+  // Keep the Swedish distinction between "Städ" (cleaning) and "Stad"
+  // (city) before accent folding. This safely recognizes company names such
+  // as "Evelinas Städ AB" without treating "Stockholm Stad" as cleaning.
+  if (categorySlug === "stadning" && hasExactSwedishToken(values, "städ")) {
+    return true;
+  }
+
   let haystack = fold(values.filter(Boolean).join(" \n "));
 
   // "Flyttstädning" is a cleaning service, not evidence that the company
