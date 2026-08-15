@@ -9,13 +9,14 @@ import {
 
 describe("Stripe runtime configuration", () => {
   it("fails closed in Preview instead of falling back to Production Stripe values", () => {
-    const env = {
+    const env: NodeJS.ProcessEnv = {
+      NODE_ENV: "test",
       VERCEL_ENV: "preview",
       STRIPE_SECRET_KEY: "sk_live_prod",
       STRIPE_WEBHOOK_SECRET: "whsec_prod",
       STRIPE_PRICE_STARTER: "price_prod_starter",
       STRIPE_PRICE_PROFESSIONAL: "price_prod_professional",
-    } as NodeJS.ProcessEnv;
+    };
 
     expect(resolveStripeSecretKey(env)).toBeNull();
     expect(resolveStripeWebhookSecret(env)).toBeNull();
@@ -25,13 +26,14 @@ describe("Stripe runtime configuration", () => {
   });
 
   it("accepts only a dedicated test secret and dedicated prices in Preview", () => {
-    const env = {
+    const env: NodeJS.ProcessEnv = {
+      NODE_ENV: "test",
       VERCEL_ENV: "preview",
       PROFFERA_PREVIEW_STRIPE_SECRET_KEY: "sk_test_preview",
       PROFFERA_PREVIEW_STRIPE_WEBHOOK_SECRET: "whsec_preview",
       PROFFERA_PREVIEW_STRIPE_PRICE_STARTER: "price_preview_starter",
       PROFFERA_PREVIEW_STRIPE_PRICE_PROFESSIONAL: "price_preview_professional",
-    } as NodeJS.ProcessEnv;
+    };
 
     expect(resolveStripeSecretKey(env)).toBe("sk_test_preview");
     expect(resolveStripeWebhookSecret(env)).toBe("whsec_preview");
@@ -41,23 +43,25 @@ describe("Stripe runtime configuration", () => {
   });
 
   it("rejects a live secret even when it is placed in the Preview-specific variable", () => {
-    const env = {
+    const env: NodeJS.ProcessEnv = {
+      NODE_ENV: "test",
       VERCEL_ENV: "preview",
       PROFFERA_PREVIEW_STRIPE_SECRET_KEY: "sk_live_not_allowed",
-    } as NodeJS.ProcessEnv;
+    };
 
     expect(resolveStripeSecretKey(env)).toBeNull();
     expect(isResolvedStripeTestMode(env)).toBe(false);
   });
 
   it("keeps Production resolution unchanged", () => {
-    const env = {
+    const env: NodeJS.ProcessEnv = {
+      NODE_ENV: "test",
       VERCEL_ENV: "production",
       STRIPE_SECRET_KEY: "sk_live_prod",
       STRIPE_WEBHOOK_SECRET: "whsec_prod",
       STRIPE_PRICE_STARTER: "price_prod_starter",
       STRIPE_PRICE_PROFESSIONAL: "price_prod_professional",
-    } as NodeJS.ProcessEnv;
+    };
 
     expect(resolveStripeSecretKey(env)).toBe("sk_live_prod");
     expect(resolveStripeWebhookSecret(env)).toBe("whsec_prod");

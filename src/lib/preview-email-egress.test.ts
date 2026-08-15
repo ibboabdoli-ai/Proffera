@@ -11,10 +11,12 @@ describe("Preview Brevo egress safety", () => {
       headers: { "api-key": "production-key" },
       body: JSON.stringify({ to: [{ email: "customer@example.com" }] }),
     } satisfies RequestInit;
-
-    expect(buildPreviewSafeBrevoRequestInit(BREVO_URL, init, {
+    const env: NodeJS.ProcessEnv = {
+      NODE_ENV: "test",
       VERCEL_ENV: "production",
-    } as NodeJS.ProcessEnv)).toBe(init);
+    };
+
+    expect(buildPreviewSafeBrevoRequestInit(BREVO_URL, init, env)).toBe(init);
   });
 
   it("blocks Preview Brevo delivery when dedicated safe configuration is missing", () => {
@@ -23,14 +25,22 @@ describe("Preview Brevo egress safety", () => {
       headers: { "api-key": "production-key" },
       body: JSON.stringify({ to: [{ email: "customer@example.com" }] }),
     } satisfies RequestInit;
-
-    expect(() => buildPreviewSafeBrevoRequestInit(BREVO_URL, init, {
+    const env: NodeJS.ProcessEnv = {
+      NODE_ENV: "test",
       VERCEL_ENV: "preview",
       BREVO_API_KEY: "production-key",
-    } as NodeJS.ProcessEnv)).toThrow(/Preview email blocked/);
+    };
+
+    expect(() => buildPreviewSafeBrevoRequestInit(BREVO_URL, init, env)).toThrow(/Preview email blocked/);
   });
 
   it("overrides the Brevo key and redirects every Preview recipient to the safe inbox", () => {
+    const env: NodeJS.ProcessEnv = {
+      NODE_ENV: "test",
+      VERCEL_ENV: "preview",
+      PROFFERA_PREVIEW_BREVO_API_KEY: "preview-key",
+      PROFFERA_PREVIEW_EMAIL_RECIPIENT: "preview-inbox@example.com",
+    };
     const result = buildPreviewSafeBrevoRequestInit(BREVO_URL, {
       method: "POST",
       headers: { "api-key": "production-key", "Content-Type": "application/json" },
@@ -40,11 +50,7 @@ describe("Preview Brevo egress safety", () => {
         bcc: [{ email: "hidden@example.com" }],
         subject: "Preview test",
       }),
-    }, {
-      VERCEL_ENV: "preview",
-      PROFFERA_PREVIEW_BREVO_API_KEY: "preview-key",
-      PROFFERA_PREVIEW_EMAIL_RECIPIENT: "preview-inbox@example.com",
-    } as NodeJS.ProcessEnv);
+    }, env);
 
     expect(result).toBeDefined();
     const headers = new Headers(result?.headers);
@@ -59,8 +65,11 @@ describe("Preview Brevo egress safety", () => {
 
   it("does not touch unrelated Preview network requests", () => {
     const init = { method: "POST", body: "{}" } satisfies RequestInit;
-    expect(buildPreviewSafeBrevoRequestInit("https://example.com/api", init, {
+    const env: NodeJS.ProcessEnv = {
+      NODE_ENV: "test",
       VERCEL_ENV: "preview",
-    } as NodeJS.ProcessEnv)).toBe(init);
+    };
+
+    expect(buildPreviewSafeBrevoRequestInit("https://example.com/api", init, env)).toBe(init);
   });
 });
