@@ -160,8 +160,12 @@ export async function refreshLowConfidenceCompanyDirectoryBatch(input?: {
     }
   }
 
-  const remainingCandidates = await lowConfidenceCandidates(sql, scanStartedAt);
-  const remaining = remainingCandidates.length;
+  // The batch starts from a fixed snapshot cutoff. Every successfully refreshed row
+  // receives a new last_synced_at and therefore leaves this snapshot. Reuse the
+  // already-loaded candidate set instead of scanning the entire backlog a second time.
+  // The next batch recalculates the snapshot, so concurrent refreshes can only make this
+  // conservative count shrink sooner on the following request.
+  const remaining = Math.max(0, candidates.length - refreshed);
 
   return {
     scanStartedAt,
