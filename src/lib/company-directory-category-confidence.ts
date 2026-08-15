@@ -125,14 +125,14 @@ export function assessCompanyDirectoryCategoryConfidence(
   const officialFactsReady = officialSniCodes.length > 0;
   let score = 0;
 
-  const normalizedPrimarySniCode = normalizeSniCode(input.primarySniCode);
-  const primaryCategory = mapSniToDirectoryCategory(normalizedPrimarySniCode)?.categorySlug ?? "";
-  const primaryCategoryMatches = Boolean(primaryCategory && primaryCategory === input.categorySlug);
-  if (primaryCategoryMatches) {
+  const normalizedStoredSniCode = normalizeSniCode(input.primarySniCode);
+  const storedSniCategory = mapSniToDirectoryCategory(normalizedStoredSniCode)?.categorySlug ?? "";
+  const storedSniCategoryMatches = Boolean(storedSniCategory && storedSniCategory === input.categorySlug);
+  if (storedSniCategoryMatches) {
     score += 65;
-    signals.push("Primär SNI matchar kategorin");
+    signals.push("Lagrat SNI matchar kategorin");
   } else {
-    warnings.push("Primär SNI matchar inte profilens kategori");
+    warnings.push("Lagrat SNI matchar inte profilens kategori");
   }
 
   const officialCategories = new Set(
