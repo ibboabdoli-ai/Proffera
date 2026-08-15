@@ -28,7 +28,7 @@ const EMPTY_PROGRESS: Progress = {
   errorSummary: "",
 };
 
-const BATCH_PAUSE_MS = 4_000;
+const BATCH_PAUSE_MS = 7_000;
 const RATE_LIMIT_BUFFER_MS = 2_000;
 const MAX_BATCHES_PER_CLICK = 500;
 
