@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { requireSuperAdmin } from "@/lib/admin-authorization";
@@ -13,21 +14,36 @@ function formText(formData: FormData, name: string, maxLength: number) {
   return String(formData.get(name) ?? "").trim().slice(0, maxLength);
 }
 
+function safeReturnContext(referer: string) {
+  try {
+    const url = new URL(referer);
+    if (url.pathname !== "/admin/foretag/directory") return { status: "", query: "", page: 1 };
+    const status = (url.searchParams.get("status") ?? "").trim().toLowerCase();
+    const query = (url.searchParams.get("q") ?? "").trim().slice(0, 120);
+    const parsedPage = Number(url.searchParams.get("page"));
+    return {
+      status: DIRECTORY_STATUS_FILTERS.has(status) ? status : "",
+      query,
+      page: Number.isFinite(parsedPage) ? Math.max(1, Math.floor(parsedPage)) : 1,
+    };
+  } catch {
+    return { status: "", query: "", page: 1 };
+  }
+}
+
 export async function publishDirectoryProfileAction(formData: FormData) {
   const profileId = formText(formData, "profileId", 80);
-  const returnStatus = formText(formData, "returnStatus", 20).toLowerCase();
-  const returnQuery = formText(formData, "returnQuery", 120);
-  const parsedPage = Number(formText(formData, "returnPage", 8));
-  const returnPage = Number.isFinite(parsedPage) ? Math.max(1, Math.floor(parsedPage)) : 1;
+  const requestHeaders = await headers();
+  const context = safeReturnContext(requestHeaders.get("referer") ?? "");
   const result = await publishCompanyDirectoryProfileFromAdmin(profileId);
 
   revalidatePath("/admin/foretag/directory");
   if (result.slug) revalidatePath(`/foretag/listad/${result.slug}`);
 
   const params = new URLSearchParams({ publish: result.code });
-  if (DIRECTORY_STATUS_FILTERS.has(returnStatus)) params.set("status", returnStatus);
-  if (returnQuery) params.set("q", returnQuery);
-  if (returnPage > 1) params.set("page", String(returnPage));
+  if (context.status) params.set("status", context.status);
+  if (context.query) params.set("q", context.query);
+  if (context.page > 1) params.set("page", String(context.page));
   redirect(`/admin/foretag/directory?${params.toString()}`);
 }
 
