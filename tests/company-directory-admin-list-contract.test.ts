@@ -32,4 +32,15 @@ describe("Company Directory admin list", () => {
     expect(code).toContain('href={directoryHref({ status: "published", query: "" })}');
     expect(code).toContain('href={`/foretag/listad/${encodeURIComponent(profile.slug)}`}');
   });
+
+  it("returns to the active filtered list after an admin publication", () => {
+    const code = source("src/app/admin/foretag/directory/actions.ts");
+
+    expect(code).toContain('const requestHeaders = await headers()');
+    expect(code).toContain('requestHeaders.get("referer")');
+    expect(code).toContain('url.pathname !== "/admin/foretag/directory"');
+    expect(code).toContain('params.set("status", context.status)');
+    expect(code).toContain('params.set("q", context.query)');
+    expect(code).toContain('params.set("page", String(context.page))');
+  });
 });
