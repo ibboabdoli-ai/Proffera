@@ -18,6 +18,7 @@ export type CompanyDirectoryCategoryConfidence = {
   signals: string[];
   warnings: string[];
   competingCategories: string[];
+  conflictingTextCategories: string[];
   officialFactsReady: boolean;
 };
 
@@ -82,6 +83,12 @@ function hasCategoryKeyword(categorySlug: string, values: string[]) {
   return keywords.some((keyword) => haystack.includes(keyword));
 }
 
+function categoriesWithKeywords(values: string[]) {
+  return Object.keys(categoryKeywords)
+    .filter((categorySlug) => hasCategoryKeyword(categorySlug, values))
+    .sort();
+}
+
 function registeredNameFacts(value: unknown): RegisteredNameFact[] {
   return array(value).map((item) => {
     const row = object(item);
@@ -118,8 +125,10 @@ export function assessCompanyDirectoryCategoryConfidence(
   const officialFactsReady = officialSniCodes.length > 0;
   let score = 0;
 
-  const primaryCategory = mapSniToDirectoryCategory(input.primarySniCode)?.categorySlug ?? "";
-  if (primaryCategory && primaryCategory === input.categorySlug) {
+  const normalizedPrimarySniCode = normalizeSniCode(input.primarySniCode);
+  const primaryCategory = mapSniToDirectoryCategory(normalizedPrimarySniCode)?.categorySlug ?? "";
+  const primaryCategoryMatches = Boolean(primaryCategory && primaryCategory === input.categorySlug);
+  if (primaryCategoryMatches) {
     score += 65;
     signals.push("Primär SNI matchar kategorin");
   } else {
@@ -141,21 +150,42 @@ export function assessCompanyDirectoryCategoryConfidence(
     warnings.push("Official Facts saknas ännu");
   }
 
-  if (hasCategoryKeyword(input.categorySlug, [input.activityDescription])) {
+  const primarySniOfficiallyConfirmed = Boolean(
+    normalizedPrimarySniCode
+    && officialSniCodes.some((item) => item.code === normalizedPrimarySniCode),
+  );
+  const officialSniConsensus = primaryCategoryMatches
+    && primarySniOfficiallyConfirmed
+    && officialCategories.size === 1
+    && officialCategories.has(input.categorySlug);
+
+  if (officialSniConsensus) {
+    score += 15;
+    signals.push("Verifierad primär SNI och fullständig officiell SNI-lista pekar entydigt på kategorin");
+  } else if (officialFactsReady && primaryCategoryMatches && !primarySniOfficiallyConfirmed) {
+    warnings.push("Primär SNI saknar exakt bekräftelse i Official Facts");
+  }
+
+  const activitySupportsCategory = hasCategoryKeyword(input.categorySlug, [input.activityDescription]);
+  if (activitySupportsCategory) {
     score += 10;
     signals.push("Verksamhetsbeskrivningen stödjer kategorin");
   }
 
-  if (hasCategoryKeyword(input.categorySlug, [
+  const registeredNameValues = registeredNames.map((item) => item.name);
+  const nameSupportsCategory = hasCategoryKeyword(input.categorySlug, [
     input.legalName,
     input.displayName,
-    ...registeredNames.map((item) => item.name),
-  ])) {
+    ...registeredNameValues,
+  ]);
+  if (nameSupportsCategory) {
     score += 10;
     signals.push("Företagsnamn stödjer kategorin");
   }
 
-  if (hasCategoryKeyword(input.categorySlug, registeredNames.map((item) => item.specialBusinessDescription))) {
+  const specialBusinessDescriptions = registeredNames.map((item) => item.specialBusinessDescription);
+  const specialDescriptionSupportsCategory = hasCategoryKeyword(input.categorySlug, specialBusinessDescriptions);
+  if (specialDescriptionSupportsCategory) {
     score += 5;
     signals.push("Registrerad särskild verksamhetsbeskrivning stödjer kategorin");
   }
@@ -168,8 +198,29 @@ export function assessCompanyDirectoryCategoryConfidence(
     warnings.push(`Andra stödda kategorier finns i SNI-listan: ${competingCategories.join(", ")}`);
   }
 
-  if (!signals.some((signal) => signal.includes("Verksamhetsbeskrivningen") || signal.includes("Företagsnamn") || signal.includes("särskild"))) {
-    warnings.push("Ingen oberoende textsignal stödjer kategorin");
+  const officialTextValues = [
+    input.activityDescription,
+    input.legalName,
+    input.displayName,
+    ...registeredNameValues,
+    ...specialBusinessDescriptions,
+  ];
+  const conflictingTextCategories = categoriesWithKeywords(officialTextValues)
+    .filter((category) => category !== input.categorySlug);
+  if (conflictingTextCategories.length) {
+    score = Math.min(score, 90);
+    warnings.push(`Officiell företagstext stödjer även andra kategorier: ${conflictingTextCategories.join(", ")}`);
+  }
+
+  const hasIndependentTextSignal = activitySupportsCategory
+    || nameSupportsCategory
+    || specialDescriptionSupportsCategory;
+  if (!hasIndependentTextSignal) {
+    warnings.push(
+      officialSniConsensus
+        ? "Ingen oberoende textsignal stödjer kategorin; hög confidence bygger på entydiga verifierade SNI-uppgifter"
+        : "Ingen oberoende textsignal stödjer kategorin",
+    );
   }
 
   score = Math.max(0, Math.min(100, score));
@@ -181,6 +232,7 @@ export function assessCompanyDirectoryCategoryConfidence(
     signals,
     warnings,
     competingCategories,
+    conflictingTextCategories,
     officialFactsReady,
   };
 }
