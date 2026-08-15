@@ -33,14 +33,19 @@ describe("Company Directory admin list", () => {
     expect(code).toContain('href={`/foretag/listad/${encodeURIComponent(profile.slug)}`}');
   });
 
-  it("returns to the active filtered list after an admin publication", () => {
-    const code = source("src/app/admin/foretag/directory/actions.ts");
+  it("submits and restores the active list context after an admin publication", () => {
+    const pageCode = source("src/app/admin/foretag/directory/page.tsx");
+    const actionCode = source("src/app/admin/foretag/directory/actions.ts");
 
-    expect(code).toContain('const requestHeaders = await headers()');
-    expect(code).toContain('requestHeaders.get("referer")');
-    expect(code).toContain('url.pathname !== "/admin/foretag/directory"');
-    expect(code).toContain('params.set("status", context.status)');
-    expect(code).toContain('params.set("q", context.query)');
-    expect(code).toContain('params.set("page", String(context.page))');
+    expect(pageCode).toContain('name="returnStatus" value={currentStatus}');
+    expect(pageCode).toContain('name="returnQuery" value={searchQuery}');
+    expect(pageCode).toContain('name="returnPage" value={currentPage}');
+    expect(actionCode).toContain('formText(formData, "returnStatus", 20)');
+    expect(actionCode).toContain('formText(formData, "returnQuery", 120)');
+    expect(actionCode).toContain('formText(formData, "returnPage", 8)');
+    expect(actionCode).toContain('params.set("status", returnStatus)');
+    expect(actionCode).toContain('params.set("q", returnQuery)');
+    expect(actionCode).toContain('params.set("page", String(returnPage))');
+    expect(actionCode).not.toContain('requestHeaders.get("referer")');
   });
 });
