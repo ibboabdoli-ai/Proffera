@@ -25,5 +25,16 @@ export const metadata: Metadata = {
 };
 
 export default function JuliusBookingLayout({ children }: { children: ReactNode }) {
-  return children;
+  return (
+    <div
+      data-booking-theme="salon"
+      data-booking-appearance="light"
+      style={{
+        "--booking-primary": "#173e2b",
+        "--booking-accent": "#d7a940",
+      } as React.CSSProperties}
+    >
+      {children}
+    </div>
+  );
 }
