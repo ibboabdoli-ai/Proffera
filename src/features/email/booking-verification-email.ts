@@ -9,6 +9,10 @@ type BookingVerificationEmailInput = {
 
 type BrevoResponse = { messageId?: string; message?: string; code?: string };
 
+const DEFAULT_BOOKING_FROM_EMAIL = "Proffera Booking <booking@proffera.se>";
+const DEFAULT_BOOKING_REPLY_TO_EMAIL = "info@proffera.se";
+const BOOKING_VERIFICATION_TAG = "booking-verification";
+
 function escapeHtml(value: string) {
   return value.replace(/[&<>'"]/g, (character) => ({
     "&": "&amp;",
@@ -24,10 +28,17 @@ function parseSender(value: string) {
   return match ? { name: match[1] || "Proffera", email: match[2] } : { name: "Proffera", email: value.trim() };
 }
 
+function resolveBookingSender() {
+  return parseSender(process.env.BOOKING_FROM_EMAIL?.trim() || DEFAULT_BOOKING_FROM_EMAIL);
+}
+
+function resolveBookingReplyTo() {
+  return parseSender(process.env.BOOKING_REPLY_TO_EMAIL?.trim() || DEFAULT_BOOKING_REPLY_TO_EMAIL);
+}
+
 export async function sendBookingVerificationEmail(input: BookingVerificationEmailInput) {
   const apiKey = process.env.BREVO_API_KEY;
-  const from = process.env.LEAD_FROM_EMAIL;
-  if (!apiKey || !from) return { ok: false as const, message: "Email provider is not configured." };
+  if (!apiKey) return { ok: false as const, message: "Email provider is not configured." };
 
   const expiresMinutes = input.expiresMinutes ?? 10;
   const isEnglish = input.language === "en";
@@ -63,7 +74,15 @@ export async function sendBookingVerificationEmail(input: BookingVerificationEma
     const response = await fetch("https://api.brevo.com/v3/smtp/email", {
       method: "POST",
       headers: { "api-key": apiKey, "Content-Type": "application/json" },
-      body: JSON.stringify({ sender: parseSender(from), to: [{ email: input.customerEmail, name: input.customerName }], subject, textContent: text, htmlContent: html }),
+      body: JSON.stringify({
+        sender: resolveBookingSender(),
+        replyTo: resolveBookingReplyTo(),
+        to: [{ email: input.customerEmail, name: input.customerName }],
+        subject,
+        textContent: text,
+        htmlContent: html,
+        tags: [BOOKING_VERIFICATION_TAG],
+      }),
     });
     const data = (await response.json().catch(() => ({}))) as BrevoResponse;
     return response.ok
