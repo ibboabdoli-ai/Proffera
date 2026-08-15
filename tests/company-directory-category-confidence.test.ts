@@ -66,6 +66,17 @@ describe("company directory category confidence", () => {
     expect(result.signals).toContain("Företagsnamn stödjer kategorin");
   });
 
+  it("recognizes canonically decomposed Swedish Städ as the same name evidence", () => {
+    const result = assess({
+      legalName: "Evelinas Sta\u0308d AB",
+      activityDescription: "Bolaget skall bedriva lokalvård hos privatpersoner och företag",
+    });
+
+    expect(result.score).toBe(100);
+    expect(result.level).toBe("high");
+    expect(result.signals).toContain("Företagsnamn stödjer kategorin");
+  });
+
   it("does not treat Swedish Stad as Städ cleaning evidence", () => {
     const result = assess({
       legalName: "Stockholm Stad Service AB",
@@ -91,6 +102,17 @@ describe("company directory category confidence", () => {
   it("does not misclassify flyttstädning as moving-service evidence", () => {
     const result = assess({
       activityDescription: "Flyttstädning, hemstädning och fönsterputs",
+      legalName: "Trygg Städservice AB",
+    });
+
+    expect(result.score).toBe(100);
+    expect(result.level).toBe("high");
+    expect(result.conflictingTextCategories).not.toContain("flytt");
+  });
+
+  it("normalizes decomposed flyttstädning before moving-conflict detection", () => {
+    const result = assess({
+      activityDescription: "Flyttsta\u0308dning, hemsta\u0308dning och fönsterputs",
       legalName: "Trygg Städservice AB",
     });
 
