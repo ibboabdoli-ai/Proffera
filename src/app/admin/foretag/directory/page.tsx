@@ -16,8 +16,24 @@ import { publishDirectoryProfileAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 
+const PAGE_SIZE = 50;
+const statusFilters = [
+  { value: "all", label: "Alla" },
+  { value: "published", label: "Publicerade" },
+  { value: "ready", label: "Ready" },
+  { value: "review", label: "Review" },
+  { value: "inactive", label: "Inaktiva" },
+] as const;
+
+type DirectoryStatusFilter = (typeof statusFilters)[number]["value"];
+
 type PageProps = {
-  searchParams?: Promise<{ publish?: string | string[] }>;
+  searchParams?: Promise<{
+    publish?: string | string[];
+    status?: string | string[];
+    q?: string | string[];
+    page?: string | string[];
+  }>;
 };
 
 function formatDate(value: string) {
@@ -33,6 +49,27 @@ function formatDate(value: string) {
 
 function firstParam(value?: string | string[]) {
   return Array.isArray(value) ? value[0] : value;
+}
+
+function normalizeStatus(value?: string | string[]): DirectoryStatusFilter {
+  const candidate = firstParam(value)?.trim().toLowerCase();
+  return statusFilters.some((filter) => filter.value === candidate)
+    ? candidate as DirectoryStatusFilter
+    : "all";
+}
+
+function normalizePage(value?: string | string[]) {
+  const parsed = Number(firstParam(value));
+  return Number.isFinite(parsed) ? Math.max(1, Math.floor(parsed)) : 1;
+}
+
+function directoryHref(input: { status: DirectoryStatusFilter; query: string; page?: number }) {
+  const params = new URLSearchParams();
+  if (input.status !== "all") params.set("status", input.status);
+  if (input.query) params.set("q", input.query);
+  if ((input.page ?? 1) > 1) params.set("page", String(input.page));
+  const queryString = params.toString();
+  return `/admin/foretag/directory${queryString ? `?${queryString}` : ""}`;
 }
 
 function Flag({ ok, label }: { ok: boolean; label: string }) {
@@ -80,6 +117,7 @@ const safetyReasonLabels: Record<string, string> = {
   not_public_eligible: "Inte publikationsberättigad",
   already_claimed: "Redan claimad",
   official_facts_missing: "Official Facts saknas",
+  official_facts_stale: "Official Facts är äldre än profilen",
   category_confidence_below_95: "Kategori under 95%",
   deregistered: "Avregistrerad",
   ongoing_legal_procedure: "Pågående avveckling/omstrukturering",
@@ -107,7 +145,31 @@ export default async function DirectoryEngineAdminPage({ searchParams }: PagePro
   const manualReview = snapshot.profiles.filter(
     (profile) => profile.status === "ready" && !profile.publishSafe,
   ).length;
-  const reviewProfiles = snapshot.profiles.slice(0, 100);
+  const currentStatus = normalizeStatus(params?.status);
+  const searchQuery = (firstParam(params?.q) ?? "").trim().slice(0, 120);
+  const normalizedQuery = searchQuery.toLocaleLowerCase("sv-SE");
+  const filteredProfiles = snapshot.profiles.filter((profile) => {
+    if (currentStatus !== "all" && profile.status !== currentStatus) return false;
+    if (!normalizedQuery) return true;
+    const searchable = [
+      profile.companyName,
+      profile.legalName,
+      profile.city,
+      profile.municipality,
+      profile.categorySlug,
+      categoryLabels[profile.categorySlug] ?? "",
+      profile.sniCode,
+      profile.sniLabel,
+      profile.slug,
+    ];
+    return searchable.some((value) => value.toLocaleLowerCase("sv-SE").includes(normalizedQuery));
+  });
+  const totalPages = Math.max(1, Math.ceil(filteredProfiles.length / PAGE_SIZE));
+  const currentPage = Math.min(normalizePage(params?.page), totalPages);
+  const startIndex = (currentPage - 1) * PAGE_SIZE;
+  const visibleProfiles = filteredProfiles.slice(startIndex, startIndex + PAGE_SIZE);
+  const visibleFrom = filteredProfiles.length ? startIndex + 1 : 0;
+  const visibleTo = Math.min(startIndex + visibleProfiles.length, filteredProfiles.length);
   const publishResult = firstParam(params?.publish);
   const publishMessage = publishResult ? publishMessages[publishResult] : undefined;
 
@@ -161,11 +223,15 @@ export default async function DirectoryEngineAdminPage({ searchParams }: PagePro
             <p className="mt-4 text-xs font-black uppercase tracking-wide text-[#718078]">Manuell granskning · alla</p>
             <p className="mt-1 text-3xl font-black text-[#17201a]">{manualReview}</p>
           </div>
-          <div className="rounded-2xl bg-white p-5 ring-1 ring-black/5">
+          <Link
+            href={directoryHref({ status: "published", query: "" })}
+            className="rounded-2xl bg-white p-5 ring-1 ring-black/5 transition hover:ring-[#34508b]/30"
+          >
             <Eye className="h-5 w-5 text-[#34508b]" />
             <p className="mt-4 text-xs font-black uppercase tracking-wide text-[#718078]">Publicerade</p>
             <p className="mt-1 text-3xl font-black text-[#17201a]">{snapshot.counts.published ?? 0}</p>
-          </div>
+            <p className="mt-2 text-xs font-bold text-[#34508b]">Visa alla →</p>
+          </Link>
         </section>
 
         <section className="mt-8 grid gap-6 lg:grid-cols-2">
@@ -187,7 +253,7 @@ export default async function DirectoryEngineAdminPage({ searchParams }: PagePro
             </div>
             <div className="mt-5 rounded-2xl bg-[#f6f8f5] p-4 text-sm leading-6 text-[#5b665f]">
               <p><strong>Regel:</strong> Publicera-knappen visas bara när profilstatus är Ready, Official Facts finns, inga säkerhetsspärrar finns och Category Confidence är minst 95%.</p>
-              <p className="mt-2"><strong>Testfas:</strong> Tabellen visar de första 100 profilerna för manuell kvalitetskontroll.</p>
+              <p className="mt-2"><strong>Lista:</strong> Filtrera på status, sök företag och bläddra 50 profiler per sida.</p>
             </div>
           </div>
 
@@ -216,13 +282,48 @@ export default async function DirectoryEngineAdminPage({ searchParams }: PagePro
         </section>
 
         <section className="mt-8 rounded-[1.5rem] bg-white p-6 ring-1 ring-black/5">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <p className="text-xs font-black uppercase tracking-[0.14em] text-[#607066]">Quality review</p>
-              <h2 className="mt-2 text-xl font-black text-[#17201a]">Första 100 profilerna</h2>
+              <p className="text-xs font-black uppercase tracking-[0.14em] text-[#607066]">Directory profiles</p>
+              <h2 className="mt-2 text-xl font-black text-[#17201a]">Alla profiler</h2>
+              <p className="mt-2 text-sm text-[#747e77]">Visar {visibleFrom}–{visibleTo} av {filteredProfiles.length} träffar</p>
             </div>
-            <p className="text-xs text-[#747e77]">Ingen automatisk publicering</p>
+            <form action="/admin/foretag/directory" method="get" className="flex w-full max-w-2xl flex-col gap-2 sm:flex-row">
+              {currentStatus !== "all" ? <input type="hidden" name="status" value={currentStatus} /> : null}
+              <input
+                name="q"
+                defaultValue={searchQuery}
+                maxLength={120}
+                placeholder="Sök företag, stad, kategori eller SNI"
+                className="min-h-11 flex-1 rounded-xl border border-[#dfe5dd] bg-white px-4 text-sm outline-none focus:border-[#17452f]"
+              />
+              <button type="submit" className="min-h-11 rounded-xl bg-[#17452f] px-5 text-sm font-black text-white hover:bg-[#123724]">
+                Sök
+              </button>
+              {(searchQuery || currentStatus !== "all") ? (
+                <Link href="/admin/foretag/directory" className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[#dfe5dd] px-4 text-sm font-bold text-[#344039]">
+                  Rensa
+                </Link>
+              ) : null}
+            </form>
           </div>
+
+          <nav className="mt-5 flex flex-wrap gap-2" aria-label="Filtrera directory-profiler">
+            {statusFilters.map((filter) => {
+              const count = filter.value === "all" ? total : snapshot.counts[filter.value] ?? 0;
+              const active = currentStatus === filter.value;
+              return (
+                <Link
+                  key={filter.value}
+                  href={directoryHref({ status: filter.value, query: searchQuery })}
+                  aria-current={active ? "page" : undefined}
+                  className={`rounded-full px-4 py-2 text-sm font-black transition ${active ? "bg-[#17452f] text-white" : "bg-[#f1f4ef] text-[#344039] hover:bg-[#e7ece5]"}`}
+                >
+                  {filter.label} · {count}
+                </Link>
+              );
+            })}
+          </nav>
 
           <div className="mt-5 overflow-x-auto">
             <table className="w-full min-w-[1180px] text-left text-sm">
@@ -239,7 +340,7 @@ export default async function DirectoryEngineAdminPage({ searchParams }: PagePro
                 </tr>
               </thead>
               <tbody className="divide-y divide-black/5">
-                {reviewProfiles.map((profile) => (
+                {visibleProfiles.map((profile) => (
                   <tr key={profile.id} className="align-top">
                     <td className="px-3 py-4">
                       <p className="font-bold text-[#253129]">{profile.companyName}</p>
@@ -286,6 +387,9 @@ export default async function DirectoryEngineAdminPage({ searchParams }: PagePro
                       ) : profile.publishSafe ? (
                         <form action={publishDirectoryProfileAction}>
                           <input type="hidden" name="profileId" value={profile.id} />
+                          <input type="hidden" name="returnStatus" value={currentStatus} />
+                          <input type="hidden" name="returnQuery" value={searchQuery} />
+                          <input type="hidden" name="returnPage" value={currentPage} />
                           <button type="submit" className="min-h-10 rounded-xl bg-[#17452f] px-4 py-2 text-sm font-black text-white transition hover:bg-[#123724] focus:outline-none focus:ring-4 focus:ring-[#17452f]/20">
                             Publicera
                           </button>
@@ -296,12 +400,30 @@ export default async function DirectoryEngineAdminPage({ searchParams }: PagePro
                     </td>
                   </tr>
                 ))}
-                {!snapshot.profiles.length ? (
-                  <tr><td className="px-3 py-8 text-center text-[#747e77]" colSpan={8}>Inga directory-profiler ännu.</td></tr>
+                {!visibleProfiles.length ? (
+                  <tr><td className="px-3 py-8 text-center text-[#747e77]" colSpan={8}>Inga profiler matchar filtret.</td></tr>
                 ) : null}
               </tbody>
             </table>
           </div>
+
+          {totalPages > 1 ? (
+            <div className="mt-6 flex flex-col gap-3 border-t border-black/5 pt-5 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm font-semibold text-[#5f6a62]">Sida {currentPage} av {totalPages}</p>
+              <div className="flex gap-2">
+                {currentPage > 1 ? (
+                  <Link href={directoryHref({ status: currentStatus, query: searchQuery, page: currentPage - 1 })} className="inline-flex min-h-10 items-center rounded-xl border border-[#dfe5dd] px-4 text-sm font-bold text-[#344039] hover:bg-[#f6f8f5]">
+                    ← Föregående
+                  </Link>
+                ) : null}
+                {currentPage < totalPages ? (
+                  <Link href={directoryHref({ status: currentStatus, query: searchQuery, page: currentPage + 1 })} className="inline-flex min-h-10 items-center rounded-xl bg-[#17452f] px-4 text-sm font-bold text-white hover:bg-[#123724]">
+                    Nästa →
+                  </Link>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
         </section>
       </section>
     </main>
