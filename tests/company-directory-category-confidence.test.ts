@@ -16,27 +16,44 @@ function assess(overrides: Partial<Parameters<typeof assessCompanyDirectoryCateg
 }
 
 describe("company directory category confidence", () => {
-  it("reaches high confidence only from exact, unambiguous official SNI consensus", () => {
+  it("keeps unambiguous SNI-only evidence at review confidence", () => {
     const result = assess();
-
-    expect(result.score).toBe(95);
-    expect(result.level).toBe("high");
-    expect(result.competingCategories).toEqual([]);
-    expect(result.conflictingTextCategories).toEqual([]);
-    expect(result.signals).toContain(
-      "Verifierad primär SNI och fullständig officiell SNI-lista pekar entydigt på kategorin",
-    );
-  });
-
-  it("does not grant the consensus signal when the exact primary SNI is missing from Official Facts", () => {
-    const result = assess({
-      primarySniCode: "81.210",
-      sniCodes: [{ code: "81.221", label: "Städning" }],
-    });
 
     expect(result.score).toBe(80);
     expect(result.level).toBe("review");
-    expect(result.warnings).toContain("Primär SNI saknar exakt bekräftelse i Official Facts");
+    expect(result.competingCategories).toEqual([]);
+    expect(result.conflictingTextCategories).toEqual([]);
+    expect(result.warnings).toContain("Ingen oberoende textsignal stödjer kategorin");
+  });
+
+  it("keeps one independent activity-text signal below the high-confidence threshold", () => {
+    const result = assess({
+      activityDescription: "Städning, lokalvård och fönsterputs",
+    });
+
+    expect(result.score).toBe(90);
+    expect(result.level).toBe("review");
+  });
+
+  it("keeps one independent name signal below the high-confidence threshold", () => {
+    const result = assess({
+      legalName: "Trygg Städservice AB",
+    });
+
+    expect(result.score).toBe(90);
+    expect(result.level).toBe("review");
+  });
+
+  it("reaches high confidence only when multiple independent same-category signals agree", () => {
+    const result = assess({
+      activityDescription: "Städning, lokalvård och fönsterputs",
+      legalName: "Trygg Städservice AB",
+    });
+
+    expect(result.score).toBe(100);
+    expect(result.level).toBe("high");
+    expect(result.competingCategories).toEqual([]);
+    expect(result.conflictingTextCategories).toEqual([]);
   });
 
   it("keeps profiles with competing supported official SNI categories below 95", () => {
@@ -60,6 +77,7 @@ describe("company directory category confidence", () => {
       categorySlug: "elektriker",
       primarySniCode: "43.210",
       activityDescription: "Elinstallation, elservice och snickeriarbeten",
+      legalName: "Trygg Elservice AB",
       sniCodes: [{ code: "43.210", label: "Elinstallationer" }],
     });
 
@@ -68,17 +86,6 @@ describe("company directory category confidence", () => {
     expect(result.competingCategories).toEqual([]);
     expect(result.conflictingTextCategories).toContain("snickeri");
     expect(result.warnings.some((warning) => warning.includes("Officiell företagstext"))).toBe(true);
-  });
-
-  it("allows supporting text for the same category without creating a false conflict", () => {
-    const result = assess({
-      activityDescription: "Städning, lokalvård och fönsterputs",
-      legalName: "Trygg Städservice AB",
-    });
-
-    expect(result.score).toBe(100);
-    expect(result.level).toBe("high");
-    expect(result.conflictingTextCategories).toEqual([]);
   });
 
   it("keeps missing Official Facts fail-closed even with supporting text", () => {
