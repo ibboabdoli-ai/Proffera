@@ -49,13 +49,29 @@ describe("company directory manual refresh contract", () => {
     expect(cron).not.toContain("refreshLowConfidenceCompanyDirectoryBatch");
   });
 
-  it("exposes a single-click admin control that stops safely on errors", () => {
+  it("treats Bolagsverket 429 responses as a retryable cooldown instead of a fatal refresh error", () => {
+    const manualRefresh = source("src/lib/company-directory-manual-refresh.ts");
+
+    expect(manualRefresh).toContain("RATE_LIMIT_RETRY_SECONDS = 65");
+    expect(manualRefresh).toContain("isOfficialFactsRateLimit");
+    expect(manualRefresh).toContain("Official facts (?:lookup|OAuth) failed");
+    expect(manualRefresh).toContain("rateLimited = true");
+    expect(manualRefresh).toContain("retryAfterSeconds");
+  });
+
+  it("paces the single-click admin control below the documented 60-requests-per-minute limit", () => {
     const control = source("src/app/admin/foretag/directory/DirectoryLowConfidenceRefreshButton.tsx");
     const layout = source("src/app/admin/foretag/directory/layout.tsx");
 
     expect(control).toContain("Uppdatera profiler under 95%");
+    expect(control).toContain("BATCH_PAUSE_MS = 7_000");
+    expect(control).toContain("MAX_BATCHES_PER_CLICK = 500");
+    expect(control).toContain("result.rateLimited");
+    expect(control).toContain("result.retryAfterSeconds * 1_000");
+    expect(control).toContain("60 frågor/minut");
     expect(control).toContain("result.errors > 0 || result.completed || result.selected === 0");
     expect(control).toContain('pathname !== "/admin/foretag/directory"');
+    expect(control).not.toContain("batch < 100");
     expect(layout).toContain("DirectoryLowConfidenceRefreshButton");
   });
 });
