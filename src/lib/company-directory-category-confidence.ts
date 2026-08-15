@@ -79,7 +79,16 @@ function fold(value: unknown) {
 function hasCategoryKeyword(categorySlug: string, values: string[]) {
   const keywords = categoryKeywords[categorySlug] ?? [];
   if (!keywords.length) return false;
-  const haystack = fold(values.filter(Boolean).join(" \n "));
+  let haystack = fold(values.filter(Boolean).join(" \n "));
+
+  // "Flyttstädning" is a cleaning service, not evidence that the company
+  // offers moving services. Strip that cleaning compound before evaluating
+  // the intentionally broad "flytt" stem; real moving terms such as
+  // flyttfirma, flyttservice and flyttning remain detectable.
+  if (categorySlug === "flytt") {
+    haystack = haystack.replace(/flytt[\s-]*stad\w*/g, " ");
+  }
+
   return keywords.some((keyword) => haystack.includes(keyword));
 }
 
