@@ -387,6 +387,9 @@ export default async function DirectoryEngineAdminPage({ searchParams }: PagePro
                       ) : profile.publishSafe ? (
                         <form action={publishDirectoryProfileAction}>
                           <input type="hidden" name="profileId" value={profile.id} />
+                          <input type="hidden" name="returnStatus" value={currentStatus} />
+                          <input type="hidden" name="returnQuery" value={searchQuery} />
+                          <input type="hidden" name="returnPage" value={currentPage} />
                           <button type="submit" className="min-h-10 rounded-xl bg-[#17452f] px-4 py-2 text-sm font-black text-white transition hover:bg-[#123724] focus:outline-none focus:ring-4 focus:ring-[#17452f]/20">
                             Publicera
                           </button>
