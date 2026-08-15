@@ -128,6 +128,35 @@ describe("company directory category confidence", () => {
     expect(result.signals).toContain("Företagsnamn stödjer kategorin");
   });
 
+  it.each(["Flytt Städ AB", "Flytt-Städ AB"])(
+    "preserves separated moving evidence in company name %s",
+    (legalName) => {
+      const result = assess({
+        categorySlug: "flytt",
+        primarySniCode: "49.420",
+        legalName,
+        displayName: legalName,
+        activityDescription: "",
+        sniCodes: [{ code: "49.420", label: "Flyttjänster" }],
+      });
+
+      expect(result.score).toBe(90);
+      expect(result.level).toBe("review");
+      expect(result.signals).toContain("Företagsnamn stödjer kategorin");
+    },
+  );
+
+  it("keeps separated flytt and städning as a moving conflict for a cleaning profile", () => {
+    const result = assess({
+      legalName: "Trygg Städservice AB",
+      activityDescription: "Flytt Städning och transport samt hemstädning",
+    });
+
+    expect(result.score).toBe(90);
+    expect(result.level).toBe("review");
+    expect(result.conflictingTextCategories).toContain("flytt");
+  });
+
   it("still recognizes real moving-service terms", () => {
     const result = assess({
       categorySlug: "flytt",
