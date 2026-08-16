@@ -44,12 +44,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
     const hostname = hostnameFromHostHeader(host);
     const origin = `https://${hostname}`;
-    const lastModified = new Date();
     return [
-      { url: `${origin}/`, lastModified, changeFrequency: "weekly" as const, priority: 1 },
+      { url: `${origin}/`, changeFrequency: "weekly" as const, priority: 1 },
       ...hub.services.map((service) => ({
         url: `${origin}/tjanster/${encodeURIComponent(service.publicSlug)}`,
-        lastModified,
         changeFrequency: "monthly" as const,
         priority: 0.9,
       })),
@@ -60,7 +58,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     listPublicBusinessSitemapEntries(),
     listPublishedDirectorySitemapEntries(),
   ]);
-  const lastModified = new Date();
   const seenBusinesses = new Set<string>();
   const publicBusinessRoutes: MetadataRoute.Sitemap = [];
 
@@ -69,7 +66,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       seenBusinesses.add(entry.workspaceSlug);
       publicBusinessRoutes.push({
         url: `${siteConfig.url}/foretag/${encodeURIComponent(entry.workspaceSlug)}`,
-        lastModified,
         changeFrequency: "weekly",
         priority: 0.75,
       });
@@ -77,7 +73,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     if (entry.serviceSlug) {
       publicBusinessRoutes.push({
         url: `${siteConfig.url}/foretag/${encodeURIComponent(entry.workspaceSlug)}/tjanster/${encodeURIComponent(entry.serviceSlug)}`,
-        lastModified,
         changeFrequency: "monthly",
         priority: 0.7,
       });
@@ -95,11 +90,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     ...localizedPublicRoutes.flatMap((route) => {
       const languages = { "sv-SE": `${siteConfig.url}${route.sv}`, en: `${siteConfig.url}${route.en}` };
       return [
-        { url: languages["sv-SE"], lastModified, changeFrequency: route.sv === "/" ? "weekly" as const : "monthly" as const, priority: route.sv === "/" ? 1 : 0.8, alternates: { languages } },
-        { url: languages.en, lastModified, changeFrequency: route.en === "/en" ? "weekly" as const : "monthly" as const, priority: route.en === "/en" ? 1 : 0.8, alternates: { languages } },
+        { url: languages["sv-SE"], changeFrequency: route.sv === "/" ? "weekly" as const : "monthly" as const, priority: route.sv === "/" ? 1 : 0.8, alternates: { languages } },
+        { url: languages.en, changeFrequency: route.en === "/en" ? "weekly" as const : "monthly" as const, priority: route.en === "/en" ? 1 : 0.8, alternates: { languages } },
       ];
     }),
-    ...swedishOnlyRoutes.map((route) => ({ url: `${siteConfig.url}${route}`, lastModified, changeFrequency: "monthly" as const, priority: 0.8 })),
+    ...swedishOnlyRoutes.map((route) => ({ url: `${siteConfig.url}${route}`, changeFrequency: "monthly" as const, priority: 0.8 })),
     ...publicBusinessRoutes,
     ...directoryRoutes,
   ];
