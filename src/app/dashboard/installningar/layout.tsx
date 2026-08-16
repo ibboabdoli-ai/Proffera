@@ -4,6 +4,8 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
 
+import styles from "@/components/dashboard/secondary-workspace-ux-2.module.css";
+
 const settingsNavigation = [
   { href: "/dashboard/installningar", sv: "Översikt", en: "Overview" },
   { href: "/dashboard/installningar/funktioner", sv: "Funktioner", en: "Features" },
@@ -24,7 +26,7 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
   const isEnglish = searchParams.get("lang") === "en";
 
   return (
-    <div className="grid gap-6">
+    <div className={`${styles.scope} grid gap-6`}>
       <section className="rounded-[24px] border border-[#dfe6df] bg-white p-4 shadow-sm sm:p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
