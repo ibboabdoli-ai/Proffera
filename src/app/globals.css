@@ -1,6 +1,28 @@
 @import "tailwindcss";
 
 :root {
+  /* Proffera Design System 2.0 — semantic source of truth. */
+  --pf-canvas: #f6f8f4;
+  --pf-surface: #ffffff;
+  --pf-surface-subtle: #fbfcfa;
+  --pf-ink: #17201a;
+  --pf-ink-muted: #5b665f;
+  --pf-line: #dfe5dd;
+  --pf-line-strong: #9fbaa7;
+  --pf-brand: #17452f;
+  --pf-brand-hover: #0e2e1e;
+  --pf-brand-deep: #102a1c;
+  --pf-brand-soft: #eaf2ec;
+  --pf-brand-tint: #eef5ef;
+  --pf-accent: #e8c678;
+  --pf-danger: #9f3a2d;
+  --pf-shadow-card: 0 1px 2px rgb(16 42 28 / 0.04), 0 14px 34px rgb(16 42 28 / 0.06);
+  --pf-shadow-lift: 0 22px 60px rgb(23 69 47 / 0.13);
+  --pf-radius-control: 0.75rem;
+  --pf-radius-card: 1.5rem;
+  --pf-radius-panel: 2rem;
+
+  /* Existing aliases retained for broad application compatibility. */
   --background: #f3f5f1;
   --foreground: #152019;
   --muted: #5e6962;
@@ -13,6 +35,28 @@
   --accent: #d7a940;
   --danger: #9f3a2d;
   --shadow-soft: 0 1px 2px rgb(16 45 32 / 0.04), 0 16px 40px rgb(16 45 32 / 0.06);
+}
+
+@theme inline {
+  --color-canvas: var(--pf-canvas);
+  --color-surface: var(--pf-surface);
+  --color-surface-subtle: var(--pf-surface-subtle);
+  --color-ink: var(--pf-ink);
+  --color-ink-muted: var(--pf-ink-muted);
+  --color-line: var(--pf-line);
+  --color-line-strong: var(--pf-line-strong);
+  --color-brand: var(--pf-brand);
+  --color-brand-hover: var(--pf-brand-hover);
+  --color-brand-deep: var(--pf-brand-deep);
+  --color-brand-soft: var(--pf-brand-soft);
+  --color-brand-tint: var(--pf-brand-tint);
+  --color-accent-soft: var(--pf-accent);
+  --color-danger: var(--pf-danger);
+  --shadow-card: var(--pf-shadow-card);
+  --shadow-lift: var(--pf-shadow-lift);
+  --radius-control: var(--pf-radius-control);
+  --radius-card: var(--pf-radius-card);
+  --radius-panel: var(--pf-radius-panel);
 }
 
 * {
@@ -111,15 +155,18 @@ button:disabled {
 :where(a, button)[class*="bg-[#17452f]"],
 :where(a, button)[class*="bg-[#173e2b]"],
 :where(a, button)[class*="bg-[#142b20]"],
-:where(a, button)[class*="bg-[#102d20]"] {
+:where(a, button)[class*="bg-[#102d20]"],
+:where(a, button)[class~="bg-brand"],
+:where(a, button)[class~="bg-brand-deep"] {
   color: #ffffff !important;
   -webkit-text-fill-color: #ffffff !important;
 }
 
 :where(a, button)[class*="bg-white"][class*="text-[#173e2b]"],
-:where(a, button)[class*="bg-white"][class*="text-[#17452f]"] {
-  color: #173e2b !important;
-  -webkit-text-fill-color: #173e2b !important;
+:where(a, button)[class*="bg-white"][class*="text-[#17452f]"],
+:where(a, button)[class~="bg-surface"][class~="text-brand"] {
+  color: var(--pf-brand) !important;
+  -webkit-text-fill-color: var(--pf-brand) !important;
 }
 
 :where(a, button) {
