@@ -1,4 +1,5 @@
 import type { PublicLocale } from "@/lib/public-locale";
+import { serviceCategoryCatalog } from "@/lib/service-catalog";
 
 export const directoryPaths = {
   sv: { search: "/foretag/listad", home: "/" },
@@ -51,15 +52,15 @@ const directoryServiceQueriesEn: Record<string, string> = {
   "home services": "hemservice",
 };
 
+function categoryLabelsForLocale(locale: PublicLocale): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(serviceCategoryCatalog).map(([slug, category]) => [slug, category.labels[locale]]),
+  );
+}
+
 export const directoryCategoryLabels: Record<PublicLocale, Record<string, string>> = {
-  sv: {
-    stadning: "Städning", flytt: "Flytt", elektriker: "Elektriker", vvs: "VVS",
-    maleri: "Måleri", snickeri: "Snickeri", tradgard: "Trädgård", hemservice: "Hemservice",
-  },
-  en: {
-    stadning: "Cleaning", flytt: "Moving", elektriker: "Electrician", vvs: "Plumbing",
-    maleri: "Painting", snickeri: "Carpentry", tradgard: "Gardening", hemservice: "Home services",
-  },
+  sv: categoryLabelsForLocale("sv"),
+  en: categoryLabelsForLocale("en"),
 };
 
 export const popularDirectoryServices = [
