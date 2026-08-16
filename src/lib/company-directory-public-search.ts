@@ -27,6 +27,8 @@ export type PublishedDirectorySearchResult = {
   municipality: string;
   qualityScore: number;
   distanceKm: number | null;
+  serviceAreaRadiusKm: number | null;
+  servesNearbyLocation: boolean;
 };
 
 export type PublishedDirectorySearchResponse = {
@@ -126,6 +128,7 @@ export async function searchPublishedCompanyDirectory(
         profile.quality_score,
         location.latitude::float8 as latitude,
         location.longitude::float8 as longitude,
+        service_area.radius_km::float8 as service_area_radius_km,
         row_number() over (
           partition by profile.id
           order by service.label asc, relation.service_slug asc
@@ -141,6 +144,16 @@ export async function searchPublishedCompanyDirectory(
       left join company_directory_business_locations location
         on location.profile_id = profile.id
        and location.is_public = true
+      left join lateral (
+        select area.radius_km
+        from company_directory_service_areas area
+        where area.profile_id = profile.id
+          and area.public_visible = true
+          and area.confirmed_at is not null
+          and (area.service_slug = relation.service_slug or area.service_slug is null)
+        order by case when area.service_slug = relation.service_slug then 0 else 1 end
+        limit 1
+      ) service_area on true
       where profile.publication_status = 'published'
         and profile.is_active = true
         and profile.privacy_blocked = false
@@ -194,20 +207,32 @@ export async function searchPublishedCompanyDirectory(
     nearbyRequested,
     nearbyEnabled,
     radiusKm,
-    results: rows.map((row) => ({
-      id: String(row.id),
-      slug: String(row.public_slug),
-      companyName: String(row.display_name),
-      categorySlug: String(row.category_slug),
-      matchedServiceSlug: String(row.service_slug),
-      matchedServiceLabel: String(row.service_label),
-      activityDescription: String(row.activity_description ?? ""),
-      addressLine1: String(row.address_line1 ?? ""),
-      postalCode: String(row.postal_code ?? ""),
-      city: String(row.city ?? ""),
-      municipality: String(row.municipality ?? ""),
-      qualityScore: Number(row.quality_score ?? 0),
-      distanceKm: row.distance_km === null || row.distance_km === undefined ? null : Number(row.distance_km),
-    })),
+    results: rows.map((row) => {
+      const distanceKm = row.distance_km === null || row.distance_km === undefined ? null : Number(row.distance_km);
+      const serviceAreaRadiusKm = row.service_area_radius_km === null || row.service_area_radius_km === undefined
+        ? null
+        : Number(row.service_area_radius_km);
+
+      return {
+        id: String(row.id),
+        slug: String(row.public_slug),
+        companyName: String(row.display_name),
+        categorySlug: String(row.category_slug),
+        matchedServiceSlug: String(row.service_slug),
+        matchedServiceLabel: String(row.service_label),
+        activityDescription: String(row.activity_description ?? ""),
+        addressLine1: String(row.address_line1 ?? ""),
+        postalCode: String(row.postal_code ?? ""),
+        city: String(row.city ?? ""),
+        municipality: String(row.municipality ?? ""),
+        qualityScore: Number(row.quality_score ?? 0),
+        distanceKm,
+        serviceAreaRadiusKm,
+        servesNearbyLocation: nearbyEnabled
+          && distanceKm !== null
+          && serviceAreaRadiusKm !== null
+          && distanceKm <= serviceAreaRadiusKm,
+      };
+    }),
   };
 }
