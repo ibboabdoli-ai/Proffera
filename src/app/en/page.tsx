@@ -1,4 +1,4 @@
-import { MarketingHome } from "@/components/marketing/marketing-home";
+import { MarketingHome } from "@/components/marketing/marketing-home-v2";
 import { createEnglishMetadata } from "@/lib/english-metadata";
 
 export const metadata = createEnglishMetadata({
