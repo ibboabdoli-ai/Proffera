@@ -14,15 +14,14 @@ function mailLink(email: string, leadRef: string, category: string, city: string
 }
 
 function SendStatus({ status }: { status?: string }) {
-  if (!status) {
-    return null;
-  }
+  if (!status) return null;
 
   const messageByStatus: Record<string, string> = {
-    resend_success: "Mejlet skickades via Proffera och loggen uppdaterades.",
-    email_not_configured: "E-postprovider är inte konfigurerad. Lägg till RESEND_API_KEY och LEAD_FROM_EMAIL i Vercel.",
-    not_found: "Kunde inte hitta matchad lead/företag.",
+    not_found: "Kunde inte hitta en aktuell säker matchning.",
     mailto_marked: "Lead markerades som skickad via mailto.",
+    forbidden: "Åtgärden är inte tillåten.",
+    invalid: "Ogiltiga leveransuppgifter.",
+    log_error: "Kunde inte uppdatera leveransloggen.",
   };
 
   return (
@@ -56,37 +55,32 @@ export default async function Page({ searchParams }: PageProps) {
     <main style={{ padding: 24, maxWidth: 1100, margin: "0 auto" }}>
       <h1>Leveranslogg</h1>
       <p><a href={`/admin/skicka-lead?code=${code}`}>Till skicka lead</a></p>
+      <p>Den här vyn använder endast manuellt mailto. Ingen e-post skickas av Proffera från Matching-flödet.</p>
       <SendStatus status={params.send} />
 
-      <h2>Skicka och markera</h2>
+      <h2>Öppna mejl och markera</h2>
       {!matches.ok ? <p>{matches.message}</p> : null}
       {matches.matches.map((item) => (
         <section key={item.lead.id} style={{ border: "1px solid #ddd", borderRadius: 12, padding: 16, marginBottom: 18 }}>
           <h3>{item.lead.reference_id}</h3>
           <p>{item.lead.category} / {item.lead.city}</p>
-          {item.companies.map((company) => (
-            <article key={company.id} style={{ background: "#f7f7f4", borderRadius: 10, padding: 12, marginTop: 10 }}>
-              <strong>{company.company_name}</strong>
-              <p>{company.email}</p>
-              <a href={mailLink(company.email, item.lead.reference_id, item.lead.category, item.lead.city)}>
+          {item.suggestions.length === 0 ? <p>Inga säkra matchningar.</p> : null}
+          {item.suggestions.map((suggestion) => (
+            <article key={suggestion.workspaceId} style={{ background: "#f7f7f4", borderRadius: 10, padding: 12, marginTop: 10 }}>
+              <strong>{suggestion.companyName}</strong>
+              <p>{suggestion.email}</p>
+              <p>Tjänst: {suggestion.serviceName}</p>
+              <a href={mailLink(suggestion.email, item.lead.reference_id, item.lead.category, item.lead.city)}>
                 Öppna mejl
               </a>
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
                 <form action="/api/outbox" method="post">
                   <input name="code" type="hidden" value={code} />
                   <input name="leadRef" type="hidden" value={item.lead.reference_id} />
-                  <input name="companyName" type="hidden" value={company.company_name} />
-                  <input name="companyEmail" type="hidden" value={company.email} />
+                  <input name="companyName" type="hidden" value={suggestion.companyName} />
+                  <input name="companyEmail" type="hidden" value={suggestion.email} />
                   <input name="method" type="hidden" value="mailto" />
                   <button type="submit">Markera mailto som skickad</button>
-                </form>
-                <form action="/api/outbox" method="post">
-                  <input name="code" type="hidden" value={code} />
-                  <input name="leadRef" type="hidden" value={item.lead.reference_id} />
-                  <input name="companyName" type="hidden" value={company.company_name} />
-                  <input name="companyEmail" type="hidden" value={company.email} />
-                  <input name="method" type="hidden" value="brevo" />
-                  <button type="submit">Skicka via Proffera</button>
                 </form>
               </div>
             </article>
