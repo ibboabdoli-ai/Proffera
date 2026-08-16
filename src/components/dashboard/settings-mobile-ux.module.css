@@ -1,0 +1,115 @@
+.scope {
+  min-width: 0;
+}
+
+.scope :where(section, article, aside, form, fieldset, div, dl) {
+  min-width: 0;
+}
+
+.scope :where(p, h1, h2, h3, h4, span, label, dt, dd) {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 639px) {
+  .scope {
+    gap: 1rem;
+  }
+
+  .scope [data-settings-nav-panel] {
+    border-radius: 1.25rem;
+    padding: 1rem;
+  }
+
+  .scope [data-settings-nav-panel] > div {
+    gap: 0.875rem;
+  }
+
+  .scope [data-settings-nav] {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+    overflow: visible;
+    padding-bottom: 0;
+  }
+
+  .scope [data-settings-nav] a {
+    width: 100%;
+    min-width: 0;
+    white-space: normal;
+    padding: 0.7rem 0.6rem;
+    text-align: center;
+    line-height: 1.15;
+  }
+
+  .scope :where(section, article, aside)[class*="p-5"],
+  .scope :where(section, article, aside)[class*="p-6"],
+  .scope :where(section)[class*="px-5"][class*="py-6"] {
+    padding: 1rem;
+  }
+
+  .scope :where(section, article, aside)[class*="rounded-"] {
+    border-radius: 1.25rem;
+  }
+
+  .scope :where(input, select, textarea) {
+    width: 100%;
+    min-width: 0;
+    font-size: 16px;
+  }
+
+  .scope :where(input[type="time"]) {
+    min-height: 3rem;
+  }
+
+  .scope :where(fieldset) {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .scope :where(form)[class*="flex"] {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .scope :where(form)[class*="flex"] > * {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .scope :where(form) button {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .scope :where(article, section, aside) > :where(div)[class*="justify-between"] {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .scope :where(dl) > :where(div)[class*="justify-between"] {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+  }
+
+  .scope :where(dl) dd {
+    max-width: 100%;
+    text-align: left !important;
+  }
+
+  .scope :where([class~="truncate"]) {
+    overflow: visible;
+    white-space: normal;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
+  }
+
+  .scope :where([class*="w-fit"]) {
+    max-width: 100%;
+    white-space: normal;
+  }
+
+  .scope :where([class*="overflow-x-auto"]) {
+    overscroll-behavior-x: contain;
+  }
+}
