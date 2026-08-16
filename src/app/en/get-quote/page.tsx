@@ -10,7 +10,27 @@ export const metadata = createEnglishMetadata({
   swedishPath: "/fa-offert",
 });
 
-export default function EnglishQuotePage() {
+type QuotePageProps = {
+  searchParams?: Promise<{
+    category?: string | string[];
+    service?: string | string[];
+    city?: string | string[];
+  }>;
+};
+
+function queryValue(value: string | string[] | undefined, maxLength = 120) {
+  const first = Array.isArray(value) ? value[0] : value;
+  return typeof first === "string" ? first.trim().slice(0, maxLength) : "";
+}
+
+export default async function EnglishQuotePage({ searchParams }: QuotePageProps) {
+  const params = await (searchParams ?? Promise.resolve(undefined));
+  const initialValues = {
+    category: queryValue(params?.category),
+    serviceType: queryValue(params?.service),
+    city: queryValue(params?.city),
+  };
+
   return <PageShell
     eyebrow="Get quotes"
     title="Describe your job step by step."
@@ -19,6 +39,6 @@ export default function EnglishQuotePage() {
     <div className="mb-4 flex justify-end">
       <Link href="/fa-offert" className="rounded-full border border-[#dfe5dd] bg-white px-4 py-2 text-sm font-semibold text-[#17452f]">SV Svenska</Link>
     </div>
-    <QuoteRequestForm locale="en" />
+    <QuoteRequestForm locale="en" initialValues={initialValues} />
   </PageShell>;
 }

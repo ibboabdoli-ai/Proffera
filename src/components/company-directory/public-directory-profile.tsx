@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowRight, BadgeCheck, Building2, Languages, MapPin, Search, ShieldCheck } from "lucide-react";
+import { ArrowRight, BadgeCheck, Building2, FileText, Languages, MapPin, Search, ShieldCheck } from "lucide-react";
 import { notFound, redirect } from "next/navigation";
 
 import {
@@ -9,6 +9,7 @@ import {
   directoryServiceLabel,
 } from "@/components/company-directory/public-directory-copy";
 import { directoryProfileCopy } from "@/components/company-directory/public-directory-profile-copy";
+import { quoteRequestHref } from "@/features/quote-request/directory-prefill";
 import { getPublicDirectoryBusiness } from "@/lib/company-directory-engine";
 import { getPublicDirectoryProfileExtras } from "@/lib/company-directory-public-profile-extras";
 import { getClaimedDirectoryWorkspaceSlug } from "@/lib/company-directory-routing";
@@ -60,12 +61,18 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
     ...(hasMedia ? { image: absoluteUrl(business.media!.url) } : {}),
   };
 
+  const primaryServiceSlug = extras.services[0]?.slug;
   const similarParams = new URLSearchParams();
-  const similarService = extras.services[0]?.slug || business.categorySlug;
+  const similarService = primaryServiceSlug || business.categorySlug;
   if (similarService) similarParams.set("service", similarService);
   if (business.city) similarParams.set("location", business.city);
   const similarQuery = similarParams.toString();
   const similarHref = `${profileBase}${similarQuery ? `?${similarQuery}` : ""}`;
+  const quoteHref = quoteRequestHref(locale, {
+    categorySlug: business.categorySlug,
+    serviceSlug: primaryServiceSlug,
+    city: business.city,
+  });
   const radiusFormatter = new Intl.NumberFormat(locale === "en" ? "en-SE" : "sv-SE", { maximumFractionDigits: 1 });
 
   return (
@@ -138,7 +145,18 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
               </section>
             ) : null}
 
-            <section className="mt-9 rounded-2xl bg-[#173e2b] p-5 text-white sm:flex sm:items-center sm:justify-between sm:gap-6">
+            <section className="mt-9 rounded-2xl border border-[#d5e5da] bg-[#eef6f0] p-5 sm:flex sm:items-start sm:justify-between sm:gap-6">
+              <div>
+                <h2 className="text-lg font-black text-[#173e2b]">{t.quoteTitle}</h2>
+                <p className="mt-1 max-w-xl text-sm leading-6 text-[#526057]">{t.quoteLead}</p>
+                <p className="mt-2 max-w-xl text-xs font-semibold leading-5 text-[#69746c]">{t.quoteDisclosure}</p>
+              </div>
+              <Link href={quoteHref} className="mt-4 inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#173e2b] px-4 text-sm font-black text-white sm:mt-0">
+                <FileText className="h-4 w-4" /> {t.quoteCta}
+              </Link>
+            </section>
+
+            <section className="mt-4 rounded-2xl bg-[#173e2b] p-5 text-white sm:flex sm:items-center sm:justify-between sm:gap-6">
               <div>
                 <h2 className="text-lg font-black">{t.similarTitle}</h2>
                 <p className="mt-1 max-w-xl text-sm leading-6 text-white/75">{t.similarLead}</p>

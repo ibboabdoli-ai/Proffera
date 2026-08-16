@@ -3,6 +3,12 @@ import { z } from "zod";
 import type { PublicLocale } from "@/lib/public-locale";
 
 export const serviceTypesByCategory = {
+  "Städning": ["Städning / lokalvård", "Hemstädning", "Kontorsstädning", "Flyttstädning", "Fönsterputsning", "Byggstädning", "Annan städning"],
+  "VVS": ["VVS / rörmokare", "Avloppsrensning", "Vattenläcka", "Värmepump", "Annat VVS-arbete"],
+  "Elektriker": ["Elinstallation", "Felsökning el", "Laddbox", "Elcentral", "Annat elarbete"],
+  "Måleri": ["Målning", "Tapetsering", "Annat måleriarbete"],
+  "Snickeri": ["Snickeri", "Montering", "Mindre byggarbete", "Annat snickeriarbete"],
+  "Hemservice": ["Hemservice", "Hushållsnära tjänst", "Annat hemservicearbete"],
   "Hemstädning": ["Engångsstädning", "Återkommande städning", "Storstädning"],
   "Flyttstädning": ["Lägenhet", "Villa", "Kontor"],
   "Kontorsstädning": ["Litet kontor", "Medelstort kontor", "Större lokal"],
@@ -12,6 +18,8 @@ export const serviceTypesByCategory = {
   "Flytthjälp": ["Bärhjälp", "Flytt med transport", "Packhjälp"],
   "Renovering": ["Målning", "Golv", "Mindre renovering"],
 } as const;
+
+export type QuoteCategory = keyof typeof serviceTypesByCategory;
 
 const validationCopy = {
   sv: {
@@ -34,7 +42,7 @@ const validationCopy = {
   },
 } as const;
 
-function isServiceCategory(value: string) {
+export function isServiceCategory(value: string): value is QuoteCategory {
   return Object.hasOwn(serviceTypesByCategory, value);
 }
 
@@ -54,10 +62,10 @@ export function createQuoteRequestSchema(locale: PublicLocale = "sv") {
     consentAccepted: z.boolean().refine((value) => value, copy.consent),
   }).superRefine((input, context) => {
     const availableServiceTypes = isServiceCategory(input.category)
-      ? serviceTypesByCategory[input.category as keyof typeof serviceTypesByCategory]
+      ? serviceTypesByCategory[input.category]
       : null;
 
-    if (availableServiceTypes && !availableServiceTypes.includes(input.serviceType as never)) {
+    if (availableServiceTypes && !(availableServiceTypes as readonly string[]).includes(input.serviceType)) {
       context.addIssue({ code: z.ZodIssueCode.custom, path: ["serviceType"], message: copy.serviceCategory });
     }
   });
@@ -67,8 +75,20 @@ export const quoteRequestSchema = createQuoteRequestSchema("sv");
 export type QuoteRequestInput = z.infer<typeof quoteRequestSchema>;
 export type QuoteRequestField = keyof QuoteRequestInput;
 export type QuoteRequestErrors = Partial<Record<QuoteRequestField | "form", string>>;
+export type QuoteRequestPrefill = Partial<Pick<QuoteRequestInput, "category" | "serviceType" | "city">>;
 
 export const initialQuoteRequest: QuoteRequestInput = {
   category: "", serviceType: "", city: "", postalCode: "", description: "", preferredDate: "",
   contactName: "", contactEmail: "", contactPhone: "", consentAccepted: false,
 };
+
+export function sanitizeQuoteRequestPrefill(input?: QuoteRequestPrefill): Pick<QuoteRequestInput, "category" | "serviceType" | "city"> {
+  const requestedCategory = typeof input?.category === "string" ? input.category.trim() : "";
+  const category = isServiceCategory(requestedCategory) ? requestedCategory : "";
+  const requestedServiceType = typeof input?.serviceType === "string" ? input.serviceType.trim() : "";
+  const availableServiceTypes = category ? serviceTypesByCategory[category] as readonly string[] : [];
+  const serviceType = requestedServiceType && availableServiceTypes.includes(requestedServiceType) ? requestedServiceType : "";
+  const city = typeof input?.city === "string" ? input.city.trim().slice(0, 120) : "";
+
+  return { category, serviceType, city };
+}
