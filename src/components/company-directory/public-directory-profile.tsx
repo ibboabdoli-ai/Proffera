@@ -1,13 +1,23 @@
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowRight, BadgeCheck, Building2, Languages, MapPin, ShieldCheck } from "lucide-react";
+import { ArrowRight, BadgeCheck, Building2, Languages, MapPin, Search, ShieldCheck } from "lucide-react";
 import { notFound, redirect } from "next/navigation";
 
-import { directoryCategoryLabels, directoryPaths } from "@/components/company-directory/public-directory-copy";
+import {
+  directoryCategoryLabels,
+  directoryPaths,
+  directoryServiceLabel,
+} from "@/components/company-directory/public-directory-copy";
 import { directoryProfileCopy } from "@/components/company-directory/public-directory-profile-copy";
 import { getPublicDirectoryBusiness } from "@/lib/company-directory-engine";
+import { getPublicDirectoryProfileExtras } from "@/lib/company-directory-public-profile-extras";
 import { getClaimedDirectoryWorkspaceSlug } from "@/lib/company-directory-routing";
 import type { PublicLocale } from "@/lib/public-locale";
+import { siteConfig } from "@/lib/site";
+
+function absoluteUrl(value: string) {
+  return new URL(value, siteConfig.url).toString();
+}
 
 export async function PublicDirectoryProfile({ slug, locale }: { slug: string; locale: PublicLocale }) {
   const business = await getPublicDirectoryBusiness(slug);
@@ -17,6 +27,7 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
     notFound();
   }
 
+  const extras = await getPublicDirectoryProfileExtras(business.id);
   const t = directoryProfileCopy[locale];
   const category = directoryCategoryLabels[locale][business.categorySlug] ?? business.primarySniLabel ?? t.fallbackCategory;
   const location = [business.postalCode, business.city].filter(Boolean).join(" ");
@@ -27,9 +38,43 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
     ? new Intl.DateTimeFormat(locale === "en" ? "en-SE" : "sv-SE", { dateStyle: "medium", timeZone: "Europe/Stockholm" }).format(new Date(business.lastCheckedAt))
     : t.synced;
   const hasMedia = Boolean(business.media?.isActualBusinessMedia && business.media.url);
+  const profilePath = `${profileBase}/${encodeURIComponent(business.slug)}`;
+  const canonical = `${siteConfig.url}${profilePath}`;
+  const description = business.activityDescription || `${business.companyName}${business.city ? ` i ${business.city}` : ""} – ${category}.`;
+  const structuredData = {
+    "@context": "https://schema.org",
+    "@type": "LocalBusiness",
+    name: business.companyName,
+    url: canonical,
+    description,
+    category,
+    ...(business.city || business.addressLine1 || business.postalCode ? {
+      address: {
+        "@type": "PostalAddress",
+        ...(business.addressLine1 ? { streetAddress: business.addressLine1 } : {}),
+        ...(business.postalCode ? { postalCode: business.postalCode } : {}),
+        ...(business.city ? { addressLocality: business.city } : {}),
+        addressCountry: "SE",
+      },
+    } : {}),
+    ...(business.city ? { areaServed: business.city } : {}),
+    ...(hasMedia ? { image: absoluteUrl(business.media!.url) } : {}),
+  };
+
+  const similarParams = new URLSearchParams();
+  const similarService = extras.services[0]?.slug || business.categorySlug;
+  if (similarService) similarParams.set("service", similarService);
+  if (business.city) similarParams.set("location", business.city);
+  const similarQuery = similarParams.toString();
+  const similarHref = `${profileBase}${similarQuery ? `?${similarQuery}` : ""}`;
+  const radiusFormatter = new Intl.NumberFormat(locale === "en" ? "en-SE" : "sv-SE", { maximumFractionDigits: 1 });
 
   return (
     <main lang={locale} className="min-h-screen bg-[#f6f7f5] px-4 py-6 text-[#17201a] sm:px-6 sm:py-10">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData).replace(/</g, "\\u003c") }}
+      />
       <div className="mx-auto max-w-5xl">
         <header className="flex items-center justify-between gap-3">
           <Link href={directoryPaths[locale].home} className="text-lg font-black text-[#173e2b]">Proffera</Link>
@@ -58,6 +103,51 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
             </div>
 
             {business.activityDescription ? <section className="mt-9"><h2 className="text-xl font-black">{t.about}</h2><p lang="sv" className="mt-3 max-w-3xl whitespace-pre-line text-sm leading-7 text-[#566058]">{business.activityDescription}</p></section> : null}
+
+            {extras.services.length ? (
+              <section className="mt-9 border-t border-black/10 pt-7">
+                <h2 className="text-xl font-black">{t.services}</h2>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {extras.services.map((service) => (
+                    <div key={service.slug} className="rounded-xl border border-[#dce5de] bg-[#f7faf8] px-4 py-3">
+                      <p className="font-black text-[#26352b]">{directoryServiceLabel(service.slug, service.label, locale)}</p>
+                      <p className="mt-1 text-xs font-bold text-[#69746c]">
+                        {service.sourceType === "sni" ? t.serviceSni : service.confirmed ? t.serviceConfirmed : t.servicePublic}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+
+            {extras.serviceAreas.length ? (
+              <section className="mt-9 border-t border-black/10 pt-7">
+                <h2 className="text-xl font-black">{t.serviceAreas}</h2>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  {extras.serviceAreas.map((area, index) => {
+                    const areaLabel = area.serviceSlug
+                      ? directoryServiceLabel(area.serviceSlug, area.serviceLabel, locale)
+                      : t.generalArea;
+                    return (
+                      <div key={`${area.serviceSlug || "general"}-${area.radiusKm}-${index}`} className="rounded-2xl bg-[#f7f8f6] p-4 text-sm">
+                        <p className="font-black text-[#26352b]">{areaLabel}</p>
+                        <p className="mt-1 text-[#69746c]">{radiusFormatter.format(area.radiusKm)} km {t.radius}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            ) : null}
+
+            <section className="mt-9 rounded-2xl bg-[#173e2b] p-5 text-white sm:flex sm:items-center sm:justify-between sm:gap-6">
+              <div>
+                <h2 className="text-lg font-black">{t.similarTitle}</h2>
+                <p className="mt-1 max-w-xl text-sm leading-6 text-white/75">{t.similarLead}</p>
+              </div>
+              <Link href={similarHref} className="mt-4 inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-white px-4 text-sm font-black text-[#173e2b] sm:mt-0">
+                <Search className="h-4 w-4" /> {t.similarCta}
+              </Link>
+            </section>
 
             <section className="mt-9 border-t border-black/10 pt-6"><h2 className="text-base font-black">{t.details}</h2><dl className="mt-4 grid gap-4 text-sm sm:grid-cols-2">{business.legalForm ? <div><dt className="text-[#6b746d]">{t.legalForm}</dt><dd className="mt-1 font-bold">{business.legalForm}</dd></div> : null}{business.city ? <div><dt className="text-[#6b746d]">{t.city}</dt><dd className="mt-1 font-bold">{business.city}</dd></div> : null}{business.municipality ? <div><dt className="text-[#6b746d]">{t.municipality}</dt><dd className="mt-1 font-bold">{business.municipality}</dd></div> : null}{business.addressLine1 ? <div><dt className="text-[#6b746d]">{t.address}</dt><dd className="mt-1 font-bold">{business.addressLine1}</dd></div> : null}</dl></section>
 
