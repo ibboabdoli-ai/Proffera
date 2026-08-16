@@ -29,8 +29,9 @@ export const checkoutPlanDefinitions: Record<CheckoutPlanKey, Omit<CheckoutPlanO
 };
 
 /**
- * These labels mirror the live Stripe Price currency options. They are display
- * values only: Stripe Checkout remains the final authority for the charge.
+ * The live recurring Stripe Prices are SEK-denominated. Checkout remains the
+ * authority for the final currency and amount, including any Stripe-hosted
+ * localisation/adaptive pricing that may be enabled separately.
  */
 const checkoutPlanPriceLabels: Record<
   CheckoutPlanKey,
@@ -38,13 +39,13 @@ const checkoutPlanPriceLabels: Record<
 > = {
   starter: {
     SEK: { sv: "199 kr/mån", en: "SEK 199/month" },
-    EUR: { sv: "Från 18 €/mån", en: "From €18/month" },
-    GBP: { sv: "Från £16/mån", en: "From £16/month" },
+    EUR: { sv: "199 kr/mån · slutlig valuta visas i kassan", en: "SEK 199/month · final currency shown at checkout" },
+    GBP: { sv: "199 kr/mån · slutlig valuta visas i kassan", en: "SEK 199/month · final currency shown at checkout" },
   },
   professional: {
     SEK: { sv: "599 kr/mån", en: "SEK 599/month" },
-    EUR: { sv: "Från 54 €/mån", en: "From €54/month" },
-    GBP: { sv: "Från £47/mån", en: "From £47/month" },
+    EUR: { sv: "599 kr/mån · slutlig valuta visas i kassan", en: "SEK 599/month · final currency shown at checkout" },
+    GBP: { sv: "599 kr/mån · slutlig valuta visas i kassan", en: "SEK 599/month · final currency shown at checkout" },
   },
 };
 
