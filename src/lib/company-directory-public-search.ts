@@ -189,8 +189,9 @@ export async function searchPublishedCompanyDirectory(
           or (
             profile.publication_status = 'claimed'
             and profile.claimed_workspace_id is not null
+            and profile.published_at is not null
+            and profile.auto_public_eligible = true
             and claimed_workspace.status in ('active', 'trial')
-            and claimed_service.id is not null
           )
         )
         and profile.is_active = true
@@ -246,29 +247,36 @@ export async function searchPublishedCompanyDirectory(
   )];
   const workspaceAccessEntries = await Promise.all(
     claimedWorkspaceIds.map(async (workspaceId) => {
-      const [websiteBuilder, onlineBooking] = await Promise.all([
-        hasWorkspaceFeatureAccessForWorkspace(workspaceId, "website_builder"),
-        hasWorkspaceFeatureAccessForWorkspace(workspaceId, "online_booking"),
-      ]);
+      const websiteBuilder = await hasWorkspaceFeatureAccessForWorkspace(workspaceId, "website_builder");
+      const onlineBooking = websiteBuilder
+        ? await hasWorkspaceFeatureAccessForWorkspace(workspaceId, "online_booking")
+        : false;
       return [workspaceId, { websiteBuilder, onlineBooking }] as const;
     }),
   );
   const workspaceAccess = new Map(workspaceAccessEntries);
 
-  const results = rows.flatMap((row): PublishedDirectorySearchResult[] => {
+  const results = rows.map((row): PublishedDirectorySearchResult => {
     const isClaimed = String(row.publication_status) === "claimed";
     const claimedWorkspaceId = String(row.claimed_workspace_id ?? "");
     const access = isClaimed ? workspaceAccess.get(claimedWorkspaceId) : null;
-    if (isClaimed && !access?.websiteBuilder) return [];
+    const conversionMode = marketplaceConversionMode(row.claimed_service_conversion_mode);
+    const marketplaceAvailable = Boolean(
+      isClaimed
+      && access?.websiteBuilder
+      && row.claimed_workspace_slug
+      && row.claimed_service_id
+      && row.claimed_service_slug
+      && conversionMode,
+    );
 
     const distanceKm = row.distance_km === null || row.distance_km === undefined ? null : Number(row.distance_km);
     const serviceAreaRadiusKm = row.service_area_radius_km === null || row.service_area_radius_km === undefined
       ? null
       : Number(row.service_area_radius_km);
-    const conversionMode = isClaimed ? marketplaceConversionMode(row.claimed_service_conversion_mode) : null;
-    const claimedBookingSlug = isClaimed ? String(row.claimed_booking_slug ?? "") || null : null;
+    const claimedBookingSlug = marketplaceAvailable ? String(row.claimed_booking_slug ?? "") || null : null;
 
-    return [{
+    return {
       id: String(row.id),
       slug: String(row.public_slug),
       companyName: String(row.display_name),
@@ -287,18 +295,18 @@ export async function searchPublishedCompanyDirectory(
         && distanceKm !== null
         && serviceAreaRadiusKm !== null
         && distanceKm <= serviceAreaRadiusKm,
-      claimedWorkspaceSlug: isClaimed ? String(row.claimed_workspace_slug ?? "") || null : null,
-      claimedServiceId: isClaimed ? String(row.claimed_service_id ?? "") || null : null,
-      claimedServiceSlug: isClaimed ? String(row.claimed_service_slug ?? "") || null : null,
+      claimedWorkspaceSlug: marketplaceAvailable ? String(row.claimed_workspace_slug) : null,
+      claimedServiceId: marketplaceAvailable ? String(row.claimed_service_id) : null,
+      claimedServiceSlug: marketplaceAvailable ? String(row.claimed_service_slug) : null,
       claimedBookingSlug,
-      conversionMode,
+      conversionMode: marketplaceAvailable ? conversionMode : null,
       bookingAvailable: Boolean(
-        isClaimed
+        marketplaceAvailable
         && access?.onlineBooking
         && claimedBookingSlug
         && (conversionMode === "book" || conversionMode === "book_or_quote"),
       ),
-    }];
+    };
   }).slice(0, limit);
 
   return {
