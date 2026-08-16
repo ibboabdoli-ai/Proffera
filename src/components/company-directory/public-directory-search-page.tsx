@@ -33,27 +33,50 @@ export async function PublicDirectorySearchPage({ locale, searchParams }: { loca
   const nearbyActive = Boolean(search?.nearbyEnabled);
 
   return (
-    <main lang={locale} className="min-h-screen bg-[#f6f7f5] px-4 py-6 text-[#17201a] sm:px-6 sm:py-10">
+    <main lang={locale} className="min-h-screen bg-canvas px-4 py-6 text-ink sm:px-6 sm:py-10">
       <div className="mx-auto max-w-6xl">
         <header className="flex items-center justify-between gap-3">
-          <Link href={paths.home} className="text-lg font-black text-[#173e2b]">Proffera</Link>
-          <Link href={directoryPaths[otherLocale].search} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-[#173e2b]/15 bg-white px-3 text-sm font-black text-[#173e2b]"><Languages className="h-4 w-4" /> {t.language}</Link>
+          <Link href={paths.home} className="text-lg font-black tracking-tight text-brand">Proffera</Link>
+          <Link href={directoryPaths[otherLocale].search} className="inline-flex min-h-10 items-center gap-2 rounded-control border border-line bg-surface px-3 text-sm font-black text-brand shadow-sm transition hover:border-brand/25 hover:bg-brand-soft">
+            <Languages className="h-4 w-4" /> {t.language}
+          </Link>
         </header>
 
-        <section className="mt-6 overflow-hidden rounded-[2rem] bg-[#102a1c] px-6 py-7 text-white shadow-sm sm:px-9 sm:py-9">
-          <p className="text-xs font-black uppercase tracking-[0.16em] text-[#a9dbb9]">{t.eyebrow}</p>
-          <h1 className="mt-3 max-w-3xl text-3xl font-black tracking-tight sm:text-5xl">{t.title}</h1>
-          <p className="mt-4 max-w-2xl text-sm leading-7 text-white/75 sm:text-base">{t.intro}</p>
-          <PublicDirectorySearchForm locale={locale} service={service} location={location} radius={radius} serviceSuggestions={serviceSuggestions} locationSuggestions={locationSuggestions} />
+        <section className="relative mt-6 overflow-hidden rounded-panel bg-brand-deep px-6 py-9 text-white shadow-panel sm:px-10 sm:py-12">
+          <div className="absolute -right-24 -top-28 h-72 w-72 rounded-full bg-white/10 blur-3xl" aria-hidden="true" />
+          <div className="relative">
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-white/60">{t.eyebrow}</p>
+            <h1 className="mt-3 max-w-3xl text-3xl font-black tracking-[-0.035em] sm:text-5xl">{t.title}</h1>
+            <p className="mt-4 max-w-2xl text-sm leading-7 text-white/72 sm:text-base">{t.intro}</p>
+            <PublicDirectorySearchForm locale={locale} service={service} location={location} radius={radius} serviceSuggestions={serviceSuggestions} locationSuggestions={locationSuggestions} />
+          </div>
         </section>
 
-        <aside className="mt-4 rounded-2xl border border-[#d7e4da] bg-[#f2f8f4] px-4 py-3 text-sm leading-6 text-[#465349]">
-          <div className="flex items-start gap-2">{nearbyActive ? <Navigation className="mt-0.5 h-4 w-4 shrink-0 text-[#173e2b]" /> : <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#173e2b]" />}<p>{nearbyActive ? t.nearbyNotice(search?.radiusKm ?? 25) : t.addressNotice}</p></div>
+        <aside className="mt-4 rounded-card border border-line bg-surface px-4 py-3 text-sm leading-6 text-body shadow-sm">
+          <div className="flex items-start gap-2">
+            {nearbyActive ? <Navigation className="mt-0.5 h-4 w-4 shrink-0 text-brand" /> : <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-brand" />}
+            <p>{nearbyActive ? t.nearbyNotice(search?.radiusKm ?? 25) : t.addressNotice}</p>
+          </div>
         </aside>
 
-        {!searched ? <section className="mt-7 rounded-2xl bg-white p-6 ring-1 ring-black/5 sm:p-7"><div className="flex items-center gap-2"><Sparkles className="h-5 w-5 text-[#173e2b]" /><h2 className="text-xl font-black">{t.popular}</h2></div><p className="mt-2 text-sm leading-6 text-[#667168]">{t.popularLead}</p><div className="mt-5 flex flex-wrap gap-2">{popularDirectoryServices.map((item) => <Link key={item.query} href={`${paths.search}?service=${encodeURIComponent(item.query)}`} className="rounded-full border border-[#173e2b]/15 bg-[#f2f8f4] px-4 py-2 text-sm font-black text-[#173e2b] transition hover:border-[#173e2b]/35 hover:bg-[#e9f3ec]">{item[locale]}</Link>)}</div></section> : null}
+        {!searched ? (
+          <section className="mt-8 border-t border-line pt-8">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-brand" />
+              <h2 className="text-xl font-black tracking-tight">{t.popular}</h2>
+            </div>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">{t.popularLead}</p>
+            <div className="mt-5 flex flex-wrap gap-2">
+              {popularDirectoryServices.map((item) => (
+                <Link key={item.query} href={`${paths.search}?service=${encodeURIComponent(item.query)}`} className="rounded-full border border-line bg-surface px-4 py-2 text-sm font-black text-brand transition hover:border-brand/25 hover:bg-brand-soft">
+                  {item[locale]}
+                </Link>
+              ))}
+            </div>
+          </section>
+        ) : null}
 
-        {search?.nearbyRequested && !search.nearbyEnabled ? <div className="mt-6 rounded-2xl border border-[#e5cf9a] bg-[#fff8e4] p-4 text-sm font-semibold text-[#6d5418]">{t.badPosition}</div> : null}
+        {search?.nearbyRequested && !search.nearbyEnabled ? <div className="mt-6 rounded-card border border-amber-300 bg-amber-50 p-4 text-sm font-semibold text-amber-900">{t.badPosition}</div> : null}
         {search ? <PublicDirectoryResults locale={locale} search={search} /> : null}
       </div>
     </main>
