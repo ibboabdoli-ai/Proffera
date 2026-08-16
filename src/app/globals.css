@@ -6,7 +6,8 @@
   --pf-surface: #ffffff;
   --pf-surface-subtle: #fbfcfa;
   --pf-ink: #17201a;
-  --pf-ink-muted: #5b665f;
+  --pf-body: #455249;
+  --pf-ink-muted: #4f5c53;
   --pf-line: #dfe5dd;
   --pf-line-strong: #9fbaa7;
   --pf-brand: #17452f;
@@ -14,6 +15,9 @@
   --pf-brand-deep: #102a1c;
   --pf-brand-soft: #eaf2ec;
   --pf-brand-tint: #eef5ef;
+  --pf-on-brand-muted: #d9e3dd;
+  --pf-disabled-bg: #667168;
+  --pf-disabled-fg: #ffffff;
   --pf-accent: #e8c678;
   --pf-danger: #9f3a2d;
   --pf-shadow-card: 0 1px 2px rgb(16 42 28 / 0.04), 0 14px 34px rgb(16 42 28 / 0.06);
@@ -25,12 +29,12 @@
   /* Existing aliases retained for broad application compatibility. */
   --background: #f3f5f1;
   --foreground: #152019;
-  --muted: #5e6962;
+  --muted: var(--pf-ink-muted);
   --surface: #ffffff;
   --surface-subtle: #f7f8f5;
   --border: #dde3db;
   --brand: #17452f;
-  --brand-strong: #102d20;
+  --brand-strong: var(--pf-brand-hover);
   --brand-soft: #e8f1eb;
   --accent: #d7a940;
   --danger: #9f3a2d;
@@ -38,22 +42,31 @@
 }
 
 @theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
   --color-canvas: var(--pf-canvas);
   --color-surface: var(--pf-surface);
   --color-surface-subtle: var(--pf-surface-subtle);
   --color-ink: var(--pf-ink);
+  --color-body: var(--pf-body);
   --color-ink-muted: var(--pf-ink-muted);
+  --color-muted: var(--pf-ink-muted);
   --color-line: var(--pf-line);
   --color-line-strong: var(--pf-line-strong);
+  --color-border: var(--border);
   --color-brand: var(--pf-brand);
   --color-brand-hover: var(--pf-brand-hover);
+  --color-brand-strong: var(--pf-brand-hover);
   --color-brand-deep: var(--pf-brand-deep);
   --color-brand-soft: var(--pf-brand-soft);
   --color-brand-tint: var(--pf-brand-tint);
+  --color-on-brand-muted: var(--pf-on-brand-muted);
+  --color-accent: var(--accent);
   --color-accent-soft: var(--pf-accent);
   --color-danger: var(--pf-danger);
   --shadow-card: var(--pf-shadow-card);
   --shadow-lift: var(--pf-shadow-lift);
+  --shadow-panel: var(--pf-shadow-lift);
   --radius-control: var(--pf-radius-control);
   --radius-card: var(--pf-radius-card);
   --radius-panel: var(--pf-radius-panel);
@@ -162,11 +175,47 @@ button:disabled {
   -webkit-text-fill-color: #ffffff !important;
 }
 
+/* Light CTAs inside dark cards must never inherit the parent's white text fill. */
 :where(a, button)[class*="bg-white"][class*="text-[#173e2b]"],
 :where(a, button)[class*="bg-white"][class*="text-[#17452f]"],
-:where(a, button)[class~="bg-surface"][class~="text-brand"] {
-  color: var(--pf-brand) !important;
-  -webkit-text-fill-color: var(--pf-brand) !important;
+:where(a, button)[class*="bg-white"][class~="text-brand"],
+:where(a, button)[class*="bg-white"][class~="text-brand-deep"],
+:where(a, button)[class~="bg-surface"][class~="text-brand"],
+:where(a, button)[class~="bg-surface"][class~="text-brand-deep"] {
+  color: var(--pf-brand-deep) !important;
+  -webkit-text-fill-color: var(--pf-brand-deep) !important;
+}
+
+/* Raise the practical readability floor for secondary copy on dark Proffera surfaces. */
+:where(
+  [class~="bg-brand-deep"],
+  [class*="bg-[#102a1c]"],
+  [class*="bg-[#102d20]"],
+  [class*="bg-[#142b20]"],
+  [class*="bg-[#173e2b]"],
+  [class*="bg-[#17452f]"]
+) :where(
+  [class*="text-white/60"],
+  [class*="text-white/65"],
+  [class*="text-white/70"],
+  [class*="text-white/72"],
+  [class*="text-white/75"]
+) {
+  color: var(--pf-on-brand-muted) !important;
+  -webkit-text-fill-color: var(--pf-on-brand-muted) !important;
+}
+
+/* Disabled primary actions stay visibly disabled without failing text contrast. */
+:where(button):disabled:is(
+  [class*="bg-[#17452f]"],
+  [class*="bg-[#173e2b]"],
+  [class~="bg-brand"],
+  [class~="bg-brand-deep"]
+) {
+  background: var(--pf-disabled-bg) !important;
+  color: var(--pf-disabled-fg) !important;
+  -webkit-text-fill-color: var(--pf-disabled-fg) !important;
+  opacity: 1 !important;
 }
 
 :where(a, button) {
