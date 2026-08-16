@@ -14,7 +14,10 @@ describe("company directory request cache contract", () => {
     const profile = source("src/components/company-directory/public-directory-profile.tsx");
 
     expect(helper).toContain('import { cache } from "react"');
-    expect(helper).toContain("cache(getPublicDirectoryBusiness)");
+    expect(helper).toContain("getPublicDirectoryBusinessForRequest = cache(async");
+    expect(helper).toContain("await getPublicDirectoryBusiness(slug)");
+    expect(helper).toContain("getSafeClaimedDirectoryFallback(slug)");
+    expect(helper.match(/\bcache\(/g)?.length).toBe(1);
 
     for (const consumer of [swedishRoute, englishRoute, profile]) {
       expect(consumer).toContain("getPublicDirectoryBusinessForRequest");
