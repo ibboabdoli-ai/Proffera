@@ -10,7 +10,7 @@ import {
 } from "@/components/company-directory/public-directory-copy";
 import { directoryProfileCopy } from "@/components/company-directory/public-directory-profile-copy";
 import { quoteRequestHref } from "@/features/quote-request/directory-prefill";
-import { getPublicDirectoryBusiness } from "@/lib/company-directory-engine";
+import { getPublicDirectoryBusinessForRequest } from "@/lib/company-directory-public-data";
 import { getPublicDirectoryProfileExtras } from "@/lib/company-directory-public-profile-extras";
 import { getClaimedDirectoryWorkspaceSlug } from "@/lib/company-directory-routing";
 import type { PublicLocale } from "@/lib/public-locale";
@@ -21,7 +21,7 @@ function absoluteUrl(value: string) {
 }
 
 export async function PublicDirectoryProfile({ slug, locale }: { slug: string; locale: PublicLocale }) {
-  const business = await getPublicDirectoryBusiness(slug);
+  const business = await getPublicDirectoryBusinessForRequest(slug);
   if (!business) {
     const workspaceSlug = await getClaimedDirectoryWorkspaceSlug(slug);
     if (workspaceSlug) redirect(locale === "en" ? `/foretag/${encodeURIComponent(workspaceSlug)}?lang=en` : `/foretag/${encodeURIComponent(workspaceSlug)}`);
