@@ -1,0 +1,124 @@
+.scope {
+  color: var(--pf-ink);
+}
+
+.scope :where(section, article, aside)[class*="bg-white"] {
+  background: var(--pf-surface);
+}
+
+.scope :where(section, article, aside)[class*="border-[#dfe5dc]"],
+.scope :where(section, article, aside)[class*="border-[#e0e5dd]"],
+.scope :where(section, article, aside)[class*="border-[#e2e7df]"] {
+  border-color: var(--pf-line);
+}
+
+.scope :where(section, article, aside)[class*="rounded-[24px]"],
+.scope :where(section, article, aside)[class*="rounded-2xl"] {
+  border-radius: var(--pf-radius-card);
+}
+
+.scope :where(section, article, aside)[class*="shadow-sm"] {
+  box-shadow: var(--pf-shadow-card);
+}
+
+.scope :where([class*="bg-[#f7f9f6]"]) {
+  background: var(--pf-surface-subtle);
+}
+
+.scope :where([class*="border-[#ced8cc]"], [class*="border-[#d5ddd3]"], [class*="border-[#d7dfd5]"], [class*="border-[#d9e1d7]"], [class*="border-[#dce3da]"], [class*="border-[#dfe5dc]"], [class*="border-[#e0e5dd]"], [class*="border-[#e2e7df]"], [class*="border-[#e4e9e2]"], [class*="border-[#e5e9e3]"], [class*="border-[#edf0eb]"]) {
+  border-color: var(--pf-line);
+}
+
+.scope :where([class*="text-[#17201a]"]) {
+  color: var(--pf-ink);
+}
+
+.scope :where([class*="text-[#4f5c53]"], [class*="text-[#536158]"], [class*="text-[#566159]"], [class*="text-[#5b665f]"], [class*="text-[#667168]"], [class*="text-[#68736b]"], [class*="text-[#6b766e]"], [class*="text-[#6c786f]"], [class*="text-[#7a857d]"]) {
+  color: var(--pf-ink-muted);
+}
+
+.scope :where(input, select, textarea) {
+  border-color: var(--pf-line);
+  border-radius: var(--pf-radius-control);
+  background: var(--pf-surface);
+  color: var(--pf-ink);
+  transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
+
+.scope :where(input, select, textarea):hover {
+  border-color: var(--pf-line-strong);
+}
+
+.scope :where(input, select, textarea):focus {
+  border-color: var(--pf-brand);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--pf-brand) 14%, transparent);
+  outline: none;
+}
+
+.scope :where(button, a)[class*="bg-[#173e2b]"],
+.scope :where(button, a)[class*="bg-[#17452f]"] {
+  border-radius: var(--pf-radius-control);
+  background: var(--pf-brand);
+  color: white;
+  box-shadow: var(--pf-shadow-card);
+}
+
+.scope :where(button, a)[class*="bg-[#173e2b]"]:hover,
+.scope :where(button, a)[class*="bg-[#17452f]"]:hover {
+  background: var(--pf-brand-hover);
+}
+
+.scope :where(button, a)[class*="bg-white"] {
+  border-color: var(--pf-line);
+  border-radius: var(--pf-radius-control);
+  background: var(--pf-surface);
+}
+
+.scope :where(button, a)[class*="bg-white"]:hover {
+  border-color: var(--pf-line-strong);
+  background: var(--pf-surface-subtle);
+}
+
+.scope :where([class*="bg-[#eef8f1]"]) {
+  background: var(--pf-brand-tint);
+}
+
+.scope :where([class*="bg-[#fff5f2]"]) {
+  background: color-mix(in srgb, var(--pf-danger) 7%, white);
+}
+
+.scope :where([class*="text-[#8f2f1b]"], [class*="text-[#7a1f1f]"]) {
+  color: var(--pf-danger);
+}
+
+.scope :where(a, button) {
+  transition: transform 160ms ease, background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.scope :where(a, button):not(:disabled):hover {
+  transform: translateY(-1px);
+}
+
+.scope :where([class*="overflow-x-auto"]) {
+  scrollbar-color: var(--pf-line-strong) transparent;
+}
+
+@media (max-width: 639px) {
+  .scope :where(section, article, aside)[class*="p-6"] {
+    padding: 1rem;
+  }
+
+  .scope :where(input, select, textarea, button) {
+    font-size: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scope :where(a, button, input, select, textarea) {
+    transition: none;
+  }
+
+  .scope :where(a, button):not(:disabled):hover {
+    transform: none;
+  }
+}

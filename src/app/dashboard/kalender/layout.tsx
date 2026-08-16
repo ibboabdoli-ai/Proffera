@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
+import styles from "@/components/dashboard/calendar-staff-ux-2.module.css";
+
 export const metadata: Metadata = {
   title: "Proffera Kalender",
   description: "Bokningskalender för Proffera.",
@@ -24,5 +26,5 @@ export const metadata: Metadata = {
 };
 
 export default function CalendarLayout({ children }: { children: ReactNode }) {
-  return children;
+  return <div className={styles.scope}>{children}</div>;
 }
