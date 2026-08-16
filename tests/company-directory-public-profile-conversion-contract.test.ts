@@ -46,10 +46,11 @@ describe("Company Directory public profile conversion contract", () => {
     expect(englishPage).toContain('locale="en"');
   });
 
-  it("emits sanitized LocalBusiness JSON-LD from the shared renderer", () => {
+  it("emits sanitized LocalBusiness JSON-LD without inventing a service area", () => {
     expect(profile).toContain('"@type": "LocalBusiness"');
     expect(profile).toContain('type="application/ld+json"');
     expect(profile).toContain('JSON.stringify(structuredData).replace(/</g, "\\\\u003c")');
     expect(profile).toContain("isActualBusinessMedia");
+    expect(profile).not.toContain("areaServed: business.city");
   });
 });
