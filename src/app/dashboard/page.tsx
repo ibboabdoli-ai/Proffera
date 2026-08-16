@@ -157,48 +157,48 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   );
 
   const overviewStats = [
-    ...(canUseCrm ? [{ label: text.customers, value: String(stats.customersCount), text: `${countLabel(stats.customersCount, text.customerSingular, text.customerPlural)} · ${countLabel(stats.activeCustomersCount, text.activeSingular, text.activePlural)}`, icon: UsersRound, tone: "bg-[#e9f2ec] text-[#17452f]" }] : []),
-    ...(canUseBooking ? [{ label: text.bookings, value: String(stats.bookingsCount), text: `${countLabel(stats.bookingsCount, text.bookingSingular, text.bookingPlural)} · ${countLabel(stats.confirmedBookingsCount, text.confirmedSingular, text.confirmedPlural)}`, icon: CalendarCheck2, tone: "bg-[#edf0f8] text-[#405582]" }] : []),
-    ...(canUseCrm ? [{ label: text.activity, value: String(stats.customerEventsCount), text: text.activityText, icon: Activity, tone: "bg-[#f8f0df] text-[#8a6722]" }] : []),
-    { label: text.workspace, value: text.active, text: canUseCrm || canUseBooking || canUseLeads ? text.workspaceText : text.workspaceLimitedText, icon: ShieldCheck, tone: "bg-[#f0ece8] text-[#6d5948]" },
+    ...(canUseCrm ? [{ label: text.customers, value: String(stats.customersCount), text: `${countLabel(stats.customersCount, text.customerSingular, text.customerPlural)} · ${countLabel(stats.activeCustomersCount, text.activeSingular, text.activePlural)}`, icon: UsersRound, tone: "bg-brand-soft text-brand" }] : []),
+    ...(canUseBooking ? [{ label: text.bookings, value: String(stats.bookingsCount), text: `${countLabel(stats.bookingsCount, text.bookingSingular, text.bookingPlural)} · ${countLabel(stats.confirmedBookingsCount, text.confirmedSingular, text.confirmedPlural)}`, icon: CalendarCheck2, tone: "border border-line bg-surface-subtle text-ink-muted" }] : []),
+    ...(canUseCrm ? [{ label: text.activity, value: String(stats.customerEventsCount), text: text.activityText, icon: Activity, tone: "bg-accent-soft/25 text-brand-deep" }] : []),
+    { label: text.workspace, value: text.active, text: canUseCrm || canUseBooking || canUseLeads ? text.workspaceText : text.workspaceLimitedText, icon: ShieldCheck, tone: "border border-line bg-canvas text-ink-muted" },
   ];
 
   return (
     <div className="grid gap-6 lg:gap-7" lang={locale}>
-      <section className="relative overflow-hidden rounded-[28px] bg-[#142b20] px-6 py-8 text-white shadow-[0_20px_60px_rgba(20,43,32,0.18)] sm:px-8 lg:px-10 lg:py-10">
-        <div className="absolute -right-24 -top-28 h-72 w-72 rounded-full bg-[#d8ae52]/16 blur-3xl" aria-hidden="true" />
+      <section className="relative overflow-hidden rounded-panel bg-brand-deep px-6 py-8 text-white shadow-lift sm:px-8 lg:px-10 lg:py-10">
+        <div className="absolute -right-24 -top-28 h-72 w-72 rounded-full bg-accent-soft/15 blur-3xl" aria-hidden="true" />
         <div className="relative grid gap-8 xl:grid-cols-[1fr_auto] xl:items-end">
           <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.07] px-3 py-1.5 text-xs font-semibold text-white/75"><span className="h-2 w-2 rounded-full bg-[#73c68f]" />{text.activeBadge}</div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.07] px-3 py-1.5 text-xs font-semibold text-white/75"><span className="h-2 w-2 rounded-full bg-white/70" />{text.activeBadge}</div>
             <h2 className="mt-5 max-w-3xl text-3xl font-bold tracking-[-0.035em] text-white sm:text-4xl lg:text-[44px] lg:leading-[1.08]">{hasLimitedAccess ? text.limitedHeading : text.heading}</h2>
             <p className="mt-4 max-w-2xl text-sm leading-7 text-white/65 sm:text-base">{hasLimitedAccess ? text.limitedIntro : text.intro}</p>
           </div>
           {canUseLeads || canUseBooking ? <div className="flex flex-col gap-3 sm:flex-row">
-            {canUseLeads ? <Link href={withLocale("/dashboard/leads", locale)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-bold text-[#173e2b]">{text.manageLeads}<ArrowRight className="h-4 w-4" /></Link> : null}
-            {canUseBooking ? <Link href={withLocale("/dashboard/bokningar/ny", locale)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.07] px-4 py-2.5 text-sm font-bold text-white"><CalendarPlus className="h-4 w-4" />{text.newBooking}</Link> : null}
+            {canUseLeads ? <Link href={withLocale("/dashboard/leads", locale)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control bg-surface px-4 py-2.5 text-sm font-bold text-brand-deep transition hover:-translate-y-0.5">{text.manageLeads}<ArrowRight className="h-4 w-4" /></Link> : null}
+            {canUseBooking ? <Link href={withLocale("/dashboard/bokningar/ny", locale)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border border-white/15 bg-white/[0.07] px-4 py-2.5 text-sm font-bold text-white transition hover:bg-white/10"><CalendarPlus className="h-4 w-4" />{text.newBooking}</Link> : null}
           </div> : null}
         </div>
       </section>
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label={text.overviewLabel}>
-        {overviewStats.map((item) => <article key={item.label} className="rounded-2xl border border-[#e0e5dd] bg-white p-5 shadow-sm">
-          <div className="flex items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-[0.1em] text-[#778179]">{item.label}</p><p className="mt-3 text-3xl font-bold text-[#173e2b]">{item.value}</p></div><span className={`flex h-10 w-10 items-center justify-center rounded-xl ${item.tone}`}><item.icon className="h-5 w-5" /></span></div>
-          <p className="mt-3 text-sm leading-6 text-[#667168]">{item.text}</p>
+        {overviewStats.map((item) => <article key={item.label} className="rounded-card border border-line bg-surface p-5 shadow-card transition duration-200 hover:-translate-y-0.5 hover:border-line-strong">
+          <div className="flex items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-[0.1em] text-ink-muted">{item.label}</p><p className="mt-3 text-3xl font-bold text-brand-deep">{item.value}</p></div><span className={`flex h-10 w-10 items-center justify-center rounded-control ${item.tone}`}><item.icon className="h-5 w-5" /></span></div>
+          <p className="mt-3 text-sm leading-6 text-ink-muted">{item.text}</p>
         </article>)}
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(300px,0.7fr)]">
-        <div className="rounded-2xl border border-[#e0e5dd] bg-white p-5 shadow-sm sm:p-6">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.12em] text-[#17452f]">{text.shortcuts}</p><h3 className="mt-2 text-xl font-bold text-[#17201a]">{hasLimitedAccess ? text.availableParts : text.continueWork}</h3></div><p className="max-w-md text-sm leading-6 text-[#667168]">{hasLimitedAccess ? text.availableText : text.continueText}</p></div>
-          <div className="mt-5 grid gap-3 sm:grid-cols-2">{visibleQuickLinks.map((item) => <Link key={item.href} href={withLocale(item.href, locale)} className="group flex gap-4 rounded-2xl bg-[#f6f8f5] p-4"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-[#17452f]"><item.icon className="h-[18px] w-[18px]" /></span><span className="min-w-0 flex-1"><span className="flex justify-between gap-3"><span className="font-bold text-[#17201a]">{item.title}</span><ArrowRight className="h-4 w-4" /></span><span className="mt-1 block text-xs font-bold uppercase tracking-wide text-[#768179]">{item.label}</span><span className="mt-2 block text-sm leading-6 text-[#667168]">{item.text}</span></span></Link>)}</div>
+        <div className="rounded-card border border-line bg-surface p-5 shadow-card sm:p-6">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.12em] text-brand">{text.shortcuts}</p><h3 className="mt-2 text-xl font-bold text-ink">{hasLimitedAccess ? text.availableParts : text.continueWork}</h3></div><p className="max-w-md text-sm leading-6 text-ink-muted">{hasLimitedAccess ? text.availableText : text.continueText}</p></div>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">{visibleQuickLinks.map((item) => <Link key={item.href} href={withLocale(item.href, locale)} className="group flex gap-4 rounded-card border border-transparent bg-surface-subtle p-4 transition hover:border-line hover:bg-brand-tint"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-control bg-surface text-brand shadow-card"><item.icon className="h-[18px] w-[18px]" /></span><span className="min-w-0 flex-1"><span className="flex justify-between gap-3"><span className="font-bold text-ink">{item.title}</span><ArrowRight className="h-4 w-4 text-brand" /></span><span className="mt-1 block text-xs font-bold uppercase tracking-wide text-ink-muted">{item.label}</span><span className="mt-2 block text-sm leading-6 text-ink-muted">{item.text}</span></span></Link>)}</div>
         </div>
 
-        <aside className="rounded-2xl border border-[#e0e5dd] bg-white p-5 shadow-sm sm:p-6">
-          <div className="flex items-center justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-[0.12em] text-[#17452f]">{text.todayFocus}</p><h3 className="mt-2 text-xl font-bold text-[#17201a]">{hasLimitedAccess ? text.access : text.nextStep}</h3></div><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#e9f2ec] text-[#17452f]"><CheckCircle2 className="h-5 w-5" /></span></div>
-          <div className="mt-5 grid gap-3">
-            {canUseBooking ? <Link href={withLocale("/dashboard/bokningar", locale)} className="flex items-start gap-3 rounded-xl p-2"><CalendarCheck2 className="mt-1 h-5 w-5 text-[#405582]" /><span><span className="block text-sm font-bold">{text.followBookings}</span><span className="text-sm text-[#6a756d]">{text.confirmedOf(stats.confirmedBookingsCount, stats.bookingsCount)}</span></span></Link> : null}
-            {canUseCrm ? <><Link href={withLocale("/dashboard/kunder", locale)} className="flex items-start gap-3 rounded-xl p-2"><CircleUserRound className="mt-1 h-5 w-5 text-[#17452f]" /><span><span className="block text-sm font-bold">{text.nurtureCustomers}</span><span className="text-sm text-[#6a756d]">{text.activeOf(stats.activeCustomersCount, stats.customersCount)}</span></span></Link><Link href={withLocale("/dashboard/kunder/ny", locale)} className="flex items-start gap-3 rounded-xl p-2"><UserRoundPlus className="mt-1 h-5 w-5 text-[#8a6722]" /><span><span className="block text-sm font-bold">{text.registerCustomer}</span><span className="text-sm text-[#6a756d]">{text.createProfile}</span></span></Link></> : null}
-            {hasLimitedAccess ? <p className="rounded-xl bg-[#f6f8f5] p-4 text-sm leading-6 text-[#5b665f]">{text.limitedAccess}</p> : null}
+        <aside className="rounded-card border border-line bg-surface p-5 shadow-card sm:p-6">
+          <div className="flex items-center justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-[0.12em] text-brand">{text.todayFocus}</p><h3 className="mt-2 text-xl font-bold text-ink">{hasLimitedAccess ? text.access : text.nextStep}</h3></div><span className="flex h-10 w-10 items-center justify-center rounded-control bg-brand-soft text-brand"><CheckCircle2 className="h-5 w-5" /></span></div>
+          <div className="mt-5 grid gap-2">
+            {canUseBooking ? <Link href={withLocale("/dashboard/bokningar", locale)} className="flex items-start gap-3 rounded-control p-3 transition hover:bg-surface-subtle"><CalendarCheck2 className="mt-1 h-5 w-5 text-ink-muted" /><span><span className="block text-sm font-bold text-ink">{text.followBookings}</span><span className="text-sm text-ink-muted">{text.confirmedOf(stats.confirmedBookingsCount, stats.bookingsCount)}</span></span></Link> : null}
+            {canUseCrm ? <><Link href={withLocale("/dashboard/kunder", locale)} className="flex items-start gap-3 rounded-control p-3 transition hover:bg-surface-subtle"><CircleUserRound className="mt-1 h-5 w-5 text-brand" /><span><span className="block text-sm font-bold text-ink">{text.nurtureCustomers}</span><span className="text-sm text-ink-muted">{text.activeOf(stats.activeCustomersCount, stats.customersCount)}</span></span></Link><Link href={withLocale("/dashboard/kunder/ny", locale)} className="flex items-start gap-3 rounded-control p-3 transition hover:bg-surface-subtle"><UserRoundPlus className="mt-1 h-5 w-5 text-brand-deep" /><span><span className="block text-sm font-bold text-ink">{text.registerCustomer}</span><span className="text-sm text-ink-muted">{text.createProfile}</span></span></Link></> : null}
+            {hasLimitedAccess ? <p className="rounded-control bg-surface-subtle p-4 text-sm leading-6 text-ink-muted">{text.limitedAccess}</p> : null}
           </div>
         </aside>
       </section>

@@ -11,10 +11,10 @@ type CustomersPageProps = {
 };
 
 const statusStyles: Record<string, string> = {
-  prospect: "bg-[#e7f1eb] text-[#17452f]",
-  active: "bg-[#e7f1eb] text-[#17452f]",
-  paused: "bg-[#fff4d7] text-[#6f4f00]",
-  lost: "bg-[#f8e7e7] text-[#7a2626]",
+  prospect: "bg-brand-soft text-brand",
+  active: "bg-brand-soft text-brand",
+  paused: "bg-accent-soft/30 text-brand-deep",
+  lost: "bg-danger/10 text-danger",
 };
 
 export default async function CustomersPage({ searchParams }: CustomersPageProps) {
@@ -83,13 +83,13 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
   const companies = customers.filter((customer) => customer.type === "Företag" || customer.type === "Company").length;
   const values = [customers.length, activeCustomers, prospects, companies];
   const icons = [UsersRound, CircleDot, UserRoundSearch, Building2];
-  const tones = ["bg-[#e9f2ec] text-[#17452f]", "bg-[#edf0f8] text-[#405582]", "bg-[#f8f0df] text-[#8a6722]", "bg-[#f0ece8] text-[#6d5948]"];
+  const tones = ["bg-brand-soft text-brand", "border border-line bg-surface-subtle text-ink-muted", "bg-accent-soft/25 text-brand-deep", "border border-line bg-canvas text-ink-muted"];
   const stats = copy.stats.map(([label, helper], index) => ({ label, value: String(values[index]), helper, icon: icons[index], tone: tones[index] }));
 
   return (
     <div className="grid gap-6">
       <DashboardPageHeader eyebrow={copy.eyebrow} title={copy.title} description={copy.description} icon={UsersRound} actions={
-        <Link href={withLocale("/dashboard/kunder/ny")} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#173e2b] px-4 py-2.5 text-sm font-bold text-white transition hover:-translate-y-0.5 hover:bg-[#0f3020]">
+        <Link href={withLocale("/dashboard/kunder/ny")} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control bg-brand-deep px-4 py-2.5 text-sm font-bold text-white transition hover:-translate-y-0.5 hover:bg-brand-hover">
           <UserRoundPlus className="h-4 w-4" aria-hidden="true" />{copy.newCustomer}
         </Link>
       } />
@@ -98,33 +98,33 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
 
       {customers.length === 0 ? (
         <DashboardDataPanel title={copy.panelTitle} description={copy.emptyDescription} count={0}>
-          <div className="p-5 sm:p-6"><div className="rounded-2xl border border-dashed border-[#ced8cc] bg-[#f7f9f6] px-5 py-8 text-center">
-            <h3 className="text-lg font-bold text-[#17201a]">{copy.emptyTitle}</h3>
-            <p className="mx-auto mt-2 max-w-2xl text-sm leading-7 text-[#667168]">{copy.emptyText}</p>
-            <Link href={withLocale("/dashboard/kunder/ny")} className="mt-5 inline-flex min-h-10 items-center justify-center rounded-xl bg-[#173e2b] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#0f3020]">{copy.addFirst}</Link>
+          <div className="p-5 sm:p-6"><div className="rounded-card border border-dashed border-line-strong bg-surface-subtle px-5 py-8 text-center">
+            <h3 className="text-lg font-bold text-ink">{copy.emptyTitle}</h3>
+            <p className="mx-auto mt-2 max-w-2xl text-sm leading-7 text-ink-muted">{copy.emptyText}</p>
+            <Link href={withLocale("/dashboard/kunder/ny")} className="mt-5 inline-flex min-h-10 items-center justify-center rounded-control bg-brand-deep px-4 py-2 text-sm font-bold text-white transition hover:bg-brand-hover">{copy.addFirst}</Link>
           </div></div>
         </DashboardDataPanel>
       ) : (
         <DashboardDataPanel title={copy.panelTitle} description={copy.panelDescription} count={customers.length}>
-          <div className="hidden grid-cols-[1.25fr_0.75fr_1fr_0.8fr_0.75fr_1fr_1.1fr] gap-4 border-b border-[#e5e9e2] bg-[#f7f9f6] px-6 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-[#778179] lg:grid">
+          <div className="hidden grid-cols-[1.25fr_0.75fr_1fr_0.8fr_0.75fr_1fr_1.1fr] gap-4 border-b border-line bg-surface-subtle px-6 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-ink-muted lg:grid">
             {copy.columns.map((column) => <span key={column}>{column}</span>)}
           </div>
           {customers.map((customer) => {
             const nextStep = copy.nextStep[customer.status] ?? copy.nextStep.prospect;
             const profileHref = withLocale(`/dashboard/kunder/${customer.id}`);
-            return <div key={customer.id} className="mx-3 my-3 grid gap-3 rounded-2xl border border-[#e2e7df] bg-white p-4 text-sm text-[#435047] shadow-sm lg:mx-0 lg:my-0 lg:grid-cols-[1.25fr_0.75fr_1fr_0.8fr_0.75fr_1fr_1.1fr] lg:items-center lg:gap-4 lg:rounded-none lg:border-x-0 lg:border-t-0 lg:px-6 lg:py-4 lg:shadow-none lg:last:border-b-0">
-              {[customer.name, customer.type, customer.service, customer.city].map((value, index) => <div key={copy.columns[index]}><p className="text-[10px] font-bold uppercase tracking-wide text-[#8a948d] lg:hidden">{copy.columns[index]}</p><p className={index === 0 ? "font-semibold text-[#17201a]" : undefined}>{value}</p></div>)}
-              <div><p className="text-[10px] font-bold uppercase tracking-wide text-[#8a948d] lg:hidden">{copy.columns[4]}</p><span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${statusStyles[customer.status] ?? statusStyles.active}`}>{copy.statusLabels[customer.status] ?? customer.status}</span></div>
-              <div><p className="text-[10px] font-bold uppercase tracking-wide text-[#8a948d] lg:hidden">{copy.columns[5]}</p><p className="font-semibold text-[#17452f]">{nextStep}</p></div>
-              <div><p className="text-[10px] font-bold uppercase tracking-wide text-[#8a948d] lg:hidden">{copy.columns[6]}</p><Link href={profileHref} className="inline-flex min-h-9 items-center justify-center rounded-lg bg-[#173e2b] px-3 py-2 text-xs font-bold text-white transition hover:bg-[#0f3020]">{copy.viewProfile}</Link></div>
+            return <div key={customer.id} className="mx-3 my-3 grid gap-3 rounded-card border border-line bg-surface p-4 text-sm text-ink-muted shadow-card lg:mx-0 lg:my-0 lg:grid-cols-[1.25fr_0.75fr_1fr_0.8fr_0.75fr_1fr_1.1fr] lg:items-center lg:gap-4 lg:rounded-none lg:border-x-0 lg:border-t-0 lg:px-6 lg:py-4 lg:shadow-none lg:last:border-b-0">
+              {[customer.name, customer.type, customer.service, customer.city].map((value, index) => <div key={copy.columns[index]}><p className="text-[10px] font-bold uppercase tracking-wide text-ink-muted lg:hidden">{copy.columns[index]}</p><p className={index === 0 ? "font-semibold text-ink" : undefined}>{value}</p></div>)}
+              <div><p className="text-[10px] font-bold uppercase tracking-wide text-ink-muted lg:hidden">{copy.columns[4]}</p><span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${statusStyles[customer.status] ?? statusStyles.active}`}>{copy.statusLabels[customer.status] ?? customer.status}</span></div>
+              <div><p className="text-[10px] font-bold uppercase tracking-wide text-ink-muted lg:hidden">{copy.columns[5]}</p><p className="font-semibold text-brand">{nextStep}</p></div>
+              <div><p className="text-[10px] font-bold uppercase tracking-wide text-ink-muted lg:hidden">{copy.columns[6]}</p><Link href={profileHref} className="inline-flex min-h-9 items-center justify-center rounded-control bg-brand-deep px-3 py-2 text-xs font-bold text-white transition hover:bg-brand-hover">{copy.viewProfile}</Link></div>
             </div>;
           })}
         </DashboardDataPanel>
       )}
 
       <section className="grid gap-4 md:grid-cols-3">
-        <article className="rounded-[24px] bg-[#173e2b] p-6 text-white shadow-[0_14px_36px_rgba(20,43,32,0.12)] md:col-span-2"><h3 className="text-xl font-bold">{copy.relationshipTitle}</h3><p className="mt-2 max-w-2xl text-sm leading-7 text-white/80">{copy.relationshipText}</p></article>
-        <article className="rounded-[24px] border border-[#e0e5dd] bg-white p-6 shadow-sm"><p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">{copy.customerWork}</p><h3 className="mt-2 text-xl font-bold text-[#17201a]">{copy.moreData}</h3><p className="mt-2 text-sm leading-7 text-[#5b665f]">{copy.moreDataText}</p></article>
+        <article className="rounded-panel bg-brand-deep p-6 text-white shadow-lift md:col-span-2"><p className="text-xs font-bold uppercase tracking-[0.12em] text-white/60">CRM</p><h3 className="mt-2 text-xl font-bold">{copy.relationshipTitle}</h3><p className="mt-2 max-w-2xl text-sm leading-7 text-white/75">{copy.relationshipText}</p></article>
+        <article className="rounded-card border border-line bg-surface p-6 shadow-card"><p className="text-sm font-semibold uppercase tracking-wide text-brand">{copy.customerWork}</p><h3 className="mt-2 text-xl font-bold text-ink">{copy.moreData}</h3><p className="mt-2 text-sm leading-7 text-ink-muted">{copy.moreDataText}</p></article>
       </section>
     </div>
   );
