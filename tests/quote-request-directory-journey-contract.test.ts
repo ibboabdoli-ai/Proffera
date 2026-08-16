@@ -8,6 +8,7 @@ function source(path: string) {
 }
 
 describe("Directory to quote visitor journey contract", () => {
+  const catalog = source("src/lib/service-catalog.ts");
   const schema = source("src/features/quote-request/schema.ts");
   const localization = source("src/features/quote-request/localization.ts");
   const localizedForm = source("src/features/quote-request/localized-quote-request-form.tsx");
@@ -18,17 +19,19 @@ describe("Directory to quote visitor journey contract", () => {
 
   it("adds Directory categories without removing legacy public quote categories", () => {
     for (const category of ["Städning", "VVS", "Elektriker", "Måleri", "Snickeri", "Hemservice", "Hemstädning", "Flyttstädning", "Kontorsstädning", "Fönsterputs", "Byggstädning", "Trädgård", "Flytthjälp", "Renovering"]) {
-      expect(schema).toContain(`\"${category}\"`);
+      expect(catalog).toContain(`\"${category}\"`);
     }
+    expect(schema).toContain("quoteServiceTypesByCategory");
   });
 
   it("localizes the added categories and service types in English", () => {
-    expect(localization).toContain('"VVS": "Plumbing"');
-    expect(localization).toContain('"Elektriker": "Electrician"');
-    expect(localization).toContain('"Måleri": "Painting"');
-    expect(localization).toContain('"Snickeri": "Carpentry"');
-    expect(localization).toContain('"Hemservice": "Home services"');
+    expect(catalog).toContain('"VVS": "Plumbing"');
+    expect(catalog).toContain('"Elektriker": "Electrician"');
+    expect(catalog).toContain('"Måleri": "Painting"');
+    expect(catalog).toContain('"Snickeri": "Carpentry"');
+    expect(catalog).toContain('"Hemservice": "Home services"');
     expect(localization).toContain('"Städning / lokalvård": "Cleaning / janitorial services"');
+    expect(localization).toContain("quoteCategoryEnglishLabel");
   });
 
   it("sanitizes query-string prefill before initializing the client form", () => {

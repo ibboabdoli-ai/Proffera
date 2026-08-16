@@ -1,23 +1,9 @@
 import { z } from "zod";
 
 import type { PublicLocale } from "@/lib/public-locale";
+import { quoteServiceTypesByCategory } from "@/lib/service-catalog";
 
-export const serviceTypesByCategory = {
-  "Städning": ["Städning / lokalvård", "Hemstädning", "Kontorsstädning", "Flyttstädning", "Fönsterputsning", "Byggstädning", "Annan städning"],
-  "VVS": ["VVS / rörmokare", "Avloppsrensning", "Vattenläcka", "Värmepump", "Annat VVS-arbete"],
-  "Elektriker": ["Elinstallation", "Felsökning el", "Laddbox", "Elcentral", "Annat elarbete"],
-  "Måleri": ["Målning", "Tapetsering", "Annat måleriarbete"],
-  "Snickeri": ["Snickeri", "Montering", "Mindre byggarbete", "Annat snickeriarbete"],
-  "Hemservice": ["Hemservice", "Hushållsnära tjänst", "Annat hemservicearbete"],
-  "Hemstädning": ["Engångsstädning", "Återkommande städning", "Storstädning"],
-  "Flyttstädning": ["Lägenhet", "Villa", "Kontor"],
-  "Kontorsstädning": ["Litet kontor", "Medelstort kontor", "Större lokal"],
-  "Fönsterputs": ["Lägenhet", "Villa", "Lokal"],
-  "Byggstädning": ["Efter renovering", "Efter nyproduktion", "Grovstädning"],
-  "Trädgård": ["Gräsklippning", "Häckklippning", "Trädgårdsskötsel"],
-  "Flytthjälp": ["Bärhjälp", "Flytt med transport", "Packhjälp"],
-  "Renovering": ["Målning", "Golv", "Mindre renovering"],
-} as const;
+export const serviceTypesByCategory = quoteServiceTypesByCategory;
 
 export type QuoteCategory = keyof typeof serviceTypesByCategory;
 

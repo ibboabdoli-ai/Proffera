@@ -1,3 +1,5 @@
+import { serviceCategoryLabel, type ServiceCategorySlug } from "@/lib/service-catalog";
+
 export type DirectoryOrganizationKind = "juridical_person" | "sole_trader" | "unknown";
 
 export type DirectoryCategoryMatch = {
@@ -112,36 +114,36 @@ export function classifyOrganizationKind(legalForm: unknown): DirectoryOrganizat
   return "unknown";
 }
 
-function categoryOnly(categorySlug: string, categoryLabel: string): DirectoryCategoryMatch {
-  return { categorySlug, categoryLabel, serviceSlugs: [] };
+function categoryOnly(categorySlug: ServiceCategorySlug): DirectoryCategoryMatch {
+  return { categorySlug, categoryLabel: serviceCategoryLabel(categorySlug, "sv"), serviceSlugs: [] };
 }
 
 export function mapSniToDirectoryCategory(value: unknown): DirectoryCategoryMatch | null {
   const code = normalizeSniCode(value);
 
   if (code === "81.210" || code === "81.221") {
-    return categoryOnly("stadning", "Städning");
+    return categoryOnly("stadning");
   }
   if (code === "96.910") {
-    return categoryOnly("hemservice", "Hemservice");
+    return categoryOnly("hemservice");
   }
   if (code === "49.420") {
-    return categoryOnly("flytt", "Flytt");
+    return categoryOnly("flytt");
   }
   if (code === "43.210") {
-    return categoryOnly("elektriker", "Elektriker");
+    return categoryOnly("elektriker");
   }
   if (code === "43.221" || code.startsWith("43.22")) {
-    return categoryOnly("vvs", "VVS");
+    return categoryOnly("vvs");
   }
   if (code === "43.341") {
-    return categoryOnly("maleri", "Måleri");
+    return categoryOnly("maleri");
   }
   if (code === "43.320") {
-    return categoryOnly("snickeri", "Snickeri");
+    return categoryOnly("snickeri");
   }
   if (code === "81.300") {
-    return categoryOnly("tradgard", "Trädgård");
+    return categoryOnly("tradgard");
   }
 
   return null;
