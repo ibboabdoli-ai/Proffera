@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { DashboardGlobalLocaleBoundary } from "@/components/dashboard/dashboard-global-locale-boundary";
 import { DashboardLanguageSwitchFix } from "@/components/dashboard/dashboard-language-switch-fix";
+import { DashboardOwnerOnboardingBanner } from "@/components/dashboard/dashboard-owner-onboarding-banner";
 import { DashboardStripeCheckoutFix } from "@/components/dashboard/dashboard-stripe-checkout-fix";
 import { SettingsLocaleBoundary } from "@/app/dashboard/installningar/settings-locale-boundary";
 import { SettingsResidualLocaleFix } from "@/app/dashboard/installningar/settings-residual-locale-fix";
@@ -36,15 +37,17 @@ export default async function DashboardLayout({ children }: Readonly<{ children:
     );
   }
 
+  const canManageSettings = canManageWorkspaceSettings(access);
   const [moduleAccess, enabledFeatures, workspaceOptions] = await Promise.all([
     getDashboardModuleAccess(), getDashboardEnabledFeatureKeys(), getUserWorkspaceOptions(),
   ]);
 
   return (
-    <DashboardShell workspaceName={access.workspaceName} workspaceId={access.workspaceId} workspaceOptions={workspaceOptions} moduleAccess={moduleAccess} enabledFeatures={enabledFeatures} canManageSettings={canManageWorkspaceSettings(access)}>
+    <DashboardShell workspaceName={access.workspaceName} workspaceId={access.workspaceId} workspaceOptions={workspaceOptions} moduleAccess={moduleAccess} enabledFeatures={enabledFeatures} canManageSettings={canManageSettings}>
       <DashboardLanguageSwitchFix />
       <DashboardStripeCheckoutFix />
       <DashboardGlobalLocaleBoundary>
+        <DashboardOwnerOnboardingBanner canManageSettings={canManageSettings} />
         <SettingsLocaleBoundary>
           <SettingsResidualLocaleFix>{children}</SettingsResidualLocaleFix>
         </SettingsLocaleBoundary>
