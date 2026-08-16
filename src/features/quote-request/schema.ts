@@ -1,23 +1,9 @@
 import { z } from "zod";
 
 import type { PublicLocale } from "@/lib/public-locale";
+import { quoteServiceTypesByCategory } from "@/lib/service-catalog";
 
-export const serviceTypesByCategory = {
-  "Städning": ["Städning / lokalvård", "Hemstädning", "Kontorsstädning", "Flyttstädning", "Fönsterputsning", "Byggstädning", "Annan städning"],
-  "VVS": ["VVS / rörmokare", "Avloppsrensning", "Vattenläcka", "Värmepump", "Annat VVS-arbete"],
-  "Elektriker": ["Elinstallation", "Felsökning el", "Laddbox", "Elcentral", "Annat elarbete"],
-  "Måleri": ["Målning", "Tapetsering", "Annat måleriarbete"],
-  "Snickeri": ["Snickeri", "Montering", "Mindre byggarbete", "Annat snickeriarbete"],
-  "Hemservice": ["Hemservice", "Hushållsnära tjänst", "Annat hemservicearbete"],
-  "Hemstädning": ["Engångsstädning", "Återkommande städning", "Storstädning"],
-  "Flyttstädning": ["Lägenhet", "Villa", "Kontor"],
-  "Kontorsstädning": ["Litet kontor", "Medelstort kontor", "Större lokal"],
-  "Fönsterputs": ["Lägenhet", "Villa", "Lokal"],
-  "Byggstädning": ["Efter renovering", "Efter nyproduktion", "Grovstädning"],
-  "Trädgård": ["Gräsklippning", "Häckklippning", "Trädgårdsskötsel"],
-  "Flytthjälp": ["Bärhjälp", "Flytt med transport", "Packhjälp"],
-  "Renovering": ["Målning", "Golv", "Mindre renovering"],
-} as const;
+export const serviceTypesByCategory = quoteServiceTypesByCategory;
 
 export type QuoteCategory = keyof typeof serviceTypesByCategory;
 
@@ -35,7 +21,7 @@ const validationCopy = {
     category: "Choose a category.", serviceTypeRequired: "Choose a service type.", serviceTypeLong: "The service type is too long.",
     cityRequired: "Enter a city.", cityLong: "The city name is too long.", postalRequired: "Enter a postal code.", postalLong: "The postal code is too long.",
     postalFormat: "The postal code may only contain numbers, spaces or hyphens.", descriptionShort: "Describe the job using at least 20 characters.", descriptionLong: "The description is too long.",
-    dateRequired: "Choose an approximate time.", dateLong: "The preferred time is too long.", nameRequired: "Enter your name.", nameLong: "The name is too long.",
+    dateRequired: "Choose an approximate time.", dateLong: "The preferred time is too long.", nameRequired: "Enter a name.", nameLong: "The name is too long.",
     emailInvalid: "Enter a valid email address.", emailLong: "The email address is too long.", phoneRequired: "Enter a phone number.", phoneLong: "The phone number is too long.",
     phoneFormat: "The phone number may only contain numbers, +, spaces or hyphens.", consent: "You must allow Proffera to process your details in order to handle the request.",
     serviceCategory: "Choose a service type that belongs to the selected category.",
