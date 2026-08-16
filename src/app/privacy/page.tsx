@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import Image from "next/image";
 import Link from "next/link";
+import { notFound } from "next/navigation";
 
 import { primeViewSite } from "@/lib/primeview-seo";
 import { isPrimeViewHost } from "@/lib/public-site-domains";
@@ -9,93 +10,18 @@ import { isPrimeViewHost } from "@/lib/public-site-domains";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Privacy Policy",
-  description: "Privacy information for Proffera and supported public sites.",
+  title: "Privacy Policy | PrimeView Window Care",
+  description: "How PrimeView Window Care collects, uses and protects customer personal information.",
+  alternates: { canonical: `${primeViewSite.origin}/privacy` },
   robots: { index: true, follow: true },
 };
 
-const profferaSectionClass = "rounded-3xl border border-white/10 bg-white/5 p-6 text-slate-200 shadow-2xl shadow-sky-950/20";
-const primeViewSectionClass = "rounded-3xl border border-[#d9e4ef] bg-white p-6 shadow-[0_12px_36px_rgba(11,42,74,.06)] sm:p-8";
+const sectionClass = "rounded-3xl border border-[#d9e4ef] bg-white p-6 shadow-[0_12px_36px_rgba(11,42,74,.06)] sm:p-8";
 
-function ProfferaPrivacyPage() {
-  return (
-    <main className="min-h-screen bg-slate-950 text-white">
-      <section className="mx-auto w-full max-w-4xl px-6 py-16 sm:px-8 lg:px-10">
-        <div className="mb-10 space-y-4">
-          <Link href="/" className="text-sm font-semibold text-sky-300 hover:text-sky-200">
-            ← Back to Proffera
-          </Link>
-          <p className="text-sm font-semibold uppercase tracking-[0.3em] text-sky-300">Privacy</p>
-          <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">Privacy Policy</h1>
-          <p className="text-slate-300">Last updated: 16 August 2026</p>
-          <p className="max-w-2xl text-lg text-slate-300">
-            Proffera is a product operated by Iboren. This policy explains how we collect, use and protect personal data when you use Proffera.
-          </p>
-        </div>
+export default async function PrimeViewPrivacyPage() {
+  const requestHeaders = await headers();
+  if (!isPrimeViewHost(requestHeaders.get("host"))) notFound();
 
-        <div className="space-y-8">
-          <section className={profferaSectionClass}>
-            <h2 className="text-2xl font-semibold text-white">1. Controller</h2>
-            <p className="mt-3 leading-7">
-              Proffera drivs av Iboren. Iboren is responsible for personal data processed through Proffera unless another agreement states otherwise.
-            </p>
-            <p className="mt-3 leading-7">
-              Contact: <a className="text-sky-300 hover:text-sky-200" href="mailto:ibbo.abdoli@gmail.com">ibbo.abdoli@gmail.com</a>
-            </p>
-          </section>
-
-          <section className={profferaSectionClass}>
-            <h2 className="text-2xl font-semibold text-white">2. Information we collect</h2>
-            <ul className="mt-4 list-disc space-y-2 pl-6 leading-7">
-              <li>Account and contact details, such as name, email address, phone number and company information.</li>
-              <li>Billing details, subscription information, VAT information and payment status processed through Stripe.</li>
-              <li>Booking, customer, quote, workspace and service data that users add to Proffera.</li>
-              <li>Technical data such as browser, device, IP address, logs and security events.</li>
-              <li>Support messages and other information you send to us.</li>
-            </ul>
-          </section>
-
-          <section className={profferaSectionClass}>
-            <h2 className="text-2xl font-semibold text-white">3. How we use information</h2>
-            <p className="mt-3 leading-7">
-              We use personal data to provide and operate Proffera, create accounts and workspaces, process subscriptions and tax information, send service messages, protect against abuse, improve the product and meet legal obligations.
-            </p>
-          </section>
-
-          <section className={profferaSectionClass}>
-            <h2 className="text-2xl font-semibold text-white">4. Legal bases</h2>
-            <p className="mt-3 leading-7">
-              We process personal data when it is necessary to provide the service, comply with legal obligations, protect legitimate interests, or when you have given consent.
-            </p>
-          </section>
-
-          <section className={profferaSectionClass}>
-            <h2 className="text-2xl font-semibold text-white">5. Service providers</h2>
-            <p className="mt-3 leading-7">
-              We use trusted service providers for hosting, payments, email, analytics, security and operations. Payment and subscription data may be processed by Stripe.
-            </p>
-          </section>
-
-          <section className={profferaSectionClass}>
-            <h2 className="text-2xl font-semibold text-white">6. Retention and security</h2>
-            <p className="mt-3 leading-7">
-              We keep personal data only for as long as needed to provide Proffera, meet legal requirements, resolve disputes and maintain security records. We use technical and organisational measures to protect personal data.
-            </p>
-          </section>
-
-          <section className={profferaSectionClass}>
-            <h2 className="text-2xl font-semibold text-white">7. Your rights</h2>
-            <p className="mt-3 leading-7">
-              Depending on applicable law, you may request access, correction, deletion, restriction or portability of your personal data. You may also object to certain processing.
-            </p>
-          </section>
-        </div>
-      </section>
-    </main>
-  );
-}
-
-function PrimeViewPrivacyPage() {
   return (
     <main className="min-h-screen bg-[#f4f6fb] text-[#0b2a4a]">
       <header className="bg-[#06183b] text-white">
@@ -123,12 +49,12 @@ function PrimeViewPrivacyPage() {
           <p className="mt-5 max-w-3xl text-base leading-7 text-slate-200">
             This notice explains how PrimeView Window Care uses personal information when you visit our website, request a quote, make or manage a booking, contact us or receive a service.
           </p>
-          <p className="mt-3 text-sm text-slate-300">Last updated: 16 August 2026</p>
+          <p className="mt-3 text-sm text-slate-300">Last updated: 11 August 2026</p>
         </div>
       </section>
 
       <div className="mx-auto grid max-w-5xl gap-5 px-5 py-10 sm:py-14">
-        <section className={primeViewSectionClass}>
+        <section className={sectionClass}>
           <h2 className="text-2xl font-black">1. Who is responsible for your information?</h2>
           <p className="mt-4 leading-7 text-slate-600">
             PrimeView Window Care is the data controller for customer information collected through this website and in connection with our cleaning services.
@@ -139,7 +65,7 @@ function PrimeViewPrivacyPage() {
           </div>
         </section>
 
-        <section className={primeViewSectionClass}>
+        <section className={sectionClass}>
           <h2 className="text-2xl font-black">2. Information we collect</h2>
           <ul className="mt-4 list-disc space-y-2 pl-5 leading-7 text-slate-600">
             <li>Your name, email address and telephone number.</li>
@@ -151,7 +77,7 @@ function PrimeViewPrivacyPage() {
           </ul>
         </section>
 
-        <section className={primeViewSectionClass}>
+        <section className={sectionClass}>
           <h2 className="text-2xl font-black">3. Why we use your information and our lawful bases</h2>
           <div className="mt-4 grid gap-4 leading-7 text-slate-600">
             <p><strong className="text-[#0b2a4a]">To provide quotes, bookings and services:</strong> processing is necessary to take steps at your request before a contract and to perform our contract with you.</p>
@@ -162,7 +88,7 @@ function PrimeViewPrivacyPage() {
           </div>
         </section>
 
-        <section className={primeViewSectionClass}>
+        <section className={sectionClass}>
           <h2 className="text-2xl font-black">4. Who we share information with</h2>
           <p className="mt-4 leading-7 text-slate-600">
             We only share personal information where needed to operate the service. This may include Proffera, which provides our booking and customer-management technology, and trusted providers used for website hosting, database services, email or SMS delivery and other essential business systems. These providers may only use the information for the services they provide to us and must protect it appropriately.
@@ -172,21 +98,21 @@ function PrimeViewPrivacyPage() {
           </p>
         </section>
 
-        <section className={primeViewSectionClass}>
+        <section className={sectionClass}>
           <h2 className="text-2xl font-black">5. International transfers</h2>
           <p className="mt-4 leading-7 text-slate-600">
             Some technology providers may process information outside the UK. Where UK data protection law requires safeguards for an international transfer, we use providers and transfer arrangements designed to provide the required level of protection.
           </p>
         </section>
 
-        <section className={primeViewSectionClass}>
+        <section className={sectionClass}>
           <h2 className="text-2xl font-black">6. How long we keep information</h2>
           <p className="mt-4 leading-7 text-slate-600">
             We keep personal information only for as long as reasonably necessary for the purpose it was collected, including providing the service, handling queries or disputes, maintaining appropriate business records and meeting legal, tax and accounting obligations. When information is no longer needed, it is deleted or anonymised where appropriate.
           </p>
         </section>
 
-        <section className={primeViewSectionClass}>
+        <section className={sectionClass}>
           <h2 className="text-2xl font-black">7. Your data protection rights</h2>
           <p className="mt-4 leading-7 text-slate-600">Depending on the circumstances, UK data protection law gives you rights including:</p>
           <ul className="mt-3 list-disc space-y-2 pl-5 leading-7 text-slate-600">
@@ -201,21 +127,21 @@ function PrimeViewPrivacyPage() {
           <p className="mt-4 leading-7 text-slate-600">To exercise a right, contact us using the email or phone number above. We may need to verify your identity before completing a request.</p>
         </section>
 
-        <section className={primeViewSectionClass}>
+        <section className={sectionClass}>
           <h2 className="text-2xl font-black">8. Cookies and similar technology</h2>
           <p className="mt-4 leading-7 text-slate-600">
             The website may use essential technical storage required for security, booking functionality and reliable operation. If we introduce non-essential analytics or advertising cookies that require consent, we will ask for consent before using them.
           </p>
         </section>
 
-        <section className={primeViewSectionClass}>
+        <section className={sectionClass}>
           <h2 className="text-2xl font-black">9. Security</h2>
           <p className="mt-4 leading-7 text-slate-600">
             We use appropriate technical and organisational measures intended to protect personal information against unauthorised access, loss, misuse or disclosure. No internet service can guarantee absolute security, so please contact us if you believe your information may have been compromised.
           </p>
         </section>
 
-        <section className={primeViewSectionClass}>
+        <section className={sectionClass}>
           <h2 className="text-2xl font-black">10. Complaints</h2>
           <p className="mt-4 leading-7 text-slate-600">
             Please contact PrimeView first if you have a concern about how we use your personal information. You also have the right to complain to the UK Information Commissioner&apos;s Office (ICO).
@@ -225,7 +151,7 @@ function PrimeViewPrivacyPage() {
           </a>
         </section>
 
-        <section className={primeViewSectionClass}>
+        <section className={sectionClass}>
           <h2 className="text-2xl font-black">11. Changes to this policy</h2>
           <p className="mt-4 leading-7 text-slate-600">
             We may update this notice when our services, suppliers or legal obligations change. The latest version will always be published on this page with its updated date.
@@ -245,10 +171,4 @@ function PrimeViewPrivacyPage() {
       </footer>
     </main>
   );
-}
-
-export default async function PrivacyPage() {
-  const requestHeaders = await headers();
-  if (isPrimeViewHost(requestHeaders.get("host"))) return <PrimeViewPrivacyPage />;
-  return <ProfferaPrivacyPage />;
 }
