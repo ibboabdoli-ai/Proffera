@@ -1,0 +1,145 @@
+.scope {
+  color: var(--pf-ink);
+}
+
+.scope :where(header)[class*="bg-[#173e2b]"],
+.scope :where(section)[class*="bg-[#142b20]"] {
+  border-radius: var(--pf-radius-panel);
+  background: linear-gradient(135deg, var(--pf-brand-deep), var(--pf-brand));
+  box-shadow: var(--pf-shadow-lift);
+}
+
+.scope :where(section, article, aside)[class*="bg-white"] {
+  background: var(--pf-surface);
+}
+
+.scope :where(section, article, aside)[class*="rounded-[24px]"],
+.scope :where(section, article, aside)[class*="rounded-[22px]"],
+.scope :where(article, div)[class*="rounded-2xl"] {
+  border-radius: var(--pf-radius-card);
+}
+
+.scope :where(section, article, aside)[class*="shadow-sm"] {
+  box-shadow: var(--pf-shadow-card);
+}
+
+.scope :where([class*="border-[#d8dfd6]"], [class*="border-[#d9e1d7]"], [class*="border-[#dfe6df]"], [class*="border-[#e0e5dd]"], [class*="border-[#e1e7df]"], [class*="border-[#e3e8e1]"], [class*="border-[#e4e9e2]"]) {
+  border-color: var(--pf-line);
+}
+
+.scope :where([class*="bg-[#edf1ec]"], [class*="bg-[#edf3ee]"], [class*="bg-[#edf5ef]"], [class*="bg-[#f1f7f3]"], [class*="bg-[#f7f9f6]"], [class*="bg-[#f8faf7]"]) {
+  background: var(--pf-surface-subtle);
+}
+
+.scope :where([class*="text-[#17201a]"]) {
+  color: var(--pf-ink);
+}
+
+.scope :where([class*="text-[#5b665f]"], [class*="text-[#667168]"], [class*="text-[#68736b]"], [class*="text-[#6b766e]"], [class*="text-[#7a847d]"]) {
+  color: var(--pf-ink-muted);
+}
+
+.scope :where(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+  border-color: var(--pf-line);
+  border-radius: var(--pf-radius-control);
+  background: var(--pf-surface);
+  color: var(--pf-ink);
+  transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
+
+.scope :where(input:not([type="checkbox"]):not([type="radio"]), select, textarea):hover {
+  border-color: var(--pf-line-strong);
+}
+
+.scope :where(input:not([type="checkbox"]):not([type="radio"]), select, textarea):focus {
+  border-color: var(--pf-brand);
+  box-shadow: 0 0 0 3px rgb(23 69 47 / 0.12);
+  outline: none;
+}
+
+.scope :where(input[type="checkbox"], input[type="radio"]) {
+  accent-color: var(--pf-brand);
+}
+
+.scope input[type="file"]::file-selector-button {
+  margin-right: 0.75rem;
+  border: 0;
+  border-radius: 0.65rem;
+  background: var(--pf-brand-soft);
+  padding: 0.55rem 0.8rem;
+  color: var(--pf-brand);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.scope :where(button, a)[class*="bg-[#173e2b]"],
+.scope :where(button, a)[class*="bg-[#17452f]"] {
+  border-radius: var(--pf-radius-control);
+  box-shadow: 0 8px 22px rgb(23 69 47 / 0.14);
+  transition: transform 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
+
+.scope :where(button, a)[class*="bg-[#173e2b]"]:hover,
+.scope :where(button, a)[class*="bg-[#17452f]"]:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 28px rgb(23 69 47 / 0.18);
+}
+
+.scope :where(form) > :where(label, div)[class*="rounded-xl"][class*="border"] {
+  background: var(--pf-surface);
+}
+
+.scope :where(label)[class*="cursor-pointer"][class*="rounded-2xl"] {
+  transition: border-color 160ms ease, background-color 160ms ease, transform 160ms ease;
+}
+
+.scope :where(label)[class*="cursor-pointer"][class*="rounded-2xl"]:hover {
+  border-color: var(--pf-line-strong);
+  transform: translateY(-1px);
+}
+
+.scope :where(article)[class*="overflow-hidden"][class*="rounded-2xl"] {
+  box-shadow: 0 1px 2px rgb(16 42 28 / 0.04), 0 10px 26px rgb(16 42 28 / 0.05);
+  transition: transform 180ms ease, box-shadow 180ms ease;
+}
+
+.scope :where(article)[class*="overflow-hidden"][class*="rounded-2xl"]:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--pf-shadow-card);
+}
+
+.scope :where(article)[class*="overflow-hidden"] :where(img, video) {
+  background: var(--pf-surface-subtle);
+}
+
+.scope :where(article, div)[class*="bg-[#f8faf7]"][class*="border"] {
+  border-color: var(--pf-line);
+  box-shadow: 0 1px 2px rgb(16 42 28 / 0.025);
+}
+
+.scope :where(a)[class*="break-all"] {
+  text-underline-offset: 3px;
+}
+
+.scope :where(a)[class*="break-all"]:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 640px) {
+  .scope :where(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+    font-size: 16px;
+  }
+
+  .scope :where(button)[class*="w-fit"] {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scope :where(*) {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
