@@ -35,7 +35,7 @@ jobs:
             status="$(curl -sS -o /dev/null -w '%{http_code}' \
               -H 'Range: bytes=0-0' \
               -H 'Cache-Control: no-cache' \
-              "https://www.proffera.se/api/gallery/media/${id}?migrate=20260816")"
+              "https://www.proffera.se/api/gallery/media/${id}?migrate=20260817")"
             echo "${id} -> HTTP ${status}"
             case "${status}" in
               200|206|307|308) ;;
