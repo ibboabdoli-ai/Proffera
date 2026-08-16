@@ -79,6 +79,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     }
   }
 
+  // Only publish lastModified when the source provides a trustworthy content timestamp.
   const directoryRoutes: MetadataRoute.Sitemap = directoryEntries.map((entry) => ({
     url: `${siteConfig.url}/foretag/listad/${encodeURIComponent(entry.slug)}`,
     lastModified: entry.lastModified,
