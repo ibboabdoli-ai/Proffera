@@ -28,7 +28,7 @@ export function ServiceAiChatWidget() {
     <Script
       id="proffera-chat-widget"
       src={`${widgetHost}/widget.js?v=20260723-1`}
-      strategy="afterInteractive"
+      strategy="lazyOnload"
       data-client-id={clientId}
       data-api-base={widgetHost}
     />
