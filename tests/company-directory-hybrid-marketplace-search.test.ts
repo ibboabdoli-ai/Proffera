@@ -11,30 +11,48 @@ describe("hybrid directory marketplace search", () => {
   const searchSource = source("src/lib/company-directory-public-search.ts");
   const resultsSource = source("src/components/company-directory/public-directory-results.tsx");
   const copySource = source("src/components/company-directory/public-directory-copy.ts");
+  const publicDataSource = source("src/lib/company-directory-public-data.ts");
+  const routingSource = source("src/lib/company-directory-routing.ts");
+  const profileSource = source("src/components/company-directory/public-directory-profile.tsx");
 
-  it("keeps unclaimed published profiles and safely re-introduces claimed workspaces", () => {
+  it("keeps unclaimed published profiles and safe previously-published claimed profiles searchable", () => {
     expect(searchSource).toContain("profile.publication_status = 'published'");
     expect(searchSource).toContain("profile.publication_status = 'claimed'");
     expect(searchSource).not.toContain("profile.publication_status in ('ready', 'published')");
+    expect(searchSource).toContain("profile.published_at is not null");
+    expect(searchSource).toContain("profile.auto_public_eligible = true");
     expect(searchSource).toContain("claimed_workspace.status in ('active', 'trial')");
     expect(searchSource).toContain("profile.is_active = true");
     expect(searchSource).toContain("profile.privacy_blocked = false");
   });
 
-  it("requires an exact published workspace-service mapping instead of guessing", () => {
+  it("keeps a claimed Starter company on the safe Directory fallback instead of requiring Business Page access", () => {
+    expect(publicDataSource).toContain("getSafeClaimedDirectoryFallback");
+    expect(publicDataSource).toContain("profile.publication_status = 'claimed'");
+    expect(publicDataSource).toContain("profile.published_at is not null");
+    expect(publicDataSource).toContain("profile.auto_public_eligible = true");
+    expect(publicDataSource).toContain("profile.privacy_blocked = false");
+    expect(profileSource).toContain('business.publicationStatus !== "claimed"');
+  });
+
+  it("only upgrades a claimed result to Marketplace actions with an exact published workspace-service mapping", () => {
     expect(searchSource).toContain("claimed_service.is_active = true");
     expect(searchSource).toContain("claimed_service.public_status = 'published'");
     expect(searchSource).toContain("claimed_service.public_slug = relation.service_slug");
-    expect(searchSource).toContain("and claimed_service.id is not null");
+    expect(searchSource).toContain("const marketplaceAvailable = Boolean(");
+    expect(searchSource).toContain("&& row.claimed_service_id");
+    expect(searchSource).toContain("&& row.claimed_service_slug");
+    expect(searchSource).toContain("claimedWorkspaceSlug: marketplaceAvailable");
   });
 
-  it("requires the canonical public website entitlement before exposing a claimed workspace", () => {
-    expect(searchSource).toContain("hasWorkspaceFeatureAccessForWorkspace");
+  it("requires canonical Business Page access before Marketplace routing or redirect", () => {
     expect(searchSource).toContain('hasWorkspaceFeatureAccessForWorkspace(workspaceId, "website_builder")');
-    expect(searchSource).toContain("if (isClaimed && !access?.websiteBuilder) return []");
+    expect(searchSource).toContain("&& access?.websiteBuilder");
+    expect(routingSource).toContain('hasWorkspaceFeatureAccessForWorkspace(workspaceId, "website_builder")');
+    expect(routingSource).toContain("return websiteBuilder ? workspaceSlug : null");
   });
 
-  it("only exposes direct booking when the canonical booking entitlement and booking slug are present", () => {
+  it("only exposes direct booking when canonical booking access and booking slug are present", () => {
     expect(searchSource).toContain('hasWorkspaceFeatureAccessForWorkspace(workspaceId, "online_booking")');
     expect(searchSource).toContain("claimedBookingSlug");
     expect(searchSource).toContain('conversionMode === "book" || conversionMode === "book_or_quote"');
@@ -42,7 +60,7 @@ describe("hybrid directory marketplace search", () => {
     expect(resultsSource).toContain("service_id: result.claimedServiceId");
   });
 
-  it("routes claimed results to their real company/service actions and preserves directory fallback", () => {
+  it("routes Marketplace results to real service actions and preserves Directory fallback", () => {
     expect(resultsSource).toContain("/foretag/${workspaceSlug}");
     expect(resultsSource).toContain("/foretag/${workspaceSlug}/tjanster/${serviceSlug}");
     expect(resultsSource).toContain("#offert");
