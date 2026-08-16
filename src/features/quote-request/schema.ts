@@ -50,7 +50,7 @@ export function createQuoteRequestSchema(locale: PublicLocale = "sv") {
   const copy = validationCopy[locale];
 
   return z.object({
-    category: z.string().trim().refine(isServiceCategory, copy.category),
+    category: z.string().trim().refine((value: string): boolean => isServiceCategory(value), copy.category),
     serviceType: z.string().trim().min(1, copy.serviceTypeRequired).max(120, copy.serviceTypeLong),
     city: z.string().trim().min(2, copy.cityRequired).max(120, copy.cityLong),
     postalCode: z.string().trim().min(3, copy.postalRequired).max(16, copy.postalLong).regex(/^[0-9\s-]+$/, copy.postalFormat),
