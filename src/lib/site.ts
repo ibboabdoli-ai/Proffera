@@ -38,18 +38,18 @@ export const serviceCategories = [
 export const pricingPlans = [
   {
     name: "Starter",
-    price: "Från 299 kr/mån",
+    price: "199 kr/mån",
     description: "För små företag som vill samla bokningar, leads och kunder i ett system.",
     features: ["Onlinebokning", "Leadhantering", "Kund-CRM", "Kundportal", "Påminnelser"],
   },
   {
     name: "Professional",
-    price: "Från 699 kr/mån",
+    price: "599 kr/mån",
     description: "För företag som vill visa tjänster online och hantera fler delar av kundresan i Proffera.",
     features: ["Allt i Starter", "Företagssida", "Offerter", "Galleri och verifierade omdömen", "Analys", "Flera medarbetare"],
   },
   {
-    name: "Business",
+    name: "Enterprise",
     price: "Anpassat pris",
     description: "För större eller mer avancerade upplägg med behov utöver standardflödet.",
     features: ["Allt i Professional", "Egen domän", "Avancerade arbetsflöden", "Anpassad uppsättning", "Prioriterad dialog"],
