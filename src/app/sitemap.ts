@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import { getPublicBusinessHub } from "@/lib/public-business-hub";
 import { listPublicBusinessSitemapEntries } from "@/lib/public-business-seo";
 import { listPublishedDirectorySitemapEntries } from "@/lib/company-directory-seo";
+import { marketingIndustrySlugs } from "@/lib/marketing-industry-pages";
 import { marketingServiceSlugs } from "@/lib/marketing-service-pages";
 import { primeViewAreaPages } from "@/lib/primeview-area-pages";
 import { primeViewSite } from "@/lib/primeview-seo";
@@ -16,6 +17,7 @@ import { siteConfig } from "@/lib/site";
 const swedishOnlyRoutes = [
   "/logga-in",
   ...marketingServiceSlugs.map((slug) => `/tjanster/${slug}`),
+  ...marketingIndustrySlugs.map((slug) => `/branscher/${slug}`),
 ];
 const primeViewRoutes = [
   "/",
