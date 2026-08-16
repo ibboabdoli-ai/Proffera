@@ -13,7 +13,27 @@ export const metadata: Metadata = {
   },
 };
 
-export default function QuotePage() {
+type QuotePageProps = {
+  searchParams?: Promise<{
+    category?: string | string[];
+    service?: string | string[];
+    city?: string | string[];
+  }>;
+};
+
+function queryValue(value: string | string[] | undefined, maxLength = 120) {
+  const first = Array.isArray(value) ? value[0] : value;
+  return typeof first === "string" ? first.trim().slice(0, maxLength) : "";
+}
+
+export default async function QuotePage({ searchParams }: QuotePageProps) {
+  const params = await (searchParams ?? Promise.resolve(undefined));
+  const initialValues = {
+    category: queryValue(params?.category),
+    serviceType: queryValue(params?.service),
+    city: queryValue(params?.city),
+  };
+
   return (
     <PageShell
       eyebrow="Få offerter"
@@ -23,7 +43,7 @@ export default function QuotePage() {
       <div className="mb-4 flex justify-end">
         <Link href="/en/get-quote" className="rounded-full border border-[#dfe5dd] bg-white px-4 py-2 text-sm font-semibold text-[#17452f]">EN English</Link>
       </div>
-      <QuoteRequestForm locale="sv" />
+      <QuoteRequestForm locale="sv" initialValues={initialValues} />
     </PageShell>
   );
 }

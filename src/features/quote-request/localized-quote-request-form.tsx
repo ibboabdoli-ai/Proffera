@@ -6,7 +6,7 @@ import { useState, useTransition } from "react";
 import type { PublicLocale } from "@/lib/public-locale";
 import { submitQuoteRequest } from "./actions";
 import { quoteFormCopy } from "./form-copy";
-import { createQuoteRequestSchema, initialQuoteRequest, type QuoteRequestErrors, type QuoteRequestField, type QuoteRequestInput } from "./schema";
+import { createQuoteRequestSchema, initialQuoteRequest, sanitizeQuoteRequestPrefill, type QuoteRequestErrors, type QuoteRequestField, type QuoteRequestInput, type QuoteRequestPrefill } from "./schema";
 import { QuoteContactStep } from "./step-contact";
 import { QuoteDescriptionStep } from "./step-description";
 import { QuoteLocationStep } from "./step-location";
@@ -21,10 +21,13 @@ const stepFields: Record<number, QuoteRequestField[]> = {
   4: [],
 };
 
-export function LocalizedQuoteRequestForm({ locale }: { locale: PublicLocale }) {
+export function LocalizedQuoteRequestForm({ locale, initialValues }: { locale: PublicLocale; initialValues?: QuoteRequestPrefill }) {
   const t = quoteFormCopy[locale];
   const [step, setStep] = useState(0);
-  const [data, setData] = useState<QuoteRequestInput>(initialQuoteRequest);
+  const [data, setData] = useState<QuoteRequestInput>(() => ({
+    ...initialQuoteRequest,
+    ...sanitizeQuoteRequestPrefill(initialValues),
+  }));
   const [website, setWebsite] = useState("");
   const [startedAt] = useState(() => Date.now());
   const [errors, setErrors] = useState<QuoteRequestErrors>({});
