@@ -18,15 +18,30 @@ export const checkoutPlanDefinitions: Record<CheckoutPlanKey, Omit<CheckoutPlanO
     key: "starter",
     name: "Starter",
     priceLabel: "199 kr/mån",
-    description: "Bokning, kontaktformulär och grundläggande leadlista.",
+    description: "Onlinebokning, leadhantering, Kund-CRM, kundportal och bokningspåminnelser.",
   },
   professional: {
     key: "professional",
     name: "Professional",
     priceLabel: "599 kr/mån",
-    description: "Allt i Starter samt CRM och en samlad kundöversikt.",
+    description: "Allt i Starter samt företagssida, offerter, galleri, verifierade omdömen, analys och flera medarbetare.",
   },
 };
+
+const checkoutPlanDescriptions: Record<CheckoutPlanKey, Record<CheckoutPlanLocale, string>> = {
+  starter: {
+    sv: checkoutPlanDefinitions.starter.description,
+    en: "Online booking, lead management, Customer CRM, customer portal and booking reminders.",
+  },
+  professional: {
+    sv: checkoutPlanDefinitions.professional.description,
+    en: "Everything in Starter plus a business page, quotes, gallery, verified reviews, analytics and multiple staff.",
+  },
+};
+
+export function getCheckoutPlanDescription(planKey: CheckoutPlanKey, locale: CheckoutPlanLocale) {
+  return checkoutPlanDescriptions[planKey][locale];
+}
 
 /**
  * The live recurring Stripe Prices are SEK-denominated. Checkout remains the
