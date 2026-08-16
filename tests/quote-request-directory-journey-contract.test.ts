@@ -49,4 +49,10 @@ describe("Directory to quote visitor journey contract", () => {
     expect(profileCopy).toContain('quoteCta: "Få offertförslag"');
     expect(profileCopy).toContain('quoteCta: "Get quote suggestions"');
   });
+
+  it("does not assume the company's registered city is the customer's job location", () => {
+    const quoteCall = profile.match(/const quoteHref = quoteRequestHref\(locale, \{([\s\S]*?)\}\);/)?.[1] ?? "";
+    expect(quoteCall).toContain("categorySlug: business.categorySlug");
+    expect(quoteCall).not.toContain("city: business.city");
+  });
 });
