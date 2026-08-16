@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 
 import { PublicDirectoryProfile } from "@/components/company-directory/public-directory-profile";
 import { directoryCategoryLabels } from "@/components/company-directory/public-directory-copy";
-import { getPublicDirectoryBusiness } from "@/lib/company-directory-engine";
+import { getPublicDirectoryBusinessForRequest } from "@/lib/company-directory-public-data";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +10,7 @@ type Props = { params: Promise<{ slug: string }> };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
-  const business = await getPublicDirectoryBusiness(slug);
+  const business = await getPublicDirectoryBusinessForRequest(slug);
   if (!business) return {};
   const category = directoryCategoryLabels.en[business.categorySlug] ?? "Service business";
   const enPath = `/en/companies/${encodeURIComponent(business.slug)}`;
