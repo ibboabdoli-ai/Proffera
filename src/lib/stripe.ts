@@ -5,6 +5,7 @@ import Stripe from "stripe";
 import {
   checkoutPlanDefinitions,
   checkoutPlanKeys,
+  getCheckoutPlanDescription,
   getCheckoutPlanPriceLabel,
   type CheckoutPlanKey,
   type CheckoutPlanLocale,
@@ -48,6 +49,7 @@ export function getStripeCheckoutPlanOptions(
   return checkoutPlanKeys.map((planKey) => ({
     ...checkoutPlanDefinitions[planKey],
     priceLabel: getCheckoutPlanPriceLabel(planKey, billingCurrency, locale),
+    description: getCheckoutPlanDescription(planKey, locale),
     configured: Boolean(getStripePriceIdForPlan(planKey)),
   }));
 }
