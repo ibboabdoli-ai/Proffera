@@ -1,0 +1,193 @@
+/* Booking UX 2.0
+ * Shared presentation layer for standard public booking themes.
+ * Keeps tenant branding through --booking-primary/--booking-accent and deliberately
+ * leaves the dedicated Restaurant v3 experience untouched.
+ */
+
+[data-booking-theme]:not([data-booking-theme="restaurant"])[data-booking-appearance="light"] > main:first-child {
+  background: var(--pf-canvas) !important;
+  color: var(--pf-ink) !important;
+}
+
+[data-booking-theme]:not([data-booking-theme="restaurant"])[data-booking-appearance="light"] > main:first-child > section:first-child {
+  border: 1px solid color-mix(in srgb, var(--booking-primary) 22%, var(--pf-line)) !important;
+  border-radius: var(--pf-radius-panel) !important;
+  box-shadow: var(--pf-shadow-card) !important;
+}
+
+[data-booking-theme]:not([data-booking-theme="restaurant"]) > main:first-child > section:first-child h1 {
+  max-width: 15ch;
+  letter-spacing: -0.045em;
+  line-height: 1.02;
+}
+
+[data-booking-theme]:not([data-booking-theme="restaurant"]) > main:first-child > section:first-child a[href="#booking-form"] {
+  border-radius: var(--pf-radius-control) !important;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 10%);
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+[data-booking-theme]:not([data-booking-theme="restaurant"]) > main:first-child > section:first-child a[href="#booking-form"]:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 30px rgb(0 0 0 / 14%);
+}
+
+[data-booking-theme]:not([data-booking-theme="restaurant"]) > main:first-child > div {
+  align-items: start;
+}
+
+[data-booking-theme]:not([data-booking-theme="restaurant"])[data-booking-appearance="light"] > main:first-child > div > section,
+[data-booking-theme]:not([data-booking-theme="restaurant"])[data-booking-appearance="light"] > main:first-child > div > aside > section,
+[data-booking-theme]:not([data-booking-theme="restaurant"])[data-booking-appearance="light"] [data-booking-public-sections] > div {
+  background: var(--pf-surface) !important;
+  color: var(--pf-ink) !important;
+  border: 1px solid var(--pf-line) !important;
+  border-radius: var(--pf-radius-card) !important;
+  box-shadow: var(--pf-shadow-card) !important;
+}
+
+[data-booking-theme]:not([data-booking-theme="restaurant"]) > main:first-child > div > section {
+  scroll-margin-top: 1rem;
+}
+
+[data-booking-theme]:not([data-booking-theme="restaurant"]) > main:first-child > div > aside {
+  gap: 0.85rem !important;
+}
+
+@media (min-width: 1024px) {
+  [data-booking-theme]:not([data-booking-theme="restaurant"]) > main:first-child > div > aside {
+    position: sticky;
+    top: 1.25rem;
+  }
+}
+
+[data-booking-theme]:not([data-booking-theme="restaurant"])[data-booking-appearance="light"] > main:first-child > div > aside > section > div > div,
+[data-booking-theme]:not([data-booking-theme="restaurant"])[data-booking-appearance="light"] [data-booking-public-sections] article {
+  border-color: var(--pf-line) !important;
+  background: var(--pf-surface-subtle) !important;
+}
+
+[data-booking-theme]:not([data-booking-theme="restaurant"]) form[data-booking-form] {
+  --booking-control-border: color-mix(in srgb, var(--booking-primary) 18%, var(--pf-line));
+}
+
+[data-booking-theme]:not([data-booking-theme="restaurant"])[data-booking-appearance="light"] form[data-booking-form] :is(input, select, textarea):not([type="hidden"]):not([type="checkbox"]),
+[data-booking-theme]:not([data-booking-theme="restaurant"])[data-booking-appearance="light"] form[data-booking-form="guided"] article,
+[data-booking-theme]:not([data-booking-theme="restaurant"])[data-booking-appearance="light"] form[data-booking-form="guided"] section > div[class*="border"] {
+  border-color: var(--booking-control-border) !important;
+  background: var(--pf-surface-subtle) !important;
+  color: var(--pf-ink) !important;
+}
+
+[data-booking-theme]:not([data-booking-theme="restaurant"]) form[data-booking-form] :is(input, select, textarea):not([type="hidden"]):not([type="checkbox"]) {
+  min-height: 3.25rem;
+  border-radius: var(--pf-radius-control) !important;
+  transition: border-color 150ms ease, box-shadow 150ms ease, background 150ms ease;
+}
+
+[data-booking-theme]:not([data-booking-theme="restaurant"]) form[data-booking-form] textarea {
+  min-height: 7rem;
+  resize: vertical;
+}
+
+[data-booking-theme]:not([data-booking-theme="restaurant"]) form[data-booking-form] :is(input, select, textarea):not([type="hidden"]):not([type="checkbox"]):focus {
+  border-color: var(--booking-primary) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--booking-primary) 14%, transparent) !important;
+  outline: none;
+}
+
+[data-booking-theme]:not([data-booking-theme="restaurant"]) form[data-booking-form] button {
+  min-height: 3.1rem;
+  border-radius: var(--pf-radius-control) !important;
+  transition: transform 150ms ease, box-shadow 150ms ease, opacity 150ms ease;
+}
+
+[data-booking-theme]:not([data-booking-theme="restaurant"]) form[data-booking-form] button:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+
+[data-booking-theme]:not([data-booking-theme="restaurant"]) form[data-booking-form="default"] > button:last-child,
+[data-booking-theme]:not([data-booking-theme="restaurant"]) form[data-booking-form="guided"] section > button:last-child {
+  background: var(--booking-primary) !important;
+  color: white !important;
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--booking-primary) 22%, transparent);
+}
+
+[data-booking-theme]:not([data-booking-theme="restaurant"]) form[data-booking-form="default"] fieldset {
+  border-color: var(--pf-line) !important;
+  border-radius: var(--pf-radius-card) !important;
+  background: color-mix(in srgb, var(--booking-primary) 3%, var(--pf-surface-subtle));
+}
+
+[data-booking-theme]:not([data-booking-theme="restaurant"]) form[data-booking-form="default"] fieldset legend {
+  color: var(--booking-primary);
+}
+
+[data-booking-theme]:not([data-booking-theme="restaurant"]) form[data-booking-form="guided"] > div:first-of-type {
+  position: relative;
+}
+
+[data-booking-theme]:not([data-booking-theme="restaurant"]) form[data-booking-form="guided"] > div:first-of-type::before {
+  content: "";
+  position: absolute;
+  top: 1rem;
+  left: 12.5%;
+  right: 12.5%;
+  height: 1px;
+  background: var(--pf-line);
+  z-index: 0;
+}
+
+[data-booking-theme]:not([data-booking-theme="restaurant"]) form[data-booking-form="guided"] > div:first-of-type > div > div {
+  position: relative;
+  z-index: 1;
+  box-shadow: 0 0 0 4px var(--pf-surface);
+}
+
+[data-booking-theme]:not([data-booking-theme="restaurant"])[data-booking-appearance="light"] nav[aria-label="Language"] a {
+  border: 1px solid rgb(255 255 255 / 28%);
+  backdrop-filter: blur(8px);
+}
+
+[data-booking-theme]:not([data-booking-theme="restaurant"])[data-booking-appearance="light"] [data-booking-success] {
+  border: 1px solid color-mix(in srgb, var(--booking-primary) 24%, var(--pf-line)) !important;
+  border-radius: var(--pf-radius-card) !important;
+  background: color-mix(in srgb, var(--booking-primary) 8%, var(--pf-surface)) !important;
+  box-shadow: none !important;
+}
+
+@media (max-width: 640px) {
+  [data-booking-theme]:not([data-booking-theme="restaurant"]) > main:first-child {
+    padding: 0.65rem 0.65rem 1.5rem !important;
+  }
+
+  [data-booking-theme]:not([data-booking-theme="restaurant"]) > main:first-child > section:first-child {
+    border-radius: 1.25rem !important;
+  }
+
+  [data-booking-theme]:not([data-booking-theme="restaurant"]) > main:first-child > section:first-child h1 {
+    max-width: 18ch;
+    font-size: clamp(1.9rem, 9vw, 2.6rem) !important;
+  }
+
+  [data-booking-theme]:not([data-booking-theme="restaurant"]) > main:first-child > div > section,
+  [data-booking-theme]:not([data-booking-theme="restaurant"]) > main:first-child > div > aside > section,
+  [data-booking-theme]:not([data-booking-theme="restaurant"]) [data-booking-public-sections] > div {
+    border-radius: 1.1rem !important;
+  }
+
+  [data-booking-theme]:not([data-booking-theme="restaurant"]) form[data-booking-form] :is(input, select, textarea):not([type="hidden"]):not([type="checkbox"]) {
+    font-size: 16px !important;
+  }
+
+  [data-booking-theme]:not([data-booking-theme="restaurant"]) form[data-booking-form="guided"] > div:first-of-type::before {
+    left: 15%;
+    right: 15%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-booking-theme]:not([data-booking-theme="restaurant"]) :is(a, button, input, select, textarea) {
+    transition: none !important;
+  }
+}
