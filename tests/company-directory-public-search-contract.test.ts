@@ -37,10 +37,18 @@ describe("public company directory search contract", () => {
     expect(searchSource).not.toContain("lower(profile.address_line1) not like 'box %'");
   });
 
-  it("supports nearby radius filtering without inferred service areas", () => {
+  it("keeps nearby radius filtering separate from confirmed service-area evidence", () => {
     expect(searchSource).toContain("distance_km <= ${radiusKm}");
     expect(searchSource).toContain("6371 * 2 * asin");
-    expect(searchSource).not.toContain("company_directory_service_areas");
+    expect(searchSource).toContain("company_directory_service_areas");
+    expect(searchSource).toContain("area.public_visible = true");
+    expect(searchSource).toContain("area.confirmed_at is not null");
+    expect(searchSource).toContain("area.service_slug = relation.service_slug or area.service_slug is null");
+    expect(searchSource).toContain("case when area.service_slug = relation.service_slug then 0 else 1 end");
+    expect(searchSource).toContain("distanceKm <= serviceAreaRadiusKm");
+    expect(resultsSource).toContain("result.servesNearbyLocation");
+    expect(copySource).toContain("bekräftade serviceområde");
+    expect(copySource).toContain("confirmed service area");
   });
 
   it("adds autocomplete, nearby search, popular services and richer result cards", () => {

@@ -53,6 +53,7 @@ export function PublicDirectoryResults({ locale, search }: { locale: PublicLocal
                 </div>
                 <h3 className="mt-3 break-words text-xl font-black tracking-tight text-ink sm:text-2xl">{result.companyName}</h3>
                 <p className="mt-2 flex items-center gap-2 text-sm text-body"><MapPin className="h-4 w-4 shrink-0 text-brand" /> {[result.postalCode, result.city].filter(Boolean).join(" ") || result.municipality || t.country}</p>
+                {result.servesNearbyLocation ? <p className="mt-2 flex items-start gap-2 text-xs font-bold leading-5 text-brand"><ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {t.serviceAreaMatch}</p> : null}
                 {result.activityDescription ? <div className="mt-4 max-w-3xl">{locale === "en" ? <p className="mb-1 text-[11px] font-black uppercase tracking-wide text-muted">{t.sourceDescription}</p> : null}<p lang="sv" className="break-words text-sm leading-6 text-muted">{compactDescription(result.activityDescription)}</p></div> : null}
               </div>
               <div className="flex items-end p-5 pt-0 sm:items-center sm:p-6 sm:pl-2">
