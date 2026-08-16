@@ -1,3 +1,5 @@
+@import "./booking-ux-v2.css";
+
 /*
  * Contrast safety net for themes with intentionally fixed surface palettes.
  * The builder may contain older or manually edited appearance values; these
