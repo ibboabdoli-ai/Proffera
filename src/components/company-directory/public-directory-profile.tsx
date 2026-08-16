@@ -57,7 +57,6 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
         addressCountry: "SE",
       },
     } : {}),
-    ...(business.city ? { areaServed: business.city } : {}),
     ...(hasMedia ? { image: absoluteUrl(business.media!.url) } : {}),
   };
 
