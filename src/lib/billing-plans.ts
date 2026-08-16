@@ -17,13 +17,13 @@ export const checkoutPlanDefinitions: Record<CheckoutPlanKey, Omit<CheckoutPlanO
   starter: {
     key: "starter",
     name: "Starter",
-    priceLabel: "Från 299 kr/mån",
+    priceLabel: "199 kr/mån",
     description: "Bokning, kontaktformulär och grundläggande leadlista.",
   },
   professional: {
     key: "professional",
     name: "Professional",
-    priceLabel: "Från 699 kr/mån",
+    priceLabel: "599 kr/mån",
     description: "Allt i Starter samt CRM och en samlad kundöversikt.",
   },
 };
@@ -37,14 +37,14 @@ const checkoutPlanPriceLabels: Record<
   Record<WorkspaceBillingCurrency, Record<CheckoutPlanLocale, string>>
 > = {
   starter: {
-    SEK: { sv: "Från 299 kr/mån", en: "From SEK 299/month" },
-    EUR: { sv: "Från 28 €/mån", en: "From €28/month" },
-    GBP: { sv: "Från £24/mån", en: "From £24/month" },
+    SEK: { sv: "199 kr/mån", en: "SEK 199/month" },
+    EUR: { sv: "Från 18 €/mån", en: "From €18/month" },
+    GBP: { sv: "Från £16/mån", en: "From £16/month" },
   },
   professional: {
-    SEK: { sv: "Från 699 kr/mån", en: "From SEK 699/month" },
-    EUR: { sv: "Från 64 €/mån", en: "From €64/month" },
-    GBP: { sv: "Från £55/mån", en: "From £55/month" },
+    SEK: { sv: "599 kr/mån", en: "SEK 599/month" },
+    EUR: { sv: "Från 54 €/mån", en: "From €54/month" },
+    GBP: { sv: "Från £47/mån", en: "From £47/month" },
   },
 };
 
