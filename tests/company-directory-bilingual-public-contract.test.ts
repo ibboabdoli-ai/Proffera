@@ -23,8 +23,10 @@ describe("bilingual public directory contract", () => {
     expect(shell).toContain("directoryPaths[otherLocale].search");
     expect(englishSearch).toContain('locale="en"');
     expect(englishProfile).toContain('locale="en"');
-    expect(swedishProfile).toContain("/en/companies/");
-    expect(swedishProfile).toContain("EN English");
+    expect(swedishProfile).toContain("PublicDirectoryProfile");
+    expect(swedishProfile).toContain('locale="sv"');
+    expect(profile).toContain("alternateBase");
+    expect(profile).toContain("t.language");
   });
 
   it("normalizes customer-facing English service terms on both client and server", () => {
@@ -44,14 +46,13 @@ describe("bilingual public directory contract", () => {
   });
 
   it("shows the real profile check date in both public languages", () => {
-    const copy = source("src/components/company-directory/public-directory-profile-copy.ts");
+    const profileCopy = source("src/components/company-directory/public-directory-profile-copy.ts");
     const engine = source("src/lib/company-directory-engine.ts");
 
-    expect(copy).toContain('lastChecked: "Senast kontrollerad"');
-    expect(copy).toContain('lastChecked: "Last checked"');
+    expect(profileCopy).toContain('lastChecked: "Senast kontrollerad"');
+    expect(profileCopy).toContain('lastChecked: "Last checked"');
     expect(profile).toContain("business.lastCheckedAt");
-    expect(swedishProfile).toContain("business.lastCheckedAt");
-    expect(swedishProfile).toContain("Senast kontrollerad");
+    expect(profile).toContain("t.lastChecked");
     expect(engine).toContain("profile.last_synced_at");
     expect(engine).toContain("lastCheckedAt: row.last_synced_at");
   });
