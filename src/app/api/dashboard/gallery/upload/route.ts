@@ -46,51 +46,38 @@ export async function POST(request: Request) {
     const id = crypto.randomUUID();
     const pathname = `gallery/${access.workspaceSlug}/${id}-${safeName}`;
 
-    let publicUrl = `/api/gallery/media/${id}`;
-    let storageKey = `database:${id}`;
-    let mediaBase64: string | null = null;
-
-    const hasBlobCredentials = Boolean(
-      process.env.BLOB_READ_WRITE_TOKEN || (process.env.VERCEL_OIDC_TOKEN && process.env.BLOB_STORE_ID),
-    );
-
-    if (hasBlobCredentials) {
-      try {
-        const blob = await put(pathname, file, {
-          access: "public",
-          addRandomSuffix: false,
-          contentType: file.type,
-        });
-        publicUrl = blob.url;
-        storageKey = pathname;
-      } catch (error) {
-        console.warn(
-          JSON.stringify({
-            level: "warning",
-            message: "Gallery Blob upload failed; using database fallback",
-            route: "/api/dashboard/gallery/upload",
-            error: error instanceof Error ? error.message : String(error),
-          }),
-        );
-      }
-    }
-
-    if (storageKey.startsWith("database:")) {
-      mediaBase64 = Buffer.from(await file.arrayBuffer()).toString("base64");
+    let blob;
+    try {
+      blob = await put(pathname, file, {
+        access: "public",
+        addRandomSuffix: false,
+        contentType: file.type,
+      });
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          level: "error",
+          message: "Gallery Blob upload failed; database fallback is disabled to protect Neon transfer quota",
+          route: "/api/dashboard/gallery/upload",
+          workspace: access.workspaceSlug,
+          error: error instanceof Error ? error.message : String(error),
+          durationMs: Date.now() - startedAt,
+        }),
+      );
+      return redirectToGallery(request, "error=storage");
     }
 
     const saved = await createGalleryItem({
       id,
       mediaType: isVideo ? "video" : "image",
-      publicUrl,
-      storageKey,
+      publicUrl: blob.url,
+      storageKey: pathname,
       title: String(formData.get("title") ?? "").trim() || null,
       caption: String(formData.get("caption") ?? "").trim() || null,
       altText: String(formData.get("alt_text") ?? "").trim() || (isVideo ? "PrimeView project video" : "PrimeView completed work"),
       displayStyle: displayStyle as "grid" | "masonry" | "slider" | "hero" | "video",
       mimeType: file.type,
       bytes: file.size,
-      mediaBase64,
     });
 
     if (!saved) return redirectToGallery(request, "error=save");
@@ -101,7 +88,7 @@ export async function POST(request: Request) {
         message: "Gallery media uploaded",
         route: "/api/dashboard/gallery/upload",
         workspace: access.workspaceSlug,
-        storage: storageKey.startsWith("database:") ? "database" : "blob",
+        storage: "blob",
         bytes: file.size,
         durationMs: Date.now() - startedAt,
       }),
