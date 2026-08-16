@@ -16,18 +16,20 @@ export default async function Page() {
     <main style={{ padding: 24, maxWidth: 1100, margin: "0 auto" }}>
       <h1>Skicka lead</h1>
       <p><a href="/admin/matchning">Till matchning</a></p>
+      <p>Endast manuell e-post öppnas från den här sidan. Proffera skickar inte leadet automatiskt.</p>
       {!result.ok ? <p>{result.message}</p> : null}
       {result.matches.map((item) => (
         <section key={item.lead.id} style={{ border: "1px solid #ddd", borderRadius: 12, padding: 16, marginBottom: 18 }}>
           <h2>{item.lead.reference_id}</h2>
           <p>{item.lead.category} / {item.lead.service_type} / {item.lead.city}</p>
-          {item.companies.length === 0 ? <p>Inga matchade företag.</p> : null}
-          {item.companies.map((company) => (
-            <article key={company.id} style={{ background: "#f7f7f4", borderRadius: 10, padding: 12, marginTop: 10 }}>
-              <strong>{company.company_name}</strong>
-              <p>{company.email}</p>
-              <p>Score: {company.score}</p>
-              <a href={buildMailto(company.email, item.lead.reference_id, item.lead.category, item.lead.city)} style={{ display: "inline-block", marginTop: 8 }}>
+          {item.suggestions.length === 0 ? <p>Inga säkra matchningar.</p> : null}
+          {item.suggestions.map((suggestion) => (
+            <article key={suggestion.workspaceId} style={{ background: "#f7f7f4", borderRadius: 10, padding: 12, marginTop: 10 }}>
+              <strong>{suggestion.companyName}</strong>
+              <p>{suggestion.email}</p>
+              <p>Tjänst: {suggestion.serviceName}</p>
+              <p>Score: {suggestion.score}</p>
+              <a href={buildMailto(suggestion.email, item.lead.reference_id, item.lead.category, item.lead.city)} style={{ display: "inline-block", marginTop: 8 }}>
                 Öppna mejl till företag
               </a>
             </article>
