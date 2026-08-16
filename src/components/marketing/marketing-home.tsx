@@ -55,10 +55,6 @@ type HomeCopy = {
   finalLead: string;
   finalPrimary: string;
   finalSecondary: string;
-  legalLine: string;
-  contact: string;
-  privacy: string;
-  terms: string;
 };
 
 const copy: Record<PublicLocale, HomeCopy> = {
@@ -120,7 +116,7 @@ const copy: Record<PublicLocale, HomeCopy> = {
     plans: [
       { name: "Starter", price: "199 kr/mån", description: "För små företag som vill samla bokningar, leads och kunder.", features: ["Onlinebokning", "Leadhantering", "Kund-CRM", "Kundportal", "Påminnelser"], cta: "Starta gratis", href: "/skapa-konto?plan=starter" },
       { name: "Professional", price: "599 kr/mån", description: "För företag som vill visa tjänster online och driva fler delar av kundresan i Proffera.", features: ["Allt i Starter", "Företagssida", "Offerter", "Galleri och verifierade omdömen", "Analys", "Flera medarbetare"], cta: "Starta gratis", href: "/skapa-konto?plan=professional" },
-      { name: "Enterprise", price: "Kontakta oss", description: "För större eller mer avancerade upplägg med behov utöver standardflödet.", features: ["Allt i Professional", "Egen domän", "Avancerade arbetsflöden", "Anpassad uppsättning", "Prioriterad dialog"], cta: "Kontakta oss", href: "/contact" },
+      { name: "Enterprise", price: "Kontakta oss", description: "För större eller mer avancerade upplägg med behov utöver standardflödet.", features: ["Allt i Professional", "Egen domän", "Avancerade arbetsflöden", "Anpassad uppsättning", "Prioriterad dialog"], cta: "Kontakta oss", href: "/kontakt" },
     ],
     faqEyebrow: "Vanliga frågor",
     faqTitle: "Det viktigaste innan du börjar",
@@ -135,10 +131,6 @@ const copy: Record<PublicLocale, HomeCopy> = {
     finalLead: "Skapa arbetsytan, lägg in dina tjänster och börja med den del av flödet som ger mest värde först.",
     finalPrimary: "Starta gratis i 14 dagar",
     finalSecondary: "Boka demo",
-    legalLine: "Proffera drivs av Iboren.",
-    contact: "Kontakt",
-    privacy: "Integritet",
-    terms: "Villkor",
   },
   en: {
     badge: "The customer flow for modern service businesses",
@@ -198,7 +190,7 @@ const copy: Record<PublicLocale, HomeCopy> = {
     plans: [
       { name: "Starter", price: "SEK 199/month", description: "For small businesses that want bookings, leads and customers in one place.", features: ["Online booking", "Lead management", "Customer CRM", "Customer portal", "Reminders"], cta: "Start free", href: "/en/create-account?plan=starter" },
       { name: "Professional", price: "SEK 599/month", description: "For businesses that want to show services online and run more of the customer journey in Proffera.", features: ["Everything in Starter", "Business page", "Quotes", "Gallery and verified reviews", "Analytics", "Multiple staff"], cta: "Start free", href: "/en/create-account?plan=professional" },
-      { name: "Enterprise", price: "Contact us", description: "For larger or more advanced setups with needs beyond the standard workflow.", features: ["Everything in Professional", "Custom domain", "Advanced workflows", "Tailored setup", "Priority dialogue"], cta: "Contact us", href: "/contact" },
+      { name: "Enterprise", price: "Contact us", description: "For larger or more advanced setups with needs beyond the standard workflow.", features: ["Everything in Professional", "Custom domain", "Advanced workflows", "Tailored setup", "Priority dialogue"], cta: "Contact us", href: "/en/contact" },
     ],
     faqEyebrow: "Common questions",
     faqTitle: "What to know before you start",
@@ -213,10 +205,6 @@ const copy: Record<PublicLocale, HomeCopy> = {
     finalLead: "Create your workspace, add your services and start with the part of the flow that creates the most value first.",
     finalPrimary: "Start free 14-day trial",
     finalSecondary: "Book a demo",
-    legalLine: "Proffera is a product operated by Iboren.",
-    contact: "Contact",
-    privacy: "Privacy",
-    terms: "Terms",
   },
 };
 
@@ -277,17 +265,6 @@ export function MarketingHome({ locale }: { locale: PublicLocale }) {
       <section className="mx-auto max-w-7xl px-4 py-20 sm:px-6 lg:px-8"><div className="grid gap-8 lg:grid-cols-[.72fr_1.28fr]"><div><p className="text-sm font-black uppercase tracking-[0.14em] text-[#17452f]">{t.faqEyebrow}</p><h2 className="mt-3 text-3xl font-black tracking-[-0.03em] text-[#17201a]">{t.faqTitle}</h2></div><div className="grid gap-3">{t.faqs.map((item) => <article key={item.question} className="rounded-2xl border border-[#dfe5dd] bg-white p-5"><h3 className="font-black text-[#17201a]">{item.question}</h3><p className="mt-2 text-sm leading-7 text-[#5b665f]">{item.answer}</p></article>)}</div></div></section>
 
       <section className="mx-auto max-w-7xl px-4 pb-20 sm:px-6 lg:px-8"><div className="relative overflow-hidden rounded-[2rem] bg-[#102a1c] p-8 text-white sm:p-10 lg:p-12"><div className="absolute -right-12 -top-16 h-64 w-64 rounded-full bg-[#3b8f65]/25 blur-3xl" aria-hidden="true" /><MessageSquareText className="relative h-9 w-9 text-[#e8c678]" /><p className="relative mt-5 text-sm font-black uppercase tracking-[0.14em] text-[#bfd1c4]">{t.finalEyebrow}</p><h2 className="relative mt-2 max-w-3xl text-3xl font-black tracking-[-0.03em] sm:text-4xl">{t.finalTitle}</h2><p className="relative mt-4 max-w-2xl text-base leading-7 text-white/75">{t.finalLead}</p><div className="relative mt-7 flex flex-col gap-3 sm:flex-row"><ButtonLink href={signupHref}>{t.finalPrimary}</ButtonLink><ButtonLink href={demoHref} variant="secondary">{t.finalSecondary}</ButtonLink></div></div></section>
-
-      <footer className="border-t border-[#e1e8df] bg-white px-4 py-8 text-sm text-[#5b665f] sm:px-6 lg:px-8">
-        <div className="mx-auto flex max-w-7xl flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <p>{t.legalLine}</p>
-          <nav className="flex flex-wrap gap-5 font-bold text-[#17452f]">
-            <a href="/contact" className="hover:text-[#102a1c]">{t.contact}</a>
-            <a href="/privacy" className="hover:text-[#102a1c]">{t.privacy}</a>
-            <a href="/terms" className="hover:text-[#102a1c]">{t.terms}</a>
-          </nav>
-        </div>
-      </footer>
     </div>
   );
 }
