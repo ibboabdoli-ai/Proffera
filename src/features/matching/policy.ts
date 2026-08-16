@@ -138,7 +138,9 @@ function serviceCompatibility(lead: LeadMatchInput, candidate: WorkspaceLeadCand
     return { compatible: false, specific: false };
   }
 
-  const specific = textsOverlap(candidate.serviceName, lead.service_type) || textsOverlap(candidate.serviceCategory, lead.service_type);
+  // A broad service category such as "Städning" must not become an exact match
+  // merely because it is a substring of a specific request such as "Hemstädning".
+  const specific = textsOverlap(candidate.serviceName, lead.service_type);
   if (specific || isGenericServiceType(lead.service_type)) return { compatible: true, specific };
 
   const category = textsOverlap(candidate.serviceName, lead.category) || textsOverlap(candidate.serviceCategory, lead.category);
@@ -147,7 +149,8 @@ function serviceCompatibility(lead: LeadMatchInput, candidate: WorkspaceLeadCand
 }
 
 function locationMatches(lead: LeadMatchInput, candidate: WorkspaceLeadCandidate) {
-  return textsOverlap(candidate.primaryCity, lead.city) || textsOverlap(candidate.serviceArea, lead.city);
+  // Registered/primary city describes the company, not where it has confirmed it serves customers.
+  return textsOverlap(candidate.serviceArea, lead.city);
 }
 
 export function buildWorkspaceLeadSuggestions(
