@@ -5,6 +5,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
 
 import styles from "@/components/dashboard/secondary-workspace-ux-2.module.css";
+import mobileStyles from "@/components/dashboard/settings-mobile-ux.module.css";
 
 const settingsNavigation = [
   { href: "/dashboard/installningar", sv: "Översikt", en: "Overview" },
@@ -26,8 +27,8 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
   const isEnglish = searchParams.get("lang") === "en";
 
   return (
-    <div className={`${styles.scope} grid gap-6`}>
-      <section className="rounded-[24px] border border-[#dfe6df] bg-white p-4 shadow-sm sm:p-5">
+    <div className={`${styles.scope} ${mobileStyles.scope} grid gap-6`}>
+      <section data-settings-nav-panel className="rounded-[24px] border border-[#dfe6df] bg-white p-4 shadow-sm sm:p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.16em] text-[#68736b]">
@@ -38,7 +39,7 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
             </h2>
           </div>
 
-          <nav className="flex max-w-full gap-2 overflow-x-auto pb-1" aria-label={isEnglish ? "Settings navigation" : "Navigering för inställningar"}>
+          <nav data-settings-nav className="flex max-w-full gap-2 overflow-x-auto pb-1" aria-label={isEnglish ? "Settings navigation" : "Navigering för inställningar"}>
             {settingsNavigation.map((item) => {
               const active = isActive(pathname, item.href);
               const href = isEnglish ? `${item.href}?lang=en` : item.href;
