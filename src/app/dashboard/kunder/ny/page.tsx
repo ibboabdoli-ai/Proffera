@@ -142,7 +142,7 @@ export default async function NewCustomerPage({ searchParams }: NewCustomerPageP
   const locale: Locale = langValue === "en" ? "en" : "sv";
   const isEnglish = locale === "en";
   const errorMessage = errorValue ? errorMessages[locale][errorValue as ErrorKey] : undefined;
-  const fieldClass = "rounded-xl border border-[#d9e1d7] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20";
+  const fieldClass = "min-h-12 rounded-control border border-line bg-surface px-4 py-3 text-sm font-normal text-ink outline-none transition placeholder:text-ink-muted/60 hover:border-line-strong focus:border-brand focus:ring-2 focus:ring-brand/15";
 
   return (
     <div className="grid gap-6">
@@ -151,28 +151,51 @@ export default async function NewCustomerPage({ searchParams }: NewCustomerPageP
         title={isEnglish ? "New customer" : "Ny kund"}
         description={isEnglish ? "Create a customer and save it directly in the customer register. Only owners and administrators can save changes." : "Skapa en ny kund i Proffera och spara den direkt i kundregistret. Endast ägare och administratörer kan spara ändringar."}
         icon={UserRoundPlus}
-        actions={<Link href={withLang("/dashboard/kunder", locale)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#d5ddd3] bg-white px-4 py-2.5 text-sm font-bold text-[#17452f] transition hover:-translate-y-0.5 hover:bg-[#f3f6f2]"><ArrowLeft className="h-4 w-4" aria-hidden="true" />{isEnglish ? "Back to customers" : "Tillbaka till kunder"}</Link>}
+        actions={<Link href={withLang("/dashboard/kunder", locale)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border border-line bg-surface px-4 py-2.5 text-sm font-bold text-brand transition hover:-translate-y-0.5 hover:border-line-strong hover:bg-brand-tint"><ArrowLeft className="h-4 w-4" aria-hidden="true" />{isEnglish ? "Back to customers" : "Tillbaka till kunder"}</Link>}
       />
 
-      {errorMessage ? <section className="rounded-2xl bg-[#fff5f2] p-5 text-sm font-semibold text-[#8f2f1b] ring-1 ring-[#f4c7ba]">{errorMessage}</section> : null}
+      {errorMessage ? <section className="rounded-card border border-danger/20 bg-danger/5 p-5 text-sm font-semibold text-danger shadow-card">{errorMessage}</section> : null}
 
-      <form action={createCustomerAction} className="grid gap-6 rounded-[24px] border border-[#e0e5dd] bg-white p-5 shadow-[0_1px_2px_rgba(20,43,32,0.03),0_14px_36px_rgba(20,43,32,0.045)] sm:p-6">
+      <form action={createCustomerAction} className="grid gap-6 rounded-panel border border-line bg-surface p-5 shadow-card sm:p-6 lg:p-7">
         <input type="hidden" name="lang" value={locale} />
-        <section className="grid gap-4 md:grid-cols-2">
-          <label className="grid gap-2 text-sm font-semibold text-[#17201a]">{isEnglish ? "Name" : "Namn"}<input name="name" type="text" required maxLength={120} className={fieldClass} placeholder={isEnglish ? "e.g. Sarah Anderson" : "Ex. Sara Andersson"} /></label>
-          <label className="grid gap-2 text-sm font-semibold text-[#17201a]">{isEnglish ? "Customer type" : "Kundtyp"}<select name="customer_type" defaultValue="private" className={fieldClass}><option value="private">{isEnglish ? "Private customer" : "Privatkund"}</option><option value="company">{isEnglish ? "Company" : "Företag"}</option></select></label>
-          <label className="grid gap-2 text-sm font-semibold text-[#17201a]">Status<select name="status" defaultValue="prospect" className={fieldClass}>{customerStatuses.map((item) => <option key={item} value={item}>{statusLabels[locale][item]}</option>)}</select></label>
-          <label className="grid gap-2 text-sm font-semibold text-[#17201a]">{isEnglish ? "Email" : "E-post"}<input name="email" type="email" maxLength={160} className={fieldClass} placeholder="name@example.com" /></label>
-          <label className="grid gap-2 text-sm font-semibold text-[#17201a]">{isEnglish ? "Phone" : "Telefon"}<input name="phone" type="tel" maxLength={40} className={fieldClass} placeholder="+46..." /></label>
-          <label className="grid gap-2 text-sm font-semibold text-[#17201a]">{isEnglish ? "Company name" : "Företagsnamn"}<input name="company_name" type="text" maxLength={160} className={fieldClass} placeholder={isEnglish ? "Optional" : "Valfritt"} /></label>
-          <label className="grid gap-2 text-sm font-semibold text-[#17201a]">{isEnglish ? "Location" : "Ort"}<input name="city" type="text" maxLength={120} className={fieldClass} placeholder={isEnglish ? "e.g. London" : "Ex. Södertälje"} /></label>
-          <label className="grid gap-2 text-sm font-semibold text-[#17201a] md:col-span-2">{isEnglish ? "Primary service" : "Primär tjänst"}<select name="service_selection" defaultValue="" className={fieldClass}><option value="">{isEnglish ? "No primary service" : "Ingen primär tjänst"}</option>{serviceTaxonomy.map((category) => <optgroup key={category.slug} label={category.name}>{category.services.map((service) => <option key={service.slug} value={`${category.slug}::${service.slug}`}>{service.name}</option>)}</optgroup>)}</select></label>
-          <label className="grid gap-2 text-sm font-semibold text-[#17201a] md:col-span-2">{isEnglish ? "Notes" : "Notering"}<textarea name="notes" maxLength={1000} rows={5} className={fieldClass} placeholder={isEnglish ? "Internal CRM note. Optional." : "Intern CRM-notering. Valfritt."} /></label>
+
+        <section className="grid gap-5">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.12em] text-brand">{isEnglish ? "Customer identity" : "Kundidentitet"}</p>
+            <h3 className="mt-2 text-xl font-bold tracking-tight text-ink">{isEnglish ? "Basic customer details" : "Grundläggande kunduppgifter"}</h3>
+            <p className="mt-2 text-sm leading-6 text-ink-muted">{isEnglish ? "Start with the information used to identify and classify the customer in CRM." : "Börja med uppgifterna som identifierar och klassificerar kunden i CRM."}</p>
+          </div>
+          <div className="grid gap-4 rounded-card border border-line bg-surface-subtle p-4 sm:p-5 md:grid-cols-2">
+            <label className="grid gap-2 text-sm font-semibold text-ink">{isEnglish ? "Name" : "Namn"}<input name="name" type="text" required maxLength={120} className={fieldClass} placeholder={isEnglish ? "e.g. Sarah Anderson" : "Ex. Sara Andersson"} /></label>
+            <label className="grid gap-2 text-sm font-semibold text-ink">{isEnglish ? "Customer type" : "Kundtyp"}<select name="customer_type" defaultValue="private" className={fieldClass}><option value="private">{isEnglish ? "Private customer" : "Privatkund"}</option><option value="company">{isEnglish ? "Company" : "Företag"}</option></select></label>
+            <label className="grid gap-2 text-sm font-semibold text-ink">Status<select name="status" defaultValue="prospect" className={fieldClass}>{customerStatuses.map((item) => <option key={item} value={item}>{statusLabels[locale][item]}</option>)}</select></label>
+            <label className="grid gap-2 text-sm font-semibold text-ink">{isEnglish ? "Company name" : "Företagsnamn"}<input name="company_name" type="text" maxLength={160} className={fieldClass} placeholder={isEnglish ? "Optional" : "Valfritt"} /></label>
+          </div>
         </section>
 
-        <section className="rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4 text-sm leading-7 text-[#5b665f]"><strong className="text-[#17201a]">{isEnglish ? "Controlled action:" : "Kontrollerad åtgärd:"}</strong> {isEnglish ? "The customer is saved manually in the customer register. No booking is created, no email is sent and no leads are changed." : "Kunden sparas manuellt i kundregistret. Ingen bokning skapas, ingen e-post skickas och inga leads ändras."}</section>
+        <section className="grid gap-5 border-t border-line pt-6">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.12em] text-brand">{isEnglish ? "Contact and need" : "Kontakt och behov"}</p>
+            <h3 className="mt-2 text-xl font-bold tracking-tight text-ink">{isEnglish ? "Contact details and primary service" : "Kontaktuppgifter och primär tjänst"}</h3>
+          </div>
+          <div className="grid gap-4 rounded-card border border-line bg-surface-subtle p-4 sm:p-5 md:grid-cols-2">
+            <label className="grid gap-2 text-sm font-semibold text-ink">{isEnglish ? "Email" : "E-post"}<input name="email" type="email" maxLength={160} className={fieldClass} placeholder="name@example.com" /></label>
+            <label className="grid gap-2 text-sm font-semibold text-ink">{isEnglish ? "Phone" : "Telefon"}<input name="phone" type="tel" maxLength={40} className={fieldClass} placeholder="+46..." /></label>
+            <label className="grid gap-2 text-sm font-semibold text-ink">{isEnglish ? "Location" : "Ort"}<input name="city" type="text" maxLength={120} className={fieldClass} placeholder={isEnglish ? "e.g. London" : "Ex. Södertälje"} /></label>
+            <label className="grid gap-2 text-sm font-semibold text-ink md:col-span-2">{isEnglish ? "Primary service" : "Primär tjänst"}<select name="service_selection" defaultValue="" className={fieldClass}><option value="">{isEnglish ? "No primary service" : "Ingen primär tjänst"}</option>{serviceTaxonomy.map((category) => <optgroup key={category.slug} label={category.name}>{category.services.map((service) => <option key={service.slug} value={`${category.slug}::${service.slug}`}>{service.name}</option>)}</optgroup>)}</select></label>
+          </div>
+        </section>
 
-        <button type="submit" className="inline-flex w-fit rounded-xl bg-[#173e2b] px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0f2f20] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#17452f]">{isEnglish ? "Create customer" : "Skapa kund"}</button>
+        <section className="grid gap-4 border-t border-line pt-6">
+          <label className="grid gap-2 text-sm font-semibold text-ink">{isEnglish ? "Internal notes" : "Intern notering"}<textarea name="notes" maxLength={1000} rows={5} className={fieldClass} placeholder={isEnglish ? "Internal CRM note. Optional." : "Intern CRM-notering. Valfritt."} /></label>
+        </section>
+
+        <section className="rounded-card border border-line bg-brand-tint p-4 text-sm leading-7 text-ink-muted"><strong className="text-ink">{isEnglish ? "Controlled action:" : "Kontrollerad åtgärd:"}</strong> {isEnglish ? "The customer is saved manually in the customer register. No booking is created, no email is sent and no leads are changed." : "Kunden sparas manuellt i kundregistret. Ingen bokning skapas, ingen e-post skickas och inga leads ändras."}</section>
+
+        <div className="flex flex-col gap-3 border-t border-line pt-6 sm:flex-row sm:items-center sm:justify-end">
+          <Link href={withLang("/dashboard/kunder", locale)} className="inline-flex min-h-12 items-center justify-center rounded-control border border-line bg-surface px-5 py-3 text-sm font-semibold text-ink transition hover:bg-surface-subtle">{isEnglish ? "Cancel" : "Avbryt"}</Link>
+          <button type="submit" className="inline-flex min-h-12 items-center justify-center rounded-control bg-brand px-6 py-3 text-sm font-semibold text-white shadow-card transition hover:-translate-y-0.5 hover:bg-brand-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand">{isEnglish ? "Create customer" : "Skapa kund"}</button>
+        </div>
       </form>
     </div>
   );

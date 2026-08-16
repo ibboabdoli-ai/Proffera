@@ -100,55 +100,71 @@ export default async function CustomerDetailPage({ params, searchParams }: Custo
   const bookingStatuses = bookingStatusLabels[locale];
   const eventTypes = eventTypeLabels[locale];
   const metrics = isEnglish ? [
-    { label: "Status", value: customerStatuses[customer.status as keyof typeof customerStatuses] ?? customer.status, helper: "Current CRM status", icon: UserRound, tone: "bg-[#e9f2ec] text-[#17452f]" },
-    { label: "Bookings", value: String(bookings.length), helper: "Connected bookings", icon: CalendarCheck2, tone: "bg-[#edf0f8] text-[#405582]" },
-    { label: "Events", value: String(events.length), helper: "Recorded activities", icon: Activity, tone: "bg-[#f8f0df] text-[#8a6722]" },
-    { label: "Notes", value: "Internal", helper: "Controlled customer notes", icon: MessageSquareText, tone: "bg-[#f0ece8] text-[#6d5948]" },
+    { label: "Status", value: customerStatuses[customer.status as keyof typeof customerStatuses] ?? customer.status, helper: "Current CRM status", icon: UserRound, tone: "bg-brand-soft text-brand" },
+    { label: "Bookings", value: String(bookings.length), helper: "Connected bookings", icon: CalendarCheck2, tone: "bg-brand-tint text-brand" },
+    { label: "Events", value: String(events.length), helper: "Recorded activities", icon: Activity, tone: "bg-accent-soft/25 text-ink" },
+    { label: "Notes", value: "Internal", helper: "Controlled customer notes", icon: MessageSquareText, tone: "bg-surface-subtle text-ink-muted" },
   ] as const : [
-    { label: "Status", value: customerStatuses[customer.status as keyof typeof customerStatuses] ?? customer.status, helper: "Aktuell CRM-status", icon: UserRound, tone: "bg-[#e9f2ec] text-[#17452f]" },
-    { label: "Bokningar", value: String(bookings.length), helper: "Kopplade bokningar", icon: CalendarCheck2, tone: "bg-[#edf0f8] text-[#405582]" },
-    { label: "Händelser", value: String(events.length), helper: "Registrerade aktiviteter", icon: Activity, tone: "bg-[#f8f0df] text-[#8a6722]" },
-    { label: "Noteringar", value: "Intern", helper: "Kontrollerad kundnotering", icon: MessageSquareText, tone: "bg-[#f0ece8] text-[#6d5948]" },
+    { label: "Status", value: customerStatuses[customer.status as keyof typeof customerStatuses] ?? customer.status, helper: "Aktuell CRM-status", icon: UserRound, tone: "bg-brand-soft text-brand" },
+    { label: "Bokningar", value: String(bookings.length), helper: "Kopplade bokningar", icon: CalendarCheck2, tone: "bg-brand-tint text-brand" },
+    { label: "Händelser", value: String(events.length), helper: "Registrerade aktiviteter", icon: Activity, tone: "bg-accent-soft/25 text-ink" },
+    { label: "Noteringar", value: "Intern", helper: "Kontrollerad kundnotering", icon: MessageSquareText, tone: "bg-surface-subtle text-ink-muted" },
   ] as const;
-  const fieldClass = "rounded-xl border border-[#d9e1d7] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20";
+  const fieldClass = "min-h-12 rounded-control border border-line bg-surface px-4 py-3 text-sm font-normal text-ink outline-none transition placeholder:text-ink-muted/60 hover:border-line-strong focus:border-brand focus:ring-2 focus:ring-brand/15";
 
   return <div className="grid gap-6">
-    <DashboardPageHeader eyebrow={isEnglish ? "Customer profile" : "Kundprofil"} title={customer.name} description={isEnglish ? "View the customer profile, bookings and history. Internal notes can be saved securely." : "Se kundens profil, bokningar och historik. Interna noteringar kan sparas kontrollerat med åtkomstkod."} icon={UserRound} actions={<Link href={withLang("/dashboard/kunder", locale)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[#d5ddd3] bg-white px-4 py-2.5 text-sm font-bold text-[#17452f]"><ArrowLeft className="h-4 w-4" />{isEnglish ? "Back to customers" : "Tillbaka till kunder"}</Link>} />
-    {errorMessage ? <section className="rounded-2xl bg-[#fff5f2] p-5 text-sm font-semibold text-[#8f2f1b] ring-1 ring-[#f4c7ba]">{errorMessage}</section> : null}
-    {value("created") === "1" ? <section className="rounded-2xl bg-[#eef8f1] p-5 text-sm font-semibold text-[#17452f] ring-1 ring-[#cfe8d6]">{isEnglish ? "The customer was created and the profile is ready for the next step." : "Kunden skapades och profilen är redo för nästa steg."}</section> : null}
-    {value("note") === "created" ? <section className="rounded-2xl bg-[#eef8f1] p-5 text-sm font-semibold text-[#17452f] ring-1 ring-[#cfe8d6]">{isEnglish ? "The note was saved in the customer history. No booking was changed and no email was sent." : "Noteringen sparades i kundhistoriken. Ingen bokning ändrades och ingen e-post skickades."}</section> : null}
+    <DashboardPageHeader eyebrow={isEnglish ? "Customer profile" : "Kundprofil"} title={customer.name} description={isEnglish ? "View the customer profile, bookings and history. Internal notes can be saved securely." : "Se kundens profil, bokningar och historik. Interna noteringar kan sparas kontrollerat med rätt behörighet."} icon={UserRound} actions={<Link href={withLang("/dashboard/kunder", locale)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border border-line bg-surface px-4 py-2.5 text-sm font-bold text-brand transition hover:-translate-y-0.5 hover:border-line-strong hover:bg-brand-tint"><ArrowLeft className="h-4 w-4" />{isEnglish ? "Back to customers" : "Tillbaka till kunder"}</Link>} />
+    {errorMessage ? <section className="rounded-card border border-danger/20 bg-danger/5 p-5 text-sm font-semibold text-danger shadow-card">{errorMessage}</section> : null}
+    {value("created") === "1" ? <section className="rounded-card border border-brand/15 bg-brand-tint p-5 text-sm font-semibold text-brand shadow-card">{isEnglish ? "The customer was created and the profile is ready for the next step." : "Kunden skapades och profilen är redo för nästa steg."}</section> : null}
+    {value("note") === "created" ? <section className="rounded-card border border-brand/15 bg-brand-tint p-5 text-sm font-semibold text-brand shadow-card">{isEnglish ? "The note was saved in the customer history. No booking was changed and no email was sent." : "Noteringen sparades i kundhistoriken. Ingen bokning ändrades och ingen e-post skickades."}</section> : null}
     <DashboardMetricGrid items={metrics} />
 
-    <section className="grid gap-6 lg:grid-cols-[1fr_360px]">
+    <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
       <div className="grid gap-6">
-        <article className="rounded-[24px] border border-[#e0e5dd] bg-white p-6 shadow-sm">
-          <h3 className="text-xl font-bold text-[#17201a]">{isEnglish ? "Profile" : "Profil"}</h3>
-          <div className="mt-5 grid gap-3 rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4 text-sm text-[#344139] sm:grid-cols-2">
-            <p><strong>{isEnglish ? "Customer type:" : "Kundtyp:"}</strong> {customer.type}</p><p><strong>{isEnglish ? "Location:" : "Ort:"}</strong> {customer.city}</p><p><strong>{isEnglish ? "Email:" : "E-post:"}</strong> {customer.email}</p><p><strong>{isEnglish ? "Phone:" : "Telefon:"}</strong> {customer.phone}</p><p><strong>{isEnglish ? "Company:" : "Företag:"}</strong> {customer.companyName}</p><p><strong>{isEnglish ? "Service:" : "Tjänst:"}</strong> {customer.service}</p><p><strong>{isEnglish ? "Created:" : "Skapad:"}</strong> {customer.createdAt}</p>
+        <article className="rounded-panel border border-line bg-surface p-5 shadow-card sm:p-6">
+          <div className="border-b border-line pb-4">
+            <p className="text-xs font-bold uppercase tracking-[0.12em] text-brand">{isEnglish ? "Customer record" : "Kundkort"}</p>
+            <h3 className="mt-2 text-xl font-bold tracking-tight text-ink">{isEnglish ? "Profile details" : "Profiluppgifter"}</h3>
           </div>
-          <p className="mt-4 rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4 text-sm leading-7 text-[#344139]"><strong>{isEnglish ? "Notes:" : "Notering:"}</strong> {customer.notes}</p>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            <p className="rounded-card border border-line bg-surface-subtle p-4 text-sm text-ink-muted"><strong className="block text-xs uppercase tracking-[0.08em] text-ink">{isEnglish ? "Customer type" : "Kundtyp"}</strong><span className="mt-1 block">{customer.type}</span></p>
+            <p className="rounded-card border border-line bg-surface-subtle p-4 text-sm text-ink-muted"><strong className="block text-xs uppercase tracking-[0.08em] text-ink">{isEnglish ? "Location" : "Ort"}</strong><span className="mt-1 block">{customer.city}</span></p>
+            <p className="rounded-card border border-line bg-surface-subtle p-4 text-sm text-ink-muted"><strong className="block text-xs uppercase tracking-[0.08em] text-ink">{isEnglish ? "Email" : "E-post"}</strong><span className="mt-1 block break-all">{customer.email}</span></p>
+            <p className="rounded-card border border-line bg-surface-subtle p-4 text-sm text-ink-muted"><strong className="block text-xs uppercase tracking-[0.08em] text-ink">{isEnglish ? "Phone" : "Telefon"}</strong><span className="mt-1 block">{customer.phone}</span></p>
+            <p className="rounded-card border border-line bg-surface-subtle p-4 text-sm text-ink-muted"><strong className="block text-xs uppercase tracking-[0.08em] text-ink">{isEnglish ? "Company" : "Företag"}</strong><span className="mt-1 block">{customer.companyName}</span></p>
+            <p className="rounded-card border border-line bg-surface-subtle p-4 text-sm text-ink-muted"><strong className="block text-xs uppercase tracking-[0.08em] text-ink">{isEnglish ? "Service" : "Tjänst"}</strong><span className="mt-1 block">{customer.service}</span></p>
+            <p className="rounded-card border border-line bg-surface-subtle p-4 text-sm text-ink-muted sm:col-span-2"><strong className="block text-xs uppercase tracking-[0.08em] text-ink">{isEnglish ? "Created" : "Skapad"}</strong><span className="mt-1 block">{customer.createdAt}</span></p>
+          </div>
+          <div className="mt-4 rounded-card border border-line bg-brand-tint p-4 text-sm leading-7 text-ink-muted"><strong className="text-ink">{isEnglish ? "Customer notes:" : "Kundnotering:"}</strong> {customer.notes}</div>
         </article>
 
-        <article className="rounded-[24px] border border-[#e0e5dd] bg-white p-6 shadow-sm">
-          <h3 className="text-xl font-bold text-[#17201a]">{isEnglish ? "Add note" : "Lägg till notering"}</h3>
-          <p className="mt-3 text-sm leading-7 text-[#5b665f]">{isEnglish ? "Save an internal note in the customer history. No booking is changed and no email is sent." : "Sparar en intern notering i kundhistoriken. Ingen bokning ändras och ingen e-post skickas."}</p>
-          <form action={noteAction} className="mt-5 grid gap-4 rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4">
+        <article className="rounded-panel border border-line bg-surface p-5 shadow-card sm:p-6">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.12em] text-brand">{isEnglish ? "CRM activity" : "CRM-aktivitet"}</p>
+            <h3 className="mt-2 text-xl font-bold tracking-tight text-ink">{isEnglish ? "Add internal note" : "Lägg till intern notering"}</h3>
+            <p className="mt-2 text-sm leading-7 text-ink-muted">{isEnglish ? "Save an internal note in the customer history. No booking is changed and no email is sent." : "Sparar en intern notering i kundhistoriken. Ingen bokning ändras och ingen e-post skickas."}</p>
+          </div>
+          <form action={noteAction} className="mt-5 grid gap-4 rounded-card border border-line bg-surface-subtle p-4 sm:p-5">
             <input type="hidden" name="lang" value={locale} />
-            <label className="grid gap-2 text-sm font-semibold text-[#17201a]">{isEnglish ? "Title" : "Rubrik"}<input name="title" type="text" required maxLength={140} className={fieldClass} placeholder={isEnglish ? "For example: Follow-up" : "Till exempel: Uppföljning"} /></label>
-            <label className="grid gap-2 text-sm font-semibold text-[#17201a]">{isEnglish ? "Note" : "Notering"}<textarea name="note" required maxLength={1000} rows={5} className={fieldClass} placeholder={isEnglish ? "Write an internal customer note..." : "Skriv en intern kundnotering..."} /></label>
-            <button type="submit" className="inline-flex w-fit rounded-xl bg-[#173e2b] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0f3322]">{isEnglish ? "Save note" : "Spara notering"}</button>
+            <label className="grid gap-2 text-sm font-semibold text-ink">{isEnglish ? "Title" : "Rubrik"}<input name="title" type="text" required maxLength={140} className={fieldClass} placeholder={isEnglish ? "For example: Follow-up" : "Till exempel: Uppföljning"} /></label>
+            <label className="grid gap-2 text-sm font-semibold text-ink">{isEnglish ? "Note" : "Notering"}<textarea name="note" required maxLength={1000} rows={5} className={fieldClass} placeholder={isEnglish ? "Write an internal customer note..." : "Skriv en intern kundnotering..."} /></label>
+            <button type="submit" className="inline-flex min-h-12 w-fit items-center justify-center rounded-control bg-brand px-5 py-3 text-sm font-semibold text-white shadow-card transition hover:-translate-y-0.5 hover:bg-brand-hover">{isEnglish ? "Save note" : "Spara notering"}</button>
           </form>
         </article>
 
-        <article className="rounded-[24px] border border-[#e0e5dd] bg-white p-6 shadow-sm">
-          <div className="flex items-center justify-between border-b border-[#dfe5dd] pb-4"><div><h3 className="text-xl font-bold text-[#17201a]">{isEnglish ? "Bookings" : "Bokningar"}</h3><p className="text-sm text-[#5b665f]">{isEnglish ? "Bookings connected to the customer." : "Bokningar kopplade till kunden."}</p></div><span className="rounded-full bg-[#e7f1eb] px-3 py-1 text-xs font-semibold text-[#17452f]">{isEnglish ? "Booking data" : "Bokningsdata"}</span></div>
-          {bookings.length === 0 ? <p className="mt-5 rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4 text-sm text-[#5b665f]">{isEnglish ? "No bookings were found for this customer." : "Inga bokningar hittades för den här kunden."}</p> : <div className="mt-5 space-y-3">{bookings.map((booking) => <div key={booking.id} className="grid gap-2 rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4 sm:grid-cols-[170px_1fr_auto] sm:items-center"><span className="font-bold text-[#17452f]">{booking.time}</span><span><strong>{booking.title}</strong><br /><span className="text-sm text-[#5b665f]">{getBookingMetaText(booking)}</span></span><div className="flex flex-wrap items-center gap-2 sm:justify-end"><span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-[#344139]">{bookingStatuses[booking.status as keyof typeof bookingStatuses] ?? booking.status}</span><Link href={withLang(`/dashboard/bokningar/${booking.id}`, locale)} className="inline-flex min-h-9 items-center justify-center rounded-xl bg-[#173e2b] px-3 py-2 text-xs font-semibold !text-white">{isEnglish ? "View booking" : "Visa bokning"}</Link></div></div>)}</div>}
+        <article className="rounded-panel border border-line bg-surface p-5 shadow-card sm:p-6">
+          <div className="flex flex-col gap-3 border-b border-line pb-4 sm:flex-row sm:items-center sm:justify-between">
+            <div><p className="text-xs font-bold uppercase tracking-[0.12em] text-brand">CRM</p><h3 className="mt-2 text-xl font-bold tracking-tight text-ink">{isEnglish ? "Bookings" : "Bokningar"}</h3><p className="mt-1 text-sm text-ink-muted">{isEnglish ? "Bookings connected to the customer." : "Bokningar kopplade till kunden."}</p></div>
+            <span className="w-fit rounded-full bg-brand-soft px-3 py-1 text-xs font-semibold text-brand">{isEnglish ? "Booking data" : "Bokningsdata"}</span>
+          </div>
+          {bookings.length === 0 ? <p className="mt-5 rounded-card border border-dashed border-line-strong bg-surface-subtle p-5 text-sm text-ink-muted">{isEnglish ? "No bookings were found for this customer." : "Inga bokningar hittades för den här kunden."}</p> : <div className="mt-5 space-y-3">{bookings.map((booking) => <div key={booking.id} className="grid gap-3 rounded-card border border-line bg-surface-subtle p-4 sm:grid-cols-[170px_1fr_auto] sm:items-center"><span className="font-bold text-brand">{booking.time}</span><span className="text-ink"><strong>{booking.title}</strong><br /><span className="text-sm text-ink-muted">{getBookingMetaText(booking)}</span></span><div className="flex flex-wrap items-center gap-2 sm:justify-end"><span className="rounded-full border border-line bg-surface px-3 py-1 text-xs font-semibold text-ink-muted">{bookingStatuses[booking.status as keyof typeof bookingStatuses] ?? booking.status}</span><Link href={withLang(`/dashboard/bokningar/${booking.id}`, locale)} className="inline-flex min-h-9 items-center justify-center rounded-control bg-brand px-3 py-2 text-xs font-semibold text-white transition hover:bg-brand-hover">{isEnglish ? "View booking" : "Visa bokning"}</Link></div></div>)}</div>}
         </article>
       </div>
 
-      <aside className="rounded-3xl bg-[#17452f] p-6 text-white">
-        <h3 className="text-xl font-bold">{isEnglish ? "Customer history" : "Kundhistorik"}</h3><p className="mt-3 text-sm leading-7 text-white/80">{isEnglish ? "Internal notes, booking events and other important customer history are collected here." : "Här samlas interna noteringar, bokningshändelser och annan viktig kundhistorik."}</p>
-        <div className="mt-5 space-y-3">{events.length === 0 ? <p className="rounded-2xl bg-white/10 p-4 text-sm text-white/80">{isEnglish ? "No events were found." : "Inga händelser hittades."}</p> : events.map((event) => <div key={event.id} className="rounded-2xl bg-white/10 p-4"><div className="flex items-center justify-between gap-3"><span className="rounded-full bg-white/15 px-3 py-1 text-xs font-semibold">{eventTypes[event.type as keyof typeof eventTypes] ?? event.type}</span><span className="text-xs text-white/70">{event.createdAt}</span></div><p className="mt-3 font-semibold">{event.title}</p><p className="mt-2 text-sm leading-6 text-white/80">{event.description}</p></div>)}</div>
+      <aside className="h-fit rounded-panel bg-brand-deep p-5 text-white shadow-lift sm:p-6 xl:sticky xl:top-24">
+        <p className="text-xs font-bold uppercase tracking-[0.12em] text-white/60">CRM timeline</p>
+        <h3 className="mt-2 text-xl font-bold">{isEnglish ? "Customer history" : "Kundhistorik"}</h3><p className="mt-3 text-sm leading-7 text-white/75">{isEnglish ? "Internal notes, booking events and other important customer history are collected here." : "Här samlas interna noteringar, bokningshändelser och annan viktig kundhistorik."}</p>
+        <div className="mt-5 space-y-3">{events.length === 0 ? <p className="rounded-card border border-white/10 bg-white/[0.06] p-4 text-sm text-white/75">{isEnglish ? "No events were found." : "Inga händelser hittades."}</p> : events.map((event) => <div key={event.id} className="rounded-card border border-white/10 bg-white/[0.07] p-4"><div className="flex items-center justify-between gap-3"><span className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white/85">{eventTypes[event.type as keyof typeof eventTypes] ?? event.type}</span><span className="text-xs text-white/60">{event.createdAt}</span></div><p className="mt-3 font-semibold text-white">{event.title}</p><p className="mt-2 text-sm leading-6 text-white/75">{event.description}</p></div>)}</div>
       </aside>
     </section>
   </div>;
