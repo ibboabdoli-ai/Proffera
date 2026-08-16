@@ -109,16 +109,18 @@ describe("workspace lead matching policy", () => {
     expect(buildWorkspaceLeadSuggestions(lead, [candidate({ serviceName: "Kontorsstädning", serviceCategory: "Företag" })], now)).toEqual([]);
   });
 
-  it("does not treat the company's primary city as a confirmed service area", () => {
-    const result = buildWorkspaceLeadSuggestions(
-      lead,
-      [candidate({ primaryCity: "Södertälje", serviceArea: "Stockholm" })],
-      now,
-    );
+  it("does not treat the company's primary city as a service area", () => {
+    expect(
+      buildWorkspaceLeadSuggestions(
+        lead,
+        [candidate({ primaryCity: "Södertälje", serviceArea: "Stockholm" })],
+        now,
+      ),
+    ).toEqual([]);
+  });
 
-    expect(result).toHaveLength(1);
-    expect(result[0]?.score).toBe(85);
-    expect(result[0]?.reasons).toEqual(["verifierat företag", "kategori", "tjänst"]);
+  it("fails closed for a local lead when the service area is missing", () => {
+    expect(buildWorkspaceLeadSuggestions(lead, [candidate({ serviceArea: "" })], now)).toEqual([]);
   });
 
   it("returns an empty result when no candidate satisfies every safety boundary", () => {

@@ -149,7 +149,7 @@ function serviceCompatibility(lead: LeadMatchInput, candidate: WorkspaceLeadCand
 }
 
 function locationMatches(lead: LeadMatchInput, candidate: WorkspaceLeadCandidate) {
-  // Registered/primary city describes the company, not where it has confirmed it serves customers.
+  // Registered/primary city describes the company, not where it has explicitly said it serves customers.
   return textsOverlap(candidate.serviceArea, lead.city);
 }
 
@@ -165,6 +165,10 @@ export function buildWorkspaceLeadSuggestions(
     const compatibility = serviceCompatibility(lead, candidate);
     if (!compatibility.compatible) continue;
 
+    const locationRequired = normalizeMatchText(lead.city).length > 0;
+    const locationMatched = locationMatches(lead, candidate);
+    if (locationRequired && !locationMatched) continue;
+
     let score = 60;
     const reasons = ["verifierat företag", "kategori"];
     if (compatibility.specific) {
@@ -174,7 +178,7 @@ export function buildWorkspaceLeadSuggestions(
       score += 15;
       reasons.push("tjänstekategori");
     }
-    if (locationMatches(lead, candidate)) {
+    if (locationMatched) {
       score += 15;
       reasons.push("område");
     }
