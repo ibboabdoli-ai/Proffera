@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import { getPublicBusinessHub } from "@/lib/public-business-hub";
 import { listPublicBusinessSitemapEntries } from "@/lib/public-business-seo";
 import { listPublishedDirectorySitemapEntries } from "@/lib/company-directory-seo";
+import { marketingServiceSlugs } from "@/lib/marketing-service-pages";
 import { primeViewAreaPages } from "@/lib/primeview-area-pages";
 import { primeViewSite } from "@/lib/primeview-seo";
 import { primeViewServicePages } from "@/lib/primeview-seo-pages";
@@ -12,7 +13,10 @@ import { resolvePublicCustomDomain } from "@/lib/public-site-domain-routing";
 import { hostnameFromHostHeader, isPlatformHost, isPrimeViewHost } from "@/lib/public-site-domains";
 import { siteConfig } from "@/lib/site";
 
-const swedishOnlyRoutes = ["/logga-in"] as const;
+const swedishOnlyRoutes = [
+  "/logga-in",
+  ...marketingServiceSlugs.map((slug) => `/tjanster/${slug}`),
+];
 const primeViewRoutes = [
   "/",
   "/services",
