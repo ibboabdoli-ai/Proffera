@@ -1,14 +1,38 @@
 import Link from "next/link";
-import { ArrowRight, MapPin, Navigation, ShieldCheck } from "lucide-react";
+import { ArrowRight, CalendarCheck2, FileText, Mail, MapPin, Navigation, ShieldCheck } from "lucide-react";
 
 import { directoryCopy, directoryPaths, directoryServiceLabel } from "@/components/company-directory/public-directory-copy";
 import { quoteRequestPaths } from "@/features/quote-request/localization";
-import type { PublishedDirectorySearchResponse } from "@/lib/company-directory-public-search";
+import type { PublishedDirectorySearchResponse, PublishedDirectorySearchResult } from "@/lib/company-directory-public-search";
 import type { PublicLocale } from "@/lib/public-locale";
 
 function compactDescription(value: string) {
   const clean = value.trim().replace(/\s+/g, " ");
   return clean.length <= 190 ? clean : `${clean.slice(0, 187).trimEnd()}…`;
+}
+
+function withWorkspaceLocale(path: string, locale: PublicLocale) {
+  return locale === "en" ? `${path}?lang=en` : path;
+}
+
+function marketplaceLinks(result: PublishedDirectorySearchResult, locale: PublicLocale) {
+  if (!result.claimedWorkspaceSlug || !result.claimedServiceSlug || !result.claimedServiceId) return null;
+
+  const workspaceSlug = encodeURIComponent(result.claimedWorkspaceSlug);
+  const serviceSlug = encodeURIComponent(result.claimedServiceSlug);
+  const companyHref = withWorkspaceLocale(`/foretag/${workspaceSlug}`, locale);
+  const serviceHref = withWorkspaceLocale(`/foretag/${workspaceSlug}/tjanster/${serviceSlug}`, locale);
+  const quoteHref = `${serviceHref}#offert`;
+  const contactHref = `${serviceHref}#kontaktforfragan`;
+  let bookingHref = "";
+
+  if (result.bookingAvailable && result.claimedBookingSlug) {
+    const query = new URLSearchParams({ service_id: result.claimedServiceId });
+    if (locale === "en") query.set("lang", "en");
+    bookingHref = `/boka/${encodeURIComponent(result.claimedBookingSlug)}?${query.toString()}`;
+  }
+
+  return { companyHref, serviceHref, quoteHref, contactHref, bookingHref };
 }
 
 export function PublicDirectoryResults({ locale, search }: { locale: PublicLocale; search: PublishedDirectorySearchResponse }) {
@@ -41,29 +65,47 @@ export function PublicDirectoryResults({ locale, search }: { locale: PublicLocal
       </div>
 
       <div className="mt-5 grid gap-3">
-        {search.results.map((result) => (
-          <article key={result.id} className="group min-w-0 overflow-hidden rounded-card border border-line bg-surface shadow-sm transition hover:-translate-y-0.5 hover:border-brand/20 hover:shadow-card">
-            <div className="grid min-w-0 sm:grid-cols-[5px_minmax(0,1fr)_auto]">
-              <div className="hidden bg-brand sm:block" aria-hidden="true" />
-              <div className="min-w-0 p-5 sm:p-6">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="rounded-full bg-brand-soft px-3 py-1 text-xs font-black text-brand">{directoryServiceLabel(result.matchedServiceSlug, result.matchedServiceLabel, locale)}</span>
-                  <span className="inline-flex items-center gap-1 rounded-full bg-surface-subtle px-3 py-1 text-xs font-bold text-body"><ShieldCheck className="h-3.5 w-3.5" /> {t.officialData}</span>
-                  {result.distanceKm !== null ? <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-3 py-1 text-xs font-black text-blue-800"><Navigation className="h-3.5 w-3.5" /> {t.away(result.distanceKm)}</span> : null}
+        {search.results.map((result) => {
+          const marketplace = marketplaceLinks(result, locale);
+          const canQuote = result.conversionMode === "quote" || result.conversionMode === "book_or_quote";
+          const canContact = result.conversionMode === "contact";
+          const hasPrimaryMarketplaceAction = Boolean(marketplace?.bookingHref || canQuote || canContact);
+
+          return (
+            <article key={result.id} className="group min-w-0 overflow-hidden rounded-card border border-line bg-surface shadow-sm transition hover:-translate-y-0.5 hover:border-brand/20 hover:shadow-card">
+              <div className="grid min-w-0 sm:grid-cols-[5px_minmax(0,1fr)_auto]">
+                <div className="hidden bg-brand sm:block" aria-hidden="true" />
+                <div className="min-w-0 p-5 sm:p-6">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="rounded-full bg-brand-soft px-3 py-1 text-xs font-black text-brand">{directoryServiceLabel(result.matchedServiceSlug, result.matchedServiceLabel, locale)}</span>
+                    <span className="inline-flex items-center gap-1 rounded-full bg-surface-subtle px-3 py-1 text-xs font-bold text-body"><ShieldCheck className="h-3.5 w-3.5" /> {t.officialData}</span>
+                    {marketplace ? <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-800"><ShieldCheck className="h-3.5 w-3.5" /> {t.profferaBusiness}</span> : null}
+                    {result.distanceKm !== null ? <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-3 py-1 text-xs font-black text-blue-800"><Navigation className="h-3.5 w-3.5" /> {t.away(result.distanceKm)}</span> : null}
+                  </div>
+                  <h3 className="mt-3 break-words text-xl font-black tracking-tight text-ink sm:text-2xl">{result.companyName}</h3>
+                  <p className="mt-2 flex items-center gap-2 text-sm text-body"><MapPin className="h-4 w-4 shrink-0 text-brand" /> {[result.postalCode, result.city].filter(Boolean).join(" ") || result.municipality || t.country}</p>
+                  {result.servesNearbyLocation ? <p className="mt-2 flex items-start gap-2 text-xs font-bold leading-5 text-brand"><ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {t.serviceAreaMatch}</p> : null}
+                  {result.activityDescription ? <div className="mt-4 max-w-3xl">{locale === "en" ? <p className="mb-1 text-[11px] font-black uppercase tracking-wide text-muted">{t.sourceDescription}</p> : null}<p lang="sv" className="break-words text-sm leading-6 text-muted">{compactDescription(result.activityDescription)}</p></div> : null}
                 </div>
-                <h3 className="mt-3 break-words text-xl font-black tracking-tight text-ink sm:text-2xl">{result.companyName}</h3>
-                <p className="mt-2 flex items-center gap-2 text-sm text-body"><MapPin className="h-4 w-4 shrink-0 text-brand" /> {[result.postalCode, result.city].filter(Boolean).join(" ") || result.municipality || t.country}</p>
-                {result.servesNearbyLocation ? <p className="mt-2 flex items-start gap-2 text-xs font-bold leading-5 text-brand"><ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {t.serviceAreaMatch}</p> : null}
-                {result.activityDescription ? <div className="mt-4 max-w-3xl">{locale === "en" ? <p className="mb-1 text-[11px] font-black uppercase tracking-wide text-muted">{t.sourceDescription}</p> : null}<p lang="sv" className="break-words text-sm leading-6 text-muted">{compactDescription(result.activityDescription)}</p></div> : null}
+                <div className="flex items-end p-5 pt-0 sm:items-center sm:p-6 sm:pl-2">
+                  {marketplace ? (
+                    <div className="grid w-full min-w-[150px] gap-2 sm:w-auto">
+                      {marketplace.bookingHref ? <Link href={marketplace.bookingHref} className="inline-flex min-h-11 items-center justify-center rounded-control bg-brand px-4 text-sm font-black text-white transition hover:bg-brand-strong"><CalendarCheck2 className="mr-2 h-4 w-4" />{t.book}</Link> : null}
+                      {canQuote ? <Link href={marketplace.quoteHref} className="inline-flex min-h-11 items-center justify-center rounded-control bg-brand px-4 text-sm font-black text-white transition hover:bg-brand-strong"><FileText className="mr-2 h-4 w-4" />{t.requestQuote}</Link> : null}
+                      {canContact ? <Link href={marketplace.contactHref} className="inline-flex min-h-11 items-center justify-center rounded-control bg-brand px-4 text-sm font-black text-white transition hover:bg-brand-strong"><Mail className="mr-2 h-4 w-4" />{t.contact}</Link> : null}
+                      {!hasPrimaryMarketplaceAction ? <Link href={marketplace.serviceHref} className="inline-flex min-h-11 items-center justify-center rounded-control bg-brand px-4 text-sm font-black text-white transition hover:bg-brand-strong">{t.viewService}<ArrowRight className="ml-2 h-4 w-4" /></Link> : null}
+                      <Link href={marketplace.companyHref} className="inline-flex min-h-10 items-center justify-center rounded-control border border-brand px-3 text-xs font-black text-brand transition hover:bg-brand-soft">{t.viewCompany}</Link>
+                    </div>
+                  ) : (
+                    <Link href={`${profileBase}/${encodeURIComponent(result.slug)}`} className="directory-profile-result-cta inline-flex min-h-11 w-full shrink-0 items-center justify-center rounded-control border border-brand px-4 text-sm font-black text-brand transition group-hover:bg-brand group-hover:text-white sm:w-auto">
+                      {t.viewProfile}<ArrowRight className="ml-2 h-4 w-4" />
+                    </Link>
+                  )}
+                </div>
               </div>
-              <div className="flex items-end p-5 pt-0 sm:items-center sm:p-6 sm:pl-2">
-                <Link href={`${profileBase}/${encodeURIComponent(result.slug)}`} className="directory-profile-result-cta inline-flex min-h-11 w-full shrink-0 items-center justify-center rounded-control border border-brand px-4 text-sm font-black text-brand transition group-hover:bg-brand group-hover:text-white sm:w-auto">
-                  {t.viewProfile}<ArrowRight className="ml-2 h-4 w-4" />
-                </Link>
-              </div>
-            </div>
-          </article>
-        ))}
+            </article>
+          );
+        })}
         {search.results.length === 0 ? <div className="rounded-card border border-line bg-surface p-6 text-sm leading-6 text-muted shadow-sm">{nearbyActive ? t.emptyNearby(search.radiusKm) : t.empty}</div> : null}
       </div>
     </section>
