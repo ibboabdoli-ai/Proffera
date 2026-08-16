@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
 
-import { sendLeadEmail } from "@/features/email/lead-email";
 import { getLeadMatches } from "@/features/matching/list";
 import { addOutboxRow } from "@/features/outbox/log";
 import { getAdminForArea } from "@/lib/admin-authorization";
 import { getSql } from "@/lib/db/server";
 
-const allowedMethods = new Set(["mailto", "brevo"]);
+const allowedMethods = new Set(["mailto"]);
 
 export async function POST(request: Request) {
   const admin = await getAdminForArea("quote_admin");
@@ -33,34 +32,23 @@ export async function POST(request: Request) {
     return NextResponse.redirect(url);
   }
 
-  if (method === "brevo") {
-    const matches = await getLeadMatches();
-    const leadMatch = matches.ok ? matches.matches.find((item) => item.lead.reference_id === leadRef) : null;
-    const company = leadMatch?.companies.find((item) => item.email.toLowerCase() === companyEmail);
+  const matches = await getLeadMatches();
+  const leadMatch = matches.ok ? matches.matches.find((item) => item.lead.reference_id === leadRef) : null;
+  const suggestion = leadMatch?.suggestions.find(
+    (item) => item.email.toLowerCase() === companyEmail && item.companyName === companyName,
+  );
 
-    if (!leadMatch || !company) {
-      url.searchParams.set("send", "not_found");
-      return NextResponse.redirect(url);
-    }
-
-    const sent = await sendLeadEmail({
-      leadRef: leadMatch.lead.reference_id,
-      companyName: company.company_name,
-      companyEmail: company.email,
-      category: leadMatch.lead.category,
-      serviceType: leadMatch.lead.service_type,
-      city: leadMatch.lead.city,
-      description: leadMatch.lead.description,
-    });
-
-    if (!sent.ok) {
-      url.searchParams.set("send", "email_error");
-      url.searchParams.set("message", sent.message.slice(0, 180));
-      return NextResponse.redirect(url);
-    }
+  if (!leadMatch || !suggestion) {
+    url.searchParams.set("send", "not_found");
+    return NextResponse.redirect(url);
   }
 
-  const logged = await addOutboxRow({ leadRef, companyName, companyEmail, method });
+  const logged = await addOutboxRow({
+    leadRef: leadMatch.lead.reference_id,
+    companyName: suggestion.companyName,
+    companyEmail: suggestion.email,
+    method: "mailto",
+  });
   if (!logged.ok) {
     url.searchParams.set("send", "log_error");
     return NextResponse.redirect(url);
@@ -75,15 +63,15 @@ export async function POST(request: Request) {
         ) values (
           ${admin.userId},
           'quote.lead_delivery_recorded',
-          ${`Lead delivery recorded for ${leadRef}`},
+          ${`Manual mailto delivery recorded for ${leadRef}`},
           null,
           ${JSON.stringify({
-            lead_ref: leadRef,
-            company_name: companyName,
-            company_email: companyEmail,
-            method,
+            lead_ref: leadMatch.lead.reference_id,
+            company_name: suggestion.companyName,
+            company_email: suggestion.email,
+            method: "mailto",
             duplicate: logged.duplicate,
-            email_sent: method === "brevo",
+            email_sent: false,
           })}::jsonb
         )
       `;
@@ -92,6 +80,6 @@ export async function POST(request: Request) {
     }
   }
 
-  url.searchParams.set("send", method === "brevo" ? "brevo_success" : "mailto_marked");
+  url.searchParams.set("send", "mailto_marked");
   return NextResponse.redirect(url);
 }
