@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { isCheckoutPlanKey } from "@/lib/billing-plans";
+import { resolveOwnerPostLoginPath } from "@/lib/owner-onboarding-routing";
 import { LoginForm } from "./LoginForm";
 
 export const metadata: Metadata = {
@@ -67,7 +68,11 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const locale: LoginLocale = first(params?.lang) === "en" ? "en" : "sv";
   const text = copy[locale];
   const selectedPlan = isCheckoutPlanKey(planValue) ? planValue : null;
-  const afterLoginPath = selectedPlan ? `/dashboard/installningar?plan=${selectedPlan}&lang=${locale}` : `/dashboard?lang=${locale}`;
+  const afterLoginPath = resolveOwnerPostLoginPath({
+    locale,
+    accountCreated: createdValue === "1",
+    selectedPlan,
+  });
 
   return (
     <main className="relative overflow-hidden bg-[#f7f7f4]" lang={locale === "sv" ? "sv" : "en"}>
