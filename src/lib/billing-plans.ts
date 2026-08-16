@@ -17,34 +17,36 @@ export const checkoutPlanDefinitions: Record<CheckoutPlanKey, Omit<CheckoutPlanO
   starter: {
     key: "starter",
     name: "Starter",
-    priceLabel: "Från 299 kr/mån",
+    priceLabel: "199 kr/mån",
     description: "Bokning, kontaktformulär och grundläggande leadlista.",
   },
   professional: {
     key: "professional",
     name: "Professional",
-    priceLabel: "Från 699 kr/mån",
+    priceLabel: "599 kr/mån",
     description: "Allt i Starter samt CRM och en samlad kundöversikt.",
   },
 };
 
 /**
- * These labels mirror the live Stripe Price currency options. They are display
- * values only: Stripe Checkout remains the final authority for the charge.
+ * The live recurring Stripe Prices are SEK-denominated. Checkout remains the
+ * authority for the final currency and amount, including any Stripe-hosted
+ * localisation/adaptive pricing that may be enabled separately.
+ * Keep these labels descriptive; never invent unsupported live Price currencies.
  */
 const checkoutPlanPriceLabels: Record<
   CheckoutPlanKey,
   Record<WorkspaceBillingCurrency, Record<CheckoutPlanLocale, string>>
 > = {
   starter: {
-    SEK: { sv: "Från 299 kr/mån", en: "From SEK 299/month" },
-    EUR: { sv: "Från 28 €/mån", en: "From €28/month" },
-    GBP: { sv: "Från £24/mån", en: "From £24/month" },
+    SEK: { sv: "199 kr/mån", en: "SEK 199/month" },
+    EUR: { sv: "199 kr/mån · slutlig valuta visas i kassan", en: "SEK 199/month · final currency shown at checkout" },
+    GBP: { sv: "199 kr/mån · slutlig valuta visas i kassan", en: "SEK 199/month · final currency shown at checkout" },
   },
   professional: {
-    SEK: { sv: "Från 699 kr/mån", en: "From SEK 699/month" },
-    EUR: { sv: "Från 64 €/mån", en: "From €64/month" },
-    GBP: { sv: "Från £55/mån", en: "From £55/month" },
+    SEK: { sv: "599 kr/mån", en: "SEK 599/month" },
+    EUR: { sv: "599 kr/mån · slutlig valuta visas i kassan", en: "SEK 599/month · final currency shown at checkout" },
+    GBP: { sv: "599 kr/mån · slutlig valuta visas i kassan", en: "SEK 599/month · final currency shown at checkout" },
   },
 };
 
