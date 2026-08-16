@@ -21,7 +21,7 @@ const validationCopy = {
     category: "Choose a category.", serviceTypeRequired: "Choose a service type.", serviceTypeLong: "The service type is too long.",
     cityRequired: "Enter a city.", cityLong: "The city name is too long.", postalRequired: "Enter a postal code.", postalLong: "The postal code is too long.",
     postalFormat: "The postal code may only contain numbers, spaces or hyphens.", descriptionShort: "Describe the job using at least 20 characters.", descriptionLong: "The description is too long.",
-    dateRequired: "Choose an approximate time.", dateLong: "The preferred time is too long.", nameRequired: "Enter a name.", nameLong: "The name is too long.",
+    dateRequired: "Choose an approximate time.", dateLong: "The preferred time is too long.", nameRequired: "Enter your name.", nameLong: "The name is too long.",
     emailInvalid: "Enter a valid email address.", emailLong: "The email address is too long.", phoneRequired: "Enter a phone number.", phoneLong: "The phone number is too long.",
     phoneFormat: "The phone number may only contain numbers, +, spaces or hyphens.", consent: "You must allow Proffera to process your details in order to handle the request.",
     serviceCategory: "Choose a service type that belongs to the selected category.",
