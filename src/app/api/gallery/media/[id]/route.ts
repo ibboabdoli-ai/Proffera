@@ -1,4 +1,11 @@
-import { getGalleryMediaBase64, getGalleryMediaMetadata } from "@/lib/website-gallery-db";
+import { put } from "@vercel/blob";
+
+import {
+  getGalleryMediaBase64,
+  getGalleryMediaMetadata,
+  updateGalleryMediaStorage,
+  type GalleryMediaMetadata,
+} from "@/lib/website-gallery-db";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 export const runtime = "nodejs";
@@ -26,6 +33,68 @@ function cacheHeaders(
   };
 }
 
+function externalRedirect(url: string, headers: Record<string, string>) {
+  return new Response(null, {
+    status: 307,
+    headers: {
+      ...headers,
+      Location: url,
+    },
+  });
+}
+
+function hasBlobCredentials() {
+  return Boolean(
+    process.env.BLOB_READ_WRITE_TOKEN ||
+      (process.env.VERCEL_OIDC_TOKEN && process.env.BLOB_STORE_ID),
+  );
+}
+
+async function migrateLegacyDatabaseMedia(
+  id: string,
+  media: GalleryMediaMetadata,
+): Promise<string | null> {
+  if (!media.storageKey.startsWith("database:") || !hasBlobCredentials()) return null;
+
+  try {
+    const mediaBase64 = await getGalleryMediaBase64(id);
+    if (!mediaBase64) return null;
+
+    const buffer = Buffer.from(mediaBase64, "base64");
+    const pathname = `gallery/migrated/${id}`;
+    const blob = await put(pathname, buffer, {
+      access: "public",
+      addRandomSuffix: false,
+      contentType: media.mimeType,
+    });
+
+    const updated = await updateGalleryMediaStorage(id, blob.url, pathname);
+    console.log(
+      JSON.stringify({
+        level: "info",
+        message: "Legacy gallery media migrated from Neon to Blob",
+        route: "/api/gallery/media/[id]",
+        mediaId: id,
+        bytes: media.bytes,
+        metadataUpdated: updated,
+      }),
+    );
+
+    return blob.url;
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        level: "error",
+        message: "Legacy gallery media Blob migration failed",
+        route: "/api/gallery/media/[id]",
+        mediaId: id,
+        error: error instanceof Error ? error.message : String(error),
+      }),
+    );
+    return null;
+  }
+}
+
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const media = await getGalleryMediaMetadata(id);
@@ -44,6 +113,16 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 
   const etag = `"gallery-${id}-${media.bytes}"`;
   const commonCacheHeaders = cacheHeaders(media.status, etag);
+
+  if (!media.storageKey.startsWith("database:") && media.publicUrl.startsWith("https://")) {
+    return externalRedirect(media.publicUrl, commonCacheHeaders);
+  }
+
+  const migratedUrl = await migrateLegacyDatabaseMedia(id, media);
+  if (migratedUrl) {
+    return externalRedirect(migratedUrl, commonCacheHeaders);
+  }
+
   if (media.status === "published" && request.headers.get("if-none-match") === etag) {
     return new Response(null, {
       status: 304,

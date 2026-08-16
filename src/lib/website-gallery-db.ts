@@ -29,6 +29,8 @@ export type GalleryMediaMetadata = {
   status: GalleryItem["status"];
   mimeType: string;
   bytes: number;
+  publicUrl: string;
+  storageKey: string;
 };
 
 export type GalleryMediaRecord = GalleryMediaMetadata & {
@@ -113,7 +115,7 @@ export async function getGalleryMediaMetadata(id: string): Promise<GalleryMediaM
   const sql = getSql();
   if (!sql) return null;
   const rows = await sql`
-    select workspace_id,status,mime_type,bytes
+    select workspace_id,status,mime_type,bytes,public_url,storage_key
     from website_gallery_items
     where id=${id}::uuid and media_data is not null
     limit 1
@@ -125,6 +127,8 @@ export async function getGalleryMediaMetadata(id: string): Promise<GalleryMediaM
     status: String(row.status) as GalleryItem["status"],
     mimeType: String(row.mime_type),
     bytes: Number(row.bytes ?? 0),
+    publicUrl: String(row.public_url),
+    storageKey: String(row.storage_key),
   };
 }
 
@@ -158,6 +162,19 @@ export async function getGalleryMedia(id: string): Promise<GalleryMediaRecord | 
   const mediaBase64 = await getGalleryMediaBase64(id);
   if (!mediaBase64) return null;
   return { ...metadata, mediaBase64 };
+}
+
+export async function updateGalleryMediaStorage(id: string, publicUrl: string, storageKey: string) {
+  if (!isGalleryMediaId(id) || !publicUrl.startsWith("https://") || !storageKey) return false;
+  const sql = getSql();
+  if (!sql) return false;
+  const rows = await sql`
+    update website_gallery_items
+    set public_url=${publicUrl},storage_key=${storageKey},updated_at=now()
+    where id=${id}::uuid and storage_key like 'database:%' and media_data is not null
+    returning id
+  `;
+  return Boolean(rows[0]?.id);
 }
 
 export async function updateGalleryItem(id: string, action: "publish" | "hide" | "delete") {
