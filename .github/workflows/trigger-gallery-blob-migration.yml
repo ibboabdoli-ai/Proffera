@@ -1,0 +1,44 @@
+name: Trigger gallery Blob migration
+
+on:
+  push:
+    branches:
+      - ops/trigger-gallery-blob-migration-20260816
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Trigger published gallery media migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          ids=(
+            59bb3b54-8a5c-4e98-9afa-805f696757b4
+            9ff2fe1d-a135-43c8-a762-f4c3db286000
+            43bb12e7-a2d5-4132-bec2-74e35976efca
+            3837ca50-77f5-41a6-85c4-0377ed00085e
+            7e1530e4-d6e0-4927-bef1-e1736f639b1f
+            6f71b634-2979-4152-bcca-61b2e8a559fa
+            0afd06b5-8f5d-4542-ba95-a4267455f0c8
+            0d2b919b-fccf-4872-9d69-6baf67a067fe
+            fd049e41-d262-4ed7-90e3-4cde6e9f9a70
+            14c7941f-be9b-4c4b-9f34-d222b5c92014
+            74cbddb2-c662-44d4-94b2-e2898cc7a552
+          )
+
+          for id in "${ids[@]}"; do
+            status="$(curl -sS -o /dev/null -w '%{http_code}' \
+              -H 'Range: bytes=0-0' \
+              -H 'Cache-Control: no-cache' \
+              "https://www.proffera.se/api/gallery/media/${id}?migrate=20260816")"
+            echo "${id} -> HTTP ${status}"
+            case "${status}" in
+              200|206|307|308) ;;
+              *) exit 1 ;;
+            esac
+          done
