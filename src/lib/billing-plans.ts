@@ -32,6 +32,7 @@ export const checkoutPlanDefinitions: Record<CheckoutPlanKey, Omit<CheckoutPlanO
  * The live recurring Stripe Prices are SEK-denominated. Checkout remains the
  * authority for the final currency and amount, including any Stripe-hosted
  * localisation/adaptive pricing that may be enabled separately.
+ * Keep these labels descriptive; never invent unsupported live Price currencies.
  */
 const checkoutPlanPriceLabels: Record<
   CheckoutPlanKey,
