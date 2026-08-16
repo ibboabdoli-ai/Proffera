@@ -71,7 +71,6 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
   const quoteHref = quoteRequestHref(locale, {
     categorySlug: business.categorySlug,
     serviceSlug: primaryServiceSlug,
-    city: business.city,
   });
   const radiusFormatter = new Intl.NumberFormat(locale === "en" ? "en-SE" : "sv-SE", { maximumFractionDigits: 1 });
 
