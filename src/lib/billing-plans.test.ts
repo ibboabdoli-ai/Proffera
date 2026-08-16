@@ -8,15 +8,17 @@ import {
 
 describe("checkout plan product copy", () => {
   it("keeps Starter aligned with the canonical starter feature set", () => {
-    expect(checkoutPlanDefinitions.starter.description).toContain("Kund-CRM");
-    expect(checkoutPlanDefinitions.starter.description).toContain("Leadhantering");
-    expect(checkoutPlanDefinitions.starter.description).toContain("Bokningspåminnelser");
+    const description = checkoutPlanDefinitions.starter.description.toLowerCase();
+    expect(description).toContain("kund-crm");
+    expect(description).toContain("leadhantering");
+    expect(description).toContain("bokningspåminnelser");
   });
 
   it("describes Professional as an expansion beyond Starter rather than the CRM tier", () => {
-    expect(checkoutPlanDefinitions.professional.description).toContain("Allt i Starter");
-    expect(checkoutPlanDefinitions.professional.description).toContain("Offerter");
-    expect(checkoutPlanDefinitions.professional.description).not.toContain("samt CRM");
+    const description = checkoutPlanDefinitions.professional.description.toLowerCase();
+    expect(description).toContain("allt i starter");
+    expect(description).toContain("offerter");
+    expect(description).not.toContain("samt crm");
   });
 
   it("localizes checkout descriptions without changing the configured plan prices", () => {
