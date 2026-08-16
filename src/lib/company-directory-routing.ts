@@ -1,6 +1,7 @@
 import "server-only";
 
 import { getSql } from "@/lib/db/server";
+import { hasWorkspaceFeatureAccessForWorkspace } from "@/lib/workspace-feature-entitlement-db";
 
 export async function getClaimedDirectoryWorkspaceSlug(directorySlug: string) {
   const slug = directorySlug.trim().toLowerCase();
@@ -9,7 +10,7 @@ export async function getClaimedDirectoryWorkspaceSlug(directorySlug: string) {
   if (!sql) return null;
 
   const rows = await sql`
-    select workspace.slug
+    select workspace.id::text as workspace_id, workspace.slug
     from company_directory_profiles profile
     join workspaces workspace on workspace.id = profile.claimed_workspace_id
     where profile.public_slug = ${slug}
@@ -19,6 +20,10 @@ export async function getClaimedDirectoryWorkspaceSlug(directorySlug: string) {
     limit 1
   `;
 
+  const workspaceId = String(rows[0]?.workspace_id ?? "").trim();
   const workspaceSlug = String(rows[0]?.slug ?? "").trim();
-  return workspaceSlug || null;
+  if (!workspaceId || !workspaceSlug) return null;
+
+  const websiteBuilder = await hasWorkspaceFeatureAccessForWorkspace(workspaceId, "website_builder");
+  return websiteBuilder ? workspaceSlug : null;
 }

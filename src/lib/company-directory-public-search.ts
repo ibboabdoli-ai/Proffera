@@ -3,6 +3,9 @@ import "server-only";
 import { normalizeDirectoryRadiusKm, parseDirectoryCoordinates } from "@/lib/company-directory-distance";
 import { getSql } from "@/lib/db/server";
 import { resolveDirectoryServiceQuery } from "@/lib/company-directory-service-taxonomy";
+import { hasWorkspaceFeatureAccessForWorkspace } from "@/lib/workspace-feature-entitlement-db";
+
+export type DirectoryMarketplaceConversionMode = "book" | "quote" | "book_or_quote" | "contact";
 
 export type PublishedDirectorySearchInput = {
   service?: string;
@@ -29,6 +32,12 @@ export type PublishedDirectorySearchResult = {
   distanceKm: number | null;
   serviceAreaRadiusKm: number | null;
   servesNearbyLocation: boolean;
+  claimedWorkspaceSlug: string | null;
+  claimedServiceId: string | null;
+  claimedServiceSlug: string | null;
+  claimedBookingSlug: string | null;
+  conversionMode: DirectoryMarketplaceConversionMode | null;
+  bookingAvailable: boolean;
 };
 
 export type PublishedDirectorySearchResponse = {
@@ -49,6 +58,12 @@ function boundedLimit(value: unknown, fallback = 30, maximum = 50) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(1, Math.min(maximum, Math.floor(parsed)));
+}
+
+function marketplaceConversionMode(value: unknown): DirectoryMarketplaceConversionMode | null {
+  return value === "book" || value === "quote" || value === "book_or_quote" || value === "contact"
+    ? value
+    : null;
 }
 
 export async function getPublishedDirectoryLocationSuggestions(limit = 50) {
@@ -88,6 +103,7 @@ export async function searchPublishedCompanyDirectory(
   const normalizedLocation = locationQuery.toLocaleLowerCase("sv-SE");
   const resolution = serviceQuery ? resolveDirectoryServiceQuery(serviceQuery) : null;
   const limit = boundedLimit(input.limit);
+  const queryLimit = Math.min(150, Math.max(limit, limit * 3));
   const coordinates = parseDirectoryCoordinates(input.latitude, input.longitude);
   const nearbyRequested = input.latitude !== undefined || input.longitude !== undefined;
   const nearbyEnabled = coordinates !== null;
@@ -118,6 +134,7 @@ export async function searchPublishedCompanyDirectory(
         profile.public_slug,
         profile.display_name,
         profile.category_slug,
+        profile.publication_status,
         relation.service_slug,
         service.label as service_label,
         profile.activity_description,
@@ -129,6 +146,12 @@ export async function searchPublishedCompanyDirectory(
         location.latitude::float8 as latitude,
         location.longitude::float8 as longitude,
         service_area.radius_km::float8 as service_area_radius_km,
+        claimed_workspace.id::text as claimed_workspace_id,
+        claimed_workspace.slug as claimed_workspace_slug,
+        nullif(trim(claimed_workspace.public_booking_slug), '') as claimed_booking_slug,
+        claimed_service.id::text as claimed_service_id,
+        claimed_service.public_slug as claimed_service_slug,
+        claimed_service.conversion_mode as claimed_service_conversion_mode,
         row_number() over (
           partition by profile.id
           order by service.label asc, relation.service_slug asc
@@ -141,6 +164,13 @@ export async function searchPublishedCompanyDirectory(
       join company_directory_services service
         on service.slug = relation.service_slug
        and service.is_active = true
+      left join workspaces claimed_workspace
+        on claimed_workspace.id = profile.claimed_workspace_id
+      left join workspace_services claimed_service
+        on claimed_service.workspace_id = profile.claimed_workspace_id::text
+       and claimed_service.is_active = true
+       and claimed_service.public_status = 'published'
+       and claimed_service.public_slug = relation.service_slug
       left join company_directory_business_locations location
         on location.profile_id = profile.id
        and location.is_public = true
@@ -154,7 +184,16 @@ export async function searchPublishedCompanyDirectory(
         order by case when area.service_slug = relation.service_slug then 0 else 1 end
         limit 1
       ) service_area on true
-      where profile.publication_status = 'published'
+      where (
+          profile.publication_status = 'published'
+          or (
+            profile.publication_status = 'claimed'
+            and profile.claimed_workspace_id is not null
+            and profile.published_at is not null
+            and profile.auto_public_eligible = true
+            and claimed_workspace.status in ('active', 'trial')
+          )
+        )
         and profile.is_active = true
         and profile.privacy_blocked = false
         and (${serviceSlug} = '' or relation.service_slug = ${serviceSlug})
@@ -197,8 +236,78 @@ export async function searchPublishedCompanyDirectory(
       case when ${nearbyEnabled} = true then distance_km end asc nulls last,
       quality_score desc,
       display_name asc
-    limit ${limit}
+    limit ${queryLimit}
   `;
+
+  const claimedWorkspaceIds = [...new Set(
+    rows
+      .filter((row) => String(row.publication_status) === "claimed")
+      .map((row) => String(row.claimed_workspace_id ?? ""))
+      .filter(Boolean),
+  )];
+  const workspaceAccessEntries = await Promise.all(
+    claimedWorkspaceIds.map(async (workspaceId) => {
+      const websiteBuilder = await hasWorkspaceFeatureAccessForWorkspace(workspaceId, "website_builder");
+      const onlineBooking = websiteBuilder
+        ? await hasWorkspaceFeatureAccessForWorkspace(workspaceId, "online_booking")
+        : false;
+      return [workspaceId, { websiteBuilder, onlineBooking }] as const;
+    }),
+  );
+  const workspaceAccess = new Map(workspaceAccessEntries);
+
+  const results = rows.map((row): PublishedDirectorySearchResult => {
+    const isClaimed = String(row.publication_status) === "claimed";
+    const claimedWorkspaceId = String(row.claimed_workspace_id ?? "");
+    const access = isClaimed ? workspaceAccess.get(claimedWorkspaceId) : null;
+    const conversionMode = marketplaceConversionMode(row.claimed_service_conversion_mode);
+    const marketplaceAvailable = Boolean(
+      isClaimed
+      && access?.websiteBuilder
+      && row.claimed_workspace_slug
+      && row.claimed_service_id
+      && row.claimed_service_slug
+      && conversionMode,
+    );
+
+    const distanceKm = row.distance_km === null || row.distance_km === undefined ? null : Number(row.distance_km);
+    const serviceAreaRadiusKm = row.service_area_radius_km === null || row.service_area_radius_km === undefined
+      ? null
+      : Number(row.service_area_radius_km);
+    const claimedBookingSlug = marketplaceAvailable ? String(row.claimed_booking_slug ?? "") || null : null;
+
+    return {
+      id: String(row.id),
+      slug: String(row.public_slug),
+      companyName: String(row.display_name),
+      categorySlug: String(row.category_slug),
+      matchedServiceSlug: String(row.service_slug),
+      matchedServiceLabel: String(row.service_label),
+      activityDescription: String(row.activity_description ?? ""),
+      addressLine1: String(row.address_line1 ?? ""),
+      postalCode: String(row.postal_code ?? ""),
+      city: String(row.city ?? ""),
+      municipality: String(row.municipality ?? ""),
+      qualityScore: Number(row.quality_score ?? 0),
+      distanceKm,
+      serviceAreaRadiusKm,
+      servesNearbyLocation: nearbyEnabled
+        && distanceKm !== null
+        && serviceAreaRadiusKm !== null
+        && distanceKm <= serviceAreaRadiusKm,
+      claimedWorkspaceSlug: marketplaceAvailable ? String(row.claimed_workspace_slug) : null,
+      claimedServiceId: marketplaceAvailable ? String(row.claimed_service_id) : null,
+      claimedServiceSlug: marketplaceAvailable ? String(row.claimed_service_slug) : null,
+      claimedBookingSlug,
+      conversionMode: marketplaceAvailable ? conversionMode : null,
+      bookingAvailable: Boolean(
+        marketplaceAvailable
+        && access?.onlineBooking
+        && claimedBookingSlug
+        && (conversionMode === "book" || conversionMode === "book_or_quote"),
+      ),
+    };
+  }).slice(0, limit);
 
   return {
     serviceQuery,
@@ -207,32 +316,6 @@ export async function searchPublishedCompanyDirectory(
     nearbyRequested,
     nearbyEnabled,
     radiusKm,
-    results: rows.map((row) => {
-      const distanceKm = row.distance_km === null || row.distance_km === undefined ? null : Number(row.distance_km);
-      const serviceAreaRadiusKm = row.service_area_radius_km === null || row.service_area_radius_km === undefined
-        ? null
-        : Number(row.service_area_radius_km);
-
-      return {
-        id: String(row.id),
-        slug: String(row.public_slug),
-        companyName: String(row.display_name),
-        categorySlug: String(row.category_slug),
-        matchedServiceSlug: String(row.service_slug),
-        matchedServiceLabel: String(row.service_label),
-        activityDescription: String(row.activity_description ?? ""),
-        addressLine1: String(row.address_line1 ?? ""),
-        postalCode: String(row.postal_code ?? ""),
-        city: String(row.city ?? ""),
-        municipality: String(row.municipality ?? ""),
-        qualityScore: Number(row.quality_score ?? 0),
-        distanceKm,
-        serviceAreaRadiusKm,
-        servesNearbyLocation: nearbyEnabled
-          && distanceKm !== null
-          && serviceAreaRadiusKm !== null
-          && distanceKm <= serviceAreaRadiusKm,
-      };
-    }),
+    results,
   };
 }

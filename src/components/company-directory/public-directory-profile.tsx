@@ -27,6 +27,10 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
     if (workspaceSlug) redirect(locale === "en" ? `/foretag/${encodeURIComponent(workspaceSlug)}?lang=en` : `/foretag/${encodeURIComponent(workspaceSlug)}`);
     notFound();
   }
+  if (business.publicationStatus === "claimed") {
+    const workspaceSlug = await getClaimedDirectoryWorkspaceSlug(slug);
+    if (workspaceSlug) redirect(locale === "en" ? `/foretag/${encodeURIComponent(workspaceSlug)}?lang=en` : `/foretag/${encodeURIComponent(workspaceSlug)}`);
+  }
 
   const extras = await getPublicDirectoryProfileExtras(business.id);
   const t = directoryProfileCopy[locale];
@@ -110,7 +114,7 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
                 <h1 className="mt-4 break-words text-3xl font-black tracking-[-0.035em] text-ink sm:text-5xl">{business.companyName}</h1>
                 {location ? <p className="mt-3 flex items-center gap-2 text-body"><MapPin className="h-4 w-4 text-brand" /> {location}</p> : null}
               </div>
-              {locale === "sv" ? (
+              {locale === "sv" && business.publicationStatus !== "claimed" ? (
                 <Link href={`/foretag/claim/${encodeURIComponent(business.slug)}`} className="inline-flex min-h-12 shrink-0 items-center justify-center rounded-control bg-brand px-5 font-black text-white transition hover:bg-brand-strong">
                   {t.claim}<ArrowRight className="ml-2 h-4 w-4" />
                 </Link>
