@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { Bot, CalendarPlus, LayoutList, UserRoundPlus, UserRoundSearch } from "lucide-react";
 
+import { DashboardMarketplaceReadiness } from "@/components/dashboard/dashboard-marketplace-readiness";
 import { DashboardDataPanel, DashboardMetricGrid, DashboardPageHeader } from "@/components/dashboard/dashboard-page-ui";
 import { getDashboardLeads, type DashboardLead } from "@/lib/dashboard-leads";
+import { getWorkspaceMarketplaceReadiness } from "@/lib/workspace-marketplace-readiness";
 import { hasDashboardModuleAccess } from "@/lib/workspace-module-access";
 
 export const dynamic = "force-dynamic";
@@ -94,10 +96,11 @@ export default async function LeadsPage({ searchParams }: { searchParams?: Promi
   const locale: DashboardLocale = langValue === "en" ? "en" : "sv";
   const text = copy[locale];
 
-  const [leads, canUseCrm, canUseBooking] = await Promise.all([
+  const [leads, canUseCrm, canUseBooking, marketplaceReadiness] = await Promise.all([
     getDashboardLeads(),
     hasDashboardModuleAccess("customer_crm"),
     hasDashboardModuleAccess("online_booking"),
+    getWorkspaceMarketplaceReadiness(),
   ]);
   const stats = getLeadStats(leads, locale);
 
@@ -121,6 +124,8 @@ export default async function LeadsPage({ searchParams }: { searchParams?: Promi
           </>
         }
       />
+
+      <DashboardMarketplaceReadiness readiness={marketplaceReadiness} locale={locale} />
 
       <DashboardMetricGrid items={stats} />
 
