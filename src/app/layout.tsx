@@ -5,8 +5,9 @@ import "./globals.css";
 import { AppShell } from "@/components/layout/app-shell";
 import { ServiceAiChatWidget } from "@/components/service-ai-chat-widget";
 import { PwaServiceWorker } from "@/components/pwa-service-worker";
+import { WebVitalsReporter } from "@/components/performance/web-vitals-reporter";
 import { siteConfig } from "@/lib/site";
-import { isPrimeViewHost } from "@/lib/public-site-domains";
+import { isPlatformHost, isPrimeViewHost } from "@/lib/public-site-domains";
 
 const hankenGrotesk = Hanken_Grotesk({
   subsets: ["latin"],
@@ -74,7 +75,9 @@ export const viewport: Viewport = {
 
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const requestHeaders = await headers();
-  const isCustomerSite = isPrimeViewHost(requestHeaders.get("host"));
+  const host = requestHeaders.get("host");
+  const isCustomerSite = isPrimeViewHost(host);
+  const isPlatformSite = isPlatformHost(host);
   const isEnglishPublicSite = requestHeaders.get("x-proffera-locale") === "en";
   const documentLanguage = isCustomerSite ? "en-GB" : isEnglishPublicSite ? "en" : "sv";
 
@@ -84,6 +87,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
         {isCustomerSite ? <main>{children}</main> : <AppShell>{children}</AppShell>}
         {!isCustomerSite && <PwaServiceWorker />}
         {!isCustomerSite && <ServiceAiChatWidget />}
+        {isPlatformSite && <WebVitalsReporter />}
       </body>
     </html>
   );
