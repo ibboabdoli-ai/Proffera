@@ -11,7 +11,7 @@ test.describe("public marketplace smoke", () => {
         name: "Vad behöver du hjälp med?",
       }),
     ).toBeVisible();
-    await expect(page.getByText("Sök tjänst och plats. Jämför företag, boka direkt eller begär offert.")).toBeVisible();
+    await expect(page.getByText("Hitta företag, boka tid eller få offerter – gratis.")).toBeVisible();
     await expect(page.getByRole("heading", { level: 2, name: "Populära tjänster" })).toBeVisible();
     await expect(page.getByRole("link", { name: /Frisör & barberare/ })).toBeVisible();
     await expect(page.getByRole("link", { name: /Elektriker/ })).toBeVisible();
@@ -41,7 +41,7 @@ test.describe("public marketplace smoke", () => {
         name: "What do you need help with?",
       }),
     ).toBeVisible();
-    await expect(page.getByText("Search by service and location. Compare businesses, book directly or request a quote.")).toBeVisible();
+    await expect(page.getByText("Find businesses, book an appointment or request quotes – free.")).toBeVisible();
     await expect(page.getByRole("heading", { level: 2, name: "Popular services" })).toBeVisible();
     await expect(page.getByRole("link", { name: /Hairdresser & barber/ })).toBeVisible();
     await expect(page.getByRole("link", { name: "For businesses" }).first()).toBeVisible();
