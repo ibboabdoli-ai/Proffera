@@ -7,6 +7,8 @@ import { autoPublishReadyHighConfidenceCompanyDirectoryBatch } from "@/lib/compa
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+const AUTOMATIC_QUEUE_CRON_BATCH_SIZE = 5;
+
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET;
   const authorization = request.headers.get("authorization");
@@ -36,7 +38,7 @@ export async function GET(request: Request) {
     const mode = process.env.COMPANY_DIRECTORY_DISCOVERY_MODE?.trim().toLowerCase();
     if (mode === "automatic") {
       const readyAutoPublish = await autoPublishReadyHighConfidenceCompanyDirectoryBatch();
-      const result = await processCompanyDirectoryDiscoveryQueue();
+      const result = await processCompanyDirectoryDiscoveryQueue(AUTOMATIC_QUEUE_CRON_BATCH_SIZE);
       return NextResponse.json({
         ok: true,
         mode: "automatic_queue",
