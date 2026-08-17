@@ -14,6 +14,7 @@ export function PublicDirectorySearchForm({
   radius = "25",
   serviceSuggestions,
   locationSuggestions,
+  tone = "dark",
 }: {
   locale: PublicLocale;
   service: string;
@@ -21,6 +22,7 @@ export function PublicDirectorySearchForm({
   radius?: string;
   serviceSuggestions: string[];
   locationSuggestions: string[];
+  tone?: "light" | "dark";
 }) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
@@ -70,13 +72,17 @@ export function PublicDirectorySearchForm({
     );
   }
 
+  const formClassName = tone === "light"
+    ? "mt-7 grid gap-3 rounded-panel border border-line bg-surface p-3 text-ink shadow-sm lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto]"
+    : "mt-8 grid gap-3 rounded-panel border border-white/10 bg-surface p-3 text-ink shadow-card lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto]";
+
   return (
     <div>
       <form
         ref={formRef}
         method="get"
         onSubmit={submitSearch}
-        className="mt-8 grid gap-3 rounded-panel border border-white/10 bg-surface p-3 text-ink shadow-card lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto]"
+        className={formClassName}
       >
         <label className="grid min-w-0 gap-1.5 text-xs font-black uppercase tracking-wide text-muted">
           {t.service}
@@ -114,7 +120,7 @@ export function PublicDirectorySearchForm({
           </datalist>
         </label>
 
-        <button type="submit" className="mt-auto inline-flex min-h-12 items-center justify-center gap-2 rounded-control bg-brand px-5 text-sm font-black text-white transition hover:bg-brand-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-brand-deep">
+        <button type="submit" className="mt-auto inline-flex min-h-12 items-center justify-center gap-2 rounded-control bg-brand px-5 text-sm font-black text-white transition hover:bg-brand-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-surface">
           <Search className="h-4 w-4" /> {t.search}
         </button>
 
@@ -127,7 +133,7 @@ export function PublicDirectorySearchForm({
           <Navigation className="h-4 w-4" /> {nearbyLoading ? t.loading : t.nearby}
         </button>
       </form>
-      {nearbyStatus ? <p role="status" className="mt-2 px-1 text-xs font-semibold text-white/75">{nearbyStatus}</p> : null}
+      {nearbyStatus ? <p role="status" className={`mt-2 px-1 text-xs font-semibold ${tone === "light" ? "text-muted" : "text-white/75"}`}>{nearbyStatus}</p> : null}
     </div>
   );
 }
