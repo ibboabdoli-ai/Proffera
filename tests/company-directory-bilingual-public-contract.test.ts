@@ -39,9 +39,10 @@ describe("bilingual public directory contract", () => {
     expect(shell).toContain("service: searchService");
   });
 
-  it("localizes result labels while preserving official Swedish source text", () => {
+  it("localizes comparison-card labels while keeping official Swedish source text on profiles", () => {
     expect(results).toContain("directoryServiceLabel");
-    expect(results).toContain('lang="sv"');
+    expect(results).toContain("t.verifiedDetails");
+    expect(results).not.toContain("result.activityDescription");
     expect(profile).toContain('lang="sv"');
   });
 
