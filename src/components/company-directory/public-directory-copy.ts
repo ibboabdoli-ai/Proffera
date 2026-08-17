@@ -25,6 +25,7 @@ export const directoryServiceLabelsEn: Record<string, string> = {
   flytthjalp: "Moving help",
   tradgardshjalp: "Gardening",
   hemservice: "Home services",
+  frisor: "Hairdresser / Barber",
 };
 
 const directoryServiceQueriesEn: Record<string, string> = {
@@ -50,6 +51,9 @@ const directoryServiceQueriesEn: Record<string, string> = {
   "moving help": "flytthjalp",
   gardening: "tradgardshjalp",
   "home services": "hemservice",
+  hairdresser: "frisor",
+  barber: "frisor",
+  "hairdresser / barber": "frisor",
 };
 
 function categoryLabelsForLocale(locale: PublicLocale): Record<string, string> {
@@ -64,6 +68,7 @@ export const directoryCategoryLabels: Record<PublicLocale, Record<string, string
 };
 
 export const popularDirectoryServices = [
+  { query: "frisor", sv: "Frisör", en: "Hairdresser" },
   { query: "vvs", sv: "Rörmokare", en: "Plumber" },
   { query: "elinstallation", sv: "Elektriker", en: "Electrician" },
   { query: "lokalvard", sv: "Städning", en: "Cleaning" },
@@ -78,8 +83,8 @@ export const directoryCopy = {
   sv: {
     language: "EN English", eyebrow: "Företagskatalog", title: "Hitta rätt företag för jobbet",
     intro: "Sök efter tjänst och ort, eller använd din position för att hitta publicerade företag nära dig.",
-    service: "Tjänst", servicePlaceholder: "t.ex. Rörmokare eller Fönsterputsning", location: "Ort",
-    locationPlaceholder: "t.ex. Stockholm", search: "Sök", nearby: "Nära mig", loading: "Hämtar…",
+    service: "Tjänst", servicePlaceholder: "t.ex. Frisör, elektriker eller städning", location: "Ort",
+    locationPlaceholder: "t.ex. Södertälje", search: "Sök", nearby: "Nära mig", loading: "Hämtar…",
     noGeo: "Din webbläsare stöder inte platsdelning.", locating: "Hämtar din position…",
     found: "Position hittad. Söker nära dig…", geoError: "Kunde inte läsa din position. Kontrollera webbläsarens platsbehörighet.",
     addressNotice: "Platsen i sökningen baseras på företagets registrerade adress. Det betyder inte automatiskt att företaget erbjuder tjänsten i hela området.",
@@ -99,8 +104,8 @@ export const directoryCopy = {
   en: {
     language: "SV Svenska", eyebrow: "Business directory", title: "Find the right company for the job",
     intro: "Search by service and location, or use your position to find published companies near you.",
-    service: "Service", servicePlaceholder: "e.g. Plumber or Window cleaning", location: "Location",
-    locationPlaceholder: "e.g. Stockholm", search: "Search", nearby: "Near me", loading: "Locating…",
+    service: "Service", servicePlaceholder: "e.g. Hairdresser, electrician or cleaning", location: "Location",
+    locationPlaceholder: "e.g. Södertälje", search: "Search", nearby: "Near me", loading: "Locating…",
     noGeo: "Your browser does not support location sharing.", locating: "Getting your position…",
     found: "Position found. Searching near you…", geoError: "We could not read your position. Check your browser location permission.",
     addressNotice: "Location search is based on the company's registered address. This does not automatically mean the company serves the entire area.",

@@ -67,6 +67,10 @@ export const serviceCategoryCatalog = {
     labels: { sv: "Hemservice", en: "Home services" },
     quoteCategories: ["Hemservice"],
   },
+  frisor: {
+    labels: { sv: "Frisör", en: "Hairdresser" },
+    quoteCategories: [],
+  },
 } as const satisfies Record<string, {
   labels: Record<"sv" | "en", string>;
   quoteCategories: readonly ServiceCatalogQuoteCategory[];

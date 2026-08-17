@@ -11,6 +11,7 @@ import {
 const supportedSniCodes = [
   "81.210",
   "81.221",
+  "96.210",
   "49.420",
   "43.210",
   "43.221",
@@ -51,12 +52,23 @@ describe("company directory service taxonomy", () => {
       serviceSlug: "fonsterputsning",
       categorySlug: "stadning",
     });
+    expect(resolveDirectoryServiceQuery("frisör")).toEqual({
+      kind: "service",
+      serviceSlug: "frisor",
+      categorySlug: "frisor",
+    });
+    expect(resolveDirectoryServiceQuery("barberare")).toEqual({
+      kind: "service",
+      serviceSlug: "frisor",
+      categorySlug: "frisor",
+    });
   });
 
   it("maps primary SNI to one broad defensible searchable service", () => {
     expect(mapPrimarySniToDirectorySearchService("81.210")).toBe("lokalvard");
     expect(mapPrimarySniToDirectorySearchService("81.221")).toBe("fonsterputsning");
     expect(mapPrimarySniToDirectorySearchService("96.910")).toBe("hemservice");
+    expect(mapPrimarySniToDirectorySearchService("96.210")).toBe("frisor");
     expect(mapPrimarySniToDirectorySearchService("43.221")).toBe("vvs");
     expect(mapPrimarySniToDirectorySearchService("43.210")).toBe("elinstallation");
   });

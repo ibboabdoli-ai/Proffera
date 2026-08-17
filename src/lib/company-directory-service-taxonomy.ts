@@ -21,6 +21,7 @@ export const DIRECTORY_SERVICE_CATEGORIES: DirectoryServiceCategoryDefinition[] 
   { slug: "flytt", label: "Flytt", aliases: ["flyttfirma", "flytthjälp", "flytthjalp"] },
   { slug: "tradgard", label: "Trädgård", aliases: ["trädgård", "tradgard", "trädgårdshjälp", "tradgardshjalp"] },
   { slug: "hemservice", label: "Hemservice", aliases: ["hushållsnära tjänster", "hushallsnara tjanster"] },
+  { slug: "frisor", label: "Frisör", aliases: ["frisör", "frisor", "barberare", "barber", "hårvård", "harvard"] },
 ];
 
 export const DIRECTORY_SERVICES: DirectoryServiceDefinition[] = [
@@ -45,6 +46,7 @@ export const DIRECTORY_SERVICES: DirectoryServiceDefinition[] = [
   { slug: "flytthjalp", categorySlug: "flytt", parentServiceSlug: null, label: "Flytthjälp", aliases: ["flyttfirma", "flytthjälp", "flytthjalp"] },
   { slug: "tradgardshjalp", categorySlug: "tradgard", parentServiceSlug: null, label: "Trädgårdshjälp", aliases: ["trädgård", "tradgard", "trädgårdshjälp", "tradgardshjalp"] },
   { slug: "hemservice", categorySlug: "hemservice", parentServiceSlug: null, label: "Hemservice", aliases: ["hemservice", "hushållsnära tjänster", "hushallsnara tjanster"] },
+  { slug: "frisor", categorySlug: "frisor", parentServiceSlug: null, label: "Frisör / Barberare", aliases: ["frisör", "frisor", "barberare", "barber", "hårvård", "harvard", "frisörsalong", "frisorsalong"] },
 ];
 
 function normalizeDirectorySearchTerm(value: string) {
@@ -86,6 +88,7 @@ export function mapPrimarySniToDirectorySearchService(value: string) {
   if (code === "81.210") return "lokalvard";
   if (code === "81.221") return "fonsterputsning";
   if (code === "96.910") return "hemservice";
+  if (code === "96.210") return "frisor";
   if (code === "49.420") return "flytthjalp";
   if (code === "43.210") return "elinstallation";
   if (code.startsWith("43.22")) return "vvs";
