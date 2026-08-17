@@ -41,7 +41,7 @@ export async function PublicDirectorySearchPage({ locale, searchParams }: { loca
             <p className="mt-2 max-w-2xl text-sm leading-6 text-muted sm:text-base">{t.intro}</p>
           </div>
           <div className="mt-5 max-w-5xl">
-            <PublicDirectorySearchForm locale={locale} service={service} location={location} radius={radius} serviceSuggestions={serviceSuggestions} locationSuggestions={locationSuggestions} tone="light" layout="hero" />
+            <PublicDirectorySearchForm locale={locale} service={service} location={location} radius={radius} nearbyActive={nearbyActive} serviceSuggestions={serviceSuggestions} locationSuggestions={locationSuggestions} tone="light" layout="hero" />
           </div>
         </div>
       </section>
