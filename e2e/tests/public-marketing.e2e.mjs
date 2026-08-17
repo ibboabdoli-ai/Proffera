@@ -1,29 +1,31 @@
 import { expect, test } from "@playwright/test";
 
-test.describe("public marketing smoke", () => {
-  test("Swedish root renders the primary customer-flow message", async ({ page }) => {
+test.describe("public marketplace smoke", () => {
+  test("Swedish root renders customer marketplace search and business escape hatch", async ({ page }) => {
     const response = await page.goto("/");
 
     expect(response?.ok()).toBeTruthy();
     await expect(
       page.getByRole("heading", {
         level: 1,
-        name: "Visa dina tjänster. Få in kunder. Hantera hela jobbet i Proffera.",
+        name: "Vad behöver du hjälp med?",
       }),
     ).toBeVisible();
-    await expect(page.getByRole("link", { name: "Starta gratis i 14 dagar" }).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "Sök" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "För företag" }).first()).toBeVisible();
   });
 
-  test("English root renders the matching English customer-flow message", async ({ page }) => {
+  test("English root renders matching customer marketplace search and business escape hatch", async ({ page }) => {
     const response = await page.goto("/en");
 
     expect(response?.ok()).toBeTruthy();
     await expect(
       page.getByRole("heading", {
         level: 1,
-        name: "Show your services. Win customers. Manage the whole job in Proffera.",
+        name: "What do you need help with?",
       }),
     ).toBeVisible();
-    await expect(page.getByRole("link", { name: "Start free 14-day trial" }).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "Search" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "For businesses" }).first()).toBeVisible();
   });
 });
