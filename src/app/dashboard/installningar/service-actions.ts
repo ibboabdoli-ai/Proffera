@@ -48,6 +48,16 @@ async function getServiceInput(formData: FormData) {
 
   if (!result.ok) redirectWithServiceError(result.error);
 
+  const serviceAreaConfirmed = formData.get("service_area_confirmed") === "on";
+  const radiusText = getFormText(formData, "service_area_radius_km");
+  const parsedRadius = radiusText ? Number(radiusText) : null;
+  const serviceAreaRadiusKm = parsedRadius !== null && Number.isFinite(parsedRadius) && parsedRadius > 0 && parsedRadius <= 300
+    ? parsedRadius
+    : null;
+  if (serviceAreaConfirmed && (!result.value.serviceArea.trim() || serviceAreaRadiusKm === null)) {
+    redirectWithServiceError("area");
+  }
+
   const workspaceSettings = await getDashboardWorkspaceSettings();
   const pricing = validateWorkspaceServicePrice({
     priceType: getFormText(formData, "price_type"),
@@ -61,6 +71,8 @@ async function getServiceInput(formData: FormData) {
     priceLabel: formatWorkspaceServicePrice(pricing.value, "sv"),
     priceType: pricing.value.priceType,
     priceAmountMinor: pricing.value.amountMinor,
+    serviceAreaRadiusKm,
+    serviceAreaConfirmed,
   };
 }
 
