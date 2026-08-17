@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   fetchScbCompanyRegistryEnrichment,
@@ -6,9 +6,26 @@ import {
   normalizeScbCompanyRegistryPayload,
 } from "./company-directory-scb-provider";
 
-afterEach(() => {
+const initialScbCompanyRegistryEnabled = process.env.SCB_COMPANY_REGISTRY_ENABLED;
+const initialScbCompanyRegistryBaseUrl = process.env.SCB_COMPANY_REGISTRY_BASE_URL;
+
+beforeEach(() => {
   delete process.env.SCB_COMPANY_REGISTRY_ENABLED;
   delete process.env.SCB_COMPANY_REGISTRY_BASE_URL;
+});
+
+afterEach(() => {
+  if (initialScbCompanyRegistryEnabled === undefined) {
+    delete process.env.SCB_COMPANY_REGISTRY_ENABLED;
+  } else {
+    process.env.SCB_COMPANY_REGISTRY_ENABLED = initialScbCompanyRegistryEnabled;
+  }
+
+  if (initialScbCompanyRegistryBaseUrl === undefined) {
+    delete process.env.SCB_COMPANY_REGISTRY_BASE_URL;
+  } else {
+    process.env.SCB_COMPANY_REGISTRY_BASE_URL = initialScbCompanyRegistryBaseUrl;
+  }
 });
 
 describe("SCB company registry provider", () => {
@@ -138,6 +155,16 @@ describe("SCB company registry provider", () => {
   it("pins the configured base URL to the official SCB host", () => {
     process.env.SCB_COMPANY_REGISTRY_ENABLED = "true";
     process.env.SCB_COMPANY_REGISTRY_BASE_URL = "https://evil.example/foretagsregistret/v1";
+
+    expect(getScbCompanyRegistryStatus()).toMatchObject({
+      enabled: true,
+      baseUrl: "https://api.scb.se/foretagsregistret/v1",
+    });
+  });
+
+  it("rejects userinfo even on the official SCB host", () => {
+    process.env.SCB_COMPANY_REGISTRY_ENABLED = "true";
+    process.env.SCB_COMPANY_REGISTRY_BASE_URL = "https://user:password@api.scb.se/foretagsregistret/v1";
 
     expect(getScbCompanyRegistryStatus()).toMatchObject({
       enabled: true,
