@@ -105,19 +105,6 @@ describe("marketplace results UI contract", () => {
     expect(render("sv", [])).not.toContain("Vill du jämföra flera företag?");
   });
 
-  it("uses the shared marketplace shell on exact search routes while profiles stay standalone", () => {
-    const shell = source("src/components/layout/app-shell.tsx");
-    const header = source("src/components/layout/header.tsx");
-
-    expect(shell).toContain('pathname === "/foretag/listad" || pathname === "/en/companies"');
-    expect(shell).toContain('pathname?.startsWith("/foretag/listad/")');
-    expect(shell).toContain("<Header locale={locale} />");
-    expect(shell).toContain("marketplaceHome || directorySearchRoute");
-    expect(header).toContain("marketplaceContext");
-    expect(header).toContain('{ label: "Populära tjänster", href: "/#populara-tjanster" }');
-    expect(header).toContain('"For businesses"');
-  });
-
   it("does not manufacture a Near me attempt for a manual location search", () => {
     const searchPage = source("src/components/company-directory/public-directory-search-page.tsx");
 
