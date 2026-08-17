@@ -47,7 +47,7 @@ test.describe("public marketplace smoke", () => {
     await expect(page.locator("footer")).toHaveCount(0);
   });
 
-  test("Nära mig navigates after geolocation succeeds", async ({ page, context }) => {
+  test("Nära mig fills Ort and manual location clears nearby mode", async ({ page, context }) => {
     await context.grantPermissions(["geolocation"]);
     await context.setGeolocation({ latitude: 59.329323, longitude: 18.068581 });
 
@@ -57,8 +57,9 @@ test.describe("public marketplace smoke", () => {
     await page.getByLabel("Tjänst").fill("VVS & rörmokare");
     await page.getByRole("button", { name: "Nära mig" }).click();
     await expect(page).toHaveURL(/\/foretag\/listad\?/);
+    await expect(page.getByLabel("Ort")).toHaveValue("Min plats");
 
-    const url = new URL(page.url());
+    let url = new URL(page.url());
     expect(url.pathname).toBe("/foretag/listad");
     expect(url.searchParams.get("service")).toBe("VVS & rörmokare");
     expect(url.searchParams.get("latitude")).toBe("59.329323");
@@ -66,6 +67,16 @@ test.describe("public marketplace smoke", () => {
     expect(url.searchParams.get("radius")).toBe("25");
     expect(url.searchParams.has("location")).toBe(false);
     await expect(page.getByText("Positionen kunde inte tolkas. Prova Nära mig igen eller sök med ort.")).toHaveCount(0);
+
+    await page.getByLabel("Ort").fill("STOCKHOLM");
+    await page.getByRole("button", { name: "Sök" }).click();
+    await expect(page).toHaveURL(/location=STOCKHOLM/);
+
+    url = new URL(page.url());
+    expect(url.searchParams.get("location")).toBe("STOCKHOLM");
+    expect(url.searchParams.has("latitude")).toBe(false);
+    expect(url.searchParams.has("longitude")).toBe(false);
+    expect(url.searchParams.has("radius")).toBe(false);
   });
 
   test("English root renders the simplified marketplace home and normalizes Hairdresser", async ({ page }) => {
@@ -103,7 +114,6 @@ test.describe("public marketplace smoke", () => {
 
   test("Swedish business route renders the marketplace-aware workspace proposition", async ({ page }) => {
     const response = await page.goto("/for-foretag");
-
     expect(response?.ok()).toBeTruthy();
     await expect(
       page.getByRole("heading", {
@@ -116,7 +126,6 @@ test.describe("public marketplace smoke", () => {
 
   test("English business route renders the matching workspace proposition", async ({ page }) => {
     const response = await page.goto("/en/for-business");
-
     expect(response?.ok()).toBeTruthy();
     await expect(
       page.getByRole("heading", {
