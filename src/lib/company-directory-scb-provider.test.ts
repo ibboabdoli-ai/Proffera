@@ -7,11 +7,9 @@ import {
 } from "./company-directory-scb-provider";
 
 const initialScbCompanyRegistryEnabled = process.env.SCB_COMPANY_REGISTRY_ENABLED;
-const initialScbCompanyRegistryBaseUrl = process.env.SCB_COMPANY_REGISTRY_BASE_URL;
 
 beforeEach(() => {
   delete process.env.SCB_COMPANY_REGISTRY_ENABLED;
-  delete process.env.SCB_COMPANY_REGISTRY_BASE_URL;
 });
 
 afterEach(() => {
@@ -19,12 +17,6 @@ afterEach(() => {
     delete process.env.SCB_COMPANY_REGISTRY_ENABLED;
   } else {
     process.env.SCB_COMPANY_REGISTRY_ENABLED = initialScbCompanyRegistryEnabled;
-  }
-
-  if (initialScbCompanyRegistryBaseUrl === undefined) {
-    delete process.env.SCB_COMPANY_REGISTRY_BASE_URL;
-  } else {
-    process.env.SCB_COMPANY_REGISTRY_BASE_URL = initialScbCompanyRegistryBaseUrl;
   }
 });
 
@@ -50,7 +42,7 @@ describe("SCB company registry provider", () => {
       status: "awaiting_access",
       data: null,
     });
-    expect(getScbCompanyRegistryStatus()).toMatchObject({
+    expect(getScbCompanyRegistryStatus()).toEqual({
       enabled: true,
       accessReady: false,
     });
@@ -150,25 +142,9 @@ describe("SCB company registry provider", () => {
     expect(result.status).toBe("ok");
     expect(transport.fetchCompany).toHaveBeenCalledWith("5563115707");
     expect(transport.fetchWorkplaces).toHaveBeenCalledWith("5563115707");
-  });
-
-  it("pins the configured base URL to the official SCB host", () => {
-    process.env.SCB_COMPANY_REGISTRY_ENABLED = "true";
-    process.env.SCB_COMPANY_REGISTRY_BASE_URL = "https://evil.example/foretagsregistret/v1";
-
-    expect(getScbCompanyRegistryStatus()).toMatchObject({
+    expect(getScbCompanyRegistryStatus(transport)).toEqual({
       enabled: true,
-      baseUrl: "https://api.scb.se/foretagsregistret/v1",
-    });
-  });
-
-  it("rejects userinfo even on the official SCB host", () => {
-    process.env.SCB_COMPANY_REGISTRY_ENABLED = "true";
-    process.env.SCB_COMPANY_REGISTRY_BASE_URL = "https://user:password@api.scb.se/foretagsregistret/v1";
-
-    expect(getScbCompanyRegistryStatus()).toMatchObject({
-      enabled: true,
-      baseUrl: "https://api.scb.se/foretagsregistret/v1",
+      accessReady: true,
     });
   });
 });
