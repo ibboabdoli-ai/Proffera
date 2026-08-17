@@ -9,8 +9,9 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
   const pathname = usePathname();
   const locale = getPublicLocale(pathname);
   const marketplaceHome = pathname === "/" || pathname === "/en";
-  const isDirectoryRoute = pathname?.startsWith("/foretag/listad")
-    || pathname?.startsWith("/en/companies");
+  const directorySearchRoute = pathname === "/foretag/listad" || pathname === "/en/companies";
+  const directoryProfileRoute = pathname?.startsWith("/foretag/listad/")
+    || pathname?.startsWith("/en/companies/");
   const isStandaloneRoute = pathname?.startsWith("/admin")
     || pathname?.startsWith("/dashboard")
     || pathname?.startsWith("/demo/")
@@ -18,19 +19,21 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
     || pathname?.startsWith("/foretag/")
     || pathname?.startsWith("/review/");
 
-  if (isDirectoryRoute) {
+  if (directoryProfileRoute) {
     return <>{children}</>;
   }
 
-  if (isStandaloneRoute) {
+  if (isStandaloneRoute && !directorySearchRoute) {
     return <main>{children}</main>;
   }
+
+  const marketplace = marketplaceHome || directorySearchRoute;
 
   return (
     <>
       <Header locale={locale} />
       <main>{children}</main>
-      <Footer locale={locale} marketplace={marketplaceHome} />
+      <Footer locale={locale} marketplace={marketplace} />
     </>
   );
 }
