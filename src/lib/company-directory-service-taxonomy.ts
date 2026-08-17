@@ -21,7 +21,7 @@ export const DIRECTORY_SERVICE_CATEGORIES: DirectoryServiceCategoryDefinition[] 
   { slug: "flytt", label: "Flytt", aliases: ["flyttfirma", "flytthjälp", "flytthjalp"] },
   { slug: "tradgard", label: "Trädgård", aliases: ["trädgård", "tradgard", "trädgårdshjälp", "tradgardshjalp"] },
   { slug: "hemservice", label: "Hemservice", aliases: ["hushållsnära tjänster", "hushallsnara tjanster"] },
-  { slug: "frisor", label: "Frisör", aliases: ["frisör", "frisor", "barberare", "barber", "hårvård", "harvard"] },
+  { slug: "frisor", label: "Frisör", aliases: ["frisör", "frisor", "barberare", "barber", "hairdresser", "hårvård", "harvard"] },
 ];
 
 export const DIRECTORY_SERVICES: DirectoryServiceDefinition[] = [
@@ -46,7 +46,7 @@ export const DIRECTORY_SERVICES: DirectoryServiceDefinition[] = [
   { slug: "flytthjalp", categorySlug: "flytt", parentServiceSlug: null, label: "Flytthjälp", aliases: ["flyttfirma", "flytthjälp", "flytthjalp"] },
   { slug: "tradgardshjalp", categorySlug: "tradgard", parentServiceSlug: null, label: "Trädgårdshjälp", aliases: ["trädgård", "tradgard", "trädgårdshjälp", "tradgardshjalp"] },
   { slug: "hemservice", categorySlug: "hemservice", parentServiceSlug: null, label: "Hemservice", aliases: ["hemservice", "hushållsnära tjänster", "hushallsnara tjanster"] },
-  { slug: "frisor", categorySlug: "frisor", parentServiceSlug: null, label: "Frisör / Barberare", aliases: ["frisör", "frisor", "barberare", "barber", "hårvård", "harvard", "frisörsalong", "frisorsalong"] },
+  { slug: "frisor", categorySlug: "frisor", parentServiceSlug: null, label: "Frisör / Barberare", aliases: ["frisör", "frisor", "barberare", "barber", "hairdresser", "hårvård", "harvard", "frisörsalong", "frisorsalong"] },
 ];
 
 function normalizeDirectorySearchTerm(value: string) {
