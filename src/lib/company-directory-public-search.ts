@@ -1,6 +1,10 @@
 import "server-only";
 
 import { normalizeDirectoryRadiusKm, parseDirectoryCoordinates } from "@/lib/company-directory-distance";
+import {
+  confirmedCompanyDirectoryServiceAreaCoversSearch,
+  normalizeCompanyDirectoryServiceAreaRadius,
+} from "@/lib/company-directory-service-area-policy";
 import { getSql } from "@/lib/db/server";
 import { resolveDirectoryServiceQuery } from "@/lib/company-directory-service-taxonomy";
 import { hasWorkspaceFeatureAccessForWorkspace } from "@/lib/workspace-feature-entitlement-db";
@@ -180,6 +184,7 @@ export async function searchPublishedCompanyDirectory(
         where area.profile_id = profile.id
           and area.public_visible = true
           and area.confirmed_at is not null
+          and area.radius_km between 1 and 300
           and (area.service_slug = relation.service_slug or area.service_slug is null)
         order by case when area.service_slug = relation.service_slug then 0 else 1 end
         limit 1
@@ -262,14 +267,13 @@ export async function searchPublishedCompanyDirectory(
     const access = isClaimed ? workspaceAccess.get(claimedWorkspaceId) : null;
     const conversionMode = marketplaceConversionMode(row.claimed_service_conversion_mode);
     const distanceKm = row.distance_km === null || row.distance_km === undefined ? null : Number(row.distance_km);
-    const serviceAreaRadiusKm = row.service_area_radius_km === null || row.service_area_radius_km === undefined
-      ? null
-      : Number(row.service_area_radius_km);
-    const servesNearbyLocation = nearbyEnabled
-      && distanceKm !== null
-      && serviceAreaRadiusKm !== null
-      && distanceKm <= serviceAreaRadiusKm;
-    const serviceAreaCoversSearch = serviceAreaRadiusKm !== null && (!nearbyEnabled || servesNearbyLocation);
+    const serviceAreaRadiusKm = normalizeCompanyDirectoryServiceAreaRadius(row.service_area_radius_km);
+    const serviceAreaCoversSearch = confirmedCompanyDirectoryServiceAreaCoversSearch({
+      radiusKm: serviceAreaRadiusKm,
+      nearbyEnabled,
+      distanceKm,
+    });
+    const servesNearbyLocation = nearbyEnabled && serviceAreaCoversSearch;
     const marketplaceAvailable = Boolean(
       isClaimed
       && access?.websiteBuilder
