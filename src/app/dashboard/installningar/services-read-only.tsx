@@ -70,10 +70,16 @@ function ServiceFields({ service, billingCurrency }: ServiceFieldsProps) {
 
       <details open className={sectionClass}>
         <summary className={summaryClass}>2. Pris och område</summary>
+        <p className="mt-2 text-xs leading-5 text-[#667168]">Marketplace använder bara ett område som företaget uttryckligen har bekräftat. Registrerad företagsadress räknas inte som serviceområde.</p>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           <label className="grid gap-2 text-sm font-semibold text-[#344139]">Pristyp<select name="price_type" className={fieldClass} defaultValue={pricing.type}><option value="fixed">Fast pris</option><option value="from">Från-pris</option><option value="quote">Pris efter offert</option></select></label>
           <label className="grid gap-2 text-sm font-semibold text-[#344139]">Belopp · {billingCurrency}<input name="price_amount" type="number" min={0} step="0.01" inputMode="decimal" className={fieldClass} defaultValue={pricing.amount} placeholder={pricing.type === "quote" ? "Lämna tomt för offert" : `Belopp i ${billingCurrency}`} /></label>
-          <label className="grid gap-2 text-sm font-semibold text-[#344139] md:col-span-2">Område<input name="service_area" type="text" maxLength={240} className={fieldClass} defaultValue={service?.serviceArea ?? ""} placeholder="Till exempel Södertälje och Stockholm" /></label>
+          <label className="grid gap-2 text-sm font-semibold text-[#344139]">Områdesnamn<input name="service_area" type="text" maxLength={240} className={fieldClass} defaultValue={service?.serviceArea ?? ""} placeholder="Till exempel Södertälje" /></label>
+          <label className="grid gap-2 text-sm font-semibold text-[#344139]">Radie, km<input name="service_area_radius_km" type="number" min={1} max={300} step={1} inputMode="numeric" className={fieldClass} defaultValue={service?.serviceAreaRadiusKm ?? 25} /></label>
+          <label className="flex items-start gap-3 rounded-2xl border border-[#cfe0d4] bg-white p-4 text-sm font-semibold text-[#344139] md:col-span-2">
+            <input name="service_area_confirmed" type="checkbox" defaultChecked={service?.serviceAreaConfirmed ?? false} className="mt-1" />
+            <span>Jag bekräftar att företaget faktiskt arbetar inom den här radien från företagets publika plats.<span className="mt-1 block text-xs font-normal leading-5 text-[#667168]">Bekräftelsen används bara för en aktiv och publicerad tjänst som är kopplad till företagets verifierade Directory-profil.</span></span>
+          </label>
         </div>
       </details>
 
@@ -161,7 +167,7 @@ export async function ServicesReadOnly({ services }: ServicesReadOnlyProps) {
                   <div className="grid justify-items-end gap-1"><span className="rounded-full bg-[#e7f1eb] px-3 py-1 text-xs font-semibold text-[#17452f]">{service.isActive ? "Aktiv" : "Inaktiv"}</span><span className="rounded-full bg-[#eef3ff] px-3 py-1 text-xs font-semibold text-[#355a92]">{publicationLabels[service.publicStatus]}</span></div>
                 </div>
                 <p className="mt-4 line-clamp-3 min-h-[3rem] text-sm leading-6 text-[#5b665f]">{visibleValue(service.shortDescription || service.description)}</p>
-                <div className="mt-5 grid gap-2 text-sm text-[#5b665f]"><p><strong className="text-[#17201a]">Pris:</strong> {displayPrice(service, billingCurrency)}</p><p><strong className="text-[#17201a]">Längd:</strong> {formatDuration(service.durationMinutes)}</p><p><strong className="text-[#17201a]">Kundåtgärd:</strong> {conversionLabels[service.conversionMode]}</p><p><strong className="text-[#17201a]">Område:</strong> {visibleValue(service.serviceArea)}</p></div>
+                <div className="mt-5 grid gap-2 text-sm text-[#5b665f]"><p><strong className="text-[#17201a]">Pris:</strong> {displayPrice(service, billingCurrency)}</p><p><strong className="text-[#17201a]">Längd:</strong> {formatDuration(service.durationMinutes)}</p><p><strong className="text-[#17201a]">Kundåtgärd:</strong> {conversionLabels[service.conversionMode]}</p><p><strong className="text-[#17201a]">Område:</strong> {visibleValue(service.serviceArea)}</p><p><strong className="text-[#17201a]">Marketplace-område:</strong> {service.serviceAreaConfirmed && service.serviceAreaRadiusKm !== null ? `Bekräftat · ${service.serviceAreaRadiusKm} km` : "Inte bekräftat"}</p></div>
                 <details className="mt-5 rounded-2xl bg-white p-4 ring-1 ring-[#dfe5dd]"><summary className="cursor-pointer text-sm font-black text-[#17201a]">Redigera tjänst</summary><form action={updateWorkspaceServiceAction} className="mt-5 space-y-4"><input type="hidden" name="service_id" value={service.id} /><ServiceFields service={service} billingCurrency={billingCurrency} /><button type="submit" className="inline-flex w-full items-center justify-center rounded-full bg-[#17452f] px-6 py-3 text-sm font-semibold !text-white transition hover:bg-[#123824] focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2">Spara tjänst</button></form></details>
               </div>
             </article>

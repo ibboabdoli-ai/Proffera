@@ -55,7 +55,7 @@ export async function getWorkspaceMarketplaceReadiness(): Promise<WorkspaceMarke
         isActive: service.isActive,
         publicStatus: service.publicStatus,
         conversionMode: service.conversionMode,
-        serviceArea: service.serviceArea,
+        serviceArea: service.serviceAreaConfirmed && service.serviceAreaRadiusKm !== null ? service.serviceArea : "",
       })),
     });
 

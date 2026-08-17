@@ -43,9 +43,11 @@ describe("public company directory search contract", () => {
     expect(searchSource).toContain("company_directory_service_areas");
     expect(searchSource).toContain("area.public_visible = true");
     expect(searchSource).toContain("area.confirmed_at is not null");
+    expect(searchSource).toContain("area.radius_km between 1 and 300");
     expect(searchSource).toContain("area.service_slug = relation.service_slug or area.service_slug is null");
     expect(searchSource).toContain("case when area.service_slug = relation.service_slug then 0 else 1 end");
-    expect(searchSource).toContain("distanceKm <= serviceAreaRadiusKm");
+    expect(searchSource).toContain("confirmedCompanyDirectoryServiceAreaCoversSearch");
+    expect(searchSource).toContain("const servesNearbyLocation = nearbyEnabled && serviceAreaCoversSearch");
     expect(resultsSource).toContain("result.servesNearbyLocation");
     expect(copySource).toContain("bekräftade serviceområde");
     expect(copySource).toContain("confirmed service area");
