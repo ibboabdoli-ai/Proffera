@@ -15,6 +15,7 @@ export function PublicDirectorySearchForm({
   serviceSuggestions,
   locationSuggestions,
   tone = "dark",
+  layout = "default",
 }: {
   locale: PublicLocale;
   service: string;
@@ -23,6 +24,7 @@ export function PublicDirectorySearchForm({
   serviceSuggestions: string[];
   locationSuggestions: string[];
   tone?: "light" | "dark";
+  layout?: "default" | "hero";
 }) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
@@ -72,9 +74,19 @@ export function PublicDirectorySearchForm({
     );
   }
 
-  const formClassName = tone === "light"
-    ? "mt-7 grid gap-3 rounded-panel border border-line bg-surface p-3 text-ink shadow-sm lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto]"
-    : "mt-8 grid gap-3 rounded-panel border border-white/10 bg-surface p-3 text-ink shadow-card lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto]";
+  const isHero = layout === "hero";
+  const formClassName = isHero
+    ? "grid gap-2 rounded-2xl border border-line bg-surface p-2 shadow-card sm:grid-cols-2 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.9fr)_auto_auto]"
+    : tone === "light"
+      ? "mt-7 grid gap-3 rounded-panel border border-line bg-surface p-3 text-ink shadow-sm lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto]"
+      : "mt-8 grid gap-3 rounded-panel border border-white/10 bg-surface p-3 text-ink shadow-card lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto]";
+  const labelClassName = isHero
+    ? "min-w-0"
+    : "grid min-w-0 gap-1.5 text-xs font-black uppercase tracking-wide text-muted";
+  const labelTextClassName = isHero ? "sr-only" : undefined;
+  const inputClassName = isHero
+    ? "min-h-14 w-full rounded-xl border border-line bg-white pl-11 pr-4 text-base font-semibold normal-case tracking-normal text-ink outline-none transition placeholder:font-medium placeholder:text-muted/75 focus:border-brand focus:ring-2 focus:ring-brand/10"
+    : "min-h-12 w-full rounded-control border border-line bg-surface-subtle pl-10 pr-4 text-sm font-semibold normal-case tracking-normal text-ink outline-none transition placeholder:text-muted/70 focus:border-brand focus:bg-surface focus:ring-2 focus:ring-brand/10";
 
   return (
     <div>
@@ -84,17 +96,17 @@ export function PublicDirectorySearchForm({
         onSubmit={submitSearch}
         className={formClassName}
       >
-        <label className="grid min-w-0 gap-1.5 text-xs font-black uppercase tracking-wide text-muted">
-          {t.service}
+        <label className={labelClassName}>
+          <span className={labelTextClassName}>{t.service}</span>
           <div className="relative">
-            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+            <Search className={`pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted ${isHero ? "h-5 w-5" : "h-4 w-4"}`} />
             <input
               name="service"
               defaultValue={service}
               list={`directory-service-suggestions-${locale}`}
               autoComplete="off"
               placeholder={t.servicePlaceholder}
-              className="min-h-12 w-full rounded-control border border-line bg-surface-subtle pl-10 pr-4 text-sm font-semibold normal-case tracking-normal text-ink outline-none transition placeholder:text-muted/70 focus:border-brand focus:bg-surface focus:ring-2 focus:ring-brand/10"
+              className={inputClassName}
             />
           </div>
           <datalist id={`directory-service-suggestions-${locale}`}>
@@ -102,17 +114,17 @@ export function PublicDirectorySearchForm({
           </datalist>
         </label>
 
-        <label className="grid min-w-0 gap-1.5 text-xs font-black uppercase tracking-wide text-muted">
-          {t.location}
+        <label className={labelClassName}>
+          <span className={labelTextClassName}>{t.location}</span>
           <div className="relative">
-            <MapPin className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+            <MapPin className={`pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted ${isHero ? "h-5 w-5" : "h-4 w-4"}`} />
             <input
               name="location"
               defaultValue={location}
               list={`directory-location-suggestions-${locale}`}
               autoComplete="off"
               placeholder={t.locationPlaceholder}
-              className="min-h-12 w-full rounded-control border border-line bg-surface-subtle pl-10 pr-4 text-sm font-semibold normal-case tracking-normal text-ink outline-none transition placeholder:text-muted/70 focus:border-brand focus:bg-surface focus:ring-2 focus:ring-brand/10"
+              className={inputClassName}
             />
           </div>
           <datalist id={`directory-location-suggestions-${locale}`}>
@@ -120,7 +132,7 @@ export function PublicDirectorySearchForm({
           </datalist>
         </label>
 
-        <button type="submit" className="mt-auto inline-flex min-h-12 items-center justify-center gap-2 rounded-control bg-brand px-5 text-sm font-black text-white transition hover:bg-brand-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-surface">
+        <button type="submit" className={`${isHero ? "min-h-14 rounded-xl px-6 text-base" : "mt-auto min-h-12 rounded-control px-5 text-sm"} inline-flex items-center justify-center gap-2 bg-brand font-black text-white transition hover:bg-brand-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-surface`}>
           <Search className="h-4 w-4" /> {t.search}
         </button>
 
@@ -128,12 +140,12 @@ export function PublicDirectorySearchForm({
           type="button"
           onClick={useNearby}
           disabled={nearbyLoading}
-          className="mt-auto inline-flex min-h-12 items-center justify-center gap-2 rounded-control border border-line bg-brand-soft px-4 text-sm font-black text-brand transition hover:border-brand/30 hover:bg-brand-soft/70 disabled:cursor-wait disabled:opacity-60"
+          className={`${isHero ? "min-h-14 rounded-xl px-5 text-base" : "mt-auto min-h-12 rounded-control px-4 text-sm"} inline-flex items-center justify-center gap-2 border border-line bg-brand-soft font-black text-brand transition hover:border-brand/30 hover:bg-brand-soft/70 disabled:cursor-wait disabled:opacity-60`}
         >
           <Navigation className="h-4 w-4" /> {nearbyLoading ? t.loading : t.nearby}
         </button>
       </form>
-      {nearbyStatus ? <p role="status" className={`mt-2 px-1 text-xs font-semibold ${tone === "light" ? "text-muted" : "text-white/75"}`}>{nearbyStatus}</p> : null}
+      {nearbyStatus ? <p role="status" className={`mt-2 px-1 text-xs font-semibold ${tone === "light" || isHero ? "text-muted" : "text-white/75"}`}>{nearbyStatus}</p> : null}
     </div>
   );
 }
