@@ -18,17 +18,16 @@ describe("marketplace-first homepage contract", () => {
     expect(home).toContain("Hitta företag, boka tid eller få offerter – gratis.");
     expect(home).toContain("PublicDirectorySearchForm");
     expect(home).toContain("getPublishedDirectoryLocationSuggestions");
-    expect(home).toContain("DIRECTORY_SERVICES");
+    expect(home).toContain("serviceSuggestions = t.categories.map");
     expect(home).toContain("directoryPaths[locale]");
   });
 
-  it("shows only real next-step concepts from the marketplace model", () => {
+  it("keeps the three real marketplace next steps visible without a heavy explanatory section", () => {
     const home = source("src/components/marketplace/marketplace-home.tsx");
 
-    expect(home).toContain('title: "Boka tid"');
-    expect(home).toContain('title: "Begär offert"');
-    expect(home).toContain('title: "Se företag"');
+    expect(home).toContain("Boka tid · Begär offert · Se företag");
     expect(home).toContain("Företagsuppgifter verifierade");
+    expect(home).not.toContain("En marknadsplats, tre vägar vidare");
   });
 
   it("keeps business owners on a separate For business path", () => {
@@ -67,10 +66,11 @@ describe("marketplace-first homepage contract", () => {
     const home = source("src/components/marketplace/marketplace-home.tsx");
 
     expect(home).toContain("bg-canvas");
+    expect(home).toContain("bg-brand-tint");
     expect(home).toContain("bg-brand-deep");
     expect(home).toContain("text-ink");
     expect(home).toContain("border-line");
-    expect(home).toContain("rounded-panel");
-    expect(home).not.toMatch(/#(?:17452f|17201a|dfe5dd|f6f8f4|102a1c)/i);
+    expect(home).toContain("rounded-2xl");
+    expect(home).not.toMatch(/#(?:17452f|17201a|dfe5dd|f6f8f4|102a1c|f7f8f4)/i);
   });
 });
