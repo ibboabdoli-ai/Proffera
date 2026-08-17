@@ -32,10 +32,13 @@ describe("bilingual quote request contract", () => {
 
   it("keeps the directory CTA honest about generic matching", () => {
     const results = source("src/components/company-directory/public-directory-results.tsx");
+    const copy = source("src/components/company-directory/public-directory-copy.ts");
     const persistence = source("src/features/quote-request/persistence.ts");
-    expect(results).toContain("match it with suitable companies");
-    expect(results).toContain("Get quotes");
-    expect(results).toContain("Få offerter");
+    expect(results).toContain("quoteRequestPaths[locale]");
+    expect(copy).toContain("hjälp att hitta lämpliga företag");
+    expect(copy).toContain("help finding suitable businesses");
+    expect(copy).toContain('getQuotes: "Få offerter"');
+    expect(copy).toContain('getQuotes: "Get quotes"');
     expect(persistence).not.toContain("target_company");
   });
 });
