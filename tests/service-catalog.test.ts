@@ -63,19 +63,20 @@ describe("central service catalog", () => {
     expect(quoteCategoryLabel("Renovering", "en")).toBe("Renovation");
   });
 
-  it("does not invent a Quote category for booking-first hairdresser services", () => {
+  it("keeps hairdresser booking-first in the central catalog", () => {
     expect(serviceCategoryCatalog.frisor.quoteCategories).toEqual([]);
     expect(serviceCategoryForQuoteCategory("Renovering")).toBeNull();
     expect(serviceCategoryForQuoteCategory("Flytthjälp")).toBe("flytt");
   });
 
-  it("keeps SNI mapping labels sourced from the same catalog", () => {
+  it("keeps SNI mapping identity and labels sourced from the same catalog", () => {
     expect(mapSniToDirectoryCategory("81.210")).toEqual({
       categorySlug: "stadning",
       categoryLabel: "Städning",
       serviceSlugs: [],
     });
     expect(mapSniToDirectoryCategory("43.221")?.categoryLabel).toBe(serviceCategoryLabel("vvs", "sv"));
+    expect(mapSniToDirectoryCategory("96.210")?.categorySlug).toBe("frisor");
     expect(mapSniToDirectoryCategory("96.210")?.categoryLabel).toBe(serviceCategoryLabel("frisor", "sv"));
   });
 });
