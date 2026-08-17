@@ -3,7 +3,7 @@ import "server-only";
 // Official Bolagsverket TEST/accept2 identifiers from
 // "Testdata API Värdefulla datamängder" v1.01 (2025-06-24), supplied for
 // /organisationer testing. Keep this list limited to documented 10-digit TEST
-// organisation numbers; never guess identifiers or include personal identity numbers.
+// organisation numbers; never guess organisation numbers or include personal identity numbers.
 export const BOLAGSVERKET_VDM_TEST_ORGANIZATION_NUMBERS = [
   "5560021361",
   "9124001992",
