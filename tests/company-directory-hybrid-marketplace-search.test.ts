@@ -68,7 +68,7 @@ describe("hybrid directory marketplace search", () => {
     expect(resultsSource).toContain("/boka/${encodeURIComponent(result.claimedBookingSlug)}");
     expect(resultsSource).toContain("${profileBase}/${encodeURIComponent(result.slug)}");
     expect(copySource).toContain('requestQuote: "Begär offert"');
-    expect(copySource).toContain('book: "Boka"');
+    expect(copySource).toContain('book: "Boka tid"');
     expect(copySource).toContain('contact: "Kontakta"');
   });
 });
