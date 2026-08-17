@@ -12,6 +12,7 @@ export function PublicDirectorySearchForm({
   service,
   location,
   radius = "25",
+  nearbyActive = false,
   serviceSuggestions,
   locationSuggestions,
   tone = "dark",
@@ -21,6 +22,7 @@ export function PublicDirectorySearchForm({
   service: string;
   location: string;
   radius?: string;
+  nearbyActive?: boolean;
   serviceSuggestions: string[];
   locationSuggestions: string[];
   tone?: "light" | "dark";
@@ -28,19 +30,35 @@ export function PublicDirectorySearchForm({
 }) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
-  const [nearbyStatus, setNearbyStatus] = useState("");
-  const [nearbyLoading, setNearbyLoading] = useState(false);
   const t = directoryCopy[locale];
   const searchPath = directoryPaths[locale].search;
+  const nearbyLocationLabel = locale === "sv" ? "Min plats" : "My location";
+  const [locationValue, setLocationValue] = useState(nearbyActive ? nearbyLocationLabel : location);
+  const [usingNearby, setUsingNearby] = useState(nearbyActive);
+  const [nearbyStatus, setNearbyStatus] = useState("");
+  const [nearbyLoading, setNearbyLoading] = useState(false);
 
   function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
     const params = new URLSearchParams();
     const serviceValue = normalizeDirectoryPublicServiceQuery(String(formData.get("service") ?? ""), locale);
-    const locationValue = String(formData.get("location") ?? "").trim();
     if (serviceValue) params.set("service", serviceValue);
-    if (locationValue) params.set("location", locationValue);
+
+    if (usingNearby) {
+      const currentParams = new URLSearchParams(window.location.search);
+      const latitude = currentParams.get("latitude");
+      const longitude = currentParams.get("longitude");
+      if (latitude && longitude) {
+        params.set("latitude", latitude);
+        params.set("longitude", longitude);
+        params.set("radius", radius);
+      }
+    } else {
+      const manualLocation = locationValue.trim();
+      if (manualLocation) params.set("location", manualLocation);
+    }
+
     router.push(params.size ? `${searchPath}?${params.toString()}` : searchPath);
   }
 
@@ -63,6 +81,8 @@ export function PublicDirectorySearchForm({
         params.set("longitude", position.coords.longitude.toFixed(6));
         params.set("radius", radius);
         const target = `${searchPath}?${params.toString()}`;
+        setLocationValue(nearbyLocationLabel);
+        setUsingNearby(true);
         setNearbyStatus(t.found);
         window.location.assign(target);
       },
@@ -120,7 +140,12 @@ export function PublicDirectorySearchForm({
             <MapPin className={`pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted ${isHero ? "h-5 w-5" : "h-4 w-4"}`} />
             <input
               name="location"
-              defaultValue={location}
+              value={locationValue}
+              onChange={(event) => {
+                setLocationValue(event.target.value);
+                setUsingNearby(false);
+                setNearbyStatus("");
+              }}
               list={`directory-location-suggestions-${locale}`}
               autoComplete="off"
               placeholder={t.locationPlaceholder}
