@@ -20,7 +20,8 @@ describe("Company Directory UX 2.0", () => {
       expect(file).not.toMatch(/#[0-9a-fA-F]{3,8}/);
     }
 
-    expect(searchPage).toContain("bg-brand-deep");
+    expect(searchPage).toContain("bg-surface");
+    expect(searchPage).not.toContain("bg-brand-deep");
     expect(searchForm).toContain("rounded-panel");
     expect(results).toContain("shadow-card");
     expect(profile).toContain("rounded-panel");
@@ -33,8 +34,9 @@ describe("Company Directory UX 2.0", () => {
     expect(results).toContain("${profileBase}/${encodeURIComponent(result.slug)}");
   });
 
-  it("keeps official-data context and quote comparison visually separate", () => {
-    expect(results).toContain("t.officialData");
+  it("keeps verification context and quote comparison visually separate", () => {
+    expect(results).toContain("t.verifiedDetails");
+    expect(results).not.toContain("result.activityDescription");
     expect(results).toContain("quoteRequestPaths[locale]");
     expect(profile).toContain("t.quoteDisclosure");
     expect(profile).toContain("t.sourceTitle");
