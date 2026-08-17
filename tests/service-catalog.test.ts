@@ -21,6 +21,7 @@ const expectedDirectorySlugs = [
   "snickeri",
   "tradgard",
   "hemservice",
+  "frisor",
 ] as const;
 
 describe("central service catalog", () => {
@@ -38,6 +39,8 @@ describe("central service catalog", () => {
     expect(serviceCategoryLabel("stadning", "sv")).toBe("Städning");
     expect(serviceCategoryLabel("stadning", "en")).toBe("Cleaning");
     expect(serviceCategoryLabel("vvs", "en")).toBe("Plumbing");
+    expect(serviceCategoryLabel("frisor", "sv")).toBe("Frisör");
+    expect(serviceCategoryLabel("frisor", "en")).toBe("Hairdresser");
   });
 
   it("keeps the existing Quote taxonomy wired to the central catalog", () => {
@@ -60,7 +63,8 @@ describe("central service catalog", () => {
     expect(quoteCategoryLabel("Renovering", "en")).toBe("Renovation");
   });
 
-  it("does not invent a Directory category for quote-only renovation", () => {
+  it("does not invent a Quote category for booking-first hairdresser services", () => {
+    expect(serviceCategoryCatalog.frisor.quoteCategories).toEqual([]);
     expect(serviceCategoryForQuoteCategory("Renovering")).toBeNull();
     expect(serviceCategoryForQuoteCategory("Flytthjälp")).toBe("flytt");
   });
@@ -72,5 +76,6 @@ describe("central service catalog", () => {
       serviceSlugs: [],
     });
     expect(mapSniToDirectoryCategory("43.221")?.categoryLabel).toBe(serviceCategoryLabel("vvs", "sv"));
+    expect(mapSniToDirectoryCategory("96.210")?.categoryLabel).toBe(serviceCategoryLabel("frisor", "sv"));
   });
 });
