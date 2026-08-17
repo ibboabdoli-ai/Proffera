@@ -158,6 +158,7 @@ export async function getLeadMatches() {
         where area.profile_id = profile.id
           and area.public_visible = true
           and area.confirmed_at is not null
+          and area.radius_km between 1 and 300
           and (area.service_slug = service.public_slug or area.service_slug is null)
         order by case when area.service_slug = service.public_slug then 0 else 1 end
         limit 1
