@@ -7,18 +7,21 @@ import type { PublicLocale } from "@/lib/public-locale";
 import { submitQuoteRequest } from "./actions";
 import { quoteFormCopy } from "./form-copy";
 import { createQuoteRequestSchema, initialQuoteRequest, sanitizeQuoteRequestPrefill, type QuoteRequestErrors, type QuoteRequestField, type QuoteRequestInput, type QuoteRequestPrefill } from "./schema";
+import { buildSmartQuoteDescription, getSmartQuoteQuestions, validateSmartQuoteAnswers, type SmartQuoteAnswers } from "./smart-quote-questions";
 import { QuoteContactStep } from "./step-contact";
 import { QuoteDescriptionStep } from "./step-description";
 import { QuoteLocationStep } from "./step-location";
 import { QuoteReviewStep } from "./step-review";
 import { QuoteServiceStep } from "./step-service";
+import { QuoteSmartDetailsStep } from "./step-smart-details";
 
 const stepFields: Record<number, QuoteRequestField[]> = {
   0: ["category", "serviceType"],
-  1: ["city", "postalCode"],
-  2: ["description", "preferredDate"],
-  3: ["contactName", "contactEmail", "contactPhone", "consentAccepted"],
-  4: [],
+  1: [],
+  2: ["city", "postalCode"],
+  3: ["description", "preferredDate"],
+  4: ["contactName", "contactEmail", "contactPhone", "consentAccepted"],
+  5: [],
 };
 
 export function LocalizedQuoteRequestForm({ locale, initialValues }: { locale: PublicLocale; initialValues?: QuoteRequestPrefill }) {
@@ -28,16 +31,29 @@ export function LocalizedQuoteRequestForm({ locale, initialValues }: { locale: P
     ...initialQuoteRequest,
     ...sanitizeQuoteRequestPrefill(initialValues),
   }));
+  const [smartAnswers, setSmartAnswers] = useState<SmartQuoteAnswers>({});
+  const [smartErrors, setSmartErrors] = useState<Record<string, string>>({});
   const [website, setWebsite] = useState("");
   const [startedAt] = useState(() => Date.now());
   const [errors, setErrors] = useState<QuoteRequestErrors>({});
   const [reference, setReference] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const progress = Math.round(((step + 1) / t.steps.length) * 100);
+  const smartQuestions = getSmartQuoteQuestions(data.category, data.serviceType, locale);
 
   function update<Field extends QuoteRequestField>(field: Field, value: QuoteRequestInput[Field]) {
     setData((current) => ({ ...current, [field]: value, ...(field === "category" ? { serviceType: "" } : {}) }));
+    if (field === "category" || field === "serviceType") {
+      setSmartAnswers({});
+      setSmartErrors({});
+    }
     setErrors((current) => ({ ...current, [field]: undefined, form: undefined }));
+  }
+
+  function updateSmartAnswer(questionId: string, value: string) {
+    setSmartAnswers((current) => ({ ...current, [questionId]: value }));
+    setSmartErrors((current) => ({ ...current, [questionId]: "" }));
+    setErrors((current) => ({ ...current, form: undefined }));
   }
 
   function validate(input: QuoteRequestInput) {
@@ -51,6 +67,13 @@ export function LocalizedQuoteRequestForm({ locale, initialValues }: { locale: P
   }
 
   function goNext() {
+    if (step === 1) {
+      const detailErrors = validateSmartQuoteAnswers(smartQuestions, smartAnswers, locale);
+      setSmartErrors(detailErrors);
+      if (Object.keys(detailErrors).length === 0) setStep(2);
+      return;
+    }
+
     const allErrors = validate(data);
     const currentErrors = (stepFields[step] ?? []).reduce<QuoteRequestErrors>((output, field) => {
       if (allErrors[field]) output[field] = allErrors[field];
@@ -61,13 +84,28 @@ export function LocalizedQuoteRequestForm({ locale, initialValues }: { locale: P
   }
 
   function handleSubmit() {
-    const allErrors = validate(data);
+    const detailErrors = validateSmartQuoteAnswers(smartQuestions, smartAnswers, locale);
+    if (Object.keys(detailErrors).length > 0) {
+      setSmartErrors(detailErrors);
+      setStep(1);
+      return;
+    }
+
+    const compiledDescription = buildSmartQuoteDescription(data.category, data.serviceType, locale, smartAnswers, data.description);
+    if (compiledDescription.length > 2_000) {
+      setErrors((current) => ({ ...current, form: t.descriptionTooLong }));
+      setStep(3);
+      return;
+    }
+
+    const submissionData = { ...data, description: compiledDescription };
+    const allErrors = validate(submissionData);
     if (Object.keys(allErrors).length > 0) { setErrors(allErrors); return; }
     startTransition(() => {
-      void submitQuoteRequest({ ...data, website, formStartedAt: startedAt }).then((result) => {
+      void submitQuoteRequest({ ...submissionData, website, formStartedAt: startedAt }).then((result) => {
         if (!result.ok) {
           if (locale === "en") {
-            const localizedErrors = validate(data);
+            const localizedErrors = validate(submissionData);
             setErrors(Object.keys(localizedErrors).length > 0 ? localizedErrors : { form: t.serverError });
           } else {
             setErrors(result.errors);
@@ -98,10 +136,11 @@ export function LocalizedQuoteRequestForm({ locale, initialValues }: { locale: P
     </div>
     {errors.form ? <div className="mb-5 rounded-2xl bg-red-50 p-4 text-sm font-medium text-red-700">{errors.form}</div> : null}
     {step === 0 ? <QuoteServiceStep {...stepProps} /> : null}
-    {step === 1 ? <QuoteLocationStep {...stepProps} /> : null}
-    {step === 2 ? <QuoteDescriptionStep {...stepProps} /> : null}
-    {step === 3 ? <QuoteContactStep {...stepProps} /> : null}
-    {step === 4 ? <QuoteReviewStep {...stepProps} /> : null}
+    {step === 1 ? <QuoteSmartDetailsStep locale={locale} questions={smartQuestions} answers={smartAnswers} errors={smartErrors} onChange={updateSmartAnswer} /> : null}
+    {step === 2 ? <QuoteLocationStep {...stepProps} /> : null}
+    {step === 3 ? <QuoteDescriptionStep {...stepProps} /> : null}
+    {step === 4 ? <QuoteContactStep {...stepProps} /> : null}
+    {step === 5 ? <QuoteReviewStep {...stepProps} smartAnswers={smartAnswers} /> : null}
     <div className="mt-8 flex flex-col-reverse gap-3 border-t border-[#dfe5dd] pt-6 sm:flex-row sm:justify-between">
       <button type="button" onClick={() => setStep((current) => Math.max(current - 1, 0))} disabled={step === 0 || pending} className="rounded-full border border-[#dfe5dd] px-5 py-3 text-sm font-semibold text-[#17452f] disabled:opacity-50">{t.back}</button>
       {step < t.steps.length - 1 ? <button type="button" onClick={goNext} className="rounded-full bg-[#17452f] px-5 py-3 text-sm font-semibold text-white hover:bg-[#0e2e1e]">{t.next}</button> : <button type="button" onClick={handleSubmit} disabled={pending} className="rounded-full bg-[#17452f] px-5 py-3 text-sm font-semibold text-white hover:bg-[#0e2e1e] disabled:opacity-60">{pending ? t.sending : t.submit}</button>}
