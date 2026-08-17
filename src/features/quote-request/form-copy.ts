@@ -9,7 +9,7 @@ export const quoteFormCopy = {
     date: "Önskad tidpunkt", chooseDate: "Välj tidpunkt", name: "Namn", email: "E-post", phone: "Telefon",
     consent: "Jag godkänner att Proffera behandlar mina uppgifter för att hantera förfrågan, matcha den med lämpliga företag och kontakta mig om uppdraget.",
     missing: "Ej angivet", back: "Tillbaka", next: "Fortsätt", sending: "Skickar...", submit: "Skicka förfrågan",
-    sent: "Förfrågan är skickad", sentText: "Tack! Din förfrågan har validerats och sparats. Proffera kan nu matcha den med lämpliga företag.", reference: "Referensnummer",
+    sent: "Förfrågan är skickad", sentText: "Tack! Din förfrågan har validerats och sparats. Referensnumret visas nedan.", reference: "Referensnummer",
     serverError: "Förfrågan kunde inte skickas. Försök igen om en stund.",
   },
   en: {
@@ -22,7 +22,7 @@ export const quoteFormCopy = {
     date: "Preferred time", chooseDate: "Choose time", name: "Name", email: "Email", phone: "Phone",
     consent: "I agree that Proffera may process my details to handle the request, match it with suitable companies and contact me about the job.",
     missing: "Not provided", back: "Back", next: "Continue", sending: "Sending...", submit: "Send request",
-    sent: "Request sent", sentText: "Thank you! Your request has been validated and saved. Proffera can now match it with suitable companies.", reference: "Reference number",
+    sent: "Request sent", sentText: "Thank you! Your request has been validated and saved. Your reference number is shown below.", reference: "Reference number",
     serverError: "The request could not be sent. Please try again in a moment.",
   },
 } as const;
