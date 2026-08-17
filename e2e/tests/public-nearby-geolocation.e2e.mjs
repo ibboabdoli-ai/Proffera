@@ -1,15 +1,5 @@
 import { expect, test } from "@playwright/test";
 
-function geolocationError(code, message) {
-  return {
-    code,
-    message,
-    PERMISSION_DENIED: 1,
-    POSITION_UNAVAILABLE: 2,
-    TIMEOUT: 3,
-  };
-}
-
 test.describe("public nearby geolocation reliability", () => {
   test("retries after a transient geolocation timeout and continues nearby search", async ({ page }) => {
     await page.addInitScript(() => {
