@@ -1,6 +1,5 @@
 import "server-only";
 
-const DEFAULT_SCB_COMPANY_REGISTRY_BASE_URL = "https://api.scb.se/foretagsregistret/v1";
 const SCB_SOURCE = "scb_foretagsregistret" as const;
 
 type UnknownRecord = Record<string, unknown>;
@@ -47,7 +46,6 @@ export type ScbCompanyRegistryFetchResult =
 
 export type ScbCompanyRegistryStatus = {
   enabled: boolean;
-  baseUrl: string;
   accessReady: boolean;
 };
 
@@ -233,29 +231,10 @@ function scbCompanyRegistryEnabled() {
   return process.env.SCB_COMPANY_REGISTRY_ENABLED?.trim().toLowerCase() === "true";
 }
 
-function safeBaseUrl() {
-  const raw = process.env.SCB_COMPANY_REGISTRY_BASE_URL?.trim() || DEFAULT_SCB_COMPANY_REGISTRY_BASE_URL;
-  try {
-    const url = new URL(raw);
-    if (
-      url.protocol !== "https:"
-      || url.hostname !== "api.scb.se"
-      || Boolean(url.username)
-      || Boolean(url.password)
-    ) {
-      return DEFAULT_SCB_COMPANY_REGISTRY_BASE_URL;
-    }
-    return url.toString().replace(/\/$/, "");
-  } catch {
-    return DEFAULT_SCB_COMPANY_REGISTRY_BASE_URL;
-  }
-}
-
 export function getScbCompanyRegistryStatus(transport?: ScbCompanyRegistryTransport): ScbCompanyRegistryStatus {
   const enabled = scbCompanyRegistryEnabled();
   return {
     enabled,
-    baseUrl: safeBaseUrl(),
     accessReady: enabled && Boolean(transport),
   };
 }
