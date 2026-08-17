@@ -261,19 +261,24 @@ export async function searchPublishedCompanyDirectory(
     const claimedWorkspaceId = String(row.claimed_workspace_id ?? "");
     const access = isClaimed ? workspaceAccess.get(claimedWorkspaceId) : null;
     const conversionMode = marketplaceConversionMode(row.claimed_service_conversion_mode);
+    const distanceKm = row.distance_km === null || row.distance_km === undefined ? null : Number(row.distance_km);
+    const serviceAreaRadiusKm = row.service_area_radius_km === null || row.service_area_radius_km === undefined
+      ? null
+      : Number(row.service_area_radius_km);
+    const servesNearbyLocation = nearbyEnabled
+      && distanceKm !== null
+      && serviceAreaRadiusKm !== null
+      && distanceKm <= serviceAreaRadiusKm;
+    const serviceAreaCoversSearch = serviceAreaRadiusKm !== null && (!nearbyEnabled || servesNearbyLocation);
     const marketplaceAvailable = Boolean(
       isClaimed
       && access?.websiteBuilder
       && row.claimed_workspace_slug
       && row.claimed_service_id
       && row.claimed_service_slug
-      && conversionMode,
+      && conversionMode
+      && serviceAreaCoversSearch,
     );
-
-    const distanceKm = row.distance_km === null || row.distance_km === undefined ? null : Number(row.distance_km);
-    const serviceAreaRadiusKm = row.service_area_radius_km === null || row.service_area_radius_km === undefined
-      ? null
-      : Number(row.service_area_radius_km);
     const claimedBookingSlug = marketplaceAvailable ? String(row.claimed_booking_slug ?? "") || null : null;
 
     return {
@@ -291,10 +296,7 @@ export async function searchPublishedCompanyDirectory(
       qualityScore: Number(row.quality_score ?? 0),
       distanceKm,
       serviceAreaRadiusKm,
-      servesNearbyLocation: nearbyEnabled
-        && distanceKm !== null
-        && serviceAreaRadiusKm !== null
-        && distanceKm <= serviceAreaRadiusKm,
+      servesNearbyLocation,
       claimedWorkspaceSlug: marketplaceAvailable ? String(row.claimed_workspace_slug) : null,
       claimedServiceId: marketplaceAvailable ? String(row.claimed_service_id) : null,
       claimedServiceSlug: marketplaceAvailable ? String(row.claimed_service_slug) : null,
