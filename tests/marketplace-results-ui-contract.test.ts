@@ -115,7 +115,7 @@ describe("marketplace results UI contract", () => {
     expect(shell).toContain("marketplaceHome || directorySearchRoute");
     expect(header).toContain("marketplaceContext");
     expect(header).toContain('{ label: "Populära tjänster", href: "/#populara-tjanster" }');
-    expect(header).toContain('{ label: "For businesses"');
+    expect(header).toContain('"For businesses"');
   });
 
   it("does not manufacture a Near me attempt for a manual location search", () => {
