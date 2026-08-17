@@ -1,0 +1,49 @@
+export type EmailRecipient = {
+  email: string;
+  name?: string;
+};
+
+function trimmed(value: string | undefined) {
+  return value?.trim() || null;
+}
+
+function isValidEmail(value: string) {
+  return value.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+export function resolveBrevoApiKey(env: NodeJS.ProcessEnv = process.env) {
+  if (env.VERCEL_ENV === "preview") {
+    const previewKey = trimmed(env.PROFFERA_PREVIEW_BREVO_API_KEY);
+    const sharedKey = trimmed(env.BREVO_API_KEY);
+    if (!previewKey || (sharedKey && previewKey === sharedKey)) {
+      return null;
+    }
+    return previewKey;
+  }
+
+  return trimmed(env.BREVO_API_KEY);
+}
+
+export function resolvePreviewEmailRecipient(env: NodeJS.ProcessEnv = process.env) {
+  const previewRecipient = trimmed(env.PROFFERA_PREVIEW_EMAIL_RECIPIENT)?.toLowerCase() ?? null;
+  return previewRecipient && isValidEmail(previewRecipient) ? previewRecipient : null;
+}
+
+export function resolveEmailRecipient(
+  recipient: EmailRecipient,
+  env: NodeJS.ProcessEnv = process.env,
+): EmailRecipient | null {
+  if (env.VERCEL_ENV !== "preview") {
+    return recipient;
+  }
+
+  const previewRecipient = resolvePreviewEmailRecipient(env);
+  if (!previewRecipient) {
+    return null;
+  }
+
+  return {
+    email: previewRecipient,
+    name: "Proffera Preview",
+  };
+}
