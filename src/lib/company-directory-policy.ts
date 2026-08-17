@@ -127,6 +127,9 @@ export function mapSniToDirectoryCategory(value: unknown): DirectoryCategoryMatc
   if (code === "96.910") {
     return categoryOnly("hemservice");
   }
+  if (code === "96.210") {
+    return categoryOnly("frisor");
+  }
   if (code === "49.420") {
     return categoryOnly("flytt");
   }

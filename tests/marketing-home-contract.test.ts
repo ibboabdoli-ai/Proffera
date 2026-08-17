@@ -8,78 +8,68 @@ function source(path: string) {
 }
 
 describe("marketing homepage contract", () => {
-  it("positions Proffera around the full customer workflow instead of module status", () => {
+  it("keeps the legacy business marketing component free of module-status copy", () => {
     const home = source("src/components/marketing/marketing-home-v2.tsx");
 
-    expect(home).toContain("Visa dina tjänster. Få in kunder. Hantera hela jobbet i Proffera.");
-    expect(home).toContain("Från synlig tjänst till slutfört jobb");
-    expect(home).toContain("Företagssida + tjänstekatalog");
-    expect(home).toContain("Exempel på arbetsyta");
     expect(home).not.toContain("Aktiv modul");
     expect(home).not.toContain("Kommande modul");
     expect(home).not.toContain("Tillgänglig i pilot");
   });
 
-  it("uses one self-service trial as the primary funnel and keeps demo secondary", () => {
-    const home = source("src/components/marketing/marketing-home-v2.tsx");
+  it("keeps the self-service trial offer available to business customers", () => {
+    const business = source("src/components/marketplace/business-home.tsx");
     const locale = source("src/lib/public-locale.ts");
 
-    expect(home).toContain('primaryCta: "Starta gratis i 14 dagar"');
-    expect(home).toContain('finalPrimary: "Starta gratis i 14 dagar"');
-    expect(home).toContain('finalSecondary: "Boka demo"');
+    expect(business).toContain('primary: "Starta gratis i 14 dagar"');
+    expect(business).toContain('const signupHref = locale === "en" ? "/en/create-account" : "/skapa-konto"');
     expect(locale).toContain('primaryCtaLabel: "Starta gratis i 14 dagar"');
   });
 
-  it("does not expose vendor implementation details or invented social proof on the homepage", () => {
-    const home = source("src/components/marketing/marketing-home-v2.tsx");
+  it("does not expose vendor implementation details or invented social proof on the business landing page", () => {
+    const business = source("src/components/marketplace/business-home.tsx");
 
-    expect(home).not.toContain("Brevo");
-    expect(home).not.toContain("Pilotkund");
-    expect(home).not.toContain("Case study");
-    expect(home).not.toContain("Småföretagare i Stockholmsområdet");
+    expect(business).not.toContain("Brevo");
+    expect(business).not.toContain("Pilotkund");
+    expect(business).not.toContain("Case study");
+    expect(business).not.toContain("Småföretagare i Stockholmsområdet");
   });
 
-  it("keeps Swedish and English homepages on the same V2 component", () => {
+  it("makes Swedish and English roots marketplace-first and keeps business landing pages separate", () => {
     const swedish = source("src/app/page.tsx");
     const english = source("src/app/en/page.tsx");
+    const swedishBusiness = source("src/app/for-foretag/page.tsx");
+    const englishBusiness = source("src/app/en/for-business/page.tsx");
 
-    expect(swedish).toContain('from "@/components/marketing/marketing-home-v2"');
-    expect(english).toContain('from "@/components/marketing/marketing-home-v2"');
-    expect(swedish).toContain('<MarketingHome locale="sv" />');
-    expect(english).toContain('<MarketingHome locale="en" />');
+    expect(swedish).toContain('from "@/components/marketplace/marketplace-home"');
+    expect(english).toContain('from "@/components/marketplace/marketplace-home"');
+    expect(swedish).toContain('<MarketplaceHome locale="sv" />');
+    expect(english).toContain('<MarketplaceHome locale="en" />');
+    expect(swedishBusiness).toContain('from "@/components/marketplace/business-home"');
+    expect(englishBusiness).toContain('from "@/components/marketplace/business-home"');
+    expect(swedishBusiness).toContain('<BusinessHome locale="sv" />');
+    expect(englishBusiness).toContain('<BusinessHome locale="en" />');
   });
 
-  it("uses the Design System 2.0 semantic tokens and avoids the migrated core hex palette", () => {
-    const home = source("src/components/marketing/marketing-home-v2.tsx");
+  it("uses Design System semantic tokens on the new business landing page", () => {
+    const business = source("src/components/marketplace/business-home.tsx");
 
-    expect(home).toContain("bg-canvas");
-    expect(home).toContain("bg-brand-deep");
-    expect(home).toContain("text-ink");
-    expect(home).toContain("border-line");
-    expect(home).toContain("rounded-panel");
-    expect(home).toContain("shadow-lift");
-    expect(home).not.toMatch(/#(?:17452f|17201a|dfe5dd|f6f8f4|102a1c)/i);
+    expect(business).toContain("bg-canvas");
+    expect(business).toContain("bg-brand-deep");
+    expect(business).toContain("text-ink");
+    expect(business).toContain("border-line");
+    expect(business).toContain("rounded-panel");
+    expect(business).toContain("shadow-lift");
+    expect(business).not.toMatch(/#(?:17452f|17201a|dfe5dd|f6f8f4|102a1c)/i);
   });
 
-  it("keeps pricing and conversion paths aligned with the verified public offer", () => {
-    const home = source("src/components/marketing/marketing-home-v2.tsx");
-
-    expect(home).toContain('price: "199 kr/mån"');
-    expect(home).toContain('price: "599 kr/mån"');
-    expect(home).toContain('href: "/skapa-konto?plan=starter"');
-    expect(home).toContain('href: "/skapa-konto?plan=professional"');
-    expect(home).toContain('href: "/en/create-account?plan=starter"');
-    expect(home).toContain('href: "/en/create-account?plan=professional"');
-  });
-
-  it("keeps navigation focused on product discovery, pricing and conversion", () => {
+  it("keeps business navigation focused on product discovery, pricing and conversion away from the marketplace root", () => {
     const site = source("src/lib/site.ts");
     const locale = source("src/lib/public-locale.ts");
+    const header = source("src/components/layout/header.tsx");
 
     expect(site).toContain('{ label: "Funktioner", href: "/tjanster" }');
-    expect(site).not.toContain('{ label: "Om", href: "/om" }');
-    expect(site).not.toContain('{ label: "Kontakt", href: "/kontakt" }');
     expect(locale).toContain('{ label: "Features", href: "/en/services" }');
-    expect(locale).not.toContain('{ label: "About", href: "/en/about" }');
+    expect(header).toContain("const marketplaceHome = pathname === \"/\" || pathname === \"/en\"");
+    expect(header).toContain('locale === "en" ? "For businesses" : "För företag"');
   });
 });

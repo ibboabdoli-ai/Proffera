@@ -17,14 +17,31 @@ type HeaderProps = {
   locale: PublicLocale;
 };
 
+const marketplaceNavigation = {
+  sv: [
+    { label: "Hitta företag", href: "/foretag/listad" },
+    { label: "Populära tjänster", href: "#populara-tjanster" },
+    { label: "Så fungerar det", href: "#sa-fungerar" },
+  ],
+  en: [
+    { label: "Find businesses", href: "/en/companies" },
+    { label: "Popular services", href: "#populara-tjanster" },
+    { label: "How it works", href: "#sa-fungerar" },
+  ],
+} as const;
+
 export function Header({ locale }: HeaderProps) {
   const pathname = usePathname();
   const menuRef = useRef<HTMLDetailsElement>(null);
   const copy = localeCopy[locale];
-  const navigation = getPublicNavigation(locale);
+  const marketplaceHome = pathname === "/" || pathname === "/en";
+  const navigation = marketplaceHome ? marketplaceNavigation[locale] : getPublicNavigation(locale);
   const alternateLocalePath = getAlternateLocalePath(pathname);
   const homeHref = getLocalizedRoute("/", locale);
   const signupHref = getLocalizedRoute("/skapa-konto", locale);
+  const businessHref = getLocalizedRoute("/for-foretag", locale);
+  const primaryHref = marketplaceHome ? businessHref : signupHref;
+  const primaryLabel = marketplaceHome ? (locale === "en" ? "For businesses" : "För företag") : copy.primaryCtaLabel;
   const loginHref = locale === "en" ? "/logga-in?lang=en" : "/logga-in?lang=sv";
 
   function closeMenu() {
@@ -81,7 +98,7 @@ export function Header({ locale }: HeaderProps) {
               {locale === "en" ? "SV" : "EN"}
             </Link>
           ) : null}
-          <ButtonLink href={signupHref}>{copy.primaryCtaLabel}</ButtonLink>
+          <ButtonLink href={primaryHref}>{primaryLabel}</ButtonLink>
         </div>
 
         <details ref={menuRef} className="relative lg:hidden">
@@ -107,8 +124,8 @@ export function Header({ locale }: HeaderProps) {
                   {locale === "en" ? "Svenska" : "English"}
                 </Link>
               ) : null}
-              <ButtonLink href={signupHref} onClick={closeMenu} className="mt-2 w-full">
-                {copy.primaryCtaLabel}
+              <ButtonLink href={primaryHref} onClick={closeMenu} className="mt-2 w-full">
+                {primaryLabel}
               </ButtonLink>
             </nav>
           </div>

@@ -28,6 +28,21 @@ describe("assessCompanyDirectoryCategoryConfidence", () => {
     expect(result.officialFactsReady).toBe(true);
   });
 
+  it("gives high confidence when official hairdresser SNI and business text corroborate the category", () => {
+    const result = assessCompanyDirectoryCategoryConfidence(base({
+      categorySlug: "frisor",
+      primarySniCode: "96.210",
+      legalName: "Södertälje Frisör & Barber AB",
+      displayName: "Södertälje Frisör & Barber AB",
+      activityDescription: "Frisörverksamhet, hårvård och barberartjänster.",
+      sniCodes: [{ code: "96210", label: "Frisörer och barberare" }],
+    }));
+
+    expect(result.score).toBe(100);
+    expect(result.level).toBe("high");
+    expect(result.officialFactsReady).toBe(true);
+  });
+
   it("keeps a generic business name at manual-review confidence when only SNI supports the category", () => {
     const result = assessCompanyDirectoryCategoryConfidence(base({
       legalName: "Consulting & Management Holding CM AB",
