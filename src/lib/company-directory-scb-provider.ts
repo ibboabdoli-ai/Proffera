@@ -237,7 +237,14 @@ function safeBaseUrl() {
   const raw = process.env.SCB_COMPANY_REGISTRY_BASE_URL?.trim() || DEFAULT_SCB_COMPANY_REGISTRY_BASE_URL;
   try {
     const url = new URL(raw);
-    if (url.protocol !== "https:" || url.hostname !== "api.scb.se") return DEFAULT_SCB_COMPANY_REGISTRY_BASE_URL;
+    if (
+      url.protocol !== "https:"
+      || url.hostname !== "api.scb.se"
+      || Boolean(url.username)
+      || Boolean(url.password)
+    ) {
+      return DEFAULT_SCB_COMPANY_REGISTRY_BASE_URL;
+    }
     return url.toString().replace(/\/$/, "");
   } catch {
     return DEFAULT_SCB_COMPANY_REGISTRY_BASE_URL;
