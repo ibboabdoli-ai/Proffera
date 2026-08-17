@@ -17,6 +17,8 @@ test.describe("public marketplace smoke", () => {
     await page.getByLabel("Ort").fill("Södertälje");
     await page.getByRole("button", { name: "Sök" }).click();
     await expect(page).toHaveURL(/\/foretag\/listad\?/);
+    await expect(page.getByRole("heading", { level: 1, name: "Hitta rätt företag för jobbet" })).toBeVisible();
+    await expect(page.getByText("Ortssökning utgår från företagets registrerade ort. Bekräftat serviceområde visas separat.")).toBeVisible();
 
     const url = new URL(page.url());
     expect(url.pathname).toBe("/foretag/listad");
@@ -40,6 +42,8 @@ test.describe("public marketplace smoke", () => {
     await page.getByLabel("Location").fill("Södertälje");
     await page.getByRole("button", { name: "Search" }).click();
     await expect(page).toHaveURL(/\/en\/companies\?/);
+    await expect(page.getByRole("heading", { level: 1, name: "Find the right company for the job" })).toBeVisible();
+    await expect(page.getByText("Location search uses the business's registered location. Confirmed service area is shown separately.")).toBeVisible();
 
     const url = new URL(page.url());
     expect(url.pathname).toBe("/en/companies");
