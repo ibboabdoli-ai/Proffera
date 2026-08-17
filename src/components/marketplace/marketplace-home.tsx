@@ -27,8 +27,8 @@ type MarketplaceHomeCopy = {
 const copy: Record<PublicLocale, MarketplaceHomeCopy> = {
   sv: {
     title: "Vad behöver du hjälp med?",
-    lead: "Sök tjänst och plats. Jämför företag, boka direkt eller begär offert.",
-    trust: ["Gratis att söka", "Företagsuppgifter verifierade", "Boka eller begär offert"],
+    lead: "Hitta företag, boka tid eller få offerter – gratis.",
+    trust: ["Gratis att söka", "Företagsuppgifter verifierade", "Boka tid · Begär offert · Se företag"],
     categoriesTitle: "Populära tjänster",
     categoriesLead: "Välj en tjänst eller skriv själv vad du behöver hjälp med.",
     categories: [
@@ -57,8 +57,8 @@ const copy: Record<PublicLocale, MarketplaceHomeCopy> = {
   },
   en: {
     title: "What do you need help with?",
-    lead: "Search by service and location. Compare businesses, book directly or request a quote.",
-    trust: ["Free to search", "Verified company details", "Book or request a quote"],
+    lead: "Find businesses, book an appointment or request quotes – free.",
+    trust: ["Free to search", "Verified company details", "Book appointment · Request quote · View business"],
     categoriesTitle: "Popular services",
     categoriesLead: "Choose a service or type what you need help with.",
     categories: [
@@ -100,7 +100,7 @@ export async function MarketplaceHome({ locale }: { locale: PublicLocale }) {
 
   return (
     <div className="bg-canvas text-ink">
-      <section className="border-b border-line bg-[#f7f8f4]">
+      <section className="border-b border-line bg-brand-tint">
         <div className="mx-auto max-w-7xl px-4 py-14 sm:px-6 sm:py-16 lg:px-8 lg:py-20">
           <div className="mx-auto max-w-5xl text-center">
             <h1 className="text-4xl font-black leading-[1.02] tracking-[-0.045em] text-ink sm:text-5xl lg:text-6xl">{t.title}</h1>
