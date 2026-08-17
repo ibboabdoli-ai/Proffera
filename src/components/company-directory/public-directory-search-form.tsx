@@ -7,6 +7,18 @@ import { FormEvent, useRef, useState } from "react";
 import { directoryCopy, directoryPaths, normalizeDirectoryPublicServiceQuery } from "@/components/company-directory/public-directory-copy";
 import type { PublicLocale } from "@/lib/public-locale";
 
+const FAST_GEOLOCATION_OPTIONS: PositionOptions = {
+  enableHighAccuracy: false,
+  timeout: 12000,
+  maximumAge: 300000,
+};
+
+const ACCURATE_GEOLOCATION_OPTIONS: PositionOptions = {
+  enableHighAccuracy: true,
+  timeout: 20000,
+  maximumAge: 300000,
+};
+
 export function PublicDirectorySearchForm({
   locale,
   service,
@@ -33,6 +45,15 @@ export function PublicDirectorySearchForm({
   const t = directoryCopy[locale];
   const searchPath = directoryPaths[locale].search;
   const nearbyLocationLabel = locale === "sv" ? "Min plats" : "My location";
+  const permissionDeniedMessage = locale === "sv"
+    ? "Platsåtkomst är blockerad. Tillåt plats för proffera.se i webbläsarens eller telefonens inställningar och försök igen."
+    : "Location access is blocked. Allow location for proffera.se in your browser or phone settings and try again.";
+  const positionUnavailableMessage = locale === "sv"
+    ? "Din position kunde inte fastställas just nu. Kontrollera att platstjänster är på och försök igen, eller sök med ort."
+    : "Your position could not be determined right now. Check that location services are on and try again, or search by location.";
+  const retryingLocationMessage = locale === "sv"
+    ? "Första försöket misslyckades. Försöker hämta en noggrannare position…"
+    : "The first attempt failed. Trying a more accurate position…";
   const [locationValue, setLocationValue] = useState(nearbyActive ? nearbyLocationLabel : location);
   const [usingNearby, setUsingNearby] = useState(nearbyActive);
   const [nearbyStatus, setNearbyStatus] = useState("");
@@ -70,27 +91,45 @@ export function PublicDirectorySearchForm({
 
     setNearbyLoading(true);
     setNearbyStatus(t.locating);
+
+    const handlePosition = (position: GeolocationPosition) => {
+      const form = formRef.current;
+      const formData = form ? new FormData(form) : new FormData();
+      const currentService = normalizeDirectoryPublicServiceQuery(String(formData.get("service") ?? ""), locale);
+      const params = new URLSearchParams();
+      if (currentService) params.set("service", currentService);
+      params.set("latitude", position.coords.latitude.toFixed(6));
+      params.set("longitude", position.coords.longitude.toFixed(6));
+      params.set("radius", radius);
+      const target = `${searchPath}?${params.toString()}`;
+      setLocationValue(nearbyLocationLabel);
+      setUsingNearby(true);
+      setNearbyLoading(false);
+      setNearbyStatus(t.found);
+      window.location.assign(target);
+    };
+
+    const handleFinalError = (error: GeolocationPositionError) => {
+      setNearbyLoading(false);
+      setNearbyStatus(error.code === error.PERMISSION_DENIED ? permissionDeniedMessage : positionUnavailableMessage);
+    };
+
     navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const form = formRef.current;
-        const formData = form ? new FormData(form) : new FormData();
-        const currentService = normalizeDirectoryPublicServiceQuery(String(formData.get("service") ?? ""), locale);
-        const params = new URLSearchParams();
-        if (currentService) params.set("service", currentService);
-        params.set("latitude", position.coords.latitude.toFixed(6));
-        params.set("longitude", position.coords.longitude.toFixed(6));
-        params.set("radius", radius);
-        const target = `${searchPath}?${params.toString()}`;
-        setLocationValue(nearbyLocationLabel);
-        setUsingNearby(true);
-        setNearbyStatus(t.found);
-        window.location.assign(target);
+      handlePosition,
+      (error) => {
+        if (error.code === error.PERMISSION_DENIED) {
+          handleFinalError(error);
+          return;
+        }
+
+        setNearbyStatus(retryingLocationMessage);
+        navigator.geolocation.getCurrentPosition(
+          handlePosition,
+          handleFinalError,
+          ACCURATE_GEOLOCATION_OPTIONS,
+        );
       },
-      () => {
-        setNearbyLoading(false);
-        setNearbyStatus(t.geoError);
-      },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
+      FAST_GEOLOCATION_OPTIONS,
     );
   }
 
