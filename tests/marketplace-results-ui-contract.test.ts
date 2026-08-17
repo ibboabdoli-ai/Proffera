@@ -105,13 +105,24 @@ describe("marketplace results UI contract", () => {
     expect(render("sv", [])).not.toContain("Vill du jämföra flera företag?");
   });
 
-  it("uses a light compact search surface on the results page", () => {
+  it("does not manufacture a Near me attempt for a manual location search", () => {
     const searchPage = source("src/components/company-directory/public-directory-search-page.tsx");
-    const searchForm = source("src/components/company-directory/public-directory-search-form.tsx");
 
-    expect(searchPage).toContain('tone="light"');
-    expect(searchPage).toContain("border border-line bg-surface");
-    expect(searchPage).not.toContain("rounded-panel bg-brand-deep");
-    expect(searchForm).toContain('tone?: "light" | "dark"');
+    expect(searchPage).toContain("const latitude = firstParam(params?.latitude);");
+    expect(searchPage).toContain("const longitude = firstParam(params?.longitude);");
+    expect(searchPage).not.toContain('const latitude = firstParam(params?.latitude) ?? ""');
+    expect(searchPage).not.toContain('const longitude = firstParam(params?.longitude) ?? ""');
+    expect(searchPage).toContain("search?.nearbyRequested && !search.nearbyEnabled");
+  });
+
+  it("uses the compact Home-style search surface and denser result cards", () => {
+    const searchPage = source("src/components/company-directory/public-directory-search-page.tsx");
+    const results = source("src/components/company-directory/public-directory-results.tsx");
+
+    expect(searchPage).toContain('tone="light" layout="hero"');
+    expect(searchPage).toContain("max-w-7xl");
+    expect(searchPage).not.toContain("<header");
+    expect(results).toContain("md:grid-cols-[minmax(0,1fr)_160px]");
+    expect(results).toContain("rounded-2xl border border-line bg-surface p-4");
   });
 });

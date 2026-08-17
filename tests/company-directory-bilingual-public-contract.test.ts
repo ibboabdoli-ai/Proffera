@@ -9,6 +9,8 @@ describe("bilingual public directory contract", () => {
   const copy = source("src/components/company-directory/public-directory-copy.ts");
   const form = source("src/components/company-directory/public-directory-search-form.tsx");
   const shell = source("src/components/company-directory/public-directory-search-page.tsx");
+  const header = source("src/components/layout/header.tsx");
+  const localeRouting = source("src/lib/public-locale.ts");
   const results = source("src/components/company-directory/public-directory-results.tsx");
   const globals = source("src/app/globals.css");
   const swedishProfile = source("src/app/foretag/listad/[slug]/page.tsx");
@@ -20,7 +22,8 @@ describe("bilingual public directory contract", () => {
   it("keeps Swedish and English customer routes together", () => {
     expect(copy).toContain('search: "/foretag/listad"');
     expect(copy).toContain('search: "/en/companies"');
-    expect(shell).toContain("directoryPaths[otherLocale].search");
+    expect(localeRouting).toContain('{ sv: "/foretag/listad", en: "/en/companies" }');
+    expect(header).toContain("getAlternateLocalePath(pathname)");
     expect(englishSearch).toContain('locale="en"');
     expect(englishProfile).toContain('locale="en"');
     expect(swedishProfile).toContain("PublicDirectoryProfile");

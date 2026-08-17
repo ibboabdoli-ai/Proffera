@@ -20,13 +20,13 @@ type HeaderProps = {
 const marketplaceNavigation = {
   sv: [
     { label: "Hitta företag", href: "/foretag/listad" },
-    { label: "Populära tjänster", href: "#populara-tjanster" },
-    { label: "Så fungerar det", href: "#sa-fungerar" },
+    { label: "Populära tjänster", href: "/#populara-tjanster" },
+    { label: "Så fungerar det", href: "/#sa-fungerar" },
   ],
   en: [
     { label: "Find businesses", href: "/en/companies" },
-    { label: "Popular services", href: "#populara-tjanster" },
-    { label: "How it works", href: "#sa-fungerar" },
+    { label: "Popular services", href: "/en#populara-tjanster" },
+    { label: "How it works", href: "/en#sa-fungerar" },
   ],
 } as const;
 
@@ -35,13 +35,15 @@ export function Header({ locale }: HeaderProps) {
   const menuRef = useRef<HTMLDetailsElement>(null);
   const copy = localeCopy[locale];
   const marketplaceHome = pathname === "/" || pathname === "/en";
-  const navigation = marketplaceHome ? marketplaceNavigation[locale] : getPublicNavigation(locale);
+  const marketplaceSearch = pathname === "/foretag/listad" || pathname === "/en/companies";
+  const marketplaceContext = marketplaceHome || marketplaceSearch;
+  const navigation = marketplaceContext ? marketplaceNavigation[locale] : getPublicNavigation(locale);
   const alternateLocalePath = getAlternateLocalePath(pathname);
   const homeHref = getLocalizedRoute("/", locale);
   const signupHref = getLocalizedRoute("/skapa-konto", locale);
   const businessHref = getLocalizedRoute("/for-foretag", locale);
-  const primaryHref = marketplaceHome ? businessHref : signupHref;
-  const primaryLabel = marketplaceHome ? (locale === "en" ? "For businesses" : "För företag") : copy.primaryCtaLabel;
+  const primaryHref = marketplaceContext ? businessHref : signupHref;
+  const primaryLabel = marketplaceContext ? (locale === "en" ? "For businesses" : "För företag") : copy.primaryCtaLabel;
   const loginHref = locale === "en" ? "/logga-in?lang=en" : "/logga-in?lang=sv";
 
   function closeMenu() {
