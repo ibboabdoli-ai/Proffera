@@ -31,7 +31,7 @@ describe("company directory service taxonomy", () => {
     }
   });
 
-  it("resolves common Swedish customer terms to stable services", () => {
+  it("resolves common Swedish and English customer terms to stable services", () => {
     expect(resolveDirectoryServiceQuery("Rörmokare")).toEqual({
       kind: "service",
       serviceSlug: "vvs",
@@ -58,6 +58,11 @@ describe("company directory service taxonomy", () => {
       categorySlug: "frisor",
     });
     expect(resolveDirectoryServiceQuery("barberare")).toEqual({
+      kind: "service",
+      serviceSlug: "frisor",
+      categorySlug: "frisor",
+    });
+    expect(resolveDirectoryServiceQuery("hairdresser")).toEqual({
       kind: "service",
       serviceSlug: "frisor",
       categorySlug: "frisor",
