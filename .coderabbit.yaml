@@ -40,10 +40,11 @@ reviews:
         - Prefer executing behavior over source-text assertions when behavior can be tested directly.
         - Require regression coverage for security, publication, tenant isolation, rate limits, and failure paths touched by the PR.
         - Flag tests that can pass while the production behavior is still broken.
-    - path: ".github/**"
+    - path: ".github/workflows/**"
       instructions: |
         Treat CI and workflow changes as security-sensitive.
-        - Preserve least privilege and immutable action pinning where practical.
+        - Require every GitHub Action reference in workflow files to be pinned to a full 40-character immutable commit SHA. Flag mutable tags or branches such as @v4, @v7, @main, or release tags. Permit an exception only when the workflow includes a clear documented justification explaining why immutable SHA pinning is not possible or appropriate.
+        - Preserve least privilege for permissions and credentials.
         - Flag workflows that can mutate Production, expose secrets, bypass required validation, or execute untrusted PR code with privileged credentials.
         - Keep required validation compatible with Validate, CodeQL, and public E2E smoke.
     - path: "**/migrations/**"
