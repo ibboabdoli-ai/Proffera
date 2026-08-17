@@ -118,7 +118,7 @@ export async function getLeadMatches() {
         service.id::text as service_id,
         service.name as service_name,
         service.category as service_category,
-        service.service_area,
+        case when confirmed_area.radius_km is not null then service.service_area else '' end as service_area,
         service.is_active as service_is_active,
         service.public_status as service_public_status,
         service.conversion_mode as service_conversion_mode,
@@ -152,6 +152,16 @@ export async function getLeadMatches() {
       left join workspace_feature_trials trial
         on trial.workspace_id = workspace.id
        and trial.feature_key = catalog.feature_key
+      left join lateral (
+        select area.radius_km
+        from company_directory_service_areas area
+        where area.profile_id = profile.id
+          and area.public_visible = true
+          and area.confirmed_at is not null
+          and (area.service_slug = service.public_slug or area.service_slug is null)
+        order by case when area.service_slug = service.public_slug then 0 else 1 end
+        limit 1
+      ) confirmed_area on true
       where workspace.status in ('active', 'trial')
         and profile.is_active = true
         and profile.privacy_blocked = false
