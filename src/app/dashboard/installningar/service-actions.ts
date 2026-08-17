@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 
+import { normalizeCompanyDirectoryServiceAreaRadius } from "@/lib/company-directory-service-area-policy";
 import { formatWorkspaceServicePrice, validateWorkspaceServicePrice } from "@/lib/workspace-service-pricing";
 import { validateWorkspaceServiceDraft, type WorkspaceServiceValidationError } from "@/lib/workspace-service-policy";
 import { createDashboardWorkspaceService, updateDashboardWorkspaceService } from "@/lib/workspace-services-db";
@@ -49,11 +50,9 @@ async function getServiceInput(formData: FormData) {
   if (!result.ok) redirectWithServiceError(result.error);
 
   const serviceAreaConfirmed = formData.get("service_area_confirmed") === "on";
-  const radiusText = getFormText(formData, "service_area_radius_km");
-  const parsedRadius = radiusText ? Number(radiusText) : null;
-  const serviceAreaRadiusKm = parsedRadius !== null && Number.isFinite(parsedRadius) && parsedRadius > 0 && parsedRadius <= 300
-    ? parsedRadius
-    : null;
+  const serviceAreaRadiusKm = normalizeCompanyDirectoryServiceAreaRadius(
+    getFormText(formData, "service_area_radius_km"),
+  );
   if (serviceAreaConfirmed && (!result.value.serviceArea.trim() || serviceAreaRadiusKm === null)) {
     redirectWithServiceError("area");
   }
