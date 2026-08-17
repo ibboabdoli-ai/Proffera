@@ -10,7 +10,8 @@ type GuardedFetch = typeof fetch & {
 export async function register() {
   if (process.env.VERCEL_ENV !== "preview") return;
 
-  const previewBrevoApiKey = resolveBrevoApiKey(process.env);
+  const previewEnv: NodeJS.ProcessEnv = { ...process.env };
+  const previewBrevoApiKey = resolveBrevoApiKey(previewEnv);
   if (previewBrevoApiKey) {
     process.env.BREVO_API_KEY = previewBrevoApiKey;
   } else {
@@ -22,7 +23,7 @@ export async function register() {
 
   const originalFetch = currentFetch.bind(globalThis);
   const guardedFetch: GuardedFetch = async (input, init) => {
-    const safeInit = buildPreviewSafeBrevoRequestInit(input, init, process.env);
+    const safeInit = buildPreviewSafeBrevoRequestInit(input, init, previewEnv);
     return originalFetch(input, safeInit);
   };
   guardedFetch[PREVIEW_FETCH_GUARD] = true;

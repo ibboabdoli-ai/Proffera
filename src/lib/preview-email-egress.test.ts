@@ -1,9 +1,31 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { register } from "@/instrumentation";
 import { buildPreviewSafeBrevoRequestInit } from "@/lib/preview-email-egress";
 
 const BREVO_URL = "https://api.brevo.com/v3/smtp/email";
 const BREVO_SMS_URL = "https://api.brevo.com/v3/transactionalSMS/sms";
+
+const originalVercelEnv = process.env.VERCEL_ENV;
+const originalBrevoApiKey = process.env.BREVO_API_KEY;
+const originalPreviewBrevoApiKey = process.env.PROFFERA_PREVIEW_BREVO_API_KEY;
+const originalPreviewEmailRecipient = process.env.PROFFERA_PREVIEW_EMAIL_RECIPIENT;
+
+afterEach(() => {
+  if (originalVercelEnv === undefined) delete process.env.VERCEL_ENV;
+  else process.env.VERCEL_ENV = originalVercelEnv;
+
+  if (originalBrevoApiKey === undefined) delete process.env.BREVO_API_KEY;
+  else process.env.BREVO_API_KEY = originalBrevoApiKey;
+
+  if (originalPreviewBrevoApiKey === undefined) delete process.env.PROFFERA_PREVIEW_BREVO_API_KEY;
+  else process.env.PROFFERA_PREVIEW_BREVO_API_KEY = originalPreviewBrevoApiKey;
+
+  if (originalPreviewEmailRecipient === undefined) delete process.env.PROFFERA_PREVIEW_EMAIL_RECIPIENT;
+  else process.env.PROFFERA_PREVIEW_EMAIL_RECIPIENT = originalPreviewEmailRecipient;
+
+  vi.unstubAllGlobals();
+});
 
 describe("Preview Brevo egress safety", () => {
   it("does not change Production Brevo requests", () => {
@@ -63,6 +85,40 @@ describe("Preview Brevo egress safety", () => {
     expect(body).not.toHaveProperty("cc");
     expect(body).not.toHaveProperty("bcc");
     expect(body.subject).toBe("Preview test");
+  });
+
+  it("keeps Preview email safe after instrumentation selects the dedicated credential", async () => {
+    process.env.VERCEL_ENV = "preview";
+    process.env.BREVO_API_KEY = "production-key";
+    process.env.PROFFERA_PREVIEW_BREVO_API_KEY = "preview-key";
+    process.env.PROFFERA_PREVIEW_EMAIL_RECIPIENT = "preview-inbox@example.com";
+
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(null, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await register();
+    expect(process.env.BREVO_API_KEY).toBe("preview-key");
+
+    await globalThis.fetch(BREVO_URL, {
+      method: "POST",
+      headers: { "api-key": "production-key", "Content-Type": "application/json" },
+      body: JSON.stringify({
+        to: [{ email: "real-customer@example.com" }],
+        cc: [{ email: "copy@example.com" }],
+        bcc: [{ email: "hidden@example.com" }],
+        subject: "Instrumentation preview test",
+      }),
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, forwardedInit] = fetchMock.mock.calls[0];
+    const headers = new Headers(forwardedInit?.headers);
+    expect(headers.get("api-key")).toBe("preview-key");
+
+    const body = JSON.parse(String(forwardedInit?.body)) as Record<string, unknown>;
+    expect(body.to).toEqual([{ email: "preview-inbox@example.com", name: "Proffera Preview" }]);
+    expect(body).not.toHaveProperty("cc");
+    expect(body).not.toHaveProperty("bcc");
   });
 
   it("blocks non-email Brevo endpoints in Preview, including SMS", () => {

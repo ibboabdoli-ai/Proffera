@@ -58,9 +58,13 @@ function previewSmsBlocked() {
   return process.env.VERCEL_ENV === "preview";
 }
 
+function previewSmsBlockedMessage(language: "sv" | "en" = "sv") {
+  return language === "en" ? "SMS is disabled in Vercel Preview." : "SMS är avstängt i Vercel Preview.";
+}
+
 export async function sendBookingVerificationSms(input: SendBookingVerificationSmsInput) {
   if (previewSmsBlocked()) {
-    return { ok: false as const, skipped: true as const, message: "SMS is disabled in Vercel Preview." };
+    return { ok: false as const, skipped: true as const, message: previewSmsBlockedMessage(input.language) };
   }
 
   const apiKey = process.env.BREVO_API_KEY;
@@ -97,7 +101,7 @@ export async function sendBookingVerificationSms(input: SendBookingVerificationS
 
 export async function sendBookingOwnerSms(input: SendBookingOwnerSmsInput) {
   if (previewSmsBlocked()) {
-    return { ok: false as const, skipped: true as const, message: "SMS is disabled in Vercel Preview." };
+    return { ok: false as const, skipped: true as const, message: previewSmsBlockedMessage() };
   }
 
   const apiKey = process.env.BREVO_API_KEY;
@@ -132,7 +136,7 @@ export async function sendBookingOwnerSms(input: SendBookingOwnerSmsInput) {
 
 export async function sendBookingCustomerSms(input: SendBookingCustomerSmsInput) {
   if (previewSmsBlocked()) {
-    return { ok: false as const, skipped: true as const, message: "SMS is disabled in Vercel Preview." };
+    return { ok: false as const, skipped: true as const, message: previewSmsBlockedMessage() };
   }
 
   const apiKey = process.env.BREVO_API_KEY;

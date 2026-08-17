@@ -31,10 +31,17 @@ describe("booking SMS Preview safety", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
-    const verification = await sendBookingVerificationSms({
+    const verificationSv = await sendBookingVerificationSms({
       customerPhone: "+46700000000",
       companyName: "Preview Company",
       code: "123456",
+      language: "sv",
+    });
+    const verificationEn = await sendBookingVerificationSms({
+      customerPhone: "+46700000000",
+      companyName: "Preview Company",
+      code: "123456",
+      language: "en",
     });
     const owner = await sendBookingOwnerSms({
       ownerPhone: "+46700000001",
@@ -52,9 +59,26 @@ describe("booking SMS Preview safety", () => {
       startsAt: "2026-08-17T10:00:00.000Z",
     });
 
-    expect(verification).toMatchObject({ ok: false, skipped: true });
-    expect(owner).toMatchObject({ ok: false, skipped: true });
-    expect(customer).toMatchObject({ ok: false, skipped: true });
+    expect(verificationSv).toMatchObject({
+      ok: false,
+      skipped: true,
+      message: "SMS är avstängt i Vercel Preview.",
+    });
+    expect(verificationEn).toMatchObject({
+      ok: false,
+      skipped: true,
+      message: "SMS is disabled in Vercel Preview.",
+    });
+    expect(owner).toMatchObject({
+      ok: false,
+      skipped: true,
+      message: "SMS är avstängt i Vercel Preview.",
+    });
+    expect(customer).toMatchObject({
+      ok: false,
+      skipped: true,
+      message: "SMS är avstängt i Vercel Preview.",
+    });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
