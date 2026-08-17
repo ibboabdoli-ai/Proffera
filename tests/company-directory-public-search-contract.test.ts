@@ -49,15 +49,17 @@ describe("public company directory search contract", () => {
     expect(searchSource).toContain("confirmedCompanyDirectoryServiceAreaCoversSearch");
     expect(searchSource).toContain("const servesNearbyLocation = nearbyEnabled && serviceAreaCoversSearch");
     expect(resultsSource).toContain("result.servesNearbyLocation");
-    expect(copySource).toContain("bekräftade serviceområde");
-    expect(copySource).toContain("confirmed service area");
+    expect(copySource).toContain("Bekräftat serviceområde");
+    expect(copySource).toContain("Confirmed service area");
   });
 
-  it("adds autocomplete, nearby search, popular services and richer result cards", () => {
+  it("adds autocomplete, nearby search, popular services and customer-focused result cards", () => {
     expect(pageSource).toContain('PublicDirectorySearchPage locale="sv"');
     expect(shellSource).toContain("PublicDirectorySearchForm");
     expect(shellSource).toContain("popularDirectoryServices");
-    expect(resultsSource).toContain("result.activityDescription");
+    expect(resultsSource).not.toContain("result.activityDescription");
+    expect(resultsSource).toContain("t.verifiedDetails");
+    expect(resultsSource).toContain("registeredLocation(result, locale)");
     expect(resultsSource).toContain("result.distanceKm");
     expect(copySource).toContain("toFixed(1)");
     expect(formSource).toContain("directory-service-suggestions");
@@ -69,7 +71,8 @@ describe("public company directory search contract", () => {
   it("keeps search and profile routing in the shared public directory graph", () => {
     expect(shellSource).toContain("searchPublishedCompanyDirectory");
     expect(resultsSource).toContain("${profileBase}/${encodeURIComponent(result.slug)}");
-    expect(copySource).toContain("registrerade adress");
+    expect(copySource).toContain("registrerade ort");
+    expect(copySource).toContain("Bekräftat serviceområde visas separat");
     expect(copySource).toContain('search: "/foretag/listad"');
     expect(copySource).toContain('search: "/en/companies"');
   });

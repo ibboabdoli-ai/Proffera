@@ -1,13 +1,13 @@
-import { MarketingHome } from "@/components/marketing/marketing-home-v2";
+import { MarketplaceHome } from "@/components/marketplace/marketplace-home";
 import { createEnglishMetadata } from "@/lib/english-metadata";
 
 export const metadata = createEnglishMetadata({
-  title: "Customer workflow, booking and CRM for service businesses",
-  description: "Show services, receive bookings and quote requests, and manage customers, jobs and follow-up in Proffera.",
+  title: "Find businesses, book appointments or request quotes",
+  description: "Search by service and location, find verified business profiles and book, request a quote or view the business in Proffera.",
   englishPath: "/en",
   swedishPath: "/",
 });
 
 export default function EnglishHomePage() {
-  return <MarketingHome locale="en" />;
+  return <MarketplaceHome locale="en" />;
 }

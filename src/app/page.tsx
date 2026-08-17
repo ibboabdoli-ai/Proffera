@@ -1,15 +1,15 @@
 import type { Metadata } from "next";
 
-import { MarketingHome } from "@/components/marketing/marketing-home-v2";
+import { MarketplaceHome } from "@/components/marketplace/marketplace-home";
 
 export const metadata: Metadata = {
   title: {
-    absolute: "Proffera – Kundflöde, bokning och CRM för tjänsteföretag",
+    absolute: "Proffera – Hitta företag, boka tid eller få offerter",
   },
   description:
-    "Visa tjänster, ta emot bokningar och offertförfrågningar och hantera kund, uppdrag och uppföljning i Proffera.",
+    "Sök efter tjänst och ort, hitta verifierade företagsprofiler och boka tid, begär offert eller se företaget i Proffera.",
 };
 
 export default function HomePage() {
-  return <MarketingHome locale="sv" />;
+  return <MarketplaceHome locale="sv" />;
 }

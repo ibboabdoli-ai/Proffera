@@ -17,14 +17,33 @@ type HeaderProps = {
   locale: PublicLocale;
 };
 
+const marketplaceNavigation = {
+  sv: [
+    { label: "Hitta företag", href: "/foretag/listad" },
+    { label: "Populära tjänster", href: "/#populara-tjanster" },
+    { label: "Så fungerar det", href: "/#sa-fungerar" },
+  ],
+  en: [
+    { label: "Find businesses", href: "/en/companies" },
+    { label: "Popular services", href: "/en#populara-tjanster" },
+    { label: "How it works", href: "/en#sa-fungerar" },
+  ],
+} as const;
+
 export function Header({ locale }: HeaderProps) {
   const pathname = usePathname();
   const menuRef = useRef<HTMLDetailsElement>(null);
   const copy = localeCopy[locale];
-  const navigation = getPublicNavigation(locale);
+  const marketplaceHome = pathname === "/" || pathname === "/en";
+  const marketplaceSearch = pathname === "/foretag/listad" || pathname === "/en/companies";
+  const marketplaceContext = marketplaceHome || marketplaceSearch;
+  const navigation = marketplaceContext ? marketplaceNavigation[locale] : getPublicNavigation(locale);
   const alternateLocalePath = getAlternateLocalePath(pathname);
   const homeHref = getLocalizedRoute("/", locale);
   const signupHref = getLocalizedRoute("/skapa-konto", locale);
+  const businessHref = getLocalizedRoute("/for-foretag", locale);
+  const primaryHref = marketplaceContext ? businessHref : signupHref;
+  const primaryLabel = marketplaceContext ? (locale === "en" ? "For businesses" : "För företag") : copy.primaryCtaLabel;
   const loginHref = locale === "en" ? "/logga-in?lang=en" : "/logga-in?lang=sv";
 
   function closeMenu() {
@@ -81,7 +100,7 @@ export function Header({ locale }: HeaderProps) {
               {locale === "en" ? "SV" : "EN"}
             </Link>
           ) : null}
-          <ButtonLink href={signupHref}>{copy.primaryCtaLabel}</ButtonLink>
+          <ButtonLink href={primaryHref}>{primaryLabel}</ButtonLink>
         </div>
 
         <details ref={menuRef} className="relative lg:hidden">
@@ -107,8 +126,8 @@ export function Header({ locale }: HeaderProps) {
                   {locale === "en" ? "Svenska" : "English"}
                 </Link>
               ) : null}
-              <ButtonLink href={signupHref} onClick={closeMenu} className="mt-2 w-full">
-                {copy.primaryCtaLabel}
+              <ButtonLink href={primaryHref} onClick={closeMenu} className="mt-2 w-full">
+                {primaryLabel}
               </ButtonLink>
             </nav>
           </div>

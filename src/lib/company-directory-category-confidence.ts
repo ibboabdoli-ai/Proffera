@@ -43,6 +43,7 @@ const categoryKeywords: Record<string, string[]> = {
   tradgard: ["tradgard", "markskotsel", "gronyt", "landskap"],
   flytt: ["flytt", "moving"],
   hemservice: ["hemservice", "hushallsnara", "hushallstjanst", "homeservice"],
+  frisor: ["frisor", "barber", "harvard", "harfrisering", "frisering"],
 };
 
 function object(value: unknown): UnknownRecord | null {

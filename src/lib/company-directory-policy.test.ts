@@ -42,6 +42,7 @@ describe("company directory policy", () => {
   it("normalizes current SNI2025 codes", () => {
     expect(normalizeSniCode("81210")).toBe("81.210");
     expect(normalizeSniCode("49.420")).toBe("49.420");
+    expect(normalizeSniCode("96210")).toBe("96.210");
     expect(normalizeSniCode("96910")).toBe("96.910");
   });
 
@@ -50,6 +51,7 @@ describe("company directory policy", () => {
     expect(mapSniToDirectoryCategory("81.221")?.categorySlug).toBe("stadning");
     expect(mapSniToDirectoryCategory("81.222")).toBeNull();
     expect(mapSniToDirectoryCategory("96.910")?.categorySlug).toBe("hemservice");
+    expect(mapSniToDirectoryCategory("96.210")?.categorySlug).toBe("frisor");
     expect(mapSniToDirectoryCategory("49.420")?.categorySlug).toBe("flytt");
     expect(mapSniToDirectoryCategory("43.210")?.categorySlug).toBe("elektriker");
     expect(mapSniToDirectoryCategory("43.221")?.categorySlug).toBe("vvs");
@@ -63,6 +65,7 @@ describe("company directory policy", () => {
       "81.210",
       "81.221",
       "96.910",
+      "96.210",
       "49.420",
       "43.210",
       "43.221",
@@ -80,6 +83,12 @@ describe("company directory policy", () => {
     const homeService = mapSniToDirectoryCategory("96.910");
     expect(homeService?.categoryLabel).toBe("Hemservice");
     expect(homeService?.serviceSlugs).toEqual([]);
+  });
+
+  it("maps hairdresser and barber businesses to the booking-first category", () => {
+    const hairdresser = mapSniToDirectoryCategory("96.210");
+    expect(hairdresser?.categoryLabel).toBe("Frisör");
+    expect(hairdresser?.serviceSlugs).toEqual([]);
   });
 
   it("blocks sole traders from automatic public publication", () => {

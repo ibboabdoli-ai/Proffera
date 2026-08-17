@@ -12,6 +12,9 @@ type BookingAiChatWidgetProps = {
 
 export function ServiceAiChatWidget() {
   const pathname = usePathname();
+  const isMarketplaceEntry = pathname === "/"
+    || pathname === "/en"
+    || pathname?.startsWith("/en/companies");
   const isSensitiveFlow = pathname?.startsWith("/admin")
     || pathname?.startsWith("/dashboard")
     || pathname?.startsWith("/demo/")
@@ -22,7 +25,7 @@ export function ServiceAiChatWidget() {
     || pathname?.startsWith("/bjud-in/")
     || pathname?.startsWith("/anslut-foretag/");
 
-  if (isSensitiveFlow) return null;
+  if (isMarketplaceEntry || isSensitiveFlow) return null;
 
   return (
     <Script

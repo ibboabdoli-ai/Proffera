@@ -9,6 +9,8 @@ type LocalizedRoute = {
 
 const localizedRoutes = [
   { sv: "/", en: "/en" },
+  { sv: "/foretag/listad", en: "/en/companies" },
+  { sv: "/for-foretag", en: "/en/for-business" },
   { sv: "/tjanster", en: "/en/services" },
   { sv: "/branscher", en: "/en/industries" },
   { sv: "/priser", en: "/en/pricing" },
