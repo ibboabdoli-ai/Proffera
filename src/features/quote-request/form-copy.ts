@@ -1,9 +1,11 @@
 export const quoteFormCopy = {
   sv: {
-    steps: ["Tjänst", "Plats", "Beskrivning", "Kontakt", "Granska"], step: "Steg", of: "av", website: "Webbplats",
+    steps: ["Tjänst", "Detaljer", "Plats", "Beskrivning", "Kontakt", "Granska"], step: "Steg", of: "av", website: "Webbplats",
     category: "Kategori", chooseCategory: "Välj kategori", service: "Tjänstetyp", chooseService: "Välj tjänstetyp",
+    detailsTitle: "Berätta lite mer om jobbet", detailsLead: "Frågorna anpassas efter tjänsten så att företagen snabbare kan bedöma uppdraget och lämna en bättre offert.",
+    structuredDetails: "Uppgifter om jobbet", descriptionTooLong: "De samlade uppgifterna är för långa. Korta ner beskrivningen och försök igen.",
     city: "Stad", cityHint: "Till exempel Stockholm", postal: "Postnummer", postalHint: "Till exempel 151 46",
-    description: "Beskriv uppdraget", descriptionHint: "Beskriv vad som ska göras, ungefärlig omfattning och annat företagen behöver veta.",
+    description: "Beskriv uppdraget", descriptionHint: "Lägg till sådant som inte redan framgår av frågorna, till exempel särskilda önskemål eller förutsättningar på plats.",
     date: "Önskad tidpunkt", chooseDate: "Välj tidpunkt", name: "Namn", email: "E-post", phone: "Telefon",
     consent: "Jag godkänner att Proffera behandlar mina uppgifter för att hantera förfrågan, matcha den med lämpliga företag och kontakta mig om uppdraget.",
     missing: "Ej angivet", back: "Tillbaka", next: "Fortsätt", sending: "Skickar...", submit: "Skicka förfrågan",
@@ -11,10 +13,12 @@ export const quoteFormCopy = {
     serverError: "Förfrågan kunde inte skickas. Försök igen om en stund.",
   },
   en: {
-    steps: ["Service", "Location", "Description", "Contact", "Review"], step: "Step", of: "of", website: "Website",
+    steps: ["Service", "Details", "Location", "Description", "Contact", "Review"], step: "Step", of: "of", website: "Website",
     category: "Category", chooseCategory: "Choose category", service: "Service type", chooseService: "Choose service type",
+    detailsTitle: "Tell us a little more about the job", detailsLead: "The questions adapt to the service so companies can assess the job faster and provide a better quote.",
+    structuredDetails: "Job details", descriptionTooLong: "The combined job details are too long. Shorten the description and try again.",
     city: "City", cityHint: "For example Stockholm", postal: "Postal code", postalHint: "For example 151 46",
-    description: "Describe the job", descriptionHint: "Describe what needs to be done, the approximate scope and anything the companies should know.",
+    description: "Describe the job", descriptionHint: "Add anything not already covered by the questions, such as special requests or conditions at the property.",
     date: "Preferred time", chooseDate: "Choose time", name: "Name", email: "Email", phone: "Phone",
     consent: "I agree that Proffera may process my details to handle the request, match it with suitable companies and contact me about the job.",
     missing: "Not provided", back: "Back", next: "Continue", sending: "Sending...", submit: "Send request",
