@@ -35,9 +35,10 @@ describe("confirmed service-area marketplace contract", () => {
   });
 
   it("removes only owner evidence when a service stops qualifying", () => {
-    expect(servicesDb).toContain("delete from company_directory_service_areas");
-    expect(servicesDb).toContain("and source_type = 'owner'");
-    expect(servicesDb).not.toContain("delete from company_directory_service_areas\n      where profile_id = ${profileId}::uuid\n        and service_slug = ${publicSlug}\n    ");
+    const deleteBlocks = servicesDb.match(/delete from company_directory_service_areas[\s\S]*?`;/g) ?? [];
+
+    expect(deleteBlocks.length).toBeGreaterThanOrEqual(2);
+    expect(deleteBlocks.every((block) => block.includes("and source_type = 'owner'"))).toBe(true);
   });
 
   it("does not mark marketplace readiness from legacy free-text areas", () => {
