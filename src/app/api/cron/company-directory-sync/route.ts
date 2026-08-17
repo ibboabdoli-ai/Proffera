@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { processCompanyDirectoryDiscoveryQueue } from "@/lib/company-directory-discovery-queue";
 import { syncCompanyDirectory } from "@/lib/company-directory-engine";
+import { autoPublishReadyHighConfidenceCompanyDirectoryBatch } from "@/lib/company-directory-ready-auto-publish";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -34,8 +35,14 @@ export async function GET(request: Request) {
   try {
     const mode = process.env.COMPANY_DIRECTORY_DISCOVERY_MODE?.trim().toLowerCase();
     if (mode === "automatic") {
+      const readyAutoPublish = await autoPublishReadyHighConfidenceCompanyDirectoryBatch();
       const result = await processCompanyDirectoryDiscoveryQueue();
-      return NextResponse.json({ ok: true, mode: "automatic_queue", ...result });
+      return NextResponse.json({
+        ok: true,
+        mode: "automatic_queue",
+        ...result,
+        readyAutoPublish,
+      });
     }
 
     if (!process.env.COMPANY_DIRECTORY_SOURCE_URL?.trim()) {
