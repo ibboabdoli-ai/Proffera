@@ -1,8 +1,9 @@
 import "server-only";
 
 // Official Bolagsverket TEST/accept2 identifiers from
-// "Testdata API Värdefulla datamängder" supplied for /organisationer testing.
-// Keep this list limited to documented TEST identifiers; never guess organisation numbers.
+// "Testdata API Värdefulla datamängder" v1.01 (2025-06-24), supplied for
+// /organisationer testing. Keep this list limited to documented 10-digit TEST
+// organisation numbers; never guess organisation numbers or include personal identity numbers.
 export const BOLAGSVERKET_VDM_TEST_ORGANIZATION_NUMBERS = [
   "5560021361",
   "9124001992",
@@ -50,6 +51,8 @@ export const BOLAGSVERKET_VDM_TEST_ORGANIZATION_NUMBERS = [
   "9697174515",
   "9697258623",
   "9697400522",
+  "5562820745",
+  "5560986878",
 ] as const;
 
 const allowed = new Set<string>(BOLAGSVERKET_VDM_TEST_ORGANIZATION_NUMBERS);
