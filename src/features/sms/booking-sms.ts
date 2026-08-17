@@ -54,7 +54,19 @@ function formatBookingDate(value: string, timeZone: WorkspaceTimeZone = "Europe/
   }).format(new Date(value));
 }
 
+function previewSmsBlocked() {
+  return process.env.VERCEL_ENV === "preview";
+}
+
+function previewSmsBlockedMessage(language: "sv" | "en" = "sv") {
+  return language === "en" ? "SMS is disabled in Vercel Preview." : "SMS är avstängt i Vercel Preview.";
+}
+
 export async function sendBookingVerificationSms(input: SendBookingVerificationSmsInput) {
+  if (previewSmsBlocked()) {
+    return { ok: false as const, skipped: true as const, message: previewSmsBlockedMessage(input.language) };
+  }
+
   const apiKey = process.env.BREVO_API_KEY;
   const sender = process.env.BREVO_SMS_SENDER?.trim();
   if (!apiKey || !sender) {
@@ -88,6 +100,10 @@ export async function sendBookingVerificationSms(input: SendBookingVerificationS
 }
 
 export async function sendBookingOwnerSms(input: SendBookingOwnerSmsInput) {
+  if (previewSmsBlocked()) {
+    return { ok: false as const, skipped: true as const, message: previewSmsBlockedMessage() };
+  }
+
   const apiKey = process.env.BREVO_API_KEY;
   const sender = process.env.BREVO_SMS_SENDER?.trim();
   if (!apiKey || !sender) {
@@ -119,6 +135,10 @@ export async function sendBookingOwnerSms(input: SendBookingOwnerSmsInput) {
 }
 
 export async function sendBookingCustomerSms(input: SendBookingCustomerSmsInput) {
+  if (previewSmsBlocked()) {
+    return { ok: false as const, skipped: true as const, message: previewSmsBlockedMessage() };
+  }
+
   const apiKey = process.env.BREVO_API_KEY;
   const sender = process.env.BREVO_SMS_SENDER?.trim();
   if (!apiKey || !sender) {

@@ -11,35 +11,39 @@ import {
   type CheckoutPlanLocale,
   type CheckoutPlanOption,
 } from "@/lib/billing-plans";
+import {
+  isResolvedStripeTestMode,
+  resolveStripePriceIdForPlan,
+  resolveStripeSecretKey,
+  resolveStripeWebhookSecret,
+} from "@/lib/stripe-runtime-config";
 import type { WorkspaceBillingCurrency } from "@/lib/workspace-market";
 
 let stripeClient: Stripe | null = null;
+let stripeClientKey: string | null = null;
 
 export function getStripeClient() {
-  const secretKey = process.env.STRIPE_SECRET_KEY?.trim();
+  const secretKey = resolveStripeSecretKey();
 
   if (!secretKey) return null;
 
-  if (!stripeClient) {
+  if (!stripeClient || stripeClientKey !== secretKey) {
     stripeClient = new Stripe(secretKey, {
       maxNetworkRetries: 2,
       timeout: 10_000,
     });
+    stripeClientKey = secretKey;
   }
 
   return stripeClient;
 }
 
 export function getStripePriceId() {
-  return process.env.STRIPE_PRICE_ID?.trim() || null;
+  return resolveStripePriceIdForPlan("professional");
 }
 
 export function getStripePriceIdForPlan(planKey: CheckoutPlanKey) {
-  if (planKey === "starter") {
-    return process.env.STRIPE_PRICE_STARTER?.trim() || null;
-  }
-
-  return process.env.STRIPE_PRICE_PROFESSIONAL?.trim() || getStripePriceId();
+  return resolveStripePriceIdForPlan(planKey);
 }
 
 export function getStripeCheckoutPlanOptions(
@@ -59,11 +63,11 @@ export function getStripeCheckoutPlanForPriceId(priceId: string) {
 }
 
 export function getStripeWebhookSecret() {
-  return process.env.STRIPE_WEBHOOK_SECRET?.trim() || null;
+  return resolveStripeWebhookSecret();
 }
 
 export function isStripeTestMode() {
-  return process.env.STRIPE_SECRET_KEY?.trim().startsWith("sk_test_") ?? false;
+  return isResolvedStripeTestMode();
 }
 
 /**
