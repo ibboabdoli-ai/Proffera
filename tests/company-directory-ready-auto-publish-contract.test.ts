@@ -12,23 +12,26 @@ describe("company directory high-confidence Ready auto-publish contract", () => 
     const resolver = source("src/lib/company-directory-ready-auto-publish.ts");
 
     expect(resolver).toContain("assessCompanyDirectoryCategoryConfidence");
-    expect(resolver).toContain("publishCompanyDirectoryProfileIfSafe");
-    expect(resolver).toContain("confidence.score < 95");
+    expect(resolver).toContain("autoPublishCompanyDirectoryProfileIfSafe");
+    expect(resolver).toContain("confidence.score >= 95");
+    expect(resolver).toContain("confidence.officialFactsReady");
   });
 
-  it("never turns low-confidence Ready profiles into scheduled refresh work", () => {
+  it("selects only high-confidence Ready profiles for publication work", () => {
     const resolver = source("src/lib/company-directory-ready-auto-publish.ts");
 
-    expect(resolver).toContain("confidence.score < 95");
-    expect(resolver).toContain("continue");
+    expect(resolver).toContain("return confidence.officialFactsReady && confidence.score >= 95");
+    expect(resolver).toContain("const selected = highConfidence.slice(0, safeLimit)");
   });
 
   it("keeps both scan egress and publication work bounded", () => {
     const resolver = source("src/lib/company-directory-ready-auto-publish.ts");
 
-    expect(resolver).toContain("READY_SCAN_LIMIT");
-    expect(resolver).toContain("READY_AUTO_PUBLISH_LIMIT");
-    expect(resolver).toContain("limit ${READY_SCAN_LIMIT}");
+    expect(resolver).toContain("READY_AUTO_PUBLISH_SCAN_SIZE = 25");
+    expect(resolver).toContain("DEFAULT_READY_AUTO_PUBLISH_BATCH_SIZE = 10");
+    expect(resolver).toContain("MAX_READY_AUTO_PUBLISH_BATCH_SIZE = 20");
+    expect(resolver).toContain("limit ${READY_AUTO_PUBLISH_SCAN_SIZE}");
+    expect(resolver).toContain("highConfidence.slice(0, safeLimit)");
   });
 
   it("preserves the existing database safety preconditions", () => {
