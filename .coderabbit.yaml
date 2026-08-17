@@ -1,0 +1,56 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: "en-US"
+early_access: false
+reviews:
+  profile: "assertive"
+  request_changes_workflow: true
+  high_level_summary: true
+  poem: false
+  review_status: true
+  auto_review:
+    enabled: true
+    drafts: false
+  path_filters:
+    - "!**/node_modules/**"
+    - "!**/.next/**"
+    - "!**/dist/**"
+    - "!**/coverage/**"
+    - "!**/playwright-report/**"
+    - "!**/test-results/**"
+    - "!graphify-out/**"
+    - "!graph.json"
+    - "!**/*.lock"
+    - "!**/package-lock.json"
+    - "!**/pnpm-lock.yaml"
+    - "!**/yarn.lock"
+  path_instructions:
+    - path: "src/**/*.{ts,tsx,js,jsx}"
+      instructions: |
+        Review this Proffera production code assertively. Prioritize correctness and reachable defects over style.
+        - Preserve workspace/tenant isolation and RBAC boundaries.
+        - Flag auth, permission, IDOR, cross-tenant, secret, payment, webhook, and unsafe input-validation issues.
+        - For Company Directory changes, fail closed: never infer company facts, category, service area, coordinates, or publication eligibility. Registered address is not service area.
+        - Publication must continue through the existing safety gate; flag direct or bypass publication paths.
+        - Public/customer-facing changes must preserve Swedish and English behavior together.
+        - Flag N+1 queries, unbounded reads, repeated external calls, race conditions, retry storms, and production-timeout risks.
+        - Do not suggest broad refactors unless required to fix a concrete defect.
+    - path: "tests/**/*.{ts,tsx,js,jsx}"
+      instructions: |
+        Review tests for behavioral coverage of the changed contract.
+        - Prefer executing behavior over source-text assertions when behavior can be tested directly.
+        - Require regression coverage for security, publication, tenant isolation, rate limits, and failure paths touched by the PR.
+        - Flag tests that can pass while the production behavior is still broken.
+    - path: ".github/workflows/**"
+      instructions: |
+        Treat CI and workflow changes as security-sensitive.
+        - Require every GitHub Action reference in workflow files to be pinned to a full 40-character immutable commit SHA. Flag mutable tags or branches such as @v4, @v7, @main, or release tags. Permit an exception only when the workflow includes a clear documented justification explaining why immutable SHA pinning is not possible or appropriate.
+        - Preserve least privilege for permissions and credentials.
+        - Flag workflows that can mutate Production, expose secrets, bypass required validation, or execute untrusted PR code with privileged credentials.
+        - Keep required validation compatible with Validate, CodeQL, and public E2E smoke.
+    - path: "**/migrations/**"
+      instructions: |
+        Treat database migrations as high risk.
+        - Flag destructive, locking, non-reversible, or tenant-isolation changes.
+        - Require explicit migration/rollback reasoning and safe deployment sequencing.
+chat:
+  auto_reply: true
