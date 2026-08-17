@@ -25,6 +25,7 @@ test.describe("public marketplace smoke", () => {
     await expect(page.getByRole("heading", { level: 1, name: "Hitta rätt företag för jobbet" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Hitta företag", exact: true }).first()).toBeVisible();
     await expect(page.getByRole("link", { name: "För företag", exact: true }).first()).toBeVisible();
+    await expect(page.getByRole("link", { name: "Byt till engelska" })).toBeVisible();
     await expect(page.getByText("Ortssökning utgår från företagets registrerade ort. Bekräftat serviceområde visas separat.")).toBeVisible();
     await expect(page.getByText("Positionen kunde inte tolkas. Prova Nära mig igen eller sök med ort.")).toHaveCount(0);
     await expect(page.getByText("Företag som matchar")).toBeVisible();
@@ -35,6 +36,19 @@ test.describe("public marketplace smoke", () => {
     expect(url.searchParams.get("location")).toBe("STOCKHOLM");
     expect(url.searchParams.has("latitude")).toBe(false);
     expect(url.searchParams.has("longitude")).toBe(false);
+
+    const firstResult = page.locator("article").first();
+    await expect(firstResult).toBeVisible();
+    await expect(firstResult.getByText("VVS / Rörmokare", { exact: false }).first()).toBeVisible();
+    await expect(firstResult.getByText(/Registrerad i STOCKHOLM/i)).toBeVisible();
+    await expect(page.locator("footer")).toBeVisible();
+    await expect(page.locator("footer").getByRole("link", { name: "Hitta företag", exact: true })).toBeVisible();
+
+    const profileHref = await firstResult.getByRole("link", { name: "Se företag", exact: true }).first().getAttribute("href");
+    expect(profileHref).toBeTruthy();
+    await page.goto(profileHref);
+    await expect(page.getByRole("link", { name: "För företag", exact: true })).toHaveCount(0);
+    await expect(page.locator("footer")).toHaveCount(0);
   });
 
   test("English root renders the simplified marketplace home and normalizes Hairdresser", async ({ page }) => {
@@ -60,6 +74,7 @@ test.describe("public marketplace smoke", () => {
     await expect(page.getByRole("heading", { level: 1, name: "Find the right company for the job" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Find businesses", exact: true }).first()).toBeVisible();
     await expect(page.getByRole("link", { name: "For businesses", exact: true }).first()).toBeVisible();
+    await expect(page.getByRole("link", { name: "Switch to Swedish" })).toBeVisible();
     await expect(page.getByText("Location search uses the business's registered location. Confirmed service area is shown separately.")).toBeVisible();
     await expect(page.getByText("The position could not be interpreted. Try Near me again or search by location.")).toHaveCount(0);
 
