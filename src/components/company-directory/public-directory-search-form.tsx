@@ -62,9 +62,9 @@ export function PublicDirectorySearchForm({
         params.set("latitude", position.coords.latitude.toFixed(6));
         params.set("longitude", position.coords.longitude.toFixed(6));
         params.set("radius", radius);
+        const target = `${searchPath}?${params.toString()}`;
         setNearbyStatus(t.found);
-        setNearbyLoading(false);
-        router.push(`${searchPath}?${params.toString()}`);
+        window.location.assign(target);
       },
       () => {
         setNearbyLoading(false);

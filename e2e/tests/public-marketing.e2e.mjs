@@ -47,6 +47,27 @@ test.describe("public marketplace smoke", () => {
     await expect(page.locator("footer")).toHaveCount(0);
   });
 
+  test("Nära mig navigates after geolocation succeeds", async ({ page, context }) => {
+    await context.grantPermissions(["geolocation"]);
+    await context.setGeolocation({ latitude: 59.329323, longitude: 18.068581 });
+
+    const response = await page.goto("/");
+    expect(response?.ok()).toBeTruthy();
+
+    await page.getByLabel("Tjänst").fill("VVS & rörmokare");
+    await page.getByRole("button", { name: "Nära mig" }).click();
+    await expect(page).toHaveURL(/\/foretag\/listad\?/);
+
+    const url = new URL(page.url());
+    expect(url.pathname).toBe("/foretag/listad");
+    expect(url.searchParams.get("service")).toBe("VVS & rörmokare");
+    expect(url.searchParams.get("latitude")).toBe("59.329323");
+    expect(url.searchParams.get("longitude")).toBe("18.068581");
+    expect(url.searchParams.get("radius")).toBe("25");
+    expect(url.searchParams.has("location")).toBe(false);
+    await expect(page.getByText("Positionen kunde inte tolkas. Prova Nära mig igen eller sök med ort.")).toHaveCount(0);
+  });
+
   test("English root renders the simplified marketplace home and normalizes Hairdresser", async ({ page }) => {
     const response = await page.goto("/en");
 
