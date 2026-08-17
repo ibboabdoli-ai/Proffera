@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test.describe("public marketplace smoke", () => {
-  test("Swedish root renders and routes a real marketplace search", async ({ page }) => {
+  test("Swedish root renders the simplified marketplace home and routes a real search", async ({ page }) => {
     const response = await page.goto("/");
 
     expect(response?.ok()).toBeTruthy();
@@ -11,7 +11,12 @@ test.describe("public marketplace smoke", () => {
         name: "Vad behöver du hjälp med?",
       }),
     ).toBeVisible();
+    await expect(page.getByText("Sök tjänst och plats. Jämför företag, boka direkt eller begär offert.")).toBeVisible();
+    await expect(page.getByRole("heading", { level: 2, name: "Populära tjänster" })).toBeVisible();
+    await expect(page.getByRole("link", { name: /Frisör & barberare/ })).toBeVisible();
+    await expect(page.getByRole("link", { name: /Elektriker/ })).toBeVisible();
     await expect(page.getByRole("link", { name: "För företag" }).first()).toBeVisible();
+    await expect(page.locator("#proffera-chat-widget")).toHaveCount(0);
 
     await page.getByLabel("Tjänst").fill("Frisör");
     await page.getByLabel("Ort").fill("Södertälje");
@@ -26,7 +31,7 @@ test.describe("public marketplace smoke", () => {
     expect(url.searchParams.get("location")).toBe("Södertälje");
   });
 
-  test("English root normalizes Hairdresser into the shared Directory search", async ({ page }) => {
+  test("English root renders the simplified marketplace home and normalizes Hairdresser", async ({ page }) => {
     const response = await page.goto("/en");
 
     expect(response?.ok()).toBeTruthy();
@@ -36,7 +41,11 @@ test.describe("public marketplace smoke", () => {
         name: "What do you need help with?",
       }),
     ).toBeVisible();
+    await expect(page.getByText("Search by service and location. Compare businesses, book directly or request a quote.")).toBeVisible();
+    await expect(page.getByRole("heading", { level: 2, name: "Popular services" })).toBeVisible();
+    await expect(page.getByRole("link", { name: /Hairdresser & barber/ })).toBeVisible();
     await expect(page.getByRole("link", { name: "For businesses" }).first()).toBeVisible();
+    await expect(page.locator("#proffera-chat-widget")).toHaveCount(0);
 
     await page.getByLabel("Service").fill("Hairdresser");
     await page.getByLabel("Location").fill("Södertälje");
