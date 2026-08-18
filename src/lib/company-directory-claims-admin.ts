@@ -8,6 +8,7 @@ import {
   parseClaimEmailEvidence,
   serializeClaimEmailEvidence,
 } from "@/lib/company-directory-claim-email";
+import { finalizeCompanyDirectoryClaimIntoExistingWorkspace } from "@/lib/company-directory-existing-workspace-claim";
 import { getPlatformAdmin } from "@/lib/platform-admin";
 import { getSql } from "@/lib/db/server";
 
@@ -201,13 +202,34 @@ export async function approveAndProvisionCompanyDirectoryClaim(input: { claimId:
   }
   if (!emailEvidence) throw new Error("Business email verification evidence is missing");
 
+  const claimantUserId = String(row.claimant_user_id);
+  const profileId = String(row.profile_id);
+  const requestedWorkspaceId = String(row.requested_workspace_id ?? "");
+  const activityDescription = String(row.activity_description ?? "").trim();
+  const approvedEvidence = serializeClaimEmailEvidence({
+    ...emailEvidence,
+    adminReference: reference,
+    adminReviewedAt: new Date().toISOString(),
+  });
+
+  if (requestedWorkspaceId) {
+    return finalizeCompanyDirectoryClaimIntoExistingWorkspace({
+      claimId,
+      profileId,
+      workspaceId: requestedWorkspaceId,
+      claimantUserId,
+      adminUserId: admin.userId,
+      adminReference: reference,
+      approvedEvidence,
+      activityDescription,
+    });
+  }
+
   const generatedWorkspaceId = randomUUID();
   const reservationToken = randomUUID();
-  const claimantUserId = String(row.claimant_user_id);
   const claimantEmail = String(row.claimant_email).trim().toLowerCase();
   const companyName = String(row.display_name).trim();
   const city = String(row.city ?? "").trim();
-  const profileId = String(row.profile_id);
   if (!companyName || !city || !claimantEmail) throw new Error("Claim lacks required provisioning data");
 
   const reserved = await sql`
@@ -237,12 +259,6 @@ export async function approveAndProvisionCompanyDirectoryClaim(input: { claimId:
   if (!reserved[0]) {
     throw new Error("Company profile is already reserved by an active claim operation");
   }
-
-  const approvedEvidence = serializeClaimEmailEvidence({
-    ...emailEvidence,
-    adminReference: reference,
-    adminReviewedAt: new Date().toISOString(),
-  });
 
   const verified = await sql`
     update company_directory_claims
@@ -320,7 +336,6 @@ export async function approveAndProvisionCompanyDirectoryClaim(input: { claimId:
     throw new Error("Claim reservation was lost before finalization; wait for lease recovery and review the provisioned workspace");
   }
 
-  const activityDescription = String(row.activity_description ?? "").trim();
   await sql.transaction((tx) => [
     tx`
       update workspace_experience_settings
