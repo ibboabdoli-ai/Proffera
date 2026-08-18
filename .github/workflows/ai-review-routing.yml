@@ -1,0 +1,117 @@
+name: AI review routing
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, reopened, synchronize, ready_for_review, converted_to_draft]
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  reset-review-label:
+    if: github.event_name == 'pull_request_target'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+    steps:
+      - name: Reset review label for a new PR revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          encoded_label="needs-ai-review"
+          gh api --method DELETE "repos/${REPOSITORY}/issues/${PR_NUMBER}/labels/${encoded_label}" >/dev/null 2>&1 || true
+
+  route-after-ci:
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+    steps:
+      - name: Classify PR risk and opt in CodeRabbit when needed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "${PR_NUMBER:-}" ]; then
+            echo "No pull request is associated with this CI run; skipping."
+            exit 0
+          fi
+
+          pr_json="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")"
+          is_draft="$(jq -r '.draft' <<< "$pr_json")"
+          author="$(jq -r '.user.login' <<< "$pr_json")"
+
+          if [ "$is_draft" = "true" ]; then
+            echo "PR #${PR_NUMBER} is draft; review routing waits until it is ready."
+            exit 0
+          fi
+
+          if [ "$author" = "dependabot[bot]" ]; then
+            echo "Dependabot PR; skipping AI review routing."
+            exit 0
+          fi
+
+          changed_files="$(gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100" --jq '.[].filename')"
+          file_count="$(grep -c . <<< "$changed_files" || true)"
+          needs_review=false
+          reason=""
+
+          if [ "$file_count" -ge 12 ]; then
+            needs_review=true
+            reason="large change (${file_count} files)"
+          fi
+
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+
+            case "$file" in
+              .github/workflows/*|db/migrations/*|migrations/*|src/app/api/*|package.json|package-lock.json|vercel.json|next.config.*|src/proxy.*|middleware.*|scripts/company-directory-discovery.py)
+                needs_review=true
+                reason="sensitive path: $file"
+                break
+                ;;
+            esac
+
+            if [[ "$file" =~ (^|/)(auth|rbac|permissions?|tenant|workspace|billing|payments?|stripe|checkout|webhooks?|db|database|postgres|neon)(/|[._-]) ]] ||
+               [[ "$file" =~ company[-_]directory ]] ||
+               [[ "$file" =~ (^|/)\.env ]]; then
+              needs_review=true
+              reason="sensitive domain: $file"
+              break
+            fi
+          done <<< "$changed_files"
+
+          if [ "$needs_review" != "true" ]; then
+            echo "PR #${PR_NUMBER}: CodeRabbit review not required."
+            exit 0
+          fi
+
+          if ! gh api "repos/${REPOSITORY}/labels/needs-ai-review" >/dev/null 2>&1; then
+            gh api --method POST "repos/${REPOSITORY}/labels" \
+              -f name='needs-ai-review' \
+              -f color='B60205' \
+              -f description='Automatically applied after green CI for sensitive or large changes.' >/dev/null
+          fi
+
+          gh api --method POST "repos/${REPOSITORY}/issues/${PR_NUMBER}/labels" \
+            -f 'labels[]=needs-ai-review' >/dev/null
+
+          echo "PR #${PR_NUMBER}: needs-ai-review applied (${reason})."
