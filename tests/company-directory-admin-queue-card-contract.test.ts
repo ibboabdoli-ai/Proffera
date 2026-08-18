@@ -28,7 +28,7 @@ describe("company directory pending verification count", () => {
         "",
       );
       queries.push(query);
-      return [{ count: 37 }];
+      return [{ count: "37" }];
     });
     mocks.getSql.mockReturnValue(sql);
 
