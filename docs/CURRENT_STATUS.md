@@ -62,7 +62,9 @@ Current merge-safety rules include:
 
 A dedicated `Worker supervisor sync` GitHub Actions workflow records `work/proffera-*` PR lifecycle events to issue #548 when PRs are opened/reopened, marked ready for review, or closed/merged. This gives the Supervisor a durable automatic event trail independent of private chat memory.
 
-Dependency-bot branches are handled separately by automation and are exempt from Worker Bootstrap declarations.
+CodeRabbit is opt-in rather than automatic on every PR. An `AI review routing` workflow clears stale review routing on each new PR revision, waits for successful CI, then applies `needs-ai-review` only when changed paths are security/data/tenant/payment/API/workflow sensitive or the PR is large. The label is the CodeRabbit trigger; non-sensitive green PRs do not consume an automatic CodeRabbit review. Draft PRs wait until they become ready, at which point CI runs again before routing.
+
+Dependency-bot branches are handled separately by automation and are exempt from Worker Bootstrap declarations and automatic AI-review routing.
 
 ## CI and browser testing
 
@@ -128,9 +130,10 @@ A Production runtime warning observed on 2026-08-18 concerns PostgreSQL connecti
 
 1. Keep issue #548 as the live worker/PR state and current `main` baseline; use automatic Supervisor lifecycle events as the durable event trail.
 2. Keep this file synchronized only when a PR changes stable project-level truth; do not use it for fast-moving task/SHA/deployment state.
-3. Activate authenticated Workspace/Booking browser checks only after isolated Preview test infrastructure is proven.
-4. Expand state-changing Booking and Quote E2E only after Preview database/auth/email/payment isolation is verified.
-5. Continue database tenant-defense work only through isolated-branch proof before any Production RLS rollout.
+3. Keep CodeRabbit review consumption risk-routed: sensitive/large PRs after green CI, manual review only when a non-sensitive PR still needs deeper inspection.
+4. Activate authenticated Workspace/Booking browser checks only after isolated Preview test infrastructure is proven.
+5. Expand state-changing Booking and Quote E2E only after Preview database/auth/email/payment isolation is verified.
+6. Continue database tenant-defense work only through isolated-branch proof before any Production RLS rollout.
 
 ## Status-document rule
 
