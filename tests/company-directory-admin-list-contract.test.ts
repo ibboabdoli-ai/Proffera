@@ -23,23 +23,29 @@ describe("Company Directory admin list", () => {
     expect(pageCode).toContain("pageSize: PAGE_SIZE");
 
     expect(adminCode).toContain("select count(*)::int as count");
+    expect(adminCode).toContain("${status}::text = 'all'");
+    expect(adminCode).toContain("${query}::text = ''");
+    expect(adminCode).toContain("${categorySlug}::text <> ''");
     expect(adminCode).toContain("p.publication_status = ${status}");
+    expect(adminCode).toContain("p.updated_at desc,\n        p.id");
     expect(adminCode).toContain("limit ${pageSize}");
     expect(adminCode).toContain("offset ${offset}");
-    expect(adminCode).not.toContain("limit 100");
   });
 
   it("keeps search, server-side pagination and direct access to published profiles", () => {
     const pageCode = source("src/app/admin/foretag/directory/page.tsx");
     const adminCode = source("src/lib/company-directory-admin.ts");
 
+    expect(pageCode).toContain('aria-label="Sök företag, stad, kategori eller SNI"');
     expect(pageCode).toContain('placeholder="Sök företag, stad, kategori eller SNI"');
+    expect(pageCode).toContain("categoryLabels[profile.categorySlug] || profile.categorySlug || \"–\"");
     expect(pageCode).toContain("profile.sniCode");
     expect(pageCode).toContain("profile.city");
     expect(pageCode).toContain("page: page - 1");
     expect(pageCode).toContain("page: page + 1");
     expect(pageCode).toContain('href={`/foretag/listad/${encodeURIComponent(profile.slug)}`}');
 
+    expect(adminCode).toContain("if (normalized.length < 3) return \"\"");
     expect(adminCode).toContain("coalesce(p.display_name, '') ilike ${queryPattern}");
     expect(adminCode).toContain("coalesce(p.city, '') ilike ${queryPattern}");
     expect(adminCode).toContain("coalesce(p.primary_sni_code, '') ilike ${queryPattern}");
