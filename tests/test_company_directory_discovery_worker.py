@@ -85,6 +85,20 @@ class CompanyDirectoryDiscoveryWorkerTests(unittest.TestCase):
         self.assertTrue(pilot)
         self.assertEqual(legal_form_priority, 0)
 
+    def test_real_scb_latin1_tsv_keeps_sodertalje_location(self):
+        header = "PeOrgNr\tNg1\tNg2\tNg3\tNg4\tNg5\tPostOrt\tJurForm\n"
+        row = "165569672982\t43210\t\t\t\t\tSÖDERTÄLJE\t49\n"
+        with tempfile.TemporaryDirectory() as directory:
+            archive_path = Path(directory) / "scb.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr("scb_bulkfil.txt", (header + row).encode("iso-8859-1"))
+            candidates, records_seen = MODULE.collect_candidates(archive_path)
+
+        self.assertEqual(records_seen, 1)
+        self.assertEqual(candidates, [
+            {"organizationNumber": "5569672982", "primarySniCode": "43210"},
+        ])
+
     def test_scb_secondary_sni_does_not_make_company_discoverable(self):
         record = {
             "PeOrgNr": "165561234567",
