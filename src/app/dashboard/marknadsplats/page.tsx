@@ -143,6 +143,8 @@ export default async function MarketplaceActivationPage({
   const t = copy[locale];
   const status = first(params?.status) ?? "";
   const state = await getProviderActivationState();
+  const linkedProfile = state.linkedProfile;
+  const linkedProfileCity = linkedProfile?.city ?? "";
   const allowedSlugs = new Set(state.directoryServices.map((service) => service.slug));
   const activeMarketplaceServices = state.workspaceServices.filter(
     (service) => service.isActive && service.publicStatus === "published" && allowedSlugs.has(service.publicSlug) && service.serviceAreaConfirmed,
@@ -162,7 +164,7 @@ export default async function MarketplaceActivationPage({
         </section>
       ) : null}
 
-      {!state.linkedProfile ? (
+      {!linkedProfile ? (
         <section className="rounded-[24px] border border-[#dfe6df] bg-white p-6">
           <div className="flex items-start gap-3">
             <Building2 className="mt-1 h-6 w-6 text-[#17452f]" />
@@ -200,10 +202,10 @@ export default async function MarketplaceActivationPage({
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <p className="inline-flex items-center gap-2 text-sm font-black text-[#17452f]"><BadgeCheck className="h-5 w-5" /> {t.linked}</p>
-                <h2 className="mt-2 text-2xl font-black text-[#17201a]">{state.linkedProfile.companyName}</h2>
-                <p className="mt-2 text-sm text-[#466352]">{state.linkedProfile.organizationNumber}{state.linkedProfile.city ? ` · ${state.linkedProfile.city}` : ""}</p>
+                <h2 className="mt-2 text-2xl font-black text-[#17201a]">{linkedProfile.companyName}</h2>
+                <p className="mt-2 text-sm text-[#466352]">{linkedProfile.organizationNumber}{linkedProfile.city ? ` · ${linkedProfile.city}` : ""}</p>
               </div>
-              <Link href={`/foretag/listad/${encodeURIComponent(state.linkedProfile.slug)}`} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[#bcd8c3] bg-white px-4 text-sm font-black text-[#17452f]">
+              <Link href={`/foretag/listad/${encodeURIComponent(linkedProfile.slug)}`} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[#bcd8c3] bg-white px-4 text-sm font-black text-[#17452f]">
                 {locale === "en" ? "Official profile" : "Officiell profil"}
               </Link>
             </div>
@@ -270,7 +272,7 @@ export default async function MarketplaceActivationPage({
                       <p className="font-black text-[#17201a]">{service.name}</p>
                       <p className="mt-1 text-xs font-semibold text-[#667168]">{service.publicSlug} · {service.conversionMode} · {service.serviceAreaRadiusKm ?? "–"} km</p>
                     </div>
-                    <Link href={`/foretag/listad?service=${encodeURIComponent(service.publicSlug)}${state.linkedProfile.city ? `&location=${encodeURIComponent(state.linkedProfile.city)}` : ""}`} className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[#cbd8ce] bg-white px-4 text-sm font-black text-[#17452f]">
+                    <Link href={`/foretag/listad?service=${encodeURIComponent(service.publicSlug)}${linkedProfileCity ? `&location=${encodeURIComponent(linkedProfileCity)}` : ""}`} className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[#cbd8ce] bg-white px-4 text-sm font-black text-[#17452f]">
                       {t.searchTest}
                     </Link>
                   </article>
