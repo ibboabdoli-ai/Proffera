@@ -257,11 +257,11 @@ export async function activateProviderMarketplaceService(input: {
       on conflict (profile_id, service_slug) where service_slug is not null
       do update set
         radius_km = excluded.radius_km,
+        source_type = 'owner',
         confidence = 100,
         public_visible = true,
         confirmed_at = now(),
         updated_at = now()
-      where company_directory_service_areas.source_type = 'owner'
     `,
   ]);
 
