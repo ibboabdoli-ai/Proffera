@@ -11,7 +11,7 @@ import { getSql } from "@/lib/db/server";
 import { allowPublicSubmission } from "@/lib/public-form-protection";
 
 function safeReturnPath(value: string) {
-  return /^\/foretag\/claim\/[a-z0-9-]+$/.test(value) ? value : "/";
+  return /^\/(?:foretag\/claim|en\/companies\/claim)\/[a-z0-9-]+$/.test(value) ? value : "/";
 }
 
 function sameOrigin(request: Request) {
@@ -41,6 +41,7 @@ export async function POST(request: Request) {
   const userId = session?.user?.id ? String(session.user.id) : "";
   if (!userId) {
     const login = new URL("/logga-in", request.url);
+    if (returnTo.startsWith("/en/")) login.searchParams.set("lang", "en");
     login.searchParams.set("next", returnTo);
     return NextResponse.redirect(login, 303);
   }

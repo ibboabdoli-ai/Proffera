@@ -17,6 +17,8 @@ jobs:
     if: ${{ vars.CODEQL_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     permissions:
+      # CodeQL reads workflow-run metadata during analysis; read-only Actions access is sufficient.
+      actions: read
       security-events: write
       packages: read
       contents: read

@@ -43,6 +43,7 @@ export function getProfferaModuleAccess(): ProfferaModuleAccess[] {
 
 export const dashboardNavigation = [
   { label: "Översikt", href: "/dashboard" },
+  { label: "Marknadsplats", href: "/dashboard/marknadsplats" },
   { label: "Leads", href: "/dashboard/leads", featureKey: "lead_management" },
   { label: "Offerter", href: "/dashboard/offerter", featureKey: "quote_management" },
   { label: "Uppdrag", href: "/dashboard/uppdrag" },
