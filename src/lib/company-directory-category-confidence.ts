@@ -165,7 +165,7 @@ export function assessCompanyDirectoryCategoryConfidence(
   const primaryCategory = mapSniToDirectoryCategory(normalizedPrimarySniCode)?.categorySlug ?? "";
   const primaryCategoryMatches = Boolean(primaryCategory && primaryCategory === input.categorySlug);
   if (primaryCategoryMatches) {
-    score += 65;
+    score += 80;
     signals.push("Primär SNI matchar kategorin");
   } else {
     warnings.push("Primär SNI matchar inte profilens kategori");
