@@ -1,3 +1,10 @@
+## Worker bootstrap
+
+Task/issue: <issue-number-or-user-request>
+Bootstrap baseline: <40-character-main-sha>
+Worker bootstrap: complete
+Supervisor handoff: #548
+
 ## What changed
 
 <!-- Describe the focused change. -->
