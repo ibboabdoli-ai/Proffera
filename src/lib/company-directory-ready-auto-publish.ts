@@ -39,6 +39,30 @@ function isHighConfidenceReadyRow(row: Record<string, unknown>) {
   return confidence.officialFactsReady && confidence.score >= 95;
 }
 
+export function selectReadyAutoPublishRows<T>(freshRows: T[], backlogRows: T[], limit: number) {
+  const safeLimit = Math.max(0, Math.floor(Number(limit) || 0));
+  if (!safeLimit) return [] as T[];
+
+  // Guarantee one attempt from the rotating backlog whenever that window has an
+  // eligible profile. The remaining capacity favors newly verified Ready rows.
+  const backlogReserved = backlogRows.slice(0, Math.min(1, safeLimit));
+  const freshCapacity = Math.max(0, safeLimit - backlogReserved.length);
+  const freshSelected = freshRows.slice(0, freshCapacity);
+  const selected = [...freshSelected, ...backlogReserved];
+  const remainingCapacity = safeLimit - selected.length;
+
+  if (remainingCapacity > 0) {
+    selected.push(
+      ...backlogRows.slice(
+        backlogReserved.length,
+        backlogReserved.length + remainingCapacity,
+      ),
+    );
+  }
+
+  return selected;
+}
+
 async function syncPublishedQueueState(profileId: string) {
   const sql = getSql();
   if (!sql) return false;
@@ -203,24 +227,7 @@ export async function autoPublishReadyHighConfidenceCompanyDirectoryBatch(limit?
   const freshHighConfidence = uniqueFreshRows.filter(isHighConfidenceReadyRow);
   const backlogHighConfidence = uniqueBacklogRows.filter(isHighConfidenceReadyRow);
   const highConfidence = freshHighConfidence.length + backlogHighConfidence.length;
-
-  // Reserve one publication attempt for the rotating backlog whenever that window
-  // contains an eligible profile. The remaining capacity favors the fresh lane.
-  // This keeps the fast path responsive without allowing a continuous fresh inflow
-  // to starve older Ready companies indefinitely.
-  const backlogReserved = backlogHighConfidence.slice(0, Math.min(1, safeLimit));
-  const freshCapacity = Math.max(0, safeLimit - backlogReserved.length);
-  const freshSelected = freshHighConfidence.slice(0, freshCapacity);
-  const selected = [...freshSelected, ...backlogReserved];
-  const remainingCapacity = safeLimit - selected.length;
-  if (remainingCapacity > 0) {
-    selected.push(
-      ...backlogHighConfidence.slice(
-        backlogReserved.length,
-        backlogReserved.length + remainingCapacity,
-      ),
-    );
-  }
+  const selected = selectReadyAutoPublishRows(freshHighConfidence, backlogHighConfidence, safeLimit);
 
   let published = 0;
   let queueSynced = 0;
