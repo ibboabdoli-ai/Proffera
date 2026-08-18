@@ -15,6 +15,7 @@ export type PublishedDirectorySearchInput = {
   service?: string;
   location?: string;
   limit?: number;
+  page?: number | string;
   latitude?: number | string;
   longitude?: number | string;
   radiusKm?: number | string;
@@ -52,6 +53,10 @@ export type PublishedDirectorySearchResponse = {
   nearbyEnabled: boolean;
   radiusKm: number;
   results: PublishedDirectorySearchResult[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
 };
 
 function cleanSearchValue(value: unknown) {
@@ -62,6 +67,12 @@ function boundedLimit(value: unknown, fallback = 30, maximum = 50) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(1, Math.min(maximum, Math.floor(parsed)));
+}
+
+function boundedPage(value: unknown) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 1;
+  return Math.max(1, Math.min(10_000, Math.floor(parsed)));
 }
 
 function marketplaceConversionMode(value: unknown): DirectoryMarketplaceConversionMode | null {
@@ -106,8 +117,9 @@ export async function searchPublishedCompanyDirectory(
   const locationQuery = cleanSearchValue(input.location);
   const normalizedLocation = locationQuery.toLocaleLowerCase("sv-SE");
   const resolution = serviceQuery ? resolveDirectoryServiceQuery(serviceQuery) : null;
-  const limit = boundedLimit(input.limit);
-  const queryLimit = Math.min(150, Math.max(limit, limit * 3));
+  const pageSize = boundedLimit(input.limit);
+  const page = boundedPage(input.page);
+  const offset = (page - 1) * pageSize;
   const coordinates = parseDirectoryCoordinates(input.latitude, input.longitude);
   const nearbyRequested = input.latitude !== undefined || input.longitude !== undefined;
   const nearbyEnabled = coordinates !== null;
@@ -121,6 +133,10 @@ export async function searchPublishedCompanyDirectory(
     nearbyEnabled,
     radiusKm,
     results: [],
+    totalCount: 0,
+    page,
+    pageSize,
+    totalPages: 0,
   });
 
   if (!sql) return emptyResponse(!serviceQuery || Boolean(resolution));
@@ -233,17 +249,26 @@ export async function searchPublishedCompanyDirectory(
         end as distance_km
       from matches
       where match_rank = 1
+    ), filtered as (
+      select ranked.*
+      from ranked
+      where ${nearbyEnabled} = false or distance_km <= ${radiusKm}
+    ), counted as (
+      select filtered.*, count(*) over ()::int as total_count
+      from filtered
     )
     select *
-    from ranked
-    where ${nearbyEnabled} = false or distance_km <= ${radiusKm}
+    from counted
     order by
       case when ${nearbyEnabled} = true then distance_km end asc nulls last,
       quality_score desc,
       display_name asc
-    limit ${queryLimit}
+    limit ${pageSize}
+    offset ${offset}
   `;
 
+  const totalCount = rows.length > 0 ? Number(rows[0].total_count ?? 0) : 0;
+  const totalPages = totalCount > 0 ? Math.ceil(totalCount / pageSize) : 0;
   const claimedWorkspaceIds = [...new Set(
     rows
       .filter((row) => String(row.publication_status) === "claimed")
@@ -313,7 +338,7 @@ export async function searchPublishedCompanyDirectory(
         && (conversionMode === "book" || conversionMode === "book_or_quote"),
       ),
     };
-  }).slice(0, limit);
+  });
 
   return {
     serviceQuery,
@@ -323,5 +348,9 @@ export async function searchPublishedCompanyDirectory(
     nearbyEnabled,
     radiusKm,
     results,
+    totalCount,
+    page,
+    pageSize,
+    totalPages,
   };
 }
