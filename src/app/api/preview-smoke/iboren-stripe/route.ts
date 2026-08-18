@@ -11,8 +11,6 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const IBOREN_SLUG = "iboren-preview-test";
-
 export async function GET(request: Request) {
   if (process.env.VERCEL_ENV !== "preview") {
     return new NextResponse(null, { status: 404 });
@@ -43,33 +41,6 @@ export async function GET(request: Request) {
   `;
   const dbIdentity = identityRows[0] ?? {};
 
-  const workspaceRows = await sql`
-    select w.id, w.name, wm.user_id, wm.role
-    from workspaces w
-    join workspace_memberships wm on wm.workspace_id = w.id
-    where w.slug = ${IBOREN_SLUG}
-      and wm.role = 'owner'
-    limit 1
-  `;
-
-  const workspace = workspaceRows[0];
-  if (!workspace) {
-    return NextResponse.json({
-      ok: false,
-      stage: "workspace",
-      reason: "iboren_preview_workspace_missing",
-      database: {
-        name: String(dbIdentity.database_name ?? ""),
-        projectId: String(dbIdentity.neon_project_id ?? ""),
-        branchId: String(dbIdentity.neon_branch_id ?? ""),
-      },
-      stripeTestMode: true,
-      starterPriceConfigured: true,
-      professionalPriceConfigured: true,
-      webhookConfigured: Boolean(getStripeWebhookSecret()),
-    }, { status: 404, headers: { "Cache-Control": "no-store" } });
-  }
-
   const origin = new URL(request.url).origin;
   const results = [] as Array<{
     plan: "starter" | "professional";
@@ -94,19 +65,17 @@ export async function GET(request: Request) {
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       line_items: [{ price: priceId, quantity: 1 }],
-      client_reference_id: String(workspace.id),
+      client_reference_id: "iboren-preview-smoke",
       metadata: {
-        workspace_id: String(workspace.id),
-        workspace_owner_id: String(workspace.user_id),
         plan_key: plan,
         smoke_test: "iboren-preview-20260819",
+        database_write: "none",
       },
       subscription_data: {
         metadata: {
-          workspace_id: String(workspace.id),
-          workspace_owner_id: String(workspace.user_id),
           plan_key: plan,
           smoke_test: "iboren-preview-20260819",
+          database_write: "none",
         },
       },
       success_url: `${origin}/dashboard/installningar?billing=success`,
@@ -140,9 +109,9 @@ export async function GET(request: Request) {
       projectId: String(dbIdentity.neon_project_id ?? ""),
       branchId: String(dbIdentity.neon_branch_id ?? ""),
     },
-    workspace: { id: String(workspace.id), name: String(workspace.name), role: String(workspace.role) },
     stripeTestMode: true,
     webhookConfigured: Boolean(getStripeWebhookSecret()),
+    databaseWrites: 0,
     results,
   }, { headers: { "Cache-Control": "no-store" } });
 }
