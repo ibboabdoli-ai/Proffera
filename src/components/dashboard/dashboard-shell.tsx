@@ -43,6 +43,7 @@ const navigationIcons: Record<string, LucideIcon> = {
 
 const englishNavigationLabels: Record<string, string> = {
   "/dashboard": "Overview",
+  "/dashboard/marknadsplats": "Marketplace",
   "/dashboard/leads": "Leads",
   "/dashboard/kunder": "Customers",
   "/dashboard/bokningar": "Bookings",
@@ -117,7 +118,7 @@ function NavigationLinks({ pathname, locale, moduleAccess, enabledFeatures, canM
   return (
     <nav className="grid gap-1.5" aria-label={text.navigation}>
       {dashboardNavigation.map((item) => {
-        if (item.href === "/dashboard/installningar" && !canManageSettings) return null;
+        if ((item.href === "/dashboard/installningar" || item.href === "/dashboard/marknadsplats") && !canManageSettings) return null;
 
         const isActive = isActivePath(pathname, item.href);
         const Icon = navigationIcons[item.href] ?? ChevronRight;
