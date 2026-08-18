@@ -24,7 +24,6 @@ const statusFilters = [
   { value: "review", label: "Review" },
   { value: "inactive", label: "Inaktiva" },
 ] as const;
-
 type DirectoryStatusFilter = (typeof statusFilters)[number]["value"];
 
 type PageProps = {
@@ -136,40 +135,20 @@ const publishMessages: Record<string, { ok: boolean; text: string }> = {
 
 export default async function DirectoryEngineAdminPage({ searchParams }: PageProps) {
   await requireSuperAdmin();
-  const [snapshot, params] = await Promise.all([
-    getCompanyDirectoryAdminSnapshot(),
-    searchParams ?? Promise.resolve(undefined),
-  ]);
-  const total = Object.values(snapshot.counts).reduce((sum, value) => sum + value, 0);
-  const highConfidenceReady = snapshot.profiles.filter((profile) => profile.publishSafe).length;
-  const manualReview = snapshot.profiles.filter(
-    (profile) => profile.status === "ready" && !profile.publishSafe,
-  ).length;
+  const params = await (searchParams ?? Promise.resolve(undefined));
   const currentStatus = normalizeStatus(params?.status);
   const searchQuery = (firstParam(params?.q) ?? "").trim().slice(0, 120);
-  const normalizedQuery = searchQuery.toLocaleLowerCase("sv-SE");
-  const filteredProfiles = snapshot.profiles.filter((profile) => {
-    if (currentStatus !== "all" && profile.status !== currentStatus) return false;
-    if (!normalizedQuery) return true;
-    const searchable = [
-      profile.companyName,
-      profile.legalName,
-      profile.city,
-      profile.municipality,
-      profile.categorySlug,
-      categoryLabels[profile.categorySlug] ?? "",
-      profile.sniCode,
-      profile.sniLabel,
-      profile.slug,
-    ];
-    return searchable.some((value) => value.toLocaleLowerCase("sv-SE").includes(normalizedQuery));
+  const snapshot = await getCompanyDirectoryAdminSnapshot({
+    status: currentStatus,
+    query: searchQuery,
+    page: normalizePage(params?.page),
+    pageSize: PAGE_SIZE,
   });
-  const totalPages = Math.max(1, Math.ceil(filteredProfiles.length / PAGE_SIZE));
-  const currentPage = Math.min(normalizePage(params?.page), totalPages);
-  const startIndex = (currentPage - 1) * PAGE_SIZE;
-  const visibleProfiles = filteredProfiles.slice(startIndex, startIndex + PAGE_SIZE);
-  const visibleFrom = filteredProfiles.length ? startIndex + 1 : 0;
-  const visibleTo = Math.min(startIndex + visibleProfiles.length, filteredProfiles.length);
+
+  const total = Object.values(snapshot.counts).reduce((sum, value) => sum + value, 0);
+  const { page, pageSize, total: filteredTotal, totalPages } = snapshot.profilePage;
+  const visibleFrom = filteredTotal ? (page - 1) * pageSize + 1 : 0;
+  const visibleTo = Math.min((page - 1) * pageSize + snapshot.profiles.length, filteredTotal);
   const publishResult = firstParam(params?.publish);
   const publishMessage = publishResult ? publishMessages[publishResult] : undefined;
 
@@ -182,7 +161,7 @@ export default async function DirectoryEngineAdminPage({ searchParams }: PagePro
             <div>
               <h1 className="text-3xl font-black sm:text-4xl">Directory-kontroll</h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-white/75">
-                Systemet jämför nu primär SNI, hela den officiella SNI-listan, företagsnamn och verksamhetsbeskrivning innan publicering. Auto Publish är fortfarande avstängt.
+                Systemet jämför primär SNI, hela den officiella SNI-listan, företagsnamn och verksamhetsbeskrivning innan publicering. Automatisk publicering är {snapshot.config.autoPublishEnabled ? "aktiverad med säkerhetskontroller" : "avstängd"}.
               </p>
             </div>
             <Link href="/admin/foretag/claims" className="inline-flex min-h-11 items-center justify-center rounded-xl bg-white px-4 text-sm font-black text-[#173e2b]">
@@ -215,18 +194,15 @@ export default async function DirectoryEngineAdminPage({ searchParams }: PagePro
           </div>
           <div className="rounded-2xl bg-white p-5 ring-1 ring-black/5">
             <BadgeCheck className="h-5 w-5 text-[#17452f]" />
-            <p className="mt-4 text-xs font-black uppercase tracking-wide text-[#718078]">95%+ och säkra · alla</p>
-            <p className="mt-1 text-3xl font-black text-[#17201a]">{highConfidenceReady}</p>
+            <p className="mt-4 text-xs font-black uppercase tracking-wide text-[#718078]">Ready · alla</p>
+            <p className="mt-1 text-3xl font-black text-[#17201a]">{snapshot.counts.ready ?? 0}</p>
           </div>
           <div className="rounded-2xl bg-white p-5 ring-1 ring-black/5">
             <CircleAlert className="h-5 w-5 text-[#76580d]" />
-            <p className="mt-4 text-xs font-black uppercase tracking-wide text-[#718078]">Manuell granskning · alla</p>
-            <p className="mt-1 text-3xl font-black text-[#17201a]">{manualReview}</p>
+            <p className="mt-4 text-xs font-black uppercase tracking-wide text-[#718078]">Review · alla</p>
+            <p className="mt-1 text-3xl font-black text-[#17201a]">{snapshot.counts.review ?? 0}</p>
           </div>
-          <Link
-            href={directoryHref({ status: "published", query: "" })}
-            className="rounded-2xl bg-white p-5 ring-1 ring-black/5 transition hover:ring-[#34508b]/30"
-          >
+          <Link href={directoryHref({ status: "published", query: "" })} className="rounded-2xl bg-white p-5 ring-1 ring-black/5 transition hover:ring-[#34508b]/30">
             <Eye className="h-5 w-5 text-[#34508b]" />
             <p className="mt-4 text-xs font-black uppercase tracking-wide text-[#718078]">Publicerade</p>
             <p className="mt-1 text-3xl font-black text-[#17201a]">{snapshot.counts.published ?? 0}</p>
@@ -239,7 +215,7 @@ export default async function DirectoryEngineAdminPage({ searchParams }: PagePro
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.14em] text-[#607066]">Publiceringsskydd</p>
-                <h2 className="mt-2 text-xl font-black text-[#17201a]">Admin-godkännande först</h2>
+                <h2 className="mt-2 text-xl font-black text-[#17201a]">Säker publicering</h2>
               </div>
               <ShieldCheck className="h-6 w-6 text-[#17452f]" />
             </div>
@@ -253,7 +229,7 @@ export default async function DirectoryEngineAdminPage({ searchParams }: PagePro
             </div>
             <div className="mt-5 rounded-2xl bg-[#f6f8f5] p-4 text-sm leading-6 text-[#5b665f]">
               <p><strong>Regel:</strong> Publicera-knappen visas bara när profilstatus är Ready, Official Facts finns, inga säkerhetsspärrar finns och Category Confidence är minst 95%.</p>
-              <p className="mt-2"><strong>Lista:</strong> Filtrera på status, sök företag och bläddra 50 profiler per sida.</p>
+              <p className="mt-2"><strong>Lista:</strong> Status, sökning och 50-profils sidindelning körs direkt i PostgreSQL.</p>
             </div>
           </div>
 
@@ -274,37 +250,23 @@ export default async function DirectoryEngineAdminPage({ searchParams }: PagePro
                   </div>
                   <p className="mt-2 text-[#5f6a62]">Scanned {run.scanned} · Upserted {run.upserted} · Published {run.published} · Blocked {run.blocked} · Errors {run.errors}</p>
                 </div>
-              )) : (
-                <p className="rounded-2xl bg-[#f6f8f5] p-5 text-sm text-[#69736c]">Ingen sync har körts ännu.</p>
-              )}
+              )) : <p className="rounded-2xl bg-[#f6f8f5] p-5 text-sm text-[#69736c]">Ingen sync har körts ännu.</p>}
             </div>
           </div>
         </section>
 
         <section className="mt-8 rounded-[1.5rem] bg-white p-6 ring-1 ring-black/5">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.14em] text-[#607066]">Directory profiles</p>
               <h2 className="mt-2 text-xl font-black text-[#17201a]">Alla profiler</h2>
-              <p className="mt-2 text-sm text-[#747e77]">Visar {visibleFrom}–{visibleTo} av {filteredProfiles.length} träffar</p>
+              <p className="mt-2 text-sm text-[#747e77]">Visar {visibleFrom}–{visibleTo} av {filteredTotal} träffar</p>
             </div>
             <form action="/admin/foretag/directory" method="get" className="flex w-full max-w-2xl flex-col gap-2 sm:flex-row">
               {currentStatus !== "all" ? <input type="hidden" name="status" value={currentStatus} /> : null}
-              <input
-                name="q"
-                defaultValue={searchQuery}
-                maxLength={120}
-                placeholder="Sök företag, stad, kategori eller SNI"
-                className="min-h-11 flex-1 rounded-xl border border-[#dfe5dd] bg-white px-4 text-sm outline-none focus:border-[#17452f]"
-              />
-              <button type="submit" className="min-h-11 rounded-xl bg-[#17452f] px-5 text-sm font-black text-white hover:bg-[#123724]">
-                Sök
-              </button>
-              {(searchQuery || currentStatus !== "all") ? (
-                <Link href="/admin/foretag/directory" className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[#dfe5dd] px-4 text-sm font-bold text-[#344039]">
-                  Rensa
-                </Link>
-              ) : null}
+              <input name="q" defaultValue={searchQuery} maxLength={120} aria-label="Sök företag, stad, kategori eller SNI" placeholder="Sök företag, stad, kategori eller SNI" className="min-h-11 flex-1 rounded-xl border border-[#dfe5dd] bg-white px-4 text-sm outline-none focus:border-[#17452f]" />
+              <button type="submit" className="min-h-11 rounded-xl bg-[#17452f] px-5 text-sm font-black text-white hover:bg-[#123724]">Sök</button>
+              {(searchQuery || currentStatus !== "all") ? <Link href="/admin/foretag/directory" className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[#dfe5dd] px-4 text-sm font-bold text-[#344039]">Rensa</Link> : null}
             </form>
           </div>
 
@@ -312,16 +274,7 @@ export default async function DirectoryEngineAdminPage({ searchParams }: PagePro
             {statusFilters.map((filter) => {
               const count = filter.value === "all" ? total : snapshot.counts[filter.value] ?? 0;
               const active = currentStatus === filter.value;
-              return (
-                <Link
-                  key={filter.value}
-                  href={directoryHref({ status: filter.value, query: searchQuery })}
-                  aria-current={active ? "page" : undefined}
-                  className={`rounded-full px-4 py-2 text-sm font-black transition ${active ? "bg-[#17452f] text-white" : "bg-[#f1f4ef] text-[#344039] hover:bg-[#e7ece5]"}`}
-                >
-                  {filter.label} · {count}
-                </Link>
-              );
+              return <Link key={filter.value} href={directoryHref({ status: filter.value, query: searchQuery })} aria-current={active ? "page" : undefined} className={`rounded-full px-4 py-2 text-sm font-black transition ${active ? "bg-[#17452f] text-white" : "bg-[#f1f4ef] text-[#344039] hover:bg-[#e7ece5]"}`}>{filter.label} · {count}</Link>;
             })}
           </nav>
 
@@ -329,18 +282,11 @@ export default async function DirectoryEngineAdminPage({ searchParams }: PagePro
             <table className="w-full min-w-[1180px] text-left text-sm">
               <thead className="border-b border-black/10 text-xs uppercase tracking-wide text-[#6b766e]">
                 <tr>
-                  <th className="px-3 py-3">Företag</th>
-                  <th className="px-3 py-3">Kategori</th>
-                  <th className="px-3 py-3">SNI</th>
-                  <th className="px-3 py-3">Official quality</th>
-                  <th className="px-3 py-3">Category confidence</th>
-                  <th className="px-3 py-3">Publish safety</th>
-                  <th className="px-3 py-3">Status</th>
-                  <th className="px-3 py-3">Åtgärd</th>
+                  <th className="px-3 py-3">Företag</th><th className="px-3 py-3">Kategori</th><th className="px-3 py-3">SNI</th><th className="px-3 py-3">Official quality</th><th className="px-3 py-3">Category confidence</th><th className="px-3 py-3">Publish safety</th><th className="px-3 py-3">Status</th><th className="px-3 py-3">Åtgärd</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-black/5">
-                {visibleProfiles.map((profile) => (
+                {snapshot.profiles.map((profile) => (
                   <tr key={profile.id} className="align-top">
                     <td className="px-3 py-4">
                       <p className="font-bold text-[#253129]">{profile.companyName}</p>
@@ -348,79 +294,42 @@ export default async function DirectoryEngineAdminPage({ searchParams }: PagePro
                       <details className="mt-2 max-w-72 text-xs text-[#5f6a62]">
                         <summary className="cursor-pointer font-bold text-[#17452f]">Visa underlag</summary>
                         {profile.activityDescription ? <p className="mt-2 leading-5">{profile.activityDescription}</p> : <p className="mt-2">Ingen verksamhetsbeskrivning.</p>}
-                        {profile.categorySignals.length ? (
-                          <ul className="mt-2 list-disc space-y-1 pl-4">
-                            {profile.categorySignals.map((signal) => <li key={signal}>{signal}</li>)}
-                          </ul>
-                        ) : null}
-                        {profile.categoryWarnings.length ? (
-                          <ul className="mt-2 list-disc space-y-1 pl-4 text-[#76580d]">
-                            {profile.categoryWarnings.map((warning) => <li key={warning}>{warning}</li>)}
-                          </ul>
-                        ) : null}
+                        {profile.categorySignals.length ? <ul className="mt-2 list-disc space-y-1 pl-4">{profile.categorySignals.map((signal) => <li key={signal}>{signal}</li>)}</ul> : null}
+                        {profile.categoryWarnings.length ? <ul className="mt-2 list-disc space-y-1 pl-4 text-[#76580d]">{profile.categoryWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul> : null}
                       </details>
                     </td>
-                    <td className="px-3 py-4 font-bold">{categoryLabels[profile.categorySlug] ?? profile.categorySlug ?? "–"}</td>
+                    <td className="px-3 py-4 font-bold">{categoryLabels[profile.categorySlug] || profile.categorySlug || "–"}</td>
                     <td className="px-3 py-4"><p>{profile.sniCode || "–"}</p><p className="mt-1 max-w-52 text-xs text-[#747e77]">{profile.sniLabel}</p></td>
                     <td className="px-3 py-4 font-black">{profile.qualityScore}/100</td>
                     <td className="px-3 py-4">
-                      <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-black ${confidenceStyle[profile.categoryConfidenceLevel]}`}>
-                        {profile.categoryConfidenceScore}/100
-                      </span>
+                      <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-black ${confidenceStyle[profile.categoryConfidenceLevel]}`}>{profile.categoryConfidenceScore}/100</span>
                       <p className="mt-2 text-xs text-[#747e77]">{profile.categoryConfidenceLevel === "high" ? "Hög säkerhet" : profile.categoryConfidenceLevel === "review" ? "Granska" : "Låg säkerhet"}</p>
                     </td>
                     <td className="px-3 py-4">
-                      {profile.publishSafe ? (
-                        <span className="rounded-full bg-[#e7f1eb] px-2.5 py-1 text-xs font-black text-[#17452f]">Klar</span>
-                      ) : (
-                        <div className="max-w-48 text-xs text-[#76580d]">
-                          {profile.publishSafetyReasons.slice(0, 2).map((reason) => (
-                            <p key={reason}>• {safetyReasonLabels[reason] ?? reason}</p>
-                          ))}
-                        </div>
-                      )}
+                      {profile.publishSafe ? <span className="rounded-full bg-[#e7f1eb] px-2.5 py-1 text-xs font-black text-[#17452f]">Klar</span> : <div className="max-w-48 text-xs text-[#76580d]">{profile.publishSafetyReasons.slice(0, 2).map((reason) => <p key={reason}>• {safetyReasonLabels[reason] ?? reason}</p>)}</div>}
                     </td>
                     <td className="px-3 py-4"><span className={`rounded-full px-2.5 py-1 text-xs font-black ${statusStyle[profile.status] ?? statusStyle.imported}`}>{profile.status}</span></td>
                     <td className="px-3 py-4">
-                      {profile.status === "published" ? (
-                        <Link href={`/foretag/listad/${encodeURIComponent(profile.slug)}`} target="_blank" className="font-bold text-[#17452f] underline underline-offset-4">Öppna</Link>
-                      ) : profile.publishSafe ? (
+                      {profile.status === "published" ? <Link href={`/foretag/listad/${encodeURIComponent(profile.slug)}`} target="_blank" className="font-bold text-[#17452f] underline underline-offset-4">Öppna</Link> : profile.publishSafe ? (
                         <form action={publishDirectoryProfileAction}>
-                          <input type="hidden" name="profileId" value={profile.id} />
-                          <input type="hidden" name="returnStatus" value={currentStatus} />
-                          <input type="hidden" name="returnQuery" value={searchQuery} />
-                          <input type="hidden" name="returnPage" value={currentPage} />
-                          <button type="submit" className="min-h-10 rounded-xl bg-[#17452f] px-4 py-2 text-sm font-black text-white transition hover:bg-[#123724] focus:outline-none focus:ring-4 focus:ring-[#17452f]/20">
-                            Publicera
-                          </button>
+                          <input type="hidden" name="profileId" value={profile.id} /><input type="hidden" name="returnStatus" value={currentStatus} /><input type="hidden" name="returnQuery" value={searchQuery} /><input type="hidden" name="returnPage" value={page} />
+                          <button type="submit" className="min-h-10 rounded-xl bg-[#17452f] px-4 py-2 text-sm font-black text-white transition hover:bg-[#123724]">Publicera</button>
                         </form>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-xs font-bold text-[#76580d]"><Ban className="h-3.5 w-3.5" /> Granska</span>
-                      )}
+                      ) : <span className="inline-flex items-center gap-1 text-xs font-bold text-[#76580d]"><Ban className="h-3.5 w-3.5" /> Granska</span>}
                     </td>
                   </tr>
                 ))}
-                {!visibleProfiles.length ? (
-                  <tr><td className="px-3 py-8 text-center text-[#747e77]" colSpan={8}>Inga profiler matchar filtret.</td></tr>
-                ) : null}
+                {!snapshot.profiles.length ? <tr><td className="px-3 py-8 text-center text-[#747e77]" colSpan={8}>Inga profiler matchar filtret.</td></tr> : null}
               </tbody>
             </table>
           </div>
 
           {totalPages > 1 ? (
             <div className="mt-6 flex flex-col gap-3 border-t border-black/5 pt-5 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-sm font-semibold text-[#5f6a62]">Sida {currentPage} av {totalPages}</p>
+              <p className="text-sm font-semibold text-[#5f6a62]">Sida {page} av {totalPages}</p>
               <div className="flex gap-2">
-                {currentPage > 1 ? (
-                  <Link href={directoryHref({ status: currentStatus, query: searchQuery, page: currentPage - 1 })} className="inline-flex min-h-10 items-center rounded-xl border border-[#dfe5dd] px-4 text-sm font-bold text-[#344039] hover:bg-[#f6f8f5]">
-                    ← Föregående
-                  </Link>
-                ) : null}
-                {currentPage < totalPages ? (
-                  <Link href={directoryHref({ status: currentStatus, query: searchQuery, page: currentPage + 1 })} className="inline-flex min-h-10 items-center rounded-xl bg-[#17452f] px-4 text-sm font-bold text-white hover:bg-[#123724]">
-                    Nästa →
-                  </Link>
-                ) : null}
+                {page > 1 ? <Link href={directoryHref({ status: currentStatus, query: searchQuery, page: page - 1 })} className="inline-flex min-h-10 items-center rounded-xl border border-[#dfe5dd] px-4 text-sm font-bold text-[#344039] hover:bg-[#f6f8f5]">← Föregående</Link> : null}
+                {page < totalPages ? <Link href={directoryHref({ status: currentStatus, query: searchQuery, page: page + 1 })} className="inline-flex min-h-10 items-center rounded-xl bg-[#17452f] px-4 text-sm font-bold text-white hover:bg-[#123724]">Nästa →</Link> : null}
               </div>
             </div>
           ) : null}

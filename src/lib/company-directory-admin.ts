@@ -6,6 +6,20 @@ import { assessCompanyDirectoryCategoryConfidence } from "@/lib/company-director
 
 const PILOT_MAX_BATCH_SIZE = 10;
 const PILOT_MAX_PAGES_PER_RUN = 2;
+const DEFAULT_PROFILE_PAGE_SIZE = 50;
+const MAX_PROFILE_PAGE_SIZE = 100;
+const DIRECTORY_PROFILE_STATUSES = new Set(["all", "published", "ready", "review", "inactive"]);
+
+const CATEGORY_SEARCH_ALIASES: Record<string, string[]> = {
+  stadning: ["städning", "stadning"],
+  elektriker: ["elektriker"],
+  vvs: ["vvs"],
+  maleri: ["måleri", "maleri"],
+  snickeri: ["snickeri"],
+  tradgard: ["trädgård", "tradgard"],
+  flytt: ["flytt"],
+  hemservice: ["hemservice"],
+};
 
 function number(value: unknown) {
   const parsed = Number(value);
@@ -33,6 +47,24 @@ function jsonArray(value: unknown): unknown[] {
     }
   }
   return [];
+}
+
+function normalizeProfileStatus(value: unknown) {
+  const normalized = text(value).trim().toLowerCase();
+  return DIRECTORY_PROFILE_STATUSES.has(normalized) ? normalized : "all";
+}
+
+function normalizeProfileQuery(value: unknown) {
+  return text(value).trim().slice(0, 120);
+}
+
+function categorySlugForQuery(value: string) {
+  const normalized = value.toLocaleLowerCase("sv-SE");
+  if (normalized.length < 3) return "";
+  for (const [slug, aliases] of Object.entries(CATEGORY_SEARCH_ALIASES)) {
+    if (aliases.some((alias) => alias.includes(normalized) || normalized.includes(alias))) return slug;
+  }
+  return "";
 }
 
 function isMissingDirectorySchema(error: unknown) {
@@ -64,6 +96,12 @@ export type CompanyDirectoryAdminSnapshot = {
   };
   counts: Record<string, number>;
   pendingClaims: number;
+  profilePage: {
+    page: number;
+    pageSize: number;
+    total: number;
+    totalPages: number;
+  };
   latestRuns: Array<{
     id: string;
     provider: string;
@@ -127,9 +165,20 @@ function configSnapshot() {
   };
 }
 
-export async function getCompanyDirectoryAdminSnapshot(): Promise<CompanyDirectoryAdminSnapshot> {
+export async function getCompanyDirectoryAdminSnapshot(input?: {
+  status?: string;
+  query?: string;
+  page?: number;
+  pageSize?: number;
+}): Promise<CompanyDirectoryAdminSnapshot> {
   await requireSuperAdmin();
   const config = configSnapshot();
+  const status = normalizeProfileStatus(input?.status);
+  const query = normalizeProfileQuery(input?.query);
+  const queryPattern = `%${query}%`;
+  const categorySlug = categorySlugForQuery(query);
+  const requestedPage = boundedInteger(input?.page, 1, Number.MAX_SAFE_INTEGER);
+  const pageSize = boundedInteger(input?.pageSize, DEFAULT_PROFILE_PAGE_SIZE, MAX_PROFILE_PAGE_SIZE);
   const sql = getSql();
   if (!sql) {
     return {
@@ -137,13 +186,14 @@ export async function getCompanyDirectoryAdminSnapshot(): Promise<CompanyDirecto
       config,
       counts: {},
       pendingClaims: 0,
+      profilePage: { page: 1, pageSize, total: 0, totalPages: 1 },
       latestRuns: [],
       profiles: [],
     };
   }
 
   try {
-    const [countRows, claimRows, runRows, profileRows] = await Promise.all([
+    const [countRows, claimRows, runRows, filteredCountRows] = await Promise.all([
       sql`
         select publication_status, count(*)::int as count
         from company_directory_profiles
@@ -164,38 +214,77 @@ export async function getCompanyDirectoryAdminSnapshot(): Promise<CompanyDirecto
         limit 12
       `,
       sql`
-        select
-          p.id::text, p.public_slug, p.display_name, p.legal_name, p.legal_form,
-          p.city, p.municipality, p.category_slug, p.primary_sni_code,
-          p.primary_sni_label, p.activity_description, p.publication_status,
-          p.quality_score, p.privacy_blocked, p.auto_public_eligible,
-          p.is_active, p.official_source, p.last_synced_at, p.claimed_workspace_id,
-          f.registered_names, f.sni_codes, f.deregistration_date,
-          f.advertising_blocked, f.ongoing_procedures,
-          (
-            f.profile_id is not null
-            and f.last_synced_at >= p.last_synced_at
-            and f.source_payload_hash <> ''
-          ) as official_facts_fresh
+        select count(*)::int as count
         from company_directory_profiles p
-        left join company_directory_official_facts f on f.profile_id = p.id
-        order by
-          case p.publication_status
-            when 'ready' then 0
-            when 'review' then 1
-            when 'blocked' then 2
-            when 'inactive' then 3
-            when 'published' then 4
-            when 'claimed' then 5
-            else 6
-          end,
-          p.quality_score desc,
-          p.updated_at desc
+        where (${status}::text = 'all' or p.publication_status = ${status})
+          and (
+            ${query}::text = ''
+            or coalesce(p.display_name, '') ilike ${queryPattern}
+            or coalesce(p.legal_name, '') ilike ${queryPattern}
+            or coalesce(p.city, '') ilike ${queryPattern}
+            or coalesce(p.municipality, '') ilike ${queryPattern}
+            or coalesce(p.category_slug, '') ilike ${queryPattern}
+            or (${categorySlug}::text <> '' and p.category_slug = ${categorySlug})
+            or coalesce(p.primary_sni_code, '') ilike ${queryPattern}
+            or coalesce(p.primary_sni_label, '') ilike ${queryPattern}
+            or coalesce(p.public_slug, '') ilike ${queryPattern}
+          )
       `,
     ]);
 
     const counts: Record<string, number> = {};
     for (const row of countRows) counts[text(row.publication_status)] = number(row.count);
+
+    const filteredTotal = number(filteredCountRows[0]?.count);
+    const totalPages = Math.max(1, Math.ceil(filteredTotal / pageSize));
+    const page = Math.min(requestedPage, totalPages);
+    const offset = (page - 1) * pageSize;
+
+    const profileRows = await sql`
+      select
+        p.id::text, p.public_slug, p.display_name, p.legal_name, p.legal_form,
+        p.city, p.municipality, p.category_slug, p.primary_sni_code,
+        p.primary_sni_label, p.activity_description, p.publication_status,
+        p.quality_score, p.privacy_blocked, p.auto_public_eligible,
+        p.is_active, p.official_source, p.last_synced_at, p.claimed_workspace_id,
+        f.registered_names, f.sni_codes, f.deregistration_date,
+        f.advertising_blocked, f.ongoing_procedures,
+        (
+          f.profile_id is not null
+          and f.last_synced_at >= p.last_synced_at
+          and f.source_payload_hash <> ''
+        ) as official_facts_fresh
+      from company_directory_profiles p
+      left join company_directory_official_facts f on f.profile_id = p.id
+      where (${status}::text = 'all' or p.publication_status = ${status})
+        and (
+          ${query}::text = ''
+          or coalesce(p.display_name, '') ilike ${queryPattern}
+          or coalesce(p.legal_name, '') ilike ${queryPattern}
+          or coalesce(p.city, '') ilike ${queryPattern}
+          or coalesce(p.municipality, '') ilike ${queryPattern}
+          or coalesce(p.category_slug, '') ilike ${queryPattern}
+          or (${categorySlug}::text <> '' and p.category_slug = ${categorySlug})
+          or coalesce(p.primary_sni_code, '') ilike ${queryPattern}
+          or coalesce(p.primary_sni_label, '') ilike ${queryPattern}
+          or coalesce(p.public_slug, '') ilike ${queryPattern}
+        )
+      order by
+        case p.publication_status
+          when 'ready' then 0
+          when 'review' then 1
+          when 'blocked' then 2
+          when 'inactive' then 3
+          when 'published' then 4
+          when 'claimed' then 5
+          else 6
+        end,
+        p.quality_score desc,
+        p.updated_at desc,
+        p.id
+      limit ${pageSize}
+      offset ${offset}
+    `;
 
     const profiles = profileRows.map((row) => {
       const categoryConfidence = assessCompanyDirectoryCategoryConfidence({
@@ -254,6 +343,7 @@ export async function getCompanyDirectoryAdminSnapshot(): Promise<CompanyDirecto
       config,
       counts,
       pendingClaims: number(claimRows[0]?.count),
+      profilePage: { page, pageSize, total: filteredTotal, totalPages },
       latestRuns: runRows.map((row) => ({
         id: text(row.id),
         provider: text(row.provider),
@@ -276,6 +366,7 @@ export async function getCompanyDirectoryAdminSnapshot(): Promise<CompanyDirecto
         config,
         counts: {},
         pendingClaims: 0,
+        profilePage: { page: 1, pageSize, total: 0, totalPages: 1 },
         latestRuns: [],
         profiles: [],
       };
