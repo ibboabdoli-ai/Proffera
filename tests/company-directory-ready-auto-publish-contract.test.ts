@@ -42,6 +42,11 @@ describe("company directory high-confidence Ready auto-publish contract", () => 
     expect(resolver).toContain("profile.privacy_blocked = false");
     expect(resolver).toContain("profile.auto_public_eligible = true");
     expect(resolver).toContain("profile.claimed_workspace_id is null");
+    expect(resolver).toContain("facts.last_synced_at >= profile.last_synced_at");
+    expect(resolver).toContain("facts.source_payload_hash <> ''");
+    expect(resolver).toContain("facts.deregistration_date is null");
+    expect(resolver).toContain("coalesce(facts.advertising_blocked, false) = false");
+    expect(resolver).toContain("jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) = 0");
   });
 
   it("synchronizes a Ready queue row only after the profile is published", () => {
