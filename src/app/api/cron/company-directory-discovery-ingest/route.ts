@@ -7,6 +7,8 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 const MAX_ORGANIZATION_NUMBERS = 500;
+const DISCOVERY_PROVIDER = "scb_hvd_bulk";
+const SOURCE_PROBE_QUERY = "source_probe";
 
 type DiscoveryCandidate = {
   organizationNumber: string;
@@ -56,6 +58,84 @@ function normalizeCandidate(value: unknown): DiscoveryCandidate {
   };
 }
 
+function isoTimestamp(value: unknown) {
+  const date = value instanceof Date ? value : new Date(String(value ?? ""));
+  return Number.isFinite(date.getTime()) ? date.toISOString() : "";
+}
+
+async function getLatestCompletedDiscoverySnapshot() {
+  const sql = getSql();
+  if (!sql) throw new Error("Database is not configured");
+
+  const rows = await sql`
+    select source_url, completed_at
+    from company_directory_source_snapshots
+    where provider = ${DISCOVERY_PROVIDER}
+      and status = 'completed'
+      and completed_at is not null
+    order by completed_at desc
+    limit 1
+  `;
+
+  return rows[0] ?? null;
+}
+
+async function probeOfficialSourceChange() {
+  const snapshot = await getLatestCompletedDiscoverySnapshot();
+  if (!snapshot) {
+    return {
+      sourceChanged: true,
+      reason: "no_completed_snapshot",
+      latestCompletedAt: "",
+      sourceModifiedAt: "",
+    };
+  }
+
+  const sourceUrl = allowedOfficialSourceUrl(snapshot.source_url);
+  if (!sourceUrl) throw new Error("Latest discovery snapshot has an invalid official source URL");
+
+  const response = await fetch(sourceUrl, {
+    method: "HEAD",
+    redirect: "follow",
+    cache: "no-store",
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) {
+    throw new Error(`Official discovery source HEAD returned HTTP ${response.status}`);
+  }
+  if (!allowedOfficialSourceUrl(response.url)) {
+    throw new Error("Official discovery source HEAD redirected outside Bolagsverket");
+  }
+
+  const latestCompletedAt = isoTimestamp(snapshot.completed_at);
+  if (!latestCompletedAt) {
+    return {
+      sourceChanged: true,
+      reason: "invalid_snapshot_completion_time",
+      latestCompletedAt: "",
+      sourceModifiedAt: "",
+    };
+  }
+
+  const sourceModifiedAt = isoTimestamp(response.headers.get("last-modified"));
+  if (!sourceModifiedAt) {
+    return {
+      sourceChanged: false,
+      reason: "source_last_modified_unavailable",
+      latestCompletedAt,
+      sourceModifiedAt: "",
+    };
+  }
+
+  const sourceChanged = Date.parse(sourceModifiedAt) > Date.parse(latestCompletedAt);
+  return {
+    sourceChanged,
+    reason: sourceChanged ? "source_newer_than_last_discovery" : "source_not_newer_than_last_discovery",
+    latestCompletedAt,
+    sourceModifiedAt,
+  };
+}
+
 async function filterCandidatesNeedingVerification(candidates: DiscoveryCandidate[]) {
   const normalized = candidates.filter((candidate) => candidate.organizationNumber.length === 10);
   if (normalized.length === 0) return [];
@@ -95,11 +175,46 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
-  return NextResponse.json({
-    ok: true,
-    enabled: enabled(),
-    mode: process.env.COMPANY_DIRECTORY_DISCOVERY_MODE?.trim().toLowerCase() || "seed",
-  });
+  const mode = process.env.COMPANY_DIRECTORY_DISCOVERY_MODE?.trim().toLowerCase() || "seed";
+  const automaticEnabled = enabled();
+  const sourceProbeRequested = new URL(request.url).searchParams.get(SOURCE_PROBE_QUERY) === "1";
+
+  if (!sourceProbeRequested) {
+    return NextResponse.json({
+      ok: true,
+      enabled: automaticEnabled,
+      mode,
+    });
+  }
+
+  if (!automaticEnabled) {
+    return NextResponse.json({
+      ok: true,
+      enabled: false,
+      mode,
+      sourceProbe: {
+        sourceChanged: false,
+        reason: "automatic_discovery_disabled",
+        latestCompletedAt: "",
+        sourceModifiedAt: "",
+      },
+    });
+  }
+
+  try {
+    return NextResponse.json({
+      ok: true,
+      enabled: true,
+      mode,
+      sourceProbe: await probeOfficialSourceChange(),
+    });
+  } catch (error) {
+    console.error("Company directory discovery source probe failed", error);
+    return NextResponse.json({
+      ok: false,
+      error: error instanceof Error ? error.message : "Company directory discovery source probe failed",
+    }, { status: 502 });
+  }
 }
 
 export async function POST(request: Request) {

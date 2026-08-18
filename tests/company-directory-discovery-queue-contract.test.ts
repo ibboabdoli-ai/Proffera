@@ -44,7 +44,7 @@ describe("automatic company directory discovery contract", () => {
     expect(queue).toContain("Directory queue source changed during processing");
   });
 
-  it("keeps discovery ingest secret-protected and restricted to official Bolagsverket HTTPS URLs", () => {
+  it("keeps discovery ingest secret-protected and restricts lightweight source probes to official Bolagsverket URLs", () => {
     const route = source("src/app/api/cron/company-directory-discovery-ingest/route.ts");
 
     expect(route).toContain("process.env.CRON_SECRET");
@@ -54,6 +54,11 @@ describe("automatic company directory discovery contract", () => {
     expect(route).toContain('host.endsWith(".bolagsverket.se")');
     expect(route).toContain("MAX_ORGANIZATION_NUMBERS = 500");
     expect(route).toContain("payload.candidates");
+    expect(route).toContain('SOURCE_PROBE_QUERY = "source_probe"');
+    expect(route).toContain("company_directory_source_snapshots");
+    expect(route).toContain('method: "HEAD"');
+    expect(route).toContain('response.headers.get("last-modified")');
+    expect(route).toContain("sourceChanged");
   });
 
   it("processes the durable queue automatically without a global Official Facts backlog gate", () => {
@@ -97,14 +102,21 @@ describe("automatic company directory discovery contract", () => {
     expect(worker).toContain("primary-supported-SNI + supported-form candidates");
   });
 
-  it("keeps daily discovery separate while one 15-minute runner processes reminders and directory updates", () => {
+  it("probes official discovery hourly, keeps a daily full scan, and leaves queue processing on the 15-minute runner", () => {
     const discoveryWorkflow = source(".github/workflows/company-directory-automation.yml");
     const operationsWorkflow = source(".github/workflows/booking-reminders.yml");
 
     expect(discoveryWorkflow).toContain("Discover official company candidates");
+    expect(discoveryWorkflow).toContain('cron: "17 * * * *"');
     expect(discoveryWorkflow).toContain('cron: "31 3 * * *"');
     expect(discoveryWorkflow).toContain("PROFFERA_REMINDER_CRON_SECRET");
     expect(discoveryWorkflow).toContain("company-directory-discovery-ingest");
+    expect(discoveryWorkflow).toContain("source_probe=1");
+    expect(discoveryWorkflow).toContain("Probe official company source");
+    expect(discoveryWorkflow).toContain("daily-safety-scan");
+    expect(discoveryWorkflow).toContain("official-source-changed");
+    expect(discoveryWorkflow).toContain("steps.scan.outputs.run_full == 'true'");
+    expect(discoveryWorkflow).toContain("push:");
     expect(discoveryWorkflow).not.toContain('cron: "9,24,39,54 * * * *"');
 
     expect(operationsWorkflow).toContain("Process booking reminders and directory updates");

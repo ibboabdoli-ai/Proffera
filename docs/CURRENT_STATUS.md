@@ -124,6 +124,8 @@ The architectural RLS blocker from that audit remains the safe assumption until 
 
 Vercel Production and Preview state are independently readable through the connected Vercel tooling.
 
+Company Directory discovery uses an hourly lightweight probe of the official SCB/Bolagsverket source. A full bulk scan runs when the upstream `Last-Modified` value is newer than the latest completed discovery snapshot, once daily as a safety fallback, on manual dispatch, and after discovery automation/worker/ingest changes reach `main`. Queue and profile processing remain separate on the 15-minute operations workflow.
+
 A Production runtime warning observed on 2026-08-18 concerns PostgreSQL connection-string SSL semantics. It is a forward-compatibility/security warning rather than an observed request failure and should be handled deliberately before the relevant `pg`/`pg-connection-string` major upgrade.
 
 ## Current priorities
