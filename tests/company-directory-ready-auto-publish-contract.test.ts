@@ -64,15 +64,21 @@ describe("company directory high-confidence Ready auto-publish contract", () => 
       "await autoPublishReadyHighConfidenceCompanyDirectoryBatch()",
       automaticStart,
     );
+    const newCompanyQueue = route.indexOf(
+      "await processNewCompanyDirectoryDiscoveryQueueBatch(AUTOMATIC_QUEUE_CRON_BATCH_SIZE)",
+      automaticStart,
+    );
     const processQueue = route.indexOf(
-      "await processCompanyDirectoryDiscoveryQueue(AUTOMATIC_QUEUE_CRON_BATCH_SIZE)",
+      "await processCompanyDirectoryDiscoveryQueue(remainingBatchSize)",
       automaticStart,
     );
 
     expect(automaticStart).toBeGreaterThanOrEqual(0);
     expect(readyAutoPublish).toBeGreaterThan(automaticStart);
-    expect(processQueue).toBeGreaterThan(readyAutoPublish);
+    expect(newCompanyQueue).toBeGreaterThan(readyAutoPublish);
+    expect(processQueue).toBeGreaterThan(newCompanyQueue);
     expect(route).toContain("const AUTOMATIC_QUEUE_CRON_BATCH_SIZE = 5");
+    expect(route).toContain("AUTOMATIC_QUEUE_CRON_BATCH_SIZE - newCompanies.claimed");
     expect(route).toContain("readyAutoPublish");
   });
 });

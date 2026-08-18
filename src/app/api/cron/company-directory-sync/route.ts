@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 
-import { processCompanyDirectoryDiscoveryQueue } from "@/lib/company-directory-discovery-queue";
+import {
+  processCompanyDirectoryDiscoveryQueue,
+  processNewCompanyDirectoryDiscoveryQueueBatch,
+} from "@/lib/company-directory-discovery-queue";
 import { syncCompanyDirectory } from "@/lib/company-directory-engine";
 import { autoPublishReadyHighConfidenceCompanyDirectoryBatch } from "@/lib/company-directory-ready-auto-publish";
 
@@ -8,6 +11,15 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 const AUTOMATIC_QUEUE_CRON_BATCH_SIZE = 5;
+
+const EMPTY_QUEUE_RESULT = {
+  claimed: 0,
+  processed: 0,
+  published: 0,
+  blocked: 0,
+  errors: 0,
+  errorSummary: "",
+};
 
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET;
@@ -38,11 +50,16 @@ export async function GET(request: Request) {
     const mode = process.env.COMPANY_DIRECTORY_DISCOVERY_MODE?.trim().toLowerCase();
     if (mode === "automatic") {
       const readyAutoPublish = await autoPublishReadyHighConfidenceCompanyDirectoryBatch();
-      const result = await processCompanyDirectoryDiscoveryQueue(AUTOMATIC_QUEUE_CRON_BATCH_SIZE);
+      const newCompanies = await processNewCompanyDirectoryDiscoveryQueueBatch(AUTOMATIC_QUEUE_CRON_BATCH_SIZE);
+      const remainingBatchSize = Math.max(0, AUTOMATIC_QUEUE_CRON_BATCH_SIZE - newCompanies.claimed);
+      const result = remainingBatchSize > 0
+        ? await processCompanyDirectoryDiscoveryQueue(remainingBatchSize)
+        : EMPTY_QUEUE_RESULT;
       return NextResponse.json({
         ok: true,
         mode: "automatic_queue",
         ...result,
+        newCompanies,
         readyAutoPublish,
       });
     }
