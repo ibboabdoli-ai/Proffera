@@ -25,6 +25,20 @@ function number(value: unknown) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function isHighConfidenceReadyRow(row: Record<string, unknown>) {
+  const confidence = assessCompanyDirectoryCategoryConfidence({
+    categorySlug: text(row.category_slug),
+    primarySniCode: text(row.primary_sni_code),
+    legalName: text(row.legal_name),
+    displayName: text(row.display_name),
+    activityDescription: text(row.activity_description),
+    registeredNames: row.registered_names,
+    sniCodes: row.sni_codes,
+  });
+
+  return confidence.officialFactsReady && confidence.score >= 95;
+}
+
 async function syncPublishedQueueState(profileId: string) {
   const sql = getSql();
   if (!sql) return false;
@@ -173,27 +187,40 @@ export async function autoPublishReadyHighConfidenceCompanyDirectoryBatch(limit?
   `;
 
   const seenProfileIds = new Set<string>();
-  const rows = [...freshRows, ...backlogRows].filter((row) => {
+  const uniqueFreshRows = freshRows.filter((row) => {
+    const profileId = text(row.id);
+    if (!profileId || seenProfileIds.has(profileId)) return false;
+    seenProfileIds.add(profileId);
+    return true;
+  });
+  const uniqueBacklogRows = backlogRows.filter((row) => {
     const profileId = text(row.id);
     if (!profileId || seenProfileIds.has(profileId)) return false;
     seenProfileIds.add(profileId);
     return true;
   });
 
-  const highConfidence = rows.filter((row) => {
-    const confidence = assessCompanyDirectoryCategoryConfidence({
-      categorySlug: text(row.category_slug),
-      primarySniCode: text(row.primary_sni_code),
-      legalName: text(row.legal_name),
-      displayName: text(row.display_name),
-      activityDescription: text(row.activity_description),
-      registeredNames: row.registered_names,
-      sniCodes: row.sni_codes,
-    });
+  const freshHighConfidence = uniqueFreshRows.filter(isHighConfidenceReadyRow);
+  const backlogHighConfidence = uniqueBacklogRows.filter(isHighConfidenceReadyRow);
+  const highConfidence = freshHighConfidence.length + backlogHighConfidence.length;
 
-    return confidence.officialFactsReady && confidence.score >= 95;
-  });
-  const selected = highConfidence.slice(0, safeLimit);
+  // Reserve one publication attempt for the rotating backlog whenever that window
+  // contains an eligible profile. The remaining capacity favors the fresh lane.
+  // This keeps the fast path responsive without allowing a continuous fresh inflow
+  // to starve older Ready companies indefinitely.
+  const backlogReserved = backlogHighConfidence.slice(0, Math.min(1, safeLimit));
+  const freshCapacity = Math.max(0, safeLimit - backlogReserved.length);
+  const freshSelected = freshHighConfidence.slice(0, freshCapacity);
+  const selected = [...freshSelected, ...backlogReserved];
+  const remainingCapacity = safeLimit - selected.length;
+  if (remainingCapacity > 0) {
+    selected.push(
+      ...backlogHighConfidence.slice(
+        backlogReserved.length,
+        backlogReserved.length + remainingCapacity,
+      ),
+    );
+  }
 
   let published = 0;
   let queueSynced = 0;
@@ -249,8 +276,8 @@ export async function autoPublishReadyHighConfidenceCompanyDirectoryBatch(limit?
   return {
     skipped: false,
     safetyEligible,
-    scanned: rows.length,
-    highConfidence: highConfidence.length,
+    scanned: uniqueFreshRows.length + uniqueBacklogRows.length,
+    highConfidence,
     selected: selected.length,
     published,
     queueSynced,
