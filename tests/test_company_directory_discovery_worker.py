@@ -112,7 +112,7 @@ class CompanyDirectoryDiscoveryWorkerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             archive_path = Path(directory) / "scb.zip"
             with zipfile.ZipFile(archive_path, "w") as archive:
-                archive.writestr("scb_bulkfil.txt", header + row)
+                archive.writestr("scb_bulkfil.txt", (header + row).encode("iso-8859-1"))
             candidates, records_seen = MODULE.collect_candidates(archive_path)
 
         self.assertEqual(records_seen, 1)
@@ -140,19 +140,12 @@ class CompanyDirectoryDiscoveryWorkerTests(unittest.TestCase):
     def test_real_scb_tsv_bulk_filters_and_prioritizes_supported_company_forms(self):
         header = "PeOrgNr\tNg1\tNg2\tNg3\tNg4\tNg5\tPostOrt\tJurForm\n"
         rows = (
-            # Supported Stockholm foreign juridical person / branch candidate.
             "165169999999\t81210\t\t\t\t\tStockholm\t96\n"
-            # Supported Stockholm AB: must sort before code 96 even with a larger org number.
             "165569999998\t81210\t\t\t\t\tStockholm\t49\n"
-            # Secondary-only service SNI: excluded because Ng1 is the official primary industry.
             "165561222222\t52219\t81210\t\t\t\tStockholm\t49\n"
-            # Chimney sweeping is outside the first cleaning rollout.
             "165561333333\t81222\t\t\t\t\tStockholm\t49\n"
-            # Unknown/unsupported legal form: excluded from automatic discovery.
             "165561111111\t81210\t\t\t\t\tStockholm\t99\n"
-            # Unsupported primary SNI: excluded.
             "165567654321\t62010\t\t\t\t\tStockholm\t49\n"
-            # Outside pilot area: excluded when no nationwide rollout bucket is requested.
             "165569999997\t81210\t\t\t\t\tUppsala\t49\n"
         )
         with tempfile.TemporaryDirectory() as directory:
@@ -170,11 +163,8 @@ class CompanyDirectoryDiscoveryWorkerTests(unittest.TestCase):
     def test_nationwide_rollout_adds_only_the_selected_outside_pilot_bucket(self):
         header = "PeOrgNr\tNg1\tPostOrt\tJurForm\n"
         rows = (
-            # 5569999997 % 20 = 17: selected outside-pilot candidate.
             "165569999997\t81210\tUppsala\t49\n"
-            # 5561234567 % 20 = 7: another outside-pilot candidate, not selected.
             "165561234567\t96210\tGöteborg\t49\n"
-            # Pilot locations remain included regardless of bucket.
             "165569999998\t81210\tStockholm\t49\n"
         )
         with tempfile.TemporaryDirectory() as directory:
