@@ -8,6 +8,7 @@ import {
   buildDirectoryPublicSlug,
   type NormalizedDirectoryCandidate,
 } from "@/lib/company-directory-policy";
+import { mapPrimarySniToDirectorySearchService } from "@/lib/company-directory-service-taxonomy";
 import {
   fetchOfficialCompanyDirectoryBatch,
   verifyOfficialCompanyCandidate,
@@ -186,6 +187,38 @@ export async function upsertCompanyDirectoryCandidate(candidate: NormalizedDirec
 
   const profileId = String(rows[0]?.id ?? "");
   if (!profileId) throw new Error(`Directory upsert failed for ${candidate.organizationNumber}`);
+
+  const sniServiceSlug = mapPrimarySniToDirectorySearchService(candidate.primarySniCode);
+  if (sniServiceSlug) {
+    await sql`
+      insert into company_directory_profile_services (
+        profile_id, service_slug, source_type, confidence, is_primary, is_active, public_visible, updated_at
+      )
+      select ${profileId}::uuid, service.slug, 'sni', 85, true, true, true, now()
+      from company_directory_services service
+      where service.slug = ${sniServiceSlug}
+        and service.is_active = true
+      on conflict (profile_id, service_slug)
+      do update set
+        confidence = excluded.confidence,
+        is_primary = true,
+        is_active = true,
+        public_visible = true,
+        updated_at = now()
+      where company_directory_profile_services.source_type = 'sni'
+    `;
+  }
+
+  await sql`
+    update company_directory_profile_services
+    set is_primary = false,
+        is_active = false,
+        public_visible = false,
+        updated_at = now()
+    where profile_id = ${profileId}::uuid
+      and source_type = 'sni'
+      and (${sniServiceSlug ?? ""}::text = '' or service_slug <> ${sniServiceSlug ?? ""})
+  `;
 
   const provenanceJson = JSON.stringify(PROVENANCE_FIELDS.map((field) => ({
     fieldName: String(field),
