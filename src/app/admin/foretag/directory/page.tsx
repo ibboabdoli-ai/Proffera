@@ -143,7 +143,7 @@ export default async function DirectoryEngineAdminPage({ searchParams }: PagePro
             </div>
             <form action="/admin/foretag/directory" method="get" className="flex w-full max-w-2xl flex-col gap-2 sm:flex-row">
               {currentStatus !== "all" ? <input type="hidden" name="status" value={currentStatus} /> : null}
-              <input name="q" defaultValue={searchQuery} maxLength={120} placeholder="Sök företag, stad, kategori eller SNI" className="min-h-11 flex-1 rounded-xl border border-[#dfe5dd] px-4 text-sm outline-none focus:border-[#17452f]" />
+              <input name="q" defaultValue={searchQuery} maxLength={120} aria-label="Sök företag, stad, kategori eller SNI" placeholder="Sök företag, stad, kategori eller SNI" className="min-h-11 flex-1 rounded-xl border border-[#dfe5dd] px-4 text-sm outline-none focus:border-[#17452f]" />
               <button type="submit" className="min-h-11 rounded-xl bg-[#17452f] px-5 text-sm font-black text-white">Sök</button>
               {(searchQuery || currentStatus !== "all") ? <Link href="/admin/foretag/directory" className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[#dfe5dd] px-4 text-sm font-bold">Rensa</Link> : null}
             </form>
@@ -166,7 +166,7 @@ export default async function DirectoryEngineAdminPage({ searchParams }: PagePro
                 {snapshot.profiles.map((profile) => (
                   <tr key={profile.id} className="align-top">
                     <td className="px-3 py-4"><p className="font-bold text-[#253129]">{profile.companyName}</p><p className="mt-1 text-xs text-[#747e77]">{profile.city || profile.municipality || "–"} · {profile.legalForm || "–"}</p></td>
-                    <td className="px-3 py-4 font-bold">{categoryLabels[profile.categorySlug] ?? profile.categorySlug ?? "–"}</td>
+                    <td className="px-3 py-4 font-bold">{categoryLabels[profile.categorySlug] || profile.categorySlug || "–"}</td>
                     <td className="px-3 py-4"><p>{profile.sniCode || "–"}</p><p className="mt-1 max-w-52 text-xs text-[#747e77]">{profile.sniLabel}</p></td>
                     <td className="px-3 py-4"><span className="rounded-full bg-[#eef3ed] px-2.5 py-1 text-xs font-black text-[#17452f]">{profile.categoryConfidenceScore}/100</span></td>
                     <td className="px-3 py-4 font-bold">{profile.status}</td>
