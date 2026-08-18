@@ -64,7 +64,7 @@ A dedicated `Worker supervisor sync` GitHub Actions workflow records `work/proff
 
 CodeRabbit is opt-in rather than automatic on every PR. An `AI review routing` workflow clears stale review routing on each new PR revision, waits for successful CI, then applies `needs-ai-review` only when changed paths are security/data/tenant/payment/API/workflow sensitive or the PR is large. The label is the CodeRabbit trigger; non-sensitive green PRs do not consume an automatic CodeRabbit review. Draft PRs wait until they become ready, at which point CI runs again before routing.
 
-Dependency-bot branches are handled separately by automation and are exempt from Worker Bootstrap declarations and automatic AI-review routing.
+Dependency-bot branches are handled separately by automation and are exempt from Worker Bootstrap declarations and documentation declarations.
 
 ## CI and browser testing
 
@@ -124,6 +124,8 @@ The architectural RLS blocker from that audit remains the safe assumption until 
 
 Vercel Production and Preview state are independently readable through the connected Vercel tooling.
 
+Company Directory discovery uses an hourly lightweight probe of the official SCB/Bolagsverket source. A full bulk scan runs when the upstream `Last-Modified` value is newer than the latest completed discovery snapshot, once daily as a safety fallback, on manual dispatch, and after discovery automation/worker/ingest changes reach `main`. Queue and profile processing remain separate on the 15-minute operations workflow.
+
 A Production runtime warning observed on 2026-08-18 concerns PostgreSQL connection-string SSL semantics. It is a forward-compatibility/security warning rather than an observed request failure and should be handled deliberately before the relevant `pg`/`pg-connection-string` major upgrade.
 
 ## Current priorities
@@ -139,4 +141,4 @@ A Production runtime warning observed on 2026-08-18 concerns PostgreSQL connecti
 
 Do not create another competing current-status file.
 
-Historical phase plans and handoffs may remain in `docs/` for context, but they are not current truth unless a canonical source explicitly points to them. Git history is the archive for older versions of this file.
+Historical phase plans and handoffs may remain in `docs/` for context, but they are not current truth unless a canonical source explicitly points to them. Git history preserves prior versions of this file.
