@@ -94,21 +94,12 @@ function hasCategoryKeyword(categorySlug: string, values: string[]) {
   const keywords = categoryKeywords[categorySlug] ?? [];
   if (!keywords.length) return false;
 
-  // Keep the Swedish distinction between "Städ" (cleaning) and "Stad"
-  // (city) before accent folding. NFC normalization also makes canonically
-  // decomposed Swedish text behave identically to its precomposed form.
   if (categorySlug === "stadning" && hasExactSwedishToken(values, "städ")) {
     return true;
   }
 
   let sourceText = values.filter(Boolean).join(" \n ").normalize("NFC");
 
-  // Contiguous, correctly spelled Swedish flyttstäd* forms describe move-out
-  // cleaning rather than moving services. Space- or hyphen-separated forms
-  // are intentionally preserved because they may mean two separate services.
-  // ASCII "flyttstad*" is also preserved: without the Swedish ä it is
-  // ambiguous (for example Flyttstaden) and fail-closed review is safer than
-  // assuming it means cleaning.
   if (categorySlug === "flytt") {
     sourceText = sourceText
       .toLocaleLowerCase("sv-SE")
@@ -176,10 +167,16 @@ export function assessCompanyDirectoryCategoryConfidence(
       .map((item) => mapSniToDirectoryCategory(item.code)?.categorySlug ?? "")
       .filter(Boolean),
   );
+  const officialPrimarySniMatches = Boolean(
+    normalizedPrimarySniCode
+    && officialSniCodes.some((item) => normalizeSniCode(item.code) === normalizedPrimarySniCode),
+  );
 
-  if (officialFactsReady && officialCategories.has(input.categorySlug)) {
+  if (officialFactsReady && officialPrimarySniMatches && officialCategories.has(input.categorySlug)) {
     score += 15;
-    signals.push("Bolagsverkets/SCB:s fullständiga SNI-lista bekräftar kategorin");
+    signals.push("Bolagsverkets/SCB:s SNI-lista bekräftar exakt primär SNI");
+  } else if (officialFactsReady && officialCategories.has(input.categorySlug)) {
+    warnings.push("Officiell SNI-lista stödjer kategorin men bekräftar inte exakt primär SNI");
   } else if (officialFactsReady) {
     warnings.push("Fullständig officiell SNI-lista bekräftar inte kategorin");
   } else {
@@ -241,6 +238,9 @@ export function assessCompanyDirectoryCategoryConfidence(
 
   score = Math.max(0, Math.min(100, score));
   if (!officialFactsReady) score = Math.min(score, 80);
+  if (officialFactsReady && primaryCategoryMatches && !officialPrimarySniMatches) {
+    score = Math.min(score, 90);
+  }
 
   return {
     score,
