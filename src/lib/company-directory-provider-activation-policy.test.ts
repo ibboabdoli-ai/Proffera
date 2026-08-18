@@ -11,6 +11,7 @@ describe("company directory provider activation policy", () => {
     expect(normalizeSwedishOrganizationNumber("556123-4567")).toBe("5561234567");
     expect(normalizeSwedishOrganizationNumber("556 123 4567")).toBe("5561234567");
     expect(normalizeSwedishOrganizationNumber("556123456")).toBeNull();
+    expect(normalizeSwedishOrganizationNumber("55612345678")).toBeNull();
     expect(normalizeSwedishOrganizationNumber("SE556123456701")).toBeNull();
   });
 
@@ -25,7 +26,12 @@ describe("company directory provider activation policy", () => {
   it("bounds owner-confirmed service areas", () => {
     expect(normalizeProviderServiceAreaRadius("25")).toBe(25);
     expect(normalizeProviderServiceAreaRadius("25.24")).toBe(25.2);
+    expect(normalizeProviderServiceAreaRadius(1)).toBe(1);
+    expect(normalizeProviderServiceAreaRadius(300)).toBe(300);
     expect(normalizeProviderServiceAreaRadius(0)).toBeNull();
     expect(normalizeProviderServiceAreaRadius(301)).toBeNull();
+    expect(normalizeProviderServiceAreaRadius("")).toBeNull();
+    expect(normalizeProviderServiceAreaRadius(null)).toBeNull();
+    expect(normalizeProviderServiceAreaRadius("abc")).toBeNull();
   });
 });
