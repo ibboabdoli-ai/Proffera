@@ -8,29 +8,47 @@ function source(path: string) {
 }
 
 describe("Company Directory admin list", () => {
-  it("supports complete status filtering instead of truncating the first 100 profiles", () => {
-    const code = source("src/app/admin/foretag/directory/page.tsx");
+  it("filters and paginates profiles in PostgreSQL instead of loading the full directory", () => {
+    const pageCode = source("src/app/admin/foretag/directory/page.tsx");
+    const adminCode = source("src/lib/company-directory-admin.ts");
 
-    expect(code).toContain('const PAGE_SIZE = 50');
-    expect(code).toContain('{ value: "published", label: "Publicerade" }');
-    expect(code).toContain('{ value: "ready", label: "Ready" }');
-    expect(code).toContain('{ value: "review", label: "Review" }');
-    expect(code).toContain('{ value: "inactive", label: "Inaktiva" }');
-    expect(code).toContain('profile.status !== currentStatus');
-    expect(code).toContain('filteredProfiles.slice(startIndex, startIndex + PAGE_SIZE)');
-    expect(code).not.toContain('snapshot.profiles.slice(0, 100)');
+    expect(pageCode).toContain("const PAGE_SIZE = 50");
+    expect(pageCode).toContain('{ value: "published", label: "Publicerade" }');
+    expect(pageCode).toContain('{ value: "ready", label: "Ready" }');
+    expect(pageCode).toContain('{ value: "review", label: "Review" }');
+    expect(pageCode).toContain('{ value: "inactive", label: "Inaktiva" }');
+    expect(pageCode).toContain("getCompanyDirectoryAdminSnapshot({");
+    expect(pageCode).toContain("status: currentStatus");
+    expect(pageCode).toContain("query: searchQuery");
+    expect(pageCode).toContain("pageSize: PAGE_SIZE");
+
+    expect(adminCode).toContain("select count(*)::int as count");
+    expect(adminCode).toContain("${status}::text = 'all'");
+    expect(adminCode).toContain("${query}::text = ''");
+    expect(adminCode).toContain("${categorySlug}::text <> ''");
+    expect(adminCode).toContain("p.publication_status = ${status}");
+    expect(adminCode).toContain("p.updated_at desc,\n        p.id");
+    expect(adminCode).toContain("limit ${pageSize}");
+    expect(adminCode).toContain("offset ${offset}");
   });
 
-  it("keeps search, pagination and direct access to published profiles", () => {
-    const code = source("src/app/admin/foretag/directory/page.tsx");
+  it("keeps search, server-side pagination and direct access to published profiles", () => {
+    const pageCode = source("src/app/admin/foretag/directory/page.tsx");
+    const adminCode = source("src/lib/company-directory-admin.ts");
 
-    expect(code).toContain('placeholder="Sök företag, stad, kategori eller SNI"');
-    expect(code).toContain('profile.sniCode');
-    expect(code).toContain('profile.city');
-    expect(code).toContain('page: currentPage - 1');
-    expect(code).toContain('page: currentPage + 1');
-    expect(code).toContain('href={directoryHref({ status: "published", query: "" })}');
-    expect(code).toContain('href={`/foretag/listad/${encodeURIComponent(profile.slug)}`}');
+    expect(pageCode).toContain('aria-label="Sök företag, stad, kategori eller SNI"');
+    expect(pageCode).toContain('placeholder="Sök företag, stad, kategori eller SNI"');
+    expect(pageCode).toContain("categoryLabels[profile.categorySlug] || profile.categorySlug || \"–\"");
+    expect(pageCode).toContain("profile.sniCode");
+    expect(pageCode).toContain("profile.city");
+    expect(pageCode).toContain("page: page - 1");
+    expect(pageCode).toContain("page: page + 1");
+    expect(pageCode).toContain('href={`/foretag/listad/${encodeURIComponent(profile.slug)}`}');
+
+    expect(adminCode).toContain("if (normalized.length < 3) return \"\"");
+    expect(adminCode).toContain("coalesce(p.display_name, '') ilike ${queryPattern}");
+    expect(adminCode).toContain("coalesce(p.city, '') ilike ${queryPattern}");
+    expect(adminCode).toContain("coalesce(p.primary_sni_code, '') ilike ${queryPattern}");
   });
 
   it("submits and restores the active list context after an admin publication", () => {
@@ -39,7 +57,7 @@ describe("Company Directory admin list", () => {
 
     expect(pageCode).toContain('name="returnStatus" value={currentStatus}');
     expect(pageCode).toContain('name="returnQuery" value={searchQuery}');
-    expect(pageCode).toContain('name="returnPage" value={currentPage}');
+    expect(pageCode).toContain('name="returnPage" value={page}');
     expect(actionCode).toContain('formText(formData, "returnStatus", 20)');
     expect(actionCode).toContain('formText(formData, "returnQuery", 120)');
     expect(actionCode).toContain('formText(formData, "returnPage", 8)');
