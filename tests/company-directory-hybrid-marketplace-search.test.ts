@@ -97,7 +97,7 @@ describe("hybrid directory marketplace search", () => {
     expect(routingSource).toContain("return websiteBuilder ? workspaceSlug : null");
   });
 
-  it("renders the correct action for book, quote, contact and Directory fallback modes", () => {
+  it("renders the correct action for book, quote, book_or_quote, contact and Directory fallback modes", () => {
     const commonMarketplace = {
       claimedWorkspaceSlug: "marketplace-company",
       claimedServiceId: "service-1",
@@ -120,8 +120,19 @@ describe("hybrid directory marketplace search", () => {
       bookingAvailable: false,
     });
     expect(quoteHtml).toContain('data-marketplace-action="quote"');
-    expect(quoteHtml).toContain("#offert");
+    expect(quoteHtml).toContain('/foretag/marketplace-company/tjanster/frisor#offert');
     expect(quoteHtml).not.toContain('data-marketplace-action="book"');
+
+    const hybridHtml = renderResult({
+      ...commonMarketplace,
+      claimedBookingSlug: "marketplace-company",
+      conversionMode: "book_or_quote",
+      bookingAvailable: true,
+    });
+    expect(hybridHtml).toContain('data-marketplace-action="book"');
+    expect(hybridHtml).toContain('/boka/marketplace-company?service_id=service-1');
+    expect(hybridHtml).toContain('data-marketplace-action="quote"');
+    expect(hybridHtml).toContain('/foretag/marketplace-company/tjanster/frisor#offert');
 
     const contactHtml = renderResult({
       ...commonMarketplace,
@@ -129,7 +140,7 @@ describe("hybrid directory marketplace search", () => {
       bookingAvailable: false,
     });
     expect(contactHtml).toContain('data-marketplace-action="contact"');
-    expect(contactHtml).toContain("#kontaktforfragan");
+    expect(contactHtml).toContain('/foretag/marketplace-company/tjanster/frisor#kontaktforfragan');
     expect(contactHtml).not.toContain('data-marketplace-action="book"');
 
     const directoryHtml = renderResult();
