@@ -16,43 +16,43 @@ function assess(overrides: Partial<Parameters<typeof assessCompanyDirectoryCateg
 }
 
 describe("company directory category confidence", () => {
-  it("keeps unambiguous SNI-only evidence at review confidence", () => {
+  it("gives unambiguous official SNI-only evidence high confidence", () => {
     const result = assess();
 
-    expect(result.score).toBe(80);
-    expect(result.level).toBe("review");
+    expect(result.score).toBe(95);
+    expect(result.level).toBe("high");
     expect(result.competingCategories).toEqual([]);
     expect(result.conflictingTextCategories).toEqual([]);
     expect(result.warnings).toContain("Ingen oberoende textsignal stödjer kategorin");
   });
 
-  it("does not treat an exact stored SNI match in Official Facts as an extra confidence signal", () => {
+  it("uses official SNI confirmation without inventing a separate primary-verification signal", () => {
     const result = assess({
       primarySniCode: "81.210",
       sniCodes: [{ code: "81.210", label: "Lokalvård" }],
     });
 
-    expect(result.score).toBe(80);
-    expect(result.level).toBe("review");
+    expect(result.score).toBe(95);
+    expect(result.level).toBe("high");
     expect(result.signals.some((signal) => signal.includes("Verifierad primär SNI"))).toBe(false);
   });
 
-  it("keeps one independent activity-text signal below the high-confidence threshold", () => {
+  it("keeps high confidence with an independent activity-text signal", () => {
     const result = assess({
       activityDescription: "Städning, lokalvård och fönsterputs",
     });
 
-    expect(result.score).toBe(90);
-    expect(result.level).toBe("review");
+    expect(result.score).toBe(100);
+    expect(result.level).toBe("high");
   });
 
-  it("keeps one independent name signal below the high-confidence threshold", () => {
+  it("keeps high confidence with an independent name signal", () => {
     const result = assess({
       legalName: "Trygg Städservice AB",
     });
 
-    expect(result.score).toBe(90);
-    expect(result.level).toBe("review");
+    expect(result.score).toBe(100);
+    expect(result.level).toBe("high");
   });
 
   it("recognizes exact Swedish Städ as cleaning-name evidence", () => {
@@ -82,12 +82,12 @@ describe("company directory category confidence", () => {
       legalName: "Stockholm Stad Service AB",
     });
 
-    expect(result.score).toBe(80);
-    expect(result.level).toBe("review");
+    expect(result.score).toBe(95);
+    expect(result.level).toBe("high");
     expect(result.signals).not.toContain("Företagsnamn stödjer kategorin");
   });
 
-  it("reaches high confidence only when multiple independent same-category signals agree", () => {
+  it("reaches high confidence when multiple independent same-category signals agree", () => {
     const result = assess({
       activityDescription: "Städning, lokalvård och fönsterputs",
       legalName: "Trygg Städservice AB",
@@ -162,8 +162,8 @@ describe("company directory category confidence", () => {
       sniCodes: [{ code: "49.420", label: "Flyttjänster" }],
     });
 
-    expect(result.score).toBe(90);
-    expect(result.level).toBe("review");
+    expect(result.score).toBe(100);
+    expect(result.level).toBe("high");
     expect(result.signals).toContain("Företagsnamn stödjer kategorin");
   });
 
@@ -206,8 +206,8 @@ describe("company directory category confidence", () => {
       sniCodes: [{ code: "49.420", label: "Flyttjänster" }],
     });
 
-    expect(result.score).toBe(90);
-    expect(result.level).toBe("review");
+    expect(result.score).toBe(100);
+    expect(result.level).toBe("high");
     expect(result.signals).toContain("Verksamhetsbeskrivningen stödjer kategorin");
   });
 
