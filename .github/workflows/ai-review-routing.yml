@@ -121,7 +121,8 @@ jobs:
             gh api --method POST "repos/${REPOSITORY}/labels" \
               -f name='needs-ai-review' \
               -f color='B60205' \
-              -f description='Automatically applied after green CI for sensitive or large changes.' >/dev/null
+              -f description='Automatically applied after green CI for sensitive or large changes.' >/dev/null 2>&1 || \
+              gh api "repos/${REPOSITORY}/labels/needs-ai-review" >/dev/null
           fi
 
           gh api --method POST "repos/${REPOSITORY}/issues/${PR_NUMBER}/labels" \
