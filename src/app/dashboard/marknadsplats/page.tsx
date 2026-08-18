@@ -40,6 +40,8 @@ const copy = {
     both: "Boka eller offert",
     contact: "Kontakta",
     noDirectoryServices: "Den officiella profilen saknar ännu en publicerbar tjänstekoppling. Proffera behöver komplettera tjänsteklassningen innan aktivering.",
+    noWorkspaceServices: "Du har ingen aktiv tjänst att publicera. Lägg till eller aktivera en tjänst i Inställningar först.",
+    manageServices: "Öppna Inställningar",
   },
   en: {
     eyebrow: "Marketplace",
@@ -67,6 +69,8 @@ const copy = {
     both: "Book or quote",
     contact: "Contact",
     noDirectoryServices: "The official profile does not yet have an eligible service mapping. Proffera must complete the service classification before activation.",
+    noWorkspaceServices: "You have no active service to publish. Add or activate a service in Settings first.",
+    manageServices: "Open Settings",
   },
 } as const;
 
@@ -93,6 +97,12 @@ function withLang(path: string, locale: Locale, status?: string) {
   return `${path}${query ? `?${query}` : ""}`;
 }
 
+function claimHref(slug: string, locale: Locale) {
+  return locale === "en"
+    ? `/en/companies/claim/${encodeURIComponent(slug)}`
+    : `/foretag/claim/${encodeURIComponent(slug)}`;
+}
+
 async function findOfficialCompanyAction(formData: FormData) {
   "use server";
   const locale: Locale = formData.get("lang") === "en" ? "en" : "sv";
@@ -100,7 +110,7 @@ async function findOfficialCompanyAction(formData: FormData) {
   try {
     const result = await findProviderProfileByOrganizationNumber(formData.get("organizationNumber"));
     if (result.status === "available") {
-      target = `/foretag/claim/${encodeURIComponent(result.profileSlug)}`;
+      target = claimHref(result.profileSlug, locale);
     } else {
       target = withLang("/dashboard/marknadsplats", locale, result.status);
     }
@@ -146,6 +156,7 @@ export default async function MarketplaceActivationPage({
   const linkedProfile = state.linkedProfile;
   const linkedProfileCity = linkedProfile?.city ?? "";
   const allowedSlugs = new Set(state.directoryServices.map((service) => service.slug));
+  const activatableWorkspaceServices = state.workspaceServices.filter((service) => service.isActive);
   const activeMarketplaceServices = state.workspaceServices.filter(
     (service) => service.isActive && service.publicStatus === "published" && allowedSlugs.has(service.publicSlug) && service.serviceAreaConfirmed,
   );
@@ -179,9 +190,11 @@ export default async function MarketplaceActivationPage({
               <p className="font-black text-[#76580d]">{t.pendingTitle}</p>
               <p className="mt-1 text-sm leading-6 text-[#6f654c]">{state.pendingClaim.companyName} · {state.pendingClaim.organizationNumber}</p>
               <p className="mt-2 text-sm leading-6 text-[#6f654c]">{t.pendingLead}</p>
-              <Link href={`/foretag/claim/${encodeURIComponent(state.pendingClaim.profileSlug)}`} className="mt-4 inline-flex min-h-11 items-center rounded-xl border border-[#d5bd7c] bg-white px-4 text-sm font-black text-[#76580d]">
-                {locale === "en" ? "Open verification" : "Öppna verifiering"}
-              </Link>
+              {state.pendingClaim.profileSlug ? (
+                <Link href={claimHref(state.pendingClaim.profileSlug, locale)} className="mt-4 inline-flex min-h-11 items-center rounded-xl border border-[#d5bd7c] bg-white px-4 text-sm font-black text-[#76580d]">
+                  {locale === "en" ? "Open verification" : "Öppna verifiering"}
+                </Link>
+              ) : null}
             </div>
           ) : (
             <form action={findOfficialCompanyAction} className="mt-5 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
@@ -205,9 +218,11 @@ export default async function MarketplaceActivationPage({
                 <h2 className="mt-2 text-2xl font-black text-[#17201a]">{linkedProfile.companyName}</h2>
                 <p className="mt-2 text-sm text-[#466352]">{linkedProfile.organizationNumber}{linkedProfile.city ? ` · ${linkedProfile.city}` : ""}</p>
               </div>
-              <Link href={`/foretag/listad/${encodeURIComponent(linkedProfile.slug)}`} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[#bcd8c3] bg-white px-4 text-sm font-black text-[#17452f]">
-                {locale === "en" ? "Official profile" : "Officiell profil"}
-              </Link>
+              {linkedProfile.slug ? (
+                <Link href={locale === "en" ? `/en/companies/${encodeURIComponent(linkedProfile.slug)}` : `/foretag/listad/${encodeURIComponent(linkedProfile.slug)}`} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[#bcd8c3] bg-white px-4 text-sm font-black text-[#17452f]">
+                  {locale === "en" ? "Official profile" : "Officiell profil"}
+                </Link>
+              ) : null}
             </div>
           </section>
 
@@ -220,7 +235,12 @@ export default async function MarketplaceActivationPage({
               </div>
             </div>
 
-            {state.directoryServices.length === 0 ? (
+            {activatableWorkspaceServices.length === 0 ? (
+              <div className="mt-5 rounded-2xl bg-[#fff9e9] p-4 text-sm font-semibold leading-6 text-[#76580d]">
+                <p>{t.noWorkspaceServices}</p>
+                <Link href={withLang("/dashboard/installningar", locale)} className="mt-3 inline-flex font-black underline underline-offset-4">{t.manageServices}</Link>
+              </div>
+            ) : state.directoryServices.length === 0 ? (
               <p className="mt-5 rounded-2xl bg-[#fff9e9] p-4 text-sm font-semibold leading-6 text-[#76580d]">{t.noDirectoryServices}</p>
             ) : (
               <form action={activateMarketplaceServiceAction} className="mt-6 grid gap-4 md:grid-cols-2">
@@ -228,7 +248,7 @@ export default async function MarketplaceActivationPage({
                 <label className="grid gap-2 text-sm font-bold text-[#334139]">
                   {t.workspaceService}
                   <select name="serviceId" required className="min-h-12 rounded-xl border border-[#cad8ce] bg-white px-3 text-sm">
-                    {state.workspaceServices.filter((service) => service.isActive).map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}
+                    {activatableWorkspaceServices.map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}
                   </select>
                 </label>
                 <label className="grid gap-2 text-sm font-bold text-[#334139]">
@@ -272,7 +292,10 @@ export default async function MarketplaceActivationPage({
                       <p className="font-black text-[#17201a]">{service.name}</p>
                       <p className="mt-1 text-xs font-semibold text-[#667168]">{service.publicSlug} · {service.conversionMode} · {service.serviceAreaRadiusKm ?? "–"} km</p>
                     </div>
-                    <Link href={`/foretag/listad?service=${encodeURIComponent(service.publicSlug)}${linkedProfileCity ? `&location=${encodeURIComponent(linkedProfileCity)}` : ""}`} className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[#cbd8ce] bg-white px-4 text-sm font-black text-[#17452f]">
+                    <Link href={locale === "en"
+                      ? `/en/companies?service=${encodeURIComponent(service.publicSlug)}${linkedProfileCity ? `&location=${encodeURIComponent(linkedProfileCity)}` : ""}`
+                      : `/foretag/listad?service=${encodeURIComponent(service.publicSlug)}${linkedProfileCity ? `&location=${encodeURIComponent(linkedProfileCity)}` : ""}`}
+                      className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[#cbd8ce] bg-white px-4 text-sm font-black text-[#17452f]">
                       {t.searchTest}
                     </Link>
                   </article>
