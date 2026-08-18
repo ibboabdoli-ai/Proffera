@@ -26,7 +26,7 @@ describe("company directory category confidence", () => {
     expect(result.warnings).toContain("Ingen oberoende textsignal stödjer kategorin");
   });
 
-  it("uses official SNI confirmation without inventing a separate primary-verification signal", () => {
+  it("uses exact official SNI confirmation without inventing a separate primary-verification signal", () => {
     const result = assess({
       primarySniCode: "81.210",
       sniCodes: [{ code: "81.210", label: "Lokalvård" }],
@@ -34,7 +34,23 @@ describe("company directory category confidence", () => {
 
     expect(result.score).toBe(95);
     expect(result.level).toBe("high");
+    expect(result.signals).toContain("Bolagsverkets/SCB:s SNI-lista bekräftar exakt primär SNI");
     expect(result.signals.some((signal) => signal.includes("Verifierad primär SNI"))).toBe(false);
+  });
+
+  it("keeps same-category but non-exact official SNI below high confidence", () => {
+    const result = assess({
+      categorySlug: "vvs",
+      primarySniCode: "43.221",
+      legalName: "VVS Rör & Värme AB",
+      displayName: "VVS Rör & Värme AB",
+      activityDescription: "VVS, rörinstallation och värmeservice.",
+      sniCodes: [{ code: "43.229", label: "Annan VVS-installation" }],
+    });
+
+    expect(result.score).toBe(90);
+    expect(result.level).toBe("review");
+    expect(result.warnings).toContain("Officiell SNI-lista stödjer kategorin men bekräftar inte exakt primär SNI");
   });
 
   it("keeps high confidence with an independent activity-text signal", () => {
