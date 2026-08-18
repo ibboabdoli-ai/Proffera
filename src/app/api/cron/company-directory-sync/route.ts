@@ -12,6 +12,15 @@ export const maxDuration = 60;
 
 const AUTOMATIC_QUEUE_CRON_BATCH_SIZE = 5;
 
+const EMPTY_QUEUE_RESULT = {
+  claimed: 0,
+  processed: 0,
+  published: 0,
+  blocked: 0,
+  errors: 0,
+  errorSummary: "",
+};
+
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET;
   const authorization = request.headers.get("authorization");
@@ -42,7 +51,10 @@ export async function GET(request: Request) {
     if (mode === "automatic") {
       const readyAutoPublish = await autoPublishReadyHighConfidenceCompanyDirectoryBatch();
       const newCompanies = await processNewCompanyDirectoryDiscoveryQueueBatch(AUTOMATIC_QUEUE_CRON_BATCH_SIZE);
-      const result = await processCompanyDirectoryDiscoveryQueue(AUTOMATIC_QUEUE_CRON_BATCH_SIZE);
+      const remainingBatchSize = Math.max(0, AUTOMATIC_QUEUE_CRON_BATCH_SIZE - newCompanies.claimed);
+      const result = remainingBatchSize > 0
+        ? await processCompanyDirectoryDiscoveryQueue(remainingBatchSize)
+        : EMPTY_QUEUE_RESULT;
       return NextResponse.json({
         ok: true,
         mode: "automatic_queue",
