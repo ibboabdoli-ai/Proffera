@@ -62,7 +62,13 @@ Current merge-safety rules include:
 
 A dedicated `Worker supervisor sync` GitHub Actions workflow records `work/proffera-*` PR lifecycle events to issue #548 when PRs are opened/reopened, marked ready for review, or closed/merged. This gives the Supervisor a durable automatic event trail independent of private chat memory.
 
-CodeRabbit is opt-in rather than automatic on every PR. An `AI review routing` workflow clears stale review routing on each new PR revision, waits for successful CI, then applies `needs-ai-review` only when changed paths are security/data/tenant/payment/API/workflow sensitive or the PR is large. The label is the CodeRabbit trigger; non-sensitive green PRs do not consume an automatic CodeRabbit review. Draft PRs wait until they become ready, at which point CI runs again before routing.
+CodeRabbit is opt-in rather than automatic on every PR. Review-label reset and post-Validate routing are serialized inside the required CI workflow under pull-request-scoped concurrency. Every fresh PR revision first removes stale `needs-ai-review`; after `Validate` succeeds, a metadata-only job applies it only when changed paths are security/data/tenant/payment/API/workflow sensitive or the PR is large. Non-sensitive PRs do not consume an automatic CodeRabbit review.
+
+The required `E2E public smoke` check is fail-closed for routed PRs. The browser smoke itself runs in an unprivileged Playwright job; a separate metadata-only final gate keeps the required check pending until CodeRabbit has submitted a review for the exact current PR head. A current-head `CHANGES_REQUESTED` remains blocking even if CodeRabbit later submits a `COMMENTED` review; only a later current-head `APPROVED` review clears that change request. If there has been no current-head change request, a completed `COMMENTED` or `APPROVED` review is non-blocking. Missing/stale review state, stale routing, or a stale workflow head prevents the required check from succeeding. A new commit invalidates previous review evidence because all decisions are matched to the current head SHA.
+
+Gated automerge independently applies the same risk predicate and current-head CodeRabbit decision rules for paths it is otherwise allowed to merge. Highly sensitive paths that were already blocked from automerge remain blocked and require the normal manual merge path after required checks pass.
+
+If CodeRabbit is rate-limited or otherwise unavailable, a sensitive/large PR intentionally remains blocked instead of silently merging without the required review.
 
 Dependency-bot branches are handled separately by automation and are exempt from Worker Bootstrap declarations and automatic AI-review routing.
 
@@ -79,7 +85,7 @@ Dependency-bot branches are handled separately by automation and are exempt from
 - Next.js production build;
 - whitespace validation.
 
-Playwright browser E2E is automated in CI through `E2E public smoke`.
+Playwright browser E2E is automated in CI. The actual browser run is `E2E public smoke run`; the required `E2E public smoke` check is the final browser-plus-review gate described above.
 
 Committed non-destructive browser coverage includes:
 
@@ -132,7 +138,7 @@ A Production runtime warning observed on 2026-08-18 concerns PostgreSQL connecti
 
 1. Keep issue #548 as the live worker/PR state and current `main` baseline; use automatic Supervisor lifecycle events as the durable event trail.
 2. Keep this file synchronized only when a PR changes stable project-level truth; do not use it for fast-moving task/SHA/deployment state.
-3. Keep CodeRabbit review consumption risk-routed: sensitive/large PRs after green CI, manual review only when a non-sensitive PR still needs deeper inspection.
+3. Keep CodeRabbit consumption risk-routed and fail closed: sensitive/large PRs require an acceptable CodeRabbit decision on the current head before the required merge gate can pass.
 4. Activate authenticated Workspace/Booking browser checks only after isolated Preview test infrastructure is proven.
 5. Expand state-changing Booking and Quote E2E only after Preview database/auth/email/payment isolation is verified.
 6. Continue database tenant-defense work only through isolated-branch proof before any Production RLS rollout.
