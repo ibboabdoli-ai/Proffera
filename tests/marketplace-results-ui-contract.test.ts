@@ -167,7 +167,7 @@ describe("marketplace results UI contract", () => {
     expect(html).toContain('aria-label="Sida 2"');
     expect(html).toContain('aria-label="Sida 3"');
     expect(html).toContain("service=Elektriker");
-    expect(html).toContain("location=S%25C3%25B6dert%25C3%25A4lje");
+    expect(html).toContain("location=S%C3%B6dert%C3%A4lje");
     expect(html).toContain("page=2");
     expect(html).toContain("page=3");
   });
