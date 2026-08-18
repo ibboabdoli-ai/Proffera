@@ -14,6 +14,12 @@ describe("company directory pending verification count", () => {
     mocks.getSql.mockReset();
   });
 
+  it("returns zero when the directory database is unavailable", async () => {
+    mocks.getSql.mockReturnValue(null);
+
+    await expect(getCompanyDirectoryPendingVerificationCount()).resolves.toBe(0);
+  });
+
   it("returns the pending_verify queue count", async () => {
     const queries: string[] = [];
     const sql = vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
