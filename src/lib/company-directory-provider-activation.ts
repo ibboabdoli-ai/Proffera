@@ -81,9 +81,9 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
   const linkedProfile = profile
     ? {
         id: String(profile.id),
-        slug: String(profile.public_slug),
-        companyName: String(profile.display_name),
-        organizationNumber: String(profile.organization_number),
+        slug: String(profile.public_slug ?? ""),
+        companyName: String(profile.display_name ?? ""),
+        organizationNumber: String(profile.organization_number ?? ""),
         city: String(profile.city ?? ""),
       }
     : null;
@@ -106,9 +106,9 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
   const pendingClaim = claim
     ? {
         status: String(claim.status),
-        companyName: String(claim.display_name),
-        organizationNumber: String(claim.organization_number),
-        profileSlug: String(claim.public_slug),
+        companyName: String(claim.display_name ?? ""),
+        organizationNumber: String(claim.organization_number ?? ""),
+        profileSlug: String(claim.public_slug ?? ""),
       }
     : null;
 
@@ -127,7 +127,7 @@ export type ProviderProfileLookupResult =
   | { status: "linked"; profileSlug: string; companyName: string }
   | { status: "claimed"; companyName: string }
   | { status: "busy"; companyName: string }
-  | { status: "not_ready"; companyName: string }
+  | { status: "not_ready" }
   | { status: "not_found" };
 
 export async function findProviderProfileByOrganizationNumber(value: unknown): Promise<ProviderProfileLookupResult> {
@@ -154,24 +154,26 @@ export async function findProviderProfileByOrganizationNumber(value: unknown): P
   `;
   const row = rows[0];
   if (!row) return { status: "not_found" };
+  if (Boolean(row.privacy_blocked)) return { status: "not_ready" };
 
-  const companyName = String(row.display_name);
+  const companyName = String(row.display_name ?? "");
+  const profileSlug = String(row.public_slug ?? "");
   const claimedWorkspaceId = String(row.claimed_workspace_id ?? "");
   if (claimedWorkspaceId === access.workspaceId) {
-    return { status: "linked", profileSlug: String(row.public_slug), companyName };
+    return profileSlug ? { status: "linked", profileSlug, companyName } : { status: "not_ready" };
   }
   if (claimedWorkspaceId) return { status: "claimed", companyName };
   if (row.claim_reservation_id) return { status: "busy", companyName };
   if (
     String(row.publication_status) !== "published"
     || !Boolean(row.is_active)
-    || Boolean(row.privacy_blocked)
     || !Boolean(row.auto_public_eligible)
+    || !profileSlug
   ) {
-    return { status: "not_ready", companyName };
+    return { status: "not_ready" };
   }
 
-  return { status: "available", profileSlug: String(row.public_slug), companyName };
+  return { status: "available", profileSlug, companyName };
 }
 
 export async function activateProviderMarketplaceService(input: {
@@ -200,6 +202,7 @@ export async function activateProviderMarketplaceService(input: {
      and profile.publication_status = 'claimed'
      and profile.is_active = true
      and profile.privacy_blocked = false
+     and profile.auto_public_eligible = true
     join company_directory_profile_services relation
       on relation.profile_id = profile.id
      and relation.service_slug = ${input.directoryServiceSlug}
@@ -225,46 +228,61 @@ export async function activateProviderMarketplaceService(input: {
 
   const profileId = String(service.profile_id);
   const previousPublicSlug = service.previous_public_slug ? String(service.previous_public_slug) : null;
-  const serviceAreaLabel = `${radiusKm} km`;
 
-  const [updated] = await sql.transaction([
-    sql`
-      update workspace_services
+  const published = await sql`
+    with area_guard as (
+      select 1 as allowed
+      where not exists (
+        select 1
+        from company_directory_service_areas area
+        where area.profile_id = ${profileId}::uuid
+          and area.service_slug = ${input.directoryServiceSlug}
+          and area.source_type <> 'owner'
+      )
+    ),
+    published_service as (
+      update workspace_services service
       set public_slug = ${input.directoryServiceSlug},
           public_status = 'published',
           conversion_mode = ${input.conversionMode},
-          service_area = ${serviceAreaLabel},
           updated_at = now()
-      where id = ${input.serviceId}::uuid
-        and workspace_id = ${access.workspaceId}
-        and is_active = true
-      returning id
-    `,
-    sql`
-      delete from company_directory_service_areas
-      where profile_id = ${profileId}::uuid
-        and service_slug = ${previousPublicSlug}
+      where service.id = ${input.serviceId}::uuid
+        and service.workspace_id = ${access.workspaceId}
+        and service.is_active = true
+        and exists (select 1 from area_guard)
+      returning service.id
+    ),
+    removed_area as (
+      delete from company_directory_service_areas area
+      where exists (select 1 from published_service)
+        and area.profile_id = ${profileId}::uuid
+        and area.service_slug = ${previousPublicSlug}
         and ${previousPublicSlug}::text is not null
         and ${previousPublicSlug}::text <> ${input.directoryServiceSlug}
-        and source_type = 'owner'
-    `,
-    sql`
+        and area.source_type = 'owner'
+      returning area.profile_id
+    ),
+    confirmed_area as (
       insert into company_directory_service_areas (
         profile_id, service_slug, radius_km, source_type, confidence, public_visible, confirmed_at, updated_at
-      ) values (
-        ${profileId}::uuid, ${input.directoryServiceSlug}, ${radiusKm}, 'owner', 100, true, now(), now()
       )
+      select ${profileId}::uuid, ${input.directoryServiceSlug}, ${radiusKm}, 'owner', 100, true, now(), now()
+      from published_service
       on conflict (profile_id, service_slug) where service_slug is not null
       do update set
         radius_km = excluded.radius_km,
-        source_type = 'owner',
         confidence = 100,
         public_visible = true,
         confirmed_at = now(),
         updated_at = now()
-    `,
-  ]);
+      where company_directory_service_areas.source_type = 'owner'
+      returning profile_id
+    )
+    select service.id::text
+    from published_service service
+    join confirmed_area area on true
+  `;
 
-  if (!updated?.[0]) throw new Error("service_update");
+  if (!published[0]?.id) throw new Error("service_update");
   return { serviceId: input.serviceId, directoryServiceSlug: input.directoryServiceSlug, conversionMode: input.conversionMode, radiusKm };
 }
