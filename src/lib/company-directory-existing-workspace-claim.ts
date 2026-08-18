@@ -74,34 +74,42 @@ export async function finalizeCompanyDirectoryClaimIntoExistingWorkspace(input: 
       where claim.id = pair.claim_id
         and profile.id = pair.profile_id
       returning claim.id
+    ),
+    experience_settings as (
+      insert into workspace_experience_settings (workspace_id, business_intro)
+      select ${input.workspaceId}::uuid, ${input.activityDescription}
+      from claimed_claim
+      on conflict (workspace_id) do update set
+        business_intro = case
+          when coalesce(workspace_experience_settings.business_intro, '') = '' then excluded.business_intro
+          else workspace_experience_settings.business_intro
+        end,
+        updated_at = now()
+      returning workspace_id
+    ),
+    audit_log as (
+      insert into admin_audit_logs (
+        admin_user_id, workspace_id, action, reason, previous_value, new_value
+      )
+      select
+        ${input.adminUserId},
+        ${input.workspaceId}::uuid,
+        'company_directory.claim.approved_existing_workspace',
+        ${input.adminReference},
+        ${JSON.stringify({ claimId: input.claimId, profileId: input.profileId, target: "existing_workspace" })}::jsonb,
+        ${JSON.stringify({ claimId: input.claimId, profileId: input.profileId, status: "claimed", workspaceId: input.workspaceId })}::jsonb
+      from claimed_claim
+      returning id
     )
-    select id::text from claimed_claim
+    select claim.id::text
+    from claimed_claim claim
+    join experience_settings settings on true
+    join audit_log audit on true
   `;
 
   if (!rows[0]?.id) {
     throw new Error("Existing workspace is not an eligible claim target or the claim changed before approval");
   }
-
-  await sql.transaction((tx) => [
-    tx`
-      update workspace_experience_settings
-      set business_intro = case
-            when coalesce(business_intro, '') = '' then ${input.activityDescription}
-            else business_intro
-          end,
-          updated_at = now()
-      where workspace_id = ${input.workspaceId}::uuid
-    `,
-    tx`
-      insert into admin_audit_logs (
-        admin_user_id, workspace_id, action, reason, previous_value, new_value
-      ) values (
-        ${input.adminUserId}, ${input.workspaceId}::uuid, 'company_directory.claim.approved_existing_workspace', ${input.adminReference},
-        ${JSON.stringify({ claimId: input.claimId, profileId: input.profileId, target: "existing_workspace" })}::jsonb,
-        ${JSON.stringify({ claimId: input.claimId, profileId: input.profileId, status: "claimed", workspaceId: input.workspaceId })}::jsonb
-      )
-    `,
-  ]);
 
   return { claimId: input.claimId, workspaceId: input.workspaceId, trialEndsAt: null };
 }
