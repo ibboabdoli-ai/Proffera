@@ -362,7 +362,9 @@ def sniff_csv_dialect(sample: str) -> csv.Dialect:
 
 
 def iter_csv_records(stream: io.BufferedReader) -> Iterator[dict[str, Any]]:
-    text = io.TextIOWrapper(stream, encoding="utf-8-sig", errors="replace", newline="")
+    # The official SCB HVD bulk text uses ISO-8859-1. Decoding it as UTF-8
+    # corrupts Swedish locality names such as Södertälje before pilot filtering.
+    text = io.TextIOWrapper(stream, encoding="iso-8859-1", newline="")
     sample = text.read(8192)
     text.seek(0)
     reader = csv.DictReader(text, dialect=sniff_csv_dialect(sample))
