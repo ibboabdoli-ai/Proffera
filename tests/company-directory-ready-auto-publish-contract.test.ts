@@ -13,36 +13,40 @@ describe("company directory high-confidence Ready auto-publish contract", () => 
 
     expect(resolver).toContain("assessCompanyDirectoryCategoryConfidence");
     expect(resolver).toContain("autoPublishCompanyDirectoryProfileIfSafe");
-    expect(resolver).toContain("categoryConfidence.score < 95");
+    expect(resolver).toContain("confidence.score >= 95");
+    expect(resolver).toContain("confidence.officialFactsReady");
   });
 
   it("selects only high-confidence Ready profiles for publication work", () => {
     const resolver = source("src/lib/company-directory-ready-auto-publish.ts");
 
-    expect(resolver).toContain("p.publication_status = 'ready'");
-    expect(resolver).toContain("p.is_active = true");
-    expect(resolver).toContain("p.privacy_blocked = false");
-    expect(resolver).toContain("p.auto_public_eligible = true");
-    expect(resolver).toContain("p.claimed_workspace_id is null");
-    expect(resolver).toContain("f.profile_id is not null");
+    expect(resolver).toContain("return confidence.officialFactsReady && confidence.score >= 95");
+    expect(resolver).toContain("const selected = highConfidence.slice(0, safeLimit)");
   });
 
   it("keeps both scan egress and publication work bounded", () => {
     const resolver = source("src/lib/company-directory-ready-auto-publish.ts");
 
-    expect(resolver).toContain("const READY_SCAN_LIMIT");
-    expect(resolver).toContain("const READY_PUBLISH_LIMIT");
-    expect(resolver).toContain("limit ${READY_SCAN_LIMIT}");
-    expect(resolver).toContain("published >= READY_PUBLISH_LIMIT");
+    expect(resolver).toContain("READY_AUTO_PUBLISH_SCAN_SIZE = 25");
+    expect(resolver).toContain("DEFAULT_READY_AUTO_PUBLISH_BATCH_SIZE = 10");
+    expect(resolver).toContain("MAX_READY_AUTO_PUBLISH_BATCH_SIZE = 20");
+    expect(resolver).toContain("limit ${READY_AUTO_PUBLISH_SCAN_SIZE}");
+    expect(resolver).toContain("highConfidence.slice(0, safeLimit)");
   });
 
   it("preserves the existing database safety preconditions", () => {
     const resolver = source("src/lib/company-directory-ready-auto-publish.ts");
 
-    expect(resolver).toContain("source_payload_hash <> ''");
-    expect(resolver).toContain("f.last_synced_at >= p.last_synced_at");
-    expect(resolver).toContain("f.deregistration_date is null");
-    expect(resolver).toContain("f.advertising_blocked = false");
+    expect(resolver).toContain("profile.publication_status = 'ready'");
+    expect(resolver).toContain("profile.is_active = true");
+    expect(resolver).toContain("profile.privacy_blocked = false");
+    expect(resolver).toContain("profile.auto_public_eligible = true");
+    expect(resolver).toContain("profile.claimed_workspace_id is null");
+    expect(resolver).toContain("facts.last_synced_at >= profile.last_synced_at");
+    expect(resolver).toContain("facts.source_payload_hash <> ''");
+    expect(resolver).toContain("facts.deregistration_date is null");
+    expect(resolver).toContain("coalesce(facts.advertising_blocked, false) = false");
+    expect(resolver).toContain("jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) = 0");
   });
 
   it("synchronizes a Ready queue row only after the profile is published", () => {
