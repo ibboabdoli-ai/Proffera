@@ -1,30 +1,15 @@
-# Proffera Status
+# Proffera Status — archived pointer
 
-Phase: PHASE 00
+This file is no longer a current source of truth.
 
-Branch: phase/00-discovery
+The old Phase 00 content became stale as Proffera moved into active production development. Keep Git history for that historical snapshot; do not use it to determine current project state.
 
-Base point:
-- Empty repository before first commit
-- Bootstrap commit: 04c66bfcbece6fe119ac8563f304d840809d9f87
+## Current sources
 
-Done:
-- README created
-- Project plan created
-- Decision log created
-- Database plan created
-- Test checklist created
-- Changelog created
+- Worker rules: `AGENTS.md`
+- Live AI supervisor/control board: GitHub issue #548
+- Execution roadmap: GitHub issue #276
+- Current factual status: `docs/CURRENT_STATUS.md`
+- Documentation map: `docs/README.md`
 
-Not started:
-- Application code
-- UI
-- Database implementation
-- Login
-- Deployment
-
-Next:
-- PHASE 01 product blueprint and architecture
-
-Stop rule:
-- Do not continue to PHASE 01 before approval.
+If an older document conflicts with these sources, the canonical sources above win.
