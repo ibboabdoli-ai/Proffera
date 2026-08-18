@@ -225,7 +225,9 @@ export async function approveAndProvisionCompanyDirectoryClaim(input: { claimId:
     });
   }
 
-  const generatedWorkspaceId = randomUUID();
+  // Claim IDs are UUIDs and make provisioning idempotent across retries: the
+  // same claim always converges on the same workspace instead of creating extras.
+  const generatedWorkspaceId = claimId;
   const reservationToken = randomUUID();
   const claimantEmail = String(row.claimant_email).trim().toLowerCase();
   const companyName = String(row.display_name).trim();
@@ -262,7 +264,7 @@ export async function approveAndProvisionCompanyDirectoryClaim(input: { claimId:
   }
 
   // requested_workspace_id has a non-deferrable FK to workspaces. Provision the
-  // generated workspace first, then persist that ID on the reserved claim.
+  // deterministic workspace first, then persist that ID on the reserved claim.
   const provisioned = await provisionWorkspace({
     workspaceId: generatedWorkspaceId,
     userId: claimantUserId,
@@ -289,7 +291,7 @@ export async function approveAndProvisionCompanyDirectoryClaim(input: { claimId:
     returning id::text
   `;
   if (!verified[0]) {
-    throw new Error("Claim changed after workspace provisioning; review the reserved claim before retrying");
+    throw new Error("Claim changed after workspace provisioning; review the provisioned workspace before retrying");
   }
 
   const finalized = await sql`
