@@ -43,15 +43,15 @@ describe("assessCompanyDirectoryCategoryConfidence", () => {
     expect(result.officialFactsReady).toBe(true);
   });
 
-  it("keeps a generic business name at manual-review confidence when only SNI supports the category", () => {
+  it("gives high confidence when unambiguous official SNI is the only category evidence", () => {
     const result = assessCompanyDirectoryCategoryConfidence(base({
       legalName: "Consulting & Management Holding CM AB",
       displayName: "Consulting & Management Holding CM AB",
       activityDescription: "Konsultverksamhet och företagsledning.",
     }));
 
-    expect(result.score).toBe(80);
-    expect(result.level).toBe("review");
+    expect(result.score).toBe(95);
+    expect(result.level).toBe("high");
     expect(result.warnings).toContain("Ingen oberoende textsignal stödjer kategorin");
   });
 
@@ -66,7 +66,7 @@ describe("assessCompanyDirectoryCategoryConfidence", () => {
       ],
     }));
 
-    expect(result.score).toBe(85);
+    expect(result.score).toBe(90);
     expect(result.level).toBe("review");
     expect(result.competingCategories).toEqual(["elektriker"]);
   });
