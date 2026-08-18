@@ -14,8 +14,15 @@ import { resolvePublicCustomDomain } from "@/lib/public-site-domain-routing";
 import { hostnameFromHostHeader, isPlatformHost, isPrimeViewHost } from "@/lib/public-site-domains";
 import { siteConfig } from "@/lib/site";
 
+const nonIndexableLocalizedRoutes = new Set([
+  "/foretag/listad",
+  "/anslut-foretag/registrera",
+  "/anslut-foretag/tack",
+]);
+const indexableLocalizedPublicRoutes = localizedPublicRoutes.filter(
+  (route) => !nonIndexableLocalizedRoutes.has(route.sv),
+);
 const swedishOnlyRoutes = [
-  "/logga-in",
   ...marketingServiceSlugs.map((slug) => `/tjanster/${slug}`),
   ...marketingIndustrySlugs.map((slug) => `/branscher/${slug}`),
 ];
@@ -94,7 +101,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   }));
 
   return [
-    ...localizedPublicRoutes.flatMap((route) => {
+    ...indexableLocalizedPublicRoutes.flatMap((route) => {
       const languages = { "sv-SE": `${siteConfig.url}${route.sv}`, en: `${siteConfig.url}${route.en}` };
       return [
         { url: languages["sv-SE"], changeFrequency: route.sv === "/" ? "weekly" as const : "monthly" as const, priority: route.sv === "/" ? 1 : 0.8, alternates: { languages } },
