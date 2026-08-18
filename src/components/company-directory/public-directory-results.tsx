@@ -131,7 +131,7 @@ export function PublicDirectoryResults({
       </div>
 
       {search.totalPages > 1 ? (
-        <nav className="mt-6 flex flex-wrap items-center justify-center gap-2" aria-label="Pagination">
+        <nav className="mt-6 flex flex-wrap items-center justify-center gap-2" aria-label={t.pagination}>
           {search.page > 1 ? (
             <Link href={pageHref(paginationBaseHref, search.page - 1)} className="inline-flex min-h-10 items-center justify-center rounded-control border border-line bg-surface px-3 text-sm font-black text-brand transition hover:bg-brand-soft">
               <ChevronLeft className="mr-1 h-4 w-4" />{t.previous}
