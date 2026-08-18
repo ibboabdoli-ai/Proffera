@@ -1,11 +1,38 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("server-only", () => ({}));
+
+import { selectReadyAutoPublishRows } from "@/lib/company-directory-ready-auto-publish";
 
 function source(path: string) {
   return readFileSync(resolve(process.cwd(), path), "utf8");
 }
+
+describe("company directory Ready publication selection", () => {
+  it("guarantees rotating backlog progress when fresh demand fills the default limit", () => {
+    const fresh = Array.from({ length: 10 }, (_, index) => `fresh-${index + 1}`);
+    const backlog = ["backlog-1", "backlog-2"];
+
+    const selected = selectReadyAutoPublishRows(fresh, backlog, 10);
+
+    expect(selected).toHaveLength(10);
+    expect(selected).toContain("backlog-1");
+    expect(selected.filter((item) => item.startsWith("fresh-"))).toHaveLength(9);
+  });
+
+  it("uses all capacity for fresh Ready rows when the rotated backlog has no eligible row", () => {
+    const fresh = Array.from({ length: 10 }, (_, index) => `fresh-${index + 1}`);
+
+    expect(selectReadyAutoPublishRows(fresh, [], 10)).toEqual(fresh);
+  });
+
+  it("keeps the backlog guarantee even with a one-row publication limit", () => {
+    expect(selectReadyAutoPublishRows(["fresh-1"], ["backlog-1"], 1)).toEqual(["backlog-1"]);
+  });
+});
 
 describe("company directory high-confidence Ready auto-publish contract", () => {
   it("reuses the shared confidence assessment and fail-closed publication gate", () => {
@@ -21,7 +48,7 @@ describe("company directory high-confidence Ready auto-publish contract", () => 
     const resolver = source("src/lib/company-directory-ready-auto-publish.ts");
 
     expect(resolver).toContain("return confidence.officialFactsReady && confidence.score >= 95");
-    expect(resolver).toContain("const selected = highConfidence.slice(0, safeLimit)");
+    expect(resolver).toContain("selectReadyAutoPublishRows(freshHighConfidence, backlogHighConfidence, safeLimit)");
   });
 
   it("keeps fresh and backlog scan egress plus publication work bounded", () => {
@@ -33,7 +60,6 @@ describe("company directory high-confidence Ready auto-publish contract", () => 
     expect(resolver).toContain("MAX_READY_AUTO_PUBLISH_BATCH_SIZE = 20");
     expect(resolver).toContain("limit ${READY_AUTO_PUBLISH_FAST_SCAN_SIZE}");
     expect(resolver).toContain("limit ${READY_AUTO_PUBLISH_SCAN_SIZE}");
-    expect(resolver).toContain("highConfidence.slice(0, safeLimit)");
   });
 
   it("prioritizes newly verified Ready rows without removing backlog rotation", () => {
@@ -52,7 +78,8 @@ describe("company directory high-confidence Ready auto-publish contract", () => 
     const resolver = source("src/lib/company-directory-ready-auto-publish.ts");
 
     expect(resolver).toContain("const seenProfileIds = new Set<string>()");
-    expect(resolver).toContain("const rows = [...freshRows, ...backlogRows].filter((row) =>");
+    expect(resolver).toContain("const uniqueFreshRows = freshRows.filter((row) =>");
+    expect(resolver).toContain("const uniqueBacklogRows = backlogRows.filter((row) =>");
     expect(resolver).toContain("seenProfileIds.has(profileId)");
     expect(resolver).toContain("seenProfileIds.add(profileId)");
   });
