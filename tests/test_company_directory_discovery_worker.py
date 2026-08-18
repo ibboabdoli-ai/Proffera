@@ -33,11 +33,18 @@ class CompanyDirectoryDiscoveryWorkerTests(unittest.TestCase):
         self.assertEqual(MODULE.DEFAULT_PROVIDER, "scb_hvd_bulk")
 
     def test_supported_sni_scope_is_explicit(self):
-        for code in ["81210", "81221", "96910", "49420", "43210", "43221", "43341", "43320", "81300"]:
+        for code in ["81210", "81221", "96910", "96210", "49420", "43210", "43221", "43341", "43320", "81300"]:
             self.assertTrue(MODULE.supported_sni(code), code)
         for code in ["81222", "62010", "68204", "46699"]:
             self.assertFalse(MODULE.supported_sni(code), code)
         self.assertEqual(MODULE.SCB_SNI_KEYS, {"ng1"})
+
+    def test_nationwide_rollout_bucket_is_bounded(self):
+        self.assertEqual(MODULE.resolve_nationwide_rollout(20, 17), (17, 20))
+        with self.assertRaises(ValueError):
+            MODULE.resolve_nationwide_rollout(0, 0)
+        with self.assertRaises(ValueError):
+            MODULE.resolve_nationwide_rollout(20, 20)
 
     def test_scb_legal_form_priority_is_explicit(self):
         self.assertEqual(MODULE.LEGAL_FORM_PRIORITY["49"], 0)
@@ -99,6 +106,20 @@ class CompanyDirectoryDiscoveryWorkerTests(unittest.TestCase):
             {"organizationNumber": "5569672982", "primarySniCode": "43210"},
         ])
 
+    def test_hairdresser_sni_is_discoverable_in_always_on_pilot(self):
+        header = "PeOrgNr\tNg1\tPostOrt\tJurForm\n"
+        row = "165561234567\t96210\tSÖDERTÄLJE\t49\n"
+        with tempfile.TemporaryDirectory() as directory:
+            archive_path = Path(directory) / "scb.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr("scb_bulkfil.txt", header + row)
+            candidates, records_seen = MODULE.collect_candidates(archive_path)
+
+        self.assertEqual(records_seen, 1)
+        self.assertEqual(candidates, [
+            {"organizationNumber": "5561234567", "primarySniCode": "96210"},
+        ])
+
     def test_scb_secondary_sni_does_not_make_company_discoverable(self):
         record = {
             "PeOrgNr": "165561234567",
@@ -131,7 +152,7 @@ class CompanyDirectoryDiscoveryWorkerTests(unittest.TestCase):
             "165561111111\t81210\t\t\t\t\tStockholm\t99\n"
             # Unsupported primary SNI: excluded.
             "165567654321\t62010\t\t\t\t\tStockholm\t49\n"
-            # Outside pilot area: excluded.
+            # Outside pilot area: excluded when no nationwide rollout bucket is requested.
             "165569999997\t81210\t\t\t\t\tUppsala\t49\n"
         )
         with tempfile.TemporaryDirectory() as directory:
@@ -144,6 +165,32 @@ class CompanyDirectoryDiscoveryWorkerTests(unittest.TestCase):
         self.assertEqual(candidates, [
             {"organizationNumber": "5569999998", "primarySniCode": "81210"},
             {"organizationNumber": "5169999999", "primarySniCode": "81210"},
+        ])
+
+    def test_nationwide_rollout_adds_only_the_selected_outside_pilot_bucket(self):
+        header = "PeOrgNr\tNg1\tPostOrt\tJurForm\n"
+        rows = (
+            # 5569999997 % 20 = 17: selected outside-pilot candidate.
+            "165569999997\t81210\tUppsala\t49\n"
+            # 5561234567 % 20 = 7: another outside-pilot candidate, not selected.
+            "165561234567\t96210\tGöteborg\t49\n"
+            # Pilot locations remain included regardless of bucket.
+            "165569999998\t81210\tStockholm\t49\n"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            archive_path = Path(directory) / "scb.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr("scb_bulkfil.txt", header + rows)
+            candidates, records_seen = MODULE.collect_candidates(
+                archive_path,
+                nationwide_bucket=17,
+                nationwide_bucket_count=20,
+            )
+
+        self.assertEqual(records_seen, 3)
+        self.assertEqual(candidates, [
+            {"organizationNumber": "5569999997", "primarySniCode": "81210"},
+            {"organizationNumber": "5569999998", "primarySniCode": "81210"},
         ])
 
     def test_csv_bulk_files_merge_sni_location_and_legal_form_by_org_number(self):
