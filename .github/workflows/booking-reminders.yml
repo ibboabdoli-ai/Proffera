@@ -1,4 +1,4 @@
-name: Booking reminders
+name: Operations automation
 
 on:
   schedule:
@@ -13,28 +13,72 @@ concurrency:
 
 jobs:
   dispatch:
-    name: Process due booking reminders
+    name: Process booking reminders and directory updates
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 5
     steps:
       - name: Verify scheduler configuration
         env:
           REMINDER_CRON_URL: ${{ secrets.PROFFERA_REMINDER_CRON_URL }}
-          REMINDER_CRON_SECRET: ${{ secrets.PROFFERA_REMINDER_CRON_SECRET }}
+          CRON_SECRET: ${{ secrets.PROFFERA_REMINDER_CRON_SECRET }}
         run: |
           set -euo pipefail
           test -n "$REMINDER_CRON_URL"
-          test -n "$REMINDER_CRON_SECRET"
+          test -n "$CRON_SECRET"
 
-      - name: Process due reminders
+      - name: Process due reminders and directory updates
         env:
           REMINDER_CRON_URL: ${{ secrets.PROFFERA_REMINDER_CRON_URL }}
-          REMINDER_CRON_SECRET: ${{ secrets.PROFFERA_REMINDER_CRON_SECRET }}
+          CRON_SECRET: ${{ secrets.PROFFERA_REMINDER_CRON_SECRET }}
         run: |
-          set -euo pipefail
-          curl --fail-with-body --silent --show-error \
-            --connect-timeout 10 \
-            --max-time 75 \
-            --header "Authorization: Bearer $REMINDER_CRON_SECRET" \
-            --header "User-Agent: proffera-booking-reminders-github-actions" \
-            "$REMINDER_CRON_URL"
+          set -uo pipefail
+
+          ORIGIN="$(python - <<'PY'
+          import os
+          import urllib.parse
+
+          url = urllib.parse.urlparse(os.environ["REMINDER_CRON_URL"])
+          if url.scheme != "https" or not url.netloc:
+              raise SystemExit("PROFFERA_REMINDER_CRON_URL must be an HTTPS URL")
+
+          host = url.netloc.lower()
+          if host in {"proffera.se", "www.proffera.se"}:
+              host = "www.proffera.se"
+          print(f"https://{host}")
+          PY
+          )" || exit 1
+
+          failed=0
+
+          run_endpoint() {
+            name="$1"
+            url="$2"
+            user_agent="$3"
+
+            if ! curl --fail-with-body --silent --show-error \
+              --connect-timeout 10 \
+              --max-time 75 \
+              --header "Authorization: Bearer $CRON_SECRET" \
+              --header "User-Agent: $user_agent" \
+              "$url"; then
+              echo "::error::$name failed"
+              failed=1
+            fi
+          }
+
+          run_endpoint \
+            "Booking reminders" \
+            "$REMINDER_CRON_URL" \
+            "proffera-booking-reminders-github-actions"
+
+          run_endpoint \
+            "Company directory official facts" \
+            "$ORIGIN/api/cron/company-directory-official-facts?limit=10" \
+            "proffera-company-directory-github-actions"
+
+          run_endpoint \
+            "Company directory sync" \
+            "$ORIGIN/api/cron/company-directory-sync" \
+            "proffera-company-directory-github-actions"
+
+          exit "$failed"
