@@ -2,19 +2,16 @@
 
 Last updated: 2026-08-18
 
-This is the canonical factual status document for Proffera. For worker rules, live task state, and roadmap order, also read `AGENTS.md`, GitHub issue #548, GitHub issue #276, and `docs/README.md`.
+This is the canonical factual status document for Proffera. For worker rules, live task state, current `main` SHA, and roadmap order, also read `AGENTS.md`, GitHub issue #548, GitHub issue #276, and `docs/README.md`.
 
-## Verified release baseline
+## Release baseline
 
 - Repository: `ibboabdoli-ai/Proffera`
 - Default branch: `main`
-- Verified `main` SHA at this update: `2f4e648054eb2f1b32decdaf166bc6869d095abd`
 - Vercel project: `proffera-jhap`
 - Runtime: Next.js on Node.js 22.x
-- Matching Vercel Production deployment: `dpl_FU2pST67G8G6bjtUffDMGLJqT4HT`
-- Matching Production deployment state: `READY`
 
-A source merge is not proof of a live release. Production claims require the matching Vercel Production deployment and affected runtime behavior to be verified.
+Do not pin the current `main` SHA or current Vercel deployment ID in this file: those values change on every merge and would make the canonical status stale immediately. GitHub issue #548 is the live control board for the current baseline. A source merge is not proof of a live release; Production claims require the matching Vercel Production deployment and affected runtime behavior to be verified.
 
 ## Current product state
 
@@ -29,7 +26,7 @@ The repository contains active production implementations for these major areas:
 - Company Directory ingestion, official-facts verification, SNI/category mapping, publication safety gates and admin review flows.
 - Public marketplace/search foundations and provider marketplace activation.
 
-Recent production changes verified through matching `main` deployments include:
+Recent Production changes independently verified through matching `main` deployments on 2026-08-18 include:
 
 - #599 — connect existing providers to the marketplace.
 - #601 — prevent new Company Directory profiles from starving behind the existing refresh backlog and prioritize unprofiled companies.
@@ -40,26 +37,29 @@ Recent production changes verified through matching `main` deployments include:
 Current control plane:
 
 1. `AGENTS.md` — mandatory Graph Engineering worker protocol.
-2. GitHub issue #548 — live AI Supervisor control board.
+2. GitHub issue #548 — live AI Supervisor control board, including current `main` baseline and active queue.
 3. GitHub issue #276 — execution roadmap/dependency order.
-4. `docs/CURRENT_STATUS.md` — current factual project status.
+4. `docs/CURRENT_STATUS.md` — stable factual project status.
+5. `docs/README.md` — documentation authority map.
 
-Current merge-safety baseline recorded by the Supervisor board:
+Current merge-safety rules include:
 
 - pull request required before merge;
-- branch must be current before merge;
+- AI/product branches must use `work/proffera-*`;
+- PRs must declare `Documentation impact: updated` or `Documentation impact: none`;
+- `Documentation impact: updated` requires this canonical status file to change in the same PR;
 - required `Validate` check;
 - required `E2E public smoke` check;
 - no force push / protected default branch behavior;
-- CodeRabbit performs automatic assertive review;
-- gated automerge requires explicit human `ibbo-approved` authorization and must not be treated as an AI-controlled approval mechanism.
+- gated automerge requires a fresh owner-applied `ibbo-approved` authorization after the current head commit and must not be treated as AI self-approval.
 
-AI/product work branches must use `work/proffera-*`. Dependency-bot branches are handled separately by automation.
+Dependency-bot branches are handled separately by automation.
 
 ## CI and browser testing
 
-`Validate` currently covers:
+`Validate` covers:
 
+- governance checks;
 - dependency install;
 - ESLint;
 - TypeScript typecheck;
@@ -70,19 +70,26 @@ AI/product work branches must use `work/proffera-*`. Dependency-bot branches are
 
 Playwright browser E2E is automated in CI through `E2E public smoke`.
 
-Current committed browser coverage is primarily public/non-destructive:
+Committed non-destructive browser coverage includes:
 
 - public marketing/marketplace smoke coverage;
-- public nearby/geolocation coverage.
+- public nearby/geolocation coverage;
+- the real Login page entry surface;
+- Quote intake through service selection and adaptive-details navigation without submitting a request.
 
-The main browser-level gaps are authenticated flows. Priority additions are:
+An opt-in isolated Preview harness also exists for:
 
-1. sign-in/session behavior;
-2. two-account Workspace-isolation smoke coverage;
-3. Booking lifecycle coverage;
-4. Quote Request → Offer lifecycle coverage;
-5. Admin/RBAC coverage;
-6. Billing sandbox coverage after the safer core flows above.
+- two-account Workspace visibility/isolation smoke checks;
+- read-only rendering of a dedicated published Booking page.
+
+Those authenticated/Booking checks intentionally skip unless dedicated Preview E2E credentials/workspace names/booking slug are supplied. They must not become required CI until Preview is proven isolated from Production for database, auth, email, payments and customer data.
+
+Still intentionally excluded from state-changing browser automation until that isolation is proven:
+
+- Booking → email verification → confirmation;
+- Quote Request → Offer → Accept/Reject;
+- Stripe/payment lifecycle;
+- destructive Admin mutations.
 
 Do not run destructive or uncertain browser tests against Production or real customer Workspaces.
 
@@ -104,16 +111,16 @@ The architectural RLS blocker from that audit remains the safe assumption until 
 
 ## Operations notes
 
-Vercel Production and Preview state are now independently readable through the connected Vercel tooling.
+Vercel Production and Preview state are independently readable through the connected Vercel tooling.
 
-A current Production runtime warning still appears for PostgreSQL connection-string SSL semantics. It is a forward-compatibility/security warning rather than an observed request failure, and should be handled deliberately before the relevant `pg`/`pg-connection-string` major upgrade.
+A Production runtime warning observed on 2026-08-18 concerns PostgreSQL connection-string SSL semantics. It is a forward-compatibility/security warning rather than an observed request failure and should be handled deliberately before the relevant `pg`/`pg-connection-string` major upgrade.
 
 ## Current priorities
 
-1. Keep issue #548 synchronized with active worker/PR state.
-2. Keep this file synchronized whenever a PR changes project-level truth.
-3. Enforce the canonical `work/proffera-*` AI branch convention in required validation.
-4. Expand browser E2E from public smoke into authenticated Workspace, Booking and Quote flows using isolated test accounts/environments.
+1. Keep issue #548 synchronized with the live worker/PR state and current `main` baseline.
+2. Keep this file synchronized only when a PR changes stable project-level truth; do not use it for fast-moving task/SHA/deployment state.
+3. Activate authenticated Workspace/Booking browser checks only after isolated Preview test infrastructure is proven.
+4. Expand state-changing Booking and Quote E2E only after Preview database/auth/email/payment isolation is verified.
 5. Continue database tenant-defense work only through isolated-branch proof before any Production RLS rollout.
 
 ## Status-document rule
