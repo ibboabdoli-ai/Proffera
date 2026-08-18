@@ -15,6 +15,7 @@ permissions:
   pull-requests: write
   checks: read
   statuses: read
+  issues: read
 
 jobs:
   gated-automerge:
@@ -30,6 +31,7 @@ jobs:
           INPUT_PR_NUMBER: ${{ inputs.pr_number }}
           SELF_CHECK_NAME: Gated automerge
           SELF_WORKFLOW_NAME: Proffera gated automerge
+          HUMAN_APPROVER: ibboabdoli-ai
         shell: bash
         run: |
           set -euo pipefail
@@ -70,6 +72,7 @@ jobs:
           summary "- Head branch: $head_ref"
           summary "- Head SHA: $head_sha"
           summary "- Required label: ibbo-approved"
+          summary "- Required human approver: $HUMAN_APPROVER"
           summary "- Merge method: squash"
           summary "- Admin bypass: not used"
           summary ""
@@ -88,6 +91,24 @@ jobs:
 
           if [ "$has_label" != "yes" ]; then
             refuse "Refused: PR does not have the required 'ibbo-approved' label."
+          fi
+
+          approval_json="$(gh api "repos/$REPOSITORY/issues/$pr_number/events?per_page=100")"
+          approval_actor="$(echo "$approval_json" | jq -r '[.[] | select(.event == "labeled" and .label.name == "ibbo-approved")] | last | .actor.login // ""')"
+          approval_time="$(echo "$approval_json" | jq -r '[.[] | select(.event == "labeled" and .label.name == "ibbo-approved")] | last | .created_at // ""')"
+          head_commit_time="$(gh api "repos/$REPOSITORY/commits/$head_sha" --jq '.commit.committer.date')"
+
+          summary "- Approval actor: ${approval_actor:-none}"
+          summary "- Approval time: ${approval_time:-none}"
+          summary "- Head commit time: $head_commit_time"
+          summary ""
+
+          if [ "$approval_actor" != "$HUMAN_APPROVER" ]; then
+            refuse "Refused: 'ibbo-approved' was not most recently applied by the repository owner '$HUMAN_APPROVER'."
+          fi
+
+          if [ -z "$approval_time" ] || [[ "$approval_time" < "$head_commit_time" ]]; then
+            refuse "Refused: human approval predates the current PR head. Remove and re-apply 'ibbo-approved' after the latest commit."
           fi
 
           changed_files="$(gh pr diff "$pr_number" --repo "$REPOSITORY" --name-only)"
