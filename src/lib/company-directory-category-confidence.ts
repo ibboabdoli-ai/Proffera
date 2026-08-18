@@ -165,7 +165,7 @@ export function assessCompanyDirectoryCategoryConfidence(
   const primaryCategory = mapSniToDirectoryCategory(normalizedPrimarySniCode)?.categorySlug ?? "";
   const primaryCategoryMatches = Boolean(primaryCategory && primaryCategory === input.categorySlug);
   if (primaryCategoryMatches) {
-    score += 65;
+    score += 80;
     signals.push("Primär SNI matchar kategorin");
   } else {
     warnings.push("Primär SNI matchar inte profilens kategori");
@@ -176,10 +176,16 @@ export function assessCompanyDirectoryCategoryConfidence(
       .map((item) => mapSniToDirectoryCategory(item.code)?.categorySlug ?? "")
       .filter(Boolean),
   );
+  const officialPrimarySniMatches = Boolean(
+    normalizedPrimarySniCode
+    && officialSniCodes.some((item) => normalizeSniCode(item.code) === normalizedPrimarySniCode),
+  );
 
-  if (officialFactsReady && officialCategories.has(input.categorySlug)) {
+  if (officialFactsReady && officialPrimarySniMatches && officialCategories.has(input.categorySlug)) {
     score += 15;
-    signals.push("Bolagsverkets/SCB:s fullständiga SNI-lista bekräftar kategorin");
+    signals.push("Bolagsverkets/SCB:s SNI-lista bekräftar exakt primär SNI");
+  } else if (officialFactsReady && officialCategories.has(input.categorySlug)) {
+    warnings.push("Officiell SNI-lista stödjer kategorin men bekräftar inte exakt primär SNI");
   } else if (officialFactsReady) {
     warnings.push("Fullständig officiell SNI-lista bekräftar inte kategorin");
   } else {
@@ -241,6 +247,9 @@ export function assessCompanyDirectoryCategoryConfidence(
 
   score = Math.max(0, Math.min(100, score));
   if (!officialFactsReady) score = Math.min(score, 80);
+  if (officialFactsReady && primaryCategoryMatches && !officialPrimarySniMatches) {
+    score = Math.min(score, 90);
+  }
 
   return {
     score,
