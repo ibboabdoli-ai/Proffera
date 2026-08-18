@@ -60,7 +60,7 @@ function normalizeProfileQuery(value: unknown) {
 
 function categorySlugForQuery(value: string) {
   const normalized = value.toLocaleLowerCase("sv-SE");
-  if (!normalized) return "";
+  if (normalized.length < 3) return "";
   for (const [slug, aliases] of Object.entries(CATEGORY_SEARCH_ALIASES)) {
     if (aliases.some((alias) => alias.includes(normalized) || normalized.includes(alias))) return slug;
   }
@@ -216,15 +216,15 @@ export async function getCompanyDirectoryAdminSnapshot(input?: {
       sql`
         select count(*)::int as count
         from company_directory_profiles p
-        where (${status} = 'all' or p.publication_status = ${status})
+        where (${status}::text = 'all' or p.publication_status = ${status})
           and (
-            ${query} = ''
+            ${query}::text = ''
             or coalesce(p.display_name, '') ilike ${queryPattern}
             or coalesce(p.legal_name, '') ilike ${queryPattern}
             or coalesce(p.city, '') ilike ${queryPattern}
             or coalesce(p.municipality, '') ilike ${queryPattern}
             or coalesce(p.category_slug, '') ilike ${queryPattern}
-            or (${categorySlug} <> '' and p.category_slug = ${categorySlug})
+            or (${categorySlug}::text <> '' and p.category_slug = ${categorySlug})
             or coalesce(p.primary_sni_code, '') ilike ${queryPattern}
             or coalesce(p.primary_sni_label, '') ilike ${queryPattern}
             or coalesce(p.public_slug, '') ilike ${queryPattern}
@@ -256,15 +256,15 @@ export async function getCompanyDirectoryAdminSnapshot(input?: {
         ) as official_facts_fresh
       from company_directory_profiles p
       left join company_directory_official_facts f on f.profile_id = p.id
-      where (${status} = 'all' or p.publication_status = ${status})
+      where (${status}::text = 'all' or p.publication_status = ${status})
         and (
-          ${query} = ''
+          ${query}::text = ''
           or coalesce(p.display_name, '') ilike ${queryPattern}
           or coalesce(p.legal_name, '') ilike ${queryPattern}
           or coalesce(p.city, '') ilike ${queryPattern}
           or coalesce(p.municipality, '') ilike ${queryPattern}
           or coalesce(p.category_slug, '') ilike ${queryPattern}
-          or (${categorySlug} <> '' and p.category_slug = ${categorySlug})
+          or (${categorySlug}::text <> '' and p.category_slug = ${categorySlug})
           or coalesce(p.primary_sni_code, '') ilike ${queryPattern}
           or coalesce(p.primary_sni_label, '') ilike ${queryPattern}
           or coalesce(p.public_slug, '') ilike ${queryPattern}
@@ -280,7 +280,8 @@ export async function getCompanyDirectoryAdminSnapshot(input?: {
           else 6
         end,
         p.quality_score desc,
-        p.updated_at desc
+        p.updated_at desc,
+        p.id
       limit ${pageSize}
       offset ${offset}
     `;
