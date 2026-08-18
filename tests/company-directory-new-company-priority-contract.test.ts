@@ -20,11 +20,14 @@ describe("company directory new-company priority", () => {
     expect(ingest).toContain("queued: candidatesNeedingVerification.length");
   });
 
-  it("processes unprofiled companies before the normal discovery backlog", () => {
+  it("processes unprofiled companies first without increasing the automatic cron batch budget", () => {
     const route = source("src/app/api/cron/company-directory-sync/route.ts");
 
     expect(route).toContain("processNewCompanyDirectoryDiscoveryQueueBatch");
     expect(route).toContain("processCompanyDirectoryDiscoveryQueue");
+    expect(route).toContain("AUTOMATIC_QUEUE_CRON_BATCH_SIZE - newCompanies.claimed");
+    expect(route).toContain("remainingBatchSize > 0");
+    expect(route).toContain("EMPTY_QUEUE_RESULT");
 
     const newCompanyIndex = route.indexOf("await processNewCompanyDirectoryDiscoveryQueueBatch");
     const backlogIndex = route.indexOf("await processCompanyDirectoryDiscoveryQueue");
