@@ -7,6 +7,7 @@ import {
   validateSmartQuoteAnswers,
 } from "./smart-quote-questions";
 
+// Keep the guided quote contract explicit so CI reruns against the current main branch.
 describe("smart quote questions", () => {
   it("asks Laddbox-specific questions", () => {
     const questions = getSmartQuoteQuestions("Elektriker", "Laddbox", "sv");
