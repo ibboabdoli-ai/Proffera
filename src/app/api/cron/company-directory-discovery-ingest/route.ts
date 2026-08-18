@@ -1,11 +1,17 @@
 import { NextResponse } from "next/server";
 
 import { enqueueCompanyDirectoryCandidates } from "@/lib/company-directory-discovery-queue";
+import { getSql } from "@/lib/db/server";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 const MAX_ORGANIZATION_NUMBERS = 500;
+
+type DiscoveryCandidate = {
+  organizationNumber: string;
+  primarySniCode: string;
+};
 
 function authorized(request: Request) {
   const secret = process.env.CRON_SECRET;
@@ -28,6 +34,60 @@ function allowedOfficialSourceUrl(value: unknown) {
   } catch {
     return "";
   }
+}
+
+function normalizeOrganizationNumber(value: unknown) {
+  const digits = String(value ?? "").replace(/\D/g, "");
+  return digits.length === 10 ? digits : "";
+}
+
+function normalizePrimarySniCode(value: unknown) {
+  const digits = String(value ?? "").replace(/\D/g, "");
+  return /^\d{4,5}$/.test(digits) ? digits : "";
+}
+
+function normalizeCandidate(value: unknown): DiscoveryCandidate {
+  const candidate: Record<string, unknown> = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : { organizationNumber: value };
+  return {
+    organizationNumber: normalizeOrganizationNumber(candidate.organizationNumber),
+    primarySniCode: normalizePrimarySniCode(candidate.primarySniCode),
+  };
+}
+
+async function filterCandidatesNeedingVerification(candidates: DiscoveryCandidate[]) {
+  const normalized = candidates.filter((candidate) => candidate.organizationNumber.length === 10);
+  if (normalized.length === 0) return [];
+
+  const sql = getSql();
+  if (!sql) throw new Error("Database is not configured");
+
+  const itemsJson = JSON.stringify(normalized.map((candidate) => ({
+    organization_number: candidate.organizationNumber,
+    primary_sni_code: candidate.primarySniCode,
+  })));
+
+  const rows = await sql`
+    select item.organization_number, item.primary_sni_code
+    from jsonb_to_recordset(${itemsJson}::jsonb)
+      as item(organization_number text, primary_sni_code text)
+    where not exists (
+      select 1
+      from company_directory_profiles profile
+      where profile.country_code = 'SE'
+        and regexp_replace(profile.organization_number, '[^0-9]', '', 'g') = item.organization_number
+        and (
+          item.primary_sni_code = ''
+          or regexp_replace(coalesce(profile.primary_sni_code, ''), '[^0-9]', '', 'g') = item.primary_sni_code
+        )
+    )
+  `;
+
+  return rows.map((row) => ({
+    organizationNumber: String(row.organization_number ?? ""),
+    primarySniCode: String(row.primary_sni_code ?? ""),
+  }));
 }
 
 export async function GET(request: Request) {
@@ -82,24 +142,23 @@ export async function POST(request: Request) {
   }
 
   try {
+    const candidates = rawCandidates.map(normalizeCandidate);
+    const candidatesNeedingVerification = await filterCandidatesNeedingVerification(candidates);
     const result = await enqueueCompanyDirectoryCandidates({
       provider: typeof payload.provider === "string" ? payload.provider : undefined,
       sourceUrl,
       fingerprint: typeof payload.fingerprint === "string" ? payload.fingerprint : "",
-      candidates: rawCandidates.map((value) => {
-        const candidate: Record<string, unknown> = value && typeof value === "object" && !Array.isArray(value)
-          ? value as Record<string, unknown>
-          : { organizationNumber: value };
-        return {
-          organizationNumber: String(candidate.organizationNumber ?? ""),
-          primarySniCode: String(candidate.primarySniCode ?? ""),
-        };
-      }),
+      candidates: candidatesNeedingVerification,
       discoveredCount: Number(payload.discoveredCount) || 0,
       acceptedCount: Number(payload.acceptedCount) || 0,
       final: payload.final === true,
     });
-    return NextResponse.json({ ok: true, ...result });
+    return NextResponse.json({
+      ok: true,
+      ...result,
+      received: candidates.length,
+      queued: candidatesNeedingVerification.length,
+    });
   } catch (error) {
     console.error("Company directory discovery ingest failed", error);
     return NextResponse.json({
