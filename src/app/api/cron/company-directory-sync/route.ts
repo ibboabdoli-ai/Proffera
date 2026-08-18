@@ -57,8 +57,10 @@ async function recordAutomaticQueueSyncRun(run: AutomaticQueueRun) {
 async function recordAutomaticQueueSyncRunSafely(run: AutomaticQueueRun) {
   try {
     await recordAutomaticQueueSyncRun(run);
+    return true;
   } catch (error) {
     console.error("Company directory automatic queue history write failed", error);
+    return false;
   }
 }
 
@@ -111,7 +113,7 @@ export async function GET(request: Request) {
         ),
       };
 
-      await recordAutomaticQueueSyncRunSafely({
+      const historyRecorded = await recordAutomaticQueueSyncRunSafely({
         status: "completed",
         startedAt: automaticQueueStartedAt,
         ...history,
@@ -123,7 +125,7 @@ export async function GET(request: Request) {
         ...result,
         newCompanies,
         readyAutoPublish,
-        historyRecorded: true,
+        historyRecorded,
       });
     }
 
