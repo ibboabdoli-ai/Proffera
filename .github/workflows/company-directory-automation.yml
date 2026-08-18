@@ -3,7 +3,6 @@ name: Company directory automation
 on:
   schedule:
     - cron: "31 3 * * *"
-    - cron: "9,24,39,54 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -16,7 +15,6 @@ concurrency:
 jobs:
   discover:
     name: Discover official company candidates
-    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '31 3 * * *'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -67,55 +65,3 @@ jobs:
           python scripts/company-directory-discovery.py \
             --ingest-url "$INGEST_URL" \
             --secret "$CRON_SECRET"
-
-  process:
-    name: Enrich official company facts
-    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '9,24,39,54 * * * *'
-    runs-on: ubuntu-latest
-    timeout-minutes: 4
-    steps:
-      - name: Verify scheduler configuration
-        env:
-          REMINDER_CRON_URL: ${{ secrets.PROFFERA_REMINDER_CRON_URL }}
-          CRON_SECRET: ${{ secrets.PROFFERA_REMINDER_CRON_SECRET }}
-        run: |
-          set -euo pipefail
-          test -n "$REMINDER_CRON_URL"
-          test -n "$CRON_SECRET"
-
-      - name: Enrich official facts for existing pilot profiles
-        env:
-          REMINDER_CRON_URL: ${{ secrets.PROFFERA_REMINDER_CRON_URL }}
-          CRON_SECRET: ${{ secrets.PROFFERA_REMINDER_CRON_SECRET }}
-        run: |
-          set -euo pipefail
-          ORIGIN="$(python - <<'PY'
-          import os
-          import urllib.parse
-
-          url = urllib.parse.urlparse(os.environ["REMINDER_CRON_URL"])
-          if url.scheme != "https" or not url.netloc:
-              raise SystemExit("PROFFERA_REMINDER_CRON_URL must be an HTTPS URL")
-
-          host = url.netloc.lower()
-          if host in {"proffera.se", "www.proffera.se"}:
-              host = "www.proffera.se"
-          print(f"https://{host}")
-          PY
-          )"
-          FACTS_URL="$ORIGIN/api/cron/company-directory-official-facts?limit=10"
-
-          curl --fail-with-body --silent --show-error \
-            --connect-timeout 10 \
-            --max-time 75 \
-            --header "Authorization: Bearer $CRON_SECRET" \
-            --header "User-Agent: proffera-company-directory-github-actions" \
-            "$FACTS_URL"
-
-          SYNC_URL="$ORIGIN/api/cron/company-directory-sync"
-          curl --fail-with-body --silent --show-error \
-            --connect-timeout 10 \
-            --max-time 75 \
-            --header "Authorization: Bearer $CRON_SECRET" \
-            --header "User-Agent: proffera-company-directory-github-actions" \
-            "$SYNC_URL"

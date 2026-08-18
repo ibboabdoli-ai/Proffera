@@ -97,15 +97,33 @@ describe("automatic company directory discovery contract", () => {
     expect(worker).toContain("primary-supported-SNI + supported-form candidates");
   });
 
-  it("enriches official facts before guarded queue processing", () => {
-    const workflow = source(".github/workflows/company-directory-automation.yml");
+  it("keeps daily discovery separate while one 15-minute runner processes reminders and directory updates", () => {
+    const discoveryWorkflow = source(".github/workflows/company-directory-automation.yml");
+    const operationsWorkflow = source(".github/workflows/booking-reminders.yml");
 
-    expect(workflow).toContain("Discover official company candidates");
-    expect(workflow).toContain("Enrich official company facts");
-    expect(workflow).toContain("PROFFERA_REMINDER_CRON_SECRET");
-    expect(workflow).toContain("company-directory-discovery-ingest");
-    expect(workflow).toContain("company-directory-official-facts?limit=10");
-    expect(workflow).toContain("company-directory-sync");
+    expect(discoveryWorkflow).toContain("Discover official company candidates");
+    expect(discoveryWorkflow).toContain('cron: "31 3 * * *"');
+    expect(discoveryWorkflow).toContain("PROFFERA_REMINDER_CRON_SECRET");
+    expect(discoveryWorkflow).toContain("company-directory-discovery-ingest");
+    expect(discoveryWorkflow).not.toContain('cron: "9,24,39,54 * * * *"');
+
+    expect(operationsWorkflow).toContain("Process booking reminders and directory updates");
+    expect(operationsWorkflow).toContain('cron: "7,22,37,52 * * * *"');
+    expect(operationsWorkflow).toContain("PROFFERA_REMINDER_CRON_SECRET");
+    expect(operationsWorkflow).toContain("company-directory-official-facts?limit=10");
+    expect(operationsWorkflow).toContain("company-directory-sync");
+
+    const bookingIndex = operationsWorkflow.indexOf('"Booking reminders"');
+    const officialFactsIndex = operationsWorkflow.indexOf('"Company directory official facts"');
+    const syncIndex = operationsWorkflow.indexOf('"Company directory sync"');
+    expect(bookingIndex).toBeGreaterThan(-1);
+    expect(officialFactsIndex).toBeGreaterThan(bookingIndex);
+    expect(syncIndex).toBeGreaterThan(officialFactsIndex);
+
+    expect(operationsWorkflow).toContain("failed=0");
+    expect(operationsWorkflow).toContain("if ! curl --fail-with-body");
+    expect(operationsWorkflow).toContain("failed=1");
+    expect(operationsWorkflow).toContain('exit "$failed"');
   });
 
   it("allows only one targeted new-company pilot while regular profile processing is paused", () => {
