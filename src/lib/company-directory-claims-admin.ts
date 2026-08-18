@@ -253,6 +253,7 @@ export async function approveAndProvisionCompanyDirectoryClaim(input: { claimId:
         where claim.id = ${claimId}::uuid
           and claim.profile_id = profile.id
           and claim.status in ('pending', 'verified')
+          and claim.requested_workspace_id is null
       )
     returning profile.id::text
   `;
@@ -260,36 +261,10 @@ export async function approveAndProvisionCompanyDirectoryClaim(input: { claimId:
     throw new Error("Company profile is already reserved by an active claim operation");
   }
 
-  const verified = await sql`
-    update company_directory_claims
-    set requested_workspace_id = coalesce(requested_workspace_id, ${generatedWorkspaceId}::uuid),
-        status = 'verified',
-        verification_method = 'email_domain',
-        verification_reference = ${approvedEvidence},
-        verified_at = coalesce(verified_at, now())
-    where id = ${claimId}::uuid
-      and profile_id = ${profileId}::uuid
-      and status in ('pending', 'verified')
-    returning id::text, requested_workspace_id::text
-  `;
-  const workspaceId = String(verified[0]?.requested_workspace_id ?? "");
-  if (!workspaceId) {
-    await sql`
-      update company_directory_profiles
-      set claim_reservation_id = null,
-          claim_reservation_token = null,
-          claim_reserved_at = null,
-          updated_at = now()
-      where id = ${profileId}::uuid
-        and claim_reservation_id = ${claimId}::uuid
-        and claim_reservation_token = ${reservationToken}::uuid
-        and claimed_workspace_id is null
-    `;
-    throw new Error("Claim changed before provisioning could start");
-  }
-
+  // requested_workspace_id has a non-deferrable FK to workspaces. Provision the
+  // generated workspace first, then persist that ID on the reserved claim.
   const provisioned = await provisionWorkspace({
-    workspaceId,
+    workspaceId: generatedWorkspaceId,
     userId: claimantUserId,
     slug: createWorkspaceSlug(companyName),
     companyName,
@@ -298,6 +273,24 @@ export async function approveAndProvisionCompanyDirectoryClaim(input: { claimId:
     phone: emailEvidence.phone,
     planKey: "starter",
   });
+  const workspaceId = provisioned.workspaceId;
+
+  const verified = await sql`
+    update company_directory_claims
+    set requested_workspace_id = ${workspaceId}::uuid,
+        status = 'verified',
+        verification_method = 'email_domain',
+        verification_reference = ${approvedEvidence},
+        verified_at = coalesce(verified_at, now())
+    where id = ${claimId}::uuid
+      and profile_id = ${profileId}::uuid
+      and status in ('pending', 'verified')
+      and requested_workspace_id is null
+    returning id::text
+  `;
+  if (!verified[0]) {
+    throw new Error("Claim changed after workspace provisioning; review the reserved claim before retrying");
+  }
 
   const finalized = await sql`
     with locked_pair as (
@@ -333,7 +326,7 @@ export async function approveAndProvisionCompanyDirectoryClaim(input: { claimId:
     returning claim.profile_id::text
   `;
   if (!finalized[0]) {
-    throw new Error("Claim reservation was lost before finalization; wait for lease recovery and review the provisioned workspace");
+    throw new Error("Claim reservation was lost before finalization; review the provisioned workspace before retrying");
   }
 
   await sql.transaction((tx) => [
