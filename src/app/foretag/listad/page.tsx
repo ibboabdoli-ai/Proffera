@@ -21,6 +21,7 @@ type PageProps = {
     latitude?: string | string[];
     longitude?: string | string[];
     radius?: string | string[];
+    page?: string | string[];
   }>;
 };
 
