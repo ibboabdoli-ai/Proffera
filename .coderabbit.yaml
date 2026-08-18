@@ -10,6 +10,9 @@ reviews:
   auto_review:
     enabled: false
     drafts: false
+    auto_incremental_review: false
+    labels:
+      - "needs-ai-review"
   path_filters:
     - "!**/node_modules/**"
     - "!**/.next/**"
