@@ -118,8 +118,7 @@ export async function searchPublishedCompanyDirectory(
   const normalizedLocation = locationQuery.toLocaleLowerCase("sv-SE");
   const resolution = serviceQuery ? resolveDirectoryServiceQuery(serviceQuery) : null;
   const pageSize = boundedLimit(input.limit);
-  const page = boundedPage(input.page);
-  const offset = (page - 1) * pageSize;
+  const requestedPage = boundedPage(input.page);
   const coordinates = parseDirectoryCoordinates(input.latitude, input.longitude);
   const nearbyRequested = input.latitude !== undefined || input.longitude !== undefined;
   const nearbyEnabled = coordinates !== null;
@@ -134,7 +133,7 @@ export async function searchPublishedCompanyDirectory(
     radiusKm,
     results: [],
     totalCount: 0,
-    page,
+    page: 1,
     pageSize,
     totalPages: 0,
   });
@@ -146,6 +145,91 @@ export async function searchPublishedCompanyDirectory(
   const categorySlug = resolution?.categorySlug ?? "";
   const originLatitude = coordinates?.latitude ?? 0;
   const originLongitude = coordinates?.longitude ?? 0;
+
+  const totalRows = await sql`
+    with matches as (
+      select
+        profile.id::text,
+        location.latitude::float8 as latitude,
+        location.longitude::float8 as longitude,
+        row_number() over (
+          partition by profile.id
+          order by service.label asc, relation.service_slug asc
+        ) as match_rank
+      from company_directory_profiles profile
+      join company_directory_profile_services relation
+        on relation.profile_id = profile.id
+       and relation.is_active = true
+       and relation.public_visible = true
+      join company_directory_services service
+        on service.slug = relation.service_slug
+       and service.is_active = true
+      left join workspaces claimed_workspace
+        on claimed_workspace.id = profile.claimed_workspace_id
+      left join company_directory_business_locations location
+        on location.profile_id = profile.id
+       and location.is_public = true
+      where (
+          profile.publication_status = 'published'
+          or (
+            profile.publication_status = 'claimed'
+            and profile.claimed_workspace_id is not null
+            and profile.published_at is not null
+            and profile.auto_public_eligible = true
+            and claimed_workspace.status in ('active', 'trial')
+          )
+        )
+        and profile.is_active = true
+        and profile.privacy_blocked = false
+        and (${serviceSlug} = '' or relation.service_slug = ${serviceSlug})
+        and (${categorySlug} = '' or service.category_slug = ${categorySlug})
+        and (
+          ${nearbyEnabled} = true
+          or ${normalizedLocation} = ''
+          or lower(profile.city) = ${normalizedLocation}
+          or lower(profile.municipality) = ${normalizedLocation}
+        )
+        and (
+          ${nearbyEnabled} = false
+          or (location.latitude is not null and location.longitude is not null)
+        )
+    ), ranked as (
+      select
+        matches.*,
+        case
+          when ${nearbyEnabled} = true and latitude is not null and longitude is not null then
+            6371 * 2 * asin(
+              sqrt(
+                least(
+                  1,
+                  power(sin(radians(latitude - ${originLatitude}) / 2), 2)
+                  + cos(radians(${originLatitude}))
+                  * cos(radians(latitude))
+                  * power(sin(radians(longitude - ${originLongitude}) / 2), 2)
+                )
+              )
+            )
+          else null
+        end as distance_km
+      from matches
+      where match_rank = 1
+    )
+    select count(*)::int as total_count
+    from ranked
+    where ${nearbyEnabled} = false or distance_km <= ${radiusKm}
+  `;
+
+  const totalCount = Number(totalRows[0]?.total_count ?? 0);
+  const totalPages = totalCount > 0 ? Math.ceil(totalCount / pageSize) : 0;
+  const page = totalPages > 0 ? Math.min(requestedPage, totalPages) : 1;
+  const offset = (page - 1) * pageSize;
+
+  if (totalCount === 0) {
+    return {
+      ...emptyResponse(true),
+      page,
+    };
+  }
 
   const rows = await sql`
     with matches as (
@@ -249,26 +333,19 @@ export async function searchPublishedCompanyDirectory(
         end as distance_km
       from matches
       where match_rank = 1
-    ), filtered as (
-      select ranked.*
-      from ranked
-      where ${nearbyEnabled} = false or distance_km <= ${radiusKm}
-    ), counted as (
-      select filtered.*, count(*) over ()::int as total_count
-      from filtered
     )
     select *
-    from counted
+    from ranked
+    where ${nearbyEnabled} = false or distance_km <= ${radiusKm}
     order by
       case when ${nearbyEnabled} = true then distance_km end asc nulls last,
       quality_score desc,
-      display_name asc
+      display_name asc,
+      id asc
     limit ${pageSize}
     offset ${offset}
   `;
 
-  const totalCount = rows.length > 0 ? Number(rows[0].total_count ?? 0) : 0;
-  const totalPages = totalCount > 0 ? Math.ceil(totalCount / pageSize) : 0;
   const claimedWorkspaceIds = [...new Set(
     rows
       .filter((row) => String(row.publication_status) === "claimed")
