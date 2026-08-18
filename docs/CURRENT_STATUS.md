@@ -64,7 +64,7 @@ A dedicated `Worker supervisor sync` GitHub Actions workflow records `work/proff
 
 CodeRabbit is opt-in rather than automatic on every PR. An `AI review routing` workflow clears stale review routing on each new PR revision, waits for successful CI, then applies `needs-ai-review` only when changed paths are security/data/tenant/payment/API/workflow sensitive or the PR is large. The label is the CodeRabbit trigger; non-sensitive green PRs do not consume an automatic CodeRabbit review. Draft PRs wait until they become ready, at which point CI runs again before routing.
 
-Dependency-bot branches are handled separately by automation and are exempt from Worker Bootstrap declarations and documentation declarations.
+Dependency-bot branches are handled separately by automation and are exempt from Worker Bootstrap declarations and automatic AI-review routing.
 
 ## CI and browser testing
 
@@ -141,4 +141,4 @@ A Production runtime warning observed on 2026-08-18 concerns PostgreSQL connecti
 
 Do not create another competing current-status file.
 
-Historical phase plans and handoffs may remain in `docs/` for context, but they are not current truth unless a canonical source explicitly points to them. Git history preserves prior versions of this file.
+Historical phase plans and handoffs may remain in `docs/` for context, but they are not current truth unless a canonical source explicitly points to them. Git history is the archive for older versions of this file.
