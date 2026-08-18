@@ -94,12 +94,21 @@ function hasCategoryKeyword(categorySlug: string, values: string[]) {
   const keywords = categoryKeywords[categorySlug] ?? [];
   if (!keywords.length) return false;
 
+  // Keep the Swedish distinction between "Städ" (cleaning) and "Stad"
+  // (city) before accent folding. NFC normalization also makes canonically
+  // decomposed Swedish text behave identically to its precomposed form.
   if (categorySlug === "stadning" && hasExactSwedishToken(values, "städ")) {
     return true;
   }
 
   let sourceText = values.filter(Boolean).join(" \n ").normalize("NFC");
 
+  // Contiguous, correctly spelled Swedish flyttstäd* forms describe move-out
+  // cleaning rather than moving services. Space- or hyphen-separated forms
+  // are intentionally preserved because they may mean two separate services.
+  // ASCII "flyttstad*" is also preserved: without the Swedish ä it is
+  // ambiguous (for example Flyttstaden) and fail-closed review is safer than
+  // assuming it means cleaning.
   if (categorySlug === "flytt") {
     sourceText = sourceText
       .toLocaleLowerCase("sv-SE")
