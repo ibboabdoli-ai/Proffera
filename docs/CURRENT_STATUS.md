@@ -1,6 +1,6 @@
 # Proffera Current Status
 
-Last updated: 2026-08-18
+Last updated: 2026-08-19
 
 This is the canonical factual status document for Proffera. For worker rules, live task state, current `main` SHA, and roadmap order, also read `AGENTS.md`, `WORKER_BOOTSTRAP.md`, GitHub issue #548, GitHub issue #276, and `docs/README.md`.
 
@@ -130,7 +130,7 @@ The architectural RLS blocker from that audit remains the safe assumption until 
 
 Vercel Production and Preview state are independently readable through the connected Vercel tooling.
 
-Company Directory discovery uses an hourly lightweight probe of the official SCB/Bolagsverket source. A full bulk scan runs when the upstream `Last-Modified` value is newer than the latest completed discovery snapshot, once daily as a safety fallback, on manual dispatch, and after discovery automation/worker/ingest changes reach `main`. Queue and profile processing remain separate on the 15-minute operations workflow.
+Company Directory discovery uses an hourly lightweight probe of the official SCB/Bolagsverket source. A full bulk scan runs when the upstream `Last-Modified` value is newer than the latest completed discovery snapshot, once daily as a safety fallback, on manual dispatch, and after discovery automation/worker/ingest changes reach `main`. Stockholm and Södertälje remain always-on discovery locations. Outside those locations, eligible companies are admitted through a deterministic 20-bucket nationwide rollout, one bucket per UTC day, so the eligible Swedish coverage accumulates across roughly 20 daily buckets without flooding the verification queue in one run. The discovery SNI scope includes the canonical Directory mappings, including 96.210 for `frisor`. Queue and profile processing remain separate on the 15-minute operations workflow.
 
 A Production runtime warning observed on 2026-08-18 concerns PostgreSQL connection-string SSL semantics. It is a forward-compatibility/security warning rather than an observed request failure and should be handled deliberately before the relevant `pg`/`pg-connection-string` major upgrade.
 
@@ -139,9 +139,10 @@ A Production runtime warning observed on 2026-08-18 concerns PostgreSQL connecti
 1. Keep issue #548 as the live worker/PR state and current `main` baseline; use automatic Supervisor lifecycle events as the durable event trail.
 2. Keep this file synchronized only when a PR changes stable project-level truth; do not use it for fast-moving task/SHA/deployment state.
 3. Keep CodeRabbit consumption risk-routed and fail closed: sensitive/large PRs require an acceptable CodeRabbit decision on the current head before the required merge gate can pass.
-4. Activate authenticated Workspace/Booking browser checks only after isolated Preview test infrastructure is proven.
-5. Expand state-changing Booking and Quote E2E only after Preview database/auth/email/payment isolation is verified.
-6. Continue database tenant-defense work only through isolated-branch proof before any Production RLS rollout.
+4. Monitor nationwide Company Directory rollout volume and queue health before increasing rollout speed.
+5. Activate authenticated Workspace/Booking browser checks only after isolated Preview test infrastructure is proven.
+6. Expand state-changing Booking and Quote E2E only after Preview database/auth/email/payment isolation is verified.
+7. Continue database tenant-defense work only through isolated-branch proof before any Production RLS rollout.
 
 ## Status-document rule
 
