@@ -12,30 +12,32 @@ function source(path: string) {
   return readFileSync(resolve(process.cwd(), path), "utf8");
 }
 
-function bookingResultHtml() {
-  const result: PublishedDirectorySearchResult = {
-    id: "booking-company",
-    slug: "booking-company",
-    companyName: "Booking Company AB",
-    categorySlug: "frisor",
-    matchedServiceSlug: "frisor",
-    matchedServiceLabel: "Frisör / Barberare",
-    activityDescription: "",
-    addressLine1: "Testgatan 1",
-    postalCode: "151 00",
-    city: "Södertälje",
-    municipality: "Södertälje",
-    qualityScore: 95,
-    distanceKm: null,
-    serviceAreaRadiusKm: 20,
-    servesNearbyLocation: false,
-    claimedWorkspaceSlug: "booking-company",
-    claimedServiceId: "service-1",
-    claimedServiceSlug: "frisor",
-    claimedBookingSlug: "booking-company",
-    conversionMode: "book",
-    bookingAvailable: true,
-  };
+const baseResult: PublishedDirectorySearchResult = {
+  id: "directory-company",
+  slug: "directory-company",
+  companyName: "Directory Company AB",
+  categorySlug: "frisor",
+  matchedServiceSlug: "frisor",
+  matchedServiceLabel: "Frisör / Barberare",
+  activityDescription: "",
+  addressLine1: "Testgatan 1",
+  postalCode: "151 00",
+  city: "Södertälje",
+  municipality: "Södertälje",
+  qualityScore: 95,
+  distanceKm: null,
+  serviceAreaRadiusKm: 20,
+  servesNearbyLocation: false,
+  claimedWorkspaceSlug: null,
+  claimedServiceId: null,
+  claimedServiceSlug: null,
+  claimedBookingSlug: null,
+  conversionMode: null,
+  bookingAvailable: false,
+};
+
+function renderResult(overrides: Partial<PublishedDirectorySearchResult> = {}) {
+  const result = { ...baseResult, ...overrides };
   const search: PublishedDirectorySearchResponse = {
     serviceQuery: "frisor",
     locationQuery: "Södertälje",
@@ -54,7 +56,6 @@ function bookingResultHtml() {
 
 describe("hybrid directory marketplace search", () => {
   const searchSource = source("src/lib/company-directory-public-search.ts");
-  const resultsSource = source("src/components/company-directory/public-directory-results.tsx");
   const publicDataSource = source("src/lib/company-directory-public-data.ts");
   const routingSource = source("src/lib/company-directory-routing.ts");
   const profileSource = source("src/components/company-directory/public-directory-profile.tsx");
@@ -96,27 +97,46 @@ describe("hybrid directory marketplace search", () => {
     expect(routingSource).toContain("return websiteBuilder ? workspaceSlug : null");
   });
 
-  it("only exposes direct booking when canonical booking access and booking slug are present", () => {
-    expect(searchSource).toContain('hasWorkspaceFeatureAccessForWorkspace(workspaceId, "online_booking")');
-    expect(searchSource).toContain("claimedBookingSlug");
-    expect(searchSource).toContain('conversionMode === "book" || conversionMode === "book_or_quote"');
+  it("renders the correct action for book, quote, contact and Directory fallback modes", () => {
+    const commonMarketplace = {
+      claimedWorkspaceSlug: "marketplace-company",
+      claimedServiceId: "service-1",
+      claimedServiceSlug: "frisor",
+    } as const;
 
-    const html = bookingResultHtml();
-    expect(html).toContain("Boka tid");
-    expect(html).toContain('/boka/booking-company?service_id=service-1');
-    expect(html).not.toContain("Begär offert");
-  });
+    const bookHtml = renderResult({
+      ...commonMarketplace,
+      claimedBookingSlug: "marketplace-company",
+      conversionMode: "book",
+      bookingAvailable: true,
+    });
+    expect(bookHtml).toContain('data-marketplace-action="book"');
+    expect(bookHtml).toContain('/boka/marketplace-company?service_id=service-1');
+    expect(bookHtml).not.toContain('data-marketplace-action="quote"');
 
-  it("routes Marketplace results to real service actions and preserves Directory fallback", () => {
-    expect(resultsSource).toContain("/foretag/${workspaceSlug}");
-    expect(resultsSource).toContain("/foretag/${workspaceSlug}/tjanster/${serviceSlug}");
-    expect(resultsSource).toContain("#offert");
-    expect(resultsSource).toContain("#kontaktforfragan");
-    expect(resultsSource).toContain("/boka/${encodeURIComponent(result.claimedBookingSlug)}");
-    expect(resultsSource).toContain("${profileBase}/${encodeURIComponent(result.slug)}");
-    expect(resultsSource).toContain('data-marketplace-action="book"');
-    expect(resultsSource).toContain('data-marketplace-action="quote"');
-    expect(resultsSource).toContain('data-marketplace-action="contact"');
-    expect(resultsSource).toContain('data-marketplace-action="directory-profile"');
+    const quoteHtml = renderResult({
+      ...commonMarketplace,
+      conversionMode: "quote",
+      bookingAvailable: false,
+    });
+    expect(quoteHtml).toContain('data-marketplace-action="quote"');
+    expect(quoteHtml).toContain("#offert");
+    expect(quoteHtml).not.toContain('data-marketplace-action="book"');
+
+    const contactHtml = renderResult({
+      ...commonMarketplace,
+      conversionMode: "contact",
+      bookingAvailable: false,
+    });
+    expect(contactHtml).toContain('data-marketplace-action="contact"');
+    expect(contactHtml).toContain("#kontaktforfragan");
+    expect(contactHtml).not.toContain('data-marketplace-action="book"');
+
+    const directoryHtml = renderResult();
+    expect(directoryHtml).toContain('data-marketplace-action="directory-profile"');
+    expect(directoryHtml).toContain('/foretag/listad/directory-company');
+    expect(directoryHtml).not.toContain('data-marketplace-action="book"');
+    expect(directoryHtml).not.toContain('data-marketplace-action="quote"');
+    expect(directoryHtml).not.toContain('data-marketplace-action="contact"');
   });
 });
