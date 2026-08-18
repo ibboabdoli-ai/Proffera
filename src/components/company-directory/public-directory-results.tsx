@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, CalendarCheck2, FileText, Mail, MapPin, Navigation, ShieldCheck } from "lucide-react";
+import { ArrowRight, CalendarCheck2, ChevronLeft, ChevronRight, FileText, Mail, MapPin, Navigation, ShieldCheck } from "lucide-react";
 
 import { directoryCopy, directoryPaths, directoryServiceLabel } from "@/components/company-directory/public-directory-copy";
 import { quoteRequestPaths } from "@/features/quote-request/localization";
@@ -36,10 +36,35 @@ function registeredLocation(result: PublishedDirectorySearchResult, locale: Publ
   return t.registeredIn(place);
 }
 
-export function PublicDirectoryResults({ locale, search }: { locale: PublicLocale; search: PublishedDirectorySearchResponse }) {
+function pageHref(baseHref: string, page: number) {
+  const url = new URL(baseHref, "https://proffera.invalid");
+  if (page <= 1) url.searchParams.delete("page");
+  else url.searchParams.set("page", String(page));
+  return `${url.pathname}${url.search}`;
+}
+
+function paginationPages(currentPage: number, totalPages: number) {
+  if (totalPages <= 7) return Array.from({ length: totalPages }, (_, index) => index + 1);
+  return [...new Set([1, currentPage - 1, currentPage, currentPage + 1, totalPages])]
+    .filter((page) => page >= 1 && page <= totalPages)
+    .sort((a, b) => a - b);
+}
+
+export function PublicDirectoryResults({
+  locale,
+  search,
+  paginationBaseHref = directoryPaths[locale].search,
+}: {
+  locale: PublicLocale;
+  search: PublishedDirectorySearchResponse;
+  paginationBaseHref?: string;
+}) {
   const t = directoryCopy[locale];
   const nearbyActive = search.nearbyEnabled;
   const profileBase = directoryPaths[locale].search;
+  const from = search.totalCount > 0 ? (search.page - 1) * search.pageSize + 1 : 0;
+  const to = search.totalCount > 0 ? Math.min(search.page * search.pageSize, search.totalCount) : 0;
+  const pages = paginationPages(search.page, search.totalPages);
 
   if (!search.serviceResolved) {
     return <div className="mt-5 rounded-card border border-amber-300 bg-amber-50 p-4 text-sm font-semibold text-amber-900">{t.badService}</div>;
@@ -50,8 +75,9 @@ export function PublicDirectoryResults({ locale, search }: { locale: PublicLocal
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-xs font-black uppercase tracking-[0.14em] text-brand">{t.results}</p>
-          <h2 className="mt-1 text-2xl font-black tracking-[-0.025em] text-ink sm:text-3xl">{t.companyCount(search.results.length)}</h2>
+          <h2 className="mt-1 text-2xl font-black tracking-[-0.025em] text-ink sm:text-3xl">{t.companyCount(search.totalCount)}</h2>
           <p className="mt-1 text-xs font-semibold text-muted">{t.publishedOnly}</p>
+          {search.totalCount > 0 ? <p className="mt-1 text-xs font-bold text-body">{t.range(from, to, search.totalCount)}</p> : null}
         </div>
         {nearbyActive ? <p className="inline-flex items-center gap-1.5 text-xs font-bold text-muted"><Navigation className="h-4 w-4 text-brand" />{t.nearest(search.radiusKm)}</p> : null}
       </div>
@@ -85,14 +111,14 @@ export function PublicDirectoryResults({ locale, search }: { locale: PublicLocal
                 <div className="grid w-full gap-2">
                   {marketplace ? (
                     <>
-                      {marketplace.bookingHref ? <Link href={marketplace.bookingHref} className="inline-flex min-h-10 items-center justify-center rounded-control bg-brand px-4 text-sm font-black text-white transition hover:bg-brand-strong"><CalendarCheck2 className="mr-2 h-4 w-4" />{t.book}</Link> : null}
-                      {canQuote ? <Link href={marketplace.quoteHref} className="inline-flex min-h-10 items-center justify-center rounded-control bg-brand px-4 text-sm font-black text-white transition hover:bg-brand-strong"><FileText className="mr-2 h-4 w-4" />{t.requestQuote}</Link> : null}
-                      {canContact ? <Link href={marketplace.contactHref} className="inline-flex min-h-10 items-center justify-center rounded-control bg-brand px-4 text-sm font-black text-white transition hover:bg-brand-strong"><Mail className="mr-2 h-4 w-4" />{t.contact}</Link> : null}
-                      {!hasPrimaryMarketplaceAction ? <Link href={marketplace.serviceHref} className="inline-flex min-h-10 items-center justify-center rounded-control bg-brand px-4 text-sm font-black text-white transition hover:bg-brand-strong">{t.viewService}<ArrowRight className="ml-2 h-4 w-4" /></Link> : null}
-                      <Link href={marketplace.companyHref} className="inline-flex min-h-9 items-center justify-center rounded-control border border-line bg-surface px-3 text-xs font-black text-brand transition hover:border-brand/25 hover:bg-brand-soft">{t.viewCompany}</Link>
+                      {marketplace.bookingHref ? <Link data-marketplace-action="book" href={marketplace.bookingHref} className="inline-flex min-h-10 items-center justify-center rounded-control bg-brand px-4 text-sm font-black text-white transition hover:bg-brand-strong"><CalendarCheck2 className="mr-2 h-4 w-4" />{t.book}</Link> : null}
+                      {canQuote ? <Link data-marketplace-action="quote" href={marketplace.quoteHref} className="inline-flex min-h-10 items-center justify-center rounded-control bg-brand px-4 text-sm font-black text-white transition hover:bg-brand-strong"><FileText className="mr-2 h-4 w-4" />{t.requestQuote}</Link> : null}
+                      {canContact ? <Link data-marketplace-action="contact" href={marketplace.contactHref} className="inline-flex min-h-10 items-center justify-center rounded-control bg-brand px-4 text-sm font-black text-white transition hover:bg-brand-strong"><Mail className="mr-2 h-4 w-4" />{t.contact}</Link> : null}
+                      {!hasPrimaryMarketplaceAction ? <Link data-marketplace-action="service" href={marketplace.serviceHref} className="inline-flex min-h-10 items-center justify-center rounded-control bg-brand px-4 text-sm font-black text-white transition hover:bg-brand-strong">{t.viewService}<ArrowRight className="ml-2 h-4 w-4" /></Link> : null}
+                      <Link data-marketplace-action="company" href={marketplace.companyHref} className="inline-flex min-h-9 items-center justify-center rounded-control border border-line bg-surface px-3 text-xs font-black text-brand transition hover:border-brand/25 hover:bg-brand-soft">{t.viewCompany}</Link>
                     </>
                   ) : (
-                    <Link href={`${profileBase}/${encodeURIComponent(result.slug)}`} className="directory-profile-result-cta inline-flex min-h-10 w-full items-center justify-center rounded-control border border-brand/30 bg-surface px-4 text-sm font-black text-brand transition hover:bg-brand-soft">
+                    <Link data-marketplace-action="directory-profile" href={`${profileBase}/${encodeURIComponent(result.slug)}`} className="directory-profile-result-cta inline-flex min-h-10 w-full items-center justify-center rounded-control border border-brand/30 bg-surface px-4 text-sm font-black text-brand transition hover:bg-brand-soft">
                       {t.viewProfile}<ArrowRight className="ml-2 h-4 w-4" />
                     </Link>
                   )}
@@ -103,6 +129,35 @@ export function PublicDirectoryResults({ locale, search }: { locale: PublicLocal
         })}
         {search.results.length === 0 ? <div className="rounded-2xl border border-line bg-surface p-5 text-sm leading-6 text-muted shadow-sm">{nearbyActive ? t.emptyNearby(search.radiusKm) : t.empty}</div> : null}
       </div>
+
+      {search.totalPages > 1 ? (
+        <nav className="mt-6 flex flex-wrap items-center justify-center gap-2" aria-label="Pagination">
+          {search.page > 1 ? (
+            <Link href={pageHref(paginationBaseHref, search.page - 1)} className="inline-flex min-h-10 items-center justify-center rounded-control border border-line bg-surface px-3 text-sm font-black text-brand transition hover:bg-brand-soft">
+              <ChevronLeft className="mr-1 h-4 w-4" />{t.previous}
+            </Link>
+          ) : null}
+          {pages.map((page, index) => {
+            const previousPage = pages[index - 1];
+            const showGap = previousPage !== undefined && page - previousPage > 1;
+            return (
+              <span key={page} className="contents">
+                {showGap ? <span className="px-1 text-sm font-bold text-muted" aria-hidden="true">…</span> : null}
+                {page === search.page ? (
+                  <span aria-current="page" aria-label={t.pageLabel(page)} className="inline-flex h-10 min-w-10 items-center justify-center rounded-control bg-brand px-3 text-sm font-black text-white">{page}</span>
+                ) : (
+                  <Link aria-label={t.pageLabel(page)} href={pageHref(paginationBaseHref, page)} className="inline-flex h-10 min-w-10 items-center justify-center rounded-control border border-line bg-surface px-3 text-sm font-black text-brand transition hover:bg-brand-soft">{page}</Link>
+                )}
+              </span>
+            );
+          })}
+          {search.page < search.totalPages ? (
+            <Link href={pageHref(paginationBaseHref, search.page + 1)} className="inline-flex min-h-10 items-center justify-center rounded-control border border-line bg-surface px-3 text-sm font-black text-brand transition hover:bg-brand-soft">
+              {t.next}<ChevronRight className="ml-1 h-4 w-4" />
+            </Link>
+          ) : null}
+        </nav>
+      ) : null}
 
       {search.results.length > 0 ? (
         <div className="mt-5 flex flex-col gap-4 rounded-2xl border border-brand/15 bg-brand-soft p-5 sm:flex-row sm:items-center sm:justify-between">
