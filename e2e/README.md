@@ -71,6 +71,19 @@ npm test
 
 The authenticated smoke verifies each test account sees its own Workspace name and does not render the other test Workspace name. The booking smoke only renders the published test booking page; it does not create a booking or send verification email.
 
+## Activation gate for full critical-flow E2E
+
+Before enabling authenticated tests as a required CI gate, verify all of the following:
+
+1. Preview uses an isolated non-Production database.
+2. Two dedicated Better Auth test users exist.
+3. Each test user belongs only to its dedicated test Workspace for the isolation smoke.
+4. The test booking Workspace/slug is dedicated to E2E.
+5. Preview email delivery is sandboxed or disabled from real recipients.
+6. No Production Stripe keys, customer Workspaces, or real booking data are reachable.
+
+Until those conditions are proven, the authenticated tests remain opt-in and skipped by default.
+
 ## Still intentionally not automated as state-changing browser tests
 
 The following require a proven isolated Preview/Staging data and delivery setup before browser automation may submit mutations:
