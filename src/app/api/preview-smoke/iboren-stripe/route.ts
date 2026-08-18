@@ -35,6 +35,14 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, stage: "stripe", reason: "preview_price_missing" }, { status: 503 });
   }
 
+  const identityRows = await sql`
+    select
+      current_database() as database_name,
+      current_setting('neon.project_id', true) as neon_project_id,
+      current_setting('neon.branch_id', true) as neon_branch_id
+  `;
+  const dbIdentity = identityRows[0] ?? {};
+
   const workspaceRows = await sql`
     select w.id, w.name, wm.user_id, wm.role
     from workspaces w
@@ -46,7 +54,20 @@ export async function GET(request: Request) {
 
   const workspace = workspaceRows[0];
   if (!workspace) {
-    return NextResponse.json({ ok: false, stage: "workspace", reason: "iboren_preview_workspace_missing" }, { status: 404 });
+    return NextResponse.json({
+      ok: false,
+      stage: "workspace",
+      reason: "iboren_preview_workspace_missing",
+      database: {
+        name: String(dbIdentity.database_name ?? ""),
+        projectId: String(dbIdentity.neon_project_id ?? ""),
+        branchId: String(dbIdentity.neon_branch_id ?? ""),
+      },
+      stripeTestMode: true,
+      starterPriceConfigured: true,
+      professionalPriceConfigured: true,
+      webhookConfigured: Boolean(getStripeWebhookSecret()),
+    }, { status: 404, headers: { "Cache-Control": "no-store" } });
   }
 
   const origin = new URL(request.url).origin;
@@ -114,6 +135,11 @@ export async function GET(request: Request) {
   return NextResponse.json({
     ok: true,
     environment: "preview",
+    database: {
+      name: String(dbIdentity.database_name ?? ""),
+      projectId: String(dbIdentity.neon_project_id ?? ""),
+      branchId: String(dbIdentity.neon_branch_id ?? ""),
+    },
     workspace: { id: String(workspace.id), name: String(workspace.name), role: String(workspace.role) },
     stripeTestMode: true,
     webhookConfigured: Boolean(getStripeWebhookSecret()),
