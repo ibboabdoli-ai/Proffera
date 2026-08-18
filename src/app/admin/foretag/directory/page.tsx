@@ -5,6 +5,7 @@ import {
   Clock3,
   Database,
   Eye,
+  ListTodo,
   RefreshCw,
   ShieldCheck,
 } from "lucide-react";
@@ -12,6 +13,7 @@ import Link from "next/link";
 
 import { requireSuperAdmin } from "@/lib/admin-authorization";
 import { getCompanyDirectoryAdminSnapshot } from "@/lib/company-directory-admin";
+import { getCompanyDirectoryPendingVerificationCount } from "@/lib/company-directory-admin-queue";
 import { publishDirectoryProfileAction } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -138,12 +140,15 @@ export default async function DirectoryEngineAdminPage({ searchParams }: PagePro
   const params = await (searchParams ?? Promise.resolve(undefined));
   const currentStatus = normalizeStatus(params?.status);
   const searchQuery = (firstParam(params?.q) ?? "").trim().slice(0, 120);
-  const snapshot = await getCompanyDirectoryAdminSnapshot({
-    status: currentStatus,
-    query: searchQuery,
-    page: normalizePage(params?.page),
-    pageSize: PAGE_SIZE,
-  });
+  const [snapshot, pendingQueue] = await Promise.all([
+    getCompanyDirectoryAdminSnapshot({
+      status: currentStatus,
+      query: searchQuery,
+      page: normalizePage(params?.page),
+      pageSize: PAGE_SIZE,
+    }),
+    getCompanyDirectoryPendingVerificationCount(),
+  ]);
 
   const total = Object.values(snapshot.counts).reduce((sum, value) => sum + value, 0);
   const { page, pageSize, total: filteredTotal, totalPages } = snapshot.profilePage;
@@ -186,11 +191,17 @@ export default async function DirectoryEngineAdminPage({ searchParams }: PagePro
           </div>
         ) : null}
 
-        <section className="mt-7 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <section className="mt-7 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
           <div className="rounded-2xl bg-white p-5 ring-1 ring-black/5">
             <Database className="h-5 w-5 text-[#17452f]" />
             <p className="mt-4 text-xs font-black uppercase tracking-wide text-[#718078]">Profiler</p>
             <p className="mt-1 text-3xl font-black text-[#17201a]">{total}</p>
+          </div>
+          <div className="rounded-2xl bg-white p-5 ring-1 ring-black/5">
+            <ListTodo className="h-5 w-5 text-[#76580d]" />
+            <p className="mt-4 text-xs font-black uppercase tracking-wide text-[#718078]">I kö</p>
+            <p className="mt-1 text-3xl font-black text-[#17201a]">{pendingQueue}</p>
+            <p className="mt-2 text-xs font-bold text-[#76580d]">Väntar på verifiering</p>
           </div>
           <div className="rounded-2xl bg-white p-5 ring-1 ring-black/5">
             <BadgeCheck className="h-5 w-5 text-[#17452f]" />
