@@ -15,6 +15,43 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+      - name: Governance
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_REF: ${{ github.head_ref }}
+          ACTOR: ${{ github.actor }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "$ACTOR" = "dependabot[bot]" ]; then
+            echo "Dependabot PR: branch/documentation declaration checks are exempt."
+            exit 0
+          fi
+
+          if [[ "$HEAD_REF" != work/proffera-* ]]; then
+            echo "Refused: AI/product PR branches must use work/proffera-*; got '$HEAD_REF'."
+            exit 1
+          fi
+
+          if grep -Fqi "Documentation impact: updated" <<< "$PR_BODY"; then
+            changed_files="$(gh pr diff "$PR_NUMBER" --repo "$REPOSITORY" --name-only)"
+            if ! grep -Fxq "docs/CURRENT_STATUS.md" <<< "$changed_files"; then
+              echo "Refused: PR declares documentation updated but docs/CURRENT_STATUS.md is unchanged."
+              exit 1
+            fi
+            echo "Documentation impact declared updated and canonical status file changed."
+          elif grep -Fqi "Documentation impact: none" <<< "$PR_BODY"; then
+            echo "Documentation impact explicitly declared none."
+          else
+            echo "Refused: PR body must contain 'Documentation impact: updated' or 'Documentation impact: none'."
+            exit 1
+          fi
+
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
