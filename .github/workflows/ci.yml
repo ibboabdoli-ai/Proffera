@@ -122,7 +122,11 @@ jobs:
   e2e-public-smoke:
     name: E2E public smoke
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: validate
+    container:
+      image: mcr.microsoft.com/playwright:v1.60.0-noble
+      options: --user 1001
 
     steps:
       - name: Checkout
@@ -143,10 +147,6 @@ jobs:
       - name: Install E2E dependencies
         working-directory: e2e
         run: npm ci --no-audit --no-fund
-
-      - name: Install Chromium
-        working-directory: e2e
-        run: npx playwright install --with-deps chromium
 
       - name: Run non-destructive public smoke tests
         working-directory: e2e
