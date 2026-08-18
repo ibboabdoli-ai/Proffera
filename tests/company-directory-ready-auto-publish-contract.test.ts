@@ -24,14 +24,37 @@ describe("company directory high-confidence Ready auto-publish contract", () => 
     expect(resolver).toContain("const selected = highConfidence.slice(0, safeLimit)");
   });
 
-  it("keeps both scan egress and publication work bounded", () => {
+  it("keeps fresh and backlog scan egress plus publication work bounded", () => {
     const resolver = source("src/lib/company-directory-ready-auto-publish.ts");
 
+    expect(resolver).toContain("READY_AUTO_PUBLISH_FAST_SCAN_SIZE = 10");
     expect(resolver).toContain("READY_AUTO_PUBLISH_SCAN_SIZE = 25");
     expect(resolver).toContain("DEFAULT_READY_AUTO_PUBLISH_BATCH_SIZE = 10");
     expect(resolver).toContain("MAX_READY_AUTO_PUBLISH_BATCH_SIZE = 20");
+    expect(resolver).toContain("limit ${READY_AUTO_PUBLISH_FAST_SCAN_SIZE}");
     expect(resolver).toContain("limit ${READY_AUTO_PUBLISH_SCAN_SIZE}");
     expect(resolver).toContain("highConfidence.slice(0, safeLimit)");
+  });
+
+  it("prioritizes newly verified Ready rows without removing backlog rotation", () => {
+    const resolver = source("src/lib/company-directory-ready-auto-publish.ts");
+
+    expect(resolver).toContain("from company_directory_discovery_queue queue");
+    expect(resolver).toContain("join company_directory_profiles profile on profile.id = queue.profile_id");
+    expect(resolver).toContain("queue.state = 'ready'");
+    expect(resolver).toContain("queue.verified_at is not null");
+    expect(resolver).toContain("order by queue.verified_at desc, queue.last_seen_at desc, profile.organization_number asc");
+    expect(resolver).toContain("const scanOffset = (rotation % scanPages) * READY_AUTO_PUBLISH_SCAN_SIZE");
+    expect(resolver).toContain("order by profile.organization_number asc");
+  });
+
+  it("deduplicates overlap between the fresh lane and rotating backlog", () => {
+    const resolver = source("src/lib/company-directory-ready-auto-publish.ts");
+
+    expect(resolver).toContain("const seenProfileIds = new Set<string>()");
+    expect(resolver).toContain("const rows = [...freshRows, ...backlogRows].filter((row) =>");
+    expect(resolver).toContain("seenProfileIds.has(profileId)");
+    expect(resolver).toContain("seenProfileIds.add(profileId)");
   });
 
   it("preserves the existing database safety preconditions", () => {

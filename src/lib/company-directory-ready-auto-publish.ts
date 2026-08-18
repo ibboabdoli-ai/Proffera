@@ -6,6 +6,7 @@ import { getSql } from "@/lib/db/server";
 
 const DEFAULT_READY_AUTO_PUBLISH_BATCH_SIZE = 10;
 const MAX_READY_AUTO_PUBLISH_BATCH_SIZE = 20;
+const READY_AUTO_PUBLISH_FAST_SCAN_SIZE = 10;
 const READY_AUTO_PUBLISH_SCAN_SIZE = 25;
 const READY_AUTO_PUBLISH_ROTATION_MS = 15 * 60 * 1000;
 
@@ -106,13 +107,45 @@ export async function autoPublishReadyHighConfidenceCompanyDirectoryBatch(limit?
     };
   }
 
-  // Confidence uses richer Official Facts JSON. Scan one rotating bounded window per
-  // scheduled run instead of transferring the entire Ready backlog every 15 minutes.
+  // Keep a small fast lane for newly verified Ready companies so they do not wait
+  // for the rotating backlog window to revisit their organization-number range.
+  // All normal safety and >=95 confidence gates still run before publication.
+  const freshRows = await sql`
+    select
+      profile.id::text,
+      profile.category_slug,
+      profile.primary_sni_code,
+      profile.legal_name,
+      profile.display_name,
+      profile.activity_description,
+      facts.registered_names,
+      facts.sni_codes
+    from company_directory_discovery_queue queue
+    join company_directory_profiles profile on profile.id = queue.profile_id
+    join company_directory_official_facts facts on facts.profile_id = profile.id
+    where queue.state = 'ready'
+      and queue.verified_at is not null
+      and profile.publication_status = 'ready'
+      and profile.is_active = true
+      and profile.privacy_blocked = false
+      and profile.auto_public_eligible = true
+      and profile.claimed_workspace_id is null
+      and facts.last_synced_at >= profile.last_synced_at
+      and facts.source_payload_hash <> ''
+      and facts.deregistration_date is null
+      and coalesce(facts.advertising_blocked, false) = false
+      and jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) = 0
+    order by queue.verified_at desc, queue.last_seen_at desc, profile.organization_number asc
+    limit ${READY_AUTO_PUBLISH_FAST_SCAN_SIZE}
+  `;
+
+  // Confidence uses richer Official Facts JSON. Keep one rotating bounded window per
+  // scheduled run so the older Ready backlog remains starvation-free.
   const scanPages = Math.max(1, Math.ceil(safetyEligible / READY_AUTO_PUBLISH_SCAN_SIZE));
   const rotation = Math.floor(Date.now() / READY_AUTO_PUBLISH_ROTATION_MS);
   const scanOffset = (rotation % scanPages) * READY_AUTO_PUBLISH_SCAN_SIZE;
 
-  const rows = await sql`
+  const backlogRows = await sql`
     select
       profile.id::text,
       profile.category_slug,
@@ -138,6 +171,14 @@ export async function autoPublishReadyHighConfidenceCompanyDirectoryBatch(limit?
     offset ${scanOffset}
     limit ${READY_AUTO_PUBLISH_SCAN_SIZE}
   `;
+
+  const seenProfileIds = new Set<string>();
+  const rows = [...freshRows, ...backlogRows].filter((row) => {
+    const profileId = text(row.id);
+    if (!profileId || seenProfileIds.has(profileId)) return false;
+    seenProfileIds.add(profileId);
+    return true;
+  });
 
   const highConfidence = rows.filter((row) => {
     const confidence = assessCompanyDirectoryCategoryConfidence({
