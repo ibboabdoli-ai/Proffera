@@ -11,6 +11,7 @@ import { getPublishedGalleryItems } from "@/lib/website-gallery-db";
 import { getPublishedWebsiteReviews } from "@/lib/website-reviews-db";
 
 import { BookingMediaGuard } from "./booking-media-guard";
+import { RestaurantBookingBenefits } from "./restaurant-booking-benefits";
 import "./booking-themes.css";
 import "./booking-theme-controls.css";
 import "./booking-polish.css";
@@ -62,6 +63,7 @@ function RestaurantV3Hero({
   description,
   logoUrl,
   slug,
+  defaultLanguage,
   swedishEnabled,
   englishEnabled,
 }: {
@@ -72,6 +74,7 @@ function RestaurantV3Hero({
   description: string;
   logoUrl: string;
   slug: string;
+  defaultLanguage: "sv" | "en";
   swedishEnabled: boolean;
   englishEnabled: boolean;
 }) {
@@ -98,20 +101,14 @@ function RestaurantV3Hero({
         <p className="restaurant-v3-eyebrow">VÄLKOMMEN TILL {companyName.toUpperCase()}</p>
         <h1>{headline}</h1>
         <p className="restaurant-v3-description"><strong>{subtitle}</strong><br />{description}</p>
-        <div className="restaurant-v3-proof">
-          <span aria-label="5 av 5 stjärnor">★★★★★</span>
-          <strong>4,9</strong>
-          <small>Verifierade gäster</small>
-        </div>
         {city ? <p className="restaurant-v3-city">⌖ {city}</p> : null}
       </div>
 
-      <div className="restaurant-v3-feature-strip" aria-label="Booking benefits">
-        <div><strong>Enkel onlinebokning</strong><span>Boka bord på några sekunder</span></div>
-        <div><strong>Flexibel ändring</strong><span>Hantera din bokning enkelt</span></div>
-        <div><strong>Bästa upplevelsen</strong><span>Verifierade omdömen från gäster</span></div>
-        <div><strong>Säker och trygg</strong><span>Dina uppgifter hanteras säkert</span></div>
-      </div>
+      <RestaurantBookingBenefits
+        defaultLanguage={defaultLanguage}
+        swedishEnabled={swedishEnabled}
+        englishEnabled={englishEnabled}
+      />
     </section>
   );
 }
@@ -302,6 +299,7 @@ export default async function PublicBookingLayout({ children, params }: { childr
             description={themeContent.heroDescription}
             logoUrl={experience.logoUrl}
             slug={slug}
+            defaultLanguage={experience.defaultLanguage}
             swedishEnabled={experience.swedishEnabled}
             englishEnabled={experience.englishEnabled}
           />
