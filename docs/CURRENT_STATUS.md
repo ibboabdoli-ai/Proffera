@@ -2,7 +2,7 @@
 
 Last updated: 2026-08-18
 
-This is the canonical factual status document for Proffera. For worker rules, live task state, current `main` SHA, and roadmap order, also read `AGENTS.md`, GitHub issue #548, GitHub issue #276, and `docs/README.md`.
+This is the canonical factual status document for Proffera. For worker rules, live task state, current `main` SHA, and roadmap order, also read `AGENTS.md`, `WORKER_BOOTSTRAP.md`, GitHub issue #548, GitHub issue #276, and `docs/README.md`.
 
 ## Release baseline
 
@@ -31,35 +31,44 @@ Recent Production changes independently verified through matching `main` deploym
 - #599 — connect existing providers to the marketplace.
 - #601 — prevent new Company Directory profiles from starving behind the existing refresh backlog and prioritize unprofiled companies.
 - #602 — fix the Booking reminder Workspace UUID join and cover it with regression tests.
+- #603 — centralize project truth and enforce AI branch/documentation governance.
+- #605 — expand non-destructive Login/Quote browser smoke and add isolated Preview auth/Booking harnesses.
 
 ## Delivery and AI-control system
 
 Current control plane:
 
 1. `AGENTS.md` — mandatory Graph Engineering worker protocol.
-2. GitHub issue #548 — live AI Supervisor control board, including current `main` baseline and active queue.
-3. GitHub issue #276 — execution roadmap/dependency order.
-4. `docs/CURRENT_STATUS.md` — stable factual project status.
-5. `docs/README.md` — documentation authority map.
+2. `WORKER_BOOTSTRAP.md` — mandatory Worker startup, baseline and PR handoff contract.
+3. GitHub issue #548 — live AI Supervisor control board, including current `main` baseline and active queue.
+4. GitHub issue #276 — execution roadmap/dependency order.
+5. `docs/CURRENT_STATUS.md` — stable factual project status.
+6. `docs/README.md` — documentation authority map.
+7. `.github/copilot-instructions.md` — automatic GitHub/Copilot agent entry instructions pointing to the same canonical sources.
 
 Current merge-safety rules include:
 
 - pull request required before merge;
 - AI/product branches must use `work/proffera-*`;
-- PRs must declare `Documentation impact: updated` or `Documentation impact: none`;
+- non-Dependabot PRs must declare a concrete task/issue identity;
+- non-Dependabot PRs must declare `Worker bootstrap: complete` and `Supervisor handoff: #548`;
+- the declared bootstrap baseline must be a 40-character SHA matching the current PR base SHA;
+- PRs must declare exactly one of `Documentation impact: updated` or `Documentation impact: none`;
 - `Documentation impact: updated` requires this canonical status file to change in the same PR;
 - required `Validate` check;
 - required `E2E public smoke` check;
 - no force push / protected default branch behavior;
 - gated automerge requires a fresh owner-applied `ibbo-approved` authorization after the current head commit and must not be treated as AI self-approval.
 
-Dependency-bot branches are handled separately by automation.
+A dedicated `Worker supervisor sync` GitHub Actions workflow records `work/proffera-*` PR lifecycle events to issue #548 when PRs are opened/reopened, marked ready for review, or closed/merged. This gives the Supervisor a durable automatic event trail independent of private chat memory.
+
+Dependency-bot branches are handled separately by automation and are exempt from Worker Bootstrap declarations.
 
 ## CI and browser testing
 
 `Validate` covers:
 
-- governance checks;
+- Worker Bootstrap / branch / documentation governance checks;
 - dependency install;
 - ESLint;
 - TypeScript typecheck;
@@ -117,7 +126,7 @@ A Production runtime warning observed on 2026-08-18 concerns PostgreSQL connecti
 
 ## Current priorities
 
-1. Keep issue #548 synchronized with the live worker/PR state and current `main` baseline.
+1. Keep issue #548 as the live worker/PR state and current `main` baseline; use automatic Supervisor lifecycle events as the durable event trail.
 2. Keep this file synchronized only when a PR changes stable project-level truth; do not use it for fast-moving task/SHA/deployment state.
 3. Activate authenticated Workspace/Booking browser checks only after isolated Preview test infrastructure is proven.
 4. Expand state-changing Booking and Quote E2E only after Preview database/auth/email/payment isolation is verified.

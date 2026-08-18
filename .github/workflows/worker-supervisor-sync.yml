@@ -1,0 +1,61 @@
+name: Worker supervisor sync
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, reopened, ready_for_review, closed]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  sync-supervisor:
+    if: startsWith(github.event.pull_request.head.ref, 'work/proffera-')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Record worker lifecycle event in Supervisor issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          ACTION: ${{ github.event.action }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          MERGED: ${{ github.event.pull_request.merged }}
+          ACTOR: ${{ github.actor }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          case "$ACTION" in
+            opened) event_state="OPENED" ;;
+            reopened) event_state="REOPENED" ;;
+            ready_for_review) event_state="READY_FOR_REVIEW" ;;
+            closed)
+              if [ "$MERGED" = "true" ]; then
+                event_state="MERGED"
+              else
+                event_state="CLOSED_UNMERGED"
+              fi
+              ;;
+            *) event_state="${ACTION^^}" ;;
+          esac
+
+          body="$(cat <<EOF
+          <!-- proffera-worker-supervisor-event -->
+          ### Worker event: ${event_state}
+          - PR: #${PR_NUMBER}
+          - Branch: \`${HEAD_REF}\`
+          - Head: \`${HEAD_SHA}\`
+          - Base: \`${BASE_SHA}\`
+          - Actor: \`${ACTOR}\`
+          - URL: ${PR_URL}
+          EOF
+          )"
+
+          gh issue comment 548 --repo "$REPOSITORY" --body "$body"
