@@ -44,6 +44,10 @@ function bookingResultHtml() {
     nearbyEnabled: false,
     radiusKm: 25,
     results: [result],
+    totalCount: 1,
+    page: 1,
+    pageSize: 30,
+    totalPages: 1,
   };
   return renderToStaticMarkup(createElement(PublicDirectoryResults, { locale: "sv", search }));
 }
@@ -110,5 +114,9 @@ describe("hybrid directory marketplace search", () => {
     expect(resultsSource).toContain("#kontaktforfragan");
     expect(resultsSource).toContain("/boka/${encodeURIComponent(result.claimedBookingSlug)}");
     expect(resultsSource).toContain("${profileBase}/${encodeURIComponent(result.slug)}");
+    expect(resultsSource).toContain('data-marketplace-action="book"');
+    expect(resultsSource).toContain('data-marketplace-action="quote"');
+    expect(resultsSource).toContain('data-marketplace-action="contact"');
+    expect(resultsSource).toContain('data-marketplace-action="directory-profile"');
   });
 });
