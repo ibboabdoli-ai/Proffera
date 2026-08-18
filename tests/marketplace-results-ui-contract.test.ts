@@ -36,7 +36,12 @@ const baseResult: PublishedDirectorySearchResult = {
   bookingAvailable: false,
 };
 
-function response(results: PublishedDirectorySearchResult[]): PublishedDirectorySearchResponse {
+function response(
+  results: PublishedDirectorySearchResult[],
+  overrides: Partial<PublishedDirectorySearchResponse> = {},
+): PublishedDirectorySearchResponse {
+  const totalCount = overrides.totalCount ?? results.length;
+  const pageSize = overrides.pageSize ?? 30;
   return {
     serviceQuery: "vvs",
     locationQuery: "Stockholm",
@@ -45,11 +50,25 @@ function response(results: PublishedDirectorySearchResult[]): PublishedDirectory
     nearbyEnabled: false,
     radiusKm: 25,
     results,
+    totalCount,
+    page: overrides.page ?? 1,
+    pageSize,
+    totalPages: overrides.totalPages ?? (totalCount > 0 ? Math.ceil(totalCount / pageSize) : 0),
+    ...overrides,
   };
 }
 
-function render(locale: "sv" | "en", results: PublishedDirectorySearchResult[]) {
-  return renderToStaticMarkup(createElement(PublicDirectoryResults, { locale, search: response(results) }));
+function render(
+  locale: "sv" | "en",
+  results: PublishedDirectorySearchResult[],
+  overrides: Partial<PublishedDirectorySearchResponse> = {},
+  paginationBaseHref?: string,
+) {
+  return renderToStaticMarkup(createElement(PublicDirectoryResults, {
+    locale,
+    search: response(results, overrides),
+    paginationBaseHref,
+  }));
 }
 
 describe("marketplace results UI contract", () => {
@@ -84,6 +103,8 @@ describe("marketplace results UI contract", () => {
     };
     const html = render("sv", [marketplaceResult]);
 
+    expect(html).toContain('data-marketplace-action="book"');
+    expect(html).toContain('data-marketplace-action="quote"');
     expect(html).toContain("Boka tid");
     expect(html).toContain("Begär offert");
     expect(html).toContain('/boka/marketplace-ror?service_id=svc-1');
@@ -91,13 +112,78 @@ describe("marketplace results UI contract", () => {
     expect(html).toContain('/foretag/marketplace-ror');
   });
 
+  it("renders contact and service fallbacks according to conversion mode", () => {
+    const contactResult: PublishedDirectorySearchResult = {
+      ...baseResult,
+      id: "contact-company",
+      claimedWorkspaceSlug: "contact-company",
+      claimedServiceId: "svc-contact",
+      claimedServiceSlug: "vvs",
+      conversionMode: "contact",
+    };
+    const unavailableBookingResult: PublishedDirectorySearchResult = {
+      ...baseResult,
+      id: "booking-unavailable",
+      claimedWorkspaceSlug: "booking-unavailable",
+      claimedServiceId: "svc-book",
+      claimedServiceSlug: "vvs",
+      claimedBookingSlug: "booking-unavailable",
+      conversionMode: "book",
+      bookingAvailable: false,
+    };
+
+    const contactHtml = render("sv", [contactResult]);
+    expect(contactHtml).toContain('data-marketplace-action="contact"');
+    expect(contactHtml).toContain("Kontakta");
+    expect(contactHtml).toContain("#kontaktforfragan");
+    expect(contactHtml).not.toContain('data-marketplace-action="book"');
+
+    const serviceHtml = render("sv", [unavailableBookingResult]);
+    expect(serviceHtml).toContain('data-marketplace-action="service"');
+    expect(serviceHtml).toContain("Se tjänst");
+    expect(serviceHtml).not.toContain('data-marketplace-action="book"');
+  });
+
   it("renders a read-only Directory fallback when Marketplace actions are unavailable", () => {
     const html = render("sv", [baseResult]);
 
+    expect(html).toContain('data-marketplace-action="directory-profile"');
     expect(html).toContain("Se företag");
     expect(html).toContain('/foretag/listad/test-ror-ab');
     expect(html).not.toContain("Boka tid");
     expect(html).not.toContain("Begär offert");
+  });
+
+  it("shows real totals and page 1, 2 and 3 links while preserving the search", () => {
+    const html = render(
+      "sv",
+      [baseResult],
+      { totalCount: 65, page: 1, pageSize: 30, totalPages: 3 },
+      "/foretag/listad?service=Elektriker&location=S%C3%B6dert%C3%A4lje",
+    );
+
+    expect(html).toContain("65 företag matchar din sökning");
+    expect(html).toContain("Visar 1–30 av 65 företag");
+    expect(html).toContain('aria-label="Sida 2"');
+    expect(html).toContain('aria-label="Sida 3"');
+    expect(html).toContain("service=Elektriker");
+    expect(html).toContain("location=S%25C3%25B6dert%25C3%25A4lje");
+    expect(html).toContain("page=2");
+    expect(html).toContain("page=3");
+  });
+
+  it("shows the correct range on page two", () => {
+    const html = render(
+      "sv",
+      [baseResult],
+      { totalCount: 65, page: 2, pageSize: 30, totalPages: 3 },
+      "/foretag/listad?service=Elektriker&location=S%C3%B6dert%C3%A4lje",
+    );
+
+    expect(html).toContain("Visar 31–60 av 65 företag");
+    expect(html).toContain("Föregående");
+    expect(html).toContain("Nästa");
+    expect(html).toContain('aria-current="page"');
   });
 
   it("shows the generic quote promotion only when there are search results", () => {
