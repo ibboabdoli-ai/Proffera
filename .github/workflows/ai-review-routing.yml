@@ -46,6 +46,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+          RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         shell: bash
         run: |
           set -euo pipefail
@@ -56,8 +57,20 @@ jobs:
           fi
 
           pr_json="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")"
+          pr_state="$(jq -r '.state' <<< "$pr_json")"
+          current_head_sha="$(jq -r '.head.sha' <<< "$pr_json")"
           is_draft="$(jq -r '.draft' <<< "$pr_json")"
           author="$(jq -r '.user.login' <<< "$pr_json")"
+
+          if [ "$pr_state" != "open" ]; then
+            echo "PR #${PR_NUMBER} is no longer open; skipping."
+            exit 0
+          fi
+
+          if [ "$current_head_sha" != "$RUN_HEAD_SHA" ]; then
+            echo "CI run head ${RUN_HEAD_SHA} is stale; current PR head is ${current_head_sha}."
+            exit 0
+          fi
 
           if [ "$is_draft" = "true" ]; then
             echo "PR #${PR_NUMBER} is draft; review routing waits until it is ready."
