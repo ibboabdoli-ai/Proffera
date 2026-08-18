@@ -10,6 +10,7 @@ import {
 } from "@/lib/company-directory-claim-email";
 import { getSql } from "@/lib/db/server";
 import { allowPublicSubmission } from "@/lib/public-form-protection";
+import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 function safeReturnPath(value: string) {
   return /^\/foretag\/claim\/[a-z0-9-]+$/.test(value) ? value : "/";
@@ -56,6 +57,8 @@ export async function POST(request: Request) {
   const sql = getSql();
   if (!sql) return NextResponse.redirect(new URL(`${returnTo}?status=unavailable`, request.url), 303);
 
+  const workspaceAccess = await getUserWorkspaceAccess();
+
   const [profiles, accountRows] = await Promise.all([
     sql`
       select id::text, display_name, claimed_workspace_id::text, claim_reservation_id::text
@@ -85,9 +88,20 @@ export async function POST(request: Request) {
     return NextResponse.redirect(new URL(`${returnTo}?status=account_email_unverified`, request.url), 303);
   }
 
+  let requestedWorkspaceId: string | null = null;
+  if (workspaceAccess.ok && canManageWorkspaceSettings(workspaceAccess)) {
+    const linkedRows = await sql`
+      select id
+      from company_directory_profiles
+      where claimed_workspace_id = ${workspaceAccess.workspaceId}::uuid
+      limit 1
+    `;
+    if (!linkedRows[0]) requestedWorkspaceId = workspaceAccess.workspaceId;
+  }
+
   const action = compactText(form.get("action"), 20) || "start";
   const existingRows = await sql`
-    select id::text, status, verification_method, verification_reference
+    select id::text, status, verification_method, verification_reference, requested_workspace_id::text
     from company_directory_claims
     where profile_id = ${String(profile.id)}::uuid
       and claimant_user_id = ${userId}
@@ -98,9 +112,9 @@ export async function POST(request: Request) {
   const existing = existingRows[0];
   const existingEvidence = parseClaimEmailEvidence(existing?.verification_reference);
 
-  // Once the business email has been verified, freeze the claimant evidence.
-  // This prevents a claimant from changing or cancelling the evidence while an
-  // administrator is reviewing the same pending claim.
+  // Once the business email has been verified, freeze the claimant evidence and
+  // the requested workspace. This prevents a claimant from switching targets
+  // while an administrator is reviewing the same claim.
   if (existingEvidence?.stage === "business_email_verified") {
     return NextResponse.redirect(new URL(`${returnTo}?status=sent`, request.url), 303);
   }
@@ -183,13 +197,14 @@ export async function POST(request: Request) {
   try {
     const rows = await sql`
       insert into company_directory_claims (
-        profile_id, claimant_user_id, status, verification_method, verification_reference, requested_at
+        profile_id, claimant_user_id, requested_workspace_id, status, verification_method, verification_reference, requested_at
       ) values (
-        ${String(profile.id)}::uuid, ${userId}, 'pending', 'email_domain', ${verificationReference}, now()
+        ${String(profile.id)}::uuid, ${userId}, ${requestedWorkspaceId}::uuid, 'pending', 'email_domain', ${verificationReference}, now()
       )
       on conflict (profile_id, claimant_user_id) where status in ('pending', 'verified')
       do update set
         requested_at = now(),
+        requested_workspace_id = coalesce(company_directory_claims.requested_workspace_id, excluded.requested_workspace_id),
         verification_method = 'email_domain',
         verification_reference = ${verificationReference},
         verified_at = null,
