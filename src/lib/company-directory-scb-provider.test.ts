@@ -45,6 +45,25 @@ describe("SCB company registry provider", () => {
     expect(transport.fetchWorkplaces).not.toHaveBeenCalled();
   });
 
+  it("allows only an explicit controlled transport to bypass the global rollout gate", async () => {
+    const transport = {
+      fetchCompany: vi.fn().mockResolvedValue([{ OrgNr: "5563115707", Företagsnamn: "Exempel AB" }]),
+      fetchWorkplaces: vi.fn().mockResolvedValue([]),
+    };
+
+    const result = await fetchScbCompanyRegistryEnrichment("556311-5707", transport, {
+      allowWhenDisabledWithExplicitTransport: true,
+    });
+
+    expect(result.status).toBe("ok");
+    expect(transport.fetchCompany).toHaveBeenCalledWith("5563115707");
+    expect(transport.fetchWorkplaces).toHaveBeenCalledWith("5563115707");
+    expect(getScbCompanyRegistryStatus(transport)).toEqual({
+      enabled: false,
+      accessReady: false,
+    });
+  });
+
   it("fails closed while SCB access details are still pending", async () => {
     process.env.SCB_COMPANY_REGISTRY_ENABLED = "true";
 

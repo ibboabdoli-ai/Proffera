@@ -25,6 +25,10 @@ export type CompanyDirectoryScbEnrichmentResult =
   | { status: "disabled" | "awaiting_access" | "ineligible"; saved: false; conflicts: ScbConflict[] }
   | { status: "saved"; saved: true; conflicts: ScbConflict[] };
 
+export type CompanyDirectoryScbEnrichmentOptions = {
+  allowWhenDisabledWithExplicitTransport?: boolean;
+};
+
 function text(value: unknown) {
   return value === null || value === undefined ? "" : String(value).trim();
 }
@@ -34,6 +38,19 @@ function normalizeName(value: unknown) {
     .normalize("NFKC")
     .toLocaleLowerCase("sv-SE")
     .replace(/[^\p{L}\p{N}]+/gu, "");
+}
+
+function legalNamesMatchOrScbIsClearlyTruncated(bolagsverket: unknown, scb: unknown) {
+  const official = normalizeName(bolagsverket);
+  const registry = normalizeName(scb);
+  if (!official || !registry) return false;
+  if (official === registry) return true;
+
+  // SCB can return a visibly truncated long company name. Treat only a long,
+  // exact normalized prefix as equivalent; shorter/other mismatches still fail closed.
+  return registry.length >= 32
+    && official.length > registry.length
+    && official.startsWith(registry);
 }
 
 function normalizeSni(value: unknown) {
@@ -77,7 +94,7 @@ export function detectScbCompanyDirectoryConflicts(input: {
   if (
     bolagsverketLegalName
     && scbLegalName
-    && normalizeName(bolagsverketLegalName) !== normalizeName(scbLegalName)
+    && !legalNamesMatchOrScbIsClearlyTruncated(bolagsverketLegalName, scbLegalName)
   ) {
     conflicts.push({
       field: "legal_name",
@@ -159,6 +176,7 @@ async function saveScbEnrichment(
 export async function enrichCompanyDirectoryScbForProfile(
   profileId: string,
   transport?: ScbCompanyRegistryTransport,
+  options: CompanyDirectoryScbEnrichmentOptions = {},
 ): Promise<CompanyDirectoryScbEnrichmentResult> {
   const sql = getSql();
   if (!sql) throw new Error("Database is not configured");
@@ -191,7 +209,11 @@ export async function enrichCompanyDirectoryScbForProfile(
     return { status: "ineligible", saved: false, conflicts: [] };
   }
 
-  const fetched = await fetchScbCompanyRegistryEnrichment(organizationNumber, transport);
+  const fetched = options.allowWhenDisabledWithExplicitTransport
+    ? await fetchScbCompanyRegistryEnrichment(organizationNumber, transport, {
+      allowWhenDisabledWithExplicitTransport: true,
+    })
+    : await fetchScbCompanyRegistryEnrichment(organizationNumber, transport);
   if (fetched.status !== "ok") {
     return { status: fetched.status, saved: false, conflicts: [] };
   }

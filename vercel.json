@@ -9,6 +9,10 @@
     {
       "path": "/api/cron/company-directory-official-facts",
       "schedule": "17 2 * * *"
+    },
+    {
+      "path": "/api/cron/company-directory-published-revalidation",
+      "schedule": "*/5 * * * *"
     }
   ]
 }
