@@ -15,8 +15,49 @@ export type PublicDirectoryBusinessForRequest = PublicDirectoryBusiness & {
   contact: DirectoryDirectContactDisclosure;
 };
 
+type ScbDirectContact = {
+  addressLine1: string;
+  phone: string;
+  email: string;
+};
+
 function emptyContact() {
   return discloseDirectoryDirectContact({}, false);
+}
+
+function isMissingScbEnrichmentTable(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: unknown; message?: unknown };
+  return candidate.code === "42P01"
+    && String(candidate.message ?? "").includes("company_directory_scb_enrichment");
+}
+
+async function getConflictFreeScbContact(
+  sql: NonNullable<ReturnType<typeof getSql>>,
+  profileId: string,
+): Promise<ScbDirectContact | null> {
+  try {
+    const rows = await sql`
+      select
+        coalesce(nullif(phone, ''), '') as phone,
+        coalesce(nullif(email, ''), '') as email,
+        coalesce(nullif(postal_address->>'addressLine', ''), '') as direct_address_line1
+      from company_directory_scb_enrichment
+      where profile_id = ${profileId}::uuid
+        and conflicts = '[]'::jsonb
+      limit 1
+    `;
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      addressLine1: String(row.direct_address_line1 ?? ""),
+      phone: String(row.phone ?? ""),
+      email: String(row.email ?? ""),
+    };
+  } catch (error) {
+    if (isMissingScbEnrichmentTable(error)) return null;
+    throw error;
+  }
 }
 
 async function getPublishedDirectoryContact(profileId: string) {
@@ -31,20 +72,15 @@ async function getPublishedDirectoryContact(profileId: string) {
 
   const rows = await sql`
     select
-      profile.organization_number,
-      profile.primary_sni_code,
-      profile.website_url,
-      coalesce(nullif(scb.phone, ''), '') as phone,
-      coalesce(nullif(scb.email, ''), '') as email,
-      coalesce(nullif(scb.postal_address->>'addressLine', ''), nullif(profile.address_line1, ''), '') as direct_address_line1
-    from company_directory_profiles profile
-    left join company_directory_scb_enrichment scb
-      on scb.profile_id = profile.id
-      and scb.conflicts = '[]'::jsonb
-    where profile.id = ${profileId}::uuid
-      and profile.publication_status = 'published'
-      and profile.privacy_blocked = false
-      and profile.auto_public_eligible = true
+      organization_number,
+      primary_sni_code,
+      website_url,
+      address_line1
+    from company_directory_profiles
+    where id = ${profileId}::uuid
+      and publication_status = 'published'
+      and privacy_blocked = false
+      and auto_public_eligible = true
     limit 1
   `;
   const row = rows[0];
@@ -56,13 +92,14 @@ async function getPublishedDirectoryContact(profileId: string) {
     };
   }
 
+  const scb = await getConflictFreeScbContact(sql, profileId);
   return {
     organizationNumber: String(row.organization_number ?? ""),
     primarySniCode: String(row.primary_sni_code ?? ""),
     contact: discloseDirectoryDirectContact({
-      addressLine1: row.direct_address_line1,
-      phone: row.phone,
-      email: row.email,
+      addressLine1: scb?.addressLine1 || row.address_line1,
+      phone: scb?.phone,
+      email: scb?.email,
       website: row.website_url,
     }, false),
   };
@@ -97,17 +134,11 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
       profile.source_updated_at,
       profile.last_synced_at,
       profile.claimed_workspace_id::text,
-      coalesce(nullif(scb.phone, ''), '') as phone,
-      coalesce(nullif(scb.email, ''), '') as email,
-      coalesce(nullif(scb.postal_address->>'addressLine', ''), nullif(profile.address_line1, ''), '') as direct_address_line1,
       media.public_url as media_url,
       media.media_kind,
       media.attribution,
       media.is_actual_business_media
     from company_directory_profiles profile
-    left join company_directory_scb_enrichment scb
-      on scb.profile_id = profile.id
-      and scb.conflicts = '[]'::jsonb
     left join lateral (
       select public_url, media_kind, attribution, is_actual_business_media
       from company_directory_media
@@ -129,10 +160,11 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
 
   const workspaceId = String(row.claimed_workspace_id ?? "");
   const entitled = await hasWorkspacePlanAccessForWorkspace(workspaceId);
+  const scb = await getConflictFreeScbContact(sql, String(row.id));
   const contact = discloseDirectoryDirectContact({
-    addressLine1: row.direct_address_line1,
-    phone: row.phone,
-    email: row.email,
+    addressLine1: scb?.addressLine1 || row.address_line1,
+    phone: scb?.phone,
+    email: scb?.email,
     website: row.website_url,
   }, entitled);
 
