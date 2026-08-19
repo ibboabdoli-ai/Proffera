@@ -72,6 +72,32 @@ describe("SCB company directory enrichment guards", () => {
     })).toEqual([]);
   });
 
+  it("does not flag a long SCB legal name that is clearly truncated mid-name", () => {
+    expect(detectScbCompanyDirectoryConflicts({
+      bolagsverketLegalName: "Energi och VVS Service VVS-Shopen Svensson & Nyman Aktiebolag",
+      bolagsverketSniCodes: [{ code: "43.221" }, { code: "43.229" }],
+      scb: scb({
+        legalName: "ENERGI OCH VVS SERVICE VVS-SHOPEN SVENSSON & NYM",
+        sniCodes: ["43.221", "43.229"],
+      }),
+    })).toEqual([]);
+  });
+
+  it("still flags shorter prefix-like names as real mismatches", () => {
+    expect(detectScbCompanyDirectoryConflicts({
+      bolagsverketLegalName: "Exempel Elinstallationer Aktiebolag",
+      bolagsverketSniCodes: [{ code: "43.210" }],
+      scb: scb({ legalName: "Exempel El", sniCodes: ["43.210"] }),
+    })).toEqual([
+      {
+        field: "legal_name",
+        code: "legal_name_mismatch",
+        bolagsverket: "Exempel Elinstallationer Aktiebolag",
+        scb: "Exempel El",
+      },
+    ]);
+  });
+
   it("preserves legal-name and SNI disagreements as explicit conflicts", () => {
     expect(detectScbCompanyDirectoryConflicts({
       bolagsverketLegalName: "Bolagsverket Namn AB",
