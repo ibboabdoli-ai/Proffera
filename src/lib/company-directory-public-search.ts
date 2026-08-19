@@ -1,5 +1,6 @@
 import "server-only";
 
+import { gateDirectoryDirectContact } from "@/lib/company-directory-contact-entitlement";
 import { normalizeDirectoryRadiusKm, parseDirectoryCoordinates } from "@/lib/company-directory-distance";
 import {
   confirmedCompanyDirectoryServiceAreaCoversSearch,
@@ -7,7 +8,10 @@ import {
 } from "@/lib/company-directory-service-area-policy";
 import { getSql } from "@/lib/db/server";
 import { resolveDirectoryServiceQuery } from "@/lib/company-directory-service-taxonomy";
-import { hasWorkspaceFeatureAccessForWorkspace } from "@/lib/workspace-feature-entitlement-db";
+import {
+  hasWorkspaceFeatureAccessForWorkspace,
+  hasWorkspacePlanAccessForWorkspace,
+} from "@/lib/workspace-feature-entitlement-db";
 
 export type DirectoryMarketplaceConversionMode = "book" | "quote" | "book_or_quote" | "contact";
 
@@ -252,11 +256,12 @@ export async function searchPublishedCompanyDirectory(
   )];
   const workspaceAccessEntries = await Promise.all(
     claimedWorkspaceIds.map(async (workspaceId) => {
-      const websiteBuilder = await hasWorkspaceFeatureAccessForWorkspace(workspaceId, "website_builder");
-      const onlineBooking = websiteBuilder
-        ? await hasWorkspaceFeatureAccessForWorkspace(workspaceId, "online_booking")
-        : false;
-      return [workspaceId, { websiteBuilder, onlineBooking }] as const;
+      const [planAccess, websiteBuilder, onlineBooking] = await Promise.all([
+        hasWorkspacePlanAccessForWorkspace(workspaceId),
+        hasWorkspaceFeatureAccessForWorkspace(workspaceId, "website_builder"),
+        hasWorkspaceFeatureAccessForWorkspace(workspaceId, "online_booking"),
+      ]);
+      return [workspaceId, { planAccess, websiteBuilder, onlineBooking }] as const;
     }),
   );
   const workspaceAccess = new Map(workspaceAccessEntries);
@@ -284,6 +289,10 @@ export async function searchPublishedCompanyDirectory(
       && serviceAreaCoversSearch,
     );
     const claimedBookingSlug = marketplaceAvailable ? String(row.claimed_booking_slug ?? "") || null : null;
+    const directContact = gateDirectoryDirectContact(
+      { addressLine1: row.address_line1 },
+      Boolean(isClaimed && access?.planAccess),
+    );
 
     return {
       id: String(row.id),
@@ -293,7 +302,7 @@ export async function searchPublishedCompanyDirectory(
       matchedServiceSlug: String(row.service_slug),
       matchedServiceLabel: String(row.service_label),
       activityDescription: String(row.activity_description ?? ""),
-      addressLine1: String(row.address_line1 ?? ""),
+      addressLine1: directContact.addressLine1,
       postalCode: String(row.postal_code ?? ""),
       city: String(row.city ?? ""),
       municipality: String(row.municipality ?? ""),
