@@ -4,6 +4,7 @@ import type { ScbCompanyRegistryEnrichment } from "./company-directory-scb-provi
 import {
   detectScbCompanyDirectoryConflicts,
   officialSniCodes,
+  scbComparisonSnapshotMatches,
 } from "./company-directory-scb-enrichment";
 
 function scb(overrides: Partial<ScbCompanyRegistryEnrichment> = {}): ScbCompanyRegistryEnrichment {
@@ -85,5 +86,22 @@ describe("SCB company directory enrichment guards", () => {
       bolagsverketSniCodes: [],
       scb: scb({ legalName: "SCB Namn AB", sniCodes: ["62.100"] }),
     })).toEqual([]);
+  });
+
+  it("invalidates a captured comparison snapshot when profile or official facts change during enrichment", () => {
+    const captured = {
+      profileUpdatedToken: "2026-08-19 10:00:00+00",
+      officialFactsLastSyncedToken: "2026-08-19 09:59:00+00",
+    };
+
+    expect(scbComparisonSnapshotMatches(captured, captured)).toBe(true);
+    expect(scbComparisonSnapshotMatches(captured, {
+      ...captured,
+      profileUpdatedToken: "2026-08-19 10:00:01+00",
+    })).toBe(false);
+    expect(scbComparisonSnapshotMatches(captured, {
+      ...captured,
+      officialFactsLastSyncedToken: "2026-08-19 10:00:02+00",
+    })).toBe(false);
   });
 });
