@@ -16,26 +16,26 @@ function assess(overrides: Partial<Parameters<typeof assessCompanyDirectoryCateg
 }
 
 describe("company directory category confidence", () => {
-  it("gives unambiguous official SNI-only evidence high confidence", () => {
+  it("keeps unambiguous official SNI-only evidence below high confidence", () => {
     const result = assess();
 
-    expect(result.score).toBe(95);
-    expect(result.level).toBe("high");
+    expect(result.score).toBe(90);
+    expect(result.level).toBe("review");
     expect(result.competingCategories).toEqual([]);
     expect(result.conflictingTextCategories).toEqual([]);
     expect(result.warnings).toContain("Ingen oberoende textsignal stödjer kategorin");
   });
 
-  it("uses exact official SNI confirmation without inventing a separate primary-verification signal", () => {
+  it("uses exact official SNI confirmation without treating it as sufficient for publication", () => {
     const result = assess({
       primarySniCode: "81.210",
       sniCodes: [{ code: "81.210", label: "Lokalvård" }],
     });
 
-    expect(result.score).toBe(95);
-    expect(result.level).toBe("high");
+    expect(result.score).toBe(90);
+    expect(result.level).toBe("review");
     expect(result.signals).toContain("Bolagsverkets/SCB:s SNI-lista bekräftar exakt primär SNI");
-    expect(result.signals.some((signal) => signal.includes("Verifierad primär SNI"))).toBe(false);
+    expect(result.warnings).toContain("Ingen oberoende textsignal stödjer kategorin");
   });
 
   it("keeps same-category but non-exact official SNI below high confidence", () => {
@@ -98,8 +98,8 @@ describe("company directory category confidence", () => {
       legalName: "Stockholm Stad Service AB",
     });
 
-    expect(result.score).toBe(95);
-    expect(result.level).toBe("high");
+    expect(result.score).toBe(90);
+    expect(result.level).toBe("review");
     expect(result.signals).not.toContain("Företagsnamn stödjer kategorin");
   });
 
