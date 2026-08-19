@@ -22,7 +22,10 @@ export function isWorkspacePlanFeatureIncluded(input: {
   const planStatus = String(input.planStatus ?? "");
 
   if (planStatus === "trialing") {
-    if (!input.planPeriodEnd) return false;
+    // Workspace trials intentionally unlock the full product surface, regardless
+    // of catalog tier, but they must still be attached to a real supported plan.
+    // Never let a malformed/missing plan key turn a future date into entitlement.
+    if (!planKey || !input.planPeriodEnd) return false;
     const periodEnd = new Date(String(input.planPeriodEnd));
     if (Number.isNaN(periodEnd.getTime())) return false;
     return periodEnd.getTime() > (input.now ?? new Date()).getTime();

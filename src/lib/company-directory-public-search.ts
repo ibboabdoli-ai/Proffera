@@ -1,5 +1,6 @@
 import "server-only";
 
+import { gateDirectoryDirectContact } from "@/lib/company-directory-contact-entitlement";
 import { normalizeDirectoryRadiusKm, parseDirectoryCoordinates } from "@/lib/company-directory-distance";
 import {
   confirmedCompanyDirectoryServiceAreaCoversSearch,
@@ -7,7 +8,7 @@ import {
 } from "@/lib/company-directory-service-area-policy";
 import { getSql } from "@/lib/db/server";
 import { resolveDirectoryServiceQuery } from "@/lib/company-directory-service-taxonomy";
-import { hasWorkspaceFeatureAccessForWorkspace } from "@/lib/workspace-feature-entitlement-db";
+import { getWorkspaceDirectoryPublicAccessForWorkspaces } from "@/lib/workspace-feature-entitlement-db";
 
 export type DirectoryMarketplaceConversionMode = "book" | "quote" | "book_or_quote" | "contact";
 
@@ -250,20 +251,11 @@ export async function searchPublishedCompanyDirectory(
       .map((row) => String(row.claimed_workspace_id ?? ""))
       .filter(Boolean),
   )];
-  const workspaceAccessEntries = await Promise.all(
-    claimedWorkspaceIds.map(async (workspaceId) => {
-      const websiteBuilder = await hasWorkspaceFeatureAccessForWorkspace(workspaceId, "website_builder");
-      const onlineBooking = websiteBuilder
-        ? await hasWorkspaceFeatureAccessForWorkspace(workspaceId, "online_booking")
-        : false;
-      return [workspaceId, { websiteBuilder, onlineBooking }] as const;
-    }),
-  );
-  const workspaceAccess = new Map(workspaceAccessEntries);
+  const workspaceAccess = await getWorkspaceDirectoryPublicAccessForWorkspaces(claimedWorkspaceIds);
 
   const results = rows.map((row): PublishedDirectorySearchResult => {
     const isClaimed = String(row.publication_status) === "claimed";
-    const claimedWorkspaceId = String(row.claimed_workspace_id ?? "");
+    const claimedWorkspaceId = String(row.claimed_workspace_id ?? "").toLowerCase();
     const access = isClaimed ? workspaceAccess.get(claimedWorkspaceId) : null;
     const conversionMode = marketplaceConversionMode(row.claimed_service_conversion_mode);
     const distanceKm = row.distance_km === null || row.distance_km === undefined ? null : Number(row.distance_km);
@@ -284,6 +276,10 @@ export async function searchPublishedCompanyDirectory(
       && serviceAreaCoversSearch,
     );
     const claimedBookingSlug = marketplaceAvailable ? String(row.claimed_booking_slug ?? "") || null : null;
+    const directContact = gateDirectoryDirectContact(
+      { addressLine1: row.address_line1 },
+      Boolean(isClaimed && access?.planAccess),
+    );
 
     return {
       id: String(row.id),
@@ -293,7 +289,7 @@ export async function searchPublishedCompanyDirectory(
       matchedServiceSlug: String(row.service_slug),
       matchedServiceLabel: String(row.service_label),
       activityDescription: String(row.activity_description ?? ""),
-      addressLine1: String(row.address_line1 ?? ""),
+      addressLine1: directContact.addressLine1,
       postalCode: String(row.postal_code ?? ""),
       city: String(row.city ?? ""),
       municipality: String(row.municipality ?? ""),

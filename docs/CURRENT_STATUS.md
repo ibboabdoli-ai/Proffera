@@ -1,6 +1,6 @@
 # Proffera Current Status
 
-Last updated: 2026-08-18
+Last updated: 2026-08-19
 
 This is the canonical factual status document for Proffera. For worker rules, live task state, current `main` SHA, and roadmap order, also read `AGENTS.md`, `WORKER_BOOTSTRAP.md`, GitHub issue #548, GitHub issue #276, and `docs/README.md`.
 
@@ -25,6 +25,7 @@ The repository contains active production implementations for these major areas:
 - Stripe Checkout, Customer Portal, subscription webhook synchronization and billing-alert foundations.
 - Company Directory ingestion, official-facts verification, SNI/category mapping, publication safety gates and admin review flows.
 - Public marketplace/search foundations and provider marketplace activation.
+- Company Directory direct-contact visibility is a separate server-side entitlement boundary: Unclaimed and Claimed Free directory projections do not expose direct street address/phone/email/website data by default; a claimed Workspace needs valid plan access before direct contact fields may be projected publicly. Internal Official Facts or SCB enrichment does not itself authorize public contact disclosure.
 
 Recent Production changes independently verified through matching `main` deployments on 2026-08-18 include:
 

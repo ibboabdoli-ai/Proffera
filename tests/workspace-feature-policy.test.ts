@@ -5,7 +5,7 @@ import { isWorkspacePlanFeatureIncluded } from "../src/lib/workspace-feature-pol
 const now = new Date("2026-08-06T09:00:00.000Z");
 
 describe("workspace feature plan policy", () => {
-  it("grants every catalog tier during an active workspace trial", () => {
+  it("grants every catalog tier during an active workspace trial on a supported plan", () => {
     for (const minimumPlan of ["starter", "professional", "business"]) {
       expect(isWorkspacePlanFeatureIncluded({
         planKey: "starter",
@@ -14,6 +14,18 @@ describe("workspace feature plan policy", () => {
         minimumPlan,
         now,
       })).toBe(true);
+    }
+  });
+
+  it("rejects trial records without a supported plan key", () => {
+    for (const planKey of [null, "", "free", "unknown"]) {
+      expect(isWorkspacePlanFeatureIncluded({
+        planKey,
+        planStatus: "trialing",
+        planPeriodEnd: "2026-08-20T09:00:00.000Z",
+        minimumPlan: "starter",
+        now,
+      })).toBe(false);
     }
   });
 
