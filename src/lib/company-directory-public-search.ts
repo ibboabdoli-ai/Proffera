@@ -8,10 +8,7 @@ import {
 } from "@/lib/company-directory-service-area-policy";
 import { getSql } from "@/lib/db/server";
 import { resolveDirectoryServiceQuery } from "@/lib/company-directory-service-taxonomy";
-import {
-  hasWorkspaceFeatureAccessForWorkspace,
-  hasWorkspacePlanAccessForWorkspace,
-} from "@/lib/workspace-feature-entitlement-db";
+import { getWorkspaceDirectoryPublicAccessForWorkspaces } from "@/lib/workspace-feature-entitlement-db";
 
 export type DirectoryMarketplaceConversionMode = "book" | "quote" | "book_or_quote" | "contact";
 
@@ -254,21 +251,11 @@ export async function searchPublishedCompanyDirectory(
       .map((row) => String(row.claimed_workspace_id ?? ""))
       .filter(Boolean),
   )];
-  const workspaceAccessEntries = await Promise.all(
-    claimedWorkspaceIds.map(async (workspaceId) => {
-      const [planAccess, websiteBuilder, onlineBooking] = await Promise.all([
-        hasWorkspacePlanAccessForWorkspace(workspaceId),
-        hasWorkspaceFeatureAccessForWorkspace(workspaceId, "website_builder"),
-        hasWorkspaceFeatureAccessForWorkspace(workspaceId, "online_booking"),
-      ]);
-      return [workspaceId, { planAccess, websiteBuilder, onlineBooking }] as const;
-    }),
-  );
-  const workspaceAccess = new Map(workspaceAccessEntries);
+  const workspaceAccess = await getWorkspaceDirectoryPublicAccessForWorkspaces(claimedWorkspaceIds);
 
   const results = rows.map((row): PublishedDirectorySearchResult => {
     const isClaimed = String(row.publication_status) === "claimed";
-    const claimedWorkspaceId = String(row.claimed_workspace_id ?? "");
+    const claimedWorkspaceId = String(row.claimed_workspace_id ?? "").toLowerCase();
     const access = isClaimed ? workspaceAccess.get(claimedWorkspaceId) : null;
     const conversionMode = marketplaceConversionMode(row.claimed_service_conversion_mode);
     const distanceKm = row.distance_km === null || row.distance_km === undefined ? null : Number(row.distance_km);
