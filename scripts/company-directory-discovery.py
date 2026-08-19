@@ -5,7 +5,8 @@ The worker is intentionally fail-closed:
 - the final downloadable source must be the official SCB HVD ZIP on bolagsverket.se;
 - discovery uses the official SCB bulk because SNI, JurForm and PostOrt are SCB fields;
 - organisation numbers are only extracted from the official bulk payload;
-- only Stockholm/Södertälje + supported primary service SNI + supported registered organisation forms are enqueued;
+- Stockholm/Södertälje remain always-on while the rest of Sweden is admitted through a deterministic daily rollout bucket;
+- only supported primary service SNI + supported registered organisation forms are enqueued;
 - common Swedish company forms are prioritised before foreign branches;
 - raw bulk records are never posted to Proffera or persisted by this script;
 - large ZIP downloads use verified HTTP Range segments to prevent silent truncation.
@@ -28,6 +29,7 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -40,6 +42,7 @@ RANGE_SEGMENT_BYTES = 8 * 1024 * 1024
 RANGE_RETRIES = 4
 POST_BATCH_SIZE = 400
 SCB_TABULAR_ENCODING = "iso-8859-1"
+DEFAULT_NATIONWIDE_BUCKETS = 20
 
 ORG_KEYS = {
     "identitetsbeteckning",
@@ -116,6 +119,7 @@ def supported_sni(value: Any) -> bool:
         digits == "81210"
         or digits == "81221"
         or digits == "96910"
+        or digits == "96210"
         or digits == "49420"
         or digits == "43210"
         or digits.startswith("4322")
@@ -129,6 +133,15 @@ def pilot_location(value: Any) -> bool:
     normalized = normalize_text(value)
     folded = normalized.replace("ö", "o")
     return normalized in PILOT_LOCATIONS or folded in PILOT_LOCATIONS
+
+
+def resolve_nationwide_rollout(bucket_count: int, bucket_override: int | None = None) -> tuple[int, int]:
+    if bucket_count < 1 or bucket_count > 365:
+        raise ValueError("Nationwide rollout bucket count must be between 1 and 365")
+    bucket = datetime.now(timezone.utc).date().toordinal() % bucket_count if bucket_override is None else bucket_override
+    if bucket < 0 or bucket >= bucket_count:
+        raise ValueError("Nationwide rollout bucket must be within the configured bucket count")
+    return bucket, bucket_count
 
 
 def is_allowed_source_url(raw: str) -> bool:
@@ -447,7 +460,16 @@ def open_state_db() -> tuple[sqlite3.Connection, Path]:
     return connection, path
 
 
-def collect_candidates(path: Path) -> tuple[list[dict[str, str]], int]:
+def collect_candidates(
+    path: Path,
+    nationwide_bucket: int | None = None,
+    nationwide_bucket_count: int = DEFAULT_NATIONWIDE_BUCKETS,
+) -> tuple[list[dict[str, str]], int]:
+    if nationwide_bucket is not None:
+        nationwide_bucket, nationwide_bucket_count = resolve_nationwide_rollout(
+            nationwide_bucket_count,
+            nationwide_bucket,
+        )
     database, database_path = open_state_db()
     records_seen = 0
     recognized_members = 0
@@ -515,11 +537,22 @@ def collect_candidates(path: Path) -> tuple[list[dict[str, str]], int]:
             where supported_sni = 1
               and primary_sni_code <> ''
               and primary_sni_conflict = 0
-              and pilot_location = 1
               and legal_form_priority < ?
+              and (
+                pilot_location = 1
+                or (
+                  ? is not null
+                  and cast(organization_number as integer) % ? = ?
+                )
+              )
             order by legal_form_priority asc, organization_number asc
             """,
-            (UNKNOWN_LEGAL_FORM_PRIORITY,),
+            (
+                UNKNOWN_LEGAL_FORM_PRIORITY,
+                nationwide_bucket,
+                nationwide_bucket_count,
+                nationwide_bucket,
+            ),
         ).fetchall()
         return [
             {"organizationNumber": str(row[0]), "primarySniCode": str(row[1])}
@@ -579,6 +612,12 @@ def main() -> int:
     parser.add_argument("--ingest-url", required=True)
     parser.add_argument("--secret", required=True)
     parser.add_argument("--bulk-url", default=os.environ.get("BOLAGSVERKET_BULK_URL", ""))
+    parser.add_argument(
+        "--nationwide-buckets",
+        type=int,
+        default=int(os.environ.get("COMPANY_DIRECTORY_NATIONWIDE_BUCKETS", str(DEFAULT_NATIONWIDE_BUCKETS))),
+    )
+    parser.add_argument("--nationwide-bucket", type=int, default=None)
     args = parser.parse_args()
 
     probe = api_request(args.ingest_url, args.secret)
@@ -586,15 +625,24 @@ def main() -> int:
         print("Automatic company discovery is disabled; exiting before bulk download.")
         return 0
 
+    nationwide_bucket, nationwide_bucket_count = resolve_nationwide_rollout(
+        args.nationwide_buckets,
+        args.nationwide_bucket,
+    )
     source_url = resolve_bulk_url(args.bulk_url)
     archive_path, fingerprint = download_to_temp(source_url)
     try:
-        candidates, records_seen = collect_candidates(archive_path)
+        candidates, records_seen = collect_candidates(
+            archive_path,
+            nationwide_bucket=nationwide_bucket,
+            nationwide_bucket_count=nationwide_bucket_count,
+        )
     finally:
         archive_path.unlink(missing_ok=True)
 
     print(f"Official SCB records scanned: {records_seen}")
-    print(f"Pilot + primary-supported-SNI + supported-form candidates: {len(candidates)}")
+    print(f"Nationwide rollout bucket: {nationwide_bucket + 1}/{nationwide_bucket_count}")
+    print(f"Pilot + staged nationwide primary-supported-SNI + supported-form candidates: {len(candidates)}")
     post_candidates(args.ingest_url, args.secret, source_url, fingerprint, candidates, records_seen)
     return 0
 
