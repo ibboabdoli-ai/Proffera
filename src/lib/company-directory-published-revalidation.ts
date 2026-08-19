@@ -106,7 +106,7 @@ async function selectCandidates(limit: number) {
       and profile.country_code = 'SE'
       and profile.organization_kind = 'juridical_person'
       and profile.claimed_workspace_id is null
-      and length(regexp_replace(profile.organization_number, '\\D', '', 'g')) = 10
+      and length(regexp_replace(profile.organization_number, '\D', '', 'g')) = 10
       and (
         facts.profile_id is null
         or facts.source_payload_hash = ''
@@ -138,7 +138,7 @@ async function backlogCount() {
       and profile.country_code = 'SE'
       and profile.organization_kind = 'juridical_person'
       and profile.claimed_workspace_id is null
-      and length(regexp_replace(profile.organization_number, '\\D', '', 'g')) = 10
+      and length(regexp_replace(profile.organization_number, '\D', '', 'g')) = 10
       and (
         facts.profile_id is null
         or facts.source_payload_hash = ''
@@ -299,7 +299,7 @@ export async function revalidatePublishedCompanyDirectoryBatch(limit?: number) {
     };
   }
 
-  const candidates = await selectCandidates(safeLimit);
+  let candidates: Awaited<ReturnType<typeof selectCandidates>> = [];
   let revalidated = 0;
   let keptPublished = 0;
   let movedToReview = 0;
@@ -309,6 +309,8 @@ export async function revalidatePublishedCompanyDirectoryBatch(limit?: number) {
   const reviewMessages: string[] = [];
 
   try {
+    candidates = await selectCandidates(safeLimit);
+
     for (const candidate of candidates) {
       const profileId = text(candidate.id);
       const organizationNumber = text(candidate.organization_number).replace(/\D/g, "");
