@@ -30,16 +30,17 @@ async function refreshScbEnrichmentAction(formData: FormData) {
     redirect("/admin/foretag/directory/scb?scb=invalid");
   }
 
+  let code = "error";
   try {
     const result = await enrichCompanyDirectoryScbForProfile(profileId);
-    const code = result.status === "saved" && result.conflicts.length > 0
+    code = result.status === "saved" && result.conflicts.length > 0
       ? "conflict"
       : result.status;
-    redirect(`/admin/foretag/directory/scb?scb=${encodeURIComponent(code)}`);
   } catch (error) {
     console.error("Manual SCB enrichment failed", error);
-    redirect("/admin/foretag/directory/scb?scb=error");
   }
+
+  redirect(`/admin/foretag/directory/scb?scb=${encodeURIComponent(code)}`);
 }
 
 const resultMessages: Record<string, { ok: boolean; text: string }> = {
