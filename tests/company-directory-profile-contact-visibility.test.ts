@@ -19,7 +19,7 @@ describe("Directory profile contact visibility", () => {
     expect(profileCode).toContain("business.directContactUnlocked");
     expect(profileCode).toContain("LockKeyhole");
 
-    expect(dataCode).toContain("hasWorkspacePlanAccessForWorkspace(workspaceId)");
+    expect(dataCode).toContain("hasWorkspaceActivePaidPlanAccessForWorkspace(workspaceId)");
     expect(dataCode).toContain("gateDirectoryDirectContact(rawContact, entitled)");
     expect(dataCode).toContain("directContactUnlocked: entitled");
     expect(dataCode).toContain("scb.phone");
@@ -27,7 +27,15 @@ describe("Directory profile contact visibility", () => {
     expect(dataCode).toContain("profile.website_url");
   });
 
-  it("keeps raw contact available to super-admin without applying plan entitlement", () => {
+  it("requires an active paid plan rather than a trial to unlock public contact", () => {
+    const entitlementCode = source("src/lib/workspace-feature-entitlement-db.ts");
+
+    expect(entitlementCode).toContain("hasWorkspaceActivePaidPlanAccessForWorkspace");
+    expect(entitlementCode).toContain('String(row.status ?? "") !== "active"');
+    expect(entitlementCode).toContain('planStatus: "active"');
+  });
+
+  it("keeps raw contact available to super-admin without applying public entitlement", () => {
     const adminCode = source("src/lib/company-directory-admin.ts");
 
     expect(adminCode).toContain("await requireSuperAdmin()");
@@ -38,6 +46,6 @@ describe("Directory profile contact visibility", () => {
     expect(adminCode).toContain("Admin · E-post:");
     expect(adminCode).toContain("Admin · Webbplats:");
     expect(adminCode).toContain("Admin · Adress:");
-    expect(adminCode).not.toContain("hasWorkspacePlanAccessForWorkspace");
+    expect(adminCode).not.toContain("hasWorkspaceActivePaidPlanAccessForWorkspace");
   });
 });
