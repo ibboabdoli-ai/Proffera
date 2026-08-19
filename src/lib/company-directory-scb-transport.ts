@@ -11,13 +11,16 @@ const REQUEST_SPACING_MS = 1_050;
 
 type JsonRecord = Record<string, unknown>;
 
-type ScbRegistryTransportConfig = {
+type ScbRegistryCredentialConfig = {
   baseUrl: string;
   pfx: Buffer;
   passphrase: string;
+  timeoutMs: number;
+};
+
+type ScbRegistryTransportConfig = ScbRegistryCredentialConfig & {
   companyQueryTemplate: string;
   workplaceQueryTemplate: string;
-  timeoutMs: number;
 };
 
 let requestQueue: Promise<void> = Promise.resolve();
@@ -34,7 +37,18 @@ function positiveInteger(value: string | null, fallback: number) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function renderQueryTemplate(template: string, organizationNumber: string) {
+function certificateFromBase64(value: string) {
+  const compact = value.replace(/\s+/g, "");
+  if (!compact || !/^[A-Za-z0-9+/]+={0,2}$/.test(compact) || compact.length % 4 !== 0) {
+    throw new Error("Invalid SCB company registry certificate encoding");
+  }
+
+  const pfx = Buffer.from(compact, "base64");
+  if (!pfx.length) throw new Error("SCB company registry certificate is empty");
+  return pfx;
+}
+
+export function renderScbCompanyRegistryQueryTemplate(template: string, organizationNumber: string) {
   const digits = organizationNumber.replace(/\D/g, "");
   if (digits.length !== 10) throw new Error("Invalid organization number for SCB company registry transport");
 
@@ -54,28 +68,29 @@ function renderQueryTemplate(template: string, organizationNumber: string) {
   return parsed as JsonRecord;
 }
 
-function configFromEnv(): ScbRegistryTransportConfig | null {
+function credentialConfigFromEnv(): ScbRegistryCredentialConfig | null {
   const pfxBase64 = trimmedEnv("SCB_COMPANY_REGISTRY_PFX_BASE64");
   const passphrase = trimmedEnv("SCB_COMPANY_REGISTRY_PFX_PASSPHRASE");
-  const companyQueryTemplate = trimmedEnv("SCB_COMPANY_REGISTRY_COMPANY_QUERY_TEMPLATE");
-  const workplaceQueryTemplate = trimmedEnv("SCB_COMPANY_REGISTRY_WORKPLACE_QUERY_TEMPLATE");
-  if (!pfxBase64 || !passphrase || !companyQueryTemplate || !workplaceQueryTemplate) return null;
-
-  let pfx: Buffer;
-  try {
-    pfx = Buffer.from(pfxBase64, "base64");
-  } catch {
-    throw new Error("Invalid SCB company registry certificate encoding");
-  }
-  if (!pfx.length) throw new Error("SCB company registry certificate is empty");
+  if (!pfxBase64 || !passphrase) return null;
 
   return {
     baseUrl: trimmedEnv("SCB_COMPANY_REGISTRY_BASE_URL") ?? DEFAULT_BASE_URL,
-    pfx,
+    pfx: certificateFromBase64(pfxBase64),
     passphrase,
+    timeoutMs: positiveInteger(trimmedEnv("SCB_COMPANY_REGISTRY_TIMEOUT_MS"), DEFAULT_TIMEOUT_MS),
+  };
+}
+
+function transportConfigFromEnv(): ScbRegistryTransportConfig | null {
+  const credentials = credentialConfigFromEnv();
+  const companyQueryTemplate = trimmedEnv("SCB_COMPANY_REGISTRY_COMPANY_QUERY_TEMPLATE");
+  const workplaceQueryTemplate = trimmedEnv("SCB_COMPANY_REGISTRY_WORKPLACE_QUERY_TEMPLATE");
+  if (!credentials || !companyQueryTemplate || !workplaceQueryTemplate) return null;
+
+  return {
+    ...credentials,
     companyQueryTemplate,
     workplaceQueryTemplate,
-    timeoutMs: positiveInteger(trimmedEnv("SCB_COMPANY_REGISTRY_TIMEOUT_MS"), DEFAULT_TIMEOUT_MS),
   };
 }
 
@@ -93,10 +108,10 @@ async function reserveRequestSlot() {
   release();
 }
 
-async function requestJson(
-  config: ScbRegistryTransportConfig,
+async function requestText(
+  config: ScbRegistryCredentialConfig,
   path: string,
-  options: { method?: "GET" | "POST"; body?: JsonRecord } = {},
+  options: { method?: "GET" | "POST"; body?: JsonRecord; accept?: string } = {},
 ) {
   await reserveRequestSlot();
 
@@ -104,7 +119,7 @@ async function requestJson(
   const body = options.body ? JSON.stringify(options.body) : null;
   const url = new URL(path, config.baseUrl);
 
-  return await new Promise<unknown>((resolve, reject) => {
+  return await new Promise<string>((resolve, reject) => {
     const request = httpsRequest(url, {
       method,
       pfx: config.pfx,
@@ -112,7 +127,7 @@ async function requestJson(
       rejectUnauthorized: true,
       timeout: config.timeoutMs,
       headers: {
-        Accept: "application/json",
+        Accept: options.accept ?? "application/json",
         ...(body ? {
           "Content-Type": "application/json",
           "Content-Length": Buffer.byteLength(body),
@@ -138,17 +153,7 @@ async function requestJson(
           reject(new Error(`SCB company registry request failed with HTTP ${status}`));
           return;
         }
-
-        const text = Buffer.concat(chunks).toString("utf8").trim();
-        if (!text) {
-          resolve(null);
-          return;
-        }
-        try {
-          resolve(JSON.parse(text));
-        } catch {
-          reject(new Error("SCB company registry returned invalid JSON"));
-        }
+        resolve(Buffer.concat(chunks).toString("utf8"));
       });
     });
 
@@ -159,34 +164,68 @@ async function requestJson(
   });
 }
 
+async function requestJson(
+  config: ScbRegistryCredentialConfig,
+  path: string,
+  options: { method?: "GET" | "POST"; body?: JsonRecord } = {},
+) {
+  const text = (await requestText(config, path, options)).trim();
+  if (!text) return null;
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    throw new Error("SCB company registry returned invalid JSON");
+  }
+}
+
 export function createScbCompanyRegistryTransportFromEnv(): ScbCompanyRegistryTransport | null {
-  const config = configFromEnv();
+  const config = transportConfigFromEnv();
   if (!config) return null;
 
   return {
     fetchCompany: async (organizationNumber) => requestJson(config, "api/je/hamtaforetag", {
       method: "POST",
-      body: renderQueryTemplate(config.companyQueryTemplate, organizationNumber),
+      body: renderScbCompanyRegistryQueryTemplate(config.companyQueryTemplate, organizationNumber),
     }),
     fetchWorkplaces: async (organizationNumber) => requestJson(config, "api/ae/hamtaarbetsstallen", {
       method: "POST",
-      body: renderQueryTemplate(config.workplaceQueryTemplate, organizationNumber),
+      body: renderScbCompanyRegistryQueryTemplate(config.workplaceQueryTemplate, organizationNumber),
     }),
   };
 }
 
 export async function probeScbCompanyRegistryMetadataFromEnv() {
-  const config = configFromEnv();
+  const config = credentialConfigFromEnv();
   if (!config) return { status: "not_configured" as const };
 
-  const [companyVariables, workplaceVariables] = await Promise.all([
+  const [companyVariables, workplaceVariables, companyCategories, workplaceCategories] = await Promise.all([
     requestJson(config, "api/je/koptavariabler"),
     requestJson(config, "api/ae/koptavariabler"),
+    requestJson(config, "api/je/koptakategorier"),
+    requestJson(config, "api/ae/koptakategorier"),
   ]);
 
   return {
     status: "ok" as const,
     companyVariables,
     workplaceVariables,
+    companyCategories,
+    workplaceCategories,
+  };
+}
+
+export async function fetchScbCompanyRegistryHelpExamplesFromEnv() {
+  const config = credentialConfigFromEnv();
+  if (!config) return { status: "not_configured" as const };
+
+  const [companyExampleHtml, workplaceExampleHtml] = await Promise.all([
+    requestText(config, "help/exampleJe", { accept: "text/html,application/xhtml+xml" }),
+    requestText(config, "help/exampleAe", { accept: "text/html,application/xhtml+xml" }),
+  ]);
+
+  return {
+    status: "ok" as const,
+    companyExampleHtml,
+    workplaceExampleHtml,
   };
 }
