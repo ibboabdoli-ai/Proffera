@@ -1,10 +1,14 @@
+import { EventEmitter } from "node:events";
+
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   createScbCompanyRegistryTransportFromEnv,
   fetchScbCompanyRegistryHelpExamplesFromEnv,
   probeScbCompanyRegistryMetadataFromEnv,
+  readScbCompanyRegistryResponse,
   renderScbCompanyRegistryQueryTemplate,
+  type ScbResponseStream,
 } from "./company-directory-scb-transport";
 
 const ENV_KEYS = [
@@ -29,6 +33,12 @@ afterEach(() => {
     else process.env[key] = value;
   }
 });
+
+function fakeResponse(statusCode = 200) {
+  const response = new EventEmitter() as EventEmitter & { statusCode?: number };
+  response.statusCode = statusCode;
+  return response as unknown as ScbResponseStream;
+}
 
 describe("SCB company registry transport", () => {
   it("renders only explicit organisation-number placeholders into valid JSON", () => {
@@ -94,5 +104,23 @@ describe("SCB company registry transport", () => {
 
     expect(() => createScbCompanyRegistryTransportFromEnv())
       .toThrow("Invalid SCB company registry certificate encoding");
+  });
+
+  it("rejects instead of hanging when the SCB response stream errors", async () => {
+    const response = fakeResponse();
+    const pending = readScbCompanyRegistryResponse(response, () => undefined);
+
+    (response as unknown as EventEmitter).emit("error", new Error("body failed"));
+
+    await expect(pending).rejects.toThrow("body failed");
+  });
+
+  it("rejects instead of hanging when the SCB response stream is aborted", async () => {
+    const response = fakeResponse();
+    const pending = readScbCompanyRegistryResponse(response, () => undefined);
+
+    (response as unknown as EventEmitter).emit("aborted");
+
+    await expect(pending).rejects.toThrow("response was aborted");
   });
 });
