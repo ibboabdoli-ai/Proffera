@@ -247,6 +247,9 @@ export async function getCompanyDirectoryAdminSnapshot(input?: {
         p.primary_sni_label, p.activity_description, p.publication_status,
         p.quality_score, p.privacy_blocked, p.auto_public_eligible,
         p.is_active, p.official_source, p.last_synced_at, p.claimed_workspace_id,
+        p.address_line1, p.postal_code, p.website_url,
+        scb.phone as scb_phone, scb.email as scb_email, scb.postal_address as scb_postal_address,
+        scb.last_synced_at as scb_last_synced_at,
         f.registered_names, f.sni_codes, f.deregistration_date,
         f.advertising_blocked, f.ongoing_procedures,
         (
@@ -256,6 +259,7 @@ export async function getCompanyDirectoryAdminSnapshot(input?: {
         ) as official_facts_fresh
       from company_directory_profiles p
       left join company_directory_official_facts f on f.profile_id = p.id
+      left join company_directory_scb_enrichment scb on scb.profile_id = p.id
       where (${status}::text = 'all' or p.publication_status = ${status})
         and (
           ${query}::text = ''
@@ -310,6 +314,21 @@ export async function getCompanyDirectoryAdminSnapshot(input?: {
       if (jsonArray(row.ongoing_procedures).length > 0) publishSafetyReasons.push("ongoing_legal_procedure");
       if (Boolean(row.advertising_blocked)) publishSafetyReasons.push("advertising_blocked");
 
+      const scbPostal = row.scb_postal_address && typeof row.scb_postal_address === "object"
+        ? row.scb_postal_address as Record<string, unknown>
+        : {};
+      const adminAddressLine = text(row.address_line1).trim() || text(scbPostal.addressLine).trim();
+      const adminPostalCode = text(row.postal_code).trim() || text(scbPostal.postalCode).trim();
+      const adminCity = text(row.city).trim() || text(scbPostal.city).trim();
+      const adminAddress = [adminAddressLine, [adminPostalCode, adminCity].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+      const adminContactSignals = [
+        `Admin · Telefon: ${text(row.scb_phone).trim() || "–"}`,
+        `Admin · E-post: ${text(row.scb_email).trim() || "–"}`,
+        `Admin · Webbplats: ${text(row.website_url).trim() || "–"}`,
+        `Admin · Adress: ${adminAddress || "–"}`,
+        `Admin · SCB-kontakt senast synkad: ${text(row.scb_last_synced_at).trim() || "–"}`,
+      ];
+
       return {
         id: text(row.id),
         slug: text(row.public_slug),
@@ -330,7 +349,7 @@ export async function getCompanyDirectoryAdminSnapshot(input?: {
         lastSyncedAt: text(row.last_synced_at),
         categoryConfidenceScore: categoryConfidence.score,
         categoryConfidenceLevel: categoryConfidence.level,
-        categorySignals: categoryConfidence.signals,
+        categorySignals: [...adminContactSignals, ...categoryConfidence.signals],
         categoryWarnings: categoryConfidence.warnings,
         officialFactsReady: categoryConfidence.officialFactsReady,
         publishSafe: publishSafetyReasons.length === 0,
