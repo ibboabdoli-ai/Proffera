@@ -43,15 +43,30 @@ describe("assessCompanyDirectoryCategoryConfidence", () => {
     expect(result.officialFactsReady).toBe(true);
   });
 
-  it("gives high confidence when unambiguous official SNI is the only category evidence", () => {
+  it("keeps unambiguous official SNI-only evidence in manual review", () => {
     const result = assessCompanyDirectoryCategoryConfidence(base({
       legalName: "Consulting & Management Holding CM AB",
       displayName: "Consulting & Management Holding CM AB",
       activityDescription: "Konsultverksamhet och företagsledning.",
     }));
 
-    expect(result.score).toBe(95);
-    expect(result.level).toBe("high");
+    expect(result.score).toBe(90);
+    expect(result.level).toBe("review");
+    expect(result.warnings).toContain("Ingen oberoende textsignal stödjer kategorin");
+  });
+
+  it("keeps Alight Ophelia out of electrician auto-publication when its business text only describes energy production", () => {
+    const result = assessCompanyDirectoryCategoryConfidence(base({
+      categorySlug: "elektriker",
+      primarySniCode: "43.210",
+      legalName: "Alight Ophelia AB",
+      displayName: "Alight Ophelia AB",
+      activityDescription: "Bolaget ska äga och förvalta system för energiproduktion, samt sälja energi och därtill anknutna tjänster.",
+      sniCodes: [{ code: "43.210", label: "Elinstallationer" }],
+    }));
+
+    expect(result.score).toBe(90);
+    expect(result.level).toBe("review");
     expect(result.warnings).toContain("Ingen oberoende textsignal stödjer kategorin");
   });
 

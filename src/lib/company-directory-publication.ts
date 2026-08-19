@@ -98,10 +98,10 @@ export async function publishCompanyDirectoryProfileIfSafe(
 
   try {
     const scb = await enrichCompanyDirectoryScbForProfile(profileId);
-    if (scb.status === "awaiting_access") {
+    if (scb.status !== "saved") {
       return { ok: false, code: "not_ready" };
     }
-    if (scb.status === "saved" && scb.conflicts.length > 0) {
+    if (scb.conflicts.length > 0) {
       return { ok: false, code: "unsafe" };
     }
   } catch (error) {
@@ -131,15 +131,14 @@ export async function publishCompanyDirectoryProfileIfSafe(
           and f.deregistration_date is null
           and coalesce(f.advertising_blocked, false) = false
           and jsonb_array_length(coalesce(f.ongoing_procedures, '[]'::jsonb)) = 0
-          and not exists (
+          and exists (
             select 1
             from company_directory_scb_enrichment scb
             where scb.profile_id = p.id
-              and (
-                jsonb_array_length(coalesce(scb.conflicts, '[]'::jsonb)) > 0
-                or scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' is distinct from p.updated_at::text
-                or scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' is distinct from f.last_synced_at::text
-              )
+              and jsonb_array_length(coalesce(scb.conflicts, '[]'::jsonb)) = 0
+              and scb.source_payload_hash <> ''
+              and scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = p.updated_at::text
+              and scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = f.last_synced_at::text
           )
       )
     returning p.public_slug
