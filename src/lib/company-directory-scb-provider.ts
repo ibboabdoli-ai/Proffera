@@ -1,5 +1,7 @@
 import "server-only";
 
+import { createScbCompanyRegistryTransportFromEnv } from "./company-directory-scb-transport";
+
 const SCB_SOURCE = "scb_foretagsregistret" as const;
 
 type UnknownRecord = Record<string, unknown>;
@@ -11,6 +13,12 @@ export type ScbCompanyRegistryAddress = {
   city: string | null;
 };
 
+export type ScbCompanyRegistryCoordinates = {
+  northing: number;
+  easting: number;
+  crs: "SWEREF99";
+};
+
 export type ScbCompanyRegistryWorkplace = {
   cfarNumber: string | null;
   name: string | null;
@@ -20,6 +28,8 @@ export type ScbCompanyRegistryWorkplace = {
   postalAddress: ScbCompanyRegistryAddress;
   municipality: string | null;
   sniCodes: string[];
+  coordinates: ScbCompanyRegistryCoordinates | null;
+  source: typeof SCB_SOURCE;
 };
 
 export type ScbCompanyRegistryEnrichment = {
@@ -32,6 +42,15 @@ export type ScbCompanyRegistryEnrichment = {
   sniCodes: string[];
   workplaces: ScbCompanyRegistryWorkplace[];
   source: typeof SCB_SOURCE;
+  provenance: {
+    legalName: typeof SCB_SOURCE;
+    phone: typeof SCB_SOURCE;
+    email: typeof SCB_SOURCE;
+    postalAddress: typeof SCB_SOURCE;
+    municipality: typeof SCB_SOURCE;
+    sniCodes: typeof SCB_SOURCE;
+    workplaces: typeof SCB_SOURCE;
+  };
 };
 
 export type ScbCompanyRegistryTransport = {
@@ -56,6 +75,14 @@ function stringValue(value: unknown) {
   }
   if (typeof value === "number" && Number.isFinite(value)) return String(value);
   return null;
+}
+
+function numericValue(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const text = stringValue(value);
+  if (!text) return null;
+  const parsed = Number(text.replace(/\s/g, "").replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function normalizedKey(value: string) {
@@ -147,6 +174,13 @@ function addressFromRecord(record: UnknownRecord, kind: "postal" | "visiting"): 
   };
 }
 
+function coordinatesFromRecord(record: UnknownRecord): ScbCompanyRegistryCoordinates | null {
+  const northing = numericValue(valueFor(record, ["Nord", "Nordkoordinat", "Northing", "YKoordinat"]));
+  const easting = numericValue(valueFor(record, ["Ost", "Ostkoordinat", "Easting", "XKoordinat"]));
+  if (northing === null || easting === null) return null;
+  return { northing, easting, crs: "SWEREF99" };
+}
+
 function normalizeSniCode(value: unknown) {
   const text = stringValue(value);
   if (!text) return null;
@@ -212,6 +246,8 @@ export function normalizeScbCompanyRegistryPayload(
       postalAddress: addressFromRecord(record, "postal"),
       municipality: textFor(record, ["Kommun", "Kommunnamn"]),
       sniCodes: sniCodesFromRecord(record),
+      coordinates: coordinatesFromRecord(record),
+      source: SCB_SOURCE,
     }));
 
   return {
@@ -224,6 +260,15 @@ export function normalizeScbCompanyRegistryPayload(
     sniCodes: sniCodesFromRecord(company),
     workplaces,
     source: SCB_SOURCE,
+    provenance: {
+      legalName: SCB_SOURCE,
+      phone: SCB_SOURCE,
+      email: SCB_SOURCE,
+      postalAddress: SCB_SOURCE,
+      municipality: SCB_SOURCE,
+      sniCodes: SCB_SOURCE,
+      workplaces: SCB_SOURCE,
+    },
   };
 }
 
@@ -231,11 +276,16 @@ function scbCompanyRegistryEnabled() {
   return process.env.SCB_COMPANY_REGISTRY_ENABLED?.trim().toLowerCase() === "true";
 }
 
+function resolveTransport(transport?: ScbCompanyRegistryTransport) {
+  return transport ?? createScbCompanyRegistryTransportFromEnv();
+}
+
 export function getScbCompanyRegistryStatus(transport?: ScbCompanyRegistryTransport): ScbCompanyRegistryStatus {
   const enabled = scbCompanyRegistryEnabled();
+  if (!enabled) return { enabled: false, accessReady: false };
   return {
-    enabled,
-    accessReady: enabled && Boolean(transport),
+    enabled: true,
+    accessReady: Boolean(resolveTransport(transport)),
   };
 }
 
@@ -244,14 +294,16 @@ export async function fetchScbCompanyRegistryEnrichment(
   transport?: ScbCompanyRegistryTransport,
 ): Promise<ScbCompanyRegistryFetchResult> {
   if (!scbCompanyRegistryEnabled()) return { status: "disabled", data: null };
-  if (!transport) return { status: "awaiting_access", data: null };
+
+  const resolvedTransport = resolveTransport(transport);
+  if (!resolvedTransport) return { status: "awaiting_access", data: null };
 
   const expected = normalizeOrganizationNumber(organizationNumber);
   if (!expected) throw new Error("Invalid organization number for SCB company registry lookup");
 
   const [companyPayload, workplacePayload] = await Promise.all([
-    transport.fetchCompany(expected),
-    transport.fetchWorkplaces(expected),
+    resolvedTransport.fetchCompany(expected),
+    resolvedTransport.fetchWorkplaces(expected),
   ]);
 
   return {
