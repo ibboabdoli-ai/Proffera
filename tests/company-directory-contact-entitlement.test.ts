@@ -52,4 +52,25 @@ describe("company directory direct-contact entitlement", () => {
     expect(entitlement).toContain("minimumPlan: WorkspacePlanKey = \"starter\"");
     expect(entitlement).toContain("isWorkspacePlanFeatureIncluded");
   });
+
+  it("keeps public HTML, metadata and JSON-LD on the gated request projection", () => {
+    const profile = source("src/components/company-directory/public-directory-profile.tsx");
+    const swedishRoute = source("src/app/foretag/listad/[slug]/page.tsx");
+    const englishRoute = source("src/app/en/companies/[slug]/page.tsx");
+    const publicData = source("src/lib/company-directory-public-data.ts");
+    const publicSearch = source("src/lib/company-directory-public-search.ts");
+
+    expect(profile).toContain("getPublicDirectoryBusinessForRequest");
+    expect(profile).toContain("streetAddress: business.addressLine1");
+    expect(profile).not.toContain('from "@/lib/company-directory-engine"');
+
+    for (const route of [swedishRoute, englishRoute]) {
+      expect(route).toContain("getPublicDirectoryBusinessForRequest");
+      expect(route).not.toContain('from "@/lib/company-directory-engine"');
+    }
+
+    for (const publicProjection of [profile, swedishRoute, englishRoute, publicData, publicSearch]) {
+      expect(publicProjection).not.toContain("company-directory-scb-enrichment");
+    }
+  });
 });
