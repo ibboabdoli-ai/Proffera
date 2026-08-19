@@ -50,12 +50,19 @@ describe("SCB company registry transport", () => {
       .toThrow("must render to a JSON object");
   });
 
-  it("keeps the live transport unavailable until both authenticated SCB query templates are configured", () => {
+  it("uses the authenticated SCB help-page request shapes by default once credentials exist", () => {
     process.env.SCB_COMPANY_REGISTRY_PFX_BASE64 = Buffer.from("test-pfx").toString("base64");
     process.env.SCB_COMPANY_REGISTRY_PFX_PASSPHRASE = "test-passphrase";
 
-    expect(createScbCompanyRegistryTransportFromEnv()).toBeNull();
+    expect(createScbCompanyRegistryTransportFromEnv()).toEqual({
+      fetchCompany: expect.any(Function),
+      fetchWorkplaces: expect.any(Function),
+    });
+  });
 
+  it("still allows explicit query-template overrides for the replacement API", () => {
+    process.env.SCB_COMPANY_REGISTRY_PFX_BASE64 = Buffer.from("test-pfx").toString("base64");
+    process.env.SCB_COMPANY_REGISTRY_PFX_PASSPHRASE = "test-passphrase";
     process.env.SCB_COMPANY_REGISTRY_COMPANY_QUERY_TEMPLATE = '{"orgnr":"{{ORGNR}}"}';
     process.env.SCB_COMPANY_REGISTRY_WORKPLACE_QUERY_TEMPLATE = '{"orgnr":"{{ORGNR}}"}';
 
@@ -69,8 +76,6 @@ describe("SCB company registry transport", () => {
     const encoded = Buffer.from("test-pfx").toString("base64");
     process.env.SCB_COMPANY_REGISTRY_PFX_BASE64 = `${encoded.slice(0, 4)}\n${encoded.slice(4)}`;
     process.env.SCB_COMPANY_REGISTRY_PFX_PASSPHRASE = "test-passphrase";
-    process.env.SCB_COMPANY_REGISTRY_COMPANY_QUERY_TEMPLATE = '{"orgnr":"{{ORGNR}}"}';
-    process.env.SCB_COMPANY_REGISTRY_WORKPLACE_QUERY_TEMPLATE = '{"orgnr":"{{ORGNR}}"}';
 
     expect(createScbCompanyRegistryTransportFromEnv()).toEqual({
       fetchCompany: expect.any(Function),
@@ -86,8 +91,6 @@ describe("SCB company registry transport", () => {
   it("rejects malformed certificate base64 before creating a transport", () => {
     process.env.SCB_COMPANY_REGISTRY_PFX_BASE64 = "%%%not-base64%%%";
     process.env.SCB_COMPANY_REGISTRY_PFX_PASSPHRASE = "test-passphrase";
-    process.env.SCB_COMPANY_REGISTRY_COMPANY_QUERY_TEMPLATE = '{"orgnr":"{{ORGNR}}"}';
-    process.env.SCB_COMPANY_REGISTRY_WORKPLACE_QUERY_TEMPLATE = '{"orgnr":"{{ORGNR}}"}';
 
     expect(() => createScbCompanyRegistryTransportFromEnv())
       .toThrow("Invalid SCB company registry certificate encoding");
