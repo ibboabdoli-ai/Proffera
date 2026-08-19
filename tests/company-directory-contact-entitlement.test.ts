@@ -179,7 +179,7 @@ describe("company directory direct-contact entitlement", () => {
     expect(paidResult?.addressLine1).toBe("Paidgatan 3");
   });
 
-  it("redacts unclaimed and free search results while preserving an entitled claimed result", async () => {
+  it("redacts unclaimed/free page-two results, preserves entitled contact, and uses the page offset", async () => {
     const rows = [
       searchRow({
         id: "published-id",
@@ -203,7 +203,7 @@ describe("company directory direct-contact entitlement", () => {
       }),
     ];
     const sql = vi.fn()
-      .mockResolvedValueOnce([{ total_count: rows.length }])
+      .mockResolvedValueOnce([{ total_count: 65 }])
       .mockResolvedValueOnce(rows);
     mocks.getSql.mockReturnValue(sql);
     mocks.getWorkspaceDirectoryPublicAccessForWorkspaces.mockResolvedValue(new Map([
@@ -211,9 +211,16 @@ describe("company directory direct-contact entitlement", () => {
       [paidWorkspaceId, { planAccess: true, websiteBuilder: false, onlineBooking: false }],
     ]));
 
-    const result = await searchPublishedCompanyDirectory({ limit: 10 });
+    const result = await searchPublishedCompanyDirectory({ limit: 30, page: 2 });
 
     expect(sql).toHaveBeenCalledTimes(2);
+    const resultQueryCall = sql.mock.calls[1] ?? [];
+    expect(resultQueryCall.at(-2)).toBe(30);
+    expect(resultQueryCall.at(-1)).toBe(30);
+    expect(result.page).toBe(2);
+    expect(result.pageSize).toBe(30);
+    expect(result.totalCount).toBe(65);
+    expect(result.totalPages).toBe(3);
     expect(mocks.getWorkspaceDirectoryPublicAccessForWorkspaces).toHaveBeenCalledTimes(1);
     expect(mocks.getWorkspaceDirectoryPublicAccessForWorkspaces).toHaveBeenCalledWith([
       freeWorkspaceId,
