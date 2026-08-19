@@ -54,6 +54,21 @@ describe("safe company directory auto publication contract", () => {
     expect(publication).toContain("jsonArray(row.ongoing_procedures).length > 0");
   });
 
+  it("preflights a ready and otherwise safe candidate before making SCB requests", () => {
+    const publication = source("src/lib/company-directory-publication.ts");
+    const readyCheck = publication.indexOf('text(row.publication_status) !== "ready"');
+    const officialFactsCheck = publication.indexOf("!confidence.officialFactsReady || !officialFactsFresh");
+    const safetyCheck = publication.indexOf("if (unsafe)");
+    const confidenceCheck = publication.indexOf("confidence.score < 95");
+    const scbEnrichment = publication.indexOf("await enrichCompanyDirectoryScbForProfile(profileId)");
+
+    expect(readyCheck).toBeGreaterThanOrEqual(0);
+    expect(officialFactsCheck).toBeGreaterThan(readyCheck);
+    expect(safetyCheck).toBeGreaterThan(officialFactsCheck);
+    expect(confidenceCheck).toBeGreaterThan(safetyCheck);
+    expect(scbEnrichment).toBeGreaterThan(confidenceCheck);
+  });
+
   it("preserves PostgreSQL timestamp precision and rechecks safety atomically", () => {
     const publication = source("src/lib/company-directory-publication.ts");
 
@@ -72,6 +87,11 @@ describe("safe company directory auto publication contract", () => {
     expect(publication).toContain("and f.deregistration_date is null");
     expect(publication).toContain("and coalesce(f.advertising_blocked, false) = false");
     expect(publication).toContain("jsonb_array_length(coalesce(f.ongoing_procedures, '[]'::jsonb)) = 0");
+    expect(publication).toContain("jsonb_array_length(coalesce(scb.conflicts, '[]'::jsonb)) > 0");
+    expect(publication).toContain("{comparisonSnapshot,profileUpdatedToken}");
+    expect(publication).toContain("is distinct from p.updated_at::text");
+    expect(publication).toContain("{comparisonSnapshot,officialFactsLastSyncedToken}");
+    expect(publication).toContain("is distinct from f.last_synced_at::text");
   });
 
   it("shows Official Facts freshness in the admin publication preview", () => {
