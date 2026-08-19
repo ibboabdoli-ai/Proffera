@@ -1,6 +1,8 @@
 import { betterAuth } from "better-auth";
+import { after } from "next/server";
 import { Pool } from "pg";
 
+import { sendAuthPasswordResetEmail } from "@/features/email/auth-password-reset-email";
 import { resolvePreviewAuthOriginConfig } from "@/lib/auth-origin";
 import { resolveAuthSecret } from "@/lib/auth-secret";
 import { resolveDatabaseUrl } from "@/lib/db/database-url";
@@ -31,6 +33,20 @@ function createAuth() {
     }),
     emailAndPassword: {
       enabled: true,
+      revokeSessionsOnPasswordReset: true,
+      sendResetPassword: async ({ user, url }) => {
+        after(async () => {
+          const result = await sendAuthPasswordResetEmail({
+            email: user.email,
+            name: user.name,
+            url,
+          });
+
+          if (!result.ok) {
+            console.error("Proffera password reset email delivery failed.");
+          }
+        });
+      },
     },
     ...(previewAuthOriginConfig ?? {}),
   });
