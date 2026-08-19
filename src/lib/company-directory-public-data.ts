@@ -1,13 +1,72 @@
 import { cache } from "react";
 
-import { gateDirectoryDirectContact } from "@/lib/company-directory-contact-entitlement";
+import {
+  discloseDirectoryDirectContact,
+  type DirectoryDirectContactDisclosure,
+} from "@/lib/company-directory-contact-entitlement";
 import { getPublicDirectoryBusiness, type PublicDirectoryBusiness } from "@/lib/company-directory-engine";
 import { getSql } from "@/lib/db/server";
 import { hasWorkspacePlanAccessForWorkspace } from "@/lib/workspace-feature-entitlement-db";
 
 export type PublicDirectoryBusinessForRequest = PublicDirectoryBusiness & {
   publicationStatus: "published" | "claimed";
+  organizationNumber: string;
+  primarySniCode: string;
+  contact: DirectoryDirectContactDisclosure;
 };
+
+function emptyContact() {
+  return discloseDirectoryDirectContact({}, false);
+}
+
+async function getPublishedDirectoryContact(profileId: string) {
+  const sql = getSql();
+  if (!sql) {
+    return {
+      organizationNumber: "",
+      primarySniCode: "",
+      contact: emptyContact(),
+    };
+  }
+
+  const rows = await sql`
+    select
+      profile.organization_number,
+      profile.primary_sni_code,
+      profile.website_url,
+      coalesce(nullif(scb.phone, ''), '') as phone,
+      coalesce(nullif(scb.email, ''), '') as email,
+      coalesce(nullif(scb.postal_address->>'addressLine', ''), nullif(profile.address_line1, ''), '') as direct_address_line1
+    from company_directory_profiles profile
+    left join company_directory_scb_enrichment scb
+      on scb.profile_id = profile.id
+      and scb.conflicts = '[]'::jsonb
+    where profile.id = ${profileId}::uuid
+      and profile.publication_status = 'published'
+      and profile.privacy_blocked = false
+      and profile.auto_public_eligible = true
+    limit 1
+  `;
+  const row = rows[0];
+  if (!row) {
+    return {
+      organizationNumber: "",
+      primarySniCode: "",
+      contact: emptyContact(),
+    };
+  }
+
+  return {
+    organizationNumber: String(row.organization_number ?? ""),
+    primarySniCode: String(row.primary_sni_code ?? ""),
+    contact: discloseDirectoryDirectContact({
+      addressLine1: row.direct_address_line1,
+      phone: row.phone,
+      email: row.email,
+      website: row.website_url,
+    }, false),
+  };
+}
 
 async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDirectoryBusinessForRequest | null> {
   const normalized = slug.trim().toLowerCase();
@@ -19,10 +78,12 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
     select
       profile.id::text,
       profile.public_slug,
+      profile.organization_number,
       profile.display_name,
       profile.legal_form,
       profile.organization_status,
       profile.category_slug,
+      profile.primary_sni_code,
       profile.primary_sni_label,
       profile.activity_description,
       profile.address_line1,
@@ -30,16 +91,23 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
       profile.city,
       profile.municipality,
       profile.region,
+      profile.website_url,
       profile.quality_score,
       profile.official_source,
       profile.source_updated_at,
       profile.last_synced_at,
       profile.claimed_workspace_id::text,
+      coalesce(nullif(scb.phone, ''), '') as phone,
+      coalesce(nullif(scb.email, ''), '') as email,
+      coalesce(nullif(scb.postal_address->>'addressLine', ''), nullif(profile.address_line1, ''), '') as direct_address_line1,
       media.public_url as media_url,
       media.media_kind,
       media.attribution,
       media.is_actual_business_media
     from company_directory_profiles profile
+    left join company_directory_scb_enrichment scb
+      on scb.profile_id = profile.id
+      and scb.conflicts = '[]'::jsonb
     left join lateral (
       select public_url, media_kind, attribution, is_actual_business_media
       from company_directory_media
@@ -60,10 +128,13 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
   if (!row) return null;
 
   const workspaceId = String(row.claimed_workspace_id ?? "");
-  const directContact = gateDirectoryDirectContact(
-    { addressLine1: row.address_line1 },
-    await hasWorkspacePlanAccessForWorkspace(workspaceId),
-  );
+  const entitled = await hasWorkspacePlanAccessForWorkspace(workspaceId);
+  const contact = discloseDirectoryDirectContact({
+    addressLine1: row.direct_address_line1,
+    phone: row.phone,
+    email: row.email,
+    website: row.website_url,
+  }, entitled);
 
   return {
     id: String(row.id),
@@ -74,7 +145,7 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
     categorySlug: String(row.category_slug ?? ""),
     primarySniLabel: String(row.primary_sni_label ?? ""),
     activityDescription: String(row.activity_description ?? ""),
-    addressLine1: directContact.addressLine1,
+    addressLine1: contact.addressLine1,
     postalCode: String(row.postal_code ?? ""),
     city: String(row.city ?? ""),
     municipality: String(row.municipality ?? ""),
@@ -90,6 +161,9 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
       isActualBusinessMedia: Boolean(row.is_actual_business_media),
     } : null,
     publicationStatus: "claimed",
+    organizationNumber: String(row.organization_number ?? ""),
+    primarySniCode: String(row.primary_sni_code ?? ""),
+    contact,
   };
 }
 
@@ -107,8 +181,15 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
 export const getPublicDirectoryBusinessForRequest = cache(async (slug: string): Promise<PublicDirectoryBusinessForRequest | null> => {
   const published = await getPublicDirectoryBusiness(slug);
   if (published) {
-    const directContact = gateDirectoryDirectContact({ addressLine1: published.addressLine1 }, false);
-    return { ...published, addressLine1: directContact.addressLine1, publicationStatus: "published" };
+    const publicContact = await getPublishedDirectoryContact(published.id);
+    return {
+      ...published,
+      addressLine1: publicContact.contact.addressLine1,
+      publicationStatus: "published",
+      organizationNumber: publicContact.organizationNumber,
+      primarySniCode: publicContact.primarySniCode,
+      contact: publicContact.contact,
+    };
   }
   return getSafeClaimedDirectoryFallback(slug);
 });
