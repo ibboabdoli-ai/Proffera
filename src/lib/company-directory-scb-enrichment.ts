@@ -40,6 +40,19 @@ function normalizeName(value: unknown) {
     .replace(/[^\p{L}\p{N}]+/gu, "");
 }
 
+function legalNamesMatchOrScbIsClearlyTruncated(bolagsverket: unknown, scb: unknown) {
+  const official = normalizeName(bolagsverket);
+  const registry = normalizeName(scb);
+  if (!official || !registry) return false;
+  if (official === registry) return true;
+
+  // SCB can return a visibly truncated long company name. Treat only a long,
+  // exact normalized prefix as equivalent; shorter/other mismatches still fail closed.
+  return registry.length >= 32
+    && official.length > registry.length
+    && official.startsWith(registry);
+}
+
 function normalizeSni(value: unknown) {
   return text(value).replace(/\D/g, "");
 }
@@ -81,7 +94,7 @@ export function detectScbCompanyDirectoryConflicts(input: {
   if (
     bolagsverketLegalName
     && scbLegalName
-    && normalizeName(bolagsverketLegalName) !== normalizeName(scbLegalName)
+    && !legalNamesMatchOrScbIsClearlyTruncated(bolagsverketLegalName, scbLegalName)
   ) {
     conflicts.push({
       field: "legal_name",
