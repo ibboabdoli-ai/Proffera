@@ -65,6 +65,42 @@ export async function hasWorkspacePlanAccessForWorkspace(
   }
 }
 
+/**
+ * Public company contact details are a paid entitlement. Product trials may
+ * unlock workspace features, but they must not publish phone/email/address to
+ * anonymous visitors before the workspace has an active paid plan.
+ */
+export async function hasWorkspaceActivePaidPlanAccessForWorkspace(
+  workspaceId: string,
+  minimumPlan: WorkspacePlanKey = "starter",
+) {
+  const sql = getSql();
+  if (!sql || !uuidPattern.test(workspaceId)) return false;
+
+  try {
+    const rows = await sql`
+      select plan_key, status, current_period_end
+      from workspace_plans
+      where workspace_id = ${workspaceId}::uuid
+      order by created_at desc
+      limit 1
+    `;
+    const row = rows[0];
+    if (!row || String(row.status ?? "") !== "active") return false;
+
+    return isWorkspacePlanFeatureIncluded({
+      planKey: row.plan_key,
+      planStatus: "active",
+      planPeriodEnd: row.current_period_end,
+      minimumPlan,
+      now: new Date(),
+    });
+  } catch (error) {
+    console.error("Failed to resolve paid workspace plan access", error);
+    return false;
+  }
+}
+
 export async function getWorkspaceDirectoryPublicAccessForWorkspaces(
   workspaceIds: string[],
 ): Promise<Map<string, WorkspaceDirectoryPublicAccess>> {
