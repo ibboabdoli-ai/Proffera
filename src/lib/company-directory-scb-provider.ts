@@ -68,6 +68,10 @@ export type ScbCompanyRegistryStatus = {
   accessReady: boolean;
 };
 
+export type ScbCompanyRegistryFetchOptions = {
+  allowWhenDisabledWithExplicitTransport?: boolean;
+};
+
 function stringValue(value: unknown) {
   if (typeof value === "string") {
     const trimmed = value.trim();
@@ -292,8 +296,11 @@ export function getScbCompanyRegistryStatus(transport?: ScbCompanyRegistryTransp
 export async function fetchScbCompanyRegistryEnrichment(
   organizationNumber: string,
   transport?: ScbCompanyRegistryTransport,
+  options: ScbCompanyRegistryFetchOptions = {},
 ): Promise<ScbCompanyRegistryFetchResult> {
-  if (!scbCompanyRegistryEnabled()) return { status: "disabled", data: null };
+  const enabled = scbCompanyRegistryEnabled();
+  const controlledTransportAllowed = options.allowWhenDisabledWithExplicitTransport === true && Boolean(transport);
+  if (!enabled && !controlledTransportAllowed) return { status: "disabled", data: null };
 
   const resolvedTransport = resolveTransport(transport);
   if (!resolvedTransport) return { status: "awaiting_access", data: null };
