@@ -65,6 +65,19 @@ describe("SCB company registry transport", () => {
     });
   });
 
+  it("accepts a base64 certificate value with harmless line wrapping", () => {
+    const encoded = Buffer.from("test-pfx").toString("base64");
+    process.env.SCB_COMPANY_REGISTRY_PFX_BASE64 = `${encoded.slice(0, 4)}\n${encoded.slice(4)}`;
+    process.env.SCB_COMPANY_REGISTRY_PFX_PASSPHRASE = "test-passphrase";
+    process.env.SCB_COMPANY_REGISTRY_COMPANY_QUERY_TEMPLATE = '{"orgnr":"{{ORGNR}}"}';
+    process.env.SCB_COMPANY_REGISTRY_WORKPLACE_QUERY_TEMPLATE = '{"orgnr":"{{ORGNR}}"}';
+
+    expect(createScbCompanyRegistryTransportFromEnv()).toEqual({
+      fetchCompany: expect.any(Function),
+      fetchWorkplaces: expect.any(Function),
+    });
+  });
+
   it("allows read-only metadata/help probes to stay not configured without certificate credentials", async () => {
     await expect(probeScbCompanyRegistryMetadataFromEnv()).resolves.toEqual({ status: "not_configured" });
     await expect(fetchScbCompanyRegistryHelpExamplesFromEnv()).resolves.toEqual({ status: "not_configured" });
