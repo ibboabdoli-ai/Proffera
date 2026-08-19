@@ -5,8 +5,8 @@ import {
   type DirectoryDirectContactDisclosure,
 } from "@/lib/company-directory-contact-entitlement";
 import { getPublicDirectoryBusiness, type PublicDirectoryBusiness } from "@/lib/company-directory-engine";
+import { hasActivePaidDirectoryContactAccess } from "@/lib/company-directory-paid-contact-entitlement";
 import { getSql } from "@/lib/db/server";
-import { hasWorkspacePlanAccessForWorkspace } from "@/lib/workspace-feature-entitlement-db";
 
 export type PublicDirectoryBusinessForRequest = PublicDirectoryBusiness & {
   publicationStatus: "published" | "claimed";
@@ -159,7 +159,7 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
   if (!row) return null;
 
   const workspaceId = String(row.claimed_workspace_id ?? "");
-  const entitled = await hasWorkspacePlanAccessForWorkspace(workspaceId);
+  const entitled = await hasActivePaidDirectoryContactAccess(workspaceId);
   const scb = await getConflictFreeScbContact(sql, String(row.id));
   const contact = discloseDirectoryDirectContact({
     addressLine1: scb?.addressLine1 || row.address_line1,
@@ -206,9 +206,9 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
  * persisted in an application-level cache here.
  *
  * A claimed profile may remain available as a read-only Directory fallback
- * when its previously published official data is still safe. This prevents a
- * Starter claim from making a company disappear before a public Business Page
- * is entitled/configured.
+ * when its previously published official data is still safe. Direct contact is
+ * disclosed only when the claimed workspace has an active paid plan; Free and
+ * Trial workspaces remain locked.
  */
 export const getPublicDirectoryBusinessForRequest = cache(async (slug: string): Promise<PublicDirectoryBusinessForRequest | null> => {
   const published = await getPublicDirectoryBusiness(slug);
