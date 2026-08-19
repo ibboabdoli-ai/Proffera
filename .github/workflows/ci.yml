@@ -21,7 +21,8 @@ jobs:
       pull-requests: write
 
     steps:
-      - name: Clear stale review label before fresh validation
+      - name: Clear stale final-review state after new code
+        if: github.event.action == 'synchronize'
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
@@ -34,7 +35,7 @@ jobs:
           if gh api --method DELETE \
             "repos/${REPOSITORY}/issues/${PR_NUMBER}/labels/needs-ai-review" \
             >/dev/null 2>"$error_file"; then
-            echo "Cleared stale needs-ai-review from PR #${PR_NUMBER}."
+            echo "Cleared stale needs-ai-review from PR #${PR_NUMBER} after new code."
           else
             error_text="$(cat "$error_file")"
             if grep -Fq '(HTTP 404)' <<< "$error_text"; then
@@ -45,6 +46,10 @@ jobs:
               exit 1
             fi
           fi
+
+      - name: Keep final-review state on non-code events
+        if: github.event.action != 'synchronize'
+        run: echo "No new code on this event; final-review state is unchanged."
 
   validate:
     name: Validate
@@ -172,12 +177,13 @@ jobs:
       pull-requests: write
 
     steps:
-      - name: Route sensitive or large PRs to CodeRabbit
+      - name: Route one final sensitive review to CodeRabbit
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT_ACTION: ${{ github.event.action }}
         shell: bash
         run: |
           set -euo pipefail
@@ -232,30 +238,34 @@ jobs:
             exit 0
           fi
 
+          if [ "$EVENT_ACTION" != "ready_for_review" ]; then
+            echo "PR #${PR_NUMBER}: final CodeRabbit review deferred (${reason}). Keep the PR draft while iterating; mark it ready only when the code is final."
+            exit 0
+          fi
+
           gh api --method POST "repos/${REPOSITORY}/issues/${PR_NUMBER}/labels" \
             -f 'labels[]=needs-ai-review' >/dev/null
-
-          echo "PR #${PR_NUMBER}: needs-ai-review applied after Validate (${reason})."
+          echo "PR #${PR_NUMBER}: final needs-ai-review applied after Validate (${reason})."
 
           reviews_json="$(gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/reviews?per_page=100" --jq '.[]' | jq -s '.')"
-          prior_review_count="$(jq -r '[.[] | select(.user.login == "coderabbitai[bot]")] | length' <<< "$reviews_json")"
           current_review_count="$(jq -r --arg sha "$HEAD_SHA" '[.[] | select(.user.login == "coderabbitai[bot]" and .commit_id == $sha)] | length' <<< "$reviews_json")"
 
-          if [ "$prior_review_count" -gt 0 ] && [ "$current_review_count" -eq 0 ]; then
-            marker="<!-- proffera-coderabbit-review-request:${HEAD_SHA} -->"
-            comments_json="$(gh api --paginate "repos/${REPOSITORY}/issues/${PR_NUMBER}/comments?per_page=100" --jq '.[]' | jq -s '.')"
-            request_count="$(jq -r --arg marker "$marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | length' <<< "$comments_json")"
+          if [ "$current_review_count" -gt 0 ]; then
+            echo "Current-head CodeRabbit review already exists; no new review requested."
+            exit 0
+          fi
 
-            if [ "$request_count" -eq 0 ]; then
-              review_body="$(printf '%s\n%s\n' "$marker" '@coderabbitai review')"
-              gh api --method POST "repos/${REPOSITORY}/issues/${PR_NUMBER}/comments" \
-                -f body="$review_body" >/dev/null
-              echo "Requested one incremental CodeRabbit re-review for current head $HEAD_SHA."
-            else
-              echo "Incremental CodeRabbit re-review was already requested for current head $HEAD_SHA."
-            fi
+          marker="<!-- proffera-coderabbit-final-review-request:${HEAD_SHA} -->"
+          comments_json="$(gh api --paginate "repos/${REPOSITORY}/issues/${PR_NUMBER}/comments?per_page=100" --jq '.[]' | jq -s '.')"
+          request_count="$(jq -r --arg marker "$marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | length' <<< "$comments_json")"
+
+          if [ "$request_count" -eq 0 ]; then
+            review_body="$(printf '%s\n%s\n' "$marker" '@coderabbitai review')"
+            gh api --method POST "repos/${REPOSITORY}/issues/${PR_NUMBER}/comments" \
+              -f body="$review_body" >/dev/null
+            echo "Requested one final CodeRabbit review for current head $HEAD_SHA."
           else
-            echo "Label-based first review is sufficient, or a current-head CodeRabbit review already exists."
+            echo "Final CodeRabbit review was already requested for current head $HEAD_SHA."
           fi
 
   e2e_public_smoke_run:
@@ -308,7 +318,7 @@ jobs:
       pull-requests: read
 
     steps:
-      - name: Require successful browser smoke and current-head AI review when routed
+      - name: Require successful browser smoke and final current-head AI review
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
@@ -338,6 +348,7 @@ jobs:
 
           pr_json="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")"
           current_head_sha="$(jq -r '.head.sha' <<< "$pr_json")"
+          is_draft="$(jq -r '.draft' <<< "$pr_json")"
           author="$(jq -r '.user.login' <<< "$pr_json")"
 
           if [ "$current_head_sha" != "$HEAD_SHA" ]; then
@@ -347,6 +358,11 @@ jobs:
 
           if [ "$author" = "dependabot[bot]" ]; then
             echo "Dependabot PR: AI review gate is exempt."
+            exit 0
+          fi
+
+          if [ "$is_draft" = "true" ]; then
+            echo "Draft PR: browser smoke passed; final CodeRabbit review is deferred until ready_for_review."
             exit 0
           fi
 
@@ -387,11 +403,11 @@ jobs:
 
           labels="$(jq -r '.labels[].name' <<< "$pr_json")"
           if ! grep -Fxq 'needs-ai-review' <<< "$labels"; then
-            echo "Refused: sensitive PR was not routed to needs-ai-review (${reason})."
+            echo "Refused: sensitive PR needs one final CodeRabbit review (${reason}). Keep it draft during development, then mark it ready when the code is final."
             exit 1
           fi
 
-          echo "Sensitive PR routed (${reason}); waiting for CodeRabbit review on head $HEAD_SHA."
+          echo "Sensitive PR is in final review (${reason}); waiting for CodeRabbit on head $HEAD_SHA."
 
           for attempt in $(seq 1 40); do
             loop_head_sha="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}" --jq '.head.sha')"
