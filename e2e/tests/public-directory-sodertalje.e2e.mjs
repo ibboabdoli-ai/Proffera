@@ -19,8 +19,13 @@ test.describe("Södertälje public directory", () => {
 
     const pageTwoResponse = await page.goto("/foretag/listad?service=Elektriker&location=S%C3%B6dert%C3%A4lje&page=2");
     expect(pageTwoResponse?.ok()).toBeTruthy();
+    await expect(page).toHaveURL(/\/foretag\/listad\?.*page=2/);
+    await expect(page.getByRole("heading", { level: 1, name: "Hitta rätt företag för jobbet" })).toBeVisible();
+    await expect(page.getByText("Företag som matchar")).toBeVisible();
     await expect(page.getByLabel("Tjänst")).toHaveValue("Elektriker");
     await expect(page.getByLabel("Ort")).toHaveValue("Södertälje");
+    await expect(page.getByText("Tjänsten känns inte igen ännu.", { exact: false })).toHaveCount(0);
+    await expect(page.getByText("Positionen kunde inte tolkas.", { exact: false })).toHaveCount(0);
 
     url = new URL(page.url());
     expect(url.searchParams.get("service")).toBe("Elektriker");
