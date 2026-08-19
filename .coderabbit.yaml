@@ -11,8 +11,7 @@ reviews:
     enabled: false
     drafts: false
     auto_incremental_review: false
-    labels:
-      - "needs-ai-review"
+    # Final reviews are requested explicitly by CI with @coderabbitai review.
   path_filters:
     - "!**/node_modules/**"
     - "!**/.next/**"
