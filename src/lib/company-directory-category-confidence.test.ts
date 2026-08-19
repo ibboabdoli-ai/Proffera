@@ -43,15 +43,15 @@ describe("assessCompanyDirectoryCategoryConfidence", () => {
     expect(result.officialFactsReady).toBe(true);
   });
 
-  it("gives high confidence when unambiguous official SNI is the only category evidence", () => {
+  it("keeps unambiguous official SNI-only evidence in manual review", () => {
     const result = assessCompanyDirectoryCategoryConfidence(base({
       legalName: "Consulting & Management Holding CM AB",
       displayName: "Consulting & Management Holding CM AB",
       activityDescription: "Konsultverksamhet och företagsledning.",
     }));
 
-    expect(result.score).toBe(95);
-    expect(result.level).toBe("high");
+    expect(result.score).toBe(90);
+    expect(result.level).toBe("review");
     expect(result.warnings).toContain("Ingen oberoende textsignal stödjer kategorin");
   });
 
