@@ -4,6 +4,8 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import Image from "next/image";
 import QRCode from "qrcode";
 
+import { resolveBookingUrlForLocation } from "@/lib/preview-booking-url";
+
 type BookingLinkCardProps = {
   url: string;
 };
@@ -11,17 +13,8 @@ type BookingLinkCardProps = {
 const subscribeToBrowserLocation = () => () => {};
 
 function resolveBookingUrl(url: string) {
-  if (typeof window === "undefined" || !window.location.hostname.endsWith(".vercel.app")) return url;
-
-  try {
-    const target = new URL(url);
-    const isProductionBookingUrl = ["proffera.se", "www.proffera.se"].includes(target.hostname) && target.pathname.startsWith("/boka/");
-    if (!isProductionBookingUrl) return url;
-
-    return new URL(`${target.pathname}${target.search}${target.hash}`, window.location.origin).toString();
-  } catch {
-    return url;
-  }
+  if (typeof window === "undefined") return url;
+  return resolveBookingUrlForLocation(url, window.location.hostname, window.location.origin);
 }
 
 export function BookingLinkCard({ url }: BookingLinkCardProps) {
