@@ -47,6 +47,16 @@ type ScbRegistryTransportConfig = ScbRegistryCredentialConfig & {
   workplaceQueryTemplate: string;
 };
 
+export type ScbResponseStream = {
+  statusCode?: number;
+  on: (event: "data", listener: (chunk: Buffer | string) => void) => unknown;
+  once: {
+    (event: "end", listener: () => void): unknown;
+    (event: "error", listener: (error: Error) => void): unknown;
+    (event: "aborted", listener: () => void): unknown;
+  };
+};
+
 let requestQueue: Promise<void> = Promise.resolve();
 let nextRequestAt = 0;
 
@@ -132,6 +142,53 @@ async function reserveRequestSlot() {
   release();
 }
 
+export function readScbCompanyRegistryResponse(
+  response: ScbResponseStream,
+  abortRequest: (error: Error) => void,
+) {
+  return new Promise<string>((resolve, reject) => {
+    const status = response.statusCode ?? 0;
+    const chunks: Buffer[] = [];
+    let totalBytes = 0;
+    let settled = false;
+
+    const fail = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    };
+
+    response.on("data", (chunk: Buffer | string) => {
+      if (settled) return;
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      totalBytes += buffer.length;
+      if (totalBytes > MAX_RESPONSE_BYTES) {
+        const error = new Error("SCB company registry response exceeded size limit");
+        fail(error);
+        abortRequest(error);
+        return;
+      }
+      chunks.push(buffer);
+    });
+
+    response.once("error", (error: Error) => {
+      fail(error instanceof Error ? error : new Error("SCB company registry response stream failed"));
+    });
+    response.once("aborted", () => {
+      fail(new Error("SCB company registry response was aborted"));
+    });
+    response.once("end", () => {
+      if (settled) return;
+      if (status < 200 || status >= 300) {
+        fail(new Error(`SCB company registry request failed with HTTP ${status}`));
+        return;
+      }
+      settled = true;
+      resolve(Buffer.concat(chunks).toString("utf8"));
+    });
+  });
+}
+
 async function requestText(
   config: ScbRegistryCredentialConfig,
   path: string,
@@ -158,27 +215,8 @@ async function requestText(
         } : {}),
       },
     }, (response) => {
-      const status = response.statusCode ?? 0;
-      const chunks: Buffer[] = [];
-      let totalBytes = 0;
-
-      response.on("data", (chunk: Buffer | string) => {
-        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-        totalBytes += buffer.length;
-        if (totalBytes > MAX_RESPONSE_BYTES) {
-          request.destroy(new Error("SCB company registry response exceeded size limit"));
-          return;
-        }
-        chunks.push(buffer);
-      });
-
-      response.on("end", () => {
-        if (status < 200 || status >= 300) {
-          reject(new Error(`SCB company registry request failed with HTTP ${status}`));
-          return;
-        }
-        resolve(Buffer.concat(chunks).toString("utf8"));
-      });
+      readScbCompanyRegistryResponse(response, (error) => request.destroy(error))
+        .then(resolve, reject);
     });
 
     request.on("timeout", () => request.destroy(new Error("SCB company registry request timed out")));
