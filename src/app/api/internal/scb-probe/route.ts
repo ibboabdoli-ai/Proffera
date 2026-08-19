@@ -39,6 +39,20 @@ function codeSamples(html: string) {
   return samples;
 }
 
+function visibleHelpText(html: string) {
+  return decodeHtml(
+    html
+      .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+      .replace(/<\/(?:p|div|tr|li|h[1-6]|table|section|article)>/gi, "\n")
+      .replace(/<(?:br|hr)\s*\/?>/gi, "\n"),
+  )
+    .replace(/\r/g, "")
+    .replace(/[\t ]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .slice(0, 40_000);
+}
+
 function json(payload: unknown, status = 200) {
   return NextResponse.json(payload, {
     status,
@@ -78,6 +92,8 @@ export async function GET() {
       helpExamples: {
         company: codeSamples(examples.companyExampleHtml),
         workplace: codeSamples(examples.workplaceExampleHtml),
+        companyText: visibleHelpText(examples.companyExampleHtml),
+        workplaceText: visibleHelpText(examples.workplaceExampleHtml),
       },
     });
   } catch (error) {
