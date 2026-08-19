@@ -1,6 +1,7 @@
 import "server-only";
 
 import { assessCompanyDirectoryCategoryConfidence } from "@/lib/company-directory-category-confidence";
+import { enrichCompanyDirectoryScbForProfile } from "@/lib/company-directory-scb-enrichment";
 import { getSql } from "@/lib/db/server";
 
 export type CompanyDirectoryPublicationResult = {
@@ -95,6 +96,19 @@ export async function publishCompanyDirectoryProfileIfSafe(
     return { ok: false, code: "not_ready" };
   }
 
+  try {
+    const scb = await enrichCompanyDirectoryScbForProfile(profileId);
+    if (scb.status === "awaiting_access") {
+      return { ok: false, code: "not_ready" };
+    }
+    if (scb.status === "saved" && scb.conflicts.length > 0) {
+      return { ok: false, code: "unsafe" };
+    }
+  } catch (error) {
+    console.error("SCB company directory enrichment failed before publication", error);
+    return { ok: false, code: "not_ready" };
+  }
+
   const updated = await sql`
     update company_directory_profiles p
     set publication_status = 'published',
@@ -117,6 +131,16 @@ export async function publishCompanyDirectoryProfileIfSafe(
           and f.deregistration_date is null
           and coalesce(f.advertising_blocked, false) = false
           and jsonb_array_length(coalesce(f.ongoing_procedures, '[]'::jsonb)) = 0
+          and not exists (
+            select 1
+            from company_directory_scb_enrichment scb
+            where scb.profile_id = p.id
+              and (
+                jsonb_array_length(coalesce(scb.conflicts, '[]'::jsonb)) > 0
+                or scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' is distinct from p.updated_at::text
+                or scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' is distinct from f.last_synced_at::text
+              )
+          )
       )
     returning p.public_slug
   `;

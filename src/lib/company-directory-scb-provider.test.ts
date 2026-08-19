@@ -6,17 +6,27 @@ import {
   normalizeScbCompanyRegistryPayload,
 } from "./company-directory-scb-provider";
 
-const initialScbCompanyRegistryEnabled = process.env.SCB_COMPANY_REGISTRY_ENABLED;
+const SCB_ENV_KEYS = [
+  "SCB_COMPANY_REGISTRY_ENABLED",
+  "SCB_COMPANY_REGISTRY_BASE_URL",
+  "SCB_COMPANY_REGISTRY_PFX_BASE64",
+  "SCB_COMPANY_REGISTRY_PFX_PASSPHRASE",
+  "SCB_COMPANY_REGISTRY_TIMEOUT_MS",
+  "SCB_COMPANY_REGISTRY_COMPANY_QUERY_TEMPLATE",
+  "SCB_COMPANY_REGISTRY_WORKPLACE_QUERY_TEMPLATE",
+] as const;
+
+const initialScbEnv = Object.fromEntries(SCB_ENV_KEYS.map((key) => [key, process.env[key]]));
 
 beforeEach(() => {
-  delete process.env.SCB_COMPANY_REGISTRY_ENABLED;
+  for (const key of SCB_ENV_KEYS) delete process.env[key];
 });
 
 afterEach(() => {
-  if (initialScbCompanyRegistryEnabled === undefined) {
-    delete process.env.SCB_COMPANY_REGISTRY_ENABLED;
-  } else {
-    process.env.SCB_COMPANY_REGISTRY_ENABLED = initialScbCompanyRegistryEnabled;
+  for (const key of SCB_ENV_KEYS) {
+    const value = initialScbEnv[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
   }
 });
 
@@ -48,7 +58,7 @@ describe("SCB company registry provider", () => {
     });
   });
 
-  it("normalizes company and workplace data without mixing the two address concepts", () => {
+  it("normalizes company and workplace data with provenance, coordinates and de-duplicated SNI", () => {
     const normalized = normalizeScbCompanyRegistryPayload(
       [{
         PeOrgNr: "165563115707",
@@ -60,6 +70,7 @@ describe("SCB company registry provider", () => {
         PostOrt: "Södertälje",
         Kommun: "Södertälje",
         "Bransch_1P, kod": "43.210",
+        "Bransch_2P, kod": "43210",
       }],
       [{
         OrgNr: "5563115707",
@@ -75,6 +86,8 @@ describe("SCB company registry provider", () => {
         PostOrt: "Södertälje",
         Kommun: "Södertälje",
         "SNI-kod": "43210",
+        Nordkoordinat: "6567000",
+        Ostkoordinat: "668000",
       }],
       "556311-5707",
     );
@@ -111,8 +124,23 @@ describe("SCB company registry provider", () => {
         },
         municipality: "Södertälje",
         sniCodes: ["43.210"],
+        coordinates: {
+          northing: 6567000,
+          easting: 668000,
+          crs: "SWEREF99",
+        },
+        source: "scb_foretagsregistret",
       }],
       source: "scb_foretagsregistret",
+      provenance: {
+        legalName: "scb_foretagsregistret",
+        phone: "scb_foretagsregistret",
+        email: "scb_foretagsregistret",
+        postalAddress: "scb_foretagsregistret",
+        municipality: "scb_foretagsregistret",
+        sniCodes: "scb_foretagsregistret",
+        workplaces: "scb_foretagsregistret",
+      },
     });
   });
 
