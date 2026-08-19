@@ -3,7 +3,7 @@ import { cache } from "react";
 import { gateDirectoryDirectContact, type DirectoryDirectContact } from "@/lib/company-directory-contact-entitlement";
 import { getPublicDirectoryBusiness, type PublicDirectoryBusiness } from "@/lib/company-directory-engine";
 import { getSql } from "@/lib/db/server";
-import { hasWorkspacePlanAccessForWorkspace } from "@/lib/workspace-feature-entitlement-db";
+import { hasWorkspaceActivePaidPlanAccessForWorkspace } from "@/lib/workspace-feature-entitlement-db";
 
 export type PublicDirectoryBusinessForRequest = PublicDirectoryBusiness & DirectoryDirectContact & {
   publicationStatus: "published" | "claimed";
@@ -65,7 +65,7 @@ async function resolveDirectContact(input: {
   }
 
   const entitled = Boolean(workspaceId)
-    && await hasWorkspacePlanAccessForWorkspace(workspaceId);
+    && await hasWorkspaceActivePaidPlanAccessForWorkspace(workspaceId);
 
   return {
     ...gateDirectoryDirectContact(rawContact, entitled),
@@ -183,8 +183,9 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
  * persisted in an application-level cache here.
  *
  * Direct contact data is always resolved server-side and fails closed. A
- * claimed workspace must have active plan access before phone, email, website
- * or street address can be included in the public projection.
+ * claimed workspace must have an active paid plan before phone, email, website
+ * or street address can be included in the public projection. Trial and free
+ * workspaces remain locked.
  */
 export const getPublicDirectoryBusinessForRequest = cache(async (slug: string): Promise<PublicDirectoryBusinessForRequest | null> => {
   const published = await getPublicDirectoryBusiness(slug);
