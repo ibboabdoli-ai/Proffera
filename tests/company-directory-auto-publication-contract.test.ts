@@ -34,7 +34,7 @@ function safePublicationRow(overrides: Record<string, unknown> = {}) {
     public_slug: "exempel-el",
     display_name: "Exempel El AB",
     legal_name: "Exempel El AB",
-    category_slug: "electrician",
+    category_slug: "elektriker",
     primary_sni_code: "43210",
     activity_description: "Elinstallationer",
     publication_status: "ready",
@@ -129,6 +129,7 @@ describe("safe company directory auto publication contract", () => {
     expect(publication).toContain("Boolean(row.deregistration_date)");
     expect(publication).toContain("Boolean(row.advertising_blocked)");
     expect(publication).toContain("jsonArray(row.ongoing_procedures).length > 0");
+    expect(publication).toContain('scb.status !== "saved"');
   });
 
   it.each([
@@ -152,6 +153,21 @@ describe("safe company directory auto publication contract", () => {
     expect(sql).toHaveBeenCalledTimes(1);
   });
 
+  it.each(["disabled", "awaiting_access", "ineligible"] as const)(
+    "fails closed when SCB enrichment is %s",
+    async (status) => {
+      const sql = mockPublicationSql(safePublicationRow());
+      mocks.getSql.mockReturnValue(sql);
+      mocks.enrichScb.mockResolvedValue({ status, saved: false, conflicts: [] });
+
+      await expect(publishCompanyDirectoryProfileIfSafe(PROFILE_ID)).resolves.toEqual({
+        ok: false,
+        code: "not_ready",
+      });
+      expect(sql).toHaveBeenCalledTimes(1);
+    },
+  );
+
   it("blocks publication immediately when live SCB enrichment reports a conflict", async () => {
     const sql = mockPublicationSql(safePublicationRow());
     mocks.getSql.mockReturnValue(sql);
@@ -174,10 +190,11 @@ describe("safe company directory auto publication contract", () => {
   });
 
   it.each([
-    ["stored SCB conflicts", "jsonb_array_length(coalesce(scb.conflicts, '[]'::jsonb)) > 0"],
-    ["a stale profile snapshot", "{comparisonSnapshot,profileUpdatedToken}"],
-    ["a stale Official Facts snapshot", "{comparisonSnapshot,officialFactsLastSyncedToken}"],
-  ])("fails closed when the final atomic database gate rejects %s", async (_label, requiredGuard) => {
+    ["an SCB row with no conflicts", "jsonb_array_length(coalesce(scb.conflicts, '[]'::jsonb)) = 0"],
+    ["a non-empty SCB source hash", "scb.source_payload_hash <> ''"],
+    ["a matching profile snapshot", "{comparisonSnapshot,profileUpdatedToken}"],
+    ["a matching Official Facts snapshot", "{comparisonSnapshot,officialFactsLastSyncedToken}"],
+  ])("requires %s in the final atomic database gate", async (_label, requiredGuard) => {
     const sql = mockPublicationSql(safePublicationRow(), []);
     mocks.getSql.mockReturnValue(sql);
 
