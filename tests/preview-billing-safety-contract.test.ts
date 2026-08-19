@@ -1,34 +1,92 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it, vi } from "vitest";
 
-import { describe, expect, it } from "vitest";
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: vi.fn() }),
+}));
 
-function source(path: string) {
-  return readFileSync(resolve(process.cwd(), path), "utf8");
+import { BookingLinkCard } from "@/app/dashboard/installningar/booking-link-card";
+import { WorkspaceBillingCard } from "@/app/dashboard/installningar/workspace-billing-card";
+import { resolveBookingUrlForLocation } from "@/lib/preview-booking-url";
+
+const activeStarterBilling = {
+  databaseReady: true,
+  status: "active" as const,
+  planKey: "starter",
+  hasSubscription: true,
+  currentPeriodEnd: "2026-09-19T00:00:00.000Z",
+  cancelAtPeriodEnd: false,
+};
+
+const starterPlan = {
+  key: "starter" as const,
+  name: "Starter",
+  priceLabel: "199 kr/mån",
+  description: "Starter test",
+  configured: true,
+};
+
+const professionalPlan = {
+  key: "professional" as const,
+  name: "Professional",
+  priceLabel: "599 kr/mån",
+  description: "Professional test",
+  configured: true,
+};
+
+function renderBilling(checkoutPlans = [starterPlan, professionalPlan]) {
+  return renderToStaticMarkup(createElement(WorkspaceBillingCard, {
+    billing: activeStarterBilling,
+    canManage: true,
+    checkoutConfigured: true,
+    testMode: true,
+    checkoutPlans,
+    preferredPlanKey: null,
+    billingCurrency: "SEK",
+    timeZone: "Europe/Stockholm",
+    locale: "sv",
+    adaptivePricingEnabled: false,
+  }));
 }
 
-describe("preview billing safety contract", () => {
-  it("shows configured prices in Stripe Sandbox without inventing a missing Starter price", () => {
-    const billingCard = source("src/app/dashboard/installningar/workspace-billing-card.tsx");
+describe("preview billing safety behavior", () => {
+  it("renders the configured Sandbox Starter and Professional prices", () => {
+    const html = renderBilling();
 
-    expect(billingCard).toContain('`${plan.priceLabel} · Stripe Sandbox`');
-    expect(billingCard).toContain('starterPlan?.configured');
-    expect(billingCard).toContain('starterPlan.priceLabel');
-    expect(billingCard).toContain('Pris bekräftas i Stripe');
-    expect(billingCard).toContain('Professional · {professionalPlan.priceLabel}{testMode ? " (test)" : ""}');
-    expect(billingCard).not.toContain('1 kr/mån (test)');
-    expect(billingCard).not.toContain('299 kr/mån');
+    expect(html).toContain("Starter · 199 kr/mån (test)");
+    expect(html).toContain("Professional · 599 kr/mån (test)");
+    expect(html).not.toContain("1 kr/mån (test)");
   });
 
-  it("keeps Preview booking links and QR codes on the active Vercel Preview host", () => {
-    const bookingCard = source("src/app/dashboard/installningar/booking-link-card.tsx");
+  it("does not invent a Starter amount when the Starter price is unavailable", () => {
+    const html = renderBilling([{ ...starterPlan, configured: false }, professionalPlan]);
 
-    expect(bookingCard).toContain('window.location.hostname.endsWith(".vercel.app")');
-    expect(bookingCard).toContain('["proffera.se", "www.proffera.se"]');
-    expect(bookingCard).toContain('target.pathname.startsWith("/boka/")');
-    expect(bookingCard).toContain('window.location.origin');
-    expect(bookingCard).toContain('navigator.clipboard.writeText(resolvedUrl)');
-    expect(bookingCard).toContain('QRCode.toDataURL(resolvedUrl');
-    expect(bookingCard).toContain('href={resolvedUrl}');
+    expect(html).toContain("Starter · Pris bekräftas i Stripe (test)");
+    expect(html).not.toContain("Starter · 199 kr/mån (test)");
+  });
+
+  it("rewrites a canonical production booking URL to the active Vercel Preview origin", () => {
+    expect(resolveBookingUrlForLocation(
+      "https://www.proffera.se/boka/iboren-preview-test?lang=en#booking-form",
+      "proffera-jhap-preview.vercel.app",
+      "https://proffera-jhap-preview.vercel.app",
+    )).toBe("https://proffera-jhap-preview.vercel.app/boka/iboren-preview-test?lang=en#booking-form");
+  });
+
+  it("keeps booking URLs canonical outside Vercel Preview and ignores unrelated URLs", () => {
+    const canonical = "https://www.proffera.se/boka/iboren-preview-test";
+
+    expect(resolveBookingUrlForLocation(canonical, "www.proffera.se", "https://www.proffera.se")).toBe(canonical);
+    expect(resolveBookingUrlForLocation("https://example.com/boka/test", "preview.vercel.app", "https://preview.vercel.app")).toBe("https://example.com/boka/test");
+    expect(resolveBookingUrlForLocation("https://www.proffera.se/dashboard", "preview.vercel.app", "https://preview.vercel.app")).toBe("https://www.proffera.se/dashboard");
+  });
+
+  it("renders the canonical server snapshot before Preview hydration", () => {
+    const canonical = "https://www.proffera.se/boka/iboren-preview-test";
+    const html = renderToStaticMarkup(createElement(BookingLinkCard, { url: canonical }));
+
+    expect(html).toContain(`href="${canonical}"`);
+    expect(html).toContain(canonical);
   });
 });
