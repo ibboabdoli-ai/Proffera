@@ -18,7 +18,6 @@ const copy = {
     email: "E-post",
     emailPlaceholder: "namn@foretag.se",
     password: "Lösenord",
-    forgotPassword: "Glömt lösenord?",
     idleError: "Inga inloggningsfel.",
     pending: "Loggar in...",
     submit: "Logga in",
@@ -32,7 +31,6 @@ const copy = {
     email: "Email",
     emailPlaceholder: "name@company.com",
     password: "Password",
-    forgotPassword: "Forgot password?",
     idleError: "No sign-in errors.",
     pending: "Signing in...",
     submit: "Sign in",
@@ -97,10 +95,7 @@ export function LoginForm({ afterLoginPath = "/dashboard", locale = "sv" }: Logi
         </div>
 
         <div>
-          <div className="flex items-center justify-between gap-3">
-            <label htmlFor="password" className="text-sm font-semibold text-[#17201a]">{text.password}</label>
-            <a href={`/glomt-losenord?lang=${locale}`} className="text-sm font-semibold text-[#17452f] hover:underline">{text.forgotPassword}</a>
-          </div>
+          <label htmlFor="password" className="text-sm font-semibold text-[#17201a]">{text.password}</label>
           <input id="password" name="password" type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} disabled={isPending} placeholder="••••••••" className="mt-2 w-full rounded-xl border border-[#d7ded5] bg-white px-4 py-3 text-base text-[#17201a] placeholder:text-[#8a958d] transition focus:border-[#17452f] focus:outline-none focus:ring-2 focus:ring-[#17452f]/20 disabled:cursor-not-allowed disabled:bg-[#f7f7f4] disabled:opacity-80" />
         </div>
 
