@@ -5,6 +5,7 @@ import { createScbCompanyRegistryTransportFromEnv } from "@/lib/company-director
 
 export const dynamic = "force-dynamic";
 
+// Temporary preview-only controlled SCB pilot. Never merge this route to main.
 const PILOT_BATCHES = [
   ["5592330699", "5592316326", "5592303555", "5592223522", "5592218084"],
   ["5592170327", "5592166424", "5592098908", "5592080781", "5592016538"],
