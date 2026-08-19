@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import Image from "next/image";
 import QRCode from "qrcode";
 
@@ -8,12 +8,33 @@ type BookingLinkCardProps = {
   url: string;
 };
 
+const subscribeToBrowserLocation = () => () => {};
+
+function resolveBookingUrl(url: string) {
+  if (typeof window === "undefined" || !window.location.hostname.endsWith(".vercel.app")) return url;
+
+  try {
+    const target = new URL(url);
+    const isProductionBookingUrl = ["proffera.se", "www.proffera.se"].includes(target.hostname) && target.pathname.startsWith("/boka/");
+    if (!isProductionBookingUrl) return url;
+
+    return new URL(`${target.pathname}${target.search}${target.hash}`, window.location.origin).toString();
+  } catch {
+    return url;
+  }
+}
+
 export function BookingLinkCard({ url }: BookingLinkCardProps) {
+  const resolvedUrl = useSyncExternalStore(
+    subscribeToBrowserLocation,
+    () => resolveBookingUrl(url),
+    () => url,
+  );
   const [qrCodeUrl, setQrCodeUrl] = useState("");
   const [copyLabel, setCopyLabel] = useState("Kopiera länk");
 
   useEffect(() => {
-    QRCode.toDataURL(url, {
+    QRCode.toDataURL(resolvedUrl, {
       width: 320,
       margin: 1,
       errorCorrectionLevel: "M",
@@ -21,11 +42,11 @@ export function BookingLinkCard({ url }: BookingLinkCardProps) {
     })
       .then(setQrCodeUrl)
       .catch(() => setQrCodeUrl(""));
-  }, [url]);
+  }, [resolvedUrl]);
 
   async function copyLink() {
     try {
-      await navigator.clipboard.writeText(url);
+      await navigator.clipboard.writeText(resolvedUrl);
       setCopyLabel("Länken är kopierad");
       window.setTimeout(() => setCopyLabel("Kopiera länk"), 2000);
     } catch {
@@ -44,13 +65,13 @@ export function BookingLinkCard({ url }: BookingLinkCardProps) {
   return (
     <section className="rounded-xl border border-[#c9e6d0] bg-[#eef8f0] p-4 text-sm text-[#17452f]" aria-label="Publicerad bokningslänk och QR-kod">
       <p className="font-bold">Din publicerade bokningslänk</p>
-      <a href={url} target="_blank" rel="noreferrer" className="mt-2 block break-all font-semibold underline underline-offset-2 focus:outline-none focus:ring-2 focus:ring-[#17452f]">
-        {url}
+      <a href={resolvedUrl} target="_blank" rel="noreferrer" className="mt-2 block break-all font-semibold underline underline-offset-2 focus:outline-none focus:ring-2 focus:ring-[#17452f]">
+        {resolvedUrl}
       </a>
       <p className="mt-2 text-xs leading-5 text-[#466352]">Dela länken direkt eller använd QR-koden på skyltar, visitkort och sociala medier.</p>
 
       <div className="mt-4 flex flex-col gap-4 rounded-xl border border-[#c9e6d0] bg-white p-4 sm:flex-row sm:items-center">
-        {qrCodeUrl ? <Image src={qrCodeUrl} width={160} height={160} unoptimized alt={`QR-kod för ${url}`} className="h-40 w-40 rounded-lg border border-[#e4e9e2]" /> : <div className="h-40 w-40 rounded-lg bg-[#f7f9f6]" aria-hidden="true" />}
+        {qrCodeUrl ? <Image src={qrCodeUrl} width={160} height={160} unoptimized alt={`QR-kod för ${resolvedUrl}`} className="h-40 w-40 rounded-lg border border-[#e4e9e2]" /> : <div className="h-40 w-40 rounded-lg bg-[#f7f9f6]" aria-hidden="true" />}
         <div className="grid gap-2">
           <button type="button" onClick={copyLink} className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[#173e2b] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#123824] focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2">
             {copyLabel}

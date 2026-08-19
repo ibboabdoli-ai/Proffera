@@ -41,6 +41,11 @@ export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, t
   const canStartCheckout = !billing.hasSubscription || billing.status === "cancelled";
   const starterPlan = checkoutPlans.find((plan) => plan.key === "starter");
   const professionalPlan = checkoutPlans.find((plan) => plan.key === "professional");
+  const starterPriceLabel = starterPlan?.configured
+    ? starterPlan.priceLabel
+    : locale === "en"
+      ? "Price confirmed by Stripe"
+      : "Pris bekräftas i Stripe";
   const canUpgrade = canManage && hasActivePlan && billing.planKey === "starter" && professionalPlan?.configured;
   const canOpenPortal = canManage && ["active", "trialing", "past_due", "paused"].includes(billing.status ?? "");
   const dateLocale = locale === "en" ? "en-GB" : "sv-SE";
@@ -219,7 +224,7 @@ export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, t
                   <span className="flex items-start justify-between gap-3">
                     <span>
                       <span className="block text-base font-bold text-[#17201a]">{plan.name}</span>
-                      <span className="mt-1 block text-sm font-semibold text-[#17452f]">{testMode ? "Testpris i Stripe Sandbox" : plan.priceLabel}</span>
+                      <span className="mt-1 block text-sm font-semibold text-[#17452f]">{testMode ? `${plan.priceLabel} · Stripe Sandbox` : plan.priceLabel}</span>
                     </span>
                     {isLoading ? <LoaderCircle className="h-4 w-4 animate-spin text-[#17452f]" aria-hidden="true" /> : <CreditCard className="h-4 w-4 text-[#17452f]" aria-hidden="true" />}
                   </span>
@@ -240,11 +245,11 @@ export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, t
           <dl className="mt-4 divide-y divide-[#cfe2d5] rounded-xl border border-[#cfe2d5] bg-white px-4 text-sm">
             <div className="flex items-center justify-between gap-4 py-3">
               <dt className="text-[#5b665f]">Nuvarande plan</dt>
-              <dd className="text-right font-semibold text-[#17201a]">Starter · {testMode ? "1 kr/mån (test)" : starterPlan?.priceLabel ?? "299 kr/mån"}</dd>
+              <dd className="text-right font-semibold text-[#17201a]">Starter · {starterPriceLabel}{testMode ? " (test)" : ""}</dd>
             </div>
             <div className="flex items-center justify-between gap-4 py-3">
               <dt className="text-[#5b665f]">Ny plan</dt>
-              <dd className="text-right font-semibold text-[#17201a]">Professional · {testMode ? "1 kr/mån (test)" : professionalPlan.priceLabel}</dd>
+              <dd className="text-right font-semibold text-[#17201a]">Professional · {professionalPlan.priceLabel}{testMode ? " (test)" : ""}</dd>
             </div>
           </dl>
 
