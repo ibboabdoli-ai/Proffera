@@ -18,7 +18,10 @@ vi.mock("@/lib/workspace-feature-entitlement-db", () => ({
   getWorkspaceDirectoryPublicAccessForWorkspaces: mocks.getWorkspaceDirectoryPublicAccessForWorkspaces,
 }));
 
-import { gateDirectoryDirectContact } from "../src/lib/company-directory-contact-entitlement";
+import {
+  discloseDirectoryDirectContact,
+  gateDirectoryDirectContact,
+} from "../src/lib/company-directory-contact-entitlement";
 import { getPublicDirectoryBusinessForRequest } from "@/lib/company-directory-public-data";
 import { searchPublishedCompanyDirectory } from "@/lib/company-directory-public-search";
 
@@ -27,7 +30,7 @@ const paidWorkspaceId = "22222222-2222-4222-8222-222222222222";
 
 function publishedBusiness(slug: string, addressLine1: string) {
   return {
-    id: `${slug}-id`,
+    id: "33333333-3333-4333-8333-333333333333",
     slug,
     companyName: "Public AB",
     legalForm: "AB",
@@ -52,17 +55,23 @@ function claimedFallbackRow(workspaceId: string, slug: string, addressLine1: str
   return {
     id: `${slug}-id`,
     public_slug: slug,
+    organization_number: "5560000000",
     display_name: "Claimed AB",
     legal_form: "AB",
     organization_status: "Aktiv",
     category_slug: "vvs",
+    primary_sni_code: "43.221",
     primary_sni_label: "VVS",
     activity_description: "",
     address_line1: addressLine1,
+    direct_address_line1: addressLine1,
     postal_code: "111 11",
     city: "Stockholm",
     municipality: "Stockholm",
     region: "Stockholm",
+    website_url: "https://claimed.example",
+    phone: "+46 8 123 45 67",
+    email: "kontakt@claimed.example",
     quality_score: 99,
     official_source: "bolagsverket",
     source_updated_at: null,
@@ -136,6 +145,27 @@ describe("company directory direct-contact entitlement", () => {
     });
   });
 
+  it("preserves availability metadata without leaking locked values", () => {
+    expect(discloseDirectoryDirectContact({
+      addressLine1: "Examplegatan 1",
+      phone: "+46 8 123 45 67",
+      email: "kontakt@example.se",
+      website: "",
+    }, false)).toEqual({
+      addressLine1: "",
+      phone: "",
+      email: "",
+      website: "",
+      entitled: false,
+      available: {
+        addressLine1: true,
+        phone: true,
+        email: true,
+        website: false,
+      },
+    });
+  });
+
   it("preserves normalized direct contact fields when plan entitlement exists", () => {
     expect(gateDirectoryDirectContact({
       addressLine1: "  Examplegatan 1  ",
@@ -159,10 +189,43 @@ describe("company directory direct-contact entitlement", () => {
 
     expect(result?.publicationStatus).toBe("published");
     expect(result?.addressLine1).toBe("");
+    expect(result?.contact.entitled).toBe(false);
     expect(mocks.hasWorkspacePlanAccessForWorkspace).not.toHaveBeenCalled();
   });
 
-  it("redacts Claimed Free but preserves normalized address for an entitled claimed profile", async () => {
+  it("shows that SCB contact fields exist while keeping their values redacted", async () => {
+    mocks.getPublicDirectoryBusiness.mockResolvedValue(
+      publishedBusiness("scb-public-profile", "Profilegatan 1"),
+    );
+    mocks.getSql.mockReturnValue(vi.fn(async () => [{
+      organization_number: "5561234567",
+      primary_sni_code: "43.221",
+      website_url: "https://example.se",
+      phone: "+46 8 123 45 67",
+      email: "kontakt@example.se",
+      direct_address_line1: "SCB-gatan 2",
+    }]));
+
+    const result = await getPublicDirectoryBusinessForRequest("scb-public-profile");
+
+    expect(result?.organizationNumber).toBe("5561234567");
+    expect(result?.primarySniCode).toBe("43.221");
+    expect(result?.contact).toEqual({
+      addressLine1: "",
+      phone: "",
+      email: "",
+      website: "",
+      entitled: false,
+      available: {
+        addressLine1: true,
+        phone: true,
+        email: true,
+        website: true,
+      },
+    });
+  });
+
+  it("redacts Claimed Free but preserves direct contact for an entitled claimed profile", async () => {
     const sql = vi.fn(async () => [claimedFallbackRow(freeWorkspaceId, "claimed-free-profile", "Freegatan 2")]);
     mocks.getSql.mockReturnValue(sql);
     mocks.hasWorkspacePlanAccessForWorkspace.mockResolvedValue(false);
@@ -170,6 +233,8 @@ describe("company directory direct-contact entitlement", () => {
     const freeResult = await getPublicDirectoryBusinessForRequest("claimed-free-profile");
     expect(freeResult?.publicationStatus).toBe("claimed");
     expect(freeResult?.addressLine1).toBe("");
+    expect(freeResult?.contact.available.phone).toBe(true);
+    expect(freeResult?.contact.phone).toBe("");
 
     sql.mockImplementation(async () => [claimedFallbackRow(paidWorkspaceId, "claimed-paid-profile", "  Paidgatan 3  ")]);
     mocks.hasWorkspacePlanAccessForWorkspace.mockResolvedValue(true);
@@ -177,6 +242,9 @@ describe("company directory direct-contact entitlement", () => {
     const paidResult = await getPublicDirectoryBusinessForRequest("claimed-paid-profile");
     expect(paidResult?.publicationStatus).toBe("claimed");
     expect(paidResult?.addressLine1).toBe("Paidgatan 3");
+    expect(paidResult?.contact.phone).toBe("+46 8 123 45 67");
+    expect(paidResult?.contact.email).toBe("kontakt@claimed.example");
+    expect(paidResult?.contact.website).toBe("https://claimed.example");
   });
 
   it("redacts unclaimed and free search results while preserving an entitled claimed result", async () => {
