@@ -132,16 +132,17 @@ describe("safe company directory auto publication contract", () => {
   });
 
   it.each([
-    ["non-ready profile", { publication_status: "review" }, 100, "not_ready"],
-    ["stale Official Facts", { official_facts_fresh: false }, 100, "not_ready"],
-    ["privacy-blocked profile", { privacy_blocked: true }, 100, "unsafe"],
-    ["low-confidence profile", {}, 90, "low_confidence"],
-  ])("does not call SCB when preflight rejects a %s", async (_label, overrides, score, expectedCode) => {
+    ["non-ready profile", { publication_status: "review" }, 100, true, "not_ready"],
+    ["unavailable Official Facts", {}, 100, false, "not_ready"],
+    ["stale Official Facts", { official_facts_fresh: false }, 100, true, "not_ready"],
+    ["privacy-blocked profile", { privacy_blocked: true }, 100, true, "unsafe"],
+    ["low-confidence profile", {}, 90, true, "low_confidence"],
+  ])("does not call SCB when preflight rejects a %s", async (_label, overrides, score, officialFactsReady, expectedCode) => {
     const sql = mockPublicationSql(safePublicationRow(overrides));
     mocks.getSql.mockReturnValue(sql);
     mocks.assessConfidence.mockReturnValue({
       score,
-      officialFactsReady: true,
+      officialFactsReady,
     });
 
     const result = await publishCompanyDirectoryProfileIfSafe(PROFILE_ID);
