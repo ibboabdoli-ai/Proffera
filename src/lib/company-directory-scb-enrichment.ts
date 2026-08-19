@@ -16,6 +16,11 @@ type ScbConflict = {
   scb: string | string[];
 };
 
+export type ScbComparisonSnapshot = {
+  profileUpdatedToken: string;
+  officialFactsLastSyncedToken: string;
+};
+
 export type CompanyDirectoryScbEnrichmentResult =
   | { status: "disabled" | "awaiting_access" | "ineligible"; saved: false; conflicts: ScbConflict[] }
   | { status: "saved"; saved: true; conflicts: ScbConflict[] };
@@ -50,6 +55,14 @@ export function officialSniCodes(value: unknown) {
     if (code) result.push(code);
   }
   return [...new Set(result)];
+}
+
+export function scbComparisonSnapshotMatches(
+  captured: ScbComparisonSnapshot,
+  current: ScbComparisonSnapshot,
+) {
+  return captured.profileUpdatedToken === current.profileUpdatedToken
+    && captured.officialFactsLastSyncedToken === current.officialFactsLastSyncedToken;
 }
 
 export function detectScbCompanyDirectoryConflicts(input: {
@@ -96,6 +109,7 @@ async function saveScbEnrichment(
   profileId: string,
   data: ScbCompanyRegistryEnrichment,
   conflicts: ScbConflict[],
+  comparisonSnapshot: ScbComparisonSnapshot,
 ) {
   const sql = getSql();
   if (!sql) throw new Error("Database is not configured");
@@ -103,7 +117,10 @@ async function saveScbEnrichment(
   const postalAddress = JSON.stringify(data.postalAddress);
   const sniCodes = JSON.stringify(data.sniCodes);
   const workplaces = JSON.stringify(data.workplaces);
-  const provenance = JSON.stringify(data.provenance);
+  const provenance = JSON.stringify({
+    ...data.provenance,
+    comparisonSnapshot,
+  });
   const conflictPayload = JSON.stringify(conflicts);
   const sourcePayloadHash = createHash("sha256")
     .update(JSON.stringify(data))
@@ -154,7 +171,9 @@ export async function enrichCompanyDirectoryScbForProfile(
       profile.organization_number,
       profile.organization_kind,
       profile.legal_name,
-      facts.sni_codes
+      profile.updated_at::text as profile_updated_token,
+      facts.sni_codes,
+      facts.last_synced_at::text as facts_last_synced_token
     from company_directory_profiles profile
     left join company_directory_official_facts facts on facts.profile_id = profile.id
     where profile.id = ${profileId}::uuid
@@ -182,7 +201,11 @@ export async function enrichCompanyDirectoryScbForProfile(
     bolagsverketSniCodes: rows[0]?.sni_codes,
     scb: fetched.data,
   });
+  const comparisonSnapshot: ScbComparisonSnapshot = {
+    profileUpdatedToken: text(rows[0]?.profile_updated_token),
+    officialFactsLastSyncedToken: text(rows[0]?.facts_last_synced_token),
+  };
 
-  await saveScbEnrichment(profileId, fetched.data, conflicts);
+  await saveScbEnrichment(profileId, fetched.data, conflicts, comparisonSnapshot);
   return { status: "saved", saved: true, conflicts };
 }
