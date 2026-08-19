@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getSql: vi.fn(),
   getPublicDirectoryBusiness: vi.fn(),
-  hasWorkspacePlanAccessForWorkspace: vi.fn(),
+  hasActivePaidDirectoryContactAccess: vi.fn(),
   getWorkspaceDirectoryPublicAccessForWorkspaces: vi.fn(),
 }));
 
@@ -13,8 +13,10 @@ vi.mock("@/lib/db/server", () => ({ getSql: mocks.getSql }));
 vi.mock("@/lib/company-directory-engine", () => ({
   getPublicDirectoryBusiness: mocks.getPublicDirectoryBusiness,
 }));
+vi.mock("@/lib/company-directory-paid-contact-entitlement", () => ({
+  hasActivePaidDirectoryContactAccess: mocks.hasActivePaidDirectoryContactAccess,
+}));
 vi.mock("@/lib/workspace-feature-entitlement-db", () => ({
-  hasWorkspacePlanAccessForWorkspace: mocks.hasWorkspacePlanAccessForWorkspace,
   getWorkspaceDirectoryPublicAccessForWorkspaces: mocks.getWorkspaceDirectoryPublicAccessForWorkspaces,
 }));
 
@@ -122,16 +124,16 @@ describe("company directory direct-contact entitlement", () => {
   beforeEach(() => {
     mocks.getSql.mockReset();
     mocks.getPublicDirectoryBusiness.mockReset();
-    mocks.hasWorkspacePlanAccessForWorkspace.mockReset();
+    mocks.hasActivePaidDirectoryContactAccess.mockReset();
     mocks.getWorkspaceDirectoryPublicAccessForWorkspaces.mockReset();
 
     mocks.getSql.mockReturnValue(null);
     mocks.getPublicDirectoryBusiness.mockResolvedValue(null);
-    mocks.hasWorkspacePlanAccessForWorkspace.mockResolvedValue(false);
+    mocks.hasActivePaidDirectoryContactAccess.mockResolvedValue(false);
     mocks.getWorkspaceDirectoryPublicAccessForWorkspaces.mockResolvedValue(new Map());
   });
 
-  it("fails closed for every direct contact field without plan entitlement", () => {
+  it("fails closed for every direct contact field without paid plan entitlement", () => {
     expect(gateDirectoryDirectContact({
       addressLine1: "Examplegatan 1",
       phone: "+46 8 123 45 67",
@@ -166,7 +168,7 @@ describe("company directory direct-contact entitlement", () => {
     });
   });
 
-  it("preserves normalized direct contact fields when plan entitlement exists", () => {
+  it("preserves normalized direct contact fields when paid entitlement exists", () => {
     expect(gateDirectoryDirectContact({
       addressLine1: "  Examplegatan 1  ",
       phone: "  +46 8 123 45 67  ",
@@ -190,7 +192,7 @@ describe("company directory direct-contact entitlement", () => {
     expect(result?.publicationStatus).toBe("published");
     expect(result?.addressLine1).toBe("");
     expect(result?.contact.entitled).toBe(false);
-    expect(mocks.hasWorkspacePlanAccessForWorkspace).not.toHaveBeenCalled();
+    expect(mocks.hasActivePaidDirectoryContactAccess).not.toHaveBeenCalled();
   });
 
   it("shows that SCB contact fields exist while keeping their values redacted", async () => {
@@ -225,10 +227,10 @@ describe("company directory direct-contact entitlement", () => {
     });
   });
 
-  it("redacts Claimed Free but preserves direct contact for an entitled claimed profile", async () => {
+  it("keeps Free or Trial claimed profiles locked and reveals paid active contact", async () => {
     const sql = vi.fn(async () => [claimedFallbackRow(freeWorkspaceId, "claimed-free-profile", "Freegatan 2")]);
     mocks.getSql.mockReturnValue(sql);
-    mocks.hasWorkspacePlanAccessForWorkspace.mockResolvedValue(false);
+    mocks.hasActivePaidDirectoryContactAccess.mockResolvedValue(false);
 
     const freeResult = await getPublicDirectoryBusinessForRequest("claimed-free-profile");
     expect(freeResult?.publicationStatus).toBe("claimed");
@@ -237,7 +239,7 @@ describe("company directory direct-contact entitlement", () => {
     expect(freeResult?.contact.phone).toBe("");
 
     sql.mockImplementation(async () => [claimedFallbackRow(paidWorkspaceId, "claimed-paid-profile", "  Paidgatan 3  ")]);
-    mocks.hasWorkspacePlanAccessForWorkspace.mockResolvedValue(true);
+    mocks.hasActivePaidDirectoryContactAccess.mockResolvedValue(true);
 
     const paidResult = await getPublicDirectoryBusinessForRequest("claimed-paid-profile");
     expect(paidResult?.publicationStatus).toBe("claimed");
@@ -249,26 +251,9 @@ describe("company directory direct-contact entitlement", () => {
 
   it("redacts unclaimed and free search results while preserving an entitled claimed result", async () => {
     const rows = [
-      searchRow({
-        id: "published-id",
-        slug: "published-search",
-        publicationStatus: "published",
-        addressLine1: "Publicgatan 1",
-      }),
-      searchRow({
-        id: "free-id",
-        slug: "free-search",
-        publicationStatus: "claimed",
-        addressLine1: "Freegatan 2",
-        workspaceId: freeWorkspaceId,
-      }),
-      searchRow({
-        id: "paid-id",
-        slug: "paid-search",
-        publicationStatus: "claimed",
-        addressLine1: "  Paidgatan 3  ",
-        workspaceId: paidWorkspaceId,
-      }),
+      searchRow({ id: "published-id", slug: "published-search", publicationStatus: "published", addressLine1: "Publicgatan 1" }),
+      searchRow({ id: "free-id", slug: "free-search", publicationStatus: "claimed", addressLine1: "Freegatan 2", workspaceId: freeWorkspaceId }),
+      searchRow({ id: "paid-id", slug: "paid-search", publicationStatus: "claimed", addressLine1: "  Paidgatan 3  ", workspaceId: paidWorkspaceId }),
     ];
     mocks.getSql.mockReturnValue(vi.fn(async () => rows));
     mocks.getWorkspaceDirectoryPublicAccessForWorkspaces.mockResolvedValue(new Map([
@@ -278,11 +263,6 @@ describe("company directory direct-contact entitlement", () => {
 
     const result = await searchPublishedCompanyDirectory({ limit: 10 });
 
-    expect(mocks.getWorkspaceDirectoryPublicAccessForWorkspaces).toHaveBeenCalledTimes(1);
-    expect(mocks.getWorkspaceDirectoryPublicAccessForWorkspaces).toHaveBeenCalledWith([
-      freeWorkspaceId,
-      paidWorkspaceId,
-    ]);
     expect(result.results.map((item) => [item.slug, item.addressLine1])).toEqual([
       ["published-search", ""],
       ["free-search", ""],
