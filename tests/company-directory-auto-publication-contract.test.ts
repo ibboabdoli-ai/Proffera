@@ -1,13 +1,90 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  getSql: vi.fn(),
+  enrichScb: vi.fn(),
+  assessConfidence: vi.fn(),
+}));
+
+vi.mock("server-only", () => ({}));
+vi.mock("@/lib/db/server", () => ({ getSql: mocks.getSql }));
+vi.mock("@/lib/company-directory-scb-enrichment", () => ({
+  enrichCompanyDirectoryScbForProfile: mocks.enrichScb,
+}));
+vi.mock("@/lib/company-directory-category-confidence", () => ({
+  assessCompanyDirectoryCategoryConfidence: mocks.assessConfidence,
+}));
+
+import { publishCompanyDirectoryProfileIfSafe } from "@/lib/company-directory-publication";
+
+const PROFILE_ID = "11111111-1111-4111-8111-111111111111";
+const PROFILE_UPDATED_TOKEN = "2026-08-19 10:00:00.123456+00";
+const FACTS_LAST_SYNCED_TOKEN = "2026-08-19 09:59:00.654321+00";
 
 function source(path: string) {
   return readFileSync(resolve(process.cwd(), path), "utf8");
 }
 
+function safePublicationRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: PROFILE_ID,
+    public_slug: "exempel-el",
+    display_name: "Exempel El AB",
+    legal_name: "Exempel El AB",
+    category_slug: "electrician",
+    primary_sni_code: "43210",
+    activity_description: "Elinstallationer",
+    publication_status: "ready",
+    is_active: true,
+    privacy_blocked: false,
+    auto_public_eligible: true,
+    claimed_workspace_id: null,
+    profile_updated_token: PROFILE_UPDATED_TOKEN,
+    facts_profile_id: PROFILE_ID,
+    registered_names: ["Exempel El AB"],
+    sni_codes: [{ code: "43.210", label: "Elinstallationer" }],
+    deregistration_date: null,
+    advertising_blocked: false,
+    ongoing_procedures: [],
+    facts_last_synced_token: FACTS_LAST_SYNCED_TOKEN,
+    facts_source_payload_hash: "official-facts-hash",
+    official_facts_fresh: true,
+    ...overrides,
+  };
+}
+
+function mockPublicationSql(row: Record<string, unknown>, finalRows: unknown[] = []) {
+  let callCount = 0;
+  return vi.fn(async () => {
+    callCount += 1;
+    return callCount === 1 ? [row] : finalRows;
+  });
+}
+
+function executedQuery(call: unknown[] | undefined) {
+  const strings = call?.[0] as TemplateStringsArray | undefined;
+  return strings ? Array.from(strings).join("?") : "";
+}
+
 describe("safe company directory auto publication contract", () => {
+  beforeEach(() => {
+    mocks.getSql.mockReset();
+    mocks.enrichScb.mockReset();
+    mocks.assessConfidence.mockReset();
+    mocks.assessConfidence.mockReturnValue({
+      score: 100,
+      officialFactsReady: true,
+    });
+    mocks.enrichScb.mockResolvedValue({
+      status: "saved",
+      saved: true,
+      conflicts: [],
+    });
+  });
+
   it("never publishes from candidate upsert alone", () => {
     const engine = source("src/lib/company-directory-engine.ts");
 
@@ -54,44 +131,79 @@ describe("safe company directory auto publication contract", () => {
     expect(publication).toContain("jsonArray(row.ongoing_procedures).length > 0");
   });
 
-  it("preflights a ready and otherwise safe candidate before making SCB requests", () => {
-    const publication = source("src/lib/company-directory-publication.ts");
-    const readyCheck = publication.indexOf('text(row.publication_status) !== "ready"');
-    const officialFactsCheck = publication.indexOf("!confidence.officialFactsReady || !officialFactsFresh");
-    const safetyCheck = publication.indexOf("if (unsafe)");
-    const confidenceCheck = publication.indexOf("confidence.score < 95");
-    const scbEnrichment = publication.indexOf("await enrichCompanyDirectoryScbForProfile(profileId)");
+  it.each([
+    ["non-ready profile", { publication_status: "review" }, 100, "not_ready"],
+    ["stale Official Facts", { official_facts_fresh: false }, 100, "not_ready"],
+    ["privacy-blocked profile", { privacy_blocked: true }, 100, "unsafe"],
+    ["low-confidence profile", {}, 90, "low_confidence"],
+  ])("does not call SCB when preflight rejects a %s", async (_label, overrides, score, expectedCode) => {
+    const sql = mockPublicationSql(safePublicationRow(overrides));
+    mocks.getSql.mockReturnValue(sql);
+    mocks.assessConfidence.mockReturnValue({
+      score,
+      officialFactsReady: true,
+    });
 
-    expect(readyCheck).toBeGreaterThanOrEqual(0);
-    expect(officialFactsCheck).toBeGreaterThan(readyCheck);
-    expect(safetyCheck).toBeGreaterThan(officialFactsCheck);
-    expect(confidenceCheck).toBeGreaterThan(safetyCheck);
-    expect(scbEnrichment).toBeGreaterThan(confidenceCheck);
+    const result = await publishCompanyDirectoryProfileIfSafe(PROFILE_ID);
+
+    expect(result).toEqual({ ok: false, code: expectedCode });
+    expect(mocks.enrichScb).not.toHaveBeenCalled();
+    expect(sql).toHaveBeenCalledTimes(1);
   });
 
-  it("preserves PostgreSQL timestamp precision and rechecks safety atomically", () => {
-    const publication = source("src/lib/company-directory-publication.ts");
+  it("blocks publication immediately when live SCB enrichment reports a conflict", async () => {
+    const sql = mockPublicationSql(safePublicationRow());
+    mocks.getSql.mockReturnValue(sql);
+    mocks.enrichScb.mockResolvedValue({
+      status: "saved",
+      saved: true,
+      conflicts: [{
+        field: "legal_name",
+        code: "legal_name_mismatch",
+        bolagsverket: "Exempel El AB",
+        scb: "Annat Namn AB",
+      }],
+    });
 
-    expect(publication).toContain("p.updated_at::text as profile_updated_token");
-    expect(publication).toContain("f.last_synced_at::text as facts_last_synced_token");
-    expect(publication).not.toContain("toISOString()");
-    expect(publication).toContain("and p.publication_status = 'ready'");
-    expect(publication).toContain("and p.is_active = true");
-    expect(publication).toContain("and p.privacy_blocked = false");
-    expect(publication).toContain("and p.auto_public_eligible = true");
-    expect(publication).toContain("and p.claimed_workspace_id is null");
-    expect(publication).toContain("and p.updated_at::text = ${profileUpdatedToken}");
-    expect(publication).toContain("and f.last_synced_at::text = ${factsLastSyncedToken}");
-    expect(publication).toContain("and f.last_synced_at >= p.last_synced_at");
-    expect(publication).toContain("and f.source_payload_hash = ${factsSourcePayloadHash}");
-    expect(publication).toContain("and f.deregistration_date is null");
-    expect(publication).toContain("and coalesce(f.advertising_blocked, false) = false");
-    expect(publication).toContain("jsonb_array_length(coalesce(f.ongoing_procedures, '[]'::jsonb)) = 0");
-    expect(publication).toContain("jsonb_array_length(coalesce(scb.conflicts, '[]'::jsonb)) > 0");
-    expect(publication).toContain("{comparisonSnapshot,profileUpdatedToken}");
-    expect(publication).toContain("is distinct from p.updated_at::text");
-    expect(publication).toContain("{comparisonSnapshot,officialFactsLastSyncedToken}");
-    expect(publication).toContain("is distinct from f.last_synced_at::text");
+    await expect(publishCompanyDirectoryProfileIfSafe(PROFILE_ID)).resolves.toEqual({
+      ok: false,
+      code: "unsafe",
+    });
+    expect(sql).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["stored SCB conflicts", "jsonb_array_length(coalesce(scb.conflicts, '[]'::jsonb)) > 0"],
+    ["a stale profile snapshot", "{comparisonSnapshot,profileUpdatedToken}"],
+    ["a stale Official Facts snapshot", "{comparisonSnapshot,officialFactsLastSyncedToken}"],
+  ])("fails closed when the final atomic database gate rejects %s", async (_label, requiredGuard) => {
+    const sql = mockPublicationSql(safePublicationRow(), []);
+    mocks.getSql.mockReturnValue(sql);
+
+    const result = await publishCompanyDirectoryProfileIfSafe(PROFILE_ID);
+
+    expect(result).toEqual({ ok: false, code: "not_ready" });
+    expect(mocks.enrichScb).toHaveBeenCalledWith(PROFILE_ID);
+    expect(sql).toHaveBeenCalledTimes(2);
+
+    const finalCall = sql.mock.calls[1];
+    const finalQuery = executedQuery(finalCall);
+    const finalValues = finalCall?.slice(1) ?? [];
+    expect(finalQuery).toContain("company_directory_scb_enrichment");
+    expect(finalQuery).toContain(requiredGuard);
+    expect(finalValues).toContain(PROFILE_UPDATED_TOKEN);
+    expect(finalValues).toContain(FACTS_LAST_SYNCED_TOKEN);
+  });
+
+  it("preserves PostgreSQL timestamp precision in the executed final publication gate", async () => {
+    const sql = mockPublicationSql(safePublicationRow(), []);
+    mocks.getSql.mockReturnValue(sql);
+
+    await publishCompanyDirectoryProfileIfSafe(PROFILE_ID);
+
+    const finalValues = sql.mock.calls[1]?.slice(1) ?? [];
+    expect(finalValues).toContain(PROFILE_UPDATED_TOKEN);
+    expect(finalValues).toContain(FACTS_LAST_SYNCED_TOKEN);
   });
 
   it("shows Official Facts freshness in the admin publication preview", () => {
