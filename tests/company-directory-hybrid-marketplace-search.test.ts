@@ -53,6 +53,7 @@ describe("hybrid directory marketplace search", () => {
   const resultsSource = source("src/components/company-directory/public-directory-results.tsx");
   const publicDataSource = source("src/lib/company-directory-public-data.ts");
   const routingSource = source("src/lib/company-directory-routing.ts");
+  const entitlementSource = source("src/lib/workspace-feature-entitlement-db.ts");
   const profileSource = source("src/components/company-directory/public-directory-profile.tsx");
 
   it("keeps unclaimed published profiles and safe previously-published claimed profiles searchable", () => {
@@ -86,14 +87,16 @@ describe("hybrid directory marketplace search", () => {
   });
 
   it("requires canonical Business Page access before Marketplace routing or redirect", () => {
-    expect(searchSource).toContain('hasWorkspaceFeatureAccessForWorkspace(workspaceId, "website_builder")');
+    expect(searchSource).toContain("getWorkspaceDirectoryPublicAccessForWorkspaces(claimedWorkspaceIds)");
+    expect(entitlementSource).toContain("catalog.feature_key in ('website_builder', 'online_booking')");
     expect(searchSource).toContain("&& access?.websiteBuilder");
     expect(routingSource).toContain('hasWorkspaceFeatureAccessForWorkspace(workspaceId, "website_builder")');
     expect(routingSource).toContain("return websiteBuilder ? workspaceSlug : null");
   });
 
   it("only exposes direct booking when canonical booking access and booking slug are present", () => {
-    expect(searchSource).toContain('hasWorkspaceFeatureAccessForWorkspace(workspaceId, "online_booking")');
+    expect(searchSource).toContain("getWorkspaceDirectoryPublicAccessForWorkspaces(claimedWorkspaceIds)");
+    expect(entitlementSource).toContain("featureKey === \"online_booking\"");
     expect(searchSource).toContain("claimedBookingSlug");
     expect(searchSource).toContain('conversionMode === "book" || conversionMode === "book_or_quote"');
 
