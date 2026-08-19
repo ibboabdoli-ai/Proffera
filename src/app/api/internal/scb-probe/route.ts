@@ -8,6 +8,10 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const NO_STORE_HEADERS = {
+  "Cache-Control": "no-store, max-age=0",
+} as const;
+
 function decodeHtml(value: string) {
   return value
     .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) => String.fromCodePoint(Number.parseInt(hex, 16)))
@@ -35,9 +39,19 @@ function codeSamples(html: string) {
   return samples;
 }
 
+function json(payload: unknown, status = 200) {
+  return NextResponse.json(payload, {
+    status,
+    headers: NO_STORE_HEADERS,
+  });
+}
+
 export async function GET() {
   if (process.env.VERCEL_ENV !== "preview") {
-    return new NextResponse(null, { status: 404 });
+    return new NextResponse(null, {
+      status: 404,
+      headers: NO_STORE_HEADERS,
+    });
   }
 
   try {
@@ -47,13 +61,13 @@ export async function GET() {
     ]);
 
     if (metadata.status !== "ok" || examples.status !== "ok") {
-      return NextResponse.json({
+      return json({
         ok: false,
         configured: false,
-      }, { status: 503 });
+      }, 503);
     }
 
-    return NextResponse.json({
+    return json({
       ok: true,
       metadata: {
         companyVariables: metadata.companyVariables,
@@ -67,10 +81,10 @@ export async function GET() {
       },
     });
   } catch (error) {
-    return NextResponse.json({
+    return json({
       ok: false,
       configured: true,
       error: error instanceof Error ? error.message : "SCB probe failed",
-    }, { status: 502 });
+    }, 502);
   }
 }
