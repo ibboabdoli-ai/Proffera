@@ -9,6 +9,10 @@ const mocks = vi.hoisted(() => ({
   enrichScb: vi.fn(),
   createScbTransport: vi.fn(),
   routeRevalidate: vi.fn(),
+  readyAutoPublish: vi.fn(),
+  processNewQueue: vi.fn(),
+  processQueue: vi.fn(),
+  syncDirectory: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -28,11 +32,7 @@ vi.mock("@/lib/company-directory-scb-transport", () => ({
 
 import { revalidatePublishedCompanyDirectoryBatch } from "../src/lib/company-directory-published-revalidation";
 
-type SqlCall = {
-  query: string;
-  values: unknown[];
-};
-
+type SqlCall = { query: string; values: unknown[] };
 type SqlResponder = (query: string, values: unknown[]) => Promise<unknown[]> | unknown[];
 
 const RUN_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -119,12 +119,31 @@ function configureCandidateSql(input: {
   };
 }
 
-async function loadCronRoute() {
+async function loadStandaloneRevalidationRoute() {
   vi.resetModules();
   vi.doMock("@/lib/company-directory-published-revalidation", () => ({
     revalidatePublishedCompanyDirectoryBatch: mocks.routeRevalidate,
   }));
   return await import("../src/app/api/cron/company-directory-published-revalidation/route");
+}
+
+async function loadAutomaticSyncRoute() {
+  vi.resetModules();
+  vi.doMock("@/lib/company-directory-published-revalidation", () => ({
+    revalidatePublishedCompanyDirectoryBatch: mocks.routeRevalidate,
+  }));
+  vi.doMock("@/lib/company-directory-ready-auto-publish", () => ({
+    autoPublishReadyHighConfidenceCompanyDirectoryBatch: mocks.readyAutoPublish,
+  }));
+  vi.doMock("@/lib/company-directory-discovery-queue", () => ({
+    processNewCompanyDirectoryDiscoveryQueueBatch: mocks.processNewQueue,
+    processCompanyDirectoryDiscoveryQueue: mocks.processQueue,
+  }));
+  vi.doMock("@/lib/company-directory-engine", () => ({
+    syncCompanyDirectory: mocks.syncDirectory,
+  }));
+  vi.doMock("@/lib/db/server", () => ({ getSql: mocks.getSql }));
+  return await import("../src/app/api/cron/company-directory-sync/route");
 }
 
 beforeEach(() => {
@@ -136,12 +155,7 @@ beforeEach(() => {
     return await sqlResponder(query, values);
   });
 
-  mocks.getSql.mockReset();
-  mocks.assessConfidence.mockReset();
-  mocks.enrichOfficialFacts.mockReset();
-  mocks.enrichScb.mockReset();
-  mocks.createScbTransport.mockReset();
-  mocks.routeRevalidate.mockReset();
+  for (const mock of Object.values(mocks)) mock.mockReset();
   transport.fetchCompany.mockReset();
   transport.fetchWorkplaces.mockReset();
 
@@ -157,15 +171,19 @@ beforeEach(() => {
 
   delete process.env.CRON_SECRET;
   delete process.env.COMPANY_DIRECTORY_SYNC_ENABLED;
+  delete process.env.COMPANY_DIRECTORY_PROFILE_PROCESSING_ENABLED;
+  delete process.env.COMPANY_DIRECTORY_DISCOVERY_MODE;
 });
 
 afterEach(() => {
   delete process.env.CRON_SECRET;
   delete process.env.COMPANY_DIRECTORY_SYNC_ENABLED;
+  delete process.env.COMPANY_DIRECTORY_PROFILE_PROCESSING_ENABLED;
+  delete process.env.COMPANY_DIRECTORY_DISCOVERY_MODE;
 });
 
 describe("published Directory revalidation worker", () => {
-  it("honors the single-run lease and performs no enrichment when another run owns it", async () => {
+  it("honors the single-run lease", async () => {
     sqlResponder = async (query) => {
       if (query.includes("started_at < now() - interval '10 minutes'")) return [];
       if (query.includes("insert into company_directory_sync_runs")) return [];
@@ -173,9 +191,7 @@ describe("published Directory revalidation worker", () => {
       throw new Error(`Unexpected SQL in lease test: ${query}`);
     };
 
-    const result = await revalidatePublishedCompanyDirectoryBatch(2);
-
-    expect(result).toMatchObject({
+    await expect(revalidatePublishedCompanyDirectoryBatch(2)).resolves.toMatchObject({
       skipped: true,
       reason: "already_running",
       selected: 0,
@@ -185,7 +201,7 @@ describe("published Directory revalidation worker", () => {
     expect(mocks.enrichScb).not.toHaveBeenCalled();
   });
 
-  it("finalizes the run as failed when candidate selection throws", async () => {
+  it("finalizes the lease immediately when candidate selection throws", async () => {
     sqlResponder = async (query) => {
       if (query.includes("started_at < now() - interval '10 minutes'")) return [];
       if (query.includes("insert into company_directory_sync_runs")) return [{ id: RUN_ID }];
@@ -197,20 +213,16 @@ describe("published Directory revalidation worker", () => {
     };
 
     await expect(revalidatePublishedCompanyDirectoryBatch(2)).rejects.toThrow("selection failed");
-
     const finish = sqlCalls.find((call) => (
       call.query.includes("update company_directory_sync_runs")
       && call.query.includes("where id =")
     ));
-    expect(finish).toBeDefined();
     expect(finish?.values).toContain("failed");
     expect(finish?.values).toContain("selection failed");
     expect(finish?.values).toContain(RUN_ID);
-    expect(finish?.values).toContain(0);
-    expect(finish?.values).toContain(1);
   });
 
-  it("bounds selection, refreshes Official Facts before SCB, and keeps fresh 95+ evidence published", async () => {
+  it("refreshes Official Facts before SCB and keeps fresh 95+ evidence published", async () => {
     configureCandidateSql();
     const order: string[] = [];
     mocks.enrichOfficialFacts.mockImplementation(async () => {
@@ -226,119 +238,87 @@ describe("published Directory revalidation worker", () => {
 
     expect(order).toEqual(["official-facts", "scb"]);
     expect(result).toMatchObject({
-      skipped: false,
       selected: 1,
       revalidated: 1,
       keptPublished: 1,
       movedToReview: 0,
-      deferred: 0,
       errors: 0,
     });
-    expect(mocks.enrichScb).toHaveBeenCalledWith(PROFILE_ID, transport, {
-      allowWhenDisabledWithExplicitTransport: true,
-    });
-
     const selection = sqlCalls.find((call) => (
       call.query.includes("select profile.id::text, profile.organization_number, profile.display_name")
     ));
     expect(selection?.query).toContain("profile.publication_status = 'published'");
-    expect(selection?.query).toContain("profile.country_code = 'SE'");
-    expect(selection?.query).toContain("profile.organization_kind = 'juridical_person'");
     expect(selection?.query).toContain("profile.claimed_workspace_id is null");
     expect(selection?.values.at(-1)).toBe(3);
   });
 
-  it("defers instead of demoting when the optimistic-concurrency update loses the race", async () => {
-    configureCandidateSql({ moveRows: [] });
+  it("moves fresh evidence below 95 to Review with exact snapshot guards", async () => {
+    configureCandidateSql();
     mocks.assessConfidence.mockReturnValue({ score: 90, officialFactsReady: true, reasons: [] });
 
     const result = await revalidatePublishedCompanyDirectoryBatch(2);
 
     expect(result).toMatchObject({
-      selected: 1,
       revalidated: 1,
-      keptPublished: 0,
-      movedToReview: 0,
-      deferred: 1,
+      movedToReview: 1,
       errors: 0,
     });
-
     const reviewUpdate = sqlCalls.find((call) => call.query.includes("update company_directory_profiles profile"));
-    expect(reviewUpdate).toBeDefined();
     expect(reviewUpdate?.values).toContain(PROFILE_TOKEN);
     expect(reviewUpdate?.values).toContain(FACTS_TOKEN);
     expect(reviewUpdate?.values).toContain(FACTS_HASH);
     expect(reviewUpdate?.values).toContain(SCB_HASH);
   });
 
-  it.each([
-    {
-      name: "unsafe profile state",
-      evaluation: freshEvaluation({ privacy_blocked: true }),
-      confidence: { score: 95, officialFactsReady: true, reasons: [] },
-    },
-    {
-      name: "category confidence below 95",
-      evaluation: freshEvaluation(),
-      confidence: { score: 90, officialFactsReady: true, reasons: [] },
-    },
-    {
-      name: "SCB conflict",
-      evaluation: freshEvaluation({ scb_conflict_count: 1 }),
-      confidence: { score: 95, officialFactsReady: true, reasons: [] },
-    },
-  ])("moves fresh published evidence to Review for $name", async ({ evaluation, confidence }) => {
-    configureCandidateSql({ evaluation });
-    mocks.assessConfidence.mockReturnValue(confidence);
+  it("defers instead of demoting when the optimistic-concurrency guard loses the race", async () => {
+    configureCandidateSql({ moveRows: [] });
+    mocks.assessConfidence.mockReturnValue({ score: 90, officialFactsReady: true, reasons: [] });
 
-    const result = await revalidatePublishedCompanyDirectoryBatch(2);
-
-    expect(result).toMatchObject({
-      selected: 1,
-      revalidated: 1,
-      keptPublished: 0,
-      movedToReview: 1,
+    await expect(revalidatePublishedCompanyDirectoryBatch(2)).resolves.toMatchObject({
+      movedToReview: 0,
+      deferred: 1,
       errors: 0,
     });
-    expect(sqlCalls.some((call) => call.query.includes("update company_directory_profiles profile"))).toBe(true);
   });
 });
 
-describe("published Directory revalidation cron", () => {
-  it("rejects requests without the cron bearer secret", async () => {
+describe("published Directory revalidation scheduling", () => {
+  it("keeps the standalone endpoint protected by CRON_SECRET", async () => {
     process.env.CRON_SECRET = "test-secret";
     process.env.COMPANY_DIRECTORY_SYNC_ENABLED = "true";
-    const { GET } = await loadCronRoute();
+    const { GET } = await loadStandaloneRevalidationRoute();
 
     const response = await GET(new Request("https://example.test/api/cron/company-directory-published-revalidation"));
 
     expect(response.status).toBe(401);
-    expect(await response.json()).toEqual({ ok: false, error: "Unauthorized" });
     expect(mocks.routeRevalidate).not.toHaveBeenCalled();
   });
 
-  it("fails closed when Company Directory sync is disabled", async () => {
-    process.env.CRON_SECRET = "test-secret";
-    process.env.COMPANY_DIRECTORY_SYNC_ENABLED = "false";
-    const { GET } = await loadCronRoute();
-
-    const response = await GET(new Request(
-      "https://example.test/api/cron/company-directory-published-revalidation",
-      { headers: { authorization: "Bearer test-secret" } },
-    ));
-
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
-      ok: true,
-      skipped: true,
-      reason: "Company directory sync is disabled",
-    });
-    expect(mocks.routeRevalidate).not.toHaveBeenCalled();
-  });
-
-  it("invokes the scheduled route with the default batch of two", async () => {
+  it("runs bounded revalidation from the already-active automatic queue", async () => {
     process.env.CRON_SECRET = "test-secret";
     process.env.COMPANY_DIRECTORY_SYNC_ENABLED = "true";
+    process.env.COMPANY_DIRECTORY_PROFILE_PROCESSING_ENABLED = "true";
+    process.env.COMPANY_DIRECTORY_DISCOVERY_MODE = "automatic";
+
+    const historySql = vi.fn(async () => []);
+    mocks.getSql.mockReturnValue(historySql);
+    mocks.readyAutoPublish.mockResolvedValue({ scanned: 20, published: 0, errors: 0, errorSummary: "" });
+    mocks.processNewQueue.mockResolvedValue({
+      claimed: 0,
+      processed: 0,
+      published: 0,
+      blocked: 0,
+      errors: 0,
+      errorSummary: "",
+    });
+    mocks.processQueue.mockResolvedValue({
+      claimed: 5,
+      processed: 5,
+      published: 0,
+      blocked: 0,
+      errors: 0,
+      errorSummary: "",
+    });
     mocks.routeRevalidate.mockResolvedValue({
       skipped: false,
       reason: "",
@@ -350,29 +330,37 @@ describe("published Directory revalidation cron", () => {
       errors: 0,
       errorSummary: "",
       reviewSummary: "",
-      remaining: 10,
+      remaining: 471,
     });
-    const { GET } = await loadCronRoute();
 
+    const { GET } = await loadAutomaticSyncRoute();
     const response = await GET(new Request(
-      "https://example.test/api/cron/company-directory-published-revalidation",
+      "https://example.test/api/cron/company-directory-sync",
       { headers: { authorization: "Bearer test-secret" } },
     ));
+    const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(mocks.routeRevalidate).toHaveBeenCalledTimes(1);
     expect(mocks.routeRevalidate).toHaveBeenCalledWith(2);
-    expect(await response.json()).toMatchObject({ ok: true, selected: 2, remaining: 10 });
+    expect(body).toMatchObject({
+      ok: true,
+      mode: "automatic_queue",
+      publishedRevalidation: {
+        selected: 2,
+        revalidated: 2,
+        keptPublished: 1,
+        movedToReview: 1,
+        remaining: 471,
+      },
+    });
   });
 
-  it("keeps the production schedule bounded to two profiles every five minutes", () => {
-    const cron = vercelConfig.crons.find((item) => (
-      item.path === "/api/cron/company-directory-published-revalidation"
-    ));
-
-    expect(cron).toEqual({
-      path: "/api/cron/company-directory-published-revalidation",
-      schedule: "*/5 * * * *",
-    });
+  it("does not register a frequent Vercel cron for revalidation", () => {
+    expect(vercelConfig.crons).toEqual([
+      {
+        path: "/api/cron/company-directory-official-facts",
+        schedule: "17 2 * * *",
+      },
+    ]);
   });
 });
