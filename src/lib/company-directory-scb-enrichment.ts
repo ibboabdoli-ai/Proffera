@@ -25,6 +25,10 @@ export type CompanyDirectoryScbEnrichmentResult =
   | { status: "disabled" | "awaiting_access" | "ineligible"; saved: false; conflicts: ScbConflict[] }
   | { status: "saved"; saved: true; conflicts: ScbConflict[] };
 
+export type CompanyDirectoryScbEnrichmentOptions = {
+  allowWhenDisabledWithExplicitTransport?: boolean;
+};
+
 function text(value: unknown) {
   return value === null || value === undefined ? "" : String(value).trim();
 }
@@ -159,6 +163,7 @@ async function saveScbEnrichment(
 export async function enrichCompanyDirectoryScbForProfile(
   profileId: string,
   transport?: ScbCompanyRegistryTransport,
+  options: CompanyDirectoryScbEnrichmentOptions = {},
 ): Promise<CompanyDirectoryScbEnrichmentResult> {
   const sql = getSql();
   if (!sql) throw new Error("Database is not configured");
@@ -191,7 +196,11 @@ export async function enrichCompanyDirectoryScbForProfile(
     return { status: "ineligible", saved: false, conflicts: [] };
   }
 
-  const fetched = await fetchScbCompanyRegistryEnrichment(organizationNumber, transport);
+  const fetched = options.allowWhenDisabledWithExplicitTransport
+    ? await fetchScbCompanyRegistryEnrichment(organizationNumber, transport, {
+      allowWhenDisabledWithExplicitTransport: true,
+    })
+    : await fetchScbCompanyRegistryEnrichment(organizationNumber, transport);
   if (fetched.status !== "ok") {
     return { status: fetched.status, saved: false, conflicts: [] };
   }
