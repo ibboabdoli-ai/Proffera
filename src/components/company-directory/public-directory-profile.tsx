@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowRight, BadgeCheck, Building2, FileText, Languages, MapPin, Search, ShieldCheck } from "lucide-react";
+import { ArrowRight, BadgeCheck, Building2, FileText, Globe2, Languages, LockKeyhole, Mail, MapPin, Phone, Search, ShieldCheck } from "lucide-react";
 import { notFound, redirect } from "next/navigation";
 
 import {
@@ -18,6 +18,11 @@ import { siteConfig } from "@/lib/site";
 
 function absoluteUrl(value: string) {
   return new URL(value, siteConfig.url).toString();
+}
+
+function websiteHref(value: string) {
+  if (/^https?:\/\//i.test(value)) return value;
+  return `https://${value}`;
 }
 
 export async function PublicDirectoryProfile({ slug, locale }: { slug: string; locale: PublicLocale }) {
@@ -77,6 +82,12 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
     serviceSlug: primaryServiceSlug,
   });
   const radiusFormatter = new Intl.NumberFormat(locale === "en" ? "en-SE" : "sv-SE", { maximumFractionDigits: 1 });
+  const fullAddress = [business.addressLine1, [business.postalCode, business.city].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+  const lockedValue = (
+    <span className="inline-flex items-center gap-1.5 font-black text-muted">
+      <LockKeyhole className="h-3.5 w-3.5" aria-hidden="true" /> {t.locked}
+    </span>
+  );
 
   return (
     <main lang={locale} className="min-h-screen bg-canvas px-4 py-6 text-ink sm:px-6 sm:py-10">
@@ -204,11 +215,27 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
 
             <section className="mt-10 border-t border-line pt-8">
               <h2 className="text-base font-black text-ink">{t.details}</h2>
+              {!business.directContactUnlocked ? <p className="mt-2 text-xs font-semibold text-muted">{t.lockedContactHint}</p> : null}
               <dl className="mt-5 grid gap-x-8 gap-y-5 text-sm sm:grid-cols-2">
                 {business.legalForm ? <div className="border-b border-line pb-4"><dt className="text-muted">{t.legalForm}</dt><dd className="mt-1 font-bold text-ink">{business.legalForm}</dd></div> : null}
                 {business.city ? <div className="border-b border-line pb-4"><dt className="text-muted">{t.city}</dt><dd className="mt-1 font-bold text-ink">{business.city}</dd></div> : null}
                 {business.municipality ? <div className="border-b border-line pb-4"><dt className="text-muted">{t.municipality}</dt><dd className="mt-1 font-bold text-ink">{business.municipality}</dd></div> : null}
-                {business.addressLine1 ? <div className="border-b border-line pb-4"><dt className="text-muted">{t.address}</dt><dd className="mt-1 font-bold text-ink">{business.addressLine1}</dd></div> : null}
+                <div className="border-b border-line pb-4">
+                  <dt className="flex items-center gap-1.5 text-muted"><Phone className="h-3.5 w-3.5" aria-hidden="true" /> {t.phone}</dt>
+                  <dd className="mt-1 font-bold text-ink">{business.directContactUnlocked ? (business.phone ? <a href={`tel:${business.phone}`} className="text-brand underline underline-offset-4">{business.phone}</a> : t.unavailable) : lockedValue}</dd>
+                </div>
+                <div className="border-b border-line pb-4">
+                  <dt className="flex items-center gap-1.5 text-muted"><Mail className="h-3.5 w-3.5" aria-hidden="true" /> {t.email}</dt>
+                  <dd className="mt-1 break-all font-bold text-ink">{business.directContactUnlocked ? (business.email ? <a href={`mailto:${business.email}`} className="text-brand underline underline-offset-4">{business.email}</a> : t.unavailable) : lockedValue}</dd>
+                </div>
+                <div className="border-b border-line pb-4">
+                  <dt className="flex items-center gap-1.5 text-muted"><Globe2 className="h-3.5 w-3.5" aria-hidden="true" /> {t.website}</dt>
+                  <dd className="mt-1 break-all font-bold text-ink">{business.directContactUnlocked ? (business.website ? <a href={websiteHref(business.website)} target="_blank" rel="noreferrer" className="text-brand underline underline-offset-4">{business.website}</a> : t.unavailable) : lockedValue}</dd>
+                </div>
+                <div className="border-b border-line pb-4">
+                  <dt className="flex items-center gap-1.5 text-muted"><MapPin className="h-3.5 w-3.5" aria-hidden="true" /> {t.address}</dt>
+                  <dd className="mt-1 font-bold text-ink">{business.directContactUnlocked ? (fullAddress || t.unavailable) : lockedValue}</dd>
+                </div>
               </dl>
             </section>
 
