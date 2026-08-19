@@ -9,6 +9,30 @@ const DEFAULT_TIMEOUT_MS = 15_000;
 const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 const REQUEST_SPACING_MS = 1_050;
 
+// Exact request shapes published on SCB's authenticated help pages on 2026-08-19.
+// Environment overrides remain available so the September 2026 replacement API
+// can swap request shapes without changing Company Directory code.
+const DEFAULT_COMPANY_QUERY_TEMPLATE = JSON.stringify({
+  "Företagsstatus": "1",
+  "Registreringsstatus": "1",
+  variabler: [{
+    Varde1: "{{ORGNR}}",
+    Varde2: "",
+    Operator: "ArLikaMed",
+    Variabel: "OrgNr (10 siffror)",
+  }],
+});
+
+const DEFAULT_WORKPLACE_QUERY_TEMPLATE = JSON.stringify({
+  "Arbetsställestatus": "1",
+  variabler: [{
+    Varde1: "{{PEORGNR}}",
+    Varde2: "",
+    Operator: "ArLikaMed",
+    Variabel: "OrgNr (12 siffror)",
+  }],
+});
+
 type JsonRecord = Record<string, unknown>;
 
 type ScbRegistryCredentialConfig = {
@@ -83,14 +107,14 @@ function credentialConfigFromEnv(): ScbRegistryCredentialConfig | null {
 
 function transportConfigFromEnv(): ScbRegistryTransportConfig | null {
   const credentials = credentialConfigFromEnv();
-  const companyQueryTemplate = trimmedEnv("SCB_COMPANY_REGISTRY_COMPANY_QUERY_TEMPLATE");
-  const workplaceQueryTemplate = trimmedEnv("SCB_COMPANY_REGISTRY_WORKPLACE_QUERY_TEMPLATE");
-  if (!credentials || !companyQueryTemplate || !workplaceQueryTemplate) return null;
+  if (!credentials) return null;
 
   return {
     ...credentials,
-    companyQueryTemplate,
-    workplaceQueryTemplate,
+    companyQueryTemplate: trimmedEnv("SCB_COMPANY_REGISTRY_COMPANY_QUERY_TEMPLATE")
+      ?? DEFAULT_COMPANY_QUERY_TEMPLATE,
+    workplaceQueryTemplate: trimmedEnv("SCB_COMPANY_REGISTRY_WORKPLACE_QUERY_TEMPLATE")
+      ?? DEFAULT_WORKPLACE_QUERY_TEMPLATE,
   };
 }
 
