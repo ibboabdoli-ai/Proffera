@@ -1,10 +1,21 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  getSql: vi.fn(),
+  fetchScbCompanyRegistryEnrichment: vi.fn(),
+}));
+
+vi.mock("server-only", () => ({}));
+vi.mock("./db/server", () => ({ getSql: mocks.getSql }));
+vi.mock("./company-directory-scb-provider", () => ({
+  fetchScbCompanyRegistryEnrichment: mocks.fetchScbCompanyRegistryEnrichment,
+}));
 
 import type { ScbCompanyRegistryEnrichment } from "./company-directory-scb-provider";
 import {
   detectScbCompanyDirectoryConflicts,
+  enrichCompanyDirectoryScbForProfile,
   officialSniCodes,
-  scbComparisonSnapshotMatches,
 } from "./company-directory-scb-enrichment";
 
 function scb(overrides: Partial<ScbCompanyRegistryEnrichment> = {}): ScbCompanyRegistryEnrichment {
@@ -37,6 +48,11 @@ function scb(overrides: Partial<ScbCompanyRegistryEnrichment> = {}): ScbCompanyR
 }
 
 describe("SCB company directory enrichment guards", () => {
+  beforeEach(() => {
+    mocks.getSql.mockReset();
+    mocks.fetchScbCompanyRegistryEnrichment.mockReset();
+  });
+
   it("normalizes Bolagsverket SNI facts without duplicating codes", () => {
     expect(officialSniCodes([
       { code: "43.210", label: "Elinstallationer" },
@@ -88,20 +104,42 @@ describe("SCB company directory enrichment guards", () => {
     })).toEqual([]);
   });
 
-  it("invalidates a captured comparison snapshot when profile or official facts change during enrichment", () => {
-    const captured = {
-      profileUpdatedToken: "2026-08-19 10:00:00+00",
-      officialFactsLastSyncedToken: "2026-08-19 09:59:00+00",
-    };
+  it("persists the exact profile and Official Facts snapshot captured before the SCB request", async () => {
+    const profileId = "11111111-1111-4111-8111-111111111111";
+    const profileUpdatedToken = "2026-08-19 10:00:00.123456+00";
+    const factsLastSyncedToken = "2026-08-19 09:59:00.654321+00";
+    const sql = vi.fn()
+      .mockResolvedValueOnce([{
+        organization_number: "5563115707",
+        organization_kind: "juridical_person",
+        legal_name: "Exempel El AB",
+        profile_updated_token: profileUpdatedToken,
+        sni_codes: [{ code: "43.210" }],
+        facts_last_synced_token: factsLastSyncedToken,
+      }])
+      .mockResolvedValueOnce([]);
 
-    expect(scbComparisonSnapshotMatches(captured, captured)).toBe(true);
-    expect(scbComparisonSnapshotMatches(captured, {
-      ...captured,
-      profileUpdatedToken: "2026-08-19 10:00:01+00",
-    })).toBe(false);
-    expect(scbComparisonSnapshotMatches(captured, {
-      ...captured,
-      officialFactsLastSyncedToken: "2026-08-19 10:00:02+00",
-    })).toBe(false);
+    mocks.getSql.mockReturnValue(sql);
+    mocks.fetchScbCompanyRegistryEnrichment.mockResolvedValue({
+      status: "ok",
+      data: scb(),
+    });
+
+    await expect(enrichCompanyDirectoryScbForProfile(profileId)).resolves.toEqual({
+      status: "saved",
+      saved: true,
+      conflicts: [],
+    });
+
+    expect(mocks.fetchScbCompanyRegistryEnrichment).toHaveBeenCalledWith("5563115707", undefined);
+    expect(sql).toHaveBeenCalledTimes(2);
+
+    const provenanceValue = sql.mock.calls[1]?.[10];
+    expect(JSON.parse(String(provenanceValue))).toMatchObject({
+      comparisonSnapshot: {
+        profileUpdatedToken,
+        officialFactsLastSyncedToken: factsLastSyncedToken,
+      },
+    });
   });
 });
