@@ -179,7 +179,7 @@ describe("company directory direct-contact entitlement", () => {
     expect(paidResult?.addressLine1).toBe("Paidgatan 3");
   });
 
-  it("redacts unclaimed and free search results while preserving an entitled claimed result", async () => {
+  it("redacts unclaimed/free page-two results, preserves entitled contact, and uses the page offset", async () => {
     const rows = [
       searchRow({
         id: "published-id",
@@ -202,14 +202,25 @@ describe("company directory direct-contact entitlement", () => {
         workspaceId: paidWorkspaceId,
       }),
     ];
-    mocks.getSql.mockReturnValue(vi.fn(async () => rows));
+    const sql = vi.fn()
+      .mockResolvedValueOnce([{ total_count: 65 }])
+      .mockResolvedValueOnce(rows);
+    mocks.getSql.mockReturnValue(sql);
     mocks.getWorkspaceDirectoryPublicAccessForWorkspaces.mockResolvedValue(new Map([
       [freeWorkspaceId, { planAccess: false, websiteBuilder: false, onlineBooking: false }],
       [paidWorkspaceId, { planAccess: true, websiteBuilder: false, onlineBooking: false }],
     ]));
 
-    const result = await searchPublishedCompanyDirectory({ limit: 10 });
+    const result = await searchPublishedCompanyDirectory({ limit: 30, page: 2 });
 
+    expect(sql).toHaveBeenCalledTimes(2);
+    const resultQueryCall = sql.mock.calls[1] ?? [];
+    expect(resultQueryCall.at(-2)).toBe(30);
+    expect(resultQueryCall.at(-1)).toBe(30);
+    expect(result.page).toBe(2);
+    expect(result.pageSize).toBe(30);
+    expect(result.totalCount).toBe(65);
+    expect(result.totalPages).toBe(3);
     expect(mocks.getWorkspaceDirectoryPublicAccessForWorkspaces).toHaveBeenCalledTimes(1);
     expect(mocks.getWorkspaceDirectoryPublicAccessForWorkspaces).toHaveBeenCalledWith([
       freeWorkspaceId,
@@ -220,5 +231,33 @@ describe("company directory direct-contact entitlement", () => {
       ["free-search", ""],
       ["paid-search", "Paidgatan 3"],
     ]);
+  });
+
+  it.each([
+    { page: 0, expectedPage: 1, expectedOffset: 0 },
+    { page: "not-a-page", expectedPage: 1, expectedOffset: 0 },
+    { page: 99, expectedPage: 3, expectedOffset: 60 },
+  ])("normalizes page $page to $expectedPage and uses offset $expectedOffset", async ({ page, expectedPage, expectedOffset }) => {
+    const rows = [searchRow({
+      id: "published-page-id",
+      slug: "published-page-search",
+      publicationStatus: "published",
+      addressLine1: "Publicgatan 1",
+    })];
+    const sql = vi.fn()
+      .mockResolvedValueOnce([{ total_count: 65 }])
+      .mockResolvedValueOnce(rows);
+    mocks.getSql.mockReturnValue(sql);
+
+    const result = await searchPublishedCompanyDirectory({ limit: 30, page });
+
+    expect(sql).toHaveBeenCalledTimes(2);
+    const resultQueryCall = sql.mock.calls[1] ?? [];
+    expect(resultQueryCall.at(-2)).toBe(30);
+    expect(resultQueryCall.at(-1)).toBe(expectedOffset);
+    expect(result.page).toBe(expectedPage);
+    expect(result.pageSize).toBe(30);
+    expect(result.totalCount).toBe(65);
+    expect(result.totalPages).toBe(3);
   });
 });

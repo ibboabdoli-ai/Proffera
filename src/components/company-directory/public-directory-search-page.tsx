@@ -8,9 +8,19 @@ import { getPublishedDirectoryLocationSuggestions, searchPublishedCompanyDirecto
 import { DIRECTORY_SERVICES } from "@/lib/company-directory-service-taxonomy";
 import type { PublicLocale } from "@/lib/public-locale";
 
-type SearchParams = { service?: string | string[]; location?: string | string[]; latitude?: string | string[]; longitude?: string | string[]; radius?: string | string[] };
+type SearchParams = { service?: string | string[]; location?: string | string[]; latitude?: string | string[]; longitude?: string | string[]; radius?: string | string[]; page?: string | string[] };
 
 function firstParam(value?: string | string[]) { return Array.isArray(value) ? value[0] : value; }
+
+function paginationBaseHref(path: string, params: SearchParams | undefined) {
+  const query = new URLSearchParams();
+  for (const key of ["service", "location", "latitude", "longitude", "radius"] as const) {
+    const value = firstParam(params?.[key]);
+    if (value?.trim()) query.set(key, value);
+  }
+  const suffix = query.toString();
+  return suffix ? `${path}?${suffix}` : path;
+}
 
 export async function PublicDirectorySearchPage({ locale, searchParams }: { locale: PublicLocale; searchParams?: Promise<SearchParams> }) {
   const params = await (searchParams ?? Promise.resolve(undefined));
@@ -19,6 +29,7 @@ export async function PublicDirectorySearchPage({ locale, searchParams }: { loca
   const latitude = firstParam(params?.latitude);
   const longitude = firstParam(params?.longitude);
   const radius = firstParam(params?.radius) ?? "25";
+  const page = firstParam(params?.page) ?? "1";
   const searched = Boolean(service.trim() || location.trim() || latitude?.trim() || longitude?.trim());
   const t = directoryCopy[locale];
   const paths = directoryPaths[locale];
@@ -26,10 +37,11 @@ export async function PublicDirectorySearchPage({ locale, searchParams }: { loca
 
   const [locationSuggestions, search] = await Promise.all([
     getPublishedDirectoryLocationSuggestions(60),
-    searched ? searchPublishedCompanyDirectory({ service: searchService, location, latitude, longitude, radiusKm: radius, limit: 30 }) : Promise.resolve(null),
+    searched ? searchPublishedCompanyDirectory({ service: searchService, location, latitude, longitude, radiusKm: radius, page, limit: 30 }) : Promise.resolve(null),
   ]);
   const serviceSuggestions = DIRECTORY_SERVICES.map((item) => directoryServiceLabel(item.slug, item.label, locale));
   const nearbyActive = Boolean(search?.nearbyEnabled);
+  const paginationHref = paginationBaseHref(paths.search, params);
 
   return (
     <div lang={locale} className="min-h-screen bg-canvas text-ink">
@@ -72,7 +84,7 @@ export async function PublicDirectorySearchPage({ locale, searchParams }: { loca
         ) : null}
 
         {search?.nearbyRequested && !search.nearbyEnabled ? <div className="mt-5 rounded-card border border-amber-300 bg-amber-50 p-4 text-sm font-semibold text-amber-900">{t.badPosition}</div> : null}
-        {search ? <PublicDirectoryResults locale={locale} search={search} /> : null}
+        {search ? <PublicDirectoryResults locale={locale} search={search} paginationBaseHref={paginationHref} /> : null}
       </div>
     </div>
   );
