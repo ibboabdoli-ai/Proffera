@@ -20,6 +20,7 @@ describe("Directory profile contact visibility", () => {
     expect(profileCode).toContain("LockKeyhole");
 
     expect(dataCode).toContain("hasWorkspaceActivePaidPlanAccessForWorkspace(workspaceId)");
+    expect(dataCode).not.toContain("hasWorkspacePlanAccessForWorkspace(workspaceId)");
     expect(dataCode).toContain("gateDirectoryDirectContact(rawContact, entitled)");
     expect(dataCode).toContain("directContactUnlocked: entitled");
     expect(dataCode).toContain("scb.phone");
