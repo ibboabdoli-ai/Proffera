@@ -23,18 +23,29 @@ export function BookingLinkCard({ url }: BookingLinkCardProps) {
     () => resolveBookingUrl(url),
     () => url,
   );
-  const [qrCodeUrl, setQrCodeUrl] = useState("");
+  const [qrCode, setQrCode] = useState({ sourceUrl: "", dataUrl: "" });
   const [copyLabel, setCopyLabel] = useState("Kopiera länk");
+  const qrCodeUrl = qrCode.sourceUrl === resolvedUrl ? qrCode.dataUrl : "";
 
   useEffect(() => {
+    let active = true;
+
     QRCode.toDataURL(resolvedUrl, {
       width: 320,
       margin: 1,
       errorCorrectionLevel: "M",
       color: { dark: "#173e2b", light: "#ffffff" },
     })
-      .then(setQrCodeUrl)
-      .catch(() => setQrCodeUrl(""));
+      .then((dataUrl) => {
+        if (active) setQrCode({ sourceUrl: resolvedUrl, dataUrl });
+      })
+      .catch(() => {
+        if (active) setQrCode({ sourceUrl: resolvedUrl, dataUrl: "" });
+      });
+
+    return () => {
+      active = false;
+    };
   }, [resolvedUrl]);
 
   async function copyLink() {
