@@ -202,7 +202,10 @@ describe("company directory direct-contact entitlement", () => {
         workspaceId: paidWorkspaceId,
       }),
     ];
-    mocks.getSql.mockReturnValue(vi.fn(async () => rows));
+    const sql = vi.fn()
+      .mockResolvedValueOnce([{ total_count: rows.length }])
+      .mockResolvedValueOnce(rows);
+    mocks.getSql.mockReturnValue(sql);
     mocks.getWorkspaceDirectoryPublicAccessForWorkspaces.mockResolvedValue(new Map([
       [freeWorkspaceId, { planAccess: false, websiteBuilder: false, onlineBooking: false }],
       [paidWorkspaceId, { planAccess: true, websiteBuilder: false, onlineBooking: false }],
@@ -210,6 +213,7 @@ describe("company directory direct-contact entitlement", () => {
 
     const result = await searchPublishedCompanyDirectory({ limit: 10 });
 
+    expect(sql).toHaveBeenCalledTimes(2);
     expect(mocks.getWorkspaceDirectoryPublicAccessForWorkspaces).toHaveBeenCalledTimes(1);
     expect(mocks.getWorkspaceDirectoryPublicAccessForWorkspaces).toHaveBeenCalledWith([
       freeWorkspaceId,
