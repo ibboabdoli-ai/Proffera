@@ -1,6 +1,7 @@
 import "server-only";
 
 import { assessCompanyDirectoryCategoryConfidence } from "@/lib/company-directory-category-confidence";
+import { enrichCompanyDirectoryScbForProfile } from "@/lib/company-directory-scb-enrichment";
 import { getSql } from "@/lib/db/server";
 
 export type CompanyDirectoryPublicationResult = {
@@ -36,6 +37,16 @@ export async function publishCompanyDirectoryProfileIfSafe(
   const sql = getSql();
   if (!sql) return { ok: false, code: "database" };
 
+  try {
+    const scb = await enrichCompanyDirectoryScbForProfile(profileId);
+    if (scb.status === "awaiting_access") {
+      return { ok: false, code: "not_ready" };
+    }
+  } catch (error) {
+    console.error("SCB company directory enrichment failed before publication", error);
+    return { ok: false, code: "not_ready" };
+  }
+
   const rows = await sql`
     select
       p.id::text, p.public_slug, p.display_name, p.legal_name,
@@ -48,6 +59,7 @@ export async function publishCompanyDirectoryProfileIfSafe(
       f.advertising_blocked, f.ongoing_procedures,
       f.last_synced_at::text as facts_last_synced_token,
       f.source_payload_hash as facts_source_payload_hash,
+      scb.conflicts as scb_conflicts,
       (
         f.profile_id is not null
         and f.last_synced_at >= p.last_synced_at
@@ -55,6 +67,7 @@ export async function publishCompanyDirectoryProfileIfSafe(
       ) as official_facts_fresh
     from company_directory_profiles p
     left join company_directory_official_facts f on f.profile_id = p.id
+    left join company_directory_scb_enrichment scb on scb.profile_id = p.id
     where p.id = ${profileId}::uuid
     limit 1
   `;
@@ -87,7 +100,8 @@ export async function publishCompanyDirectoryProfileIfSafe(
     || Boolean(row.claimed_workspace_id)
     || Boolean(row.deregistration_date)
     || Boolean(row.advertising_blocked)
-    || jsonArray(row.ongoing_procedures).length > 0;
+    || jsonArray(row.ongoing_procedures).length > 0
+    || jsonArray(row.scb_conflicts).length > 0;
   if (unsafe) return { ok: false, code: "unsafe" };
   if (confidence.score < 95) return { ok: false, code: "low_confidence" };
 
@@ -117,6 +131,12 @@ export async function publishCompanyDirectoryProfileIfSafe(
           and f.deregistration_date is null
           and coalesce(f.advertising_blocked, false) = false
           and jsonb_array_length(coalesce(f.ongoing_procedures, '[]'::jsonb)) = 0
+      )
+      and not exists (
+        select 1
+        from company_directory_scb_enrichment scb
+        where scb.profile_id = p.id
+          and jsonb_array_length(coalesce(scb.conflicts, '[]'::jsonb)) > 0
       )
     returning p.public_slug
   `;
