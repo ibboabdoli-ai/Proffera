@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 
 import {
+  normalizeScbCompanyRegistryPayload,
+} from "@/lib/company-directory-scb-provider";
+import {
+  createScbCompanyRegistryTransportFromEnv,
   fetchScbCompanyRegistryHelpExamplesFromEnv,
   probeScbCompanyRegistryMetadataFromEnv,
 } from "@/lib/company-directory-scb-transport";
@@ -11,6 +15,14 @@ export const dynamic = "force-dynamic";
 const NO_STORE_HEADERS = {
   "Cache-Control": "no-store, max-age=0",
 } as const;
+
+// Three existing Proffera directory profiles selected read-only from Södertälje.
+// The temporary probe never accepts arbitrary organisation numbers from callers.
+const PILOT_ORGANIZATION_NUMBERS = [
+  "5590026307",
+  "5590016860",
+  "5569672982",
+] as const;
 
 function decodeHtml(value: string) {
   return value
@@ -53,6 +65,30 @@ function visibleHelpText(html: string) {
     .slice(0, 40_000);
 }
 
+function payloadShape(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return {
+      type: "array",
+      length: value.length,
+      first: value.length > 0 ? payloadShape(value[0]) : null,
+    };
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return {
+      type: "object",
+      keys: Object.keys(record),
+      nested: Object.fromEntries(
+        Object.entries(record)
+          .filter(([, nested]) => Array.isArray(nested) || (nested && typeof nested === "object"))
+          .slice(0, 12)
+          .map(([key, nested]) => [key, payloadShape(nested)]),
+      ),
+    };
+  }
+  return { type: typeof value };
+}
+
 function json(payload: unknown, status = 200) {
   return NextResponse.json(payload, {
     status,
@@ -60,7 +96,58 @@ function json(payload: unknown, status = 200) {
   });
 }
 
-export async function GET() {
+async function runPilot() {
+  const transport = createScbCompanyRegistryTransportFromEnv();
+  if (!transport) {
+    return {
+      ok: false,
+      configured: false,
+      results: [],
+    };
+  }
+
+  const results = [];
+  for (const organizationNumber of PILOT_ORGANIZATION_NUMBERS) {
+    try {
+      const companyPayload = await transport.fetchCompany(organizationNumber);
+      const workplacePayload = await transport.fetchWorkplaces(organizationNumber);
+      try {
+        const normalized = normalizeScbCompanyRegistryPayload(
+          companyPayload,
+          workplacePayload,
+          organizationNumber,
+        );
+        results.push({
+          organizationNumber,
+          ok: true,
+          normalized,
+        });
+      } catch (error) {
+        results.push({
+          organizationNumber,
+          ok: false,
+          normalizationError: error instanceof Error ? error.message : "SCB normalization failed",
+          companyShape: payloadShape(companyPayload),
+          workplaceShape: payloadShape(workplacePayload),
+        });
+      }
+    } catch (error) {
+      results.push({
+        organizationNumber,
+        ok: false,
+        requestError: error instanceof Error ? error.message : "SCB request failed",
+      });
+    }
+  }
+
+  return {
+    ok: results.every((result) => result.ok),
+    configured: true,
+    results,
+  };
+}
+
+export async function GET(request: Request) {
   if (process.env.VERCEL_ENV !== "preview") {
     return new NextResponse(null, {
       status: 404,
@@ -69,6 +156,11 @@ export async function GET() {
   }
 
   try {
+    const url = new URL(request.url);
+    if (url.searchParams.get("pilot") === "1") {
+      return json(await runPilot());
+    }
+
     const [metadata, examples] = await Promise.all([
       probeScbCompanyRegistryMetadataFromEnv(),
       fetchScbCompanyRegistryHelpExamplesFromEnv(),
