@@ -1,7 +1,9 @@
 import { cache } from "react";
 
+import { gateDirectoryDirectContact } from "@/lib/company-directory-contact-entitlement";
 import { getPublicDirectoryBusiness, type PublicDirectoryBusiness } from "@/lib/company-directory-engine";
 import { getSql } from "@/lib/db/server";
+import { hasWorkspacePlanAccessForWorkspace } from "@/lib/workspace-feature-entitlement-db";
 
 export type PublicDirectoryBusinessForRequest = PublicDirectoryBusiness & {
   publicationStatus: "published" | "claimed";
@@ -32,6 +34,7 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
       profile.official_source,
       profile.source_updated_at,
       profile.last_synced_at,
+      profile.claimed_workspace_id::text,
       media.public_url as media_url,
       media.media_kind,
       media.attribution,
@@ -56,6 +59,12 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
   const row = rows[0];
   if (!row) return null;
 
+  const workspaceId = String(row.claimed_workspace_id ?? "");
+  const directContact = gateDirectoryDirectContact(
+    { addressLine1: row.address_line1 },
+    await hasWorkspacePlanAccessForWorkspace(workspaceId),
+  );
+
   return {
     id: String(row.id),
     slug: String(row.public_slug),
@@ -65,7 +74,7 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
     categorySlug: String(row.category_slug ?? ""),
     primarySniLabel: String(row.primary_sni_label ?? ""),
     activityDescription: String(row.activity_description ?? ""),
-    addressLine1: String(row.address_line1 ?? ""),
+    addressLine1: directContact.addressLine1,
     postalCode: String(row.postal_code ?? ""),
     city: String(row.city ?? ""),
     municipality: String(row.municipality ?? ""),
@@ -97,6 +106,9 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
  */
 export const getPublicDirectoryBusinessForRequest = cache(async (slug: string): Promise<PublicDirectoryBusinessForRequest | null> => {
   const published = await getPublicDirectoryBusiness(slug);
-  if (published) return { ...published, publicationStatus: "published" };
+  if (published) {
+    const directContact = gateDirectoryDirectContact({ addressLine1: published.addressLine1 }, false);
+    return { ...published, addressLine1: directContact.addressLine1, publicationStatus: "published" };
+  }
   return getSafeClaimedDirectoryFallback(slug);
 });
