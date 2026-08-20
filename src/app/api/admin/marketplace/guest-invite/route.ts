@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 
+import { marketplaceGuestInvitationEmailConfigured } from "@/features/email/marketplace-guest-invitation-email";
+import { expirePastMarketplaceInvitation } from "@/features/matching/marketplace-invitation-state";
 import { getAdminForArea } from "@/lib/admin-authorization";
 import { sendMarketplaceGuestQuoteInvitation } from "@/lib/marketplace-guest-quote";
-import { expirePastMarketplaceInvitation } from "@/features/matching/marketplace-invitation-state";
 
 function sameOrigin(request: Request) {
   const origin = request.headers.get("origin");
@@ -57,6 +58,13 @@ export async function POST(request: Request) {
   }
   if (!Number.isInteger(wave) || (wave !== 1 && wave !== 2)) {
     return NextResponse.redirect(new URL("/admin/marketplace?invite=invalid_wave", request.url), 303);
+  }
+
+  // Missing provider configuration is a known pre-dispatch failure. Refuse it
+  // before reserving an invitation so migration 0051 does not conservatively
+  // classify a provider-never-contacted row as delivery_uncertain.
+  if (!marketplaceGuestInvitationEmailConfigured()) {
+    return NextResponse.redirect(new URL("/admin/marketplace?invite=email_configuration", request.url), 303);
   }
 
   try {
