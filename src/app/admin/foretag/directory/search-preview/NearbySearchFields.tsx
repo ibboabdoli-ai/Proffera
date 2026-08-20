@@ -5,6 +5,7 @@ import { useState } from "react";
 import {
   applyAdminCurrentPosition,
   applyAdminManualCoordinateEdit,
+  parseAdminNearbyCoordinatePair,
 } from "./search-behavior";
 
 const FAST_GEOLOCATION_OPTIONS: PositionOptions = {
@@ -43,7 +44,8 @@ export function NearbySearchFields({
   const [longitude, setLongitude] = useState(defaultLongitude);
   const [status, setStatus] = useState("");
   const [locating, setLocating] = useState(false);
-  const hasPosition = Boolean(latitude && longitude);
+  const validPosition = parseAdminNearbyCoordinatePair(latitude, longitude);
+  const hasPosition = Boolean(validPosition);
   const normalizedDefaultRadius = RADIUS_OPTIONS.includes(Number(defaultRadius)) ? defaultRadius : "25";
 
   /** Resolves the sibling manual-location field when this component needs to make Nearby the active mode. */
@@ -144,7 +146,7 @@ export function NearbySearchFields({
         <button
           type="submit"
           name="nearbyCoordinates"
-          value={hasPosition ? `${latitude},${longitude}` : ""}
+          value={validPosition ? `${validPosition.latitude},${validPosition.longitude}` : ""}
           formAction={searchNearbyAction}
           disabled={!hasPosition || locating}
           className="min-h-12 rounded-xl bg-[#173e2b] px-5 text-sm font-black text-white disabled:cursor-not-allowed disabled:bg-[#d9dedb] disabled:text-[#7b847e]"
