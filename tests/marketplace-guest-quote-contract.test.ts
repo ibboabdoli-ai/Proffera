@@ -18,6 +18,7 @@ import {
   normalizeMarketplaceRecipientEmail,
   redactMarketplaceGuestDescription,
   sendMarketplaceGuestQuoteInvitation,
+  submitMarketplaceGuestQuote,
 } from "@/lib/marketplace-guest-quote";
 
 const eligibleRow = {
@@ -93,6 +94,18 @@ describe("marketplace guest quote safety contract", () => {
     expect(redacted).toContain("[…]");
   });
 
+  it("redacts alternate Swedish phone numbers typed only in the description", () => {
+    const description = "Ring min partner på 073-555 11 22 om ni inte får tag på mig.";
+    const redacted = redactMarketplaceGuestDescription(description, {
+      name: "Anna Andersson",
+      email: "anna@example.se",
+      phone: "070 123 45 67",
+    });
+
+    expect(redacted).not.toContain("073-555 11 22");
+    expect(redacted).toContain("[…]");
+  });
+
   it("builds a guest view without customer contact fields", () => {
     const view = buildMarketplaceGuestQuoteView({
       invitation_id: "11111111-1111-4111-8111-111111111111",
@@ -146,5 +159,40 @@ describe("marketplace guest quote safety contract", () => {
     expect(result).toEqual({ ok: false, code: "suppressed" });
     expect(sql).toHaveBeenCalledTimes(2);
     expect(mocks.sendInvitationEmail).not.toHaveBeenCalled();
+  });
+
+  it("does not invite against a closed customer request", async () => {
+    const sql = sqlResponses([{ ...eligibleRow, quote_status: "cancelled" }]);
+    mocks.getSql.mockReturnValue(sql);
+
+    const result = await sendMarketplaceGuestQuoteInvitation(invitationInput());
+
+    expect(result).toEqual({ ok: false, code: "quote_closed" });
+    expect(sql).toHaveBeenCalledTimes(1);
+    expect(mocks.sendInvitationEmail).not.toHaveBeenCalled();
+  });
+
+  it("rejects a guest offer when the underlying request is already closed", async () => {
+    const sql = sqlResponses([{
+      invitation_id: "44444444-4444-4444-8444-444444444444",
+      quote_request_id: eligibleRow.quote_request_id,
+      profile_id: eligibleRow.profile_id,
+      workspace_id: null,
+      status: "sent",
+      expires_at: "2099-01-01T00:00:00.000Z",
+      quote_status: "cancelled",
+    }]);
+    mocks.getSql.mockReturnValue(sql);
+
+    const result = await submitMarketplaceGuestQuote({
+      token: "a".repeat(40),
+      priceKind: "estimate",
+      amountMinor: 100_00,
+      availableDate: null,
+      companyNote: "Test",
+    });
+
+    expect(result).toEqual({ ok: false, code: "closed" });
+    expect(sql).toHaveBeenCalledTimes(1);
   });
 });
