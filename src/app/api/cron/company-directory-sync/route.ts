@@ -17,6 +17,7 @@ const AUTOMATIC_QUEUE_CRON_BATCH_SIZE = 5;
 const FULL_REVALIDATION_AUTOMATIC_BATCH_SIZE = 10;
 const PUBLISHED_REVALIDATION_AUTOMATIC_BATCH_SIZE = 2;
 const AUTOMATIC_QUEUE_HISTORY_PROVIDER = "automatic_queue";
+const AUTOMATIC_QUEUE_DEADLINE_BUFFER_MS = 5_000;
 
 const EMPTY_QUEUE_RESULT = {
   claimed: 0,
@@ -95,9 +96,12 @@ async function recordAutomaticQueueSyncRunSafely(run: AutomaticQueueRun) {
   }
 }
 
-async function revalidateAllCompanyDirectorySafely() {
+async function revalidateAllCompanyDirectorySafely(deadlineAt: number) {
   try {
-    return await revalidateAllCompanyDirectoryBatch(FULL_REVALIDATION_AUTOMATIC_BATCH_SIZE);
+    return await revalidateAllCompanyDirectoryBatch(
+      FULL_REVALIDATION_AUTOMATIC_BATCH_SIZE,
+      { deadlineAt },
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Full Directory revalidation worker failed";
     console.error("Company directory full revalidation failed inside automatic queue", error);
@@ -108,9 +112,12 @@ async function revalidateAllCompanyDirectorySafely() {
   }
 }
 
-async function revalidatePublishedCompanyDirectorySafely() {
+async function revalidatePublishedCompanyDirectorySafely(deadlineAt: number) {
   try {
-    return await revalidatePublishedCompanyDirectoryBatch(PUBLISHED_REVALIDATION_AUTOMATIC_BATCH_SIZE);
+    return await revalidatePublishedCompanyDirectoryBatch(
+      PUBLISHED_REVALIDATION_AUTOMATIC_BATCH_SIZE,
+      { deadlineAt },
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Published revalidation worker failed";
     console.error("Company directory published revalidation failed inside automatic queue", error);
@@ -147,7 +154,11 @@ export async function GET(request: Request) {
   }
 
   const mode = process.env.COMPANY_DIRECTORY_DISCOVERY_MODE?.trim().toLowerCase();
-  const automaticQueueStartedAt = new Date().toISOString();
+  const automaticQueueStartedAtMs = Date.now();
+  const automaticQueueStartedAt = new Date(automaticQueueStartedAtMs).toISOString();
+  const revalidationDeadlineAt = automaticQueueStartedAtMs
+    + maxDuration * 1_000
+    - AUTOMATIC_QUEUE_DEADLINE_BUFFER_MS;
 
   try {
     if (mode === "automatic") {
@@ -157,8 +168,8 @@ export async function GET(request: Request) {
       const result = remainingBatchSize > 0
         ? await processCompanyDirectoryDiscoveryQueue(remainingBatchSize)
         : EMPTY_QUEUE_RESULT;
-      const fullRevalidation = await revalidateAllCompanyDirectorySafely();
-      const publishedRevalidation = await revalidatePublishedCompanyDirectorySafely();
+      const fullRevalidation = await revalidateAllCompanyDirectorySafely(revalidationDeadlineAt);
+      const publishedRevalidation = await revalidatePublishedCompanyDirectorySafely(revalidationDeadlineAt);
       const history = {
         scanned: readyAutoPublish.scanned + newCompanies.claimed + result.claimed
           + fullRevalidation.selected + publishedRevalidation.selected,
