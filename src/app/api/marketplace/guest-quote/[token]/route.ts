@@ -85,13 +85,22 @@ export async function POST(request: Request, context: RouteContext) {
     return redirectToGuest(request, token, "invalid", locale);
   }
 
-  const result = await submitMarketplaceGuestQuote({
-    token,
-    priceKind,
-    amountMinor: priceKind === "inspection_required" ? 0 : amount,
-    availableDate,
-    companyNote,
-  });
+  let result;
+  try {
+    result = await submitMarketplaceGuestQuote({
+      token,
+      priceKind,
+      amountMinor: priceKind === "inspection_required" ? 0 : amount,
+      availableDate,
+      companyNote,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error ?? "");
+    if (message.includes("marketplace_profile_ineligible")) {
+      return redirectToGuest(request, token, "closed", locale);
+    }
+    throw error;
+  }
 
   if (!result.ok) return redirectToGuest(request, token, result.code, locale);
   return redirectToGuest(request, token, "sent", locale);
