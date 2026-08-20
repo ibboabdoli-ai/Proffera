@@ -68,7 +68,6 @@ export const directoryCategoryLabels: Record<PublicLocale, Record<string, string
 };
 
 export const popularDirectoryServices = [
-  { query: "frisor", sv: "Frisör", en: "Hairdresser" },
   { query: "vvs", sv: "Rörmokare", en: "Plumber" },
   { query: "elinstallation", sv: "Elektriker", en: "Electrician" },
   { query: "lokalvard", sv: "Städning", en: "Cleaning" },
@@ -100,6 +99,8 @@ export const directoryCopy = {
     profferaBusiness: "Tjänsten är aktiv på Proffera", viewProfile: "Se företag", viewCompany: "Se företag", viewService: "Se tjänst",
     book: "Boka tid", requestQuote: "Begär offert", contact: "Kontakta",
     compareQuotes: "Vill du jämföra flera företag?", compareQuotesLead: "Skicka en förfrågan en gång och få hjälp att hitta lämpliga företag.", getQuotes: "Få offerter",
+    tryPopular: "Prova en populär tjänst", browseAll: "Visa alla tjänster", searchAllSweden: "Sök i hela Sverige", alternativeTitle: "Kom vidare med ditt ärende",
+    alternativeLead: "Bredda sökningen eller beskriv jobbet en gång så hjälper Proffera dig att hitta lämpliga företag.",
     empty: "Inga företag hittades för den här sökningen ännu.",
     emptyNearby: (radius: number) => `Inga företag med verifierad position hittades inom ${radius} km ännu.`,
     sourceDescription: "Officiell verksamhetsbeskrivning", country: "Sverige",
@@ -124,6 +125,7 @@ export const directoryCopy = {
     profferaBusiness: "Service active on Proffera", viewProfile: "View business", viewCompany: "View business", viewService: "View service",
     book: "Book appointment", requestQuote: "Request quote", contact: "Contact",
     compareQuotes: "Want to compare several businesses?", compareQuotesLead: "Send one request and get help finding suitable businesses.", getQuotes: "Get quotes",
+    tryPopular: "Try a popular service", browseAll: "View all services", searchAllSweden: "Search all of Sweden", alternativeTitle: "Keep your project moving", alternativeLead: "Broaden the search or describe the job once and Proffera will help you find suitable businesses.",
     empty: "No businesses were found for this search yet.",
     emptyNearby: (radius: number) => `No businesses with a verified position were found within ${radius} km yet.`,
     sourceDescription: "Official business description (Swedish)", country: "Sweden",

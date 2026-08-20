@@ -77,8 +77,16 @@ function codeLabel(value: unknown) {
 
 function dateOnly(value: unknown): string | null {
   const raw = text(value);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
-  return raw;
+  const match = raw.match(/^(\d{4}-\d{2}-\d{2})(?:(?:T|\s)\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})?)?$/);
+  if (!match?.[1]) return null;
+
+  const date = match[1];
+  const parsedDate = new Date(`${date}T00:00:00Z`);
+  if (Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== date) return null;
+  if (raw === date) return date;
+
+  const normalizedTimestamp = raw.replace(" ", "T");
+  return Number.isNaN(Date.parse(normalizedTimestamp)) ? null : date;
 }
 
 function timestamp(value: unknown): string | null {
@@ -141,8 +149,14 @@ function sniFromRecord(row: AnyRecord) {
 }
 
 function proceduresFromRecord(row: AnyRecord) {
-  const container = object(row.pagaendeAvvecklingsEllerOmstruktureringsforfarande);
-  return list(container?.pagaendeAvvecklingsEllerOmstruktureringsforfarandeLista)
+  const container = object(first(row, [
+    "pagaendeAvvecklingsEllerOmstruktureringsforfarande",
+    "pagandeAvvecklingsEllerOmstruktureringsforfarande",
+  ]));
+  return list(first(container, [
+    "pagaendeAvvecklingsEllerOmstruktureringsforfarandeLista",
+    "pagandeAvvecklingsEllerOmstruktureringsforfarandeLista",
+  ]))
     .map((value) => object(value))
     .filter((value): value is AnyRecord => Boolean(value))
     .map((value) => ({
@@ -160,7 +174,6 @@ function dataProducersFromRecord(row: AnyRecord) {
     "organisationsform",
     "avregistreradOrganisation",
     "avregistreringsorsak",
-    "pagaendeAvvecklingsEllerOmstruktureringsforfarande",
     "juridiskForm",
     "verksamOrganisation",
     "organisationsdatum",
@@ -173,10 +186,18 @@ function dataProducersFromRecord(row: AnyRecord) {
     const producer = text(object(row[section])?.dataproducent);
     if (producer) result[section] = producer;
   }
+  const procedureContainer = object(first(row, [
+    "pagaendeAvvecklingsEllerOmstruktureringsforfarande",
+    "pagandeAvvecklingsEllerOmstruktureringsforfarande",
+  ]));
+  const procedureProducer = text(procedureContainer?.dataproducent);
+  if (procedureProducer) {
+    result.pagaendeAvvecklingsEllerOmstruktureringsforfarande = procedureProducer;
+  }
   return result;
 }
 
-function extractOfficialFacts(row: AnyRecord): OfficialFacts {
+export function extractOfficialFacts(row: AnyRecord): OfficialFacts {
   const registrationCountry = codeLabel(row.registreringsland);
   const organizationForm = codeLabel(row.organisationsform);
   const legalForm = codeLabel(row.juridiskForm);

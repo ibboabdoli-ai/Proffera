@@ -13,8 +13,8 @@ test.describe("public marketplace smoke", () => {
     ).toBeVisible();
     await expect(page.getByText("Hitta företag, boka tid eller få offerter – gratis.")).toBeVisible();
     await expect(page.getByRole("heading", { level: 2, name: "Populära tjänster" })).toBeVisible();
-    await expect(page.getByRole("link", { name: /Frisör & barberare/ })).toBeVisible();
     await expect(page.getByRole("link", { name: /Elektriker/ })).toBeVisible();
+    await expect(page.getByRole("link", { name: /Frisör & barberare/ })).toHaveCount(0);
     await expect(page.getByRole("link", { name: "För företag" }).first()).toBeVisible();
     await expect(page.locator("#proffera-chat-widget")).toHaveCount(0);
 
@@ -79,7 +79,7 @@ test.describe("public marketplace smoke", () => {
     expect(url.searchParams.has("radius")).toBe(false);
   });
 
-  test("English root renders the simplified marketplace home and normalizes Hairdresser", async ({ page }) => {
+  test("English root renders the simplified marketplace home and supports a manual Hairdresser search", async ({ page }) => {
     const response = await page.goto("/en");
 
     expect(response?.ok()).toBeTruthy();
@@ -91,7 +91,8 @@ test.describe("public marketplace smoke", () => {
     ).toBeVisible();
     await expect(page.getByText("Find businesses, book an appointment or request quotes – free.")).toBeVisible();
     await expect(page.getByRole("heading", { level: 2, name: "Popular services" })).toBeVisible();
-    await expect(page.getByRole("link", { name: /Hairdresser & barber/ })).toBeVisible();
+    await expect(page.getByRole("link", { name: /Electrician/ })).toBeVisible();
+    await expect(page.getByRole("link", { name: /Hairdresser & barber/ })).toHaveCount(0);
     await expect(page.getByRole("link", { name: "For businesses" }).first()).toBeVisible();
     await expect(page.locator("#proffera-chat-widget")).toHaveCount(0);
 

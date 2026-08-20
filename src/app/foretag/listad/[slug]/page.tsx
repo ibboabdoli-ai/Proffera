@@ -25,7 +25,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const hasActualBusinessMedia = Boolean(business.media?.isActualBusinessMedia && business.media.url);
 
   return {
-    title: `${business.companyName} | Proffera`,
+    title: business.companyName,
     description,
     alternates: {
       canonical,
@@ -40,6 +40,17 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       description,
       url: canonical,
       type: "website",
+      ...(hasActualBusinessMedia ? {
+        images: [{
+          url: absoluteUrl(business.media!.url),
+          alt: business.companyName,
+        }],
+      } : {}),
+    },
+    twitter: {
+      card: hasActualBusinessMedia ? "summary_large_image" : "summary",
+      title: business.companyName,
+      description,
       ...(hasActualBusinessMedia ? {
         images: [{
           url: absoluteUrl(business.media!.url),

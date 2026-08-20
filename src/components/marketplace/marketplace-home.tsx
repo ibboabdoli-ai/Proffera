@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, CheckCircle2, Hammer, Leaf, Paintbrush, Scissors, Search, Sparkles, Store, Truck, Wrench, Zap } from "lucide-react";
+import { ArrowRight, CheckCircle2, Hammer, Leaf, Paintbrush, Search, Sparkles, Store, Truck, Wrench, Zap } from "lucide-react";
 
 import { directoryPaths } from "@/components/company-directory/public-directory-copy";
 import { PublicDirectorySearchForm } from "@/components/company-directory/public-directory-search-form";
@@ -32,7 +32,6 @@ const copy: Record<PublicLocale, MarketplaceHomeCopy> = {
     categoriesTitle: "Populära tjänster",
     categoriesLead: "Välj en tjänst eller skriv själv vad du behöver hjälp med.",
     categories: [
-      { label: "Frisör & barberare", query: "frisor" },
       { label: "Elektriker", query: "elinstallation" },
       { label: "VVS & rörmokare", query: "vvs" },
       { label: "Städning", query: "lokalvard" },
@@ -62,7 +61,6 @@ const copy: Record<PublicLocale, MarketplaceHomeCopy> = {
     categoriesTitle: "Popular services",
     categoriesLead: "Choose a service or type what you need help with.",
     categories: [
-      { label: "Hairdresser & barber", query: "frisor" },
       { label: "Electrician", query: "elinstallation" },
       { label: "Plumber", query: "vvs" },
       { label: "Cleaning", query: "lokalvard" },
@@ -87,7 +85,7 @@ const copy: Record<PublicLocale, MarketplaceHomeCopy> = {
   },
 };
 
-const categoryIcons = [Scissors, Zap, Wrench, Sparkles, Truck, Paintbrush, Hammer, Leaf] as const;
+const categoryIcons = [Zap, Wrench, Sparkles, Truck, Paintbrush, Hammer, Leaf] as const;
 const stepIcons = [Search, Store, CheckCircle2] as const;
 
 export async function MarketplaceHome({ locale }: { locale: PublicLocale }) {

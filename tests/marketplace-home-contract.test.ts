@@ -40,12 +40,13 @@ describe("marketplace-first homepage contract", () => {
 
   it("uses supported service queries for marketplace category shortcuts", () => {
     const home = source("src/components/marketplace/marketplace-home.tsx");
-    const queries = ["frisor", "elinstallation", "vvs", "lokalvard", "flytthjalp", "malning", "snickeri", "tradgardshjalp"];
+    const queries = ["elinstallation", "vvs", "lokalvard", "flytthjalp", "malning", "snickeri", "tradgardshjalp"];
 
     for (const query of queries) {
       expect(home).toContain(`query: "${query}"`);
       expect(resolveDirectoryServiceQuery(query)).not.toBeNull();
     }
+    expect(home).not.toContain('query: "frisor"');
   });
 
   it("supports the customer's hairdresser example through the shared taxonomy", () => {
