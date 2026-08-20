@@ -6,6 +6,7 @@ import { getDirectoryGeocodingStatus } from "@/lib/company-directory-geocoding";
 import { searchCompanyDirectory } from "@/lib/company-directory-search";
 import { geocodeDirectoryPilotAction } from "./actions";
 import { NearbySearchFields } from "./NearbySearchFields";
+import { resolveAdminDirectorySearchMode } from "./search-behavior";
 
 export const dynamic = "force-dynamic";
 
@@ -44,22 +45,18 @@ export default async function DirectorySearchPreviewPage({ searchParams }: PageP
     getDirectoryGeocodingStatus(),
   ]);
   const service = firstParam(params?.service) ?? "Rörmokare";
-  const rawLocation = firstParam(params?.location) ?? "";
-  const rawLatitude = firstParam(params?.latitude) ?? "";
-  const rawLongitude = firstParam(params?.longitude) ?? "";
-  const hasManualLocation = rawLocation.trim().length > 0;
-  const latitude = hasManualLocation ? "" : rawLatitude;
-  const longitude = hasManualLocation ? "" : rawLongitude;
   const radius = firstParam(params?.radius) ?? "25";
-  const nearbyParamsPresent = Boolean(latitude || longitude);
-  const location = hasManualLocation ? rawLocation : (nearbyParamsPresent ? "" : "Stockholm");
+  const searchMode = resolveAdminDirectorySearchMode({
+    location: firstParam(params?.location),
+    latitude: firstParam(params?.latitude),
+    longitude: firstParam(params?.longitude),
+  });
+  const { location, latitude, longitude } = searchMode;
   const geocodeResult = firstParam(params?.geocode) ?? "";
 
   const search = await searchCompanyDirectory({
     service,
-    location,
-    latitude,
-    longitude,
+    ...searchMode,
     radiusKm: radius,
     streetAddressOnly: true,
     limit: 30,
