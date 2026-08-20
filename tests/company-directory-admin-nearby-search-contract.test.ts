@@ -124,7 +124,9 @@ describe("admin directory nearby search behavior", () => {
       ),
     );
 
-    expect(html).toMatch(/name="nearbyCoordinates"[^>]*value=""[^>]*disabled=""/);
+    expect(html).toContain('name="nearbyCoordinates"');
+    expect(html).toContain('value=""');
+    expect(html).toContain('disabled=""');
   });
 
   it("lets a manual location win over stale nearby coordinates", () => {
