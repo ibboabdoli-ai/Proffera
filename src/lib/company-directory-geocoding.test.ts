@@ -205,6 +205,19 @@ describe("company directory geocoding helpers", () => {
     }, "11264", "Stockholm", "Segelbåtsvägen 7A").reason).toBe("missing_point");
     expect(diagnoseExactSwerefAddressDetail({}, "11264", "Stockholm", "Segelbåtsvägen 7A").reason)
       .toBe("unexpected_detail_response");
+    for (const malformedAddressAttributes of ["bad", []]) {
+      expect(diagnoseExactSwerefAddressDetail({
+        ...payload,
+        features: [{
+          ...payload.features[0],
+          properties: {
+            ...payload.features[0].properties,
+            adressplatsattribut: malformedAddressAttributes,
+          },
+        }],
+      }, "11264", "Stockholm", "Segelbåtsvägen 7A").reason)
+        .toBe("unexpected_detail_response");
+    }
   });
 
   it("accepts detail geometry only after exact official street, postcode and postort verification", () => {
