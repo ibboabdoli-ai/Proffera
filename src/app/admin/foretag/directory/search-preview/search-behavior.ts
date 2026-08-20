@@ -9,6 +9,18 @@ type MutableLocationField = {
   value: string;
 };
 
+/** Clears a conflicting manual city whenever an admin edits a raw Nearby coordinate. */
+export function applyAdminManualCoordinateEdit(
+  value: string,
+  manualLocationField: MutableLocationField | null,
+) {
+  if (manualLocationField) {
+    manualLocationField.value = "";
+  }
+
+  return value;
+}
+
 export function applyAdminCurrentPosition(
   position: PositionLike,
   manualLocationField: MutableLocationField | null,
