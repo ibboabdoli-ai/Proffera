@@ -1,14 +1,19 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  DIRECTORY_GEOCODING_DIAGNOSTIC_RETRY_ORGS,
   buildDirectoryAddressSearchText,
+  buildDirectoryGeocodingNoMatchSource,
   classifyDirectoryGeocodingBatchError,
   cleanDirectoryStreetAddress,
+  diagnoseExactSwerefAddressDetail,
+  isDirectoryGeocodingNoMatchSource,
   mapDirectoryGeocodingFetchError,
   parseExactSwerefAddressDetail,
   parseSwerefPointGeometry,
   selectDirectoryAddressReferenceCandidates,
   selectUniqueDirectoryAddressReference,
+  shouldRetryLegacyDirectoryNoMatch,
 } from "./company-directory-geocoding";
 
 describe("company directory geocoding helpers", () => {
@@ -23,6 +28,25 @@ describe("company directory geocoding helpers", () => {
   it("searches Lantmäteriet with belägenhetsadress text, not a postal address", () => {
     expect(buildDirectoryAddressSearchText("Segelbåtsvägen 7", "STOCKHOLM"))
       .toBe("Segelbåtsvägen 7, STOCKHOLM");
+  });
+
+  it("limits legacy no-match retry to the three diagnostic pilot companies", () => {
+    expect(DIRECTORY_GEOCODING_DIAGNOSTIC_RETRY_ORGS).toEqual([
+      "5564208337",
+      "5563276806",
+      "5565120846",
+    ]);
+    expect(shouldRetryLegacyDirectoryNoMatch("5564208337", "lantmateriet_no_match_v4_2")).toBe(true);
+    expect(shouldRetryLegacyDirectoryNoMatch("5564208337", "lantmateriet_no_match_v4_2:street_mismatch")).toBe(false);
+    expect(shouldRetryLegacyDirectoryNoMatch("5562039429", "lantmateriet_no_match_v4_2")).toBe(false);
+  });
+
+  it("stores a stable diagnostic reason without losing no-match classification", () => {
+    const source = buildDirectoryGeocodingNoMatchSource("street_mismatch");
+    expect(source).toBe("lantmateriet_no_match_v4_2:street_mismatch");
+    expect(isDirectoryGeocodingNoMatchSource("lantmateriet_no_match_v4_2")).toBe(true);
+    expect(isDirectoryGeocodingNoMatchSource(source)).toBe(true);
+    expect(isDirectoryGeocodingNoMatchSource("lantmateriet_belagenhetsadress_v4_2")).toBe(false);
   });
 
   it("selects only one reference with exact postcode and postort", () => {
@@ -145,6 +169,55 @@ describe("company directory geocoding helpers", () => {
       features: [{ geometry: { type: "LineString", coordinates: [[1, 2], [3, 4]] } }],
     })).toBeNull();
     expect(parseSwerefPointGeometry({ features: [] })).toBeNull();
+  });
+
+  it("classifies exact-detail failures instead of collapsing them into generic no-match", () => {
+    const payload = {
+      type: "FeatureCollection",
+      features: [{
+        geometry: { type: "Point", coordinates: [674000, 6580000] },
+        properties: {
+          adressplatsattribut: {
+            postnummer: 11264,
+            postort: "Stockholm",
+            adressplatsbeteckning: {
+              adressplatsnummer: "7",
+              bokstavstillagg: "A",
+            },
+          },
+          adressomrade: { faststalltNamn: "Segelbåtsvägen" },
+        },
+      }],
+    };
+
+    expect(diagnoseExactSwerefAddressDetail(payload, "11264", "Stockholm", "Segelbåtsvägen 7A"))
+      .toEqual({ point: { easting: 674000, northing: 6580000 }, reason: null });
+    expect(diagnoseExactSwerefAddressDetail(payload, "11738", "Stockholm", "Segelbåtsvägen 7A").reason)
+      .toBe("postal_mismatch");
+    expect(diagnoseExactSwerefAddressDetail(payload, "11264", "Stockholm", "Annan gata 7A").reason)
+      .toBe("street_mismatch");
+    expect(diagnoseExactSwerefAddressDetail({
+      ...payload,
+      features: [{
+        ...payload.features[0],
+        geometry: { type: "LineString", coordinates: [[1, 2], [3, 4]] },
+      }],
+    }, "11264", "Stockholm", "Segelbåtsvägen 7A").reason).toBe("missing_point");
+    expect(diagnoseExactSwerefAddressDetail({}, "11264", "Stockholm", "Segelbåtsvägen 7A").reason)
+      .toBe("unexpected_detail_response");
+    for (const malformedAddressAttributes of ["bad", []]) {
+      expect(diagnoseExactSwerefAddressDetail({
+        ...payload,
+        features: [{
+          ...payload.features[0],
+          properties: {
+            ...payload.features[0].properties,
+            adressplatsattribut: malformedAddressAttributes,
+          },
+        }],
+      }, "11264", "Stockholm", "Segelbåtsvägen 7A").reason)
+        .toBe("unexpected_detail_response");
+    }
   });
 
   it("accepts detail geometry only after exact official street, postcode and postort verification", () => {

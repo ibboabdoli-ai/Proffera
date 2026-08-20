@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, CalendarCheck2, ChevronLeft, ChevronRight, FileText, Mail, MapPin, Navigation, ShieldCheck } from "lucide-react";
 
-import { directoryCopy, directoryPaths, directoryServiceLabel } from "@/components/company-directory/public-directory-copy";
+import { directoryCopy, directoryPaths, directoryServiceLabel, popularDirectoryServices } from "@/components/company-directory/public-directory-copy";
 import { quoteRequestPaths } from "@/features/quote-request/localization";
 import type { PublishedDirectorySearchResponse, PublishedDirectorySearchResult } from "@/lib/company-directory-public-search";
 import type { PublicLocale } from "@/lib/public-locale";
@@ -43,6 +43,31 @@ function pageHref(baseHref: string, page: number) {
   return `${url.pathname}${url.search}`;
 }
 
+function withoutLocationHref(baseHref: string) {
+  const url = new URL(baseHref, "https://proffera.invalid");
+  for (const key of ["location", "latitude", "longitude", "radius", "page"]) {
+    url.searchParams.delete(key);
+  }
+  return `${url.pathname}${url.search}`;
+}
+
+function withServiceHref(baseHref: string, service: string) {
+  const url = new URL(baseHref, "https://proffera.invalid");
+  url.searchParams.set("service", service);
+  url.searchParams.delete("page");
+  return `${url.pathname}${url.search}`;
+}
+
+function hasLocationConstraint(baseHref: string) {
+  const url = new URL(baseHref, "https://proffera.invalid");
+  return ["location", "latitude", "longitude"].some((key) => Boolean(url.searchParams.get(key)?.trim()));
+}
+
+function canSearchAllSweden(baseHref: string) {
+  const url = new URL(baseHref, "https://proffera.invalid");
+  return hasLocationConstraint(baseHref) && Boolean(url.searchParams.get("service")?.trim());
+}
+
 function paginationPages(currentPage: number, totalPages: number) {
   if (totalPages <= 7) return Array.from({ length: totalPages }, (_, index) => index + 1);
   return [...new Set([1, currentPage - 1, currentPage, currentPage + 1, totalPages])]
@@ -67,7 +92,23 @@ export function PublicDirectoryResults({
   const pages = paginationPages(search.page, search.totalPages);
 
   if (!search.serviceResolved) {
-    return <div className="mt-5 rounded-card border border-amber-300 bg-amber-50 p-4 text-sm font-semibold text-amber-900">{t.badService}</div>;
+    return (
+      <section className="mt-5 rounded-card border border-amber-300 bg-amber-50 p-5 text-amber-950">
+        <h2 className="font-black">{t.tryPopular}</h2>
+        <p className="mt-1 text-sm leading-6">{t.badService}</p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {popularDirectoryServices.slice(0, 5).map((item) => (
+            <Link key={item.query} href={withServiceHref(paginationBaseHref, item.query)} className="rounded-full border border-amber-300 bg-white px-3 py-2 text-sm font-black text-brand transition hover:bg-brand-soft">
+              {item[locale]}
+            </Link>
+          ))}
+        </div>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <Link href={profileBase} className="inline-flex min-h-10 items-center justify-center rounded-control border border-amber-300 bg-white px-4 text-sm font-black text-brand transition hover:bg-brand-soft">{t.browseAll}</Link>
+          <Link href={quoteRequestPaths[locale]} className="inline-flex min-h-10 items-center justify-center rounded-control bg-brand px-4 text-sm font-black text-white transition hover:bg-brand-strong">{t.getQuotes}<ArrowRight className="ml-2 h-4 w-4" /></Link>
+        </div>
+      </section>
+    );
   }
 
   return (
@@ -127,7 +168,23 @@ export function PublicDirectoryResults({
             </article>
           );
         })}
-        {search.results.length === 0 ? <div className="rounded-2xl border border-line bg-surface p-5 text-sm leading-6 text-muted shadow-sm">{nearbyActive ? t.emptyNearby(search.radiusKm) : t.empty}</div> : null}
+        {search.results.length === 0 ? (
+          <div className="rounded-2xl border border-line bg-surface p-5 shadow-sm sm:p-6">
+            <h3 className="text-lg font-black text-ink">{t.alternativeTitle}</h3>
+            <p className="mt-1 text-sm leading-6 text-muted">{nearbyActive ? t.emptyNearby(search.radiusKm) : t.empty}</p>
+            <p className="mt-2 text-sm leading-6 text-muted">{t.alternativeLead}</p>
+            <div className="mt-4 flex flex-wrap gap-3">
+              {canSearchAllSweden(paginationBaseHref) ? (
+                <Link href={withoutLocationHref(paginationBaseHref)} className="inline-flex min-h-10 items-center justify-center rounded-control border border-line bg-surface px-4 text-sm font-black text-brand transition hover:bg-brand-soft">
+                  {t.searchAllSweden}
+                </Link>
+              ) : null}
+              <Link href={quoteRequestPaths[locale]} className="inline-flex min-h-10 items-center justify-center rounded-control bg-brand px-4 text-sm font-black text-white transition hover:bg-brand-strong">
+                {t.getQuotes}<ArrowRight className="ml-2 h-4 w-4" />
+              </Link>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {search.totalPages > 1 ? (

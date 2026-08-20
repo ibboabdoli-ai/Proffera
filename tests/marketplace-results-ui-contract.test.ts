@@ -219,6 +219,59 @@ describe("marketplace results UI contract", () => {
     expect(render("sv", [])).not.toContain("Vill du jämföra flera företag?");
   });
 
+  it("gives empty and invalid searches useful recovery actions", () => {
+    const empty = render(
+      "sv",
+      [],
+      {},
+      "/foretag/listad?service=vvs&location=Stockholm",
+    );
+    const invalid = render("en", [], { serviceResolved: false });
+
+    expect(empty).toContain("Kom vidare med ditt ärende");
+    expect(empty).toContain("Sök i hela Sverige");
+    expect(empty).toContain("/foretag/listad?service=vvs");
+    expect(empty).toContain("Få offerter");
+    expect(invalid).toContain("Try a popular service");
+    expect(invalid).toContain("View all services");
+    expect(invalid).toContain("Get quotes");
+    expect(invalid).toMatch(/href="\/en\/companies\?service=[^"]+"/);
+    expect(invalid).toContain('href="/en/companies"');
+    expect(invalid).toContain('href="/en/get-quote"');
+
+    const invalidWithLocation = render(
+      "en",
+      [],
+      { serviceResolved: false },
+      "/en/companies?service=plummber&location=Stockholm",
+    );
+    expect(invalidWithLocation).toMatch(
+      /href="\/en\/companies\?service=[^&"]+&amp;location=Stockholm"/,
+    );
+  });
+
+  it("does not offer a nationwide link that would reset a location-only search", () => {
+    const locationOnly = render(
+      "sv",
+      [],
+      {},
+      "/foretag/listad?location=Stockholm",
+    );
+
+    expect(locationOnly).not.toContain("Sök i hela Sverige");
+    expect(locationOnly).toContain("Få offerter");
+
+    const serviceAndLocation = render(
+      "sv",
+      [],
+      {},
+      "/foretag/listad?service=stadning&location=Stockholm",
+    );
+
+    expect(serviceAndLocation).toContain("Sök i hela Sverige");
+    expect(serviceAndLocation).toContain('href="/foretag/listad?service=stadning"');
+  });
+
   it("does not manufacture a Near me attempt for a manual location search", () => {
     const searchPage = source("src/components/company-directory/public-directory-search-page.tsx");
 

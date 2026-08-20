@@ -6,6 +6,10 @@ import {
 } from "@/lib/company-directory-contact-entitlement";
 import { getPublicDirectoryBusiness, type PublicDirectoryBusiness } from "@/lib/company-directory-engine";
 import { hasActivePaidDirectoryContactAccess } from "@/lib/company-directory-paid-contact-entitlement";
+import {
+  resolveCompanyDirectoryPublicAddress,
+  type DirectoryPublicAddress,
+} from "@/lib/company-directory-scb-address";
 import { getSql } from "@/lib/db/server";
 
 export type PublicDirectoryBusinessForRequest = PublicDirectoryBusiness & {
@@ -16,9 +20,9 @@ export type PublicDirectoryBusinessForRequest = PublicDirectoryBusiness & {
 };
 
 type ScbDirectContact = {
-  addressLine1: string;
   phone: string;
   email: string;
+  workplaces: unknown;
 };
 
 function emptyContact() {
@@ -32,6 +36,22 @@ function isMissingScbEnrichmentTable(error: unknown) {
     && String(candidate.message ?? "").includes("company_directory_scb_enrichment");
 }
 
+function profileAddress(row: {
+  addressLine1?: unknown;
+  address_line1?: unknown;
+  postalCode?: unknown;
+  postal_code?: unknown;
+  city?: unknown;
+  municipality?: unknown;
+}): DirectoryPublicAddress {
+  return {
+    addressLine1: String(row.addressLine1 ?? row.address_line1 ?? ""),
+    postalCode: String(row.postalCode ?? row.postal_code ?? ""),
+    city: String(row.city ?? ""),
+    municipality: String(row.municipality ?? ""),
+  };
+}
+
 async function getConflictFreeScbContact(
   sql: NonNullable<ReturnType<typeof getSql>>,
   profileId: string,
@@ -41,7 +61,7 @@ async function getConflictFreeScbContact(
       select
         coalesce(nullif(phone, ''), '') as phone,
         coalesce(nullif(email, ''), '') as email,
-        coalesce(nullif(postal_address->>'addressLine', ''), '') as direct_address_line1
+        workplaces
       from company_directory_scb_enrichment
       where profile_id = ${profileId}::uuid
         and conflicts = '[]'::jsonb
@@ -50,9 +70,9 @@ async function getConflictFreeScbContact(
     const row = rows[0];
     if (!row) return null;
     return {
-      addressLine1: String(row.direct_address_line1 ?? ""),
       phone: String(row.phone ?? ""),
       email: String(row.email ?? ""),
+      workplaces: row.workplaces,
     };
   } catch (error) {
     if (isMissingScbEnrichmentTable(error)) return null;
@@ -60,12 +80,14 @@ async function getConflictFreeScbContact(
   }
 }
 
-async function getPublishedDirectoryContact(profileId: string) {
+async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
   const sql = getSql();
+  const fallbackAddress = profileAddress(business);
   if (!sql) {
     return {
       organizationNumber: "",
       primarySniCode: "",
+      address: fallbackAddress,
       contact: emptyContact(),
     };
   }
@@ -74,10 +96,9 @@ async function getPublishedDirectoryContact(profileId: string) {
     select
       organization_number,
       primary_sni_code,
-      website_url,
-      address_line1
+      website_url
     from company_directory_profiles
-    where id = ${profileId}::uuid
+    where id = ${business.id}::uuid
       and publication_status = 'published'
       and privacy_blocked = false
       and auto_public_eligible = true
@@ -88,16 +109,19 @@ async function getPublishedDirectoryContact(profileId: string) {
     return {
       organizationNumber: "",
       primarySniCode: "",
+      address: fallbackAddress,
       contact: emptyContact(),
     };
   }
 
-  const scb = await getConflictFreeScbContact(sql, profileId);
+  const scb = await getConflictFreeScbContact(sql, business.id);
+  const address = resolveCompanyDirectoryPublicAddress(fallbackAddress, scb?.workplaces);
   return {
     organizationNumber: String(row.organization_number ?? ""),
     primarySniCode: String(row.primary_sni_code ?? ""),
+    address,
     contact: discloseDirectoryDirectContact({
-      addressLine1: scb?.addressLine1 || row.address_line1,
+      addressLine1: address.addressLine1,
       phone: scb?.phone,
       email: scb?.email,
       website: row.website_url,
@@ -161,8 +185,9 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
   const workspaceId = String(row.claimed_workspace_id ?? "");
   const entitled = await hasActivePaidDirectoryContactAccess(workspaceId);
   const scb = await getConflictFreeScbContact(sql, String(row.id));
+  const address = resolveCompanyDirectoryPublicAddress(profileAddress(row), scb?.workplaces);
   const contact = discloseDirectoryDirectContact({
-    addressLine1: scb?.addressLine1 || row.address_line1,
+    addressLine1: address.addressLine1,
     phone: scb?.phone,
     email: scb?.email,
     website: row.website_url,
@@ -178,9 +203,9 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
     primarySniLabel: String(row.primary_sni_label ?? ""),
     activityDescription: String(row.activity_description ?? ""),
     addressLine1: contact.addressLine1,
-    postalCode: String(row.postal_code ?? ""),
-    city: String(row.city ?? ""),
-    municipality: String(row.municipality ?? ""),
+    postalCode: address.postalCode,
+    city: address.city,
+    municipality: address.municipality,
     region: String(row.region ?? ""),
     qualityScore: Number(row.quality_score ?? 0),
     officialSource: String(row.official_source ?? ""),
@@ -213,10 +238,13 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
 export const getPublicDirectoryBusinessForRequest = cache(async (slug: string): Promise<PublicDirectoryBusinessForRequest | null> => {
   const published = await getPublicDirectoryBusiness(slug);
   if (published) {
-    const publicContact = await getPublishedDirectoryContact(published.id);
+    const publicContact = await getPublishedDirectoryContact(published);
     return {
       ...published,
       addressLine1: publicContact.contact.addressLine1,
+      postalCode: publicContact.address.postalCode,
+      city: publicContact.address.city,
+      municipality: publicContact.address.municipality,
       publicationStatus: "published",
       organizationNumber: publicContact.organizationNumber,
       primarySniCode: publicContact.primarySniCode,

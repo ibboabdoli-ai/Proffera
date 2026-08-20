@@ -154,9 +154,9 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
       <div className="mx-auto max-w-5xl">
         <header className="flex items-center justify-between gap-3">
           <Link href={directoryPaths[locale].home} className="text-lg font-black tracking-tight text-brand">Proffera</Link>
-          <Link href={`${alternateBase}/${encodeURIComponent(business.slug)}`} className="inline-flex min-h-10 items-center gap-2 rounded-control border border-line bg-surface px-3 text-sm font-black text-brand shadow-sm transition hover:border-brand/25 hover:bg-brand-soft">
+          <a href={`${alternateBase}/${encodeURIComponent(business.slug)}`} className="inline-flex min-h-10 items-center gap-2 rounded-control border border-line bg-surface px-3 text-sm font-black text-brand shadow-sm transition hover:border-brand/25 hover:bg-brand-soft">
             <Languages className="h-4 w-4" /> {t.language}
-          </Link>
+          </a>
         </header>
 
         <Link href={profileBase} className="mt-6 inline-flex text-sm font-black text-brand transition hover:text-brand-strong">← {locale === "en" ? "Back to companies" : "Tillbaka till företag"}</Link>

@@ -15,10 +15,15 @@ import { hostnameFromHostHeader, isPlatformHost, isPrimeViewHost } from "@/lib/p
 import { siteConfig } from "@/lib/site";
 
 const swedishOnlyRoutes = [
-  "/logga-in",
   ...marketingServiceSlugs.map((slug) => `/tjanster/${slug}`),
   ...marketingIndustrySlugs.map((slug) => `/branscher/${slug}`),
 ];
+const nonIndexableLocalizedRoutes = new Set([
+  "/foretag/listad",
+]);
+const indexableLocalizedPublicRoutes = localizedPublicRoutes.filter(
+  (route) => !nonIndexableLocalizedRoutes.has(route.sv),
+);
 const primeViewRoutes = [
   "/",
   "/services",
@@ -86,15 +91,32 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   }
 
   // Only publish lastModified when the source provides a trustworthy content timestamp.
-  const directoryRoutes: MetadataRoute.Sitemap = directoryEntries.map((entry) => ({
-    url: `${siteConfig.url}/foretag/listad/${encodeURIComponent(entry.slug)}`,
-    lastModified: entry.lastModified,
-    changeFrequency: "weekly",
-    priority: 0.65,
-  }));
+  const directoryRoutes: MetadataRoute.Sitemap = directoryEntries.flatMap((entry) => {
+    const encodedSlug = encodeURIComponent(entry.slug);
+    const languages = {
+      "sv-SE": `${siteConfig.url}/foretag/listad/${encodedSlug}`,
+      en: `${siteConfig.url}/en/companies/${encodedSlug}`,
+    };
+    return [
+      {
+        url: languages["sv-SE"],
+        lastModified: entry.lastModified,
+        changeFrequency: "weekly" as const,
+        priority: 0.65,
+        alternates: { languages },
+      },
+      {
+        url: languages.en,
+        lastModified: entry.lastModified,
+        changeFrequency: "weekly" as const,
+        priority: 0.65,
+        alternates: { languages },
+      },
+    ];
+  });
 
   return [
-    ...localizedPublicRoutes.flatMap((route) => {
+    ...indexableLocalizedPublicRoutes.flatMap((route) => {
       const languages = { "sv-SE": `${siteConfig.url}${route.sv}`, en: `${siteConfig.url}${route.en}` };
       return [
         { url: languages["sv-SE"], changeFrequency: route.sv === "/" ? "weekly" as const : "monthly" as const, priority: route.sv === "/" ? 1 : 0.8, alternates: { languages } },
