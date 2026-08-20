@@ -1,0 +1,61 @@
+name: Company Directory revalidation
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: company-directory-revalidation
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    name: Revalidate Company Directory profiles
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Verify scheduler configuration
+        env:
+          REMINDER_CRON_URL: ${{ secrets.PROFFERA_REMINDER_CRON_URL }}
+          CRON_SECRET: ${{ secrets.PROFFERA_REMINDER_CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          test -n "$REMINDER_CRON_URL"
+          test -n "$CRON_SECRET"
+
+      - name: Revalidate Company Directory profiles
+        env:
+          REMINDER_CRON_URL: ${{ secrets.PROFFERA_REMINDER_CRON_URL }}
+          CRON_SECRET: ${{ secrets.PROFFERA_REMINDER_CRON_SECRET }}
+        run: |
+          set -euo pipefail
+
+          ORIGIN="$(python - <<'PY'
+          import os
+          import urllib.parse
+
+          url = urllib.parse.urlparse(os.environ["REMINDER_CRON_URL"])
+          if url.scheme != "https" or not url.hostname:
+              raise SystemExit("PROFFERA_REMINDER_CRON_URL must be an HTTPS URL")
+          if url.username is not None or url.password is not None:
+              raise SystemExit("PROFFERA_REMINDER_CRON_URL must not contain userinfo")
+          if url.port not in (None, 443):
+              raise SystemExit("PROFFERA_REMINDER_CRON_URL must use the default HTTPS port")
+
+          hostname = url.hostname.lower()
+          if hostname not in {"proffera.se", "www.proffera.se"}:
+              raise SystemExit("PROFFERA_REMINDER_CRON_URL must use an approved Proffera hostname")
+
+          print("https://www.proffera.se")
+          PY
+          )"
+
+          curl --fail-with-body --silent --show-error \
+            --connect-timeout 10 \
+            --max-time 75 \
+            --header "Authorization: Bearer $CRON_SECRET" \
+            --header "User-Agent: proffera-company-directory-revalidation-github-actions" \
+            "$ORIGIN/api/cron/company-directory-revalidation"
