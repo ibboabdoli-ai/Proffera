@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildDirectoryAddressSearchText,
   cleanDirectoryStreetAddress,
+  parseExactSwerefAddressDetail,
   parseSwerefPointGeometry,
+  selectDirectoryAddressReferenceCandidates,
   selectUniqueDirectoryAddressReference,
 } from "./company-directory-geocoding";
 
@@ -13,6 +16,11 @@ describe("company directory geocoding helpers", () => {
     expect(cleanDirectoryStreetAddress("Sveavägen 82 Läg nr 1601")).toBe("Sveavägen 82");
     expect(cleanDirectoryStreetAddress("Drakenbergsgatan 53, 1702")).toBe("Drakenbergsgatan 53");
     expect(cleanDirectoryStreetAddress("Segelbåtsvägen 7")).toBe("Segelbåtsvägen 7");
+  });
+
+  it("searches Lantmäteriet with belägenhetsadress text, not a postal address", () => {
+    expect(buildDirectoryAddressSearchText("Segelbåtsvägen 7", "STOCKHOLM"))
+      .toBe("Segelbåtsvägen 7, STOCKHOLM");
   });
 
   it("selects only one reference with exact postcode and postort", () => {
@@ -32,6 +40,25 @@ describe("company directory geocoding helpers", () => {
     expect(reference?.objektidentitet).toBe("439b33bf-6279-4b65-b32c-9741646d8d3e");
   });
 
+  it("keeps references with missing optional postal components for detail verification", () => {
+    const candidates = selectDirectoryAddressReferenceCandidates([
+      {
+        objektidentitet: "439b33bf-6279-4b65-b32c-9741646d8d3e",
+        adress: "Segelbåtsvägen 7 Stockholm",
+        adressComponents: {},
+      },
+      {
+        objektidentitet: "11111111-1111-4111-8111-111111111111",
+        adress: "Segelbåtsvägen 7 Annanstans",
+        adressComponents: { postnummer: 99999, postort: "Annanstans" },
+      },
+    ], "112 64", "STOCKHOLM");
+
+    expect(candidates.map((candidate) => candidate.objektidentitet)).toEqual([
+      "439b33bf-6279-4b65-b32c-9741646d8d3e",
+    ]);
+  });
+
   it("rejects ambiguous or wrong-postcode references", () => {
     const samePlace = {
       adressComponents: { postnummer: 11264, postort: "Stockholm" },
@@ -40,6 +67,11 @@ describe("company directory geocoding helpers", () => {
       { ...samePlace, objektidentitet: "11111111-1111-4111-8111-111111111111" },
       { ...samePlace, objektidentitet: "22222222-2222-4222-8222-222222222222" },
     ], "11264", "Stockholm")).toBeNull();
+
+    expect(selectDirectoryAddressReferenceCandidates([
+      { ...samePlace, objektidentitet: "11111111-1111-4111-8111-111111111111" },
+      { ...samePlace, objektidentitet: "22222222-2222-4222-8222-222222222222" },
+    ], "11264", "Stockholm")).toEqual([]);
 
     expect(selectUniqueDirectoryAddressReference([
       {
@@ -59,5 +91,22 @@ describe("company directory geocoding helpers", () => {
       features: [{ geometry: { type: "LineString", coordinates: [[1, 2], [3, 4]] } }],
     })).toBeNull();
     expect(parseSwerefPointGeometry({ features: [] })).toBeNull();
+  });
+
+  it("accepts detail geometry only after exact official postcode and postort verification", () => {
+    const payload = {
+      type: "FeatureCollection",
+      features: [{
+        geometry: { type: "Point", coordinates: [674000, 6580000] },
+        properties: {
+          adressplatsattribut: { postnummer: 11264, postort: "Stockholm" },
+        },
+      }],
+    };
+
+    expect(parseExactSwerefAddressDetail(payload, "112 64", "STOCKHOLM"))
+      .toEqual({ easting: 674000, northing: 6580000 });
+    expect(parseExactSwerefAddressDetail(payload, "11738", "Stockholm")).toBeNull();
+    expect(parseExactSwerefAddressDetail(payload, "11264", "Göteborg")).toBeNull();
   });
 });
