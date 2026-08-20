@@ -44,11 +44,15 @@ export default async function DirectorySearchPreviewPage({ searchParams }: PageP
     getDirectoryGeocodingStatus(),
   ]);
   const service = firstParam(params?.service) ?? "Rörmokare";
-  const latitude = firstParam(params?.latitude) ?? "";
-  const longitude = firstParam(params?.longitude) ?? "";
+  const rawLocation = firstParam(params?.location) ?? "";
+  const rawLatitude = firstParam(params?.latitude) ?? "";
+  const rawLongitude = firstParam(params?.longitude) ?? "";
+  const hasManualLocation = rawLocation.trim().length > 0;
+  const latitude = hasManualLocation ? "" : rawLatitude;
+  const longitude = hasManualLocation ? "" : rawLongitude;
   const radius = firstParam(params?.radius) ?? "25";
   const nearbyParamsPresent = Boolean(latitude || longitude);
-  const location = firstParam(params?.location) ?? (nearbyParamsPresent ? "" : "Stockholm");
+  const location = hasManualLocation ? rawLocation : (nearbyParamsPresent ? "" : "Stockholm");
   const geocodeResult = firstParam(params?.geocode) ?? "";
 
   const search = await searchCompanyDirectory({
@@ -145,6 +149,7 @@ export default async function DirectorySearchPreviewPage({ searchParams }: PageP
             <label className="grid gap-2 text-sm font-bold text-[#2c392f]">
               Plats
               <input
+                id="directory-search-location"
                 name="location"
                 defaultValue={search.locationQuery}
                 placeholder="Stockholm eller lämna tomt för Nära mig"
@@ -162,6 +167,7 @@ export default async function DirectorySearchPreviewPage({ searchParams }: PageP
               defaultLatitude={latitude}
               defaultLongitude={longitude}
               defaultRadius={String(search.radiusKm)}
+              locationInputId="directory-search-location"
             />
           </div>
         </form>
