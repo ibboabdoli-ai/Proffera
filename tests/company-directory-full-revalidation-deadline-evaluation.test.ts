@@ -59,6 +59,7 @@ beforeEach(() => {
 describe("full Company Directory evaluation deadline", () => {
   it("does not start a Ready-to-Review update when evaluation finishes at the deadline", async () => {
     let now = 1_000;
+    const deadlineAt = 50_000;
     let pendingEvaluationMarked = false;
     const queries: string[] = [];
     const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
@@ -78,7 +79,7 @@ describe("full Company Directory evaluation deadline", () => {
         }];
       }
       if (query.includes("profile.category_slug") && query.includes("scb_snapshot_fresh")) {
-        now = 1_500;
+        now = deadlineAt;
         return [{
           id: PROFILE_ID,
           country_code: "SE",
@@ -122,7 +123,7 @@ describe("full Company Directory evaluation deadline", () => {
     mocks.getSql.mockReturnValue(sql);
 
     try {
-      const result = await revalidateAllCompanyDirectoryBatch(10, { deadlineAt: 1_500 });
+      const result = await revalidateAllCompanyDirectoryBatch(10, { deadlineAt });
 
       expect(result).toMatchObject({
         selected: 1,
