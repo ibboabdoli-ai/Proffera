@@ -10,6 +10,10 @@ const REVALIDATION_PROVIDER = "full_directory_revalidation";
 const DEFAULT_BATCH_SIZE = 10;
 const MAX_BATCH_SIZE = 12;
 
+type RevalidationOptions = {
+  deadlineAt?: number;
+};
+
 function text(value: unknown) {
   return value === null || value === undefined ? "" : String(value).trim();
 }
@@ -36,6 +40,10 @@ function boundedLimit(value: unknown) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return DEFAULT_BATCH_SIZE;
   return Math.max(1, Math.min(MAX_BATCH_SIZE, Math.floor(parsed)));
+}
+
+function deadlineReached(deadlineAt?: number) {
+  return Number.isFinite(deadlineAt) && Date.now() >= Number(deadlineAt);
 }
 
 async function startRun() {
@@ -104,6 +112,7 @@ async function selectCandidates(limit: number) {
     left join company_directory_scb_enrichment scb on scb.profile_id = profile.id
     where profile.country_code = 'SE'
       and profile.organization_kind = 'juridical_person'
+      and profile.publication_status in ('published', 'ready', 'review', 'inactive')
       and length(regexp_replace(profile.organization_number, '\\D', '', 'g')) = 10
       and (
         facts.profile_id is null
@@ -140,6 +149,7 @@ async function backlogCount() {
     left join company_directory_scb_enrichment scb on scb.profile_id = profile.id
     where profile.country_code = 'SE'
       and profile.organization_kind = 'juridical_person'
+      and profile.publication_status in ('published', 'ready', 'review', 'inactive')
       and length(regexp_replace(profile.organization_number, '\\D', '', 'g')) = 10
       and (
         facts.profile_id is null
@@ -248,7 +258,10 @@ async function moveProfileToReview(input: {
   return Boolean(rows[0]);
 }
 
-export async function revalidateAllCompanyDirectoryBatch(limit?: number) {
+export async function revalidateAllCompanyDirectoryBatch(
+  limit?: number,
+  options: RevalidationOptions = {},
+) {
   const sql = getSql();
   if (!sql) throw new Error("Database is not configured");
 
@@ -313,7 +326,13 @@ export async function revalidateAllCompanyDirectoryBatch(limit?: number) {
   try {
     candidates = await selectCandidates(safeLimit);
 
-    for (const candidate of candidates) {
+    for (let index = 0; index < candidates.length; index += 1) {
+      if (deadlineReached(options.deadlineAt)) {
+        deferred += candidates.length - index;
+        break;
+      }
+
+      const candidate = candidates[index];
       const profileId = text(candidate.id);
       const organizationNumber = text(candidate.organization_number).replace(/\D/g, "");
       if (!profileId || organizationNumber.length !== 10) {
