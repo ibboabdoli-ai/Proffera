@@ -1,6 +1,6 @@
 import "server-only";
 
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 
 import { businessEmailDomainKind, validBusinessEmail } from "@/lib/company-directory-claim-email";
 import { getSql } from "@/lib/db/server";
@@ -65,6 +65,13 @@ function redactLiteral(value: string, literal: string) {
   return value.replace(pattern, (_match, prefix: string) => `${prefix}${REDACTED_CONTACT}`);
 }
 
+function redactEmailCandidates(value: string, replacement = REDACTED_CONTACT) {
+  return value.replace(
+    /[^\s<>()@,;:"']+@[^\s<>()@,;:"']+\.[^\s<>()@,;:"']+/gu,
+    replacement,
+  );
+}
+
 function redactKnownPhone(value: string, phone: string) {
   const digits = phone.replace(/\D/g, "");
   if (digits.length < 7) return value;
@@ -101,7 +108,7 @@ export function redactMarketplaceGuestDescription(
   const fullName = String(contact.name ?? "").trim();
 
   if (email) redacted = redactLiteral(redacted, email);
-  redacted = redacted.replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, REDACTED_CONTACT);
+  redacted = redactEmailCandidates(redacted);
 
   if (phone) {
     redacted = redactLiteral(redacted, phone);
@@ -154,7 +161,7 @@ export function buildMarketplaceGuestQuoteView(
 
 function safeProviderMessage(value: unknown) {
   const message = String(value ?? "").slice(0, 240);
-  return message.replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[redacted-email]");
+  return redactEmailCandidates(message, "[redacted-email]");
 }
 
 function databaseErrorDetails(error: unknown) {
@@ -279,6 +286,7 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
 
   const token = createMarketplaceGuestToken();
   const tokenHash = hashMarketplaceGuestToken(token);
+  const dispatchToken = randomUUID();
   const expiresAt = new Date(Date.now() + GUEST_INVITATION_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
   const matchScore = boundedScore(input.matchScore);
   const wave = boundedWave(input.wave);
@@ -291,6 +299,7 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
         update marketplace_quote_invitations
         set recipient_email = ${recipientEmail},
             token_hash = ${tokenHash},
+            dispatch_token = ${dispatchToken}::uuid,
             status = 'sending',
             wave = ${wave},
             match_score = ${matchScore},
@@ -315,11 +324,11 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
     } else {
       const inserted = await sql`
         insert into marketplace_quote_invitations (
-          quote_request_id, profile_id, recipient_email, token_hash, status,
+          quote_request_id, profile_id, recipient_email, token_hash, dispatch_token, status,
           wave, match_score, match_reasons, contact_basis, expires_at,
           created_by_admin_user_id
         ) values (
-          ${input.quoteRequestId}::uuid, ${input.profileId}::uuid, ${recipientEmail}, ${tokenHash}, 'sending',
+          ${input.quoteRequestId}::uuid, ${input.profileId}::uuid, ${recipientEmail}, ${tokenHash}, ${dispatchToken}::uuid, 'sending',
           ${wave}, ${matchScore}, ${JSON.stringify(matchReasons)}::jsonb, 'manual_business_contact', ${expiresAt}::timestamptz,
           ${input.adminUserId}
         )
@@ -339,13 +348,17 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
     if (details.code === "23514" && details.message.includes("marketplace_consent_required")) {
       return { ok: false as const, code: "consent_required" };
     }
+    if (details.code === "23514" && details.message.includes("marketplace_dispatch_token_required")) {
+      return { ok: false as const, code: "conflict" };
+    }
     throw error;
   }
   if (!invitationId) return { ok: false as const, code: existing ? "conflict" : "already_invited" };
 
   // Atomically claim provider dispatch. Migration 0050 makes this sending ->
   // pending transition acquire the same normalized-email advisory lock as a
-  // permanent opt-out. The provider call starts only after this claim commits.
+  // permanent opt-out. dispatch_token is also a lease token: only this attempt
+  // may complete or fail the row after a stale reservation has been reclaimed.
   let dispatchRows;
   try {
     dispatchRows = await sql`
@@ -353,6 +366,7 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
       set status = 'pending', updated_at = now()
       where invitation.id = ${invitationId}::uuid
         and invitation.status = 'sending'
+        and invitation.dispatch_token = ${dispatchToken}::uuid
         and not exists (
           select 1
           from marketplace_outreach_suppressions suppression
@@ -370,6 +384,9 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
     }
     if (details.code === "23514" && details.message.includes("marketplace_consent_required")) {
       return { ok: false as const, code: "consent_required" };
+    }
+    if (details.code === "23514" && details.message.includes("marketplace_dispatch_token_required")) {
+      return { ok: false as const, code: "conflict" };
     }
     throw error;
   }
@@ -399,6 +416,7 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
     preferredDate: String(row.preferred_date ?? ""),
     replyUrl,
     optOutUrl,
+    idempotencyKey: dispatchToken,
   });
 
   if (!delivery.ok) {
@@ -418,7 +436,9 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
               else 'delivery_failed'
             end,
             updated_at = now()
-        where invitation.id = ${invitationId}::uuid and invitation.status = 'pending'
+        where invitation.id = ${invitationId}::uuid
+          and invitation.status = 'pending'
+          and invitation.dispatch_token = ${dispatchToken}::uuid
       `;
     } catch (error) {
       console.error("Failed to record marketplace guest invitation delivery failure", { invitationId, error });
@@ -440,7 +460,9 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
           sent_at = now(),
           provider_message_id = ${delivery.providerMessageId ?? ""},
           updated_at = now()
-      where invitation.id = ${invitationId}::uuid and invitation.status = 'pending'
+      where invitation.id = ${invitationId}::uuid
+        and invitation.status = 'pending'
+        and invitation.dispatch_token = ${dispatchToken}::uuid
       returning id::text
     `;
     sentStatusRecorded = Boolean(sentRows[0]?.id);
