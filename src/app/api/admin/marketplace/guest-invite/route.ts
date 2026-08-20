@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getAdminForArea } from "@/lib/admin-authorization";
 import { sendMarketplaceGuestQuoteInvitation } from "@/lib/marketplace-guest-quote";
+import { expirePastMarketplaceInvitation } from "@/features/matching/marketplace-invitation-state";
 
 function sameOrigin(request: Request) {
   const origin = request.headers.get("origin");
@@ -33,6 +34,7 @@ function invitationErrorCode(error: unknown) {
   if (message.includes("marketplace_invalid_wave")) return "invalid_wave";
   if (message.includes("marketplace_recipient_suppressed")) return "suppressed";
   if (message.includes("marketplace_quote_closed")) return "quote_closed";
+  if (message.includes("marketplace_profile_ineligible")) return "profile_ineligible";
   return "failed";
 }
 
@@ -58,6 +60,11 @@ export async function POST(request: Request) {
   }
 
   try {
+    // Sent/viewed links whose TTL has elapsed must not block a legitimate later
+    // invitation forever. Ambiguous provider-claimed rows are intentionally not
+    // expired here and remain fail-closed for reconciliation.
+    await expirePastMarketplaceInvitation(quoteRequestId, profileId);
+
     const result = await sendMarketplaceGuestQuoteInvitation({
       quoteRequestId,
       profileId,
