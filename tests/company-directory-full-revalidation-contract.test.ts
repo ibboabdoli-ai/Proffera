@@ -255,6 +255,82 @@ describe("full Company Directory revalidation", () => {
     }
   });
 
+  it("marks an SCB refresh retryable when the deadline expires and reselects it next batch", async () => {
+    let now = 1_000;
+    let pendingEvaluation = false;
+    let selectionCount = 0;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
+
+    responder = async (query) => {
+      if (query.includes("started_at < now() - interval '10 minutes'")) return [];
+      if (query.includes("insert into company_directory_sync_runs")) return [{ id: RUN_ID }];
+      if (query.includes("select profile.id::text, profile.organization_number, profile.display_name, profile.publication_status")) {
+        selectionCount += 1;
+        if (selectionCount === 1) return [candidate("ready")];
+        expect(pendingEvaluation).toBe(true);
+        expect(query).toContain("officialFactsLastSyncedToken}' is distinct from facts.last_synced_at::text");
+        return [candidate("ready")];
+      }
+      if (query.includes("update company_directory_scb_enrichment") && query.includes("officialFactsLastSyncedToken")) {
+        pendingEvaluation = true;
+        return [];
+      }
+      if (query.includes("profile.category_slug") && query.includes("scb_snapshot_fresh")) {
+        return [evaluation("ready")];
+      }
+      if (query.includes("update company_directory_sync_runs") && query.includes("where id =")) return [];
+      if (query.includes("select count(*)::int as count")) return [{ count: pendingEvaluation ? 1 : 0 }];
+      throw new Error(`Unexpected SQL in retryable-deadline test: ${query}`);
+    };
+
+    let scbCall = 0;
+    mocks.enrichScb.mockImplementation(async () => {
+      scbCall += 1;
+      if (scbCall === 1) {
+        now = 1_500;
+      } else {
+        pendingEvaluation = false;
+      }
+      return { status: "saved", saved: true, conflicts: [] };
+    });
+
+    try {
+      const first = await revalidateAllCompanyDirectoryBatch(10, { deadlineAt: 1_500 });
+
+      expect(first).toMatchObject({
+        selected: 1,
+        refreshed: 0,
+        deferred: 1,
+        movedToReview: 0,
+        errors: 0,
+        remaining: 1,
+      });
+      expect(pendingEvaluation).toBe(true);
+      expect(mocks.enrichScb).toHaveBeenCalledTimes(1);
+      expect(sqlCalls.some((call) => call.query.includes("profile.category_slug"))).toBe(false);
+      expect(sqlCalls.some((call) => call.query.includes("update company_directory_profiles profile"))).toBe(false);
+
+      now = 1_600;
+      const second = await revalidateAllCompanyDirectoryBatch(10);
+
+      expect(second).toMatchObject({
+        selected: 1,
+        refreshed: 1,
+        kept: 1,
+        movedToReview: 0,
+        deferred: 0,
+        errors: 0,
+        remaining: 0,
+      });
+      expect(selectionCount).toBe(2);
+      expect(pendingEvaluation).toBe(false);
+      expect(mocks.enrichScb).toHaveBeenCalledTimes(2);
+      expect(sqlCalls.some((call) => call.query.includes("update company_directory_profiles profile"))).toBe(false);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
   it("defers the final SCB refresh when the deadline expires after moving Ready to Review", async () => {
     configureWorker({ status: "ready", backlog: 1 });
     mocks.assessConfidence.mockReturnValue({ score: 90, officialFactsReady: true, reasons: [] });
