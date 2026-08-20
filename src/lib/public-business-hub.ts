@@ -43,6 +43,7 @@ export type PublicBusinessGalleryItem = {
 export type PublicBusinessWorkspace = {
   id: string;
   slug: string;
+  status: "active" | "trial";
   bookingSlug: string;
   companyName: string;
   primaryCity: string;
@@ -108,6 +109,7 @@ export async function getPublicBusinessHub(workspaceSlug: string): Promise<Publi
       select
         workspace.id::text as workspace_id,
         workspace.slug,
+        workspace.status,
         coalesce(workspace.public_booking_slug, '') as public_booking_slug,
         coalesce(nullif(settings.company_name, ''), workspace.company_name, workspace.name) as company_name,
         coalesce(nullif(settings.primary_city, ''), workspace.primary_city, '') as primary_city,
@@ -165,6 +167,7 @@ export async function getPublicBusinessHub(workspaceSlug: string): Promise<Publi
       workspace: {
         id: workspaceId,
         slug: text(row.slug),
+        status: row.status === "active" ? "active" : "trial",
         bookingSlug: text(row.public_booking_slug),
         companyName: text(row.company_name),
         primaryCity: text(row.primary_city),

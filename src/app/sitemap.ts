@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 
 import { getPublicBusinessHub } from "@/lib/public-business-hub";
 import { listPublicBusinessSitemapEntries } from "@/lib/public-business-seo";
+import { listDirectorySeoLandings } from "@/lib/company-directory-landing-seo";
 import { listPublishedDirectorySitemapEntries } from "@/lib/company-directory-seo";
 import { marketingIndustrySlugs } from "@/lib/marketing-industry-pages";
 import { marketingServiceSlugs } from "@/lib/marketing-service-pages";
@@ -14,8 +15,15 @@ import { resolvePublicCustomDomain } from "@/lib/public-site-domain-routing";
 import { hostnameFromHostHeader, isPlatformHost, isPrimeViewHost } from "@/lib/public-site-domains";
 import { siteConfig } from "@/lib/site";
 
+const nonIndexableLocalizedRoutes = new Set([
+  "/foretag/listad",
+  "/anslut-foretag/registrera",
+  "/anslut-foretag/tack",
+]);
+const indexableLocalizedPublicRoutes = localizedPublicRoutes.filter(
+  (route) => !nonIndexableLocalizedRoutes.has(route.sv),
+);
 const swedishOnlyRoutes = [
-  "/logga-in",
   ...marketingServiceSlugs.map((slug) => `/tjanster/${slug}`),
   ...marketingIndustrySlugs.map((slug) => `/branscher/${slug}`),
 ];
@@ -60,9 +68,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     ];
   }
 
-  const [publicBusinessEntries, directoryEntries] = await Promise.all([
+  const [publicBusinessEntries, directoryEntries, directoryLandings] = await Promise.all([
     listPublicBusinessSitemapEntries(),
     listPublishedDirectorySitemapEntries(),
+    listDirectorySeoLandings(),
   ]);
   const seenBusinesses = new Set<string>();
   const publicBusinessRoutes: MetadataRoute.Sitemap = [];
@@ -92,9 +101,14 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     changeFrequency: "weekly",
     priority: 0.65,
   }));
+  const directoryLandingRoutes: MetadataRoute.Sitemap = directoryLandings.map((landing) => ({
+    url: `${siteConfig.url}/hitta/${encodeURIComponent(landing.serviceSlug)}/${encodeURIComponent(landing.locationSlug)}`,
+    changeFrequency: "weekly",
+    priority: 0.72,
+  }));
 
   return [
-    ...localizedPublicRoutes.flatMap((route) => {
+    ...indexableLocalizedPublicRoutes.flatMap((route) => {
       const languages = { "sv-SE": `${siteConfig.url}${route.sv}`, en: `${siteConfig.url}${route.en}` };
       return [
         { url: languages["sv-SE"], changeFrequency: route.sv === "/" ? "weekly" as const : "monthly" as const, priority: route.sv === "/" ? 1 : 0.8, alternates: { languages } },
@@ -103,6 +117,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     }),
     ...swedishOnlyRoutes.map((route) => ({ url: `${siteConfig.url}${route}`, changeFrequency: "monthly" as const, priority: 0.8 })),
     ...publicBusinessRoutes,
+    ...directoryLandingRoutes,
     ...directoryRoutes,
   ];
 }
