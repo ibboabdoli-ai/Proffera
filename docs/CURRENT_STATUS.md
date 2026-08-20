@@ -1,6 +1,6 @@
 # Proffera Current Status
 
-Last updated: 2026-08-19
+Last updated: 2026-08-20
 
 This is the canonical factual status document for Proffera. For worker rules, live task state, current `main` SHA, and roadmap order, also read `AGENTS.md`, `WORKER_BOOTSTRAP.md`, GitHub issue #548, GitHub issue #276, and `docs/README.md`.
 
@@ -63,11 +63,11 @@ Current merge-safety rules include:
 
 A dedicated `Worker supervisor sync` GitHub Actions workflow records `work/proffera-*` PR lifecycle events to issue #548 when PRs are opened/reopened, marked ready for review, or closed/merged. This gives the Supervisor a durable automatic event trail independent of private chat memory.
 
-CodeRabbit is opt-in rather than automatic on every PR. Review-label reset and post-Validate routing are serialized inside the required CI workflow under pull-request-scoped concurrency. Every fresh PR revision first removes stale `needs-ai-review`; after `Validate` succeeds, a metadata-only job applies it only when changed paths are security/data/tenant/payment/API/workflow sensitive or the PR is large. Non-sensitive PRs do not consume an automatic CodeRabbit review.
+CodeRabbit is opt-in rather than automatic on every PR. Review-label reset and post-Validate routing are serialized inside the required CI workflow under pull-request-scoped concurrency. Every fresh PR revision first removes stale `needs-ai-review`; after `Validate` succeeds, a metadata-only job reapplies it and requests one exact-head review whenever a non-draft PR still matches the sensitive/large risk predicate. Non-sensitive PRs do not consume an automatic CodeRabbit review.
 
-The required `E2E public smoke` check is fail-closed for routed PRs. The browser smoke itself runs in an unprivileged Playwright job; a separate metadata-only final gate keeps the required check pending until CodeRabbit has submitted a review for the exact current PR head. A current-head `CHANGES_REQUESTED` remains blocking even if CodeRabbit later submits a `COMMENTED` review; only a later current-head `APPROVED` review clears that change request. If there has been no current-head change request, a completed `COMMENTED` or `APPROVED` review is non-blocking. Missing/stale review state, stale routing, or a stale workflow head prevents the required check from succeeding. A new commit invalidates previous review evidence because all decisions are matched to the current head SHA.
+The required `E2E public smoke` check is fail-closed for routed PRs. The browser smoke itself runs in an unprivileged Playwright job; a separate metadata-only final gate keeps the required check pending until CodeRabbit has produced exact-current-head evidence. Accepted non-blocking evidence is either a current-head `COMMENTED`/`APPROVED` submitted review or CodeRabbit's bot-authored recent-review summary for the exact full head SHA stating that no actionable comments were generated. A current-head `CHANGES_REQUESTED` remains blocking even if CodeRabbit later submits a `COMMENTED` review or emits a clean summary; only a later current-head `APPROVED` review clears that change request. Missing/stale review state, stale routing, or a stale workflow head prevents the required check from succeeding. A new commit invalidates previous review evidence because all decisions are matched to the current head SHA.
 
-Gated automerge independently applies the same risk predicate and current-head CodeRabbit decision rules for paths it is otherwise allowed to merge. Highly sensitive paths that were already blocked from automerge remain blocked and require the normal manual merge path after required checks pass.
+Gated automerge independently applies the same risk predicate and current-head CodeRabbit decision rules for paths it is otherwise allowed to merge. It can re-evaluate after CodeRabbit issue-comment updates and after a successful CI workflow completion, so a clean-review/comment race cannot strand an otherwise eligible PR. Status-check reads are bounded by a per-attempt timeout, checks are classified with GitHub CLI buckets, fail/cancel outcomes are rejected, pending outcomes are retried for a bounded window, and unknown outcomes fail closed. Highly sensitive paths that were already blocked from automerge remain blocked and require the normal manual merge path after required checks pass.
 
 If CodeRabbit is rate-limited or otherwise unavailable, a sensitive/large PR intentionally remains blocked instead of silently merging without the required review.
 
@@ -149,4 +149,4 @@ A Production runtime warning observed on 2026-08-18 concerns PostgreSQL connecti
 
 Do not create another competing current-status file.
 
-Historical phase plans and handoffs may remain in `docs/` for context, but they are not current truth unless a canonical source explicitly points to them. Git history is the archive for older versions of this file.
+Historical phase plans and handoffs may remain in `docs/` for context, but they are not current truth unless a canonical source explicitly points to them. Git history is the archive for older versions of the canonical files.
