@@ -17,6 +17,8 @@ describe("marketplace guest provider dispatch claim migration", () => {
   it("serializes both the pre-dispatch and provider-claimed states with opt-out", () => {
     expect(migration).toContain("new.status not in ('sending', 'pending')");
     expect(migration).toContain("pg_advisory_xact_lock");
+    expect(migration).toMatch(/pg_advisory_xact_lock\(\s*hashtextextended\(normalized_email,\s*0\)\s*\)/);
+    expect(migration).toMatch(/from quote_requests[\s\S]*for update/i);
     expect(migration).toContain("marketplace_outreach_suppressions");
     expect(migration).toContain("marketplace_recipient_suppressed");
   });
