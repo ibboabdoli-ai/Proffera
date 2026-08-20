@@ -14,6 +14,11 @@ describe("marketplace guest provider dispatch claim migration", () => {
     expect(migration).toMatch(/^\s*commit\s*;/im);
   });
 
+  it("adds durable ownership for each provider dispatch attempt", () => {
+    expect(migration).toContain("add column if not exists dispatch_token uuid");
+    expect(migration).toContain("marketplace_dispatch_token_required");
+  });
+
   it("serializes both the pre-dispatch and provider-claimed states with opt-out", () => {
     expect(migration).toContain("new.status not in ('sending', 'pending')");
     expect(migration).toContain("pg_advisory_xact_lock");
