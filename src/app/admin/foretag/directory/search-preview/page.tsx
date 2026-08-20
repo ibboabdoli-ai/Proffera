@@ -1,13 +1,18 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { AlertTriangle, CheckCircle2, Clock3, MapPin, Search, Settings2 } from "lucide-react";
 
 import { requireSuperAdmin } from "@/lib/admin-authorization";
 import { getDirectoryGeocodingStatus } from "@/lib/company-directory-geocoding";
 import { searchCompanyDirectory } from "@/lib/company-directory-search";
 import { resolveDirectoryServiceQuery } from "@/lib/company-directory-service-taxonomy";
-import { geocodeDirectoryPilotAction } from "./actions";
+import { geocodeDirectoryPilotAction, searchDirectoryNearbyAction } from "./actions";
 import { NearbySearchFields } from "./NearbySearchFields";
-import { resolveAdminDirectorySearchMode } from "./search-behavior";
+import {
+  ADMIN_DIRECTORY_NEARBY_COOKIE,
+  parseAdminNearbyCoordinates,
+  resolveAdminDirectorySearchMode,
+} from "./search-behavior";
 
 export const dynamic = "force-dynamic";
 
@@ -15,9 +20,8 @@ type PageProps = {
   searchParams?: Promise<{
     service?: string | string[];
     location?: string | string[];
-    latitude?: string | string[];
-    longitude?: string | string[];
     radius?: string | string[];
+    nearby?: string | string[];
     geocode?: string | string[];
     attempted?: string | string[];
     geocoded?: string | string[];
@@ -28,10 +32,12 @@ type PageProps = {
   }>;
 };
 
+/** Returns the first query-string value for a parameter that may be repeated. */
 function firstParam(value?: string | string[]) {
   return Array.isArray(value) ? value[0] : value;
 }
 
+/** Renders one compact technical-readiness badge. */
 function StatusPill({ ok, children }: { ok: boolean; children: React.ReactNode }) {
   return (
     <span className={`rounded-full px-3 py-1 text-xs font-black ${ok ? "bg-[#e7f1eb] text-[#17452f]" : "bg-[#fff4d9] text-[#76580d]"}`}>
@@ -40,6 +46,7 @@ function StatusPill({ ok, children }: { ok: boolean; children: React.ReactNode }
   );
 }
 
+/** Renders one high-level pilot status count. */
 function SummaryCard({
   label,
   value,
@@ -64,34 +71,41 @@ function SummaryCard({
   );
 }
 
+/** Renders the internal Directory location-control and search pilot for Super Admins. */
 export default async function DirectorySearchPreviewPage({ searchParams }: PageProps) {
   await requireSuperAdmin();
-  const [params, geocodingStatus] = await Promise.all([
+  const [params, geocodingStatus, cookieStore] = await Promise.all([
     searchParams ?? Promise.resolve(undefined),
     getDirectoryGeocodingStatus(),
+    cookies(),
   ]);
   const service = firstParam(params?.service) ?? "Rörmokare";
   const radius = firstParam(params?.radius) ?? "25";
+  const nearbyRequested = firstParam(params?.nearby) === "1";
+  const storedCoordinates = nearbyRequested
+    ? parseAdminNearbyCoordinates(cookieStore.get(ADMIN_DIRECTORY_NEARBY_COOKIE)?.value)
+    : null;
   const searchMode = resolveAdminDirectorySearchMode({
-    location: firstParam(params?.location),
-    latitude: firstParam(params?.latitude),
-    longitude: firstParam(params?.longitude),
+    location: nearbyRequested ? "" : firstParam(params?.location),
+    latitude: storedCoordinates?.latitude,
+    longitude: storedCoordinates?.longitude,
   });
   const { latitude, longitude } = searchMode;
   const geocodeResult = firstParam(params?.geocode) ?? "";
   const nearbyAvailable = geocodingStatus.geocoded > 0;
-  const nearbyAttempted = Boolean(latitude || longitude);
-  const nearbyBlocked = nearbyAttempted && !nearbyAvailable;
+  const nearbyIncomplete = nearbyRequested && !storedCoordinates;
+  const nearbyUnavailable = nearbyRequested && !nearbyAvailable;
+  const nearbyCannotRun = nearbyIncomplete || nearbyUnavailable;
   const blockedServiceQuery = service.trim().replace(/\s+/g, " ").slice(0, 100);
   const blockedLocationQuery = String(searchMode.location ?? "").trim().replace(/\s+/g, " ").slice(0, 100);
   const blockedRadius = [25, 50, 100].includes(Number(radius)) ? Number(radius) : 25;
 
-  const search = nearbyBlocked
+  const search = nearbyCannotRun
     ? {
         serviceQuery: blockedServiceQuery,
         locationQuery: blockedLocationQuery,
         serviceResolved: !blockedServiceQuery || Boolean(resolveDirectoryServiceQuery(blockedServiceQuery)),
-        nearbyRequested: true,
+        nearbyRequested,
         nearbyEnabled: false,
         radiusKm: blockedRadius,
         results: [],
@@ -261,7 +275,7 @@ export default async function DirectorySearchPreviewPage({ searchParams }: PageP
               <p className="text-xs font-black uppercase tracking-[0.14em] text-[#607066]">Alternativ</p>
               <h3 className="mt-1 text-lg font-black text-[#17201a]">Nära mig</h3>
               <p className="mt-1 text-sm leading-6 text-[#657068]">
-                Visar bara företag som redan har en verifierad position.
+                Visar bara företag som redan har en verifierad position. Din position skickas med POST och sparas kortvarigt, inte i URL:en.
               </p>
             </div>
             <NearbySearchFields
@@ -270,6 +284,7 @@ export default async function DirectorySearchPreviewPage({ searchParams }: PageP
               defaultRadius={String(search.radiusKm)}
               locationInputId="directory-search-location"
               available={nearbyAvailable}
+              searchNearbyAction={searchDirectoryNearbyAction}
               unavailableMessage={
                 geocodingStatus.needsReview > 0
                   ? `${geocodingStatus.needsReview} företagsadresser behöver granskas innan Nära mig kan ge ett riktigt resultat.`
@@ -285,23 +300,24 @@ export default async function DirectorySearchPreviewPage({ searchParams }: PageP
           </div>
         ) : null}
 
-        {search.nearbyRequested && !search.nearbyEnabled && nearbyAvailable ? (
-          <div className="mt-5 rounded-2xl border border-[#e5cf9a] bg-[#fff8e4] p-4 text-sm font-semibold text-[#6d5418]">
-            Positionen är inte komplett. Använd knappen Använd min position och försök igen.
-          </div>
-        ) : null}
-
         {search.nearbyEnabled && nearbyAvailable ? (
           <div className="mt-5 rounded-2xl border border-[#b8d9c2] bg-[#eef8f0] p-4 text-sm font-semibold text-[#17452f]">
             Nära mig är aktivt: verifierade företag inom {search.radiusKm} km visas när de matchar tjänsten.
           </div>
         ) : null}
 
-        {nearbyBlocked ? (
+        {nearbyUnavailable ? (
           <div className="mt-7 rounded-2xl border border-[#e5cf9a] bg-[#fff8e4] p-5 text-[#6d5418]">
             <p className="font-black">Nära mig kan inte testas ännu</p>
             <p className="mt-2 text-sm leading-6">
               Det finns inga verifierade företagspositioner att mäta avstånd till. Detta är ett systemläge, inte ett riktigt sökresultat med 0 företag.
+            </p>
+          </div>
+        ) : nearbyIncomplete ? (
+          <div className="mt-7 rounded-2xl border border-[#e5cf9a] bg-[#fff8e4] p-5 text-[#6d5418]">
+            <p className="font-black">Positionen är inte komplett</p>
+            <p className="mt-2 text-sm leading-6">
+              Hämta positionen igen och tryck Sök nära mig. Ingen sökning kördes utan en giltig position.
             </p>
           </div>
         ) : (
