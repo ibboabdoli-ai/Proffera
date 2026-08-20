@@ -183,7 +183,6 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          EVENT_ACTION: ${{ github.event.action }}
         shell: bash
         run: |
           set -euo pipefail
@@ -235,11 +234,6 @@ jobs:
 
           if [ "$needs_review" != "true" ]; then
             echo "PR #${PR_NUMBER}: CodeRabbit review not required."
-            exit 0
-          fi
-
-          if [ "$EVENT_ACTION" != "ready_for_review" ]; then
-            echo "PR #${PR_NUMBER}: final CodeRabbit review deferred (${reason}). Keep the PR draft while iterating; mark it ready only when the code is final."
             exit 0
           fi
 
@@ -422,6 +416,23 @@ jobs:
             latest_approval="$(jq -r '[.[] | select(.state == "APPROVED") | .submitted_at] | max // empty' <<< "$current_reviews")"
             terminal_count="$(jq -r '[.[] | select(.state == "APPROVED" or .state == "COMMENTED")] | length' <<< "$current_reviews")"
 
+            comments_json="$(gh api --paginate "repos/${REPOSITORY}/issues/${PR_NUMBER}/comments?per_page=100" --jq '.[]' | jq -s '.')"
+            clean_summary_count="$(jq -r --arg sha "$HEAD_SHA" '
+              [
+                .[]
+                | select(.user.login == "coderabbitai[bot]")
+                | select(
+                    (.body // "")
+                    | test(
+                        "<!-- recent_review_start -->[\\s\\S]*No actionable comments were generated in the recent review\\.[\\s\\S]*"
+                        + $sha
+                        + "[\\s\\S]*<!-- recent_review_end -->"
+                      )
+                  )
+              ]
+              | length
+            ' <<< "$comments_json")"
+
             if [ -n "$latest_changes" ]; then
               if [ -n "$latest_approval" ] && [[ "$latest_approval" > "$latest_changes" ]]; then
                 echo "CodeRabbit approved the current head after its latest change request."
@@ -430,6 +441,9 @@ jobs:
               echo "CodeRabbit changes remain requested for current head; only a later APPROVED review clears them."
             elif [ "$terminal_count" -gt 0 ]; then
               echo "CodeRabbit completed a non-blocking review for the current head."
+              exit 0
+            elif [ "$clean_summary_count" -gt 0 ]; then
+              echo "CodeRabbit completed a clean current-head review with no actionable comments."
               exit 0
             else
               echo "No completed CodeRabbit review for current head yet."
