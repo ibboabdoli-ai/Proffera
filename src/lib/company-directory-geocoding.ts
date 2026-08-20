@@ -43,6 +43,26 @@ type AddressComponents = {
   postort?: string | null;
 };
 
+type AddressPlaceDesignation = {
+  adressplatsnummer?: number | string | null;
+  bokstavstillagg?: string | null;
+  lagestillagg?: string | null;
+  lagestillaggsnummer?: number | string | null;
+  avvikandeAdressplatsbeteckning?: string | null;
+};
+
+type AddressDetailProperties = {
+  adressplatsattribut?: AddressComponents & {
+    adressplatsbeteckning?: AddressPlaceDesignation;
+  };
+  adressomrade?: {
+    faststalltNamn?: string | null;
+  };
+  gardsadressomrade?: {
+    faststalltNamn?: string | null;
+  } | null;
+};
+
 export type LantmaterietAddressReference = {
   objektidentitet?: string;
   adress?: string;
@@ -88,6 +108,11 @@ function normalizeText(value: unknown) {
 
 function normalizePostcode(value: unknown) {
   return String(value ?? "").replace(/\D/g, "");
+}
+
+function normalizeStreetAddress(value: unknown) {
+  return normalizeText(cleanDirectoryStreetAddress(value))
+    .replace(/(\d)\s+([a-z])\b/g, "$1$2");
 }
 
 function isUuid(value: unknown) {
@@ -171,7 +196,37 @@ export function parseSwerefPointGeometry(payload: unknown) {
   return { easting, northing };
 }
 
-export function parseExactSwerefAddressDetail(payload: unknown, postalCode: unknown, city: unknown) {
+function detailStreetAddresses(properties: AddressDetailProperties) {
+  const designation = properties.adressplatsattribut?.adressplatsbeteckning;
+  if (!designation) return [];
+
+  const alternate = String(designation.avvikandeAdressplatsbeteckning ?? "").trim();
+  const number = String(designation.adressplatsnummer ?? "").trim();
+  const letter = String(designation.bokstavstillagg ?? "").trim();
+  const location = String(designation.lagestillagg ?? "").trim();
+  const locationNumber = String(designation.lagestillaggsnummer ?? "").trim();
+  const place = alternate || (number
+    ? `${number}${letter}${location ? ` ${location}${locationNumber}` : ""}`
+    : "");
+  if (!place) return [];
+
+  const area = String(properties.adressomrade?.faststalltNamn ?? "").trim();
+  const farmArea = String(properties.gardsadressomrade?.faststalltNamn ?? "").trim();
+  const areaNames = [
+    area,
+    farmArea,
+    area && farmArea ? `${area} ${farmArea}` : "",
+  ].filter(Boolean);
+
+  return [...new Set(areaNames.map((areaName) => `${areaName} ${place}`.trim()))];
+}
+
+export function parseExactSwerefAddressDetail(
+  payload: unknown,
+  postalCode: unknown,
+  city: unknown,
+  streetAddress: unknown,
+) {
   if (!payload || typeof payload !== "object") return null;
   const features = (payload as { features?: unknown }).features;
   if (!Array.isArray(features) || features.length !== 1) return null;
@@ -179,11 +234,17 @@ export function parseExactSwerefAddressDetail(payload: unknown, postalCode: unkn
   if (!feature || typeof feature !== "object") return null;
   const properties = (feature as { properties?: unknown }).properties;
   if (!properties || typeof properties !== "object") return null;
-  const addressAttributes = (properties as { adressplatsattribut?: unknown }).adressplatsattribut;
-  if (!addressAttributes || typeof addressAttributes !== "object") return null;
-  const typed = addressAttributes as AddressComponents;
-  if (normalizePostcode(typed.postnummer) !== normalizePostcode(postalCode)) return null;
-  if (normalizeText(typed.postort) !== normalizeText(city)) return null;
+  const typedProperties = properties as AddressDetailProperties;
+  const addressAttributes = typedProperties.adressplatsattribut;
+  if (!addressAttributes) return null;
+  if (normalizePostcode(addressAttributes.postnummer) !== normalizePostcode(postalCode)) return null;
+  if (normalizeText(addressAttributes.postort) !== normalizeText(city)) return null;
+
+  const expectedStreet = normalizeStreetAddress(streetAddress);
+  if (!expectedStreet) return null;
+  const officialStreets = detailStreetAddresses(typedProperties).map(normalizeStreetAddress);
+  if (!officialStreets.includes(expectedStreet)) return null;
+
   return parseSwerefPointGeometry(payload);
 }
 
@@ -262,7 +323,12 @@ async function resolveOfficialAddress(profile: PilotProfile, config: ReturnType<
     detailUrl.searchParams.set("includeData", "basinformation");
     detailUrl.searchParams.set("srid", "3006");
     const detailPayload = await fetchJson(detailUrl, config.username, config.password);
-    const point = parseExactSwerefAddressDetail(detailPayload, profile.postalCode, profile.city);
+    const point = parseExactSwerefAddressDetail(
+      detailPayload,
+      profile.postalCode,
+      profile.city,
+      streetAddress,
+    );
     if (!point) continue;
     if (resolved) return null;
     resolved = { ...point, objectId: candidate.objektidentitet };

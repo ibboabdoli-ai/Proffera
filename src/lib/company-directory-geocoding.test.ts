@@ -93,20 +93,30 @@ describe("company directory geocoding helpers", () => {
     expect(parseSwerefPointGeometry({ features: [] })).toBeNull();
   });
 
-  it("accepts detail geometry only after exact official postcode and postort verification", () => {
+  it("accepts detail geometry only after exact official street, postcode and postort verification", () => {
     const payload = {
       type: "FeatureCollection",
       features: [{
         geometry: { type: "Point", coordinates: [674000, 6580000] },
         properties: {
-          adressplatsattribut: { postnummer: 11264, postort: "Stockholm" },
+          adressplatsattribut: {
+            postnummer: 11264,
+            postort: "Stockholm",
+            adressplatsbeteckning: {
+              adressplatsnummer: "7",
+              bokstavstillagg: "A",
+            },
+          },
+          adressomrade: { faststalltNamn: "Segelbåtsvägen" },
         },
       }],
     };
 
-    expect(parseExactSwerefAddressDetail(payload, "112 64", "STOCKHOLM"))
+    expect(parseExactSwerefAddressDetail(payload, "112 64", "STOCKHOLM", "Segelbåtsvägen 7 A"))
       .toEqual({ easting: 674000, northing: 6580000 });
-    expect(parseExactSwerefAddressDetail(payload, "11738", "Stockholm")).toBeNull();
-    expect(parseExactSwerefAddressDetail(payload, "11264", "Göteborg")).toBeNull();
+    expect(parseExactSwerefAddressDetail(payload, "11738", "Stockholm", "Segelbåtsvägen 7A")).toBeNull();
+    expect(parseExactSwerefAddressDetail(payload, "11264", "Göteborg", "Segelbåtsvägen 7A")).toBeNull();
+    expect(parseExactSwerefAddressDetail(payload, "11264", "Stockholm", "Annan gata 7A")).toBeNull();
+    expect(parseExactSwerefAddressDetail(payload, "11264", "Stockholm", "Segelbåtsvägen 8A")).toBeNull();
   });
 });
