@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildDirectoryAddressSearchText,
+  classifyDirectoryGeocodingBatchError,
   cleanDirectoryStreetAddress,
+  mapDirectoryGeocodingFetchError,
   parseExactSwerefAddressDetail,
   parseSwerefPointGeometry,
   selectDirectoryAddressReferenceCandidates,
@@ -117,6 +119,20 @@ describe("company directory geocoding helpers", () => {
         adressComponents: { postnummer: 11738, postort: "Stockholm" },
       },
     ], "11264", "Stockholm")).toBeNull();
+  });
+
+  it("treats only deadline-bound fetch aborts as deadline termination", () => {
+    const timeoutError = new DOMException("Timed out", "TimeoutError");
+    const deadlineError = mapDirectoryGeocodingFetchError(timeoutError, true);
+
+    expect(deadlineError).not.toBe(timeoutError);
+    expect((deadlineError as Error).name).toBe("GeocodingDeadlineExceeded");
+    expect(classifyDirectoryGeocodingBatchError(deadlineError)).toBe("deadline");
+    expect(classifyDirectoryGeocodingBatchError(timeoutError)).toBe("error");
+    expect(mapDirectoryGeocodingFetchError(timeoutError, false)).toBe(timeoutError);
+
+    const networkError = new Error("network failed");
+    expect(mapDirectoryGeocodingFetchError(networkError, true)).toBe(networkError);
   });
 
   it("parses exactly one SWEREF point geometry", () => {
