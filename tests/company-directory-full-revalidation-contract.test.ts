@@ -179,6 +179,7 @@ describe("full Company Directory revalidation", () => {
     });
     expect(order).toEqual(["official-facts", "scb", "scb"]);
     const selection = sqlCalls.find((call) => call.query.includes("profile.publication_status"));
+    expect(selection?.query).toContain("profile.publication_status in ('published', 'ready', 'review', 'inactive')");
     expect(selection?.query).toContain("when 'published' then 0");
     expect(selection?.query).toContain("when 'ready' then 1");
     expect(selection?.query).toContain("scb.last_synced_at < now() - interval '7 days'");
@@ -207,11 +208,49 @@ describe("full Company Directory revalidation", () => {
     expect(sqlCalls.some((call) => call.query.includes("update company_directory_profiles profile"))).toBe(false);
   });
 
+  it("refreshes claimed profiles without changing their publication status", async () => {
+    configureWorker({
+      status: "ready",
+      evaluation: evaluation("ready", { claimed_workspace_id: "22222222-2222-4222-8222-222222222222" }),
+    });
+    mocks.assessConfidence.mockReturnValue({ score: 70, officialFactsReady: true, reasons: [] });
+
+    const result = await revalidateAllCompanyDirectoryBatch(10);
+
+    expect(result).toMatchObject({
+      selected: 1,
+      refreshed: 1,
+      kept: 1,
+      movedToReview: 0,
+      errors: 0,
+    });
+    expect(mocks.enrichOfficialFacts).toHaveBeenCalledTimes(1);
+    expect(mocks.enrichScb).toHaveBeenCalledTimes(1);
+    expect(sqlCalls.some((call) => call.query.includes("update company_directory_profiles profile"))).toBe(false);
+  });
+
+  it("does not start another profile after the shared deadline", async () => {
+    configureWorker({ status: "ready", backlog: 1 });
+
+    const result = await revalidateAllCompanyDirectoryBatch(10, { deadlineAt: Date.now() - 1 });
+
+    expect(result).toMatchObject({
+      selected: 1,
+      refreshed: 0,
+      deferred: 1,
+      movedToReview: 0,
+      errors: 0,
+    });
+    expect(mocks.enrichOfficialFacts).not.toHaveBeenCalled();
+    expect(mocks.enrichScb).not.toHaveBeenCalled();
+  });
+
   it("caps an oversized automatic batch at twelve profiles", async () => {
     responder = async (query, values) => {
       if (query.includes("started_at < now() - interval '10 minutes'")) return [];
       if (query.includes("insert into company_directory_sync_runs")) return [{ id: RUN_ID }];
       if (query.includes("select profile.id::text, profile.organization_number, profile.display_name, profile.publication_status")) {
+        expect(query).toContain("profile.publication_status in ('published', 'ready', 'review', 'inactive')");
         expect(values.at(-1)).toBe(12);
         return [];
       }
