@@ -10,6 +10,10 @@ const REVALIDATION_PROVIDER = "published_revalidation";
 const DEFAULT_REVALIDATION_BATCH_SIZE = 2;
 const MAX_REVALIDATION_BATCH_SIZE = 3;
 
+type RevalidationOptions = {
+  deadlineAt?: number;
+};
+
 function text(value: unknown) {
   return value === null || value === undefined ? "" : String(value).trim();
 }
@@ -36,6 +40,10 @@ function boundedLimit(value: unknown) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return DEFAULT_REVALIDATION_BATCH_SIZE;
   return Math.max(1, Math.min(MAX_REVALIDATION_BATCH_SIZE, Math.floor(parsed)));
+}
+
+function deadlineReached(deadlineAt?: number) {
+  return Number.isFinite(deadlineAt) && Date.now() >= Number(deadlineAt);
 }
 
 async function startRun() {
@@ -245,7 +253,10 @@ async function movePublishedProfileToReview(input: {
   return Boolean(rows[0]);
 }
 
-export async function revalidatePublishedCompanyDirectoryBatch(limit?: number) {
+export async function revalidatePublishedCompanyDirectoryBatch(
+  limit?: number,
+  options: RevalidationOptions = {},
+) {
   const sql = getSql();
   if (!sql) throw new Error("Database is not configured");
 
@@ -264,6 +275,7 @@ export async function revalidatePublishedCompanyDirectoryBatch(limit?: number) {
       deferred: 0,
       errors: 1,
       errorSummary: error instanceof Error ? error.message : "SCB access configuration is invalid",
+      reviewSummary: "",
       remaining: await backlogCount(),
     };
   }
@@ -279,6 +291,7 @@ export async function revalidatePublishedCompanyDirectoryBatch(limit?: number) {
       deferred: 0,
       errors: 0,
       errorSummary: "",
+      reviewSummary: "",
       remaining: await backlogCount(),
     };
   }
@@ -295,6 +308,7 @@ export async function revalidatePublishedCompanyDirectoryBatch(limit?: number) {
       deferred: 0,
       errors: 0,
       errorSummary: "",
+      reviewSummary: "",
       remaining: await backlogCount(),
     };
   }
@@ -311,7 +325,13 @@ export async function revalidatePublishedCompanyDirectoryBatch(limit?: number) {
   try {
     candidates = await selectCandidates(safeLimit);
 
-    for (const candidate of candidates) {
+    for (let index = 0; index < candidates.length; index += 1) {
+      if (deadlineReached(options.deadlineAt)) {
+        deferred += candidates.length - index;
+        break;
+      }
+
+      const candidate = candidates[index];
       const profileId = text(candidate.id);
       const organizationNumber = text(candidate.organization_number).replace(/\D/g, "");
       if (!profileId || organizationNumber.length !== 10) {
