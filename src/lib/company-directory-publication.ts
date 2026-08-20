@@ -1,5 +1,6 @@
 import "server-only";
 
+import { expirePublishedDirectoryLocationSuggestions } from "@/lib/company-directory-cache";
 import { assessCompanyDirectoryCategoryConfidence } from "@/lib/company-directory-category-confidence";
 import { enrichCompanyDirectoryScbForProfile } from "@/lib/company-directory-scb-enrichment";
 import { getSql } from "@/lib/db/server";
@@ -144,6 +145,7 @@ export async function publishCompanyDirectoryProfileIfSafe(
     returning p.public_slug
   `;
   if (!updated[0]) return { ok: false, code: "not_ready" };
+  expirePublishedDirectoryLocationSuggestions();
 
   return { ok: true, code: "published", slug: text(updated[0].public_slug) };
 }

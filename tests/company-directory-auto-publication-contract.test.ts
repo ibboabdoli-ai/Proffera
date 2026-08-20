@@ -7,9 +7,11 @@ const mocks = vi.hoisted(() => ({
   getSql: vi.fn(),
   enrichScb: vi.fn(),
   assessConfidence: vi.fn(),
+  revalidateTag: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
+vi.mock("next/cache", () => ({ revalidateTag: mocks.revalidateTag }));
 vi.mock("@/lib/db/server", () => ({ getSql: mocks.getSql }));
 vi.mock("@/lib/company-directory-scb-enrichment", () => ({
   enrichCompanyDirectoryScbForProfile: mocks.enrichScb,
@@ -74,6 +76,7 @@ describe("safe company directory auto publication contract", () => {
     mocks.getSql.mockReset();
     mocks.enrichScb.mockReset();
     mocks.assessConfidence.mockReset();
+    mocks.revalidateTag.mockReset();
     mocks.assessConfidence.mockReturnValue({
       score: 100,
       officialFactsReady: true,
@@ -222,6 +225,21 @@ describe("safe company directory auto publication contract", () => {
     const finalValues = sql.mock.calls[1]?.slice(1) ?? [];
     expect(finalValues).toContain(PROFILE_UPDATED_TOKEN);
     expect(finalValues).toContain(FACTS_LAST_SYNCED_TOKEN);
+  });
+
+  it("expires public location suggestions after a profile is published", async () => {
+    const sql = mockPublicationSql(safePublicationRow(), [{ public_slug: "exempel-el" }]);
+    mocks.getSql.mockReturnValue(sql);
+
+    await expect(publishCompanyDirectoryProfileIfSafe(PROFILE_ID)).resolves.toEqual({
+      ok: true,
+      code: "published",
+      slug: "exempel-el",
+    });
+    expect(mocks.revalidateTag).toHaveBeenCalledWith(
+      "published-directory-location-suggestions",
+      { expire: 0 },
+    );
   });
 
   it("shows Official Facts freshness in the admin publication preview", () => {

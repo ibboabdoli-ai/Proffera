@@ -238,6 +238,16 @@ describe("marketplace results UI contract", () => {
     expect(invalid).toMatch(/href="\/en\/companies\?service=[^"]+"/);
     expect(invalid).toContain('href="/en/companies"');
     expect(invalid).toContain('href="/en/get-quote"');
+
+    const invalidWithLocation = render(
+      "en",
+      [],
+      { serviceResolved: false },
+      "/en/companies?service=plummber&location=Stockholm",
+    );
+    expect(invalidWithLocation).toMatch(
+      /href="\/en\/companies\?service=[^&"]+&amp;location=Stockholm"/,
+    );
   });
 
   it("does not offer a nationwide link that would reset a location-only search", () => {

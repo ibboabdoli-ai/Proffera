@@ -51,6 +51,13 @@ function withoutLocationHref(baseHref: string) {
   return `${url.pathname}${url.search}`;
 }
 
+function withServiceHref(baseHref: string, service: string) {
+  const url = new URL(baseHref, "https://proffera.invalid");
+  url.searchParams.set("service", service);
+  url.searchParams.delete("page");
+  return `${url.pathname}${url.search}`;
+}
+
 function hasLocationConstraint(baseHref: string) {
   const url = new URL(baseHref, "https://proffera.invalid");
   return ["location", "latitude", "longitude"].some((key) => Boolean(url.searchParams.get(key)?.trim()));
@@ -91,7 +98,7 @@ export function PublicDirectoryResults({
         <p className="mt-1 text-sm leading-6">{t.badService}</p>
         <div className="mt-4 flex flex-wrap gap-2">
           {popularDirectoryServices.slice(0, 5).map((item) => (
-            <Link key={item.query} href={`${profileBase}?service=${encodeURIComponent(item.query)}`} className="rounded-full border border-amber-300 bg-white px-3 py-2 text-sm font-black text-brand transition hover:bg-brand-soft">
+            <Link key={item.query} href={withServiceHref(paginationBaseHref, item.query)} className="rounded-full border border-amber-300 bg-white px-3 py-2 text-sm font-black text-brand transition hover:bg-brand-soft">
               {item[locale]}
             </Link>
           ))}
