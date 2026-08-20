@@ -59,5 +59,6 @@ describe("company directory large-page pagination", () => {
     expect(result.page).toBe(10_001);
     expect(result.totalCount).toBe(300_030);
     expect(result.totalPages).toBe(10_001);
+    expect(result.results.map((company) => company.slug)).toContain("large-page-company");
   });
 });
