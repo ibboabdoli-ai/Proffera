@@ -10,13 +10,36 @@ vi.mock("@/lib/company-directory-full-revalidation", () => ({
   revalidateAllCompanyDirectoryBatch: mocks.revalidate,
 }));
 
+const ENV_KEYS = [
+  "CRON_SECRET",
+  "COMPANY_DIRECTORY_SYNC_ENABLED",
+  "COMPANY_DIRECTORY_PROFILE_PROCESSING_ENABLED",
+] as const;
+
+type EnvKey = (typeof ENV_KEYS)[number];
+
+let previousEnv: Record<EnvKey, string | undefined>;
+
+/** Load the route fresh so each test observes the current environment. */
 async function loadRoute() {
   vi.resetModules();
   return await import("../src/app/api/cron/company-directory-revalidation/route");
 }
 
+/** Restore one environment variable to its exact pre-test value. */
+function restoreEnv(key: EnvKey, value: string | undefined) {
+  if (value === undefined) delete process.env[key];
+  else process.env[key] = value;
+}
+
 describe("dedicated Company Directory revalidation scheduling", () => {
   beforeEach(() => {
+    previousEnv = {
+      CRON_SECRET: process.env.CRON_SECRET,
+      COMPANY_DIRECTORY_SYNC_ENABLED: process.env.COMPANY_DIRECTORY_SYNC_ENABLED,
+      COMPANY_DIRECTORY_PROFILE_PROCESSING_ENABLED: process.env.COMPANY_DIRECTORY_PROFILE_PROCESSING_ENABLED,
+    };
+
     mocks.revalidate.mockReset();
     mocks.revalidate.mockResolvedValue({
       skipped: false,
@@ -35,9 +58,7 @@ describe("dedicated Company Directory revalidation scheduling", () => {
   });
 
   afterEach(() => {
-    delete process.env.CRON_SECRET;
-    delete process.env.COMPANY_DIRECTORY_SYNC_ENABLED;
-    delete process.env.COMPANY_DIRECTORY_PROFILE_PROCESSING_ENABLED;
+    for (const key of ENV_KEYS) restoreEnv(key, previousEnv[key]);
   });
 
   it("protects the fast revalidation endpoint with CRON_SECRET", async () => {
@@ -45,6 +66,40 @@ describe("dedicated Company Directory revalidation scheduling", () => {
     const response = await GET(new Request("https://example.test/api/cron/company-directory-revalidation"));
 
     expect(response.status).toBe(401);
+    expect(mocks.revalidate).not.toHaveBeenCalled();
+  });
+
+  it("skips when directory sync is disabled", async () => {
+    process.env.COMPANY_DIRECTORY_SYNC_ENABLED = "false";
+    const { GET } = await loadRoute();
+    const response = await GET(new Request(
+      "https://example.test/api/cron/company-directory-revalidation",
+      { headers: { authorization: "Bearer test-secret" } },
+    ));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      skipped: true,
+      reason: "Company directory sync is disabled",
+    });
+    expect(mocks.revalidate).not.toHaveBeenCalled();
+  });
+
+  it("skips when profile processing is disabled", async () => {
+    process.env.COMPANY_DIRECTORY_PROFILE_PROCESSING_ENABLED = "false";
+    const { GET } = await loadRoute();
+    const response = await GET(new Request(
+      "https://example.test/api/cron/company-directory-revalidation",
+      { headers: { authorization: "Bearer test-secret" } },
+    ));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      skipped: true,
+      reason: "Company directory profile processing is disabled",
+    });
     expect(mocks.revalidate).not.toHaveBeenCalled();
   });
 
@@ -68,6 +123,26 @@ describe("dedicated Company Directory revalidation scheduling", () => {
     }
   });
 
+  it("returns HTTP 500 when full revalidation rejects", async () => {
+    mocks.revalidate.mockRejectedValue(new Error("SCB unavailable"));
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const { GET } = await loadRoute();
+      const response = await GET(new Request(
+        "https://example.test/api/cron/company-directory-revalidation",
+        { headers: { authorization: "Bearer test-secret" } },
+      ));
+
+      expect(response.status).toBe(500);
+      await expect(response.json()).resolves.toEqual({
+        ok: false,
+        error: "SCB unavailable",
+      });
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
   it("schedules only the dedicated revalidation endpoint every five minutes", () => {
     const workflow = readFileSync(
       resolve(process.cwd(), ".github/workflows/company-directory-revalidation.yml"),
@@ -76,6 +151,9 @@ describe("dedicated Company Directory revalidation scheduling", () => {
 
     expect(workflow).toContain('cron: "*/5 * * * *"');
     expect(workflow).toContain("/api/cron/company-directory-revalidation");
+    expect(workflow).toContain('--header "Authorization: Bearer $CRON_SECRET"');
+    expect(workflow).toContain('hostname not in {"proffera.se", "www.proffera.se"}');
+    expect(workflow).toContain("url.port not in (None, 443)");
     expect(workflow).not.toContain("/api/cron/company-directory-sync");
     expect(workflow).not.toContain("/api/cron/company-directory-official-facts");
     expect(workflow).not.toContain("Booking reminders");

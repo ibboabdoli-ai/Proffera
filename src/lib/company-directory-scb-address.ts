@@ -9,16 +9,19 @@ type ScbWorkplaceAddress = DirectoryPublicAddress & {
   sourceIndex: number;
 };
 
+/** Convert an unknown value into trimmed text without leaking nullish values. */
 function text(value: unknown) {
   return value === null || value === undefined ? "" : String(value).trim();
 }
 
+/** Return a plain object view for structured SCB values. */
 function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null;
 }
 
+/** Normalize Swedish text for stable address comparisons. */
 function normalizeText(value: unknown) {
   return text(value)
     .normalize("NFKC")
@@ -26,15 +29,18 @@ function normalizeText(value: unknown) {
     .replace(/[^\p{L}\p{N}]+/gu, "");
 }
 
+/** Normalize postal codes to digits only for equality checks. */
 function normalizePostalCode(value: unknown) {
   return text(value).replace(/\D/g, "");
 }
 
+/** Format a five-digit Swedish postal code for public display. */
 function displayPostalCode(value: unknown) {
   const digits = normalizePostalCode(value);
   return digits.length === 5 ? `${digits.slice(0, 3)} ${digits.slice(3)}` : text(value);
 }
 
+/** Extract a complete visiting address from one SCB workplace. */
 function workplaceVisitingAddress(value: unknown, sourceIndex: number): ScbWorkplaceAddress | null {
   const workplace = record(value);
   const visiting = record(workplace?.visitingAddress);
@@ -52,6 +58,7 @@ function workplaceVisitingAddress(value: unknown, sourceIndex: number): ScbWorkp
   };
 }
 
+/** Return a match only when exactly one workplace satisfies the predicate. */
 function uniqueMatch(
   addresses: ScbWorkplaceAddress[],
   predicate: (address: ScbWorkplaceAddress) => boolean,
@@ -60,6 +67,7 @@ function uniqueMatch(
   return matches.length === 1 ? matches[0] : null;
 }
 
+/** Project one selected SCB workplace into the public address shape. */
 function selectedAddress(address: ScbWorkplaceAddress): DirectoryPublicAddress {
   return {
     addressLine1: address.addressLine1,
@@ -112,11 +120,11 @@ export function resolveCompanyDirectoryPublicAddress(
 
   const normalizedPostal = normalizePostalCode(fallback.postalCode);
   const normalizedCity = normalizeText(fallback.city);
-  if (normalizedPostal) {
+  if (normalizedPostal && normalizedCity) {
     const postalMatch = uniqueMatch(
       complete,
       (address) => normalizePostalCode(address.postalCode) === normalizedPostal
-        && (!normalizedCity || normalizeText(address.city) === normalizedCity),
+        && normalizeText(address.city) === normalizedCity,
     );
     if (postalMatch) return selectedAddress(postalMatch);
   }

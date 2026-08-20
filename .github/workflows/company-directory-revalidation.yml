@@ -38,13 +38,18 @@ jobs:
           import urllib.parse
 
           url = urllib.parse.urlparse(os.environ["REMINDER_CRON_URL"])
-          if url.scheme != "https" or not url.netloc:
+          if url.scheme != "https" or not url.hostname:
               raise SystemExit("PROFFERA_REMINDER_CRON_URL must be an HTTPS URL")
+          if url.username is not None or url.password is not None:
+              raise SystemExit("PROFFERA_REMINDER_CRON_URL must not contain userinfo")
+          if url.port not in (None, 443):
+              raise SystemExit("PROFFERA_REMINDER_CRON_URL must use the default HTTPS port")
 
-          host = url.netloc.lower()
-          if host in {"proffera.se", "www.proffera.se"}:
-              host = "www.proffera.se"
-          print(f"https://{host}")
+          hostname = url.hostname.lower()
+          if hostname not in {"proffera.se", "www.proffera.se"}:
+              raise SystemExit("PROFFERA_REMINDER_CRON_URL must use an approved Proffera hostname")
+
+          print("https://www.proffera.se")
           PY
           )"
 

@@ -143,6 +143,35 @@ describe("Company Directory SCB public address resolution", () => {
     expect(resolved).toEqual(fallback);
   });
 
+  it("does not match only by postal code when a multi-workplace profile city is missing", () => {
+    const fallback = {
+      addressLine1: "Box 10",
+      postalCode: "16979",
+      city: "",
+      municipality: "Stockholm",
+    };
+    const resolved = resolveCompanyDirectoryPublicAddress(fallback, [
+      {
+        municipality: "Solna",
+        visitingAddress: {
+          addressLine: "Dalvägen 22",
+          postalCode: "169 79",
+          city: "SOLNA",
+        },
+      },
+      {
+        municipality: "Stockholm",
+        visitingAddress: {
+          addressLine: "Annan väg 5",
+          postalCode: "111 43",
+          city: "STOCKHOLM",
+        },
+      },
+    ]);
+
+    expect(resolved).toEqual(fallback);
+  });
+
   it("does not mix a selected SCB visiting address with the old profile municipality", () => {
     const resolved = resolveCompanyDirectoryPublicAddress({
       addressLine1: "Gamla vägen 1",
