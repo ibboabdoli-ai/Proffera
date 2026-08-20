@@ -34,9 +34,10 @@ function docker(args: string[]) {
 }
 
 describe("marketplace guest invitation wave cap migration", () => {
-  it("does not nest its own transaction wrapper", () => {
-    expect(migration).not.toMatch(/^\s*begin\s*;/im);
-    expect(migration).not.toMatch(/^\s*commit\s*;/im);
+  it("owns an explicit atomic transaction boundary while no production runner exists", () => {
+    expect(migration).toMatch(/^\s*begin\s*;/im);
+    expect(migration).toMatch(/^\s*commit\s*;/im);
+    expect(migration.indexOf("begin;")).toBeLessThan(migration.lastIndexOf("commit;"));
   });
 
   it("only permits the two marketplace waves and preserves legacy wave provenance", () => {
@@ -46,18 +47,27 @@ describe("marketplace guest invitation wave cap migration", () => {
     expect(migration).toContain("marketplace_legacy_invitation_count_exceeds_five");
   });
 
-  it("serializes and enforces the 3+2 and total-five caps in PostgreSQL", () => {
+  it("serializes and distinguishes the 3+2 and total-five caps in PostgreSQL", () => {
     expect(migration).toContain("pg_advisory_xact_lock");
     expect(migration).toContain("when 1 then 3 when 2 then 2");
     expect(migration).toContain("wave_count >= wave_limit");
     expect(migration).toContain("total_count >= 5");
     expect(migration).toContain("marketplace_wave_limit");
+    expect(migration).toContain("marketplace_total_limit");
   });
 
   it("ties each offer to the same invitation, quote request, and profile", () => {
     expect(migration).toContain("unique (id, quote_request_id, profile_id)");
     expect(migration).toContain("foreign key (invitation_id, quote_request_id, profile_id)");
     expect(migration).toContain("marketplace_offer_invitation_identity_mismatch");
+  });
+
+  it("serializes permanent opt-out with dispatch and offer eligibility", () => {
+    expect(migration).toContain("lock_marketplace_outreach_suppression_recipient");
+    expect(migration).toContain("enforce_marketplace_quote_invitation_outreach");
+    expect(migration).toContain("enforce_marketplace_quote_offer_eligibility");
+    expect(migration).toContain("marketplace_recipient_suppressed");
+    expect(migration).toContain("marketplace_quote_closed");
   });
 });
 
@@ -95,7 +105,11 @@ if (RUN_POSTGRES_INTEGRATION) {
         drop table if exists quote_requests cascade;
 
         create extension if not exists pgcrypto;
-        create table quote_requests (id uuid primary key);
+        create table quote_requests (
+          id uuid primary key,
+          status text not null default 'submitted',
+          consent_accepted boolean not null default true
+        );
         create table company_directory_profiles (id uuid primary key);
         create table workspaces (id uuid primary key);
       `);
@@ -131,10 +145,26 @@ if (RUN_POSTGRES_INTEGRATION) {
       `);
     }
 
-    async function insertQuoteAndProfiles(client: Client, profileCount: number) {
+    async function createLegacySuppressionTable(client: Client) {
+      await client.query(`
+        create table marketplace_outreach_suppressions (
+          id uuid primary key default gen_random_uuid(),
+          profile_id uuid references company_directory_profiles(id) on delete set null,
+          email_normalized text not null,
+          reason text not null default 'recipient_opt_out',
+          source_invitation_id uuid references marketplace_quote_invitations(id) on delete set null,
+          created_at timestamptz not null default now(),
+          constraint marketplace_outreach_suppressions_email_check check (char_length(email_normalized) between 5 and 320),
+          constraint marketplace_outreach_suppressions_reason_check check (char_length(reason) between 1 and 200),
+          constraint marketplace_outreach_suppressions_email_unique unique (email_normalized)
+        );
+      `);
+    }
+
+    async function insertQuoteAndProfiles(client: Client, profileCount: number, status = "submitted") {
       const quoteRequestId = randomUUID();
       const profileIds = Array.from({ length: profileCount }, () => randomUUID());
-      await client.query("insert into quote_requests (id) values ($1)", [quoteRequestId]);
+      await client.query("insert into quote_requests (id, status, consent_accepted) values ($1, $2, true)", [quoteRequestId, status]);
       for (const profileId of profileIds) {
         await client.query("insert into company_directory_profiles (id) values ($1)", [profileId]);
       }
@@ -143,7 +173,15 @@ if (RUN_POSTGRES_INTEGRATION) {
 
     async function insertInvitation(
       client: Client,
-      input: { quoteRequestId: string; profileId: string; wave: number; seed: string; createdAt?: Date },
+      input: {
+        quoteRequestId: string;
+        profileId: string;
+        wave: number;
+        seed: string;
+        createdAt?: Date;
+        status?: string;
+        recipientEmail?: string;
+      },
     ) {
       const result = await client.query<{ id: string }>(`
         insert into marketplace_quote_invitations (
@@ -165,22 +203,23 @@ if (RUN_POSTGRES_INTEGRATION) {
           $2,
           $3,
           $4,
-          'pending',
           $5,
+          $6,
           0,
           '[]'::jsonb,
           'manual_business_contact',
           now() + interval '1 day',
           'integration-test',
-          coalesce($6::timestamptz, now()),
-          coalesce($6::timestamptz, now())
+          coalesce($7::timestamptz, now()),
+          coalesce($7::timestamptz, now())
         )
         returning id::text
       `, [
         input.quoteRequestId,
         input.profileId,
-        `${input.seed}@example.se`,
+        input.recipientEmail ?? `${input.seed}@example.se`,
         tokenHash(input.seed),
+        input.status ?? "pending",
         input.wave,
         input.createdAt ?? null,
       ]);
@@ -192,6 +231,8 @@ if (RUN_POSTGRES_INTEGRATION) {
       profileId: string;
       wave: number;
       seed: string;
+      status?: string;
+      recipientEmail?: string;
     }) {
       const client = new Client({ connectionString });
       await client.connect();
@@ -207,6 +248,19 @@ if (RUN_POSTGRES_INTEGRATION) {
       } finally {
         await client.end();
       }
+    }
+
+    async function insertOffer(client: Client, input: {
+      invitationId: string;
+      quoteRequestId: string;
+      profileId: string;
+    }) {
+      return client.query(`
+        insert into marketplace_quote_offers (
+          invitation_id, quote_request_id, profile_id, price_kind
+        ) values ($1, $2, $3, 'estimate')
+        returning id::text
+      `, [input.invitationId, input.quoteRequestId, input.profileId]);
     }
 
     beforeAll(async () => {
@@ -282,6 +336,25 @@ if (RUN_POSTGRES_INTEGRATION) {
       await expect(client.query(migration)).resolves.toBeDefined();
     }, 30_000);
 
+    it("normalizes a safe legacy suppression before installing the invariant", async () => {
+      const client = adminClient!;
+      await resetBaseTables(client);
+      await createLegacyInvitationTable(client);
+      await createLegacySuppressionTable(client);
+      const profileId = randomUUID();
+      await client.query("insert into company_directory_profiles (id) values ($1)", [profileId]);
+      await client.query(`
+        insert into marketplace_outreach_suppressions (profile_id, email_normalized)
+        values ($1, '  Offert@Example.SE  ')
+      `, [profileId]);
+
+      await client.query(migration);
+      const result = await client.query<{ email_normalized: string }>(`
+        select email_normalized from marketplace_outreach_suppressions limit 1
+      `);
+      expect(result.rows[0]?.email_normalized).toBe("offert@example.se");
+    }, 30_000);
+
     it("rejects an offer whose quote/profile identity does not match its invitation", async () => {
       const client = adminClient!;
       await resetBaseTables(client);
@@ -302,15 +375,97 @@ if (RUN_POSTGRES_INTEGRATION) {
 
       let mismatchCode = "";
       try {
-        await client.query(`
-          insert into marketplace_quote_offers (
-            invitation_id, quote_request_id, profile_id, price_kind
-          ) values ($1, $2, $3, 'estimate')
-        `, [invitationId, quoteTwo, profileTwo]);
+        await insertOffer(client, { invitationId, quoteRequestId: quoteTwo, profileId: profileTwo });
       } catch (error) {
         mismatchCode = pgError(error).code;
       }
       expect(mismatchCode).toBe("23503");
+    }, 30_000);
+
+    it("rejects an offer when the underlying quote request has closed", async () => {
+      const client = adminClient!;
+      await resetBaseTables(client);
+      await client.query(migration);
+      const { quoteRequestId, profileIds } = await insertQuoteAndProfiles(client, 1, "cancelled");
+      const invitationId = await insertInvitation(client, {
+        quoteRequestId,
+        profileId: profileIds[0]!,
+        wave: 1,
+        seed: "closed-quote",
+      });
+
+      let failure = { code: "", message: "" };
+      try {
+        await insertOffer(client, { invitationId, quoteRequestId, profileId: profileIds[0]! });
+      } catch (error) {
+        failure = pgError(error);
+      }
+      expect(failure.code).toBe("23514");
+      expect(failure.message).toContain("marketplace_quote_closed");
+    }, 30_000);
+
+    it("rejects an offer after permanent recipient suppression", async () => {
+      const client = adminClient!;
+      await resetBaseTables(client);
+      await client.query(migration);
+      const { quoteRequestId, profileIds } = await insertQuoteAndProfiles(client, 1);
+      const recipientEmail = "suppressed-offer@example.se";
+      const invitationId = await insertInvitation(client, {
+        quoteRequestId,
+        profileId: profileIds[0]!,
+        wave: 1,
+        seed: "suppressed-offer",
+        recipientEmail,
+      });
+      await client.query(`
+        insert into marketplace_outreach_suppressions (profile_id, email_normalized, source_invitation_id)
+        values ($1, $2, $3)
+      `, [profileIds[0], recipientEmail, invitationId]);
+
+      let failure = { code: "", message: "" };
+      try {
+        await insertOffer(client, { invitationId, quoteRequestId, profileId: profileIds[0]! });
+      } catch (error) {
+        failure = pgError(error);
+      }
+      expect(failure.code).toBe("23514");
+      expect(failure.message).toContain("marketplace_recipient_suppressed");
+    }, 30_000);
+
+    it("serializes a concurrent opt-out ahead of a dispatch reservation", async () => {
+      const client = adminClient!;
+      await resetBaseTables(client);
+      await client.query(migration);
+      const { quoteRequestId, profileIds } = await insertQuoteAndProfiles(client, 1);
+      const recipientEmail = "race-optout@example.se";
+      const suppressionClient = new Client({ connectionString });
+      await suppressionClient.connect();
+      try {
+        await suppressionClient.query("begin");
+        await suppressionClient.query(`
+          insert into marketplace_outreach_suppressions (profile_id, email_normalized)
+          values ($1, $2)
+        `, [profileIds[0], recipientEmail]);
+
+        const dispatchAttempt = transactionalInsert({
+          quoteRequestId,
+          profileId: profileIds[0]!,
+          wave: 1,
+          seed: "race-dispatch",
+          status: "sending",
+          recipientEmail,
+        });
+
+        await delay(150);
+        await suppressionClient.query("commit");
+        const rejected = await dispatchAttempt;
+        expect(rejected.ok).toBe(false);
+        expect(rejected.code).toBe("23514");
+        expect(rejected.message).toContain("marketplace_recipient_suppressed");
+      } finally {
+        await suppressionClient.query("rollback").catch(() => undefined);
+        await suppressionClient.end();
+      }
     }, 30_000);
 
     it("serializes concurrent transactions and rejects the fourth Wave 1 invite with SQLSTATE 23514", async () => {
@@ -351,7 +506,7 @@ if (RUN_POSTGRES_INTEGRATION) {
       expect(rejected?.message).toContain("marketplace_wave_limit");
     }, 30_000);
 
-    it("rejects a sixth unique invited profile with SQLSTATE 23514", async () => {
+    it("identifies the sixth unique profile as the total-five cap", async () => {
       const client = adminClient!;
       await resetBaseTables(client);
       await client.query(migration);
@@ -382,7 +537,7 @@ if (RUN_POSTGRES_INTEGRATION) {
       });
       expect(rejected.ok).toBe(false);
       expect(rejected.code).toBe("23514");
-      expect(rejected.message).toContain("marketplace_wave_limit");
+      expect(rejected.message).toContain("marketplace_total_limit");
     }, 30_000);
   });
 }
