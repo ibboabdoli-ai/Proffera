@@ -4,6 +4,7 @@ import { AlertTriangle, CheckCircle2, Clock3, MapPin, Search, Settings2 } from "
 import { requireSuperAdmin } from "@/lib/admin-authorization";
 import { getDirectoryGeocodingStatus } from "@/lib/company-directory-geocoding";
 import { searchCompanyDirectory } from "@/lib/company-directory-search";
+import { resolveDirectoryServiceQuery } from "@/lib/company-directory-service-taxonomy";
 import { geocodeDirectoryPilotAction } from "./actions";
 import { NearbySearchFields } from "./NearbySearchFields";
 import { resolveAdminDirectorySearchMode } from "./search-behavior";
@@ -81,14 +82,27 @@ export default async function DirectorySearchPreviewPage({ searchParams }: PageP
   const nearbyAvailable = geocodingStatus.geocoded > 0;
   const nearbyAttempted = Boolean(latitude || longitude);
   const nearbyBlocked = nearbyAttempted && !nearbyAvailable;
+  const blockedServiceQuery = service.trim().replace(/\s+/g, " ").slice(0, 100);
+  const blockedLocationQuery = String(searchMode.location ?? "").trim().replace(/\s+/g, " ").slice(0, 100);
+  const blockedRadius = [25, 50, 100].includes(Number(radius)) ? Number(radius) : 25;
 
-  const search = await searchCompanyDirectory({
-    service,
-    ...searchMode,
-    radiusKm: radius,
-    streetAddressOnly: true,
-    limit: 30,
-  });
+  const search = nearbyBlocked
+    ? {
+        serviceQuery: blockedServiceQuery,
+        locationQuery: blockedLocationQuery,
+        serviceResolved: !blockedServiceQuery || Boolean(resolveDirectoryServiceQuery(blockedServiceQuery)),
+        nearbyRequested: true,
+        nearbyEnabled: false,
+        radiusKm: blockedRadius,
+        results: [],
+      }
+    : await searchCompanyDirectory({
+        service,
+        ...searchMode,
+        radiusKm: radius,
+        streetAddressOnly: true,
+        limit: 30,
+      });
 
   return (
     <main className="min-h-screen bg-[#f7f7f4] px-4 py-10 sm:px-6 lg:px-8">
