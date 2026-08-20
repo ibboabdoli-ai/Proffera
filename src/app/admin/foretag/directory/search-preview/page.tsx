@@ -51,7 +51,7 @@ export default async function DirectorySearchPreviewPage({ searchParams }: PageP
     latitude: firstParam(params?.latitude),
     longitude: firstParam(params?.longitude),
   });
-  const { location, latitude, longitude } = searchMode;
+  const { latitude, longitude } = searchMode;
   const geocodeResult = firstParam(params?.geocode) ?? "";
 
   const search = await searchCompanyDirectory({
