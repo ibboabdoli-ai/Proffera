@@ -4,13 +4,20 @@
 -- Customer contact data stays in quote_requests and is never copied into the
 -- invitation/offer tables exposed to guest companies.
 --
+-- Atomicity contract: this repository does not currently have an executable
+-- migration runner that wraps this complete file. This migration therefore owns
+-- its transaction boundary. If a future approved runner wraps migration files,
+-- remove these explicit BEGIN/COMMIT markers as part of that runner migration.
+--
 -- Production rollback note (manual, destructive; do not execute blindly):
 -- 1. Roll application code back first so no requests can read/write these tables.
 -- 2. Inspect/export any invitation, offer, suppression, and audit data that must be preserved.
--- 3. Drop the invitation-cap trigger/function, then drop in dependency order:
---    marketplace_outreach_suppressions, marketplace_quote_offers, then
---    marketplace_quote_invitations.
+-- 3. Drop the outreach/offer/invitation guard triggers and functions, then drop
+--    in dependency order: marketplace_outreach_suppressions,
+--    marketplace_quote_offers, then marketplace_quote_invitations.
 -- 4. Re-check application health and retained audit/data exports before closing the rollback.
+
+begin;
 
 create table if not exists marketplace_quote_invitations (
   id uuid primary key default gen_random_uuid(),
@@ -34,7 +41,7 @@ create table if not exists marketplace_quote_invitations (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint marketplace_quote_invitations_status_check
-    check (status in ('pending', 'sent', 'viewed', 'responded', 'declined', 'suppressed', 'delivery_failed', 'expired', 'cancelled')),
+    check (status in ('pending', 'sending', 'sent', 'viewed', 'responded', 'declined', 'suppressed', 'delivery_failed', 'expired', 'cancelled')),
   constraint marketplace_quote_invitations_score_check check (match_score between 0 and 100),
   constraint marketplace_quote_invitations_recipient_check check (char_length(recipient_email) between 5 and 320),
   constraint marketplace_quote_invitations_token_check check (char_length(token_hash) = 64),
@@ -43,6 +50,15 @@ create table if not exists marketplace_quote_invitations (
   constraint marketplace_quote_invitations_quote_profile_unique unique (quote_request_id, profile_id),
   constraint marketplace_quote_invitations_token_unique unique (token_hash)
 );
+
+-- Existing pilot tables predate the 'sending' dispatch-reservation state. Rebuild
+-- the status check explicitly so a clean install and an upgrade have the same
+-- allowed state machine.
+alter table marketplace_quote_invitations
+  drop constraint if exists marketplace_quote_invitations_status_check;
+alter table marketplace_quote_invitations
+  add constraint marketplace_quote_invitations_status_check
+  check (status in ('pending', 'sending', 'sent', 'viewed', 'responded', 'declined', 'suppressed', 'delivery_failed', 'expired', 'cancelled'));
 
 -- The earlier isolated pilot allowed wave values 1..5. The current marketplace
 -- model is two outreach batches: the first three invitations are Wave 1 and the
@@ -215,8 +231,38 @@ create table if not exists marketplace_outreach_suppressions (
   constraint marketplace_outreach_suppressions_email_unique unique (email_normalized)
 );
 
--- The old pilot table predates the normalization constraint. Add it explicitly
--- when upgrading an existing isolated branch as well as when creating clean.
+-- The old pilot table predates the normalization invariant. Fail closed if
+-- normalizing would collapse two distinct rows or produce an invalid address;
+-- otherwise normalize existing rows before adding the check constraint.
+do $$
+begin
+  if exists (
+    select 1
+    from marketplace_outreach_suppressions
+    group by lower(btrim(email_normalized))
+    having count(*) > 1
+  ) then
+    raise exception using
+      errcode = '23505',
+      message = 'marketplace_suppression_normalization_conflict';
+  end if;
+
+  if exists (
+    select 1
+    from marketplace_outreach_suppressions
+    where char_length(lower(btrim(email_normalized))) not between 5 and 320
+  ) then
+    raise exception using
+      errcode = '23514',
+      message = 'marketplace_suppression_normalization_invalid';
+  end if;
+end;
+$$;
+
+update marketplace_outreach_suppressions
+set email_normalized = lower(btrim(email_normalized))
+where email_normalized <> lower(btrim(email_normalized));
+
 do $$
 begin
   if not exists (
@@ -235,6 +281,147 @@ $$;
 create index if not exists marketplace_outreach_suppressions_profile_idx
   on marketplace_outreach_suppressions (profile_id, created_at desc)
   where profile_id is not null;
+
+-- Every permanent opt-out owns an advisory lock for its normalized email until
+-- commit. Invitation dispatch and offer submission use the same key, so a
+-- completed opt-out cannot be bypassed by a concurrent write.
+create or replace function lock_marketplace_outreach_suppression_recipient()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.email_normalized := lower(btrim(new.email_normalized));
+  perform pg_advisory_xact_lock(hashtextextended(new.email_normalized, 0));
+  return new;
+end;
+$$;
+
+drop trigger if exists marketplace_outreach_suppression_lock_trigger
+  on marketplace_outreach_suppressions;
+create trigger marketplace_outreach_suppression_lock_trigger
+before insert or update of email_normalized
+on marketplace_outreach_suppressions
+for each row
+execute function lock_marketplace_outreach_suppression_recipient();
+
+-- 'sending' is the atomic dispatch-reservation state. The recipient-email lock
+-- is acquired before the reservation is accepted. If an opt-out committed first,
+-- the reservation fails closed; if the reservation committed first, that email
+-- was already dispatched before a later opt-out and future outreach is blocked.
+create or replace function enforce_marketplace_quote_invitation_outreach()
+returns trigger
+language plpgsql
+as $$
+declare
+  normalized_email text;
+  request_status text;
+  request_consent boolean;
+begin
+  if new.status <> 'sending' then
+    return new;
+  end if;
+
+  normalized_email := lower(btrim(new.recipient_email));
+  perform pg_advisory_xact_lock(hashtextextended(normalized_email, 0));
+
+  select status, consent_accepted
+    into request_status, request_consent
+    from quote_requests
+   where id = new.quote_request_id
+   for update;
+
+  if request_status is null
+     or request_status not in ('submitted', 'pending_review', 'approved', 'matched', 'answered') then
+    raise exception using errcode = '23514', message = 'marketplace_quote_closed';
+  end if;
+
+  if request_consent is not true then
+    raise exception using errcode = '23514', message = 'marketplace_consent_required';
+  end if;
+
+  if exists (
+    select 1
+    from marketplace_outreach_suppressions suppression
+    where suppression.email_normalized = normalized_email
+  ) then
+    raise exception using errcode = '23514', message = 'marketplace_recipient_suppressed';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists marketplace_quote_invitation_outreach_guard_trigger
+  on marketplace_quote_invitations;
+create trigger marketplace_quote_invitation_outreach_guard_trigger
+before insert or update of recipient_email, status, quote_request_id
+on marketplace_quote_invitations
+for each row
+execute function enforce_marketplace_quote_invitation_outreach();
+
+-- Offers are accepted only while the invitation and underlying customer request
+-- are still open. The email advisory lock serializes this check with permanent
+-- opt-out, and row locks re-read invitation/request state after any concurrent
+-- status update has committed.
+create or replace function enforce_marketplace_quote_offer_eligibility()
+returns trigger
+language plpgsql
+as $$
+declare
+  normalized_email text;
+  invitation_status text;
+  invitation_expires_at timestamptz;
+  request_status text;
+begin
+  select lower(btrim(recipient_email))
+    into normalized_email
+    from marketplace_quote_invitations
+   where id = new.invitation_id;
+
+  if normalized_email is null then
+    return new;
+  end if;
+
+  perform pg_advisory_xact_lock(hashtextextended(normalized_email, 0));
+
+  select invitation.status, invitation.expires_at, request.status
+    into invitation_status, invitation_expires_at, request_status
+    from marketplace_quote_invitations invitation
+    join quote_requests request on request.id = invitation.quote_request_id
+   where invitation.id = new.invitation_id
+     and invitation.quote_request_id = new.quote_request_id
+     and invitation.profile_id = new.profile_id
+   for update of invitation, request;
+
+  if invitation_status is null then
+    return new;
+  end if;
+
+  if invitation_status not in ('pending', 'sending', 'sent', 'viewed')
+     or invitation_expires_at <= now()
+     or request_status not in ('submitted', 'pending_review', 'approved', 'matched', 'answered') then
+    raise exception using errcode = '23514', message = 'marketplace_quote_closed';
+  end if;
+
+  if exists (
+    select 1
+    from marketplace_outreach_suppressions suppression
+    where suppression.email_normalized = normalized_email
+  ) then
+    raise exception using errcode = '23514', message = 'marketplace_recipient_suppressed';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists marketplace_quote_offer_eligibility_guard_trigger
+  on marketplace_quote_offers;
+create trigger marketplace_quote_offer_eligibility_guard_trigger
+before insert or update of invitation_id, quote_request_id, profile_id
+on marketplace_quote_offers
+for each row
+execute function enforce_marketplace_quote_offer_eligibility();
 
 -- Enforce Wave 1 <= 3, Wave 2 <= 2, and <= 5 unique invited profiles per
 -- quote request at the database boundary. The transaction-scoped advisory
@@ -270,7 +457,11 @@ begin
    where invitation.quote_request_id = new.quote_request_id
      and invitation.id <> new.id;
 
-  if wave_count >= wave_limit or total_count >= 5 then
+  if total_count >= 5 then
+    raise exception using errcode = '23514', message = 'marketplace_total_limit';
+  end if;
+
+  if wave_count >= wave_limit then
     raise exception using errcode = '23514', message = 'marketplace_wave_limit';
   end if;
 
@@ -292,3 +483,5 @@ comment on table marketplace_quote_offers is
   'Offers submitted against marketplace quote requests by invited companies, including unclaimed directory profiles.';
 comment on table marketplace_outreach_suppressions is
   'Permanent marketplace outreach opt-out list. Checked before every guest invitation send and retained if the linked directory profile is removed.';
+
+commit;
