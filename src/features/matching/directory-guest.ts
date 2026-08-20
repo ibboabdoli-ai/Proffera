@@ -30,9 +30,23 @@ export type DirectoryGuestCandidate = {
   serviceAreaConfirmed: false;
 };
 
+export type DirectoryGuestOffer = {
+  offerId: string;
+  companyName: string;
+  profileSlug: string;
+  status: string;
+  priceKind: string;
+  currency: string;
+  amountMinor: number;
+  availableDate: string;
+  companyNote: string;
+  submittedAt: string;
+};
+
 export type DirectoryGuestLeadMatch = {
   lead: GuestLead;
   candidates: DirectoryGuestCandidate[];
+  offers: DirectoryGuestOffer[];
 };
 
 type PreparedText = {
@@ -181,6 +195,52 @@ export async function getDirectoryGuestLeadMatches() {
     `;
 
     const typedLeads = leads as GuestLead[];
+    if (typedLeads.length === 0) {
+      return { ok: true as const, matches: [] as DirectoryGuestLeadMatch[] };
+    }
+
+    const leadIdCsv = typedLeads.map((lead) => lead.id).join(",");
+    const offerRows = await sql`
+      select
+        offer.id::text as offer_id,
+        offer.quote_request_id::text as quote_request_id,
+        offer.status,
+        offer.price_kind,
+        offer.currency,
+        offer.amount_minor,
+        offer.available_date::text,
+        offer.company_note,
+        offer.submitted_at::text,
+        profile.display_name,
+        profile.public_slug
+      from marketplace_quote_offers offer
+      join marketplace_quote_invitations invitation on invitation.id = offer.invitation_id
+      join company_directory_profiles profile on profile.id = offer.profile_id
+      where offer.quote_request_id = any(string_to_array(${leadIdCsv}, ',')::uuid[])
+      order by offer.submitted_at desc, offer.id desc
+    `;
+
+    const offersByQuote = new Map<string, DirectoryGuestOffer[]>();
+    for (const row of offerRows as Record<string, unknown>[]) {
+      const quoteRequestId = text(row.quote_request_id);
+      if (!quoteRequestId) continue;
+      const offer: DirectoryGuestOffer = {
+        offerId: text(row.offer_id),
+        companyName: text(row.display_name),
+        profileSlug: text(row.public_slug),
+        status: text(row.status),
+        priceKind: text(row.price_kind),
+        currency: text(row.currency) || "SEK",
+        amountMinor: Number(row.amount_minor ?? 0),
+        availableDate: text(row.available_date),
+        companyNote: text(row.company_note),
+        submittedAt: text(row.submitted_at),
+      };
+      const bucket = offersByQuote.get(quoteRequestId) ?? [];
+      bucket.push(offer);
+      offersByQuote.set(quoteRequestId, bucket);
+    }
+
     const requiredCategories = new Set<string>();
     for (const lead of typedLeads) {
       const category = serviceCategoryForQuoteCategory(lead.category);
@@ -189,7 +249,11 @@ export async function getDirectoryGuestLeadMatches() {
     if (requiredCategories.size === 0) {
       return {
         ok: true as const,
-        matches: typedLeads.map((lead) => ({ lead, candidates: [] })),
+        matches: typedLeads.map((lead) => ({
+          lead,
+          candidates: [],
+          offers: offersByQuote.get(lead.id) ?? [],
+        })),
       };
     }
     const requiredCategoryCsv = [...requiredCategories].join(",");
@@ -214,9 +278,10 @@ export async function getDirectoryGuestLeadMatches() {
                 nullif(lower(btrim(profile.city)), ''),
                 nullif(lower(btrim(profile.municipality)), ''),
                 '__unknown__'
-              )
-            order by profile.quality_score desc, profile.display_name asc, relation.service_slug asc
-          ) as locality_rank
+              ),
+              relation.service_slug
+            order by profile.quality_score desc, profile.display_name asc, profile.id asc
+          ) as locality_service_rank
         from company_directory_profiles profile
         join company_directory_profile_services relation
           on relation.profile_id = profile.id
@@ -247,7 +312,7 @@ export async function getDirectoryGuestLeadMatches() {
         service_name,
         service_category
       from ranked_candidates
-      where locality_rank <= 100
+      where locality_service_rank <= 100
       order by quality_score desc, display_name asc, service_slug asc
     `;
 
@@ -289,6 +354,7 @@ export async function getDirectoryGuestLeadMatches() {
       return {
         lead,
         candidates: category ? rankDirectoryGuestCandidates(lead, rowsByCategory.get(category) ?? []) : [],
+        offers: offersByQuote.get(lead.id) ?? [],
       };
     });
     return { ok: true as const, matches };
