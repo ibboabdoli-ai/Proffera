@@ -59,7 +59,42 @@ describe("company directory geocoding helpers", () => {
     ]);
   });
 
-  it("rejects ambiguous or wrong-postcode references", () => {
+  it("keeps exact and missing-postal candidates until authoritative street verification", () => {
+    const candidates = selectDirectoryAddressReferenceCandidates([
+      {
+        objektidentitet: "11111111-1111-4111-8111-111111111111",
+        adress: "Felgatan 7, 112 64 Stockholm",
+        adressComponents: { postnummer: 11264, postort: "Stockholm" },
+      },
+      {
+        objektidentitet: "22222222-2222-4222-8222-222222222222",
+        adress: "Segelbåtsvägen 7 Stockholm",
+        adressComponents: {},
+      },
+    ], "11264", "Stockholm");
+
+    expect(candidates.map((candidate) => candidate.objektidentitet)).toEqual([
+      "11111111-1111-4111-8111-111111111111",
+      "22222222-2222-4222-8222-222222222222",
+    ]);
+  });
+
+  it("rejects malformed UUIDs before detail lookup", () => {
+    expect(selectDirectoryAddressReferenceCandidates([
+      {
+        objektidentitet: "------------------------------------",
+        adress: "Segelbåtsvägen 7 Stockholm",
+        adressComponents: {},
+      },
+      {
+        objektidentitet: "not-a-uuid",
+        adress: "Segelbåtsvägen 7 Stockholm",
+        adressComponents: {},
+      },
+    ], "11264", "Stockholm")).toEqual([]);
+  });
+
+  it("keeps ambiguous postal candidates for exact street detail verification", () => {
     const samePlace = {
       adressComponents: { postnummer: 11264, postort: "Stockholm" },
     };
@@ -71,7 +106,10 @@ describe("company directory geocoding helpers", () => {
     expect(selectDirectoryAddressReferenceCandidates([
       { ...samePlace, objektidentitet: "11111111-1111-4111-8111-111111111111" },
       { ...samePlace, objektidentitet: "22222222-2222-4222-8222-222222222222" },
-    ], "11264", "Stockholm")).toEqual([]);
+    ], "11264", "Stockholm").map((candidate) => candidate.objektidentitet)).toEqual([
+      "11111111-1111-4111-8111-111111111111",
+      "22222222-2222-4222-8222-222222222222",
+    ]);
 
     expect(selectUniqueDirectoryAddressReference([
       {
