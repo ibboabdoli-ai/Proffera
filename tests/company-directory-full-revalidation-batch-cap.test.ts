@@ -95,7 +95,7 @@ beforeEach(() => {
 });
 
 describe("full Company Directory revalidation batch cap", () => {
-  it("processes at most twelve profiles from an oversized candidate pool", async () => {
+  it("processes at most ten profiles from an oversized candidate pool", async () => {
     const oversizedPool = Array.from({ length: 20 }, (_, index) => candidate(index));
 
     const sql = vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
@@ -106,7 +106,7 @@ describe("full Company Directory revalidation batch cap", () => {
 
       if (query.includes("select profile.id::text, profile.organization_number, profile.display_name, profile.publication_status")) {
         const requestedLimit = Number(values.at(-1));
-        expect(requestedLimit).toBe(12);
+        expect(requestedLimit).toBe(10);
         return oversizedPool.slice(0, requestedLimit);
       }
 
@@ -127,14 +127,14 @@ describe("full Company Directory revalidation batch cap", () => {
     const result = await revalidateAllCompanyDirectoryBatch(99);
 
     expect(result).toMatchObject({
-      selected: 12,
-      refreshed: 12,
-      kept: 12,
+      selected: 10,
+      refreshed: 10,
+      kept: 10,
       movedToReview: 0,
       errors: 0,
       remaining: 0,
     });
-    expect(mocks.enrichOfficialFacts).toHaveBeenCalledTimes(12);
-    expect(mocks.enrichScb).toHaveBeenCalledTimes(12);
+    expect(mocks.enrichOfficialFacts).toHaveBeenCalledTimes(10);
+    expect(mocks.enrichScb).toHaveBeenCalledTimes(10);
   });
 });

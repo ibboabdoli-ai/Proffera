@@ -8,7 +8,7 @@ import { getSql } from "@/lib/db/server";
 
 const REVALIDATION_PROVIDER = "full_directory_revalidation";
 const DEFAULT_BATCH_SIZE = 10;
-const MAX_BATCH_SIZE = 12;
+const MAX_BATCH_SIZE = 10;
 
 type RevalidationOptions = {
   deadlineAt?: number;

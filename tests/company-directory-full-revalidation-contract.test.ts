@@ -288,13 +288,13 @@ describe("full Company Directory revalidation", () => {
     }
   });
 
-  it("caps an oversized automatic batch at twelve profiles", async () => {
+  it("caps an oversized automatic batch at ten profiles", async () => {
     responder = async (query, values) => {
       if (query.includes("started_at < now() - interval '10 minutes'")) return [];
       if (query.includes("insert into company_directory_sync_runs")) return [{ id: RUN_ID }];
       if (query.includes("select profile.id::text, profile.organization_number, profile.display_name, profile.publication_status")) {
         expect(query).toContain("profile.publication_status in ('published', 'ready', 'review', 'inactive')");
-        expect(values.at(-1)).toBe(12);
+        expect(values.at(-1)).toBe(10);
         return [];
       }
       if (query.includes("update company_directory_sync_runs") && query.includes("where id =")) return [];
