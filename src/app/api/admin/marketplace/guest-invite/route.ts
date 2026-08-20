@@ -29,8 +29,10 @@ function safeReasons(value: FormDataEntryValue | null) {
 
 function invitationErrorCode(error: unknown) {
   const message = error instanceof Error ? error.message : String(error ?? "");
-  if (message.includes("marketplace_wave_limit")) return "wave_limit";
+  if (message.includes("marketplace_wave_limit") || message.includes("marketplace_total_limit")) return "wave_limit";
   if (message.includes("marketplace_invalid_wave")) return "invalid_wave";
+  if (message.includes("marketplace_recipient_suppressed")) return "suppressed";
+  if (message.includes("marketplace_quote_closed")) return "quote_closed";
   return "failed";
 }
 
