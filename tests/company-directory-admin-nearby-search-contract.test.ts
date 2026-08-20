@@ -6,6 +6,7 @@ import {
   applyAdminCurrentPosition,
   applyAdminManualCoordinateEdit,
   buildAdminNearbySearchDestination,
+  parseAdminNearbyCoordinatePair,
   parseAdminNearbyCoordinates,
   resolveAdminDirectorySearchMode,
 } from "@/app/admin/foretag/directory/search-preview/search-behavior";
@@ -49,6 +50,18 @@ describe("admin directory nearby search behavior", () => {
     });
   });
 
+  it("requires a complete finite in-range coordinate pair", () => {
+    expect(parseAdminNearbyCoordinatePair("59.1955", "17.6253")).toEqual({
+      latitude: "59.195500",
+      longitude: "17.625300",
+    });
+    expect(parseAdminNearbyCoordinatePair("59.1955", "")).toBeNull();
+    expect(parseAdminNearbyCoordinatePair("", "17.6253")).toBeNull();
+    expect(parseAdminNearbyCoordinatePair("north", "17.6253")).toBeNull();
+    expect(parseAdminNearbyCoordinatePair("91", "17.6253")).toBeNull();
+    expect(parseAdminNearbyCoordinatePair("59.1955", "181")).toBeNull();
+  });
+
   it("validates the coordinate value used by the nearby POST action", () => {
     expect(parseAdminNearbyCoordinates("59.1955,17.6253")).toEqual({
       latitude: "59.195500",
@@ -82,6 +95,7 @@ describe("admin directory nearby search behavior", () => {
     expect(source).not.toContain('name="longitude"');
     expect(source).toContain('name="nearbyCoordinates"');
     expect(source).toContain("formAction={searchNearbyAction}");
+    expect(source).toContain("parseAdminNearbyCoordinatePair(latitude, longitude)");
   });
 
   it("lets a manual location win over stale nearby coordinates", () => {
@@ -113,6 +127,27 @@ describe("admin directory nearby search behavior", () => {
       location: "",
       latitude: "59.195500",
       longitude: "17.625300",
+    });
+  });
+
+  it("rejects partial or invalid coordinates instead of entering nearby mode", () => {
+    expect(resolveAdminDirectorySearchMode({
+      location: "",
+      latitude: "59.195500",
+      longitude: "",
+    })).toEqual({
+      location: "",
+      latitude: undefined,
+      longitude: undefined,
+    });
+    expect(resolveAdminDirectorySearchMode({
+      location: "",
+      latitude: "91",
+      longitude: "17.625300",
+    })).toEqual({
+      location: "",
+      latitude: undefined,
+      longitude: undefined,
     });
   });
 
