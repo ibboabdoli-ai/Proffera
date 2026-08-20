@@ -18,6 +18,7 @@ const ACCURATE_GEOLOCATION_OPTIONS: PositionOptions = {
 
 const RADIUS_OPTIONS = [25, 50, 100];
 
+/** Renders the admin-only Nearby controls and keeps browser coordinates synchronized with the search form. */
 export function NearbySearchFields({
   defaultLatitude = "",
   defaultLongitude = "",
@@ -40,6 +41,7 @@ export function NearbySearchFields({
   const hasPosition = Boolean(latitude && longitude);
   const normalizedDefaultRadius = RADIUS_OPTIONS.includes(Number(defaultRadius)) ? defaultRadius : "25";
 
+  /** Requests the browser position, retrying once with higher accuracy for recoverable failures. */
   function useCurrentPosition() {
     if (!navigator.geolocation) {
       setStatus("Webbläsaren stöder inte platsdelning.");
@@ -50,6 +52,7 @@ export function NearbySearchFields({
     setLocating(true);
     setStatus("Hämtar position…");
 
+    /** Applies a successful browser position and clears a conflicting manual location. */
     const handlePosition = (position: GeolocationPosition) => {
       const locationElement = locationInputId ? document.getElementById(locationInputId) : null;
       const locationField = locationElement instanceof HTMLInputElement ? locationElement : null;
@@ -61,6 +64,7 @@ export function NearbySearchFields({
       setStatus(next.status);
     };
 
+    /** Converts the final geolocation failure into a concise, actionable admin status. */
     const handleFinalError = (error: GeolocationPositionError) => {
       setLocating(false);
       if (error.code === error.PERMISSION_DENIED) {
