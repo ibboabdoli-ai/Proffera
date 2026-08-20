@@ -8,6 +8,10 @@ const DEFAULT_LANTMATERIET_BASE_URL =
 const GEOCODE_SOURCE = "lantmateriet_belagenhetsadress_v4_2";
 const NO_MATCH_SOURCE = "lantmateriet_no_match_v4_2";
 const MAX_DETAIL_FALLBACK_CANDIDATES = 5;
+const GEOCODING_ACTION_BUDGET_MS = 240_000;
+const GEOCODING_FINAL_COUNTS_RESERVE_MS = 10_000;
+const UPSTREAM_REQUEST_TIMEOUT_MS = 12_000;
+const FETCH_DEADLINE_GUARD_MS = 1_000;
 
 export const DIRECTORY_GEOCODING_PILOT_ORGS = [
   "5563115707",
@@ -97,6 +101,13 @@ export type DirectoryGeocodingStatus = {
   needsReview: number;
 };
 
+class GeocodingDeadlineExceeded extends Error {
+  constructor() {
+    super("Company Directory geocoding action deadline reached");
+    this.name = "GeocodingDeadlineExceeded";
+  }
+}
+
 function normalizeText(value: unknown) {
   return String(value ?? "")
     .normalize("NFD")
@@ -116,7 +127,21 @@ function normalizeStreetAddress(value: unknown) {
 }
 
 function isUuid(value: unknown) {
-  return /^[0-9a-f-]{36}$/i.test(String(value ?? ""));
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    .test(String(value ?? ""));
+}
+
+function assertBeforeDeadline(deadline: number, reserveMs = 0) {
+  if (Date.now() + reserveMs >= deadline) throw new GeocodingDeadlineExceeded();
+}
+
+function requestTimeoutMs(deadline: number) {
+  const timeoutMs = Math.min(
+    UPSTREAM_REQUEST_TIMEOUT_MS,
+    deadline - Date.now() - FETCH_DEADLINE_GUARD_MS,
+  );
+  if (timeoutMs < 1_000) throw new GeocodingDeadlineExceeded();
+  return timeoutMs;
 }
 
 export function cleanDirectoryStreetAddress(value: unknown) {
@@ -160,23 +185,13 @@ export function selectDirectoryAddressReferenceCandidates(
   const expectedCity = normalizeText(city);
   if (!expectedPostcode || !expectedCity) return [];
 
-  const valid = references.filter((reference) => isUuid(reference.objektidentitet));
-  const exact = valid.filter((reference) => {
-    const components = reference.adressComponents;
-    return normalizePostcode(components?.postnummer) === expectedPostcode
-      && normalizeText(components?.postort) === expectedCity;
-  });
-
-  if (exact.length === 1) return exact;
-  if (exact.length > 1) return [];
-
-  return valid.filter((reference) => {
+  return references.filter((reference) => {
+    if (!isUuid(reference.objektidentitet)) return false;
     const referencePostcode = normalizePostcode(reference.adressComponents?.postnummer);
     const referenceCity = normalizeText(reference.adressComponents?.postort);
     const postcodeCompatible = !referencePostcode || referencePostcode === expectedPostcode;
     const cityCompatible = !referenceCity || referenceCity === expectedCity;
-    const hasMissingPostalComponent = !referencePostcode || !referenceCity;
-    return postcodeCompatible && cityCompatible && hasMissingPostalComponent;
+    return postcodeCompatible && cityCompatible;
   });
 }
 
@@ -284,20 +299,26 @@ function authorizationHeader(username: string, password: string) {
   return `Basic ${Buffer.from(`${username}:${password}`, "utf8").toString("base64")}`;
 }
 
-async function fetchJson(url: URL, username: string, password: string) {
+async function fetchJson(url: URL, username: string, password: string, deadline: number) {
+  assertBeforeDeadline(deadline);
   const response = await fetch(url, {
     headers: {
       Accept: "application/json",
       Authorization: authorizationHeader(username, password),
     },
     cache: "no-store",
-    signal: AbortSignal.timeout(12_000),
+    signal: AbortSignal.timeout(requestTimeoutMs(deadline)),
   });
   if (!response.ok) throw new Error(`Lantmäteriet request failed (${response.status})`);
   return response.json() as Promise<unknown>;
 }
 
-async function resolveOfficialAddress(profile: PilotProfile, config: ReturnType<typeof getGeocodingConfig>) {
+async function resolveOfficialAddress(
+  profile: PilotProfile,
+  config: ReturnType<typeof getGeocodingConfig>,
+  deadline: number,
+) {
+  assertBeforeDeadline(deadline);
   const streetAddress = cleanDirectoryStreetAddress(profile.addressLine1);
   if (!streetAddress || streetAddress.toLocaleLowerCase("sv-SE").startsWith("box ")) return null;
 
@@ -307,7 +328,7 @@ async function resolveOfficialAddress(profile: PilotProfile, config: ReturnType<
   searchUrl.searchParams.set("maxHits", "20");
   searchUrl.searchParams.set("splitAdress", "true");
 
-  const referencePayload = await fetchJson(searchUrl, config.username, config.password);
+  const referencePayload = await fetchJson(searchUrl, config.username, config.password, deadline);
   if (!Array.isArray(referencePayload)) return null;
   const candidates = selectDirectoryAddressReferenceCandidates(
     referencePayload as LantmaterietAddressReference[],
@@ -318,11 +339,12 @@ async function resolveOfficialAddress(profile: PilotProfile, config: ReturnType<
 
   let resolved: { easting: number; northing: number; objectId: string } | null = null;
   for (const candidate of candidates) {
+    assertBeforeDeadline(deadline);
     if (!candidate.objektidentitet) continue;
     const detailUrl = new URL(`${config.baseUrl}/${encodeURIComponent(candidate.objektidentitet)}`);
     detailUrl.searchParams.set("includeData", "basinformation");
     detailUrl.searchParams.set("srid", "3006");
-    const detailPayload = await fetchJson(detailUrl, config.username, config.password);
+    const detailPayload = await fetchJson(detailUrl, config.username, config.password, deadline);
     const point = parseExactSwerefAddressDetail(
       detailPayload,
       profile.postalCode,
@@ -348,7 +370,8 @@ async function postgisReady() {
   return Boolean(rows[0]?.ready);
 }
 
-async function pilotCounts() {
+async function pilotCounts(deadline?: number) {
+  if (deadline) assertBeforeDeadline(deadline);
   const sql = getSql();
   if (!sql) {
     return { geocoded: 0, remaining: DIRECTORY_GEOCODING_PILOT_ORGS.length, needsReview: 0 };
@@ -389,7 +412,8 @@ export async function getDirectoryGeocodingStatus(): Promise<DirectoryGeocodingS
   };
 }
 
-async function markNoMatch(profileId: string) {
+async function markNoMatch(profileId: string, deadline?: number) {
+  if (deadline) assertBeforeDeadline(deadline);
   const sql = getSql();
   if (!sql) return;
   await sql`
@@ -412,13 +436,19 @@ async function markNoMatch(profileId: string) {
 }
 
 export async function geocodeDirectoryPilotFromAdmin(limit = 5): Promise<DirectoryGeocodingBatchResult> {
+  const actionDeadline = Date.now() + GEOCODING_ACTION_BUDGET_MS;
+  const processingDeadline = actionDeadline - GEOCODING_FINAL_COUNTS_RESERVE_MS;
+
   await requireSuperAdmin();
+  assertBeforeDeadline(actionDeadline);
   const sql = getSql();
   if (!sql) throw new Error("Database is not configured");
   const config = getGeocodingConfig();
   if (!config.configured) throw new Error("Lantmäteriet geocoding is not configured");
+  assertBeforeDeadline(actionDeadline);
   if (!(await postgisReady())) throw new Error("PostGIS is not installed");
 
+  assertBeforeDeadline(processingDeadline);
   const boundedLimit = Math.max(1, Math.min(5, Math.floor(Number(limit) || 5)));
   const orgsJson = JSON.stringify(DIRECTORY_GEOCODING_PILOT_ORGS);
   const rows = await sql`
@@ -446,11 +476,14 @@ export async function geocodeDirectoryPilotFromAdmin(limit = 5): Promise<Directo
     limit ${boundedLimit}
   `;
 
+  let attempted = 0;
   let geocoded = 0;
   let noMatch = 0;
   let errors = 0;
 
   for (const row of rows) {
+    if (Date.now() >= processingDeadline) break;
+    attempted += 1;
     const profile: PilotProfile = {
       id: String(row.id),
       organizationNumber: String(row.organization_number),
@@ -460,12 +493,14 @@ export async function geocodeDirectoryPilotFromAdmin(limit = 5): Promise<Directo
       city: String(row.city),
     };
     try {
-      const resolved = await resolveOfficialAddress(profile, config);
+      const resolved = await resolveOfficialAddress(profile, config, processingDeadline);
+      assertBeforeDeadline(processingDeadline);
       if (!resolved) {
-        await markNoMatch(profile.id);
+        await markNoMatch(profile.id, processingDeadline);
         noMatch += 1;
         continue;
       }
+      assertBeforeDeadline(processingDeadline);
       const saved = await sql`
         with transformed as (
           select ST_Transform(
@@ -502,14 +537,15 @@ export async function geocodeDirectoryPilotFromAdmin(limit = 5): Promise<Directo
         returning profile_id
       `;
       if (saved[0]) geocoded += 1;
-    } catch {
+    } catch (error) {
+      if (error instanceof GeocodingDeadlineExceeded) break;
       errors += 1;
     }
   }
 
-  const counts = await pilotCounts();
+  const counts = await pilotCounts(actionDeadline);
   return {
-    attempted: rows.length,
+    attempted,
     geocoded,
     noMatch,
     errors,
