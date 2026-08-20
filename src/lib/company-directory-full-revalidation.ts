@@ -9,9 +9,16 @@ import { getSql } from "@/lib/db/server";
 const REVALIDATION_PROVIDER = "full_directory_revalidation";
 const DEFAULT_BATCH_SIZE = 10;
 const MAX_BATCH_SIZE = 10;
+const OFFICIAL_FACTS_START_HEADROOM_MS = 30_000;
+const SCB_START_HEADROOM_MS = 18_000;
 
 type RevalidationOptions = {
   deadlineAt?: number;
+};
+
+type RevalidationCursor = {
+  statusRank: number;
+  organizationNumber: string;
 };
 
 function text(value: unknown) {
@@ -42,8 +49,33 @@ function boundedLimit(value: unknown) {
   return Math.max(1, Math.min(MAX_BATCH_SIZE, Math.floor(parsed)));
 }
 
-function deadlineReached(deadlineAt?: number) {
-  return Number.isFinite(deadlineAt) && Date.now() >= Number(deadlineAt);
+function deadlineReached(deadlineAt?: number, headroomMs = 0) {
+  return Number.isFinite(deadlineAt)
+    && Date.now() + Math.max(0, headroomMs) >= Number(deadlineAt);
+}
+
+function publicationStatusRank(value: unknown) {
+  switch (text(value)) {
+    case "published": return 0;
+    case "ready": return 1;
+    case "review": return 2;
+    case "inactive": return 3;
+    case "claimed": return 4;
+    default: return 5;
+  }
+}
+
+function parseCursor(value: unknown): RevalidationCursor {
+  const match = text(value).match(/^([0-4]):(\d{10})$/);
+  if (!match) return { statusRank: -1, organizationNumber: "" };
+  return {
+    statusRank: Number(match[1]),
+    organizationNumber: match[2],
+  };
+}
+
+function serializeCursor(status: unknown, organizationNumber: string) {
+  return `${publicationStatusRank(status)}:${organizationNumber}`;
 }
 
 async function startRun() {
@@ -65,17 +97,32 @@ async function startRun() {
   `;
 
   const rows = await sql`
-    insert into company_directory_sync_runs (provider, status)
-    values (${REVALIDATION_PROVIDER}, 'running')
+    insert into company_directory_sync_runs (provider, status, cursor_value)
+    values (
+      ${REVALIDATION_PROVIDER},
+      'running',
+      coalesce((
+        select previous.cursor_value
+        from company_directory_sync_runs previous
+        where previous.provider = ${REVALIDATION_PROVIDER}
+          and previous.status <> 'running'
+        order by previous.started_at desc
+        limit 1
+      ), '')
+    )
     on conflict do nothing
-    returning id::text
+    returning id::text, cursor_value
   `;
 
-  return text(rows[0]?.id) || null;
+  const runId = text(rows[0]?.id);
+  return runId
+    ? { runId, cursorValue: text(rows[0]?.cursor_value) }
+    : null;
 }
 
 async function finishRun(input: {
   runId: string;
+  cursorValue: string;
   selected: number;
   refreshed: number;
   kept: number;
@@ -90,6 +137,7 @@ async function finishRun(input: {
   await sql`
     update company_directory_sync_runs
     set status = ${input.failed ? "failed" : "completed"},
+        cursor_value = ${input.cursorValue},
         scanned_count = ${input.selected},
         upserted_count = ${input.refreshed},
         published_count = ${input.kept},
@@ -101,40 +149,55 @@ async function finishRun(input: {
   `;
 }
 
-async function selectCandidates(limit: number) {
+async function selectCandidates(limit: number, cursorValue: string) {
   const sql = getSql();
   if (!sql) throw new Error("Database is not configured");
+  const cursor = parseCursor(cursorValue);
 
   return await sql`
-    select profile.id::text, profile.organization_number, profile.display_name, profile.publication_status
-    from company_directory_profiles profile
-    left join company_directory_official_facts facts on facts.profile_id = profile.id
-    left join company_directory_scb_enrichment scb on scb.profile_id = profile.id
-    where profile.country_code = 'SE'
-      and profile.organization_kind = 'juridical_person'
-      and profile.publication_status in ('published', 'ready', 'review', 'inactive', 'claimed')
-      and length(regexp_replace(profile.organization_number, '\\D', '', 'g')) = 10
-      and (
-        facts.profile_id is null
-        or facts.source_payload_hash = ''
-        or facts.last_synced_at < profile.last_synced_at
-        or scb.profile_id is null
-        or scb.source_payload_hash = ''
-        or scb.last_synced_at < now() - interval '7 days'
-        or scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' is distinct from profile.updated_at::text
-        or scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' is distinct from facts.last_synced_at::text
-      )
+    with eligible as (
+      select
+        profile.id::text,
+        profile.organization_number,
+        profile.display_name,
+        profile.publication_status,
+        regexp_replace(profile.organization_number, '\\D', '', 'g') as normalized_organization_number,
+        case profile.publication_status
+          when 'published' then 0
+          when 'ready' then 1
+          when 'review' then 2
+          when 'inactive' then 3
+          when 'claimed' then 4
+          else 5
+        end as status_rank
+      from company_directory_profiles profile
+      left join company_directory_official_facts facts on facts.profile_id = profile.id
+      left join company_directory_scb_enrichment scb on scb.profile_id = profile.id
+      where profile.country_code = 'SE'
+        and profile.organization_kind = 'juridical_person'
+        and profile.publication_status in ('published', 'ready', 'review', 'inactive', 'claimed')
+        and length(regexp_replace(profile.organization_number, '\\D', '', 'g')) = 10
+        and (
+          facts.profile_id is null
+          or facts.source_payload_hash = ''
+          or facts.last_synced_at < profile.last_synced_at
+          or scb.profile_id is null
+          or scb.source_payload_hash = ''
+          or scb.last_synced_at < now() - interval '7 days'
+          or scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' is distinct from profile.updated_at::text
+          or scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' is distinct from facts.last_synced_at::text
+        )
+    )
+    select id, organization_number, display_name, publication_status,
+           normalized_organization_number, status_rank
+    from eligible
     order by
-      case profile.publication_status
-        when 'published' then 0
-        when 'ready' then 1
-        when 'review' then 2
-        when 'inactive' then 3
-        when 'claimed' then 4
-        else 5
-      end,
-      scb.last_synced_at asc nulls first,
-      profile.organization_number asc
+      case when (
+        status_rank > ${cursor.statusRank}
+        or (status_rank = ${cursor.statusRank} and normalized_organization_number > ${cursor.organizationNumber})
+      ) then 0 else 1 end,
+      status_rank,
+      normalized_organization_number
     limit ${limit}
   `;
 }
@@ -312,8 +375,8 @@ export async function revalidateAllCompanyDirectoryBatch(
     };
   }
 
-  const runId = await startRun();
-  if (!runId) {
+  const run = await startRun();
+  if (!run) {
     return {
       skipped: true,
       reason: "already_running",
@@ -328,6 +391,8 @@ export async function revalidateAllCompanyDirectoryBatch(
     };
   }
 
+  const { runId } = run;
+  let cursorValue = run.cursorValue;
   let candidates: Awaited<ReturnType<typeof selectCandidates>> = [];
   let refreshed = 0;
   let kept = 0;
@@ -337,27 +402,30 @@ export async function revalidateAllCompanyDirectoryBatch(
   const errorMessages: string[] = [];
 
   try {
-    candidates = await selectCandidates(safeLimit);
+    candidates = await selectCandidates(safeLimit, cursorValue);
 
     candidateLoop:
     for (let index = 0; index < candidates.length; index += 1) {
-      if (deadlineReached(options.deadlineAt)) {
+      if (deadlineReached(options.deadlineAt, OFFICIAL_FACTS_START_HEADROOM_MS)) {
         deferred += candidates.length - index;
         break;
       }
 
       const candidate = candidates[index];
       const profileId = text(candidate.id);
-      const organizationNumber = text(candidate.organization_number).replace(/\D/g, "");
+      const organizationNumber = text(
+        candidate.normalized_organization_number ?? candidate.organization_number,
+      ).replace(/\D/g, "");
       if (!profileId || organizationNumber.length !== 10) {
         errors += 1;
         if (errorMessages.length < 5) errorMessages.push("Directory revalidation candidate is invalid");
         continue;
       }
+      cursorValue = serializeCursor(candidate.publication_status, organizationNumber);
 
       try {
         await enrichCompanyDirectoryOfficialFactsForProfile(profileId);
-        if (deadlineReached(options.deadlineAt)) {
+        if (deadlineReached(options.deadlineAt, SCB_START_HEADROOM_MS)) {
           deferred += candidates.length - index;
           break candidateLoop;
         }
@@ -462,9 +530,9 @@ export async function revalidateAllCompanyDirectoryBatch(
 
         // The status transition updates profile.updated_at. Refresh SCB once more so
         // the saved provenance matches the final profile token. If the shared cron
-        // deadline has arrived, leave this profile deferred so the next run repairs
-        // the final snapshot instead of starting another external request.
-        if (deadlineReached(options.deadlineAt)) {
+        // deadline cannot safely accommodate another SCB request, leave this profile
+        // deferred so a later sweep repairs the final snapshot.
+        if (deadlineReached(options.deadlineAt, SCB_START_HEADROOM_MS)) {
           deferred += candidates.length - index;
           break candidateLoop;
         }
@@ -491,6 +559,7 @@ export async function revalidateAllCompanyDirectoryBatch(
     const errorSummary = errorMessages.join(" | ");
     await finishRun({
       runId,
+      cursorValue,
       selected: candidates.length,
       refreshed,
       kept,
@@ -515,6 +584,7 @@ export async function revalidateAllCompanyDirectoryBatch(
     const message = error instanceof Error ? error.message : "Full Directory revalidation failed";
     await finishRun({
       runId,
+      cursorValue,
       selected: candidates.length,
       refreshed,
       kept,
