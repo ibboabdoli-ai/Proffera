@@ -39,16 +39,17 @@ export function applyAdminCurrentPosition(
   };
 }
 
-/** Validates the short-lived coordinate value used by the admin Nearby POST flow. */
-export function parseAdminNearbyCoordinates(rawValue?: string | null) {
-  const parts = String(rawValue ?? "")
-    .split(",")
-    .map((part) => part.trim());
+/** Validates and normalizes one complete latitude/longitude pair for Nearby search. */
+export function parseAdminNearbyCoordinatePair(
+  rawLatitude?: string | null,
+  rawLongitude?: string | null,
+) {
+  const latitudeValue = String(rawLatitude ?? "").trim();
+  const longitudeValue = String(rawLongitude ?? "").trim();
+  if (!latitudeValue || !longitudeValue) return null;
 
-  if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
-
-  const latitude = Number(parts[0]);
-  const longitude = Number(parts[1]);
+  const latitude = Number(latitudeValue);
+  const longitude = Number(longitudeValue);
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
   if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return null;
 
@@ -56,6 +57,16 @@ export function parseAdminNearbyCoordinates(rawValue?: string | null) {
     latitude: latitude.toFixed(6),
     longitude: longitude.toFixed(6),
   };
+}
+
+/** Validates the short-lived coordinate value used by the admin Nearby POST flow. */
+export function parseAdminNearbyCoordinates(rawValue?: string | null) {
+  const parts = String(rawValue ?? "")
+    .split(",")
+    .map((part) => part.trim());
+
+  if (parts.length !== 2) return null;
+  return parseAdminNearbyCoordinatePair(parts[0], parts[1]);
 }
 
 /** Builds the post-Nearby redirect URL without putting coordinates in query parameters. */
@@ -77,7 +88,7 @@ export function buildAdminNearbySearchDestination({
   return `/admin/foretag/directory/search-preview?${params.toString()}`;
 }
 
-/** Resolves one mutually exclusive admin search mode from manual location or trusted coordinates. */
+/** Resolves one mutually exclusive admin search mode from manual location or a complete valid coordinate pair. */
 export function resolveAdminDirectorySearchMode({
   location,
   latitude,
@@ -98,11 +109,11 @@ export function resolveAdminDirectorySearchMode({
     };
   }
 
-  if (latitude || longitude) {
+  const coordinates = parseAdminNearbyCoordinatePair(latitude, longitude);
+  if (coordinates) {
     return {
       location: "",
-      latitude,
-      longitude,
+      ...coordinates,
     };
   }
 
