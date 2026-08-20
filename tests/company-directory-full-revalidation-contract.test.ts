@@ -255,34 +255,6 @@ describe("full Company Directory revalidation", () => {
     }
   });
 
-  it("stops after the initial SCB call when it crosses the deadline", async () => {
-    configureWorker({ status: "ready", backlog: 1 });
-    let now = 1_000;
-    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
-    mocks.enrichScb.mockImplementationOnce(async () => {
-      now = 1_500;
-      return { status: "saved", saved: true, conflicts: [] };
-    });
-
-    try {
-      const result = await revalidateAllCompanyDirectoryBatch(10, { deadlineAt: 1_500 });
-
-      expect(result).toMatchObject({
-        selected: 1,
-        refreshed: 0,
-        deferred: 1,
-        movedToReview: 0,
-        errors: 0,
-      });
-      expect(mocks.enrichOfficialFacts).toHaveBeenCalledTimes(1);
-      expect(mocks.enrichScb).toHaveBeenCalledTimes(1);
-      expect(sqlCalls.some((call) => call.query.includes("profile.category_slug"))).toBe(false);
-      expect(sqlCalls.some((call) => call.query.includes("update company_directory_profiles profile"))).toBe(false);
-    } finally {
-      nowSpy.mockRestore();
-    }
-  });
-
   it("defers the final SCB refresh when the deadline expires after moving Ready to Review", async () => {
     configureWorker({ status: "ready", backlog: 1 });
     mocks.assessConfidence.mockReturnValue({ score: 90, officialFactsReady: true, reasons: [] });

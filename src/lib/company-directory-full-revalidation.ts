@@ -352,10 +352,6 @@ export async function revalidateAllCompanyDirectoryBatch(
         const scb = await enrichCompanyDirectoryScbForProfile(profileId, transport, {
           allowWhenDisabledWithExplicitTransport: true,
         });
-        if (deadlineReached(options.deadlineAt)) {
-          deferred += candidates.length - index;
-          break candidateLoop;
-        }
 
         if (scb.status !== "saved") {
           deferred += 1;
