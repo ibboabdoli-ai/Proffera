@@ -144,7 +144,7 @@ export function NearbySearchFields({
           Teknisk info
         </summary>
         <p className="mt-2 text-xs leading-5 text-[#717b74]">
-          Koordinater används bara för felsökning. Normalt räcker knappen Använd min position.
+          Webbläsarens koordinater används för själva Nära mig-sökningen. Normalt räcker knappen Använd min position; fälten nedan är främst för felsökning.
         </p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <label className="grid gap-2 text-xs font-bold text-[#465149]">
