@@ -2,7 +2,10 @@
 
 import { useState } from "react";
 
-import { applyAdminCurrentPosition } from "./search-behavior";
+import {
+  applyAdminCurrentPosition,
+  applyAdminManualCoordinateEdit,
+} from "./search-behavior";
 
 const FAST_GEOLOCATION_OPTIONS: PositionOptions = {
   enableHighAccuracy: false,
@@ -41,6 +44,12 @@ export function NearbySearchFields({
   const hasPosition = Boolean(latitude && longitude);
   const normalizedDefaultRadius = RADIUS_OPTIONS.includes(Number(defaultRadius)) ? defaultRadius : "25";
 
+  /** Resolves the sibling manual-location field when this component needs to make Nearby the active mode. */
+  function getManualLocationField() {
+    const locationElement = locationInputId ? document.getElementById(locationInputId) : null;
+    return locationElement instanceof HTMLInputElement ? locationElement : null;
+  }
+
   /** Requests the browser position, retrying once with higher accuracy for recoverable failures. */
   function useCurrentPosition() {
     if (!navigator.geolocation) {
@@ -54,9 +63,7 @@ export function NearbySearchFields({
 
     /** Applies a successful browser position and clears a conflicting manual location. */
     const handlePosition = (position: GeolocationPosition) => {
-      const locationElement = locationInputId ? document.getElementById(locationInputId) : null;
-      const locationField = locationElement instanceof HTMLInputElement ? locationElement : null;
-      const next = applyAdminCurrentPosition(position, locationField);
+      const next = applyAdminCurrentPosition(position, getManualLocationField());
 
       setLatitude(next.latitude);
       setLongitude(next.longitude);
@@ -156,7 +163,9 @@ export function NearbySearchFields({
             <input
               name="latitude"
               value={latitude}
-              onChange={(event) => setLatitude(event.target.value)}
+              onChange={(event) => {
+                setLatitude(applyAdminManualCoordinateEdit(event.target.value, getManualLocationField()));
+              }}
               placeholder="59.3293"
               inputMode="decimal"
               className="min-h-10 rounded-lg border border-black/10 bg-white px-3 font-medium outline-none focus:border-[#17452f]"
@@ -167,7 +176,9 @@ export function NearbySearchFields({
             <input
               name="longitude"
               value={longitude}
-              onChange={(event) => setLongitude(event.target.value)}
+              onChange={(event) => {
+                setLongitude(applyAdminManualCoordinateEdit(event.target.value, getManualLocationField()));
+              }}
               placeholder="18.0686"
               inputMode="decimal"
               className="min-h-10 rounded-lg border border-black/10 bg-white px-3 font-medium outline-none focus:border-[#17452f]"
