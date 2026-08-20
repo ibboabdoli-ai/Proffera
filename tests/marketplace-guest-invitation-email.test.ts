@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-import { sendMarketplaceGuestInvitationEmail } from "@/features/email/marketplace-guest-invitation-email";
+import {
+  marketplaceGuestInvitationEmailConfigured,
+  sendMarketplaceGuestInvitationEmail,
+} from "@/features/email/marketplace-guest-invitation-email";
 
 const originalApiKey = process.env.BREVO_API_KEY;
 const originalFrom = process.env.LEAD_FROM_EMAIL;
@@ -21,6 +24,17 @@ describe("marketplace guest invitation email delivery", () => {
     else process.env.LEAD_FROM_EMAIL = originalFrom;
     globalThis.fetch = originalFetch;
     vi.restoreAllMocks();
+  });
+
+  it("reports configuration readiness only when both Brevo settings exist", () => {
+    expect(marketplaceGuestInvitationEmailConfigured()).toBe(true);
+
+    delete process.env.BREVO_API_KEY;
+    expect(marketplaceGuestInvitationEmailConfigured()).toBe(false);
+
+    process.env.BREVO_API_KEY = "test-api-key";
+    delete process.env.LEAD_FROM_EMAIL;
+    expect(marketplaceGuestInvitationEmailConfigured()).toBe(false);
   });
 
   it("sends the durable dispatch token as Brevo idempotencyKey", async () => {
