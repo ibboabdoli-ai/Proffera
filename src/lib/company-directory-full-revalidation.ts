@@ -6,14 +6,19 @@ import { enrichCompanyDirectoryScbForProfile } from "@/lib/company-directory-scb
 import { createScbCompanyRegistryTransportFromEnv } from "@/lib/company-directory-scb-transport";
 import { getSql } from "@/lib/db/server";
 
-const REVALIDATION_PROVIDER = "published_revalidation";
-const DEFAULT_REVALIDATION_BATCH_SIZE = 2;
-const MAX_REVALIDATION_BATCH_SIZE = 3;
+const REVALIDATION_PROVIDER = "full_directory_revalidation";
+const DEFAULT_BATCH_SIZE = 10;
+const MAX_BATCH_SIZE = 10;
 const OFFICIAL_FACTS_START_HEADROOM_MS = 30_000;
 const SCB_START_HEADROOM_MS = 18_000;
 
 type RevalidationOptions = {
   deadlineAt?: number;
+};
+
+type RevalidationCursor = {
+  statusRank: number;
+  organizationNumber: string;
 };
 
 function text(value: unknown) {
@@ -40,13 +45,37 @@ function jsonArray(value: unknown): unknown[] {
 
 function boundedLimit(value: unknown) {
   const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return DEFAULT_REVALIDATION_BATCH_SIZE;
-  return Math.max(1, Math.min(MAX_REVALIDATION_BATCH_SIZE, Math.floor(parsed)));
+  if (!Number.isFinite(parsed)) return DEFAULT_BATCH_SIZE;
+  return Math.max(1, Math.min(MAX_BATCH_SIZE, Math.floor(parsed)));
 }
 
 function deadlineReached(deadlineAt?: number, headroomMs = 0) {
   return Number.isFinite(deadlineAt)
     && Date.now() + Math.max(0, headroomMs) >= Number(deadlineAt);
+}
+
+function publicationStatusRank(value: unknown) {
+  switch (text(value)) {
+    case "published": return 0;
+    case "ready": return 1;
+    case "review": return 2;
+    case "inactive": return 3;
+    case "claimed": return 4;
+    default: return 5;
+  }
+}
+
+function parseCursor(value: unknown): RevalidationCursor {
+  const match = text(value).match(/^([0-4]):(\d{10})$/);
+  if (!match) return { statusRank: -1, organizationNumber: "" };
+  return {
+    statusRank: Number(match[1]),
+    organizationNumber: match[2],
+  };
+}
+
+function serializeCursor(status: unknown, organizationNumber: string) {
+  return `${publicationStatusRank(status)}:${organizationNumber}`;
 }
 
 async function startRun() {
@@ -58,7 +87,7 @@ async function startRun() {
     set status = 'failed',
         error_count = greatest(error_count, 1),
         error_summary = case
-          when error_summary = '' then 'stale published revalidation lease recovered automatically'
+          when error_summary = '' then 'stale full Directory revalidation lease recovered automatically'
           else error_summary
         end,
         completed_at = now()
@@ -68,20 +97,35 @@ async function startRun() {
   `;
 
   const rows = await sql`
-    insert into company_directory_sync_runs (provider, status)
-    values (${REVALIDATION_PROVIDER}, 'running')
+    insert into company_directory_sync_runs (provider, status, cursor_value)
+    values (
+      ${REVALIDATION_PROVIDER},
+      'running',
+      coalesce((
+        select previous.cursor_value
+        from company_directory_sync_runs previous
+        where previous.provider = ${REVALIDATION_PROVIDER}
+          and previous.status <> 'running'
+        order by previous.started_at desc
+        limit 1
+      ), '')
+    )
     on conflict do nothing
-    returning id::text
+    returning id::text, cursor_value
   `;
 
-  return text(rows[0]?.id) || null;
+  const runId = text(rows[0]?.id);
+  return runId
+    ? { runId, cursorValue: text(rows[0]?.cursor_value) }
+    : null;
 }
 
 async function finishRun(input: {
   runId: string;
+  cursorValue: string;
   selected: number;
-  revalidated: number;
-  keptPublished: number;
+  refreshed: number;
+  kept: number;
   movedToReview: number;
   errors: number;
   errorSummary: string;
@@ -93,9 +137,10 @@ async function finishRun(input: {
   await sql`
     update company_directory_sync_runs
     set status = ${input.failed ? "failed" : "completed"},
+        cursor_value = ${input.cursorValue},
         scanned_count = ${input.selected},
-        upserted_count = ${input.revalidated},
-        published_count = ${input.keptPublished},
+        upserted_count = ${input.refreshed},
+        published_count = ${input.kept},
         blocked_count = ${input.movedToReview},
         error_count = ${input.errors},
         error_summary = ${input.errorSummary},
@@ -104,34 +149,55 @@ async function finishRun(input: {
   `;
 }
 
-async function selectCandidates(limit: number) {
+async function selectCandidates(limit: number, cursorValue: string) {
   const sql = getSql();
   if (!sql) throw new Error("Database is not configured");
+  const cursor = parseCursor(cursorValue);
 
   return await sql`
-    select profile.id::text, profile.organization_number, profile.display_name
-    from company_directory_profiles profile
-    left join company_directory_official_facts facts on facts.profile_id = profile.id
-    left join company_directory_scb_enrichment scb on scb.profile_id = profile.id
-    where profile.publication_status = 'published'
-      and profile.country_code = 'SE'
-      and profile.organization_kind = 'juridical_person'
-      and profile.claimed_workspace_id is null
-      and length(regexp_replace(profile.organization_number, '\\D', '', 'g')) = 10
-      and (
-        facts.profile_id is null
-        or facts.source_payload_hash = ''
-        or facts.last_synced_at < profile.last_synced_at
-        or scb.profile_id is null
-        or scb.source_payload_hash = ''
-        or scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' is distinct from profile.updated_at::text
-        or scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' is distinct from facts.last_synced_at::text
-      )
+    with eligible as (
+      select
+        profile.id::text,
+        profile.organization_number,
+        profile.display_name,
+        profile.publication_status,
+        regexp_replace(profile.organization_number, '\\D', '', 'g') as normalized_organization_number,
+        case profile.publication_status
+          when 'published' then 0
+          when 'ready' then 1
+          when 'review' then 2
+          when 'inactive' then 3
+          when 'claimed' then 4
+          else 5
+        end as status_rank
+      from company_directory_profiles profile
+      left join company_directory_official_facts facts on facts.profile_id = profile.id
+      left join company_directory_scb_enrichment scb on scb.profile_id = profile.id
+      where profile.country_code = 'SE'
+        and profile.organization_kind = 'juridical_person'
+        and profile.publication_status in ('published', 'ready', 'review', 'inactive', 'claimed')
+        and length(regexp_replace(profile.organization_number, '\\D', '', 'g')) = 10
+        and (
+          facts.profile_id is null
+          or facts.source_payload_hash = ''
+          or facts.last_synced_at < profile.last_synced_at
+          or scb.profile_id is null
+          or scb.source_payload_hash = ''
+          or scb.last_synced_at < now() - interval '7 days'
+          or scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' is distinct from profile.updated_at::text
+          or scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' is distinct from facts.last_synced_at::text
+        )
+    )
+    select id, organization_number, display_name, publication_status,
+           normalized_organization_number, status_rank
+    from eligible
     order by
-      case when facts.profile_id is null then 0 else 1 end,
-      case when scb.profile_id is null then 0 else 1 end,
-      scb.last_synced_at asc nulls first,
-      profile.organization_number asc
+      case when (
+        status_rank > ${cursor.statusRank}
+        or (status_rank = ${cursor.statusRank} and normalized_organization_number > ${cursor.organizationNumber})
+      ) then 0 else 1 end,
+      status_rank,
+      normalized_organization_number
     limit ${limit}
   `;
 }
@@ -145,10 +211,9 @@ async function backlogCount() {
     from company_directory_profiles profile
     left join company_directory_official_facts facts on facts.profile_id = profile.id
     left join company_directory_scb_enrichment scb on scb.profile_id = profile.id
-    where profile.publication_status = 'published'
-      and profile.country_code = 'SE'
+    where profile.country_code = 'SE'
       and profile.organization_kind = 'juridical_person'
-      and profile.claimed_workspace_id is null
+      and profile.publication_status in ('published', 'ready', 'review', 'inactive', 'claimed')
       and length(regexp_replace(profile.organization_number, '\\D', '', 'g')) = 10
       and (
         facts.profile_id is null
@@ -156,6 +221,7 @@ async function backlogCount() {
         or facts.last_synced_at < profile.last_synced_at
         or scb.profile_id is null
         or scb.source_payload_hash = ''
+        or scb.last_synced_at < now() - interval '7 days'
         or scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' is distinct from profile.updated_at::text
         or scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' is distinct from facts.last_synced_at::text
       )
@@ -226,8 +292,9 @@ async function markScbEvaluationPending(profileId: string) {
   `;
 }
 
-async function movePublishedProfileToReview(input: {
+async function moveProfileToReview(input: {
   profileId: string;
+  expectedStatus: string;
   profileUpdatedToken: string;
   factsLastSyncedToken: string;
   factsSourcePayloadHash: string;
@@ -242,10 +309,9 @@ async function movePublishedProfileToReview(input: {
         published_at = null,
         updated_at = now()
     where profile.id = ${input.profileId}::uuid
-      and profile.publication_status = 'published'
+      and profile.publication_status = ${input.expectedStatus}
       and profile.country_code = 'SE'
       and profile.organization_kind = 'juridical_person'
-      and profile.claimed_workspace_id is null
       and profile.updated_at::text = ${input.profileUpdatedToken}
       and exists (
         select 1
@@ -268,7 +334,7 @@ async function movePublishedProfileToReview(input: {
   return Boolean(rows[0]);
 }
 
-export async function revalidatePublishedCompanyDirectoryBatch(
+export async function revalidateAllCompanyDirectoryBatch(
   limit?: number,
   options: RevalidationOptions = {},
 ) {
@@ -284,13 +350,12 @@ export async function revalidatePublishedCompanyDirectoryBatch(
       skipped: true,
       reason: "scb_access_invalid",
       selected: 0,
-      revalidated: 0,
-      keptPublished: 0,
+      refreshed: 0,
+      kept: 0,
       movedToReview: 0,
       deferred: 0,
       errors: 1,
       errorSummary: error instanceof Error ? error.message : "SCB access configuration is invalid",
-      reviewSummary: "",
       remaining: await backlogCount(),
     };
   }
@@ -300,45 +365,44 @@ export async function revalidatePublishedCompanyDirectoryBatch(
       skipped: true,
       reason: "scb_access_not_configured",
       selected: 0,
-      revalidated: 0,
-      keptPublished: 0,
+      refreshed: 0,
+      kept: 0,
       movedToReview: 0,
       deferred: 0,
       errors: 0,
-      errorSummary: "",
-      reviewSummary: "",
+      errorSummary: "SCB certificate access is not configured in this environment",
       remaining: await backlogCount(),
     };
   }
 
-  const runId = await startRun();
-  if (!runId) {
+  const run = await startRun();
+  if (!run) {
     return {
       skipped: true,
       reason: "already_running",
       selected: 0,
-      revalidated: 0,
-      keptPublished: 0,
+      refreshed: 0,
+      kept: 0,
       movedToReview: 0,
       deferred: 0,
       errors: 0,
       errorSummary: "",
-      reviewSummary: "",
       remaining: await backlogCount(),
     };
   }
 
+  const { runId } = run;
+  let cursorValue = run.cursorValue;
   let candidates: Awaited<ReturnType<typeof selectCandidates>> = [];
-  let revalidated = 0;
-  let keptPublished = 0;
+  let refreshed = 0;
+  let kept = 0;
   let movedToReview = 0;
   let deferred = 0;
   let errors = 0;
   const errorMessages: string[] = [];
-  const reviewMessages: string[] = [];
 
   try {
-    candidates = await selectCandidates(safeLimit);
+    candidates = await selectCandidates(safeLimit, cursorValue);
 
     candidateLoop:
     for (let index = 0; index < candidates.length; index += 1) {
@@ -349,12 +413,15 @@ export async function revalidatePublishedCompanyDirectoryBatch(
 
       const candidate = candidates[index];
       const profileId = text(candidate.id);
-      const organizationNumber = text(candidate.organization_number).replace(/\D/g, "");
+      const organizationNumber = text(
+        candidate.normalized_organization_number ?? candidate.organization_number,
+      ).replace(/\D/g, "");
       if (!profileId || organizationNumber.length !== 10) {
         errors += 1;
-        if (errorMessages.length < 5) errorMessages.push("Published revalidation candidate is invalid");
+        if (errorMessages.length < 5) errorMessages.push("Directory revalidation candidate is invalid");
         continue;
       }
+      cursorValue = serializeCursor(candidate.publication_status, organizationNumber);
 
       try {
         await enrichCompanyDirectoryOfficialFactsForProfile(profileId);
@@ -370,7 +437,7 @@ export async function revalidatePublishedCompanyDirectoryBatch(
         if (scb.status !== "saved") {
           deferred += 1;
           if (errorMessages.length < 5) {
-            errorMessages.push(`${organizationNumber}: SCB revalidation deferred (${scb.status})`);
+            errorMessages.push(`${organizationNumber}: SCB refresh deferred (${scb.status})`);
           }
           continue;
         }
@@ -382,7 +449,7 @@ export async function revalidatePublishedCompanyDirectoryBatch(
         }
 
         const row = await loadFreshEvaluation(profileId);
-        if (!row || text(row.publication_status) !== "published") {
+        if (!row) {
           deferred += 1;
           continue;
         }
@@ -413,12 +480,14 @@ export async function revalidatePublishedCompanyDirectoryBatch(
           continue;
         }
 
+        refreshed += 1;
+        const status = text(row.publication_status);
+        const claimed = Boolean(row.claimed_workspace_id);
         const unsafe = text(row.country_code) !== "SE"
           || text(row.organization_kind) !== "juridical_person"
           || !Boolean(row.is_active)
           || Boolean(row.privacy_blocked)
           || !Boolean(row.auto_public_eligible)
-          || Boolean(row.claimed_workspace_id)
           || Boolean(row.deregistration_date)
           || Boolean(row.advertising_blocked)
           || jsonArray(row.ongoing_procedures).length > 0;
@@ -428,9 +497,13 @@ export async function revalidatePublishedCompanyDirectoryBatch(
           || confidence.score < 95
           || scbConflictCount > 0;
 
-        revalidated += 1;
-        if (!shouldReview) {
-          keptPublished += 1;
+        if (claimed || status === "review" || status === "inactive" || !shouldReview) {
+          kept += 1;
+          continue;
+        }
+
+        if (status !== "published" && status !== "ready") {
+          kept += 1;
           continue;
         }
 
@@ -440,8 +513,9 @@ export async function revalidatePublishedCompanyDirectoryBatch(
           break candidateLoop;
         }
 
-        const moved = await movePublishedProfileToReview({
+        const moved = await moveProfileToReview({
           profileId,
+          expectedStatus: status,
           profileUpdatedToken,
           factsLastSyncedToken,
           factsSourcePayloadHash,
@@ -453,16 +527,30 @@ export async function revalidatePublishedCompanyDirectoryBatch(
         }
 
         movedToReview += 1;
-        if (reviewMessages.length < 5) {
-          reviewMessages.push(
-            `${organizationNumber}: review (score ${confidence.score}, conflicts ${scbConflictCount}, unsafe ${unsafe ? "yes" : "no"})`,
-          );
+
+        // The status transition updates profile.updated_at. Refresh SCB once more so
+        // the saved provenance matches the final profile token. If the shared cron
+        // deadline cannot safely accommodate another SCB request, leave this profile
+        // deferred so a later sweep repairs the final snapshot.
+        if (deadlineReached(options.deadlineAt, SCB_START_HEADROOM_MS)) {
+          deferred += candidates.length - index;
+          break candidateLoop;
+        }
+
+        const finalScb = await enrichCompanyDirectoryScbForProfile(profileId, transport, {
+          allowWhenDisabledWithExplicitTransport: true,
+        });
+        if (finalScb.status !== "saved") {
+          deferred += 1;
+          if (errorMessages.length < 5) {
+            errorMessages.push(`${organizationNumber}: final SCB snapshot deferred (${finalScb.status})`);
+          }
         }
       } catch (error) {
         errors += 1;
         if (errorMessages.length < 5) {
           errorMessages.push(
-            `${organizationNumber}: ${error instanceof Error ? error.message : "Unknown published revalidation error"}`,
+            `${organizationNumber}: ${error instanceof Error ? error.message : "Unknown Directory revalidation error"}`,
           );
         }
       }
@@ -471,9 +559,10 @@ export async function revalidatePublishedCompanyDirectoryBatch(
     const errorSummary = errorMessages.join(" | ");
     await finishRun({
       runId,
+      cursorValue,
       selected: candidates.length,
-      revalidated,
-      keptPublished,
+      refreshed,
+      kept,
       movedToReview,
       errors,
       errorSummary,
@@ -483,22 +572,22 @@ export async function revalidatePublishedCompanyDirectoryBatch(
       skipped: false,
       reason: "",
       selected: candidates.length,
-      revalidated,
-      keptPublished,
+      refreshed,
+      kept,
       movedToReview,
       deferred,
       errors,
       errorSummary,
-      reviewSummary: reviewMessages.join(" | "),
       remaining: await backlogCount(),
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Published revalidation failed";
+    const message = error instanceof Error ? error.message : "Full Directory revalidation failed";
     await finishRun({
       runId,
+      cursorValue,
       selected: candidates.length,
-      revalidated,
-      keptPublished,
+      refreshed,
+      kept,
       movedToReview,
       errors: errors + 1,
       errorSummary: message,
