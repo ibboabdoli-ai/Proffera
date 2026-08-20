@@ -242,6 +242,20 @@ describe("safe company directory auto publication contract", () => {
     );
   });
 
+  it("does not report a committed publication as failed when cache expiration fails", async () => {
+    const sql = mockPublicationSql(safePublicationRow(), [{ public_slug: "exempel-el" }]);
+    mocks.getSql.mockReturnValue(sql);
+    mocks.revalidateTag.mockImplementationOnce(() => {
+      throw new Error("cache unavailable");
+    });
+
+    await expect(publishCompanyDirectoryProfileIfSafe(PROFILE_ID)).resolves.toEqual({
+      ok: true,
+      code: "published",
+      slug: "exempel-el",
+    });
+  });
+
   it("shows Official Facts freshness in the admin publication preview", () => {
     const admin = source("src/lib/company-directory-admin.ts");
 

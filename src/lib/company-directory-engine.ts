@@ -188,7 +188,6 @@ export async function upsertCompanyDirectoryCandidate(candidate: NormalizedDirec
 
   const profileId = String(rows[0]?.id ?? "");
   if (!profileId) throw new Error(`Directory upsert failed for ${candidate.organizationNumber}`);
-  expirePublishedDirectoryLocationSuggestions();
 
   const sniServiceSlug = mapPrimarySniToDirectorySearchService(candidate.primarySniCode);
   if (sniServiceSlug) {
@@ -281,6 +280,8 @@ export async function upsertCompanyDirectoryCandidate(candidate: NormalizedDirec
       )
     `;
   }
+
+  expirePublishedDirectoryLocationSuggestions();
 
   return {
     profileId,

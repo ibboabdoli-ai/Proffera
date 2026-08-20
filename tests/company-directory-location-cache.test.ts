@@ -42,7 +42,7 @@ function candidate(): NormalizedDirectoryCandidate {
 }
 
 describe("public directory location cache", () => {
-  it("expires location suggestions immediately after the profile write succeeds", async () => {
+  it("expires location suggestions after all profile writes succeed", async () => {
     let call = 0;
     const sql = vi.fn(async () => {
       call += 1;
@@ -53,14 +53,36 @@ describe("public directory location cache", () => {
           category_slug: "stadning",
         }];
       }
-      throw new Error("later related write failed");
+      return [];
     });
     mocks.getSql.mockReturnValue(sql);
 
-    await expect(upsertCompanyDirectoryCandidate(candidate())).rejects.toThrow("later related write failed");
+    await expect(upsertCompanyDirectoryCandidate(candidate())).resolves.toEqual(expect.objectContaining({
+      profileId: "11111111-1111-4111-8111-111111111111",
+    }));
     expect(mocks.revalidateTag).toHaveBeenCalledWith(
       PUBLISHED_DIRECTORY_LOCATION_SUGGESTIONS_TAG,
       { expire: 0 },
     );
+  });
+
+  it("does not report a committed upsert as failed when cache expiration fails", async () => {
+    let call = 0;
+    const sql = vi.fn(async () => {
+      call += 1;
+      return call === 1 ? [{
+        id: "11111111-1111-4111-8111-111111111111",
+        publication_status: "ready",
+        category_slug: "stadning",
+      }] : [];
+    });
+    mocks.getSql.mockReturnValue(sql);
+    mocks.revalidateTag.mockImplementationOnce(() => {
+      throw new Error("cache unavailable");
+    });
+
+    await expect(upsertCompanyDirectoryCandidate(candidate())).resolves.toEqual(expect.objectContaining({
+      profileId: "11111111-1111-4111-8111-111111111111",
+    }));
   });
 });
