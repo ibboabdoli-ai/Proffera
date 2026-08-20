@@ -34,6 +34,10 @@ function parseSender(raw: string) {
   return { name: "Proffera", email: raw.trim() };
 }
 
+export function marketplaceGuestInvitationEmailConfigured() {
+  return Boolean(process.env.BREVO_API_KEY && process.env.LEAD_FROM_EMAIL);
+}
+
 export function buildMarketplaceGuestInvitationEmail(input: MarketplaceGuestInvitationEmailInput) {
   const subject = `Ny offertförfrågan i ${input.city}: ${input.category}`;
   const preferredDate = input.preferredDate.trim() || "Inte angivet";
