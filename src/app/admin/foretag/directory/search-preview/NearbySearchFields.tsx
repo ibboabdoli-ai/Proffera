@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 
+import { applyAdminCurrentPosition } from "./search-behavior";
+
 const FAST_GEOLOCATION_OPTIONS: PositionOptions = {
   enableHighAccuracy: false,
   timeout: 12000,
@@ -14,20 +16,32 @@ const ACCURATE_GEOLOCATION_OPTIONS: PositionOptions = {
   maximumAge: 300000,
 };
 
+const RADIUS_OPTIONS = [25, 50, 100];
+
+/** Renders the admin-only Nearby controls and keeps browser coordinates synchronized with the search form. */
 export function NearbySearchFields({
   defaultLatitude = "",
   defaultLongitude = "",
   defaultRadius = "25",
+  locationInputId = "",
+  available = true,
+  unavailableMessage = "Nära mig är inte redo ännu.",
 }: {
   defaultLatitude?: string;
   defaultLongitude?: string;
   defaultRadius?: string;
+  locationInputId?: string;
+  available?: boolean;
+  unavailableMessage?: string;
 }) {
   const [latitude, setLatitude] = useState(defaultLatitude);
   const [longitude, setLongitude] = useState(defaultLongitude);
   const [status, setStatus] = useState("");
   const [locating, setLocating] = useState(false);
+  const hasPosition = Boolean(latitude && longitude);
+  const normalizedDefaultRadius = RADIUS_OPTIONS.includes(Number(defaultRadius)) ? defaultRadius : "25";
 
+  /** Requests the browser position, retrying once with higher accuracy for recoverable failures. */
   function useCurrentPosition() {
     if (!navigator.geolocation) {
       setStatus("Webbläsaren stöder inte platsdelning.");
@@ -38,13 +52,19 @@ export function NearbySearchFields({
     setLocating(true);
     setStatus("Hämtar position…");
 
+    /** Applies a successful browser position and clears a conflicting manual location. */
     const handlePosition = (position: GeolocationPosition) => {
-      setLatitude(position.coords.latitude.toFixed(6));
-      setLongitude(position.coords.longitude.toFixed(6));
+      const locationElement = locationInputId ? document.getElementById(locationInputId) : null;
+      const locationField = locationElement instanceof HTMLInputElement ? locationElement : null;
+      const next = applyAdminCurrentPosition(position, locationField);
+
+      setLatitude(next.latitude);
+      setLongitude(next.longitude);
       setLocating(false);
-      setStatus("Position hämtad. Tryck Sök.");
+      setStatus(next.status);
     };
 
+    /** Converts the final geolocation failure into a concise, actionable admin status. */
     const handleFinalError = (error: GeolocationPositionError) => {
       setLocating(false);
       if (error.code === error.PERMISSION_DENIED) {
@@ -52,7 +72,7 @@ export function NearbySearchFields({
         return;
       }
       if (error.code === error.TIMEOUT) {
-        setStatus("Det tog för lång tid att hämta positionen. Försök igen eller fyll i koordinater manuellt.");
+        setStatus("Det tog för lång tid att hämta positionen. Försök igen.");
         return;
       }
       setStatus("Kunde inte läsa positionen. Kontrollera att platstjänster är på och försök igen.");
@@ -77,49 +97,84 @@ export function NearbySearchFields({
     );
   }
 
+  if (!available) {
+    return (
+      <div className="rounded-2xl border border-[#e5cf9a] bg-[#fff8e4] p-4">
+        <p className="font-black text-[#5f4a13]">Nära mig är inte redo ännu</p>
+        <p className="mt-1 text-sm leading-6 text-[#765f24]">{unavailableMessage}</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="grid gap-3 sm:grid-cols-[1fr_1fr_140px_auto] sm:items-end">
-      <label className="grid gap-2 text-sm font-bold text-[#2c392f]">
-        Latitude
-        <input
-          name="latitude"
-          value={latitude}
-          onChange={(event) => setLatitude(event.target.value)}
-          placeholder="59.3293"
-          inputMode="decimal"
-          className="min-h-12 rounded-xl border border-black/10 bg-[#fafaf8] px-4 font-medium outline-none focus:border-[#17452f]"
-        />
-      </label>
-      <label className="grid gap-2 text-sm font-bold text-[#2c392f]">
-        Longitude
-        <input
-          name="longitude"
-          value={longitude}
-          onChange={(event) => setLongitude(event.target.value)}
-          placeholder="18.0686"
-          inputMode="decimal"
-          className="min-h-12 rounded-xl border border-black/10 bg-[#fafaf8] px-4 font-medium outline-none focus:border-[#17452f]"
-        />
-      </label>
-      <label className="grid gap-2 text-sm font-bold text-[#2c392f]">
-        Radius km
-        <input
-          name="radius"
-          defaultValue={defaultRadius}
-          inputMode="decimal"
-          className="min-h-12 rounded-xl border border-black/10 bg-[#fafaf8] px-4 font-medium outline-none focus:border-[#17452f]"
-        />
-      </label>
-      <button
-        type="button"
-        onClick={useCurrentPosition}
-        disabled={locating}
-        aria-busy={locating}
-        className="min-h-12 rounded-xl border border-[#17452f]/20 bg-[#edf4ef] px-4 text-sm font-black text-[#17452f] disabled:cursor-wait disabled:opacity-60"
-      >
-        {locating ? "Hämtar…" : "Använd min position"}
-      </button>
-      {status ? <p role="status" className="text-xs font-semibold text-[#667169] sm:col-span-4">{status}</p> : null}
+    <div className="grid gap-4">
+      <div className="grid gap-3 sm:grid-cols-[150px_1fr_auto] sm:items-end">
+        <label className="grid gap-2 text-sm font-bold text-[#2c392f]">
+          Avstånd
+          <select
+            name="radius"
+            defaultValue={normalizedDefaultRadius}
+            className="min-h-12 rounded-xl border border-black/10 bg-[#fafaf8] px-4 font-medium outline-none focus:border-[#17452f]"
+          >
+            {RADIUS_OPTIONS.map((radius) => (
+              <option key={radius} value={radius}>{radius} km</option>
+            ))}
+          </select>
+        </label>
+
+        <button
+          type="button"
+          onClick={useCurrentPosition}
+          disabled={locating}
+          aria-busy={locating}
+          className="min-h-12 rounded-xl border border-[#17452f]/20 bg-[#edf4ef] px-4 text-sm font-black text-[#17452f] disabled:cursor-wait disabled:opacity-60"
+        >
+          {locating ? "Hämtar position…" : hasPosition ? "Uppdatera min position" : "Använd min position"}
+        </button>
+
+        <button
+          type="submit"
+          disabled={!hasPosition || locating}
+          className="min-h-12 rounded-xl bg-[#173e2b] px-5 text-sm font-black text-white disabled:cursor-not-allowed disabled:bg-[#d9dedb] disabled:text-[#7b847e]"
+        >
+          Sök nära mig
+        </button>
+      </div>
+
+      {status ? <p role="status" className="text-xs font-semibold text-[#667169]">{status}</p> : null}
+
+      <details className="rounded-xl border border-black/5 bg-[#fafaf8] px-4 py-3">
+        <summary className="cursor-pointer text-xs font-black uppercase tracking-[0.12em] text-[#607066]">
+          Teknisk info
+        </summary>
+        <p className="mt-2 text-xs leading-5 text-[#717b74]">
+          Webbläsarens koordinater används för själva Nära mig-sökningen. Normalt räcker knappen Använd min position; fälten nedan är främst för felsökning.
+        </p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <label className="grid gap-2 text-xs font-bold text-[#465149]">
+            Latitude
+            <input
+              name="latitude"
+              value={latitude}
+              onChange={(event) => setLatitude(event.target.value)}
+              placeholder="59.3293"
+              inputMode="decimal"
+              className="min-h-10 rounded-lg border border-black/10 bg-white px-3 font-medium outline-none focus:border-[#17452f]"
+            />
+          </label>
+          <label className="grid gap-2 text-xs font-bold text-[#465149]">
+            Longitude
+            <input
+              name="longitude"
+              value={longitude}
+              onChange={(event) => setLongitude(event.target.value)}
+              placeholder="18.0686"
+              inputMode="decimal"
+              className="min-h-10 rounded-lg border border-black/10 bg-white px-3 font-medium outline-none focus:border-[#17452f]"
+            />
+          </label>
+        </div>
+      </details>
     </div>
   );
 }
