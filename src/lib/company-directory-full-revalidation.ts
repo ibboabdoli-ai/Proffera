@@ -438,6 +438,12 @@ export async function revalidateAllCompanyDirectoryBatch(
           continue;
         }
 
+        if (deadlineReached(options.deadlineAt)) {
+          await markScbEvaluationPending(profileId);
+          deferred += candidates.length - index;
+          break candidateLoop;
+        }
+
         const moved = await moveProfileToReview({
           profileId,
           expectedStatus: status,
