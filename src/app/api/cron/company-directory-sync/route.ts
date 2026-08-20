@@ -5,7 +5,7 @@ import {
   processNewCompanyDirectoryDiscoveryQueueBatch,
 } from "@/lib/company-directory-discovery-queue";
 import { syncCompanyDirectory } from "@/lib/company-directory-engine";
-import { revalidatePublishedCompanyDirectoryBatch } from "@/lib/company-directory-published-revalidation";
+import { revalidateAllCompanyDirectoryBatch } from "@/lib/company-directory-full-revalidation";
 import { autoPublishReadyHighConfidenceCompanyDirectoryBatch } from "@/lib/company-directory-ready-auto-publish";
 import { getSql } from "@/lib/db/server";
 
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 const AUTOMATIC_QUEUE_CRON_BATCH_SIZE = 5;
-const PUBLISHED_REVALIDATION_AUTOMATIC_BATCH_SIZE = 2;
+const FULL_REVALIDATION_AUTOMATIC_BATCH_SIZE = 10;
 const AUTOMATIC_QUEUE_HISTORY_PROVIDER = "automatic_queue";
 
 const EMPTY_QUEUE_RESULT = {
@@ -29,13 +29,12 @@ const FAILED_REVALIDATION_RESULT = {
   skipped: true,
   reason: "worker_error",
   selected: 0,
-  revalidated: 0,
-  keptPublished: 0,
+  refreshed: 0,
+  kept: 0,
   movedToReview: 0,
   deferred: 0,
   errors: 1,
-  errorSummary: "Published revalidation worker failed",
-  reviewSummary: "",
+  errorSummary: "Full Directory revalidation worker failed",
   remaining: null as number | null,
 };
 
@@ -80,12 +79,12 @@ async function recordAutomaticQueueSyncRunSafely(run: AutomaticQueueRun) {
   }
 }
 
-async function revalidatePublishedCompanyDirectorySafely() {
+async function revalidateAllCompanyDirectorySafely() {
   try {
-    return await revalidatePublishedCompanyDirectoryBatch(PUBLISHED_REVALIDATION_AUTOMATIC_BATCH_SIZE);
+    return await revalidateAllCompanyDirectoryBatch(FULL_REVALIDATION_AUTOMATIC_BATCH_SIZE);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Published revalidation worker failed";
-    console.error("Company directory published revalidation failed inside automatic queue", error);
+    const message = error instanceof Error ? error.message : "Full Directory revalidation worker failed";
+    console.error("Company directory full revalidation failed inside automatic queue", error);
     return {
       ...FAILED_REVALIDATION_RESULT,
       errorSummary: message,
@@ -129,18 +128,18 @@ export async function GET(request: Request) {
       const result = remainingBatchSize > 0
         ? await processCompanyDirectoryDiscoveryQueue(remainingBatchSize)
         : EMPTY_QUEUE_RESULT;
-      const publishedRevalidation = await revalidatePublishedCompanyDirectorySafely();
+      const fullRevalidation = await revalidateAllCompanyDirectorySafely();
       const history = {
-        scanned: readyAutoPublish.scanned + newCompanies.claimed + result.claimed + publishedRevalidation.selected,
-        upserted: newCompanies.processed + result.processed + publishedRevalidation.revalidated,
+        scanned: readyAutoPublish.scanned + newCompanies.claimed + result.claimed + fullRevalidation.selected,
+        upserted: newCompanies.processed + result.processed + fullRevalidation.refreshed,
         published: readyAutoPublish.published + newCompanies.published + result.published,
-        blocked: newCompanies.blocked + result.blocked + publishedRevalidation.movedToReview,
-        errors: readyAutoPublish.errors + newCompanies.errors + result.errors + publishedRevalidation.errors,
+        blocked: newCompanies.blocked + result.blocked + fullRevalidation.movedToReview,
+        errors: readyAutoPublish.errors + newCompanies.errors + result.errors + fullRevalidation.errors,
         errorSummary: automaticQueueErrorSummary(
           readyAutoPublish.errorSummary,
           newCompanies.errorSummary,
           result.errorSummary,
-          publishedRevalidation.errorSummary,
+          fullRevalidation.errorSummary,
         ),
       };
 
@@ -156,7 +155,7 @@ export async function GET(request: Request) {
         ...result,
         newCompanies,
         readyAutoPublish,
-        publishedRevalidation,
+        fullRevalidation,
         historyRecorded,
       });
     }
