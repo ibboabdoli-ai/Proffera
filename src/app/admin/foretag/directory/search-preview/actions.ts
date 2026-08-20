@@ -12,6 +12,19 @@ import {
   parseAdminNearbyCoordinates,
 } from "./search-behavior";
 
+const ADMIN_DIRECTORY_NEARBY_COOKIE_PATH = "/admin/foretag/directory/search-preview";
+
+/** Returns the exact cookie attributes used for both storing and expiring an admin Nearby position. */
+function adminNearbyCookieOptions(maxAge: number) {
+  return {
+    httpOnly: true,
+    sameSite: "lax" as const,
+    secure: process.env.NODE_ENV === "production",
+    maxAge,
+    path: ADMIN_DIRECTORY_NEARBY_COOKIE_PATH,
+  };
+}
+
 export async function geocodeDirectoryPilotAction() {
   let destination = "/admin/foretag/directory/search-preview?geocode=failed";
 
@@ -53,20 +66,18 @@ export async function searchDirectoryNearbyAction(formData: FormData) {
   const cookieStore = await cookies();
 
   if (!coordinates) {
-    cookieStore.delete(ADMIN_DIRECTORY_NEARBY_COOKIE);
+    cookieStore.set(
+      ADMIN_DIRECTORY_NEARBY_COOKIE,
+      "",
+      adminNearbyCookieOptions(0),
+    );
     redirect(destination);
   }
 
   cookieStore.set(
     ADMIN_DIRECTORY_NEARBY_COOKIE,
     `${coordinates.latitude},${coordinates.longitude}`,
-    {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      maxAge: 300,
-      path: "/admin/foretag/directory/search-preview",
-    },
+    adminNearbyCookieOptions(300),
   );
 
   redirect(destination);
