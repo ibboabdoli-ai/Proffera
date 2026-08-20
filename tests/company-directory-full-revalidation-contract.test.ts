@@ -179,9 +179,10 @@ describe("full Company Directory revalidation", () => {
     });
     expect(order).toEqual(["official-facts", "scb", "scb"]);
     const selection = sqlCalls.find((call) => call.query.includes("profile.publication_status"));
-    expect(selection?.query).toContain("profile.publication_status in ('published', 'ready', 'review', 'inactive')");
+    expect(selection?.query).toContain("profile.publication_status in ('published', 'ready', 'review', 'inactive', 'claimed')");
     expect(selection?.query).toContain("when 'published' then 0");
     expect(selection?.query).toContain("when 'ready' then 1");
+    expect(selection?.query).toContain("when 'claimed' then 4");
     expect(selection?.query).toContain("scb.last_synced_at < now() - interval '7 days'");
     const move = sqlCalls.find((call) => call.query.includes("update company_directory_profiles profile"));
     expect(move?.values).toContain("ready");
@@ -232,14 +233,15 @@ describe("full Company Directory revalidation", () => {
   it("stops before starting SCB when the deadline expires during a candidate", async () => {
     configureWorker({ status: "ready", backlog: 1 });
     let now = 1_000;
+    const deadlineAt = 32_000;
     const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
     mocks.enrichOfficialFacts.mockImplementation(async () => {
-      now = 1_500;
+      now = 14_000;
       return { profileId: PROFILE_ID, organizationNumber: "5563115707", reusedVerifiedDetail: false };
     });
 
     try {
-      const result = await revalidateAllCompanyDirectoryBatch(10, { deadlineAt: 1_500 });
+      const result = await revalidateAllCompanyDirectoryBatch(10, { deadlineAt });
 
       expect(result).toMatchObject({
         selected: 1,
@@ -257,6 +259,7 @@ describe("full Company Directory revalidation", () => {
 
   it("marks an SCB refresh retryable when the deadline expires and reselects it next batch", async () => {
     let now = 1_000;
+    const deadlineAt = 50_000;
     let pendingEvaluation = false;
     let selectionCount = 0;
     const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
@@ -287,7 +290,7 @@ describe("full Company Directory revalidation", () => {
     mocks.enrichScb.mockImplementation(async () => {
       scbCall += 1;
       if (scbCall === 1) {
-        now = 1_500;
+        now = deadlineAt;
       } else {
         pendingEvaluation = false;
       }
@@ -295,7 +298,7 @@ describe("full Company Directory revalidation", () => {
     });
 
     try {
-      const first = await revalidateAllCompanyDirectoryBatch(10, { deadlineAt: 1_500 });
+      const first = await revalidateAllCompanyDirectoryBatch(10, { deadlineAt });
 
       expect(first).toMatchObject({
         selected: 1,
@@ -310,7 +313,7 @@ describe("full Company Directory revalidation", () => {
       expect(sqlCalls.some((call) => call.query.includes("profile.category_slug"))).toBe(false);
       expect(sqlCalls.some((call) => call.query.includes("update company_directory_profiles profile"))).toBe(false);
 
-      now = 1_600;
+      now = deadlineAt + 100;
       const second = await revalidateAllCompanyDirectoryBatch(10);
 
       expect(second).toMatchObject({
@@ -336,18 +339,19 @@ describe("full Company Directory revalidation", () => {
     mocks.assessConfidence.mockReturnValue({ score: 90, officialFactsReady: true, reasons: [] });
 
     let now = 1_000;
+    const deadlineAt = 50_000;
     const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
     const baseResponder = responder;
     responder = async (query, values) => {
       if (query.includes("update company_directory_profiles profile")) {
-        now = 1_500;
+        now = 32_000;
         return [{ id: PROFILE_ID }];
       }
       return await baseResponder(query, values);
     };
 
     try {
-      const result = await revalidateAllCompanyDirectoryBatch(10, { deadlineAt: 1_500 });
+      const result = await revalidateAllCompanyDirectoryBatch(10, { deadlineAt });
 
       expect(result).toMatchObject({
         selected: 1,
@@ -369,7 +373,7 @@ describe("full Company Directory revalidation", () => {
       if (query.includes("started_at < now() - interval '10 minutes'")) return [];
       if (query.includes("insert into company_directory_sync_runs")) return [{ id: RUN_ID }];
       if (query.includes("select profile.id::text, profile.organization_number, profile.display_name, profile.publication_status")) {
-        expect(query).toContain("profile.publication_status in ('published', 'ready', 'review', 'inactive')");
+        expect(query).toContain("profile.publication_status in ('published', 'ready', 'review', 'inactive', 'claimed')");
         expect(values.at(-1)).toBe(10);
         return [];
       }
