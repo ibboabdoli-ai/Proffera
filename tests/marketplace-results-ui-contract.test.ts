@@ -15,6 +15,10 @@ vi.mock("@/lib/company-directory-public-search", () => ({
   searchPublishedCompanyDirectory: directorySearchMocks.searchPublishedCompanyDirectory,
 }));
 
+vi.mock("@/components/company-directory/public-directory-search-form", () => ({
+  PublicDirectorySearchForm: () => null,
+}));
+
 import { PublicDirectoryResults } from "@/components/company-directory/public-directory-results";
 import { PublicDirectorySearchPage } from "@/components/company-directory/public-directory-search-page";
 import type { PublishedDirectorySearchResponse, PublishedDirectorySearchResult } from "@/lib/company-directory-public-search";
