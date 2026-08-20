@@ -216,6 +216,8 @@ describe("marketplace guest quote safety contract", () => {
         profile_id: eligibleRow.profile_id,
         recipient_email: "offert@rorfirma.se",
       }],
+      [],
+      [],
       [{ id: "55555555-5555-4555-8555-555555555555" }],
     ) as ReturnType<typeof sqlResponses> & { transaction?: ReturnType<typeof vi.fn> };
     sql.transaction = vi.fn(async () => []);
