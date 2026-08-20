@@ -259,14 +259,18 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
   if (suppressionRows[0]) return { ok: false as const, code: "suppressed" };
 
   const existingRows = await sql`
-    select id::text, status
+    select
+      id::text,
+      status,
+      (status = 'sending' and updated_at <= now() - interval '5 minutes') as stale_sending
     from marketplace_quote_invitations
     where quote_request_id = ${input.quoteRequestId}::uuid
       and profile_id = ${input.profileId}::uuid
     limit 1
   `;
   const existing = existingRows[0];
-  if (existing && ACTIVE_INVITATION_STATUSES.has(String(existing.status))) {
+  const staleSending = Boolean(existing?.stale_sending);
+  if (existing && ACTIVE_INVITATION_STATUSES.has(String(existing.status)) && !staleSending) {
     return { ok: false as const, code: "already_invited" };
   }
   if (existing && String(existing.status) === "suppressed") {
@@ -301,7 +305,10 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
             created_by_admin_user_id = ${input.adminUserId},
             updated_at = now()
         where id = ${String(existing.id)}::uuid
-          and status in ('delivery_failed', 'expired', 'declined', 'cancelled')
+          and (
+            status in ('delivery_failed', 'expired', 'declined', 'cancelled')
+            or (status = 'sending' and updated_at <= now() - interval '5 minutes')
+          )
         returning id::text
       `;
       invitationId = String(updated[0]?.id ?? "");
