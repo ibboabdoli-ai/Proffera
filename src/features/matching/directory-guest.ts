@@ -195,36 +195,60 @@ export async function getDirectoryGuestLeadMatches() {
     const requiredCategoryCsv = [...requiredCategories].join(",");
 
     const candidates = await sql`
+      with ranked_candidates as (
+        select
+          profile.id::text as profile_id,
+          profile.public_slug,
+          profile.display_name,
+          profile.city,
+          profile.municipality,
+          profile.category_slug,
+          profile.quality_score,
+          relation.service_slug,
+          service.label as service_name,
+          category.label as service_category,
+          row_number() over (
+            partition by
+              profile.category_slug,
+              coalesce(
+                nullif(lower(btrim(profile.city)), ''),
+                nullif(lower(btrim(profile.municipality)), ''),
+                '__unknown__'
+              )
+            order by profile.quality_score desc, profile.display_name asc, relation.service_slug asc
+          ) as locality_rank
+        from company_directory_profiles profile
+        join company_directory_profile_services relation
+          on relation.profile_id = profile.id
+         and relation.is_active = true
+         and relation.public_visible = true
+        join company_directory_services service
+          on service.slug = relation.service_slug
+         and service.is_active = true
+        join company_directory_service_categories category
+          on category.slug = service.category_slug
+         and category.is_active = true
+        where profile.publication_status = 'published'
+          and profile.category_slug = any(string_to_array(${requiredCategoryCsv}, ','))
+          and profile.claimed_workspace_id is null
+          and profile.organization_kind = 'juridical_person'
+          and profile.is_active = true
+          and profile.privacy_blocked = false
+      )
       select
-        profile.id::text as profile_id,
-        profile.public_slug,
-        profile.display_name,
-        profile.city,
-        profile.municipality,
-        profile.category_slug,
-        profile.quality_score,
-        relation.service_slug,
-        service.label as service_name,
-        category.label as service_category
-      from company_directory_profiles profile
-      join company_directory_profile_services relation
-        on relation.profile_id = profile.id
-       and relation.is_active = true
-       and relation.public_visible = true
-      join company_directory_services service
-        on service.slug = relation.service_slug
-       and service.is_active = true
-      join company_directory_service_categories category
-        on category.slug = service.category_slug
-       and category.is_active = true
-      where profile.publication_status = 'published'
-        and profile.category_slug = any(string_to_array(${requiredCategoryCsv}, ','))
-        and profile.claimed_workspace_id is null
-        and profile.organization_kind = 'juridical_person'
-        and profile.is_active = true
-        and profile.privacy_blocked = false
-      order by profile.quality_score desc, profile.display_name asc
-      limit 5000
+        profile_id,
+        public_slug,
+        display_name,
+        city,
+        municipality,
+        category_slug,
+        quality_score,
+        service_slug,
+        service_name,
+        service_category
+      from ranked_candidates
+      where locality_rank <= 100
+      order by quality_score desc, display_name asc, service_slug asc
     `;
 
     const rowsByCategory = new Map<string, Array<{
