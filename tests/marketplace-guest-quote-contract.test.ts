@@ -174,6 +174,41 @@ describe("marketplace guest quote safety contract", () => {
     expect(mocks.sendInvitationEmail).not.toHaveBeenCalled();
   });
 
+  it("keeps a fresh sending reservation protected from duplicate dispatch", async () => {
+    const sql = sqlResponses(
+      [eligibleRow],
+      [],
+      [{ id: "44444444-4444-4444-8444-444444444444", status: "sending", stale_sending: false }],
+    );
+    mocks.getSql.mockReturnValue(sql);
+
+    const result = await sendMarketplaceGuestQuoteInvitation(invitationInput());
+
+    expect(result).toEqual({ ok: false, code: "already_invited" });
+    expect(sql).toHaveBeenCalledTimes(3);
+    expect(mocks.sendInvitationEmail).not.toHaveBeenCalled();
+  });
+
+  it("reuses a stale sending reservation before provider dispatch", async () => {
+    const invitationId = "44444444-4444-4444-8444-444444444444";
+    const sql = sqlResponses(
+      [eligibleRow],
+      [],
+      [{ id: invitationId, status: "sending", stale_sending: true }],
+      [{ id: invitationId }],
+      [{ id: invitationId }],
+      [{ id: invitationId }],
+      [],
+    );
+    mocks.getSql.mockReturnValue(sql);
+    mocks.sendInvitationEmail.mockResolvedValue({ ok: true, providerMessageId: "provider-1" });
+
+    const result = await sendMarketplaceGuestQuoteInvitation(invitationInput());
+
+    expect(result).toEqual({ ok: true, invitationId });
+    expect(mocks.sendInvitationEmail).toHaveBeenCalledTimes(1);
+  });
+
   it("does not invite against a closed customer request", async () => {
     const sql = sqlResponses([{ ...eligibleRow, quote_status: "cancelled" }]);
     mocks.getSql.mockReturnValue(sql);
