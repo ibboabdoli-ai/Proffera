@@ -18,15 +18,25 @@ export function NearbySearchFields({
   defaultLatitude = "",
   defaultLongitude = "",
   defaultRadius = "25",
+  locationInputId = "",
 }: {
   defaultLatitude?: string;
   defaultLongitude?: string;
   defaultRadius?: string;
+  locationInputId?: string;
 }) {
   const [latitude, setLatitude] = useState(defaultLatitude);
   const [longitude, setLongitude] = useState(defaultLongitude);
   const [status, setStatus] = useState("");
   const [locating, setLocating] = useState(false);
+
+  function clearManualLocation() {
+    if (!locationInputId) return;
+    const locationInput = document.getElementById(locationInputId);
+    if (locationInput instanceof HTMLInputElement) {
+      locationInput.value = "";
+    }
+  }
 
   function useCurrentPosition() {
     if (!navigator.geolocation) {
@@ -41,8 +51,9 @@ export function NearbySearchFields({
     const handlePosition = (position: GeolocationPosition) => {
       setLatitude(position.coords.latitude.toFixed(6));
       setLongitude(position.coords.longitude.toFixed(6));
+      clearManualLocation();
       setLocating(false);
-      setStatus("Position hämtad. Tryck Sök.");
+      setStatus("Position hämtad. Platsfältet är rensat. Tryck Sök.");
     };
 
     const handleFinalError = (error: GeolocationPositionError) => {
