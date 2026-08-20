@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   isResolvedStripeTestMode,
+  isStripeEventModeAllowed,
   resolveStripePriceIdForPlan,
   resolveStripeSecretKey,
   resolveStripeWebhookSecret,
@@ -53,7 +54,7 @@ describe("Stripe runtime configuration", () => {
     expect(isResolvedStripeTestMode(env)).toBe(false);
   });
 
-  it("keeps Production resolution unchanged", () => {
+  it("keeps Production on live Stripe credentials", () => {
     const env: NodeJS.ProcessEnv = {
       NODE_ENV: "test",
       VERCEL_ENV: "production",
@@ -67,5 +68,34 @@ describe("Stripe runtime configuration", () => {
     expect(resolveStripeWebhookSecret(env)).toBe("whsec_prod");
     expect(resolveStripePriceIdForPlan("starter", env)).toBe("price_prod_starter");
     expect(resolveStripePriceIdForPlan("professional", env)).toBe("price_prod_professional");
+  });
+
+  it("fails closed when a test API key is configured in Production", () => {
+    const env: NodeJS.ProcessEnv = {
+      NODE_ENV: "test",
+      VERCEL_ENV: "production",
+      STRIPE_SECRET_KEY: "sk_test_wrong_environment",
+      STRIPE_WEBHOOK_SECRET: "whsec_prod",
+    };
+
+    expect(resolveStripeSecretKey(env)).toBeNull();
+  });
+
+  it("accepts webhook events only from the deployment's Stripe mode", () => {
+    const previewEnv: NodeJS.ProcessEnv = {
+      NODE_ENV: "test",
+      VERCEL_ENV: "preview",
+      PROFFERA_PREVIEW_STRIPE_SECRET_KEY: "sk_test_preview",
+    };
+    const productionEnv: NodeJS.ProcessEnv = {
+      NODE_ENV: "test",
+      VERCEL_ENV: "production",
+      STRIPE_SECRET_KEY: "rk_live_production",
+    };
+
+    expect(isStripeEventModeAllowed(false, previewEnv)).toBe(true);
+    expect(isStripeEventModeAllowed(true, previewEnv)).toBe(false);
+    expect(isStripeEventModeAllowed(true, productionEnv)).toBe(true);
+    expect(isStripeEventModeAllowed(false, productionEnv)).toBe(false);
   });
 });
