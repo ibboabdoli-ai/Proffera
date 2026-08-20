@@ -5,6 +5,8 @@ on:
     types: [opened, synchronize, reopened, labeled, unlabeled]
   pull_request_review:
     types: [submitted]
+  issue_comment:
+    types: [created, edited]
   workflow_dispatch:
     inputs:
       pr_number:
@@ -30,6 +32,8 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           EVENT_NAME: ${{ github.event_name }}
           EVENT_PR_NUMBER: ${{ github.event.pull_request.number }}
+          EVENT_ISSUE_NUMBER: ${{ github.event.issue.number }}
+          EVENT_ISSUE_IS_PR: ${{ github.event.issue.pull_request != null }}
           INPUT_PR_NUMBER: ${{ inputs.pr_number }}
           SELF_CHECK_NAME: Gated automerge
           SELF_WORKFLOW_NAME: Proffera gated automerge
@@ -50,7 +54,14 @@ jobs:
             exit 0
           }
 
+          if [ "$EVENT_NAME" = "issue_comment" ] && [ "$EVENT_ISSUE_IS_PR" != "true" ]; then
+            refuse "Issue comment event is not attached to a pull request."
+          fi
+
           pr_number="${EVENT_PR_NUMBER:-}"
+          if [ -z "$pr_number" ] && [ "$EVENT_NAME" = "issue_comment" ]; then
+            pr_number="${EVENT_ISSUE_NUMBER:-}"
+          fi
           if [ -z "$pr_number" ]; then
             pr_number="${INPUT_PR_NUMBER:-}"
           fi
@@ -187,6 +198,23 @@ jobs:
             latest_approval="$(echo "$current_reviews" | jq -r '[.[] | select(.state == "APPROVED") | .submitted_at] | max // empty')"
             terminal_count="$(echo "$current_reviews" | jq -r '[.[] | select(.state == "APPROVED" or .state == "COMMENTED")] | length')"
 
+            comments_json="$(gh api --paginate "repos/$REPOSITORY/issues/$pr_number/comments?per_page=100" --jq '.[]' | jq -s '.')"
+            clean_summary_count="$(echo "$comments_json" | jq -r --arg sha "$head_sha" '
+              [
+                .[]
+                | select(.user.login == "coderabbitai[bot]")
+                | select(
+                    (.body // "")
+                    | test(
+                        "<!-- recent_review_start -->[\\s\\S]*No actionable comments were generated in the recent review\\.[\\s\\S]*"
+                        + $sha
+                        + "[\\s\\S]*<!-- recent_review_end -->"
+                      )
+                  )
+              ]
+              | length
+            ')"
+
             if [ -n "$latest_changes" ]; then
               if [ -z "$latest_approval" ] || [[ ! "$latest_approval" > "$latest_changes" ]]; then
                 refuse "Refused: CodeRabbit changes remain requested on the current PR head; only a later APPROVED review clears them."
@@ -194,6 +222,8 @@ jobs:
               summary "- Current-head CodeRabbit decision: APPROVED after latest change request"
             elif [ "$terminal_count" -gt 0 ]; then
               summary "- Current-head CodeRabbit decision: non-blocking review completed"
+            elif [ "$clean_summary_count" -gt 0 ]; then
+              summary "- Current-head CodeRabbit decision: clean review with no actionable comments"
             else
               refuse "Refused: no completed CodeRabbit review exists for the current PR head."
             fi
