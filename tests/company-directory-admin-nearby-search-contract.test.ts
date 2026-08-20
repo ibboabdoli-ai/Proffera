@@ -1,7 +1,8 @@
-import { readFileSync } from "node:fs";
-
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
+import { NearbySearchFields } from "@/app/admin/foretag/directory/search-preview/NearbySearchFields";
 import {
   applyAdminCurrentPosition,
   applyAdminManualCoordinateEdit,
@@ -10,6 +11,8 @@ import {
   parseAdminNearbyCoordinates,
   resolveAdminDirectorySearchMode,
 } from "@/app/admin/foretag/directory/search-preview/search-behavior";
+
+const TEST_SERVER_ACTION = "/admin/test-nearby" as unknown as (formData: FormData) => Promise<void>;
 
 describe("admin directory nearby search behavior", () => {
   it("clears a stale manual location when current position succeeds", () => {
@@ -85,17 +88,43 @@ describe("admin directory nearby search behavior", () => {
     expect(destination).not.toContain("longitude");
   });
 
-  it("does not serialize raw coordinate inputs through the surrounding GET form", () => {
-    const source = readFileSync(
-      "src/app/admin/foretag/directory/search-preview/NearbySearchFields.tsx",
-      "utf8",
+  it("renders only the combined coordinate submit control for Nearby", () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        "form",
+        null,
+        createElement(NearbySearchFields, {
+          defaultLatitude: "59.1955",
+          defaultLongitude: "17.6253",
+          defaultRadius: "999",
+          available: true,
+          searchNearbyAction: TEST_SERVER_ACTION,
+        }),
+      ),
     );
 
-    expect(source).not.toContain('name="latitude"');
-    expect(source).not.toContain('name="longitude"');
-    expect(source).toContain('name="nearbyCoordinates"');
-    expect(source).toContain("formAction={searchNearbyAction}");
-    expect(source).toContain("parseAdminNearbyCoordinatePair(latitude, longitude)");
+    expect(html).toContain('name="nearbyCoordinates"');
+    expect(html).toContain('value="59.195500,17.625300"');
+    expect(html).not.toContain('name="latitude"');
+    expect(html).not.toContain('name="longitude"');
+    expect(html).toContain('value="25" selected=""');
+  });
+
+  it("renders Nearby submit disabled for an invalid coordinate pair", () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        "form",
+        null,
+        createElement(NearbySearchFields, {
+          defaultLatitude: "91",
+          defaultLongitude: "17.6253",
+          available: true,
+          searchNearbyAction: TEST_SERVER_ACTION,
+        }),
+      ),
+    );
+
+    expect(html).toMatch(/name="nearbyCoordinates"[^>]*value=""[^>]*disabled=""/);
   });
 
   it("lets a manual location win over stale nearby coordinates", () => {
