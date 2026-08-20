@@ -15,15 +15,17 @@ describe("marketplace guest invitation email delivery", () => {
   });
 
   afterEach(() => {
-    process.env.BREVO_API_KEY = originalApiKey;
-    process.env.LEAD_FROM_EMAIL = originalFrom;
+    if (originalApiKey === undefined) delete process.env.BREVO_API_KEY;
+    else process.env.BREVO_API_KEY = originalApiKey;
+    if (originalFrom === undefined) delete process.env.LEAD_FROM_EMAIL;
+    else process.env.LEAD_FROM_EMAIL = originalFrom;
     globalThis.fetch = originalFetch;
     vi.restoreAllMocks();
   });
 
-  it("sends the durable dispatch token as Brevo Idempotency-Key", async () => {
+  it("sends the durable dispatch token as Brevo idempotencyKey", async () => {
     const idempotencyKey = "11111111-1111-4111-8111-111111111111";
-    const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+    const fetchMock = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => {
       return new Response(JSON.stringify({ messageId: "provider-1" }), {
         status: 201,
         headers: { "Content-Type": "application/json" },
@@ -49,6 +51,7 @@ describe("marketplace guest invitation email delivery", () => {
 
     const init = fetchMock.mock.calls[0]?.[1];
     const body = JSON.parse(String(init?.body ?? "{}")) as { headers?: Record<string, string> };
-    expect(body.headers?.["Idempotency-Key"]).toBe(idempotencyKey);
+    expect(body.headers?.idempotencyKey).toBe(idempotencyKey);
+    expect(body.headers?.["Idempotency-Key"]).toBeUndefined();
   });
 });
