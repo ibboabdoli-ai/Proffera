@@ -228,8 +228,17 @@ describe("safe company directory auto publication contract", () => {
   });
 
   it("expires public location suggestions after a profile is published", async () => {
-    const sql = mockPublicationSql(safePublicationRow(), [{ public_slug: "exempel-el" }]);
+    const events: string[] = [];
+    let call = 0;
+    const sql = vi.fn(async () => {
+      call += 1;
+      events.push(`sql:${call}`);
+      return call === 1 ? [safePublicationRow()] : [{ public_slug: "exempel-el" }];
+    });
     mocks.getSql.mockReturnValue(sql);
+    mocks.revalidateTag.mockImplementation(() => {
+      events.push("cache");
+    });
 
     await expect(publishCompanyDirectoryProfileIfSafe(PROFILE_ID)).resolves.toEqual({
       ok: true,
@@ -240,6 +249,7 @@ describe("safe company directory auto publication contract", () => {
       "published-directory-location-suggestions",
       { expire: 0 },
     );
+    expect(events).toEqual(["sql:1", "sql:2", "cache"]);
   });
 
   it("does not report a committed publication as failed when cache expiration fails", async () => {

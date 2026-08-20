@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { NormalizedDirectoryCandidate } from "@/lib/company-directory-policy";
 
@@ -42,10 +42,17 @@ function candidate(): NormalizedDirectoryCandidate {
 }
 
 describe("public directory location cache", () => {
+  beforeEach(() => {
+    mocks.getSql.mockReset();
+    mocks.revalidateTag.mockReset();
+  });
+
   it("expires location suggestions after all profile writes succeed", async () => {
+    const events: string[] = [];
     let call = 0;
     const sql = vi.fn(async () => {
       call += 1;
+      events.push(`sql:${call}`);
       if (call === 1) {
         return [{
           id: "11111111-1111-4111-8111-111111111111",
@@ -56,6 +63,9 @@ describe("public directory location cache", () => {
       return [];
     });
     mocks.getSql.mockReturnValue(sql);
+    mocks.revalidateTag.mockImplementation(() => {
+      events.push("cache");
+    });
 
     await expect(upsertCompanyDirectoryCandidate(candidate())).resolves.toEqual(expect.objectContaining({
       profileId: "11111111-1111-4111-8111-111111111111",
@@ -64,6 +74,8 @@ describe("public directory location cache", () => {
       PUBLISHED_DIRECTORY_LOCATION_SUGGESTIONS_TAG,
       { expire: 0 },
     );
+    expect(events.at(-1)).toBe("cache");
+    expect(events.indexOf("cache")).toBeGreaterThan(events.lastIndexOf(`sql:${call}`));
   });
 
   it("does not report a committed upsert as failed when cache expiration fails", async () => {
