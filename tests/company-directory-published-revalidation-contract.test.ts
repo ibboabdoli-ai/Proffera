@@ -349,38 +349,46 @@ describe("published Directory revalidation scheduling", () => {
       remaining: 471,
     });
 
-    const { GET } = await loadAutomaticSyncRoute();
-    const response = await GET(new Request(
-      "https://example.test/api/cron/company-directory-sync",
-      { headers: { authorization: "Bearer test-secret" } },
-    ));
-    const body = await response.json();
+    const startedAtMs = 1_000_000;
+    const expectedDeadlineAt = startedAtMs + 60_000 - 5_000;
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(startedAtMs);
 
-    expect(response.status).toBe(200);
-    expect(mocks.fullRevalidate).toHaveBeenCalledTimes(1);
-    expect(mocks.routeRevalidate).toHaveBeenCalledTimes(1);
-    const fullOptions = mocks.fullRevalidate.mock.calls[0]?.[1];
-    const publishedOptions = mocks.routeRevalidate.mock.calls[0]?.[1];
-    expect(mocks.fullRevalidate.mock.calls[0]?.[0]).toBe(10);
-    expect(mocks.routeRevalidate.mock.calls[0]?.[0]).toBe(2);
-    expect(fullOptions).toEqual({ deadlineAt: expect.any(Number) });
-    expect(publishedOptions).toEqual({ deadlineAt: fullOptions.deadlineAt });
-    expect(body).toMatchObject({
-      ok: true,
-      mode: "automatic_queue",
-      fullRevalidation: {
-        selected: 3,
-        refreshed: 3,
-        remaining: 1500,
-      },
-      publishedRevalidation: {
-        selected: 2,
-        revalidated: 2,
-        keptPublished: 1,
-        movedToReview: 1,
-        remaining: 471,
-      },
-    });
+    try {
+      const { GET } = await loadAutomaticSyncRoute();
+      const response = await GET(new Request(
+        "https://example.test/api/cron/company-directory-sync",
+        { headers: { authorization: "Bearer test-secret" } },
+      ));
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(mocks.fullRevalidate).toHaveBeenCalledTimes(1);
+      expect(mocks.routeRevalidate).toHaveBeenCalledTimes(1);
+      const fullOptions = mocks.fullRevalidate.mock.calls[0]?.[1];
+      const publishedOptions = mocks.routeRevalidate.mock.calls[0]?.[1];
+      expect(mocks.fullRevalidate.mock.calls[0]?.[0]).toBe(10);
+      expect(mocks.routeRevalidate.mock.calls[0]?.[0]).toBe(2);
+      expect(fullOptions).toEqual({ deadlineAt: expectedDeadlineAt });
+      expect(publishedOptions).toEqual({ deadlineAt: expectedDeadlineAt });
+      expect(body).toMatchObject({
+        ok: true,
+        mode: "automatic_queue",
+        fullRevalidation: {
+          selected: 3,
+          refreshed: 3,
+          remaining: 1500,
+        },
+        publishedRevalidation: {
+          selected: 2,
+          revalidated: 2,
+          keptPublished: 1,
+          movedToReview: 1,
+          remaining: 471,
+        },
+      });
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   it("does not register a frequent Vercel cron for revalidation", () => {
