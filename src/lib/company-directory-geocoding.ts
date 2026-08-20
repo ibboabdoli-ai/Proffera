@@ -135,13 +135,31 @@ function assertBeforeDeadline(deadline: number, reserveMs = 0) {
   if (Date.now() + reserveMs >= deadline) throw new GeocodingDeadlineExceeded();
 }
 
-function requestTimeoutMs(deadline: number) {
+function requestTimeout(deadline: number) {
   const timeoutMs = Math.min(
     UPSTREAM_REQUEST_TIMEOUT_MS,
     deadline - Date.now() - FETCH_DEADLINE_GUARD_MS,
   );
   if (timeoutMs < 1_000) throw new GeocodingDeadlineExceeded();
-  return timeoutMs;
+  return {
+    timeoutMs,
+    deadlineBound: timeoutMs < UPSTREAM_REQUEST_TIMEOUT_MS,
+  };
+}
+
+function isAbortLikeFetchError(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const name = String((error as { name?: unknown }).name ?? "");
+  return name === "TimeoutError" || name === "AbortError";
+}
+
+export function mapDirectoryGeocodingFetchError(error: unknown, deadlineBound: boolean) {
+  if (deadlineBound && isAbortLikeFetchError(error)) return new GeocodingDeadlineExceeded();
+  return error;
+}
+
+export function classifyDirectoryGeocodingBatchError(error: unknown) {
+  return error instanceof GeocodingDeadlineExceeded ? "deadline" as const : "error" as const;
 }
 
 export function cleanDirectoryStreetAddress(value: unknown) {
@@ -301,16 +319,21 @@ function authorizationHeader(username: string, password: string) {
 
 async function fetchJson(url: URL, username: string, password: string, deadline: number) {
   assertBeforeDeadline(deadline);
-  const response = await fetch(url, {
-    headers: {
-      Accept: "application/json",
-      Authorization: authorizationHeader(username, password),
-    },
-    cache: "no-store",
-    signal: AbortSignal.timeout(requestTimeoutMs(deadline)),
-  });
-  if (!response.ok) throw new Error(`Lantmäteriet request failed (${response.status})`);
-  return response.json() as Promise<unknown>;
+  const { timeoutMs, deadlineBound } = requestTimeout(deadline);
+  try {
+    const response = await fetch(url, {
+      headers: {
+        Accept: "application/json",
+        Authorization: authorizationHeader(username, password),
+      },
+      cache: "no-store",
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!response.ok) throw new Error(`Lantmäteriet request failed (${response.status})`);
+    return await response.json() as unknown;
+  } catch (error) {
+    throw mapDirectoryGeocodingFetchError(error, deadlineBound);
+  }
 }
 
 async function resolveOfficialAddress(
@@ -538,7 +561,7 @@ export async function geocodeDirectoryPilotFromAdmin(limit = 5): Promise<Directo
       `;
       if (saved[0]) geocoded += 1;
     } catch (error) {
-      if (error instanceof GeocodingDeadlineExceeded) break;
+      if (classifyDirectoryGeocodingBatchError(error) === "deadline") break;
       errors += 1;
     }
   }
