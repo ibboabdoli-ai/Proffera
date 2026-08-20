@@ -61,6 +61,7 @@ describe("admin directory nearby search behavior", () => {
     expect(parseAdminNearbyCoordinatePair("59.1955", "")).toBeNull();
     expect(parseAdminNearbyCoordinatePair("", "17.6253")).toBeNull();
     expect(parseAdminNearbyCoordinatePair("north", "17.6253")).toBeNull();
+    expect(parseAdminNearbyCoordinatePair("NaN", "17.6253")).toBeNull();
     expect(parseAdminNearbyCoordinatePair("91", "17.6253")).toBeNull();
     expect(parseAdminNearbyCoordinatePair("59.1955", "181")).toBeNull();
   });
