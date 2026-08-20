@@ -19,6 +19,7 @@ import {
   redactMarketplaceGuestDescription,
   sendMarketplaceGuestQuoteInvitation,
   submitMarketplaceGuestQuote,
+  suppressMarketplaceGuestRecipient,
 } from "@/lib/marketplace-guest-quote";
 
 const eligibleRow = {
@@ -103,6 +104,18 @@ describe("marketplace guest quote safety contract", () => {
     });
 
     expect(redacted).not.toContain("073-555 11 22");
+    expect(redacted).toContain("[…]");
+  });
+
+  it("redacts an international phone number typed only in the description", () => {
+    const description = "If needed, call our UK contact on +44 20 7946 0958.";
+    const redacted = redactMarketplaceGuestDescription(description, {
+      name: "Anna Andersson",
+      email: "anna@example.se",
+      phone: "070 123 45 67",
+    });
+
+    expect(redacted).not.toContain("+44 20 7946 0958");
     expect(redacted).toContain("[…]");
   });
 
@@ -194,5 +207,23 @@ describe("marketplace guest quote safety contract", () => {
 
     expect(result).toEqual({ ok: false, code: "closed" });
     expect(sql).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not report opt-out as fully settled while provider dispatch is already claimed", async () => {
+    const sql = sqlResponses(
+      [{
+        id: "44444444-4444-4444-8444-444444444444",
+        profile_id: eligibleRow.profile_id,
+        recipient_email: "offert@rorfirma.se",
+      }],
+      [{ id: "55555555-5555-4555-8555-555555555555" }],
+    ) as ReturnType<typeof sqlResponses> & { transaction?: ReturnType<typeof vi.fn> };
+    sql.transaction = vi.fn(async () => []);
+    mocks.getSql.mockReturnValue(sql);
+
+    const result = await suppressMarketplaceGuestRecipient("a".repeat(40));
+
+    expect(sql.transaction).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({ ok: false, code: "dispatch_in_progress" });
   });
 });
