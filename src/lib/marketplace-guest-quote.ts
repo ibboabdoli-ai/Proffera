@@ -262,15 +262,15 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
     select
       id::text,
       status,
-      (status = 'sending' and updated_at <= now() - interval '5 minutes') as stale_sending
+      (status in ('sending', 'pending') and updated_at <= now() - interval '5 minutes') as stale_reservation
     from marketplace_quote_invitations
     where quote_request_id = ${input.quoteRequestId}::uuid
       and profile_id = ${input.profileId}::uuid
     limit 1
   `;
   const existing = existingRows[0];
-  const staleSending = Boolean(existing?.stale_sending);
-  if (existing && ACTIVE_INVITATION_STATUSES.has(String(existing.status)) && !staleSending) {
+  const staleReservation = Boolean(existing?.stale_reservation);
+  if (existing && ACTIVE_INVITATION_STATUSES.has(String(existing.status)) && !staleReservation) {
     return { ok: false as const, code: "already_invited" };
   }
   if (existing && String(existing.status) === "suppressed") {
@@ -307,7 +307,7 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
         where id = ${String(existing.id)}::uuid
           and (
             status in ('delivery_failed', 'expired', 'declined', 'cancelled')
-            or (status = 'sending' and updated_at <= now() - interval '5 minutes')
+            or (status in ('sending', 'pending') and updated_at <= now() - interval '5 minutes')
           )
         returning id::text
       `;
@@ -490,6 +490,11 @@ async function loadGuestQuoteView(
       i.id::text as invitation_id,
       i.status,
       i.expires_at::text,
+      exists (
+        select 1
+        from marketplace_outreach_suppressions suppression
+        where suppression.email_normalized = lower(btrim(i.recipient_email))
+      ) as recipient_suppressed,
       p.display_name,
       p.public_slug,
       q.reference_id,
@@ -518,6 +523,7 @@ async function loadGuestQuoteView(
   `;
   const row = rows[0];
   if (!row) return null;
+  if (Boolean(row.recipient_suppressed)) row.status = "suppressed";
 
   const quoteOpen = SENDABLE_QUOTE_STATUSES.has(String(row.quote_status));
   if (!quoteOpen && !options?.allowClosed) return null;
@@ -686,7 +692,10 @@ export async function suppressMarketplaceGuestRecipient(token: string) {
       update marketplace_quote_invitations
       set status = 'suppressed', updated_at = now()
       where lower(btrim(recipient_email)) = ${email}
-        and status in ('sending', 'sent', 'viewed', 'delivery_failed', 'expired')
+        and (
+          status in ('sending', 'sent', 'viewed', 'delivery_failed', 'expired')
+          or (status = 'pending' and updated_at <= now() - interval '5 minutes')
+        )
     `,
   ]);
 
@@ -695,6 +704,7 @@ export async function suppressMarketplaceGuestRecipient(token: string) {
     from marketplace_quote_invitations
     where lower(btrim(recipient_email)) = ${email}
       and status = 'pending'
+      and updated_at > now() - interval '5 minutes'
     limit 1
   `;
   if (dispatchRows[0]) {
