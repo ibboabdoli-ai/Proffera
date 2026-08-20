@@ -326,7 +326,11 @@ export function diagnoseExactSwerefAddressDetail(
   }
   const typedProperties = properties as AddressDetailProperties;
   const addressAttributes = typedProperties.adressplatsattribut;
-  if (!addressAttributes) {
+  if (
+    !addressAttributes
+    || typeof addressAttributes !== "object"
+    || Array.isArray(addressAttributes)
+  ) {
     return { point: null, reason: "unexpected_detail_response" };
   }
   if (
