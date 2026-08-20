@@ -1,8 +1,12 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import {
   applyAdminCurrentPosition,
   applyAdminManualCoordinateEdit,
+  buildAdminNearbySearchDestination,
+  parseAdminNearbyCoordinates,
   resolveAdminDirectorySearchMode,
 } from "@/app/admin/foretag/directory/search-preview/search-behavior";
 
@@ -43,6 +47,41 @@ describe("admin directory nearby search behavior", () => {
       latitude: "59.195500",
       longitude: "17.625300",
     });
+  });
+
+  it("validates the coordinate value used by the nearby POST action", () => {
+    expect(parseAdminNearbyCoordinates("59.1955,17.6253")).toEqual({
+      latitude: "59.195500",
+      longitude: "17.625300",
+    });
+    expect(parseAdminNearbyCoordinates("91,17.6253")).toBeNull();
+    expect(parseAdminNearbyCoordinates("59.1955,181")).toBeNull();
+    expect(parseAdminNearbyCoordinates("not-a-position")).toBeNull();
+  });
+
+  it("builds the nearby redirect without latitude or longitude query parameters", () => {
+    const destination = buildAdminNearbySearchDestination({
+      service: "Elektriker",
+      radius: "25",
+    });
+
+    expect(destination).toContain("nearby=1");
+    expect(destination).toContain("service=Elektriker");
+    expect(destination).toContain("radius=25");
+    expect(destination).not.toContain("latitude");
+    expect(destination).not.toContain("longitude");
+  });
+
+  it("does not serialize raw coordinate inputs through the surrounding GET form", () => {
+    const source = readFileSync(
+      "src/app/admin/foretag/directory/search-preview/NearbySearchFields.tsx",
+      "utf8",
+    );
+
+    expect(source).not.toContain('name="latitude"');
+    expect(source).not.toContain('name="longitude"');
+    expect(source).toContain('name="nearbyCoordinates"');
+    expect(source).toContain("formAction={searchNearbyAction}");
   });
 
   it("lets a manual location win over stale nearby coordinates", () => {
