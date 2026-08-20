@@ -27,12 +27,10 @@ function source(path: string) {
   return readFileSync(resolve(process.cwd(), path), "utf8");
 }
 
-function escapedHref(href: string) {
-  return `href="${href.replaceAll("&", "&amp;")}"`;
-}
-
-function countOccurrences(value: string, token: string) {
-  return value.split(token).length - 1;
+function hasLink(html: string, href: string, text: string) {
+  const encodedHref = href.replaceAll("&", "&amp;");
+  const anchors = html.match(/<a\b[^>]*>[\s\S]*?<\/a>/g) ?? [];
+  return anchors.some((anchor) => anchor.includes(`href="${encodedHref}"`) && anchor.includes(text));
 }
 
 const baseResult: PublishedDirectorySearchResult = {
@@ -209,10 +207,8 @@ describe("marketplace results UI contract", () => {
     });
     expect(sv).toContain("Visar 31–60 av 65 företag");
     expect(sv).toContain('aria-current="page" aria-label="Sida 2"');
-    expect(sv).toContain("Föregående");
-    expect(sv).toContain("Nästa");
-    expect(countOccurrences(sv, escapedHref(svPage1))).toBeGreaterThanOrEqual(2);
-    expect(countOccurrences(sv, escapedHref(svPage3))).toBeGreaterThanOrEqual(2);
+    expect(hasLink(sv, svPage1, "Föregående")).toBe(true);
+    expect(hasLink(sv, svPage3, "Nästa")).toBe(true);
 
     directorySearchMocks.searchPublishedCompanyDirectory.mockClear();
     const enElement = await PublicDirectorySearchPage({
@@ -241,10 +237,8 @@ describe("marketplace results UI contract", () => {
     });
     expect(en).toContain("Showing 31–60 of 65 businesses");
     expect(en).toContain('aria-current="page" aria-label="Page 2"');
-    expect(en).toContain("Previous");
-    expect(en).toContain("Next");
-    expect(countOccurrences(en, escapedHref(enPage1))).toBeGreaterThanOrEqual(2);
-    expect(countOccurrences(en, escapedHref(enPage3))).toBeGreaterThanOrEqual(2);
+    expect(hasLink(en, enPage1, "Previous")).toBe(true);
+    expect(hasLink(en, enPage3, "Next")).toBe(true);
   });
 
   it("shows the generic quote promotion only when there are search results", () => {
