@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   applyAdminCurrentPosition,
+  applyAdminManualCoordinateEdit,
   resolveAdminDirectorySearchMode,
 } from "@/app/admin/foretag/directory/search-preview/search-behavior";
 
@@ -24,6 +25,23 @@ describe("admin directory nearby search behavior", () => {
       latitude: "59.195500",
       longitude: "17.625300",
       status: "Position hämtad. Platsfältet är rensat. Tryck Sök.",
+    });
+  });
+
+  it("clears the manual city when raw nearby coordinates are edited", () => {
+    const manualLocation = { value: "Stockholm" };
+    const latitude = applyAdminManualCoordinateEdit("59.195500", manualLocation);
+    const longitude = applyAdminManualCoordinateEdit("17.625300", manualLocation);
+
+    expect(manualLocation.value).toBe("");
+    expect(resolveAdminDirectorySearchMode({
+      location: manualLocation.value,
+      latitude,
+      longitude,
+    })).toEqual({
+      location: "",
+      latitude: "59.195500",
+      longitude: "17.625300",
     });
   });
 
