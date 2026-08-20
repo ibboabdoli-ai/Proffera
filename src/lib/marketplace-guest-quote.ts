@@ -83,7 +83,7 @@ function redactKnownPhone(value: string, phone: string) {
 
 function redactPhoneCandidates(value: string) {
   return value.replace(
-    /(?<![\p{L}\p{N}])(?:\+46|0046|0)[\d\s().-]{5,24}\d(?!\d)/gu,
+    /(?<![\p{L}\p{N}])(?:\+\d{1,3}|00\d{1,3}|0)(?:[\s().-]*\d){6,14}(?!\d)/gu,
     (candidate) => {
       const digits = candidate.replace(/\D/g, "");
       return digits.length >= 7 && digits.length <= 15 ? REDACTED_CONTACT : candidate;
@@ -336,23 +336,48 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
   }
   if (!invitationId) return { ok: false as const, code: existing ? "conflict" : "already_invited" };
 
-  // Re-read the committed dispatch reservation before the provider call. The
-  // database trigger makes 'sending' the serialization point with permanent
-  // opt-out; this read also avoids dispatching a row already suppressed by a
-  // later completed opt-out.
-  const dispatchRows = await sql`
-    select invitation.id::text
-    from marketplace_quote_invitations invitation
-    where invitation.id = ${invitationId}::uuid
-      and invitation.status = 'sending'
-      and not exists (
-        select 1
-        from marketplace_outreach_suppressions suppression
-        where suppression.email_normalized = lower(btrim(invitation.recipient_email))
-      )
-    limit 1
-  `;
-  if (!dispatchRows[0]?.id) return { ok: false as const, code: "suppressed" };
+  // Atomically claim provider dispatch. Migration 0050 makes this sending ->
+  // pending transition acquire the same normalized-email advisory lock as a
+  // permanent opt-out. The provider call starts only after this claim commits.
+  let dispatchRows;
+  try {
+    dispatchRows = await sql`
+      update marketplace_quote_invitations invitation
+      set status = 'pending', updated_at = now()
+      where invitation.id = ${invitationId}::uuid
+        and invitation.status = 'sending'
+        and not exists (
+          select 1
+          from marketplace_outreach_suppressions suppression
+          where suppression.email_normalized = lower(btrim(invitation.recipient_email))
+        )
+      returning invitation.id::text
+    `;
+  } catch (error) {
+    const details = databaseErrorDetails(error);
+    if (details.code === "23514" && details.message.includes("marketplace_recipient_suppressed")) {
+      return { ok: false as const, code: "suppressed" };
+    }
+    if (details.code === "23514" && details.message.includes("marketplace_quote_closed")) {
+      return { ok: false as const, code: "quote_closed" };
+    }
+    if (details.code === "23514" && details.message.includes("marketplace_consent_required")) {
+      return { ok: false as const, code: "consent_required" };
+    }
+    throw error;
+  }
+  if (!dispatchRows[0]?.id) {
+    const stateRows = await sql`
+      select status
+      from marketplace_quote_invitations
+      where id = ${invitationId}::uuid
+      limit 1
+    `;
+    return {
+      ok: false as const,
+      code: String(stateRows[0]?.status) === "suppressed" ? "suppressed" : "conflict",
+    };
+  }
 
   const baseUrl = input.baseUrl.replace(/\/$/, "");
   const replyUrl = `${baseUrl}/offert/svara/${encodeURIComponent(token)}`;
@@ -386,7 +411,7 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
               else 'delivery_failed'
             end,
             updated_at = now()
-        where invitation.id = ${invitationId}::uuid and invitation.status = 'sending'
+        where invitation.id = ${invitationId}::uuid and invitation.status = 'pending'
       `;
     } catch (error) {
       console.error("Failed to record marketplace guest invitation delivery failure", { invitationId, error });
@@ -408,7 +433,7 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
           sent_at = now(),
           provider_message_id = ${delivery.providerMessageId ?? ""},
           updated_at = now()
-      where invitation.id = ${invitationId}::uuid and invitation.status = 'sending'
+      where invitation.id = ${invitationId}::uuid and invitation.status = 'pending'
       returning id::text
     `;
     sentStatusRecorded = Boolean(sentRows[0]?.id);
@@ -654,9 +679,20 @@ export async function suppressMarketplaceGuestRecipient(token: string) {
       update marketplace_quote_invitations
       set status = 'suppressed', updated_at = now()
       where lower(btrim(recipient_email)) = ${email}
-        and status in ('pending', 'sending', 'sent', 'viewed', 'delivery_failed', 'expired')
+        and status in ('sending', 'sent', 'viewed', 'delivery_failed', 'expired')
     `,
   ]);
+
+  const dispatchRows = await sql`
+    select id
+    from marketplace_quote_invitations
+    where lower(btrim(recipient_email)) = ${email}
+      and status = 'pending'
+    limit 1
+  `;
+  if (dispatchRows[0]) {
+    return { ok: false as const, code: "dispatch_in_progress" };
+  }
 
   return { ok: true as const };
 }
