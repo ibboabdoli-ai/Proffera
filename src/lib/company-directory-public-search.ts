@@ -73,7 +73,7 @@ function boundedLimit(value: unknown, fallback = 30, maximum = 50) {
 function boundedPage(value: unknown) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return 1;
-  return Math.max(1, Math.min(10_000, Math.floor(parsed)));
+  return Math.max(1, Math.floor(parsed));
 }
 
 function marketplaceConversionMode(value: unknown): DirectoryMarketplaceConversionMode | null {
