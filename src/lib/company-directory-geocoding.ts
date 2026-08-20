@@ -7,6 +7,11 @@ const DEFAULT_LANTMATERIET_BASE_URL =
   "https://api.lantmateriet.se/distribution/produkter/belagenhetsadress/v4.2";
 const GEOCODE_SOURCE = "lantmateriet_belagenhetsadress_v4_2";
 const NO_MATCH_SOURCE = "lantmateriet_no_match_v4_2";
+const MAX_DETAIL_FALLBACK_CANDIDATES = 5;
+const GEOCODING_ACTION_BUDGET_MS = 240_000;
+const GEOCODING_FINAL_COUNTS_RESERVE_MS = 10_000;
+const UPSTREAM_REQUEST_TIMEOUT_MS = 12_000;
+const FETCH_DEADLINE_GUARD_MS = 1_000;
 
 export const DIRECTORY_GEOCODING_PILOT_ORGS = [
   "5563115707",
@@ -38,8 +43,28 @@ export const DIRECTORY_GEOCODING_PILOT_ORGS = [
 ] as const;
 
 type AddressComponents = {
-  postnummer?: number | string;
-  postort?: string;
+  postnummer?: number | string | null;
+  postort?: string | null;
+};
+
+type AddressPlaceDesignation = {
+  adressplatsnummer?: number | string | null;
+  bokstavstillagg?: string | null;
+  lagestillagg?: string | null;
+  lagestillaggsnummer?: number | string | null;
+  avvikandeAdressplatsbeteckning?: string | null;
+};
+
+type AddressDetailProperties = {
+  adressplatsattribut?: AddressComponents & {
+    adressplatsbeteckning?: AddressPlaceDesignation;
+  };
+  adressomrade?: {
+    faststalltNamn?: string | null;
+  };
+  gardsadressomrade?: {
+    faststalltNamn?: string | null;
+  } | null;
 };
 
 export type LantmaterietAddressReference = {
@@ -76,6 +101,13 @@ export type DirectoryGeocodingStatus = {
   needsReview: number;
 };
 
+class GeocodingDeadlineExceeded extends Error {
+  constructor() {
+    super("Company Directory geocoding action deadline reached");
+    this.name = "GeocodingDeadlineExceeded";
+  }
+}
+
 function normalizeText(value: unknown) {
   return String(value ?? "")
     .normalize("NFD")
@@ -89,6 +121,47 @@ function normalizePostcode(value: unknown) {
   return String(value ?? "").replace(/\D/g, "");
 }
 
+function normalizeStreetAddress(value: unknown) {
+  return normalizeText(cleanDirectoryStreetAddress(value))
+    .replace(/(\d)\s+([a-z])\b/g, "$1$2");
+}
+
+function isUuid(value: unknown) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    .test(String(value ?? ""));
+}
+
+function assertBeforeDeadline(deadline: number, reserveMs = 0) {
+  if (Date.now() + reserveMs >= deadline) throw new GeocodingDeadlineExceeded();
+}
+
+function requestTimeout(deadline: number) {
+  const timeoutMs = Math.min(
+    UPSTREAM_REQUEST_TIMEOUT_MS,
+    deadline - Date.now() - FETCH_DEADLINE_GUARD_MS,
+  );
+  if (timeoutMs < 1_000) throw new GeocodingDeadlineExceeded();
+  return {
+    timeoutMs,
+    deadlineBound: timeoutMs < UPSTREAM_REQUEST_TIMEOUT_MS,
+  };
+}
+
+function isAbortLikeFetchError(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const name = String((error as { name?: unknown }).name ?? "");
+  return name === "TimeoutError" || name === "AbortError";
+}
+
+export function mapDirectoryGeocodingFetchError(error: unknown, deadlineBound: boolean) {
+  if (deadlineBound && isAbortLikeFetchError(error)) return new GeocodingDeadlineExceeded();
+  return error;
+}
+
+export function classifyDirectoryGeocodingBatchError(error: unknown) {
+  return error instanceof GeocodingDeadlineExceeded ? "deadline" as const : "error" as const;
+}
+
 export function cleanDirectoryStreetAddress(value: unknown) {
   let address = String(value ?? "").trim().replace(/\s+/g, " ");
   address = address.replace(/\s*,\s*(?:bv|nb|\d+\s*tr)\s*$/i, "");
@@ -96,6 +169,12 @@ export function cleanDirectoryStreetAddress(value: unknown) {
   address = address.replace(/\s+(?:lgh|läg(?:enhet)?\s*nr)\s*\d{4}\s*$/i, "");
   address = address.replace(/\s*,\s*\d{4}\s*$/i, "");
   return address.trim();
+}
+
+export function buildDirectoryAddressSearchText(streetAddress: unknown, city: unknown) {
+  return [cleanDirectoryStreetAddress(streetAddress), String(city ?? "").trim()]
+    .filter(Boolean)
+    .join(", ");
 }
 
 export function selectUniqueDirectoryAddressReference(
@@ -110,9 +189,28 @@ export function selectUniqueDirectoryAddressReference(
     if (!components) return false;
     return normalizePostcode(components.postnummer) === expectedPostcode
       && normalizeText(components.postort) === expectedCity
-      && /^[0-9a-f-]{36}$/i.test(String(reference.objektidentitet ?? ""));
+      && isUuid(reference.objektidentitet);
   });
   return matches.length === 1 ? matches[0] : null;
+}
+
+export function selectDirectoryAddressReferenceCandidates(
+  references: LantmaterietAddressReference[],
+  postalCode: unknown,
+  city: unknown,
+) {
+  const expectedPostcode = normalizePostcode(postalCode);
+  const expectedCity = normalizeText(city);
+  if (!expectedPostcode || !expectedCity) return [];
+
+  return references.filter((reference) => {
+    if (!isUuid(reference.objektidentitet)) return false;
+    const referencePostcode = normalizePostcode(reference.adressComponents?.postnummer);
+    const referenceCity = normalizeText(reference.adressComponents?.postort);
+    const postcodeCompatible = !referencePostcode || referencePostcode === expectedPostcode;
+    const cityCompatible = !referenceCity || referenceCity === expectedCity;
+    return postcodeCompatible && cityCompatible;
+  });
 }
 
 export function parseSwerefPointGeometry(payload: unknown) {
@@ -129,6 +227,58 @@ export function parseSwerefPointGeometry(payload: unknown) {
   const northing = Number(typed.coordinates[1]);
   if (!Number.isFinite(easting) || !Number.isFinite(northing)) return null;
   return { easting, northing };
+}
+
+function detailStreetAddresses(properties: AddressDetailProperties) {
+  const designation = properties.adressplatsattribut?.adressplatsbeteckning;
+  if (!designation) return [];
+
+  const alternate = String(designation.avvikandeAdressplatsbeteckning ?? "").trim();
+  const number = String(designation.adressplatsnummer ?? "").trim();
+  const letter = String(designation.bokstavstillagg ?? "").trim();
+  const location = String(designation.lagestillagg ?? "").trim();
+  const locationNumber = String(designation.lagestillaggsnummer ?? "").trim();
+  const place = alternate || (number
+    ? `${number}${letter}${location ? ` ${location}${locationNumber}` : ""}`
+    : "");
+  if (!place) return [];
+
+  const area = String(properties.adressomrade?.faststalltNamn ?? "").trim();
+  const farmArea = String(properties.gardsadressomrade?.faststalltNamn ?? "").trim();
+  const areaNames = [
+    area,
+    farmArea,
+    area && farmArea ? `${area} ${farmArea}` : "",
+  ].filter(Boolean);
+
+  return [...new Set(areaNames.map((areaName) => `${areaName} ${place}`.trim()))];
+}
+
+export function parseExactSwerefAddressDetail(
+  payload: unknown,
+  postalCode: unknown,
+  city: unknown,
+  streetAddress: unknown,
+) {
+  if (!payload || typeof payload !== "object") return null;
+  const features = (payload as { features?: unknown }).features;
+  if (!Array.isArray(features) || features.length !== 1) return null;
+  const feature = features[0];
+  if (!feature || typeof feature !== "object") return null;
+  const properties = (feature as { properties?: unknown }).properties;
+  if (!properties || typeof properties !== "object") return null;
+  const typedProperties = properties as AddressDetailProperties;
+  const addressAttributes = typedProperties.adressplatsattribut;
+  if (!addressAttributes) return null;
+  if (normalizePostcode(addressAttributes.postnummer) !== normalizePostcode(postalCode)) return null;
+  if (normalizeText(addressAttributes.postort) !== normalizeText(city)) return null;
+
+  const expectedStreet = normalizeStreetAddress(streetAddress);
+  if (!expectedStreet) return null;
+  const officialStreets = detailStreetAddresses(typedProperties).map(normalizeStreetAddress);
+  if (!officialStreets.includes(expectedStreet)) return null;
+
+  return parseSwerefPointGeometry(payload);
 }
 
 function geocodingEnabled() {
@@ -167,45 +317,69 @@ function authorizationHeader(username: string, password: string) {
   return `Basic ${Buffer.from(`${username}:${password}`, "utf8").toString("base64")}`;
 }
 
-async function fetchJson(url: URL, username: string, password: string) {
-  const response = await fetch(url, {
-    headers: {
-      Accept: "application/json",
-      Authorization: authorizationHeader(username, password),
-    },
-    cache: "no-store",
-    signal: AbortSignal.timeout(12_000),
-  });
-  if (!response.ok) throw new Error(`Lantmäteriet request failed (${response.status})`);
-  return response.json() as Promise<unknown>;
+async function fetchJson(url: URL, username: string, password: string, deadline: number) {
+  assertBeforeDeadline(deadline);
+  const { timeoutMs, deadlineBound } = requestTimeout(deadline);
+  try {
+    const response = await fetch(url, {
+      headers: {
+        Accept: "application/json",
+        Authorization: authorizationHeader(username, password),
+      },
+      cache: "no-store",
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!response.ok) throw new Error(`Lantmäteriet request failed (${response.status})`);
+    return await response.json() as unknown;
+  } catch (error) {
+    throw mapDirectoryGeocodingFetchError(error, deadlineBound);
+  }
 }
 
-async function resolveOfficialAddress(profile: PilotProfile, config: ReturnType<typeof getGeocodingConfig>) {
+async function resolveOfficialAddress(
+  profile: PilotProfile,
+  config: ReturnType<typeof getGeocodingConfig>,
+  deadline: number,
+) {
+  assertBeforeDeadline(deadline);
   const streetAddress = cleanDirectoryStreetAddress(profile.addressLine1);
   if (!streetAddress || streetAddress.toLocaleLowerCase("sv-SE").startsWith("box ")) return null;
 
   const searchUrl = new URL(`${config.baseUrl}/referens/fritext`);
-  searchUrl.searchParams.set("adress", `${streetAddress}, ${profile.postalCode} ${profile.city}`);
+  searchUrl.searchParams.set("adress", buildDirectoryAddressSearchText(streetAddress, profile.city));
   searchUrl.searchParams.set("status", "Gällande");
   searchUrl.searchParams.set("maxHits", "20");
   searchUrl.searchParams.set("splitAdress", "true");
 
-  const referencePayload = await fetchJson(searchUrl, config.username, config.password);
+  const referencePayload = await fetchJson(searchUrl, config.username, config.password, deadline);
   if (!Array.isArray(referencePayload)) return null;
-  const reference = selectUniqueDirectoryAddressReference(
+  const candidates = selectDirectoryAddressReferenceCandidates(
     referencePayload as LantmaterietAddressReference[],
     profile.postalCode,
     profile.city,
   );
-  if (!reference?.objektidentitet) return null;
+  if (candidates.length === 0 || candidates.length > MAX_DETAIL_FALLBACK_CANDIDATES) return null;
 
-  const detailUrl = new URL(`${config.baseUrl}/${encodeURIComponent(reference.objektidentitet)}`);
-  detailUrl.searchParams.set("includeData", "basinformation");
-  detailUrl.searchParams.set("srid", "3006");
-  const detailPayload = await fetchJson(detailUrl, config.username, config.password);
-  const point = parseSwerefPointGeometry(detailPayload);
-  if (!point) return null;
-  return { ...point, objectId: reference.objektidentitet };
+  let resolved: { easting: number; northing: number; objectId: string } | null = null;
+  for (const candidate of candidates) {
+    assertBeforeDeadline(deadline);
+    if (!candidate.objektidentitet) continue;
+    const detailUrl = new URL(`${config.baseUrl}/${encodeURIComponent(candidate.objektidentitet)}`);
+    detailUrl.searchParams.set("includeData", "basinformation");
+    detailUrl.searchParams.set("srid", "3006");
+    const detailPayload = await fetchJson(detailUrl, config.username, config.password, deadline);
+    const point = parseExactSwerefAddressDetail(
+      detailPayload,
+      profile.postalCode,
+      profile.city,
+      streetAddress,
+    );
+    if (!point) continue;
+    if (resolved) return null;
+    resolved = { ...point, objectId: candidate.objektidentitet };
+  }
+
+  return resolved;
 }
 
 async function postgisReady() {
@@ -219,7 +393,8 @@ async function postgisReady() {
   return Boolean(rows[0]?.ready);
 }
 
-async function pilotCounts() {
+async function pilotCounts(deadline?: number) {
+  if (deadline) assertBeforeDeadline(deadline);
   const sql = getSql();
   if (!sql) {
     return { geocoded: 0, remaining: DIRECTORY_GEOCODING_PILOT_ORGS.length, needsReview: 0 };
@@ -260,7 +435,8 @@ export async function getDirectoryGeocodingStatus(): Promise<DirectoryGeocodingS
   };
 }
 
-async function markNoMatch(profileId: string) {
+async function markNoMatch(profileId: string, deadline?: number) {
+  if (deadline) assertBeforeDeadline(deadline);
   const sql = getSql();
   if (!sql) return;
   await sql`
@@ -283,13 +459,19 @@ async function markNoMatch(profileId: string) {
 }
 
 export async function geocodeDirectoryPilotFromAdmin(limit = 5): Promise<DirectoryGeocodingBatchResult> {
+  const actionDeadline = Date.now() + GEOCODING_ACTION_BUDGET_MS;
+  const processingDeadline = actionDeadline - GEOCODING_FINAL_COUNTS_RESERVE_MS;
+
   await requireSuperAdmin();
+  assertBeforeDeadline(actionDeadline);
   const sql = getSql();
   if (!sql) throw new Error("Database is not configured");
   const config = getGeocodingConfig();
   if (!config.configured) throw new Error("Lantmäteriet geocoding is not configured");
+  assertBeforeDeadline(actionDeadline);
   if (!(await postgisReady())) throw new Error("PostGIS is not installed");
 
+  assertBeforeDeadline(processingDeadline);
   const boundedLimit = Math.max(1, Math.min(5, Math.floor(Number(limit) || 5)));
   const orgsJson = JSON.stringify(DIRECTORY_GEOCODING_PILOT_ORGS);
   const rows = await sql`
@@ -317,11 +499,14 @@ export async function geocodeDirectoryPilotFromAdmin(limit = 5): Promise<Directo
     limit ${boundedLimit}
   `;
 
+  let attempted = 0;
   let geocoded = 0;
   let noMatch = 0;
   let errors = 0;
 
   for (const row of rows) {
+    if (Date.now() >= processingDeadline) break;
+    attempted += 1;
     const profile: PilotProfile = {
       id: String(row.id),
       organizationNumber: String(row.organization_number),
@@ -331,12 +516,14 @@ export async function geocodeDirectoryPilotFromAdmin(limit = 5): Promise<Directo
       city: String(row.city),
     };
     try {
-      const resolved = await resolveOfficialAddress(profile, config);
+      const resolved = await resolveOfficialAddress(profile, config, processingDeadline);
+      assertBeforeDeadline(processingDeadline);
       if (!resolved) {
-        await markNoMatch(profile.id);
+        await markNoMatch(profile.id, processingDeadline);
         noMatch += 1;
         continue;
       }
+      assertBeforeDeadline(processingDeadline);
       const saved = await sql`
         with transformed as (
           select ST_Transform(
@@ -373,14 +560,15 @@ export async function geocodeDirectoryPilotFromAdmin(limit = 5): Promise<Directo
         returning profile_id
       `;
       if (saved[0]) geocoded += 1;
-    } catch {
+    } catch (error) {
+      if (classifyDirectoryGeocodingBatchError(error) === "deadline") break;
       errors += 1;
     }
   }
 
-  const counts = await pilotCounts();
+  const counts = await pilotCounts(actionDeadline);
   return {
-    attempted: rows.length,
+    attempted,
     geocoded,
     noMatch,
     errors,
