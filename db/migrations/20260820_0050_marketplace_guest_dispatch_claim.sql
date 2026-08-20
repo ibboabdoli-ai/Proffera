@@ -7,6 +7,11 @@
 --   2. provider dispatch is already claimed and opt-out is recorded while the UI
 --      reports that one already-started delivery may still complete.
 --
+-- Production forward deployment order: apply this migration before deploying
+-- the marketplace-guest-quote.ts application changes that perform the
+-- `sending` -> `pending` provider-dispatch claim. This ensures claim
+-- serialization is active before the application can enter the pending state.
+--
 -- Production rollback note: roll application code back first, then restore the
 -- 0049 function definition (guarding `sending` only) if this migration itself
 -- must be reversed. Do not remove suppression rows as part of that rollback.
