@@ -29,6 +29,7 @@ export function NearbySearchFields({
   locationInputId = "",
   available = true,
   unavailableMessage = "Nära mig är inte redo ännu.",
+  searchNearbyAction,
 }: {
   defaultLatitude?: string;
   defaultLongitude?: string;
@@ -36,6 +37,7 @@ export function NearbySearchFields({
   locationInputId?: string;
   available?: boolean;
   unavailableMessage?: string;
+  searchNearbyAction: (formData: FormData) => Promise<void>;
 }) {
   const [latitude, setLatitude] = useState(defaultLatitude);
   const [longitude, setLongitude] = useState(defaultLongitude);
@@ -141,6 +143,9 @@ export function NearbySearchFields({
 
         <button
           type="submit"
+          name="nearbyCoordinates"
+          value={hasPosition ? `${latitude},${longitude}` : ""}
+          formAction={searchNearbyAction}
           disabled={!hasPosition || locating}
           className="min-h-12 rounded-xl bg-[#173e2b] px-5 text-sm font-black text-white disabled:cursor-not-allowed disabled:bg-[#d9dedb] disabled:text-[#7b847e]"
         >
@@ -155,13 +160,13 @@ export function NearbySearchFields({
           Teknisk info
         </summary>
         <p className="mt-2 text-xs leading-5 text-[#717b74]">
-          Webbläsarens koordinater används för själva Nära mig-sökningen. Normalt räcker knappen Använd min position; fälten nedan är främst för felsökning.
+          Webbläsarens koordinater används för själva Nära mig-sökningen men läggs inte i URL:en. Normalt räcker knappen Använd min position; fälten nedan är främst för felsökning.
         </p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <label className="grid gap-2 text-xs font-bold text-[#465149]">
             Latitude
             <input
-              name="latitude"
+              aria-label="Latitude"
               value={latitude}
               onChange={(event) => {
                 setLatitude(applyAdminManualCoordinateEdit(event.target.value, getManualLocationField()));
@@ -174,7 +179,7 @@ export function NearbySearchFields({
           <label className="grid gap-2 text-xs font-bold text-[#465149]">
             Longitude
             <input
-              name="longitude"
+              aria-label="Longitude"
               value={longitude}
               onChange={(event) => {
                 setLongitude(applyAdminManualCoordinateEdit(event.target.value, getManualLocationField()));
