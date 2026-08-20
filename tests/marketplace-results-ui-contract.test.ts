@@ -250,6 +250,16 @@ describe("marketplace results UI contract", () => {
 
     expect(locationOnly).not.toContain("Sök i hela Sverige");
     expect(locationOnly).toContain("Få offerter");
+
+    const serviceAndLocation = render(
+      "sv",
+      [],
+      {},
+      "/foretag/listad?service=stadning&location=Stockholm",
+    );
+
+    expect(serviceAndLocation).toContain("Sök i hela Sverige");
+    expect(serviceAndLocation).toContain('href="/foretag/listad?service=stadning"');
   });
 
   it("does not manufacture a Near me attempt for a manual location search", () => {

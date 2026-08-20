@@ -29,8 +29,13 @@ vi.mock("@/lib/company-directory-public-data", () => ({
 vi.mock("@/components/company-directory/public-directory-profile", () => ({
   PublicDirectoryProfile: () => null,
 }));
+vi.mock("@/components/company-directory/public-directory-search-page", () => ({
+  PublicDirectorySearchPage: () => null,
+}));
 
+import { metadata as englishListingMetadata } from "@/app/en/companies/page";
 import { generateMetadata as generateEnglishMetadata } from "@/app/en/companies/[slug]/page";
+import { metadata as swedishListingMetadata } from "@/app/foretag/listad/page";
 import { generateMetadata as generateSwedishMetadata } from "@/app/foretag/listad/[slug]/page";
 import sitemap from "@/app/sitemap";
 import { siteConfig } from "@/lib/site";
@@ -70,6 +75,8 @@ describe("public directory SEO hygiene", () => {
 
     expect(routes.some((route) => route.url === `${siteConfig.url}/foretag/listad`)).toBe(false);
     expect(routes.some((route) => route.url === `${siteConfig.url}/en/companies`)).toBe(false);
+    expect(swedishListingMetadata.robots).toEqual({ index: false, follow: true });
+    expect(englishListingMetadata.robots).toEqual({ index: false, follow: true });
     expect(routes.find((route) => route.url === svUrl)).toEqual(expect.objectContaining({
       lastModified: new Date("2026-08-20T00:00:00Z"),
       alternates: { languages },
