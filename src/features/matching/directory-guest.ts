@@ -257,9 +257,28 @@ export async function getDirectoryGuestLeadMatches() {
       };
     }
     const requiredCategoryCsv = [...requiredCategories].join(",");
+    const requiredLocalities = [...new Set(
+      typedLeads
+        .map((lead) => text(lead.city).toLocaleLowerCase("sv-SE"))
+        .filter(Boolean),
+    )];
+    if (requiredLocalities.length === 0) {
+      return {
+        ok: true as const,
+        matches: typedLeads.map((lead) => ({
+          lead,
+          candidates: [],
+          offers: offersByQuote.get(lead.id) ?? [],
+        })),
+      };
+    }
+    const requiredLocalitiesJson = JSON.stringify(requiredLocalities);
 
     const candidates = await sql`
-      with ranked_candidates as (
+      with required_localities as (
+        select value as locality
+        from jsonb_array_elements_text(${requiredLocalitiesJson}::jsonb)
+      ), ranked_candidates as (
         select
           profile.id::text as profile_id,
           profile.public_slug,
@@ -299,6 +318,12 @@ export async function getDirectoryGuestLeadMatches() {
           and profile.organization_kind = 'juridical_person'
           and profile.is_active = true
           and profile.privacy_blocked = false
+          and exists (
+            select 1
+            from required_localities locality
+            where lower(btrim(profile.city)) = locality.locality
+               or lower(btrim(profile.municipality)) = locality.locality
+          )
       )
       select
         profile_id,
@@ -351,9 +376,10 @@ export async function getDirectoryGuestLeadMatches() {
 
     const matches = typedLeads.map((lead) => {
       const category = serviceCategoryForQuoteCategory(lead.category);
+      const hasCity = Boolean(text(lead.city));
       return {
         lead,
-        candidates: category ? rankDirectoryGuestCandidates(lead, rowsByCategory.get(category) ?? []) : [],
+        candidates: category && hasCity ? rankDirectoryGuestCandidates(lead, rowsByCategory.get(category) ?? []) : [],
         offers: offersByQuote.get(lead.id) ?? [],
       };
     });
