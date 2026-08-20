@@ -106,7 +106,9 @@ export async function sendMarketplaceGuestInvitationEmail(input: MarketplaceGues
         subject: email.subject,
         textContent: email.text,
         htmlContent: email.html,
-        headers: { "Idempotency-Key": input.idempotencyKey },
+        // Brevo's transactional-email idempotency guide defines this inside
+        // the JSON `headers` object. Reuse the durable dispatch UUID for retries.
+        headers: { idempotencyKey: input.idempotencyKey },
         tags: ["marketplace-guest-invitation"],
       }),
     });
