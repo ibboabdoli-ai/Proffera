@@ -10,7 +10,7 @@ const profile = {
 };
 
 describe("Company Directory SCB public address resolution", () => {
-  it("uses the complete visiting address for a single-workplace company instead of a company PO box", () => {
+  it("uses the complete visiting address for a true single-workplace company instead of a company PO box", () => {
     const resolved = resolveCompanyDirectoryPublicAddress(profile, [{
       municipality: "Stockholm",
       visitingAddress: {
@@ -112,5 +112,56 @@ describe("Company Directory SCB public address resolution", () => {
     ]);
 
     expect(resolved).toEqual(fallback);
+  });
+
+  it("does not treat one complete address as single-workplace when other workplaces are incomplete", () => {
+    const fallback = {
+      addressLine1: "Box 10",
+      postalCode: "10010",
+      city: "STOCKHOLM",
+      municipality: "Stockholm",
+    };
+    const resolved = resolveCompanyDirectoryPublicAddress(fallback, [
+      {
+        municipality: "Solna",
+        visitingAddress: {
+          addressLine: "Dalvägen 22",
+          postalCode: "169 79",
+          city: "SOLNA",
+        },
+      },
+      {
+        municipality: "Stockholm",
+        visitingAddress: {
+          addressLine: "Okändgatan 2",
+          postalCode: "",
+          city: "STOCKHOLM",
+        },
+      },
+    ]);
+
+    expect(resolved).toEqual(fallback);
+  });
+
+  it("does not mix a selected SCB visiting address with the old profile municipality", () => {
+    const resolved = resolveCompanyDirectoryPublicAddress({
+      addressLine1: "Gamla vägen 1",
+      postalCode: "11111",
+      city: "STOCKHOLM",
+      municipality: "Stockholm",
+    }, [{
+      visitingAddress: {
+        addressLine: "NYA VÄGEN 2",
+        postalCode: "16979",
+        city: "SOLNA",
+      },
+    }]);
+
+    expect(resolved).toEqual({
+      addressLine1: "NYA VÄGEN 2",
+      postalCode: "169 79",
+      city: "SOLNA",
+      municipality: "",
+    });
   });
 });

@@ -60,14 +60,26 @@ function uniqueMatch(
   return matches.length === 1 ? matches[0] : null;
 }
 
+function selectedAddress(address: ScbWorkplaceAddress): DirectoryPublicAddress {
+  return {
+    addressLine1: address.addressLine1,
+    postalCode: address.postalCode,
+    city: address.city,
+    municipality: address.municipality,
+  };
+}
+
 /**
  * Resolve a customer-facing address without confusing SCB postal addresses
  * (which may be a PO box) with a workplace visiting address.
  *
- * Single-workplace companies can safely use the complete visiting address.
+ * A true single-workplace company can safely use its complete visiting address.
  * Multi-workplace companies are only switched when one workplace uniquely
  * matches the profile's current street or postal-code/city pair. Otherwise the
  * existing profile address remains the safe, non-guessed fallback.
+ *
+ * The selected SCB address is kept coherent: municipality is never borrowed
+ * from the old profile address when SCB did not provide it for that workplace.
  */
 export function resolveCompanyDirectoryPublicAddress(
   profile: DirectoryPublicAddress,
@@ -85,14 +97,8 @@ export function resolveCompanyDirectoryPublicAddress(
     .map((value, index) => workplaceVisitingAddress(value, index))
     .filter((value): value is ScbWorkplaceAddress => Boolean(value));
   if (complete.length === 0) return fallback;
-  if (complete.length === 1) {
-    const selected = complete[0];
-    return {
-      addressLine1: selected.addressLine1,
-      postalCode: selected.postalCode,
-      city: selected.city,
-      municipality: selected.municipality || fallback.municipality,
-    };
+  if (workplaces.length === 1 && complete.length === 1) {
+    return selectedAddress(complete[0]);
   }
 
   const normalizedStreet = normalizeText(fallback.addressLine1);
@@ -101,14 +107,7 @@ export function resolveCompanyDirectoryPublicAddress(
       complete,
       (address) => normalizeText(address.addressLine1) === normalizedStreet,
     );
-    if (streetMatch) {
-      return {
-        addressLine1: streetMatch.addressLine1,
-        postalCode: streetMatch.postalCode,
-        city: streetMatch.city,
-        municipality: streetMatch.municipality || fallback.municipality,
-      };
-    }
+    if (streetMatch) return selectedAddress(streetMatch);
   }
 
   const normalizedPostal = normalizePostalCode(fallback.postalCode);
@@ -119,14 +118,7 @@ export function resolveCompanyDirectoryPublicAddress(
       (address) => normalizePostalCode(address.postalCode) === normalizedPostal
         && (!normalizedCity || normalizeText(address.city) === normalizedCity),
     );
-    if (postalMatch) {
-      return {
-        addressLine1: postalMatch.addressLine1,
-        postalCode: postalMatch.postalCode,
-        city: postalMatch.city,
-        municipality: postalMatch.municipality || fallback.municipality,
-      };
-    }
+    if (postalMatch) return selectedAddress(postalMatch);
   }
 
   return fallback;
