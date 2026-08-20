@@ -112,7 +112,7 @@ async function selectCandidates(limit: number) {
     left join company_directory_scb_enrichment scb on scb.profile_id = profile.id
     where profile.country_code = 'SE'
       and profile.organization_kind = 'juridical_person'
-      and profile.publication_status in ('published', 'ready', 'review', 'inactive')
+      and profile.publication_status in ('published', 'ready', 'review', 'inactive', 'claimed')
       and length(regexp_replace(profile.organization_number, '\\D', '', 'g')) = 10
       and (
         facts.profile_id is null
@@ -130,7 +130,8 @@ async function selectCandidates(limit: number) {
         when 'ready' then 1
         when 'review' then 2
         when 'inactive' then 3
-        else 4
+        when 'claimed' then 4
+        else 5
       end,
       scb.last_synced_at asc nulls first,
       profile.organization_number asc
@@ -149,7 +150,7 @@ async function backlogCount() {
     left join company_directory_scb_enrichment scb on scb.profile_id = profile.id
     where profile.country_code = 'SE'
       and profile.organization_kind = 'juridical_person'
-      and profile.publication_status in ('published', 'ready', 'review', 'inactive')
+      and profile.publication_status in ('published', 'ready', 'review', 'inactive', 'claimed')
       and length(regexp_replace(profile.organization_number, '\\D', '', 'g')) = 10
       and (
         facts.profile_id is null
