@@ -326,6 +326,7 @@ export async function revalidateAllCompanyDirectoryBatch(
   try {
     candidates = await selectCandidates(safeLimit);
 
+    candidateLoop:
     for (let index = 0; index < candidates.length; index += 1) {
       if (deadlineReached(options.deadlineAt)) {
         deferred += candidates.length - index;
@@ -343,6 +344,11 @@ export async function revalidateAllCompanyDirectoryBatch(
 
       try {
         await enrichCompanyDirectoryOfficialFactsForProfile(profileId);
+        if (deadlineReached(options.deadlineAt)) {
+          deferred += candidates.length - index;
+          break candidateLoop;
+        }
+
         const scb = await enrichCompanyDirectoryScbForProfile(profileId, transport, {
           allowWhenDisabledWithExplicitTransport: true,
         });
@@ -430,8 +436,14 @@ export async function revalidateAllCompanyDirectoryBatch(
         movedToReview += 1;
 
         // The status transition updates profile.updated_at. Refresh SCB once more so
-        // the saved provenance matches the final profile token and does not create
-        // an artificial stale-snapshot loop on the next scheduled run.
+        // the saved provenance matches the final profile token. If the shared cron
+        // deadline has arrived, leave this profile deferred so the next run repairs
+        // the final snapshot instead of starting another external request.
+        if (deadlineReached(options.deadlineAt)) {
+          deferred += candidates.length - index;
+          break candidateLoop;
+        }
+
         const finalScb = await enrichCompanyDirectoryScbForProfile(profileId, transport, {
           allowWhenDisabledWithExplicitTransport: true,
         });
