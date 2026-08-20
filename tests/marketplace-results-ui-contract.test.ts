@@ -3,13 +3,32 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+const directorySearchMocks = vi.hoisted(() => ({
+  getPublishedDirectoryLocationSuggestions: vi.fn(),
+  searchPublishedCompanyDirectory: vi.fn(),
+}));
+
+vi.mock("@/lib/company-directory-public-search", () => ({
+  getPublishedDirectoryLocationSuggestions: directorySearchMocks.getPublishedDirectoryLocationSuggestions,
+  searchPublishedCompanyDirectory: directorySearchMocks.searchPublishedCompanyDirectory,
+}));
 
 import { PublicDirectoryResults } from "@/components/company-directory/public-directory-results";
+import { PublicDirectorySearchPage } from "@/components/company-directory/public-directory-search-page";
 import type { PublishedDirectorySearchResponse, PublishedDirectorySearchResult } from "@/lib/company-directory-public-search";
 
 function source(path: string) {
   return readFileSync(resolve(process.cwd(), path), "utf8");
+}
+
+function escapedHref(href: string) {
+  return `href="${href.replaceAll("&", "&amp;")}"`;
+}
+
+function countOccurrences(value: string, token: string) {
+  return value.split(token).length - 1;
 }
 
 const baseResult: PublishedDirectorySearchResult = {
@@ -154,64 +173,74 @@ describe("marketplace results UI contract", () => {
     expect(html).not.toContain("Begär offert");
   });
 
-  it("shows real totals and page 1, 2 and 3 links while preserving the search", () => {
-    const html = render(
-      "sv",
-      [baseResult],
-      { totalCount: 65, page: 1, pageSize: 30, totalPages: 3 },
-      "/foretag/listad?service=Elektriker&location=S%C3%B6dert%C3%A4lje",
-    );
-    const en = render(
-      "en",
-      [baseResult],
-      { totalCount: 65, page: 1, pageSize: 30, totalPages: 3 },
-      "/en/companies?service=Electrician&location=S%C3%B6dert%C3%A4lje",
+  it("renders exact Swedish and English pagination destinations from the real search-page filter path", async () => {
+    directorySearchMocks.getPublishedDirectoryLocationSuggestions.mockResolvedValue([]);
+    directorySearchMocks.searchPublishedCompanyDirectory.mockResolvedValue(
+      response([baseResult], { totalCount: 65, page: 2, pageSize: 30, totalPages: 3 }),
     );
 
-    expect(html).toContain("65 företag matchar din sökning");
-    expect(html).toContain("Visar 1–30 av 65 företag");
-    expect(html).toContain('aria-label="Sida 2"');
-    expect(html).toContain('aria-label="Sida 3"');
-    expect(html).toContain("service=Elektriker");
-    expect(html).toContain("location=S%C3%B6dert%C3%A4lje");
-    expect(html).toContain("page=2");
-    expect(html).toContain("page=3");
+    const svElement = await PublicDirectorySearchPage({
+      locale: "sv",
+      searchParams: Promise.resolve({
+        service: "Elektriker",
+        location: "Södertälje",
+        latitude: "59.1955",
+        longitude: "17.6253",
+        radius: "30",
+        page: "2",
+      }),
+    });
+    const sv = renderToStaticMarkup(svElement);
+    const svPage1 = "/foretag/listad?service=Elektriker&location=S%C3%B6dert%C3%A4lje&latitude=59.1955&longitude=17.6253&radius=30";
+    const svPage3 = `${svPage1}&page=3`;
 
-    expect(en).toContain("65 businesses match your search");
-    expect(en).toContain("Showing 1–30 of 65 businesses");
-    expect(en).toContain('aria-label="Page 2"');
-    expect(en).toContain('aria-label="Page 3"');
-    expect(en).toContain("service=Electrician");
-    expect(en).toContain("location=S%C3%B6dert%C3%A4lje");
-    expect(en).toContain("page=2");
-    expect(en).toContain("page=3");
-  });
+    expect(directorySearchMocks.searchPublishedCompanyDirectory).toHaveBeenCalledWith({
+      service: "Elektriker",
+      location: "Södertälje",
+      latitude: "59.1955",
+      longitude: "17.6253",
+      radiusKm: "30",
+      page: "2",
+      limit: 30,
+    });
+    expect(sv).toContain("Visar 31–60 av 65 företag");
+    expect(sv).toContain('aria-current="page" aria-label="Sida 2"');
+    expect(sv).toContain("Föregående");
+    expect(sv).toContain("Nästa");
+    expect(countOccurrences(sv, escapedHref(svPage1))).toBeGreaterThanOrEqual(2);
+    expect(countOccurrences(sv, escapedHref(svPage3))).toBeGreaterThanOrEqual(2);
 
-  it("shows the correct range and current page on page two", () => {
-    const html = render(
-      "sv",
-      [baseResult],
-      { totalCount: 65, page: 2, pageSize: 30, totalPages: 3 },
-      "/foretag/listad?service=Elektriker&location=S%C3%B6dert%C3%A4lje",
-    );
-    const en = render(
-      "en",
-      [baseResult],
-      { totalCount: 65, page: 2, pageSize: 30, totalPages: 3 },
-      "/en/companies?service=Electrician&location=S%C3%B6dert%C3%A4lje",
-    );
+    directorySearchMocks.searchPublishedCompanyDirectory.mockClear();
+    const enElement = await PublicDirectorySearchPage({
+      locale: "en",
+      searchParams: Promise.resolve({
+        service: "Electrician",
+        location: "Södertälje",
+        latitude: "59.1955",
+        longitude: "17.6253",
+        radius: "30",
+        page: "2",
+      }),
+    });
+    const en = renderToStaticMarkup(enElement);
+    const enPage1 = "/en/companies?service=Electrician&location=S%C3%B6dert%C3%A4lje&latitude=59.1955&longitude=17.6253&radius=30";
+    const enPage3 = `${enPage1}&page=3`;
 
-    expect(html).toContain("Visar 31–60 av 65 företag");
-    expect(html).toContain("Föregående");
-    expect(html).toContain("Nästa");
-    expect(html).toContain('aria-current="page" aria-label="Sida 2"');
-
+    expect(directorySearchMocks.searchPublishedCompanyDirectory).toHaveBeenCalledWith({
+      service: "elinstallation",
+      location: "Södertälje",
+      latitude: "59.1955",
+      longitude: "17.6253",
+      radiusKm: "30",
+      page: "2",
+      limit: 30,
+    });
     expect(en).toContain("Showing 31–60 of 65 businesses");
+    expect(en).toContain('aria-current="page" aria-label="Page 2"');
     expect(en).toContain("Previous");
     expect(en).toContain("Next");
-    expect(en).toContain('aria-current="page" aria-label="Page 2"');
-    expect(en).toContain("service=Electrician");
-    expect(en).toContain("location=S%C3%B6dert%C3%A4lje");
+    expect(countOccurrences(en, escapedHref(enPage1))).toBeGreaterThanOrEqual(2);
+    expect(countOccurrences(en, escapedHref(enPage3))).toBeGreaterThanOrEqual(2);
   });
 
   it("shows the generic quote promotion only when there are search results", () => {

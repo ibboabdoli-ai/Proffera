@@ -121,7 +121,11 @@ describe("hybrid directory marketplace search", () => {
     });
     expect(bookHtml).toContain('data-marketplace-action="book"');
     expect(bookHtml).toContain('/boka/marketplace-company?service_id=service-1');
+    expect(bookHtml).toContain('data-marketplace-action="company"');
     expect(bookHtml).not.toContain('data-marketplace-action="quote"');
+    expect(bookHtml).not.toContain('data-marketplace-action="contact"');
+    expect(bookHtml).not.toContain('data-marketplace-action="service"');
+    expect(bookHtml).not.toContain('data-marketplace-action="directory-profile"');
 
     const quoteHtml = renderResult({
       ...commonMarketplace,
@@ -130,7 +134,11 @@ describe("hybrid directory marketplace search", () => {
     });
     expect(quoteHtml).toContain('data-marketplace-action="quote"');
     expect(quoteHtml).toContain('/foretag/marketplace-company/tjanster/frisor#offert');
+    expect(quoteHtml).toContain('data-marketplace-action="company"');
     expect(quoteHtml).not.toContain('data-marketplace-action="book"');
+    expect(quoteHtml).not.toContain('data-marketplace-action="contact"');
+    expect(quoteHtml).not.toContain('data-marketplace-action="service"');
+    expect(quoteHtml).not.toContain('data-marketplace-action="directory-profile"');
 
     const hybridHtml = renderResult({
       ...commonMarketplace,
@@ -142,6 +150,10 @@ describe("hybrid directory marketplace search", () => {
     expect(hybridHtml).toContain('/boka/marketplace-company?service_id=service-1');
     expect(hybridHtml).toContain('data-marketplace-action="quote"');
     expect(hybridHtml).toContain('/foretag/marketplace-company/tjanster/frisor#offert');
+    expect(hybridHtml).toContain('data-marketplace-action="company"');
+    expect(hybridHtml).not.toContain('data-marketplace-action="contact"');
+    expect(hybridHtml).not.toContain('data-marketplace-action="service"');
+    expect(hybridHtml).not.toContain('data-marketplace-action="directory-profile"');
 
     const contactHtml = renderResult({
       ...commonMarketplace,
@@ -150,7 +162,11 @@ describe("hybrid directory marketplace search", () => {
     });
     expect(contactHtml).toContain('data-marketplace-action="contact"');
     expect(contactHtml).toContain('/foretag/marketplace-company/tjanster/frisor#kontaktforfragan');
+    expect(contactHtml).toContain('data-marketplace-action="company"');
     expect(contactHtml).not.toContain('data-marketplace-action="book"');
+    expect(contactHtml).not.toContain('data-marketplace-action="quote"');
+    expect(contactHtml).not.toContain('data-marketplace-action="service"');
+    expect(contactHtml).not.toContain('data-marketplace-action="directory-profile"');
 
     const directoryHtml = renderResult();
     expect(directoryHtml).toContain('data-marketplace-action="directory-profile"');
@@ -158,5 +174,7 @@ describe("hybrid directory marketplace search", () => {
     expect(directoryHtml).not.toContain('data-marketplace-action="book"');
     expect(directoryHtml).not.toContain('data-marketplace-action="quote"');
     expect(directoryHtml).not.toContain('data-marketplace-action="contact"');
+    expect(directoryHtml).not.toContain('data-marketplace-action="service"');
+    expect(directoryHtml).not.toContain('data-marketplace-action="company"');
   });
 });
