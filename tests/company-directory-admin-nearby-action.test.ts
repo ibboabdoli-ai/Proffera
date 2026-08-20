@@ -63,4 +63,34 @@ describe("admin directory Nearby server action", () => {
       }),
     );
   });
+
+  it("stores a valid Nearby position briefly and redirects without exposing coordinates", async () => {
+    const formData = new FormData();
+    formData.set("service", "Elektriker");
+    formData.set("radius", "50");
+    formData.set("nearbyCoordinates", "59.1955,17.6253");
+
+    await expect(searchDirectoryNearbyAction(formData)).rejects.toThrow("NEXT_REDIRECT");
+
+    expect(mocks.requireSuperAdmin).toHaveBeenCalledTimes(1);
+    expect(mocks.cookieSet).toHaveBeenCalledWith(
+      ADMIN_DIRECTORY_NEARBY_COOKIE,
+      "59.195500,17.625300",
+      expect.objectContaining({
+        httpOnly: true,
+        sameSite: "lax",
+        maxAge: 300,
+        path: "/admin/foretag/directory/search-preview",
+      }),
+    );
+
+    const destination = String(mocks.redirect.mock.calls[0]?.[0] ?? "");
+    expect(destination).toContain("nearby=1");
+    expect(destination).toContain("service=Elektriker");
+    expect(destination).toContain("radius=50");
+    expect(destination).not.toContain("latitude");
+    expect(destination).not.toContain("longitude");
+    expect(destination).not.toContain("59.195500");
+    expect(destination).not.toContain("17.625300");
+  });
 });
