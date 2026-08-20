@@ -36,4 +36,17 @@ describe("Bolagsverket official facts parser", () => {
 
     expect(facts.ongoingProcedures[0]?.fromDate).toBe("2026-08-20");
   });
+
+  it("accepts a whitespace-separated timestamp", () => {
+    const facts = extractOfficialFacts({
+      pagaendeAvvecklingsEllerOmstruktureringsforfarande: {
+        pagaendeAvvecklingsEllerOmstruktureringsforfarandeLista: {
+          kod: "REKONSTRUKTION",
+          fromDatum: "2026-08-20 14:30:00Z",
+        },
+      },
+    });
+
+    expect(facts.ongoingProcedures[0]?.fromDate).toBe("2026-08-20");
+  });
 });

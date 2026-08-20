@@ -3,6 +3,7 @@ import "server-only";
 import { unstable_cache } from "next/cache";
 
 import { gateDirectoryDirectContact } from "@/lib/company-directory-contact-entitlement";
+import { PUBLISHED_DIRECTORY_LOCATION_SUGGESTIONS_TAG } from "@/lib/company-directory-cache";
 import { normalizeDirectoryRadiusKm, parseDirectoryCoordinates } from "@/lib/company-directory-distance";
 import {
   confirmedCompanyDirectoryServiceAreaCoversSearch,
@@ -109,7 +110,10 @@ const loadPublishedDirectoryLocationSuggestions = unstable_cache(async (safeLimi
   `;
 
   return rows.map((row) => String(row.location_label));
-}, ["published-directory-location-suggestions"], { revalidate: 300 });
+}, [PUBLISHED_DIRECTORY_LOCATION_SUGGESTIONS_TAG], {
+  revalidate: 300,
+  tags: [PUBLISHED_DIRECTORY_LOCATION_SUGGESTIONS_TAG],
+});
 
 export async function getPublishedDirectoryLocationSuggestions(limit = 50) {
   return loadPublishedDirectoryLocationSuggestions(boundedLimit(limit, 50, 100));

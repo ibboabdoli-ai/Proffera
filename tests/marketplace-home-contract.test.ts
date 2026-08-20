@@ -1,9 +1,20 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const mocks = vi.hoisted(() => ({
+  getSql: vi.fn(),
+  unstableCache: vi.fn((callback: (...args: unknown[]) => unknown) => callback),
+}));
+
+vi.mock("server-only", () => ({}));
+vi.mock("next/cache", () => ({ unstable_cache: mocks.unstableCache }));
+vi.mock("@/lib/db/server", () => ({ getSql: mocks.getSql }));
+
+import { PUBLISHED_DIRECTORY_LOCATION_SUGGESTIONS_TAG } from "@/lib/company-directory-cache";
 import { mapSniToDirectoryCategory } from "@/lib/company-directory-policy";
+import { getPublishedDirectoryLocationSuggestions } from "@/lib/company-directory-public-search";
 import { resolveDirectoryServiceQuery } from "@/lib/company-directory-service-taxonomy";
 
 function source(path: string) {
@@ -11,9 +22,12 @@ function source(path: string) {
 }
 
 describe("marketplace-first homepage contract", () => {
+  beforeEach(() => {
+    mocks.getSql.mockReset();
+  });
+
   it("opens with the customer need and sends search through the shared Directory flow", () => {
     const home = source("src/components/marketplace/marketplace-home.tsx");
-    const search = source("src/lib/company-directory-public-search.ts");
 
     expect(home).toContain("Vad behöver du hjälp med?");
     expect(home).toContain("Hitta företag, boka tid eller få offerter – gratis.");
@@ -21,8 +35,22 @@ describe("marketplace-first homepage contract", () => {
     expect(home).toContain("getPublishedDirectoryLocationSuggestions");
     expect(home).toContain("serviceSuggestions = t.categories.map");
     expect(home).toContain("directoryPaths[locale]");
-    expect(search).toContain("unstable_cache");
-    expect(search).toContain('revalidate: 300');
+  });
+
+  it("loads public location suggestions through the tagged five-minute cache", async () => {
+    const sql = vi.fn(async () => [{ location_label: "Södertälje" }]);
+    mocks.getSql.mockReturnValue(sql);
+
+    await expect(getPublishedDirectoryLocationSuggestions(60)).resolves.toEqual(["Södertälje"]);
+    expect(sql).toHaveBeenCalledOnce();
+    expect(mocks.unstableCache).toHaveBeenCalledWith(
+      expect.any(Function),
+      [PUBLISHED_DIRECTORY_LOCATION_SUGGESTIONS_TAG],
+      {
+        revalidate: 300,
+        tags: [PUBLISHED_DIRECTORY_LOCATION_SUGGESTIONS_TAG],
+      },
+    );
   });
 
   it("keeps the three real marketplace next steps visible without a heavy explanatory section", () => {

@@ -1,7 +1,9 @@
 import "server-only";
 
 import { createHash } from "node:crypto";
+import { revalidateTag } from "next/cache";
 
+import { PUBLISHED_DIRECTORY_LOCATION_SUGGESTIONS_TAG } from "@/lib/company-directory-cache";
 import { getSql } from "@/lib/db/server";
 import {
   assessDirectoryCandidate,
@@ -187,6 +189,7 @@ export async function upsertCompanyDirectoryCandidate(candidate: NormalizedDirec
 
   const profileId = String(rows[0]?.id ?? "");
   if (!profileId) throw new Error(`Directory upsert failed for ${candidate.organizationNumber}`);
+  revalidateTag(PUBLISHED_DIRECTORY_LOCATION_SUGGESTIONS_TAG, { expire: 0 });
 
   const sniServiceSlug = mapPrimarySniToDirectorySearchService(candidate.primarySniCode);
   if (sniServiceSlug) {

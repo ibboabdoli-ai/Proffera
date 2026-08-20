@@ -235,6 +235,9 @@ describe("marketplace results UI contract", () => {
     expect(invalid).toContain("Try a popular service");
     expect(invalid).toContain("View all services");
     expect(invalid).toContain("Get quotes");
+    expect(invalid).toMatch(/href="\/en\/companies\?service=[^"]+"/);
+    expect(invalid).toContain('href="/en/companies"');
+    expect(invalid).toContain('href="/en/get-quote"');
   });
 
   it("does not offer a nationwide link that would reset a location-only search", () => {
