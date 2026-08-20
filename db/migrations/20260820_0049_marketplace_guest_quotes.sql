@@ -44,13 +44,94 @@ create table if not exists marketplace_quote_invitations (
   constraint marketplace_quote_invitations_token_unique unique (token_hash)
 );
 
--- The earlier isolated pilot used a broader 1..5 check. Drop/recreate the
--- constraint so this migration is safe both on a clean database and on a
--- non-production branch where the pilot migration may already have run.
+-- The earlier isolated pilot allowed wave values 1..5. The current marketplace
+-- model is two outreach batches: the first three invitations are Wave 1 and the
+-- next two are Wave 2. For any quote that still contains legacy Wave 3..5 rows,
+-- preserve its chronological invitation order, preserve the original wave value
+-- in match_reasons, and explicitly transition the first 3 rows to Wave 1 and the
+-- next 2 rows to Wave 2. More than five existing invitations cannot be migrated
+-- without discarding outreach history, so fail closed and require manual review.
 alter table marketplace_quote_invitations
   drop constraint if exists marketplace_quote_invitations_wave_check;
+
+do $$
+begin
+  if exists (
+    select 1
+    from marketplace_quote_invitations
+    where quote_request_id in (
+      select distinct quote_request_id
+      from marketplace_quote_invitations
+      where wave in (3, 4, 5)
+    )
+    group by quote_request_id
+    having count(*) > 5
+  ) then
+    raise exception using
+      errcode = '23514',
+      message = 'marketplace_legacy_invitation_count_exceeds_five';
+  end if;
+end;
+$$;
+
+with affected_quotes as (
+  select distinct quote_request_id
+  from marketplace_quote_invitations
+  where wave in (3, 4, 5)
+), ranked as (
+  select
+    invitation.id,
+    invitation.wave as legacy_wave,
+    row_number() over (
+      partition by invitation.quote_request_id
+      order by coalesce(invitation.sent_at, invitation.created_at), invitation.created_at, invitation.id
+    ) as invitation_position
+  from marketplace_quote_invitations invitation
+  join affected_quotes affected
+    on affected.quote_request_id = invitation.quote_request_id
+), transition as (
+  select
+    id,
+    legacy_wave,
+    case when invitation_position <= 3 then 1 else 2 end::smallint as target_wave
+  from ranked
+)
+update marketplace_quote_invitations invitation
+set
+  wave = transition.target_wave,
+  match_reasons = case
+    when invitation.wave in (3, 4, 5) then
+      (case
+        when jsonb_typeof(invitation.match_reasons) = 'array' then invitation.match_reasons
+        else '[]'::jsonb
+      end) || jsonb_build_array('migration_0049_legacy_wave_' || invitation.wave::text)
+    else invitation.match_reasons
+  end,
+  updated_at = now()
+from transition
+where invitation.id = transition.id
+  and invitation.wave <> transition.target_wave;
+
 alter table marketplace_quote_invitations
   add constraint marketplace_quote_invitations_wave_check check (wave in (1, 2));
+
+-- Offers copy quote_request_id/profile_id for efficient querying. This composite
+-- key lets PostgreSQL prove those copied identifiers always belong to the same
+-- invitation instead of merely existing independently.
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'marketplace_quote_invitations'::regclass
+      and conname = 'marketplace_quote_invitations_identity_unique'
+  ) then
+    alter table marketplace_quote_invitations
+      add constraint marketplace_quote_invitations_identity_unique
+      unique (id, quote_request_id, profile_id);
+  end if;
+end;
+$$;
 
 create index if not exists marketplace_quote_invitations_quote_idx
   on marketplace_quote_invitations (quote_request_id, status, created_at desc);
@@ -84,6 +165,38 @@ create table if not exists marketplace_quote_offers (
   constraint marketplace_quote_offers_amount_check check (amount_minor >= 0 and amount_minor <= 1000000000),
   constraint marketplace_quote_offers_note_check check (char_length(company_note) <= 4000)
 );
+
+-- Existing pilot data must already agree with its invitation before the
+-- composite FK can be installed. Refuse the migration rather than silently
+-- rewriting an offer onto another request/profile.
+do $$
+begin
+  if exists (
+    select 1
+    from marketplace_quote_offers offer
+    join marketplace_quote_invitations invitation on invitation.id = offer.invitation_id
+    where offer.quote_request_id <> invitation.quote_request_id
+       or offer.profile_id <> invitation.profile_id
+  ) then
+    raise exception using
+      errcode = '23503',
+      message = 'marketplace_offer_invitation_identity_mismatch';
+  end if;
+
+  if not exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'marketplace_quote_offers'::regclass
+      and conname = 'marketplace_quote_offers_invitation_identity_fkey'
+  ) then
+    alter table marketplace_quote_offers
+      add constraint marketplace_quote_offers_invitation_identity_fkey
+      foreign key (invitation_id, quote_request_id, profile_id)
+      references marketplace_quote_invitations (id, quote_request_id, profile_id)
+      on delete cascade;
+  end if;
+end;
+$$;
 
 create index if not exists marketplace_quote_offers_quote_idx
   on marketplace_quote_offers (quote_request_id, status, submitted_at desc);
