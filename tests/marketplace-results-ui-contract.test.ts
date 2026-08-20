@@ -204,12 +204,12 @@ describe("marketplace results UI contract", () => {
     expect(html).toContain("Visar 31–60 av 65 företag");
     expect(html).toContain("Föregående");
     expect(html).toContain("Nästa");
-    expect(html).toContain('aria-current="page"');
+    expect(html).toContain('aria-current="page" aria-label="Sida 2"');
 
     expect(en).toContain("Showing 31–60 of 65 businesses");
     expect(en).toContain("Previous");
     expect(en).toContain("Next");
-    expect(en).toContain('aria-current="page"');
+    expect(en).toContain('aria-current="page" aria-label="Page 2"');
     expect(en).toContain("service=Electrician");
     expect(en).toContain("location=S%C3%B6dert%C3%A4lje");
   });
