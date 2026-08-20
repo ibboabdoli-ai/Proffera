@@ -10,13 +10,20 @@
 -- Production forward deployment order: apply this migration before deploying
 -- the marketplace-guest-quote.ts application changes that perform the
 -- `sending` -> `pending` provider-dispatch claim. This ensures claim
--- serialization is active before the application can enter the pending state.
+-- serialization and durable dispatch ownership are active before the
+-- application can enter the pending state or call Brevo.
 --
 -- Production rollback note: roll application code back first, then restore the
 -- 0049 function definition (guarding `sending` only) if this migration itself
 -- must be reversed. Do not remove suppression rows as part of that rollback.
 
 begin;
+
+alter table marketplace_quote_invitations
+  add column if not exists dispatch_token uuid;
+
+comment on column marketplace_quote_invitations.dispatch_token is
+  'Durable provider-dispatch ownership token and Brevo idempotency key for the current send attempt.';
 
 create or replace function enforce_marketplace_quote_invitation_outreach()
 returns trigger
@@ -29,6 +36,10 @@ declare
 begin
   if new.status not in ('sending', 'pending') then
     return new;
+  end if;
+
+  if new.dispatch_token is null then
+    raise exception using errcode = '23514', message = 'marketplace_dispatch_token_required';
   end if;
 
   normalized_email := lower(btrim(new.recipient_email));
@@ -62,6 +73,6 @@ end;
 $$;
 
 comment on function enforce_marketplace_quote_invitation_outreach() is
-  'Serializes sending and provider-dispatch claims with permanent recipient suppression and validates quote consent/status.';
+  'Serializes sending and provider-dispatch claims with permanent recipient suppression and requires durable dispatch ownership.';
 
 commit;
