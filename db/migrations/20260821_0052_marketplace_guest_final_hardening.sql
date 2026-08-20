@@ -14,14 +14,21 @@ create index marketplace_quote_invitations_recipient_idx
 
 -- A live sending/pending attempt owns its provider dispatch token. Do not allow
 -- another writer to replace that ownership identity while the attempt remains
--- active. The ambiguous-retry trigger installed by 0051 runs first by trigger
--- name and may intentionally move a stale/uncertain attempt out of the active
--- states while preserving the original token.
+-- active. A stale pre-provider `sending` reservation may be reclaimed. A stale
+-- provider-claimed `pending` row is allowed through this guard only so the 0051
+-- ambiguous-delivery trigger can convert it to `delivery_uncertain` while
+-- preserving the original provider identity instead of sending again.
 create or replace function guard_marketplace_active_dispatch_token()
 returns trigger
 language plpgsql
 as $$
 begin
+  if old.status in ('sending', 'pending')
+     and old.updated_at <= now() - interval '5 minutes'
+     and new.status = 'sending' then
+    return new;
+  end if;
+
   if old.status in ('sending', 'pending')
      and new.status in ('sending', 'pending')
      and old.dispatch_token is not null
@@ -44,6 +51,6 @@ for each row
 execute function guard_marketplace_active_dispatch_token();
 
 comment on function guard_marketplace_active_dispatch_token() is
-  'Prevents mutation of provider dispatch ownership while an invitation attempt remains actively sending or pending.';
+  'Prevents mutation of provider dispatch ownership while an invitation attempt is active, except safe stale reservation handling governed by 0051.';
 
 commit;
