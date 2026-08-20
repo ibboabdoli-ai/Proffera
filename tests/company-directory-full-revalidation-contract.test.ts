@@ -255,6 +255,39 @@ describe("full Company Directory revalidation", () => {
     }
   });
 
+  it("defers the final SCB refresh when the deadline expires after moving Ready to Review", async () => {
+    configureWorker({ status: "ready", backlog: 1 });
+    mocks.assessConfidence.mockReturnValue({ score: 90, officialFactsReady: true, reasons: [] });
+
+    let now = 1_000;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const baseResponder = responder;
+    responder = async (query, values) => {
+      if (query.includes("update company_directory_profiles profile")) {
+        now = 1_500;
+        return [{ id: PROFILE_ID }];
+      }
+      return await baseResponder(query, values);
+    };
+
+    try {
+      const result = await revalidateAllCompanyDirectoryBatch(10, { deadlineAt: 1_500 });
+
+      expect(result).toMatchObject({
+        selected: 1,
+        refreshed: 1,
+        movedToReview: 1,
+        deferred: 1,
+        errors: 0,
+      });
+      expect(mocks.enrichOfficialFacts).toHaveBeenCalledTimes(1);
+      expect(mocks.enrichScb).toHaveBeenCalledTimes(1);
+      expect(sqlCalls.some((call) => call.query.includes("update company_directory_profiles profile"))).toBe(true);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
   it("caps an oversized automatic batch at twelve profiles", async () => {
     responder = async (query, values) => {
       if (query.includes("started_at < now() - interval '10 minutes'")) return [];
