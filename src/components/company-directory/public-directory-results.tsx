@@ -56,6 +56,11 @@ function hasLocationConstraint(baseHref: string) {
   return ["location", "latitude", "longitude"].some((key) => Boolean(url.searchParams.get(key)?.trim()));
 }
 
+function canSearchAllSweden(baseHref: string) {
+  const url = new URL(baseHref, "https://proffera.invalid");
+  return hasLocationConstraint(baseHref) && Boolean(url.searchParams.get("service")?.trim());
+}
+
 function paginationPages(currentPage: number, totalPages: number) {
   if (totalPages <= 7) return Array.from({ length: totalPages }, (_, index) => index + 1);
   return [...new Set([1, currentPage - 1, currentPage, currentPage + 1, totalPages])]
@@ -162,7 +167,7 @@ export function PublicDirectoryResults({
             <p className="mt-1 text-sm leading-6 text-muted">{nearbyActive ? t.emptyNearby(search.radiusKm) : t.empty}</p>
             <p className="mt-2 text-sm leading-6 text-muted">{t.alternativeLead}</p>
             <div className="mt-4 flex flex-wrap gap-3">
-              {hasLocationConstraint(paginationBaseHref) ? (
+              {canSearchAllSweden(paginationBaseHref) ? (
                 <Link href={withoutLocationHref(paginationBaseHref)} className="inline-flex min-h-10 items-center justify-center rounded-control border border-line bg-surface px-4 text-sm font-black text-brand transition hover:bg-brand-soft">
                   {t.searchAllSweden}
                 </Link>

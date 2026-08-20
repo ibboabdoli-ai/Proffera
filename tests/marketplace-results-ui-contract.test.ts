@@ -237,6 +237,18 @@ describe("marketplace results UI contract", () => {
     expect(invalid).toContain("Get quotes");
   });
 
+  it("does not offer a nationwide link that would reset a location-only search", () => {
+    const locationOnly = render(
+      "sv",
+      [],
+      {},
+      "/foretag/listad?location=Stockholm",
+    );
+
+    expect(locationOnly).not.toContain("Sök i hela Sverige");
+    expect(locationOnly).toContain("Få offerter");
+  });
+
   it("does not manufacture a Near me attempt for a manual location search", () => {
     const searchPage = source("src/components/company-directory/public-directory-search-page.tsx");
 
