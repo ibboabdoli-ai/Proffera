@@ -98,7 +98,7 @@ export default async function DirectorySearchPreviewPage({ searchParams }: PageP
             <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#a9dbb9]">Företagsdirectory · Intern kontroll</p>
             <h1 className="mt-2 text-3xl font-black sm:text-4xl">Plats & sökning</h1>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-white/75">
-              Kontrollera företagsadresser och testa sökning på ort. Nära mig aktiveras först när verifierade företagspositioner finns.
+              Resultaten är inte offentliga. Kontrollera företagsadresser och testa sökning på ort. Nära mig aktiveras först när verifierade företagspositioner finns.
             </p>
           </div>
           <Link href="/admin/foretag/directory" className="w-fit text-sm font-bold text-[#d6eadd] underline underline-offset-4">
