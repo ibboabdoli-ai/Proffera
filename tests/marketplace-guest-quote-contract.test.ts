@@ -13,6 +13,7 @@ vi.mock("@/features/email/marketplace-guest-invitation-email", () => ({
 
 import {
   buildMarketplaceGuestQuoteView,
+  getMarketplaceGuestOptOutView,
   hashMarketplaceGuestToken,
   isMarketplaceBusinessRecipientEmail,
   normalizeMarketplaceRecipientEmail,
@@ -57,6 +58,11 @@ function invitationInput() {
 function sqlResponses(...responses: unknown[][]) {
   let index = 0;
   return vi.fn(async () => responses[index++] ?? []);
+}
+
+function queryText(call: unknown[] | undefined) {
+  const strings = call?.[0] as readonly string[] | undefined;
+  return (strings ?? []).join(" ? ").replace(/\s+/g, " ").trim();
 }
 
 describe("marketplace guest quote safety contract", () => {
@@ -178,7 +184,7 @@ describe("marketplace guest quote safety contract", () => {
     const sql = sqlResponses(
       [eligibleRow],
       [],
-      [{ id: "44444444-4444-4444-8444-444444444444", status: "sending", stale_sending: false }],
+      [{ id: "44444444-4444-4444-8444-444444444444", status: "sending", stale_reservation: false }],
     );
     mocks.getSql.mockReturnValue(sql);
 
@@ -194,7 +200,7 @@ describe("marketplace guest quote safety contract", () => {
     const sql = sqlResponses(
       [eligibleRow],
       [],
-      [{ id: invitationId, status: "sending", stale_sending: true }],
+      [{ id: invitationId, status: "sending", stale_reservation: true }],
       [{ id: invitationId }],
       [{ id: invitationId }],
       [{ id: invitationId }],
@@ -207,6 +213,65 @@ describe("marketplace guest quote safety contract", () => {
 
     expect(result).toEqual({ ok: true, invitationId });
     expect(mocks.sendInvitationEmail).toHaveBeenCalledTimes(1);
+
+    const reuseUpdate = queryText(sql.mock.calls[3]);
+    expect(reuseUpdate).toContain("status in ('sending', 'pending')");
+    expect(reuseUpdate).toContain("updated_at <= now() - interval '5 minutes'");
+
+    const dispatchClaim = queryText(sql.mock.calls[4]);
+    expect(dispatchClaim).toContain("invitation.status = 'sending'");
+    expect(dispatchClaim).toContain("not exists");
+    expect(dispatchClaim).toContain("marketplace_outreach_suppressions");
+  });
+
+  it("reuses a stale pending provider claim instead of blocking for the token TTL", async () => {
+    const invitationId = "44444444-4444-4444-8444-444444444444";
+    const sql = sqlResponses(
+      [eligibleRow],
+      [],
+      [{ id: invitationId, status: "pending", stale_reservation: true }],
+      [{ id: invitationId }],
+      [{ id: invitationId }],
+      [{ id: invitationId }],
+      [],
+    );
+    mocks.getSql.mockReturnValue(sql);
+    mocks.sendInvitationEmail.mockResolvedValue({ ok: true, providerMessageId: "provider-2" });
+
+    const result = await sendMarketplaceGuestQuoteInvitation(invitationInput());
+
+    expect(result).toEqual({ ok: true, invitationId });
+    expect(mocks.sendInvitationEmail).toHaveBeenCalledTimes(1);
+    expect(queryText(sql.mock.calls[3])).toContain("status in ('sending', 'pending')");
+  });
+
+  it("renders opt-out as suppressed when the permanent suppression already exists", async () => {
+    const sql = sqlResponses([{
+      invitation_id: "44444444-4444-4444-8444-444444444444",
+      status: "pending",
+      expires_at: "2099-01-01T00:00:00.000Z",
+      recipient_suppressed: true,
+      display_name: "Rör AB",
+      public_slug: "ror-ab",
+      reference_id: "PF-1234",
+      category: "VVS",
+      service_type: "VVS / Rörmokare",
+      city: "Södertälje",
+      postal_code: "151 00",
+      description: "Behöver hjälp med VVS.",
+      contact_name: "Anna Andersson",
+      contact_email: "anna@example.se",
+      contact_phone: "0701234567",
+      preferred_date: "2026-08-25",
+      quote_status: "submitted",
+      price_kind: null,
+    }]);
+    mocks.getSql.mockReturnValue(sql);
+
+    const view = await getMarketplaceGuestOptOutView("a".repeat(40));
+
+    expect(view?.status).toBe("suppressed");
+    expect(queryText(sql.mock.calls[0])).toContain("marketplace_outreach_suppressions");
   });
 
   it("does not invite against a closed customer request", async () => {
@@ -244,7 +309,7 @@ describe("marketplace guest quote safety contract", () => {
     expect(sql).toHaveBeenCalledTimes(1);
   });
 
-  it("does not report opt-out as fully settled while provider dispatch is already claimed", async () => {
+  it("does not report opt-out as fully settled while a fresh provider dispatch is already claimed", async () => {
     const sql = sqlResponses(
       [{
         id: "44444444-4444-4444-8444-444444444444",
@@ -262,5 +327,17 @@ describe("marketplace guest quote safety contract", () => {
 
     expect(sql.transaction).toHaveBeenCalledTimes(1);
     expect(result).toEqual({ ok: false, code: "dispatch_in_progress" });
+
+    const suppressionInsert = queryText(sql.mock.calls[1]);
+    expect(suppressionInsert).toContain("insert into marketplace_outreach_suppressions");
+
+    const suppressionUpdate = queryText(sql.mock.calls[2]);
+    expect(suppressionUpdate).toContain("status in ('sending', 'sent', 'viewed', 'delivery_failed', 'expired')");
+    expect(suppressionUpdate).toContain("status = 'pending'");
+    expect(suppressionUpdate).toContain("updated_at <= now() - interval '5 minutes'");
+
+    const dispatchCheck = queryText(sql.mock.calls[3]);
+    expect(dispatchCheck).toContain("status = 'pending'");
+    expect(dispatchCheck).toContain("updated_at > now() - interval '5 minutes'");
   });
 });
