@@ -2,7 +2,6 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 
-import { expirePublishedDirectoryLocationSuggestions } from "@/lib/company-directory-cache";
 import { getSql } from "@/lib/db/server";
 import {
   assessDirectoryCandidate,
@@ -280,8 +279,6 @@ export async function upsertCompanyDirectoryCandidate(candidate: NormalizedDirec
       )
     `;
   }
-
-  expirePublishedDirectoryLocationSuggestions();
 
   return {
     profileId,

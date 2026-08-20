@@ -56,10 +56,11 @@ describe("Bolagsverket official facts parser", () => {
         pagaendeAvvecklingsEllerOmstruktureringsforfarandeLista: [
           { kod: "INVALID_T", fromDatum: "2026-08-20Tinvalid" },
           { kod: "INVALID_SPACE", fromDatum: "2026-08-20 garbage" },
+          { kod: "INVALID_CALENDAR_DATE", fromDatum: "2026-02-29" },
         ],
       },
     });
 
-    expect(facts.ongoingProcedures.map((procedure) => procedure.fromDate)).toEqual(["", ""]);
+    expect(facts.ongoingProcedures.map((procedure) => procedure.fromDate)).toEqual(["", "", ""]);
   });
 });
