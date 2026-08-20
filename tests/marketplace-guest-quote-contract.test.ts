@@ -245,27 +245,26 @@ describe("marketplace guest quote safety contract", () => {
     expect(completion).toContain("invitation.dispatch_token =");
   });
 
-  it("reuses a stale pending provider claim with a new dispatch owner", async () => {
+  it("fails closed when a stale pending provider claim becomes delivery uncertain", async () => {
     const invitationId = "44444444-4444-4444-8444-444444444444";
     const sql = sqlResponses(
       [eligibleRow],
       [],
       [{ id: invitationId, status: "pending", stale_reservation: true }],
       [{ id: invitationId }],
-      [{ id: invitationId }],
-      [{ id: invitationId }],
       [],
+      [{ status: "delivery_uncertain" }],
     );
     mocks.getSql.mockReturnValue(sql);
     mocks.sendInvitationEmail.mockResolvedValue({ ok: true, providerMessageId: "provider-2" });
 
     const result = await sendMarketplaceGuestQuoteInvitation(invitationInput());
 
-    expect(result).toEqual({ ok: true, invitationId });
-    expect(mocks.sendInvitationEmail).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({ ok: false, code: "conflict" });
+    expect(mocks.sendInvitationEmail).not.toHaveBeenCalled();
     expect(queryText(sql.mock.calls[3])).toContain("dispatch_token =");
     expect(queryText(sql.mock.calls[3])).toContain("status in ('sending', 'pending')");
-    expect(queryText(sql.mock.calls[5])).toContain("invitation.dispatch_token =");
+    expect(queryText(sql.mock.calls[4])).toContain("invitation.status = 'sending'");
   });
 
   it("renders opt-out as suppressed when the permanent suppression already exists", async () => {
