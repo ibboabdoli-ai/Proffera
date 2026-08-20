@@ -101,6 +101,18 @@ describe("marketplace guest quote safety contract", () => {
     expect(redacted).toContain("[…]");
   });
 
+  it("redacts Unicode email addresses typed only in the description", () => {
+    const description = "Skicka gärna kopian till kontakt@företag.se när ni svarar.";
+    const redacted = redactMarketplaceGuestDescription(description, {
+      name: "Anna Andersson",
+      email: "anna@example.se",
+      phone: "070 123 45 67",
+    });
+
+    expect(redacted).not.toContain("kontakt@företag.se");
+    expect(redacted).toContain("[…]");
+  });
+
   it("redacts alternate Swedish phone numbers typed only in the description", () => {
     const description = "Ring min partner på 073-555 11 22 om ni inte får tag på mig.";
     const redacted = redactMarketplaceGuestDescription(description, {
@@ -213,18 +225,27 @@ describe("marketplace guest quote safety contract", () => {
 
     expect(result).toEqual({ ok: true, invitationId });
     expect(mocks.sendInvitationEmail).toHaveBeenCalledTimes(1);
+    expect(mocks.sendInvitationEmail).toHaveBeenCalledWith(expect.objectContaining({
+      idempotencyKey: expect.stringMatching(/^[0-9a-f-]{36}$/i),
+    }));
 
     const reuseUpdate = queryText(sql.mock.calls[3]);
+    expect(reuseUpdate).toContain("dispatch_token =");
     expect(reuseUpdate).toContain("status in ('sending', 'pending')");
     expect(reuseUpdate).toContain("updated_at <= now() - interval '5 minutes'");
 
     const dispatchClaim = queryText(sql.mock.calls[4]);
     expect(dispatchClaim).toContain("invitation.status = 'sending'");
+    expect(dispatchClaim).toContain("invitation.dispatch_token =");
     expect(dispatchClaim).toContain("not exists");
     expect(dispatchClaim).toContain("marketplace_outreach_suppressions");
+
+    const completion = queryText(sql.mock.calls[5]);
+    expect(completion).toContain("invitation.status = 'pending'");
+    expect(completion).toContain("invitation.dispatch_token =");
   });
 
-  it("reuses a stale pending provider claim instead of blocking for the token TTL", async () => {
+  it("reuses a stale pending provider claim with a new dispatch owner", async () => {
     const invitationId = "44444444-4444-4444-8444-444444444444";
     const sql = sqlResponses(
       [eligibleRow],
@@ -242,7 +263,9 @@ describe("marketplace guest quote safety contract", () => {
 
     expect(result).toEqual({ ok: true, invitationId });
     expect(mocks.sendInvitationEmail).toHaveBeenCalledTimes(1);
+    expect(queryText(sql.mock.calls[3])).toContain("dispatch_token =");
     expect(queryText(sql.mock.calls[3])).toContain("status in ('sending', 'pending')");
+    expect(queryText(sql.mock.calls[5])).toContain("invitation.dispatch_token =");
   });
 
   it("renders opt-out as suppressed when the permanent suppression already exists", async () => {
