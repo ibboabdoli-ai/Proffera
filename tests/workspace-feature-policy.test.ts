@@ -39,7 +39,7 @@ describe("workspace feature plan policy", () => {
     })).toBe(false);
   });
 
-  it("uses plan rank after trial", () => {
+  it("uses plan rank after trial for internal active plans without an expiry", () => {
     expect(isWorkspacePlanFeatureIncluded({
       planKey: "starter",
       planStatus: "active",
@@ -63,6 +63,28 @@ describe("workspace feature plan policy", () => {
       minimumPlan: "professional",
       now,
     })).toBe(true);
+  });
+
+  it("keeps an active paid plan entitled while its finite billing period is current", () => {
+    expect(isWorkspacePlanFeatureIncluded({
+      planKey: "professional",
+      planStatus: "active",
+      planPeriodEnd: "2026-08-20T09:00:00.000Z",
+      minimumPlan: "starter",
+      now,
+    })).toBe(true);
+  });
+
+  it("fails closed when an active plan's finite billing period is expired or malformed", () => {
+    for (const planPeriodEnd of ["2026-08-05T09:00:00.000Z", "not-a-date", ""]) {
+      expect(isWorkspacePlanFeatureIncluded({
+        planKey: "professional",
+        planStatus: "active",
+        planPeriodEnd,
+        minimumPlan: "starter",
+        now,
+      })).toBe(false);
+    }
   });
 
   it("denies inactive plans", () => {

@@ -51,6 +51,16 @@ describe("paid Directory contact access", () => {
     await expect(hasActivePaidDirectoryContactAccess(workspaceId)).resolves.toBe(true);
   });
 
+  it("keeps contact locked when an active paid plan has passed its billing period end", async () => {
+    mocks.getSql.mockReturnValue(vi.fn(async () => [{
+      plan_key: "professional",
+      status: "active",
+      current_period_end: "2000-01-01T00:00:00.000Z",
+    }]));
+
+    await expect(hasActivePaidDirectoryContactAccess(workspaceId)).resolves.toBe(false);
+  });
+
   it("fails closed when plan lookup fails", async () => {
     mocks.getSql.mockReturnValue(vi.fn(async () => { throw new Error("db unavailable"); }));
     await expect(hasActivePaidDirectoryContactAccess(workspaceId)).resolves.toBe(false);
