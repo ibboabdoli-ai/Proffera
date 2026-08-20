@@ -47,10 +47,11 @@ create table if not exists marketplace_quote_invitations (
 -- The earlier isolated pilot allowed wave values 1..5. The current marketplace
 -- model is two outreach batches: the first three invitations are Wave 1 and the
 -- next two are Wave 2. For any quote that still contains legacy Wave 3..5 rows,
--- preserve its chronological invitation order, preserve the original wave value
--- in match_reasons, and explicitly transition the first 3 rows to Wave 1 and the
--- next 2 rows to Wave 2. More than five existing invitations cannot be migrated
--- without discarding outreach history, so fail closed and require manual review.
+-- preserve its chronological invitation order, preserve every changed row's
+-- original wave value in match_reasons, and explicitly transition the first 3
+-- rows to Wave 1 and the next 2 rows to Wave 2. More than five existing
+-- invitations cannot be migrated without discarding outreach history, so fail
+-- closed and require manual review.
 alter table marketplace_quote_invitations
   drop constraint if exists marketplace_quote_invitations_wave_check;
 
@@ -99,14 +100,11 @@ with affected_quotes as (
 update marketplace_quote_invitations invitation
 set
   wave = transition.target_wave,
-  match_reasons = case
-    when invitation.wave in (3, 4, 5) then
-      (case
-        when jsonb_typeof(invitation.match_reasons) = 'array' then invitation.match_reasons
-        else '[]'::jsonb
-      end) || jsonb_build_array('migration_0049_legacy_wave_' || invitation.wave::text)
-    else invitation.match_reasons
-  end,
+  match_reasons =
+    (case
+      when jsonb_typeof(invitation.match_reasons) = 'array' then invitation.match_reasons
+      else '[]'::jsonb
+    end) || jsonb_build_array('migration_0049_legacy_wave_' || invitation.wave::text),
   updated_at = now()
 from transition
 where invitation.id = transition.id
@@ -216,6 +214,23 @@ create table if not exists marketplace_outreach_suppressions (
   constraint marketplace_outreach_suppressions_reason_check check (char_length(reason) between 1 and 200),
   constraint marketplace_outreach_suppressions_email_unique unique (email_normalized)
 );
+
+-- The old pilot table predates the normalization constraint. Add it explicitly
+-- when upgrading an existing isolated branch as well as when creating clean.
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'marketplace_outreach_suppressions'::regclass
+      and conname = 'marketplace_outreach_suppressions_email_normalized_check'
+  ) then
+    alter table marketplace_outreach_suppressions
+      add constraint marketplace_outreach_suppressions_email_normalized_check
+      check (email_normalized = lower(btrim(email_normalized)));
+  end if;
+end;
+$$;
 
 create index if not exists marketplace_outreach_suppressions_profile_idx
   on marketplace_outreach_suppressions (profile_id, created_at desc)
