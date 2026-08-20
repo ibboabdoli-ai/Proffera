@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   enrichOfficialFacts: vi.fn(),
   enrichScb: vi.fn(),
   createScbTransport: vi.fn(),
+  fullRevalidate: vi.fn(),
   routeRevalidate: vi.fn(),
   readyAutoPublish: vi.fn(),
   processNewQueue: vi.fn(),
@@ -129,6 +130,9 @@ async function loadStandaloneRevalidationRoute() {
 
 async function loadAutomaticSyncRoute() {
   vi.resetModules();
+  vi.doMock("@/lib/company-directory-full-revalidation", () => ({
+    revalidateAllCompanyDirectoryBatch: mocks.fullRevalidate,
+  }));
   vi.doMock("@/lib/company-directory-published-revalidation", () => ({
     revalidatePublishedCompanyDirectoryBatch: mocks.routeRevalidate,
   }));
@@ -294,7 +298,7 @@ describe("published Directory revalidation scheduling", () => {
     expect(mocks.routeRevalidate).not.toHaveBeenCalled();
   });
 
-  it("runs bounded revalidation from the already-active automatic queue", async () => {
+  it("runs bounded revalidation from the already-active automatic queue with one shared deadline", async () => {
     process.env.CRON_SECRET = "test-secret";
     process.env.COMPANY_DIRECTORY_SYNC_ENABLED = "true";
     process.env.COMPANY_DIRECTORY_PROFILE_PROCESSING_ENABLED = "true";
@@ -319,6 +323,18 @@ describe("published Directory revalidation scheduling", () => {
       errors: 0,
       errorSummary: "",
     });
+    mocks.fullRevalidate.mockResolvedValue({
+      skipped: false,
+      reason: "",
+      selected: 3,
+      refreshed: 3,
+      kept: 3,
+      movedToReview: 0,
+      deferred: 0,
+      errors: 0,
+      errorSummary: "",
+      remaining: 1500,
+    });
     mocks.routeRevalidate.mockResolvedValue({
       skipped: false,
       reason: "",
@@ -333,26 +349,46 @@ describe("published Directory revalidation scheduling", () => {
       remaining: 471,
     });
 
-    const { GET } = await loadAutomaticSyncRoute();
-    const response = await GET(new Request(
-      "https://example.test/api/cron/company-directory-sync",
-      { headers: { authorization: "Bearer test-secret" } },
-    ));
-    const body = await response.json();
+    const startedAtMs = 1_000_000;
+    const expectedDeadlineAt = startedAtMs + 60_000 - 5_000;
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(startedAtMs);
 
-    expect(response.status).toBe(200);
-    expect(mocks.routeRevalidate).toHaveBeenCalledWith(2);
-    expect(body).toMatchObject({
-      ok: true,
-      mode: "automatic_queue",
-      publishedRevalidation: {
-        selected: 2,
-        revalidated: 2,
-        keptPublished: 1,
-        movedToReview: 1,
-        remaining: 471,
-      },
-    });
+    try {
+      const { GET } = await loadAutomaticSyncRoute();
+      const response = await GET(new Request(
+        "https://example.test/api/cron/company-directory-sync",
+        { headers: { authorization: "Bearer test-secret" } },
+      ));
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(mocks.fullRevalidate).toHaveBeenCalledTimes(1);
+      expect(mocks.routeRevalidate).toHaveBeenCalledTimes(1);
+      const fullOptions = mocks.fullRevalidate.mock.calls[0]?.[1];
+      const publishedOptions = mocks.routeRevalidate.mock.calls[0]?.[1];
+      expect(mocks.fullRevalidate.mock.calls[0]?.[0]).toBe(10);
+      expect(mocks.routeRevalidate.mock.calls[0]?.[0]).toBe(2);
+      expect(fullOptions).toEqual({ deadlineAt: expectedDeadlineAt });
+      expect(publishedOptions).toEqual({ deadlineAt: expectedDeadlineAt });
+      expect(body).toMatchObject({
+        ok: true,
+        mode: "automatic_queue",
+        fullRevalidation: {
+          selected: 3,
+          refreshed: 3,
+          remaining: 1500,
+        },
+        publishedRevalidation: {
+          selected: 2,
+          revalidated: 2,
+          keptPublished: 1,
+          movedToReview: 1,
+          remaining: 471,
+        },
+      });
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   it("does not register a frequent Vercel cron for revalidation", () => {

@@ -1,6 +1,19 @@
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowRight, BadgeCheck, Building2, FileText, Languages, MapPin, Search, ShieldCheck } from "lucide-react";
+import {
+  ArrowRight,
+  BadgeCheck,
+  Building2,
+  FileText,
+  Globe2,
+  Languages,
+  LockKeyhole,
+  Mail,
+  MapPin,
+  Phone,
+  Search,
+  ShieldCheck,
+} from "lucide-react";
 import { notFound, redirect } from "next/navigation";
 
 import {
@@ -18,6 +31,17 @@ import { siteConfig } from "@/lib/site";
 
 function absoluteUrl(value: string) {
   return new URL(value, siteConfig.url).toString();
+}
+
+function websiteHref(value: string) {
+  const normalized = value.trim();
+  if (!normalized) return "";
+  try {
+    const parsed = new URL(/^https?:\/\//i.test(normalized) ? normalized : `https://${normalized}`);
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.toString() : "";
+  } catch {
+    return "";
+  }
 }
 
 export async function PublicDirectoryProfile({ slug, locale }: { slug: string; locale: PublicLocale }) {
@@ -77,6 +101,49 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
     serviceSlug: primaryServiceSlug,
   });
   const radiusFormatter = new Intl.NumberFormat(locale === "en" ? "en-SE" : "sv-SE", { maximumFractionDigits: 1 });
+  const directAddress = business.contact.addressLine1
+    ? [business.contact.addressLine1, business.postalCode, business.city].filter(Boolean).join(", ")
+    : "";
+  const directWebsiteHref = websiteHref(business.contact.website);
+  const hasLockedContact = !business.contact.entitled && Object.values(business.contact.available).some(Boolean);
+  const contactRows = [
+    {
+      key: "phone",
+      label: t.phone,
+      value: business.contact.phone,
+      available: business.contact.available.phone,
+      icon: Phone,
+      href: business.contact.phone ? `tel:${business.contact.phone.replace(/[^+\d]/g, "")}` : "",
+      external: false,
+    },
+    {
+      key: "email",
+      label: t.email,
+      value: business.contact.email,
+      available: business.contact.available.email,
+      icon: Mail,
+      href: business.contact.email ? `mailto:${business.contact.email}` : "",
+      external: false,
+    },
+    {
+      key: "website",
+      label: t.website,
+      value: business.contact.website,
+      available: business.contact.available.website,
+      icon: Globe2,
+      href: directWebsiteHref,
+      external: true,
+    },
+    {
+      key: "address",
+      label: t.address,
+      value: directAddress,
+      available: business.contact.available.addressLine1,
+      icon: MapPin,
+      href: "",
+      external: false,
+    },
+  ];
 
   return (
     <main lang={locale} className="min-h-screen bg-canvas px-4 py-6 text-ink sm:px-6 sm:py-10">
@@ -146,6 +213,38 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
               </section>
             ) : null}
 
+            <section className="mt-10 border-t border-line pt-8">
+              <h2 className="text-xl font-black tracking-tight text-ink">{t.contactTitle}</h2>
+              {hasLockedContact ? <p className="mt-2 text-sm leading-6 text-muted">{t.contactLockedLead}</p> : null}
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                {contactRows.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <div key={item.key} className="rounded-card border border-line bg-surface-subtle p-4">
+                      <div className="flex items-center gap-2 text-sm font-black text-ink"><Icon className="h-4 w-4 text-brand" /> {item.label}</div>
+                      <div className="mt-2 min-h-6 text-sm font-bold text-body">
+                        {item.value ? (
+                          item.href ? (
+                            <a
+                              href={item.href}
+                              className="break-all text-brand underline-offset-4 hover:underline"
+                              {...(item.external ? { target: "_blank", rel: "noreferrer" } : {})}
+                            >
+                              {item.value}
+                            </a>
+                          ) : item.value
+                        ) : item.available ? (
+                          <span className="inline-flex items-center gap-1.5 text-muted"><LockKeyhole className="h-4 w-4" /> {t.contactLocked}</span>
+                        ) : (
+                          <span className="text-muted">{t.contactUnavailable}</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+
             {extras.services.length ? (
               <section className="mt-10 border-t border-line pt-8">
                 <h2 className="text-xl font-black tracking-tight text-ink">{t.services}</h2>
@@ -205,10 +304,11 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
             <section className="mt-10 border-t border-line pt-8">
               <h2 className="text-base font-black text-ink">{t.details}</h2>
               <dl className="mt-5 grid gap-x-8 gap-y-5 text-sm sm:grid-cols-2">
+                {business.organizationNumber ? <div className="border-b border-line pb-4"><dt className="text-muted">{t.organizationNumber}</dt><dd className="mt-1 font-bold text-ink">{business.organizationNumber}</dd></div> : null}
                 {business.legalForm ? <div className="border-b border-line pb-4"><dt className="text-muted">{t.legalForm}</dt><dd className="mt-1 font-bold text-ink">{business.legalForm}</dd></div> : null}
+                {business.primarySniCode ? <div className="border-b border-line pb-4"><dt className="text-muted">{t.sniCode}</dt><dd className="mt-1 font-bold text-ink">{business.primarySniCode}{business.primarySniLabel ? ` – ${business.primarySniLabel}` : ""}</dd></div> : null}
                 {business.city ? <div className="border-b border-line pb-4"><dt className="text-muted">{t.city}</dt><dd className="mt-1 font-bold text-ink">{business.city}</dd></div> : null}
                 {business.municipality ? <div className="border-b border-line pb-4"><dt className="text-muted">{t.municipality}</dt><dd className="mt-1 font-bold text-ink">{business.municipality}</dd></div> : null}
-                {business.addressLine1 ? <div className="border-b border-line pb-4"><dt className="text-muted">{t.address}</dt><dd className="mt-1 font-bold text-ink">{business.addressLine1}</dd></div> : null}
               </dl>
             </section>
 

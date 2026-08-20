@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type Stripe from "stripe";
 
 import { getStripeCheckoutPlanForPriceId, getStripeClient, getStripeWebhookSecret } from "@/lib/stripe";
+import { isStripeEventModeAllowed } from "@/lib/stripe-runtime-config";
 import { syncWorkspaceSubscription } from "@/lib/workspace-billing";
 import { applyServiceJobCheckoutCompleted } from "@/lib/workspace-service-job-payments";
 
@@ -18,6 +19,14 @@ export async function POST(request: Request) {
   let event: Stripe.Event;
   try { event = await stripe.webhooks.constructEventAsync(await request.text(), signature, webhookSecret); }
   catch (error) { console.error("Stripe webhook signature verification failed", error); return NextResponse.json({ error: "Ogiltig signatur." }, { status: 400 }); }
+
+  if (!isStripeEventModeAllowed(event.livemode)) {
+    console.error("Stripe webhook mode does not match the deployment environment", {
+      livemode: event.livemode,
+      vercelEnv: process.env.VERCEL_ENV ?? "local",
+    });
+    return NextResponse.json({ error: "Stripe-läget matchar inte miljön." }, { status: 400 });
+  }
 
   if (event.type === "checkout.session.completed") {
     try {

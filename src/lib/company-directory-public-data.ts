@@ -1,13 +1,109 @@
 import { cache } from "react";
 
-import { gateDirectoryDirectContact } from "@/lib/company-directory-contact-entitlement";
+import {
+  discloseDirectoryDirectContact,
+  type DirectoryDirectContactDisclosure,
+} from "@/lib/company-directory-contact-entitlement";
 import { getPublicDirectoryBusiness, type PublicDirectoryBusiness } from "@/lib/company-directory-engine";
+import { hasActivePaidDirectoryContactAccess } from "@/lib/company-directory-paid-contact-entitlement";
 import { getSql } from "@/lib/db/server";
-import { hasWorkspacePlanAccessForWorkspace } from "@/lib/workspace-feature-entitlement-db";
 
 export type PublicDirectoryBusinessForRequest = PublicDirectoryBusiness & {
   publicationStatus: "published" | "claimed";
+  organizationNumber: string;
+  primarySniCode: string;
+  contact: DirectoryDirectContactDisclosure;
 };
+
+type ScbDirectContact = {
+  addressLine1: string;
+  phone: string;
+  email: string;
+};
+
+function emptyContact() {
+  return discloseDirectoryDirectContact({}, false);
+}
+
+function isMissingScbEnrichmentTable(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: unknown; message?: unknown };
+  return candidate.code === "42P01"
+    && String(candidate.message ?? "").includes("company_directory_scb_enrichment");
+}
+
+async function getConflictFreeScbContact(
+  sql: NonNullable<ReturnType<typeof getSql>>,
+  profileId: string,
+): Promise<ScbDirectContact | null> {
+  try {
+    const rows = await sql`
+      select
+        coalesce(nullif(phone, ''), '') as phone,
+        coalesce(nullif(email, ''), '') as email,
+        coalesce(nullif(postal_address->>'addressLine', ''), '') as direct_address_line1
+      from company_directory_scb_enrichment
+      where profile_id = ${profileId}::uuid
+        and conflicts = '[]'::jsonb
+      limit 1
+    `;
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      addressLine1: String(row.direct_address_line1 ?? ""),
+      phone: String(row.phone ?? ""),
+      email: String(row.email ?? ""),
+    };
+  } catch (error) {
+    if (isMissingScbEnrichmentTable(error)) return null;
+    throw error;
+  }
+}
+
+async function getPublishedDirectoryContact(profileId: string) {
+  const sql = getSql();
+  if (!sql) {
+    return {
+      organizationNumber: "",
+      primarySniCode: "",
+      contact: emptyContact(),
+    };
+  }
+
+  const rows = await sql`
+    select
+      organization_number,
+      primary_sni_code,
+      website_url,
+      address_line1
+    from company_directory_profiles
+    where id = ${profileId}::uuid
+      and publication_status = 'published'
+      and privacy_blocked = false
+      and auto_public_eligible = true
+    limit 1
+  `;
+  const row = rows[0];
+  if (!row) {
+    return {
+      organizationNumber: "",
+      primarySniCode: "",
+      contact: emptyContact(),
+    };
+  }
+
+  const scb = await getConflictFreeScbContact(sql, profileId);
+  return {
+    organizationNumber: String(row.organization_number ?? ""),
+    primarySniCode: String(row.primary_sni_code ?? ""),
+    contact: discloseDirectoryDirectContact({
+      addressLine1: scb?.addressLine1 || row.address_line1,
+      phone: scb?.phone,
+      email: scb?.email,
+      website: row.website_url,
+    }, false),
+  };
+}
 
 async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDirectoryBusinessForRequest | null> {
   const normalized = slug.trim().toLowerCase();
@@ -19,10 +115,12 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
     select
       profile.id::text,
       profile.public_slug,
+      profile.organization_number,
       profile.display_name,
       profile.legal_form,
       profile.organization_status,
       profile.category_slug,
+      profile.primary_sni_code,
       profile.primary_sni_label,
       profile.activity_description,
       profile.address_line1,
@@ -30,6 +128,7 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
       profile.city,
       profile.municipality,
       profile.region,
+      profile.website_url,
       profile.quality_score,
       profile.official_source,
       profile.source_updated_at,
@@ -60,10 +159,14 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
   if (!row) return null;
 
   const workspaceId = String(row.claimed_workspace_id ?? "");
-  const directContact = gateDirectoryDirectContact(
-    { addressLine1: row.address_line1 },
-    await hasWorkspacePlanAccessForWorkspace(workspaceId),
-  );
+  const entitled = await hasActivePaidDirectoryContactAccess(workspaceId);
+  const scb = await getConflictFreeScbContact(sql, String(row.id));
+  const contact = discloseDirectoryDirectContact({
+    addressLine1: scb?.addressLine1 || row.address_line1,
+    phone: scb?.phone,
+    email: scb?.email,
+    website: row.website_url,
+  }, entitled);
 
   return {
     id: String(row.id),
@@ -74,7 +177,7 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
     categorySlug: String(row.category_slug ?? ""),
     primarySniLabel: String(row.primary_sni_label ?? ""),
     activityDescription: String(row.activity_description ?? ""),
-    addressLine1: directContact.addressLine1,
+    addressLine1: contact.addressLine1,
     postalCode: String(row.postal_code ?? ""),
     city: String(row.city ?? ""),
     municipality: String(row.municipality ?? ""),
@@ -90,6 +193,9 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
       isActualBusinessMedia: Boolean(row.is_actual_business_media),
     } : null,
     publicationStatus: "claimed",
+    organizationNumber: String(row.organization_number ?? ""),
+    primarySniCode: String(row.primary_sni_code ?? ""),
+    contact,
   };
 }
 
@@ -100,15 +206,22 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
  * persisted in an application-level cache here.
  *
  * A claimed profile may remain available as a read-only Directory fallback
- * when its previously published official data is still safe. This prevents a
- * Starter claim from making a company disappear before a public Business Page
- * is entitled/configured.
+ * when its previously published official data is still safe. Direct contact is
+ * disclosed only when the claimed workspace has an active paid plan; Free and
+ * Trial workspaces remain locked.
  */
 export const getPublicDirectoryBusinessForRequest = cache(async (slug: string): Promise<PublicDirectoryBusinessForRequest | null> => {
   const published = await getPublicDirectoryBusiness(slug);
   if (published) {
-    const directContact = gateDirectoryDirectContact({ addressLine1: published.addressLine1 }, false);
-    return { ...published, addressLine1: directContact.addressLine1, publicationStatus: "published" };
+    const publicContact = await getPublishedDirectoryContact(published.id);
+    return {
+      ...published,
+      addressLine1: publicContact.contact.addressLine1,
+      publicationStatus: "published",
+      organizationNumber: publicContact.organizationNumber,
+      primarySniCode: publicContact.primarySniCode,
+      contact: publicContact.contact,
+    };
   }
   return getSafeClaimedDirectoryFallback(slug);
 });

@@ -5,6 +5,11 @@ export type DirectoryDirectContact = {
   website: string;
 };
 
+export type DirectoryDirectContactDisclosure = DirectoryDirectContact & {
+  entitled: boolean;
+  available: Record<keyof DirectoryDirectContact, boolean>;
+};
+
 function clean(value: unknown) {
   return String(value ?? "").trim();
 }
@@ -27,5 +32,29 @@ export function gateDirectoryDirectContact(
     phone: clean(input.phone),
     email: clean(input.email),
     website: clean(input.website),
+  };
+}
+
+export function discloseDirectoryDirectContact(
+  input: Partial<Record<keyof DirectoryDirectContact, unknown>>,
+  entitled: boolean,
+): DirectoryDirectContactDisclosure {
+  const normalized: DirectoryDirectContact = {
+    addressLine1: clean(input.addressLine1),
+    phone: clean(input.phone),
+    email: clean(input.email),
+    website: clean(input.website),
+  };
+  const gated = gateDirectoryDirectContact(normalized, entitled);
+
+  return {
+    ...gated,
+    entitled,
+    available: {
+      addressLine1: Boolean(normalized.addressLine1),
+      phone: Boolean(normalized.phone),
+      email: Boolean(normalized.email),
+      website: Boolean(normalized.website),
+    },
   };
 }
