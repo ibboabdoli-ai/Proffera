@@ -9,6 +9,8 @@ import { getSql } from "@/lib/db/server";
 const REVALIDATION_PROVIDER = "published_revalidation";
 const DEFAULT_REVALIDATION_BATCH_SIZE = 2;
 const MAX_REVALIDATION_BATCH_SIZE = 3;
+const OFFICIAL_FACTS_START_HEADROOM_MS = 30_000;
+const SCB_START_HEADROOM_MS = 18_000;
 
 type RevalidationOptions = {
   deadlineAt?: number;
@@ -42,8 +44,9 @@ function boundedLimit(value: unknown) {
   return Math.max(1, Math.min(MAX_REVALIDATION_BATCH_SIZE, Math.floor(parsed)));
 }
 
-function deadlineReached(deadlineAt?: number) {
-  return Number.isFinite(deadlineAt) && Date.now() >= Number(deadlineAt);
+function deadlineReached(deadlineAt?: number, headroomMs = 0) {
+  return Number.isFinite(deadlineAt)
+    && Date.now() + Math.max(0, headroomMs) >= Number(deadlineAt);
 }
 
 async function startRun() {
@@ -114,7 +117,7 @@ async function selectCandidates(limit: number) {
       and profile.country_code = 'SE'
       and profile.organization_kind = 'juridical_person'
       and profile.claimed_workspace_id is null
-      and length(regexp_replace(profile.organization_number, '\D', '', 'g')) = 10
+      and length(regexp_replace(profile.organization_number, '\\D', '', 'g')) = 10
       and (
         facts.profile_id is null
         or facts.source_payload_hash = ''
@@ -146,7 +149,7 @@ async function backlogCount() {
       and profile.country_code = 'SE'
       and profile.organization_kind = 'juridical_person'
       and profile.claimed_workspace_id is null
-      and length(regexp_replace(profile.organization_number, '\D', '', 'g')) = 10
+      and length(regexp_replace(profile.organization_number, '\\D', '', 'g')) = 10
       and (
         facts.profile_id is null
         or facts.source_payload_hash = ''
@@ -209,6 +212,18 @@ async function loadFreshEvaluation(profileId: string) {
   `;
 
   return rows[0] ?? null;
+}
+
+async function markScbEvaluationPending(profileId: string) {
+  const sql = getSql();
+  if (!sql) throw new Error("Database is not configured");
+
+  await sql`
+    update company_directory_scb_enrichment
+    set provenance = coalesce(provenance, '{}'::jsonb) #- '{comparisonSnapshot,officialFactsLastSyncedToken}',
+        updated_at = now()
+    where profile_id = ${profileId}::uuid
+  `;
 }
 
 async function movePublishedProfileToReview(input: {
@@ -325,8 +340,9 @@ export async function revalidatePublishedCompanyDirectoryBatch(
   try {
     candidates = await selectCandidates(safeLimit);
 
+    candidateLoop:
     for (let index = 0; index < candidates.length; index += 1) {
-      if (deadlineReached(options.deadlineAt)) {
+      if (deadlineReached(options.deadlineAt, OFFICIAL_FACTS_START_HEADROOM_MS)) {
         deferred += candidates.length - index;
         break;
       }
@@ -342,6 +358,11 @@ export async function revalidatePublishedCompanyDirectoryBatch(
 
       try {
         await enrichCompanyDirectoryOfficialFactsForProfile(profileId);
+        if (deadlineReached(options.deadlineAt, SCB_START_HEADROOM_MS)) {
+          deferred += candidates.length - index;
+          break candidateLoop;
+        }
+
         const scb = await enrichCompanyDirectoryScbForProfile(profileId, transport, {
           allowWhenDisabledWithExplicitTransport: true,
         });
@@ -352,6 +373,12 @@ export async function revalidatePublishedCompanyDirectoryBatch(
             errorMessages.push(`${organizationNumber}: SCB revalidation deferred (${scb.status})`);
           }
           continue;
+        }
+
+        if (deadlineReached(options.deadlineAt)) {
+          await markScbEvaluationPending(profileId);
+          deferred += candidates.length - index;
+          break candidateLoop;
         }
 
         const row = await loadFreshEvaluation(profileId);
@@ -405,6 +432,12 @@ export async function revalidatePublishedCompanyDirectoryBatch(
         if (!shouldReview) {
           keptPublished += 1;
           continue;
+        }
+
+        if (deadlineReached(options.deadlineAt)) {
+          await markScbEvaluationPending(profileId);
+          deferred += candidates.length - index;
+          break candidateLoop;
         }
 
         const moved = await movePublishedProfileToReview({
