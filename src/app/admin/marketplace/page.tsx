@@ -12,6 +12,7 @@ function inviteMessage(value: string | string[] | undefined) {
   if (code === "already_invited") return "Företaget har redan en aktiv inbjudan för den här förfrågan.";
   if (code === "business_email_required") return "Använd en företagsdomän, inte en privat/gratis e-postadress.";
   if (code === "profile_ineligible") return "Företagsprofilen är inte längre tillgänglig för gästmatchning.";
+  if (code === "quote_closed") return "Förfrågan är inte längre öppen för nya företagsinbjudningar.";
   if (code === "wave_limit") return "Vågen är full. Wave 1 får ha högst tre företag och Wave 2 högst två.";
   if (code === "invalid_wave") return "Ogiltig våg. Endast Wave 1 och Wave 2 är tillåtna.";
   if (code?.startsWith("email_")) return "Mejlet kunde inte skickas. Kontrollera e-postkonfigurationen.";
