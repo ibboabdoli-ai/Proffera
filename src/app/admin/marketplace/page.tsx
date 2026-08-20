@@ -20,6 +20,15 @@ function inviteMessage(value: string | string[] | undefined) {
   return "";
 }
 
+function offerPrice(priceKind: string, amountMinor: number, currency: string) {
+  if (priceKind === "inspection_required") return "Platsbesök krävs";
+  return new Intl.NumberFormat("sv-SE", {
+    style: "currency",
+    currency: currency || "SEK",
+    maximumFractionDigits: amountMinor % 100 === 0 ? 0 : 2,
+  }).format(amountMinor / 100);
+}
+
 export default async function MarketplaceAdminPage({
   searchParams,
 }: {
@@ -46,6 +55,26 @@ export default async function MarketplaceAdminPage({
           <h2>{item.lead.reference_id}</h2>
           <p>{item.lead.category} / {item.lead.service_type} / {item.lead.city}</p>
           <p>Status: {item.lead.status}</p>
+
+          {item.offers.length > 0 ? (
+            <div style={{ marginTop: 14, padding: 14, borderRadius: 10, background: "#eef6f0" }}>
+              <h3 style={{ marginTop: 0 }}>Inkomna företagssvar</h3>
+              <p style={{ marginTop: 0 }}>Read-only i detta steg. Val av offert och kontaktöppning hanteras i nästa Marketplace-flöde.</p>
+              {item.offers.map((offer) => (
+                <article key={offer.offerId} style={{ borderTop: "1px solid #cedbd1", paddingTop: 10, marginTop: 10 }}>
+                  <strong>{offer.companyName}</strong>
+                  <p>
+                    {offerPrice(offer.priceKind, offer.amountMinor, offer.currency)}
+                    {offer.availableDate ? ` · Tillgänglig ${offer.availableDate}` : ""}
+                    {` · ${offer.status}`}
+                  </p>
+                  {offer.companyNote ? <p>{offer.companyNote}</p> : null}
+                  <p><Link href={`/foretag/listad/${offer.profileSlug}`} target="_blank">Öppna företagsprofil</Link></p>
+                </article>
+              ))}
+            </div>
+          ) : null}
+
           {item.candidates.length === 0 ? <p>Inga säkra oclaimade kandidater.</p> : null}
           {item.candidates.map((candidate, index) => {
             const wave = index < 3 ? 1 : 2;
