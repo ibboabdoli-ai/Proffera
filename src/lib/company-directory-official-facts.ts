@@ -77,8 +77,16 @@ function codeLabel(value: unknown) {
 
 function dateOnly(value: unknown): string | null {
   const raw = text(value);
-  const match = raw.match(/^(\d{4}-\d{2}-\d{2})(?:$|[T\s])/);
-  return match?.[1] ?? null;
+  const match = raw.match(/^(\d{4}-\d{2}-\d{2})(?:(?:T|\s)\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})?)?$/);
+  if (!match?.[1]) return null;
+
+  const date = match[1];
+  const parsedDate = new Date(`${date}T00:00:00Z`);
+  if (Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== date) return null;
+  if (raw === date) return date;
+
+  const normalizedTimestamp = raw.replace(" ", "T");
+  return Number.isNaN(Date.parse(normalizedTimestamp)) ? null : date;
 }
 
 function timestamp(value: unknown): string | null {

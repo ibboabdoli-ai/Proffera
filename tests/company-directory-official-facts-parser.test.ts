@@ -49,4 +49,17 @@ describe("Bolagsverket official facts parser", () => {
 
     expect(facts.ongoingProcedures[0]?.fromDate).toBe("2026-08-20");
   });
+
+  it("rejects malformed timestamp suffixes instead of recording their date prefix", () => {
+    const facts = extractOfficialFacts({
+      pagaendeAvvecklingsEllerOmstruktureringsforfarande: {
+        pagaendeAvvecklingsEllerOmstruktureringsforfarandeLista: [
+          { kod: "INVALID_T", fromDatum: "2026-08-20Tinvalid" },
+          { kod: "INVALID_SPACE", fromDatum: "2026-08-20 garbage" },
+        ],
+      },
+    });
+
+    expect(facts.ongoingProcedures.map((procedure) => procedure.fromDate)).toEqual(["", ""]);
+  });
 });
