@@ -5,6 +5,11 @@ on:
     types: [opened, synchronize, reopened, labeled, unlabeled]
   pull_request_review:
     types: [submitted]
+  issue_comment:
+    types: [created, edited]
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
   workflow_dispatch:
     inputs:
       pr_number:
@@ -30,6 +35,11 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           EVENT_NAME: ${{ github.event_name }}
           EVENT_PR_NUMBER: ${{ github.event.pull_request.number }}
+          EVENT_ISSUE_NUMBER: ${{ github.event.issue.number }}
+          EVENT_ISSUE_IS_PR: ${{ github.event.issue.pull_request != null }}
+          EVENT_WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          EVENT_WORKFLOW_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          EVENT_WORKFLOW_PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
           INPUT_PR_NUMBER: ${{ inputs.pr_number }}
           SELF_CHECK_NAME: Gated automerge
           SELF_WORKFLOW_NAME: Proffera gated automerge
@@ -50,7 +60,26 @@ jobs:
             exit 0
           }
 
+          if [ "$EVENT_NAME" = "issue_comment" ] && [ "$EVENT_ISSUE_IS_PR" != "true" ]; then
+            refuse "Issue comment event is not attached to a pull request."
+          fi
+
+          if [ "$EVENT_NAME" = "workflow_run" ]; then
+            if [ "$EVENT_WORKFLOW_NAME" != "CI" ]; then
+              refuse "Workflow-run event is not the CI workflow."
+            fi
+            if [ "$EVENT_WORKFLOW_CONCLUSION" != "success" ]; then
+              refuse "CI workflow did not complete successfully."
+            fi
+          fi
+
           pr_number="${EVENT_PR_NUMBER:-}"
+          if [ -z "$pr_number" ] && [ "$EVENT_NAME" = "issue_comment" ]; then
+            pr_number="${EVENT_ISSUE_NUMBER:-}"
+          fi
+          if [ -z "$pr_number" ] && [ "$EVENT_NAME" = "workflow_run" ]; then
+            pr_number="${EVENT_WORKFLOW_PR_NUMBER:-}"
+          fi
           if [ -z "$pr_number" ]; then
             pr_number="${INPUT_PR_NUMBER:-}"
           fi
@@ -187,6 +216,23 @@ jobs:
             latest_approval="$(echo "$current_reviews" | jq -r '[.[] | select(.state == "APPROVED") | .submitted_at] | max // empty')"
             terminal_count="$(echo "$current_reviews" | jq -r '[.[] | select(.state == "APPROVED" or .state == "COMMENTED")] | length')"
 
+            comments_json="$(gh api --paginate "repos/$REPOSITORY/issues/$pr_number/comments?per_page=100" --jq '.[]' | jq -s '.')"
+            clean_summary_count="$(echo "$comments_json" | jq -r --arg sha "$head_sha" '
+              [
+                .[]
+                | select(.user.login == "coderabbitai[bot]")
+                | select(
+                    (.body // "")
+                    | test(
+                        "<!-- recent_review_start -->[\\s\\S]*No actionable comments were generated in the recent review\\.[\\s\\S]*"
+                        + $sha
+                        + "[\\s\\S]*<!-- recent_review_end -->"
+                      )
+                  )
+              ]
+              | length
+            ')"
+
             if [ -n "$latest_changes" ]; then
               if [ -z "$latest_approval" ] || [[ ! "$latest_approval" > "$latest_changes" ]]; then
                 refuse "Refused: CodeRabbit changes remain requested on the current PR head; only a later APPROVED review clears them."
@@ -194,6 +240,8 @@ jobs:
               summary "- Current-head CodeRabbit decision: APPROVED after latest change request"
             elif [ "$terminal_count" -gt 0 ]; then
               summary "- Current-head CodeRabbit decision: non-blocking review completed"
+            elif [ "$clean_summary_count" -gt 0 ]; then
+              summary "- Current-head CodeRabbit decision: clean review with no actionable comments"
             else
               refuse "Refused: no completed CodeRabbit review exists for the current PR head."
             fi
@@ -202,32 +250,65 @@ jobs:
             summary "- Required: no"
           fi
 
-          checks_json="$(gh pr checks "$pr_number" --repo "$REPOSITORY" --json name,state 2>/dev/null || true)"
-          if [ -z "$checks_json" ] || [ "$checks_json" = "[]" ]; then
-            refuse "Refused: no status checks were found for this PR."
-          fi
+          checks_json=""
+          non_self_check_count=0
+          failing_checks=""
+          pending_checks=""
+          unknown_checks=""
 
-          non_self_check_count="$(echo "$checks_json" | jq -r --arg self_check "$SELF_CHECK_NAME" --arg self_workflow "$SELF_WORKFLOW_NAME" '[.[] | select(.name != $self_check and .name != $self_workflow)] | length')"
-          failing_checks="$(echo "$checks_json" | jq -r --arg self_check "$SELF_CHECK_NAME" --arg self_workflow "$SELF_WORKFLOW_NAME" '.[] | select(.name != $self_check and .name != $self_workflow) | select(.state == "FAILURE" or .state == "ERROR" or .state == "CANCELLED" or .state == "TIMED_OUT" or .state == "ACTION_REQUIRED") | .name')"
-          pending_checks="$(echo "$checks_json" | jq -r --arg self_check "$SELF_CHECK_NAME" --arg self_workflow "$SELF_WORKFLOW_NAME" '.[] | select(.name != $self_check and .name != $self_workflow) | select(.state == "PENDING" or .state == "QUEUED" or .state == "IN_PROGRESS" or .state == "WAITING") | .name')"
+          for attempt in $(seq 1 40); do
+            checks_file="$(mktemp)"
+            set +e
+            timeout 20s gh pr checks "$pr_number" --repo "$REPOSITORY" --json name,state,bucket >"$checks_file" 2>/dev/null
+            checks_status=$?
+            set -e
+
+            if [ "$checks_status" -eq 124 ]; then
+              rm -f "$checks_file"
+              refuse "Refused: status-check lookup timed out."
+            fi
+            if [ "$checks_status" -ne 0 ] && [ "$checks_status" -ne 1 ] && [ "$checks_status" -ne 8 ]; then
+              rm -f "$checks_file"
+              refuse "Refused: status-check lookup failed with exit code $checks_status."
+            fi
+
+            checks_json="$(cat "$checks_file")"
+            rm -f "$checks_file"
+
+            if [ -z "$checks_json" ] || [ "$checks_json" = "[]" ]; then
+              refuse "Refused: no status checks were found for this PR."
+            fi
+
+            non_self_check_count="$(echo "$checks_json" | jq -r --arg self_check "$SELF_CHECK_NAME" --arg self_workflow "$SELF_WORKFLOW_NAME" '[.[] | select(.name != $self_check and .name != $self_workflow)] | length')"
+            failing_checks="$(echo "$checks_json" | jq -r --arg self_check "$SELF_CHECK_NAME" --arg self_workflow "$SELF_WORKFLOW_NAME" '.[] | select(.name != $self_check and .name != $self_workflow) | select(.bucket == "fail" or .bucket == "cancel") | .name')"
+            pending_checks="$(echo "$checks_json" | jq -r --arg self_check "$SELF_CHECK_NAME" --arg self_workflow "$SELF_WORKFLOW_NAME" '.[] | select(.name != $self_check and .name != $self_workflow) | select(.bucket == "pending") | .name')"
+            unknown_checks="$(echo "$checks_json" | jq -r --arg self_check "$SELF_CHECK_NAME" --arg self_workflow "$SELF_WORKFLOW_NAME" '.[] | select(.name != $self_check and .name != $self_workflow) | select(.bucket != "pass" and .bucket != "skipping" and .bucket != "pending" and .bucket != "fail" and .bucket != "cancel") | .name')"
+
+            if [ "$non_self_check_count" -eq 0 ]; then
+              refuse "Refused: no non-self status checks were found for this PR."
+            fi
+
+            if [ -n "$failing_checks" ] || [ -n "$unknown_checks" ] || [ -z "$pending_checks" ]; then
+              break
+            fi
+
+            echo "Required checks are still pending; re-evaluating before automerge (attempt $attempt/40)."
+            sleep 15
+          done
 
           summary "### Checks"
-          echo "$checks_json" | jq -r '.[] | "- " + .name + ": " + .state' >> "$GITHUB_STEP_SUMMARY"
+          echo "$checks_json" | jq -r '.[] | "- " + .name + ": " + .state + " (" + .bucket + ")"' >> "$GITHUB_STEP_SUMMARY"
           summary ""
           summary "Self-check names ignored while gating pending/failing checks: $SELF_CHECK_NAME, $SELF_WORKFLOW_NAME"
           summary "Non-self status checks found: $non_self_check_count"
           summary ""
-
-          if [ "$non_self_check_count" -eq 0 ]; then
-            refuse "Refused: no non-self status checks were found for this PR."
-          fi
 
           if [ -n "$pending_checks" ]; then
             summary "### Pending checks"
             while IFS= read -r check; do
               [ -n "$check" ] && summary "- $check"
             done <<< "$pending_checks"
-            refuse "Refused: checks are still pending."
+            refuse "Refused: checks are still pending after the bounded recheck window."
           fi
 
           if [ -n "$failing_checks" ]; then
@@ -235,7 +316,15 @@ jobs:
             while IFS= read -r check; do
               [ -n "$check" ] && summary "- $check"
             done <<< "$failing_checks"
-            refuse "Refused: one or more checks failed."
+            refuse "Refused: one or more checks failed or were cancelled."
+          fi
+
+          if [ -n "$unknown_checks" ]; then
+            summary "### Unknown check states"
+            while IFS= read -r check; do
+              [ -n "$check" ] && summary "- $check"
+            done <<< "$unknown_checks"
+            refuse "Refused: one or more checks returned an unrecognized bucket."
           fi
 
           merge_output="$(gh pr merge "$pr_number" --repo "$REPOSITORY" --squash --delete-branch --match-head-commit "$head_sha" 2>&1)"
