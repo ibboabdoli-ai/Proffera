@@ -7,7 +7,7 @@ import { getSql } from "@/lib/db/server";
 import { sendMarketplaceGuestInvitationEmail } from "@/features/email/marketplace-guest-invitation-email";
 
 const GUEST_INVITATION_TTL_DAYS = 7;
-const ACTIVE_INVITATION_STATUSES = new Set(["pending", "sent", "viewed", "responded"]);
+const ACTIVE_INVITATION_STATUSES = new Set(["pending", "sending", "sent", "viewed", "responded"]);
 const SENDABLE_QUOTE_STATUSES = new Set(["submitted", "pending_review", "approved", "matched", "answered"]);
 const REDACTED_CONTACT = "[…]";
 
@@ -81,6 +81,16 @@ function redactKnownPhone(value: string, phone: string) {
   return redacted;
 }
 
+function redactPhoneCandidates(value: string) {
+  return value.replace(
+    /(?<![\p{L}\p{N}])(?:\+46|0046|0)[\d\s().-]{5,24}\d(?!\d)/gu,
+    (candidate) => {
+      const digits = candidate.replace(/\D/g, "");
+      return digits.length >= 7 && digits.length <= 15 ? REDACTED_CONTACT : candidate;
+    },
+  );
+}
+
 export function redactMarketplaceGuestDescription(
   description: unknown,
   contact: { name?: unknown; email?: unknown; phone?: unknown },
@@ -97,6 +107,7 @@ export function redactMarketplaceGuestDescription(
     redacted = redactLiteral(redacted, phone);
     redacted = redactKnownPhone(redacted, phone);
   }
+  redacted = redactPhoneCandidates(redacted);
 
   if (fullName) {
     redacted = redactLiteral(redacted, fullName);
@@ -146,6 +157,17 @@ function safeProviderMessage(value: unknown) {
   return message.replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[redacted-email]");
 }
 
+function databaseErrorDetails(error: unknown) {
+  if (!error || typeof error !== "object") {
+    return { code: "", message: String(error ?? "") };
+  }
+  const candidate = error as { code?: unknown; message?: unknown };
+  return {
+    code: String(candidate.code ?? ""),
+    message: String(candidate.message ?? ""),
+  };
+}
+
 function validToken(token: string) {
   return /^[A-Za-z0-9_-]{32,200}$/.test(token);
 }
@@ -157,9 +179,7 @@ function boundedScore(value: unknown) {
 }
 
 function boundedWave(value: unknown) {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return 1;
-  return Math.max(1, Math.min(5, Math.round(parsed)));
+  return Number(value) === 2 ? 2 : 1;
 }
 
 function safeReasons(value: unknown) {
@@ -261,46 +281,78 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
   const matchReasons = safeReasons(input.matchReasons);
 
   let invitationId = "";
-  if (existing) {
-    const updated = await sql`
-      update marketplace_quote_invitations
-      set recipient_email = ${recipientEmail},
-          token_hash = ${tokenHash},
-          status = 'pending',
-          wave = ${wave},
-          match_score = ${matchScore},
-          match_reasons = ${JSON.stringify(matchReasons)}::jsonb,
-          contact_basis = 'manual_business_contact',
-          expires_at = ${expiresAt}::timestamptz,
-          sent_at = null,
-          viewed_at = null,
-          responded_at = null,
-          declined_at = null,
-          provider_message_id = '',
-          created_by_admin_user_id = ${input.adminUserId},
-          updated_at = now()
-      where id = ${String(existing.id)}::uuid
-        and status in ('delivery_failed', 'expired', 'declined', 'cancelled')
-      returning id::text
-    `;
-    invitationId = String(updated[0]?.id ?? "");
-  } else {
-    const inserted = await sql`
-      insert into marketplace_quote_invitations (
-        quote_request_id, profile_id, recipient_email, token_hash, status,
-        wave, match_score, match_reasons, contact_basis, expires_at,
-        created_by_admin_user_id
-      ) values (
-        ${input.quoteRequestId}::uuid, ${input.profileId}::uuid, ${recipientEmail}, ${tokenHash}, 'pending',
-        ${wave}, ${matchScore}, ${JSON.stringify(matchReasons)}::jsonb, 'manual_business_contact', ${expiresAt}::timestamptz,
-        ${input.adminUserId}
-      )
-      on conflict (quote_request_id, profile_id) do nothing
-      returning id::text
-    `;
-    invitationId = String(inserted[0]?.id ?? "");
+  try {
+    if (existing) {
+      const updated = await sql`
+        update marketplace_quote_invitations
+        set recipient_email = ${recipientEmail},
+            token_hash = ${tokenHash},
+            status = 'sending',
+            wave = ${wave},
+            match_score = ${matchScore},
+            match_reasons = ${JSON.stringify(matchReasons)}::jsonb,
+            contact_basis = 'manual_business_contact',
+            expires_at = ${expiresAt}::timestamptz,
+            sent_at = null,
+            viewed_at = null,
+            responded_at = null,
+            declined_at = null,
+            provider_message_id = '',
+            created_by_admin_user_id = ${input.adminUserId},
+            updated_at = now()
+        where id = ${String(existing.id)}::uuid
+          and status in ('delivery_failed', 'expired', 'declined', 'cancelled')
+        returning id::text
+      `;
+      invitationId = String(updated[0]?.id ?? "");
+    } else {
+      const inserted = await sql`
+        insert into marketplace_quote_invitations (
+          quote_request_id, profile_id, recipient_email, token_hash, status,
+          wave, match_score, match_reasons, contact_basis, expires_at,
+          created_by_admin_user_id
+        ) values (
+          ${input.quoteRequestId}::uuid, ${input.profileId}::uuid, ${recipientEmail}, ${tokenHash}, 'sending',
+          ${wave}, ${matchScore}, ${JSON.stringify(matchReasons)}::jsonb, 'manual_business_contact', ${expiresAt}::timestamptz,
+          ${input.adminUserId}
+        )
+        on conflict (quote_request_id, profile_id) do nothing
+        returning id::text
+      `;
+      invitationId = String(inserted[0]?.id ?? "");
+    }
+  } catch (error) {
+    const details = databaseErrorDetails(error);
+    if (details.code === "23514" && details.message.includes("marketplace_recipient_suppressed")) {
+      return { ok: false as const, code: "suppressed" };
+    }
+    if (details.code === "23514" && details.message.includes("marketplace_quote_closed")) {
+      return { ok: false as const, code: "quote_closed" };
+    }
+    if (details.code === "23514" && details.message.includes("marketplace_consent_required")) {
+      return { ok: false as const, code: "consent_required" };
+    }
+    throw error;
   }
   if (!invitationId) return { ok: false as const, code: existing ? "conflict" : "already_invited" };
+
+  // Re-read the committed dispatch reservation before the provider call. The
+  // database trigger makes 'sending' the serialization point with permanent
+  // opt-out; this read also avoids dispatching a row already suppressed by a
+  // later completed opt-out.
+  const dispatchRows = await sql`
+    select invitation.id::text
+    from marketplace_quote_invitations invitation
+    where invitation.id = ${invitationId}::uuid
+      and invitation.status = 'sending'
+      and not exists (
+        select 1
+        from marketplace_outreach_suppressions suppression
+        where suppression.email_normalized = lower(btrim(invitation.recipient_email))
+      )
+    limit 1
+  `;
+  if (!dispatchRows[0]?.id) return { ok: false as const, code: "suppressed" };
 
   const baseUrl = input.baseUrl.replace(/\/$/, "");
   const replyUrl = `${baseUrl}/offert/svara/${encodeURIComponent(token)}`;
@@ -325,9 +377,16 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
     });
     try {
       await sql`
-        update marketplace_quote_invitations
-        set status = 'delivery_failed', updated_at = now()
-        where id = ${invitationId}::uuid and status = 'pending'
+        update marketplace_quote_invitations invitation
+        set status = case
+              when exists (
+                select 1 from marketplace_outreach_suppressions suppression
+                where suppression.email_normalized = lower(btrim(invitation.recipient_email))
+              ) then 'suppressed'
+              else 'delivery_failed'
+            end,
+            updated_at = now()
+        where invitation.id = ${invitationId}::uuid and invitation.status = 'sending'
       `;
     } catch (error) {
       console.error("Failed to record marketplace guest invitation delivery failure", { invitationId, error });
@@ -338,12 +397,18 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
   let sentStatusRecorded = false;
   try {
     const sentRows = await sql`
-      update marketplace_quote_invitations
-      set status = 'sent',
+      update marketplace_quote_invitations invitation
+      set status = case
+            when exists (
+              select 1 from marketplace_outreach_suppressions suppression
+              where suppression.email_normalized = lower(btrim(invitation.recipient_email))
+            ) then 'suppressed'
+            else 'sent'
+          end,
           sent_at = now(),
           provider_message_id = ${delivery.providerMessageId ?? ""},
           updated_at = now()
-      where id = ${invitationId}::uuid and status = 'pending'
+      where invitation.id = ${invitationId}::uuid and invitation.status = 'sending'
       returning id::text
     `;
     sentStatusRecorded = Boolean(sentRows[0]?.id);
@@ -379,7 +444,10 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
   return { ok: true as const, invitationId };
 }
 
-async function loadGuestQuoteView(token: string, options?: { markViewed?: boolean; allowExpired?: boolean }) {
+async function loadGuestQuoteView(
+  token: string,
+  options?: { markViewed?: boolean; allowExpired?: boolean; allowClosed?: boolean },
+) {
   if (!validToken(token)) return null;
   const sql = getSql();
   if (!sql) return null;
@@ -402,6 +470,7 @@ async function loadGuestQuoteView(token: string, options?: { markViewed?: boolea
       q.contact_email,
       q.contact_phone,
       q.preferred_date,
+      q.status as quote_status,
       o.price_kind,
       o.currency,
       o.amount_minor,
@@ -418,6 +487,9 @@ async function loadGuestQuoteView(token: string, options?: { markViewed?: boolea
   const row = rows[0];
   if (!row) return null;
 
+  const quoteOpen = SENDABLE_QUOTE_STATUSES.has(String(row.quote_status));
+  if (!quoteOpen && !options?.allowClosed) return null;
+
   const expiresAt = new Date(String(row.expires_at));
   const validExpiresAt = Number.isFinite(expiresAt.getTime());
   const expired = !validExpiresAt || expiresAt.getTime() <= Date.now();
@@ -426,12 +498,12 @@ async function loadGuestQuoteView(token: string, options?: { markViewed?: boolea
       update marketplace_quote_invitations
       set status = 'expired', updated_at = now()
       where id = ${String(row.invitation_id)}::uuid
-        and status in ('pending', 'sent', 'viewed', 'delivery_failed')
+        and status in ('pending', 'sending', 'sent', 'viewed', 'delivery_failed')
     `;
     if (!options?.allowExpired) return null;
   }
 
-  if (options?.markViewed && String(row.status) === "sent" && !expired) {
+  if (quoteOpen && options?.markViewed && String(row.status) === "sent" && !expired) {
     await sql`
       update marketplace_quote_invitations
       set status = 'viewed', viewed_at = coalesce(viewed_at, now()), updated_at = now()
@@ -452,7 +524,7 @@ export async function getMarketplaceGuestQuoteView(token: string) {
 }
 
 export async function getMarketplaceGuestOptOutView(token: string) {
-  return loadGuestQuoteView(token, { allowExpired: true });
+  return loadGuestQuoteView(token, { allowExpired: true, allowClosed: true });
 }
 
 export async function submitMarketplaceGuestQuote(input: {
@@ -472,13 +544,18 @@ export async function submitMarketplaceGuestQuote(input: {
       i.profile_id::text,
       i.workspace_id::text,
       i.status,
-      i.expires_at::text
+      i.expires_at::text,
+      q.status as quote_status
     from marketplace_quote_invitations i
+    join quote_requests q on q.id = i.quote_request_id
     where i.token_hash = ${tokenHash}
     limit 1
   `;
   const row = rows[0];
   if (!row) return { ok: false as const, code: "invalid" };
+  if (!SENDABLE_QUOTE_STATUSES.has(String(row.quote_status))) {
+    return { ok: false as const, code: "closed" };
+  }
   if (["suppressed", "declined", "cancelled", "expired"].includes(String(row.status))) {
     return { ok: false as const, code: "closed" };
   }
@@ -487,7 +564,7 @@ export async function submitMarketplaceGuestQuote(input: {
     await sql`
       update marketplace_quote_invitations
       set status = 'expired', updated_at = now()
-      where id = ${String(row.invitation_id)}::uuid and status in ('pending', 'sent', 'viewed')
+      where id = ${String(row.invitation_id)}::uuid and status in ('pending', 'sending', 'sent', 'viewed')
     `;
     return { ok: false as const, code: "expired" };
   }
@@ -502,34 +579,50 @@ export async function submitMarketplaceGuestQuote(input: {
     ? input.availableDate
     : null;
 
-  const inserted = await sql`
-    insert into marketplace_quote_offers (
-      invitation_id, quote_request_id, profile_id, workspace_id,
-      status, price_kind, currency, amount_minor, available_date, company_note
-    ) values (
-      ${String(row.invitation_id)}::uuid,
-      ${String(row.quote_request_id)}::uuid,
-      ${String(row.profile_id)}::uuid,
-      ${String(row.workspace_id || "") || null}::uuid,
-      'submitted', ${input.priceKind}, 'SEK', ${amountMinor}, ${availableDate}::date, ${companyNote}
-    )
-    on conflict (invitation_id) do nothing
-    returning id::text
-  `;
+  let inserted;
+  try {
+    inserted = await sql`
+      with submitted_offer as (
+        insert into marketplace_quote_offers (
+          invitation_id, quote_request_id, profile_id, workspace_id,
+          status, price_kind, currency, amount_minor, available_date, company_note
+        ) values (
+          ${String(row.invitation_id)}::uuid,
+          ${String(row.quote_request_id)}::uuid,
+          ${String(row.profile_id)}::uuid,
+          ${String(row.workspace_id || "") || null}::uuid,
+          'submitted', ${input.priceKind}, 'SEK', ${amountMinor}, ${availableDate}::date, ${companyNote}
+        )
+        on conflict (invitation_id) do nothing
+        returning id, invitation_id, quote_request_id
+      ), marked_invitation as (
+        update marketplace_quote_invitations invitation
+        set status = 'responded', responded_at = now(), updated_at = now()
+        from submitted_offer offer
+        where invitation.id = offer.invitation_id
+        returning invitation.id
+      ), marked_request as (
+        update quote_requests request
+        set status = 'answered', updated_at = now()
+        from submitted_offer offer
+        where request.id = offer.quote_request_id
+          and request.status in ('submitted', 'pending_review', 'approved', 'matched', 'answered')
+        returning request.id
+      )
+      select id::text from submitted_offer
+    `;
+  } catch (error) {
+    const details = databaseErrorDetails(error);
+    if (
+      details.code === "23514"
+      && (details.message.includes("marketplace_quote_closed")
+        || details.message.includes("marketplace_recipient_suppressed"))
+    ) {
+      return { ok: false as const, code: "closed" };
+    }
+    throw error;
+  }
   if (!inserted[0]?.id) return { ok: false as const, code: "already_responded" };
-
-  await sql`
-    update marketplace_quote_invitations
-    set status = 'responded', responded_at = now(), updated_at = now()
-    where id = ${String(row.invitation_id)}::uuid
-      and status in ('pending', 'sent', 'viewed')
-  `;
-  await sql`
-    update quote_requests
-    set status = 'answered', updated_at = now()
-    where id = ${String(row.quote_request_id)}::uuid
-      and status in ('submitted', 'pending_review', 'approved', 'matched')
-  `;
 
   return { ok: true as const, offerId: String(inserted[0].id) };
 }
@@ -539,7 +632,7 @@ export async function suppressMarketplaceGuestRecipient(token: string) {
   if (!sql || !validToken(token)) return { ok: false as const, code: "invalid" };
   const tokenHash = hashMarketplaceGuestToken(token);
   const rows = await sql`
-    select id::text, profile_id::text, lower(recipient_email) as recipient_email
+    select id::text, profile_id::text, lower(btrim(recipient_email)) as recipient_email
     from marketplace_quote_invitations
     where token_hash = ${tokenHash}
     limit 1
@@ -548,20 +641,22 @@ export async function suppressMarketplaceGuestRecipient(token: string) {
   if (!row) return { ok: false as const, code: "invalid" };
   const email = normalizeMarketplaceRecipientEmail(String(row.recipient_email));
 
-  await sql`
-    insert into marketplace_outreach_suppressions (
-      profile_id, email_normalized, reason, source_invitation_id
-    ) values (
-      ${String(row.profile_id)}::uuid, ${email}, 'recipient_opt_out', ${String(row.id)}::uuid
-    )
-    on conflict (email_normalized) do nothing
-  `;
-  await sql`
-    update marketplace_quote_invitations
-    set status = 'suppressed', updated_at = now()
-    where lower(recipient_email) = ${email}
-      and status in ('pending', 'sent', 'viewed', 'delivery_failed', 'expired')
-  `;
+  await sql.transaction([
+    sql`
+      insert into marketplace_outreach_suppressions (
+        profile_id, email_normalized, reason, source_invitation_id
+      ) values (
+        ${String(row.profile_id)}::uuid, ${email}, 'recipient_opt_out', ${String(row.id)}::uuid
+      )
+      on conflict (email_normalized) do nothing
+    `,
+    sql`
+      update marketplace_quote_invitations
+      set status = 'suppressed', updated_at = now()
+      where lower(btrim(recipient_email)) = ${email}
+        and status in ('pending', 'sending', 'sent', 'viewed', 'delivery_failed', 'expired')
+    `,
+  ]);
 
   return { ok: true as const };
 }
