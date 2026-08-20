@@ -30,6 +30,19 @@ function amountMinor(value: FormDataEntryValue | null) {
   return Math.round(parsed * 100);
 }
 
+function validIsoDate(value: string | null) {
+  if (value === null) return true;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year
+    && date.getUTCMonth() === month - 1
+    && date.getUTCDate() === day;
+}
+
 function redirectToGuest(request: Request, token: string, status: string, locale: "sv" | "en") {
   const target = new URL(`/offert/svara/${encodeURIComponent(token)}`, request.url);
   target.searchParams.set("status", status);
@@ -62,7 +75,13 @@ export async function POST(request: Request, context: RouteContext) {
   const companyNote = String(form.get("companyNote") ?? "").trim().slice(0, 4000);
   const confirmed = String(form.get("confirmAuthority") ?? "") === "yes";
 
-  if (!priceKind || amount < 0 || !confirmed || (priceKind !== "inspection_required" && amount <= 0)) {
+  if (
+    !priceKind
+    || amount < 0
+    || !confirmed
+    || !validIsoDate(availableDate)
+    || (priceKind !== "inspection_required" && amount <= 0)
+  ) {
     return redirectToGuest(request, token, "invalid", locale);
   }
 
