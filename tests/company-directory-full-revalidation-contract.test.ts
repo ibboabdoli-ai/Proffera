@@ -229,20 +229,30 @@ describe("full Company Directory revalidation", () => {
     expect(sqlCalls.some((call) => call.query.includes("update company_directory_profiles profile"))).toBe(false);
   });
 
-  it("does not start another profile after the shared deadline", async () => {
+  it("stops before starting SCB when the deadline expires during a candidate", async () => {
     configureWorker({ status: "ready", backlog: 1 });
-
-    const result = await revalidateAllCompanyDirectoryBatch(10, { deadlineAt: Date.now() - 1 });
-
-    expect(result).toMatchObject({
-      selected: 1,
-      refreshed: 0,
-      deferred: 1,
-      movedToReview: 0,
-      errors: 0,
+    let now = 1_000;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
+    mocks.enrichOfficialFacts.mockImplementation(async () => {
+      now = 1_500;
+      return { profileId: PROFILE_ID, organizationNumber: "5563115707", reusedVerifiedDetail: false };
     });
-    expect(mocks.enrichOfficialFacts).not.toHaveBeenCalled();
-    expect(mocks.enrichScb).not.toHaveBeenCalled();
+
+    try {
+      const result = await revalidateAllCompanyDirectoryBatch(10, { deadlineAt: 1_500 });
+
+      expect(result).toMatchObject({
+        selected: 1,
+        refreshed: 0,
+        deferred: 1,
+        movedToReview: 0,
+        errors: 0,
+      });
+      expect(mocks.enrichOfficialFacts).toHaveBeenCalledTimes(1);
+      expect(mocks.enrichScb).not.toHaveBeenCalled();
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   it("caps an oversized automatic batch at twelve profiles", async () => {
