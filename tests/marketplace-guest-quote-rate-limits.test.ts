@@ -136,4 +136,14 @@ describe("marketplace guest route rate limits", () => {
     expect(redirectStatus(response)).toBe("invalid");
     expect(mocks.submitQuote).not.toHaveBeenCalled();
   });
+
+  it("maps a profile-revocation race to the normal closed guest state", async () => {
+    mocks.submitQuote.mockRejectedValueOnce(new Error("marketplace_profile_ineligible"));
+
+    const response = await postGuestQuote(quoteRequest(TOKEN_A), context(TOKEN_A));
+
+    expect(response.status).toBe(303);
+    expect(redirectStatus(response)).toBe("closed");
+    expect(mocks.submitQuote).toHaveBeenCalledTimes(1);
+  });
 });
