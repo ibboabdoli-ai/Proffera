@@ -10,6 +10,7 @@ export type MarketplaceGuestInvitationEmailInput = {
   preferredDate: string;
   replyUrl: string;
   optOutUrl: string;
+  idempotencyKey: string;
 };
 
 type BrevoResponse = {
@@ -105,6 +106,7 @@ export async function sendMarketplaceGuestInvitationEmail(input: MarketplaceGues
         subject: email.subject,
         textContent: email.text,
         htmlContent: email.html,
+        headers: { "Idempotency-Key": input.idempotencyKey },
         tags: ["marketplace-guest-invitation"],
       }),
     });
