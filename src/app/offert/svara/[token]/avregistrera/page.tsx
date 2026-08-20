@@ -14,6 +14,8 @@ const copy = {
     unavailableBody: "Vi kunde inte hitta den här företagsinbjudan.",
     doneTitle: "Klart",
     doneBody: "Den här företagsadressen får inte fler gästförfrågningar från Proffera.",
+    dispatchTitle: "Avregistreringen är registrerad",
+    dispatchBody: "Inga nya gästinbjudningar startas till den här adressen. Ett mejl som redan hade börjat levereras innan avregistreringen kan fortfarande komma fram.",
     title: "Stoppa framtida gästförfrågningar?",
     bodyPrefix: "Detta gäller företagsadressen som användes för",
     bodySuffix: "Efter avregistrering skickar Proffera inte fler gästinbjudningar till adressen.",
@@ -29,6 +31,8 @@ const copy = {
     unavailableBody: "We could not find this business invitation.",
     doneTitle: "Done",
     doneBody: "This business email address will not receive more guest requests from Proffera.",
+    dispatchTitle: "Your opt-out is registered",
+    dispatchBody: "No new guest invitations will be started for this address. An email that had already started delivery before the opt-out may still arrive.",
     title: "Stop future guest requests?",
     bodyPrefix: "This applies to the business email address used for",
     bodySuffix: "After opting out, Proffera will not send more guest invitations to this address.",
@@ -74,6 +78,18 @@ export default async function MarketplaceGuestOptOutPage({
           <div className="flex justify-end"><Link href={guestOptOutHref(token, alternativeLocale, status)} className="text-xs font-bold text-[#17452f]">{text.language}</Link></div>
           <h1 className="mt-4 text-3xl font-bold text-[#17201a]">{text.unavailableTitle}</h1>
           <p className="mt-4 text-[#5b665f]">{text.unavailableBody}</p>
+        </section>
+      </main>
+    );
+  }
+
+  if (status === "dispatch_in_progress") {
+    return (
+      <main lang={locale} className="min-h-screen bg-[#f7f7f4] px-4 py-16 sm:px-6">
+        <section className="mx-auto max-w-xl rounded-3xl bg-white p-8 text-center shadow-sm ring-1 ring-[#dfe5dd]">
+          <div className="flex justify-end"><Link href={guestOptOutHref(token, alternativeLocale, status)} className="text-xs font-bold text-[#17452f]">{text.language}</Link></div>
+          <h1 className="mt-4 text-3xl font-bold text-[#17201a]">{text.dispatchTitle}</h1>
+          <p className="mt-4 leading-7 text-[#5b665f]">{text.dispatchBody}</p>
         </section>
       </main>
     );
