@@ -216,6 +216,18 @@ async function loadFreshEvaluation(profileId: string) {
   return rows[0] ?? null;
 }
 
+async function markScbEvaluationPending(profileId: string) {
+  const sql = getSql();
+  if (!sql) throw new Error("Database is not configured");
+
+  await sql`
+    update company_directory_scb_enrichment
+    set provenance = coalesce(provenance, '{}'::jsonb) #- '{comparisonSnapshot,officialFactsLastSyncedToken}',
+        updated_at = now()
+    where profile_id = ${profileId}::uuid
+  `;
+}
+
 async function moveProfileToReview(input: {
   profileId: string;
   expectedStatus: string;
@@ -359,6 +371,12 @@ export async function revalidateAllCompanyDirectoryBatch(
             errorMessages.push(`${organizationNumber}: SCB refresh deferred (${scb.status})`);
           }
           continue;
+        }
+
+        if (deadlineReached(options.deadlineAt)) {
+          await markScbEvaluationPending(profileId);
+          deferred += candidates.length - index;
+          break candidateLoop;
         }
 
         const row = await loadFreshEvaluation(profileId);
