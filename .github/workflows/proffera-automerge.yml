@@ -232,14 +232,32 @@ jobs:
             summary "- Required: no"
           fi
 
-          checks_json="$(gh pr checks "$pr_number" --repo "$REPOSITORY" --json name,state 2>/dev/null || true)"
-          if [ -z "$checks_json" ] || [ "$checks_json" = "[]" ]; then
-            refuse "Refused: no status checks were found for this PR."
-          fi
+          checks_json=""
+          non_self_check_count=0
+          failing_checks=""
+          pending_checks=""
 
-          non_self_check_count="$(echo "$checks_json" | jq -r --arg self_check "$SELF_CHECK_NAME" --arg self_workflow "$SELF_WORKFLOW_NAME" '[.[] | select(.name != $self_check and .name != $self_workflow)] | length')"
-          failing_checks="$(echo "$checks_json" | jq -r --arg self_check "$SELF_CHECK_NAME" --arg self_workflow "$SELF_WORKFLOW_NAME" '.[] | select(.name != $self_check and .name != $self_workflow) | select(.state == "FAILURE" or .state == "ERROR" or .state == "CANCELLED" or .state == "TIMED_OUT" or .state == "ACTION_REQUIRED") | .name')"
-          pending_checks="$(echo "$checks_json" | jq -r --arg self_check "$SELF_CHECK_NAME" --arg self_workflow "$SELF_WORKFLOW_NAME" '.[] | select(.name != $self_check and .name != $self_workflow) | select(.state == "PENDING" or .state == "QUEUED" or .state == "IN_PROGRESS" or .state == "WAITING") | .name')"
+          for attempt in $(seq 1 40); do
+            checks_json="$(gh pr checks "$pr_number" --repo "$REPOSITORY" --json name,state 2>/dev/null || true)"
+            if [ -z "$checks_json" ] || [ "$checks_json" = "[]" ]; then
+              refuse "Refused: no status checks were found for this PR."
+            fi
+
+            non_self_check_count="$(echo "$checks_json" | jq -r --arg self_check "$SELF_CHECK_NAME" --arg self_workflow "$SELF_WORKFLOW_NAME" '[.[] | select(.name != $self_check and .name != $self_workflow)] | length')"
+            failing_checks="$(echo "$checks_json" | jq -r --arg self_check "$SELF_CHECK_NAME" --arg self_workflow "$SELF_WORKFLOW_NAME" '.[] | select(.name != $self_check and .name != $self_workflow) | select(.state == "FAILURE" or .state == "ERROR" or .state == "CANCELLED" or .state == "TIMED_OUT" or .state == "ACTION_REQUIRED") | .name')"
+            pending_checks="$(echo "$checks_json" | jq -r --arg self_check "$SELF_CHECK_NAME" --arg self_workflow "$SELF_WORKFLOW_NAME" '.[] | select(.name != $self_check and .name != $self_workflow) | select(.state == "PENDING" or .state == "QUEUED" or .state == "IN_PROGRESS" or .state == "WAITING") | .name')"
+
+            if [ "$non_self_check_count" -eq 0 ]; then
+              refuse "Refused: no non-self status checks were found for this PR."
+            fi
+
+            if [ -n "$failing_checks" ] || [ -z "$pending_checks" ]; then
+              break
+            fi
+
+            echo "Required checks are still pending; re-evaluating before automerge (attempt $attempt/40)."
+            sleep 15
+          done
 
           summary "### Checks"
           echo "$checks_json" | jq -r '.[] | "- " + .name + ": " + .state' >> "$GITHUB_STEP_SUMMARY"
@@ -248,16 +266,12 @@ jobs:
           summary "Non-self status checks found: $non_self_check_count"
           summary ""
 
-          if [ "$non_self_check_count" -eq 0 ]; then
-            refuse "Refused: no non-self status checks were found for this PR."
-          fi
-
           if [ -n "$pending_checks" ]; then
             summary "### Pending checks"
             while IFS= read -r check; do
               [ -n "$check" ] && summary "- $check"
             done <<< "$pending_checks"
-            refuse "Refused: checks are still pending."
+            refuse "Refused: checks are still pending after the bounded recheck window."
           fi
 
           if [ -n "$failing_checks" ]; then
