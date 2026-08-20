@@ -7,6 +7,7 @@ const DEFAULT_LANTMATERIET_BASE_URL =
   "https://api.lantmateriet.se/distribution/produkter/belagenhetsadress/v4.2";
 const GEOCODE_SOURCE = "lantmateriet_belagenhetsadress_v4_2";
 const NO_MATCH_SOURCE = "lantmateriet_no_match_v4_2";
+const NO_MATCH_SOURCE_PATTERN = `${NO_MATCH_SOURCE.replaceAll("_", "\\_")}%`;
 const MAX_DETAIL_FALLBACK_CANDIDATES = 5;
 const GEOCODING_ACTION_BUDGET_MS = 240_000;
 const GEOCODING_FINAL_COUNTS_RESERVE_MS = 10_000;
@@ -41,6 +42,26 @@ export const DIRECTORY_GEOCODING_PILOT_ORGS = [
   "5563388478",
   "5564208337",
 ] as const;
+
+export const DIRECTORY_GEOCODING_DIAGNOSTIC_RETRY_ORGS = [
+  "5564208337", // Flottbrovägen 4
+  "5563276806", // Segelbåtsvägen 7
+  "5565120846", // Narvavägen 23A
+] as const;
+
+export type DirectoryGeocodingNoMatchReason =
+  | "invalid_address"
+  | "unexpected_reference_response"
+  | "no_reference"
+  | "invalid_reference"
+  | "reference_postal_mismatch"
+  | "too_many_candidates"
+  | "unexpected_detail_response"
+  | "postal_mismatch"
+  | "street_mismatch"
+  | "missing_point"
+  | "ambiguous_exact_match"
+  | "no_exact_detail_match";
 
 type AddressComponents = {
   postnummer?: number | string | null;
@@ -81,6 +102,19 @@ type PilotProfile = {
   postalCode: string;
   city: string;
 };
+
+type SwerefPoint = {
+  easting: number;
+  northing: number;
+};
+
+type AddressDetailDiagnostic =
+  | { point: SwerefPoint; reason: null }
+  | { point: null; reason: DirectoryGeocodingNoMatchReason };
+
+type OfficialAddressResolution =
+  | { status: "matched"; easting: number; northing: number; objectId: string }
+  | { status: "no_match"; reason: DirectoryGeocodingNoMatchReason };
 
 export type DirectoryGeocodingBatchResult = {
   attempted: number;
@@ -160,6 +194,21 @@ export function mapDirectoryGeocodingFetchError(error: unknown, deadlineBound: b
 
 export function classifyDirectoryGeocodingBatchError(error: unknown) {
   return error instanceof GeocodingDeadlineExceeded ? "deadline" as const : "error" as const;
+}
+
+export function buildDirectoryGeocodingNoMatchSource(reason: DirectoryGeocodingNoMatchReason) {
+  return `${NO_MATCH_SOURCE}:${reason}`;
+}
+
+export function isDirectoryGeocodingNoMatchSource(value: unknown) {
+  const source = String(value ?? "");
+  return source === NO_MATCH_SOURCE || source.startsWith(`${NO_MATCH_SOURCE}:`);
+}
+
+export function shouldRetryLegacyDirectoryNoMatch(organizationNumber: unknown, source: unknown) {
+  return String(source ?? "") === NO_MATCH_SOURCE
+    && (DIRECTORY_GEOCODING_DIAGNOSTIC_RETRY_ORGS as readonly string[])
+      .includes(String(organizationNumber ?? ""));
 }
 
 export function cleanDirectoryStreetAddress(value: unknown) {
@@ -254,31 +303,62 @@ function detailStreetAddresses(properties: AddressDetailProperties) {
   return [...new Set(areaNames.map((areaName) => `${areaName} ${place}`.trim()))];
 }
 
+export function diagnoseExactSwerefAddressDetail(
+  payload: unknown,
+  postalCode: unknown,
+  city: unknown,
+  streetAddress: unknown,
+): AddressDetailDiagnostic {
+  if (!payload || typeof payload !== "object") {
+    return { point: null, reason: "unexpected_detail_response" };
+  }
+  const features = (payload as { features?: unknown }).features;
+  if (!Array.isArray(features) || features.length !== 1) {
+    return { point: null, reason: "unexpected_detail_response" };
+  }
+  const feature = features[0];
+  if (!feature || typeof feature !== "object") {
+    return { point: null, reason: "unexpected_detail_response" };
+  }
+  const properties = (feature as { properties?: unknown }).properties;
+  if (!properties || typeof properties !== "object") {
+    return { point: null, reason: "unexpected_detail_response" };
+  }
+  const typedProperties = properties as AddressDetailProperties;
+  const addressAttributes = typedProperties.adressplatsattribut;
+  if (
+    !addressAttributes
+    || typeof addressAttributes !== "object"
+    || Array.isArray(addressAttributes)
+  ) {
+    return { point: null, reason: "unexpected_detail_response" };
+  }
+  if (
+    normalizePostcode(addressAttributes.postnummer) !== normalizePostcode(postalCode)
+    || normalizeText(addressAttributes.postort) !== normalizeText(city)
+  ) {
+    return { point: null, reason: "postal_mismatch" };
+  }
+
+  const expectedStreet = normalizeStreetAddress(streetAddress);
+  if (!expectedStreet) return { point: null, reason: "invalid_address" };
+  const officialStreets = detailStreetAddresses(typedProperties).map(normalizeStreetAddress);
+  if (!officialStreets.includes(expectedStreet)) {
+    return { point: null, reason: "street_mismatch" };
+  }
+
+  const point = parseSwerefPointGeometry(payload);
+  if (!point) return { point: null, reason: "missing_point" };
+  return { point, reason: null };
+}
+
 export function parseExactSwerefAddressDetail(
   payload: unknown,
   postalCode: unknown,
   city: unknown,
   streetAddress: unknown,
 ) {
-  if (!payload || typeof payload !== "object") return null;
-  const features = (payload as { features?: unknown }).features;
-  if (!Array.isArray(features) || features.length !== 1) return null;
-  const feature = features[0];
-  if (!feature || typeof feature !== "object") return null;
-  const properties = (feature as { properties?: unknown }).properties;
-  if (!properties || typeof properties !== "object") return null;
-  const typedProperties = properties as AddressDetailProperties;
-  const addressAttributes = typedProperties.adressplatsattribut;
-  if (!addressAttributes) return null;
-  if (normalizePostcode(addressAttributes.postnummer) !== normalizePostcode(postalCode)) return null;
-  if (normalizeText(addressAttributes.postort) !== normalizeText(city)) return null;
-
-  const expectedStreet = normalizeStreetAddress(streetAddress);
-  if (!expectedStreet) return null;
-  const officialStreets = detailStreetAddresses(typedProperties).map(normalizeStreetAddress);
-  if (!officialStreets.includes(expectedStreet)) return null;
-
-  return parseSwerefPointGeometry(payload);
+  return diagnoseExactSwerefAddressDetail(payload, postalCode, city, streetAddress).point;
 }
 
 function geocodingEnabled() {
@@ -340,10 +420,12 @@ async function resolveOfficialAddress(
   profile: PilotProfile,
   config: ReturnType<typeof getGeocodingConfig>,
   deadline: number,
-) {
+): Promise<OfficialAddressResolution> {
   assertBeforeDeadline(deadline);
   const streetAddress = cleanDirectoryStreetAddress(profile.addressLine1);
-  if (!streetAddress || streetAddress.toLocaleLowerCase("sv-SE").startsWith("box ")) return null;
+  if (!streetAddress || streetAddress.toLocaleLowerCase("sv-SE").startsWith("box ")) {
+    return { status: "no_match", reason: "invalid_address" };
+  }
 
   const searchUrl = new URL(`${config.baseUrl}/referens/fritext`);
   searchUrl.searchParams.set("adress", buildDirectoryAddressSearchText(streetAddress, profile.city));
@@ -352,15 +434,33 @@ async function resolveOfficialAddress(
   searchUrl.searchParams.set("splitAdress", "true");
 
   const referencePayload = await fetchJson(searchUrl, config.username, config.password, deadline);
-  if (!Array.isArray(referencePayload)) return null;
+  if (!Array.isArray(referencePayload)) {
+    return { status: "no_match", reason: "unexpected_reference_response" };
+  }
+  if (referencePayload.length === 0) {
+    return { status: "no_match", reason: "no_reference" };
+  }
+
+  const references = referencePayload as LantmaterietAddressReference[];
+  if (!references.some((reference) => isUuid(reference.objektidentitet))) {
+    return { status: "no_match", reason: "invalid_reference" };
+  }
+
   const candidates = selectDirectoryAddressReferenceCandidates(
-    referencePayload as LantmaterietAddressReference[],
+    references,
     profile.postalCode,
     profile.city,
   );
-  if (candidates.length === 0 || candidates.length > MAX_DETAIL_FALLBACK_CANDIDATES) return null;
+  if (candidates.length === 0) {
+    return { status: "no_match", reason: "reference_postal_mismatch" };
+  }
+  if (candidates.length > MAX_DETAIL_FALLBACK_CANDIDATES) {
+    return { status: "no_match", reason: "too_many_candidates" };
+  }
 
   let resolved: { easting: number; northing: number; objectId: string } | null = null;
+  const detailReasons = new Set<DirectoryGeocodingNoMatchReason>();
+
   for (const candidate of candidates) {
     assertBeforeDeadline(deadline);
     if (!candidate.objektidentitet) continue;
@@ -368,18 +468,25 @@ async function resolveOfficialAddress(
     detailUrl.searchParams.set("includeData", "basinformation");
     detailUrl.searchParams.set("srid", "3006");
     const detailPayload = await fetchJson(detailUrl, config.username, config.password, deadline);
-    const point = parseExactSwerefAddressDetail(
+    const detail = diagnoseExactSwerefAddressDetail(
       detailPayload,
       profile.postalCode,
       profile.city,
       streetAddress,
     );
-    if (!point) continue;
-    if (resolved) return null;
-    resolved = { ...point, objectId: candidate.objektidentitet };
+    if (!detail.point) {
+      detailReasons.add(detail.reason);
+      continue;
+    }
+    if (resolved) return { status: "no_match", reason: "ambiguous_exact_match" };
+    resolved = { ...detail.point, objectId: candidate.objektidentitet };
   }
 
-  return resolved;
+  if (resolved) return { status: "matched", ...resolved };
+  if (detailReasons.size === 1) {
+    return { status: "no_match", reason: [...detailReasons][0] };
+  }
+  return { status: "no_match", reason: "no_exact_detail_match" };
 }
 
 async function postgisReady() {
@@ -400,13 +507,30 @@ async function pilotCounts(deadline?: number) {
     return { geocoded: 0, remaining: DIRECTORY_GEOCODING_PILOT_ORGS.length, needsReview: 0 };
   }
   const orgsJson = JSON.stringify(DIRECTORY_GEOCODING_PILOT_ORGS);
+  const diagnosticOrgsJson = JSON.stringify(DIRECTORY_GEOCODING_DIAGNOSTIC_RETRY_ORGS);
   const rows = await sql`
     select
       count(*) filter (where location.latitude is not null and location.longitude is not null)::int as geocoded,
-      count(*) filter (where location.geocode_source = ${NO_MATCH_SOURCE})::int as needs_review,
+      count(*) filter (
+        where location.geocode_source like ${NO_MATCH_SOURCE_PATTERN}
+          and not (
+            location.geocode_source = ${NO_MATCH_SOURCE}
+            and profile.organization_number in (
+              select jsonb_array_elements_text(${diagnosticOrgsJson}::jsonb)
+            )
+          )
+      )::int as needs_review,
       count(*) filter (
         where (location.latitude is null or location.longitude is null)
-          and coalesce(location.geocode_source, '') <> ${NO_MATCH_SOURCE}
+          and (
+            coalesce(location.geocode_source, '') not like ${NO_MATCH_SOURCE_PATTERN}
+            or (
+              location.geocode_source = ${NO_MATCH_SOURCE}
+              and profile.organization_number in (
+                select jsonb_array_elements_text(${diagnosticOrgsJson}::jsonb)
+              )
+            )
+          )
       )::int as remaining
     from company_directory_profiles profile
     left join company_directory_business_locations location on location.profile_id = profile.id
@@ -435,16 +559,21 @@ export async function getDirectoryGeocodingStatus(): Promise<DirectoryGeocodingS
   };
 }
 
-async function markNoMatch(profileId: string, deadline?: number) {
+async function markNoMatch(
+  profileId: string,
+  reason: DirectoryGeocodingNoMatchReason,
+  deadline?: number,
+) {
   if (deadline) assertBeforeDeadline(deadline);
   const sql = getSql();
   if (!sql) return;
+  const source = buildDirectoryGeocodingNoMatchSource(reason);
   await sql`
     insert into company_directory_business_locations (
       profile_id, geocode_source, geocode_precision, geocode_confidence,
       is_public, geocoded_at, updated_at
     ) values (
-      ${profileId}::uuid, ${NO_MATCH_SOURCE}, 'unknown', 0, false, now(), now()
+      ${profileId}::uuid, ${source}, 'unknown', 0, false, now(), now()
     )
     on conflict (profile_id) do update set
       geocode_source = excluded.geocode_source,
@@ -474,6 +603,7 @@ export async function geocodeDirectoryPilotFromAdmin(limit = 5): Promise<Directo
   assertBeforeDeadline(processingDeadline);
   const boundedLimit = Math.max(1, Math.min(5, Math.floor(Number(limit) || 5)));
   const orgsJson = JSON.stringify(DIRECTORY_GEOCODING_PILOT_ORGS);
+  const diagnosticOrgsJson = JSON.stringify(DIRECTORY_GEOCODING_DIAGNOSTIC_RETRY_ORGS);
   const rows = await sql`
     select
       profile.id::text,
@@ -494,8 +624,26 @@ export async function geocodeDirectoryPilotFromAdmin(limit = 5): Promise<Directo
       and lower(profile.address_line1) not like 'box %'
       and lower(profile.address_line1) not like 'kivra:%'
       and (location.latitude is null or location.longitude is null)
-      and coalesce(location.geocode_source, '') <> ${NO_MATCH_SOURCE}
-    order by profile.category_slug, profile.display_name
+      and (
+        coalesce(location.geocode_source, '') not like ${NO_MATCH_SOURCE_PATTERN}
+        or (
+          location.geocode_source = ${NO_MATCH_SOURCE}
+          and profile.organization_number in (
+            select jsonb_array_elements_text(${diagnosticOrgsJson}::jsonb)
+          )
+        )
+      )
+    order by
+      case
+        when location.geocode_source = ${NO_MATCH_SOURCE}
+          and profile.organization_number in (
+            select jsonb_array_elements_text(${diagnosticOrgsJson}::jsonb)
+          )
+        then 0
+        else 1
+      end,
+      profile.category_slug,
+      profile.display_name
     limit ${boundedLimit}
   `;
 
@@ -516,10 +664,10 @@ export async function geocodeDirectoryPilotFromAdmin(limit = 5): Promise<Directo
       city: String(row.city),
     };
     try {
-      const resolved = await resolveOfficialAddress(profile, config, processingDeadline);
+      const resolution = await resolveOfficialAddress(profile, config, processingDeadline);
       assertBeforeDeadline(processingDeadline);
-      if (!resolved) {
-        await markNoMatch(profile.id, processingDeadline);
+      if (resolution.status === "no_match") {
+        await markNoMatch(profile.id, resolution.reason, processingDeadline);
         noMatch += 1;
         continue;
       }
@@ -527,7 +675,7 @@ export async function geocodeDirectoryPilotFromAdmin(limit = 5): Promise<Directo
       const saved = await sql`
         with transformed as (
           select ST_Transform(
-            ST_SetSRID(ST_MakePoint(${resolved.easting}, ${resolved.northing}), 3006),
+            ST_SetSRID(ST_MakePoint(${resolution.easting}, ${resolution.northing}), 3006),
             4326
           ) as point
         )
