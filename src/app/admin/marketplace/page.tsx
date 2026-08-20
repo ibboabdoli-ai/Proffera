@@ -54,7 +54,7 @@ export default async function MarketplaceAdminPage({
                 <p>{candidate.city || candidate.municipality} · {candidate.serviceName}</p>
                 <p>Score: {candidate.score} · Kvalitet: {candidate.qualityScore} · Wave {wave}</p>
                 <p>{candidate.reasons.join(" · ")}</p>
-                <p><Link href={`/foretag/${candidate.slug}`} target="_blank">Öppna företagsprofil</Link></p>
+                <p><Link href={`/foretag/listad/${candidate.slug}`} target="_blank">Öppna företagsprofil</Link></p>
                 <form method="post" action="/api/admin/marketplace/guest-invite" style={{ display: "grid", gap: 8, maxWidth: 620 }}>
                   <input type="hidden" name="quoteRequestId" value={item.lead.id} />
                   <input type="hidden" name="profileId" value={candidate.profileId} />
