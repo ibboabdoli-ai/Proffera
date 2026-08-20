@@ -10,7 +10,7 @@ export const siteConfig = {
   name: "Proffera",
   description:
     "Proffera hjälper tjänsteföretag att visa tjänster, ta emot bokningar och offertförfrågningar och hantera kunder, uppdrag och uppföljning i ett tydligt arbetsflöde.",
-  url: "https://proffera.se",
+  url: "https://www.proffera.se",
   primaryCta: "Starta gratis i 14 dagar",
   providerCta: "Se priser",
 };

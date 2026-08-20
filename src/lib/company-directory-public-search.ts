@@ -1,5 +1,7 @@
 import "server-only";
 
+import { unstable_cache } from "next/cache";
+
 import { gateDirectoryDirectContact } from "@/lib/company-directory-contact-entitlement";
 import { normalizeDirectoryRadiusKm, parseDirectoryCoordinates } from "@/lib/company-directory-distance";
 import {
@@ -82,10 +84,9 @@ function marketplaceConversionMode(value: unknown): DirectoryMarketplaceConversi
     : null;
 }
 
-export async function getPublishedDirectoryLocationSuggestions(limit = 50) {
+const loadPublishedDirectoryLocationSuggestions = unstable_cache(async (safeLimit: number) => {
   const sql = getSql();
   if (!sql) return [] as string[];
-  const safeLimit = boundedLimit(limit, 50, 100);
 
   const rows = await sql`
     select location_label
@@ -108,6 +109,10 @@ export async function getPublishedDirectoryLocationSuggestions(limit = 50) {
   `;
 
   return rows.map((row) => String(row.location_label));
+}, ["published-directory-location-suggestions"], { revalidate: 300 });
+
+export async function getPublishedDirectoryLocationSuggestions(limit = 50) {
+  return loadPublishedDirectoryLocationSuggestions(boundedLimit(limit, 50, 100));
 }
 
 export async function searchPublishedCompanyDirectory(

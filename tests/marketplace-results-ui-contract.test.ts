@@ -219,6 +219,24 @@ describe("marketplace results UI contract", () => {
     expect(render("sv", [])).not.toContain("Vill du jämföra flera företag?");
   });
 
+  it("gives empty and invalid searches useful recovery actions", () => {
+    const empty = render(
+      "sv",
+      [],
+      {},
+      "/foretag/listad?service=vvs&location=Stockholm",
+    );
+    const invalid = render("en", [], { serviceResolved: false });
+
+    expect(empty).toContain("Kom vidare med ditt ärende");
+    expect(empty).toContain("Sök i hela Sverige");
+    expect(empty).toContain("/foretag/listad?service=vvs");
+    expect(empty).toContain("Få offerter");
+    expect(invalid).toContain("Try a popular service");
+    expect(invalid).toContain("View all services");
+    expect(invalid).toContain("Get quotes");
+  });
+
   it("does not manufacture a Near me attempt for a manual location search", () => {
     const searchPage = source("src/components/company-directory/public-directory-search-page.tsx");
 

@@ -5,7 +5,7 @@ import { PublicDirectorySearchPage } from "@/components/company-directory/public
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Hitta företag | Proffera",
+  title: "Hitta företag",
   description: "Sök publicerade företag på Proffera efter tjänst och ort.",
   alternates: {
     canonical: "/foretag/listad",

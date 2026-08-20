@@ -92,13 +92,13 @@ export function Header({ locale }: HeaderProps) {
             {copy.loginLabel}
           </Link>
           {alternateLocalePath ? (
-            <Link
+            <a
               href={alternateLocalePath}
               aria-label={copy.languageLabel}
               className="rounded-lg border border-[#cfd8cf] px-2.5 py-2 text-xs font-bold tracking-wide text-[#17452f] transition hover:bg-[#eef5ef] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#17452f]"
             >
               {locale === "en" ? "SV" : "EN"}
-            </Link>
+            </a>
           ) : null}
           <ButtonLink href={primaryHref}>{primaryLabel}</ButtonLink>
         </div>
@@ -118,13 +118,13 @@ export function Header({ locale }: HeaderProps) {
                 {copy.loginLabel}
               </Link>
               {alternateLocalePath ? (
-                <Link
+                <a
                   href={alternateLocalePath}
                   onClick={closeMenu}
                   className="rounded-xl px-3 py-2.5 text-sm font-semibold text-[#17452f] transition hover:bg-[#f2f6f2]"
                 >
                   {locale === "en" ? "Svenska" : "English"}
-                </Link>
+                </a>
               ) : null}
               <ButtonLink href={primaryHref} onClick={closeMenu} className="mt-2 w-full">
                 {primaryLabel}
