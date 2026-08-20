@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 
+import { applyAdminCurrentPosition } from "./search-behavior";
+
 const FAST_GEOLOCATION_OPTIONS: PositionOptions = {
   enableHighAccuracy: false,
   timeout: 12000,
@@ -30,14 +32,6 @@ export function NearbySearchFields({
   const [status, setStatus] = useState("");
   const [locating, setLocating] = useState(false);
 
-  function clearManualLocation() {
-    if (!locationInputId) return;
-    const locationInput = document.getElementById(locationInputId);
-    if (locationInput instanceof HTMLInputElement) {
-      locationInput.value = "";
-    }
-  }
-
   function useCurrentPosition() {
     if (!navigator.geolocation) {
       setStatus("Webbläsaren stöder inte platsdelning.");
@@ -49,11 +43,14 @@ export function NearbySearchFields({
     setStatus("Hämtar position…");
 
     const handlePosition = (position: GeolocationPosition) => {
-      setLatitude(position.coords.latitude.toFixed(6));
-      setLongitude(position.coords.longitude.toFixed(6));
-      clearManualLocation();
+      const locationElement = locationInputId ? document.getElementById(locationInputId) : null;
+      const locationField = locationElement instanceof HTMLInputElement ? locationElement : null;
+      const next = applyAdminCurrentPosition(position, locationField);
+
+      setLatitude(next.latitude);
+      setLongitude(next.longitude);
       setLocating(false);
-      setStatus("Position hämtad. Platsfältet är rensat. Tryck Sök.");
+      setStatus(next.status);
     };
 
     const handleFinalError = (error: GeolocationPositionError) => {
