@@ -192,8 +192,30 @@ describe("full Company Directory revalidation", () => {
     expect(move?.values).toContain(SCB_HASH);
   });
 
-  it("refreshes Review profiles without automatically publishing them", async () => {
+  it("returns an evidence-safe Review profile to Ready without publishing it", async () => {
     configureWorker({ status: "review", evaluation: evaluation("review") });
+
+    const result = await revalidateAllCompanyDirectoryBatch(10);
+
+    expect(result).toMatchObject({
+      selected: 1,
+      refreshed: 1,
+      recoveredToReady: 1,
+      movedToReview: 0,
+      errors: 0,
+    });
+    expect(mocks.enrichOfficialFacts).toHaveBeenCalledTimes(1);
+    expect(mocks.enrichScb).toHaveBeenCalledTimes(2);
+    const recovery = sqlCalls.find((call) => call.query.includes("set publication_status = 'ready'"));
+    expect(recovery?.query).toContain("profile.publication_status = 'review'");
+    expect(recovery?.query).toContain("profile.claimed_workspace_id is null");
+    expect(recovery?.query).toContain("jsonb_array_length(coalesce(scb.conflicts, '[]'::jsonb)) = 0");
+    expect(recovery?.query).not.toContain("set publication_status = 'published'");
+  });
+
+  it("keeps Review profiles in Review when confidence remains below 95%", async () => {
+    configureWorker({ status: "review", evaluation: evaluation("review") });
+    mocks.assessConfidence.mockReturnValue({ score: 90, officialFactsReady: true, reasons: [] });
 
     const result = await revalidateAllCompanyDirectoryBatch(10);
 
@@ -204,7 +226,6 @@ describe("full Company Directory revalidation", () => {
       movedToReview: 0,
       errors: 0,
     });
-    expect(mocks.enrichOfficialFacts).toHaveBeenCalledTimes(1);
     expect(mocks.enrichScb).toHaveBeenCalledTimes(1);
     expect(sqlCalls.some((call) => call.query.includes("update company_directory_profiles profile"))).toBe(false);
   });

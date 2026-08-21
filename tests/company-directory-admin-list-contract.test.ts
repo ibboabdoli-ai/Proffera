@@ -66,4 +66,17 @@ describe("Company Directory admin list", () => {
     expect(actionCode).toContain('params.set("page", String(returnPage))');
     expect(actionCode).not.toContain('requestHeaders.get("referer")');
   });
+
+  it("shows concrete SCB and Review-recovery reasons instead of only a generic non-Ready status", () => {
+    const pageCode = source("src/app/admin/foretag/directory/page.tsx");
+    const adminCode = source("src/lib/company-directory-admin.ts");
+
+    expect(adminCode).toContain("scb_snapshot_fresh");
+    expect(adminCode).toContain('publishSafetyReasons.push("scb_evidence_stale")');
+    expect(adminCode).toContain('publishSafetyReasons.push("scb_conflict")');
+    expect(adminCode).toContain('publishSafetyReasons.push("review_recovery_eligible")');
+    expect(pageCode).toContain('scb_evidence_stale: "SCB-underlaget är inte aktuellt för profilen"');
+    expect(pageCode).toContain('scb_conflict: "SCB-data motsäger profilens officiella uppgifter"');
+    expect(pageCode).toContain('review_recovery_eligible: "Klar för säker återgång till Ready vid nästa revalidation"');
+  });
 });

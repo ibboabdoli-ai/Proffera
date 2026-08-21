@@ -119,10 +119,13 @@ const safetyReasonLabels: Record<string, string> = {
   already_claimed: "Redan claimad",
   official_facts_missing: "Official Facts saknas",
   official_facts_stale: "Official Facts är äldre än profilen",
+  scb_evidence_stale: "SCB-underlaget är inte aktuellt för profilen",
+  scb_conflict: "SCB-data motsäger profilens officiella uppgifter",
   category_confidence_below_95: "Kategori under 95%",
   deregistered: "Avregistrerad",
   ongoing_legal_procedure: "Pågående avveckling/omstrukturering",
   advertising_blocked: "Reklamspärr",
+  review_recovery_eligible: "Klar för säker återgång till Ready vid nästa revalidation",
 };
 
 const publishMessages: Record<string, { ok: boolean; text: string }> = {

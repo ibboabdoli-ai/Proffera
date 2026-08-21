@@ -97,6 +97,7 @@ beforeEach(() => {
 describe("full Company Directory revalidation batch cap", () => {
   it("processes at most ten profiles from an oversized candidate pool", async () => {
     const oversizedPool = Array.from({ length: 20 }, (_, index) => candidate(index));
+    mocks.assessConfidence.mockReturnValue({ score: 90, officialFactsReady: true, reasons: [] });
 
     const sql = vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
       const query = normalizeQuery(strings);
