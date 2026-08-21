@@ -1,7 +1,7 @@
 "use client";
 
 import { CheckCircle2 } from "lucide-react";
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 
 import type { PublicLocale } from "@/lib/public-locale";
 import { submitQuoteRequest } from "./actions";
@@ -15,16 +15,62 @@ import { QuoteReviewStep } from "./step-review";
 import { QuoteServiceStep } from "./step-service";
 import { QuoteSmartDetailsStep } from "./step-smart-details";
 
+const DRAFT_STORAGE_KEY = "proffera:quote-request:language-draft:v1";
+const DRAFT_MAX_AGE_MS = 30 * 60 * 1000;
+
 const stepFields: Record<number, QuoteRequestField[]> = {
   0: ["category", "serviceType"],
   1: [],
-  2: ["city", "postalCode"],
+  2: ["addressLine1", "city", "postalCode"],
   3: ["description", "preferredDate"],
   4: ["contactName", "contactEmail", "contactPhone", "consentAccepted"],
   5: [],
 };
 
-export function LocalizedQuoteRequestForm({ locale, initialValues }: { locale: PublicLocale; initialValues?: QuoteRequestPrefill }) {
+type QuoteLanguageDraft = {
+  savedAt: number;
+  data: Partial<QuoteRequestInput>;
+  smartAnswers: SmartQuoteAnswers;
+  step: number;
+};
+
+function restoreDraftData(current: QuoteRequestInput, value: unknown): QuoteRequestInput {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return current;
+  const draft = value as Record<string, unknown>;
+  const restored = { ...current };
+
+  for (const field of ["category", "serviceType", "addressLine1", "city", "postalCode", "description", "preferredDate", "contactName", "contactEmail", "contactPhone"] as const) {
+    const value = draft[field];
+    if (typeof value === "string") restored[field] = value;
+  }
+  if (draft.locationSource === "address" || draft.locationSource === "geolocation") restored.locationSource = draft.locationSource;
+  if (draft.latitude === null || typeof draft.latitude === "number") restored.latitude = draft.latitude;
+  if (draft.longitude === null || typeof draft.longitude === "number") restored.longitude = draft.longitude;
+  if (typeof draft.consentAccepted === "boolean") restored.consentAccepted = draft.consentAccepted;
+
+  return restored;
+}
+
+function restoreSmartAnswers(value: unknown): SmartQuoteAnswers {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter((entry): entry is [string, string] => typeof entry[1] === "string")
+      .map(([key, answer]) => [key.slice(0, 120), answer.slice(0, 500)]),
+  );
+}
+
+export function LocalizedQuoteRequestForm({
+  locale,
+  initialValues,
+  alternateLocaleHref,
+  alternateLocaleLabel,
+}: {
+  locale: PublicLocale;
+  initialValues?: QuoteRequestPrefill;
+  alternateLocaleHref?: string;
+  alternateLocaleLabel?: string;
+}) {
   const t = quoteFormCopy[locale];
   const [step, setStep] = useState(0);
   const [data, setData] = useState<QuoteRequestInput>(() => ({
@@ -40,6 +86,33 @@ export function LocalizedQuoteRequestForm({ locale, initialValues }: { locale: P
   const [pending, startTransition] = useTransition();
   const progress = Math.round(((step + 1) / t.steps.length) * 100);
   const smartQuestions = getSmartQuoteQuestions(data.category, data.serviceType, locale);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("resume") !== "1") return;
+
+    try {
+      const raw = window.sessionStorage.getItem(DRAFT_STORAGE_KEY);
+      if (!raw) return;
+      const draft = JSON.parse(raw) as Partial<QuoteLanguageDraft>;
+      const savedAt = Number(draft.savedAt);
+      if (!Number.isFinite(savedAt) || Date.now() - savedAt > DRAFT_MAX_AGE_MS) return;
+
+      setData((current) => restoreDraftData(current, draft.data));
+      setSmartAnswers(restoreSmartAnswers(draft.smartAnswers));
+      if (typeof draft.step === "number" && Number.isInteger(draft.step)) {
+        setStep(Math.max(0, Math.min(t.steps.length - 1, draft.step)));
+      }
+    } catch {
+      // A malformed or blocked sessionStorage draft must never block the quote form.
+    } finally {
+      try {
+        window.sessionStorage.removeItem(DRAFT_STORAGE_KEY);
+      } catch {
+        // Ignore storage failures and keep the form usable.
+      }
+    }
+  }, [t.steps.length]);
 
   function update<Field extends QuoteRequestField>(field: Field, value: QuoteRequestInput[Field]) {
     setData((current) => ({ ...current, [field]: value, ...(field === "category" ? { serviceType: "" } : {}) }));
@@ -83,6 +156,18 @@ export function LocalizedQuoteRequestForm({ locale, initialValues }: { locale: P
     if (Object.keys(currentErrors).length === 0) setStep((current) => Math.min(current + 1, t.steps.length - 1));
   }
 
+  function switchLanguage() {
+    if (!alternateLocaleHref) return;
+
+    try {
+      const draft: QuoteLanguageDraft = { savedAt: Date.now(), data, smartAnswers, step };
+      window.sessionStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft));
+    } catch {
+      // Continue to the other locale even when storage is unavailable.
+    }
+    window.location.assign(alternateLocaleHref);
+  }
+
   function handleSubmit() {
     const detailErrors = validateSmartQuoteAnswers(smartQuestions, smartAnswers, locale);
     if (Object.keys(detailErrors).length > 0) {
@@ -112,6 +197,11 @@ export function LocalizedQuoteRequestForm({ locale, initialValues }: { locale: P
           }
           return;
         }
+        try {
+          window.sessionStorage.removeItem(DRAFT_STORAGE_KEY);
+        } catch {
+          // Ignore storage failures after a successful request.
+        }
         setReference(result.referenceId);
         setErrors({});
       });
@@ -129,6 +219,9 @@ export function LocalizedQuoteRequestForm({ locale, initialValues }: { locale: P
 
   return <div className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[#dfe5dd] sm:p-8">
     <label className="absolute left-[-10000px]" aria-hidden="true">{t.website}<input type="text" tabIndex={-1} autoComplete="off" value={website} onChange={(event) => setWebsite(event.target.value)} /></label>
+    {alternateLocaleHref && alternateLocaleLabel ? <div className="mb-5 flex justify-end">
+      <button type="button" onClick={switchLanguage} className="rounded-full border border-[#dfe5dd] bg-white px-4 py-2 text-sm font-semibold text-[#17452f] transition hover:bg-[#f4f8f4]">{alternateLocaleLabel}</button>
+    </div> : null}
     <div className="mb-8">
       <div className="flex items-center justify-between gap-4 text-sm font-semibold text-[#17452f]"><span>{t.step} {step + 1} {t.of} {t.steps.length}</span><span>{progress}%</span></div>
       <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#e8eee8]"><div className="h-full rounded-full bg-[#17452f] transition-all" style={{ width: `${progress}%` }} /></div>

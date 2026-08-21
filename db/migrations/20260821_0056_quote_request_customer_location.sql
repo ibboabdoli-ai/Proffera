@@ -1,0 +1,53 @@
+-- Store exact customer location privately for marketplace matching.
+-- These fields are intentionally not part of provider-facing Guest Quote projections.
+-- Official address/reference verification is added through a separate bounded integration.
+
+alter table quote_requests
+  add column if not exists customer_address_line1 text,
+  add column if not exists customer_latitude double precision,
+  add column if not exists customer_longitude double precision,
+  add column if not exists customer_location_source text;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'quote_requests_customer_location_source_check'
+      and conrelid = 'quote_requests'::regclass
+  ) then
+    alter table quote_requests
+      add constraint quote_requests_customer_location_source_check
+      check (
+        customer_location_source is null
+        or customer_location_source in ('address', 'geolocation')
+      );
+  end if;
+
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'quote_requests_customer_coordinates_check'
+      and conrelid = 'quote_requests'::regclass
+  ) then
+    alter table quote_requests
+      add constraint quote_requests_customer_coordinates_check
+      check (
+        (customer_latitude is null and customer_longitude is null)
+        or (
+          customer_latitude between -90 and 90
+          and customer_longitude between -180 and 180
+        )
+      );
+  end if;
+end
+$$;
+
+comment on column quote_requests.customer_address_line1 is
+  'Private customer job address used for marketplace matching; not public/provider-facing before selection.';
+comment on column quote_requests.customer_latitude is
+  'Private customer latitude from explicit browser geolocation consent when location_source=geolocation.';
+comment on column quote_requests.customer_longitude is
+  'Private customer longitude from explicit browser geolocation consent when location_source=geolocation.';
+comment on column quote_requests.customer_location_source is
+  'Private location input method: address or geolocation.';
