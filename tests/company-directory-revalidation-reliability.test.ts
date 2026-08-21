@@ -107,6 +107,28 @@ describe("Company Directory revalidation reliability", () => {
     }
   });
 
+  it("waits the full retry backoff before a single-request retry", async () => {
+    const callTimes: number[] = [];
+    const reset = Object.assign(new Error("socket reset"), { code: "ECONNRESET" });
+    installOutcomes([reset, { status: 200, body: { ok: true } }], callTimes);
+    const { createScbCompanyRegistryTransportFromEnv } = await loadTransport();
+    const transport = createScbCompanyRegistryTransportFromEnv();
+    expect(transport).not.toBeNull();
+
+    const pending = transport!.fetchCompany("5563115707");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(httpsMock.request).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(1_499);
+    expect(httpsMock.request).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(httpsMock.request).toHaveBeenCalledTimes(2);
+
+    await expect(pending).resolves.toEqual({ ok: true });
+    expect(callTimes).toHaveLength(2);
+    expect(callTimes[1] - callTimes[0]).toBe(1_500);
+  });
+
   it("does not retry permanent HTTP failures", async () => {
     const callTimes: number[] = [];
     installOutcomes([{ status: 404 }], callTimes);
