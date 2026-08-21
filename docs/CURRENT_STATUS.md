@@ -1,6 +1,6 @@
 # Proffera Current Status
 
-Last updated: 2026-08-21
+Last updated: 2026-08-22
 
 This is the canonical factual status document for Proffera. For worker rules, live task state, current `main` SHA, and roadmap order, also read `AGENTS.md`, `WORKER_BOOTSTRAP.md`, GitHub issue #548, GitHub issue #276, and `docs/README.md`.
 
@@ -41,12 +41,14 @@ Recent Production changes independently verified through matching `main` deploym
 Current control plane:
 
 1. `AGENTS.md` — mandatory Graph Engineering worker protocol.
-2. `WORKER_BOOTSTRAP.md` — mandatory Worker startup, baseline and PR handoff contract.
+2. `WORKER_BOOTSTRAP.md` — mandatory Worker startup, installed-toolchain, baseline and PR handoff contract.
 3. GitHub issue #548 — live AI Supervisor control board, including current `main` baseline and active queue.
 4. GitHub issue #276 — execution roadmap/dependency order.
 5. `docs/CURRENT_STATUS.md` — stable factual project status.
 6. `docs/README.md` — documentation authority map.
 7. `.github/copilot-instructions.md` — automatic GitHub/Copilot agent entry instructions pointing to the same canonical sources.
+
+The mandatory Worker Bootstrap toolchain check now distinguishes installed/active tooling from planned tooling. Current worker-facing tools are Graphify `0.9.42` for architecture/dependency analysis, the root ESLint/TypeScript/Vitest/Next build validation stack, Playwright browser E2E, GitHub Actions required checks, CodeQL when enabled by repository control, risk-routed exact-head CodeRabbit review, Dependabot dependency maintenance, and isolated Vercel Preview/non-Production database proof for state-changing flows. Workers must use existing tooling before proposing overlapping replacements and must not assume planned Sentry, Checkly, PostHog, Semgrep, or Renovate availability without current evidence.
 
 Current merge-safety rules include:
 
@@ -148,11 +150,12 @@ A Production runtime warning observed on 2026-08-18 concerns PostgreSQL connecti
 
 1. Keep issue #548 as the live worker/PR state and current `main` baseline; use automatic Supervisor lifecycle events as the durable event trail.
 2. Keep this file synchronized only when a PR changes stable project-level truth; do not use it for fast-moving task/SHA/deployment state.
-3. Keep CodeRabbit consumption risk-routed and fail closed: sensitive/large PRs require an acceptable CodeRabbit decision on the current head before the required merge gate can pass.
-4. Monitor nationwide Company Directory rollout volume and queue health before increasing rollout speed.
-5. Configure an independent Preview Brevo credential and rotate the weak Preview Better Auth secret, then re-run controlled-recipient email and Admin-visible Marketplace E2E.
-6. Keep recurring state-changing Booking/Marketplace/Stripe browser automation gated until the remaining Preview runtime isolation checks are proven.
-7. Continue database tenant-defense work only through isolated-branch proof before any Production RLS rollout.
+3. Require workers to use the installed toolchain in `WORKER_BOOTSTRAP.md` when relevant, especially Graphify for cross-node dependency work, before introducing overlapping tools or manual substitutes.
+4. Keep CodeRabbit consumption risk-routed and fail closed: sensitive/large PRs require an acceptable CodeRabbit decision on the current head before the required merge gate can pass.
+5. Monitor nationwide Company Directory rollout volume and queue health before increasing rollout speed.
+6. Configure an independent Preview Brevo credential and rotate the weak Preview Better Auth secret, then re-run controlled-recipient email and Admin-visible Marketplace E2E.
+7. Keep recurring state-changing Booking/Marketplace/Stripe browser automation gated until the remaining Preview runtime isolation checks are proven.
+8. Continue database tenant-defense work only through isolated-branch proof before any Production RLS rollout.
 
 ## Status-document rule
 
