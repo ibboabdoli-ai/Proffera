@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { guestFlowLocaleFrom, guestOptOutHref, guestQuoteHref, type GuestFlowLocale } from "../guest-flow-locale";
-import { getMarketplaceGuestOptOutView } from "@/lib/marketplace-guest-quote";
+import { getMarketplaceGuestOptOutViewWithHistory } from "@/lib/marketplace-guest-opt-out-history";
 
 export const dynamic = "force-dynamic";
 
@@ -67,7 +67,7 @@ export default async function MarketplaceGuestOptOutPage({
   const locale = guestFlowLocaleFrom(query?.lang);
   const text = copy[locale];
   const alternativeLocale: GuestFlowLocale = locale === "en" ? "sv" : "en";
-  const view = await getMarketplaceGuestOptOutView(token);
+  const view = await getMarketplaceGuestOptOutViewWithHistory(token);
   const rawStatus = query?.status;
   const status = Array.isArray(rawStatus) ? rawStatus[0] : rawStatus;
 
