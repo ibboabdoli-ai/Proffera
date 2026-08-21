@@ -21,6 +21,16 @@ function inviteMessage(value: string | string[] | undefined) {
   return "";
 }
 
+function testMessage(value: string | string[] | undefined) {
+  const code = Array.isArray(value) ? value[0] : value;
+  if (code === "sent") return "Guest Quote-testet skickades. Länken är signerad och giltig i en timme.";
+  if (code === "business_email_required") return "Använd en företagsdomän för det kontrollerade testet.";
+  if (code === "rate_limited") return "Ett test till samma adress är redan reserverat. Vänta 15 minuter innan nästa försök.";
+  if (code === "email_configuration" || code === "token_configuration") return "Testet kan inte skickas eftersom säker e-post- eller tokenkonfiguration saknas.";
+  if (code && code !== "sent") return "Guest Quote-testet kunde inte skickas.";
+  return "";
+}
+
 function offerPrice(priceKind: string, amountMinor: number, currency: string) {
   if (priceKind === "inspection_required") return "Platsbesök krävs";
   return new Intl.NumberFormat("sv-SE", {
@@ -33,11 +43,12 @@ function offerPrice(priceKind: string, amountMinor: number, currency: string) {
 export default async function MarketplaceAdminPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ invite?: string | string[] }>;
+  searchParams?: Promise<{ invite?: string | string[]; test?: string | string[] }>;
 }) {
-  await requireAdminArea("quote_admin");
+  const admin = await requireAdminArea("quote_admin");
   const [result, query] = await Promise.all([getDirectoryGuestLeadMatches(), searchParams ?? Promise.resolve(undefined)]);
   const message = inviteMessage(query?.invite);
+  const testResult = testMessage(query?.test);
   const invitationSummaries = await getMarketplaceInvitationSummaries(result.matches.map((item) => item.lead.id));
 
   return (
@@ -50,6 +61,24 @@ export default async function MarketplaceAdminPage({
       </p>
       <p>Skicka först till högst tre företag. Använd nästa två endast om första vågen inte ger tillräckligt med svar.</p>
       {message ? <p role="status" style={{ fontWeight: 700 }}>{message}</p> : null}
+      {testResult ? <p role="status" style={{ fontWeight: 700 }}>{testResult}</p> : null}
+      {admin.role === "super_admin" ? (
+        <section style={{ border: "1px solid #9ec7aa", borderRadius: 12, padding: 16, margin: "18px 0", background: "#f4fbf5" }}>
+          <h2 style={{ marginTop: 0 }}>Kontrollerat Guest Quote-test</h2>
+          <p>Skickar bara ett tydligt TEST-mejl med en signerad länk. Det skapar eller ändrar ingen kund, offertförfrågan, företagsprofil, inbjudan eller avregistrering.</p>
+          <form method="post" action="/api/admin/marketplace/guest-invite-test" style={{ display: "grid", gap: 8, maxWidth: 620 }}>
+            <label>
+              Kontrollerad företagsadress
+              <input name="recipientEmail" type="email" required placeholder="test@foretag.se" style={{ display: "block", width: "100%", padding: 10, marginTop: 4 }} />
+            </label>
+            <label style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+              <input type="checkbox" name="confirmControlledTestRecipient" value="yes" required style={{ marginTop: 3 }} />
+              <span>Jag bekräftar att jag kontrollerar adressen och att detta är ett internt test utan verkligt företag eller kund.</span>
+            </label>
+            <button type="submit" style={{ width: "fit-content", padding: "10px 14px" }}>Skicka kontrollerat test</button>
+          </form>
+        </section>
+      ) : null}
       {!result.ok ? <p>{result.message}</p> : null}
 
       {result.matches.map((item) => {

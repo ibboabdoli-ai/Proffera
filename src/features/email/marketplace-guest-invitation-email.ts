@@ -11,6 +11,7 @@ export type MarketplaceGuestInvitationEmailInput = {
   replyUrl: string;
   optOutUrl: string;
   idempotencyKey: string;
+  testMode?: boolean;
 };
 
 type BrevoResponse = {
@@ -39,6 +40,38 @@ export function marketplaceGuestInvitationEmailConfigured() {
 }
 
 export function buildMarketplaceGuestInvitationEmail(input: MarketplaceGuestInvitationEmailInput) {
+  if (input.testMode) {
+    const subject = "[TEST] Proffera – kontroll av Guest Quote-inbjudan";
+    const text = [
+      "Detta är ett kontrollerat Proffera-test.",
+      "",
+      "E-postleverans och den signerade Guest Quote-länken kontrolleras.",
+      "Ingen kund, offertförfrågan, företagsprofil eller avregistrering påverkas.",
+      "",
+      "Öppna testlänken:",
+      input.replyUrl,
+      "",
+      "Proffera",
+    ].join("\n");
+    const html = `<!doctype html>
+<html lang="sv">
+  <body style="margin:0;padding:0;background:#f3f6f4;font-family:Arial,Helvetica,sans-serif;color:#17201a;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;padding:24px 12px;background:#f3f6f4;"><tr><td align="center">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:620px;background:#ffffff;border-radius:20px;overflow:hidden;border:1px solid #dfe7e1;">
+        <tr><td style="padding:22px 28px;background:#173e2b;color:#ffffff;font-size:18px;font-weight:800;">Proffera · TEST</td></tr>
+        <tr><td style="padding:30px 28px;">
+          <h1 style="margin:0 0 12px;font-size:24px;line-height:1.25;color:#17201a;">Kontroll av Guest Quote-länk</h1>
+          <p style="margin:0;color:#536057;font-size:15px;line-height:1.7;">Detta är ett kontrollerat test av e-postleverans och den signerade länken.</p>
+          <p style="margin:18px 0;color:#536057;font-size:15px;line-height:1.7;">Ingen kund, offertförfrågan, företagsprofil eller avregistrering påverkas.</p>
+          <p style="margin:22px 0;"><a href="${escapeHtml(input.replyUrl)}" style="display:inline-block;border-radius:12px;background:#17452f;color:#ffffff;padding:14px 22px;text-decoration:none;font-weight:700;">Öppna testlänken</a></p>
+        </td></tr>
+      </table>
+    </td></tr></table>
+  </body>
+</html>`;
+    return { subject, text, html };
+  }
+
   const subject = `Ny offertförfrågan i ${input.city}: ${input.category}`;
   const preferredDate = input.preferredDate.trim() || "Inte angivet";
   const text = [
@@ -113,7 +146,9 @@ export async function sendMarketplaceGuestInvitationEmail(input: MarketplaceGues
         // Brevo's transactional-email idempotency guide defines this inside
         // the JSON `headers` object. Reuse the durable dispatch UUID for retries.
         headers: { idempotencyKey: input.idempotencyKey },
-        tags: ["marketplace-guest-invitation"],
+        tags: input.testMode
+          ? ["marketplace-guest-invitation", "marketplace-guest-invitation-test"]
+          : ["marketplace-guest-invitation"],
       }),
     });
     const data = (await response.json().catch(() => ({}))) as BrevoResponse;
