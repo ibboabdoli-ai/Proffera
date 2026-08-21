@@ -239,7 +239,7 @@ function docker(args: string[]) {
         }),
         expect.objectContaining({
           id: unrelatedProfile,
-          municipality: "",
+          municipality: "Stockholm",
           publication_status: "review",
           updated_at: before.rows[2]?.updated_at,
         }),
@@ -329,12 +329,20 @@ function docker(args: string[]) {
         where field_name = 'municipality'
         order by profile_id
       `);
-      expect(provenance.rows).toEqual([{
-        profile_id: blankProfile,
-        field_name: "municipality",
-        source_name: "scb_foretagsregistret",
-        source_record_id: "5563115707",
-      }]);
+      expect(provenance.rows).toEqual([
+        {
+          profile_id: blankProfile,
+          field_name: "municipality",
+          source_name: "scb_foretagsregistret",
+          source_record_id: "5563115707",
+        },
+        {
+          profile_id: unrelatedProfile,
+          field_name: "municipality",
+          source_name: "scb_foretagsregistret",
+          source_record_id: "5563115709",
+        },
+      ]);
 
       const counts = await client!.query<{
         service_count: number;
@@ -349,7 +357,7 @@ function docker(args: string[]) {
       expect(counts.rows[0]).toEqual({
         service_count: 1,
         relation_count: 2,
-        provenance_count: 1,
+        provenance_count: 2,
       });
     }, 30_000);
   },
