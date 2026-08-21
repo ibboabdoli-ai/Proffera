@@ -89,18 +89,34 @@ function buildSql(events: string[]) {
       }];
     }
 
-    if (query.includes("company_directory_profile_services")) {
+    if (query.includes("select count(*)::int as count from company_directory_profile_services")) return [{ count: 51 }];
+    if (query.includes("select count(*)::int as count from company_directory_business_locations")) return [{ count: 51 }];
+    if (query.includes("select count(*)::int as count from company_directory_field_sources")) return [{ count: 101 }];
+
+    if (query.includes("select to_jsonb(service) as value from company_directory_profile_services")) {
+      if (!query.includes("order by service.created_at, service.service_slug limit 50 offset")) {
+        throw new Error(`Unbounded service query in admin details test: ${query}`);
+      }
       return [{ value: { profile_id: PROFILE_ID, service_slug: "elinstallation" } }];
     }
-    if (query.includes("company_directory_business_locations")) {
+
+    if (query.includes("select to_jsonb(location) as value from company_directory_business_locations")) {
+      if (!query.includes("order by location.created_at limit 50 offset")) {
+        throw new Error(`Unbounded location query in admin details test: ${query}`);
+      }
       return [{ value: { profile_id: PROFILE_ID, latitude: 59.33, longitude: 18.06 } }];
     }
-    if (query.includes("select count(*)::int as count from company_directory_field_sources")) {
-      return [{ count: 3 }];
-    }
+
     if (query.includes("select to_jsonb(source) as value from company_directory_field_sources")) {
-      return [{ value: { field_name: "address_line1", source_name: "scb" } }];
+      const requiredOrdering = "order by source.observed_at desc nulls last, source.created_at desc, source.id limit 100";
+      if (!query.includes(requiredOrdering)) {
+        throw new Error(`Unbounded or unordered field-source query in admin details test: ${query}`);
+      }
+      return Array.from({ length: 100 }, (_, index) => ({
+        value: { field_name: `field_${index + 1}`, source_name: "scb" },
+      }));
     }
+
     throw new Error(`Unexpected SQL in admin details test: ${query}`);
   });
 }
@@ -131,7 +147,7 @@ describe("Company Directory full admin details", () => {
     expect(mocks.getSql).not.toHaveBeenCalled();
   });
 
-  it("renders selected profile, SCB evidence, workplace addresses and bounded source totals", async () => {
+  it("renders selected profile, bounded collections, pagination and source totals", async () => {
     const events: string[] = [];
     mocks.requireSuperAdmin.mockImplementation(async () => { events.push("auth"); });
     mocks.getSql.mockImplementation(() => buildSql(events));
@@ -144,6 +160,12 @@ describe("Company Directory full admin details", () => {
     expect(html).toContain("Besöksgatan 5");
     expect(html).toContain("BOX 10");
     expect(html).toContain("Raw SCB enrichment");
-    expect(html).toContain("Fältkällor · visar senaste 1 av 3");
+    expect(html).toContain("Tjänster · visar 1 av 51");
+    expect(html).toContain("Tjänster: sida 1 av 2");
+    expect(html).toContain("Geografiska platser · visar 1 av 51");
+    expect(html).toContain("Geografiska platser: sida 1 av 2");
+    expect(html).toContain("servicePage=2");
+    expect(html).toContain("locationPage=2");
+    expect(html).toContain("Fältkällor · visar senaste 100 av 101");
   });
 });
