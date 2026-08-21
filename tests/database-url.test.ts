@@ -43,6 +43,19 @@ describe("database URL resolution", () => {
     ).toBeNull();
   });
 
+  it("fails closed when Preview overlaps a shared Vercel Postgres fallback", () => {
+    expect(
+      resolveDatabaseUrl({
+        ...testEnvironment,
+        VERCEL_ENV: "preview",
+        PROFFERA_PREVIEW_DATABASE_URL:
+          "postgresql://preview_user:preview_password@ep-shared-pooler.example.neon.tech/neondb?sslmode=require",
+        POSTGRES_URL:
+          "postgresql://shared_user:shared_password@ep-shared.example.neon.tech/neondb?sslmode=require",
+      }),
+    ).toBeNull();
+  });
+
   it("ignores the Preview database variable outside Vercel Preview", () => {
     expect(
       resolveDatabaseUrl({
