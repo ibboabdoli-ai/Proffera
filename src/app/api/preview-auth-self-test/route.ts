@@ -6,7 +6,7 @@ import { getAuth } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
-export async function GET() {
+export async function GET(request: Request) {
   if (process.env.VERCEL_ENV !== "preview") {
     return new NextResponse(null, { status: 404 });
   }
@@ -23,12 +23,14 @@ export async function GET() {
         email,
         password,
       },
+      headers: request.headers,
     });
     const signIn = await auth.api.signInEmail({
       body: {
         email,
         password,
       },
+      headers: request.headers,
       returnHeaders: true,
     });
 
