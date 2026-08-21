@@ -47,6 +47,11 @@ function scb(overrides: Partial<ScbCompanyRegistryEnrichment> = {}): ScbCompanyR
   };
 }
 
+function sqlText(call: unknown[] | undefined) {
+  const strings = call?.[0];
+  return Array.isArray(strings) ? strings.join("?") : "";
+}
+
 describe("SCB company directory enrichment guards", () => {
   beforeEach(() => {
     mocks.getSql.mockReset();
@@ -139,6 +144,7 @@ describe("SCB company directory enrichment guards", () => {
         organization_number: "5563115707",
         organization_kind: "juridical_person",
         legal_name: "Exempel El AB",
+        municipality: "",
         profile_updated_token: profileUpdatedToken,
         sni_codes: [{ code: "43.210" }],
         facts_last_synced_token: factsLastSyncedToken,
@@ -167,5 +173,67 @@ describe("SCB company directory enrichment guards", () => {
         officialFactsLastSyncedToken: factsLastSyncedToken,
       },
     });
+  });
+
+  it("projects a verified SCB municipality only when the profile municipality is blank", async () => {
+    const profileId = "11111111-1111-4111-8111-111111111111";
+    const sql = vi.fn()
+      .mockResolvedValueOnce([{
+        organization_number: "5563115707",
+        organization_kind: "juridical_person",
+        legal_name: "Exempel El AB",
+        municipality: "",
+        profile_updated_token: "2026-08-21 20:00:00+00",
+        sni_codes: [{ code: "43.210" }],
+        facts_last_synced_token: "2026-08-21 19:59:00+00",
+      }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    mocks.getSql.mockReturnValue(sql);
+    mocks.fetchScbCompanyRegistryEnrichment.mockResolvedValue({
+      status: "ok",
+      data: scb({ municipality: "Södertälje" }),
+    });
+
+    await expect(enrichCompanyDirectoryScbForProfile(profileId)).resolves.toMatchObject({
+      status: "saved",
+      saved: true,
+    });
+
+    expect(sql).toHaveBeenCalledTimes(3);
+    expect(sqlText(sql.mock.calls[2])).toContain("set municipality = ?");
+    expect(sqlText(sql.mock.calls[2])).toContain("nullif(trim(profile.municipality), '') is null");
+    expect(sqlText(sql.mock.calls[2])).toContain("company_directory_field_sources");
+    expect(sql.mock.calls[2]).toContain("Södertälje");
+    expect(sql.mock.calls[2]).toContain("scb_foretagsregistret");
+  });
+
+  it("never overwrites an existing profile municipality with the SCB municipality", async () => {
+    const profileId = "11111111-1111-4111-8111-111111111111";
+    const sql = vi.fn()
+      .mockResolvedValueOnce([{
+        organization_number: "5563115707",
+        organization_kind: "juridical_person",
+        legal_name: "Exempel El AB",
+        municipality: "Stockholm",
+        profile_updated_token: "2026-08-21 20:00:00+00",
+        sni_codes: [{ code: "43.210" }],
+        facts_last_synced_token: "2026-08-21 19:59:00+00",
+      }])
+      .mockResolvedValueOnce([]);
+
+    mocks.getSql.mockReturnValue(sql);
+    mocks.fetchScbCompanyRegistryEnrichment.mockResolvedValue({
+      status: "ok",
+      data: scb({ municipality: "Södertälje" }),
+    });
+
+    await expect(enrichCompanyDirectoryScbForProfile(profileId)).resolves.toMatchObject({
+      status: "saved",
+      saved: true,
+    });
+
+    expect(sql).toHaveBeenCalledTimes(2);
   });
 });
