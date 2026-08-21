@@ -100,14 +100,18 @@ An opt-in isolated Preview harness also exists for:
 - two-account Workspace visibility/isolation smoke checks;
 - read-only rendering of a dedicated published Booking page.
 
-On 2026-08-21 the dedicated non-Production Neon Preview branch was refreshed in place to the current Marketplace/SCB schema and sanitized so tenant/auth/customer/company/quote/payment/review/admin data are empty while only non-sensitive reference catalogs remain. Preview database URL resolution is fail-closed and the current isolation work additionally rejects a Preview URL that resolves to the same database target as a shared database URL. The database boundary is therefore prepared for state-changing E2E, but the full activation gate still requires a current Vercel Preview to prove runtime Better Auth, controlled-recipient email and test-mode payment isolation before mutations are enabled.
+On 2026-08-21 the dedicated non-Production Neon Preview branch was refreshed in place to the current Marketplace/SCB schema and sanitized so tenant/auth/customer/company/quote/payment/review/admin data are empty while only non-sensitive reference catalogs remain. Preview database URL resolution is fail-closed and additionally rejects a Preview URL that resolves to the same database target as a shared database URL. Runtime validation then proved the active Vercel Preview was using the isolated branch, Better Auth could create/sign in a disposable Preview-only account and issue a session cookie, and Stripe resolved dedicated test-mode webhook/price configuration. The disposable auth rows were removed after the check.
+
+Marketplace Guest Quote state transitions were also exercised with synthetic Preview-only data and no external email egress: the real guest page rendered with contact redaction, invitation state changed `sent -> viewed -> responded`, a fixed-price synthetic offer was recorded as `submitted`, the Quote moved to `answered`, and the real success page rendered the saved price/date. All synthetic profile/quote/invitation/offer rows were deleted after the test. The Guest Quote email sender was hardened so Preview now uses the dedicated Brevo resolver and controlled-recipient rewrite instead of directly using shared credentials or the company recipient.
+
+The remaining Preview activation blockers are operational: a genuinely independent `PROFFERA_PREVIEW_BREVO_API_KEY` is not yet configured, so Preview outbound email remains intentionally fail-closed; the current Preview Better Auth secret should also be rotated to a strong random value after runtime warnings identified it as weak/short. Full controlled-recipient email egress and the normal Admin-visible end-to-end route must be re-run before recurring state-changing browser automation is enabled.
 
 Those authenticated/Booking checks intentionally skip unless dedicated Preview E2E credentials/workspace names/booking slug are supplied. They must not become required CI until Preview is proven isolated from Production for database, auth, email, payments and customer data.
 
-Still intentionally excluded from state-changing browser automation until the complete runtime isolation gate is proven:
+Still intentionally excluded from recurring state-changing browser automation until the remaining runtime isolation gate is proven:
 
 - Booking → email verification → confirmation;
-- Quote Request → Offer → Accept/Reject;
+- full Marketplace Quote invitation → controlled email → Offer → Admin visibility;
 - Stripe/payment lifecycle;
 - destructive Admin mutations.
 
@@ -143,8 +147,8 @@ A Production runtime warning observed on 2026-08-18 concerns PostgreSQL connecti
 2. Keep this file synchronized only when a PR changes stable project-level truth; do not use it for fast-moving task/SHA/deployment state.
 3. Keep CodeRabbit consumption risk-routed and fail closed: sensitive/large PRs require an acceptable CodeRabbit decision on the current head before the required merge gate can pass.
 4. Monitor nationwide Company Directory rollout volume and queue health before increasing rollout speed.
-5. Complete current Vercel Preview runtime proof for the sanitized isolated database plus dedicated auth/email/test-payment boundaries.
-6. Expand state-changing Booking and Marketplace Quote E2E only after that complete Preview runtime isolation gate is verified.
+5. Configure an independent Preview Brevo credential and rotate the weak Preview Better Auth secret, then re-run controlled-recipient email and Admin-visible Marketplace E2E.
+6. Keep recurring state-changing Booking/Marketplace/Stripe browser automation gated until the remaining Preview runtime isolation checks are proven.
 7. Continue database tenant-defense work only through isolated-branch proof before any Production RLS rollout.
 
 ## Status-document rule
