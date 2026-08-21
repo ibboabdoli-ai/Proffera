@@ -97,6 +97,7 @@ beforeEach(() => {
 describe("full Company Directory revalidation batch cap", () => {
   it("processes at most ten profiles from an oversized candidate pool", async () => {
     const oversizedPool = Array.from({ length: 20 }, (_, index) => candidate(index));
+    mocks.assessConfidence.mockReturnValue({ score: 90, officialFactsReady: true, reasons: [] });
 
     const sql = vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
       const query = normalizeQuery(strings);
@@ -116,6 +117,8 @@ describe("full Company Directory revalidation batch cap", () => {
         if (index < 0) throw new Error(`Unexpected profile id in batch-cap evaluation: ${id}`);
         return [evaluation(id, index)];
       }
+
+      if (query.includes("update company_directory_scb_enrichment scb")) return [{ profile_id: values[3] }];
 
       if (query.includes("update company_directory_sync_runs") && query.includes("where id =")) return [];
       if (query.includes("select count(*)::int as count")) return [{ count: 0 }];

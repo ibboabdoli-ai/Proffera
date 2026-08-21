@@ -246,17 +246,27 @@ export async function getCompanyDirectoryAdminSnapshot(input?: {
         p.city, p.municipality, p.category_slug, p.primary_sni_code,
         p.primary_sni_label, p.activity_description, p.publication_status,
         p.quality_score, p.privacy_blocked, p.auto_public_eligible,
-        p.is_active, p.official_source, p.last_synced_at, p.claimed_workspace_id,
+        p.is_active, p.official_source, p.last_synced_at, p.updated_at::text as profile_updated_token,
+        p.claimed_workspace_id,
         p.address_line1, p.postal_code, p.website_url,
         scb.phone as scb_phone, scb.email as scb_email, scb.postal_address as scb_postal_address,
         scb.last_synced_at as scb_last_synced_at,
+        scb.source_payload_hash as scb_source_payload_hash,
+        coalesce(jsonb_array_length(scb.conflicts), 0)::int as scb_conflict_count,
         f.registered_names, f.sni_codes, f.deregistration_date,
         f.advertising_blocked, f.ongoing_procedures,
         (
           f.profile_id is not null
           and f.last_synced_at >= p.last_synced_at
           and f.source_payload_hash <> ''
-        ) as official_facts_fresh
+        ) as official_facts_fresh,
+        (
+          scb.profile_id is not null
+          and scb.source_payload_hash <> ''
+          and scb.last_synced_at >= now() - interval '7 days'
+          and scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = p.updated_at::text
+          and scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = f.last_synced_at::text
+        ) as scb_snapshot_fresh
       from company_directory_profiles p
       left join company_directory_official_facts f on f.profile_id = p.id
       left join company_directory_scb_enrichment scb on scb.profile_id = p.id
@@ -302,17 +312,24 @@ export async function getCompanyDirectoryAdminSnapshot(input?: {
       });
 
       const publishSafetyReasons: string[] = [];
-      if (text(row.publication_status) !== "ready") publishSafetyReasons.push("status_not_ready");
       if (!Boolean(row.is_active)) publishSafetyReasons.push("organization_inactive");
       if (Boolean(row.privacy_blocked)) publishSafetyReasons.push("privacy_blocked");
       if (!Boolean(row.auto_public_eligible)) publishSafetyReasons.push("not_public_eligible");
       if (row.claimed_workspace_id) publishSafetyReasons.push("already_claimed");
       if (!categoryConfidence.officialFactsReady) publishSafetyReasons.push("official_facts_missing");
       if (!Boolean(row.official_facts_fresh)) publishSafetyReasons.push("official_facts_stale");
+      if (!Boolean(row.scb_snapshot_fresh)) publishSafetyReasons.push("scb_evidence_stale");
+      if (number(row.scb_conflict_count) > 0) publishSafetyReasons.push("scb_conflict");
       if (categoryConfidence.score < 95) publishSafetyReasons.push("category_confidence_below_95");
       if (row.deregistration_date) publishSafetyReasons.push("deregistered");
       if (jsonArray(row.ongoing_procedures).length > 0) publishSafetyReasons.push("ongoing_legal_procedure");
       if (Boolean(row.advertising_blocked)) publishSafetyReasons.push("advertising_blocked");
+      const profileStatus = text(row.publication_status);
+      if (profileStatus === "review" && publishSafetyReasons.length === 0) {
+        publishSafetyReasons.push("review_recovery_eligible");
+      } else if (profileStatus !== "ready" && profileStatus !== "review") {
+        publishSafetyReasons.push("status_not_ready");
+      }
 
       const scbPostal = row.scb_postal_address && typeof row.scb_postal_address === "object"
         ? row.scb_postal_address as Record<string, unknown>

@@ -91,13 +91,16 @@ function evaluation(status = "ready", overrides: Record<string, unknown> = {}) {
 function configureWorker(input: {
   status?: string;
   evaluation?: Record<string, unknown>;
+  finalEvaluation?: Record<string, unknown>;
   moveRows?: unknown[];
   backlog?: number;
 } = {}) {
   const status = input.status ?? "ready";
   const fresh = input.evaluation ?? evaluation(status);
-  const moveRows = input.moveRows ?? [{ id: PROFILE_ID }];
+  const finalFresh = input.finalEvaluation ?? fresh;
+  const moveRows = input.moveRows ?? [{ profile_updated_token: PROFILE_TOKEN }];
   const backlog = input.backlog ?? 0;
+  let evaluationReads = 0;
 
   responder = async (query) => {
     if (query.includes("started_at < now() - interval '10 minutes'")) return [];
@@ -105,7 +108,11 @@ function configureWorker(input: {
     if (query.includes("select profile.id::text, profile.organization_number, profile.display_name, profile.publication_status")) {
       return [candidate(status)];
     }
-    if (query.includes("profile.category_slug") && query.includes("scb_snapshot_fresh")) return [fresh];
+    if (query.includes("profile.category_slug") && query.includes("scb_snapshot_fresh")) {
+      evaluationReads += 1;
+      return [evaluationReads === 1 ? fresh : finalFresh];
+    }
+    if (query.includes("update company_directory_scb_enrichment")) return [{ profile_id: PROFILE_ID }];
     if (query.includes("update company_directory_profiles profile")) return moveRows;
     if (query.includes("update company_directory_sync_runs") && query.includes("where id =")) return [];
     if (query.includes("select count(*)::int as count")) return [{ count: backlog }];
@@ -149,6 +156,7 @@ describe("full Company Directory revalidation", () => {
       skipped: true,
       reason: "scb_access_not_configured",
       selected: 0,
+      recoveredToReady: 0,
       remaining: 1787,
     });
     expect(mocks.enrichOfficialFacts).not.toHaveBeenCalled();
@@ -192,8 +200,116 @@ describe("full Company Directory revalidation", () => {
     expect(move?.values).toContain(SCB_HASH);
   });
 
-  it("refreshes Review profiles without automatically publishing them", async () => {
+  it("returns an evidence-safe Review profile to Ready without publishing it", async () => {
     configureWorker({ status: "review", evaluation: evaluation("review") });
+
+    const result = await revalidateAllCompanyDirectoryBatch(10);
+
+    expect(result).toMatchObject({
+      selected: 1,
+      refreshed: 1,
+      recoveredToReady: 1,
+      movedToReview: 0,
+      errors: 0,
+    });
+    expect(mocks.enrichOfficialFacts).toHaveBeenCalledTimes(1);
+    expect(mocks.enrichScb).toHaveBeenCalledTimes(2);
+    const recovery = sqlCalls.find((call) => call.query.includes("set publication_status = 'ready'"));
+    expect(recovery?.query).toContain("profile.publication_status = 'review'");
+    expect(recovery?.query).toContain("profile.claimed_workspace_id is null");
+    expect(recovery?.query).toContain("company_directory_discovery_queue queue");
+    expect(recovery?.query).toContain("queue.state = 'failed'");
+    expect(recovery?.query).toContain("jsonb_array_length(coalesce(scb.conflicts, '[]'::jsonb)) = 0");
+    expect(recovery?.query).not.toContain("set publication_status = 'published'");
+  });
+
+  it("keeps a failed discovery-queue Review profile out of recovery work and backlog", async () => {
+    responder = async (query) => {
+      if (query.includes("started_at < now() - interval '10 minutes'")) return [];
+      if (query.includes("insert into company_directory_sync_runs")) return [{ id: RUN_ID }];
+      if (query.includes("select profile.id::text, profile.organization_number, profile.display_name, profile.publication_status")) {
+        expect(query).toContain("company_directory_discovery_queue queue");
+        expect(query).toContain("queue.state = 'failed'");
+        return [];
+      }
+      if (query.includes("update company_directory_sync_runs") && query.includes("where id =")) return [];
+      if (query.includes("select count(*)::int as count")) {
+        expect(query).toContain("company_directory_discovery_queue queue");
+        expect(query).toContain("queue.state = 'failed'");
+        return [{ count: 0 }];
+      }
+      throw new Error(`Unexpected SQL in failed-queue recovery test: ${query}`);
+    };
+
+    const result = await revalidateAllCompanyDirectoryBatch(10);
+
+    expect(result).toMatchObject({ selected: 0, recoveredToReady: 0, remaining: 0, errors: 0 });
+    expect(mocks.enrichOfficialFacts).not.toHaveBeenCalled();
+    expect(mocks.enrichScb).not.toHaveBeenCalled();
+    expect(sqlCalls.some((call) => call.query.includes("set publication_status = 'ready'"))).toBe(false);
+  });
+
+  it("returns a recovered profile to Review when its final SCB snapshot conflicts", async () => {
+    configureWorker({
+      status: "review",
+      evaluation: evaluation("review"),
+      finalEvaluation: evaluation("ready", { scb_conflict_count: 1 }),
+    });
+
+    const result = await revalidateAllCompanyDirectoryBatch(10);
+
+    expect(result).toMatchObject({
+      selected: 1,
+      recoveredToReady: 0,
+      kept: 1,
+      deferred: 1,
+      errors: 0,
+    });
+    const updatesToReview = sqlCalls.filter((call) => call.query.includes("set publication_status = 'review'"));
+    expect(updatesToReview).toHaveLength(1);
+    expect(updatesToReview[0]?.values).toContain(PROFILE_TOKEN);
+  });
+
+  it("returns a recovered profile to Review when its final SCB refresh fails", async () => {
+    configureWorker({ status: "review", evaluation: evaluation("review") });
+    mocks.enrichScb
+      .mockResolvedValueOnce({ status: "saved", saved: true, conflicts: [] })
+      .mockResolvedValueOnce({ status: "rate_limited", saved: false, conflicts: [] });
+
+    const result = await revalidateAllCompanyDirectoryBatch(10);
+
+    expect(result).toMatchObject({
+      selected: 1,
+      recoveredToReady: 0,
+      kept: 1,
+      deferred: 1,
+      errors: 0,
+    });
+    const updatesToReview = sqlCalls.filter((call) => call.query.includes("set publication_status = 'review'"));
+    expect(updatesToReview).toHaveLength(1);
+    expect(updatesToReview[0]?.values).toContain(PROFILE_TOKEN);
+  });
+
+  it("does not recover a Review profile from SCB evidence older than seven days", async () => {
+    configureWorker({
+      status: "review",
+      evaluation: evaluation("review", { scb_snapshot_fresh: false }),
+    });
+
+    const result = await revalidateAllCompanyDirectoryBatch(10);
+
+    expect(result).toMatchObject({
+      selected: 1,
+      recoveredToReady: 0,
+      deferred: 1,
+      errors: 0,
+    });
+    expect(sqlCalls.some((call) => call.query.includes("set publication_status = 'ready'"))).toBe(false);
+  });
+
+  it("keeps Review profiles in Review when confidence remains below 95%", async () => {
+    configureWorker({ status: "review", evaluation: evaluation("review") });
+    mocks.assessConfidence.mockReturnValue({ score: 90, officialFactsReady: true, reasons: [] });
 
     const result = await revalidateAllCompanyDirectoryBatch(10);
 
@@ -204,9 +320,14 @@ describe("full Company Directory revalidation", () => {
       movedToReview: 0,
       errors: 0,
     });
-    expect(mocks.enrichOfficialFacts).toHaveBeenCalledTimes(1);
     expect(mocks.enrichScb).toHaveBeenCalledTimes(1);
     expect(sqlCalls.some((call) => call.query.includes("update company_directory_profiles profile"))).toBe(false);
+    const recoveryEvaluation = sqlCalls.find((call) => call.query.includes("update company_directory_scb_enrichment scb"));
+    expect(recoveryEvaluation?.values).toContain(PROFILE_TOKEN);
+    expect(recoveryEvaluation?.values).toContain(FACTS_TOKEN);
+    expect(recoveryEvaluation?.values).toContain(FACTS_HASH);
+    const selection = sqlCalls.find((call) => call.query.includes("profile.publication_status in ('published', 'ready', 'review', 'inactive', 'claimed')"));
+    expect(selection?.query).toContain("reviewRecoveryEvaluation");
   });
 
   it("refreshes claimed profiles without changing their publication status", async () => {
