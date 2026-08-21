@@ -66,4 +66,12 @@ describe("Company Directory admin list", () => {
     expect(actionCode).toContain('params.set("page", String(returnPage))');
     expect(actionCode).not.toContain('requestHeaders.get("referer")');
   });
+
+  it("keeps concrete UI labels for SCB and Review-recovery reasons", () => {
+    const pageCode = source("src/app/admin/foretag/directory/page.tsx");
+
+    expect(pageCode).toContain('scb_evidence_stale: "SCB-underlaget är inte aktuellt för profilen"');
+    expect(pageCode).toContain('scb_conflict: "SCB-data motsäger profilens officiella uppgifter"');
+    expect(pageCode).toContain('review_recovery_eligible: "Klar för säker återgång till Ready vid nästa revalidation"');
+  });
 });

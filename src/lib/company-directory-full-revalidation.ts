@@ -186,6 +186,42 @@ async function selectCandidates(limit: number, cursorValue: string) {
           or scb.last_synced_at < now() - interval '7 days'
           or scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' is distinct from profile.updated_at::text
           or scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' is distinct from facts.last_synced_at::text
+          or (
+            profile.publication_status = 'review'
+            and profile.is_active = true
+            and profile.privacy_blocked = false
+            and profile.auto_public_eligible = true
+            and profile.claimed_workspace_id is null
+            and not exists (
+              select 1
+              from company_directory_discovery_queue queue
+              where queue.state = 'failed'
+                and (
+                  queue.profile_id = profile.id
+                  or (
+                    queue.country_code = profile.country_code
+                    and queue.organization_number = regexp_replace(profile.organization_number, '\\D', '', 'g')
+                  )
+                )
+            )
+            and facts.profile_id is not null
+            and facts.source_payload_hash <> ''
+            and facts.last_synced_at >= profile.last_synced_at
+            and facts.deregistration_date is null
+            and coalesce(facts.advertising_blocked, false) = false
+            and jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) = 0
+            and scb.profile_id is not null
+            and scb.source_payload_hash <> ''
+            and scb.last_synced_at >= now() - interval '7 days'
+            and jsonb_array_length(coalesce(scb.conflicts, '[]'::jsonb)) = 0
+            and scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
+            and scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = facts.last_synced_at::text
+            and (
+              scb.provenance #>> '{reviewRecoveryEvaluation,profileUpdatedToken}' is distinct from profile.updated_at::text
+              or scb.provenance #>> '{reviewRecoveryEvaluation,officialFactsLastSyncedToken}' is distinct from facts.last_synced_at::text
+              or scb.provenance #>> '{reviewRecoveryEvaluation,officialFactsSourcePayloadHash}' is distinct from facts.source_payload_hash
+            )
+          )
         )
     )
     select id, organization_number, display_name, publication_status,
@@ -224,6 +260,42 @@ async function backlogCount() {
         or scb.last_synced_at < now() - interval '7 days'
         or scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' is distinct from profile.updated_at::text
         or scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' is distinct from facts.last_synced_at::text
+        or (
+          profile.publication_status = 'review'
+          and profile.is_active = true
+          and profile.privacy_blocked = false
+            and profile.auto_public_eligible = true
+            and profile.claimed_workspace_id is null
+            and not exists (
+              select 1
+              from company_directory_discovery_queue queue
+              where queue.state = 'failed'
+                and (
+                  queue.profile_id = profile.id
+                  or (
+                    queue.country_code = profile.country_code
+                    and queue.organization_number = regexp_replace(profile.organization_number, '\\D', '', 'g')
+                  )
+                )
+            )
+            and facts.profile_id is not null
+          and facts.source_payload_hash <> ''
+          and facts.last_synced_at >= profile.last_synced_at
+          and facts.deregistration_date is null
+          and coalesce(facts.advertising_blocked, false) = false
+          and jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) = 0
+            and scb.profile_id is not null
+            and scb.source_payload_hash <> ''
+            and scb.last_synced_at >= now() - interval '7 days'
+            and jsonb_array_length(coalesce(scb.conflicts, '[]'::jsonb)) = 0
+            and scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
+            and scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = facts.last_synced_at::text
+            and (
+              scb.provenance #>> '{reviewRecoveryEvaluation,profileUpdatedToken}' is distinct from profile.updated_at::text
+              or scb.provenance #>> '{reviewRecoveryEvaluation,officialFactsLastSyncedToken}' is distinct from facts.last_synced_at::text
+              or scb.provenance #>> '{reviewRecoveryEvaluation,officialFactsSourcePayloadHash}' is distinct from facts.source_payload_hash
+            )
+        )
       )
   `;
 
@@ -267,6 +339,7 @@ async function loadFreshEvaluation(profileId: string) {
       (
         scb.profile_id is not null
         and scb.source_payload_hash <> ''
+        and scb.last_synced_at >= now() - interval '7 days'
         and scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
         and scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = facts.last_synced_at::text
       ) as scb_snapshot_fresh
@@ -290,6 +363,45 @@ async function markScbEvaluationPending(profileId: string) {
         updated_at = now()
     where profile_id = ${profileId}::uuid
   `;
+}
+
+async function markReviewRecoveryEvaluation(input: {
+  profileId: string;
+  profileUpdatedToken: string;
+  factsLastSyncedToken: string;
+  factsSourcePayloadHash: string;
+}) {
+  const sql = getSql();
+  if (!sql) return false;
+
+  const rows = await sql`
+    update company_directory_scb_enrichment scb
+    set provenance = jsonb_set(
+          coalesce(scb.provenance, '{}'::jsonb),
+          '{reviewRecoveryEvaluation}',
+          jsonb_build_object(
+            'profileUpdatedToken', ${input.profileUpdatedToken},
+            'officialFactsLastSyncedToken', ${input.factsLastSyncedToken},
+            'officialFactsSourcePayloadHash', ${input.factsSourcePayloadHash}
+          ),
+          true
+        ),
+        updated_at = now()
+    where scb.profile_id = ${input.profileId}::uuid
+      and exists (
+        select 1
+        from company_directory_profiles profile
+        join company_directory_official_facts facts on facts.profile_id = profile.id
+        where profile.id = scb.profile_id
+          and profile.publication_status = 'review'
+          and profile.updated_at::text = ${input.profileUpdatedToken}
+          and facts.last_synced_at::text = ${input.factsLastSyncedToken}
+          and facts.source_payload_hash = ${input.factsSourcePayloadHash}
+      )
+    returning scb.profile_id::text
+  `;
+
+  return Boolean(rows[0]);
 }
 
 async function moveProfileToReview(input: {
@@ -334,6 +446,102 @@ async function moveProfileToReview(input: {
   return Boolean(rows[0]);
 }
 
+async function restoreUnsafeRecoveredProfileToReview(input: {
+  profileId: string;
+  profileUpdatedToken: string;
+  factsLastSyncedToken: string;
+  factsSourcePayloadHash: string;
+}) {
+  const sql = getSql();
+  if (!sql) return false;
+
+  const rows = await sql`
+    update company_directory_profiles profile
+    set publication_status = 'review',
+        published_at = null,
+        updated_at = now()
+    where profile.id = ${input.profileId}::uuid
+      and profile.publication_status = 'ready'
+      and profile.updated_at::text = ${input.profileUpdatedToken}
+      and profile.country_code = 'SE'
+      and profile.organization_kind = 'juridical_person'
+      and profile.claimed_workspace_id is null
+      and exists (
+        select 1
+        from company_directory_official_facts facts
+        where facts.profile_id = profile.id
+          and facts.last_synced_at::text = ${input.factsLastSyncedToken}
+          and facts.source_payload_hash = ${input.factsSourcePayloadHash}
+      )
+    returning profile.id::text
+  `;
+
+  return Boolean(rows[0]);
+}
+
+async function restoreSafeReviewProfileToReady(input: {
+  profileId: string;
+  profileUpdatedToken: string;
+  factsLastSyncedToken: string;
+  factsSourcePayloadHash: string;
+  scbSourcePayloadHash: string;
+}) {
+  const sql = getSql();
+  if (!sql) return false;
+
+  const rows = await sql`
+    update company_directory_profiles profile
+    set publication_status = 'ready',
+        published_at = null,
+        updated_at = now()
+    where profile.id = ${input.profileId}::uuid
+      and profile.publication_status = 'review'
+      and profile.country_code = 'SE'
+      and profile.organization_kind = 'juridical_person'
+      and profile.is_active = true
+      and profile.privacy_blocked = false
+      and profile.auto_public_eligible = true
+      and profile.claimed_workspace_id is null
+      and profile.updated_at::text = ${input.profileUpdatedToken}
+      and not exists (
+        select 1
+        from company_directory_discovery_queue queue
+        where queue.state = 'failed'
+          and (
+            queue.profile_id = profile.id
+            or (
+              queue.country_code = profile.country_code
+              and queue.organization_number = regexp_replace(profile.organization_number, '\\D', '', 'g')
+            )
+          )
+      )
+      and exists (
+        select 1
+        from company_directory_official_facts facts
+        where facts.profile_id = profile.id
+          and facts.last_synced_at::text = ${input.factsLastSyncedToken}
+          and facts.last_synced_at >= profile.last_synced_at
+          and facts.source_payload_hash = ${input.factsSourcePayloadHash}
+          and facts.deregistration_date is null
+          and coalesce(facts.advertising_blocked, false) = false
+          and jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) = 0
+      )
+      and exists (
+        select 1
+        from company_directory_scb_enrichment scb
+        where scb.profile_id = profile.id
+          and scb.source_payload_hash = ${input.scbSourcePayloadHash}
+          and scb.last_synced_at >= now() - interval '7 days'
+          and jsonb_array_length(coalesce(scb.conflicts, '[]'::jsonb)) = 0
+          and scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
+          and scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = ${input.factsLastSyncedToken}
+      )
+    returning profile.updated_at::text as profile_updated_token
+  `;
+
+  return text(rows[0]?.profile_updated_token);
+}
+
 export async function revalidateAllCompanyDirectoryBatch(
   limit?: number,
   options: RevalidationOptions = {},
@@ -353,6 +561,7 @@ export async function revalidateAllCompanyDirectoryBatch(
       refreshed: 0,
       kept: 0,
       movedToReview: 0,
+      recoveredToReady: 0,
       deferred: 0,
       errors: 1,
       errorSummary: error instanceof Error ? error.message : "SCB access configuration is invalid",
@@ -368,6 +577,7 @@ export async function revalidateAllCompanyDirectoryBatch(
       refreshed: 0,
       kept: 0,
       movedToReview: 0,
+      recoveredToReady: 0,
       deferred: 0,
       errors: 0,
       errorSummary: "SCB certificate access is not configured in this environment",
@@ -384,6 +594,7 @@ export async function revalidateAllCompanyDirectoryBatch(
       refreshed: 0,
       kept: 0,
       movedToReview: 0,
+      recoveredToReady: 0,
       deferred: 0,
       errors: 0,
       errorSummary: "",
@@ -397,6 +608,7 @@ export async function revalidateAllCompanyDirectoryBatch(
   let refreshed = 0;
   let kept = 0;
   let movedToReview = 0;
+  let recoveredToReady = 0;
   let deferred = 0;
   let errors = 0;
   const errorMessages: string[] = [];
@@ -497,7 +709,77 @@ export async function revalidateAllCompanyDirectoryBatch(
           || confidence.score < 95
           || scbConflictCount > 0;
 
-        if (claimed || status === "review" || status === "inactive" || !shouldReview) {
+        if (claimed || status === "inactive") {
+          kept += 1;
+          continue;
+        }
+
+        if (status === "review") {
+          if (shouldReview) {
+            const reviewRecorded = await markReviewRecoveryEvaluation({
+              profileId,
+              profileUpdatedToken,
+              factsLastSyncedToken,
+              factsSourcePayloadHash,
+            });
+            if (!reviewRecorded) {
+              deferred += 1;
+              if (errorMessages.length < 5) {
+                errorMessages.push(`${organizationNumber}: could not record Review recovery evaluation`);
+              }
+              continue;
+            }
+            kept += 1;
+            continue;
+          }
+
+          if (deadlineReached(options.deadlineAt, SCB_START_HEADROOM_MS)) {
+            deferred += candidates.length - index;
+            break candidateLoop;
+          }
+
+          const recoveryProfileUpdatedToken = await restoreSafeReviewProfileToReady({
+            profileId,
+            profileUpdatedToken,
+            factsLastSyncedToken,
+            factsSourcePayloadHash,
+            scbSourcePayloadHash,
+          });
+          if (!recoveryProfileUpdatedToken) {
+            deferred += 1;
+            continue;
+          }
+
+          const finalScb = await enrichCompanyDirectoryScbForProfile(profileId, transport, {
+            allowWhenDisabledWithExplicitTransport: true,
+          });
+          const finalEvaluation = await loadFreshEvaluation(profileId);
+          const finalScbSafe = finalScb.status === "saved"
+            && Boolean(finalEvaluation?.scb_snapshot_fresh)
+            && Math.max(0, number(finalEvaluation?.scb_conflict_count)) === 0;
+          if (!finalScbSafe) {
+            const reverted = await restoreUnsafeRecoveredProfileToReview({
+              profileId,
+              profileUpdatedToken: recoveryProfileUpdatedToken,
+              factsLastSyncedToken,
+              factsSourcePayloadHash,
+            });
+            deferred += 1;
+            if (reverted) kept += 1;
+            else errors += 1;
+            if (errorMessages.length < 5) {
+              errorMessages.push(
+                `${organizationNumber}: final SCB evidence unsafe after Review recovery (${finalScb.status}; reverted=${reverted})`,
+              );
+            }
+            continue;
+          }
+
+          recoveredToReady += 1;
+          continue;
+        }
+
+        if (!shouldReview) {
           kept += 1;
           continue;
         }
@@ -575,6 +857,7 @@ export async function revalidateAllCompanyDirectoryBatch(
       refreshed,
       kept,
       movedToReview,
+      recoveredToReady,
       deferred,
       errors,
       errorSummary,

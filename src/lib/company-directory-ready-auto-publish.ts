@@ -89,6 +89,18 @@ export async function autoPublishReadyHighConfidenceCompanyDirectoryBatch(limit?
       and facts.deregistration_date is null
       and coalesce(facts.advertising_blocked, false) = false
       and jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) = 0
+      and not exists (
+        select 1
+        from company_directory_discovery_queue queue
+        where queue.state = 'failed'
+          and (
+            queue.profile_id = profile.id
+            or (
+              queue.country_code = profile.country_code
+              and queue.organization_number = regexp_replace(profile.organization_number, '\\D', '', 'g')
+            )
+          )
+      )
   `;
   const safetyEligible = Math.max(0, number(countRows[0]?.count));
   if (!safetyEligible) {
@@ -134,6 +146,18 @@ export async function autoPublishReadyHighConfidenceCompanyDirectoryBatch(limit?
       and facts.deregistration_date is null
       and coalesce(facts.advertising_blocked, false) = false
       and jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) = 0
+      and not exists (
+        select 1
+        from company_directory_discovery_queue queue
+        where queue.state = 'failed'
+          and (
+            queue.profile_id = profile.id
+            or (
+              queue.country_code = profile.country_code
+              and queue.organization_number = regexp_replace(profile.organization_number, '\\D', '', 'g')
+            )
+          )
+      )
     order by profile.organization_number asc
     offset ${scanOffset}
     limit ${READY_AUTO_PUBLISH_SCAN_SIZE}
