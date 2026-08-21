@@ -70,26 +70,41 @@ afterEach(() => {
 });
 
 describe("Company Directory revalidation reliability", () => {
-  it("retries one transient ECONNRESET with backoff and request-slot spacing", async () => {
+  it("retries one transient ECONNRESET with backoff and shared request-slot spacing", async () => {
     const callTimes: number[] = [];
     const reset = Object.assign(new Error("socket reset"), { code: "ECONNRESET" });
-    installOutcomes([reset, { status: 200, body: { ok: true } }], callTimes);
+    installOutcomes([
+      reset,
+      { status: 200, body: { workplaces: true } },
+      { status: 200, body: { company: true } },
+    ], callTimes);
     const { createScbCompanyRegistryTransportFromEnv } = await loadTransport();
     const transport = createScbCompanyRegistryTransportFromEnv();
     expect(transport).not.toBeNull();
 
-    const pending = transport!.fetchCompany("5563115707");
+    const companyPending = transport!.fetchCompany("5563115707");
     await vi.advanceTimersByTimeAsync(0);
     expect(httpsMock.request).toHaveBeenCalledTimes(1);
 
-    await vi.advanceTimersByTimeAsync(1_499);
+    const workplacesPending = transport!.fetchWorkplaces("5563115707");
+    await vi.advanceTimersByTimeAsync(1_049);
     expect(httpsMock.request).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(1);
-
-    await expect(pending).resolves.toEqual({ ok: true });
     expect(httpsMock.request).toHaveBeenCalledTimes(2);
-    expect(callTimes[1] - callTimes[0]).toBeGreaterThanOrEqual(1_500);
-    expect(callTimes[1] - callTimes[0]).toBeGreaterThanOrEqual(1_050);
+
+    await vi.advanceTimersByTimeAsync(449);
+    expect(httpsMock.request).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(httpsMock.request).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(600);
+
+    await expect(workplacesPending).resolves.toEqual({ workplaces: true });
+    await expect(companyPending).resolves.toEqual({ company: true });
+    expect(httpsMock.request).toHaveBeenCalledTimes(3);
+    expect(callTimes[2] - callTimes[0]).toBeGreaterThanOrEqual(1_500);
+    for (let index = 1; index < callTimes.length; index += 1) {
+      expect(callTimes[index] - callTimes[index - 1]).toBeGreaterThanOrEqual(1_050);
+    }
   });
 
   it("does not retry permanent HTTP failures", async () => {
