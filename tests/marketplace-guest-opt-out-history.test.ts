@@ -80,7 +80,9 @@ describe("marketplace guest historical opt-out", () => {
     const result = await suppressMarketplaceGuestRecipientWithHistory(token);
 
     expect(result).toEqual({ ok: true });
+    expect(mocks.hashToken).toHaveBeenCalledWith(token);
     expect(queryText(sql.mock.calls[0])).toContain("marketplace_guest_opt_out_credentials");
+    expect(sql.mock.calls[0]?.slice(1)).toEqual(["a".repeat(64)]);
     expect(sql.transaction).toHaveBeenCalledTimes(1);
     const transactionQueries = sql.transaction.mock.calls[0]?.[0] as unknown[];
     expect(transactionQueries).toHaveLength(2);
