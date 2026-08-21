@@ -1,4 +1,3 @@
-import { resolveBrevoApiKey } from "@/lib/email-runtime-config";
 import { buildPreviewSafeBrevoRequestInit } from "@/lib/preview-email-egress";
 
 const PREVIEW_FETCH_GUARD = Symbol.for("proffera.preview-email-fetch-guard");
@@ -11,12 +10,6 @@ export async function register() {
   if (process.env.VERCEL_ENV !== "preview") return;
 
   const previewEnv: NodeJS.ProcessEnv = { ...process.env };
-  const previewBrevoApiKey = resolveBrevoApiKey(previewEnv);
-  if (previewBrevoApiKey) {
-    process.env.BREVO_API_KEY = previewBrevoApiKey;
-  } else {
-    delete process.env.BREVO_API_KEY;
-  }
 
   const currentFetch = globalThis.fetch as GuardedFetch;
   if (currentFetch[PREVIEW_FETCH_GUARD]) return;

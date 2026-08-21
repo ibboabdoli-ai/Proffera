@@ -87,7 +87,7 @@ describe("Preview Brevo egress safety", () => {
     expect(body.subject).toBe("Preview test");
   });
 
-  it("keeps Preview email safe after instrumentation selects the dedicated credential", async () => {
+  it("keeps the shared key untouched while instrumentation enforces the dedicated Preview credential", async () => {
     process.env.VERCEL_ENV = "preview";
     process.env.BREVO_API_KEY = "production-key";
     process.env.PROFFERA_PREVIEW_BREVO_API_KEY = "preview-key";
@@ -97,7 +97,7 @@ describe("Preview Brevo egress safety", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await register();
-    expect(process.env.BREVO_API_KEY).toBe("preview-key");
+    expect(process.env.BREVO_API_KEY).toBe("production-key");
 
     await globalThis.fetch(BREVO_URL, {
       method: "POST",
