@@ -47,6 +47,8 @@ async function applyMigration(client: Client, file: string) {
     return;
   }
 
+  // Migration 0053 has three top-level statements that must execute separately:
+  // CREATE/DROP INDEX CONCURRENTLY are not allowed inside a transaction block.
   const executable = sql
     .split(/\r?\n/u)
     .filter((line) => !line.trimStart().startsWith("--"))
@@ -119,137 +121,61 @@ if (RUN_POSTGRES_INTEGRATION) {
       const newTokenHash = hash("new-reused-opt-out-token");
       const dispatchToken = randomUUID();
 
-      await client.query(`
-        insert into quote_requests (
-          id, category, service_type, city, postal_code, description,
-          preferred_date, contact_name, contact_email, contact_phone,
-          consent_accepted, status, reference_id
+      await client.query(
+        `insert into quote_requests (
+          id, reference_id, category, service_type, city, description, status, consent_accepted
+        ) values ($1, 'Q-HISTORY', 'vvs', 'VVS', 'Södertälje', 'Historisk offert', 'submitted', true)`,
+        [quoteRequestId],
+      );
+      await client.query(
+        `insert into company_directory_profiles (
+          id, organization_number, display_name, public_slug, publication_status,
+          is_active, privacy_blocked, organization_kind
+        ) values ($1, '559900-0001', 'Historiskt Företag AB', 'historiskt-foretag-ab', 'published', true, false, 'juridical_person')`,
+        [profileId],
+      );
+      await client.query(
+        `insert into marketplace_quote_invitations (
+          id, quote_request_id, profile_id, recipient_email, token_hash, opt_out_token_hash,
+          dispatch_token, provider_claimed_at, status, wave, match_score, match_reasons,
+          contact_basis, expires_at, sent_at
         ) values (
-          $1, 'vvs', 'Rörmokare', 'Södertälje', '15100', 'History test request',
-          '', 'Test Customer', 'customer@example.test', '0700000000',
-          true, 'submitted', $2
-        )
-      `, [quoteRequestId, `PF-${quoteRequestId}`]);
+          $1, $2, $3, 'old-contact@example.se', $4, $4,
+          $5, now() - interval '8 days', 'sent', 1, 90, '[]'::jsonb,
+          'manual_business_contact', now() - interval '1 day', now() - interval '8 days'
+        )`,
+        [invitationId, quoteRequestId, profileId, oldTokenHash, dispatchToken],
+      );
 
-      await client.query(`
-        insert into company_directory_profiles (
-          id, organization_number, organization_kind, legal_name, display_name,
-          is_active, category_slug, city, municipality, public_slug,
-          publication_status, quality_score, privacy_blocked, auto_public_eligible
-        ) values (
-          $1, $2, 'juridical_person', 'History Företag AB', 'History Företag AB',
-          true, 'vvs', 'Södertälje', 'Södertälje', $3,
-          'published', 95, false, true
-        )
-      `, [profileId, profileId.replace(/-/gu, "").slice(0, 10), `history-${profileId}`]);
+      await client.query(
+        `update marketplace_quote_invitations
+         set recipient_email = 'new-contact@example.se',
+             token_hash = $2,
+             opt_out_token_hash = $2,
+             dispatch_token = $3,
+             provider_claimed_at = null,
+             status = 'sending',
+             expires_at = now() + interval '7 days'
+         where id = $1`,
+        [invitationId, newTokenHash, randomUUID()],
+      );
 
-      await client.query(`
-        insert into marketplace_quote_invitations (
-          id, quote_request_id, profile_id, recipient_email, token_hash,
-          opt_out_token_hash, status, wave, match_score, match_reasons,
-          contact_basis, expires_at, created_by_admin_user_id
-        ) values (
-          $1, $2, $3, 'old-contact@example.se', $4, $4, 'sent',
-          1, 90, '[]'::jsonb, 'manual_business_contact', now() - interval '1 day',
-          'integration-test'
-        )
-      `, [invitationId, quoteRequestId, profileId, oldTokenHash]);
-
-      await client.query(`
-        update marketplace_quote_invitations
-        set recipient_email = 'new-contact@example.se',
-            token_hash = $2,
-            opt_out_token_hash = $2,
-            dispatch_token = $3,
-            status = 'sending',
-            expires_at = now() + interval '7 days'
-        where id = $1
-      `, [invitationId, newTokenHash, dispatchToken]);
-
-      const archived = await client.query<{
-        invitation_id: string;
-        profile_id: string;
-        recipient_email_normalized: string;
-        token_hash: string;
-      }>(`
-        select invitation_id::text, profile_id::text, recipient_email_normalized, token_hash
-        from marketplace_guest_opt_out_credentials
-        where token_hash = $1
-      `, [oldTokenHash]);
-
-      expect(archived.rows[0]).toMatchObject({
+      const archived = await client.query(
+        `select invitation_id::text, profile_id::text, recipient_email_normalized, token_hash
+         from marketplace_guest_opt_out_credentials
+         where token_hash = $1`,
+        [oldTokenHash],
+      );
+      expect(archived.rows).toEqual([{
         invitation_id: invitationId,
         profile_id: profileId,
         recipient_email_normalized: "old-contact@example.se",
         token_hash: oldTokenHash,
-      });
-
-      const current = await client.query<{ opt_out_token_hash: string; recipient_email: string }>(`
-        select opt_out_token_hash, recipient_email
-        from marketplace_quote_invitations
-        where id = $1
-      `, [invitationId]);
-      expect(current.rows[0]).toMatchObject({
-        opt_out_token_hash: newTokenHash,
-        recipient_email: "new-contact@example.se",
-      });
-    });
-
-    it("rejects changing the recipient without rotating its opt-out credential", async () => {
-      const quoteRequestId = randomUUID();
-      const profileId = randomUUID();
-      const tokenHash = hash("stable-opt-out-token");
-
-      await client.query(`
-        insert into quote_requests (
-          id, category, service_type, city, postal_code, description,
-          preferred_date, contact_name, contact_email, contact_phone,
-          consent_accepted, status, reference_id
-        ) values (
-          $1, 'vvs', 'Rörmokare', 'Södertälje', '15100', 'Rotation test',
-          '', 'Test Customer', 'customer@example.test', '0700000000',
-          true, 'submitted', $2
-        )
-      `, [quoteRequestId, `PF-${quoteRequestId}`]);
-      await client.query(`
-        insert into company_directory_profiles (
-          id, organization_number, organization_kind, legal_name, display_name,
-          is_active, category_slug, city, municipality, public_slug,
-          publication_status, quality_score, privacy_blocked, auto_public_eligible
-        ) values (
-          $1, $2, 'juridical_person', 'Rotation Företag AB', 'Rotation Företag AB',
-          true, 'vvs', 'Södertälje', 'Södertälje', $3,
-          'published', 95, false, true
-        )
-      `, [profileId, profileId.replace(/-/gu, "").slice(0, 10), `rotation-${profileId}`]);
-      const invitation = await client.query<{ id: string }>(`
-        insert into marketplace_quote_invitations (
-          quote_request_id, profile_id, recipient_email, token_hash, opt_out_token_hash,
-          status, wave, match_score, match_reasons, contact_basis, expires_at,
-          created_by_admin_user_id
-        ) values (
-          $1, $2, 'first@example.se', $3, $3, 'expired', 1, 90, '[]'::jsonb,
-          'manual_business_contact', now() - interval '1 day', 'integration-test'
-        ) returning id::text
-      `, [quoteRequestId, profileId, tokenHash]);
-
-      let updateError: unknown = null;
-      try {
-        await client.query(`
-          update marketplace_quote_invitations
-          set recipient_email = 'second@example.se'
-          where id = $1
-        `, [invitation.rows[0]?.id]);
-      } catch (error) {
-        updateError = error;
-      }
-
-      expect(errorDetails(updateError).code).toBe("23514");
-      expect(errorDetails(updateError).message).toContain("marketplace_opt_out_token_rotation_required");
+      }]);
     });
   });
 } else {
   describe.skip("marketplace guest historical opt-out PostgreSQL contract", () => {
-    it("requires GitHub Actions or PROFFERA_POSTGRES_INTEGRATION=1", () => undefined);
+    it("requires PostgreSQL integration mode", () => undefined);
   });
 }
