@@ -12,8 +12,16 @@ const migrationFiles = [
   "20260820_0050_marketplace_guest_dispatch_claim.sql",
   "20260820_0051_marketplace_guest_runtime_eligibility.sql",
   "20260821_0052_marketplace_guest_final_hardening.sql",
-];
-const migrations = migrationFiles.map((file) => readFileSync(join(process.cwd(), "db/migrations", file), "utf8"));
+  "20260821_0053_marketplace_guest_recipient_index.sql",
+] as const;
+const migrations = migrationFiles.map((file) => ({
+  file,
+  sql: readFileSync(join(process.cwd(), "db/migrations", file), "utf8"),
+}));
+const productionBaseline = readFileSync(
+  join(process.cwd(), "tests/fixtures/marketplace-guest-production-baseline.sql"),
+  "utf8",
+);
 
 const RUN_POSTGRES_INTEGRATION =
   process.env.GITHUB_ACTIONS === "true"
@@ -31,6 +39,22 @@ function pgError(error: unknown) {
   if (!error || typeof error !== "object") return { code: "", message: String(error ?? "") };
   const candidate = error as { code?: unknown; message?: unknown };
   return { code: String(candidate.code ?? ""), message: String(candidate.message ?? "") };
+}
+
+async function applyMigrationFile(client: Client, file: string, sql: string) {
+  if (!file.endsWith("0053_marketplace_guest_recipient_index.sql")) {
+    await client.query(sql);
+    return;
+  }
+
+  // 0053 is intentionally non-transactional because PostgreSQL forbids
+  // CREATE/DROP INDEX CONCURRENTLY inside a transaction block. Execute its two
+  // statements independently, exactly as the production deployment note requires.
+  const statements = sql
+    .split(";")
+    .map((statement) => statement.trim())
+    .filter((statement) => statement && !/^--[^\n]*$/u.test(statement));
+  for (const statement of statements) await client.query(statement);
 }
 
 if (RUN_POSTGRES_INTEGRATION) {
@@ -69,21 +93,47 @@ if (RUN_POSTGRES_INTEGRATION) {
       const quoteRequestId = randomUUID();
       const profileId = randomUUID();
       const workspaceId = input?.claimedWorkspaceId ?? null;
-      if (workspaceId) await client.query("insert into workspaces (id) values ($1)", [workspaceId]);
-      await client.query(
-        "insert into quote_requests (id, status, consent_accepted) values ($1, $2, $3)",
-        [quoteRequestId, input?.quoteStatus ?? "submitted", input?.consent ?? true],
-      );
+      if (workspaceId) {
+        await client.query(
+          "insert into workspaces (id, slug, name) values ($1, $2, $3)",
+          [workspaceId, `workspace-${workspaceId}`, "Integration Workspace"],
+        );
+      }
+
+      await client.query(`
+        insert into quote_requests (
+          id, category, service_type, city, postal_code, description,
+          preferred_date, contact_name, contact_email, contact_phone,
+          consent_accepted, status, reference_id
+        ) values (
+          $1, 'vvs', 'Rörmokare', 'Södertälje', '15100', 'Integration test request',
+          '', 'Test Customer', 'customer@example.test', '0700000000',
+          $2, $3, $4
+        )
+      `, [quoteRequestId, input?.consent ?? true, input?.quoteStatus ?? "submitted", `PF-${quoteRequestId}`]);
+
+      const publicationStatus = input?.publicationStatus ?? "published";
+      const isActive = input?.isActive ?? true;
+      const privacyBlocked = input?.privacyBlocked ?? false;
       await client.query(`
         insert into company_directory_profiles (
-          id, publication_status, is_active, privacy_blocked, organization_kind, claimed_workspace_id
-        ) values ($1, $2, $3, $4, $5, $6)
+          id, organization_number, organization_kind, legal_name, display_name,
+          is_active, category_slug, city, municipality, public_slug,
+          publication_status, quality_score, privacy_blocked, auto_public_eligible,
+          claimed_workspace_id
+        ) values (
+          $1, $2, $3, 'Integration Företag AB', 'Integration Företag AB',
+          $4, 'vvs', 'Södertälje', 'Södertälje', $5,
+          $6, 95, $7, true, $8
+        )
       `, [
         profileId,
-        input?.publicationStatus ?? "published",
-        input?.isActive ?? true,
-        input?.privacyBlocked ?? false,
+        profileId.replace(/-/g, "").slice(0, 10),
         input?.organizationKind ?? "juridical_person",
+        isActive,
+        `profile-${profileId}`,
+        publicationStatus,
+        privacyBlocked,
         workspaceId,
       ]);
       return { quoteRequestId, profileId };
@@ -94,6 +144,7 @@ if (RUN_POSTGRES_INTEGRATION) {
       profileId: string;
       status?: string;
       dispatchToken?: string | null;
+      providerClaimedAt?: Date | null;
       recipientEmail?: string;
       seed?: string;
       updatedAt?: Date;
@@ -102,11 +153,11 @@ if (RUN_POSTGRES_INTEGRATION) {
       const result = await client.query<{ id: string }>(`
         insert into marketplace_quote_invitations (
           quote_request_id, profile_id, recipient_email, token_hash, dispatch_token,
-          status, wave, match_score, match_reasons, contact_basis, expires_at,
-          created_by_admin_user_id, updated_at
+          provider_claimed_at, status, wave, match_score, match_reasons, contact_basis,
+          expires_at, created_by_admin_user_id, updated_at
         ) values (
-          $1, $2, $3, $4, $5, $6, 1, 90, '[]'::jsonb,
-          'manual_business_contact', $7, 'integration-test', $8
+          $1, $2, $3, $4, $5, $6, $7, 1, 90, '[]'::jsonb,
+          'manual_business_contact', $8, 'integration-test', $9
         ) returning id::text
       `, [
         input.quoteRequestId,
@@ -114,6 +165,7 @@ if (RUN_POSTGRES_INTEGRATION) {
         input.recipientEmail ?? "offert@example.se",
         tokenHash(input.seed ?? randomUUID()),
         input.dispatchToken ?? null,
+        input.providerClaimedAt ?? null,
         input.status ?? "expired",
         input.expiresAt ?? new Date(Date.now() + 86_400_000),
         input.updatedAt ?? new Date(),
@@ -139,24 +191,10 @@ if (RUN_POSTGRES_INTEGRATION) {
       client = new Client({ connectionString });
       await client.connect();
 
-      await client.query(`
-        create extension if not exists pgcrypto;
-        create table quote_requests (
-          id uuid primary key,
-          status text not null default 'submitted',
-          consent_accepted boolean not null default true
-        );
-        create table workspaces (id uuid primary key);
-        create table company_directory_profiles (
-          id uuid primary key,
-          publication_status text not null default 'published',
-          is_active boolean not null default true,
-          privacy_blocked boolean not null default false,
-          organization_kind text not null default 'juridical_person',
-          claimed_workspace_id uuid references workspaces(id) on delete set null
-        );
-      `);
-      for (const migration of migrations) await client.query(migration);
+      await client.query(productionBaseline);
+      for (const migration of migrations) {
+        await applyMigrationFile(client, migration.file, migration.sql);
+      }
     }, 120_000);
 
     beforeEach(async () => {
@@ -181,7 +219,7 @@ if (RUN_POSTGRES_INTEGRATION) {
       }
     }, 30_000);
 
-    it("claims a valid provider dispatch and keeps the same ownership token", async () => {
+    it("claims a valid provider dispatch and records the provider boundary", async () => {
       const { quoteRequestId, profileId } = await insertQuoteAndProfile();
       const invitationId = await insertInvitation({ quoteRequestId, profileId });
       const dispatchToken = randomUUID();
@@ -194,11 +232,13 @@ if (RUN_POSTGRES_INTEGRATION) {
         "update marketplace_quote_invitations set status = 'pending' where id = $1 and dispatch_token = $2",
         [invitationId, dispatchToken],
       );
-      const result = await client.query<{ status: string; dispatch_token: string }>(
-        "select status, dispatch_token::text from marketplace_quote_invitations where id = $1",
+      const result = await client.query<{ status: string; dispatch_token: string; provider_claimed_at: Date | null }>(
+        "select status, dispatch_token::text, provider_claimed_at from marketplace_quote_invitations where id = $1",
         [invitationId],
       );
-      expect(result.rows[0]).toMatchObject({ status: "pending", dispatch_token: dispatchToken });
+      expect(result.rows[0]?.status).toBe("pending");
+      expect(result.rows[0]?.dispatch_token).toBe(dispatchToken);
+      expect(result.rows[0]?.provider_claimed_at).toBeInstanceOf(Date);
     });
 
     it("rejects a provider claim without a dispatch token", async () => {
@@ -257,7 +297,10 @@ if (RUN_POSTGRES_INTEGRATION) {
     });
 
     it("rechecks current profile eligibility before dispatch", async () => {
-      const { quoteRequestId, profileId } = await insertQuoteAndProfile({ privacyBlocked: true });
+      const { quoteRequestId, profileId } = await insertQuoteAndProfile({
+        publicationStatus: "blocked",
+        privacyBlocked: true,
+      });
       const invitationId = await insertInvitation({ quoteRequestId, profileId });
       let failure = { code: "", message: "" };
       try {
@@ -277,7 +320,10 @@ if (RUN_POSTGRES_INTEGRATION) {
       const originalHash = tokenHash("known-active-token");
       const invitationId = await insertInvitation({ quoteRequestId, profileId, status: "sent", seed: "known-active-token" });
 
-      await client.query("update company_directory_profiles set privacy_blocked = true where id = $1", [profileId]);
+      await client.query(
+        "update company_directory_profiles set publication_status = 'blocked', privacy_blocked = true where id = $1",
+        [profileId],
+      );
       const result = await client.query<{ status: string; token_hash: string; dispatch_token: string | null }>(
         "select status, token_hash, dispatch_token::text from marketplace_quote_invitations where id = $1",
         [invitationId],
@@ -290,7 +336,7 @@ if (RUN_POSTGRES_INTEGRATION) {
     });
 
     it("rejects an offer when the linked company is currently ineligible", async () => {
-      const { quoteRequestId, profileId } = await insertQuoteAndProfile({ privacyBlocked: true });
+      const { quoteRequestId, profileId } = await insertQuoteAndProfile({ publicationStatus: "blocked" });
       const invitationId = await insertInvitation({ quoteRequestId, profileId, status: "sent" });
       let failure = { code: "", message: "" };
       try {
@@ -306,35 +352,55 @@ if (RUN_POSTGRES_INTEGRATION) {
       expect(failure.message).toContain("marketplace_profile_ineligible");
     });
 
-    it("keeps an ambiguous provider claim non-retryable with its original identities", async () => {
+    it("turns a stale provider-claimed pending retry into delivery_uncertain and preserves identities", async () => {
       const { quoteRequestId, profileId } = await insertQuoteAndProfile();
       const originalDispatchToken = randomUUID();
-      const originalHash = tokenHash("ambiguous-token");
+      const originalHash = tokenHash("stale-pending-token");
+      const originalExpiresAt = new Date(Date.now() + 3_600_000);
       const invitationId = await insertInvitation({
         quoteRequestId,
         profileId,
         status: "pending",
         dispatchToken: originalDispatchToken,
-        seed: "ambiguous-token",
+        providerClaimedAt: new Date(Date.now() - 10 * 60_000),
+        seed: "stale-pending-token",
         updatedAt: new Date(Date.now() - 10 * 60_000),
-      });
-
-      await client.query("update marketplace_quote_invitations set status = 'delivery_failed' where id = $1", [invitationId]);
-      let state = await client.query<{ status: string; token_hash: string; dispatch_token: string }>(
-        "select status, token_hash, dispatch_token::text from marketplace_quote_invitations where id = $1",
-        [invitationId],
-      );
-      expect(state.rows[0]).toMatchObject({
-        status: "delivery_uncertain",
-        token_hash: originalHash,
-        dispatch_token: originalDispatchToken,
+        expiresAt: originalExpiresAt,
       });
 
       await client.query(
         "update marketplace_quote_invitations set status = 'sending', dispatch_token = $2, token_hash = $3 where id = $1",
         [invitationId, randomUUID(), tokenHash("replacement-token")],
       );
-      state = await client.query(
+      const state = await client.query<{
+        status: string;
+        token_hash: string;
+        dispatch_token: string;
+        expires_at: Date;
+      }>(
+        "select status, token_hash, dispatch_token::text, expires_at from marketplace_quote_invitations where id = $1",
+        [invitationId],
+      );
+      expect(state.rows[0]?.status).toBe("delivery_uncertain");
+      expect(state.rows[0]?.token_hash).toBe(originalHash);
+      expect(state.rows[0]?.dispatch_token).toBe(originalDispatchToken);
+      expect(state.rows[0]?.expires_at.getTime()).toBe(originalExpiresAt.getTime());
+    });
+
+    it("keeps a provider-claimed delivery failure non-retryable", async () => {
+      const { quoteRequestId, profileId } = await insertQuoteAndProfile();
+      const originalDispatchToken = randomUUID();
+      const originalHash = tokenHash("ambiguous-token");
+      const invitationId = await insertInvitation({ quoteRequestId, profileId, seed: "ambiguous-token" });
+
+      await client.query(
+        "update marketplace_quote_invitations set status = 'sending', dispatch_token = $2 where id = $1",
+        [invitationId, originalDispatchToken],
+      );
+      await client.query("update marketplace_quote_invitations set status = 'pending' where id = $1", [invitationId]);
+      await client.query("update marketplace_quote_invitations set status = 'delivery_failed' where id = $1", [invitationId]);
+
+      const state = await client.query<{ status: string; token_hash: string; dispatch_token: string }>(
         "select status, token_hash, dispatch_token::text from marketplace_quote_invitations where id = $1",
         [invitationId],
       );
@@ -343,6 +409,34 @@ if (RUN_POSTGRES_INTEGRATION) {
         token_hash: originalHash,
         dispatch_token: originalDispatchToken,
       });
+    });
+
+    it("keeps a definite pre-provider failure retryable with a new attempt token", async () => {
+      const { quoteRequestId, profileId } = await insertQuoteAndProfile();
+      const invitationId = await insertInvitation({ quoteRequestId, profileId });
+      const firstDispatchToken = randomUUID();
+      const secondDispatchToken = randomUUID();
+
+      await client.query(
+        "update marketplace_quote_invitations set status = 'sending', dispatch_token = $2 where id = $1",
+        [invitationId, firstDispatchToken],
+      );
+      await client.query(
+        "update marketplace_quote_invitations set status = 'delivery_failed', provider_claimed_at = null where id = $1",
+        [invitationId],
+      );
+      await client.query(
+        "update marketplace_quote_invitations set status = 'sending', dispatch_token = $2 where id = $1",
+        [invitationId, secondDispatchToken],
+      );
+
+      const state = await client.query<{ status: string; dispatch_token: string; provider_claimed_at: Date | null }>(
+        "select status, dispatch_token::text, provider_claimed_at from marketplace_quote_invitations where id = $1",
+        [invitationId],
+      );
+      expect(state.rows[0]?.status).toBe("sending");
+      expect(state.rows[0]?.dispatch_token).toBe(secondDispatchToken);
+      expect(state.rows[0]?.provider_claimed_at).toBeNull();
     });
 
     it("rejects mutation of a fresh active dispatch ownership token", async () => {
@@ -367,13 +461,48 @@ if (RUN_POSTGRES_INTEGRATION) {
       expect(failure.message).toContain("marketplace_active_dispatch_token_immutable");
     });
 
-    it("uses the normalized recipient expression in the final index", async () => {
-      const result = await client.query<{ indexdef: string }>(`
-        select indexdef
-        from pg_indexes
-        where indexname = 'marketplace_quote_invitations_recipient_idx'
-      `);
-      expect(result.rows[0]?.indexdef).toContain("lower(btrim(recipient_email))");
+    it("makes updated_at authoritative on every invitation update", async () => {
+      const { quoteRequestId, profileId } = await insertQuoteAndProfile();
+      const invitationId = await insertInvitation({ quoteRequestId, profileId });
+      await client.query(
+        "update marketplace_quote_invitations set updated_at = '2000-01-01T00:00:00Z' where id = $1",
+        [invitationId],
+      );
+      const state = await client.query<{ updated_at: Date }>(
+        "select updated_at from marketplace_quote_invitations where id = $1",
+        [invitationId],
+      );
+      expect(state.rows[0]?.updated_at.getTime()).toBeGreaterThan(Date.now() - 30_000);
+    });
+
+    it("uses the concurrent normalized recipient index for whitespace/case variants", async () => {
+      const { quoteRequestId, profileId } = await insertQuoteAndProfile();
+      const invitationId = await insertInvitation({
+        quoteRequestId,
+        profileId,
+        recipientEmail: "  Offert@Example.SE  ",
+      });
+
+      await client.query("set enable_seqscan = off");
+      try {
+        const lookup = await client.query<{ id: string }>(`
+          select id::text
+          from marketplace_quote_invitations
+          where lower(btrim(recipient_email)) = 'offert@example.se'
+        `);
+        expect(lookup.rows.map((row) => row.id)).toContain(invitationId);
+
+        const plan = await client.query<{ "QUERY PLAN": string }>(`
+          explain (costs off)
+          select id
+          from marketplace_quote_invitations
+          where lower(btrim(recipient_email)) = 'offert@example.se'
+        `);
+        expect(plan.rows.map((row) => row["QUERY PLAN"]).join("\n"))
+          .toContain("marketplace_quote_invitations_recipient_norm_idx");
+      } finally {
+        await client.query("reset enable_seqscan");
+      }
     });
 
     it("serializes opt-out before provider claim so suppression wins", async () => {
@@ -398,7 +527,12 @@ if (RUN_POSTGRES_INTEGRATION) {
           (error) => ({ ok: false as const, ...pgError(error) }),
         );
 
-        await delay(150);
+        const preCommitState = await Promise.race([
+          dispatchPromise.then(() => "settled" as const),
+          delay(200).then(() => "blocked" as const),
+        ]);
+        expect(preCommitState).toBe("blocked");
+
         await suppressor.query("commit");
         const dispatch = await dispatchPromise;
         expect(dispatch.ok).toBe(false);
@@ -410,12 +544,56 @@ if (RUN_POSTGRES_INTEGRATION) {
         await dispatcher.end();
       }
     });
+
+    it("serializes profile revocation with dispatch without a deadlock", async () => {
+      const { quoteRequestId, profileId } = await insertQuoteAndProfile();
+      const invitationId = await insertInvitation({ quoteRequestId, profileId });
+      const revoker = new Client({ connectionString });
+      const dispatcher = new Client({ connectionString });
+      await revoker.connect();
+      await dispatcher.connect();
+      try {
+        await revoker.query("begin");
+        await revoker.query(
+          "select pg_advisory_xact_lock(hashtextextended('marketplace_profile:' || $1::text, 0))",
+          [profileId],
+        );
+
+        const dispatchPromise = dispatcher.query(
+          "update marketplace_quote_invitations set status = 'sending', dispatch_token = $2 where id = $1",
+          [invitationId, randomUUID()],
+        ).then(
+          () => ({ ok: true as const, code: "", message: "" }),
+          (error) => ({ ok: false as const, ...pgError(error) }),
+        );
+
+        const waiting = await Promise.race([
+          dispatchPromise.then(() => "settled" as const),
+          delay(200).then(() => "blocked" as const),
+        ]);
+        expect(waiting).toBe("blocked");
+
+        await revoker.query(
+          "update company_directory_profiles set publication_status = 'blocked', privacy_blocked = true where id = $1",
+          [profileId],
+        );
+        await revoker.query("commit");
+
+        const dispatch = await dispatchPromise;
+        expect(dispatch.ok).toBe(false);
+        expect(dispatch.code).toBe("23514");
+        expect(dispatch.message).toContain("marketplace_profile_ineligible");
+      } finally {
+        await revoker.query("rollback").catch(() => undefined);
+        await revoker.end();
+        await dispatcher.end();
+      }
+    });
   });
 } else {
-  describe("marketplace guest runtime PostgreSQL hardening", () => {
-    it("runs the database-backed suite in CI or when explicitly enabled", () => {
-      expect(RUN_POSTGRES_INTEGRATION).toBe(false);
-      expect(migrations).toHaveLength(4);
+  describe.skip("marketplace guest runtime PostgreSQL hardening", () => {
+    it("requires CI or PROFFERA_POSTGRES_INTEGRATION=1", () => {
+      // Report as skipped outside the explicit integration environment.
     });
   });
 }
