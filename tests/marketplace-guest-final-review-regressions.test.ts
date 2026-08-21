@@ -36,7 +36,7 @@ describe("marketplace guest final review regressions", () => {
     )?.[0] ?? "";
     expect(staleClaimBlock).toContain("old.provider_claimed_at is not null");
     expect(staleClaimBlock).toContain("new.status = 'sending'");
-    expect(staleClaimBlock).not.toContain("new.dispatch_token is distinct from old.dispatch_token");
+    // Dispatch-token bypasses are covered behaviorally by the PostgreSQL tests.
   });
 
   it("verifies the concurrent normalized index before dropping the fallback", () => {
