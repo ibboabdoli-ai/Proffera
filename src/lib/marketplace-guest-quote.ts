@@ -4,7 +4,14 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 
 import { businessEmailDomainKind, validBusinessEmail } from "@/lib/company-directory-claim-email";
 import { getSql } from "@/lib/db/server";
+import {
+  isValidMarketplaceGuestToken,
+  normalizeMarketplaceRecipientEmail,
+  suppressMarketplaceGuestRecipientIdentity,
+} from "@/lib/marketplace-guest-opt-out-core";
 import { sendMarketplaceGuestInvitationEmail } from "@/features/email/marketplace-guest-invitation-email";
+
+export { normalizeMarketplaceRecipientEmail } from "@/lib/marketplace-guest-opt-out-core";
 
 const GUEST_INVITATION_TTL_DAYS = 7;
 const ACTIVE_INVITATION_STATUSES = new Set(["pending", "sending", "sent", "viewed", "responded"]);
@@ -33,10 +40,6 @@ export type MarketplaceGuestQuoteView = {
     submittedAt: string;
   };
 };
-
-export function normalizeMarketplaceRecipientEmail(value: string) {
-  return value.trim().toLowerCase();
-}
 
 export function isMarketplaceBusinessRecipientEmail(value: string) {
   const normalized = normalizeMarketplaceRecipientEmail(value);
@@ -176,7 +179,7 @@ function databaseErrorDetails(error: unknown) {
 }
 
 function validToken(token: string) {
-  return /^[A-Za-z0-9_-]{32,200}$/.test(token);
+  return isValidMarketplaceGuestToken(token);
 }
 
 function boundedScore(value: unknown) {
@@ -733,8 +736,12 @@ export async function submitMarketplaceGuestQuote(input: {
 }
 
 export async function suppressMarketplaceGuestRecipient(token: string) {
+  if (!isValidMarketplaceGuestToken(token)) {
+    return { ok: false as const, code: "invalid" };
+  }
+
   const sql = getSql();
-  if (!sql || !validToken(token)) return { ok: false as const, code: "invalid" };
+  if (!sql) return { ok: false as const, code: "invalid" };
   const tokenHash = hashMarketplaceGuestToken(token);
   const rows = await sql`
     select id::text, profile_id::text, lower(btrim(recipient_email)) as recipient_email
@@ -744,39 +751,10 @@ export async function suppressMarketplaceGuestRecipient(token: string) {
   `;
   const row = rows[0];
   if (!row) return { ok: false as const, code: "invalid" };
-  const email = normalizeMarketplaceRecipientEmail(String(row.recipient_email));
 
-  await sql.transaction([
-    sql`
-      insert into marketplace_outreach_suppressions (
-        profile_id, email_normalized, reason, source_invitation_id
-      ) values (
-        ${String(row.profile_id)}::uuid, ${email}, 'recipient_opt_out', ${String(row.id)}::uuid
-      )
-      on conflict (email_normalized) do nothing
-    `,
-    sql`
-      update marketplace_quote_invitations
-      set status = 'suppressed', updated_at = now()
-      where lower(btrim(recipient_email)) = ${email}
-        and (
-          status in ('sending', 'sent', 'viewed', 'delivery_failed', 'expired', 'cancelled')
-          or (status = 'pending' and updated_at <= now() - interval '5 minutes')
-        )
-    `,
-  ]);
-
-  const dispatchRows = await sql`
-    select id
-    from marketplace_quote_invitations
-    where lower(btrim(recipient_email)) = ${email}
-      and status = 'pending'
-      and updated_at > now() - interval '5 minutes'
-    limit 1
-  `;
-  if (dispatchRows[0]) {
-    return { ok: false as const, code: "dispatch_in_progress" };
-  }
-
-  return { ok: true as const };
+  return suppressMarketplaceGuestRecipientIdentity(sql, {
+    invitationId: String(row.id),
+    profileId: String(row.profile_id),
+    recipientEmail: String(row.recipient_email),
+  });
 }
