@@ -2,8 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "git": {
     "deploymentEnabled": {
-      "work/proffera-*": false,
-      "work/proffera-marketplace-e2e-preview": true
+      "work/proffera-*": false
     }
   },
   "crons": [
