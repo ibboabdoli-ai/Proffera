@@ -124,6 +124,23 @@ describe("marketplace guest invitation email delivery", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("fails closed in Preview when the controlled recipient is missing", async () => {
+    process.env.VERCEL_ENV = "preview";
+    process.env.PROFFERA_PREVIEW_BREVO_API_KEY = "preview-only-api-key";
+    delete process.env.PROFFERA_PREVIEW_EMAIL_RECIPIENT;
+
+    const fetchMock = vi.fn();
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    expect(marketplaceGuestInvitationEmailConfigured()).toBe(false);
+    await expect(sendMarketplaceGuestInvitationEmail(invitationInput())).resolves.toEqual({
+      ok: false,
+      code: "configuration",
+      providerMessageId: null,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("uses the dedicated Preview Brevo key and rewrites the company recipient", async () => {
     process.env.VERCEL_ENV = "preview";
     process.env.PROFFERA_PREVIEW_BREVO_API_KEY = "preview-only-api-key";
