@@ -66,6 +66,26 @@ describe("quote request customer location", () => {
     if (!geolocationResult.success) expect(geolocationResult.error.issues[0]?.path).toEqual(["addressLine1"]);
   });
 
+  it("rejects mixed address and geolocation payloads before persistence", () => {
+    const addressWithCoordinates = createQuoteRequestSchema("sv").safeParse({
+      ...validRequest,
+      addressLine1: "Storgatan 12",
+      locationSource: "address",
+      latitude: 59.19554,
+      longitude: 17.62525,
+    });
+    const geolocationWithAddress = createQuoteRequestSchema("en").safeParse({
+      ...validRequest,
+      addressLine1: "Storgatan 12",
+      locationSource: "geolocation",
+      latitude: 59.19554,
+      longitude: 17.62525,
+    });
+
+    expect(addressWithCoordinates.success).toBe(false);
+    expect(geolocationWithAddress.success).toBe(false);
+  });
+
   it("persists location privately without adding it to the provider-facing Guest Quote projection", () => {
     const persistence = readFileSync(join(process.cwd(), "src/features/quote-request/persistence.ts"), "utf8");
     const providerGuestFlow = readFileSync(join(process.cwd(), "src/lib/marketplace-guest-quote.ts"), "utf8");
@@ -78,10 +98,13 @@ describe("quote request customer location", () => {
     }
   });
 
-  it("requires database rows to contain one complete location shape, never half coordinates", () => {
+  it("requires database rows to contain one complete location shape and rejects NULL-valued mixed shapes", () => {
     const migration = readFileSync(join(process.cwd(), "db/migrations/20260821_0056_quote_request_customer_location.sql"), "utf8");
 
     expect(migration).toContain("quote_requests_customer_location_consistency_check");
+    expect(migration).toContain("check (coalesce((");
+    expect(migration).toContain("), false));");
+    expect(migration).toContain("customer_location_source is null");
     expect(migration).toContain("customer_location_source = 'address'");
     expect(migration).toContain("customer_location_source = 'geolocation'");
     expect(migration).toContain("customer_latitude is not null");
@@ -98,7 +121,16 @@ describe("quote request customer location", () => {
     expect(form).toContain("window.sessionStorage.setItem");
     expect(form).toContain("window.sessionStorage.removeItem");
     expect(form).toContain("DRAFT_MAX_AGE_MS");
+    expect(form).toContain("requestAnimationFrame");
     expect(swedishPage).toContain("/en/get-quote?resume=1");
     expect(englishPage).toContain("/fa-offert?resume=1");
+  });
+
+  it("invalidates pending geolocation callbacks when the address is edited", () => {
+    const locationStep = readFileSync(join(process.cwd(), "src/features/quote-request/step-location.tsx"), "utf8");
+
+    expect(locationStep).toContain("useRef");
+    expect(locationStep).toContain("nearbyRequestId.current");
+    expect(locationStep).toContain("requestId !== nearbyRequestId.current");
   });
 });
