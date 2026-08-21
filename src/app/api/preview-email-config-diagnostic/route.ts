@@ -39,6 +39,7 @@ export async function GET() {
 
   return NextResponse.json({
     ok: true,
+    diagnostic: "postfix",
     previewBrevoKeyPresent: present(process.env.PROFFERA_PREVIEW_BREVO_API_KEY),
     sharedBrevoKeyPresent: present(process.env.BREVO_API_KEY),
     previewBrevoKeyDistinct: Boolean(previewBrevo && (!sharedBrevo || previewBrevo !== sharedBrevo)),
