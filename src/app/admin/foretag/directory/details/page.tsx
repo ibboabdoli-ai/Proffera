@@ -151,7 +151,7 @@ export default async function DirectoryAdminDetailsPage({ searchParams }: PagePr
 
       const [serviceRows, locationRows, sourceRows] = await Promise.all([
         sql`select to_jsonb(service) as value from company_directory_profile_services service where service.profile_id = ${profileId}::uuid order by service.created_at, service.service_slug limit 50 offset ${serviceOffset}`,
-        sql`select to_jsonb(location) as value from company_directory_business_locations location where location.profile_id = ${profileId}::uuid order by location.created_at limit 50 offset ${locationOffset}`,
+        sql`select to_jsonb(location) as value from company_directory_business_locations location where location.profile_id = ${profileId}::uuid order by location.created_at, location.profile_id limit 50 offset ${locationOffset}`,
         sql`select to_jsonb(source) as value from company_directory_field_sources source where source.profile_id = ${profileId}::uuid order by source.observed_at desc nulls last, source.created_at desc, source.id limit 100`,
       ]);
       services = serviceRows.map((row) => (row as JsonRecord).value);
