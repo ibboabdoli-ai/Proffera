@@ -202,8 +202,14 @@ if (RUN_POSTGRES_INTEGRATION) {
 
       await client.query(`
         insert into quote_requests (
-          id, category, service_type, city, description, consent_accepted, status, reference_id
-        ) values ($1, 'vvs', 'Rörmokare', 'Södertälje', 'Rotation test', true, 'submitted', $2)
+          id, category, service_type, city, postal_code, description,
+          preferred_date, contact_name, contact_email, contact_phone,
+          consent_accepted, status, reference_id
+        ) values (
+          $1, 'vvs', 'Rörmokare', 'Södertälje', '15100', 'Rotation test',
+          '', 'Test Customer', 'customer@example.test', '0700000000',
+          true, 'submitted', $2
+        )
       `, [quoteRequestId, `PF-${quoteRequestId}`]);
       await client.query(`
         insert into company_directory_profiles (
