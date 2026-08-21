@@ -40,7 +40,9 @@ function recipientHash(email: string) {
 
 function readTestToken(token: string): TestTokenPayload | null {
   try {
-    const [encoded, signature] = token.split(".");
+    const parts = token.split(".");
+    if (parts.length !== 2) return null;
+    const [encoded, signature] = parts;
     const secret = testTokenSecret();
     if (!encoded || !signature || !secret || token.length > 800) return null;
 
@@ -87,6 +89,7 @@ export async function sendMarketplaceGuestQuoteTestInvitation(input: {
   adminUserId: string;
   recipientEmail: string;
   baseUrl: string;
+  language?: "sv" | "en";
 }) {
   const sql = getSql();
   if (!sql) return { ok: false as const, code: "database" };
@@ -96,6 +99,7 @@ export async function sendMarketplaceGuestQuoteTestInvitation(input: {
   if (!isMarketplaceBusinessRecipientEmail(recipientEmail)) {
     return { ok: false as const, code: "business_email_required" };
   }
+  const language = input.language === "en" ? "en" : "sv";
 
   const normalizedBaseUrl = input.baseUrl.replace(/\/$/, "");
   let testToken: string;
@@ -110,12 +114,12 @@ export async function sendMarketplaceGuestQuoteTestInvitation(input: {
 
   let reservationRows: Array<Record<string, unknown>>;
   try {
-    reservationRows = await sql`
-      with lock as materialized (
-        select pg_advisory_xact_lock(hashtextextended(${`marketplace-guest-quote-test:${emailHash}`}, 0))
-      ), recent_reservation as (
+    const [, rows] = await sql.transaction([
+      sql`select pg_advisory_xact_lock(hashtextextended(${`marketplace-guest-quote-test:${emailHash}`}, 0))`,
+      sql`
+      with recent_reservation as (
         select 1
-        from admin_audit_logs, lock
+        from admin_audit_logs
         where action = ${TEST_AUDIT_RESERVATION_ACTION}
           and created_at > now() - interval '15 minutes'
           and new_value->>'recipient_hash' = ${emailHash}
@@ -127,19 +131,21 @@ export async function sendMarketplaceGuestQuoteTestInvitation(input: {
           ${TEST_AUDIT_RESERVATION_ACTION},
           'Super admin reserved a controlled Guest Quote email-delivery test. No company profile, quote request, invitation, offer, or suppression record is used.',
           ${JSON.stringify({ recipient_hash: emailHash, dispatch_token: dispatchToken, token_ttl_seconds: TEST_TOKEN_TTL_SECONDS })}::jsonb
-        from lock
         where not exists (select 1 from recent_reservation)
         returning id
       )
       select exists(select 1 from reservation) as reserved
-    `;
+      `,
+    ]);
+    reservationRows = rows as Array<Record<string, unknown>>;
   } catch (error) {
     console.error("Failed to reserve marketplace guest quote test", error);
     return { ok: false as const, code: "audit" };
   }
   if (reservationRows[0]?.reserved !== true) return { ok: false as const, code: "rate_limited" };
 
-  const replyUrl = `${normalizedBaseUrl}/offert/testa/${encodeURIComponent(testToken)}`;
+  const replyUrl = new URL(`${normalizedBaseUrl}/offert/testa/${encodeURIComponent(testToken)}`);
+  if (language === "en") replyUrl.searchParams.set("lang", "en");
   const delivery = await sendMarketplaceGuestInvitationEmail({
     recipientEmail,
     companyName: "Proffera testmottagare",
@@ -148,10 +154,11 @@ export async function sendMarketplaceGuestQuoteTestInvitation(input: {
     serviceType: "Kontroll av Guest Quote",
     city: "Testmiljö",
     preferredDate: "Inte angivet",
-    replyUrl,
-    optOutUrl: replyUrl,
+    replyUrl: replyUrl.toString(),
+    optOutUrl: replyUrl.toString(),
     idempotencyKey: dispatchToken,
     testMode: true,
+    language,
   });
 
   if (!delivery.ok) {

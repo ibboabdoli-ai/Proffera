@@ -12,9 +12,10 @@ vi.mock("@/lib/marketplace-guest-quote-test", () => ({
 
 import { POST } from "@/app/api/admin/marketplace/guest-invite-test/route";
 
-function testRequest(options?: { recipientEmail?: string; confirmed?: boolean; origin?: string }) {
+function testRequest(options?: { recipientEmail?: string; confirmed?: boolean; origin?: string; language?: "sv" | "en" }) {
   const form = new FormData();
   form.set("recipientEmail", options?.recipientEmail ?? "ibbo@company.test");
+  form.set("language", options?.language ?? "sv");
   if (options?.confirmed !== false) form.set("confirmControlledTestRecipient", "yes");
   return new Request("https://www.proffera.se/api/admin/marketplace/guest-invite-test", {
     method: "POST",
@@ -62,9 +63,11 @@ describe("marketplace guest quote test invite route", () => {
       adminUserId: "super-admin",
       recipientEmail: "ibbo@company.test",
       baseUrl: "https://www.proffera.se",
+      language: "sv",
     });
 
     mocks.sendTest.mockResolvedValueOnce({ ok: false, code: "rate_limited" });
-    expect(testStatus(await POST(testRequest()))).toBe("rate_limited");
+    expect(testStatus(await POST(testRequest({ language: "en" })))).toBe("rate_limited");
+    expect(mocks.sendTest).toHaveBeenLastCalledWith(expect.objectContaining({ language: "en" }));
   });
 });

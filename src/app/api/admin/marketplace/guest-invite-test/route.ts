@@ -29,12 +29,14 @@ export async function POST(request: Request) {
   const form = await request.formData();
   const recipientEmail = String(form.get("recipientEmail") ?? "").trim();
   const confirmed = String(form.get("confirmControlledTestRecipient") ?? "") === "yes";
+  const language = String(form.get("language") ?? "") === "en" ? "en" : "sv";
   if (!recipientEmail || !confirmed) return redirectToTestResult(request, "invalid");
 
   const result = await sendMarketplaceGuestQuoteTestInvitation({
     adminUserId: admin.userId,
     recipientEmail,
     baseUrl: new URL(request.url).origin,
+    language,
   });
   return redirectToTestResult(request, result.ok ? "sent" : result.code);
 }

@@ -6,6 +6,7 @@ import {
   createMarketplaceGuestQuoteTestToken,
   getMarketplaceGuestQuoteTestView,
 } from "@/lib/marketplace-guest-quote-test";
+import { guestQuoteTestCopy, guestQuoteTestHref } from "@/app/offert/testa/[token]/guest-test-locale";
 
 const originalCustomerPortalSecret = process.env.CUSTOMER_PORTAL_SECRET;
 
@@ -33,6 +34,14 @@ describe("marketplace guest quote test token", () => {
     const expired = createMarketplaceGuestQuoteTestToken({ expiresInSeconds: -1 });
 
     expect(getMarketplaceGuestQuoteTestView(`${token}x`)).toBeNull();
+    expect(getMarketplaceGuestQuoteTestView(`${token}.value`)).toBeNull();
     expect(getMarketplaceGuestQuoteTestView(expired)).toBeNull();
+  });
+
+  it("keeps the public test confirmation available in Swedish and English", () => {
+    expect(guestQuoteTestCopy.sv.title).toBe("Guest Quote-länken fungerar");
+    expect(guestQuoteTestCopy.en.title).toBe("The Guest Quote link works");
+    expect(guestQuoteTestHref("signed-token", "sv")).toBe("/offert/testa/signed-token");
+    expect(guestQuoteTestHref("signed-token", "en")).toBe("/offert/testa/signed-token?lang=en");
   });
 });

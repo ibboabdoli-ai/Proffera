@@ -82,14 +82,39 @@ describe("marketplace guest invitation email delivery", () => {
       city: "Testmiljö",
       preferredDate: "",
       replyUrl: "https://www.proffera.se/offert/testa/token",
-      optOutUrl: "https://www.proffera.se/offert/testa/token",
+      optOutUrl: "https://www.proffera.se/avregistrera/test",
       idempotencyKey: "11111111-1111-4111-8111-111111111111",
       testMode: true,
+      language: "sv",
     });
 
     expect(email.subject).toContain("[TEST]");
     expect(email.text).toContain("Ingen kund, offertförfrågan, företagsprofil eller avregistrering påverkas.");
     expect(email.html).toContain("Proffera · TEST");
     expect(email.text).not.toContain("Vill ni inte få fler");
+    expect(email.text).not.toContain("https://www.proffera.se/avregistrera/test");
+    expect(email.html).not.toContain("https://www.proffera.se/avregistrera/test");
+  });
+
+  it("renders the controlled test email in English when requested", () => {
+    const email = buildMarketplaceGuestInvitationEmail({
+      recipientEmail: "test@company.test",
+      companyName: "Test recipient",
+      quoteReferenceId: "TEST-GUEST-QUOTE",
+      category: "Test",
+      serviceType: "Test",
+      city: "Test environment",
+      preferredDate: "",
+      replyUrl: "https://www.proffera.se/offert/testa/token?lang=en",
+      optOutUrl: "https://www.proffera.se/avregistrera/test",
+      idempotencyKey: "11111111-1111-4111-8111-111111111111",
+      testMode: true,
+      language: "en",
+    });
+
+    expect(email.subject).toBe("[TEST] Proffera – Guest Quote invitation check");
+    expect(email.text).toContain("No customer, quote request, business profile, or opt-out record is affected.");
+    expect(email.html).toContain('<html lang="en">');
+    expect(email.html).toContain("Open test link");
   });
 });

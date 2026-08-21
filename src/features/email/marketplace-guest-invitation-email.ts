@@ -12,6 +12,7 @@ export type MarketplaceGuestInvitationEmailInput = {
   optOutUrl: string;
   idempotencyKey: string;
   testMode?: boolean;
+  language?: "sv" | "en";
 };
 
 type BrevoResponse = {
@@ -41,29 +42,44 @@ export function marketplaceGuestInvitationEmailConfigured() {
 
 export function buildMarketplaceGuestInvitationEmail(input: MarketplaceGuestInvitationEmailInput) {
   if (input.testMode) {
-    const subject = "[TEST] Proffera – kontroll av Guest Quote-inbjudan";
+    const isEnglish = input.language === "en";
+    const subject = isEnglish
+      ? "[TEST] Proffera – Guest Quote invitation check"
+      : "[TEST] Proffera – kontroll av Guest Quote-inbjudan";
     const text = [
-      "Detta är ett kontrollerat Proffera-test.",
+      isEnglish ? "This is a controlled Proffera test." : "Detta är ett kontrollerat Proffera-test.",
       "",
-      "E-postleverans och den signerade Guest Quote-länken kontrolleras.",
-      "Ingen kund, offertförfrågan, företagsprofil eller avregistrering påverkas.",
+      isEnglish
+        ? "Email delivery and the signed Guest Quote link are being checked."
+        : "E-postleverans och den signerade Guest Quote-länken kontrolleras.",
+      isEnglish
+        ? "No customer, quote request, business profile, or opt-out record is affected."
+        : "Ingen kund, offertförfrågan, företagsprofil eller avregistrering påverkas.",
       "",
-      "Öppna testlänken:",
+      isEnglish ? "Open the test link:" : "Öppna testlänken:",
       input.replyUrl,
       "",
       "Proffera",
     ].join("\n");
+    const title = isEnglish ? "Guest Quote link check" : "Kontroll av Guest Quote-länk";
+    const body = isEnglish
+      ? "This is a controlled test of email delivery and the signed link."
+      : "Detta är ett kontrollerat test av e-postleverans och den signerade länken.";
+    const isolation = isEnglish
+      ? "No customer, quote request, business profile, or opt-out record is affected."
+      : "Ingen kund, offertförfrågan, företagsprofil eller avregistrering påverkas.";
+    const action = isEnglish ? "Open test link" : "Öppna testlänken";
     const html = `<!doctype html>
-<html lang="sv">
+<html lang="${isEnglish ? "en" : "sv"}">
   <body style="margin:0;padding:0;background:#f3f6f4;font-family:Arial,Helvetica,sans-serif;color:#17201a;">
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;padding:24px 12px;background:#f3f6f4;"><tr><td align="center">
       <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:620px;background:#ffffff;border-radius:20px;overflow:hidden;border:1px solid #dfe7e1;">
         <tr><td style="padding:22px 28px;background:#173e2b;color:#ffffff;font-size:18px;font-weight:800;">Proffera · TEST</td></tr>
         <tr><td style="padding:30px 28px;">
-          <h1 style="margin:0 0 12px;font-size:24px;line-height:1.25;color:#17201a;">Kontroll av Guest Quote-länk</h1>
-          <p style="margin:0;color:#536057;font-size:15px;line-height:1.7;">Detta är ett kontrollerat test av e-postleverans och den signerade länken.</p>
-          <p style="margin:18px 0;color:#536057;font-size:15px;line-height:1.7;">Ingen kund, offertförfrågan, företagsprofil eller avregistrering påverkas.</p>
-          <p style="margin:22px 0;"><a href="${escapeHtml(input.replyUrl)}" style="display:inline-block;border-radius:12px;background:#17452f;color:#ffffff;padding:14px 22px;text-decoration:none;font-weight:700;">Öppna testlänken</a></p>
+          <h1 style="margin:0 0 12px;font-size:24px;line-height:1.25;color:#17201a;">${title}</h1>
+          <p style="margin:0;color:#536057;font-size:15px;line-height:1.7;">${body}</p>
+          <p style="margin:18px 0;color:#536057;font-size:15px;line-height:1.7;">${isolation}</p>
+          <p style="margin:22px 0;"><a href="${escapeHtml(input.replyUrl)}" style="display:inline-block;border-radius:12px;background:#17452f;color:#ffffff;padding:14px 22px;text-decoration:none;font-weight:700;">${action}</a></p>
         </td></tr>
       </table>
     </td></tr></table>

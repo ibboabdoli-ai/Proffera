@@ -71,6 +71,13 @@ export default async function MarketplaceAdminPage({
               Kontrollerad företagsadress
               <input name="recipientEmail" type="email" required placeholder="test@foretag.se" style={{ display: "block", width: "100%", padding: 10, marginTop: 4 }} />
             </label>
+            <label>
+              Testspråk
+              <select name="language" defaultValue="sv" style={{ display: "block", width: "100%", padding: 10, marginTop: 4 }}>
+                <option value="sv">Svenska</option>
+                <option value="en">English</option>
+              </select>
+            </label>
             <label style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
               <input type="checkbox" name="confirmControlledTestRecipient" value="yes" required style={{ marginTop: 3 }} />
               <span>Jag bekräftar att jag kontrollerar adressen och att detta är ett internt test utan verkligt företag eller kund.</span>
