@@ -14,7 +14,7 @@ create index concurrently if not exists marketplace_quote_invitations_recipient_
   on marketplace_quote_invitations (lower(btrim(recipient_email)), status, created_at desc);
 
 -- Fail before dropping the fallback index if CREATE INDEX CONCURRENTLY left an
--- invalid index behind. The successful branch casts '1'; the failure branch
+-- invalid index behind. The successful branch casts '1'. The failure branch
 -- deliberately raises an invalid-text-representation error with a named marker.
 select (
   case
