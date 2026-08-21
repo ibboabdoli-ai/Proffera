@@ -14,6 +14,7 @@ export default async function Page() {
     <main style={{ padding: 24, maxWidth: 1100, margin: "0 auto" }}>
       <h1>Matchning</h1>
       <p><a href="/admin">Back to dashboard</a></p>
+      <p><a href="/admin/marketplace">Oclaimade företag / gästförfrågningar</a></p>
       <p>
         Förslag visas bara för verifierade företags-workspaces med publicerad offert-/kontakttjänst och aktiv lead-behörighet.
         Ingen förfrågan skickas automatiskt.
