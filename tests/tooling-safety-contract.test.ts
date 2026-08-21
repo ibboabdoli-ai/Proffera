@@ -22,6 +22,7 @@ describe("tooling safety contract", () => {
   it("pins GitHub Actions to immutable commit SHAs", () => {
     const ci = source(".github/workflows/ci.yml");
     const codeql = source(".github/workflows/codeql.yml");
+    const sonar = source(".github/workflows/sonarqube.yml");
 
     expect(ci).toMatch(/actions\/checkout@[0-9a-f]{40} # v7/);
     expect(ci).toMatch(/actions\/setup-node@[0-9a-f]{40} # v7/);
@@ -32,6 +33,32 @@ describe("tooling safety contract", () => {
     expect(codeql).toMatch(/github\/codeql-action\/autobuild@[0-9a-f]{40} # v4/);
     expect(codeql).toMatch(/github\/codeql-action\/analyze@[0-9a-f]{40} # v4/);
     expect(codeql).not.toMatch(/github\/codeql-action\/(init|autobuild|analyze)@v\d+/);
+
+    expect(sonar).toMatch(/actions\/checkout@[0-9a-f]{40} # v7/);
+    expect(sonar).toContain(
+      "SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1",
+    );
+    expect(sonar).not.toMatch(/SonarSource\/sonarqube-scan-action@v\d+/);
+  });
+
+  it("keeps SonarQube opt-in, credential-safe, and advisory at first", () => {
+    const sonar = source(".github/workflows/sonarqube.yml");
+    const project = source("sonar-project.properties");
+
+    expect(sonar).toContain("vars.SONARQUBE_ENABLED == 'true'");
+    expect(sonar).toContain("secrets.SONAR_TOKEN");
+    expect(sonar).toContain("vars.SONAR_PROJECT_KEY");
+    expect(sonar).toContain("vars.SONAR_HOST_URL");
+    expect(sonar).toContain("vars.SONAR_ORGANIZATION");
+    expect(sonar).toContain("fetch-depth: 0");
+    expect(sonar).toContain("persist-credentials: false");
+    expect(sonar).toContain("-Dsonar.qualitygate.wait=false");
+    expect(sonar).not.toContain("SONAR_TOKEN=");
+
+    expect(project).toContain("sonar.sources=src,scripts");
+    expect(project).toContain("sonar.tests=tests,e2e/tests");
+    expect(project).toContain("graphify-out/**");
+    expect(project).not.toContain("SONAR_TOKEN");
   });
 
   it("keeps Playwright off known production hosts and aligns local navigation with its dev server", () => {
