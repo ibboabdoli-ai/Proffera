@@ -91,6 +91,7 @@ export function LocalizedQuoteRequestForm({
     const params = new URLSearchParams(window.location.search);
     if (params.get("resume") !== "1") return;
 
+    let frameId: number | null = null;
     try {
       const raw = window.sessionStorage.getItem(DRAFT_STORAGE_KEY);
       if (!raw) return;
@@ -98,11 +99,16 @@ export function LocalizedQuoteRequestForm({
       const savedAt = Number(draft.savedAt);
       if (!Number.isFinite(savedAt) || Date.now() - savedAt > DRAFT_MAX_AGE_MS) return;
 
-      setData((current) => restoreDraftData(current, draft.data));
-      setSmartAnswers(restoreSmartAnswers(draft.smartAnswers));
-      if (typeof draft.step === "number" && Number.isInteger(draft.step)) {
-        setStep(Math.max(0, Math.min(t.steps.length - 1, draft.step)));
-      }
+      const restoredSmartAnswers = restoreSmartAnswers(draft.smartAnswers);
+      const restoredStep = typeof draft.step === "number" && Number.isInteger(draft.step)
+        ? Math.max(0, Math.min(t.steps.length - 1, draft.step))
+        : null;
+
+      frameId = window.requestAnimationFrame(() => {
+        setData((current) => restoreDraftData(current, draft.data));
+        setSmartAnswers(restoredSmartAnswers);
+        if (restoredStep !== null) setStep(restoredStep);
+      });
     } catch {
       // A malformed or blocked sessionStorage draft must never block the quote form.
     } finally {
@@ -112,6 +118,10 @@ export function LocalizedQuoteRequestForm({
         // Ignore storage failures and keep the form usable.
       }
     }
+
+    return () => {
+      if (frameId !== null) window.cancelAnimationFrame(frameId);
+    };
   }, [t.steps.length]);
 
   function update<Field extends QuoteRequestField>(field: Field, value: QuoteRequestInput[Field]) {
