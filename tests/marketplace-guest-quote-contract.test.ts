@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getSql: vi.fn(),
@@ -22,6 +22,9 @@ import {
   submitMarketplaceGuestQuote,
   suppressMarketplaceGuestRecipient,
 } from "@/lib/marketplace-guest-quote";
+
+const originalApiKey = process.env.BREVO_API_KEY;
+const originalFrom = process.env.LEAD_FROM_EMAIL;
 
 const eligibleRow = {
   quote_request_id: "11111111-1111-4111-8111-111111111111",
@@ -70,6 +73,15 @@ describe("marketplace guest quote safety contract", () => {
     vi.clearAllMocks();
     mocks.getSql.mockReset();
     mocks.sendInvitationEmail.mockReset();
+    process.env.BREVO_API_KEY = "test-api-key";
+    process.env.LEAD_FROM_EMAIL = "Proffera <noreply@proffera.se>";
+  });
+
+  afterEach(() => {
+    if (originalApiKey === undefined) delete process.env.BREVO_API_KEY;
+    else process.env.BREVO_API_KEY = originalApiKey;
+    if (originalFrom === undefined) delete process.env.LEAD_FROM_EMAIL;
+    else process.env.LEAD_FROM_EMAIL = originalFrom;
   });
 
   it("produces a SHA-256 token hash that fits the stored hash contract", () => {
@@ -98,6 +110,17 @@ describe("marketplace guest quote safety contract", () => {
     expect(redacted).not.toContain("Anna Andersson");
     expect(redacted).not.toContain("anna@example.se");
     expect(redacted).not.toContain("070 123 45 67");
+    expect(redacted).toContain("[…]");
+  });
+
+  it("redacts short exact customer-name components", () => {
+    const redacted = redactMarketplaceGuestDescription("Ring Per när ni är framme.", {
+      name: "Per Andersson",
+      email: "per@example.se",
+      phone: "0701234567",
+    });
+
+    expect(redacted).not.toMatch(/\bPer\b/iu);
     expect(redacted).toContain("[…]");
   });
 
@@ -207,6 +230,21 @@ describe("marketplace guest quote safety contract", () => {
     expect(mocks.sendInvitationEmail).not.toHaveBeenCalled();
   });
 
+  it("keeps cancelled invitations reserved so their emailed opt-out credential remains stable", async () => {
+    const sql = sqlResponses(
+      [eligibleRow],
+      [],
+      [{ id: "44444444-4444-4444-8444-444444444444", status: "cancelled", stale_reservation: false }],
+    );
+    mocks.getSql.mockReturnValue(sql);
+
+    const result = await sendMarketplaceGuestQuoteInvitation(invitationInput());
+
+    expect(result).toEqual({ ok: false, code: "already_invited" });
+    expect(sql).toHaveBeenCalledTimes(3);
+    expect(mocks.sendInvitationEmail).not.toHaveBeenCalled();
+  });
+
   it("reuses a stale sending reservation before provider dispatch", async () => {
     const invitationId = "44444444-4444-4444-8444-444444444444";
     const sql = sqlResponses(
@@ -293,6 +331,7 @@ describe("marketplace guest quote safety contract", () => {
     const view = await getMarketplaceGuestOptOutView("a".repeat(40));
 
     expect(view?.status).toBe("suppressed");
+    expect(queryText(sql.mock.calls[0])).toContain("opt_out_token_hash");
     expect(queryText(sql.mock.calls[0])).toContain("marketplace_outreach_suppressions");
   });
 
@@ -350,11 +389,14 @@ describe("marketplace guest quote safety contract", () => {
     expect(sql.transaction).toHaveBeenCalledTimes(1);
     expect(result).toEqual({ ok: false, code: "dispatch_in_progress" });
 
+    const lookup = queryText(sql.mock.calls[0]);
+    expect(lookup).toContain("opt_out_token_hash");
+
     const suppressionInsert = queryText(sql.mock.calls[1]);
     expect(suppressionInsert).toContain("insert into marketplace_outreach_suppressions");
 
     const suppressionUpdate = queryText(sql.mock.calls[2]);
-    expect(suppressionUpdate).toContain("status in ('sending', 'sent', 'viewed', 'delivery_failed', 'expired')");
+    expect(suppressionUpdate).toContain("status in ('sending', 'sent', 'viewed', 'delivery_failed', 'expired', 'cancelled')");
     expect(suppressionUpdate).toContain("status = 'pending'");
     expect(suppressionUpdate).toContain("updated_at <= now() - interval '5 minutes'");
 
