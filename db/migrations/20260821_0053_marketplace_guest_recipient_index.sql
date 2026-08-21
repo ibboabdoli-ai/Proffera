@@ -7,7 +7,7 @@
 -- it valid, and only then remove the old index. A failed/retried concurrent build
 -- therefore leaves the old index in place as the safe fallback.
 --
--- Production forward order: 0049 -> 0050 -> 0051 -> 0052 -> 0053 -> 0054,
+-- Production forward order: 0049 -> 0050 -> 0051 -> 0052 -> 0053 -> 0054 -> 0055,
 -- then deploy the application. Committing this file does not apply it to Production.
 
 create index concurrently if not exists marketplace_quote_invitations_recipient_norm_idx
