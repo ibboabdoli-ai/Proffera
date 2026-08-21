@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { hashMarketplaceGuestToken, suppressMarketplaceGuestRecipient } from "@/lib/marketplace-guest-quote";
+import { suppressMarketplaceGuestRecipientWithHistory } from "@/lib/marketplace-guest-opt-out-history";
+import { hashMarketplaceGuestToken } from "@/lib/marketplace-guest-quote";
 import { allowPublicSubmission } from "@/lib/public-form-protection";
 
 export const runtime = "nodejs";
@@ -14,7 +15,7 @@ function sameOrigin(request: Request) {
   const origin = request.headers.get("origin");
   if (!origin) return request.headers.get("sec-fetch-site") === "same-origin";
   try {
-    return new URL(origin).host === new URL(request.url).host;
+    return new URL(origin).origin === new URL(request.url).origin;
   } catch {
     return false;
   }
@@ -43,6 +44,6 @@ export async function POST(request: Request, context: RouteContext) {
   });
   if (!allowed) return redirectToOptOut(request, token, "rate_limited", locale);
 
-  const result = await suppressMarketplaceGuestRecipient(token);
+  const result = await suppressMarketplaceGuestRecipientWithHistory(token);
   return redirectToOptOut(request, token, result.ok ? "done" : result.code, locale);
 }
