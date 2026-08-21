@@ -1,5 +1,10 @@
 import "server-only";
 
+import {
+  resolveBrevoApiKey,
+  resolveEmailRecipient,
+} from "@/lib/email-runtime-config";
+
 export type MarketplaceGuestInvitationEmailInput = {
   recipientEmail: string;
   companyName: string;
@@ -37,7 +42,11 @@ function parseSender(raw: string) {
 }
 
 export function marketplaceGuestInvitationEmailConfigured() {
-  return Boolean(process.env.BREVO_API_KEY && process.env.LEAD_FROM_EMAIL);
+  const recipient = resolveEmailRecipient({
+    email: "preview-readiness@example.invalid",
+    name: "Proffera Preview",
+  });
+  return Boolean(resolveBrevoApiKey() && process.env.LEAD_FROM_EMAIL && recipient);
 }
 
 export function buildMarketplaceGuestInvitationEmail(input: MarketplaceGuestInvitationEmailInput) {
@@ -141,9 +150,13 @@ export function buildMarketplaceGuestInvitationEmail(input: MarketplaceGuestInvi
 }
 
 export async function sendMarketplaceGuestInvitationEmail(input: MarketplaceGuestInvitationEmailInput) {
-  const apiKey = process.env.BREVO_API_KEY;
+  const apiKey = resolveBrevoApiKey();
   const from = process.env.LEAD_FROM_EMAIL;
-  if (!apiKey || !from) {
+  const recipient = resolveEmailRecipient({
+    email: input.recipientEmail,
+    name: input.companyName,
+  });
+  if (!apiKey || !from || !recipient) {
     return { ok: false as const, code: "configuration", providerMessageId: null };
   }
 
@@ -155,7 +168,7 @@ export async function sendMarketplaceGuestInvitationEmail(input: MarketplaceGues
       signal: AbortSignal.timeout(10_000),
       body: JSON.stringify({
         sender: parseSender(from),
-        to: [{ email: input.recipientEmail, name: input.companyName }],
+        to: [recipient],
         subject: email.subject,
         textContent: email.text,
         htmlContent: email.html,
