@@ -118,7 +118,7 @@ export function redactMarketplaceGuestDescription(
 
   if (fullName) {
     redacted = redactLiteral(redacted, fullName);
-    const nameParts = fullName.split(/\s+/).filter((part) => part.length >= 4);
+    const nameParts = fullName.split(/\s+/).filter(Boolean);
     for (const part of nameParts) redacted = redactLiteral(redacted, part);
   }
 
@@ -283,6 +283,11 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
   if (existing && String(existing.status) === "suppressed") {
     return { ok: false as const, code: "suppressed" };
   }
+  // A cancelled invitation may have an emailed opt-out credential that must stay
+  // stable. Reusing this row would overwrite that credential, so fail closed.
+  if (existing && String(existing.status) === "cancelled") {
+    return { ok: false as const, code: "already_invited" };
+  }
 
   const token = createMarketplaceGuestToken();
   const tokenHash = hashMarketplaceGuestToken(token);
@@ -299,6 +304,7 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
         update marketplace_quote_invitations
         set recipient_email = ${recipientEmail},
             token_hash = ${tokenHash},
+            opt_out_token_hash = ${tokenHash},
             dispatch_token = ${dispatchToken}::uuid,
             status = 'sending',
             wave = ${wave},
@@ -315,7 +321,7 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
             updated_at = now()
         where id = ${String(existing.id)}::uuid
           and (
-            status in ('delivery_failed', 'expired', 'declined', 'cancelled')
+            status in ('delivery_failed', 'expired', 'declined')
             or (status in ('sending', 'pending') and updated_at <= now() - interval '5 minutes')
           )
         returning id::text
@@ -324,13 +330,14 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
     } else {
       const inserted = await sql`
         insert into marketplace_quote_invitations (
-          quote_request_id, profile_id, recipient_email, token_hash, dispatch_token, status,
-          wave, match_score, match_reasons, contact_basis, expires_at,
-          created_by_admin_user_id
+          quote_request_id, profile_id, recipient_email, token_hash, opt_out_token_hash,
+          dispatch_token, status, wave, match_score, match_reasons, contact_basis,
+          expires_at, created_by_admin_user_id
         ) values (
-          ${input.quoteRequestId}::uuid, ${input.profileId}::uuid, ${recipientEmail}, ${tokenHash}, ${dispatchToken}::uuid, 'sending',
-          ${wave}, ${matchScore}, ${JSON.stringify(matchReasons)}::jsonb, 'manual_business_contact', ${expiresAt}::timestamptz,
-          ${input.adminUserId}
+          ${input.quoteRequestId}::uuid, ${input.profileId}::uuid, ${recipientEmail},
+          ${tokenHash}, ${tokenHash}, ${dispatchToken}::uuid, 'sending', ${wave},
+          ${matchScore}, ${JSON.stringify(matchReasons)}::jsonb,
+          'manual_business_contact', ${expiresAt}::timestamptz, ${input.adminUserId}
         )
         on conflict (quote_request_id, profile_id) do nothing
         returning id::text
@@ -348,12 +355,33 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
     if (details.code === "23514" && details.message.includes("marketplace_consent_required")) {
       return { ok: false as const, code: "consent_required" };
     }
+    if (details.code === "23514" && details.message.includes("marketplace_profile_ineligible")) {
+      return { ok: false as const, code: "profile_ineligible" };
+    }
     if (details.code === "23514" && details.message.includes("marketplace_dispatch_token_required")) {
       return { ok: false as const, code: "conflict" };
     }
     throw error;
   }
   if (!invitationId) return { ok: false as const, code: existing ? "conflict" : "already_invited" };
+
+  // Missing provider configuration is a definite pre-provider failure. Record it
+  // before crossing the durable sending -> pending provider-claim boundary so it
+  // stays safely retryable after configuration is fixed.
+  if (!process.env.BREVO_API_KEY || !process.env.LEAD_FROM_EMAIL) {
+    try {
+      await sql`
+        update marketplace_quote_invitations
+        set status = 'delivery_failed', dispatch_token = null, updated_at = now()
+        where id = ${invitationId}::uuid
+          and status = 'sending'
+          and dispatch_token = ${dispatchToken}::uuid
+      `;
+    } catch (error) {
+      console.error("Failed to record marketplace guest invitation configuration failure", { invitationId, error });
+    }
+    return { ok: false as const, code: "email_configuration" };
+  }
 
   // Atomically claim provider dispatch. Migration 0050 makes this sending ->
   // pending transition acquire the same normalized-email advisory lock as a
@@ -384,6 +412,9 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
     }
     if (details.code === "23514" && details.message.includes("marketplace_consent_required")) {
       return { ok: false as const, code: "consent_required" };
+    }
+    if (details.code === "23514" && details.message.includes("marketplace_profile_ineligible")) {
+      return { ok: false as const, code: "profile_ineligible" };
     }
     if (details.code === "23514" && details.message.includes("marketplace_dispatch_token_required")) {
       return { ok: false as const, code: "conflict" };
@@ -500,12 +531,18 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
 
 async function loadGuestQuoteView(
   token: string,
-  options?: { markViewed?: boolean; allowExpired?: boolean; allowClosed?: boolean },
+  options?: {
+    markViewed?: boolean;
+    allowExpired?: boolean;
+    allowClosed?: boolean;
+    useOptOutToken?: boolean;
+  },
 ) {
   if (!validToken(token)) return null;
   const sql = getSql();
   if (!sql) return null;
   const tokenHash = hashMarketplaceGuestToken(token);
+  const useOptOutToken = Boolean(options?.useOptOutToken);
 
   const rows = await sql`
     select
@@ -540,7 +577,10 @@ async function loadGuestQuoteView(
     join quote_requests q on q.id = i.quote_request_id
     join company_directory_profiles p on p.id = i.profile_id
     left join marketplace_quote_offers o on o.invitation_id = i.id
-    where i.token_hash = ${tokenHash}
+    where (
+      (${useOptOutToken} and i.opt_out_token_hash = ${tokenHash})
+      or (not ${useOptOutToken} and i.token_hash = ${tokenHash})
+    )
     limit 1
   `;
   const row = rows[0];
@@ -584,7 +624,11 @@ export async function getMarketplaceGuestQuoteView(token: string) {
 }
 
 export async function getMarketplaceGuestOptOutView(token: string) {
-  return loadGuestQuoteView(token, { allowExpired: true, allowClosed: true });
+  return loadGuestQuoteView(token, {
+    allowExpired: true,
+    allowClosed: true,
+    useOptOutToken: true,
+  });
 }
 
 export async function submitMarketplaceGuestQuote(input: {
@@ -676,7 +720,8 @@ export async function submitMarketplaceGuestQuote(input: {
     if (
       details.code === "23514"
       && (details.message.includes("marketplace_quote_closed")
-        || details.message.includes("marketplace_recipient_suppressed"))
+        || details.message.includes("marketplace_recipient_suppressed")
+        || details.message.includes("marketplace_profile_ineligible"))
     ) {
       return { ok: false as const, code: "closed" };
     }
@@ -694,7 +739,7 @@ export async function suppressMarketplaceGuestRecipient(token: string) {
   const rows = await sql`
     select id::text, profile_id::text, lower(btrim(recipient_email)) as recipient_email
     from marketplace_quote_invitations
-    where token_hash = ${tokenHash}
+    where opt_out_token_hash = ${tokenHash}
     limit 1
   `;
   const row = rows[0];
@@ -715,7 +760,7 @@ export async function suppressMarketplaceGuestRecipient(token: string) {
       set status = 'suppressed', updated_at = now()
       where lower(btrim(recipient_email)) = ${email}
         and (
-          status in ('sending', 'sent', 'viewed', 'delivery_failed', 'expired')
+          status in ('sending', 'sent', 'viewed', 'delivery_failed', 'expired', 'cancelled')
           or (status = 'pending' and updated_at <= now() - interval '5 minutes')
         )
     `,
