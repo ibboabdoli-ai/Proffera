@@ -107,13 +107,29 @@ describe("SCB company registry transport", () => {
       .toThrow("Invalid SCB company registry certificate encoding");
   });
 
-  it("retries only transient SCB transport failures", () => {
-    const reset = Object.assign(new Error("socket hang up"), { code: "ECONNRESET" });
-    expect(isRetryableScbTransportError(reset)).toBe(true);
+  it.each([
+    "ECONNRESET",
+    "ECONNREFUSED",
+    "EPIPE",
+    "ETIMEDOUT",
+    "EAI_AGAIN",
+  ])("retries transient SCB network failure %s", (code) => {
+    const error = Object.assign(new Error("network failure"), { code });
+    expect(isRetryableScbTransportError(error)).toBe(true);
+  });
+
+  it.each([408, 425, 429, 500, 502, 503, 504])(
+    "retries transient SCB HTTP failure %s",
+    (status) => {
+      expect(isRetryableScbTransportError(
+        new Error(`SCB company registry request failed with HTTP ${status}`),
+      )).toBe(true);
+    },
+  );
+
+  it("retries timeout/aborted failures but rejects permanent SCB failures", () => {
     expect(isRetryableScbTransportError(new Error("SCB company registry request timed out"))).toBe(true);
     expect(isRetryableScbTransportError(new Error("SCB company registry response was aborted"))).toBe(true);
-    expect(isRetryableScbTransportError(new Error("SCB company registry request failed with HTTP 503"))).toBe(true);
-    expect(isRetryableScbTransportError(new Error("SCB company registry request failed with HTTP 429"))).toBe(true);
     expect(isRetryableScbTransportError(new Error("SCB company registry request failed with HTTP 404"))).toBe(false);
     expect(isRetryableScbTransportError(new Error("SCB company registry returned invalid JSON"))).toBe(false);
   });
