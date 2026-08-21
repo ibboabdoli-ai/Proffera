@@ -78,6 +78,18 @@ describe("quote request customer location", () => {
     }
   });
 
+  it("requires database rows to contain one complete location shape, never half coordinates", () => {
+    const migration = readFileSync(join(process.cwd(), "db/migrations/20260821_0056_quote_request_customer_location.sql"), "utf8");
+
+    expect(migration).toContain("quote_requests_customer_location_consistency_check");
+    expect(migration).toContain("customer_location_source = 'address'");
+    expect(migration).toContain("customer_location_source = 'geolocation'");
+    expect(migration).toContain("customer_latitude is not null");
+    expect(migration).toContain("customer_longitude is not null");
+    expect(migration).toContain("customer_latitude between -90 and 90");
+    expect(migration).toContain("customer_longitude between -180 and 180");
+  });
+
   it("preserves the in-progress form across Swedish and English language switches with tab-scoped storage", () => {
     const form = readFileSync(join(process.cwd(), "src/features/quote-request/localized-quote-request-form.tsx"), "utf8");
     const swedishPage = readFileSync(join(process.cwd(), "src/app/fa-offert/page.tsx"), "utf8");

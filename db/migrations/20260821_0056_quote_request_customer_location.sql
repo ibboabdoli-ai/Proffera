@@ -13,29 +13,30 @@ begin
   if not exists (
     select 1
     from pg_constraint
-    where conname = 'quote_requests_customer_location_source_check'
+    where conname = 'quote_requests_customer_location_consistency_check'
       and conrelid = 'quote_requests'::regclass
   ) then
     alter table quote_requests
-      add constraint quote_requests_customer_location_source_check
+      add constraint quote_requests_customer_location_consistency_check
       check (
-        customer_location_source is null
-        or customer_location_source in ('address', 'geolocation')
-      );
-  end if;
-
-  if not exists (
-    select 1
-    from pg_constraint
-    where conname = 'quote_requests_customer_coordinates_check'
-      and conrelid = 'quote_requests'::regclass
-  ) then
-    alter table quote_requests
-      add constraint quote_requests_customer_coordinates_check
-      check (
-        (customer_latitude is null and customer_longitude is null)
+        (
+          customer_location_source is null
+          and customer_address_line1 is null
+          and customer_latitude is null
+          and customer_longitude is null
+        )
         or (
-          customer_latitude between -90 and 90
+          customer_location_source = 'address'
+          and nullif(btrim(customer_address_line1), '') is not null
+          and customer_latitude is null
+          and customer_longitude is null
+        )
+        or (
+          customer_location_source = 'geolocation'
+          and customer_address_line1 is null
+          and customer_latitude is not null
+          and customer_longitude is not null
+          and customer_latitude between -90 and 90
           and customer_longitude between -180 and 180
         )
       );
