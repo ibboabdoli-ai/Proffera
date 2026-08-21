@@ -34,4 +34,13 @@ describe("Company Directory full admin details", () => {
     expect(pageCode).toContain('Raw Official Facts');
     expect(pageCode).toContain('Raw SCB enrichment');
   });
+
+  it("orders service and location evidence only by columns that exist in their schemas", () => {
+    const pageCode = source("src/app/admin/foretag/directory/details/page.tsx");
+
+    expect(pageCode).toContain("order by service.created_at, service.service_slug");
+    expect(pageCode).toContain("order by location.created_at");
+    expect(pageCode).not.toContain("service.id");
+    expect(pageCode).not.toContain("location.id");
+  });
 });
