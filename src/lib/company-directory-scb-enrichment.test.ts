@@ -312,18 +312,28 @@ describe("SCB company directory enrichment guards", () => {
 
       await client!.query(`
         truncate table company_directory_field_sources, company_directory_scb_enrichment,
-          company_directory_official_facts, company_directory_profiles cascade;
+          company_directory_official_facts, company_directory_profiles cascade
+      `);
 
+      await client!.query(`
         insert into company_directory_profiles (
           id, organization_number, organization_kind, legal_name, municipality, updated_at
         ) values
           ($1, '5563115707', 'juridical_person', 'Blank Municipality AB', '', $3),
-          ($2, '5563115708', 'juridical_person', 'Existing Municipality AB', 'Stockholm', $3);
+          ($2, '5563115708', 'juridical_person', 'Existing Municipality AB', 'Stockholm', $3)
+      `, [blankProfile, existingProfile, profileUpdatedAt]);
 
+      await client!.query(`
         insert into company_directory_official_facts (profile_id, sni_codes, last_synced_at) values
-          ($1, '[{"code":"43.210"}]'::jsonb, $4),
-          ($2, '[{"code":"43.210"}]'::jsonb, $4);
-      `, [blankProfile, existingProfile, profileUpdatedAt, factsSyncedAt]);
+          ($1, '[{"code":"43.210"}]'::jsonb, $3),
+          ($2, '[{"code":"43.210"}]'::jsonb, $3)
+      `, [blankProfile, existingProfile, factsSyncedAt]);
+
+      const before = await client!.query<{ id: string; updated_at: string }>(`
+        select id::text, updated_at::text
+        from company_directory_profiles
+        order by id
+      `);
 
       mocks.getSql.mockReset();
       mocks.fetchScbCompanyRegistryEnrichment.mockReset();
@@ -372,12 +382,13 @@ describe("SCB company directory enrichment guards", () => {
       expect(profiles.rows[0]).toMatchObject({
         id: blankProfile,
         municipality: "Södertälje",
+        updated_at: before.rows[0]?.updated_at,
       });
       expect(profiles.rows[1]).toMatchObject({
         id: existingProfile,
         municipality: "Stockholm",
+        updated_at: before.rows[1]?.updated_at,
       });
-      expect(profiles.rows[0]?.updated_at).toBe(profiles.rows[1]?.updated_at);
 
       const provenance = await client!.query<{
         profile_id: string;
