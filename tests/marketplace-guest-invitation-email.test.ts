@@ -129,10 +129,14 @@ describe("marketplace guest invitation email delivery", () => {
     process.env.PROFFERA_PREVIEW_BREVO_API_KEY = "preview-only-api-key";
     process.env.PROFFERA_PREVIEW_EMAIL_RECIPIENT = "preview-controlled@example.com";
 
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ messageId: "preview-provider-1" }), {
-      status: 201,
-      headers: { "Content-Type": "application/json" },
-    }));
+    const fetchMock = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => {
+      void _url;
+      void _init;
+      return new Response(JSON.stringify({ messageId: "preview-provider-1" }), {
+        status: 201,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
     globalThis.fetch = fetchMock as typeof fetch;
 
     expect(marketplaceGuestInvitationEmailConfigured()).toBe(true);
