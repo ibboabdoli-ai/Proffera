@@ -1,7 +1,7 @@
 "use client";
 
 import { MapPin, Navigation } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { quoteFormCopy } from "./form-copy";
 import type { QuoteFormStepProps } from "./step-props";
@@ -14,9 +14,11 @@ export function QuoteLocationStep({ locale, data, errors, update }: QuoteFormSte
   const t = quoteFormCopy[locale];
   const [nearbyStatus, setNearbyStatus] = useState("");
   const [nearbyLoading, setNearbyLoading] = useState(false);
+  const nearbyRequestId = useRef(0);
   const nearbyActive = data.locationSource === "geolocation" && data.latitude !== null && data.longitude !== null;
 
   function useNearby() {
+    const requestId = ++nearbyRequestId.current;
     if (!navigator.geolocation) {
       setNearbyStatus(t.nearMeUnsupported);
       return;
@@ -26,6 +28,7 @@ export function QuoteLocationStep({ locale, data, errors, update }: QuoteFormSte
     setNearbyStatus("");
     navigator.geolocation.getCurrentPosition(
       (position) => {
+        if (requestId !== nearbyRequestId.current) return;
         update("addressLine1", "");
         update("latitude", Number(position.coords.latitude.toFixed(6)));
         update("longitude", Number(position.coords.longitude.toFixed(6)));
@@ -34,6 +37,7 @@ export function QuoteLocationStep({ locale, data, errors, update }: QuoteFormSte
         setNearbyStatus(t.nearMeFound);
       },
       () => {
+        if (requestId !== nearbyRequestId.current) return;
         setNearbyLoading(false);
         setNearbyStatus(t.nearMeDenied);
       },
@@ -42,12 +46,14 @@ export function QuoteLocationStep({ locale, data, errors, update }: QuoteFormSte
   }
 
   function updateAddress(value: string) {
+    nearbyRequestId.current += 1;
+    setNearbyLoading(false);
     if (data.locationSource === "geolocation") {
       update("locationSource", "address");
       update("latitude", null);
       update("longitude", null);
-      setNearbyStatus("");
     }
+    setNearbyStatus("");
     update("addressLine1", value);
   }
 
