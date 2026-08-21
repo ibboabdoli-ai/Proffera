@@ -5,6 +5,10 @@ import { quoteRequestSchema } from "../src/features/quote-request/schema";
 const validRequest = {
   category: "Hemstädning",
   serviceType: "Engångsstädning",
+  addressLine1: "Storgatan 12",
+  locationSource: "address" as const,
+  latitude: null,
+  longitude: null,
   city: "Malmö",
   postalCode: "211 20",
   description: "Jag behöver hjälp med en grundlig städning av bostaden.",
