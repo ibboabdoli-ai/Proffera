@@ -1,17 +1,17 @@
 -- Keep marketplace guest access fail-closed after an invitation has been issued.
 --
 -- Production forward deployment order: apply 0049, then 0050, then this migration,
--- then 0052 and the non-transactional 0053 index migration before deploying the
--- marketplace guest application changes. Production is not changed by committing
--- this file.
+-- then 0052, the non-transactional 0053 index migration, and 0054 status
+-- validation before deploying the marketplace guest application changes.
+-- Production is not changed by committing this file.
 --
 -- This migration adds three safety properties:
 -- 1. If a directory profile becomes unpublished, inactive, privacy-blocked,
---    non-juridical, or claimed, active guest links are revoked immediately and
---    offer/dispatch writes re-check the same profile eligibility.
+--    non-juridical, or claimed, quote access is revoked immediately while the
+--    already-emailed opt-out credential remains usable for permanent suppression.
 -- 2. Provider-claimed delivery is tracked separately from a pre-provider
---    reservation. Only a genuinely claimed/attempted provider delivery can move
---    to `delivery_uncertain`; definite pre-provider failures stay retryable.
+--    reservation. Claimed attempts cannot clear that marker or become retryable;
+--    definite pre-provider failures remain retryable.
 -- 3. Profile eligibility changes and guest dispatch/offer checks share a
 --    profile-scoped advisory lock so they do not acquire profile/invitation row
 --    locks in opposite orders.
@@ -19,18 +19,17 @@
 -- Rollback: roll application code back first. If this migration must then be
 -- reversed, remove the profile-revocation and ambiguous-dispatch triggers,
 -- restore the 0050 outreach function and 0049 offer-eligibility function, and
--- only then remove provider_claimed_at / narrow the status check after confirming
--- no `delivery_uncertain` rows remain. Never restore revoked token hashes from
--- backups without a manual privacy review.
+-- only then remove provider_claimed_at / opt_out_token_hash or narrow the status
+-- check after confirming no delivery_uncertain rows remain.
 
 begin;
 
 alter table marketplace_quote_invitations
   drop constraint if exists marketplace_quote_invitations_status_check;
 
--- NOT VALID avoids the heavyweight validation scan while installing the widened
--- predicate. It still enforces the predicate for every new/updated row. Validate
--- explicitly after the small state backfills below.
+-- Install the widened predicate as NOT VALID so this transaction does not hold
+-- its table lock through a validation scan. Migration 0054 validates it only
+-- after this transaction, 0052, and the non-transactional 0053 have completed.
 alter table marketplace_quote_invitations
   add constraint marketplace_quote_invitations_status_check
   check (status in (
@@ -41,8 +40,20 @@ alter table marketplace_quote_invitations
 alter table marketplace_quote_invitations
   add column if not exists provider_claimed_at timestamptz;
 
+alter table marketplace_quote_invitations
+  add column if not exists opt_out_token_hash text;
+
 comment on column marketplace_quote_invitations.provider_claimed_at is
   'Set when a sending reservation is promoted to the provider-claimed pending state immediately before the external delivery attempt.';
+
+comment on column marketplace_quote_invitations.opt_out_token_hash is
+  'Stable SHA-256 hash of the emailed token used only for recipient opt-out. Quote access may be revoked independently by rotating token_hash.';
+
+-- Existing invitations used one credential for both quote access and opt-out.
+-- Preserve that credential before any revocation backfill rotates token_hash.
+update marketplace_quote_invitations
+set opt_out_token_hash = token_hash
+where opt_out_token_hash is null;
 
 -- A pending row created by the 0050 state machine represents a provider claim.
 -- Preserve that fact for any in-flight rows present when this migration installs.
@@ -54,41 +65,50 @@ where status = 'pending'
   and dispatch_token is not null
   and provider_claimed_at is null;
 
-alter table marketplace_quote_invitations
-  validate constraint marketplace_quote_invitations_status_check;
-
 create or replace function guard_marketplace_ambiguous_dispatch_retry()
 returns trigger
 language plpgsql
 as $$
 begin
-  -- A stale pending row has already crossed the explicit provider-claim boundary.
-  -- Do not mint a new provider identity: preserve the original identities and
-  -- require reconciliation instead of risking a duplicate email.
+  -- Once the provider boundary has been crossed, callers may not erase that fact
+  -- to make the attempt look retryable. Profile revocation is the one deliberate
+  -- exception: cancellation may clear delivery ownership while quote access is
+  -- revoked and the separate opt-out credential remains valid.
+  if old.provider_claimed_at is not null
+     and new.provider_claimed_at is null
+     and new.status <> 'cancelled' then
+    raise exception using
+      errcode = '23514',
+      message = 'marketplace_provider_claim_immutable';
+  end if;
+
+  -- Any stale pending row has crossed the explicit provider-claim boundary.
+  -- Whether the caller supplies a new dispatch token or reuses the old one, do
+  -- not return to sending. Preserve the original identities and require
+  -- reconciliation instead of risking a duplicate email.
   if old.status = 'pending'
      and old.provider_claimed_at is not null
      and old.dispatch_token is not null
      and old.updated_at <= now() - interval '5 minutes'
-     and new.status = 'sending'
-     and new.dispatch_token is distinct from old.dispatch_token then
+     and new.status = 'sending' then
     new.status := 'delivery_uncertain';
     new.token_hash := old.token_hash;
+    new.opt_out_token_hash := old.opt_out_token_hash;
     new.dispatch_token := old.dispatch_token;
     new.provider_claimed_at := old.provider_claimed_at;
     new.expires_at := old.expires_at;
     return new;
   end if;
 
-  -- Delivery failures after a provider claim are ambiguous unless the writer
-  -- explicitly clears provider_claimed_at to record a definite pre-provider
-  -- failure (for example missing provider configuration).
+  -- A failure after a provider claim is ambiguous. The claim marker cannot be
+  -- cleared above, so this transition always remains fail-closed.
   if old.status = 'pending'
      and old.provider_claimed_at is not null
      and old.dispatch_token is not null
-     and new.status = 'delivery_failed'
-     and new.provider_claimed_at is not null then
+     and new.status = 'delivery_failed' then
     new.status := 'delivery_uncertain';
     new.token_hash := old.token_hash;
+    new.opt_out_token_hash := old.opt_out_token_hash;
     new.dispatch_token := old.dispatch_token;
     new.provider_claimed_at := old.provider_claimed_at;
     return new;
@@ -102,6 +122,7 @@ begin
      and new.status = 'sending' then
     new.status := 'delivery_uncertain';
     new.token_hash := old.token_hash;
+    new.opt_out_token_hash := old.opt_out_token_hash;
     new.dispatch_token := old.dispatch_token;
     new.provider_claimed_at := old.provider_claimed_at;
     new.expires_at := old.expires_at;
@@ -167,8 +188,9 @@ when (
 )
 execute function revoke_marketplace_guest_access_for_ineligible_profile();
 
--- Revoke any active guest links that were already attached to an ineligible
--- profile before this migration was installed.
+-- Revoke any active quote links that were already attached to an ineligible
+-- profile before this migration was installed. opt_out_token_hash is intentionally
+-- preserved so the recipient can still permanently suppress the emailed address.
 update marketplace_quote_invitations invitation
    set status = 'cancelled',
        token_hash = encode(digest(invitation.id::text || ':' || gen_random_uuid()::text, 'sha256'), 'hex'),
@@ -267,7 +289,7 @@ begin
     raise exception using errcode = '23514', message = 'marketplace_recipient_suppressed';
   end if;
 
-  -- `pending` is the durable provider-claim boundary. Set the marker in the
+  -- pending is the durable provider-claim boundary. Set the marker in the
   -- database so no caller can forget it.
   if tg_op = 'UPDATE'
      and old.status = 'sending'
