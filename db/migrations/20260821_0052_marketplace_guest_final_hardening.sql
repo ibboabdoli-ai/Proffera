@@ -1,9 +1,9 @@
 -- Final transactional database hardening for marketplace guest invitations.
 --
 -- Production forward deployment order: apply 0049, 0050, 0051, then this
--- migration, then apply 0053 without a wrapping transaction before deploying
--- the final marketplace guest application changes. Committing these files does
--- not apply them to Production.
+-- migration, then apply 0053 without a wrapping transaction, then 0054 status
+-- validation before deploying the final marketplace guest application changes.
+-- Committing these files does not apply them to Production.
 --
 -- The normalized recipient index replacement intentionally lives in 0053 so it
 -- can use CREATE/DROP INDEX CONCURRENTLY without holding a long table lock.
