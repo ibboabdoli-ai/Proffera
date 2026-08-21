@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   createScbCompanyRegistryTransportFromEnv,
   fetchScbCompanyRegistryHelpExamplesFromEnv,
+  isRetryableScbTransportError,
   probeScbCompanyRegistryMetadataFromEnv,
   readScbCompanyRegistryResponse,
   renderScbCompanyRegistryQueryTemplate,
@@ -104,6 +105,17 @@ describe("SCB company registry transport", () => {
 
     expect(() => createScbCompanyRegistryTransportFromEnv())
       .toThrow("Invalid SCB company registry certificate encoding");
+  });
+
+  it("retries only transient SCB transport failures", () => {
+    const reset = Object.assign(new Error("socket hang up"), { code: "ECONNRESET" });
+    expect(isRetryableScbTransportError(reset)).toBe(true);
+    expect(isRetryableScbTransportError(new Error("SCB company registry request timed out"))).toBe(true);
+    expect(isRetryableScbTransportError(new Error("SCB company registry response was aborted"))).toBe(true);
+    expect(isRetryableScbTransportError(new Error("SCB company registry request failed with HTTP 503"))).toBe(true);
+    expect(isRetryableScbTransportError(new Error("SCB company registry request failed with HTTP 429"))).toBe(true);
+    expect(isRetryableScbTransportError(new Error("SCB company registry request failed with HTTP 404"))).toBe(false);
+    expect(isRetryableScbTransportError(new Error("SCB company registry returned invalid JSON"))).toBe(false);
   });
 
   it("rejects instead of hanging when the SCB response stream errors", async () => {

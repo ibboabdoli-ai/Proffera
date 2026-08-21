@@ -8,6 +8,16 @@ const DEFAULT_BASE_URL = "https://privateapi.scb.se/nv0101/v1/sokpavar/";
 const DEFAULT_TIMEOUT_MS = 15_000;
 const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 const REQUEST_SPACING_MS = 1_050;
+const MAX_TRANSIENT_ATTEMPTS = 2;
+const RETRY_BACKOFF_MS = 1_500;
+const RETRYABLE_HTTP_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
+const RETRYABLE_NETWORK_CODES = new Set([
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "EPIPE",
+  "ETIMEDOUT",
+  "EAI_AGAIN",
+]);
 
 // Exact request shapes published on SCB's authenticated help pages on 2026-08-19.
 // Environment overrides remain available so the September 2026 replacement API
@@ -142,6 +152,21 @@ async function reserveRequestSlot() {
   release();
 }
 
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export function isRetryableScbTransportError(error: unknown) {
+  const row = error && typeof error === "object" ? error as { code?: unknown } : {};
+  const code = typeof row.code === "string" ? row.code.toUpperCase() : "";
+  if (RETRYABLE_NETWORK_CODES.has(code)) return true;
+
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  if (/timed out/i.test(message) || /response was aborted/i.test(message)) return true;
+  const httpMatch = message.match(/HTTP\s+(\d{3})/i);
+  return httpMatch ? RETRYABLE_HTTP_STATUSES.has(Number(httpMatch[1])) : false;
+}
+
 export function readScbCompanyRegistryResponse(
   response: ScbResponseStream,
   abortRequest: (error: Error) => void,
@@ -189,7 +214,7 @@ export function readScbCompanyRegistryResponse(
   });
 }
 
-async function requestText(
+async function requestTextOnce(
   config: ScbRegistryCredentialConfig,
   path: string,
   options: { method?: "GET" | "POST"; body?: JsonRecord; accept?: string } = {},
@@ -226,15 +251,33 @@ async function requestText(
   });
 }
 
+async function requestText(
+  config: ScbRegistryCredentialConfig,
+  path: string,
+  options: { method?: "GET" | "POST"; body?: JsonRecord; accept?: string } = {},
+) {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= MAX_TRANSIENT_ATTEMPTS; attempt += 1) {
+    try {
+      return await requestTextOnce(config, path, options);
+    } catch (error) {
+      lastError = error;
+      if (attempt >= MAX_TRANSIENT_ATTEMPTS || !isRetryableScbTransportError(error)) throw error;
+      await delay(RETRY_BACKOFF_MS * attempt);
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("SCB company registry request failed");
+}
+
 async function requestJson(
   config: ScbRegistryCredentialConfig,
   path: string,
   options: { method?: "GET" | "POST"; body?: JsonRecord } = {},
 ) {
-  const text = (await requestText(config, path, options)).trim();
-  if (!text) return null;
+  const responseText = (await requestText(config, path, options)).trim();
+  if (!responseText) return null;
   try {
-    return JSON.parse(text) as unknown;
+    return JSON.parse(responseText) as unknown;
   } catch {
     throw new Error("SCB company registry returned invalid JSON");
   }
