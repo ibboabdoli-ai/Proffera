@@ -58,6 +58,15 @@ Run the narrowest relevant checks first, then broaden validation according to `A
 - CodeQL is configured for JavaScript/TypeScript security analysis and runs when the repository `CODEQL_ENABLED` control enables it. Treat findings as security evidence to triage, not as a replacement for tests.
 - Workflow/action changes are security-sensitive; preserve least privilege and immutable action SHA pinning.
 
+### SonarQube — code-quality and maintainability signal
+
+- SonarQube scanning is configured in `.github/workflows/sonarqube.yml` with the official SonarSource scan action pinned to an immutable SHA.
+- The workflow stays intentionally dormant until repository configuration explicitly enables it with `SONARQUBE_ENABLED=true`, `SONAR_PROJECT_KEY`, and either `SONAR_HOST_URL` for SonarQube Server or `SONAR_ORGANIZATION` for SonarQube Cloud, plus the `SONAR_TOKEN` GitHub secret.
+- Use SonarQube findings to identify reachable bugs, vulnerabilities, code smells, duplication, and maintainability debt in the graph path being changed. Prioritize new or touched-code findings; do not turn unrelated historical debt into scope unless the task requires it.
+- SonarQube complements CodeQL, ESLint, TypeScript, Vitest, and Playwright. It does not replace any of them and it is not evidence of correct runtime behavior by itself.
+- The initial integration keeps the Sonar quality gate advisory (`sonar.qualitygate.wait=false`) so existing debt does not block unrelated work. Do not claim the quality gate is merge-blocking unless the canonical workflow is deliberately changed later.
+- Never print or commit `SONAR_TOKEN`, private Sonar credentials, or Production/customer data. Project key, organization, and host configuration must remain repository variables/configuration rather than hard-coded secrets.
+
 ### CodeRabbit — final risk-routed review only
 
 - CodeRabbit is configured, but automatic/incremental review is intentionally disabled.
