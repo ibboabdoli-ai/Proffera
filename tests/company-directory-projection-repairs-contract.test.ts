@@ -171,26 +171,34 @@ function docker(args: string[]) {
         ) values
           ($1, '5563115707', '96.210', '', 'ready', $4),
           ($2, '5563115708', '96.210', 'Stockholm', 'published', $4),
-          ($3, '5563115709', '43.210', '', 'review', $4);
+          ($3, '5563115709', '43.210', '', 'review', $4)
+      `, [blankProfile, existingProfile, unrelatedProfile, fixedUpdatedAt]);
 
+      await client!.query(`
         insert into company_directory_scb_enrichment (profile_id, organization_number, municipality) values
           ($1, '5563115707', 'Södertälje'),
           ($2, '5563115708', 'Södertälje'),
-          ($3, '5563115709', 'Stockholm');
+          ($3, '5563115709', 'Stockholm')
+      `, [blankProfile, existingProfile, unrelatedProfile]);
 
+      await client!.query(`
         insert into company_directory_service_categories (slug, label) values
-          ('legacy', 'Legacy');
+          ('legacy', 'Legacy')
+      `);
 
+      await client!.query(`
         insert into company_directory_services (slug, category_slug, label) values
           ('legacy-sni', 'legacy', 'Legacy SNI'),
-          ('owner-service', 'legacy', 'Owner service');
+          ('owner-service', 'legacy', 'Owner service')
+      `);
 
+      await client!.query(`
         insert into company_directory_profile_services (
           profile_id, service_slug, source_type, confidence, is_primary, is_active, public_visible
         ) values
           ($1, 'legacy-sni', 'sni', 85, true, true, true),
-          ($1, 'owner-service', 'owner', 100, true, true, true);
-      `, [blankProfile, existingProfile, unrelatedProfile, fixedUpdatedAt]);
+          ($1, 'owner-service', 'owner', 100, true, true, true)
+      `, [blankProfile]);
 
       const before = await client!.query<{
         id: string;
