@@ -14,12 +14,17 @@ import DirectoryAdminDetailsPage from "../src/app/admin/foretag/directory/detail
 
 const PROFILE_ID = "00000000-0000-4000-8000-000000000001";
 
+type OffsetLog = {
+  service: number[];
+  location: number[];
+};
+
 function normalize(strings: TemplateStringsArray) {
   return strings.join(" ").replace(/\s+/g, " ").trim();
 }
 
-function buildSql(events: string[]) {
-  return vi.fn(async (strings: TemplateStringsArray) => {
+function buildSql(events: string[], offsets: OffsetLog = { service: [], location: [] }) {
+  return vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
     events.push("sql");
     const query = normalize(strings);
 
@@ -97,14 +102,26 @@ function buildSql(events: string[]) {
       if (!query.includes("order by service.created_at, service.service_slug limit 50 offset")) {
         throw new Error(`Unbounded service query in admin details test: ${query}`);
       }
-      return [{ value: { profile_id: PROFILE_ID, service_slug: "elinstallation" } }];
+      const offset = Number(values.at(-1));
+      offsets.service.push(offset);
+      return [{ value: {
+        profile_id: PROFILE_ID,
+        service_slug: offset === 50 ? "second-page-service" : "first-page-service",
+      } }];
     }
 
     if (query.includes("select to_jsonb(location) as value from company_directory_business_locations")) {
-      if (!query.includes("order by location.created_at limit 50 offset")) {
-        throw new Error(`Unbounded location query in admin details test: ${query}`);
+      if (!query.includes("order by location.created_at, location.profile_id limit 50 offset")) {
+        throw new Error(`Unbounded or unstable location query in admin details test: ${query}`);
       }
-      return [{ value: { profile_id: PROFILE_ID, latitude: 59.33, longitude: 18.06 } }];
+      const offset = Number(values.at(-1));
+      offsets.location.push(offset);
+      return [{ value: {
+        profile_id: PROFILE_ID,
+        latitude: offset === 50 ? 60.01 : 59.33,
+        longitude: offset === 50 ? 18.99 : 18.06,
+        geocode_source: offset === 50 ? "second-page-location" : "first-page-location",
+      } }];
     }
 
     if (query.includes("select to_jsonb(source) as value from company_directory_field_sources")) {
@@ -147,25 +164,34 @@ describe("Company Directory full admin details", () => {
     expect(mocks.getSql).not.toHaveBeenCalled();
   });
 
-  it("renders selected profile, bounded collections, pagination and source totals", async () => {
+  it("renders page two with bound offsets, stable ordering and bounded source totals", async () => {
     const events: string[] = [];
+    const offsets: OffsetLog = { service: [], location: [] };
     mocks.requireSuperAdmin.mockImplementation(async () => { events.push("auth"); });
-    mocks.getSql.mockImplementation(() => buildSql(events));
+    mocks.getSql.mockImplementation(() => buildSql(events, offsets));
 
-    const element = await DirectoryAdminDetailsPage({ searchParams: Promise.resolve({ profile: PROFILE_ID }) });
+    const element = await DirectoryAdminDetailsPage({
+      searchParams: Promise.resolve({
+        profile: PROFILE_ID,
+        servicePage: "2",
+        locationPage: "2",
+      }),
+    });
     const html = renderToStaticMarkup(element);
 
+    expect(offsets.service).toContain(50);
+    expect(offsets.location).toContain(50);
     expect(html).toContain("Example Elektriska AB");
     expect(html).toContain("0701234567");
     expect(html).toContain("Besöksgatan 5");
     expect(html).toContain("BOX 10");
     expect(html).toContain("Raw SCB enrichment");
+    expect(html).toContain("second-page-service");
+    expect(html).toContain("second-page-location");
     expect(html).toContain("Tjänster · visar 1 av 51");
-    expect(html).toContain("Tjänster: sida 1 av 2");
+    expect(html).toContain("Tjänster: sida 2 av 2");
     expect(html).toContain("Geografiska platser · visar 1 av 51");
-    expect(html).toContain("Geografiska platser: sida 1 av 2");
-    expect(html).toContain("servicePage=2");
-    expect(html).toContain("locationPage=2");
+    expect(html).toContain("Geografiska platser: sida 2 av 2");
     expect(html).toContain("Fältkällor · visar senaste 100 av 101");
   });
 });
