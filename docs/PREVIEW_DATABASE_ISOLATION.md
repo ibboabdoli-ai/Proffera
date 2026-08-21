@@ -24,6 +24,7 @@ Vercel Preview deployments must never read from or write to the Production datab
 - Production ignores `PROFFERA_PREVIEW_DATABASE_URL`, even if the Vercel dashboard exposes the secret to a combined Production/Preview target.
 - Existing Production `DATABASE_URL` remains the Production source of truth.
 - Preview fails closed instead of falling back to a shared Production database URL when the dedicated Preview value is missing.
+- Preview also fails closed when the dedicated Preview URL resolves to the same database target as a shared database URL, including pooled/unpooled hostname variants.
 
 ### Auth
 
@@ -37,6 +38,7 @@ Vercel Preview deployments must never read from or write to the Production datab
 
 - Preview transactional email requires the dedicated `PROFFERA_PREVIEW_BREVO_API_KEY` and is rewritten to the single `PROFFERA_PREVIEW_EMAIL_RECIPIENT`.
 - Preview does not reuse the shared Production Brevo credential; missing safe Preview email configuration fails closed.
+- Marketplace Guest Quote invitations use the same Preview Brevo-key resolver and controlled-recipient rewrite, so that flow cannot bypass the Preview email boundary.
 - Booking SMS delivery is disabled in Vercel Preview.
 - Preview Stripe resolves only dedicated `PROFFERA_PREVIEW_STRIPE_*` test configuration and does not use Production Stripe credentials.
 
@@ -72,6 +74,20 @@ A Preview isolation configuration is accepted only when all of the following are
 - Stripe is in test mode and no Production payment/customer data is reachable.
 - No Production data is mutated during validation.
 
+## 2026-08-21 runtime proof
+
+The active Preview was exercised against the sanitized Neon branch on 2026-08-21:
+
+- database identity resolved to the dedicated non-Production branch and the database contained no real tenant/auth/customer/company/quote/payment/review data;
+- Better Auth created and signed in a disposable Preview-only account and issued a session cookie; the disposable user/account/session rows were then deleted;
+- Stripe resolved in test mode with dedicated Preview webhook and plan-price configuration;
+- a controlled Preview email recipient was configured, but a dedicated Preview Brevo API key was not available, so outbound Preview email remained intentionally fail-closed;
+- the Marketplace Guest Quote sender was hardened so it now uses the Preview-only Brevo-key resolver and controlled-recipient rewrite instead of reading the shared credential/recipient directly;
+- a no-egress synthetic Guest Quote state test created a disposable Preview-only company, quote and invitation with a known synthetic token, rendered the real guest response page, recorded `sent -> viewed`, submitted a fixed-price test offer through a Preview-only temporary harness, recorded invitation `responded`, quote `answered` and offer `submitted`, rendered the real success page, then deleted all disposable rows;
+- after cleanup the Preview branch again contained zero users, sessions, accounts, company profiles, quote requests, marketplace invitations and marketplace offers.
+
+The remaining activation blockers are operational rather than database-state blockers: configure a genuinely independent `PROFFERA_PREVIEW_BREVO_API_KEY`, rotate the current Preview Better Auth secret to a strong random value, and then verify controlled-recipient email egress plus the normal Admin-visible end-to-end route before enabling recurring state-changing browser automation.
+
 ## Marketplace state-changing E2E gate
 
 Marketplace Guest Quote E2E may run only after the validation gate above is proven for the active Vercel Preview. The intended isolated sequence is:
@@ -84,4 +100,4 @@ Marketplace Guest Quote E2E may run only after the validation gate above is prov
 6. verify Production counts and records remain unchanged;
 7. clean the disposable Preview test data after the run.
 
-Until the Vercel runtime checks are completed, the database is prepared for isolated E2E but state-changing browser E2E remains gated.
+The core Guest Quote state transitions are now proven with synthetic Preview data and no external email egress. Full browser automation remains gated until the dedicated Preview Brevo credential and stronger Preview auth secret are configured and the complete controlled-recipient/Admin path is re-run.
