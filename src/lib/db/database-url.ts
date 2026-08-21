@@ -10,7 +10,9 @@ function databaseTargetIdentity(value: string) {
   try {
     const url = new URL(value);
     const hostname = url.hostname.toLowerCase().replace(/-pooler(?=\.)/, "");
-    const port = url.port ? `:${url.port}` : "";
+    const isPostgresProtocol = url.protocol === "postgres:" || url.protocol === "postgresql:";
+    const normalizedPort = url.port || (isPostgresProtocol ? "5432" : "");
+    const port = normalizedPort ? `:${normalizedPort}` : "";
     return `${hostname}${port}${url.pathname}`;
   } catch {
     return value.trim();
