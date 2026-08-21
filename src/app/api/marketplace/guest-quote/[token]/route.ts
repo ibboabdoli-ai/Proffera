@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { hashMarketplaceGuestToken, submitMarketplaceGuestQuote } from "@/lib/marketplace-guest-quote";
+import { hashMarketplaceGuestToken } from "@/lib/marketplace-guest-quote";
+import { submitMarketplaceGuestQuote } from "@/lib/marketplace-guest-quote-human-view";
 import { allowPublicSubmission } from "@/lib/public-form-protection";
 
 export const runtime = "nodejs";
