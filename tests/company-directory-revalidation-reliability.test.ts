@@ -1,32 +1,128 @@
+import { EventEmitter } from "node:events";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-function source(path: string) {
-  return readFileSync(resolve(process.cwd(), path), "utf8");
+const httpsMock = vi.hoisted(() => ({ request: vi.fn() }));
+vi.mock("node:https", () => ({ request: httpsMock.request }));
+
+const ENV_KEYS = [
+  "SCB_COMPANY_REGISTRY_PFX_BASE64",
+  "SCB_COMPANY_REGISTRY_PFX_PASSPHRASE",
+  "SCB_COMPANY_REGISTRY_BASE_URL",
+] as const;
+const previousEnv = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
+
+type Outcome = { status: number; body?: unknown } | Error;
+
+function installOutcomes(outcomes: Outcome[], callTimes: number[]) {
+  const queue = [...outcomes];
+  httpsMock.request.mockImplementation((_url, _options, callback) => {
+    callTimes.push(Date.now());
+    const request = new EventEmitter() as EventEmitter & {
+      write: (body: string) => void;
+      end: () => void;
+      destroy: (error: Error) => void;
+    };
+    request.write = vi.fn();
+    request.destroy = (error: Error) => queueMicrotask(() => request.emit("error", error));
+    request.end = () => {
+      const outcome = queue.shift();
+      if (!outcome) throw new Error("Missing mocked SCB outcome");
+      if (outcome instanceof Error) {
+        queueMicrotask(() => request.emit("error", outcome));
+        return;
+      }
+      const response = new EventEmitter() as EventEmitter & { statusCode: number };
+      response.statusCode = outcome.status;
+      callback(response);
+      queueMicrotask(() => {
+        if (outcome.body !== undefined) response.emit("data", Buffer.from(JSON.stringify(outcome.body)));
+        response.emit("end");
+      });
+    };
+    return request;
+  });
 }
 
-describe("Company Directory revalidation reliability", () => {
-  it("drains two bounded batches per scheduler wake-up without changing the five-minute cadence", () => {
-    const workflow = source(".github/workflows/company-directory-revalidation.yml");
+async function loadTransport() {
+  vi.resetModules();
+  return await import("../src/lib/company-directory-scb-transport");
+}
 
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-08-21T08:00:00Z"));
+  httpsMock.request.mockReset();
+  process.env.SCB_COMPANY_REGISTRY_PFX_BASE64 = Buffer.from("test-pfx").toString("base64");
+  process.env.SCB_COMPANY_REGISTRY_PFX_PASSPHRASE = "test-passphrase";
+  process.env.SCB_COMPANY_REGISTRY_BASE_URL = "https://scb.example.test/";
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+  for (const key of ENV_KEYS) {
+    const value = previousEnv[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+});
+
+describe("Company Directory revalidation reliability", () => {
+  it("retries one transient ECONNRESET with backoff and request-slot spacing", async () => {
+    const callTimes: number[] = [];
+    const reset = Object.assign(new Error("socket reset"), { code: "ECONNRESET" });
+    installOutcomes([reset, { status: 200, body: { ok: true } }], callTimes);
+    const { createScbCompanyRegistryTransportFromEnv } = await loadTransport();
+    const transport = createScbCompanyRegistryTransportFromEnv();
+    expect(transport).not.toBeNull();
+
+    const pending = transport!.fetchCompany("5563115707");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(httpsMock.request).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(1_499);
+    expect(httpsMock.request).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+
+    await expect(pending).resolves.toEqual({ ok: true });
+    expect(httpsMock.request).toHaveBeenCalledTimes(2);
+    expect(callTimes[1] - callTimes[0]).toBeGreaterThanOrEqual(1_500);
+    expect(callTimes[1] - callTimes[0]).toBeGreaterThanOrEqual(1_050);
+  });
+
+  it("does not retry permanent HTTP failures", async () => {
+    const callTimes: number[] = [];
+    installOutcomes([{ status: 404 }], callTimes);
+    const { createScbCompanyRegistryTransportFromEnv } = await loadTransport();
+    const transport = createScbCompanyRegistryTransportFromEnv();
+
+    await expect(transport!.fetchCompany("5563115707"))
+      .rejects.toThrow("SCB company registry request failed with HTTP 404");
+    expect(httpsMock.request).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops after the single retry when transient failures continue", async () => {
+    const callTimes: number[] = [];
+    const firstReset = Object.assign(new Error("first reset"), { code: "ECONNRESET" });
+    const secondReset = Object.assign(new Error("second reset"), { code: "ECONNRESET" });
+    installOutcomes([firstReset, secondReset], callTimes);
+    const { createScbCompanyRegistryTransportFromEnv } = await loadTransport();
+    const transport = createScbCompanyRegistryTransportFromEnv();
+
+    const pending = transport!.fetchCompany("5563115707");
+    await vi.advanceTimersByTimeAsync(1_500);
+    await expect(pending).rejects.toThrow("second reset");
+    expect(httpsMock.request).toHaveBeenCalledTimes(2);
+  });
+
+  it("drains two bounded batches per scheduler wake-up without changing the five-minute cadence", () => {
+    const workflow = readFileSync(resolve(process.cwd(), ".github/workflows/company-directory-revalidation.yml"), "utf8");
     expect(workflow).toContain('cron: "*/5 * * * *"');
     expect(workflow).toContain("BATCHES_PER_RUN=2");
     expect(workflow).toContain('for batch in $(seq 1 "$BATCHES_PER_RUN")');
     expect(workflow).toContain("/api/cron/company-directory-revalidation");
     expect(workflow).not.toContain("/api/cron/company-directory-sync");
-  });
-
-  it("retries transient SCB failures only once and keeps request spacing in the retry path", () => {
-    const transport = source("src/lib/company-directory-scb-transport.ts");
-
-    expect(transport).toContain("const REQUEST_SPACING_MS = 1_050");
-    expect(transport).toContain("const MAX_TRANSIENT_ATTEMPTS = 2");
-    expect(transport).toContain("export function isRetryableScbTransportError");
-    expect(transport).toContain('"ECONNRESET"');
-    expect(transport).toContain("RETRYABLE_HTTP_STATUSES");
-    expect(transport).toContain("await reserveRequestSlot()");
-    expect(transport).toContain("await delay(RETRY_BACKOFF_MS * attempt)");
   });
 });

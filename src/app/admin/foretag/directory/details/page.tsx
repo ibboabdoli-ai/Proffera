@@ -79,6 +79,7 @@ export default async function DirectoryAdminDetailsPage({ searchParams }: PagePr
   let services: unknown[] = [];
   let locations: unknown[] = [];
   let sources: unknown[] = [];
+  let sourceTotal = 0;
 
   if (PROFILE_ID_RE.test(profileId)) {
     const rows = await sql`
@@ -96,14 +97,16 @@ export default async function DirectoryAdminDetailsPage({ searchParams }: PagePr
     selected = rows[0] ? rows[0] as JsonRecord : null;
 
     if (selected) {
-      const [serviceRows, locationRows, sourceRows] = await Promise.all([
+      const [serviceRows, locationRows, sourceRows, sourceCountRows] = await Promise.all([
         sql`select to_jsonb(service) as value from company_directory_profile_services service where service.profile_id = ${profileId}::uuid order by service.created_at, service.service_slug`,
         sql`select to_jsonb(location) as value from company_directory_business_locations location where location.profile_id = ${profileId}::uuid order by location.created_at`,
         sql`select to_jsonb(source) as value from company_directory_field_sources source where source.profile_id = ${profileId}::uuid order by source.observed_at desc nulls last, source.created_at desc, source.id limit 100`,
+        sql`select count(*)::int as count from company_directory_field_sources source where source.profile_id = ${profileId}::uuid`,
       ]);
       services = serviceRows.map((row) => (row as JsonRecord).value);
       locations = locationRows.map((row) => (row as JsonRecord).value);
       sources = sourceRows.map((row) => (row as JsonRecord).value);
+      sourceTotal = Number((sourceCountRows[0] as JsonRecord | undefined)?.count ?? 0);
     }
   }
 
@@ -125,7 +128,7 @@ export default async function DirectoryAdminDetailsPage({ searchParams }: PagePr
 
       <div className="rounded-2xl bg-white p-6 ring-1 ring-black/5"><h2 className="text-xl font-black">Arbetsställen · {workplaces.length}</h2><div className="mt-4 grid gap-4 lg:grid-cols-2">{workplaces.map((workplace, index) => <div key={`${text(workplace.cfarNumber)}-${index}`} className="rounded-xl bg-[#f7f8f5] p-4"><p className="font-black">{text(workplace.name) || `Arbetsställe ${index + 1}`}</p><div className="mt-3 grid gap-2 sm:grid-cols-2"><Field label="CFAR" value={workplace.cfarNumber}/><Field label="Besöksadress" value={address(workplace.visitingAddress)}/><Field label="Postadress" value={address(workplace.postalAddress)}/><Field label="Telefon" value={workplace.phone}/><Field label="E-post" value={workplace.email}/><Field label="SNI" value={workplace.sniCodes}/><Field label="Koordinater" value={workplace.coordinates}/></div></div>)}</div></div>
 
-      <div className="grid gap-4 lg:grid-cols-3"><Raw label={`Tjänster · ${services.length}`} value={services}/><Raw label={`Geografiska platser · ${locations.length}`} value={locations}/><Raw label={`Fältkällor · ${sources.length}`} value={sources}/></div><div className="grid gap-4 lg:grid-cols-3"><Raw label="Raw profil" value={profile}/><Raw label="Raw Official Facts" value={facts}/><Raw label="Raw SCB enrichment" value={scb}/></div>
+      <div className="grid gap-4 lg:grid-cols-3"><Raw label={`Tjänster · ${services.length}`} value={services}/><Raw label={`Geografiska platser · ${locations.length}`} value={locations}/><Raw label={`Fältkällor · visar senaste ${sources.length} av ${sourceTotal}`} value={sources}/></div><div className="grid gap-4 lg:grid-cols-3"><Raw label="Raw profil" value={profile}/><Raw label="Raw Official Facts" value={facts}/><Raw label="Raw SCB enrichment" value={scb}/></div>
     </section> : profileId ? <p className="mt-6 rounded-xl bg-[#fff4f2] p-4 font-bold text-[#8a2b20]">Profilen hittades inte.</p> : null}
 
     <section className="mt-7 overflow-hidden rounded-2xl bg-white ring-1 ring-black/5"><div className="border-b p-5"><h2 className="text-xl font-black">Företag</h2><p className="text-sm text-[#747e77]">Visar högst 50 träffar.</p></div><div className="overflow-x-auto"><table className="w-full min-w-[850px] text-left text-sm"><thead><tr><th className="p-4">Företag</th><th>Org.nr</th><th>Status</th><th>Quality</th><th>SCB</th><th>Åtgärd</th></tr></thead><tbody>{searchRows.map((raw) => { const row = raw as JsonRecord; const id = text(row.id); return <tr key={id} className="border-t"><td className="p-4 font-bold">{text(row.display_name) || text(row.legal_name)}</td><td>{text(row.organization_number)}</td><td>{text(row.publication_status)}</td><td>{text(row.quality_score)}/100</td><td>{row.scb_last_synced_at ? `Hämtad · ${Number(row.scb_conflict_count) || 0} konflikter` : "Inte hämtad"}</td><td><Link href={`/admin/foretag/directory/details?profile=${encodeURIComponent(id)}${query ? `&q=${encodeURIComponent(query)}` : ""}`} className="font-black text-[#17452f] underline">Visa detaljer</Link></td></tr>; })}</tbody></table></div></section>
