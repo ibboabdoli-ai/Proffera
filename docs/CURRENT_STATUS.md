@@ -1,6 +1,6 @@
 # Proffera Current Status
 
-Last updated: 2026-08-20
+Last updated: 2026-08-21
 
 This is the canonical factual status document for Proffera. For worker rules, live task state, current `main` SHA, and roadmap order, also read `AGENTS.md`, `WORKER_BOOTSTRAP.md`, GitHub issue #548, GitHub issue #276, and `docs/README.md`.
 
@@ -100,9 +100,11 @@ An opt-in isolated Preview harness also exists for:
 - two-account Workspace visibility/isolation smoke checks;
 - read-only rendering of a dedicated published Booking page.
 
+On 2026-08-21 the dedicated non-Production Neon Preview branch was refreshed in place to the current Marketplace/SCB schema and sanitized so tenant/auth/customer/company/quote/payment/review/admin data are empty while only non-sensitive reference catalogs remain. Preview database URL resolution is fail-closed and the current isolation work additionally rejects a Preview URL that resolves to the same database target as a shared database URL. The database boundary is therefore prepared for state-changing E2E, but the full activation gate still requires a current Vercel Preview to prove runtime Better Auth, controlled-recipient email and test-mode payment isolation before mutations are enabled.
+
 Those authenticated/Booking checks intentionally skip unless dedicated Preview E2E credentials/workspace names/booking slug are supplied. They must not become required CI until Preview is proven isolated from Production for database, auth, email, payments and customer data.
 
-Still intentionally excluded from state-changing browser automation until that isolation is proven:
+Still intentionally excluded from state-changing browser automation until the complete runtime isolation gate is proven:
 
 - Booking → email verification → confirmation;
 - Quote Request → Offer → Accept/Reject;
@@ -141,8 +143,8 @@ A Production runtime warning observed on 2026-08-18 concerns PostgreSQL connecti
 2. Keep this file synchronized only when a PR changes stable project-level truth; do not use it for fast-moving task/SHA/deployment state.
 3. Keep CodeRabbit consumption risk-routed and fail closed: sensitive/large PRs require an acceptable CodeRabbit decision on the current head before the required merge gate can pass.
 4. Monitor nationwide Company Directory rollout volume and queue health before increasing rollout speed.
-5. Activate authenticated Workspace/Booking browser checks only after isolated Preview test infrastructure is proven.
-6. Expand state-changing Booking and Quote E2E only after Preview database/auth/email/payment isolation is verified.
+5. Complete current Vercel Preview runtime proof for the sanitized isolated database plus dedicated auth/email/test-payment boundaries.
+6. Expand state-changing Booking and Marketplace Quote E2E only after that complete Preview runtime isolation gate is verified.
 7. Continue database tenant-defense work only through isolated-branch proof before any Production RLS rollout.
 
 ## Status-document rule
