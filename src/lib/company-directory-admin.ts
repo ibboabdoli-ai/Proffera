@@ -263,6 +263,7 @@ export async function getCompanyDirectoryAdminSnapshot(input?: {
         (
           scb.profile_id is not null
           and scb.source_payload_hash <> ''
+          and scb.last_synced_at >= now() - interval '7 days'
           and scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = p.updated_at::text
           and scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = f.last_synced_at::text
         ) as scb_snapshot_fresh

@@ -91,13 +91,16 @@ function evaluation(status = "ready", overrides: Record<string, unknown> = {}) {
 function configureWorker(input: {
   status?: string;
   evaluation?: Record<string, unknown>;
+  finalEvaluation?: Record<string, unknown>;
   moveRows?: unknown[];
   backlog?: number;
 } = {}) {
   const status = input.status ?? "ready";
   const fresh = input.evaluation ?? evaluation(status);
-  const moveRows = input.moveRows ?? [{ id: PROFILE_ID }];
+  const finalFresh = input.finalEvaluation ?? fresh;
+  const moveRows = input.moveRows ?? [{ profile_updated_token: PROFILE_TOKEN }];
   const backlog = input.backlog ?? 0;
+  let evaluationReads = 0;
 
   responder = async (query) => {
     if (query.includes("started_at < now() - interval '10 minutes'")) return [];
@@ -105,7 +108,10 @@ function configureWorker(input: {
     if (query.includes("select profile.id::text, profile.organization_number, profile.display_name, profile.publication_status")) {
       return [candidate(status)];
     }
-    if (query.includes("profile.category_slug") && query.includes("scb_snapshot_fresh")) return [fresh];
+    if (query.includes("profile.category_slug") && query.includes("scb_snapshot_fresh")) {
+      evaluationReads += 1;
+      return [evaluationReads === 1 ? fresh : finalFresh];
+    }
     if (query.includes("update company_directory_profiles profile")) return moveRows;
     if (query.includes("update company_directory_sync_runs") && query.includes("where id =")) return [];
     if (query.includes("select count(*)::int as count")) return [{ count: backlog }];
@@ -149,6 +155,7 @@ describe("full Company Directory revalidation", () => {
       skipped: true,
       reason: "scb_access_not_configured",
       selected: 0,
+      recoveredToReady: 0,
       remaining: 1787,
     });
     expect(mocks.enrichOfficialFacts).not.toHaveBeenCalled();
@@ -211,6 +218,44 @@ describe("full Company Directory revalidation", () => {
     expect(recovery?.query).toContain("profile.claimed_workspace_id is null");
     expect(recovery?.query).toContain("jsonb_array_length(coalesce(scb.conflicts, '[]'::jsonb)) = 0");
     expect(recovery?.query).not.toContain("set publication_status = 'published'");
+  });
+
+  it("returns a recovered profile to Review when its final SCB snapshot conflicts", async () => {
+    configureWorker({
+      status: "review",
+      evaluation: evaluation("review"),
+      finalEvaluation: evaluation("ready", { scb_conflict_count: 1 }),
+    });
+
+    const result = await revalidateAllCompanyDirectoryBatch(10);
+
+    expect(result).toMatchObject({
+      selected: 1,
+      recoveredToReady: 0,
+      kept: 1,
+      deferred: 1,
+      errors: 0,
+    });
+    const updatesToReview = sqlCalls.filter((call) => call.query.includes("set publication_status = 'review'"));
+    expect(updatesToReview).toHaveLength(1);
+    expect(updatesToReview[0]?.values).toContain(PROFILE_TOKEN);
+  });
+
+  it("does not recover a Review profile from SCB evidence older than seven days", async () => {
+    configureWorker({
+      status: "review",
+      evaluation: evaluation("review", { scb_snapshot_fresh: false }),
+    });
+
+    const result = await revalidateAllCompanyDirectoryBatch(10);
+
+    expect(result).toMatchObject({
+      selected: 1,
+      recoveredToReady: 0,
+      deferred: 1,
+      errors: 0,
+    });
+    expect(sqlCalls.some((call) => call.query.includes("set publication_status = 'ready'"))).toBe(false);
   });
 
   it("keeps Review profiles in Review when confidence remains below 95%", async () => {
