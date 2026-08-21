@@ -48,7 +48,7 @@ Current control plane:
 6. `docs/README.md` — documentation authority map.
 7. `.github/copilot-instructions.md` — automatic GitHub/Copilot agent entry instructions pointing to the same canonical sources.
 
-The mandatory Worker Bootstrap toolchain check now distinguishes installed/active tooling from planned tooling. Current worker-facing tools are Graphify `0.9.42` for architecture/dependency analysis, the root ESLint/TypeScript/Vitest/Next build validation stack, Playwright browser E2E, GitHub Actions required checks, CodeQL when enabled by repository control, risk-routed exact-head CodeRabbit review, Dependabot dependency maintenance, and isolated Vercel Preview/non-Production database proof for state-changing flows. Workers must use existing tooling before proposing overlapping replacements and must not assume planned Sentry, Checkly, PostHog, Semgrep, or Renovate availability without current evidence.
+The mandatory Worker Bootstrap toolchain check now distinguishes installed/active tooling from planned tooling. Current worker-facing tools are Graphify `0.9.42` for architecture/dependency analysis, the root ESLint/TypeScript/Vitest/Next build validation stack, Playwright browser E2E, GitHub Actions required checks, CodeQL when enabled by repository control, the opt-in SonarQube scan workflow for code-quality/maintainability analysis once its external project variables and token are configured, risk-routed exact-head CodeRabbit review, Dependabot dependency maintenance, and isolated Vercel Preview/non-Production database proof for state-changing flows. Workers must use existing tooling before proposing overlapping replacements and must not assume planned Sentry, Checkly, PostHog, Semgrep, or Renovate availability without current evidence.
 
 Current merge-safety rules include:
 
@@ -88,6 +88,8 @@ Dependency-bot branches are handled separately by automation and are exempt from
 - Company Directory discovery-worker Python validation;
 - Next.js production build;
 - whitespace validation.
+
+The SonarQube workflow is configured separately from the required `Validate`/browser gates and is intentionally opt-in until `SONARQUBE_ENABLED`, the Sonar project identity, deployment mode, and `SONAR_TOKEN` are configured. Its initial quality-gate wait is advisory rather than merge-blocking, so existing historical debt cannot silently become a new release gate.
 
 Playwright browser E2E is automated in CI. The actual browser run is `E2E public smoke run`; the required `E2E public smoke` check is the final browser-plus-review gate described above.
 
@@ -150,7 +152,7 @@ A Production runtime warning observed on 2026-08-18 concerns PostgreSQL connecti
 
 1. Keep issue #548 as the live worker/PR state and current `main` baseline; use automatic Supervisor lifecycle events as the durable event trail.
 2. Keep this file synchronized only when a PR changes stable project-level truth; do not use it for fast-moving task/SHA/deployment state.
-3. Require workers to use the installed toolchain in `WORKER_BOOTSTRAP.md` when relevant, especially Graphify for cross-node dependency work, before introducing overlapping tools or manual substitutes.
+3. Require workers to use the installed toolchain in `WORKER_BOOTSTRAP.md` when relevant, especially Graphify for cross-node dependency work and SonarQube findings after the external Sonar project is enabled, before introducing overlapping tools or manual substitutes.
 4. Keep CodeRabbit consumption risk-routed and fail closed: sensitive/large PRs require an acceptable CodeRabbit decision on the current head before the required merge gate can pass.
 5. Monitor nationwide Company Directory rollout volume and queue health before increasing rollout speed.
 6. Configure an independent Preview Brevo credential and rotate the weak Preview Better Auth secret, then re-run controlled-recipient email and Admin-visible Marketplace E2E.
