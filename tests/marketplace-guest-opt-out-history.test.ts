@@ -64,11 +64,14 @@ describe("marketplace guest historical opt-out", () => {
 
   it("suppresses the historical recipient address when the old emailed token is submitted", async () => {
     mocks.suppressCurrent.mockResolvedValue({ ok: false, code: "invalid" });
+    const invitationId = "11111111-1111-4111-8111-111111111111";
+    const profileId = "22222222-2222-4222-8222-222222222222";
+    const recipientEmail = "old-contact@example.se";
     const sql = sqlWithResponses(
       [{
-        invitation_id: "11111111-1111-4111-8111-111111111111",
-        profile_id: "22222222-2222-4222-8222-222222222222",
-        recipient_email_normalized: "old-contact@example.se",
+        invitation_id: invitationId,
+        profile_id: profileId,
+        recipient_email_normalized: recipientEmail,
       }],
       [],
     );
@@ -81,7 +84,19 @@ describe("marketplace guest historical opt-out", () => {
     expect(sql.transaction).toHaveBeenCalledTimes(1);
     const transactionQueries = sql.transaction.mock.calls[0]?.[0] as unknown[];
     expect(transactionQueries).toHaveLength(2);
+
+    const insertCall = sql.mock.calls[1] ?? [];
+    expect(queryText(insertCall)).toContain("marketplace_outreach_suppressions");
+    expect(insertCall.slice(1)).toEqual([profileId, recipientEmail, invitationId]);
     expect(queryText(sql.mock.calls.at(-1))).toContain("status = 'pending'");
+  });
+
+  it("rejects an invalid token before any database access", async () => {
+    const result = await suppressMarketplaceGuestRecipientWithHistory("bad-token");
+
+    expect(result).toEqual({ ok: false, code: "invalid" });
+    expect(mocks.suppressCurrent).not.toHaveBeenCalled();
+    expect(mocks.getSql).not.toHaveBeenCalled();
   });
 
   it("uses the current opt-out path without touching history when the current token is still valid", async () => {
