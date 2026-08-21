@@ -223,6 +223,32 @@ describe("full Company Directory revalidation", () => {
     expect(recovery?.query).not.toContain("set publication_status = 'published'");
   });
 
+  it("keeps a failed discovery-queue Review profile out of recovery work and backlog", async () => {
+    responder = async (query) => {
+      if (query.includes("started_at < now() - interval '10 minutes'")) return [];
+      if (query.includes("insert into company_directory_sync_runs")) return [{ id: RUN_ID }];
+      if (query.includes("select profile.id::text, profile.organization_number, profile.display_name, profile.publication_status")) {
+        expect(query).toContain("company_directory_discovery_queue queue");
+        expect(query).toContain("queue.state = 'failed'");
+        return [];
+      }
+      if (query.includes("update company_directory_sync_runs") && query.includes("where id =")) return [];
+      if (query.includes("select count(*)::int as count")) {
+        expect(query).toContain("company_directory_discovery_queue queue");
+        expect(query).toContain("queue.state = 'failed'");
+        return [{ count: 0 }];
+      }
+      throw new Error(`Unexpected SQL in failed-queue recovery test: ${query}`);
+    };
+
+    const result = await revalidateAllCompanyDirectoryBatch(10);
+
+    expect(result).toMatchObject({ selected: 0, recoveredToReady: 0, remaining: 0, errors: 0 });
+    expect(mocks.enrichOfficialFacts).not.toHaveBeenCalled();
+    expect(mocks.enrichScb).not.toHaveBeenCalled();
+    expect(sqlCalls.some((call) => call.query.includes("set publication_status = 'ready'"))).toBe(false);
+  });
+
   it("returns a recovered profile to Review when its final SCB snapshot conflicts", async () => {
     configureWorker({
       status: "review",

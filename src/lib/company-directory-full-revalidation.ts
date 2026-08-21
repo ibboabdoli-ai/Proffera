@@ -192,6 +192,18 @@ async function selectCandidates(limit: number, cursorValue: string) {
             and profile.privacy_blocked = false
             and profile.auto_public_eligible = true
             and profile.claimed_workspace_id is null
+            and not exists (
+              select 1
+              from company_directory_discovery_queue queue
+              where queue.state = 'failed'
+                and (
+                  queue.profile_id = profile.id
+                  or (
+                    queue.country_code = profile.country_code
+                    and queue.organization_number = regexp_replace(profile.organization_number, '\\D', '', 'g')
+                  )
+                )
+            )
             and facts.profile_id is not null
             and facts.source_payload_hash <> ''
             and facts.last_synced_at >= profile.last_synced_at
@@ -252,9 +264,21 @@ async function backlogCount() {
           profile.publication_status = 'review'
           and profile.is_active = true
           and profile.privacy_blocked = false
-          and profile.auto_public_eligible = true
-          and profile.claimed_workspace_id is null
-          and facts.profile_id is not null
+            and profile.auto_public_eligible = true
+            and profile.claimed_workspace_id is null
+            and not exists (
+              select 1
+              from company_directory_discovery_queue queue
+              where queue.state = 'failed'
+                and (
+                  queue.profile_id = profile.id
+                  or (
+                    queue.country_code = profile.country_code
+                    and queue.organization_number = regexp_replace(profile.organization_number, '\\D', '', 'g')
+                  )
+                )
+            )
+            and facts.profile_id is not null
           and facts.source_payload_hash <> ''
           and facts.last_synced_at >= profile.last_synced_at
           and facts.deregistration_date is null

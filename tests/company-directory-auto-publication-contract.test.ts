@@ -19,6 +19,7 @@ vi.mock("@/lib/company-directory-category-confidence", () => ({
 }));
 
 import { publishCompanyDirectoryProfileIfSafe } from "@/lib/company-directory-publication";
+import { autoPublishReadyHighConfidenceCompanyDirectoryBatch } from "@/lib/company-directory-ready-auto-publish";
 
 const PROFILE_ID = "11111111-1111-4111-8111-111111111111";
 const PROFILE_UPDATED_TOKEN = "2026-08-19 10:00:00.123456+00";
@@ -223,6 +224,57 @@ describe("safe company directory auto publication contract", () => {
     const finalValues = sql.mock.calls[1]?.slice(1) ?? [];
     expect(finalValues).toContain(PROFILE_UPDATED_TOKEN);
     expect(finalValues).toContain(FACTS_LAST_SYNCED_TOKEN);
+  });
+
+  it("does not publish when the final atomic gate finds a failed discovery-queue record", async () => {
+    const sql = mockPublicationSql(safePublicationRow(), []);
+    mocks.getSql.mockReturnValue(sql);
+
+    await expect(publishCompanyDirectoryProfileIfSafe(PROFILE_ID)).resolves.toEqual({
+      ok: false,
+      code: "not_ready",
+    });
+    expect(mocks.enrichScb).toHaveBeenCalledWith(PROFILE_ID);
+    const finalQuery = executedQuery(sql.mock.calls[1]);
+    expect(finalQuery).toContain("company_directory_discovery_queue queue");
+    expect(finalQuery).toContain("queue.state = 'failed'");
+  });
+
+  it("does not include failed discovery-queue profiles in automatic publication count or scan", async () => {
+    const previousAutoPublish = process.env.COMPANY_DIRECTORY_AUTO_PUBLISH;
+    process.env.COMPANY_DIRECTORY_AUTO_PUBLISH = "true";
+    const queries: string[] = [];
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = Array.from(strings).join("?");
+      queries.push(query);
+      if (query.includes("select count(*)::int as count")) {
+        expect(query).toContain("company_directory_discovery_queue queue");
+        expect(query).toContain("queue.state = 'failed'");
+        return [{ count: 1 }];
+      }
+      if (query.includes("from company_directory_profiles profile") && query.includes("offset ?")) {
+        expect(query).toContain("company_directory_discovery_queue queue");
+        expect(query).toContain("queue.state = 'failed'");
+        return [];
+      }
+      throw new Error(`Unexpected automatic-publication SQL: ${query}`);
+    });
+    mocks.getSql.mockReturnValue(sql);
+
+    try {
+      await expect(autoPublishReadyHighConfidenceCompanyDirectoryBatch(10)).resolves.toMatchObject({
+        safetyEligible: 1,
+        scanned: 0,
+        selected: 0,
+        published: 0,
+        errors: 0,
+      });
+      expect(queries).toHaveLength(2);
+      expect(mocks.enrichScb).not.toHaveBeenCalled();
+    } finally {
+      if (previousAutoPublish === undefined) delete process.env.COMPANY_DIRECTORY_AUTO_PUBLISH;
+      else process.env.COMPANY_DIRECTORY_AUTO_PUBLISH = previousAutoPublish;
+    }
   });
 
   it("keeps terminal discovery-queue failures out of automatic publication scans", () => {
