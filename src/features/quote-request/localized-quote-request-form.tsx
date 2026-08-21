@@ -60,6 +60,14 @@ function restoreSmartAnswers(value: unknown): SmartQuoteAnswers {
   );
 }
 
+function discardLanguageDraft() {
+  try {
+    window.sessionStorage.removeItem(DRAFT_STORAGE_KEY);
+  } catch {
+    // Storage can be blocked; the quote form must remain usable.
+  }
+}
+
 export function LocalizedQuoteRequestForm({
   locale,
   initialValues,
@@ -95,9 +103,20 @@ export function LocalizedQuoteRequestForm({
     try {
       const raw = window.sessionStorage.getItem(DRAFT_STORAGE_KEY);
       if (!raw) return;
-      const draft = JSON.parse(raw) as Partial<QuoteLanguageDraft>;
+
+      let draft: Partial<QuoteLanguageDraft>;
+      try {
+        draft = JSON.parse(raw) as Partial<QuoteLanguageDraft>;
+      } catch {
+        discardLanguageDraft();
+        return;
+      }
+
       const savedAt = Number(draft.savedAt);
-      if (!Number.isFinite(savedAt) || Date.now() - savedAt > DRAFT_MAX_AGE_MS) return;
+      if (!Number.isFinite(savedAt) || Date.now() - savedAt > DRAFT_MAX_AGE_MS) {
+        discardLanguageDraft();
+        return;
+      }
 
       const restoredSmartAnswers = restoreSmartAnswers(draft.smartAnswers);
       const restoredStep = typeof draft.step === "number" && Number.isInteger(draft.step)
@@ -108,15 +127,10 @@ export function LocalizedQuoteRequestForm({
         setData((current) => restoreDraftData(current, draft.data));
         setSmartAnswers(restoredSmartAnswers);
         if (restoredStep !== null) setStep(restoredStep);
+        discardLanguageDraft();
       });
     } catch {
-      // A malformed or blocked sessionStorage draft must never block the quote form.
-    } finally {
-      try {
-        window.sessionStorage.removeItem(DRAFT_STORAGE_KEY);
-      } catch {
-        // Ignore storage failures and keep the form usable.
-      }
+      // A blocked sessionStorage draft must never block the quote form.
     }
 
     return () => {
@@ -207,11 +221,7 @@ export function LocalizedQuoteRequestForm({
           }
           return;
         }
-        try {
-          window.sessionStorage.removeItem(DRAFT_STORAGE_KEY);
-        } catch {
-          // Ignore storage failures after a successful request.
-        }
+        discardLanguageDraft();
         setReference(result.referenceId);
         setErrors({});
       });
