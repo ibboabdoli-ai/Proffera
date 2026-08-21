@@ -75,6 +75,9 @@ export function createQuoteRequestSchema(locale: PublicLocale = "sv") {
     }
 
     if (input.locationSource === "address") {
+      if (input.latitude !== null || input.longitude !== null) {
+        context.addIssue({ code: z.ZodIssueCode.custom, path: ["addressLine1"], message: copy.locationInvalid });
+      }
       if (!input.addressLine1) {
         context.addIssue({ code: z.ZodIssueCode.custom, path: ["addressLine1"], message: copy.locationRequired });
       } else if (input.addressLine1.length < 3) {
@@ -83,6 +86,9 @@ export function createQuoteRequestSchema(locale: PublicLocale = "sv") {
       return;
     }
 
+    if (input.addressLine1) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["addressLine1"], message: copy.locationInvalid });
+    }
     if (!hasValidCoordinates(input.latitude, input.longitude)) {
       context.addIssue({ code: z.ZodIssueCode.custom, path: ["addressLine1"], message: copy.locationInvalid });
     }
