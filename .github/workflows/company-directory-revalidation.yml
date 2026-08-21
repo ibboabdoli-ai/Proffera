@@ -15,7 +15,7 @@ jobs:
   dispatch:
     name: Revalidate Company Directory profiles
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 5
     steps:
       - name: Verify scheduler configuration
         env:
@@ -53,9 +53,17 @@ jobs:
           PY
           )"
 
-          curl --fail-with-body --silent --show-error \
-            --connect-timeout 10 \
-            --max-time 75 \
-            --header "Authorization: Bearer $CRON_SECRET" \
-            --header "User-Agent: proffera-company-directory-revalidation-github-actions" \
-            "$ORIGIN/api/cron/company-directory-revalidation"
+          # GitHub scheduled workflows can be delayed during load. Drain two safe
+          # ten-profile batches whenever the scheduler does wake up, while keeping
+          # each Vercel invocation below its existing 60-second deadline.
+          BATCHES_PER_RUN=2
+          for batch in $(seq 1 "$BATCHES_PER_RUN"); do
+            echo "Company Directory revalidation batch $batch/$BATCHES_PER_RUN"
+            curl --fail-with-body --silent --show-error \
+              --connect-timeout 10 \
+              --max-time 75 \
+              --header "Authorization: Bearer $CRON_SECRET" \
+              --header "User-Agent: proffera-company-directory-revalidation-github-actions" \
+              "$ORIGIN/api/cron/company-directory-revalidation"
+            echo
+          done
