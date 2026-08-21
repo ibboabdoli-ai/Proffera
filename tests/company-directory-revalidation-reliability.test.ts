@@ -112,8 +112,9 @@ describe("Company Directory revalidation reliability", () => {
     const transport = createScbCompanyRegistryTransportFromEnv();
 
     const pending = transport!.fetchCompany("5563115707");
+    const rejection = expect(pending).rejects.toThrow("second reset");
     await vi.advanceTimersByTimeAsync(1_500);
-    await expect(pending).rejects.toThrow("second reset");
+    await rejection;
     expect(httpsMock.request).toHaveBeenCalledTimes(2);
   });
 
