@@ -1,6 +1,6 @@
 import "server-only";
 
-import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 
 import { marketplaceGuestInvitationEmailConfigured, sendMarketplaceGuestInvitationEmail } from "@/features/email/marketplace-guest-invitation-email";
 import { resolveCustomerPortalSecret } from "@/lib/auth-secret";
@@ -34,8 +34,10 @@ function sign(encoded: string, secret: string) {
   return createHmac("sha256", secret).update(`${TEST_TOKEN_PREFIX}.${encoded}`).digest("base64url");
 }
 
-function recipientHash(email: string) {
-  return createHash("sha256").update(email).digest("hex");
+function recipientHash(email: string, secret: string) {
+  return createHmac("sha256", secret)
+    .update(`${TEST_TOKEN_PREFIX}.recipient.${email}`)
+    .digest("hex");
 }
 
 function readTestToken(token: string): TestTokenPayload | null {
@@ -100,6 +102,8 @@ export async function sendMarketplaceGuestQuoteTestInvitation(input: {
     return { ok: false as const, code: "business_email_required" };
   }
   const language = input.language === "en" ? "en" : "sv";
+  const auditSecret = testTokenSecret();
+  if (!auditSecret) return { ok: false as const, code: "token_configuration" };
 
   const normalizedBaseUrl = input.baseUrl.replace(/\/$/, "");
   let testToken: string;
@@ -110,7 +114,7 @@ export async function sendMarketplaceGuestQuoteTestInvitation(input: {
   }
 
   const dispatchToken = randomUUID();
-  const emailHash = recipientHash(recipientEmail);
+  const emailHash = recipientHash(recipientEmail, auditSecret);
 
   let reservationRows: Array<Record<string, unknown>>;
   try {

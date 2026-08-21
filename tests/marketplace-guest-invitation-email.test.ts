@@ -91,6 +91,8 @@ describe("marketplace guest invitation email delivery", () => {
     expect(email.subject).toContain("[TEST]");
     expect(email.text).toContain("Ingen kund, offertförfrågan, företagsprofil eller avregistrering påverkas.");
     expect(email.html).toContain("Proffera · TEST");
+    expect(email.text).toContain("https://www.proffera.se/offert/testa/token");
+    expect(email.html).toContain('href="https://www.proffera.se/offert/testa/token"');
     expect(email.text).not.toContain("Vill ni inte få fler");
     expect(email.text).not.toContain("https://www.proffera.se/avregistrera/test");
     expect(email.html).not.toContain("https://www.proffera.se/avregistrera/test");
@@ -116,5 +118,7 @@ describe("marketplace guest invitation email delivery", () => {
     expect(email.text).toContain("No customer, quote request, business profile, or opt-out record is affected.");
     expect(email.html).toContain('<html lang="en">');
     expect(email.html).toContain("Open test link");
+    expect(email.text).toContain("https://www.proffera.se/offert/testa/token?lang=en");
+    expect(email.html).toContain('href="https://www.proffera.se/offert/testa/token?lang=en"');
   });
 });
