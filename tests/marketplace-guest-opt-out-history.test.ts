@@ -81,7 +81,7 @@ describe("marketplace guest historical opt-out", () => {
     expect(sql.transaction).toHaveBeenCalledTimes(1);
     const transactionQueries = sql.transaction.mock.calls[0]?.[0] as unknown[];
     expect(transactionQueries).toHaveLength(2);
-    expect(queryText(sql.mock.calls[1])).toContain("status = 'pending'");
+    expect(queryText(sql.mock.calls.at(-1))).toContain("status = 'pending'");
   });
 
   it("uses the current opt-out path without touching history when the current token is still valid", async () => {
