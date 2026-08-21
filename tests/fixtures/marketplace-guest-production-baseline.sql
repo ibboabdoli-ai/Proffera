@@ -125,3 +125,51 @@ create index company_directory_public_search_idx
   on company_directory_profiles (publication_status, category_slug, city, quality_score desc);
 create index company_directory_claimed_workspace_idx
   on company_directory_profiles (claimed_workspace_id) where claimed_workspace_id is not null;
+
+-- Executable contract for the base table that is not recreated by the active
+-- migration chain. Marketplace migrations depend on these columns and on the
+-- exact open/closed status vocabulary; fail clearly if this fixture drifts.
+do $$
+declare
+  missing_columns text[];
+  status_definition text;
+begin
+  select array_agg(required.column_name order by required.column_name)
+    into missing_columns
+    from (values ('id'), ('status'), ('consent_accepted')) as required(column_name)
+   where not exists (
+     select 1
+       from information_schema.columns column_info
+      where column_info.table_schema = 'public'
+        and column_info.table_name = 'quote_requests'
+        and column_info.column_name = required.column_name
+   );
+
+  if coalesce(array_length(missing_columns, 1), 0) > 0 then
+    raise exception using
+      errcode = '23514',
+      message = 'marketplace_guest_quote_requests_schema_missing:' || array_to_string(missing_columns, ',');
+  end if;
+
+  select pg_get_constraintdef(constraint_info.oid)
+    into status_definition
+    from pg_constraint constraint_info
+   where constraint_info.conrelid = 'quote_requests'::regclass
+     and constraint_info.conname = 'quote_requests_status_check';
+
+  if status_definition is null
+     or position('submitted' in status_definition) = 0
+     or position('pending_review' in status_definition) = 0
+     or position('approved' in status_definition) = 0
+     or position('matched' in status_definition) = 0
+     or position('answered' in status_definition) = 0
+     or position('booked' in status_definition) = 0
+     or position('completed' in status_definition) = 0
+     or position('cancelled' in status_definition) = 0
+     or position('rejected' in status_definition) = 0 then
+    raise exception using
+      errcode = '23514',
+      message = 'marketplace_guest_quote_requests_status_contract_invalid';
+  end if;
+end;
+$$;
