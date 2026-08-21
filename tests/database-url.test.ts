@@ -30,6 +30,19 @@ describe("database URL resolution", () => {
     ).toBeNull();
   });
 
+  it("fails closed when Preview resolves to the same database target as a shared URL", () => {
+    expect(
+      resolveDatabaseUrl({
+        ...testEnvironment,
+        VERCEL_ENV: "preview",
+        PROFFERA_PREVIEW_DATABASE_URL:
+          "postgresql://preview_user:preview_password@ep-production-pooler.example.neon.tech/neondb?sslmode=require",
+        DATABASE_URL:
+          "postgresql://production_user:production_password@ep-production.example.neon.tech/neondb?channel_binding=require&sslmode=require",
+      }),
+    ).toBeNull();
+  });
+
   it("ignores the Preview database variable outside Vercel Preview", () => {
     expect(
       resolveDatabaseUrl({
