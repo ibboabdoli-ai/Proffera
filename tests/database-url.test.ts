@@ -43,6 +43,22 @@ describe("database URL resolution", () => {
     ).toBeNull();
   });
 
+  it.each(["postgres", "postgresql"])(
+    "fails closed when a %s Preview URL omits PostgreSQL's default port but the shared URL uses :5432",
+    (scheme) => {
+      expect(
+        resolveDatabaseUrl({
+          ...testEnvironment,
+          VERCEL_ENV: "preview",
+          PROFFERA_PREVIEW_DATABASE_URL:
+            `${scheme}://preview_user:preview_password@ep-shared.example.neon.tech/neondb?sslmode=require`,
+          DATABASE_URL:
+            `${scheme}://production_user:production_password@ep-shared.example.neon.tech:5432/neondb?sslmode=require`,
+        }),
+      ).toBeNull();
+    },
+  );
+
   it("fails closed when Preview overlaps a shared Vercel Postgres fallback", () => {
     expect(
       resolveDatabaseUrl({
