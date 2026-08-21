@@ -18,7 +18,7 @@ begin
   ) then
     alter table quote_requests
       add constraint quote_requests_customer_location_consistency_check
-      check (
+      check (coalesce((
         (
           customer_location_source is null
           and customer_address_line1 is null
@@ -39,7 +39,7 @@ begin
           and customer_latitude between -90 and 90
           and customer_longitude between -180 and 180
         )
-      );
+      ), false));
   end if;
 end
 $$;
