@@ -8,7 +8,7 @@ import {
   guestQuoteHref,
   type GuestFlowLocale,
 } from "./guest-flow-locale";
-import { getMarketplaceGuestQuoteView } from "@/lib/marketplace-guest-quote";
+import { getMarketplaceGuestQuoteView } from "@/lib/marketplace-guest-quote-human-view";
 
 export const dynamic = "force-dynamic";
 
