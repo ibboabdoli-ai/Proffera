@@ -118,6 +118,8 @@ describe("full Company Directory revalidation batch cap", () => {
         return [evaluation(id, index)];
       }
 
+      if (query.includes("update company_directory_scb_enrichment scb")) return [{ profile_id: values[3] }];
+
       if (query.includes("update company_directory_sync_runs") && query.includes("where id =")) return [];
       if (query.includes("select count(*)::int as count")) return [{ count: 0 }];
       throw new Error(`Unexpected SQL in batch-cap behavior test: ${query}`);

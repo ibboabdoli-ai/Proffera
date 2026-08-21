@@ -121,6 +121,18 @@ export async function publishCompanyDirectoryProfileIfSafe(
       and p.auto_public_eligible = true
       and p.claimed_workspace_id is null
       and p.updated_at::text = ${profileUpdatedToken}
+      and not exists (
+        select 1
+        from company_directory_discovery_queue queue
+        where queue.state = 'failed'
+          and (
+            queue.profile_id = p.id
+            or (
+              queue.country_code = p.country_code
+              and queue.organization_number = regexp_replace(p.organization_number, '\\D', '', 'g')
+            )
+          )
+      )
       and exists (
         select 1
         from company_directory_official_facts f

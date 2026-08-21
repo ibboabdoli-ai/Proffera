@@ -112,6 +112,7 @@ function configureWorker(input: {
       evaluationReads += 1;
       return [evaluationReads === 1 ? fresh : finalFresh];
     }
+    if (query.includes("update company_directory_scb_enrichment")) return [{ profile_id: PROFILE_ID }];
     if (query.includes("update company_directory_profiles profile")) return moveRows;
     if (query.includes("update company_directory_sync_runs") && query.includes("where id =")) return [];
     if (query.includes("select count(*)::int as count")) return [{ count: backlog }];
@@ -216,6 +217,8 @@ describe("full Company Directory revalidation", () => {
     const recovery = sqlCalls.find((call) => call.query.includes("set publication_status = 'ready'"));
     expect(recovery?.query).toContain("profile.publication_status = 'review'");
     expect(recovery?.query).toContain("profile.claimed_workspace_id is null");
+    expect(recovery?.query).toContain("company_directory_discovery_queue queue");
+    expect(recovery?.query).toContain("queue.state = 'failed'");
     expect(recovery?.query).toContain("jsonb_array_length(coalesce(scb.conflicts, '[]'::jsonb)) = 0");
     expect(recovery?.query).not.toContain("set publication_status = 'published'");
   });
@@ -293,6 +296,12 @@ describe("full Company Directory revalidation", () => {
     });
     expect(mocks.enrichScb).toHaveBeenCalledTimes(1);
     expect(sqlCalls.some((call) => call.query.includes("update company_directory_profiles profile"))).toBe(false);
+    const recoveryEvaluation = sqlCalls.find((call) => call.query.includes("update company_directory_scb_enrichment scb"));
+    expect(recoveryEvaluation?.values).toContain(PROFILE_TOKEN);
+    expect(recoveryEvaluation?.values).toContain(FACTS_TOKEN);
+    expect(recoveryEvaluation?.values).toContain(FACTS_HASH);
+    const selection = sqlCalls.find((call) => call.query.includes("profile.publication_status in ('published', 'ready', 'review', 'inactive', 'claimed')"));
+    expect(selection?.query).toContain("reviewRecoveryEvaluation");
   });
 
   it("refreshes claimed profiles without changing their publication status", async () => {

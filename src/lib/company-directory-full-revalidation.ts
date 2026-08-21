@@ -200,9 +200,15 @@ async function selectCandidates(limit: number, cursorValue: string) {
             and jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) = 0
             and scb.profile_id is not null
             and scb.source_payload_hash <> ''
+            and scb.last_synced_at >= now() - interval '7 days'
             and jsonb_array_length(coalesce(scb.conflicts, '[]'::jsonb)) = 0
             and scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
             and scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = facts.last_synced_at::text
+            and (
+              scb.provenance #>> '{reviewRecoveryEvaluation,profileUpdatedToken}' is distinct from profile.updated_at::text
+              or scb.provenance #>> '{reviewRecoveryEvaluation,officialFactsLastSyncedToken}' is distinct from facts.last_synced_at::text
+              or scb.provenance #>> '{reviewRecoveryEvaluation,officialFactsSourcePayloadHash}' is distinct from facts.source_payload_hash
+            )
           )
         )
     )
@@ -254,11 +260,17 @@ async function backlogCount() {
           and facts.deregistration_date is null
           and coalesce(facts.advertising_blocked, false) = false
           and jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) = 0
-          and scb.profile_id is not null
-          and scb.source_payload_hash <> ''
-          and jsonb_array_length(coalesce(scb.conflicts, '[]'::jsonb)) = 0
-          and scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
-          and scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = facts.last_synced_at::text
+            and scb.profile_id is not null
+            and scb.source_payload_hash <> ''
+            and scb.last_synced_at >= now() - interval '7 days'
+            and jsonb_array_length(coalesce(scb.conflicts, '[]'::jsonb)) = 0
+            and scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
+            and scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = facts.last_synced_at::text
+            and (
+              scb.provenance #>> '{reviewRecoveryEvaluation,profileUpdatedToken}' is distinct from profile.updated_at::text
+              or scb.provenance #>> '{reviewRecoveryEvaluation,officialFactsLastSyncedToken}' is distinct from facts.last_synced_at::text
+              or scb.provenance #>> '{reviewRecoveryEvaluation,officialFactsSourcePayloadHash}' is distinct from facts.source_payload_hash
+            )
         )
       )
   `;
@@ -327,6 +339,45 @@ async function markScbEvaluationPending(profileId: string) {
         updated_at = now()
     where profile_id = ${profileId}::uuid
   `;
+}
+
+async function markReviewRecoveryEvaluation(input: {
+  profileId: string;
+  profileUpdatedToken: string;
+  factsLastSyncedToken: string;
+  factsSourcePayloadHash: string;
+}) {
+  const sql = getSql();
+  if (!sql) return false;
+
+  const rows = await sql`
+    update company_directory_scb_enrichment scb
+    set provenance = jsonb_set(
+          coalesce(scb.provenance, '{}'::jsonb),
+          '{reviewRecoveryEvaluation}',
+          jsonb_build_object(
+            'profileUpdatedToken', ${input.profileUpdatedToken},
+            'officialFactsLastSyncedToken', ${input.factsLastSyncedToken},
+            'officialFactsSourcePayloadHash', ${input.factsSourcePayloadHash}
+          ),
+          true
+        ),
+        updated_at = now()
+    where scb.profile_id = ${input.profileId}::uuid
+      and exists (
+        select 1
+        from company_directory_profiles profile
+        join company_directory_official_facts facts on facts.profile_id = profile.id
+        where profile.id = scb.profile_id
+          and profile.publication_status = 'review'
+          and profile.updated_at::text = ${input.profileUpdatedToken}
+          and facts.last_synced_at::text = ${input.factsLastSyncedToken}
+          and facts.source_payload_hash = ${input.factsSourcePayloadHash}
+      )
+    returning scb.profile_id::text
+  `;
+
+  return Boolean(rows[0]);
 }
 
 async function moveProfileToReview(input: {
@@ -428,6 +479,18 @@ async function restoreSafeReviewProfileToReady(input: {
       and profile.auto_public_eligible = true
       and profile.claimed_workspace_id is null
       and profile.updated_at::text = ${input.profileUpdatedToken}
+      and not exists (
+        select 1
+        from company_directory_discovery_queue queue
+        where queue.state = 'failed'
+          and (
+            queue.profile_id = profile.id
+            or (
+              queue.country_code = profile.country_code
+              and queue.organization_number = regexp_replace(profile.organization_number, '\\D', '', 'g')
+            )
+          )
+      )
       and exists (
         select 1
         from company_directory_official_facts facts
@@ -629,6 +692,19 @@ export async function revalidateAllCompanyDirectoryBatch(
 
         if (status === "review") {
           if (shouldReview) {
+            const reviewRecorded = await markReviewRecoveryEvaluation({
+              profileId,
+              profileUpdatedToken,
+              factsLastSyncedToken,
+              factsSourcePayloadHash,
+            });
+            if (!reviewRecorded) {
+              deferred += 1;
+              if (errorMessages.length < 5) {
+                errorMessages.push(`${organizationNumber}: could not record Review recovery evaluation`);
+              }
+              continue;
+            }
             kept += 1;
             continue;
           }

@@ -129,6 +129,7 @@ describe("safe company directory auto publication contract", () => {
     expect(publication).toContain("Boolean(row.deregistration_date)");
     expect(publication).toContain("Boolean(row.advertising_blocked)");
     expect(publication).toContain("jsonArray(row.ongoing_procedures).length > 0");
+    expect(publication).toContain("queue.state = 'failed'");
     expect(publication).toContain('scb.status !== "saved"');
   });
 
@@ -222,6 +223,14 @@ describe("safe company directory auto publication contract", () => {
     const finalValues = sql.mock.calls[1]?.slice(1) ?? [];
     expect(finalValues).toContain(PROFILE_UPDATED_TOKEN);
     expect(finalValues).toContain(FACTS_LAST_SYNCED_TOKEN);
+  });
+
+  it("keeps terminal discovery-queue failures out of automatic publication scans", () => {
+    const readyAutoPublish = source("src/lib/company-directory-ready-auto-publish.ts");
+
+    expect(readyAutoPublish).toContain("company_directory_discovery_queue queue");
+    expect(readyAutoPublish).toContain("queue.state = 'failed'");
+    expect(readyAutoPublish).toContain("queue.profile_id = profile.id");
   });
 
   it("shows Official Facts freshness in the admin publication preview", () => {
