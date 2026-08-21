@@ -108,31 +108,36 @@ export async function sendMarketplaceGuestQuoteTestInvitation(input: {
   const dispatchToken = randomUUID();
   const emailHash = recipientHash(recipientEmail);
 
-  const recentRows = await sql`
-    select id
-    from admin_audit_logs
-    where admin_user_id = ${input.adminUserId}
-      and action = ${TEST_AUDIT_RESERVATION_ACTION}
-      and created_at > now() - interval '15 minutes'
-      and new_value->>'recipient_hash' = ${emailHash}
-    limit 1
-  `;
-  if (recentRows[0]) return { ok: false as const, code: "rate_limited" };
-
+  let reservationRows: Array<Record<string, unknown>>;
   try {
-    await sql`
-      insert into admin_audit_logs (admin_user_id, action, reason, new_value)
-      values (
-        ${input.adminUserId},
-        ${TEST_AUDIT_RESERVATION_ACTION},
-        'Super admin reserved a controlled Guest Quote email-delivery test. No company profile, quote request, invitation, offer, or suppression record is used.',
-        ${JSON.stringify({ recipient_hash: emailHash, dispatch_token: dispatchToken, token_ttl_seconds: TEST_TOKEN_TTL_SECONDS })}::jsonb
+    reservationRows = await sql`
+      with lock as materialized (
+        select pg_advisory_xact_lock(hashtextextended(${`marketplace-guest-quote-test:${emailHash}`}, 0))
+      ), recent_reservation as (
+        select 1
+        from admin_audit_logs, lock
+        where action = ${TEST_AUDIT_RESERVATION_ACTION}
+          and created_at > now() - interval '15 minutes'
+          and new_value->>'recipient_hash' = ${emailHash}
+        limit 1
+      ), reservation as (
+        insert into admin_audit_logs (admin_user_id, action, reason, new_value)
+        select
+          ${input.adminUserId},
+          ${TEST_AUDIT_RESERVATION_ACTION},
+          'Super admin reserved a controlled Guest Quote email-delivery test. No company profile, quote request, invitation, offer, or suppression record is used.',
+          ${JSON.stringify({ recipient_hash: emailHash, dispatch_token: dispatchToken, token_ttl_seconds: TEST_TOKEN_TTL_SECONDS })}::jsonb
+        from lock
+        where not exists (select 1 from recent_reservation)
+        returning id
       )
+      select exists(select 1 from reservation) as reserved
     `;
   } catch (error) {
     console.error("Failed to reserve marketplace guest quote test", error);
     return { ok: false as const, code: "audit" };
   }
+  if (reservationRows[0]?.reserved !== true) return { ok: false as const, code: "rate_limited" };
 
   const replyUrl = `${normalizedBaseUrl}/offert/testa/${encodeURIComponent(testToken)}`;
   const delivery = await sendMarketplaceGuestInvitationEmail({
