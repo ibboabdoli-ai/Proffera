@@ -241,6 +241,26 @@ describe("full Company Directory revalidation", () => {
     expect(updatesToReview[0]?.values).toContain(PROFILE_TOKEN);
   });
 
+  it("returns a recovered profile to Review when its final SCB refresh fails", async () => {
+    configureWorker({ status: "review", evaluation: evaluation("review") });
+    mocks.enrichScb
+      .mockResolvedValueOnce({ status: "saved", saved: true, conflicts: [] })
+      .mockResolvedValueOnce({ status: "rate_limited", saved: false, conflicts: [] });
+
+    const result = await revalidateAllCompanyDirectoryBatch(10);
+
+    expect(result).toMatchObject({
+      selected: 1,
+      recoveredToReady: 0,
+      kept: 1,
+      deferred: 1,
+      errors: 0,
+    });
+    const updatesToReview = sqlCalls.filter((call) => call.query.includes("set publication_status = 'review'"));
+    expect(updatesToReview).toHaveLength(1);
+    expect(updatesToReview[0]?.values).toContain(PROFILE_TOKEN);
+  });
+
   it("does not recover a Review profile from SCB evidence older than seven days", async () => {
     configureWorker({
       status: "review",
