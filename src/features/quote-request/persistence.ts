@@ -1,5 +1,8 @@
 import { getSql } from "@/lib/db/server";
-import type { VerifiedCustomerAddress } from "@/lib/lantmateriet-address-verification";
+import {
+  isValidCustomerAddressReferenceId,
+  type VerifiedCustomerAddress,
+} from "@/lib/lantmateriet-address-verification";
 import type { QuoteRequestInput } from "./schema";
 
 type StoreQuoteRequestResult =
@@ -59,6 +62,12 @@ export async function storeQuoteRequest(
     let verifiedStorageReady = false;
 
     if (input.locationSource === "address" && verifiedAddress) {
+      if (!isValidCustomerAddressReferenceId(verifiedAddress.referenceId)) {
+        throw new Error("Invalid Lantmäteriet verified-address reference");
+      }
+
+      // Rollout follow-up: after migration 0058 is confirmed in Production, remove this
+      // runtime schema probe and the legacy insert branch below in a dedicated cleanup PR.
       const readinessRows = await sql`
         select count(*) = 5 as ready
         from information_schema.columns
@@ -188,7 +197,12 @@ export async function storeQuoteRequest(
         )
       `;
     }
-  } catch {
+  } catch (error) {
+    console.error("Failed to store Marketplace quote request", {
+      referenceId,
+      locationSource: input.locationSource,
+      error,
+    });
     return {
       ok: false,
       message: "Förfrågan kunde inte sparas just nu. Kontrollera DATABASE_URL och att migrationen har körts.",
