@@ -148,7 +148,10 @@ test.describe("public critical-flow smoke", () => {
         configurable: true,
         value: {
           getCurrentPosition(success) {
-            window.setTimeout(() => success({ coords: { latitude: 59.19554, longitude: 17.62525 } }), 200);
+            window.setTimeout(() => {
+              document.documentElement.dataset.nearbyLocationCallback = "resolved";
+              success({ coords: { latitude: 59.19554, longitude: 17.62525 } });
+            }, 200);
           },
         },
       });
@@ -163,7 +166,9 @@ test.describe("public critical-flow smoke", () => {
 
     await page.getByRole("button", { name: "Nära mig" }).click();
     await page.getByLabel("Gatuadress").fill("Storgatan 77");
-    await page.waitForTimeout(300);
+    await expect.poll(() => page.evaluate(
+      () => document.documentElement.dataset.nearbyLocationCallback,
+    )).toBe("resolved");
     await expect(page.getByLabel("Gatuadress")).toHaveValue("Storgatan 77");
   });
 
