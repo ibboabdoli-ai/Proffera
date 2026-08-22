@@ -1,3 +1,5 @@
+import { timingSafeEqual } from "node:crypto";
+
 import { NextResponse } from "next/server";
 
 import {
@@ -9,15 +11,22 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 function boundedNumber(value: string | undefined, fallback: number, minimum: number, maximum: number) {
-  const parsed = Number(value);
+  const normalized = value?.trim();
+  if (!normalized) return fallback;
+  const parsed = Number(normalized);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(minimum, Math.min(maximum, parsed));
 }
 
+function authorizedSchedulerRequest(request: Request, secret: string | undefined) {
+  if (!secret) return false;
+  const expected = Buffer.from(`Bearer ${secret}`);
+  const received = Buffer.from(request.headers.get("authorization") ?? "");
+  return expected.length === received.length && timingSafeEqual(expected, received);
+}
+
 export async function GET(request: Request) {
-  const secret = process.env.CRON_SECRET;
-  const authorization = request.headers.get("authorization");
-  if (!secret || authorization !== `Bearer ${secret}`) {
+  if (!authorizedSchedulerRequest(request, process.env.CRON_SECRET)) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 

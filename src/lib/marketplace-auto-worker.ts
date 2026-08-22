@@ -43,9 +43,12 @@ function boundedInteger(value: number | undefined, fallback: number, minimum: nu
 }
 
 function normalizedOrigin(value: string) {
-  const url = new URL(value);
-  if (url.protocol !== "https:") throw new Error("Marketplace Auto Worker base URL must use HTTPS");
-  return url.origin;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" ? url.origin : null;
+  } catch {
+    return null;
+  }
 }
 
 function submittedOfferCount(offers: Array<{ status: string }>) {
@@ -108,6 +111,8 @@ export async function processMarketplaceAutoWorker(input: {
   }
 
   const baseUrl = normalizedOrigin(input.baseUrl);
+  if (!baseUrl) return { ok: false, error: "invalid_base_url" };
+
   const nowMs = (input.now ?? new Date()).getTime();
   const batchSize = boundedInteger(input.batchSize, DEFAULT_BATCH_SIZE, 1, MAX_BATCH_SIZE);
   const wave2DelayMs = Math.max(0, input.wave2DelayMs ?? DEFAULT_MARKETPLACE_WAVE2_DELAY_MS);

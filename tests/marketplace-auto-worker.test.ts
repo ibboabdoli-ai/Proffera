@@ -86,6 +86,16 @@ function summary(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function invitationState(index: number) {
+  return {
+    status: "sent",
+    wave: 1 as const,
+    blocking: true,
+    expiresAt: "2026-08-29T10:00:00.000Z",
+    recipientEmail: candidate(index).recipientEmail,
+  };
+}
+
 describe("Marketplace Auto Worker", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -126,9 +136,15 @@ describe("Marketplace Auto Worker", () => {
   });
 
   it("sends Wave 2 to at most two new candidates after the delay when fewer than two offers exist", async () => {
+    const alreadyInvited = new Map([
+      [candidate(1).profileId, invitationState(1)],
+      [candidate(2).profileId, invitationState(2)],
+      [candidate(4).profileId, invitationState(4)],
+    ]);
     const invitationSummary = summary({
       wave1Count: 3,
       totalCount: 3,
+      byProfile: alreadyInvited,
       latestWave1At: "2026-08-22T10:00:00.000Z",
     });
     mocks.getSummaries.mockResolvedValue(new Map([["11111111-1111-4111-8111-111111111111", invitationSummary]]));
@@ -147,7 +163,8 @@ describe("Marketplace Auto Worker", () => {
 
     expect(result).toMatchObject({ ok: true, attempted: 1, sent: 2, wave1Sent: 0, wave2Sent: 2 });
     expect(mocks.sendInvitation).toHaveBeenCalledTimes(2);
-    expect(mocks.sendInvitation).toHaveBeenCalledWith(expect.objectContaining({ wave: 2 }));
+    expect(mocks.sendInvitation).toHaveBeenNthCalledWith(1, expect.objectContaining({ profileId: candidate(5).profileId, wave: 2 }));
+    expect(mocks.sendInvitation).toHaveBeenNthCalledWith(2, expect.objectContaining({ profileId: candidate(6).profileId, wave: 2 }));
   });
 
   it("never sends Wave 2 once two submitted or selected offers exist", async () => {
@@ -208,6 +225,14 @@ describe("Marketplace Auto Worker", () => {
       .resolves.toEqual({ ok: false, error: "email_configuration" });
     expect(mocks.getMatches).not.toHaveBeenCalled();
     expect(mocks.sendInvitation).not.toHaveBeenCalled();
+  });
+
+  it("fails closed with a typed error for malformed or non-HTTPS base URLs", async () => {
+    await expect(processMarketplaceAutoWorker({ baseUrl: "not-a-url" }))
+      .resolves.toEqual({ ok: false, error: "invalid_base_url" });
+    await expect(processMarketplaceAutoWorker({ baseUrl: "http://preview.proffera.test" }))
+      .resolves.toEqual({ ok: false, error: "invalid_base_url" });
+    expect(mocks.getMatches).not.toHaveBeenCalled();
   });
 
   it("does not send candidates with unsafe contact basis", async () => {

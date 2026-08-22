@@ -33,8 +33,12 @@ describe("Marketplace Auto Worker cron route", () => {
     process.env = { ...originalEnv };
   });
 
-  it("requires the scheduler secret", async () => {
+  it("requires the scheduler secret, including when the server secret is missing", async () => {
     expect((await GET(request("wrong"))).status).toBe(401);
+    expect(mocks.processWorker).not.toHaveBeenCalled();
+
+    delete process.env.CRON_SECRET;
+    expect((await GET(request())).status).toBe(401);
     expect(mocks.processWorker).not.toHaveBeenCalled();
   });
 
@@ -69,6 +73,40 @@ describe("Marketplace Auto Worker cron route", () => {
       baseUrl: "https://preview.proffera.test",
       batchSize: 3,
       wave2DelayMs: 120 * 60_000,
+    });
+  });
+
+  it("uses safe defaults for empty scheduling settings", async () => {
+    process.env.MARKETPLACE_AUTO_WAVE2_DELAY_MINUTES = "   ";
+    process.env.MARKETPLACE_AUTO_WORKER_BATCH_SIZE = "";
+
+    await GET(request());
+
+    expect(mocks.processWorker).toHaveBeenCalledWith({
+      baseUrl: "https://preview.proffera.test",
+      batchSize: 5,
+      wave2DelayMs: 360 * 60_000,
+    });
+  });
+
+  it("clamps low and high scheduling settings", async () => {
+    process.env.MARKETPLACE_AUTO_WAVE2_DELAY_MINUTES = "5";
+    process.env.MARKETPLACE_AUTO_WORKER_BATCH_SIZE = "0";
+    await GET(request());
+    expect(mocks.processWorker).toHaveBeenLastCalledWith({
+      baseUrl: "https://preview.proffera.test",
+      batchSize: 1,
+      wave2DelayMs: 15 * 60_000,
+    });
+
+    mocks.processWorker.mockClear();
+    process.env.MARKETPLACE_AUTO_WAVE2_DELAY_MINUTES = "5000";
+    process.env.MARKETPLACE_AUTO_WORKER_BATCH_SIZE = "99";
+    await GET(request());
+    expect(mocks.processWorker).toHaveBeenLastCalledWith({
+      baseUrl: "https://preview.proffera.test",
+      batchSize: 10,
+      wave2DelayMs: 24 * 60 * 60_000,
     });
   });
 

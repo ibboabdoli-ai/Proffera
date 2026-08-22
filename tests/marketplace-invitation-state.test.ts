@@ -45,6 +45,17 @@ describe("marketplace invitation persisted state", () => {
       },
       {
         quote_request_id: quoteId,
+        profile_id: "55555555-5555-4555-8555-555555555555",
+        recipient_email: "fallback@company.se",
+        status: "delivery_failed",
+        wave: 1,
+        created_at: "2026-08-22T10:30:00.000Z",
+        sent_at: "",
+        expires_at: "2026-08-29T10:30:00.000Z",
+        blocking: false,
+      },
+      {
+        quote_request_id: quoteId,
         profile_id: "44444444-4444-4444-8444-444444444444",
         recipient_email: "third@company.se",
         status: "delivery_uncertain",
@@ -60,10 +71,10 @@ describe("marketplace invitation persisted state", () => {
     const summaries = await getMarketplaceInvitationSummaries([quoteId]);
     const summary = summaries.get(quoteId);
 
-    expect(summary?.wave1Count).toBe(2);
+    expect(summary?.wave1Count).toBe(3);
     expect(summary?.wave2Count).toBe(1);
-    expect(summary?.totalCount).toBe(3);
-    expect(summary?.latestWave1At).toBe("2026-08-22T10:02:00.000Z");
+    expect(summary?.totalCount).toBe(4);
+    expect(summary?.latestWave1At).toBe("2026-08-22T10:30:00.000Z");
     expect(summary?.byProfile.get("22222222-2222-4222-8222-222222222222")?.blocking).toBe(true);
     expect(summary?.byProfile.get("22222222-2222-4222-8222-222222222222")?.recipientEmail).toBe("first@company.se");
     expect(summary?.byProfile.get("33333333-3333-4333-8333-333333333333")?.blocking).toBe(false);

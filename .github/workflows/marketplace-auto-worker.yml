@@ -42,9 +42,49 @@ jobs:
           CRON_SECRET: ${{ secrets.PROFFERA_MARKETPLACE_AUTO_WORKER_CRON_SECRET }}
         run: |
           set -euo pipefail
-          curl --fail-with-body --silent --show-error \
+          response="$(curl --fail-with-body --silent --show-error \
             --connect-timeout 10 \
             --max-time 70 \
             --header "Authorization: Bearer $CRON_SECRET" \
             --header "User-Agent: proffera-marketplace-auto-worker-github-actions" \
-            "$MARKETPLACE_AUTO_WORKER_URL"
+            "$MARKETPLACE_AUTO_WORKER_URL")"
+
+          WORKER_RESPONSE="$response" python - <<'PY'
+          import json
+          import os
+
+          try:
+              payload = json.loads(os.environ["WORKER_RESPONSE"])
+          except json.JSONDecodeError as exc:
+              print(f"::error::Marketplace Auto Worker returned invalid JSON: {exc}")
+              raise SystemExit(1)
+
+          skip_reason = payload.get("skipped") if isinstance(payload.get("skipped"), str) else None
+          if skip_reason in {"disabled", "production_not_authorized"}:
+              print(f"Marketplace Auto Worker skipped safely: {skip_reason}")
+              raise SystemExit(0)
+
+          if payload.get("ok") is not True:
+              print(f"::error::Marketplace Auto Worker failed: {payload.get('error', 'unknown_error')}")
+              raise SystemExit(1)
+
+          if payload.get("deadlineReached") is True:
+              print("::error::Marketplace Auto Worker reached its execution deadline")
+              raise SystemExit(1)
+
+          skip_counts = payload.get("skipped") if isinstance(payload.get("skipped"), dict) else {}
+          delivery_errors = int(skip_counts.get("delivery_error", 0) or 0)
+          if delivery_errors > 0:
+              print(f"::error::Marketplace Auto Worker recorded {delivery_errors} delivery errors")
+              raise SystemExit(1)
+
+          print(
+              "Marketplace Auto Worker completed: "
+              f"scanned={payload.get('scanned', 0)} "
+              f"attempted={payload.get('attempted', 0)} "
+              f"sent={payload.get('sent', 0)}"
+          )
+          PY
+
+          # This scheduler is a best-effort trigger. Persisted Marketplace state
+          # and application-side monitoring remain the source of truth for throughput.
