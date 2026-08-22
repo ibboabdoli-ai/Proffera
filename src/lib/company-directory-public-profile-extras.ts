@@ -56,7 +56,7 @@ export async function getPublicDirectoryProfileExtras(profileId: string): Promis
   const sql = getSql();
   if (!sql) return EMPTY_EXTRAS;
 
-  const [serviceRows, areaRows] = await Promise.all([
+  const [serviceRows, areaRows, reputationRows] = await Promise.all([
     sql`
       select
         service.slug,
@@ -87,11 +87,7 @@ export async function getPublicDirectoryProfileExtras(profileId: string): Promis
         and area.confirmed_at is not null
       order by area.service_slug nulls first, area.radius_km asc
     `,
-  ]);
-
-  let reputation: PublicDirectoryProfileReputation | null = null;
-  try {
-    const reputationRows = await sql`
+    sql`
       select
         rating,
         verified_review_count,
@@ -103,10 +99,15 @@ export async function getPublicDirectoryProfileExtras(profileId: string): Promis
       from marketplace_profile_reputation
       where profile_id = ${profileId}::uuid
       limit 1
-    `;
-    const row = reputationRows[0];
-    if (row) {
-      reputation = {
+    `.catch((error: unknown) => {
+      if (compatibilityError(error)) return [];
+      throw error;
+    }),
+  ]);
+
+  const row = reputationRows[0];
+  const reputation: PublicDirectoryProfileReputation | null = row
+    ? {
         rating: number(row.rating),
         verifiedReviews: number(row.verified_review_count),
         completedJobs: number(row.completed_jobs),
@@ -114,11 +115,8 @@ export async function getPublicDirectoryProfileExtras(profileId: string): Promis
         providerCancellations: number(row.provider_cancelled_jobs),
         noShows: number(row.no_show_jobs),
         problemJobs: number(row.problem_jobs),
-      };
-    }
-  } catch (error) {
-    if (!compatibilityError(error)) throw error;
-  }
+      }
+    : null;
 
   return {
     services: serviceRows.map((row) => ({
