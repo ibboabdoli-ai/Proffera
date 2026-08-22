@@ -6,6 +6,10 @@ begin;
 create table if not exists marketplace_rematch_requests (
   id uuid primary key default gen_random_uuid(),
   service_job_id uuid not null unique references marketplace_service_jobs(id) on delete cascade,
+  -- Keep the source request while a rematch generation exists. This prevents a
+  -- purge from leaving the copied rematch Quote Request (and customer PII)
+  -- orphaned. Full-chain cleanup deletes the rematch Quote Request first (which
+  -- cascades this row), then the source Quote Request.
   source_quote_request_id uuid not null references quote_requests(id) on delete restrict,
   rematch_quote_request_id uuid not null unique references quote_requests(id) on delete cascade,
   status text not null default 'pending',
