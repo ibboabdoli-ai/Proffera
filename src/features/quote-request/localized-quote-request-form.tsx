@@ -113,7 +113,8 @@ export function LocalizedQuoteRequestForm({
       }
 
       const savedAt = Number(draft.savedAt);
-      if (!Number.isFinite(savedAt) || Date.now() - savedAt > DRAFT_MAX_AGE_MS) {
+      const draftAge = Date.now() - savedAt;
+      if (!Number.isFinite(savedAt) || draftAge < 0 || draftAge > DRAFT_MAX_AGE_MS) {
         discardLanguageDraft();
         return;
       }
