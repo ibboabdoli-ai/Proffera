@@ -58,6 +58,7 @@ describe("claimed workspace Marketplace history", () => {
     expect(queryText(sql.mock.calls[0])).toContain("marketplace_workspace_service_jobs");
     expect(queryText(sql.mock.calls[0])).toContain("resolved_workspace_id =");
     expect(queryText(sql.mock.calls[1])).toContain("marketplace_workspace_profile_reputation");
+    expect(queryText(sql.mock.calls[1])).toContain("order by reputation.verified_review_count desc");
   });
 
   it("fails closed before the bridge migration exists", async () => {
@@ -65,5 +66,12 @@ describe("claimed workspace Marketplace history", () => {
     mocks.getSql.mockReturnValue(vi.fn().mockRejectedValue(missing));
 
     await expect(getWorkspaceMarketplaceHistory()).resolves.toEqual({ jobs: [], reputation: null });
+  });
+
+  it("returns no history when the user has no workspace access", async () => {
+    mocks.getUserWorkspaceAccess.mockResolvedValue({ ok: false });
+
+    await expect(getWorkspaceMarketplaceHistory()).resolves.toEqual({ jobs: [], reputation: null });
+    expect(mocks.getSql).not.toHaveBeenCalled();
   });
 });
