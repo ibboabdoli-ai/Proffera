@@ -26,6 +26,10 @@ function bool(value: unknown) {
   return value === true || value === "true";
 }
 
+function locale(value: unknown): "sv" | "en" {
+  return text(value).trim().toLowerCase() === "en" ? "en" : "sv";
+}
+
 export type MarketplaceVerifiedReviewPreview =
   | ({
       state: "valid";
@@ -59,6 +63,7 @@ export async function getMarketplaceVerifiedReviewPreviewByHash(
         job.service_name,
         job.city,
         request.contact_name,
+        request.locale as request_locale,
         profile.display_name,
         profile.public_slug,
         exists (
@@ -85,6 +90,7 @@ export async function getMarketplaceVerifiedReviewPreviewByHash(
     const brand: ReviewWorkspaceBrand = {
       ...defaultBrand,
       companyName: text(row.display_name, defaultBrand.companyName),
+      language: locale(row.request_locale),
       homeUrl: text(row.public_slug) ? `/foretag/listad/${encodeURIComponent(text(row.public_slug))}` : "/",
     };
     const status = text(row.status);
@@ -253,6 +259,7 @@ export async function deliverMarketplaceServiceJobReviewInvitation(serviceJobId:
           job.status,
           request.contact_name,
           request.contact_email,
+          request.locale as request_locale,
           profile.display_name,
           profile.public_slug
         from marketplace_service_jobs job
@@ -298,6 +305,7 @@ export async function deliverMarketplaceServiceJobReviewInvitation(serviceJobId:
         target.id::text as service_job_id,
         target.contact_name,
         target.contact_email,
+        target.request_locale,
         target.display_name,
         target.public_slug,
         target.service_name,
@@ -316,15 +324,17 @@ export async function deliverMarketplaceServiceJobReviewInvitation(serviceJobId:
 
     const customerEmail = text(row.contact_email).trim();
     if (!customerEmail) return { ok: false as const, code: "missing_email" as const };
-    const reviewUrl = new URL(`/review/marketplace/${encodeURIComponent(token)}`, resolveMarketplacePublicBaseUrl()).toString();
+    const requestLocale = locale(row.request_locale);
+    const reviewUrl = new URL(`/review/marketplace/${encodeURIComponent(token)}`, resolveMarketplacePublicBaseUrl());
+    if (requestLocale === "en") reviewUrl.searchParams.set("lang", "en");
     const delivery = await sendVerifiedReviewInvitationEmail({
       customerName: text(row.contact_name, "Customer"),
       customerEmail,
       companyName: text(row.display_name, "Service provider"),
       bookingTitle: text(row.service_name, "Completed service"),
-      reviewUrl,
+      reviewUrl: reviewUrl.toString(),
       expiresAt,
-      language: "sv",
+      language: requestLocale,
       timeZone: "Europe/Stockholm",
     });
 
@@ -339,7 +349,7 @@ export async function deliverMarketplaceServiceJobReviewInvitation(serviceJobId:
     `;
 
     if (!delivery.ok) return { ok: false as const, code: "email" as const };
-    return { ok: true as const, reviewUrl, providerId: delivery.providerId };
+    return { ok: true as const, reviewUrl: reviewUrl.toString(), providerId: delivery.providerId };
   } catch (error) {
     console.error("Failed to deliver Marketplace verified review invitation", error);
     return { ok: false as const, code: "database" as const };
