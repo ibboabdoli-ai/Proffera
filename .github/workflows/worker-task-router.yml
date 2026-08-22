@@ -12,7 +12,6 @@ on:
 
 permissions:
   contents: read
-  issues: write
 
 concurrency:
   group: proffera-task-router-${{ github.event.issue.number || inputs.issue_number || github.run_id }}
@@ -26,6 +25,10 @@ jobs:
       startsWith(github.event.issue.title, '[worker]') ||
       contains(github.event.issue.body || '', 'Worker routing: requested')
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # route-task needs issue write access to update lane labels and routing comments.
+      issues: write
 
     steps:
       - name: Route issue from dependency hints
@@ -39,8 +42,8 @@ jobs:
           set -euo pipefail
 
           issue_number="${EVENT_ISSUE_NUMBER:-${INPUT_ISSUE_NUMBER:-}}"
-          if [ -z "$issue_number" ]; then
-            echo "Refused: no issue number available." >&2
+          if ! [[ "$issue_number" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Refused: issue number must be a positive integer." >&2
             exit 1
           fi
 
@@ -72,7 +75,7 @@ jobs:
             reasons+=("test/verification terms detected")
           fi
 
-          if grep -Eiq '(frontend|backend|\bapi\b|route|component|page|next\.js|nextjs|ui|ux|booking|quote|marketplace|directory|servicejob|worker|cron|email|application)' <<< "$text"; then
+          if grep -Eiq '(frontend|backend|\bapi\b|route|component|page|next\.js|nextjs|ui|ux|booking|quote|marketplace|directory|servicejob|cron|email|application)' <<< "$text"; then
             lanes+=("application")
             reasons+=("application/UI/API terms detected")
           fi
@@ -96,15 +99,29 @@ jobs:
           gh label create "lane:integration" --repo "$REPOSITORY" --color "1D76DB" --description "Cross-lane integration gate" --force >/dev/null
 
           existing_lane_labels="$(jq -r '.labels[].name | select(startswith("lane:"))' <<< "$issue_json")"
-          while IFS= read -r label; do
-            [ -z "$label" ] && continue
-            gh issue edit "$issue_number" --repo "$REPOSITORY" --remove-label "$label" >/dev/null
-          done <<< "$existing_lane_labels"
+          desired_lane_labels="$(printf 'lane:%s\n' "${lanes[@]}")"
 
-          for lane in "${lanes[@]}"; do
-            gh issue edit "$issue_number" --repo "$REPOSITORY" --add-label "lane:${lane}" >/dev/null
-          done
-          labels_csv="$(printf 'lane:%s\n' "${lanes[@]}" | paste -sd, -)"
+          labels_to_remove="$(
+            comm -23 \
+              <(printf '%s\n' "$existing_lane_labels" | sed '/^$/d' | LC_ALL=C sort -u) \
+              <(printf '%s\n' "$desired_lane_labels" | sed '/^$/d' | LC_ALL=C sort -u)
+          )"
+          labels_to_add="$(
+            comm -13 \
+              <(printf '%s\n' "$existing_lane_labels" | sed '/^$/d' | LC_ALL=C sort -u) \
+              <(printf '%s\n' "$desired_lane_labels" | sed '/^$/d' | LC_ALL=C sort -u)
+          )"
+
+          add_csv="$(printf '%s' "$labels_to_add" | paste -sd, -)"
+          remove_csv="$(printf '%s' "$labels_to_remove" | paste -sd, -)"
+          edit_args=()
+          [ -n "$add_csv" ] && edit_args+=(--add-label "$add_csv")
+          [ -n "$remove_csv" ] && edit_args+=(--remove-label "$remove_csv")
+          if [ "${#edit_args[@]}" -gt 0 ]; then
+            gh issue edit "$issue_number" --repo "$REPOSITORY" "${edit_args[@]}" >/dev/null
+          fi
+
+          labels_csv="$(printf '%s\n' "$desired_lane_labels" | paste -sd, -)"
 
           lane_lines=""
           for lane in "${lanes[@]}"; do
