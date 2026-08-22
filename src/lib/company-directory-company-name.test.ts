@@ -19,9 +19,8 @@ describe("Swedish company-name identity normalization", () => {
   });
 
   it("normalizes spacing, punctuation and Unicode consistently", () => {
-    expect(normalizeSwedishCompanyIdentityName("  Å & Ö AB  ")).toBe(
-      normalizeSwedishCompanyIdentityName("Å-Ö Aktiebolag"),
-    );
+    expect(normalizeSwedishCompanyIdentityName("  Å & Ö AB  ")).toBe("å ö ab");
+    expect(normalizeSwedishCompanyIdentityName("Å-Ö Aktiebolag")).toBe("å ö ab");
   });
 
   it("preserves word boundaries so distinct names cannot collapse together", () => {
@@ -35,5 +34,7 @@ describe("Swedish company-name identity normalization", () => {
     expect(swedishCompanyNamesEquivalent("ÄAktiebolaget", "Ä AB")).toBe(false);
     expect(swedishCompanyNamesEquivalent("ÖAktiebolag", "Ö AB")).toBe(false);
     expect(swedishCompanyNamesEquivalent("Å Aktiebolag", "Å AB")).toBe(true);
+    expect(swedishCompanyNamesEquivalent("Exempel AktiebolagÅ", "Exempel AB Å")).toBe(false);
+    expect(swedishCompanyNamesEquivalent("Exempel AktiebolagetÖ", "Exempel AB Ö")).toBe(false);
   });
 });
