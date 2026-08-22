@@ -11,12 +11,25 @@ import {
 
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = {
-  title: "Jämför offerter",
-  robots: { index: false, follow: false },
+type Locale = "sv" | "en";
+
+type ComparisonSearchParams = {
+  lang?: string | string[];
+  status?: string | string[];
 };
 
-type Locale = "sv" | "en";
+export async function generateMetadata({
+  searchParams,
+}: {
+  searchParams?: Promise<ComparisonSearchParams>;
+}): Promise<Metadata> {
+  const query = await (searchParams ?? Promise.resolve(undefined));
+  const locale = localeFrom(query?.lang);
+  return {
+    title: locale === "en" ? "Compare offers" : "Jämför offerter",
+    robots: { index: false, follow: false },
+  };
+}
 
 const copy = {
   sv: {
@@ -123,7 +136,7 @@ export default async function MarketplaceCustomerComparisonPage({
   searchParams,
 }: {
   params: Promise<{ token: string }>;
-  searchParams?: Promise<{ lang?: string | string[]; status?: string | string[] }>;
+  searchParams?: Promise<ComparisonSearchParams>;
 }) {
   const [{ token }, query] = await Promise.all([params, searchParams ?? Promise.resolve(undefined)]);
   const locale = localeFrom(query?.lang);

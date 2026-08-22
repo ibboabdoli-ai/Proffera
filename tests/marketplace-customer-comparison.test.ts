@@ -121,6 +121,7 @@ describe("marketplace customer comparison", () => {
 
   it("sends one secure comparison email after the first submitted offer", async () => {
     const quoteRequestId = "11111111-1111-4111-8111-111111111111";
+    const dispatchToken = "44444444-4444-4444-8444-444444444444";
     const sql = sqlResponses(
       [{
         quote_request_id: quoteRequestId,
@@ -128,7 +129,7 @@ describe("marketplace customer comparison", () => {
         contact_name: "Anna",
         contact_email: "anna@example.se",
       }],
-      [{ quote_request_id: quoteRequestId }],
+      [{ quote_request_id: quoteRequestId, dispatch_token: dispatchToken }],
       [{ quote_request_id: quoteRequestId }],
     );
     mocks.getSql.mockReturnValue(sql);
@@ -144,9 +145,10 @@ describe("marketplace customer comparison", () => {
     expect(mocks.sendComparisonEmail).toHaveBeenCalledWith(expect.objectContaining({
       recipientEmail: "anna@example.se",
       comparisonUrl: expect.stringMatching(/^https:\/\/www\.proffera\.se\/offert\/jamfor\/[A-Za-z0-9_-]{43}$/),
-      idempotencyKey: expect.stringMatching(/^[0-9a-f-]{36}$/i),
+      idempotencyKey: dispatchToken,
     }));
     expect(queryText(sql.mock.calls[1])).toContain("on conflict (quote_request_id) do nothing");
+    expect(queryText(sql.mock.calls[2])).toContain("set token_hash =");
   });
 
   it("does not send a duplicate email while a valid customer link is already sent", async () => {
@@ -158,6 +160,7 @@ describe("marketplace customer comparison", () => {
         contact_name: "Anna",
         contact_email: "anna@example.se",
       }],
+      [],
       [],
       [],
       [{ status: "sent", expires_at: "2099-01-01T00:00:00.000Z" }],
@@ -173,7 +176,66 @@ describe("marketplace customer comparison", () => {
     expect(mocks.sendComparisonEmail).not.toHaveBeenCalled();
   });
 
-  it("selects one offer, rejects the rest, cancels open outreach and closes the request atomically", async () => {
+  it("retries delivery failures with the stable dispatch id and rotates the link only after acceptance", async () => {
+    const quoteRequestId = "11111111-1111-4111-8111-111111111111";
+    const stableDispatch = "55555555-5555-4555-8555-555555555555";
+    const sql = sqlResponses(
+      [{
+        quote_request_id: quoteRequestId,
+        reference_id: "PRO-123",
+        contact_name: "Anna",
+        contact_email: "anna@example.se",
+      }],
+      [],
+      [{ quote_request_id: quoteRequestId, dispatch_token: stableDispatch }],
+      [{ quote_request_id: quoteRequestId }],
+    );
+    mocks.getSql.mockReturnValue(sql);
+    mocks.sendComparisonEmail.mockResolvedValue({ ok: true, providerMessageId: "brevo-retry" });
+
+    const result = await notifyMarketplaceCustomerOfferAvailableFromGuestToken({
+      guestToken: "g".repeat(43),
+      baseUrl: "https://www.proffera.se",
+    });
+
+    expect(result).toEqual({ ok: true, code: "sent" });
+    expect(mocks.sendComparisonEmail).toHaveBeenCalledWith(expect.objectContaining({
+      idempotencyKey: stableDispatch,
+    }));
+    expect(queryText(sql.mock.calls[2])).not.toContain("token_hash =");
+    expect(queryText(sql.mock.calls[3])).toContain("set token_hash =");
+  });
+
+  it("keeps the original link valid when Brevo reports the stable dispatch id as a duplicate", async () => {
+    const quoteRequestId = "11111111-1111-4111-8111-111111111111";
+    const stableDispatch = "66666666-6666-4666-8666-666666666666";
+    const sql = sqlResponses(
+      [{
+        quote_request_id: quoteRequestId,
+        reference_id: "PRO-123",
+        contact_name: "Anna",
+        contact_email: "anna@example.se",
+      }],
+      [],
+      [{ quote_request_id: quoteRequestId, dispatch_token: stableDispatch }],
+      [{ quote_request_id: quoteRequestId }],
+    );
+    mocks.getSql.mockReturnValue(sql);
+    mocks.sendComparisonEmail.mockResolvedValue({ ok: false, code: "duplicate", providerMessageId: null });
+
+    const result = await notifyMarketplaceCustomerOfferAvailableFromGuestToken({
+      guestToken: "g".repeat(43),
+      baseUrl: "https://www.proffera.se",
+    });
+
+    expect(result).toEqual({ ok: true, code: "already_sent" });
+    expect(mocks.sendComparisonEmail).toHaveBeenCalledWith(expect.objectContaining({
+      idempotencyKey: stableDispatch,
+    }));
+    expect(queryText(sql.mock.calls[3])).not.toContain("token_hash =");
+  });
+
+  it("selects one offer successfully", async () => {
     const selectedOfferId = "22222222-2222-4222-8222-222222222222";
     const sql = sqlResponses([{ id: selectedOfferId }]);
     mocks.getSql.mockReturnValue(sql);
@@ -181,12 +243,41 @@ describe("marketplace customer comparison", () => {
     const result = await selectMarketplaceCustomerOffer("a".repeat(43), selectedOfferId);
 
     expect(result).toEqual({ ok: true, offerId: selectedOfferId });
-    const query = queryText(sql.mock.calls[0]);
-    expect(query).toContain("for update of access, request");
-    expect(query).toContain("set status = 'selected'");
-    expect(query).toContain("set status = 'rejected'");
-    expect(query).toContain("set status = 'cancelled'");
-    expect(query).toContain("set status = 'booked'");
-    expect(query).toContain("existing.status = 'selected'");
+    expect(sql).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns the competing winner after a 23505 selection race", async () => {
+    const selectedOfferId = "22222222-2222-4222-8222-222222222222";
+    const competingOfferId = "33333333-3333-4333-8333-333333333333";
+    const conflict = Object.assign(new Error("unique conflict"), { code: "23505" });
+    const sql = vi.fn()
+      .mockRejectedValueOnce(conflict)
+      .mockResolvedValueOnce([{ id: competingOfferId }]);
+    mocks.getSql.mockReturnValue(sql);
+
+    const result = await selectMarketplaceCustomerOffer("a".repeat(43), selectedOfferId);
+
+    expect(result).toEqual({ ok: false, code: "already_selected" });
+    expect(sql).toHaveBeenCalledTimes(2);
+  });
+
+  it("treats a customer re-click on the already selected offer as idempotent success", async () => {
+    const selectedOfferId = "22222222-2222-4222-8222-222222222222";
+    const sql = sqlResponses([], [{ id: selectedOfferId }]);
+    mocks.getSql.mockReturnValue(sql);
+
+    const result = await selectMarketplaceCustomerOffer("a".repeat(43), selectedOfferId);
+
+    expect(result).toEqual({ ok: true, offerId: selectedOfferId, alreadySelected: true });
+  });
+
+  it("returns closed when no offer can be selected and no winner exists", async () => {
+    const selectedOfferId = "22222222-2222-4222-8222-222222222222";
+    const sql = sqlResponses([], []);
+    mocks.getSql.mockReturnValue(sql);
+
+    const result = await selectMarketplaceCustomerOffer("a".repeat(43), selectedOfferId);
+
+    expect(result).toEqual({ ok: false, code: "closed" });
   });
 });

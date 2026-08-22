@@ -128,38 +128,56 @@ export async function notifyMarketplaceCustomerOfferAvailableFromGuestToken(inpu
   if (!requestRow) return { ok: false as const, code: "request_not_ready" };
 
   const quoteRequestId = text(requestRow.quote_request_id);
-  const token = createMarketplaceCustomerComparisonToken();
-  const tokenHash = hashMarketplaceCustomerComparisonToken(token);
-  const dispatchToken = randomUUID();
+  const candidateToken = createMarketplaceCustomerComparisonToken();
+  const candidateTokenHash = hashMarketplaceCustomerComparisonToken(candidateToken);
+  let dispatchToken = randomUUID();
   const expiresAt = new Date(Date.now() + CUSTOMER_COMPARISON_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
   let reservation = await sql`
     insert into marketplace_quote_customer_access (
       quote_request_id, token_hash, status, dispatch_token, expires_at
     ) values (
-      ${quoteRequestId}::uuid, ${tokenHash}, 'sending', ${dispatchToken}::uuid, ${expiresAt}::timestamptz
+      ${quoteRequestId}::uuid, ${candidateTokenHash}, 'sending', ${dispatchToken}::uuid, ${expiresAt}::timestamptz
     )
     on conflict (quote_request_id) do nothing
-    returning quote_request_id::text
+    returning quote_request_id::text, dispatch_token::text
   `;
 
   if (!reservation[0]) {
+    // Retry an ambiguous/failed delivery with the SAME dispatch token. Keep the
+    // existing token hash valid until Brevo confirms a replacement email. If
+    // Brevo reports the idempotency key as a duplicate, the original link stays
+    // valid and no token rotation occurs.
     reservation = await sql`
       update marketplace_quote_customer_access
-      set token_hash = ${tokenHash},
-          status = 'sending',
-          dispatch_token = ${dispatchToken}::uuid,
-          expires_at = ${expiresAt}::timestamptz,
+      set status = 'sending',
           sent_at = null,
           provider_message_id = '',
           updated_at = now()
       where quote_request_id = ${quoteRequestId}::uuid
+        and dispatch_token is not null
         and (
           status = 'delivery_failed'
           or (status = 'sending' and updated_at <= now() - interval '5 minutes')
-          or (status = 'sent' and expires_at <= now())
         )
-      returning quote_request_id::text
+      returning quote_request_id::text, dispatch_token::text
+    `;
+  }
+
+  if (!reservation[0]) {
+    // A genuinely expired delivered link gets a fresh dispatch id. Its old hash
+    // remains stored until the replacement email is accepted.
+    reservation = await sql`
+      update marketplace_quote_customer_access
+      set status = 'sending',
+          dispatch_token = ${dispatchToken}::uuid,
+          sent_at = null,
+          provider_message_id = '',
+          updated_at = now()
+      where quote_request_id = ${quoteRequestId}::uuid
+        and status = 'sent'
+        and expires_at <= now()
+      returning quote_request_id::text, dispatch_token::text
     `;
   }
 
@@ -177,7 +195,10 @@ export async function notifyMarketplaceCustomerOfferAvailableFromGuestToken(inpu
     };
   }
 
-  const comparisonUrl = `${baseUrl}${marketplaceCustomerComparisonPath(token)}`;
+  const reservedDispatchToken = text(reservation[0]?.dispatch_token);
+  if (uuidPattern.test(reservedDispatchToken)) dispatchToken = reservedDispatchToken;
+
+  const comparisonUrl = `${baseUrl}${marketplaceCustomerComparisonPath(candidateToken)}`;
   const delivery = await sendMarketplaceCustomerComparisonEmail({
     recipientEmail: text(requestRow.contact_email),
     customerName: text(requestRow.contact_name),
@@ -185,6 +206,25 @@ export async function notifyMarketplaceCustomerOfferAvailableFromGuestToken(inpu
     comparisonUrl,
     idempotencyKey: dispatchToken,
   });
+
+  if (!delivery.ok && delivery.code === "duplicate") {
+    const completed = await sql`
+      update marketplace_quote_customer_access
+      set status = 'sent',
+          sent_at = coalesce(sent_at, now()),
+          updated_at = now()
+      where quote_request_id = ${quoteRequestId}::uuid
+        and status = 'sending'
+        and dispatch_token = ${dispatchToken}::uuid
+      returning quote_request_id::text
+    `;
+    if (!completed[0]) {
+      console.error("Marketplace customer comparison duplicate delivery state was not recorded", {
+        quoteRequestId,
+      });
+    }
+    return { ok: true as const, code: "already_sent" };
+  }
 
   if (!delivery.ok) {
     await sql`
@@ -199,7 +239,9 @@ export async function notifyMarketplaceCustomerOfferAvailableFromGuestToken(inpu
 
   const completed = await sql`
     update marketplace_quote_customer_access
-    set status = 'sent',
+    set token_hash = ${candidateTokenHash},
+        expires_at = ${expiresAt}::timestamptz,
+        status = 'sent',
         sent_at = now(),
         provider_message_id = ${delivery.providerMessageId ?? ""},
         updated_at = now()
