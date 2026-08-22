@@ -3,14 +3,18 @@ begin;
 -- Rematching never rewrites the immutable winner history on the original Quote
 -- Request. Migration 0062 deliberately permits only one selected offer per
 -- quote_request_id, so every rematch owns a fresh Quote Request generation.
+--
+-- Deployment order: apply 0063 before 0064 so marketplace_service_jobs exists.
+-- Rollback order is the reverse: remove 0064 before rolling back 0063.
 create table if not exists marketplace_rematch_requests (
   id uuid primary key default gen_random_uuid(),
   service_job_id uuid not null unique references marketplace_service_jobs(id) on delete cascade,
-  -- Keep the source request while a rematch generation exists. This prevents a
-  -- purge from leaving the copied rematch Quote Request (and customer PII)
-  -- orphaned. Full-chain cleanup deletes the rematch Quote Request first (which
-  -- cascades this row), then the source Quote Request.
-  source_quote_request_id uuid not null references quote_requests(id) on delete restrict,
+  -- Keep the source request while a rematch generation exists. NO ACTION is
+  -- intentional rather than RESTRICT: a direct source Quote Request purge first
+  -- cascades through marketplace_service_jobs and removes this rematch row, then
+  -- the end-of-statement FK check succeeds without depending on cascade ordering.
+  -- The copied rematch Quote Request is still removed through its own cascade.
+  source_quote_request_id uuid not null references quote_requests(id) on delete no action,
   rematch_quote_request_id uuid not null unique references quote_requests(id) on delete cascade,
   status text not null default 'pending',
   reason text not null default '',
