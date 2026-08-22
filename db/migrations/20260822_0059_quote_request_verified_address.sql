@@ -1,6 +1,7 @@
 -- Store Lantmäteriet-verified customer coordinates separately from browser geolocation.
 -- Exact address, verified coordinates and the official reference remain private matching data.
 --
+-- Sequencing: run this as migration 0059 after the current-main Company Directory repair migration 0058.
 -- Rollout: this migration is additive and must be verified on isolated Preview before Production.
 -- Application code is backward-compatible while these columns are absent: matching falls back to
 -- the existing customer coordinates/locality path and persistence stores the legacy location shape.
