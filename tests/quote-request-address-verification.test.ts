@@ -98,6 +98,15 @@ describe("quote request official address verification", () => {
     );
   });
 
+  it("persists English locale from input when request headers are empty", async () => {
+    await expect(submitQuoteRequest(request({ locale: "en" }))).resolves.toEqual({ ok: true, referenceId: "PRO-TEST" });
+    expect(mocks.storeQuoteRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ locationSource: "address" }),
+      expect.objectContaining({ status: "matched" }),
+      "en",
+    );
+  });
+
   it("does not call Lantmäteriet when abuse protection denies the submission", async () => {
     mocks.allowPublicSubmission.mockResolvedValue(false);
 
@@ -106,6 +115,19 @@ describe("quote request official address verification", () => {
     expect(result).toEqual({
       ok: false,
       errors: { form: "För många försök. Vänta en stund och försök igen." },
+    });
+    expect(mocks.verifyCustomerAddress).not.toHaveBeenCalled();
+    expect(mocks.storeQuoteRequest).not.toHaveBeenCalled();
+  });
+
+  it("returns the English rate-limit error without persisting", async () => {
+    mocks.allowPublicSubmission.mockResolvedValue(false);
+
+    const result = await submitQuoteRequest(request({ locale: "en" }));
+
+    expect(result).toEqual({
+      ok: false,
+      errors: { form: "Too many attempts. Wait a while and try again." },
     });
     expect(mocks.verifyCustomerAddress).not.toHaveBeenCalled();
     expect(mocks.storeQuoteRequest).not.toHaveBeenCalled();
@@ -120,6 +142,20 @@ describe("quote request official address verification", () => {
       ok: false,
       errors: {
         addressLine1: "Adressen kunde inte verifieras mot Lantmäteriets adressregister. Kontrollera gata, postnummer och ort.",
+      },
+    });
+    expect(mocks.storeQuoteRequest).not.toHaveBeenCalled();
+  });
+
+  it("returns the English definitive no-match error without persisting", async () => {
+    mocks.verifyCustomerAddress.mockResolvedValue({ status: "no_match", reason: "street_mismatch" });
+
+    const result = await submitQuoteRequest(request({ locale: "en" }));
+
+    expect(result).toEqual({
+      ok: false,
+      errors: {
+        addressLine1: "The address could not be verified against Lantmäteriet's address register. Check the street, postal code and city.",
       },
     });
     expect(mocks.storeQuoteRequest).not.toHaveBeenCalled();
