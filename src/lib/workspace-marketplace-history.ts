@@ -73,6 +73,7 @@ export async function getWorkspaceMarketplaceHistory(): Promise<WorkspaceMarketp
           reputation.problem_jobs
         from marketplace_workspace_profile_reputation reputation
         where reputation.resolved_workspace_id = ${access.workspaceId}::uuid
+        order by reputation.verified_review_count desc, reputation.completed_jobs desc, reputation.profile_id
         limit 1
       `,
     ]);
