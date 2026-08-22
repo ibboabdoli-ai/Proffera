@@ -5,6 +5,8 @@ import { listMarketplaceReviewModerationItems } from "@/lib/marketplace-review-m
 
 export const dynamic = "force-dynamic";
 
+const allowedStatusValues = new Set(["approved", "rejected", "invalid", "closed", "unavailable", "database"]);
+
 export default async function MarketplaceReviewsAdminPage({
   searchParams,
 }: {
@@ -12,7 +14,8 @@ export default async function MarketplaceReviewsAdminPage({
 }) {
   await requireAdminArea("quote_admin");
   const query = await (searchParams ?? Promise.resolve(undefined));
-  const statusValue = Array.isArray(query?.status) ? query?.status[0] : query?.status;
+  const rawStatusValue = Array.isArray(query?.status) ? query?.status[0] : query?.status;
+  const statusValue = rawStatusValue && allowedStatusValues.has(rawStatusValue) ? rawStatusValue : undefined;
   const reviews = await listMarketplaceReviewModerationItems();
   const pending = reviews.filter((review) => review.status === "pending");
 
