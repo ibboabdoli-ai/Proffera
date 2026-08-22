@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   hashToken: vi.fn((token: string) => token.startsWith("B") ? "b".repeat(64) : "a".repeat(64)),
   submitQuote: vi.fn(),
   suppressRecipient: vi.fn(),
+  notifyCustomer: vi.fn(),
 }));
 
 vi.mock("@/lib/public-form-protection", () => ({
@@ -19,6 +20,9 @@ vi.mock("@/lib/marketplace-guest-quote", () => ({
   hashMarketplaceGuestToken: mocks.hashToken,
   submitMarketplaceGuestQuote: mocks.submitQuote,
   suppressMarketplaceGuestRecipient: mocks.suppressRecipient,
+}));
+vi.mock("@/lib/marketplace-customer-comparison", () => ({
+  notifyMarketplaceCustomerOfferAvailableFromGuestToken: mocks.notifyCustomer,
 }));
 
 import { POST as postGuestQuote } from "@/app/api/marketplace/guest-quote/[token]/route";
@@ -71,6 +75,7 @@ describe("marketplace guest route rate limits", () => {
     });
     mocks.submitQuote.mockResolvedValue({ ok: true, offerId: "offer-id" });
     mocks.suppressRecipient.mockResolvedValue({ ok: true });
+    mocks.notifyCustomer.mockResolvedValue({ ok: true, code: "sent" });
   });
 
   it("isolates guest quote rate limits by hashed token", async () => {
@@ -99,6 +104,26 @@ describe("marketplace guest route rate limits", () => {
       maxAttempts: 5,
       windowSeconds: 30 * 60,
     }));
+  });
+
+  it("notifies the customer only after a successful guest offer submission", async () => {
+    const response = await postGuestQuote(quoteRequest(TOKEN_A), context(TOKEN_A));
+
+    expect(redirectStatus(response)).toBe("sent");
+    expect(mocks.notifyCustomer).toHaveBeenCalledWith({
+      guestToken: TOKEN_A,
+      baseUrl: "https://www.proffera.se",
+    });
+  });
+
+  it("keeps the provider offer successful if customer notification fails", async () => {
+    mocks.notifyCustomer.mockResolvedValueOnce({ ok: false, code: "email_provider" });
+
+    const response = await postGuestQuote(quoteRequest(TOKEN_A), context(TOKEN_A));
+
+    expect(redirectStatus(response)).toBe("sent");
+    expect(mocks.submitQuote).toHaveBeenCalledTimes(1);
+    expect(mocks.notifyCustomer).toHaveBeenCalledTimes(1);
   });
 
   it("isolates guest opt-out rate limits by hashed token", async () => {
@@ -135,6 +160,7 @@ describe("marketplace guest route rate limits", () => {
     expect(response.status).toBe(303);
     expect(redirectStatus(response)).toBe("invalid");
     expect(mocks.submitQuote).not.toHaveBeenCalled();
+    expect(mocks.notifyCustomer).not.toHaveBeenCalled();
   });
 
   it("maps a profile-revocation race to the normal closed guest state", async () => {
@@ -145,5 +171,6 @@ describe("marketplace guest route rate limits", () => {
     expect(response.status).toBe(303);
     expect(redirectStatus(response)).toBe("closed");
     expect(mocks.submitQuote).toHaveBeenCalledTimes(1);
+    expect(mocks.notifyCustomer).not.toHaveBeenCalled();
   });
 });
