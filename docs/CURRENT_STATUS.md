@@ -1,6 +1,6 @@
 # Proffera Current Status
 
-Last updated: 2026-08-21
+Last updated: 2026-08-22
 
 This is the canonical factual status document for Proffera. For worker rules, live task state, current `main` SHA, and roadmap order, also read `AGENTS.md`, `WORKER_BOOTSTRAP.md`, GitHub issue #548, GitHub issue #276, and `docs/README.md`.
 
@@ -25,6 +25,7 @@ The repository contains active production implementations for these major areas:
 - Stripe Checkout, Customer Portal, subscription webhook synchronization and billing-alert foundations.
 - Company Directory ingestion, official-facts verification, SNI/category mapping, publication safety gates and admin review flows.
 - Public marketplace/search foundations and provider marketplace activation.
+- Marketplace Quote Request has a bounded server-side Lantmäteriet exact-address verification path after public-form abuse protection. When the address integration is configured and migration 0058 storage exists, the official object reference and transformed WGS84 coordinates are stored as private matching data separate from browser geolocation; matching prefers verified coordinates without projecting the exact address, coordinates or official reference into the provider Guest Quote view. Definitive official no-match is rejected, configured transient upstream failure is retryable/fail-closed, and missing integration configuration preserves the pre-verification address flow. A source merge or Preview proof is not evidence that this path is active in Production; Production activation still requires the controlled migration/configuration/deployment checks.
 - Company Directory direct-contact visibility is a separate server-side entitlement boundary: Unclaimed and Claimed Free directory projections do not expose direct street address/phone/email/website data by default; a claimed Workspace needs valid plan access before direct contact fields may be projected publicly. Internal Official Facts or SCB enrichment does not itself authorize public contact disclosure.
 - Company Directory super-admins have a dedicated full-underlag explorer for profile data, Official Facts, SCB contact/postal/workplace data, conflicts, freshness, services, geographic locations and field-source provenance. This internal visibility does not change public contact entitlements.
 
