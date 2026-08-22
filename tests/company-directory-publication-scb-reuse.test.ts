@@ -84,7 +84,17 @@ describe("Directory publication SCB evidence reuse", () => {
 
     expect(mocks.enrichScb).not.toHaveBeenCalled();
     expect(sql).toHaveBeenCalledTimes(2);
-    expect(executedQuery(sql.mock.calls[1])).toContain("scb.last_synced_at >= now() - interval '7 days'");
+
+    const finalQuery = executedQuery(sql.mock.calls[1]);
+    expect(finalQuery).toContain("jsonb_array_length(coalesce(scb.conflicts, '[]'::jsonb)) = 0");
+    expect(finalQuery).toContain("scb.source_payload_hash <> ''");
+    expect(finalQuery).toContain("scb.last_synced_at >= now() - interval '7 days'");
+    expect(finalQuery).toContain("{comparisonSnapshot,profileUpdatedToken}");
+    expect(finalQuery).toContain("{comparisonSnapshot,officialFactsLastSyncedToken}");
+    expect(sql.mock.calls[1]?.slice(1)).toEqual(expect.arrayContaining([
+      PROFILE_UPDATED_TOKEN,
+      FACTS_LAST_SYNCED_TOKEN,
+    ]));
   });
 
   it("fails closed on a conflict in fresh snapshot-bound SCB evidence", async () => {
@@ -124,6 +134,20 @@ describe("Directory publication SCB evidence reuse", () => {
       code: "not_ready",
     });
 
+    expect(sql).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed when a stale SCB refresh request throws", async () => {
+    const sql = mockSql(readyRow({ scb_snapshot_fresh: false }));
+    mocks.getSql.mockReturnValue(sql);
+    mocks.enrichScb.mockRejectedValueOnce(new Error("SCB timed out"));
+
+    await expect(publishCompanyDirectoryProfileIfSafe(PROFILE_ID)).resolves.toEqual({
+      ok: false,
+      code: "not_ready",
+    });
+
+    expect(mocks.enrichScb).toHaveBeenCalledTimes(1);
     expect(sql).toHaveBeenCalledTimes(1);
   });
 });
