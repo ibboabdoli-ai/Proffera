@@ -109,8 +109,10 @@ describe("automatic Marketplace wave route", () => {
       quoteRequestId,
       profileId: candidate.profileId,
       recipientEmail: candidate.recipientEmail,
+      adminUserId: "admin-user",
       wave: 1,
       matchScore: 92,
+      matchReasons: candidate.reasons,
     }));
   });
 
@@ -136,6 +138,32 @@ describe("automatic Marketplace wave route", () => {
       expect(inviteCode(await responsePromise)).toBe("auto_no_delivery");
     } finally {
       vi.useRealTimers();
+    }
+  });
+
+  it("stops the wave at the total dispatch deadline and preserves completed sends", async () => {
+    const secondCandidate = {
+      ...candidate,
+      profileId: "33333333-3333-4333-8333-333333333333",
+      recipientEmail: "offert@andra-firman.se",
+    };
+    mocks.planWave.mockReturnValue({ wave: 1, candidates: [candidate, secondCandidate], reason: "ready" });
+    const now = vi.spyOn(Date, "now")
+      .mockReturnValueOnce(1_000)
+      .mockReturnValueOnce(1_000)
+      .mockReturnValueOnce(1_000)
+      .mockReturnValueOnce(21_000);
+
+    try {
+      const response = await POST(request("1"));
+      const location = new URL(response.headers.get("location") ?? "https://www.proffera.se");
+
+      expect(location.searchParams.get("invite")).toBe("auto_wave_sent");
+      expect(location.searchParams.get("sent")).toBe("1");
+      expect(mocks.sendInvitation).toHaveBeenCalledTimes(1);
+      expect(mocks.expireInvitation).toHaveBeenCalledTimes(1);
+    } finally {
+      now.mockRestore();
     }
   });
 

@@ -229,8 +229,8 @@ export async function getDirectoryGuestLeadMatch(quoteRequestId: string) {
       longitude: finiteCoordinate(row.longitude, -180, 180),
       serviceAreaRadiusKm: finiteRadius(row.service_area_radius_km),
       recipientEmail: text(row.recipient_email),
-      scbConflicts: row.scb_conflicts,
-    })) as CandidateRows;
+      scbConflicts: row.scb_conflicts as CandidateRows[number]["scbConflicts"],
+    })) satisfies CandidateRows;
 
     const candidates = rankDirectoryGuestCandidates(lead, candidatesInput);
     return {
