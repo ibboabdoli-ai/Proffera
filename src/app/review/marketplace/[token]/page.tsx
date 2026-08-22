@@ -31,6 +31,8 @@ const stateCopy = {
   },
 } as const;
 
+type UnavailableReviewState = keyof (typeof stateCopy)["sv"];
+
 export default async function MarketplaceVerifiedReviewPage({
   params,
 }: {
@@ -46,7 +48,9 @@ export default async function MarketplaceVerifiedReviewPage({
   const primaryColor = invitation?.primaryColor ?? "#173e2b";
   const accentColor = invitation?.accentColor ?? "#d8ae52";
   const homeUrl = invitation?.homeUrl ?? "/";
-  const state = invitation?.state ?? "invalid";
+  const unavailableState: UnavailableReviewState = invitation && invitation.state !== "valid"
+    ? invitation.state
+    : "invalid";
   const heading = language === "en" ? `How did ${companyName} do?` : `Hur upplevde du ${companyName}?`;
 
   return (
@@ -87,8 +91,8 @@ export default async function MarketplaceVerifiedReviewPage({
             </>
           ) : (
             <>
-              <h1 className="mt-4 text-3xl font-black tracking-tight sm:text-4xl">{stateCopy[language][state][0]}</h1>
-              <p className="mt-4 text-base leading-7 text-slate-600">{stateCopy[language][state][1]}</p>
+              <h1 className="mt-4 text-3xl font-black tracking-tight sm:text-4xl">{stateCopy[language][unavailableState][0]}</h1>
+              <p className="mt-4 text-base leading-7 text-slate-600">{stateCopy[language][unavailableState][1]}</p>
               <p className="mt-7 flex items-start gap-2 rounded-2xl bg-slate-50 p-5 text-sm leading-6 text-slate-700">
                 <ShieldCheck className="mt-0.5 size-5 shrink-0" aria-hidden="true" />
                 {language === "en" ? "Review links never ask for payment or passwords." : "Omdömeslänkar frågar aldrig efter betalning eller lösenord."}
