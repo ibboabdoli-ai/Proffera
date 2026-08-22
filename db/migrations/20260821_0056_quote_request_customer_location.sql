@@ -7,6 +7,9 @@
 -- The CHECK is added NOT VALID so deployment does not scan historical quote rows; PostgreSQL
 -- still enforces it for new/updated rows. Validate historical rows in a separate controlled
 -- operation only after confirming they satisfy the location contract.
+-- Production execution still needs the real migration path to set bounded lock_timeout and
+-- statement_timeout values and to run in an approved deployment window: ADD COLUMN and
+-- ADD CONSTRAINT acquire an ACCESS EXCLUSIVE lock even when the CHECK is NOT VALID.
 -- Rollback: revert the writer first. Keep these nullable columns/constraint in place
 -- until no deployed code references them; removing storage is a later deliberate migration.
 
