@@ -75,7 +75,7 @@ jobs:
             reasons+=("test/verification terms detected")
           fi
 
-          if grep -Eiq '(frontend|backend|\bapi\b|route|component|page|next\.js|nextjs|ui|ux|booking|quote|marketplace|directory|servicejob|cron|email|application)' <<< "$text"; then
+          if grep -Eiq '(frontend|backend|\bapi\b|route|component|page|next\.js|nextjs|booking|quote|marketplace|directory|servicejob|cron|email|application|(^|[^[:alnum:]_])(ui|ux)([^[:alnum:]_]|$))' <<< "$text"; then
             lanes+=("application")
             reasons+=("application/UI/API terms detected")
           fi
