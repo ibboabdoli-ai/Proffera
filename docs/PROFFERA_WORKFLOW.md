@@ -87,7 +87,7 @@ The repository already has an active engineering toolchain. Workers must use the
 
 - Do not install tools only because they are popular; each tool must close a verified operational gap.
 - For architecture/call-path work, use the Graphify skill and existing graph first when available, then confirm important findings in source/runtime evidence.
-- Do not send `.env*`, secrets, tokens, credentials, Production data, or customer PII to Graphify, SonarQube, or other third-party tooling.
+- Do not send `.env*`, credentials, Production data, customer PII, or secret values as analyzed content to Graphify, SonarQube, or other third-party tooling. `SONAR_TOKEN` may be supplied to the Sonar scanner only through the GitHub Actions secret environment for authentication; workers must never log, commit, echo, or include its value in source, artifacts, or analyzed content.
 - Use the root validation scripts and Playwright before inventing custom one-off test harnesses when the existing stack can prove the behavior.
 - Treat GitHub Actions required checks as delivery gates; local success does not replace CI.
 - Use SonarQube findings as scoped evidence for touched/reachable code. Do not expand a task into unrelated historical-debt cleanup, and do not claim its quality gate is merge-blocking while the configured workflow keeps `sonar.qualitygate.wait=false`.
