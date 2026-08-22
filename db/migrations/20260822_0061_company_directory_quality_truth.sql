@@ -4,6 +4,7 @@
 -- current official source path. Older scoring treated an active company as if
 -- those unavailable details were independently verified and awarded 5 points.
 -- Remove only that legacy award and record why the detail is unavailable.
+-- Claimed/tenant-owned profiles are excluded from this imported-data repair.
 -- If the correction would move an already-published profile below the public
 -- quality guard, fail closed to Review instead of violating the constraint.
 -- Preserve profile.updated_at so this repair does not masquerade as source data.
@@ -33,6 +34,7 @@ set publication_status = case
     quality_score = greatest(0, quality_score - 5),
     quality_reasons = quality_reasons || '["tax_status_unavailable_from_source"]'::jsonb
 where is_active is true
+  and claimed_workspace_id is null
   and nullif(trim(f_tax_status), '') is null
   and nullif(trim(vat_status), '') is null
   and nullif(trim(employer_status), '') is null
