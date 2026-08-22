@@ -119,13 +119,21 @@ join company_directory_profiles profile on profile.id = job.profile_id;
 create or replace view marketplace_workspace_profile_reputation as
 select
   reputation.*,
-  profile.claimed_workspace_id as resolved_workspace_id
+  coalesce(reputation_workspace.workspace_id, profile.claimed_workspace_id) as resolved_workspace_id
 from marketplace_profile_reputation reputation
-join company_directory_profiles profile on profile.id = reputation.profile_id;
+join company_directory_profiles profile on profile.id = reputation.profile_id
+left join lateral (
+  select job.workspace_id
+  from marketplace_service_jobs job
+  where job.profile_id = reputation.profile_id
+    and job.workspace_id is not null
+  order by job.updated_at desc, job.id desc
+  limit 1
+) reputation_workspace on true;
 
 comment on view marketplace_workspace_service_jobs is
   'Marketplace ServiceJob history resolved to the current claimed workspace without rewriting original provider identity.';
 comment on view marketplace_workspace_profile_reputation is
-  'Profile reputation resolved to the current claimed workspace; pre-claim history remains attached through profile_id.';
+  'Profile reputation uses the latest durable job workspace when present, otherwise the current claimed workspace; pre-claim history remains attached through profile_id.';
 
 commit;
