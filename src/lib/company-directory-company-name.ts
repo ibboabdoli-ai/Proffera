@@ -3,7 +3,7 @@ export function normalizeSwedishCompanyIdentityName(value: unknown) {
     .trim()
     .normalize("NFKC")
     .toLocaleLowerCase("sv-SE")
-    .replace(/\baktiebolag(?:et)?\b/gu, " ab ")
+    .replace(/(^|[^\p{L}\p{N}])aktiebolag(?:et)?(?=$|[^\p{L}\p{N}])/gu, "$1 ab ")
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim()
     .replace(/\s+/gu, " ");
