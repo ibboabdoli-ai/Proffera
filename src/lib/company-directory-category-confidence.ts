@@ -27,6 +27,7 @@ type UnknownRecord = Record<string, unknown>;
 
 type RegisteredNameFact = {
   name: string;
+  typeCode: string;
   specialBusinessDescription: string;
 };
 
@@ -122,6 +123,7 @@ function registeredNameFacts(value: unknown): RegisteredNameFact[] {
     const row = object(item);
     return {
       name: text(row?.name),
+      typeCode: text(row?.typeCode).toLocaleUpperCase("sv-SE"),
       specialBusinessDescription: text(row?.specialBusinessDescription),
     };
   }).filter((item) => item.name || item.specialBusinessDescription);
@@ -208,16 +210,25 @@ export function assessCompanyDirectoryCategoryConfidence(
     signals.push("Registrerad särskild verksamhetsbeskrivning stödjer kategorin");
   }
 
-  const hasOfficialRegisteredName = registeredNameValues.length > 0;
-  const profileNameMatchesOfficialFacts = !hasOfficialRegisteredName
+  const explicitOfficialCompanyNames = registeredNames
+    .filter((item) => item.typeCode === "FORETAGSNAMN")
+    .map((item) => item.name)
+    .filter(Boolean);
+  const officialCompanyNameValues = explicitOfficialCompanyNames.length > 0
+    ? explicitOfficialCompanyNames
+    : registeredNames.length === 1 && !registeredNames[0]?.typeCode
+      ? registeredNameValues
+      : [];
+  const hasOfficialCompanyName = officialCompanyNameValues.length > 0;
+  const profileNameMatchesOfficialFacts = !hasOfficialCompanyName
     || [input.legalName, input.displayName]
       .filter(Boolean)
-      .some((profileName) => registeredNameValues.some(
+      .some((profileName) => officialCompanyNameValues.some(
         (officialName) => swedishCompanyNamesEquivalent(profileName, officialName),
       ));
-  if (hasOfficialRegisteredName && profileNameMatchesOfficialFacts) {
+  if (hasOfficialCompanyName && profileNameMatchesOfficialFacts) {
     signals.push("Företagsnamnet matchar Official Facts");
-  } else if (hasOfficialRegisteredName) {
+  } else if (hasOfficialCompanyName) {
     score = Math.min(score, 90);
     warnings.push("Profilens företagsnamn matchar inte Official Facts");
   }
