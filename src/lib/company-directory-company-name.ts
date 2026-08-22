@@ -4,7 +4,9 @@ export function normalizeSwedishCompanyIdentityName(value: unknown) {
     .normalize("NFKC")
     .toLocaleLowerCase("sv-SE")
     .replace(/\baktiebolag(?:et)?\b/gu, " ab ")
-    .replace(/[^\p{L}\p{N}]+/gu, "");
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()
+    .replace(/\s+/gu, " ");
 }
 
 export function swedishCompanyNamesEquivalent(left: unknown, right: unknown) {
