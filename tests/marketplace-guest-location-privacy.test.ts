@@ -94,6 +94,7 @@ describe("marketplace guest quote private location boundary", () => {
       "17.62525",
       "lantmateriet_belagenhetsadress_v4_2",
       "439b33bf-6279-4b65-b32c-9741646d8d3e",
+      "2026-08-22T12:00:00.000Z",
     ]);
   });
 });
