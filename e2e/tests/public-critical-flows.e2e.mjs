@@ -5,18 +5,40 @@ const quoteLanguageDraftKey = "proffera:quote-request:language-draft:v1";
 async function fillRequiredSmartDetails(page) {
   const groups = page.locator("fieldset");
   const count = await groups.count();
+  const snapshot = [];
 
   for (let index = 0; index < count; index += 1) {
     const group = groups.nth(index);
     const radios = group.getByRole("radio");
     if (await radios.count()) {
-      await radios.first().check();
+      const radio = radios.first();
+      await radio.check();
+      snapshot.push({ type: "radio", value: await radio.getAttribute("value") });
       continue;
     }
 
     const input = group.locator("input").first();
     const type = await input.getAttribute("type");
-    await input.fill(type === "number" ? "1" : "Test details");
+    const value = type === "number" ? "1" : "Test details";
+    await input.fill(value);
+    snapshot.push({ type: "input", value });
+  }
+
+  return snapshot;
+}
+
+async function expectSmartDetails(page, snapshot) {
+  const groups = page.locator("fieldset");
+  await expect(groups).toHaveCount(snapshot.length);
+
+  for (let index = 0; index < snapshot.length; index += 1) {
+    const item = snapshot[index];
+    const group = groups.nth(index);
+    if (item.type === "radio") {
+      await expect(group.getByRole("radio", { checked: true })).toHaveValue(item.value ?? "");
+    } else {
+      await expect(group.locator("input").first()).toHaveValue(item.value ?? "");
+    }
   }
 }
 
@@ -30,9 +52,10 @@ async function advanceQuoteToLocation(page, { path, nextLabel, step2Text, step3T
   await page.getByRole("button", { name: nextLabel }).click();
 
   await expect(page.getByText(step2Text)).toBeVisible();
-  await fillRequiredSmartDetails(page);
+  const smartDetails = await fillRequiredSmartDetails(page);
   await page.getByRole("button", { name: nextLabel }).click();
   await expect(page.getByText(step3Text)).toBeVisible();
+  return smartDetails;
 }
 
 test.describe("public critical-flow smoke", () => {
@@ -63,8 +86,8 @@ test.describe("public critical-flow smoke", () => {
     await expect(page.getByRole("button", { name: "Tillbaka" })).toBeEnabled();
   });
 
-  test("preserves private location and current step when switching Swedish into English", async ({ page }) => {
-    await advanceQuoteToLocation(page, {
+  test("preserves private location and smart answers when switching Swedish into English", async ({ page }) => {
+    const smartDetails = await advanceQuoteToLocation(page, {
       path: "/fa-offert",
       nextLabel: "Fortsätt",
       step2Text: "Steg 2 av 6",
@@ -85,10 +108,14 @@ test.describe("public critical-flow smoke", () => {
     await expect(page.getByLabel("City")).toHaveValue("Södertälje");
     await expect(page.getByLabel("Postal code")).toHaveValue("151 46");
     await expect.poll(() => page.evaluate((key) => window.sessionStorage.getItem(key), quoteLanguageDraftKey)).toBeNull();
+
+    await page.getByRole("button", { name: "Back" }).click();
+    await expect(page.getByText("Step 2 of 6")).toBeVisible();
+    await expectSmartDetails(page, smartDetails);
   });
 
-  test("preserves private location and current step when switching English into Swedish", async ({ page }) => {
-    await advanceQuoteToLocation(page, {
+  test("preserves private location and smart answers when switching English into Swedish", async ({ page }) => {
+    const smartDetails = await advanceQuoteToLocation(page, {
       path: "/en/get-quote",
       nextLabel: "Continue",
       step2Text: "Step 2 of 6",
@@ -109,5 +136,9 @@ test.describe("public critical-flow smoke", () => {
     await expect(page.getByLabel("Stad")).toHaveValue("Södertälje");
     await expect(page.getByLabel("Postnummer")).toHaveValue("151 73");
     await expect.poll(() => page.evaluate((key) => window.sessionStorage.getItem(key), quoteLanguageDraftKey)).toBeNull();
+
+    await page.getByRole("button", { name: "Tillbaka" }).click();
+    await expect(page.getByText("Steg 2 av 6")).toBeVisible();
+    await expectSmartDetails(page, smartDetails);
   });
 });
