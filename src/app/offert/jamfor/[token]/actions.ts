@@ -14,7 +14,7 @@ function localeFrom(formData: FormData) {
   return formData.get("lang") === "en" ? "en" as const : "sv" as const;
 }
 
-function redirectWithState(token: string, locale: "sv" | "en", status: string) {
+function redirectWithState(token: string, locale: "sv" | "en", status: string): never {
   const query = new URLSearchParams({ status });
   if (locale === "en") query.set("lang", "en");
   redirect(`${marketplaceCustomerComparisonPath(token)}?${query.toString()}`);
