@@ -80,20 +80,26 @@ export async function getDirectoryGuestLeadMatch(quoteRequestId: string) {
   try {
     const leadRows = await sql`
       select
-        id::text,
-        reference_id,
-        category,
-        service_type,
-        city,
-        postal_code,
-        description,
-        status,
-        customer_latitude::float8,
-        customer_longitude::float8,
-        created_at::text
-      from quote_requests
-      where id = ${quoteRequestId}::uuid
-        and status in ('submitted', 'pending_review', 'approved', 'matched', 'answered')
+        request.id::text,
+        request.reference_id,
+        request.category,
+        request.service_type,
+        request.city,
+        request.postal_code,
+        request.description,
+        request.status,
+        coalesce(
+          nullif(to_jsonb(request)->>'customer_verified_latitude', '')::float8,
+          request.customer_latitude::float8
+        ) as customer_latitude,
+        coalesce(
+          nullif(to_jsonb(request)->>'customer_verified_longitude', '')::float8,
+          request.customer_longitude::float8
+        ) as customer_longitude,
+        request.created_at::text
+      from quote_requests request
+      where request.id = ${quoteRequestId}::uuid
+        and request.status in ('submitted', 'pending_review', 'approved', 'matched', 'answered')
       limit 1
     `;
 
