@@ -7,6 +7,21 @@
 -- If the correction would move an already-published profile below the public
 -- quality guard, fail closed to Review instead of violating the constraint.
 -- Preserve profile.updated_at so this repair does not masquerade as source data.
+--
+-- Deployment sequencing:
+-- 1. Deploy the application code that uses the corrected quality/name policy.
+-- 2. Snapshot the affected organization numbers with their current quality
+--    score, publication status and reasons before executing this migration.
+-- 3. Execute this migration, then verify that no published profile is below the
+--    public guard and that the affected-row count matches the preflight count.
+-- 4. Run the normal Directory revalidation before any profile is republished.
+--
+-- Recovery: this is a committed, forward-only data correction and does not
+-- automatically restore prior quality_score or publication_status values. If a
+-- committed correction must be undone, use the pre-execution snapshot (or Neon
+-- point-in-time recovery) to restore the affected rows, then run current
+-- revalidation. Never restore a profile directly to Published unless the
+-- current publication guard passes after recovery.
 
 begin;
 
