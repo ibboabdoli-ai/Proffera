@@ -93,13 +93,13 @@ export async function getPublicDirectoryProfileExtras(profileId: string): Promis
   try {
     const reputationRows = await sql`
       select
-        average_rating,
+        rating,
         verified_review_count,
-        completed_job_count,
-        customer_cancelled_job_count,
-        provider_cancelled_job_count,
-        no_show_job_count,
-        problem_job_count
+        completed_jobs,
+        customer_cancelled_jobs,
+        provider_cancelled_jobs,
+        no_show_jobs,
+        problem_jobs
       from marketplace_profile_reputation
       where profile_id = ${profileId}::uuid
       limit 1
@@ -107,13 +107,13 @@ export async function getPublicDirectoryProfileExtras(profileId: string): Promis
     const row = reputationRows[0];
     if (row) {
       reputation = {
-        rating: number(row.average_rating),
+        rating: number(row.rating),
         verifiedReviews: number(row.verified_review_count),
-        completedJobs: number(row.completed_job_count),
-        customerCancellations: number(row.customer_cancelled_job_count),
-        providerCancellations: number(row.provider_cancelled_job_count),
-        noShows: number(row.no_show_job_count),
-        problemJobs: number(row.problem_job_count),
+        completedJobs: number(row.completed_jobs),
+        customerCancellations: number(row.customer_cancelled_jobs),
+        providerCancellations: number(row.provider_cancelled_jobs),
+        noShows: number(row.no_show_jobs),
+        problemJobs: number(row.problem_jobs),
       };
     }
   } catch (error) {
