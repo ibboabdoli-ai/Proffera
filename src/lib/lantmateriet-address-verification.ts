@@ -46,7 +46,7 @@ class VerificationTimeoutError extends Error {
 }
 
 export function isValidCustomerAddressReferenceId(value: unknown): value is string {
-  return typeof value === "string" && UUID_PATTERN.test(value.trim());
+  return typeof value === "string" && value === value.trim() && UUID_PATTERN.test(value);
 }
 
 function getVerificationConfig(): VerificationConfig {
