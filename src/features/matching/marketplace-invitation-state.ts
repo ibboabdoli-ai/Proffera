@@ -7,6 +7,9 @@ export type MarketplaceCandidateInvitationState = {
   wave: 1 | 2;
   blocking: boolean;
   expiresAt: string;
+  recipientEmail?: string;
+  createdAt?: string;
+  sentAt?: string;
 };
 
 export type MarketplaceLeadInvitationSummary = {
@@ -14,6 +17,7 @@ export type MarketplaceLeadInvitationSummary = {
   wave2Count: number;
   totalCount: number;
   byProfile: Map<string, MarketplaceCandidateInvitationState>;
+  latestWave1At?: string | null;
 };
 
 function emptySummary(): MarketplaceLeadInvitationSummary {
@@ -22,7 +26,16 @@ function emptySummary(): MarketplaceLeadInvitationSummary {
     wave2Count: 0,
     totalCount: 0,
     byProfile: new Map(),
+    latestWave1At: null,
   };
+}
+
+function laterTimestamp(current: string | null | undefined, candidate: string) {
+  const candidateTime = Date.parse(candidate);
+  if (!Number.isFinite(candidateTime)) return current ?? null;
+  if (!current) return candidate;
+  const currentTime = Date.parse(current);
+  return !Number.isFinite(currentTime) || candidateTime > currentTime ? candidate : current;
 }
 
 export async function getMarketplaceInvitationSummaries(quoteRequestIds: string[]) {
@@ -38,8 +51,11 @@ export async function getMarketplaceInvitationSummaries(quoteRequestIds: string[
     select
       quote_request_id::text,
       profile_id::text,
+      recipient_email,
       status,
       wave,
+      created_at::text,
+      coalesce(sent_at::text, '') as sent_at,
       expires_at::text,
       case
         when status = 'sending' then updated_at > now() - interval '5 minutes'
@@ -60,14 +76,22 @@ export async function getMarketplaceInvitationSummaries(quoteRequestIds: string[
     if (!quoteRequestId || !profileId) continue;
 
     const summary = summaries.get(quoteRequestId) ?? emptySummary();
-    if (wave === 1) summary.wave1Count += 1;
-    else summary.wave2Count += 1;
+    if (wave === 1) {
+      summary.wave1Count += 1;
+      const waveTimestamp = String(raw.sent_at || raw.created_at || "");
+      summary.latestWave1At = laterTimestamp(summary.latestWave1At, waveTimestamp);
+    } else {
+      summary.wave2Count += 1;
+    }
     summary.totalCount += 1;
     summary.byProfile.set(profileId, {
       status: String(raw.status ?? ""),
       wave,
       blocking: Boolean(raw.blocking),
       expiresAt: String(raw.expires_at ?? ""),
+      recipientEmail: String(raw.recipient_email ?? ""),
+      createdAt: String(raw.created_at ?? ""),
+      sentAt: String(raw.sent_at ?? ""),
     });
     summaries.set(quoteRequestId, summary);
   }
