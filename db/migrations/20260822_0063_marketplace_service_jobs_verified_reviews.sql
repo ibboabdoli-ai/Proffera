@@ -241,7 +241,7 @@ alter table website_reviews
   drop constraint if exists website_reviews_marketplace_service_job_id_fkey;
 alter table website_reviews
   add constraint website_reviews_marketplace_service_job_id_fkey
-  foreign key (marketplace_service_job_id) references marketplace_service_jobs(id) on delete set null;
+  foreign key (marketplace_service_job_id) references marketplace_service_jobs(id) on delete cascade;
 
 alter table website_reviews
   drop constraint if exists website_reviews_profile_id_fkey;
