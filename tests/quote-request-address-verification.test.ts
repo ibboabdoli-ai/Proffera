@@ -84,6 +84,19 @@ describe("quote request official address verification", () => {
       .toBeLessThan(mocks.verifyCustomerAddress.mock.invocationCallOrder[0]);
   });
 
+  it("does not call Lantmäteriet when abuse protection denies the submission", async () => {
+    mocks.allowPublicSubmission.mockResolvedValue(false);
+
+    const result = await submitQuoteRequest(request());
+
+    expect(result).toEqual({
+      ok: false,
+      errors: { form: "För många försök. Vänta en stund och försök igen." },
+    });
+    expect(mocks.verifyCustomerAddress).not.toHaveBeenCalled();
+    expect(mocks.storeQuoteRequest).not.toHaveBeenCalled();
+  });
+
   it("rejects a definitive official no-match before persistence", async () => {
     mocks.verifyCustomerAddress.mockResolvedValue({ status: "no_match", reason: "street_mismatch" });
 
@@ -96,6 +109,22 @@ describe("quote request official address verification", () => {
       },
     });
     expect(mocks.storeQuoteRequest).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "too_many_candidates",
+    "ambiguous_exact_match",
+    "unexpected_reference_response",
+  ])("continues unverified for non-customer-correctable no-match reason %s", async (reason) => {
+    mocks.verifyCustomerAddress.mockResolvedValue({ status: "no_match", reason });
+
+    const result = await submitQuoteRequest(request());
+
+    expect(result).toEqual({ ok: true, referenceId: "PRO-TEST" });
+    expect(mocks.storeQuoteRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ locationSource: "address" }),
+      undefined,
+    );
   });
 
   it("fails closed for a configured upstream outage", async () => {
