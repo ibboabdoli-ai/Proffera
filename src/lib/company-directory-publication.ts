@@ -49,13 +49,22 @@ export async function publishCompanyDirectoryProfileIfSafe(
       f.advertising_blocked, f.ongoing_procedures,
       f.last_synced_at::text as facts_last_synced_token,
       f.source_payload_hash as facts_source_payload_hash,
+      coalesce(jsonb_array_length(scb.conflicts), 0)::int as scb_conflict_count,
       (
         f.profile_id is not null
         and f.last_synced_at >= p.last_synced_at
         and f.source_payload_hash <> ''
-      ) as official_facts_fresh
+      ) as official_facts_fresh,
+      (
+        scb.profile_id is not null
+        and scb.source_payload_hash <> ''
+        and scb.last_synced_at >= now() - interval '7 days'
+        and scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = p.updated_at::text
+        and scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = f.last_synced_at::text
+      ) as scb_snapshot_fresh
     from company_directory_profiles p
     left join company_directory_official_facts f on f.profile_id = p.id
+    left join company_directory_scb_enrichment scb on scb.profile_id = p.id
     where p.id = ${profileId}::uuid
     limit 1
   `;
@@ -77,6 +86,8 @@ export async function publishCompanyDirectoryProfileIfSafe(
   const factsLastSyncedToken = text(row.facts_last_synced_token);
   const factsSourcePayloadHash = text(row.facts_source_payload_hash);
   const officialFactsFresh = Boolean(row.official_facts_fresh);
+  const scbSnapshotFresh = Boolean(row.scb_snapshot_fresh);
+  const scbConflictCount = Number(row.scb_conflict_count ?? 0);
 
   if (!confidence.officialFactsReady || !officialFactsFresh) {
     return { ok: false, code: "not_ready" };
@@ -88,7 +99,8 @@ export async function publishCompanyDirectoryProfileIfSafe(
     || Boolean(row.claimed_workspace_id)
     || Boolean(row.deregistration_date)
     || Boolean(row.advertising_blocked)
-    || jsonArray(row.ongoing_procedures).length > 0;
+    || jsonArray(row.ongoing_procedures).length > 0
+    || (scbSnapshotFresh && Number.isFinite(scbConflictCount) && scbConflictCount > 0);
   if (unsafe) return { ok: false, code: "unsafe" };
   if (confidence.score < 95) return { ok: false, code: "low_confidence" };
 
@@ -96,17 +108,23 @@ export async function publishCompanyDirectoryProfileIfSafe(
     return { ok: false, code: "not_ready" };
   }
 
-  try {
-    const scb = await enrichCompanyDirectoryScbForProfile(profileId);
-    if (scb.status !== "saved") {
+  // A fresh SCB snapshot is already bound to the exact profile and Official Facts
+  // versions above. Reuse it instead of forcing another upstream call before every
+  // publication attempt. Missing or stale SCB evidence is still refreshed live and
+  // remains fail-closed if the registry is unavailable or reports a conflict.
+  if (!scbSnapshotFresh) {
+    try {
+      const scb = await enrichCompanyDirectoryScbForProfile(profileId);
+      if (scb.status !== "saved") {
+        return { ok: false, code: "not_ready" };
+      }
+      if (scb.conflicts.length > 0) {
+        return { ok: false, code: "unsafe" };
+      }
+    } catch (error) {
+      console.error("SCB company directory enrichment failed before publication", error);
       return { ok: false, code: "not_ready" };
     }
-    if (scb.conflicts.length > 0) {
-      return { ok: false, code: "unsafe" };
-    }
-  } catch (error) {
-    console.error("SCB company directory enrichment failed before publication", error);
-    return { ok: false, code: "not_ready" };
   }
 
   const updated = await sql`
@@ -149,6 +167,7 @@ export async function publishCompanyDirectoryProfileIfSafe(
             where scb.profile_id = p.id
               and jsonb_array_length(coalesce(scb.conflicts, '[]'::jsonb)) = 0
               and scb.source_payload_hash <> ''
+              and scb.last_synced_at >= now() - interval '7 days'
               and scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = p.updated_at::text
               and scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = f.last_synced_at::text
           )
