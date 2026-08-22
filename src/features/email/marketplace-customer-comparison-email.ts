@@ -90,7 +90,7 @@ export async function sendMarketplaceCustomerComparisonEmail(input: MarketplaceC
   try {
     const response = await fetch("https://api.brevo.com/v3/smtp/email", {
       method: "POST",
-      headers: { "api-key": apiKey, "Content-Type": "application/json" },
+      headers: { "api-key": apiKey, "Content-Type": "application/json", Accept: "application/json" },
       signal: AbortSignal.timeout(10_000),
       body: JSON.stringify({
         sender: parseSender(from),
@@ -98,19 +98,29 @@ export async function sendMarketplaceCustomerComparisonEmail(input: MarketplaceC
         subject: email.subject,
         textContent: email.text,
         htmlContent: email.html,
+        // Brevo's transactional-email schema expects idempotency inside the
+        // payload's custom headers map, not as a transport-level HTTP header.
         headers: { idempotencyKey: input.idempotencyKey },
         tags: ["marketplace-customer-comparison"],
       }),
     });
     const data = (await response.json().catch(() => ({}))) as BrevoResponse;
     if (!response.ok) {
+      if (data.code === "duplicate_parameter") {
+        return {
+          ok: false as const,
+          code: "duplicate" as const,
+          providerMessageId: null,
+          message: data.message ?? data.code,
+        };
+      }
       console.error("Brevo rejected marketplace customer comparison email", {
         status: response.status,
         providerCode: data.code ?? null,
       });
       return {
         ok: false as const,
-        code: "provider",
+        code: "provider" as const,
         providerMessageId: null,
         message: data.message ?? data.code ?? "Brevo rejected the email.",
       };
@@ -118,6 +128,6 @@ export async function sendMarketplaceCustomerComparisonEmail(input: MarketplaceC
     return { ok: true as const, providerMessageId: data.messageId ?? null };
   } catch (error) {
     console.error("Brevo marketplace customer comparison request failed", error);
-    return { ok: false as const, code: "network", providerMessageId: null };
+    return { ok: false as const, code: "network" as const, providerMessageId: null };
   }
 }

@@ -5,14 +5,25 @@ const TOKEN_B = "B".repeat(43);
 const HASH_A = "a".repeat(64);
 const HASH_B = "b".repeat(64);
 
-const mocks = vi.hoisted(() => ({
-  allowPublicSubmission: vi.fn(),
-  hashToken: vi.fn((token: string) => token.startsWith("B") ? "b".repeat(64) : "a".repeat(64)),
-  submitQuote: vi.fn(),
-  suppressRecipient: vi.fn(),
-  notifyCustomer: vi.fn(),
-}));
+const mocks = vi.hoisted(() => {
+  const afterCallbacks: Array<() => void | Promise<void>> = [];
+  return {
+    afterCallbacks,
+    after: vi.fn((callback: () => void | Promise<void>) => {
+      afterCallbacks.push(callback);
+    }),
+    allowPublicSubmission: vi.fn(),
+    hashToken: vi.fn((token: string) => token.startsWith("B") ? "b".repeat(64) : "a".repeat(64)),
+    submitQuote: vi.fn(),
+    suppressRecipient: vi.fn(),
+    notifyCustomer: vi.fn(),
+  };
+});
 
+vi.mock("next/server", async () => {
+  const actual = await vi.importActual<typeof import("next/server")>("next/server");
+  return { ...actual, after: mocks.after };
+});
 vi.mock("@/lib/public-form-protection", () => ({
   allowPublicSubmission: mocks.allowPublicSubmission,
 }));
@@ -65,9 +76,16 @@ function redirectStatus(response: Response) {
   return new URL(location ?? "https://www.proffera.se").searchParams.get("status");
 }
 
+async function runAfter(index = 0) {
+  const callback = mocks.afterCallbacks[index];
+  expect(callback).toBeTypeOf("function");
+  await callback?.();
+}
+
 describe("marketplace guest route rate limits", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.afterCallbacks.length = 0;
     mocks.hashToken.mockImplementation((token: string) => token === TOKEN_B ? HASH_B : HASH_A);
     const attempts = new Map<string, number>();
     mocks.allowPublicSubmission.mockImplementation(async (input: { scope: string; identity: string; maxAttempts: number }) => {
@@ -95,6 +113,7 @@ describe("marketplace guest route rate limits", () => {
     const tokenBResponse = await postGuestQuote(quoteRequest(TOKEN_B), context(TOKEN_B));
     expect(redirectStatus(tokenBResponse)).toBe("sent");
     expect(mocks.submitQuote).toHaveBeenCalledTimes(6);
+    expect(mocks.after).toHaveBeenCalledTimes(6);
     expect(mocks.allowPublicSubmission).toHaveBeenCalledWith(expect.objectContaining({
       scope: "marketplace-guest-quote",
       identity: HASH_A,
@@ -109,23 +128,32 @@ describe("marketplace guest route rate limits", () => {
     }));
   });
 
-  it("notifies the customer only after a successful guest offer submission", async () => {
+  it("schedules the customer notification only after a successful guest offer submission", async () => {
     const response = await postGuestQuote(quoteRequest(TOKEN_A), context(TOKEN_A));
 
     expect(redirectStatus(response)).toBe("sent");
+    expect(mocks.notifyCustomer).not.toHaveBeenCalled();
+    expect(mocks.after).toHaveBeenCalledTimes(1);
+
+    await runAfter();
+
     expect(mocks.notifyCustomer).toHaveBeenCalledWith({
       guestToken: TOKEN_A,
       baseUrl: "https://www.proffera.se",
     });
   });
 
-  it("keeps the provider offer successful if customer notification fails", async () => {
+  it("keeps the provider offer successful if the deferred customer notification fails", async () => {
     mocks.notifyCustomer.mockResolvedValueOnce({ ok: false, code: "email_provider" });
 
     const response = await postGuestQuote(quoteRequest(TOKEN_A), context(TOKEN_A));
 
     expect(redirectStatus(response)).toBe("sent");
     expect(mocks.submitQuote).toHaveBeenCalledTimes(1);
+    expect(mocks.notifyCustomer).not.toHaveBeenCalled();
+
+    await runAfter();
+
     expect(mocks.notifyCustomer).toHaveBeenCalledTimes(1);
   });
 
@@ -163,6 +191,7 @@ describe("marketplace guest route rate limits", () => {
     expect(response.status).toBe(303);
     expect(redirectStatus(response)).toBe("invalid");
     expect(mocks.submitQuote).not.toHaveBeenCalled();
+    expect(mocks.after).not.toHaveBeenCalled();
     expect(mocks.notifyCustomer).not.toHaveBeenCalled();
   });
 
@@ -174,6 +203,7 @@ describe("marketplace guest route rate limits", () => {
     expect(response.status).toBe(303);
     expect(redirectStatus(response)).toBe("closed");
     expect(mocks.submitQuote).toHaveBeenCalledTimes(1);
+    expect(mocks.after).not.toHaveBeenCalled();
     expect(mocks.notifyCustomer).not.toHaveBeenCalled();
   });
 });

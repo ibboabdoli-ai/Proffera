@@ -1,10 +1,11 @@
--- Secure customer comparison access and single-winner guard for Marketplace Guest Quote offers.
+-- Secure customer comparison access for Marketplace Guest Quote offers.
 --
--- Sequencing: run after migration 0059.
+-- Sequencing: run after migration 0059. The single-winner concurrent unique index
+-- is installed separately by migration 0061 after this transaction commits.
 -- Rollout: additive schema only; verify on isolated Neon Preview before any Production execution.
 -- Production execution is intentionally NOT part of this migration commit.
 -- Rollback: roll application code back first. The access table can then be retained safely;
--- dropping it or the unique winner index is a deliberate destructive cleanup and must not be automatic.
+-- dropping it is a deliberate destructive cleanup and must not be automatic.
 
 begin;
 
@@ -28,13 +29,6 @@ create table if not exists marketplace_quote_customer_access (
 
 create index if not exists marketplace_quote_customer_access_status_idx
   on marketplace_quote_customer_access (status, updated_at desc);
-
--- A request can never have two selected Marketplace offers. This is the final
--- database guard under concurrent customer clicks; application logic also locks
--- the Quote Request and rejects the remaining submitted offers atomically.
-create unique index if not exists marketplace_quote_offers_one_selected_per_quote_idx
-  on marketplace_quote_offers (quote_request_id)
-  where status = 'selected';
 
 comment on table marketplace_quote_customer_access is
   'Private hashed-token access for a customer to compare Marketplace offers. Raw tokens are never persisted.';
