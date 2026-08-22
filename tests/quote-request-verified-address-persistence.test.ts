@@ -62,7 +62,10 @@ describe("verified customer address persistence", () => {
     const result = await storeQuoteRequest(input, verified);
 
     expect(result.ok).toBe(true);
-    const insert = calls.find((call) => call.query.includes("customer_verified_latitude"));
+    const insert = calls.find((call) => (
+      call.query.includes("insert into quote_requests")
+      && call.query.includes("customer_verified_latitude")
+    ));
     expect(insert).toBeDefined();
     expect(insert?.values).toContain("Storgatan 12");
     expect(insert?.values).toContain(59.32287321764047);
