@@ -1,8 +1,5 @@
 import { getSql } from "@/lib/db/server";
-import {
-  isValidCustomerAddressReferenceId,
-  type VerifiedCustomerAddress,
-} from "@/lib/lantmateriet-address-verification";
+import type { VerifiedCustomerAddress } from "@/lib/lantmateriet-address-verification";
 import type { QuoteRequestInput } from "./schema";
 
 type StoreQuoteRequestResult =
@@ -15,10 +12,16 @@ type StoreQuoteRequestResult =
       message: string;
     };
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function buildReferenceId() {
   const timestamp = Date.now().toString(36).toUpperCase();
   const randomPart = Math.random().toString(36).slice(2, 7).toUpperCase();
   return `PRO-${timestamp}-${randomPart}`;
+}
+
+function validVerifiedReference(value: unknown) {
+  return typeof value === "string" && UUID_PATTERN.test(value.trim());
 }
 
 export async function storeQuoteRequest(
@@ -62,7 +65,7 @@ export async function storeQuoteRequest(
     let verifiedStorageReady = false;
 
     if (input.locationSource === "address" && verifiedAddress) {
-      if (!isValidCustomerAddressReferenceId(verifiedAddress.referenceId)) {
+      if (!validVerifiedReference(verifiedAddress.referenceId)) {
         throw new Error("Invalid Lantmäteriet verified-address reference");
       }
 
