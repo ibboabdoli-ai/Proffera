@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { getMarketplaceCustomerComparison } from "@/lib/marketplace-customer-comparison";
+import { getMarketplaceRematchForCustomerToken } from "@/lib/marketplace-rematch";
 import { getMarketplaceServiceJobForCustomerToken } from "@/lib/marketplace-service-jobs";
 
 export const dynamic = "force-dynamic";
@@ -31,6 +32,12 @@ const copy = {
     cancelBody: "En avbokning väljer aldrig automatiskt en annan offert. Om du vill hitta ett nytt företag behöver förfrågan matchas om.",
     reason: "Anledning",
     cancel: "Avbryt jobbet",
+    rematchTitle: "Behöver du ett nytt företag?",
+    rematchBody: "Proffera skapar en ny sökomgång. Det gamla jobbet och den gamla vinnaren sparas som historik och ingen tidigare offert blir automatiskt vald.",
+    rematch: "Hitta ett nytt företag",
+    rematchPending: "En ny matchning är redan beställd och väntar på behandling.",
+    rematchProcessing: "Proffera söker nu efter nya företag.",
+    rematchProcessed: "Den nya matchningen har startat. Du får en ny jämförelselänk när nya offerter kommer in.",
     completed: "Jobbet är markerat som slutfört. När omdömesinbjudan skickas kan du lämna ett verifierat omdöme.",
     protected: "Säker personlig jobblänk · dela inte länken",
   },
@@ -49,6 +56,12 @@ const copy = {
     cancelBody: "Cancelling never silently promotes another offer. If you need a new provider, the request must be rematched.",
     reason: "Reason",
     cancel: "Cancel job",
+    rematchTitle: "Need a new provider?",
+    rematchBody: "Proffera creates a new matching round. The previous job and winner remain as history and no previous offer is automatically selected.",
+    rematch: "Find a new provider",
+    rematchPending: "A new matching round has already been requested and is waiting to be processed.",
+    rematchProcessing: "Proffera is now searching for new providers.",
+    rematchProcessed: "The new matching round has started. You will receive a new comparison link when new offers arrive.",
     completed: "The job is marked completed. When the review invitation is delivered, you can leave a verified review.",
     protected: "Secure personal job link · do not share it",
   },
@@ -72,9 +85,10 @@ export default async function MarketplaceCustomerJobPage({
   const [{ token }, query] = await Promise.all([params, searchParams ?? Promise.resolve(undefined)]);
   const locale = localeFrom(query?.lang);
   const text = copy[locale];
-  const [job, comparison] = await Promise.all([
+  const [job, comparison, rematch] = await Promise.all([
     getMarketplaceServiceJobForCustomerToken(token),
     getMarketplaceCustomerComparison(token),
+    getMarketplaceRematchForCustomerToken(token),
   ]);
   const selected = comparison?.offers.find((offer) => offer.status === "selected") ?? null;
 
@@ -85,7 +99,15 @@ export default async function MarketplaceCustomerJobPage({
   const alternative = locale === "en" ? "sv" : "en";
   const languageHref = `/offert/jobb/kund/${encodeURIComponent(token)}${alternative === "en" ? "?lang=en" : ""}`;
   const cancellable = job.status === "accepted" || job.status === "in_progress" || job.status === "problem";
+  const rematchEligible = ["customer_cancelled", "provider_cancelled", "no_show", "problem"].includes(job.status);
   const action = `/api/marketplace/customer-service-job/${encodeURIComponent(token)}`;
+  const rematchMessage = rematch?.status === "processing"
+    ? text.rematchProcessing
+    : rematch?.status === "processed"
+      ? text.rematchProcessed
+      : rematch
+        ? text.rematchPending
+        : "";
 
   return (
     <main lang={locale} className="min-h-screen bg-[#f7f7f4] px-4 py-8 text-[#17201a] sm:px-6 sm:py-12">
@@ -119,9 +141,27 @@ export default async function MarketplaceCustomerJobPage({
               <p className="mt-2 text-sm leading-6 text-[#6b625c]">{text.cancelBody}</p>
               <form action={action} method="post" className="mt-4 grid gap-3">
                 <input type="hidden" name="lang" value={locale} />
+                <input type="hidden" name="intent" value="cancel" />
                 <label className="grid gap-2 text-sm font-bold">{text.reason}<textarea name="reason" maxLength={1000} rows={3} className="rounded-xl border p-3 font-normal" /></label>
                 <button type="submit" className="min-h-11 rounded-xl bg-[#8a2b20] px-4 py-2 font-bold text-white">{text.cancel}</button>
               </form>
+            </section>
+          ) : null}
+
+          {rematchEligible ? (
+            <section className="rounded-2xl border border-[#c9d9f1] bg-[#f3f7fd] p-5">
+              <h2 className="font-bold text-[#214b7a]">{text.rematchTitle}</h2>
+              <p className="mt-2 text-sm leading-6 text-[#536579]">{text.rematchBody}</p>
+              {rematch ? (
+                <p className="mt-4 rounded-xl bg-white p-4 text-sm font-semibold text-[#214b7a]">{rematchMessage}</p>
+              ) : (
+                <form action={action} method="post" className="mt-4 grid gap-3">
+                  <input type="hidden" name="lang" value={locale} />
+                  <input type="hidden" name="intent" value="rematch" />
+                  <label className="grid gap-2 text-sm font-bold">{text.reason}<textarea name="reason" maxLength={1000} rows={3} className="rounded-xl border p-3 font-normal" /></label>
+                  <button type="submit" className="min-h-11 rounded-xl bg-[#214b7a] px-4 py-2 font-bold text-white">{text.rematch}</button>
+                </form>
+              )}
             </section>
           ) : null}
 
