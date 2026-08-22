@@ -40,7 +40,7 @@ jobs:
 
           pulls_json="$(
             gh api --paginate "repos/${REPOSITORY}/pulls?state=open&per_page=100" --jq '.[]' \
-              | jq -s '[.[] | select(.head.ref | startswith("work/proffera-"))]'
+              | jq -s '[.[] | select(.base.ref == "main") | select(.head.ref | startswith("work/proffera-"))]'
           )"
 
           active_count="$(jq 'length' <<< "$pulls_json")"
@@ -85,7 +85,7 @@ jobs:
           done < <(jq -r '.[] | @base64' <<< "$pulls_json")
 
           if [ "$active_count" -eq 0 ]; then
-            worker_lines="- No open \`work/proffera-*\` worker PRs."$'\n'
+            worker_lines="- No open \`work/proffera-*\` worker PRs targeting \`main\`."$'\n'
           fi
 
           body="$(cat <<EOF
