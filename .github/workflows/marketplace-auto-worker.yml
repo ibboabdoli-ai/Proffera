@@ -1,0 +1,50 @@
+name: Marketplace Auto Worker
+
+on:
+  schedule:
+    - cron: "11,26,41,56 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: marketplace-auto-worker
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    if: ${{ vars.MARKETPLACE_AUTO_WORKER_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Verify Marketplace scheduler configuration
+        env:
+          MARKETPLACE_AUTO_WORKER_URL: ${{ secrets.PROFFERA_MARKETPLACE_AUTO_WORKER_URL }}
+          CRON_SECRET: ${{ secrets.PROFFERA_MARKETPLACE_AUTO_WORKER_CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          test -n "$MARKETPLACE_AUTO_WORKER_URL"
+          test -n "$CRON_SECRET"
+          python - <<'PY'
+          import os
+          import urllib.parse
+
+          url = urllib.parse.urlparse(os.environ["MARKETPLACE_AUTO_WORKER_URL"])
+          if url.scheme != "https" or not url.netloc:
+              raise SystemExit("PROFFERA_MARKETPLACE_AUTO_WORKER_URL must be an HTTPS URL")
+          if url.path.rstrip("/") != "/api/cron/marketplace-auto-worker":
+              raise SystemExit("PROFFERA_MARKETPLACE_AUTO_WORKER_URL must target /api/cron/marketplace-auto-worker")
+          PY
+
+      - name: Process Marketplace invitation waves
+        env:
+          MARKETPLACE_AUTO_WORKER_URL: ${{ secrets.PROFFERA_MARKETPLACE_AUTO_WORKER_URL }}
+          CRON_SECRET: ${{ secrets.PROFFERA_MARKETPLACE_AUTO_WORKER_CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error \
+            --connect-timeout 10 \
+            --max-time 70 \
+            --header "Authorization: Bearer $CRON_SECRET" \
+            --header "User-Agent: proffera-marketplace-auto-worker-github-actions" \
+            "$MARKETPLACE_AUTO_WORKER_URL"
