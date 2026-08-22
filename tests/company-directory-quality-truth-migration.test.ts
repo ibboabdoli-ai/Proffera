@@ -107,8 +107,12 @@ function docker(args: string[]) {
            'published', true, true, 85, 'Stockholm', 'stadning', '', '', '', null, $1),
           ('5560000007', 'juridical_person', 'Zero Score AB', 'Zero Score AB', 'zero-score-ab',
            'ready', true, true, 0, 'Stockholm', 'stadning', '', '', '', null, $1),
-          ('5560000008', 'juridical_person', 'Claimed AB', 'Claimed AB', 'claimed-ab',
-           'claimed', true, false, 100, 'Stockholm', 'stadning', '', '', '', $2, $1)
+          ('5560000008', 'juridical_person', 'Claimed Workspace AB', 'Claimed Workspace AB', 'claimed-workspace-ab',
+           'claimed', true, false, 100, 'Stockholm', 'stadning', '', '', '', $2, $1),
+          ('5560000009', 'juridical_person', 'Claimed Status AB', 'Claimed Status AB', 'claimed-status-ab',
+           'claimed', true, false, 95, 'Stockholm', 'stadning', '', '', '', null, $1),
+          ('5560000010', 'juridical_person', 'Workspace Owned Review AB', 'Workspace Owned Review AB', 'workspace-owned-review-ab',
+           'review', true, false, 95, 'Stockholm', 'stadning', '', '', '', $2, $1)
       `, [fixedUpdatedAt, claimedWorkspaceId]);
 
       const migration = readFileSync(join(process.cwd(), QUALITY_MIGRATION), "utf8");
@@ -175,6 +179,18 @@ function docker(args: string[]) {
           organization_number: "5560000008",
           publication_status: "claimed",
           quality_score: 100,
+          quality_reasons: [],
+        }),
+        expect.objectContaining({
+          organization_number: "5560000009",
+          publication_status: "claimed",
+          quality_score: 95,
+          quality_reasons: [],
+        }),
+        expect.objectContaining({
+          organization_number: "5560000010",
+          publication_status: "review",
+          quality_score: 95,
           quality_reasons: [],
         }),
       ]);
