@@ -109,8 +109,33 @@ describe("assessCompanyDirectoryCategoryConfidence", () => {
       activityDescription: "VVS, rörinstallation och värmeservice.",
       registeredNames: [{
         name: "Nya Rör & Värme AB",
+        typeCode: "FORETAGSNAMN",
         specialBusinessDescription: "",
       }],
+    }));
+
+    expect(result.score).toBe(90);
+    expect(result.level).toBe("review");
+    expect(result.warnings).toContain("Profilens företagsnamn matchar inte Official Facts");
+  });
+
+  it("does not accept a matching special business name as the official legal identity", () => {
+    const result = assessCompanyDirectoryCategoryConfidence(base({
+      legalName: "Gamla VVS Namnet AB",
+      displayName: "Gamla VVS Namnet AB",
+      activityDescription: "VVS, rörinstallation och värmeservice.",
+      registeredNames: [
+        {
+          name: "Nya Rör & Värme AB",
+          typeCode: "FORETAGSNAMN",
+          specialBusinessDescription: "",
+        },
+        {
+          name: "Gamla VVS Namnet AB",
+          typeCode: "SARS_FORNAMN",
+          specialBusinessDescription: "VVS-service.",
+        },
+      ],
     }));
 
     expect(result.score).toBe(90);
@@ -127,6 +152,7 @@ describe("assessCompanyDirectoryCategoryConfidence", () => {
       activityDescription: "Måleri, målning och fastighetsservice.",
       registeredNames: [{
         name: "THOMAS LUNDINS MÅLERI & FASTIGHETSSERVICE AB",
+        typeCode: "FORETAGSNAMN",
         specialBusinessDescription: "",
       }],
       sniCodes: [{ code: "43341", label: "Måleriarbeten" }],
