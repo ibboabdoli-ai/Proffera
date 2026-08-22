@@ -103,7 +103,32 @@ describe("tooling safety contract", () => {
     expect(both.status).toBe(1);
     expect(both.stderr).toContain("configure either SonarQube Server or SonarQube Cloud mode, not both");
 
-    for (const result of [serverOnly, cloudOnly, neither, both]) {
+    const missingToken = runSonarValidation({
+      SONAR_TOKEN: "",
+      SONAR_ORGANIZATION: "proffera",
+    });
+    expect(missingToken.status).toBe(1);
+    expect(missingToken.stderr).toContain(
+      "SONAR_TOKEN is required when SONARQUBE_ENABLED=true",
+    );
+
+    const missingProjectKey = runSonarValidation({
+      SONAR_PROJECT_KEY: "",
+      SONAR_ORGANIZATION: "proffera",
+    });
+    expect(missingProjectKey.status).toBe(1);
+    expect(missingProjectKey.stderr).toContain(
+      "SONAR_PROJECT_KEY is required when SONARQUBE_ENABLED=true",
+    );
+
+    for (const result of [
+      serverOnly,
+      cloudOnly,
+      neither,
+      both,
+      missingToken,
+      missingProjectKey,
+    ]) {
       expect(`${result.stdout}${result.stderr}`).not.toContain("test-token");
     }
   });
