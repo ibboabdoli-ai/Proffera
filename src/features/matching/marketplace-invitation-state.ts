@@ -82,12 +82,22 @@ export async function expirePastMarketplaceInvitation(quoteRequestId: string, pr
   // A sent/viewed guest link whose TTL elapsed is safe to expire. Do not auto-
   // expire provider-claimed pending/delivery_uncertain rows: those may represent
   // an ambiguous delivery and require the 0051 fail-closed reconciliation path.
+  // SKIP LOCKED keeps admin-triggered wave dispatch from waiting behind a row
+  // that another request is actively updating; the next reconciliation can
+  // expire it after that transaction releases the lock.
   await sql`
-    update marketplace_quote_invitations
+    with expirable as (
+      select id
+      from marketplace_quote_invitations
+      where quote_request_id = ${quoteRequestId}::uuid
+        and profile_id = ${profileId}::uuid
+        and expires_at <= now()
+        and status in ('sent', 'viewed')
+      for update skip locked
+    )
+    update marketplace_quote_invitations as invitation
     set status = 'expired', updated_at = now()
-    where quote_request_id = ${quoteRequestId}::uuid
-      and profile_id = ${profileId}::uuid
-      and expires_at <= now()
-      and status in ('sent', 'viewed')
+    from expirable
+    where invitation.id = expirable.id
   `;
 }
