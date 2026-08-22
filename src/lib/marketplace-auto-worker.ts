@@ -28,6 +28,7 @@ const MAX_BATCH_SIZE = 10;
 const DEFAULT_WORKER_DEADLINE_MS = 45_000;
 const INVITATION_STATE_TIMEOUT_MS = 3_000;
 const INVITATION_SEND_TIMEOUT_MS = 8_000;
+const REMATCH_FINALIZE_TIMEOUT_MS = 3_000;
 
 type AutoWaveDecisionReason = "wave1" | "wave2" | "enough_offers" | "wave_full" | "wave2_waiting";
 
@@ -358,6 +359,15 @@ export async function processMarketplaceAutoWorker(input: {
 
     return result;
   } finally {
-    await finalizeMarketplaceRematchWork(rematchContext);
+    try {
+      await withTimeout(
+        finalizeMarketplaceRematchWork(rematchContext),
+        REMATCH_FINALIZE_TIMEOUT_MS,
+        "Marketplace rematch finalization timed out",
+      );
+    } catch (error) {
+      increment(result.skipped, "rematch_finalize_error");
+      console.error("Marketplace rematch finalization failed", { error });
+    }
   }
 }
