@@ -53,6 +53,7 @@ function createSql(storageReady: boolean) {
 describe("verified customer address persistence", () => {
   beforeEach(() => {
     mocks.getSql.mockReset();
+    vi.restoreAllMocks();
   });
 
   it("stores transformed verified coordinates and provenance without repurposing browser geolocation fields", async () => {
@@ -62,17 +63,22 @@ describe("verified customer address persistence", () => {
     const result = await storeQuoteRequest(input, verified);
 
     expect(result.ok).toBe(true);
+    const transform = calls.find((call) => call.query.includes("st_y(transformed.point)"));
+    expect(transform?.values).toEqual([674000, 6580000]);
+
     const insert = calls.find((call) => (
       call.query.includes("insert into quote_requests")
       && call.query.includes("customer_verified_latitude")
     ));
     expect(insert).toBeDefined();
+    expect(insert?.query).toContain("customer_verified_latitude,\n          customer_verified_longitude");
     expect(insert?.values).toContain("Storgatan 12");
-    expect(insert?.values).toContain(59.32287321764047);
-    expect(insert?.values).toContain(18.05796533678305);
+    expect(insert?.values.slice(8, 10)).toEqual([
+      59.32287321764047,
+      18.05796533678305,
+    ]);
     expect(insert?.values).toContain("lantmateriet_belagenhetsadress_v4_2");
     expect(insert?.values).toContain("439b33bf-6279-4b65-b32c-9741646d8d3e");
-    expect(calls.some((call) => call.query.includes("st_makepoint"))).toBe(true);
   });
 
   it("keeps the legacy address insert deploy-safe until migration 0058 exists", async () => {
@@ -86,5 +92,24 @@ describe("verified customer address persistence", () => {
     const insert = calls.find((call) => call.query.includes("insert into quote_requests"));
     expect(insert?.query).not.toContain("customer_verified_latitude");
     expect(insert?.values).toContain("Storgatan 12");
+  });
+
+  it("fails before verified storage when the official reference is not a UUID", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { sql, calls } = createSql(true);
+    mocks.getSql.mockReturnValue(sql);
+
+    const result = await storeQuoteRequest(input, {
+      ...verified,
+      referenceId: "not-a-uuid",
+    });
+
+    expect(result.ok).toBe(false);
+    expect(calls.some((call) => call.query.includes("information_schema.columns"))).toBe(false);
+    expect(calls.some((call) => call.query.includes("st_makepoint"))).toBe(false);
+    expect(calls.some((call) => (
+      call.query.includes("insert into quote_requests")
+      && call.query.includes("customer_verified_latitude")
+    ))).toBe(false);
   });
 });
