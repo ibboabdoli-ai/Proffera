@@ -69,7 +69,7 @@ export async function storeQuoteRequest(
         throw new Error("Invalid Lantmäteriet verified-address reference");
       }
 
-      // Rollout follow-up: after migration 0058 is confirmed in Production, remove this
+      // Rollout follow-up: after migration 0059 is confirmed in Production, remove this
       // runtime schema probe and the legacy insert branch below in a dedicated cleanup PR.
       const readinessRows = await sql`
         select count(*) = 5 as ready
