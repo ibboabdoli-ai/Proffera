@@ -31,7 +31,8 @@ function canContinueWithoutVerifiedAddress(reason: string) {
 }
 
 export async function submitQuoteRequest(input: QuoteRequestSubmission): Promise<SubmitQuoteRequestResult> {
-  const locale: PublicLocale = input.locale === "en" ? "en" : "sv";
+  const requestHeaders = await headers();
+  const locale: PublicLocale = input.locale === "en" || requestHeaders.get("x-proffera-locale") === "en" ? "en" : "sv";
   const elapsed = Date.now() - Number(input.formStartedAt);
 
   if (input.website || !Number.isFinite(elapsed) || elapsed < 2_500 || elapsed > 24 * 60 * 60 * 1_000) {
@@ -55,7 +56,7 @@ export async function submitQuoteRequest(input: QuoteRequestSubmission): Promise
 
   const allowed = await allowPublicSubmission({
     scope: "quote_request",
-    requestHeaders: await headers(),
+    requestHeaders,
     identity: `${parsed.data.contactEmail}:${parsed.data.contactPhone}`,
     maxAttempts: 3,
     windowSeconds: 15 * 60,
