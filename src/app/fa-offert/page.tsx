@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 
 import { PageShell } from "@/components/layout/page-shell";
 import { QuoteRequestForm } from "@/features/quote-request/quote-request-form";
@@ -40,10 +39,12 @@ export default async function QuotePage({ searchParams }: QuotePageProps) {
       title="Beskriv ditt uppdrag steg för steg."
       description="Fyll i tjänst, plats, beskrivning och kontaktuppgifter. Proffera använder uppgifterna för att hantera förfrågan och matcha den med lämpliga företag."
     >
-      <div className="mb-4 flex justify-end">
-        <Link href="/en/get-quote" className="rounded-full border border-[#dfe5dd] bg-white px-4 py-2 text-sm font-semibold text-[#17452f]">EN English</Link>
-      </div>
-      <QuoteRequestForm locale="sv" initialValues={initialValues} />
+      <QuoteRequestForm
+        locale="sv"
+        initialValues={initialValues}
+        alternateLocaleHref="/en/get-quote?resume=1"
+        alternateLocaleLabel="EN English"
+      />
     </PageShell>
   );
 }

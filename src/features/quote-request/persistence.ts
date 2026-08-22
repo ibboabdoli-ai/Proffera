@@ -28,6 +28,9 @@ export async function storeQuoteRequest(input: QuoteRequestInput): Promise<Store
   }
 
   const referenceId = buildReferenceId();
+  const customerAddressLine1 = input.locationSource === "address" ? input.addressLine1.trim() : null;
+  const customerLatitude = input.locationSource === "geolocation" ? input.latitude : null;
+  const customerLongitude = input.locationSource === "geolocation" ? input.longitude : null;
 
   try {
     const recentRows = await sql`
@@ -53,6 +56,10 @@ export async function storeQuoteRequest(input: QuoteRequestInput): Promise<Store
         service_type,
         city,
         postal_code,
+        customer_address_line1,
+        customer_latitude,
+        customer_longitude,
+        customer_location_source,
         description,
         preferred_date,
         contact_name,
@@ -66,6 +73,10 @@ export async function storeQuoteRequest(input: QuoteRequestInput): Promise<Store
         ${input.serviceType},
         ${input.city},
         ${input.postalCode},
+        ${customerAddressLine1},
+        ${customerLatitude},
+        ${customerLongitude},
+        ${input.locationSource},
         ${input.description},
         ${input.preferredDate},
         ${input.contactName},
