@@ -1,0 +1,122 @@
+name: Supervisor live state
+
+on:
+  push:
+    branches: [main]
+  pull_request_target:
+    branches: [main]
+    types: [opened, reopened, synchronize, ready_for_review, closed]
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: proffera-supervisor-live-state
+  cancel-in-progress: true
+
+jobs:
+  refresh-supervisor-state:
+    name: Refresh Supervisor live state
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Publish current main and worker PR state
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SUPERVISOR_ISSUE: "548"
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          marker='<!-- proffera-supervisor-live-state -->'
+          main_sha="$(gh api "repos/${REPOSITORY}/commits/main" --jq '.sha')"
+          refreshed_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+
+          pulls_json="$(
+            gh api --paginate "repos/${REPOSITORY}/pulls?state=open&per_page=100" --jq '.[]' \
+              | jq -s '[.[] | select(.head.ref | startswith("work/proffera-"))]'
+          )"
+
+          active_count="$(jq 'length' <<< "$pulls_json")"
+          current_count=0
+          stale_count=0
+          missing_count=0
+          worker_lines=""
+
+          while IFS= read -r encoded; do
+            [ -z "$encoded" ] && continue
+            pr_json="$(printf '%s' "$encoded" | base64 --decode)"
+            number="$(jq -r '.number' <<< "$pr_json")"
+            title="$(jq -r '.title' <<< "$pr_json")"
+            head_ref="$(jq -r '.head.ref' <<< "$pr_json")"
+            head_sha="$(jq -r '.head.sha' <<< "$pr_json")"
+            draft="$(jq -r '.draft' <<< "$pr_json")"
+            pr_url="$(jq -r '.html_url' <<< "$pr_json")"
+            bootstrap="$(
+              jq -r '.body // ""' <<< "$pr_json" \
+                | sed -nE 's/^[[:space:]]*Bootstrap baseline:[[:space:]]*([0-9a-fA-F]{40})[[:space:]]*$/\1/p' \
+                | head -n1 \
+                | tr '[:upper:]' '[:lower:]'
+            )"
+
+            if [ -z "$bootstrap" ]; then
+              baseline_state="⚠️ missing bootstrap"
+              missing_count=$((missing_count + 1))
+            elif [ "$bootstrap" = "$main_sha" ]; then
+              baseline_state="✅ current"
+              current_count=$((current_count + 1))
+            else
+              baseline_state="🟠 stale baseline"
+              stale_count=$((stale_count + 1))
+            fi
+
+            draft_state="ready"
+            if [ "$draft" = "true" ]; then
+              draft_state="draft"
+            fi
+
+            worker_lines+="- #${number} — ${title} — \`${head_ref}\` — ${draft_state} — ${baseline_state} — head \`${head_sha:0:12}\` — ${pr_url}"$'\n'
+          done < <(jq -r '.[] | @base64' <<< "$pulls_json")
+
+          if [ "$active_count" -eq 0 ]; then
+            worker_lines="- No open \`work/proffera-*\` worker PRs."$'\n'
+          fi
+
+          body="$(cat <<EOF
+          ${marker}
+          ## Supervisor live state
+
+          - **Current main:** \`${main_sha}\`
+          - **Refreshed:** ${refreshed_at}
+          - **Open worker PRs:** ${active_count}
+          - **Bootstrap state:** ${current_count} current / ${stale_count} stale / ${missing_count} missing
+
+          ### Active worker graph
+          ${worker_lines}
+          This snapshot is generated from GitHub. Workers must resolve \`main\` directly before starting or refreshing work; static SHA text in issue descriptions is not authoritative.
+          EOF
+          )"
+
+          comments_json="$(
+            gh api --paginate "repos/${REPOSITORY}/issues/${SUPERVISOR_ISSUE}/comments?per_page=100" --jq '.[]' \
+              | jq -s '.'
+          )"
+          comment_id="$(
+            jq -r --arg marker "$marker" \
+              '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | last | .id // empty' \
+              <<< "$comments_json"
+          )"
+
+          if [ -n "$comment_id" ]; then
+            gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${comment_id}" -f body="$body" >/dev/null
+            echo "Updated Supervisor live-state comment ${comment_id}."
+          else
+            gh api --method POST "repos/${REPOSITORY}/issues/${SUPERVISOR_ISSUE}/comments" -f body="$body" >/dev/null
+            echo "Created Supervisor live-state comment."
+          fi
