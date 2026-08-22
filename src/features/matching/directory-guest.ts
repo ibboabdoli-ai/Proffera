@@ -307,20 +307,30 @@ export async function getDirectoryGuestLeadMatches() {
   try {
     const leads = await sql`
       select
-        id::text,
-        reference_id,
-        category,
-        service_type,
-        city,
-        postal_code,
-        description,
-        status,
-        customer_latitude::float8,
-        customer_longitude::float8,
-        created_at::text
-      from quote_requests
-      where status in ('submitted', 'pending_review', 'approved', 'matched', 'answered')
-      order by created_at desc
+        request.id::text,
+        request.reference_id,
+        request.category,
+        request.service_type,
+        request.city,
+        request.postal_code,
+        request.description,
+        request.status,
+        case
+          when nullif(to_jsonb(request)->>'customer_verified_latitude', '') is not null
+            and nullif(to_jsonb(request)->>'customer_verified_longitude', '') is not null
+          then nullif(to_jsonb(request)->>'customer_verified_latitude', '')::float8
+          else request.customer_latitude::float8
+        end as customer_latitude,
+        case
+          when nullif(to_jsonb(request)->>'customer_verified_latitude', '') is not null
+            and nullif(to_jsonb(request)->>'customer_verified_longitude', '') is not null
+          then nullif(to_jsonb(request)->>'customer_verified_longitude', '')::float8
+          else request.customer_longitude::float8
+        end as customer_longitude,
+        request.created_at::text
+      from quote_requests request
+      where request.status in ('submitted', 'pending_review', 'approved', 'matched', 'answered')
+      order by request.created_at desc
       limit 50
     `;
 
