@@ -1,5 +1,10 @@
 begin;
 
+-- Persist the customer-facing language with the Quote Request so later
+-- Marketplace emails and review pages stay in the language the customer used.
+alter table quote_requests
+  add column if not exists locale text not null default 'sv' check (locale in ('sv', 'en'));
+
 -- Marketplace fulfillment stays independent from Workspace ownership so an
 -- unclaimed Directory company can complete real Proffera work without a fake
 -- tenant. Customer PII remains owned by quote_requests and is not copied here.
@@ -89,7 +94,10 @@ begin
      or offer_quote_id <> new.quote_request_id
      or offer_profile_id <> new.profile_id
      or offer_invitation_id <> new.invitation_id
-     or offer_workspace_id is distinct from new.workspace_id then
+     -- ON DELETE SET NULL may update the job before the offer. Allow the job
+     -- side to become NULL without depending on cross-table FK action order,
+     -- while still rejecting any non-null workspace mismatch.
+     or (new.workspace_id is not null and offer_workspace_id is distinct from new.workspace_id) then
     raise exception using errcode = '23514', message = 'marketplace_service_job_offer_identity_mismatch';
   end if;
   return new;
