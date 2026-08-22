@@ -58,8 +58,8 @@ jobs:
             head_sha="$(jq -r '.head.sha' <<< "$pr_json")"
             draft="$(jq -r '.draft' <<< "$pr_json")"
             pr_url="$(jq -r '.html_url' <<< "$pr_json")"
-            safe_title="$(printf '%s' "$title" | jq -Rr '@html' | sed 's/`/\&#96;/g')"
-            safe_head_ref="$(printf '%s' "$head_ref" | jq -Rr '@html' | sed 's/`/\&#96;/g')"
+            safe_title="$(printf '%s' "$title" | jq -Rr '@html')"
+            safe_head_ref="$(printf '%s' "$head_ref" | jq -Rr '@html')"
             bootstrap="$(
               jq -r '.body // ""' <<< "$pr_json" \
                 | sed -nE 's/^[[:space:]]*Bootstrap baseline:[[:space:]]*([0-9a-fA-F]{40})[[:space:]]*$/\1/p' \
@@ -83,7 +83,7 @@ jobs:
               draft_state="draft"
             fi
 
-            worker_lines+="- #${number} — \`${safe_title}\` — \`${safe_head_ref}\` — ${draft_state} — ${baseline_state} — head \`${head_sha:0:12}\` — ${pr_url}"$'\n'
+            worker_lines+="- #${number} — <code>${safe_title}</code> — <code>${safe_head_ref}</code> — ${draft_state} — ${baseline_state} — head \`${head_sha:0:12}\` — ${pr_url}"$'\n'
           done < <(jq -r '.[] | @base64' <<< "$pulls_json")
 
           if [ "$active_count" -eq 0 ]; then
