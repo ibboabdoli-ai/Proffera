@@ -104,13 +104,18 @@ export function LocalizedQuoteRequestForm({
       const raw = window.sessionStorage.getItem(DRAFT_STORAGE_KEY);
       if (!raw) return;
 
-      let draft: Partial<QuoteLanguageDraft>;
+      let parsedDraft: unknown;
       try {
-        draft = JSON.parse(raw) as Partial<QuoteLanguageDraft>;
+        parsedDraft = JSON.parse(raw) as unknown;
       } catch {
         discardLanguageDraft();
         return;
       }
+      if (!parsedDraft || typeof parsedDraft !== "object" || Array.isArray(parsedDraft)) {
+        discardLanguageDraft();
+        return;
+      }
+      const draft = parsedDraft as Partial<QuoteLanguageDraft>;
 
       const savedAt = Number(draft.savedAt);
       const draftAge = Date.now() - savedAt;
