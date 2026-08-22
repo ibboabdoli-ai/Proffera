@@ -24,6 +24,9 @@ vi.mock("@/lib/marketplace-guest-quote", () => ({
 vi.mock("@/lib/marketplace-customer-comparison", () => ({
   notifyMarketplaceCustomerOfferAvailableFromGuestToken: mocks.notifyCustomer,
 }));
+vi.mock("@/lib/marketplace-public-base-url", () => ({
+  resolveMarketplacePublicBaseUrl: () => "https://www.proffera.se",
+}));
 
 import { POST as postGuestQuote } from "@/app/api/marketplace/guest-quote/[token]/route";
 import { POST as postGuestOptOut } from "@/app/api/marketplace/guest-quote/[token]/opt-out/route";
