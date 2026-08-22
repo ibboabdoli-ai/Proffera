@@ -6,14 +6,20 @@ import { setTimeout as delay } from "node:timers/promises";
 import { Client } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-const migration = readFileSync(
-  join(process.cwd(), "db/migrations/20260821_0056_company_directory_projection_repairs.sql"),
-  "utf8",
-);
-
 const RUN_POSTGRES_INTEGRATION =
   process.env.GITHUB_ACTIONS === "true"
   || process.env.PROFFERA_POSTGRES_INTEGRATION === "1";
+
+const BASELINE_MIGRATION_PATHS = [
+  "db/migrations/20260809_0037_company_profile_engine_foundation.sql",
+  "db/migrations/20260809_0038_company_profile_engine_provenance.sql",
+  "db/migrations/20260812_0044_company_directory_official_facts.sql",
+  "db/migrations/20260813_0045_company_directory_service_location_foundation.sql",
+  "db/migrations/20260819_0048_company_directory_scb_enrichment.sql",
+] as const;
+
+const REPAIR_MIGRATION_PATH =
+  "db/migrations/20260821_0056_company_directory_projection_repairs.sql";
 
 function docker(args: string[]) {
   return execFileSync("docker", args, { encoding: "utf8" }).trim();
@@ -25,6 +31,7 @@ function docker(args: string[]) {
     let containerName = "";
     let connectionString = "";
     let client: Client | null = null;
+    let repairMigration = "";
 
     async function waitForPostgres() {
       let lastError: unknown = null;
@@ -44,88 +51,22 @@ function docker(args: string[]) {
       throw lastError ?? new Error("PostgreSQL test container did not become ready");
     }
 
-    async function resetSchema() {
-      await client!.query(`
-        drop table if exists company_directory_profile_services cascade;
-        drop table if exists company_directory_services cascade;
-        drop table if exists company_directory_service_categories cascade;
-        drop table if exists company_directory_field_sources cascade;
-        drop table if exists company_directory_scb_enrichment cascade;
-        drop table if exists company_directory_profiles cascade;
+    async function resetSchemaFromCommittedMigrations() {
+      await client!.query("drop schema public cascade; create schema public");
 
-        create extension if not exists pgcrypto;
+      // Directory migration 0037 references workspaces. The workspace table is an
+      // external prerequisite, not part of the Directory schema under test.
+      await client!.query("create table workspaces (id uuid primary key)");
 
-        create table company_directory_profiles (
-          id uuid primary key,
-          country_code text not null default 'SE',
-          organization_number text not null,
-          primary_sni_code text not null default '',
-          municipality text not null default '',
-          publication_status text not null default 'ready',
-          updated_at timestamptz not null default now()
-        );
-
-        create table company_directory_scb_enrichment (
-          profile_id uuid primary key references company_directory_profiles(id) on delete cascade,
-          organization_number text not null,
-          municipality text not null default ''
-        );
-
-        create table company_directory_field_sources (
-          id uuid primary key default gen_random_uuid(),
-          profile_id uuid not null references company_directory_profiles(id) on delete cascade,
-          field_name text not null,
-          source_name text not null,
-          source_record_id text not null default '',
-          source_url text not null default '',
-          value_hash text not null default '',
-          confidence smallint not null default 100,
-          observed_at timestamptz not null default now(),
-          created_at timestamptz not null default now()
-        );
-
-        create unique index company_directory_field_sources_value_unique_idx
-          on company_directory_field_sources (profile_id, field_name, source_name, value_hash);
-
-        create table company_directory_service_categories (
-          slug text primary key,
-          label text not null,
-          search_aliases text[] not null default '{}',
-          sort_order smallint not null default 0,
-          is_active boolean not null default true,
-          created_at timestamptz not null default now(),
-          updated_at timestamptz not null default now()
-        );
-
-        create table company_directory_services (
-          slug text primary key,
-          category_slug text not null references company_directory_service_categories(slug) on delete restrict,
-          parent_service_slug text references company_directory_services(slug) on delete restrict,
-          label text not null,
-          search_aliases text[] not null default '{}',
-          sort_order smallint not null default 0,
-          is_active boolean not null default true,
-          created_at timestamptz not null default now(),
-          updated_at timestamptz not null default now()
-        );
-
-        create table company_directory_profile_services (
-          profile_id uuid not null references company_directory_profiles(id) on delete cascade,
-          service_slug text not null references company_directory_services(slug) on delete restrict,
-          source_type text not null default 'sni',
-          confidence smallint not null default 80,
-          is_primary boolean not null default false,
-          is_active boolean not null default true,
-          public_visible boolean not null default true,
-          confirmed_at timestamptz,
-          created_at timestamptz not null default now(),
-          updated_at timestamptz not null default now(),
-          primary key (profile_id, service_slug)
-        );
-      `);
+      for (const migrationPath of BASELINE_MIGRATION_PATHS) {
+        const migration = readFileSync(join(process.cwd(), migrationPath), "utf8");
+        await client!.query(migration);
+      }
     }
 
     beforeAll(async () => {
+      repairMigration = readFileSync(join(process.cwd(), REPAIR_MIGRATION_PATH), "utf8");
+
       containerName = `proffera-directory-projection-${process.pid}-${Date.now()}`;
       docker([
         "run", "--rm", "-d", "--name", containerName,
@@ -157,8 +98,8 @@ function docker(args: string[]) {
       }
     }, 30_000);
 
-    it("executes twice while preserving profile state and repairing only the intended projections", async () => {
-      await resetSchema();
+    it("executes twice on the committed schema while preserving profile state", async () => {
+      await resetSchemaFromCommittedMigrations();
 
       const blankProfile = "11111111-1111-4111-8111-111111111111";
       const existingProfile = "22222222-2222-4222-8222-222222222222";
@@ -167,11 +108,25 @@ function docker(args: string[]) {
 
       await client!.query(`
         insert into company_directory_profiles (
-          id, organization_number, primary_sni_code, municipality, publication_status, updated_at
+          id, organization_number, organization_kind, legal_name, display_name,
+          public_slug, primary_sni_code, municipality, publication_status,
+          is_active, auto_public_eligible, quality_score, city, category_slug, updated_at
         ) values
-          ($1, '5563115707', '96.210', '', 'ready', $4),
-          ($2, '5563115708', '96.210', 'Stockholm', 'published', $4),
-          ($3, '5563115709', '43.210', '', 'review', $4)
+          (
+            $1, '5563115707', 'juridical_person', 'Blank Municipality AB', 'Blank Municipality AB',
+            'blank-municipality-ab', '96.210', '', 'ready',
+            false, false, 95, 'Södertälje', 'frisor', $4
+          ),
+          (
+            $2, '5563115708', 'juridical_person', 'Existing Municipality AB', 'Existing Municipality AB',
+            'existing-municipality-ab', '96.210', 'Stockholm', 'published',
+            true, true, 100, 'Stockholm', 'frisor', $4
+          ),
+          (
+            $3, '5563115709', 'juridical_person', 'Unrelated Electric AB', 'Unrelated Electric AB',
+            'unrelated-electric-ab', '43.210', '', 'review',
+            true, false, 95, 'Stockholm', 'elektriker', $4
+          )
       `, [blankProfile, existingProfile, unrelatedProfile, fixedUpdatedAt]);
 
       await client!.query(`
@@ -184,12 +139,14 @@ function docker(args: string[]) {
       await client!.query(`
         insert into company_directory_service_categories (slug, label) values
           ('legacy', 'Legacy')
+        on conflict (slug) do nothing
       `);
 
       await client!.query(`
         insert into company_directory_services (slug, category_slug, label) values
           ('legacy-sni', 'legacy', 'Legacy SNI'),
           ('owner-service', 'legacy', 'Owner service')
+        on conflict (slug) do nothing
       `);
 
       await client!.query(`
@@ -199,6 +156,24 @@ function docker(args: string[]) {
           ($1, 'legacy-sni', 'sni', 85, true, true, true),
           ($1, 'owner-service', 'owner', 100, true, true, true)
       `, [blankProfile]);
+
+      const productionConstraints = await client!.query<{ conname: string }>(`
+        select conname
+        from pg_constraint
+        where conrelid = 'company_directory_profile_services'::regclass
+        order by conname
+      `);
+      expect(productionConstraints.rows.map((row) => row.conname)).toEqual(expect.arrayContaining([
+        "company_directory_profile_services_source_check",
+        "company_directory_profile_services_confidence_check",
+      ]));
+
+      const provenanceIndexBefore = await client!.query<{ index_name: string | null }>(`
+        select to_regclass('public.company_directory_field_sources_value_unique_idx')::text as index_name
+      `);
+      expect(provenanceIndexBefore.rows[0]?.index_name).toBe(
+        "company_directory_field_sources_value_unique_idx",
+      );
 
       const before = await client!.query<{
         id: string;
@@ -210,8 +185,13 @@ function docker(args: string[]) {
         order by id
       `);
 
-      await expect(client!.query(migration)).resolves.toBeDefined();
-      await expect(client!.query(migration)).resolves.toBeDefined();
+      await expect(client!.query(repairMigration)).resolves.toBeDefined();
+      await expect(client!.query(repairMigration)).resolves.toBeDefined();
+
+      const pgcrypto = await client!.query<{ extname: string }>(`
+        select extname from pg_extension where extname = 'pgcrypto'
+      `);
+      expect(pgcrypto.rows).toEqual([{ extname: "pgcrypto" }]);
 
       const profiles = await client!.query<{
         id: string;
