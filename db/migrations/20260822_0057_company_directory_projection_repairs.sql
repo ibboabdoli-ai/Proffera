@@ -10,11 +10,13 @@
 --
 -- Deployment sequencing:
 -- - apply the existing Company Directory foundation/provenance migrations first;
--- - pgcrypto and the provenance conflict-target index are re-asserted here so the
---   backfill fails closed instead of depending on an implicit environment state;
--- - the unique-index statement is normally a no-op because migration 0038 already
---   creates it. If that invariant is missing, index creation happens before any
---   provenance upsert and the transaction rolls back on failure.
+-- - migration 0038 must already provide the provenance conflict-target unique index;
+-- - this repair validates that prerequisite before any data repair work starts;
+-- - if the index is unexpectedly missing on a live database, stop this repair and
+--   restore it in a separately reviewed maintenance step with CREATE UNIQUE INDEX
+--   CONCURRENTLY, then rerun this migration. Do not build the index while holding
+--   this repair transaction open.
+-- - pgcrypto is re-asserted here before digest() is used.
 -- Rollback:
 -- - revert any writer/runtime change first;
 -- - this migration only fills previously blank municipality values and SNI-owned
@@ -25,8 +27,21 @@ begin;
 
 create extension if not exists pgcrypto;
 
-create unique index if not exists company_directory_field_sources_value_unique_idx
-  on company_directory_field_sources (profile_id, field_name, source_name, value_hash);
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_index index_state
+    where index_state.indexrelid = to_regclass('public.company_directory_field_sources_value_unique_idx')
+      and index_state.indisunique
+      and index_state.indisvalid
+  ) then
+    raise exception using
+      message = 'Required provenance unique index is missing or invalid',
+      hint = 'Apply migration 0038 or restore company_directory_field_sources_value_unique_idx with CREATE UNIQUE INDEX CONCURRENTLY in a separate maintenance step before running migration 0057.';
+  end if;
+end
+$$;
 
 insert into company_directory_service_categories (
   slug, label, search_aliases, sort_order, is_active, updated_at
