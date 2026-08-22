@@ -23,4 +23,10 @@ describe("Swedish company-name identity normalization", () => {
       normalizeSwedishCompanyIdentityName("Å-Ö Aktiebolag"),
     );
   });
+
+  it("preserves word boundaries so distinct names cannot collapse together", () => {
+    expect(normalizeSwedishCompanyIdentityName("A B AB")).toBe("a b ab");
+    expect(normalizeSwedishCompanyIdentityName("AB AB")).toBe("ab ab");
+    expect(swedishCompanyNamesEquivalent("A B AB", "AB AB")).toBe(false);
+  });
 });
