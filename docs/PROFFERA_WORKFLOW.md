@@ -5,6 +5,7 @@ This document defines **how Proffera is completed from the current product state
 It does **not** replace `AGENTS.md`.
 
 - `AGENTS.md` = mandatory rules for how workers investigate, change, validate, and report work.
+- `WORKER_BOOTSTRAP.md` = mandatory startup, installed-toolchain, baseline, and handoff contract for workers.
 - `docs/PROFFERA_WORKFLOW.md` = the ordered product-completion plan and release gates.
 - `docs/CURRENT_STATUS.md` = a dated status snapshot only; live state must still be verified.
 - `.codex/skills/graphify/SKILL.md` = Graphify usage guidance for code architecture and dependency analysis.
@@ -26,7 +27,7 @@ Exceptions are allowed for:
 - data-integrity issues;
 - explicitly authorized urgent work.
 
-For every implementation task, follow `AGENTS.md`.
+For every implementation task, follow `AGENTS.md` and the mandatory toolchain check in `WORKER_BOOTSTRAP.md`.
 
 The usual loop is:
 
@@ -64,23 +65,37 @@ A Preview deployment is not automatically a valid staging environment. The worke
 
 ## 3. Engineering toolchain policy
 
-| Priority | Tool | Decision | Purpose |
+The repository already has an active engineering toolchain. Workers must use the existing tool for the job before proposing overlapping replacements. Exact worker usage rules live in `WORKER_BOOTSTRAP.md`.
+
+| Priority | Tool | Current decision | Purpose |
 | --- | --- | --- | --- |
-| 1 | **Graphify** | Use now | Understand architecture, dependencies, call paths, and likely blast radius before cross-node changes. |
-| 2 | **Playwright** | Add next | Prove real browser journeys such as signup, Booking, Quote, Accept/Cancel, and bilingual public flows. |
-| 3 | **Sentry** | Add before broad launch | Capture real Production/Preview errors and traces without exposing secrets or unnecessary customer data. |
-| 4 | **GitHub Actions + CodeQL** | Use now | Keep build/test gates and add baseline static security scanning. |
+| 1 | **Graphify 0.9.42** | Active / use now | Understand architecture, dependencies, call paths, and likely blast radius before cross-node changes. |
+| 2 | **ESLint + TypeScript + Vitest + Next build** | Active / use now | Validate code from the nearest relevant checks outward before relying on CI. |
+| 3 | **Playwright** | Active / use now | Prove public/browser journeys, bilingual behavior, nearby/location behavior, and approved Preview E2E paths. |
+| 4 | **GitHub Actions + CodeQL** | Active / use now | Enforce repository governance/build/test/browser gates; run CodeQL security analysis when the repository control enables it. |
+| 5 | **SonarQube** | Configured / opt-in until external project is connected | Add code-quality, maintainability, duplication, and additional static-analysis findings without replacing CodeQL/tests. Initial quality gate is advisory. |
+| 6 | **CodeRabbit** | Active / final risk-routed review | Review sensitive/large PRs on the exact final head without consuming reviews on every development commit. |
+| 7 | **Dependabot** | Active / weekly | Maintain npm, `e2e/`, and GitHub Actions dependencies through the existing controlled update path. |
+| 8 | **Vercel Preview + isolated non-Production DB/Neon** | Active / use for runtime proof | Prove state-changing Auth/Booking/Quote/Marketplace/Billing behavior without using Production as the test environment. |
+| Later | **Sentry** | Planned before broad launch | Capture real Production/Preview errors and traces without exposing secrets or unnecessary customer data. |
 | Later | **Checkly** | Add after critical journeys are stable | Run recurring synthetic checks against safe, non-destructive production/monitoring paths. |
 | Later | **PostHog** | Add when real usage volume justifies it | Measure product funnels and behavior with an approved privacy/data-retention setup. |
-| Not now | **Semgrep** | Defer | Avoid overlapping static-analysis maintenance until CodeQL coverage proves insufficient. |
-| Not now | **Renovate** | Defer | Prefer the simpler dependency-update path first; Dependabot is sufficient for the current stage. |
+| Not now | **Semgrep** | Defer | Avoid overlapping static-analysis maintenance until CodeQL/SonarQube coverage proves insufficient. |
+| Not now | **Renovate** | Defer | Dependabot already owns routine dependency maintenance for the current stage. |
 
 ### Tool rules
 
 - Do not install tools only because they are popular; each tool must close a verified operational gap.
-- Do not send `.env*`, secrets, tokens, credentials, or Production data to Graphify or third-party tooling.
+- For architecture/call-path work, use the Graphify skill and existing graph first when available, then confirm important findings in source/runtime evidence.
+- Do not send `.env*`, credentials, Production data, customer PII, or secret values as analyzed content to Graphify, SonarQube, or other third-party tooling. `SONAR_TOKEN` may be supplied to the Sonar scanner only through the GitHub Actions secret environment for authentication; workers must never log, commit, echo, or include its value in source, artifacts, or analyzed content.
+- Use the root validation scripts and Playwright before inventing custom one-off test harnesses when the existing stack can prove the behavior.
+- Treat GitHub Actions required checks as delivery gates; local success does not replace CI.
+- Use SonarQube findings as scoped evidence for touched/reachable code. Do not expand a task into unrelated historical-debt cleanup, and do not claim its quality gate is merge-blocking while the configured workflow keeps `sonar.qualitygate.wait=false`.
+- Use CodeRabbit only through the current risk-routed exact-head final-review policy; do not request repeated incremental reviews.
+- Let Dependabot handle routine dependency updates; do not add Renovate or unrelated package-upgrade sweeps without a verified need.
 - Monitoring/analytics integrations must be reviewed for privacy and PII handling before broad Production use.
-- Security scanners complement tests; they do not replace runtime or user-flow verification.
+- Security/static-analysis scanners complement tests; they do not replace runtime or user-flow verification.
+- Planned tools are not installed tools. Confirm repository/runtime evidence before claiming Sentry, Checkly, PostHog, or any other future integration is available.
 
 ---
 
@@ -100,7 +115,7 @@ Verify before major work:
 - Production database state when relevant;
 - actual public/admin UI behavior when relevant.
 
-Use Graphify when dependency/call-path analysis will materially reduce uncertainty.
+Use Graphify when dependency/call-path analysis will materially reduce uncertainty, following the pinned project skill and existing-graph-first rule.
 
 **Exit gate:** the current problem/state is based on evidence, not a handoff or assumption.
 
@@ -112,11 +127,14 @@ Required baseline:
 
 - Graphify integration available for architecture analysis;
 - repository CI running lint, typecheck, tests, build, and repository-specific checks;
-- CodeQL or equivalent baseline static security scanning;
-- dependency update policy kept simple and reviewable;
+- Playwright available for browser-level proof;
+- CodeQL baseline static security scanning configured;
+- SonarQube repository workflow/configuration present, with actual scanning enabled only after the external Sonar project/token variables are safely configured;
+- risk-routed final CodeRabbit review available for sensitive/large PRs;
+- Dependabot dependency-update policy kept simple and reviewable;
 - no direct changes to `main`.
 
-**Exit gate:** every PR has a reliable automated engineering gate before merge.
+**Exit gate:** every PR has a reliable automated engineering gate before merge and workers know which existing tool owns each validation/review need. SonarQube may remain opt-in until its external project is deliberately connected; that state must be reported accurately rather than called an active scan.
 
 ---
 
@@ -139,21 +157,21 @@ Prove:
 
 ### Phase 3 — Browser E2E with Playwright
 
-Add Playwright only after the target environment is safe enough for browser automation.
+Use the existing Playwright suite after the target environment is safe enough for the browser behavior being tested.
 
-Start with a small, stable suite:
+Maintain a small, stable suite around:
 
 1. public site smoke test;
 2. Swedish root route and English `/en` route;
-3. sign-in / authenticated dashboard smoke test using dedicated test accounts;
+3. sign-in / authenticated dashboard smoke test using dedicated test accounts when the isolated Preview boundary permits it;
 4. public Booking flow;
 5. public Quote/request flow;
 6. customer Accept/Reject/Cancel/Reschedule paths as implemented;
 7. critical mobile viewport smoke tests.
 
-Do not create fake Production bookings or quotes as part of normal CI.
+Do not create fake Production bookings or quotes as part of normal CI. State-changing scenarios must remain behind the approved isolated Preview boundary.
 
-**Exit gate:** the critical browser journeys pass repeatably against the approved test environment.
+**Exit gate:** the critical browser journeys pass repeatably against the approved environment.
 
 ---
 
@@ -260,16 +278,17 @@ Do not treat billing as release-ready until webhook/state synchronization is pro
 
 Before broad launch, verify:
 
-- Sentry or equivalent error monitoring is correctly configured;
+- Sentry or equivalent error monitoring is correctly configured before treating it as available;
 - sensitive data/PII handling is reviewed;
 - CodeQL/security findings are triaged;
+- SonarQube findings are triaged when the external Sonar project is enabled, without conflating historical debt with new-code blockers;
 - critical E2E flows are green;
 - SV + EN public routes are covered;
 - mobile smoke tests are green;
 - SEO/metadata/legal/privacy surfaces are reviewed;
 - runtime logs and alert paths are usable;
 - rollback/recovery path is known for risky changes;
-- known high-risk database/auth/tenant-isolation work is explicitly tracked and not hidden by a green build.
+- known high-risk database/auth/tenant-isolation work is explicitly tracked and not hidden by a green build or static-analysis score.
 
 **Exit gate:** the team can detect, diagnose, and safely respond to a real failure after launch.
 
@@ -329,6 +348,8 @@ When a worker advances a workflow phase, report:
 - phase and journey being worked on;
 - evidence inspected;
 - Graphify/dependency path when used;
+- relevant installed tools used or explicitly not applicable;
+- SonarQube scan/findings status when applicable (`configured but disabled`, `scan passed`, `findings triaged`, etc.);
 - change class and blast radius;
 - files/configuration changed;
 - tests and E2E checks performed;
