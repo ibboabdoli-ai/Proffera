@@ -222,7 +222,7 @@ describe("Marketplace Rematch", () => {
 
     const result = await requestMarketplaceRematchByCustomerToken({ token: "c".repeat(43), reason: "No show" });
     expect(result).toMatchObject({ ok: true, code: "requested" });
-    expect(sql.transaction).toHaveBeenCalledWith(expect.any(Function), { isolationMode: "ReadCommitted" });
+    expect(sql.transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: "ReadCommitted" });
     expect(queryText(sql.transactionQueries[0])).toContain("pg_advisory_xact_lock");
     expect(queryText(sql.transactionQueries[0])).toContain("job.id::text");
     const query = queryText(sql.transactionQueries[1]);
@@ -248,6 +248,16 @@ describe("Marketplace Rematch", () => {
     await expect(requestMarketplaceRematchByCustomerToken({ token: "c".repeat(43) }))
       .resolves.toMatchObject({ ok: true, code: "already_requested" });
     expect(queryText(sql.transactionQueries[0])).toContain("pg_advisory_xact_lock");
+  });
+
+  it("keeps direct source Quote Request purges compatible with rematch cascades", () => {
+    const migration63 = readFileSync("db/migrations/20260822_0063_marketplace_service_jobs_verified_reviews.sql", "utf8");
+    const migration64 = readFileSync("db/migrations/20260822_0064_marketplace_rematch_requests.sql", "utf8");
+    expect(migration63).toContain("quote_request_id uuid not null references quote_requests(id) on delete cascade");
+    expect(migration64).toContain("service_job_id uuid not null unique references marketplace_service_jobs(id) on delete cascade");
+    expect(migration64).toContain("source_quote_request_id uuid not null references quote_requests(id) on delete no action");
+    expect(migration64).toContain("rematch_quote_request_id uuid not null unique references quote_requests(id) on delete cascade");
+    expect(migration64).not.toContain("source_quote_request_id uuid not null references quote_requests(id) on delete restrict");
   });
 
   it("reads rematch state only through the same customer access token", async () => {
