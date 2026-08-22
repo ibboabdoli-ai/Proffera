@@ -42,6 +42,13 @@ function boundedInteger(value: number | undefined, fallback: number, minimum: nu
   return Math.max(minimum, Math.min(maximum, Math.floor(value as number)));
 }
 
+function finiteDelayMs(value: number | undefined) {
+  const candidate = value ?? DEFAULT_MARKETPLACE_WAVE2_DELAY_MS;
+  return Number.isFinite(candidate)
+    ? Math.max(0, candidate)
+    : DEFAULT_MARKETPLACE_WAVE2_DELAY_MS;
+}
+
 function normalizedOrigin(value: string) {
   try {
     const url = new URL(value);
@@ -90,7 +97,7 @@ export function decideMarketplaceAutoWave(input: {
   }
 
   const latestWave1At = timestampMs(invitationSummary.latestWave1At);
-  const delay = Math.max(0, input.wave2DelayMs);
+  const delay = finiteDelayMs(input.wave2DelayMs);
   if (latestWave1At === null || input.nowMs - latestWave1At < delay) {
     return { wave: null, reason: "wave2_waiting" };
   }
@@ -115,12 +122,24 @@ export async function processMarketplaceAutoWorker(input: {
 
   const nowMs = (input.now ?? new Date()).getTime();
   const batchSize = boundedInteger(input.batchSize, DEFAULT_BATCH_SIZE, 1, MAX_BATCH_SIZE);
-  const wave2DelayMs = Math.max(0, input.wave2DelayMs ?? DEFAULT_MARKETPLACE_WAVE2_DELAY_MS);
+  const wave2DelayMs = finiteDelayMs(input.wave2DelayMs);
   const deadlineMs = boundedInteger(input.deadlineMs, DEFAULT_WORKER_DEADLINE_MS, 1_000, 55_000);
   const deadlineAt = Date.now() + deadlineMs;
   const actorId = String(input.actorId ?? MARKETPLACE_AUTO_WORKER_ACTOR).trim() || MARKETPLACE_AUTO_WORKER_ACTOR;
 
-  const matchesResult = await getDirectoryGuestLeadMatches();
+  let matchesResult: Awaited<ReturnType<typeof getDirectoryGuestLeadMatches>>;
+  try {
+    const remaining = deadlineAt - Date.now();
+    if (remaining <= 0) return { ok: false, error: "matching_failed" };
+    matchesResult = await withTimeout(
+      getDirectoryGuestLeadMatches(),
+      remaining,
+      "Marketplace matching pre-processing timed out",
+    );
+  } catch (error) {
+    console.error("Marketplace Auto Worker matching pre-processing failed", { error });
+    return { ok: false, error: "matching_failed" };
+  }
   if (!matchesResult.ok) return { ok: false, error: "matching_failed" };
 
   const matches = [...matchesResult.matches].sort((left, right) => {
@@ -129,7 +148,20 @@ export async function processMarketplaceAutoWorker(input: {
     return leftTime - rightTime || left.lead.id.localeCompare(right.lead.id);
   });
   const quoteRequestIds = matches.map((match) => match.lead.id).filter(Boolean);
-  const invitationSummaries = await getMarketplaceInvitationSummaries(quoteRequestIds);
+
+  let invitationSummaries: Awaited<ReturnType<typeof getMarketplaceInvitationSummaries>>;
+  try {
+    const remaining = deadlineAt - Date.now();
+    if (remaining <= 0) return { ok: false, error: "matching_failed" };
+    invitationSummaries = await withTimeout(
+      getMarketplaceInvitationSummaries(quoteRequestIds),
+      remaining,
+      "Marketplace invitation-state pre-processing timed out",
+    );
+  } catch (error) {
+    console.error("Marketplace Auto Worker invitation-state pre-processing failed", { error });
+    return { ok: false, error: "matching_failed" };
+  }
 
   const result: MarketplaceAutoWorkerResult = {
     ok: true,
@@ -223,6 +255,7 @@ export async function processMarketplaceAutoWorker(input: {
         }
       } catch (error) {
         increment(result.skipped, "delivery_error");
+        if (Date.now() >= deadlineAt) result.deadlineReached = true;
         console.error("Marketplace Auto Worker invitation failed", {
           quoteRequestId: match.lead.id,
           profileId: candidate.profileId,
@@ -230,6 +263,8 @@ export async function processMarketplaceAutoWorker(input: {
           error,
         });
       }
+
+      if (result.deadlineReached) break;
     }
 
     if (result.deadlineReached) break;

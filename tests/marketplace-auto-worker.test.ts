@@ -255,4 +255,72 @@ describe("Marketplace Auto Worker", () => {
       wave2DelayMs: DEFAULT_MARKETPLACE_WAVE2_DELAY_MS,
     })).toEqual({ wave: null, reason: "wave2_waiting" });
   });
+
+  it("falls back to the safe default Wave 2 delay for non-finite values", () => {
+    const invitationSummary = summary({
+      wave1Count: 3,
+      totalCount: 3,
+      latestWave1At: "2026-08-22T10:00:00.000Z",
+    });
+    const nowMs = Date.parse("2026-08-22T12:00:00.000Z");
+
+    expect(decideMarketplaceAutoWave({
+      invitationSummary,
+      submittedOfferCount: 0,
+      nowMs,
+      wave2DelayMs: Number.NaN,
+    })).toEqual({ wave: null, reason: "wave2_waiting" });
+
+    expect(decideMarketplaceAutoWave({
+      invitationSummary,
+      submittedOfferCount: 0,
+      nowMs,
+      wave2DelayMs: Number.POSITIVE_INFINITY,
+    })).toEqual({ wave: null, reason: "wave2_waiting" });
+  });
+
+  it("marks the deadline when a candidate state update times out at the worker deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.getMatches.mockResolvedValue({ ok: true, matches: [match({ candidates: [candidate(1)] })] });
+      mocks.expireInvitation.mockImplementation(() => new Promise(() => {}));
+
+      const resultPromise = processMarketplaceAutoWorker({
+        baseUrl: "https://preview.proffera.test",
+        deadlineMs: 1_000,
+      });
+      await vi.runAllTimersAsync();
+      const result = await resultPromise;
+
+      expect(result).toMatchObject({
+        ok: true,
+        attempted: 1,
+        sent: 0,
+        deadlineReached: true,
+        skipped: { delivery_error: 1 },
+      });
+      expect(mocks.sendInvitation).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("bounds matching pre-processing by the worker deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.getMatches.mockImplementation(() => new Promise(() => {}));
+
+      const resultPromise = processMarketplaceAutoWorker({
+        baseUrl: "https://preview.proffera.test",
+        deadlineMs: 1_000,
+      });
+      await vi.runAllTimersAsync();
+
+      await expect(resultPromise).resolves.toEqual({ ok: false, error: "matching_failed" });
+      expect(mocks.getSummaries).not.toHaveBeenCalled();
+      expect(mocks.sendInvitation).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
