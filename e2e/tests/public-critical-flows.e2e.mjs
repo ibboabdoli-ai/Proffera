@@ -149,8 +149,8 @@ test.describe("public critical-flow smoke", () => {
         value: {
           getCurrentPosition(success) {
             window.setTimeout(() => {
-              document.documentElement.dataset.nearbyLocationCallback = "resolved";
               success({ coords: { latitude: 59.19554, longitude: 17.62525 } });
+              document.documentElement.dataset.nearbyLocationCallback = "resolved";
             }, 200);
           },
         },
