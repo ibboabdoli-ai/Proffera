@@ -130,7 +130,7 @@ export async function notifyMarketplaceCustomerOfferAvailableFromGuestToken(inpu
   const quoteRequestId = text(requestRow.quote_request_id);
   const candidateToken = createMarketplaceCustomerComparisonToken();
   const candidateTokenHash = hashMarketplaceCustomerComparisonToken(candidateToken);
-  let dispatchToken = randomUUID();
+  let dispatchToken: string = randomUUID();
   const expiresAt = new Date(Date.now() + CUSTOMER_COMPARISON_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
   let reservation = await sql`
@@ -144,10 +144,6 @@ export async function notifyMarketplaceCustomerOfferAvailableFromGuestToken(inpu
   `;
 
   if (!reservation[0]) {
-    // Retry an ambiguous/failed delivery with the SAME dispatch token. Keep the
-    // existing token hash valid until Brevo confirms a replacement email. If
-    // Brevo reports the idempotency key as a duplicate, the original link stays
-    // valid and no token rotation occurs.
     reservation = await sql`
       update marketplace_quote_customer_access
       set status = 'sending',
@@ -165,8 +161,6 @@ export async function notifyMarketplaceCustomerOfferAvailableFromGuestToken(inpu
   }
 
   if (!reservation[0]) {
-    // A genuinely expired delivered link gets a fresh dispatch id. Its old hash
-    // remains stored until the replacement email is accepted.
     reservation = await sql`
       update marketplace_quote_customer_access
       set status = 'sending',
@@ -219,9 +213,7 @@ export async function notifyMarketplaceCustomerOfferAvailableFromGuestToken(inpu
       returning quote_request_id::text
     `;
     if (!completed[0]) {
-      console.error("Marketplace customer comparison duplicate delivery state was not recorded", {
-        quoteRequestId,
-      });
+      console.error("Marketplace customer comparison duplicate delivery state was not recorded", { quoteRequestId });
     }
     return { ok: true as const, code: "already_sent" };
   }
@@ -252,9 +244,7 @@ export async function notifyMarketplaceCustomerOfferAvailableFromGuestToken(inpu
   `;
 
   if (!completed[0]) {
-    console.error("Marketplace customer comparison email delivered but completion state was not recorded", {
-      quoteRequestId,
-    });
+    console.error("Marketplace customer comparison email delivered but completion state was not recorded", { quoteRequestId });
   }
   return { ok: true as const, code: "sent" };
 }
