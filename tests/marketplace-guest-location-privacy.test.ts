@@ -13,6 +13,11 @@ function expectPrivateLocationAbsent(view: ReturnType<typeof buildMarketplaceGue
   expect(view).not.toHaveProperty("customer_latitude");
   expect(view).not.toHaveProperty("customer_longitude");
   expect(view).not.toHaveProperty("customer_location_source");
+  expect(view).not.toHaveProperty("customer_verified_latitude");
+  expect(view).not.toHaveProperty("customer_verified_longitude");
+  expect(view).not.toHaveProperty("customer_location_verification_source");
+  expect(view).not.toHaveProperty("customer_location_verification_reference");
+  expect(view).not.toHaveProperty("customer_location_verified_at");
   expect(view).not.toHaveProperty("addressLine1");
   expect(view).not.toHaveProperty("latitude");
   expect(view).not.toHaveProperty("longitude");
@@ -62,5 +67,33 @@ describe("marketplace guest quote private location boundary", () => {
     }, "2026-08-30T12:00:00.000Z", false);
 
     expectPrivateLocationAbsent(view, ["59.19554", "17.62525"]);
+  });
+
+  it("never projects verified coordinates, source or Lantmäteriet reference to a provider", () => {
+    const privateInvitation = {
+      ...baseInvitation,
+      customer_address_line1: "Storgatan 12",
+      customer_latitude: null,
+      customer_longitude: null,
+      customer_location_source: "address",
+      customer_verified_latitude: 59.19554,
+      customer_verified_longitude: 17.62525,
+      customer_location_verification_source: "lantmateriet_belagenhetsadress_v4_2",
+      customer_location_verification_reference: "439b33bf-6279-4b65-b32c-9741646d8d3e",
+      customer_location_verified_at: "2026-08-22T12:00:00.000Z",
+    };
+    const view = buildMarketplaceGuestQuoteView(
+      privateInvitation,
+      "2026-08-30T12:00:00.000Z",
+      false,
+    );
+
+    expectPrivateLocationAbsent(view, [
+      "Storgatan 12",
+      "59.19554",
+      "17.62525",
+      "lantmateriet_belagenhetsadress_v4_2",
+      "439b33bf-6279-4b65-b32c-9741646d8d3e",
+    ]);
   });
 });
