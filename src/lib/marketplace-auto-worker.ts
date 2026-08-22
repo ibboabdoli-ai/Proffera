@@ -9,6 +9,11 @@ import {
 } from "@/features/matching/marketplace-invitation-state";
 import { planMarketplaceGuestWave } from "@/features/matching/marketplace-wave-plan";
 import { sendMarketplaceGuestQuoteInvitation } from "@/lib/marketplace-guest-quote";
+import {
+  applyMarketplaceRematchContext,
+  finalizeMarketplaceRematchWork,
+  prepareMarketplaceRematchWork,
+} from "@/lib/marketplace-rematch-worker";
 
 export const MARKETPLACE_AUTO_WORKER_ACTOR = "system:marketplace-auto-worker";
 export const DEFAULT_MARKETPLACE_WAVE2_DELAY_MS = 6 * 60 * 60 * 1000;
@@ -127,6 +132,12 @@ export async function processMarketplaceAutoWorker(input: {
   const deadlineAt = Date.now() + deadlineMs;
   const actorId = String(input.actorId ?? MARKETPLACE_AUTO_WORKER_ACTOR).trim() || MARKETPLACE_AUTO_WORKER_ACTOR;
 
+  // Rematches are represented as fresh draft Quote Requests. Claim the queue with
+  // a short lease before making those requests visible to the normal 3+2 engine.
+  // If migration 0064 is not deployed yet the compatibility helper returns an
+  // empty context and ordinary Marketplace processing is unchanged.
+  const rematchContext = await prepareMarketplaceRematchWork(batchSize);
+
   let matchesResult: Awaited<ReturnType<typeof getDirectoryGuestLeadMatches>>;
   try {
     const remaining = deadlineAt - Date.now();
@@ -142,11 +153,16 @@ export async function processMarketplaceAutoWorker(input: {
   }
   if (!matchesResult.ok) return { ok: false, error: "matching_failed" };
 
-  const matches = [...matchesResult.matches].sort((left, right) => {
+  const chronologicalMatches = [...matchesResult.matches].sort((left, right) => {
     const leftTime = timestampMs(left.lead.created_at) ?? Number.MAX_SAFE_INTEGER;
     const rightTime = timestampMs(right.lead.created_at) ?? Number.MAX_SAFE_INTEGER;
     return leftTime - rightTime || left.lead.id.localeCompare(right.lead.id);
   });
+  // A rematch must genuinely search again: exclude every profile/mailbox already
+  // contacted for the source generation, and prioritize the leased rematch within
+  // the bounded batch. Existing invitation uniqueness/wave caps remain the final
+  // race guards if two scheduler invocations overlap.
+  const matches = applyMarketplaceRematchContext(chronologicalMatches, rematchContext);
   const quoteRequestIds = matches.map((match) => match.lead.id).filter(Boolean);
 
   let invitationSummaries: Awaited<ReturnType<typeof getMarketplaceInvitationSummaries>>;
@@ -270,5 +286,9 @@ export async function processMarketplaceAutoWorker(input: {
     if (result.deadlineReached) break;
   }
 
+  // A rematch is processed only after the new Quote Request has at least one
+  // persisted invitation. Empty candidate runs are returned to pending + draft so
+  // a later catalog/profile change can retry without generating duplicate jobs.
+  await finalizeMarketplaceRematchWork(rematchContext);
   return result;
 }
