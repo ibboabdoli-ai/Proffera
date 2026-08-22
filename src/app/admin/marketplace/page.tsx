@@ -6,9 +6,17 @@ import { getMarketplaceInvitationSummaries } from "@/features/matching/marketpla
 
 export const dynamic = "force-dynamic";
 
-function inviteMessage(value: string | string[] | undefined) {
+function inviteMessage(value: string | string[] | undefined, sentValue: string | string[] | undefined) {
   const code = Array.isArray(value) ? value[0] : value;
+  const sent = Math.max(0, Number(Array.isArray(sentValue) ? sentValue[0] : sentValue) || 0);
   if (code === "sent") return "Inbjudan skickades.";
+  if (code === "auto_wave_sent") return `${sent} säker${sent === 1 ? "" : "a"} ${sent === 1 ? "företagsinbjudan" : "företagsinbjudningar"} skickades automatiskt.`;
+  if (code === "auto_wave1_first") return "Wave 1 måste använda sina tre platser innan Wave 2 kan startas.";
+  if (code === "auto_enough_offers") return "Wave 2 behövs inte – minst två offerter finns redan.";
+  if (code === "auto_wave_full") return "Den här vågen har inga lediga platser kvar.";
+  if (code === "auto_no_safe_contacts") return "Ingen kvarvarande kandidat har en konfliktfri officiell företagsadress för automatisk utskickning.";
+  if (code === "auto_no_delivery") return "Ingen automatisk inbjudan kunde levereras. Kontrollera kandidaternas status och e-postkonfiguration.";
+  if (code === "matching_failed") return "Matchningen kunde inte laddas just nu.";
   if (code === "suppressed") return "Adressen eller företaget är avregistrerat från gästförfrågningar.";
   if (code === "already_invited") return "Företaget har redan en aktiv inbjudan för den här förfrågan.";
   if (code === "business_email_required") return "Använd en företagsdomän, inte en privat/gratis e-postadress.";
@@ -43,11 +51,11 @@ function offerPrice(priceKind: string, amountMinor: number, currency: string) {
 export default async function MarketplaceAdminPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ invite?: string | string[]; test?: string | string[] }>;
+  searchParams?: Promise<{ invite?: string | string[]; test?: string | string[]; sent?: string | string[] }>;
 }) {
   const admin = await requireAdminArea("quote_admin");
   const [result, query] = await Promise.all([getDirectoryGuestLeadMatches(), searchParams ?? Promise.resolve(undefined)]);
-  const message = inviteMessage(query?.invite);
+  const message = inviteMessage(query?.invite, query?.sent);
   const testResult = testMessage(query?.test);
   const invitationSummaries = await getMarketplaceInvitationSummaries(result.matches.map((item) => item.lead.id));
 
@@ -56,10 +64,10 @@ export default async function MarketplaceAdminPage({
       <h1>Marketplace – gästförfrågningar</h1>
       <p><Link href="/admin/matchning">Till verifierade workspace-matchningar</Link></p>
       <p>
-        Här visas oclaimade juridiska företag som lokala kandidater. Ort/kommun är bara ett urvalssignal –
-        Proffera påstår inte att företaget har ett bekräftat serviceområde där.
+        Matchningen prioriterar tjänst, verkligt avstånd när verifierade koordinater finns, bekräftat serviceområde och profilkvalitet.
+        Om tre bra företag inte finns nära kunden kan sökradien växa 10 → 25 → 50 km. Svaga kandidater läggs inte till bara för att fylla fem platser.
       </p>
-      <p>Skicka först till högst tre företag. Använd nästa två endast om första vågen inte ger tillräckligt med svar.</p>
+      <p>Wave 1 kan skicka till högst tre säkra företagskontakter. Wave 2 kan lägga till högst två endast när första vågen inte gett tillräckligt med offerter.</p>
       {message ? <p role="status" style={{ fontWeight: 700 }}>{message}</p> : null}
       {testResult ? <p role="status" style={{ fontWeight: 700 }}>{testResult}</p> : null}
       {admin.role === "super_admin" ? (
@@ -93,13 +101,34 @@ export default async function MarketplaceAdminPage({
         const wave1Count = invitationSummary?.wave1Count ?? 0;
         const wave2Count = invitationSummary?.wave2Count ?? 0;
         const totalCount = invitationSummary?.totalCount ?? 0;
+        const submittedOfferCount = item.offers.filter((offer) => offer.status === "submitted" || offer.status === "selected").length;
+        const safeAutomaticCandidates = item.candidates.filter((candidate) => Boolean(candidate.recipientEmail) && candidate.contactBasis === "official_business_register");
 
         return (
           <section key={item.lead.id} style={{ border: "1px solid #ddd", borderRadius: 12, padding: 16, marginBottom: 18 }}>
             <h2>{item.lead.reference_id}</h2>
             <p>{item.lead.category} / {item.lead.service_type} / {item.lead.city}</p>
             <p>Status: {item.lead.status}</p>
-            <p>Skickat: Wave 1 {wave1Count}/3 · Wave 2 {wave2Count}/2</p>
+            <p>Skickat: Wave 1 {wave1Count}/3 · Wave 2 {wave2Count}/2{item.radiusKm ? ` · Matchradie ${item.radiusKm} km` : " · Lokal textmatch"}</p>
+
+            {safeAutomaticCandidates.length > 0 ? (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 10, margin: "12px 0" }}>
+                {wave1Count < 3 && totalCount < 5 ? (
+                  <form method="post" action="/api/admin/marketplace/auto-invite">
+                    <input type="hidden" name="quoteRequestId" value={item.lead.id} />
+                    <input type="hidden" name="wave" value="1" />
+                    <button type="submit" style={{ padding: "10px 14px", fontWeight: 700 }}>Skicka Wave 1 automatiskt</button>
+                  </form>
+                ) : null}
+                {wave1Count >= 3 && wave2Count < 2 && totalCount < 5 && submittedOfferCount < 2 ? (
+                  <form method="post" action="/api/admin/marketplace/auto-invite">
+                    <input type="hidden" name="quoteRequestId" value={item.lead.id} />
+                    <input type="hidden" name="wave" value="2" />
+                    <button type="submit" style={{ padding: "10px 14px", fontWeight: 700 }}>Lägg till Wave 2 automatiskt</button>
+                  </form>
+                ) : null}
+              </div>
+            ) : null}
 
             {item.offers.length > 0 ? (
               <div style={{ marginTop: 14, padding: 14, borderRadius: 10, background: "#eef6f0" }}>
@@ -120,7 +149,7 @@ export default async function MarketplaceAdminPage({
               </div>
             ) : null}
 
-            {item.candidates.length === 0 ? <p>Inga säkra oclaimade kandidater.</p> : null}
+            {item.candidates.length === 0 ? <p>Inga säkra kandidater hittades inom matchningsreglerna.</p> : null}
             {item.candidates.map((candidate) => {
               const existingInvitation = invitationSummary?.byProfile.get(candidate.profileId);
               const wave = existingInvitation?.wave
@@ -129,9 +158,14 @@ export default async function MarketplaceAdminPage({
               return (
                 <article key={candidate.profileId} style={{ background: "#f7f7f4", borderRadius: 10, padding: 12, marginTop: 10 }}>
                   <strong>{candidate.companyName}</strong>
-                  <p>{candidate.city || candidate.municipality} · {candidate.serviceName}</p>
+                  <p>
+                    {candidate.city || candidate.municipality} · {candidate.serviceName}
+                    {candidate.distanceKm !== null ? ` · ${candidate.distanceKm.toFixed(1)} km` : ""}
+                    {candidate.serviceAreaConfirmed ? " · Bekräftat serviceområde" : ""}
+                  </p>
                   <p>Score: {candidate.score} · Kvalitet: {candidate.qualityScore}{wave ? ` · Wave ${wave}` : ""}</p>
                   <p>{candidate.reasons.join(" · ")}</p>
+                  {candidate.recipientEmail ? <p><strong>Automatisk kontakt:</strong> konfliktfri officiell företagsadress tillgänglig.</p> : null}
                   <p><Link href={`/foretag/listad/${candidate.slug}`} target="_blank">Öppna företagsprofil</Link></p>
 
                   {existingInvitation?.blocking ? (
@@ -147,7 +181,7 @@ export default async function MarketplaceAdminPage({
                       <input type="hidden" name="matchReasons" value={JSON.stringify(candidate.reasons)} />
                       <label>
                         Företagets arbetsmejl
-                        <input name="recipientEmail" type="email" required placeholder="kontakt@foretag.se" style={{ display: "block", width: "100%", padding: 10, marginTop: 4 }} />
+                        <input name="recipientEmail" type="email" required defaultValue={candidate.recipientEmail} placeholder="kontakt@foretag.se" style={{ display: "block", width: "100%", padding: 10, marginTop: 4 }} />
                       </label>
                       <label style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
                         <input type="checkbox" name="confirmBusinessContact" value="yes" required style={{ marginTop: 3 }} />
