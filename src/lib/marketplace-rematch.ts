@@ -143,6 +143,7 @@ export async function requestMarketplaceRematchByCustomerToken(input: {
             contact_email,
             contact_phone,
             consent_accepted,
+            locale,
             status,
             reference_id
           )
@@ -166,6 +167,7 @@ export async function requestMarketplaceRematchByCustomerToken(input: {
             target.contact_email,
             target.contact_phone,
             target.consent_accepted,
+            case when target.locale = 'en' then 'en' else 'sv' end,
             'draft',
             'PRO-R-' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 12))
           from target
