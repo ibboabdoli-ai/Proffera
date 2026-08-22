@@ -69,6 +69,15 @@ const jobRow = {
   cancelled_at: "",
 };
 
+const verifiedReviewSubmission = {
+  reviewerName: "Anna",
+  rating: 5,
+  message: "Bra jobb",
+  consent: true as const,
+  website: "",
+  formStartedAt: Date.now() - 10_000,
+};
+
 describe("Marketplace ServiceJob lifecycle and security", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -239,11 +248,7 @@ describe("Verified Review and Reputation", () => {
       submitted: true,
     }]);
     mocks.getSql.mockReturnValue(sql);
-    const result = await submitMarketplaceVerifiedReviewByHash("a".repeat(64), {
-      reviewerName: "Anna",
-      rating: 5,
-      message: "Bra jobb",
-    });
+    const result = await submitMarketplaceVerifiedReviewByHash("a".repeat(64), verifiedReviewSubmission);
     expect(result).toEqual({ ok: true, reviewId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc" });
     const query = queryText(sql.mock.calls[0]);
     expect(query).toContain("target.job_status = 'completed'");
@@ -260,11 +265,8 @@ describe("Verified Review and Reputation", () => {
       review_id: null,
       submitted: false,
     }]));
-    await expect(submitMarketplaceVerifiedReviewByHash("a".repeat(64), {
-      reviewerName: "Anna",
-      rating: 5,
-      message: "Bra jobb",
-    })).resolves.toEqual({ ok: false, code: "used" });
+    await expect(submitMarketplaceVerifiedReviewByHash("a".repeat(64), verifiedReviewSubmission))
+      .resolves.toEqual({ ok: false, code: "used" });
   });
 
   it("moderates only pending verified reviews attached to completed jobs", async () => {
