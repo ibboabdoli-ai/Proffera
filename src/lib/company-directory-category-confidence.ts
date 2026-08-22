@@ -1,3 +1,4 @@
+import { swedishCompanyNamesEquivalent } from "@/lib/company-directory-company-name";
 import { mapSniToDirectoryCategory, normalizeSniCode } from "@/lib/company-directory-policy";
 
 export type CompanyDirectoryCategoryConfidenceLevel = "high" | "review" | "low";
@@ -26,6 +27,7 @@ type UnknownRecord = Record<string, unknown>;
 
 type RegisteredNameFact = {
   name: string;
+  typeCode: string;
   specialBusinessDescription: string;
 };
 
@@ -121,6 +123,7 @@ function registeredNameFacts(value: unknown): RegisteredNameFact[] {
     const row = object(item);
     return {
       name: text(row?.name),
+      typeCode: text(row?.typeCode).toLocaleUpperCase("sv-SE"),
       specialBusinessDescription: text(row?.specialBusinessDescription),
     };
   }).filter((item) => item.name || item.specialBusinessDescription);
@@ -189,7 +192,7 @@ export function assessCompanyDirectoryCategoryConfidence(
     signals.push("Verksamhetsbeskrivningen stödjer kategorin");
   }
 
-  const registeredNameValues = registeredNames.map((item) => item.name);
+  const registeredNameValues = registeredNames.map((item) => item.name).filter(Boolean);
   const nameSupportsCategory = hasCategoryKeyword(input.categorySlug, [
     input.legalName,
     input.displayName,
@@ -205,6 +208,29 @@ export function assessCompanyDirectoryCategoryConfidence(
   if (specialDescriptionSupportsCategory) {
     score += 5;
     signals.push("Registrerad särskild verksamhetsbeskrivning stödjer kategorin");
+  }
+
+  const explicitOfficialCompanyNames = registeredNames
+    .filter((item) => item.typeCode === "FORETAGSNAMN")
+    .map((item) => item.name)
+    .filter(Boolean);
+  const officialCompanyNameValues = explicitOfficialCompanyNames.length > 0
+    ? explicitOfficialCompanyNames
+    : registeredNames.length === 1 && !registeredNames[0]?.typeCode
+      ? registeredNameValues
+      : [];
+  const hasOfficialCompanyName = officialCompanyNameValues.length > 0;
+  const profileNameMatchesOfficialFacts = !hasOfficialCompanyName
+    || [input.legalName, input.displayName]
+      .filter(Boolean)
+      .some((profileName) => officialCompanyNameValues.some(
+        (officialName) => swedishCompanyNamesEquivalent(profileName, officialName),
+      ));
+  if (hasOfficialCompanyName && profileNameMatchesOfficialFacts) {
+    signals.push("Företagsnamnet matchar Official Facts");
+  } else if (hasOfficialCompanyName) {
+    score = Math.min(score, 90);
+    warnings.push("Profilens företagsnamn matchar inte Official Facts");
   }
 
   const competingCategories = [...officialCategories].filter((category) => category !== input.categorySlug).sort();

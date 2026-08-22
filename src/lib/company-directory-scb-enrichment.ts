@@ -2,6 +2,7 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 
+import { normalizeSwedishCompanyIdentityName } from "./company-directory-company-name";
 import {
   fetchScbCompanyRegistryEnrichment,
   type ScbCompanyRegistryEnrichment,
@@ -33,16 +34,9 @@ function text(value: unknown) {
   return value === null || value === undefined ? "" : String(value).trim();
 }
 
-function normalizeName(value: unknown) {
-  return text(value)
-    .normalize("NFKC")
-    .toLocaleLowerCase("sv-SE")
-    .replace(/[^\p{L}\p{N}]+/gu, "");
-}
-
 function legalNamesMatchOrScbIsClearlyTruncated(bolagsverket: unknown, scb: unknown) {
-  const official = normalizeName(bolagsverket);
-  const registry = normalizeName(scb);
+  const official = normalizeSwedishCompanyIdentityName(bolagsverket);
+  const registry = normalizeSwedishCompanyIdentityName(scb);
   if (!official || !registry) return false;
   if (official === registry) return true;
 
