@@ -39,6 +39,7 @@ import {
   requestMarketplaceRematchByCustomerToken,
 } from "@/lib/marketplace-rematch";
 import {
+  deliverMarketplaceServiceJobReviewInvitation,
   getMarketplaceVerifiedReviewPreviewByHash,
   submitMarketplaceVerifiedReviewByHash,
 } from "@/lib/marketplace-verified-review";
@@ -197,6 +198,18 @@ describe("Marketplace ServiceJob lifecycle and security", () => {
     expect(query).toContain("target.status in ('accepted', 'in_progress', 'problem')");
     expect(query).toContain("status = 'customer_cancelled'");
   });
+
+  it("maps a frozen rematch job to a specific result instead of a generic database failure", async () => {
+    const guarded = Object.assign(new Error("marketplace_service_job_rematch_already_requested"), { code: "23514" });
+    mocks.getSql.mockReturnValue(vi.fn().mockRejectedValue(guarded));
+
+    await expect(transitionMarketplaceServiceJobByGuestToken({
+      token: "g".repeat(43),
+      nextStatus: "in_progress",
+    })).resolves.toEqual({ ok: false, code: "rematch_requested" });
+    await expect(cancelMarketplaceServiceJobByCustomerToken("c".repeat(43)))
+      .resolves.toEqual({ ok: false, code: "rematch_requested" });
+  });
 });
 
 describe("Marketplace Rematch", () => {
@@ -227,6 +240,7 @@ describe("Marketplace Rematch", () => {
     expect(queryText(sql.transactionQueries[0])).toContain("job.id::text");
     const query = queryText(sql.transactionQueries[1]);
     expect(query).toContain("insert into quote_requests");
+    expect(query).toContain("target.locale");
     expect(query).toContain("'draft'");
     expect(query).toContain("insert into marketplace_rematch_requests");
     expect(query).toContain("not exists (select 1 from existing)");
@@ -279,6 +293,9 @@ describe("Marketplace Rematch", () => {
 describe("Verified Review and Reputation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.createReviewToken.mockReturnValue("review-token");
+    mocks.hashReviewToken.mockReturnValue("f".repeat(64));
+    mocks.publicBaseUrl.mockReturnValue("https://www.proffera.se");
     mocks.sendReviewEmail.mockResolvedValue({ ok: true, providerId: "mail-1" });
   });
 
@@ -291,12 +308,50 @@ describe("Verified Review and Reputation", () => {
       service_name: "Rörmokare",
       city: "Södertälje",
       contact_name: "Anna",
+      request_locale: "sv",
       display_name: "Rör AB",
       public_slug: "ror-ab",
       review_exists: false,
     }]));
     await expect(getMarketplaceVerifiedReviewPreviewByHash("a".repeat(64)))
-      .resolves.toMatchObject({ state: "unavailable" });
+      .resolves.toMatchObject({ state: "unavailable", language: "sv" });
+  });
+
+  it("keeps English review preview and invitation delivery in English", async () => {
+    const previewSql = sqlResponses([{
+      status: "pending",
+      expires_at: "2099-01-01T00:00:00Z",
+      service_job_id: jobRow.id,
+      job_status: "completed",
+      service_name: "Plumber",
+      city: "Stockholm",
+      contact_name: "Anna",
+      request_locale: "en",
+      display_name: "Pipe AB",
+      public_slug: "pipe-ab",
+      review_exists: false,
+    }]);
+    mocks.getSql.mockReturnValue(previewSql);
+    await expect(getMarketplaceVerifiedReviewPreviewByHash("a".repeat(64)))
+      .resolves.toMatchObject({ state: "valid", language: "en" });
+
+    const deliverySql = sqlResponses([{
+      service_job_id: jobRow.id,
+      contact_name: "Anna",
+      contact_email: "anna@example.com",
+      request_locale: "en",
+      display_name: "Pipe AB",
+      public_slug: "pipe-ab",
+      service_name: "Plumber",
+      existing_status: null,
+      invitation_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+    }], []);
+    mocks.getSql.mockReturnValue(deliverySql);
+    await expect(deliverMarketplaceServiceJobReviewInvitation(jobRow.id)).resolves.toMatchObject({ ok: true });
+    expect(mocks.sendReviewEmail).toHaveBeenCalledWith(expect.objectContaining({
+      language: "en",
+      reviewUrl: expect.stringContaining("lang=en"),
+    }));
   });
 
   it("accepts exactly one verified review only for a completed job", async () => {
@@ -328,6 +383,45 @@ describe("Verified Review and Reputation", () => {
     }]));
     await expect(submitMarketplaceVerifiedReviewByHash("a".repeat(64), verifiedReviewSubmission))
       .resolves.toEqual({ ok: false, code: "used" });
+  });
+
+  it("returns expired, revoked, invalid and database review submission outcomes", async () => {
+    mocks.getSql.mockReturnValue(sqlResponses([{
+      invitation_status: "pending",
+      expires_at: "2000-01-01T00:00:00Z",
+      job_status: "completed",
+      review_exists: false,
+      review_id: null,
+      submitted: false,
+    }]));
+    await expect(submitMarketplaceVerifiedReviewByHash("a".repeat(64), verifiedReviewSubmission))
+      .resolves.toEqual({ ok: false, code: "expired" });
+
+    mocks.getSql.mockReturnValue(sqlResponses([{
+      invitation_status: "revoked",
+      expires_at: "2099-01-01T00:00:00Z",
+      job_status: "completed",
+      review_exists: false,
+      review_id: null,
+      submitted: false,
+    }]));
+    await expect(submitMarketplaceVerifiedReviewByHash("b".repeat(64), verifiedReviewSubmission))
+      .resolves.toEqual({ ok: false, code: "revoked" });
+
+    mocks.getSql.mockReturnValue(sqlResponses([]));
+    await expect(submitMarketplaceVerifiedReviewByHash("c".repeat(64), verifiedReviewSubmission))
+      .resolves.toEqual({ ok: false, code: "invalid" });
+
+    mocks.getSql.mockReturnValue(sqlResponses([{
+      invitation_status: "pending",
+      expires_at: "2099-01-01T00:00:00Z",
+      job_status: "completed",
+      review_exists: false,
+      review_id: null,
+      submitted: false,
+    }]));
+    await expect(submitMarketplaceVerifiedReviewByHash("d".repeat(64), verifiedReviewSubmission))
+      .resolves.toEqual({ ok: false, code: "database" });
   });
 
   it("approves only pending verified reviews attached to completed jobs", async () => {
@@ -373,6 +467,7 @@ describe("Verified Review and Reputation", () => {
     expect(migration).toContain("review.status = 'approved'");
     expect(migration).toContain("count(job.id) filter (where job.status = 'completed')");
     expect(migration).toContain("references marketplace_service_jobs(id) on delete cascade");
+    expect(migration).toContain("add column if not exists locale text not null default 'sv'");
   });
 
   it("prevents a second winner/job generation and terminal reopening in the database", () => {
@@ -380,9 +475,11 @@ describe("Verified Review and Reputation", () => {
     const migration64 = readFileSync("db/migrations/20260822_0064_marketplace_rematch_requests.sql", "utf8");
     expect(migration63).toContain("marketplace_service_jobs_quote_unique unique (quote_request_id)");
     expect(migration63).toContain("marketplace_service_job_invalid_transition");
+    expect(migration63).toContain("new.workspace_id is not null and offer_workspace_id is distinct from new.workspace_id");
     expect(migration64).toContain("source_quote_request_id <> rematch_quote_request_id");
     expect(migration64).toContain("marketplace_service_job_rematch_already_requested");
     expect(migration64).toContain("marketplace_workspace_service_jobs");
     expect(migration64).toContain("coalesce(job.workspace_id, profile.claimed_workspace_id)");
+    expect(migration64).toContain("coalesce(reputation_workspace.workspace_id, profile.claimed_workspace_id)");
   });
 });
