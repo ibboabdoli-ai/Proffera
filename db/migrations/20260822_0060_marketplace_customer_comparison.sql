@@ -1,7 +1,7 @@
 -- Secure customer comparison access for Marketplace Guest Quote offers.
 --
 -- Sequencing: run after migration 0059. The single-winner concurrent unique index
--- is installed separately by migration 0061 after this transaction commits.
+-- is installed separately by migration 0062 after this transaction commits.
 -- Rollout: additive schema only; verify on isolated Neon Preview before any Production execution.
 -- Production execution is intentionally NOT part of this migration commit.
 -- Rollback: roll application code back first. The access table can then be retained safely;
