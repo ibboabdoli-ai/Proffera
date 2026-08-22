@@ -65,6 +65,10 @@ export async function storeQuoteRequest(
       return { ok: true, referenceId: recentReferenceId };
     }
 
+    if (input.locationSource === "address" && verifiedAddress && !validVerifiedReference(verifiedAddress.referenceId)) {
+      throw new Error("Invalid Lantmäteriet verified-address reference");
+    }
+
     // During the additive rollout the application can deploy before migrations
     // 0059/0063. Probe both optional schema generations and keep old inserts
     // working until each column set is present in the current database.
@@ -90,17 +94,13 @@ export async function storeQuoteRequest(
           'locale'
         )
     `;
-    const verifiedStorageReady = Boolean(readinessRows[0]?.verified_ready);
+    const verifiedStorageReady = Boolean(readinessRows[0]?.verified_ready ?? readinessRows[0]?.ready);
     const localeStorageReady = Boolean(readinessRows[0]?.locale_ready);
 
     let verifiedLatitude: number | null = null;
     let verifiedLongitude: number | null = null;
 
     if (input.locationSource === "address" && verifiedAddress && verifiedStorageReady) {
-      if (!validVerifiedReference(verifiedAddress.referenceId)) {
-        throw new Error("Invalid Lantmäteriet verified-address reference");
-      }
-
       const coordinateRows = await sql`
         select
           st_y(transformed.point)::float8 as latitude,
