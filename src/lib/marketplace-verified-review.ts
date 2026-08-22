@@ -316,7 +316,7 @@ export async function deliverMarketplaceServiceJobReviewInvitation(serviceJobId:
 
     const customerEmail = text(row.contact_email).trim();
     if (!customerEmail) return { ok: false as const, code: "missing_email" as const };
-    const reviewUrl = new URL(`/review/${encodeURIComponent(token)}`, resolveMarketplacePublicBaseUrl()).toString();
+    const reviewUrl = new URL(`/review/marketplace/${encodeURIComponent(token)}`, resolveMarketplacePublicBaseUrl()).toString();
     const delivery = await sendVerifiedReviewInvitationEmail({
       customerName: text(row.contact_name, "Customer"),
       customerEmail,
