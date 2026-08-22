@@ -40,6 +40,7 @@ const copy = {
     rematchPending: "En ny matchning är redan beställd och väntar på behandling.",
     rematchProcessing: "Proffera söker nu efter nya företag.",
     rematchProcessed: "Den nya matchningen har startat. Du får en ny jämförelselänk när nya offerter kommer in.",
+    rematchCancelled: "Den nya matchningen har avbrutits. Kontakta Proffera om du fortfarande behöver ett nytt företag.",
     completed: "Jobbet är markerat som slutfört. När omdömesinbjudan skickas kan du lämna ett verifierat omdöme.",
     protected: "Säker personlig jobblänk · dela inte länken",
   },
@@ -64,6 +65,7 @@ const copy = {
     rematchPending: "A new matching round has already been requested and is waiting to be processed.",
     rematchProcessing: "Proffera is now searching for new providers.",
     rematchProcessed: "The new matching round has started. You will receive a new comparison link when new offers arrive.",
+    rematchCancelled: "The new matching round was cancelled. Contact Proffera if you still need a new provider.",
     completed: "The job is marked completed. When the review invitation is delivered, you can leave a verified review.",
     protected: "Secure personal job link · do not share it",
   },
@@ -73,7 +75,7 @@ function actionMessage(value: string | undefined, locale: Locale): ActionFeedbac
   const sv = locale === "sv";
   if (value === "customer_cancelled") return { text: sv ? "Jobbet har avbrutits." : "The job has been cancelled.", severity: "success" };
   if (value === "requested") return { text: sv ? "En ny matchning har beställts." : "A new matching round has been requested.", severity: "success" };
-  if (value === "already_requested") return { text: sv ? "En ny matchning är redan beställd." : "A new matching round has already been requested.", severity: "success" };
+  if (value === "already_requested" || value === "rematch_requested") return { text: sv ? "En ny matchning är redan beställd." : "A new matching round has already been requested.", severity: "success" };
   if (value === "closed") return { text: sv ? "Jobbet är redan avslutat och kan inte längre avbrytas." : "The job is already closed and can no longer be cancelled.", severity: "error" };
   if (value === "rate_limited") return { text: sv ? "För många försök. Vänta en stund och försök igen." : "Too many attempts. Wait a while and try again.", severity: "error" };
   if (value === "not_eligible") return { text: sv ? "Jobbet kan inte matchas om i sin nuvarande status." : "This job cannot be rematched in its current status.", severity: "error" };
@@ -127,9 +129,11 @@ export default async function MarketplaceCustomerJobPage({
     ? text.rematchProcessing
     : rematch?.status === "processed"
       ? text.rematchProcessed
-      : rematch
-        ? text.rematchPending
-        : "";
+      : rematch?.status === "cancelled"
+        ? text.rematchCancelled
+        : rematch
+          ? text.rematchPending
+          : "";
 
   return (
     <main lang={locale} className="min-h-screen bg-[#f7f7f4] px-4 py-8 text-[#17201a] sm:px-6 sm:py-12">
