@@ -127,6 +127,7 @@ async function saveScbEnrichment(
   data: ScbCompanyRegistryEnrichment,
   conflicts: ScbConflict[],
   comparisonSnapshot: ScbComparisonSnapshot,
+  existingProfileMunicipality: unknown,
 ) {
   const sql = getSql();
   if (!sql) throw new Error("Database is not configured");
@@ -171,6 +172,38 @@ async function saveScbEnrichment(
       last_synced_at = now(),
       updated_at = now()
   `;
+
+  const municipality = text(data.municipality);
+  if (text(existingProfileMunicipality) || !municipality) return;
+
+  const municipalityValueHash = createHash("sha256")
+    .update(municipality)
+    .digest("hex");
+
+  // This projection intentionally does not change profile.updated_at. That token
+  // belongs to the comparison snapshot captured before the SCB request; changing
+  // it here would immediately make the just-saved SCB snapshot look stale.
+  await sql`
+    with projected as (
+      update company_directory_profiles profile
+      set municipality = ${municipality}
+      where profile.id = ${profileId}::uuid
+        and nullif(trim(profile.municipality), '') is null
+      returning profile.id
+    )
+    insert into company_directory_field_sources (
+      profile_id, field_name, source_name, source_record_id,
+      source_url, value_hash, confidence, observed_at
+    )
+    select
+      projected.id, 'municipality', ${data.provenance.municipality}, ${data.organizationNumber},
+      '', ${municipalityValueHash}, 100, now()
+    from projected
+    on conflict (profile_id, field_name, source_name, value_hash) do update set
+      source_record_id = excluded.source_record_id,
+      confidence = excluded.confidence,
+      observed_at = now()
+  `;
 }
 
 export async function enrichCompanyDirectoryScbForProfile(
@@ -189,6 +222,7 @@ export async function enrichCompanyDirectoryScbForProfile(
       profile.organization_number,
       profile.organization_kind,
       profile.legal_name,
+      profile.municipality,
       profile.updated_at::text as profile_updated_token,
       facts.sni_codes,
       facts.last_synced_at::text as facts_last_synced_token
@@ -228,6 +262,12 @@ export async function enrichCompanyDirectoryScbForProfile(
     officialFactsLastSyncedToken: text(rows[0]?.facts_last_synced_token),
   };
 
-  await saveScbEnrichment(profileId, fetched.data, conflicts, comparisonSnapshot);
+  await saveScbEnrichment(
+    profileId,
+    fetched.data,
+    conflicts,
+    comparisonSnapshot,
+    rows[0]?.municipality,
+  );
   return { status: "saved", saved: true, conflicts };
 }
