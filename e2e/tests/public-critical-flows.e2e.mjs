@@ -141,4 +141,45 @@ test.describe("public critical-flow smoke", () => {
     await expect(page.getByText("Steg 2 av 6")).toBeVisible();
     await expectSmartDetails(page, smartDetails);
   });
+
+  test("keeps an edited address when an older nearby-location callback resolves", async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, "geolocation", {
+        configurable: true,
+        value: {
+          getCurrentPosition(success) {
+            window.setTimeout(() => success({ coords: { latitude: 59.19554, longitude: 17.62525 } }), 200);
+          },
+        },
+      });
+    });
+
+    await advanceQuoteToLocation(page, {
+      path: "/fa-offert",
+      nextLabel: "Fortsätt",
+      step2Text: "Steg 2 av 6",
+      step3Text: "Steg 3 av 6",
+    });
+
+    await page.getByRole("button", { name: "Nära mig" }).click();
+    await page.getByLabel("Gatuadress").fill("Storgatan 77");
+    await page.waitForTimeout(300);
+    await expect(page.getByLabel("Gatuadress")).toHaveValue("Storgatan 77");
+  });
+
+  test("discards a future-dated language draft instead of restoring it", async ({ page }) => {
+    await page.addInitScript(({ key }) => {
+      window.sessionStorage.setItem(key, JSON.stringify({
+        savedAt: Date.now() + 60_000,
+        data: { addressLine1: "Should not restore", city: "Stockholm", postalCode: "111 22" },
+        smartAnswers: {},
+        step: 2,
+      }));
+    }, { key: quoteLanguageDraftKey });
+
+    const response = await page.goto("/en/get-quote?resume=1");
+    expect(response?.ok()).toBeTruthy();
+    await expect(page.getByText("Step 1 of 6")).toBeVisible();
+    await expect.poll(() => page.evaluate((key) => window.sessionStorage.getItem(key), quoteLanguageDraftKey)).toBeNull();
+  });
 });
