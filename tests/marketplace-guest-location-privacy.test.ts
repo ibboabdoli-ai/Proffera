@@ -39,6 +39,7 @@ describe("marketplace guest quote private location boundary", () => {
     expect(view).not.toHaveProperty("addressLine1");
     expect(view).not.toHaveProperty("latitude");
     expect(view).not.toHaveProperty("longitude");
+    expect(view).not.toHaveProperty("locationSource");
     expect(JSON.stringify(view)).not.toContain("Storgatan 12");
     expect(JSON.stringify(view)).not.toContain("59.19554");
     expect(JSON.stringify(view)).not.toContain("17.62525");
