@@ -9,11 +9,10 @@ begin;
 create table if not exists marketplace_rematch_requests (
   id uuid primary key default gen_random_uuid(),
   service_job_id uuid not null unique references marketplace_service_jobs(id) on delete cascade,
-  -- Keep the source request while a rematch generation exists. NO ACTION is
-  -- intentional rather than RESTRICT: a direct source Quote Request purge first
-  -- cascades through marketplace_service_jobs and removes this rematch row, then
-  -- the end-of-statement FK check succeeds without depending on cascade ordering.
-  -- The copied rematch Quote Request is still removed through its own cascade.
+  -- NO ACTION lets a single source-request purge finish after its dependent
+  -- ServiceJob/rematch rows are removed. The quote_requests purge trigger below
+  -- deletes cloned descendant generations first so copied customer PII is never
+  -- left as an unreferenced draft.
   source_quote_request_id uuid not null references quote_requests(id) on delete no action,
   rematch_quote_request_id uuid not null unique references quote_requests(id) on delete cascade,
   status text not null default 'pending',
@@ -39,6 +38,36 @@ create index if not exists marketplace_rematch_requests_pending_idx
 create index if not exists marketplace_rematch_requests_processing_idx
   on marketplace_rematch_requests (processing_started_at, id)
   where status = 'processing';
+
+-- Purging a source Quote Request must also purge every cloned rematch generation.
+-- This runs before the source row is deleted, so the cloned Quote Request is
+-- still discoverable through marketplace_rematch_requests. Recursive generations
+-- are removed deepest-first by the same trigger. This closes the PII-orphan gap
+-- while keeping direct quote-request purges compatible with the FK graph.
+create or replace function cleanup_marketplace_rematch_descendants_before_quote_delete()
+returns trigger
+language plpgsql
+as $$
+declare
+  descendant_quote_id uuid;
+begin
+  for descendant_quote_id in
+    select rematch.rematch_quote_request_id
+    from marketplace_rematch_requests rematch
+    where rematch.source_quote_request_id = old.id
+      and rematch.rematch_quote_request_id <> old.id
+  loop
+    delete from quote_requests
+    where id = descendant_quote_id;
+  end loop;
+  return old;
+end;
+$$;
+
+drop trigger if exists marketplace_quote_rematch_cleanup_trigger on quote_requests;
+create trigger marketplace_quote_rematch_cleanup_trigger
+before delete on quote_requests
+for each row execute function cleanup_marketplace_rematch_descendants_before_quote_delete();
 
 create or replace function enforce_marketplace_rematch_request()
 returns trigger
