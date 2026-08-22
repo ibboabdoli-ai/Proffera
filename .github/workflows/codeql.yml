@@ -14,7 +14,6 @@ permissions:
 jobs:
   analyze:
     name: Analyze JavaScript/TypeScript
-    if: ${{ vars.CODEQL_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       # CodeQL reads workflow-run metadata during analysis; read-only Actions access is sufficient.
