@@ -23,7 +23,7 @@ import { POST } from "@/app/api/reviews/[token]/route";
 const submission = {
   reviewerName: "Anna",
   rating: 5,
-  message: "Bra jobb",
+  message: "Bra jobb gjort",
   consent: true,
   website: "",
   formStartedAt: Date.now() - 10_000,
