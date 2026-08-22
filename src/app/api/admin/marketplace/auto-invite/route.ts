@@ -8,6 +8,7 @@ import { getAdminForArea } from "@/lib/admin-authorization";
 import { sendMarketplaceGuestQuoteInvitation } from "@/lib/marketplace-guest-quote";
 
 const INVITATION_SEND_TIMEOUT_MS = 8_000;
+const INVITATION_STATE_TIMEOUT_MS = 3_000;
 const DISPATCH_DEADLINE_MS = 20_000;
 
 function sameOrigin(request: Request) {
@@ -32,11 +33,10 @@ function redirect(request: Request, code: string, sent = 0) {
   return NextResponse.redirect(url, 303);
 }
 
-async function withInvitationTimeout<T>(promise: Promise<T>, timeoutMs = INVITATION_SEND_TIMEOUT_MS) {
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string) {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  const boundedTimeoutMs = Math.max(1, Math.min(INVITATION_SEND_TIMEOUT_MS, timeoutMs));
   const timeout = new Promise<never>((_, reject) => {
-    timeoutId = setTimeout(() => reject(new Error("Marketplace invitation delivery timed out")), boundedTimeoutMs);
+    timeoutId = setTimeout(() => reject(new Error(message)), Math.max(1, timeoutMs));
   });
   try {
     return await Promise.race([promise, timeout]);
@@ -78,7 +78,8 @@ export async function POST(request: Request) {
   let sent = 0;
   const dispatchDeadline = Date.now() + DISPATCH_DEADLINE_MS;
   for (const candidate of plan.candidates) {
-    if (Date.now() >= dispatchDeadline) {
+    const remainingBeforeStateUpdate = dispatchDeadline - Date.now();
+    if (remainingBeforeStateUpdate <= 0) {
       console.warn("Automatic Marketplace wave dispatch stopped at deadline", {
         quoteRequestId,
         wave: requestedWave,
@@ -88,7 +89,12 @@ export async function POST(request: Request) {
     }
 
     try {
-      await expirePastMarketplaceInvitation(quoteRequestId, candidate.profileId);
+      await withTimeout(
+        expirePastMarketplaceInvitation(quoteRequestId, candidate.profileId),
+        Math.min(INVITATION_STATE_TIMEOUT_MS, remainingBeforeStateUpdate),
+        "Marketplace invitation state update timed out",
+      );
+
       const remainingDispatchMs = dispatchDeadline - Date.now();
       if (remainingDispatchMs <= 0) {
         console.warn("Automatic Marketplace wave dispatch stopped at deadline", {
@@ -99,16 +105,20 @@ export async function POST(request: Request) {
         break;
       }
 
-      const result = await withInvitationTimeout(sendMarketplaceGuestQuoteInvitation({
-        quoteRequestId,
-        profileId: candidate.profileId,
-        recipientEmail: candidate.recipientEmail,
-        adminUserId: admin.userId,
-        baseUrl: new URL(request.url).origin,
-        wave: requestedWave,
-        matchScore: candidate.score,
-        matchReasons: candidate.reasons,
-      }), remainingDispatchMs);
+      const result = await withTimeout(
+        sendMarketplaceGuestQuoteInvitation({
+          quoteRequestId,
+          profileId: candidate.profileId,
+          recipientEmail: candidate.recipientEmail,
+          adminUserId: admin.userId,
+          baseUrl: new URL(request.url).origin,
+          wave: requestedWave,
+          matchScore: candidate.score,
+          matchReasons: candidate.reasons,
+        }),
+        Math.min(INVITATION_SEND_TIMEOUT_MS, remainingDispatchMs),
+        "Marketplace invitation delivery timed out",
+      );
       if (result.ok) sent += 1;
     } catch (error) {
       console.error("Automatic Marketplace wave invitation failed", {

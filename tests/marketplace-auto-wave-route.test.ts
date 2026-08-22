@@ -129,6 +129,19 @@ describe("automatic Marketplace wave route", () => {
     expect(inviteCode(await POST(request("1")))).toBe("auto_no_delivery");
   });
 
+  it("bounds a stalled invitation-state update and does not start delivery", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.expireInvitation.mockImplementation(() => new Promise(() => {}));
+      const responsePromise = POST(request("1"));
+      await vi.runAllTimersAsync();
+      expect(inviteCode(await responsePromise)).toBe("auto_no_delivery");
+      expect(mocks.sendInvitation).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("bounds a stalled provider call and continues with a no-delivery redirect", async () => {
     vi.useFakeTimers();
     try {
@@ -148,11 +161,12 @@ describe("automatic Marketplace wave route", () => {
       recipientEmail: "offert@andra-firman.se",
     };
     mocks.planWave.mockReturnValue({ wave: 1, candidates: [candidate, secondCandidate], reason: "ready" });
-    const now = vi.spyOn(Date, "now")
-      .mockReturnValueOnce(1_000)
-      .mockReturnValueOnce(1_000)
-      .mockReturnValueOnce(1_000)
-      .mockReturnValueOnce(21_000);
+    let now = 1_000;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
+    mocks.sendInvitation.mockImplementationOnce(async () => {
+      now = 21_000;
+      return { ok: true, invitationId: "invite-id" };
+    });
 
     try {
       const response = await POST(request("1"));
@@ -163,7 +177,7 @@ describe("automatic Marketplace wave route", () => {
       expect(mocks.sendInvitation).toHaveBeenCalledTimes(1);
       expect(mocks.expireInvitation).toHaveBeenCalledTimes(1);
     } finally {
-      now.mockRestore();
+      nowSpy.mockRestore();
     }
   });
 
