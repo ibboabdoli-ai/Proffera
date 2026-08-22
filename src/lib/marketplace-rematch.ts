@@ -216,7 +216,7 @@ export async function requestMarketplaceRematchByCustomerToken(input: {
         join cloned on cloned.id = inserted.rematch_quote_request_id
         limit 1
       `,
-    ], { isolationMode: "ReadCommitted" });
+    ]);
 
     const row = rows[0] as Record<string, unknown> | undefined;
     if (!row) return { ok: false as const, code: "not_eligible" as const };
