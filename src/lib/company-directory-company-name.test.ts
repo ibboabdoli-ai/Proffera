@@ -29,4 +29,11 @@ describe("Swedish company-name identity normalization", () => {
     expect(normalizeSwedishCompanyIdentityName("AB AB")).toBe("ab ab");
     expect(swedishCompanyNamesEquivalent("A B AB", "AB AB")).toBe(false);
   });
+
+  it("requires Unicode-aware boundaries around the Aktiebolag suffix", () => {
+    expect(swedishCompanyNamesEquivalent("ÅAktiebolag", "Å AB")).toBe(false);
+    expect(swedishCompanyNamesEquivalent("ÄAktiebolaget", "Ä AB")).toBe(false);
+    expect(swedishCompanyNamesEquivalent("ÖAktiebolag", "Ö AB")).toBe(false);
+    expect(swedishCompanyNamesEquivalent("Å Aktiebolag", "Å AB")).toBe(true);
+  });
 });
