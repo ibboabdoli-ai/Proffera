@@ -22,6 +22,12 @@ type SubmitQuoteRequestResult =
       errors: QuoteRequestErrors;
     };
 
+function canContinueWithoutVerifiedAddress(reason: string) {
+  return reason === "too_many_candidates"
+    || reason === "ambiguous_exact_match"
+    || reason === "unexpected_reference_response";
+}
+
 export async function submitQuoteRequest(input: QuoteRequestSubmission): Promise<SubmitQuoteRequestResult> {
   const elapsed = Date.now() - Number(input.formStartedAt);
 
@@ -64,7 +70,7 @@ export async function submitQuoteRequest(input: QuoteRequestSubmission): Promise
       city: parsed.data.city,
     });
 
-    if (verification.status === "no_match") {
+    if (verification.status === "no_match" && !canContinueWithoutVerifiedAddress(verification.reason)) {
       return {
         ok: false,
         errors: {
