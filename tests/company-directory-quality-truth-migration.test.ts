@@ -11,8 +11,12 @@ const RUN_POSTGRES_INTEGRATION =
   || process.env.PROFFERA_POSTGRES_INTEGRATION === "1";
 
 const FOUNDATION = "db/migrations/20260809_0037_company_profile_engine_foundation.sql";
+// 0060 is intentionally not loaded here: it belongs to the independent
+// Marketplace customer-comparison chain. This contract isolates the Directory
+// quality correction that follows it as migration 0061.
 const QUALITY_MIGRATION = "db/migrations/20260822_0061_company_directory_quality_truth.sql";
 
+/** Run a Docker CLI command and return trimmed stdout for PostgreSQL test setup. */
 function docker(args: string[]) {
   return execFileSync("docker", args, { encoding: "utf8" }).trim();
 }
@@ -24,6 +28,7 @@ function docker(args: string[]) {
     let connectionString = "";
     let client: Client | null = null;
 
+    /** Wait until the isolated PostgreSQL test container accepts connections. */
     async function waitForPostgres() {
       let lastError: unknown = null;
       for (let attempt = 0; attempt < 80; attempt += 1) {
@@ -79,23 +84,32 @@ function docker(args: string[]) {
 
     it("removes only the legacy unavailable-tax award and is idempotent", async () => {
       const fixedUpdatedAt = "2026-08-22T12:00:00.000Z";
+      const claimedWorkspaceId = "00000000-0000-0000-0000-000000000001";
+      await client!.query("insert into workspaces (id) values ($1)", [claimedWorkspaceId]);
       await client!.query(`
         insert into company_directory_profiles (
           organization_number, organization_kind, legal_name, display_name, public_slug,
           publication_status, is_active, auto_public_eligible, quality_score,
-          city, category_slug, f_tax_status, vat_status, employer_status, updated_at
+          city, category_slug, f_tax_status, vat_status, employer_status,
+          claimed_workspace_id, updated_at
         ) values
           ('5560000001', 'juridical_person', 'Published AB', 'Published AB', 'published-ab',
-           'published', true, true, 100, 'Stockholm', 'stadning', '', '', '', $1),
+           'published', true, true, 100, 'Stockholm', 'stadning', '', '', '', null, $1),
           ('5560000002', 'juridical_person', 'Review AB', 'Review AB', 'review-ab',
-           'review', true, false, 95, 'Stockholm', 'stadning', '', '', '', $1),
+           'review', true, false, 95, 'Stockholm', 'stadning', '', '', '', null, $1),
           ('5560000003', 'juridical_person', 'Tax Verified AB', 'Tax Verified AB', 'tax-verified-ab',
-           'ready', true, true, 100, 'Stockholm', 'stadning', 'Registrerad', '', '', $1),
+           'ready', true, true, 100, 'Stockholm', 'stadning', 'Registrerad', '', '', null, $1),
           ('5560000004', 'juridical_person', 'Inactive AB', 'Inactive AB', 'inactive-ab',
-           'inactive', false, false, 70, 'Stockholm', 'stadning', '', '', '', $1),
+           'inactive', false, false, 70, 'Stockholm', 'stadning', '', '', '', null, $1),
           ('5560000005', 'juridical_person', 'Boundary Published AB', 'Boundary Published AB', 'boundary-published-ab',
-           'published', true, true, 80, 'Stockholm', 'stadning', '', '', '', $1)
-      `, [fixedUpdatedAt]);
+           'published', true, true, 80, 'Stockholm', 'stadning', '', '', '', null, $1),
+          ('5560000006', 'juridical_person', 'Guard Edge AB', 'Guard Edge AB', 'guard-edge-ab',
+           'published', true, true, 85, 'Stockholm', 'stadning', '', '', '', null, $1),
+          ('5560000007', 'juridical_person', 'Zero Score AB', 'Zero Score AB', 'zero-score-ab',
+           'ready', true, true, 0, 'Stockholm', 'stadning', '', '', '', null, $1),
+          ('5560000008', 'juridical_person', 'Claimed AB', 'Claimed AB', 'claimed-ab',
+           'claimed', true, false, 100, 'Stockholm', 'stadning', '', '', '', $2, $1)
+      `, [fixedUpdatedAt, claimedWorkspaceId]);
 
       const migration = readFileSync(join(process.cwd(), QUALITY_MIGRATION), "utf8");
       await expect(client!.query(migration)).resolves.toBeDefined();
@@ -144,6 +158,24 @@ function docker(args: string[]) {
           publication_status: "review",
           quality_score: 75,
           quality_reasons: ["tax_status_unavailable_from_source"],
+        }),
+        expect.objectContaining({
+          organization_number: "5560000006",
+          publication_status: "published",
+          quality_score: 80,
+          quality_reasons: ["tax_status_unavailable_from_source"],
+        }),
+        expect.objectContaining({
+          organization_number: "5560000007",
+          publication_status: "ready",
+          quality_score: 0,
+          quality_reasons: ["tax_status_unavailable_from_source"],
+        }),
+        expect.objectContaining({
+          organization_number: "5560000008",
+          publication_status: "claimed",
+          quality_score: 100,
+          quality_reasons: [],
         }),
       ]);
 
