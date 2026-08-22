@@ -79,6 +79,17 @@ describe("marketplace customer comparison", () => {
     expect(marketplaceCustomerComparisonPath(token)).toBe(`/offert/jamfor/${token}`);
   });
 
+  it("rejects insecure comparison origins before any database or email work", async () => {
+    const result = await notifyMarketplaceCustomerOfferAvailableFromGuestToken({
+      guestToken: "g".repeat(43),
+      baseUrl: "http://example.test/offert/svara/token",
+    });
+
+    expect(result).toEqual({ ok: false, code: "invalid_base_url" });
+    expect(mocks.getSql).not.toHaveBeenCalled();
+    expect(mocks.sendComparisonEmail).not.toHaveBeenCalled();
+  });
+
   it("redacts provider email, phone and URL from notes before selection", () => {
     const source = "Ring 070-123 45 67, maila offert@rorfirma.se eller se https://rorfirma.se/pris";
     const hidden = customerVisibleMarketplaceOfferNote(source, false);
@@ -147,7 +158,7 @@ describe("marketplace customer comparison", () => {
     expect(queryText(sql.mock.calls[1])).toContain("case when offer.status = 'selected' then invitation.recipient_email else '' end");
   });
 
-  it("sends one secure comparison email after the first submitted offer", async () => {
+  it("persists the exact emailed token hash before the first comparison email", async () => {
     const quoteRequestId = "11111111-1111-4111-8111-111111111111";
     const dispatchToken = "44444444-4444-4444-8444-444444444444";
     const expectedToken = deriveMarketplaceCustomerComparisonToken({
@@ -155,6 +166,7 @@ describe("marketplace customer comparison", () => {
       dispatchToken,
       secret: TEST_COMPARISON_SECRET,
     });
+    const expectedHash = hashMarketplaceCustomerComparisonToken(expectedToken);
     const sql = sqlResponses(
       [{
         quote_request_id: quoteRequestId,
@@ -162,7 +174,7 @@ describe("marketplace customer comparison", () => {
         contact_name: "Anna",
         contact_email: "anna@example.se",
       }],
-      [{ quote_request_id: quoteRequestId, dispatch_token: dispatchToken }],
+      [{ quote_request_id: quoteRequestId, token_hash: expectedHash, dispatch_token: dispatchToken }],
       [{ quote_request_id: quoteRequestId }],
     );
     mocks.getSql.mockReturnValue(sql);
@@ -175,12 +187,12 @@ describe("marketplace customer comparison", () => {
 
     expect(result).toEqual({ ok: true, code: "sent" });
     expect(mocks.sendComparisonEmail).toHaveBeenCalledTimes(1);
-    expect(mocks.sendComparisonEmail).toHaveBeenCalledWith(expect.objectContaining({
-      recipientEmail: "anna@example.se",
-      comparisonUrl: `https://www.proffera.se/offert/jamfor/${expectedToken}`,
-      idempotencyKey: dispatchToken,
-    }));
+    const comparisonUrl = String(mocks.sendComparisonEmail.mock.calls[0]?.[0]?.comparisonUrl ?? "");
+    const emailedToken = comparisonUrl.split("/").at(-1) ?? "";
+    expect(emailedToken).toBe(expectedToken);
+    expect(hashMarketplaceCustomerComparisonToken(emailedToken)).toBe(expectedHash);
     expect(queryText(sql.mock.calls[1])).toContain("on conflict (quote_request_id) do nothing");
+    expect(queryValues(sql.mock.calls[1])).toContain(expectedHash);
     expect(queryText(sql.mock.calls[2])).not.toContain("token_hash =");
   });
 
