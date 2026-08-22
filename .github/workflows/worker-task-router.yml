@@ -24,7 +24,7 @@ jobs:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       startsWith(github.event.issue.title, '[worker]') ||
-      contains(github.event.issue.body, 'Worker routing: requested')
+      contains(github.event.issue.body || '', 'Worker routing: requested')
     runs-on: ubuntu-latest
 
     steps:
@@ -101,8 +101,10 @@ jobs:
             gh issue edit "$issue_number" --repo "$REPOSITORY" --remove-label "$label" >/dev/null
           done <<< "$existing_lane_labels"
 
+          for lane in "${lanes[@]}"; do
+            gh issue edit "$issue_number" --repo "$REPOSITORY" --add-label "lane:${lane}" >/dev/null
+          done
           labels_csv="$(printf 'lane:%s\n' "${lanes[@]}" | paste -sd, -)"
-          gh issue edit "$issue_number" --repo "$REPOSITORY" --add-label "$labels_csv" >/dev/null
 
           lane_lines=""
           for lane in "${lanes[@]}"; do
