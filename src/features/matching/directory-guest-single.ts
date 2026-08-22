@@ -88,14 +88,18 @@ export async function getDirectoryGuestLeadMatch(quoteRequestId: string) {
         request.postal_code,
         request.description,
         request.status,
-        coalesce(
-          nullif(to_jsonb(request)->>'customer_verified_latitude', '')::float8,
-          request.customer_latitude::float8
-        ) as customer_latitude,
-        coalesce(
-          nullif(to_jsonb(request)->>'customer_verified_longitude', '')::float8,
-          request.customer_longitude::float8
-        ) as customer_longitude,
+        case
+          when nullif(to_jsonb(request)->>'customer_verified_latitude', '') is not null
+            and nullif(to_jsonb(request)->>'customer_verified_longitude', '') is not null
+          then nullif(to_jsonb(request)->>'customer_verified_latitude', '')::float8
+          else request.customer_latitude::float8
+        end as customer_latitude,
+        case
+          when nullif(to_jsonb(request)->>'customer_verified_latitude', '') is not null
+            and nullif(to_jsonb(request)->>'customer_verified_longitude', '') is not null
+          then nullif(to_jsonb(request)->>'customer_verified_longitude', '')::float8
+          else request.customer_longitude::float8
+        end as customer_longitude,
         request.created_at::text
       from quote_requests request
       where request.id = ${quoteRequestId}::uuid
