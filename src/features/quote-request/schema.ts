@@ -11,7 +11,9 @@ const validationCopy = {
   sv: {
     category: "Välj en kategori.", serviceTypeRequired: "Välj tjänstetyp.", serviceTypeLong: "Tjänstetypen är för lång.",
     cityRequired: "Ange stad.", cityLong: "Orten är för lång.", postalRequired: "Ange postnummer.", postalLong: "Postnumret är för långt.",
-    postalFormat: "Postnummer får bara innehålla siffror, mellanslag eller bindestreck.", descriptionShort: "Beskriv uppdraget med minst 20 tecken.", descriptionLong: "Beskrivningen är för lång.",
+    postalFormat: "Postnummer får bara innehålla siffror, mellanslag eller bindestreck.", addressShort: "Ange en fullständig gatuadress.", addressLong: "Adressen är för lång.",
+    locationRequired: "Ange en gatuadress eller använd Nära mig.", locationInvalid: "Positionen kunde inte valideras. Försök med Nära mig igen eller ange adress.",
+    descriptionShort: "Beskriv uppdraget med minst 20 tecken.", descriptionLong: "Beskrivningen är för lång.",
     dateRequired: "Välj ungefärlig tidpunkt.", dateLong: "Tidpunkten är för lång.", nameRequired: "Ange namn.", nameLong: "Namnet är för långt.",
     emailInvalid: "Ange en giltig e-postadress.", emailLong: "E-postadressen är för lång.", phoneRequired: "Ange telefonnummer.", phoneLong: "Telefonnumret är för långt.",
     phoneFormat: "Telefonnummer får bara innehålla siffror, +, mellanslag eller bindestreck.", consent: "Du måste godkänna att Proffera behandlar uppgifterna för att hantera förfrågan.",
@@ -20,8 +22,10 @@ const validationCopy = {
   en: {
     category: "Choose a category.", serviceTypeRequired: "Choose a service type.", serviceTypeLong: "The service type is too long.",
     cityRequired: "Enter a city.", cityLong: "The city name is too long.", postalRequired: "Enter a postal code.", postalLong: "The postal code is too long.",
-    postalFormat: "The postal code may only contain numbers, spaces or hyphens.", descriptionShort: "Describe the job using at least 20 characters.", descriptionLong: "The description is too long.",
-    dateRequired: "Choose an approximate time.", dateLong: "The preferred time is too long.", nameRequired: "Enter your name.", nameLong: "The name is too long.",
+    postalFormat: "The postal code may only contain numbers, spaces or hyphens.", addressShort: "Enter a complete street address.", addressLong: "The address is too long.",
+    locationRequired: "Enter a street address or use Near me.", locationInvalid: "The position could not be validated. Try Near me again or enter an address.",
+    descriptionShort: "Describe the job using at least 20 characters.", descriptionLong: "The description is too long.",
+    dateRequired: "Choose an approximate time.", dateLong: "The preferred time is too long.", nameRequired: "Enter your name.", nameLong: "Your name is too long.",
     emailInvalid: "Enter a valid email address.", emailLong: "The email address is too long.", phoneRequired: "Enter a phone number.", phoneLong: "The phone number is too long.",
     phoneFormat: "The phone number may only contain numbers, +, spaces or hyphens.", consent: "You must allow Proffera to process your details in order to handle the request.",
     serviceCategory: "Choose a service type that belongs to the selected category.",
@@ -32,12 +36,27 @@ export function isServiceCategory(value: string): value is QuoteCategory {
   return Object.hasOwn(serviceTypesByCategory, value);
 }
 
+function hasValidCoordinates(latitude: number | null, longitude: number | null) {
+  return latitude !== null
+    && longitude !== null
+    && Number.isFinite(latitude)
+    && Number.isFinite(longitude)
+    && latitude >= -90
+    && latitude <= 90
+    && longitude >= -180
+    && longitude <= 180;
+}
+
 export function createQuoteRequestSchema(locale: PublicLocale = "sv") {
   const copy = validationCopy[locale];
 
   return z.object({
     category: z.string().trim().refine((value: string): boolean => isServiceCategory(value), copy.category),
     serviceType: z.string().trim().min(1, copy.serviceTypeRequired).max(120, copy.serviceTypeLong),
+    addressLine1: z.string().trim().max(180, copy.addressLong),
+    locationSource: z.enum(["address", "geolocation"]),
+    latitude: z.number().nullable(),
+    longitude: z.number().nullable(),
     city: z.string().trim().min(2, copy.cityRequired).max(120, copy.cityLong),
     postalCode: z.string().trim().min(3, copy.postalRequired).max(16, copy.postalLong).regex(/^[0-9\s-]+$/, copy.postalFormat),
     description: z.string().trim().min(20, copy.descriptionShort).max(2_000, copy.descriptionLong),
@@ -54,6 +73,25 @@ export function createQuoteRequestSchema(locale: PublicLocale = "sv") {
     if (availableServiceTypes && !(availableServiceTypes as readonly string[]).includes(input.serviceType)) {
       context.addIssue({ code: z.ZodIssueCode.custom, path: ["serviceType"], message: copy.serviceCategory });
     }
+
+    if (input.locationSource === "address") {
+      if (input.latitude !== null || input.longitude !== null) {
+        context.addIssue({ code: z.ZodIssueCode.custom, path: ["addressLine1"], message: copy.locationInvalid });
+      }
+      if (!input.addressLine1) {
+        context.addIssue({ code: z.ZodIssueCode.custom, path: ["addressLine1"], message: copy.locationRequired });
+      } else if (input.addressLine1.length < 3) {
+        context.addIssue({ code: z.ZodIssueCode.custom, path: ["addressLine1"], message: copy.addressShort });
+      }
+      return;
+    }
+
+    if (input.addressLine1) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["addressLine1"], message: copy.locationInvalid });
+    }
+    if (!hasValidCoordinates(input.latitude, input.longitude)) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ["addressLine1"], message: copy.locationInvalid });
+    }
   });
 }
 
@@ -64,7 +102,8 @@ export type QuoteRequestErrors = Partial<Record<QuoteRequestField | "form", stri
 export type QuoteRequestPrefill = Partial<Pick<QuoteRequestInput, "category" | "serviceType" | "city">>;
 
 export const initialQuoteRequest: QuoteRequestInput = {
-  category: "", serviceType: "", city: "", postalCode: "", description: "", preferredDate: "",
+  category: "", serviceType: "", addressLine1: "", locationSource: "address", latitude: null, longitude: null,
+  city: "", postalCode: "", description: "", preferredDate: "",
   contactName: "", contactEmail: "", contactPhone: "", consentAccepted: false,
 };
 

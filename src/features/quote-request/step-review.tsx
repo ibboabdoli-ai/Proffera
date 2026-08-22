@@ -5,7 +5,8 @@ import type { QuoteFormStepProps } from "./step-props";
 
 export function QuoteReviewStep({ locale, data, smartAnswers }: QuoteFormStepProps & { smartAnswers: SmartQuoteAnswers }) {
   const t = quoteFormCopy[locale];
-  const rows = [[t.category, quoteCategoryLabel(data.category, locale)], [t.service, quoteServiceTypeLabel(data.serviceType, locale)], [t.city, data.city], [t.postal, data.postalCode], [t.date, quotePreferredDateLabel(data.preferredDate, locale)], [t.name, data.contactName], [t.email, data.contactEmail], [t.phone, data.contactPhone]];
+  const locationValue = data.locationSource === "geolocation" ? t.nearMeSaved : data.addressLine1;
+  const rows = [[t.category, quoteCategoryLabel(data.category, locale)], [t.service, quoteServiceTypeLabel(data.serviceType, locale)], [t.locationMethod, locationValue], [t.city, data.city], [t.postal, data.postalCode], [t.date, quotePreferredDateLabel(data.preferredDate, locale)], [t.name, data.contactName], [t.email, data.contactEmail], [t.phone, data.contactPhone]];
   const smartRows = getSmartQuoteAnswerSummary(data.category, data.serviceType, locale, smartAnswers);
 
   return <div className="space-y-4">
