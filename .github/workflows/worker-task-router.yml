@@ -1,0 +1,143 @@
+name: Worker task router
+
+on:
+  issues:
+    types: [opened, edited, labeled]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "Issue number to route"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: proffera-task-router-${{ github.event.issue.number || inputs.issue_number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  route-task:
+    name: Suggest minimal worker lanes
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.event.issue.title, '[worker]') ||
+      contains(github.event.issue.body, 'Worker routing: requested')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Route issue from dependency hints
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          EVENT_ISSUE_NUMBER: ${{ github.event.issue.number }}
+          INPUT_ISSUE_NUMBER: ${{ inputs.issue_number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          issue_number="${EVENT_ISSUE_NUMBER:-${INPUT_ISSUE_NUMBER:-}}"
+          if [ -z "$issue_number" ]; then
+            echo "Refused: no issue number available." >&2
+            exit 1
+          fi
+
+          issue_json="$(gh api "repos/${REPOSITORY}/issues/${issue_number}")"
+          if jq -e '.pull_request != null' <<< "$issue_json" >/dev/null; then
+            echo "Pull requests are not task-router inputs."
+            exit 0
+          fi
+
+          title="$(jq -r '.title // ""' <<< "$issue_json")"
+          body="$(jq -r '.body // ""' <<< "$issue_json")"
+          text="$(printf '%s\n%s\n' "$title" "$body" | tr '[:upper:]' '[:lower:]')"
+
+          lanes=()
+          reasons=()
+
+          if grep -Eiq '(database|postgres|postgresql|\bsql\b|migration|neon|schema|table|index|constraint|row[- ]level|rls)' <<< "$text"; then
+            lanes+=("database")
+            reasons+=("database/schema/data-integrity terms detected")
+          fi
+
+          if grep -Eiq '(security|auth|authentication|authorization|rbac|privacy|tenant|workspace isolation|secret|stripe|payment|webhook|idor|token|credential)' <<< "$text"; then
+            lanes+=("security")
+            reasons+=("security/privacy/authorization terms detected")
+          fi
+
+          if grep -Eiq '(test|vitest|playwright|\be2e\b|regression|\bqa\b|smoke|runtime verification)' <<< "$text"; then
+            lanes+=("qa")
+            reasons+=("test/verification terms detected")
+          fi
+
+          if grep -Eiq '(frontend|backend|\bapi\b|route|component|page|next\.js|nextjs|ui|ux|booking|quote|marketplace|directory|servicejob|worker|cron|email|application)' <<< "$text"; then
+            lanes+=("application")
+            reasons+=("application/UI/API terms detected")
+          fi
+
+          if [ "${#lanes[@]}" -eq 0 ]; then
+            lanes=("application")
+            reasons=("default minimal implementation lane")
+          fi
+
+          mapfile -t lanes < <(printf '%s\n' "${lanes[@]}" | awk '!seen[$0]++')
+
+          if [ "${#lanes[@]}" -gt 1 ]; then
+            lanes+=("integration")
+            reasons+=("multiple graph lanes require a coordinated integration gate")
+          fi
+
+          gh label create "lane:application" --repo "$REPOSITORY" --color "0E8A16" --description "Application/UI/API worker lane" --force >/dev/null
+          gh label create "lane:database" --repo "$REPOSITORY" --color "5319E7" --description "Database/Neon/PostgreSQL worker lane" --force >/dev/null
+          gh label create "lane:qa" --repo "$REPOSITORY" --color "FBCA04" --description "QA/Vitest/Playwright verification lane" --force >/dev/null
+          gh label create "lane:security" --repo "$REPOSITORY" --color "B60205" --description "Security/privacy/auth review lane" --force >/dev/null
+          gh label create "lane:integration" --repo "$REPOSITORY" --color "1D76DB" --description "Cross-lane integration gate" --force >/dev/null
+
+          existing_lane_labels="$(jq -r '.labels[].name | select(startswith("lane:"))' <<< "$issue_json")"
+          while IFS= read -r label; do
+            [ -z "$label" ] && continue
+            gh issue edit "$issue_number" --repo "$REPOSITORY" --remove-label "$label" >/dev/null
+          done <<< "$existing_lane_labels"
+
+          labels_csv="$(printf 'lane:%s\n' "${lanes[@]}" | paste -sd, -)"
+          gh issue edit "$issue_number" --repo "$REPOSITORY" --add-label "$labels_csv" >/dev/null
+
+          lane_lines=""
+          for lane in "${lanes[@]}"; do
+            lane_lines+="- \`lane:${lane}\`"$'\n'
+          done
+
+          reason_lines=""
+          for reason in "${reasons[@]}"; do
+            reason_lines+="- ${reason}"$'\n'
+          done
+
+          marker='<!-- proffera-worker-task-router -->'
+          comment_body="$(cat <<EOF
+          ${marker}
+          ## Worker routing suggestion
+
+          **Minimal lanes:**
+          ${lane_lines}
+          **Why:**
+          ${reason_lines}
+          This is a deterministic routing hint, not permission to create duplicate workers. The Supervisor must still re-read current \`main\`, verify #548/#276, and assign at most one coding worker per graph path. Production mutation is not authorized by routing.
+          EOF
+          )"
+
+          comments_json="$(gh api --paginate "repos/${REPOSITORY}/issues/${issue_number}/comments?per_page=100" --jq '.[]' | jq -s '.')"
+          comment_id="$(
+            jq -r --arg marker "$marker" \
+              '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | last | .id // empty' \
+              <<< "$comments_json"
+          )"
+
+          if [ -n "$comment_id" ]; then
+            gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${comment_id}" -f body="$comment_body" >/dev/null
+          else
+            gh api --method POST "repos/${REPOSITORY}/issues/${issue_number}/comments" -f body="$comment_body" >/dev/null
+          fi
+
+          echo "Routed issue #${issue_number} to ${labels_csv}."
