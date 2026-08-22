@@ -21,7 +21,7 @@ function buildReferenceId() {
 }
 
 function validVerifiedReference(value: unknown) {
-  return typeof value === "string" && UUID_PATTERN.test(value.trim());
+  return typeof value === "string" && value === value.trim() && UUID_PATTERN.test(value);
 }
 
 export async function storeQuoteRequest(
