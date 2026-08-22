@@ -100,7 +100,7 @@ export async function getMarketplaceAutoQueuePage(input: {
 
     return {
       ok: true,
-      rows: (rows as Record<string, unknown>[]).map((row) => ({
+      rows: (rows as Record<string, unknown>[]).map((row): MarketplaceAutoQueueRow => ({
         quoteRequestId: text(row.quote_request_id),
         createdAt: text(row.created_at),
         submittedOfferCount: Math.max(0, Number(row.submitted_offer_count ?? 0) || 0),

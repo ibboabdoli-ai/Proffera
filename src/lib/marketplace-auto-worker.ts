@@ -5,6 +5,7 @@ import { getDirectoryGuestLeadMatch } from "@/features/matching/directory-guest-
 import {
   getMarketplaceAutoQueuePage,
   MARKETPLACE_AUTO_QUEUE_PAGE_SIZE,
+  type MarketplaceAutoQueueRow,
 } from "@/features/matching/marketplace-auto-queue";
 import {
   expirePastMarketplaceInvitation,
@@ -347,7 +348,7 @@ export async function processMarketplaceAutoWorker(input: {
     }
 
     if (result.deadlineReached || result.attempted >= batchSize) break;
-    const lastRow = queuePage.rows[queuePage.rows.length - 1];
+    const lastRow: MarketplaceAutoQueueRow | undefined = queuePage.rows[queuePage.rows.length - 1];
     if (!lastRow || queuePage.rows.length < MARKETPLACE_AUTO_QUEUE_PAGE_SIZE) break;
     afterPriorityRank = lastRow.priorityRank;
     afterCreatedAt = lastRow.createdAt;
