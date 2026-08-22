@@ -11,6 +11,10 @@ export type MarketplaceAutoQueueRow = {
   priorityRank: 0 | 1;
 };
 
+export type MarketplaceAutoQueuePageResult =
+  | { ok: true; rows: MarketplaceAutoQueueRow[] }
+  | { ok: false; message: string; rows: MarketplaceAutoQueueRow[] };
+
 function text(value: unknown) {
   return value === null || value === undefined ? "" : String(value).trim();
 }
@@ -33,13 +37,13 @@ export async function getMarketplaceAutoQueuePage(input: {
   afterCreatedAt?: string | null;
   afterId?: string | null;
   limit?: number;
-} = {}) {
+} = {}): Promise<MarketplaceAutoQueuePageResult> {
   const sql = getSql();
   if (!sql) {
     return {
-      ok: false as const,
+      ok: false,
       message: "Databasen är inte konfigurerad.",
-      rows: [] as MarketplaceAutoQueueRow[],
+      rows: [],
     };
   }
 
@@ -95,20 +99,20 @@ export async function getMarketplaceAutoQueuePage(input: {
     `;
 
     return {
-      ok: true as const,
+      ok: true,
       rows: (rows as Record<string, unknown>[]).map((row) => ({
         quoteRequestId: text(row.quote_request_id),
         createdAt: text(row.created_at),
         submittedOfferCount: Math.max(0, Number(row.submitted_offer_count ?? 0) || 0),
-        priorityRank: Number(row.priority_rank) === 0 ? 0 as const : 1 as const,
+        priorityRank: Number(row.priority_rank) === 0 ? 0 : 1,
       })).filter((row) => Boolean(row.quoteRequestId && row.createdAt)),
     };
   } catch (error) {
     console.error("Failed to load Marketplace Auto Worker queue", { error });
     return {
-      ok: false as const,
+      ok: false,
       message: "Kunde inte läsa Marketplace-kön.",
-      rows: [] as MarketplaceAutoQueueRow[],
+      rows: [],
     };
   }
 }
