@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 
 import { getMarketplaceServiceJobForGuestToken } from "@/lib/marketplace-service-jobs";
@@ -6,7 +7,7 @@ export default async function MarketplaceGuestQuoteLayout({
   children,
   params,
 }: Readonly<{
-  children: React.ReactNode;
+  children: ReactNode;
   params: Promise<{ token: string }>;
 }>) {
   const { token } = await params;
