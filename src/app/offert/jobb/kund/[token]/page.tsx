@@ -67,6 +67,18 @@ const copy = {
   },
 } as const;
 
+function actionMessage(value: string | undefined, locale: Locale) {
+  const sv = locale === "sv";
+  if (value === "customer_cancelled") return sv ? "Jobbet har avbrutits." : "The job has been cancelled.";
+  if (value === "requested") return sv ? "En ny matchning har beställts." : "A new matching round has been requested.";
+  if (value === "already_requested") return sv ? "En ny matchning är redan beställd." : "A new matching round has already been requested.";
+  if (value === "rate_limited") return sv ? "För många försök. Vänta en stund och försök igen." : "Too many attempts. Wait a while and try again.";
+  if (value === "not_eligible") return sv ? "Jobbet kan inte matchas om i sin nuvarande status." : "This job cannot be rematched in its current status.";
+  if (value === "invalid" || value === "unavailable") return sv ? "Den säkra jobblänken kan inte användas för åtgärden." : "The secure job link cannot be used for this action.";
+  if (value === "database" || value === "transition") return sv ? "Åtgärden kunde inte sparas just nu. Försök igen." : "The action could not be saved right now. Try again.";
+  return "";
+}
+
 function money(amountMinor: number, currency: string, locale: Locale) {
   return new Intl.NumberFormat(locale === "en" ? "en-GB" : "sv-SE", {
     style: "currency",
@@ -97,7 +109,14 @@ export default async function MarketplaceCustomerJobPage({
   }
 
   const alternative = locale === "en" ? "sv" : "en";
-  const languageHref = `/offert/jobb/kund/${encodeURIComponent(token)}${alternative === "en" ? "?lang=en" : ""}`;
+  const rawActionStatus = query?.status;
+  const actionStatus = Array.isArray(rawActionStatus) ? rawActionStatus[0] : rawActionStatus;
+  const languageParams = new URLSearchParams();
+  if (alternative === "en") languageParams.set("lang", "en");
+  if (actionStatus) languageParams.set("status", actionStatus);
+  const languageQuery = languageParams.toString();
+  const languageHref = `/offert/jobb/kund/${encodeURIComponent(token)}${languageQuery ? `?${languageQuery}` : ""}`;
+  const feedback = actionMessage(actionStatus, locale);
   const cancellable = job.status === "accepted" || job.status === "in_progress" || job.status === "problem";
   const rematchEligible = ["customer_cancelled", "provider_cancelled", "no_show", "problem"].includes(job.status);
   const action = `/api/marketplace/customer-service-job/${encodeURIComponent(token)}`;
@@ -120,6 +139,8 @@ export default async function MarketplaceCustomerJobPage({
         </header>
 
         <div className="grid gap-6 p-6 sm:p-10">
+          {feedback ? <p role="status" className="rounded-xl border border-[#a9cdb2] bg-[#edf8ef] px-4 py-3 text-sm font-semibold text-[#17452f]">{feedback}</p> : null}
+
           <section className="rounded-2xl border border-[#a9cdb2] bg-[#edf8ef] p-5">
             <p className="text-xs font-bold uppercase tracking-wide text-[#4c745a]">{text.provider}</p>
             <h2 className="mt-1 text-xl font-bold text-[#17452f]">{selected.companyName}</h2>
