@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { hashMarketplaceCustomerComparisonToken } from "@/lib/marketplace-customer-comparison";
+import { requestMarketplaceRematchByCustomerToken } from "@/lib/marketplace-rematch";
 import { cancelMarketplaceServiceJobByCustomerToken } from "@/lib/marketplace-service-jobs";
 import { allowPublicSubmission } from "@/lib/public-form-protection";
 
@@ -32,9 +33,10 @@ export async function POST(request: Request, context: RouteContext) {
 
   const form = await request.formData();
   const locale = String(form.get("lang") ?? "") === "en" ? "en" as const : "sv" as const;
+  const intent = String(form.get("intent") ?? "cancel") === "rematch" ? "rematch" as const : "cancel" as const;
 
   const allowed = await allowPublicSubmission({
-    scope: "marketplace-service-job-customer",
+    scope: intent === "rematch" ? "marketplace-service-job-rematch" : "marketplace-service-job-customer",
     requestHeaders: request.headers,
     identity: hashMarketplaceCustomerComparisonToken(token),
     maxAttempts: 5,
@@ -42,10 +44,14 @@ export async function POST(request: Request, context: RouteContext) {
   });
   if (!allowed) return redirectToJob(request, token, locale, "rate_limited");
 
-  const result = await cancelMarketplaceServiceJobByCustomerToken(
-    token,
-    String(form.get("reason") ?? ""),
-  );
+  const reason = String(form.get("reason") ?? "");
+  if (intent === "rematch") {
+    const result = await requestMarketplaceRematchByCustomerToken({ token, reason });
+    if (!result.ok) return redirectToJob(request, token, locale, result.code);
+    return redirectToJob(request, token, locale, result.code);
+  }
+
+  const result = await cancelMarketplaceServiceJobByCustomerToken(token, reason);
   if (!result.ok) return redirectToJob(request, token, locale, result.code);
   return redirectToJob(request, token, locale, "customer_cancelled");
 }
