@@ -95,7 +95,7 @@ export function customerVisibleMarketplaceOfferNote(value: unknown, contactUnloc
 function comparisonBaseUrl(raw: string) {
   try {
     const url = new URL(raw);
-    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    if (url.protocol !== "https:") return null;
     return url.origin;
   } catch {
     return null;
