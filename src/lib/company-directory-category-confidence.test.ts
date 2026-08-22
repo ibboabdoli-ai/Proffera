@@ -102,6 +102,41 @@ describe("assessCompanyDirectoryCategoryConfidence", () => {
     expect(result.competingCategories).toEqual(["elektriker"]);
   });
 
+  it("caps confidence when the profile company name no longer matches Official Facts", () => {
+    const result = assessCompanyDirectoryCategoryConfidence(base({
+      legalName: "Gamla VVS Namnet AB",
+      displayName: "Gamla VVS Namnet AB",
+      activityDescription: "VVS, rörinstallation och värmeservice.",
+      registeredNames: [{
+        name: "Nya Rör & Värme AB",
+        specialBusinessDescription: "",
+      }],
+    }));
+
+    expect(result.score).toBe(90);
+    expect(result.level).toBe("review");
+    expect(result.warnings).toContain("Profilens företagsnamn matchar inte Official Facts");
+  });
+
+  it("treats AB and Aktiebolag as the same official company-name suffix", () => {
+    const result = assessCompanyDirectoryCategoryConfidence(base({
+      categorySlug: "maleri",
+      primarySniCode: "43.341",
+      legalName: "Thomas Lundins Måleri & Fastighetsservice Aktiebolag",
+      displayName: "Thomas Lundins Måleri & Fastighetsservice Aktiebolag",
+      activityDescription: "Måleri, målning och fastighetsservice.",
+      registeredNames: [{
+        name: "THOMAS LUNDINS MÅLERI & FASTIGHETSSERVICE AB",
+        specialBusinessDescription: "",
+      }],
+      sniCodes: [{ code: "43341", label: "Måleriarbeten" }],
+    }));
+
+    expect(result.level).toBe("high");
+    expect(result.warnings).not.toContain("Profilens företagsnamn matchar inte Official Facts");
+    expect(result.signals).toContain("Företagsnamnet matchar Official Facts");
+  });
+
   it("caps confidence while Official Facts has not been enriched", () => {
     const result = assessCompanyDirectoryCategoryConfidence(base({
       legalName: "Rör & Värme AB",

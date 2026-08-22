@@ -132,14 +132,15 @@ describe("company directory policy", () => {
     expect(assessment.publicationStatus).toBe("review");
   });
 
-  it("uses the HVD active signal when individual tax fields are unavailable", () => {
+  it("does not count unavailable tax details as verified quality", () => {
     const assessment = assessDirectoryCandidate(candidate({
       fTaxStatus: "",
       vatStatus: "",
       employerStatus: "",
     }));
+    expect(assessment.reasons).toContain("tax_status_unavailable_from_source");
     expect(assessment.reasons).not.toContain("tax_status_not_confirmed");
-    expect(assessment.score).toBe(100);
+    expect(assessment.score).toBe(95);
     expect(assessment.autoPublicEligible).toBe(true);
     expect(assessment.publicationStatus).toBe("ready");
   });

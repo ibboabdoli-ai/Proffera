@@ -206,7 +206,8 @@ export function assessDirectoryCandidate(candidate: NormalizedDirectoryCandidate
   const taxSignals = [candidate.fTaxStatus, candidate.vatStatus, candidate.employerStatus];
   const hasTaxRegistrationDetail = taxSignals.some((value) => String(value ?? "").trim().length > 0);
   const hasPositiveTaxRegistration = taxSignals.some(isPositiveRegistrationSignal);
-  if (hasPositiveTaxRegistration || (!hasTaxRegistrationDetail && candidate.isActive)) score += 5;
+  if (hasPositiveTaxRegistration) score += 5;
+  else if (!hasTaxRegistrationDetail) reasons.push("tax_status_unavailable_from_source");
   else reasons.push("tax_status_not_confirmed");
 
   const privacyBlocked = candidate.organizationKind !== "juridical_person";

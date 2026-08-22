@@ -1,3 +1,4 @@
+import { swedishCompanyNamesEquivalent } from "@/lib/company-directory-company-name";
 import { mapSniToDirectoryCategory, normalizeSniCode } from "@/lib/company-directory-policy";
 
 export type CompanyDirectoryCategoryConfidenceLevel = "high" | "review" | "low";
@@ -189,7 +190,7 @@ export function assessCompanyDirectoryCategoryConfidence(
     signals.push("Verksamhetsbeskrivningen stödjer kategorin");
   }
 
-  const registeredNameValues = registeredNames.map((item) => item.name);
+  const registeredNameValues = registeredNames.map((item) => item.name).filter(Boolean);
   const nameSupportsCategory = hasCategoryKeyword(input.categorySlug, [
     input.legalName,
     input.displayName,
@@ -205,6 +206,20 @@ export function assessCompanyDirectoryCategoryConfidence(
   if (specialDescriptionSupportsCategory) {
     score += 5;
     signals.push("Registrerad särskild verksamhetsbeskrivning stödjer kategorin");
+  }
+
+  const hasOfficialRegisteredName = registeredNameValues.length > 0;
+  const profileNameMatchesOfficialFacts = !hasOfficialRegisteredName
+    || [input.legalName, input.displayName]
+      .filter(Boolean)
+      .some((profileName) => registeredNameValues.some(
+        (officialName) => swedishCompanyNamesEquivalent(profileName, officialName),
+      ));
+  if (hasOfficialRegisteredName && profileNameMatchesOfficialFacts) {
+    signals.push("Företagsnamnet matchar Official Facts");
+  } else if (hasOfficialRegisteredName) {
+    score = Math.min(score, 90);
+    warnings.push("Profilens företagsnamn matchar inte Official Facts");
   }
 
   const competingCategories = [...officialCategories].filter((category) => category !== input.categorySlug).sort();
