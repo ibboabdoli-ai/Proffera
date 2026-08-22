@@ -80,20 +80,30 @@ export async function getDirectoryGuestLeadMatch(quoteRequestId: string) {
   try {
     const leadRows = await sql`
       select
-        id::text,
-        reference_id,
-        category,
-        service_type,
-        city,
-        postal_code,
-        description,
-        status,
-        customer_latitude::float8,
-        customer_longitude::float8,
-        created_at::text
-      from quote_requests
-      where id = ${quoteRequestId}::uuid
-        and status in ('submitted', 'pending_review', 'approved', 'matched', 'answered')
+        request.id::text,
+        request.reference_id,
+        request.category,
+        request.service_type,
+        request.city,
+        request.postal_code,
+        request.description,
+        request.status,
+        case
+          when nullif(to_jsonb(request)->>'customer_verified_latitude', '') is not null
+            and nullif(to_jsonb(request)->>'customer_verified_longitude', '') is not null
+          then nullif(to_jsonb(request)->>'customer_verified_latitude', '')::float8
+          else request.customer_latitude::float8
+        end as customer_latitude,
+        case
+          when nullif(to_jsonb(request)->>'customer_verified_latitude', '') is not null
+            and nullif(to_jsonb(request)->>'customer_verified_longitude', '') is not null
+          then nullif(to_jsonb(request)->>'customer_verified_longitude', '')::float8
+          else request.customer_longitude::float8
+        end as customer_longitude,
+        request.created_at::text
+      from quote_requests request
+      where request.id = ${quoteRequestId}::uuid
+        and request.status in ('submitted', 'pending_review', 'approved', 'matched', 'answered')
       limit 1
     `;
 
