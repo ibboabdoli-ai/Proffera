@@ -113,6 +113,10 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
     serviceSlug: primaryServiceSlug,
   });
   const radiusFormatter = new Intl.NumberFormat(locale === "en" ? "en-SE" : "sv-SE", { maximumFractionDigits: 1 });
+  const ratingFormatter = new Intl.NumberFormat(locale === "en" ? "en-SE" : "sv-SE", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  });
   const directAddress = business.contact.addressLine1
     ? [business.contact.addressLine1, business.postalCode, business.city].filter(Boolean).join(", ")
     : "";
@@ -232,7 +236,7 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
                 <dl className="mt-5 grid gap-3 sm:grid-cols-3">
                   <div className="rounded-card border border-brand/10 bg-white p-4">
                     <dt className="text-xs font-black uppercase tracking-wide text-muted">{locale === "en" ? "Rating" : "Betyg"}</dt>
-                    <dd className="mt-1 text-2xl font-black text-brand-deep">{reputation.verifiedReviews > 0 && reputation.rating > 0 ? `${reputation.rating.toFixed(1)} / 5` : "—"}</dd>
+                    <dd className="mt-1 text-2xl font-black text-brand-deep">{reputation.verifiedReviews > 0 && reputation.rating > 0 ? `${ratingFormatter.format(reputation.rating)} / 5` : "—"}</dd>
                   </div>
                   <div className="rounded-card border border-brand/10 bg-white p-4">
                     <dt className="text-xs font-black uppercase tracking-wide text-muted">{locale === "en" ? "Verified reviews" : "Verifierade omdömen"}</dt>
