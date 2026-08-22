@@ -1,4 +1,6 @@
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { Client } from "pg";
@@ -25,6 +27,13 @@ import {
 const RUN_POSTGRES_INTEGRATION =
   process.env.GITHUB_ACTIONS === "true"
   || process.env.PROFFERA_POSTGRES_INTEGRATION === "1";
+
+const RUNTIME_MIGRATION_PATHS = [
+  "db/migrations/20260809_0037_company_profile_engine_foundation.sql",
+  "db/migrations/20260809_0038_company_profile_engine_provenance.sql",
+  "db/migrations/20260812_0044_company_directory_official_facts.sql",
+  "db/migrations/20260819_0048_company_directory_scb_enrichment.sql",
+] as const;
 
 function scb(overrides: Partial<ScbCompanyRegistryEnrichment> = {}): ScbCompanyRegistryEnrichment {
   return {
@@ -239,58 +248,14 @@ describe("SCB company directory enrichment guards", () => {
       client = new Client({ connectionString });
       await client.connect();
 
-      await client.query(`
-        create extension if not exists pgcrypto;
-
-        create table company_directory_profiles (
-          id uuid primary key,
-          country_code text not null default 'SE',
-          organization_number text not null,
-          organization_kind text not null default 'juridical_person',
-          legal_name text not null,
-          municipality text not null default '',
-          updated_at timestamptz not null default now()
-        );
-
-        create table company_directory_official_facts (
-          profile_id uuid primary key references company_directory_profiles(id) on delete cascade,
-          sni_codes jsonb not null default '[]'::jsonb,
-          last_synced_at timestamptz not null default now()
-        );
-
-        create table company_directory_scb_enrichment (
-          profile_id uuid primary key references company_directory_profiles(id) on delete cascade,
-          organization_number text not null,
-          observed_company_name text not null default '',
-          phone text not null default '',
-          email text not null default '',
-          postal_address jsonb not null default '{}'::jsonb,
-          municipality text not null default '',
-          sni_codes jsonb not null default '[]'::jsonb,
-          workplaces jsonb not null default '[]'::jsonb,
-          provenance jsonb not null default '{}'::jsonb,
-          conflicts jsonb not null default '[]'::jsonb,
-          source_payload_hash text not null default '',
-          last_synced_at timestamptz not null default now(),
-          updated_at timestamptz not null default now()
-        );
-
-        create table company_directory_field_sources (
-          id uuid primary key default gen_random_uuid(),
-          profile_id uuid not null references company_directory_profiles(id) on delete cascade,
-          field_name text not null,
-          source_name text not null,
-          source_record_id text not null default '',
-          source_url text not null default '',
-          value_hash text not null default '',
-          confidence smallint not null default 100,
-          observed_at timestamptz not null default now(),
-          created_at timestamptz not null default now()
-        );
-
-        create unique index company_directory_field_sources_value_unique_idx
-          on company_directory_field_sources (profile_id, field_name, source_name, value_hash);
-      `);
+      // Migration 0037 references workspaces. The workspace table is an external
+      // prerequisite; all Company Directory tables/constraints below come from
+      // the committed migrations used in Production.
+      await client.query("create table workspaces (id uuid primary key)");
+      for (const migrationPath of RUNTIME_MIGRATION_PATHS) {
+        const migration = readFileSync(join(process.cwd(), migrationPath), "utf8");
+        await client.query(migration);
+      }
     }, 120_000);
 
     afterAll(async () => {
@@ -304,9 +269,10 @@ describe("SCB company directory enrichment guards", () => {
       }
     }, 30_000);
 
-    it("projects only a blank municipality with provenance while preserving profile timestamps", async () => {
+    it("projects only a verified SCB municipality with provenance while preserving profile timestamps", async () => {
       const blankProfile = "11111111-1111-4111-8111-111111111111";
       const existingProfile = "22222222-2222-4222-8222-222222222222";
+      const blankScbProfile = "33333333-3333-4333-8333-333333333333";
       const profileUpdatedAt = "2026-08-21T20:00:00.000Z";
       const factsSyncedAt = "2026-08-21T19:59:00.000Z";
 
@@ -317,17 +283,29 @@ describe("SCB company directory enrichment guards", () => {
 
       await client!.query(`
         insert into company_directory_profiles (
-          id, organization_number, organization_kind, legal_name, municipality, updated_at
+          id, organization_number, organization_kind, legal_name, display_name,
+          public_slug, municipality, updated_at
         ) values
-          ($1, '5563115707', 'juridical_person', 'Blank Municipality AB', '', $3),
-          ($2, '5563115708', 'juridical_person', 'Existing Municipality AB', 'Stockholm', $3)
-      `, [blankProfile, existingProfile, profileUpdatedAt]);
+          (
+            $1, '5563115707', 'juridical_person', 'Blank Municipality AB', 'Blank Municipality AB',
+            'blank-municipality-ab', '', $4
+          ),
+          (
+            $2, '5563115708', 'juridical_person', 'Existing Municipality AB', 'Existing Municipality AB',
+            'existing-municipality-ab', 'Stockholm', $4
+          ),
+          (
+            $3, '5563115709', 'juridical_person', 'No SCB Municipality AB', 'No SCB Municipality AB',
+            'no-scb-municipality-ab', '', $4
+          )
+      `, [blankProfile, existingProfile, blankScbProfile, profileUpdatedAt]);
 
       await client!.query(`
         insert into company_directory_official_facts (profile_id, sni_codes, last_synced_at) values
-          ($1, '[{"code":"43.210"}]'::jsonb, $3),
-          ($2, '[{"code":"43.210"}]'::jsonb, $3)
-      `, [blankProfile, existingProfile, factsSyncedAt]);
+          ($1, '[{"code":"43.210"}]'::jsonb, $4),
+          ($2, '[{"code":"43.210"}]'::jsonb, $4),
+          ($3, '[{"code":"43.210"}]'::jsonb, $4)
+      `, [blankProfile, existingProfile, blankScbProfile, factsSyncedAt]);
 
       const before = await client!.query<{ id: string; updated_at: string }>(`
         select id::text, updated_at::text
@@ -349,12 +327,22 @@ describe("SCB company directory enrichment guards", () => {
             }),
           };
         }
+        if (organizationNumber === "5563115708") {
+          return {
+            status: "ok",
+            data: scb({
+              organizationNumber,
+              legalName: "Existing Municipality AB",
+              municipality: "Södertälje",
+            }),
+          };
+        }
         return {
           status: "ok",
           data: scb({
             organizationNumber,
-            legalName: "Existing Municipality AB",
-            municipality: "Södertälje",
+            legalName: "No SCB Municipality AB",
+            municipality: null,
           }),
         };
       });
@@ -365,6 +353,11 @@ describe("SCB company directory enrichment guards", () => {
         conflicts: [],
       });
       await expect(enrichCompanyDirectoryScbForProfile(existingProfile)).resolves.toEqual({
+        status: "saved",
+        saved: true,
+        conflicts: [],
+      });
+      await expect(enrichCompanyDirectoryScbForProfile(blankScbProfile)).resolves.toEqual({
         status: "saved",
         saved: true,
         conflicts: [],
@@ -389,6 +382,11 @@ describe("SCB company directory enrichment guards", () => {
         municipality: "Stockholm",
         updated_at: before.rows[1]?.updated_at,
       });
+      expect(profiles.rows[2]).toMatchObject({
+        id: blankScbProfile,
+        municipality: "",
+        updated_at: before.rows[2]?.updated_at,
+      });
 
       const provenance = await client!.query<{
         profile_id: string;
@@ -410,7 +408,7 @@ describe("SCB company directory enrichment guards", () => {
       const enrichmentCount = await client!.query<{ count: number }>(`
         select count(*)::int as count from company_directory_scb_enrichment
       `);
-      expect(enrichmentCount.rows[0]?.count).toBe(2);
+      expect(enrichmentCount.rows[0]?.count).toBe(3);
     }, 30_000);
   },
 );
