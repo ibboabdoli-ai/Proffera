@@ -234,6 +234,9 @@ export async function transitionMarketplaceServiceJobByGuestToken(input: {
   } catch (error) {
     if (databaseCompatibilityError(error)) return { ok: false as const, code: "unavailable" as const };
     const message = error instanceof Error ? error.message : String(error ?? "");
+    if (message.includes("marketplace_service_job_rematch_already_requested")) {
+      return { ok: false as const, code: "rematch_requested" as const };
+    }
     if (message.includes("marketplace_service_job_invalid_transition")) {
       return { ok: false as const, code: "transition" as const };
     }
@@ -289,6 +292,10 @@ export async function cancelMarketplaceServiceJobByCustomerToken(token: string, 
     return { ok: true as const, job: view(row) };
   } catch (error) {
     if (databaseCompatibilityError(error)) return { ok: false as const, code: "unavailable" as const };
+    const message = error instanceof Error ? error.message : String(error ?? "");
+    if (message.includes("marketplace_service_job_rematch_already_requested")) {
+      return { ok: false as const, code: "rematch_requested" as const };
+    }
     console.error("Failed to cancel Marketplace ServiceJob", error);
     return { ok: false as const, code: "database" as const };
   }
