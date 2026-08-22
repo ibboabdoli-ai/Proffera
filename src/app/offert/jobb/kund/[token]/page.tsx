@@ -6,16 +6,25 @@ import { getMarketplaceRematchForCustomerToken } from "@/lib/marketplace-rematch
 import { getMarketplaceServiceJobForCustomerToken } from "@/lib/marketplace-service-jobs";
 
 export const dynamic = "force-dynamic";
-export const metadata: Metadata = {
-  title: "Ditt Marketplace-jobb | Proffera",
-  robots: { index: false, follow: false },
-};
 
 type Locale = "sv" | "en";
 type ActionFeedback = { text: string; severity: "success" | "error" } | null;
 
 function localeFrom(value: string | string[] | undefined): Locale {
   return Array.isArray(value) ? (value[0] === "en" ? "en" : "sv") : value === "en" ? "en" : "sv";
+}
+
+export async function generateMetadata({
+  searchParams,
+}: {
+  searchParams?: Promise<{ lang?: string | string[] }>;
+}): Promise<Metadata> {
+  const query = await (searchParams ?? Promise.resolve(undefined));
+  const locale = localeFrom(query?.lang);
+  return {
+    title: locale === "en" ? "Your Marketplace job | Proffera" : "Ditt Marketplace-jobb | Proffera",
+    robots: { index: false, follow: false },
+  };
 }
 
 const copy = {
@@ -83,6 +92,30 @@ function actionMessage(value: string | undefined, locale: Locale): ActionFeedbac
   if (value === "invalid" || value === "unavailable") return { text: sv ? "Den säkra jobblänken kan inte användas för åtgärden." : "The secure job link cannot be used for this action.", severity: "error" };
   if (value === "database" || value === "transition") return { text: sv ? "Åtgärden kunde inte sparas just nu. Försök igen." : "The action could not be saved right now. Try again.", severity: "error" };
   return null;
+}
+
+function jobStatusLabel(status: string, locale: Locale) {
+  const labels: Record<Locale, Record<string, string>> = {
+    sv: {
+      accepted: "Accepterat",
+      in_progress: "Pågår",
+      completed: "Slutfört",
+      provider_cancelled: "Avbrutet av företaget",
+      customer_cancelled: "Avbrutet av kunden",
+      no_show: "Företaget uteblev",
+      problem: "Problem rapporterat",
+    },
+    en: {
+      accepted: "Accepted",
+      in_progress: "In progress",
+      completed: "Completed",
+      provider_cancelled: "Cancelled by provider",
+      customer_cancelled: "Cancelled by customer",
+      no_show: "Provider no-show",
+      problem: "Problem reported",
+    },
+  };
+  return labels[locale][status] ?? (locale === "en" ? "Unknown status" : "Okänd status");
 }
 
 function money(amountMinor: number, currency: string, locale: Locale) {
@@ -156,7 +189,7 @@ export default async function MarketplaceCustomerJobPage({
           </section>
 
           <dl className="grid gap-4 rounded-2xl bg-[#f7f9f7] p-5 sm:grid-cols-2">
-            <div><dt className="text-xs font-bold uppercase text-[#6b776d]">{text.status}</dt><dd className="mt-1 font-bold">{job.status}</dd></div>
+            <div><dt className="text-xs font-bold uppercase text-[#6b776d]">{text.status}</dt><dd className="mt-1 font-bold">{jobStatusLabel(job.status, locale)}</dd></div>
             <div><dt className="text-xs font-bold uppercase text-[#6b776d]">{text.service}</dt><dd className="mt-1 font-semibold">{job.serviceName}</dd></div>
             <div><dt className="text-xs font-bold uppercase text-[#6b776d]">{text.date}</dt><dd className="mt-1 font-semibold">{job.scheduledDate || "—"}</dd></div>
             <div><dt className="text-xs font-bold uppercase text-[#6b776d]">{text.price}</dt><dd className="mt-1 font-semibold">{money(job.amountMinor, job.currency, locale)}</dd></div>
