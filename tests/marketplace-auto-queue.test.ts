@@ -62,4 +62,24 @@ describe("Marketplace Auto Worker queue", () => {
     expect(query).toContain("quote_request_id > ?");
     expect(sql.mock.calls[0]).toContain(priorityId);
   });
+
+  it("fails closed when the database is unavailable", async () => {
+    mocks.getSql.mockReturnValue(null);
+
+    await expect(getMarketplaceAutoQueuePage()).resolves.toEqual({
+      ok: false,
+      message: "Databasen är inte konfigurerad.",
+      rows: [],
+    });
+  });
+
+  it("fails closed when the queue query throws", async () => {
+    mocks.getSql.mockReturnValue(vi.fn().mockRejectedValue(new Error("database unavailable")));
+
+    await expect(getMarketplaceAutoQueuePage()).resolves.toEqual({
+      ok: false,
+      message: "Kunde inte läsa Marketplace-kön.",
+      rows: [],
+    });
+  });
 });
