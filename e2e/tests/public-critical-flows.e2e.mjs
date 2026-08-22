@@ -2,15 +2,37 @@ import { expect, test } from "@playwright/test";
 
 const quoteLanguageDraftKey = "proffera:quote-request:language-draft:v1";
 
-async function seedQuoteLanguageDraft(page, data) {
-  await page.evaluate(({ key, data: draftData }) => {
-    window.sessionStorage.setItem(key, JSON.stringify({
-      savedAt: Date.now(),
-      data: draftData,
-      smartAnswers: {},
-      step: 2,
-    }));
-  }, { key: quoteLanguageDraftKey, data });
+async function fillRequiredSmartDetails(page) {
+  const groups = page.locator("fieldset");
+  const count = await groups.count();
+
+  for (let index = 0; index < count; index += 1) {
+    const group = groups.nth(index);
+    const radios = group.getByRole("radio");
+    if (await radios.count()) {
+      await radios.first().check();
+      continue;
+    }
+
+    const input = group.locator("input").first();
+    const type = await input.getAttribute("type");
+    await input.fill(type === "number" ? "1" : "Test details");
+  }
+}
+
+async function advanceQuoteToLocation(page, { path, nextLabel, step2Text, step3Text }) {
+  const response = await page.goto(path);
+  expect(response?.ok()).toBeTruthy();
+
+  await page.locator("#category").selectOption({ index: 1 });
+  await expect(page.locator("#serviceType")).toBeEnabled();
+  await page.locator("#serviceType").selectOption({ index: 1 });
+  await page.getByRole("button", { name: nextLabel }).click();
+
+  await expect(page.getByText(step2Text)).toBeVisible();
+  await fillRequiredSmartDetails(page);
+  await page.getByRole("button", { name: nextLabel }).click();
+  await expect(page.getByText(step3Text)).toBeVisible();
 }
 
 test.describe("public critical-flow smoke", () => {
@@ -41,20 +63,23 @@ test.describe("public critical-flow smoke", () => {
     await expect(page.getByRole("button", { name: "Tillbaka" })).toBeEnabled();
   });
 
-  test("restores private location and current step from Swedish into English", async ({ page }) => {
-    await page.goto("/fa-offert");
-    await seedQuoteLanguageDraft(page, {
-      addressLine1: "Storgatan 12",
-      locationSource: "address",
-      latitude: null,
-      longitude: null,
-      city: "Södertälje",
-      postalCode: "151 46",
+  test("preserves private location and current step when switching Swedish into English", async ({ page }) => {
+    await advanceQuoteToLocation(page, {
+      path: "/fa-offert",
+      nextLabel: "Fortsätt",
+      step2Text: "Steg 2 av 6",
+      step3Text: "Steg 3 av 6",
     });
 
-    const response = await page.goto("/en/get-quote?resume=1");
+    await page.getByLabel("Gatuadress").fill("Storgatan 12");
+    await page.getByLabel("Stad").fill("Södertälje");
+    await page.getByLabel("Postnummer").fill("151 46");
 
-    expect(response?.ok()).toBeTruthy();
+    await Promise.all([
+      page.waitForURL(/\/en\/get-quote\?resume=1$/),
+      page.getByRole("button", { name: "EN English" }).click(),
+    ]);
+
     await expect(page.getByText("Step 3 of 6")).toBeVisible();
     await expect(page.getByLabel("Street address")).toHaveValue("Storgatan 12");
     await expect(page.getByLabel("City")).toHaveValue("Södertälje");
@@ -62,20 +87,23 @@ test.describe("public critical-flow smoke", () => {
     await expect.poll(() => page.evaluate((key) => window.sessionStorage.getItem(key), quoteLanguageDraftKey)).toBeNull();
   });
 
-  test("restores private location and current step from English into Swedish", async ({ page }) => {
-    await page.goto("/en/get-quote");
-    await seedQuoteLanguageDraft(page, {
-      addressLine1: "Järnagatan 8",
-      locationSource: "address",
-      latitude: null,
-      longitude: null,
-      city: "Södertälje",
-      postalCode: "151 73",
+  test("preserves private location and current step when switching English into Swedish", async ({ page }) => {
+    await advanceQuoteToLocation(page, {
+      path: "/en/get-quote",
+      nextLabel: "Continue",
+      step2Text: "Step 2 of 6",
+      step3Text: "Step 3 of 6",
     });
 
-    const response = await page.goto("/fa-offert?resume=1");
+    await page.getByLabel("Street address").fill("Järnagatan 8");
+    await page.getByLabel("City").fill("Södertälje");
+    await page.getByLabel("Postal code").fill("151 73");
 
-    expect(response?.ok()).toBeTruthy();
+    await Promise.all([
+      page.waitForURL(/\/fa-offert\?resume=1$/),
+      page.getByRole("button", { name: "SV Svenska" }).click(),
+    ]);
+
     await expect(page.getByText("Steg 3 av 6")).toBeVisible();
     await expect(page.getByLabel("Gatuadress")).toHaveValue("Järnagatan 8");
     await expect(page.getByLabel("Stad")).toHaveValue("Södertälje");
