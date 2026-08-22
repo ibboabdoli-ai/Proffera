@@ -4,6 +4,9 @@
 --
 -- Rollout: apply and verify this additive migration before releasing any writer that
 -- persists the private customer-location fields, and record the applied migration revision.
+-- The CHECK is added NOT VALID so deployment does not scan historical quote rows; PostgreSQL
+-- still enforces it for new/updated rows. Validate historical rows in a separate controlled
+-- operation only after confirming they satisfy the location contract.
 -- Rollback: revert the writer first. Keep these nullable columns/constraint in place
 -- until no deployed code references them; removing storage is a later deliberate migration.
 
@@ -44,7 +47,7 @@ begin
           and customer_latitude between -90 and 90
           and customer_longitude between -180 and 180
         )
-      ), false));
+      ), false)) not valid;
   end if;
 end
 $$;
