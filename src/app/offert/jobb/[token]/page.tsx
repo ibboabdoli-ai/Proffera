@@ -71,6 +71,21 @@ const copy = {
   },
 } as const;
 
+function actionMessage(value: string | undefined, locale: Locale) {
+  const sv = locale === "sv";
+  if (value === "in_progress") return sv ? "Jobbet har startats." : "The job has been started.";
+  if (value === "completed") return sv ? "Jobbet har markerats som slutfört." : "The job has been marked completed.";
+  if (value === "provider_cancelled") return sv ? "Jobbet har avbrutits av företaget." : "The job has been cancelled by the provider.";
+  if (value === "no_show") return sv ? "Jobbet har markerats som no-show." : "The job has been marked as a no-show.";
+  if (value === "problem") return sv ? "Problemet har registrerats." : "The problem has been recorded.";
+  if (value === "rate_limited") return sv ? "För många försök. Vänta en stund och försök igen." : "Too many attempts. Wait a while and try again.";
+  if (value === "completion_required") return sv ? "Lägg till en sammanfattning av det utförda arbetet." : "Add a summary of the completed work.";
+  if (value === "reason_required") return sv ? "Ange en anledning innan du fortsätter." : "Enter a reason before continuing.";
+  if (value === "invalid" || value === "transition") return sv ? "Åtgärden kan inte göras i jobbets nuvarande status." : "That action is not available in the job's current status.";
+  if (value === "database" || value === "unavailable") return sv ? "Åtgärden kunde inte sparas just nu. Försök igen." : "The action could not be saved right now. Try again.";
+  return "";
+}
+
 function formatMoney(amountMinor: number, currency: string, locale: Locale) {
   return new Intl.NumberFormat(locale === "en" ? "en-GB" : "sv-SE", {
     style: "currency",
@@ -101,7 +116,14 @@ export default async function MarketplaceProviderJobPage({
   const contact = quoteView.customerContact;
   const address = [contact.addressLine1, contact.postalCode, contact.city].filter(Boolean).join(", ");
   const alternative = locale === "en" ? "sv" : "en";
-  const languageHref = `/offert/jobb/${encodeURIComponent(token)}${alternative === "en" ? "?lang=en" : ""}`;
+  const rawJobAction = query?.job;
+  const jobAction = Array.isArray(rawJobAction) ? rawJobAction[0] : rawJobAction;
+  const languageParams = new URLSearchParams();
+  if (alternative === "en") languageParams.set("lang", "en");
+  if (jobAction) languageParams.set("job", jobAction);
+  const languageQuery = languageParams.toString();
+  const languageHref = `/offert/jobb/${encodeURIComponent(token)}${languageQuery ? `?${languageQuery}` : ""}`;
+  const feedback = actionMessage(jobAction, locale);
   const canStart = job.status === "accepted" || job.status === "problem";
   const canComplete = job.status === "in_progress" || job.status === "problem";
   const canReportProblem = job.status === "accepted" || job.status === "in_progress";
@@ -120,6 +142,8 @@ export default async function MarketplaceProviderJobPage({
         </header>
 
         <div className="grid gap-6 p-6 sm:p-10">
+          {feedback ? <p role="status" className="rounded-xl border border-[#a9cdb2] bg-[#edf8ef] px-4 py-3 text-sm font-semibold text-[#17452f]">{feedback}</p> : null}
+
           <dl className="grid gap-4 rounded-2xl bg-[#f7f9f7] p-5 sm:grid-cols-2">
             <div><dt className="text-xs font-bold uppercase text-[#6b776d]">{text.status}</dt><dd className="mt-1 font-bold">{job.status}</dd></div>
             <div><dt className="text-xs font-bold uppercase text-[#6b776d]">{text.service}</dt><dd className="mt-1 font-semibold">{job.serviceName}</dd></div>
