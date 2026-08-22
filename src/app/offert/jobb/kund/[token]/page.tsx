@@ -75,7 +75,8 @@ function actionMessage(value: string | undefined, locale: Locale): ActionFeedbac
   const sv = locale === "sv";
   if (value === "customer_cancelled") return { text: sv ? "Jobbet har avbrutits." : "The job has been cancelled.", severity: "success" };
   if (value === "requested") return { text: sv ? "En ny matchning har beställts." : "A new matching round has been requested.", severity: "success" };
-  if (value === "already_requested" || value === "rematch_requested") return { text: sv ? "En ny matchning är redan beställd." : "A new matching round has already been requested.", severity: "success" };
+  if (value === "already_requested") return { text: sv ? "En ny matchning är redan beställd." : "A new matching round has already been requested.", severity: "success" };
+  if (value === "rematch_requested") return { text: sv ? "Åtgärden avvisades eftersom en ny matchning redan har beställts." : "The action was rejected because a new matching round has already been requested.", severity: "error" };
   if (value === "closed") return { text: sv ? "Jobbet är redan avslutat och kan inte längre avbrytas." : "The job is already closed and can no longer be cancelled.", severity: "error" };
   if (value === "rate_limited") return { text: sv ? "För många försök. Vänta en stund och försök igen." : "Too many attempts. Wait a while and try again.", severity: "error" };
   if (value === "not_eligible") return { text: sv ? "Jobbet kan inte matchas om i sin nuvarande status." : "This job cannot be rematched in its current status.", severity: "error" };
