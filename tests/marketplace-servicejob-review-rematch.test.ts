@@ -282,7 +282,7 @@ describe("Verified Review and Reputation", () => {
     expect(query).toContain("review.is_verified = true");
     expect(query).toContain("job.status = 'completed'");
     expect(query).toContain("review.status = 'pending'");
-    expect(query).toContain("marketplace_review.approved");
+    expect(query).toContain("insert into admin_audit_logs");
   });
 
   it("keeps reputation limited to approved verified Marketplace reviews", () => {
