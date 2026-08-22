@@ -88,7 +88,7 @@ export async function requestMarketplaceRematchByCustomerToken(input: {
   const tokenHash = hashMarketplaceCustomerComparisonToken(input.token);
 
   try {
-    const transactionResult = await sql.transaction((txn) => [
+    const [, rows] = await sql.transaction((txn) => [
       txn`
         select pg_advisory_xact_lock(hashtextextended(job.id::text, 0))
         from marketplace_quote_customer_access access
@@ -216,10 +216,9 @@ export async function requestMarketplaceRematchByCustomerToken(input: {
         join cloned on cloned.id = inserted.rematch_quote_request_id
         limit 1
       `,
-    ], { isolationMode: "ReadCommitted" } as unknown as Parameters<typeof sql.transaction>[1]);
-    const [, rows] = transactionResult as unknown as [unknown[], Record<string, unknown>[]];
+    ], { isolationLevel: "ReadCommitted" });
 
-    const row = rows[0];
+    const row = rows[0] as Record<string, unknown> | undefined;
     if (!row) return { ok: false as const, code: "not_eligible" as const };
     return {
       ok: true as const,
