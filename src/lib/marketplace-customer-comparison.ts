@@ -1,13 +1,15 @@
 import "server-only";
 
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomUUID } from "node:crypto";
 
 import { sendMarketplaceCustomerComparisonEmail } from "@/features/email/marketplace-customer-comparison-email";
+import { resolveCustomerPortalSecret } from "@/lib/auth-secret";
 import { getSql } from "@/lib/db/server";
 import { hashMarketplaceGuestToken } from "@/lib/marketplace-guest-quote";
 import { isValidMarketplaceGuestToken } from "@/lib/marketplace-guest-opt-out-core";
 
 const CUSTOMER_COMPARISON_TTL_DAYS = 30;
+const CUSTOMER_COMPARISON_TOKEN_CONTEXT = "proffera:marketplace-customer-comparison:v1";
 const customerComparisonTokenPattern = /^[A-Za-z0-9_-]{43}$/;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const REDACTED_CONTACT = "[…]";
@@ -39,8 +41,17 @@ export type MarketplaceCustomerComparisonView = {
   offers: MarketplaceCustomerComparisonOffer[];
 };
 
-export function createMarketplaceCustomerComparisonToken() {
-  return randomBytes(32).toString("base64url");
+export function deriveMarketplaceCustomerComparisonToken(input: {
+  quoteRequestId: string;
+  dispatchToken: string;
+  secret: string;
+}) {
+  if (!uuidPattern.test(input.quoteRequestId) || !uuidPattern.test(input.dispatchToken) || !input.secret) {
+    throw new Error("Invalid Marketplace customer comparison token input");
+  }
+  return createHmac("sha256", input.secret)
+    .update(`${CUSTOMER_COMPARISON_TOKEN_CONTEXT}:${input.quoteRequestId}:${input.dispatchToken}`)
+    .digest("base64url");
 }
 
 export function isMarketplaceCustomerComparisonToken(value: string) {
@@ -100,6 +111,8 @@ export async function notifyMarketplaceCustomerOfferAvailableFromGuestToken(inpu
   }
   const baseUrl = comparisonBaseUrl(input.baseUrl);
   if (!baseUrl) return { ok: false as const, code: "invalid_base_url" };
+  const comparisonSecret = resolveCustomerPortalSecret();
+  if (!comparisonSecret) return { ok: false as const, code: "configuration" };
 
   const sql = getSql();
   if (!sql) return { ok: false as const, code: "database" };
@@ -128,25 +141,32 @@ export async function notifyMarketplaceCustomerOfferAvailableFromGuestToken(inpu
   if (!requestRow) return { ok: false as const, code: "request_not_ready" };
 
   const quoteRequestId = text(requestRow.quote_request_id);
-  const candidateToken = createMarketplaceCustomerComparisonToken();
-  const candidateTokenHash = hashMarketplaceCustomerComparisonToken(candidateToken);
-  let dispatchToken: string = randomUUID();
-  const expiresAt = new Date(Date.now() + CUSTOMER_COMPARISON_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  if (!uuidPattern.test(quoteRequestId)) return { ok: false as const, code: "database" };
+
+  const freshDispatchToken: string = randomUUID();
+  const freshToken = deriveMarketplaceCustomerComparisonToken({
+    quoteRequestId,
+    dispatchToken: freshDispatchToken,
+    secret: comparisonSecret,
+  });
+  const freshTokenHash = hashMarketplaceCustomerComparisonToken(freshToken);
+  const freshExpiresAt = new Date(Date.now() + CUSTOMER_COMPARISON_TTL_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
   let reservation = await sql`
     insert into marketplace_quote_customer_access (
       quote_request_id, token_hash, status, dispatch_token, expires_at
     ) values (
-      ${quoteRequestId}::uuid, ${candidateTokenHash}, 'sending', ${dispatchToken}::uuid, ${expiresAt}::timestamptz
+      ${quoteRequestId}::uuid, ${freshTokenHash}, 'sending', ${freshDispatchToken}::uuid, ${freshExpiresAt}::timestamptz
     )
     on conflict (quote_request_id) do nothing
-    returning quote_request_id::text, dispatch_token::text
+    returning quote_request_id::text, token_hash, dispatch_token::text, expires_at::text
   `;
 
   if (!reservation[0]) {
     reservation = await sql`
       update marketplace_quote_customer_access
       set status = 'sending',
+          expires_at = greatest(expires_at, ${freshExpiresAt}::timestamptz),
           sent_at = null,
           provider_message_id = '',
           updated_at = now()
@@ -156,22 +176,27 @@ export async function notifyMarketplaceCustomerOfferAvailableFromGuestToken(inpu
           status = 'delivery_failed'
           or (status = 'sending' and updated_at <= now() - interval '5 minutes')
         )
-      returning quote_request_id::text, dispatch_token::text
+      returning quote_request_id::text, token_hash, dispatch_token::text, expires_at::text
     `;
   }
 
   if (!reservation[0]) {
+    // Rotate an expired delivered link BEFORE the email call. If the transport
+    // times out after Brevo accepted the request, the delivered link is already
+    // valid. A retry can derive the same raw token from the persisted dispatch id.
     reservation = await sql`
       update marketplace_quote_customer_access
-      set status = 'sending',
-          dispatch_token = ${dispatchToken}::uuid,
+      set token_hash = ${freshTokenHash},
+          status = 'sending',
+          dispatch_token = ${freshDispatchToken}::uuid,
+          expires_at = ${freshExpiresAt}::timestamptz,
           sent_at = null,
           provider_message_id = '',
           updated_at = now()
       where quote_request_id = ${quoteRequestId}::uuid
         and status = 'sent'
         and expires_at <= now()
-      returning quote_request_id::text, dispatch_token::text
+      returning quote_request_id::text, token_hash, dispatch_token::text, expires_at::text
     `;
   }
 
@@ -189,10 +214,21 @@ export async function notifyMarketplaceCustomerOfferAvailableFromGuestToken(inpu
     };
   }
 
-  const reservedDispatchToken = text(reservation[0]?.dispatch_token);
-  if (uuidPattern.test(reservedDispatchToken)) dispatchToken = reservedDispatchToken;
+  const dispatchToken = text(reservation[0]?.dispatch_token) || freshDispatchToken;
+  if (!uuidPattern.test(dispatchToken)) return { ok: false as const, code: "database" };
+  const comparisonToken = deriveMarketplaceCustomerComparisonToken({
+    quoteRequestId,
+    dispatchToken,
+    secret: comparisonSecret,
+  });
+  const comparisonTokenHash = hashMarketplaceCustomerComparisonToken(comparisonToken);
+  const reservedTokenHash = text(reservation[0]?.token_hash);
+  if (reservedTokenHash && reservedTokenHash !== comparisonTokenHash) {
+    console.error("Marketplace customer comparison token hash does not match its dispatch id", { quoteRequestId });
+    return { ok: false as const, code: "database" };
+  }
 
-  const comparisonUrl = `${baseUrl}${marketplaceCustomerComparisonPath(candidateToken)}`;
+  const comparisonUrl = `${baseUrl}${marketplaceCustomerComparisonPath(comparisonToken)}`;
   const delivery = await sendMarketplaceCustomerComparisonEmail({
     recipientEmail: text(requestRow.contact_email),
     customerName: text(requestRow.contact_name),
@@ -231,9 +267,7 @@ export async function notifyMarketplaceCustomerOfferAvailableFromGuestToken(inpu
 
   const completed = await sql`
     update marketplace_quote_customer_access
-    set token_hash = ${candidateTokenHash},
-        expires_at = ${expiresAt}::timestamptz,
-        status = 'sent',
+    set status = 'sent',
         sent_at = now(),
         provider_message_id = ${delivery.providerMessageId ?? ""},
         updated_at = now()
