@@ -18,11 +18,10 @@ create table if not exists marketplace_rematch_requests (
   constraint marketplace_rematch_requests_status_check check (status in ('pending', 'processing', 'processed', 'cancelled')),
   constraint marketplace_rematch_requests_reason_check check (char_length(reason) <= 1000),
   constraint marketplace_rematch_requests_processing_check check (
-    (status = 'processing') = (processing_started_at is not null and processed_at is null)
-    or (status <> 'processing')
+    status <> 'processing' or (processing_started_at is not null and processed_at is null)
   ),
   constraint marketplace_rematch_requests_processed_check check (
-    (status = 'processed') = (processed_at is not null)
+    status <> 'processed' or processed_at is not null
   )
 );
 
@@ -97,5 +96,28 @@ drop trigger if exists marketplace_service_job_rematch_terminal_guard_trigger on
 create trigger marketplace_service_job_rematch_terminal_guard_trigger
 before update of status on marketplace_service_jobs
 for each row execute function block_marketplace_job_reopen_after_rematch();
+
+-- The Company Directory profile is the durable provider identity. A company may
+-- complete Marketplace work while unclaimed and claim the profile later. Resolve
+-- workspace ownership at read time instead of rewriting immutable offer/job/review
+-- history or losing reputation accumulated before the claim.
+create or replace view marketplace_workspace_service_jobs as
+select
+  job.*,
+  coalesce(job.workspace_id, profile.claimed_workspace_id) as resolved_workspace_id
+from marketplace_service_jobs job
+join company_directory_profiles profile on profile.id = job.profile_id;
+
+create or replace view marketplace_workspace_profile_reputation as
+select
+  reputation.*,
+  profile.claimed_workspace_id as resolved_workspace_id
+from marketplace_profile_reputation reputation
+join company_directory_profiles profile on profile.id = reputation.profile_id;
+
+comment on view marketplace_workspace_service_jobs is
+  'Marketplace ServiceJob history resolved to the current claimed workspace without rewriting original provider identity.';
+comment on view marketplace_workspace_profile_reputation is
+  'Profile reputation resolved to the current claimed workspace; pre-claim history remains attached through profile_id.';
 
 commit;
