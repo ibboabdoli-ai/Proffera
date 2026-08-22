@@ -7,8 +7,26 @@
 -- - only SNI-owned service relations are reconciled;
 -- - owner/admin/website service relations are not changed;
 -- - no publication status is changed.
+--
+-- Deployment sequencing:
+-- - apply the existing Company Directory foundation/provenance migrations first;
+-- - pgcrypto and the provenance conflict-target index are re-asserted here so the
+--   backfill fails closed instead of depending on an implicit environment state;
+-- - the unique-index statement is normally a no-op because migration 0038 already
+--   creates it. If that invariant is missing, index creation happens before any
+--   provenance upsert and the transaction rolls back on failure.
+-- Rollback:
+-- - revert any writer/runtime change first;
+-- - this migration only fills previously blank municipality values and SNI-owned
+--   service projections. Do not automatically erase those verified projections;
+--   a data rollback must be a separately reviewed, targeted repair.
 
 begin;
+
+create extension if not exists pgcrypto;
+
+create unique index if not exists company_directory_field_sources_value_unique_idx
+  on company_directory_field_sources (profile_id, field_name, source_name, value_hash);
 
 insert into company_directory_service_categories (
   slug, label, search_aliases, sort_order, is_active, updated_at
