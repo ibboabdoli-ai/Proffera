@@ -8,7 +8,7 @@ const accessMigration = fs.readFileSync(
   "utf8",
 );
 const winnerIndexMigration = fs.readFileSync(
-  path.join(process.cwd(), "db/migrations/20260822_0061_marketplace_single_winner_index.sql"),
+  path.join(process.cwd(), "db/migrations/20260822_0062_marketplace_single_winner_index.sql"),
   "utf8",
 );
 
