@@ -170,6 +170,37 @@ describe("Marketplace Auto Worker", () => {
     expect(mocks.sendInvitation).not.toHaveBeenCalled();
   });
 
+  it("does not let skipped requests consume the actionable batch budget", async () => {
+    const waitingId = "11111111-1111-4111-8111-111111111111";
+    const actionableId = "22222222-2222-4222-8222-222222222222";
+    mocks.getMatches.mockResolvedValue({
+      ok: true,
+      matches: [
+        match({
+          lead: { ...match().lead, id: waitingId, created_at: "2026-08-22T08:00:00.000Z" },
+          offers: [{ status: "submitted" }, { status: "selected" }],
+        }),
+        match({
+          lead: { ...match().lead, id: actionableId, created_at: "2026-08-22T09:00:00.000Z" },
+          candidates: [candidate(7)],
+        }),
+      ],
+    });
+    mocks.getSummaries.mockResolvedValue(new Map([
+      [waitingId, summary({ wave1Count: 3, totalCount: 3, latestWave1At: "2026-08-22T07:00:00.000Z" })],
+      [actionableId, summary()],
+    ]));
+
+    const result = await processMarketplaceAutoWorker({
+      baseUrl: "https://preview.proffera.test",
+      batchSize: 1,
+    });
+
+    expect(result).toMatchObject({ ok: true, attempted: 1, sent: 1, skipped: { enough_offers: 1 } });
+    expect(mocks.sendInvitation).toHaveBeenCalledTimes(1);
+    expect(mocks.sendInvitation).toHaveBeenCalledWith(expect.objectContaining({ quoteRequestId: actionableId }));
+  });
+
   it("fails closed before matching when transactional email is not configured", async () => {
     mocks.emailConfigured.mockReturnValue(false);
 

@@ -137,14 +137,12 @@ export async function processMarketplaceAutoWorker(input: {
     skipped: {},
   };
 
-  let considered = 0;
   for (const match of matches) {
-    if (considered >= batchSize) break;
+    if (result.attempted >= batchSize) break;
     if (Date.now() >= deadlineAt) {
       result.deadlineReached = true;
       break;
     }
-    considered += 1;
 
     const invitationSummary = invitationSummaries.get(match.lead.id);
     if (!invitationSummary) {
