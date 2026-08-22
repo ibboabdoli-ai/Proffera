@@ -61,7 +61,11 @@ on conflict (slug) do update set
   search_aliases = excluded.search_aliases,
   sort_order = excluded.sort_order,
   is_active = true,
-  updated_at = now();
+  updated_at = now()
+where company_directory_service_categories.label is distinct from excluded.label
+   or company_directory_service_categories.search_aliases is distinct from excluded.search_aliases
+   or company_directory_service_categories.sort_order is distinct from excluded.sort_order
+   or company_directory_service_categories.is_active is distinct from true;
 
 insert into company_directory_services (
   slug, category_slug, parent_service_slug, label, search_aliases, sort_order, is_active, updated_at
@@ -76,7 +80,35 @@ on conflict (slug) do update set
   search_aliases = excluded.search_aliases,
   sort_order = excluded.sort_order,
   is_active = true,
-  updated_at = now();
+  updated_at = now()
+where company_directory_services.category_slug is distinct from excluded.category_slug
+   or company_directory_services.parent_service_slug is distinct from excluded.parent_service_slug
+   or company_directory_services.label is distinct from excluded.label
+   or company_directory_services.search_aliases is distinct from excluded.search_aliases
+   or company_directory_services.sort_order is distinct from excluded.sort_order
+   or company_directory_services.is_active is distinct from true;
+
+-- A non-SNI relation owns the same primary key and must never be silently replaced.
+-- If it is inactive or hidden, continuing would deactivate competing SNI relations
+-- without creating an active public `frisor` replacement, so fail before any relation repair.
+do $$
+begin
+  if exists (
+    select 1
+    from company_directory_profiles profile
+    join company_directory_profile_services relation
+      on relation.profile_id = profile.id
+     and relation.service_slug = 'frisor'
+    where profile.primary_sni_code = '96.210'
+      and relation.source_type <> 'sni'
+      and (relation.is_active is not true or relation.public_visible is not true)
+  ) then
+    raise exception using
+      message = 'Incompatible non-SNI frisor relation blocks SNI repair',
+      hint = 'Review the existing owner/admin/website frisor relation before rerunning migration 0057; this migration will not overwrite or reactivate non-SNI relations.';
+  end if;
+end
+$$;
 
 -- Mirror the engine invariant: a profile has at most one active primary service inferred from SNI.
 update company_directory_profile_services relation
@@ -105,7 +137,13 @@ on conflict (profile_id, service_slug) do update set
   is_active = true,
   public_visible = true,
   updated_at = now()
-where company_directory_profile_services.source_type = 'sni';
+where company_directory_profile_services.source_type = 'sni'
+  and (
+    company_directory_profile_services.confidence is distinct from excluded.confidence
+    or company_directory_profile_services.is_primary is distinct from true
+    or company_directory_profile_services.is_active is distinct from true
+    or company_directory_profile_services.public_visible is distinct from true
+  );
 
 -- Backfill existing SCB-synced profiles. Do not bump profile.updated_at: that token is part
 -- of the SCB comparison snapshot and changing it here would make the existing fresh snapshot stale.
