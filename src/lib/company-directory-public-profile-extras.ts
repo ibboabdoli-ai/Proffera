@@ -16,12 +16,23 @@ export type PublicDirectoryProfileServiceArea = {
   radiusKm: number;
 };
 
+export type PublicDirectoryProfileReputation = {
+  rating: number;
+  verifiedReviews: number;
+  completedJobs: number;
+  customerCancellations: number;
+  providerCancellations: number;
+  noShows: number;
+  problemJobs: number;
+};
+
 export type PublicDirectoryProfileExtras = {
   services: PublicDirectoryProfileService[];
   serviceAreas: PublicDirectoryProfileServiceArea[];
+  reputation: PublicDirectoryProfileReputation | null;
 };
 
-const EMPTY_EXTRAS: PublicDirectoryProfileExtras = { services: [], serviceAreas: [] };
+const EMPTY_EXTRAS: PublicDirectoryProfileExtras = { services: [], serviceAreas: [], reputation: null };
 
 function text(value: unknown) {
   return value === null || value === undefined ? "" : String(value);
@@ -30,6 +41,11 @@ function text(value: unknown) {
 function number(value: unknown) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function compatibilityError(error: unknown) {
+  const code = typeof error === "object" && error && "code" in error ? String(error.code) : "";
+  return code === "42P01" || code === "42703";
 }
 
 export async function getPublicDirectoryProfileExtras(profileId: string): Promise<PublicDirectoryProfileExtras> {
@@ -73,6 +89,37 @@ export async function getPublicDirectoryProfileExtras(profileId: string): Promis
     `,
   ]);
 
+  let reputation: PublicDirectoryProfileReputation | null = null;
+  try {
+    const reputationRows = await sql`
+      select
+        average_rating,
+        verified_review_count,
+        completed_job_count,
+        customer_cancelled_job_count,
+        provider_cancelled_job_count,
+        no_show_job_count,
+        problem_job_count
+      from marketplace_profile_reputation
+      where profile_id = ${profileId}::uuid
+      limit 1
+    `;
+    const row = reputationRows[0];
+    if (row) {
+      reputation = {
+        rating: number(row.average_rating),
+        verifiedReviews: number(row.verified_review_count),
+        completedJobs: number(row.completed_job_count),
+        customerCancellations: number(row.customer_cancelled_job_count),
+        providerCancellations: number(row.provider_cancelled_job_count),
+        noShows: number(row.no_show_job_count),
+        problemJobs: number(row.problem_job_count),
+      };
+    }
+  } catch (error) {
+    if (!compatibilityError(error)) throw error;
+  }
+
   return {
     services: serviceRows.map((row) => ({
       slug: text(row.slug),
@@ -88,5 +135,6 @@ export async function getPublicDirectoryProfileExtras(profileId: string): Promis
         radiusKm: number(row.radius_km),
       }))
       .filter((area) => area.radiusKm > 0),
+    reputation,
   };
 }
