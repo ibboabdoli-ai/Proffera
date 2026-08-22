@@ -92,7 +92,9 @@ function docker(args: string[]) {
           ('5560000003', 'juridical_person', 'Tax Verified AB', 'Tax Verified AB', 'tax-verified-ab',
            'ready', true, true, 100, 'Stockholm', 'stadning', 'Registrerad', '', '', $1),
           ('5560000004', 'juridical_person', 'Inactive AB', 'Inactive AB', 'inactive-ab',
-           'inactive', false, false, 70, 'Stockholm', 'stadning', '', '', '', $1)
+           'inactive', false, false, 70, 'Stockholm', 'stadning', '', '', '', $1),
+          ('5560000005', 'juridical_person', 'Boundary Published AB', 'Boundary Published AB', 'boundary-published-ab',
+           'published', true, true, 80, 'Stockholm', 'stadning', '', '', '', $1)
       `, [fixedUpdatedAt]);
 
       const migration = readFileSync(join(process.cwd(), QUALITY_MIGRATION), "utf8");
@@ -136,6 +138,12 @@ function docker(args: string[]) {
           publication_status: "inactive",
           quality_score: 70,
           quality_reasons: [],
+        }),
+        expect.objectContaining({
+          organization_number: "5560000005",
+          publication_status: "review",
+          quality_score: 75,
+          quality_reasons: ["tax_status_unavailable_from_source"],
         }),
       ]);
 
