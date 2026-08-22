@@ -10,6 +10,7 @@
 --
 -- Deployment sequencing:
 -- - apply the existing Company Directory foundation/provenance migrations first;
+-- - current main migration 0057 is sequenced before this Directory repair as 0058;
 -- - migration 0038 must already provide the provenance conflict-target unique index;
 -- - this repair validates that prerequisite before any data repair work starts;
 -- - if the index is unexpectedly missing on a live database, stop this repair and
