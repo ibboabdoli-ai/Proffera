@@ -79,6 +79,7 @@ function actionMessage(value: string | undefined, locale: Locale): ActionFeedbac
   if (value === "provider_cancelled") return { text: sv ? "Jobbet har avbrutits av företaget." : "The job has been cancelled by the provider.", severity: "success" };
   if (value === "no_show") return { text: sv ? "Jobbet har markerats som no-show." : "The job has been marked as a no-show.", severity: "success" };
   if (value === "problem") return { text: sv ? "Problemet har registrerats." : "The problem has been recorded.", severity: "success" };
+  if (value === "rematch_requested") return { text: sv ? "Kunden har redan begärt en ny matchning. Det här jobbet är nu historik och kan inte ändras." : "The customer has already requested a new matching round. This job is now historical and cannot be changed.", severity: "error" };
   if (value === "rate_limited") return { text: sv ? "För många försök. Vänta en stund och försök igen." : "Too many attempts. Wait a while and try again.", severity: "error" };
   if (value === "completion_required") return { text: sv ? "Lägg till en sammanfattning av det utförda arbetet." : "Add a summary of the completed work.", severity: "error" };
   if (value === "reason_required") return { text: sv ? "Ange en anledning innan du fortsätter." : "Enter a reason before continuing.", severity: "error" };
