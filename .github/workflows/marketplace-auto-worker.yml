@@ -73,7 +73,19 @@ jobs:
               raise SystemExit(1)
 
           skip_counts = payload.get("skipped") if isinstance(payload.get("skipped"), dict) else {}
-          delivery_errors = int(skip_counts.get("delivery_error", 0) or 0)
+          safe_delivery_states = {
+              "delivery_quote_closed",
+              "delivery_consent_required",
+              "delivery_profile_ineligible",
+              "delivery_suppressed",
+              "delivery_already_invited",
+              "delivery_conflict",
+          }
+          delivery_errors = sum(
+              int(value or 0)
+              for key, value in skip_counts.items()
+              if key.startswith("delivery_") and key not in safe_delivery_states
+          )
           if delivery_errors > 0:
               print(f"::error::Marketplace Auto Worker recorded {delivery_errors} delivery errors")
               raise SystemExit(1)

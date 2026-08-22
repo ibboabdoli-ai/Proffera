@@ -1,7 +1,11 @@
 import "server-only";
 
 import { marketplaceGuestInvitationEmailConfigured } from "@/features/email/marketplace-guest-invitation-email";
-import { getDirectoryGuestLeadMatches } from "@/features/matching/directory-guest";
+import { getDirectoryGuestLeadMatch } from "@/features/matching/directory-guest-single";
+import {
+  getMarketplaceAutoQueuePage,
+  MARKETPLACE_AUTO_QUEUE_PAGE_SIZE,
+} from "@/features/matching/marketplace-auto-queue";
 import {
   expirePastMarketplaceInvitation,
   getMarketplaceInvitationSummaries,
@@ -71,11 +75,6 @@ function increment(bucket: Record<string, number>, key: string) {
   bucket[key] = (bucket[key] ?? 0) + 1;
 }
 
-function timestampMs(value: string | null | undefined) {
-  const parsed = Date.parse(String(value ?? ""));
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string) {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
@@ -95,15 +94,15 @@ export function decideMarketplaceAutoWave(input: {
   wave2DelayMs: number;
 }): MarketplaceAutoWaveDecision {
   const { invitationSummary } = input;
-  if (invitationSummary.wave1Count < 3) return { wave: 1, reason: "wave1" };
   if (input.submittedOfferCount >= 2) return { wave: null, reason: "enough_offers" };
+  if (invitationSummary.wave1Count < 3) return { wave: 1, reason: "wave1" };
   if (invitationSummary.wave2Count >= 2 || invitationSummary.totalCount >= 5) {
     return { wave: null, reason: "wave_full" };
   }
 
-  const latestWave1At = timestampMs(invitationSummary.latestWave1At);
+  const latestWave1At = Date.parse(String(invitationSummary.latestWave1At ?? ""));
   const delay = finiteDelayMs(input.wave2DelayMs);
-  if (latestWave1At === null || input.nowMs - latestWave1At < delay) {
+  if (!Number.isFinite(latestWave1At) || input.nowMs - latestWave1At < delay) {
     return { wave: null, reason: "wave2_waiting" };
   }
 
@@ -132,56 +131,24 @@ export async function processMarketplaceAutoWorker(input: {
   const deadlineAt = Date.now() + deadlineMs;
   const actorId = String(input.actorId ?? MARKETPLACE_AUTO_WORKER_ACTOR).trim() || MARKETPLACE_AUTO_WORKER_ACTOR;
 
-  // Rematches are represented as fresh draft Quote Requests. Claim the queue with
-  // a short lease before making those requests visible to the normal 3+2 engine.
-  // If migration 0064 is not deployed yet the compatibility helper returns an
-  // empty context and ordinary Marketplace processing is unchanged.
-  const rematchContext = await prepareMarketplaceRematchWork(batchSize);
-
-  let matchesResult: Awaited<ReturnType<typeof getDirectoryGuestLeadMatches>>;
+  let rematchContext: Awaited<ReturnType<typeof prepareMarketplaceRematchWork>>;
   try {
     const remaining = deadlineAt - Date.now();
     if (remaining <= 0) return { ok: false, error: "matching_failed" };
-    matchesResult = await withTimeout(
-      getDirectoryGuestLeadMatches(),
+    rematchContext = await withTimeout(
+      prepareMarketplaceRematchWork(batchSize),
       remaining,
-      "Marketplace matching pre-processing timed out",
+      "Marketplace rematch pre-processing timed out",
     );
   } catch (error) {
-    console.error("Marketplace Auto Worker matching pre-processing failed", { error });
-    return { ok: false, error: "matching_failed" };
-  }
-  if (!matchesResult.ok) return { ok: false, error: "matching_failed" };
-
-  const chronologicalMatches = [...matchesResult.matches].sort((left, right) => {
-    const leftTime = timestampMs(left.lead.created_at) ?? Number.MAX_SAFE_INTEGER;
-    const rightTime = timestampMs(right.lead.created_at) ?? Number.MAX_SAFE_INTEGER;
-    return leftTime - rightTime || left.lead.id.localeCompare(right.lead.id);
-  });
-  // A rematch must genuinely search again: exclude every profile/mailbox already
-  // contacted for the source generation, and prioritize the leased rematch within
-  // the bounded batch. Existing invitation uniqueness/wave caps remain the final
-  // race guards if two scheduler invocations overlap.
-  const matches = applyMarketplaceRematchContext(chronologicalMatches, rematchContext);
-  const quoteRequestIds = matches.map((match) => match.lead.id).filter(Boolean);
-
-  let invitationSummaries: Awaited<ReturnType<typeof getMarketplaceInvitationSummaries>>;
-  try {
-    const remaining = deadlineAt - Date.now();
-    if (remaining <= 0) return { ok: false, error: "matching_failed" };
-    invitationSummaries = await withTimeout(
-      getMarketplaceInvitationSummaries(quoteRequestIds),
-      remaining,
-      "Marketplace invitation-state pre-processing timed out",
-    );
-  } catch (error) {
-    console.error("Marketplace Auto Worker invitation-state pre-processing failed", { error });
+    console.error("Marketplace rematch pre-processing failed", { error });
     return { ok: false, error: "matching_failed" };
   }
 
+  const priorityQuoteRequestIds = [...rematchContext.keys()];
   const result: MarketplaceAutoWorkerResult = {
     ok: true,
-    scanned: matches.length,
+    scanned: 0,
     attempted: 0,
     sent: 0,
     wave1Sent: 0,
@@ -190,105 +157,203 @@ export async function processMarketplaceAutoWorker(input: {
     skipped: {},
   };
 
-  for (const match of matches) {
-    if (result.attempted >= batchSize) break;
-    if (Date.now() >= deadlineAt) {
+  let afterPriorityRank: number | null = null;
+  let afterCreatedAt: string | null = null;
+  let afterId: string | null = null;
+
+  while (result.attempted < batchSize) {
+    const remainingBeforeQueue = deadlineAt - Date.now();
+    if (remainingBeforeQueue <= 0) {
       result.deadlineReached = true;
       break;
     }
 
-    const invitationSummary = invitationSummaries.get(match.lead.id);
-    if (!invitationSummary) {
-      increment(result.skipped, "missing_invitation_state");
-      continue;
+    let queuePage: Awaited<ReturnType<typeof getMarketplaceAutoQueuePage>>;
+    try {
+      queuePage = await withTimeout(
+        getMarketplaceAutoQueuePage({
+          priorityQuoteRequestIds,
+          afterPriorityRank,
+          afterCreatedAt,
+          afterId,
+          limit: MARKETPLACE_AUTO_QUEUE_PAGE_SIZE,
+        }),
+        remainingBeforeQueue,
+        "Marketplace Auto Worker queue read timed out",
+      );
+    } catch (error) {
+      console.error("Marketplace Auto Worker queue read failed", { error });
+      return { ok: false, error: "matching_failed" };
+    }
+    if (!queuePage.ok) return { ok: false, error: "matching_failed" };
+    if (queuePage.rows.length === 0) break;
+
+    const quoteRequestIds = queuePage.rows.map((row) => row.quoteRequestId);
+    const remainingBeforeSummaries = deadlineAt - Date.now();
+    if (remainingBeforeSummaries <= 0) {
+      result.deadlineReached = true;
+      break;
     }
 
-    const offerCount = submittedOfferCount(match.offers);
-    const decision = decideMarketplaceAutoWave({
-      invitationSummary,
-      submittedOfferCount: offerCount,
-      nowMs,
-      wave2DelayMs,
-    });
-    if (!decision.wave) {
-      increment(result.skipped, decision.reason);
-      continue;
+    let invitationSummaries: Awaited<ReturnType<typeof getMarketplaceInvitationSummaries>>;
+    try {
+      invitationSummaries = await withTimeout(
+        getMarketplaceInvitationSummaries(quoteRequestIds),
+        remainingBeforeSummaries,
+        "Marketplace invitation-state pre-processing timed out",
+      );
+    } catch (error) {
+      console.error("Marketplace Auto Worker invitation-state pre-processing failed", { error });
+      return { ok: false, error: "matching_failed" };
     }
 
-    const plan = planMarketplaceGuestWave({
-      requestedWave: decision.wave,
-      candidates: match.candidates,
-      invitationSummary,
-      submittedOfferCount: offerCount,
-    });
-    if (plan.reason !== "ready") {
-      increment(result.skipped, `plan_${plan.reason}`);
-      continue;
-    }
+    for (const queueRow of queuePage.rows) {
+      if (result.attempted >= batchSize) break;
+      if (Date.now() >= deadlineAt) {
+        result.deadlineReached = true;
+        break;
+      }
+      result.scanned += 1;
 
-    result.attempted += 1;
-    for (const candidate of plan.candidates) {
-      const remainingBeforeStateUpdate = deadlineAt - Date.now();
-      if (remainingBeforeStateUpdate <= 0) {
+      const invitationSummary = invitationSummaries.get(queueRow.quoteRequestId);
+      if (!invitationSummary) {
+        increment(result.skipped, "missing_invitation_state");
+        continue;
+      }
+
+      const preliminaryDecision = decideMarketplaceAutoWave({
+        invitationSummary,
+        submittedOfferCount: queueRow.submittedOfferCount,
+        nowMs,
+        wave2DelayMs,
+      });
+      if (!preliminaryDecision.wave) {
+        increment(result.skipped, preliminaryDecision.reason);
+        continue;
+      }
+
+      const remainingBeforeMatch = deadlineAt - Date.now();
+      if (remainingBeforeMatch <= 0) {
         result.deadlineReached = true;
         break;
       }
 
+      let matchResult: Awaited<ReturnType<typeof getDirectoryGuestLeadMatch>>;
       try {
-        await withTimeout(
-          expirePastMarketplaceInvitation(match.lead.id, candidate.profileId),
-          Math.min(INVITATION_STATE_TIMEOUT_MS, remainingBeforeStateUpdate),
-          "Marketplace invitation state update timed out",
+        matchResult = await withTimeout(
+          getDirectoryGuestLeadMatch(queueRow.quoteRequestId),
+          remainingBeforeMatch,
+          "Marketplace single-request matching timed out",
         );
+      } catch (error) {
+        console.error("Marketplace Auto Worker single-request matching failed", {
+          quoteRequestId: queueRow.quoteRequestId,
+          error,
+        });
+        return { ok: false, error: "matching_failed" };
+      }
+      if (!matchResult.ok) return { ok: false, error: "matching_failed" };
+      if (!matchResult.match) {
+        increment(result.skipped, "quote_closed");
+        continue;
+      }
 
-        const remainingBeforeSend = deadlineAt - Date.now();
-        if (remainingBeforeSend <= 0) {
+      const routedMatch = applyMarketplaceRematchContext([matchResult.match], rematchContext)[0];
+      if (!routedMatch) {
+        increment(result.skipped, "matching_failed");
+        continue;
+      }
+      const freshOfferCount = submittedOfferCount(routedMatch.offers);
+      const decision = decideMarketplaceAutoWave({
+        invitationSummary,
+        submittedOfferCount: freshOfferCount,
+        nowMs,
+        wave2DelayMs,
+      });
+      if (!decision.wave) {
+        increment(result.skipped, decision.reason);
+        continue;
+      }
+
+      const plan = planMarketplaceGuestWave({
+        requestedWave: decision.wave,
+        candidates: routedMatch.candidates,
+        invitationSummary,
+        submittedOfferCount: freshOfferCount,
+      });
+      if (plan.reason !== "ready") {
+        increment(result.skipped, `plan_${plan.reason}`);
+        continue;
+      }
+
+      result.attempted += 1;
+      for (const candidate of plan.candidates) {
+        const remainingBeforeStateUpdate = deadlineAt - Date.now();
+        if (remainingBeforeStateUpdate <= 0) {
           result.deadlineReached = true;
           break;
         }
 
-        const sent = await withTimeout(
-          sendMarketplaceGuestQuoteInvitation({
-            quoteRequestId: match.lead.id,
-            profileId: candidate.profileId,
-            recipientEmail: candidate.recipientEmail,
-            adminUserId: actorId,
-            baseUrl,
-            wave: decision.wave,
-            matchScore: candidate.score,
-            matchReasons: candidate.reasons,
-          }),
-          Math.min(INVITATION_SEND_TIMEOUT_MS, remainingBeforeSend),
-          "Marketplace invitation delivery timed out",
-        );
+        try {
+          await withTimeout(
+            expirePastMarketplaceInvitation(queueRow.quoteRequestId, candidate.profileId),
+            Math.min(INVITATION_STATE_TIMEOUT_MS, remainingBeforeStateUpdate),
+            "Marketplace invitation state update timed out",
+          );
 
-        if (sent.ok) {
-          result.sent += 1;
-          if (decision.wave === 1) result.wave1Sent += 1;
-          else result.wave2Sent += 1;
-        } else {
-          increment(result.skipped, `delivery_${sent.code}`);
+          const remainingBeforeSend = deadlineAt - Date.now();
+          if (remainingBeforeSend <= 0) {
+            result.deadlineReached = true;
+            break;
+          }
+
+          const sent = await withTimeout(
+            sendMarketplaceGuestQuoteInvitation({
+              quoteRequestId: queueRow.quoteRequestId,
+              profileId: candidate.profileId,
+              recipientEmail: candidate.recipientEmail,
+              adminUserId: actorId,
+              baseUrl,
+              wave: decision.wave,
+              matchScore: candidate.score,
+              matchReasons: candidate.reasons,
+            }),
+            Math.min(INVITATION_SEND_TIMEOUT_MS, remainingBeforeSend),
+            "Marketplace invitation delivery timed out",
+          );
+
+          if (sent.ok) {
+            result.sent += 1;
+            if (decision.wave === 1) result.wave1Sent += 1;
+            else result.wave2Sent += 1;
+          } else {
+            increment(result.skipped, `delivery_${sent.code}`);
+          }
+        } catch (error) {
+          increment(result.skipped, "delivery_error");
+          if (Date.now() >= deadlineAt) result.deadlineReached = true;
+          console.error("Marketplace Auto Worker invitation failed", {
+            quoteRequestId: queueRow.quoteRequestId,
+            profileId: candidate.profileId,
+            wave: decision.wave,
+            error,
+          });
         }
-      } catch (error) {
-        increment(result.skipped, "delivery_error");
-        if (Date.now() >= deadlineAt) result.deadlineReached = true;
-        console.error("Marketplace Auto Worker invitation failed", {
-          quoteRequestId: match.lead.id,
-          profileId: candidate.profileId,
-          wave: decision.wave,
-          error,
-        });
+
+        if (result.deadlineReached) break;
       }
 
       if (result.deadlineReached) break;
     }
 
-    if (result.deadlineReached) break;
+    if (result.deadlineReached || result.attempted >= batchSize) break;
+    const lastRow = queuePage.rows[queuePage.rows.length - 1];
+    if (!lastRow || queuePage.rows.length < MARKETPLACE_AUTO_QUEUE_PAGE_SIZE) break;
+    afterPriorityRank = lastRow.priorityRank;
+    afterCreatedAt = lastRow.createdAt;
+    afterId = lastRow.quoteRequestId;
   }
 
-  // A rematch is processed only after the new Quote Request has at least one
-  // persisted invitation. Empty candidate runs are returned to pending + draft so
-  // a later catalog/profile change can retry without generating duplicate jobs.
   await finalizeMarketplaceRematchWork(rematchContext);
   return result;
 }

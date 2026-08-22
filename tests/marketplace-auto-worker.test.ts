@@ -2,26 +2,38 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   emailConfigured: vi.fn(),
-  getMatches: vi.fn(),
+  getQueuePage: vi.fn(),
+  getMatch: vi.fn(),
   getSummaries: vi.fn(),
   expireInvitation: vi.fn(),
   sendInvitation: vi.fn(),
+  prepareRematch: vi.fn(),
+  applyRematch: vi.fn(),
+  finalizeRematch: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/features/email/marketplace-guest-invitation-email", () => ({
   marketplaceGuestInvitationEmailConfigured: mocks.emailConfigured,
 }));
-vi.mock("@/features/matching/directory-guest", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/features/matching/directory-guest")>();
-  return { ...actual, getDirectoryGuestLeadMatches: mocks.getMatches };
-});
+vi.mock("@/features/matching/marketplace-auto-queue", () => ({
+  MARKETPLACE_AUTO_QUEUE_PAGE_SIZE: 50,
+  getMarketplaceAutoQueuePage: mocks.getQueuePage,
+}));
+vi.mock("@/features/matching/directory-guest-single", () => ({
+  getDirectoryGuestLeadMatch: mocks.getMatch,
+}));
 vi.mock("@/features/matching/marketplace-invitation-state", () => ({
   getMarketplaceInvitationSummaries: mocks.getSummaries,
   expirePastMarketplaceInvitation: mocks.expireInvitation,
 }));
 vi.mock("@/lib/marketplace-guest-quote", () => ({
   sendMarketplaceGuestQuoteInvitation: mocks.sendInvitation,
+}));
+vi.mock("@/lib/marketplace-rematch-worker", () => ({
+  prepareMarketplaceRematchWork: mocks.prepareRematch,
+  applyMarketplaceRematchContext: mocks.applyRematch,
+  finalizeMarketplaceRematchWork: mocks.finalizeRematch,
 }));
 
 import {
@@ -86,6 +98,16 @@ function summary(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function queueRow(id = "11111111-1111-4111-8111-111111111111", overrides: Record<string, unknown> = {}) {
+  return {
+    quoteRequestId: id,
+    createdAt: "2026-08-22T08:00:00.000Z",
+    submittedOfferCount: 0,
+    priorityRank: 1 as const,
+    ...overrides,
+  };
+}
+
 function invitationState(index: number) {
   return {
     status: "sent",
@@ -100,7 +122,11 @@ describe("Marketplace Auto Worker", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.emailConfigured.mockReturnValue(true);
-    mocks.getMatches.mockResolvedValue({ ok: true, matches: [match()] });
+    mocks.prepareRematch.mockResolvedValue(new Map());
+    mocks.applyRematch.mockImplementation((matches) => matches);
+    mocks.finalizeRematch.mockResolvedValue(undefined);
+    mocks.getQueuePage.mockResolvedValue({ ok: true, rows: [queueRow()] });
+    mocks.getMatch.mockResolvedValue({ ok: true, match: match() });
     mocks.getSummaries.mockResolvedValue(new Map([["11111111-1111-4111-8111-111111111111", summary()]]));
     mocks.expireInvitation.mockResolvedValue(undefined);
     mocks.sendInvitation.mockResolvedValue({ ok: true, invitationId: "invite-id" });
@@ -118,13 +144,22 @@ describe("Marketplace Auto Worker", () => {
     }));
   });
 
+  it("stops before Wave 1 when two offers already exist", async () => {
+    mocks.getQueuePage.mockResolvedValue({ ok: true, rows: [queueRow(undefined, { submittedOfferCount: 2 })] });
+
+    const result = await processMarketplaceAutoWorker({ baseUrl: "https://preview.proffera.test" });
+
+    expect(result).toMatchObject({ ok: true, attempted: 0, sent: 0, skipped: { enough_offers: 1 } });
+    expect(mocks.getMatch).not.toHaveBeenCalled();
+    expect(mocks.sendInvitation).not.toHaveBeenCalled();
+  });
+
   it("waits before Wave 2 and sends nothing during the delay window", async () => {
-    const invitationSummary = summary({
+    mocks.getSummaries.mockResolvedValue(new Map([["11111111-1111-4111-8111-111111111111", summary({
       wave1Count: 3,
       totalCount: 3,
       latestWave1At: "2026-08-22T10:00:00.000Z",
-    });
-    mocks.getSummaries.mockResolvedValue(new Map([["11111111-1111-4111-8111-111111111111", invitationSummary]]));
+    })]]));
 
     const result = await processMarketplaceAutoWorker({
       baseUrl: "https://preview.proffera.test",
@@ -132,7 +167,7 @@ describe("Marketplace Auto Worker", () => {
     });
 
     expect(result).toMatchObject({ ok: true, sent: 0, skipped: { wave2_waiting: 1 } });
-    expect(mocks.sendInvitation).not.toHaveBeenCalled();
+    expect(mocks.getMatch).not.toHaveBeenCalled();
   });
 
   it("sends Wave 2 to at most two new candidates after the delay when fewer than two offers exist", async () => {
@@ -141,90 +176,84 @@ describe("Marketplace Auto Worker", () => {
       [candidate(2).profileId, invitationState(2)],
       [candidate(4).profileId, invitationState(4)],
     ]);
-    const invitationSummary = summary({
+    mocks.getSummaries.mockResolvedValue(new Map([["11111111-1111-4111-8111-111111111111", summary({
       wave1Count: 3,
       totalCount: 3,
       byProfile: alreadyInvited,
       latestWave1At: "2026-08-22T10:00:00.000Z",
-    });
-    mocks.getSummaries.mockResolvedValue(new Map([["11111111-1111-4111-8111-111111111111", invitationSummary]]));
-    mocks.getMatches.mockResolvedValue({
-      ok: true,
-      matches: [match({
-        candidates: [candidate(4), candidate(5), candidate(6)],
-        offers: [{ status: "submitted" }],
-      })],
-    });
+    })]]));
+    mocks.getMatch.mockResolvedValue({ ok: true, match: match({
+      candidates: [candidate(4), candidate(5), candidate(6)],
+      offers: [{ status: "submitted" }],
+    }) });
 
     const result = await processMarketplaceAutoWorker({
       baseUrl: "https://preview.proffera.test",
       now: new Date("2026-08-22T17:00:00.000Z"),
     });
 
-    expect(result).toMatchObject({ ok: true, attempted: 1, sent: 2, wave1Sent: 0, wave2Sent: 2 });
-    expect(mocks.sendInvitation).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({ ok: true, attempted: 1, sent: 2, wave2Sent: 2 });
     expect(mocks.sendInvitation).toHaveBeenNthCalledWith(1, expect.objectContaining({ profileId: candidate(5).profileId, wave: 2 }));
     expect(mocks.sendInvitation).toHaveBeenNthCalledWith(2, expect.objectContaining({ profileId: candidate(6).profileId, wave: 2 }));
   });
 
-  it("never sends Wave 2 once two submitted or selected offers exist", async () => {
-    mocks.getSummaries.mockResolvedValue(new Map([["11111111-1111-4111-8111-111111111111", summary({
-      wave1Count: 3,
-      totalCount: 3,
-      latestWave1At: "2026-08-22T08:00:00.000Z",
-    })]]));
-    mocks.getMatches.mockResolvedValue({
-      ok: true,
-      matches: [match({ offers: [{ status: "submitted" }, { status: "selected" }] })],
-    });
+  it("rechecks offer count after loading the fresh single-request match", async () => {
+    mocks.getMatch.mockResolvedValue({ ok: true, match: match({ offers: [{ status: "submitted" }, { status: "selected" }] }) });
 
-    const result = await processMarketplaceAutoWorker({
-      baseUrl: "https://preview.proffera.test",
-      now: new Date("2026-08-22T20:00:00.000Z"),
-    });
+    const result = await processMarketplaceAutoWorker({ baseUrl: "https://preview.proffera.test" });
 
-    expect(result).toMatchObject({ ok: true, sent: 0, skipped: { enough_offers: 1 } });
+    expect(result).toMatchObject({ ok: true, attempted: 0, sent: 0, skipped: { enough_offers: 1 } });
     expect(mocks.sendInvitation).not.toHaveBeenCalled();
   });
 
-  it("does not let skipped requests consume the actionable batch budget", async () => {
-    const waitingId = "11111111-1111-4111-8111-111111111111";
-    const actionableId = "22222222-2222-4222-8222-222222222222";
-    mocks.getMatches.mockResolvedValue({
-      ok: true,
-      matches: [
-        match({
-          lead: { ...match().lead, id: waitingId, created_at: "2026-08-22T08:00:00.000Z" },
-          offers: [{ status: "submitted" }, { status: "selected" }],
-        }),
-        match({
-          lead: { ...match().lead, id: actionableId, created_at: "2026-08-22T09:00:00.000Z" },
-          candidates: [candidate(7)],
-        }),
-      ],
-    });
-    mocks.getSummaries.mockResolvedValue(new Map([
-      [waitingId, summary({ wave1Count: 3, totalCount: 3, latestWave1At: "2026-08-22T07:00:00.000Z" })],
-      [actionableId, summary()],
-    ]));
+  it("pages past fifty older skipped requests so a later actionable request is not starved", async () => {
+    const oldRows = Array.from({ length: 50 }, (_, index) => queueRow(
+      `${String(index + 1).padStart(8, "0")}-1111-4111-8111-111111111111`,
+      { createdAt: `2026-08-21T${String(Math.floor(index / 3)).padStart(2, "0")}:${String((index % 3) * 20).padStart(2, "0")}:00.000Z`, submittedOfferCount: 2 },
+    ));
+    const actionableId = "99999999-1111-4111-8111-111111111111";
+    mocks.getQueuePage
+      .mockResolvedValueOnce({ ok: true, rows: oldRows })
+      .mockResolvedValueOnce({ ok: true, rows: [queueRow(actionableId, { createdAt: "2026-08-22T09:00:00.000Z" })] });
+    mocks.getSummaries
+      .mockResolvedValueOnce(new Map(oldRows.map((row) => [row.quoteRequestId, summary()])))
+      .mockResolvedValueOnce(new Map([[actionableId, summary()]]));
+    mocks.getMatch.mockResolvedValue({ ok: true, match: match({ lead: { ...match().lead, id: actionableId }, candidates: [candidate(7)] }) });
 
-    const result = await processMarketplaceAutoWorker({
-      baseUrl: "https://preview.proffera.test",
-      batchSize: 1,
-    });
+    const result = await processMarketplaceAutoWorker({ baseUrl: "https://preview.proffera.test", batchSize: 1 });
 
-    expect(result).toMatchObject({ ok: true, attempted: 1, sent: 1, skipped: { enough_offers: 1 } });
-    expect(mocks.sendInvitation).toHaveBeenCalledTimes(1);
-    expect(mocks.sendInvitation).toHaveBeenCalledWith(expect.objectContaining({ quoteRequestId: actionableId }));
+    expect(result).toMatchObject({ ok: true, attempted: 1, sent: 1, scanned: 51, skipped: { enough_offers: 50 } });
+    expect(mocks.getQueuePage).toHaveBeenCalledTimes(2);
+    expect(mocks.getQueuePage).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      afterPriorityRank: oldRows[49]?.priorityRank,
+      afterCreatedAt: oldRows[49]?.createdAt,
+      afterId: oldRows[49]?.quoteRequestId,
+    }));
+    expect(mocks.getMatch).toHaveBeenCalledTimes(1);
+    expect(mocks.getMatch).toHaveBeenCalledWith(actionableId);
   });
 
-  it("fails closed before matching when transactional email is not configured", async () => {
-    mocks.emailConfigured.mockReturnValue(false);
+  it("passes leased rematches as queue priorities and preserves provider exclusions", async () => {
+    const rematchId = "22222222-2222-4222-8222-222222222222";
+    const rematchContext = new Map([[rematchId, { rematchId: "lease", excludedProfileIds: new Set(), excludedRecipientEmails: new Set() }]]);
+    mocks.prepareRematch.mockResolvedValue(rematchContext);
+    mocks.getQueuePage.mockResolvedValue({ ok: true, rows: [queueRow(rematchId, { priorityRank: 0 })] });
+    mocks.getSummaries.mockResolvedValue(new Map([[rematchId, summary()]]));
+    const routed = match({ lead: { ...match().lead, id: rematchId }, candidates: [candidate(8)] });
+    mocks.applyRematch.mockReturnValue([routed]);
 
+    await processMarketplaceAutoWorker({ baseUrl: "https://preview.proffera.test", batchSize: 1 });
+
+    expect(mocks.getQueuePage).toHaveBeenCalledWith(expect.objectContaining({ priorityQuoteRequestIds: [rematchId] }));
+    expect(mocks.applyRematch).toHaveBeenCalledWith([expect.any(Object)], rematchContext);
+    expect(mocks.finalizeRematch).toHaveBeenCalledWith(rematchContext);
+  });
+
+  it("fails closed before queue reads when transactional email is not configured", async () => {
+    mocks.emailConfigured.mockReturnValue(false);
     await expect(processMarketplaceAutoWorker({ baseUrl: "https://preview.proffera.test" }))
       .resolves.toEqual({ ok: false, error: "email_configuration" });
-    expect(mocks.getMatches).not.toHaveBeenCalled();
-    expect(mocks.sendInvitation).not.toHaveBeenCalled();
+    expect(mocks.getQueuePage).not.toHaveBeenCalled();
   });
 
   it("fails closed with a typed error for malformed or non-HTTPS base URLs", async () => {
@@ -232,17 +261,12 @@ describe("Marketplace Auto Worker", () => {
       .resolves.toEqual({ ok: false, error: "invalid_base_url" });
     await expect(processMarketplaceAutoWorker({ baseUrl: "http://preview.proffera.test" }))
       .resolves.toEqual({ ok: false, error: "invalid_base_url" });
-    expect(mocks.getMatches).not.toHaveBeenCalled();
+    expect(mocks.getQueuePage).not.toHaveBeenCalled();
   });
 
   it("does not send candidates with unsafe contact basis", async () => {
-    mocks.getMatches.mockResolvedValue({
-      ok: true,
-      matches: [match({ candidates: [candidate(1, { contactBasis: null, recipientEmail: "person@gmail.com" })] })],
-    });
-
+    mocks.getMatch.mockResolvedValue({ ok: true, match: match({ candidates: [candidate(1, { contactBasis: null, recipientEmail: "person@gmail.com" })] }) });
     const result = await processMarketplaceAutoWorker({ baseUrl: "https://preview.proffera.test" });
-
     expect(result).toMatchObject({ ok: true, sent: 0, skipped: { plan_no_safe_contacts: 1 } });
     expect(mocks.sendInvitation).not.toHaveBeenCalled();
   });
@@ -257,68 +281,37 @@ describe("Marketplace Auto Worker", () => {
   });
 
   it("falls back to the safe default Wave 2 delay for non-finite values", () => {
-    const invitationSummary = summary({
-      wave1Count: 3,
-      totalCount: 3,
-      latestWave1At: "2026-08-22T10:00:00.000Z",
-    });
+    const invitationSummary = summary({ wave1Count: 3, totalCount: 3, latestWave1At: "2026-08-22T10:00:00.000Z" });
     const nowMs = Date.parse("2026-08-22T12:00:00.000Z");
-
-    expect(decideMarketplaceAutoWave({
-      invitationSummary,
-      submittedOfferCount: 0,
-      nowMs,
-      wave2DelayMs: Number.NaN,
-    })).toEqual({ wave: null, reason: "wave2_waiting" });
-
-    expect(decideMarketplaceAutoWave({
-      invitationSummary,
-      submittedOfferCount: 0,
-      nowMs,
-      wave2DelayMs: Number.POSITIVE_INFINITY,
-    })).toEqual({ wave: null, reason: "wave2_waiting" });
+    expect(decideMarketplaceAutoWave({ invitationSummary, submittedOfferCount: 0, nowMs, wave2DelayMs: Number.NaN }))
+      .toEqual({ wave: null, reason: "wave2_waiting" });
+    expect(decideMarketplaceAutoWave({ invitationSummary, submittedOfferCount: 0, nowMs, wave2DelayMs: Number.POSITIVE_INFINITY }))
+      .toEqual({ wave: null, reason: "wave2_waiting" });
   });
 
   it("marks the deadline when a candidate state update times out at the worker deadline", async () => {
     vi.useFakeTimers();
     try {
-      mocks.getMatches.mockResolvedValue({ ok: true, matches: [match({ candidates: [candidate(1)] })] });
       mocks.expireInvitation.mockImplementation(() => new Promise(() => {}));
-
-      const resultPromise = processMarketplaceAutoWorker({
-        baseUrl: "https://preview.proffera.test",
-        deadlineMs: 1_000,
-      });
+      const resultPromise = processMarketplaceAutoWorker({ baseUrl: "https://preview.proffera.test", deadlineMs: 1_000 });
       await vi.runAllTimersAsync();
       const result = await resultPromise;
-
-      expect(result).toMatchObject({
-        ok: true,
-        attempted: 1,
-        sent: 0,
-        deadlineReached: true,
-        skipped: { delivery_error: 1 },
-      });
+      expect(result).toMatchObject({ ok: true, attempted: 1, sent: 0, deadlineReached: true, skipped: { delivery_error: 1 } });
       expect(mocks.sendInvitation).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("bounds matching pre-processing by the worker deadline", async () => {
+  it("bounds queue pre-processing by the worker deadline", async () => {
     vi.useFakeTimers();
     try {
-      mocks.getMatches.mockImplementation(() => new Promise(() => {}));
-
-      const resultPromise = processMarketplaceAutoWorker({
-        baseUrl: "https://preview.proffera.test",
-        deadlineMs: 1_000,
-      });
+      mocks.getQueuePage.mockImplementation(() => new Promise(() => {}));
+      const resultPromise = processMarketplaceAutoWorker({ baseUrl: "https://preview.proffera.test", deadlineMs: 1_000 });
       await vi.runAllTimersAsync();
-
       await expect(resultPromise).resolves.toEqual({ ok: false, error: "matching_failed" });
       expect(mocks.getSummaries).not.toHaveBeenCalled();
-      expect(mocks.sendInvitation).not.toHaveBeenCalled();
+      expect(mocks.getMatch).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }
