@@ -79,9 +79,23 @@ describe("quote request official address verification", () => {
         status: "matched",
         referenceId: "439b33bf-6279-4b65-b32c-9741646d8d3e",
       }),
+      "sv",
     );
     expect(mocks.allowPublicSubmission.mock.invocationCallOrder[0])
       .toBeLessThan(mocks.verifyCustomerAddress.mock.invocationCallOrder[0]);
+  });
+
+  it("persists English locale from the public English request context", async () => {
+    const requestHeaders = new Headers();
+    requestHeaders.set("x-proffera-locale", "en");
+    mocks.headers.mockResolvedValue(requestHeaders);
+
+    await expect(submitQuoteRequest(request())).resolves.toEqual({ ok: true, referenceId: "PRO-TEST" });
+    expect(mocks.storeQuoteRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ locationSource: "address" }),
+      expect.objectContaining({ status: "matched" }),
+      "en",
+    );
   });
 
   it("does not call Lantmäteriet when abuse protection denies the submission", async () => {
@@ -124,6 +138,7 @@ describe("quote request official address verification", () => {
     expect(mocks.storeQuoteRequest).toHaveBeenCalledWith(
       expect.objectContaining({ locationSource: "address" }),
       undefined,
+      "sv",
     );
   });
 
@@ -150,6 +165,7 @@ describe("quote request official address verification", () => {
     expect(mocks.storeQuoteRequest).toHaveBeenCalledWith(
       expect.objectContaining({ locationSource: "address" }),
       undefined,
+      "sv",
     );
   });
 
@@ -166,6 +182,7 @@ describe("quote request official address verification", () => {
     expect(mocks.storeQuoteRequest).toHaveBeenCalledWith(
       expect.objectContaining({ locationSource: "geolocation" }),
       undefined,
+      "sv",
     );
   });
 });
