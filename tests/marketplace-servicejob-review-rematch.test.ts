@@ -44,9 +44,24 @@ import {
 } from "@/lib/marketplace-verified-review";
 import { moderateMarketplaceVerifiedReview } from "@/lib/marketplace-review-moderation";
 
+type TransactionBuilder = (
+  txn: (strings: TemplateStringsArray, ...values: unknown[]) => unknown[],
+) => unknown[][];
+
 function sqlResponses(...responses: unknown[][]) {
   let index = 0;
-  return vi.fn(async () => responses[index++] ?? []);
+  const transactionQueries: unknown[][] = [];
+  const sql = vi.fn(async () => responses[index++] ?? []);
+  const transaction = vi.fn(async (builder: TransactionBuilder) => {
+    const txn = (strings: TemplateStringsArray, ...values: unknown[]) => {
+      const call: unknown[] = [strings, ...values];
+      transactionQueries.push(call);
+      return call;
+    };
+    const queries = builder(txn);
+    return queries.map(() => responses[index++] ?? []);
+  });
+  return Object.assign(sql, { transaction, transactionQueries });
 }
 
 function queryText(call: unknown[] | undefined) {
@@ -191,8 +206,8 @@ describe("Marketplace Rematch", () => {
     mocks.customerHash.mockReturnValue("customer-hash");
   });
 
-  it("creates a new draft Quote Request generation instead of promoting an old losing offer", async () => {
-    const sql = sqlResponses([{
+  it("serializes rematch creation before cloning customer PII", async () => {
+    const row = {
       id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
       status: "pending",
       source_quote_request_id: "11111111-1111-4111-8111-111111111111",
@@ -201,12 +216,16 @@ describe("Marketplace Rematch", () => {
       created_at: "2026-08-22T12:00:00Z",
       processed_at: null,
       already_exists: false,
-    }]);
+    };
+    const sql = sqlResponses([], [row]);
     mocks.getSql.mockReturnValue(sql);
 
     const result = await requestMarketplaceRematchByCustomerToken({ token: "c".repeat(43), reason: "No show" });
     expect(result).toMatchObject({ ok: true, code: "requested" });
-    const query = queryText(sql.mock.calls[0]);
+    expect(sql.transaction).toHaveBeenCalledWith(expect.any(Function), { isolationMode: "ReadCommitted" });
+    expect(queryText(sql.transactionQueries[0])).toContain("pg_advisory_xact_lock");
+    expect(queryText(sql.transactionQueries[0])).toContain("job.id::text");
+    const query = queryText(sql.transactionQueries[1]);
     expect(query).toContain("insert into quote_requests");
     expect(query).toContain("'draft'");
     expect(query).toContain("insert into marketplace_rematch_requests");
@@ -215,7 +234,7 @@ describe("Marketplace Rematch", () => {
   });
 
   it("is idempotent for duplicate/racing customer requests", async () => {
-    mocks.getSql.mockReturnValue(sqlResponses([{
+    const sql = sqlResponses([], [{
       id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
       status: "pending",
       source_quote_request_id: "11111111-1111-4111-8111-111111111111",
@@ -224,9 +243,11 @@ describe("Marketplace Rematch", () => {
       created_at: "2026-08-22T12:00:00Z",
       processed_at: null,
       already_exists: true,
-    }]));
+    }]);
+    mocks.getSql.mockReturnValue(sql);
     await expect(requestMarketplaceRematchByCustomerToken({ token: "c".repeat(43) }))
       .resolves.toMatchObject({ ok: true, code: "already_requested" });
+    expect(queryText(sql.transactionQueries[0])).toContain("pg_advisory_xact_lock");
   });
 
   it("reads rematch state only through the same customer access token", async () => {
@@ -341,6 +362,7 @@ describe("Verified Review and Reputation", () => {
     expect(migration).toContain("review.is_verified = true");
     expect(migration).toContain("review.status = 'approved'");
     expect(migration).toContain("count(job.id) filter (where job.status = 'completed')");
+    expect(migration).toContain("references marketplace_service_jobs(id) on delete cascade");
   });
 
   it("prevents a second winner/job generation and terminal reopening in the database", () => {
