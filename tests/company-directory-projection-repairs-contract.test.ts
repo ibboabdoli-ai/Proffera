@@ -19,7 +19,7 @@ const BASELINE_MIGRATION_PATHS = [
 ] as const;
 
 const REPAIR_MIGRATION_PATH =
-  "db/migrations/20260822_0057_company_directory_projection_repairs.sql";
+  "db/migrations/20260822_0058_company_directory_projection_repairs.sql";
 
 function docker(args: string[]) {
   return execFileSync("docker", args, { encoding: "utf8" }).trim();
