@@ -32,6 +32,7 @@ function summary(overrides: Partial<MarketplaceLeadInvitationSummary> = {}): Mar
     wave2Count: 0,
     totalCount: 0,
     byProfile: new Map(),
+    latestWave1At: null,
     ...overrides,
   };
 }
@@ -73,7 +74,13 @@ describe("marketplace 3+2 wave planner", () => {
 
   it("selects at most two new candidates for Wave 2", () => {
     const usedProfile = candidate(1);
-    const byProfile = new Map([[usedProfile.profileId, { status: "sent", wave: 1 as const, blocking: true, expiresAt: "2026-08-30" }]]);
+    const byProfile = new Map([[usedProfile.profileId, {
+      status: "sent",
+      wave: 1 as const,
+      blocking: true,
+      expiresAt: "2026-08-30",
+      recipientEmail: usedProfile.recipientEmail,
+    }]]);
     const plan = planMarketplaceGuestWave({
       requestedWave: 2,
       candidates: [usedProfile, candidate(4), candidate(5), candidate(6)],
@@ -99,7 +106,13 @@ describe("marketplace 3+2 wave planner", () => {
 
   it("never auto-selects weak, unsafe-basis, or already invited candidates", () => {
     const invited = candidate(1);
-    const byProfile = new Map([[invited.profileId, { status: "sent", wave: 1 as const, blocking: true, expiresAt: "2026-08-30" }]]);
+    const byProfile = new Map([[invited.profileId, {
+      status: "sent",
+      wave: 1 as const,
+      blocking: true,
+      expiresAt: "2026-08-30",
+      recipientEmail: invited.recipientEmail,
+    }]]);
     const plan = planMarketplaceGuestWave({
       requestedWave: 1,
       candidates: [
@@ -113,5 +126,29 @@ describe("marketplace 3+2 wave planner", () => {
     });
 
     expect(plan).toMatchObject({ reason: "no_safe_contacts", candidates: [] });
+  });
+
+  it("does not send twice to the same normalized mailbox across profiles or waves", () => {
+    const usedProfile = candidate(1, { recipientEmail: "Shared@Company.se" });
+    const byProfile = new Map([[usedProfile.profileId, {
+      status: "sent",
+      wave: 1 as const,
+      blocking: true,
+      expiresAt: "2026-08-30",
+      recipientEmail: usedProfile.recipientEmail,
+    }]]);
+    const plan = planMarketplaceGuestWave({
+      requestedWave: 2,
+      candidates: [
+        candidate(4, { recipientEmail: " shared@company.se " }),
+        candidate(5, { recipientEmail: "new@company.se" }),
+        candidate(6, { recipientEmail: "NEW@company.se" }),
+      ],
+      invitationSummary: summary({ wave1Count: 3, totalCount: 3, byProfile }),
+      submittedOfferCount: 0,
+    });
+
+    expect(plan.reason).toBe("ready");
+    expect(plan.candidates.map((item) => item.profileId)).toEqual([candidate(5).profileId]);
   });
 });

@@ -7,6 +7,10 @@ export type MarketplaceWavePlan = {
   reason: "ready" | "wave1_first" | "enough_offers" | "wave_full" | "no_safe_contacts";
 };
 
+function normalizedRecipientEmail(value: string | undefined) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
 export function planMarketplaceGuestWave(input: {
   requestedWave: 1 | 2;
   candidates: DirectoryGuestCandidate[];
@@ -30,19 +34,38 @@ export function planMarketplaceGuestWave(input: {
     return { wave: requestedWave, candidates: [], reason: "wave_full" };
   }
 
-  const safeCandidates = candidates.filter((candidate) => (
-    candidate.score >= MIN_AUTOMATION_SCORE
-    && Boolean(candidate.recipientEmail)
-    && candidate.contactBasis === "official_business_register"
-    && !invitationSummary.byProfile.has(candidate.profileId)
-  ));
+  const usedRecipientEmails = new Set(
+    [...invitationSummary.byProfile.values()]
+      .map((state) => normalizedRecipientEmail(state.recipientEmail))
+      .filter(Boolean),
+  );
+  const selectedRecipientEmails = new Set(usedRecipientEmails);
+  const safeCandidates: DirectoryGuestCandidate[] = [];
+
+  for (const candidate of candidates) {
+    const recipientEmail = normalizedRecipientEmail(candidate.recipientEmail);
+    if (
+      candidate.score < MIN_AUTOMATION_SCORE
+      || !recipientEmail
+      || candidate.contactBasis !== "official_business_register"
+      || invitationSummary.byProfile.has(candidate.profileId)
+      || selectedRecipientEmails.has(recipientEmail)
+    ) {
+      continue;
+    }
+
+    selectedRecipientEmails.add(recipientEmail);
+    safeCandidates.push(candidate);
+    if (safeCandidates.length >= availableSlots) break;
+  }
+
   if (safeCandidates.length === 0) {
     return { wave: requestedWave, candidates: [], reason: "no_safe_contacts" };
   }
 
   return {
     wave: requestedWave,
-    candidates: safeCandidates.slice(0, availableSlots),
+    candidates: safeCandidates,
     reason: "ready",
   };
 }
