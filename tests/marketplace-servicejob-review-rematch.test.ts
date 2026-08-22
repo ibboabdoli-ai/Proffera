@@ -101,6 +101,36 @@ describe("Marketplace ServiceJob lifecycle and security", () => {
     expect(query).toContain("invitation.expires_at > now()");
   });
 
+  it("does not resolve a loser invitation token to the winner ServiceJob", async () => {
+    const sql = sqlResponses([]);
+    mocks.getSql.mockReturnValue(sql);
+
+    await expect(getMarketplaceServiceJobForGuestToken("g".repeat(43))).resolves.toBeNull();
+
+    const query = queryText(sql.mock.calls[0]);
+    expect(query).toContain("offer.invitation_id = invitation.id");
+    expect(query).toContain("offer.status = 'selected'");
+    expect(query).toContain("job.selected_offer_id = offer.id");
+  });
+
+  it("rejects malformed provider and customer tokens before any database lookup", async () => {
+    mocks.guestValid.mockReturnValue(false);
+    mocks.customerValid.mockReturnValue(false);
+
+    await expect(getMarketplaceServiceJobForGuestToken("guessable-token")).resolves.toBeNull();
+    await expect(getMarketplaceServiceJobForCustomerToken("guessable-token")).resolves.toBeNull();
+    await expect(transitionMarketplaceServiceJobByGuestToken({
+      token: "guessable-token",
+      nextStatus: "in_progress",
+    })).resolves.toEqual({ ok: false, code: "invalid" });
+    await expect(cancelMarketplaceServiceJobByCustomerToken("guessable-token"))
+      .resolves.toEqual({ ok: false, code: "invalid" });
+
+    expect(mocks.getSql).not.toHaveBeenCalled();
+    expect(mocks.guestHash).not.toHaveBeenCalled();
+    expect(mocks.customerHash).not.toHaveBeenCalled();
+  });
+
   it("binds customer job access to the secure customer token and selected offer", async () => {
     const sql = sqlResponses([jobRow]);
     mocks.getSql.mockReturnValue(sql);
@@ -269,7 +299,7 @@ describe("Verified Review and Reputation", () => {
       .resolves.toEqual({ ok: false, code: "used" });
   });
 
-  it("moderates only pending verified reviews attached to completed jobs", async () => {
+  it("approves only pending verified reviews attached to completed jobs", async () => {
     const reviewId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
     const sql = sqlResponses([{ id: reviewId, status: "approved" }]);
     mocks.getSql.mockReturnValue(sql);
@@ -283,6 +313,26 @@ describe("Verified Review and Reputation", () => {
     expect(query).toContain("job.status = 'completed'");
     expect(query).toContain("review.status = 'pending'");
     expect(query).toContain("insert into admin_audit_logs");
+  });
+
+  it("rejects a pending verified review without publishing it and audits the decision", async () => {
+    const reviewId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+    const sql = sqlResponses([{ id: reviewId, status: "rejected" }]);
+    mocks.getSql.mockReturnValue(sql);
+
+    await expect(moderateMarketplaceVerifiedReview({
+      reviewId,
+      decision: "rejected",
+      adminUserId: "admin-user",
+      reason: "Fails moderation",
+    })).resolves.toEqual({ ok: true, status: "rejected" });
+
+    const query = queryText(sql.mock.calls[0]);
+    expect(query).toContain("published_at = case when");
+    expect(query).toContain("else null end");
+    expect(query).toContain("insert into admin_audit_logs");
+    expect(sql.mock.calls[0]).toContain("marketplace_review.rejected");
+    expect(sql.mock.calls[0]).toContain("Fails moderation");
   });
 
   it("keeps reputation limited to approved verified Marketplace reviews", () => {
