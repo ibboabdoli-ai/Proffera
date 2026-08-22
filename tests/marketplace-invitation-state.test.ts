@@ -60,7 +60,7 @@ describe("marketplace invitation persisted state", () => {
     expect(queryText(sql.mock.calls[0])).toContain("from marketplace_quote_invitations");
   });
 
-  it("expires only elapsed sent/viewed links and leaves ambiguous dispatch states alone", async () => {
+  it("expires only elapsed sent/viewed links without waiting on actively locked rows", async () => {
     const sql = vi.fn(async () => []);
     mocks.getSql.mockReturnValue(sql);
 
@@ -72,6 +72,8 @@ describe("marketplace invitation persisted state", () => {
     const query = queryText(sql.mock.calls[0]);
     expect(query).toContain("expires_at <= now()");
     expect(query).toContain("status in ('sent', 'viewed')");
+    expect(query).toContain("for update skip locked");
+    expect(query).toContain("where invitation.id = expirable.id");
     expect(query).not.toContain("delivery_uncertain");
     expect(query).not.toContain("status in ('pending'");
   });
