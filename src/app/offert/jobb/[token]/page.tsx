@@ -11,6 +11,7 @@ export const metadata: Metadata = {
 };
 
 type Locale = "sv" | "en";
+type ActionFeedback = { text: string; severity: "success" | "error" } | null;
 
 function localeFrom(value: string | string[] | undefined): Locale {
   return Array.isArray(value) ? (value[0] === "en" ? "en" : "sv") : value === "en" ? "en" : "sv";
@@ -71,19 +72,19 @@ const copy = {
   },
 } as const;
 
-function actionMessage(value: string | undefined, locale: Locale) {
+function actionMessage(value: string | undefined, locale: Locale): ActionFeedback {
   const sv = locale === "sv";
-  if (value === "in_progress") return sv ? "Jobbet har startats." : "The job has been started.";
-  if (value === "completed") return sv ? "Jobbet har markerats som slutfört." : "The job has been marked completed.";
-  if (value === "provider_cancelled") return sv ? "Jobbet har avbrutits av företaget." : "The job has been cancelled by the provider.";
-  if (value === "no_show") return sv ? "Jobbet har markerats som no-show." : "The job has been marked as a no-show.";
-  if (value === "problem") return sv ? "Problemet har registrerats." : "The problem has been recorded.";
-  if (value === "rate_limited") return sv ? "För många försök. Vänta en stund och försök igen." : "Too many attempts. Wait a while and try again.";
-  if (value === "completion_required") return sv ? "Lägg till en sammanfattning av det utförda arbetet." : "Add a summary of the completed work.";
-  if (value === "reason_required") return sv ? "Ange en anledning innan du fortsätter." : "Enter a reason before continuing.";
-  if (value === "invalid" || value === "transition") return sv ? "Åtgärden kan inte göras i jobbets nuvarande status." : "That action is not available in the job's current status.";
-  if (value === "database" || value === "unavailable") return sv ? "Åtgärden kunde inte sparas just nu. Försök igen." : "The action could not be saved right now. Try again.";
-  return "";
+  if (value === "in_progress") return { text: sv ? "Jobbet har startats." : "The job has been started.", severity: "success" };
+  if (value === "completed") return { text: sv ? "Jobbet har markerats som slutfört." : "The job has been marked completed.", severity: "success" };
+  if (value === "provider_cancelled") return { text: sv ? "Jobbet har avbrutits av företaget." : "The job has been cancelled by the provider.", severity: "success" };
+  if (value === "no_show") return { text: sv ? "Jobbet har markerats som no-show." : "The job has been marked as a no-show.", severity: "success" };
+  if (value === "problem") return { text: sv ? "Problemet har registrerats." : "The problem has been recorded.", severity: "success" };
+  if (value === "rate_limited") return { text: sv ? "För många försök. Vänta en stund och försök igen." : "Too many attempts. Wait a while and try again.", severity: "error" };
+  if (value === "completion_required") return { text: sv ? "Lägg till en sammanfattning av det utförda arbetet." : "Add a summary of the completed work.", severity: "error" };
+  if (value === "reason_required") return { text: sv ? "Ange en anledning innan du fortsätter." : "Enter a reason before continuing.", severity: "error" };
+  if (value === "invalid" || value === "transition") return { text: sv ? "Åtgärden kan inte göras i jobbets nuvarande status." : "That action is not available in the job's current status.", severity: "error" };
+  if (value === "database" || value === "unavailable") return { text: sv ? "Åtgärden kunde inte sparas just nu. Försök igen." : "The action could not be saved right now. Try again.", severity: "error" };
+  return null;
 }
 
 function formatMoney(amountMinor: number, currency: string, locale: Locale) {
@@ -142,7 +143,7 @@ export default async function MarketplaceProviderJobPage({
         </header>
 
         <div className="grid gap-6 p-6 sm:p-10">
-          {feedback ? <p role="status" className="rounded-xl border border-[#a9cdb2] bg-[#edf8ef] px-4 py-3 text-sm font-semibold text-[#17452f]">{feedback}</p> : null}
+          {feedback ? <p role={feedback.severity === "error" ? "alert" : "status"} className={feedback.severity === "error" ? "rounded-xl border border-[#efc2bb] bg-[#fff1ef] px-4 py-3 text-sm font-semibold text-[#8a2b20]" : "rounded-xl border border-[#a9cdb2] bg-[#edf8ef] px-4 py-3 text-sm font-semibold text-[#17452f]"}>{feedback.text}</p> : null}
 
           <dl className="grid gap-4 rounded-2xl bg-[#f7f9f7] p-5 sm:grid-cols-2">
             <div><dt className="text-xs font-bold uppercase text-[#6b776d]">{text.status}</dt><dd className="mt-1 font-bold">{job.status}</dd></div>
