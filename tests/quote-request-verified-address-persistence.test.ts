@@ -81,7 +81,7 @@ describe("verified customer address persistence", () => {
     expect(insert?.values).toContain("439b33bf-6279-4b65-b32c-9741646d8d3e");
   });
 
-  it("keeps the legacy address insert deploy-safe until migration 0058 exists", async () => {
+  it("keeps the legacy address insert deploy-safe until migration 0059 exists", async () => {
     const { sql, calls } = createSql(false);
     mocks.getSql.mockReturnValue(sql);
 
