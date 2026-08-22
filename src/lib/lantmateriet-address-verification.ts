@@ -16,6 +16,7 @@ const MAX_DETAIL_CANDIDATES = 5;
 const VERIFICATION_BUDGET_MS = 10_000;
 const REQUEST_TIMEOUT_MS = 4_000;
 const MIN_REQUEST_BUDGET_MS = 250;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type VerificationConfig = {
   username: string;
@@ -44,26 +45,35 @@ class VerificationTimeoutError extends Error {
   }
 }
 
+export function isValidCustomerAddressReferenceId(value: unknown): value is string {
+  return typeof value === "string" && UUID_PATTERN.test(value.trim());
+}
+
 function getVerificationConfig(): VerificationConfig {
   const username = process.env.LANTMATERIET_ADDRESS_API_USERNAME?.trim() ?? "";
   const password = process.env.LANTMATERIET_ADDRESS_API_PASSWORD?.trim() ?? "";
   const rawBase = process.env.LANTMATERIET_ADDRESS_API_BASE_URL?.trim() || DEFAULT_LANTMATERIET_BASE_URL;
-  let baseUrl: URL;
+  let parsedBaseUrl: URL | null = null;
   try {
-    baseUrl = new URL(rawBase);
+    parsedBaseUrl = new URL(rawBase);
   } catch {
-    baseUrl = new URL(DEFAULT_LANTMATERIET_BASE_URL);
+    parsedBaseUrl = null;
   }
 
+  const fallbackBaseUrl = new URL(DEFAULT_LANTMATERIET_BASE_URL);
+  const baseUrl = parsedBaseUrl ?? fallbackBaseUrl;
+  const allowedProtocol = parsedBaseUrl?.protocol === "https:";
   const allowedHost = baseUrl.hostname === "api.lantmateriet.se" || baseUrl.hostname === "api-ver.lantmateriet.se";
   const allowedPath = baseUrl.pathname === "/distribution/produkter/belagenhetsadress/v4.2"
     || baseUrl.pathname === "/distribution/produkter/belagenhetsadress/v4.2/";
+  const acceptedBaseUrl = Boolean(parsedBaseUrl) && allowedProtocol && allowedHost && allowedPath;
+  const normalizedBaseUrl = `${baseUrl.origin}${baseUrl.pathname}`.replace(/\/$/, "");
 
   return {
     username,
     password,
-    baseUrl: allowedHost && allowedPath ? baseUrl.toString().replace(/\/$/, "") : DEFAULT_LANTMATERIET_BASE_URL,
-    configured: Boolean(username) && Boolean(password) && allowedHost && allowedPath,
+    baseUrl: acceptedBaseUrl ? normalizedBaseUrl : DEFAULT_LANTMATERIET_BASE_URL,
+    configured: Boolean(username) && Boolean(password) && acceptedBaseUrl,
   };
 }
 
@@ -82,6 +92,13 @@ function isTimeoutError(error: unknown) {
   if (!error || typeof error !== "object") return false;
   const name = String((error as { name?: unknown }).name ?? "");
   return name === "TimeoutError" || name === "AbortError";
+}
+
+function safeErrorSummary(error: unknown) {
+  if (error instanceof Error) {
+    return { name: error.name, message: error.message };
+  }
+  return { name: "UnknownError", message: String(error) };
 }
 
 async function fetchJson(url: URL, config: VerificationConfig, deadline: number) {
@@ -126,6 +143,9 @@ export async function verifyCustomerAddress(input: {
     if (referencePayload.length === 0) return { status: "no_match", reason: "no_reference" };
 
     const references = referencePayload as LantmaterietAddressReference[];
+    if (!references.some((reference) => isValidCustomerAddressReferenceId(reference.objektidentitet))) {
+      return { status: "no_match", reason: "invalid_reference" };
+    }
     const candidates = selectDirectoryAddressReferenceCandidates(references, input.postalCode, input.city);
     if (candidates.length === 0) return { status: "no_match", reason: "reference_postal_mismatch" };
     if (candidates.length > MAX_DETAIL_CANDIDATES) return { status: "no_match", reason: "too_many_candidates" };
@@ -134,7 +154,9 @@ export async function verifyCustomerAddress(input: {
     const detailReasons = new Set<DirectoryGeocodingNoMatchReason>();
     for (const candidate of candidates) {
       const referenceId = candidate.objektidentitet;
-      if (!referenceId) continue;
+      if (!isValidCustomerAddressReferenceId(referenceId)) {
+        return { status: "no_match", reason: "invalid_reference" };
+      }
       if (Date.now() >= deadline) throw new VerificationTimeoutError();
 
       const detailUrl = new URL(`${config.baseUrl}/${encodeURIComponent(referenceId)}`);
@@ -165,7 +187,11 @@ export async function verifyCustomerAddress(input: {
     if (detailReasons.size === 1) return { status: "no_match", reason: [...detailReasons][0] };
     return { status: "no_match", reason: "no_exact_detail_match" };
   } catch (error) {
-    if (isTimeoutError(error)) return { status: "unavailable", reason: "timeout" };
-    return { status: "unavailable", reason: "upstream_error" };
+    const reason = isTimeoutError(error) ? "timeout" as const : "upstream_error" as const;
+    console.error("Lantmäteriet customer address verification failed", {
+      reason,
+      error: safeErrorSummary(error),
+    });
+    return { status: "unavailable", reason };
   }
 }
