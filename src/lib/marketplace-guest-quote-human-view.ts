@@ -11,7 +11,18 @@ import { isValidMarketplaceGuestToken } from "@/lib/marketplace-guest-opt-out-co
 
 const SENDABLE_QUOTE_STATUSES = new Set(["submitted", "pending_review", "approved", "matched", "answered"]);
 
-export async function getMarketplaceGuestQuoteView(token: string): Promise<MarketplaceGuestQuoteView | null> {
+export type MarketplaceGuestQuoteHumanView = MarketplaceGuestQuoteView & {
+  customerContact: null | {
+    name: string;
+    email: string;
+    phone: string;
+    addressLine1: string;
+    city: string;
+    postalCode: string;
+  };
+};
+
+export async function getMarketplaceGuestQuoteView(token: string): Promise<MarketplaceGuestQuoteHumanView | null> {
   if (!isValidMarketplaceGuestToken(token)) return null;
   const sql = getSql();
   if (!sql) return null;
@@ -34,12 +45,14 @@ export async function getMarketplaceGuestQuoteView(token: string): Promise<Marke
       q.service_type,
       q.city,
       q.postal_code,
+      q.customer_address_line1,
       q.description,
       q.contact_name,
       q.contact_email,
       q.contact_phone,
       q.preferred_date,
       q.status as quote_status,
+      o.status as offer_status,
       o.price_kind,
       o.currency,
       o.amount_minor,
@@ -57,12 +70,14 @@ export async function getMarketplaceGuestQuoteView(token: string): Promise<Marke
   if (!row) return null;
   if (Boolean(row.recipient_suppressed)) row.status = "suppressed";
 
+  const winnerSelected = String(row.offer_status) === "selected";
   const quoteOpen = SENDABLE_QUOTE_STATUSES.has(String(row.quote_status));
-  if (!quoteOpen) return null;
+  if (!quoteOpen && !winnerSelected) return null;
 
   const expiresAt = new Date(String(row.expires_at));
   const validExpiresAt = Number.isFinite(expiresAt.getTime());
   const expired = !validExpiresAt || expiresAt.getTime() <= Date.now();
+  if (expired && winnerSelected) return null;
   if (expired && String(row.status) !== "responded" && String(row.status) !== "suppressed") {
     await sql`
       update marketplace_quote_invitations
@@ -76,11 +91,23 @@ export async function getMarketplaceGuestQuoteView(token: string): Promise<Marke
   // GET rendering must not count as a human view. Mail security scanners such as
   // Microsoft Safe Links prefetch signed URLs, so sent -> viewed on GET creates
   // false positives.
-  return buildMarketplaceGuestQuoteView(
+  const view = buildMarketplaceGuestQuoteView(
     row as Record<string, unknown>,
     validExpiresAt ? expiresAt.toISOString() : "",
     expired,
   );
+
+  return {
+    ...view,
+    customerContact: winnerSelected ? {
+      name: String(row.contact_name ?? ""),
+      email: String(row.contact_email ?? ""),
+      phone: String(row.contact_phone ?? ""),
+      addressLine1: String(row.customer_address_line1 ?? ""),
+      city: String(row.city ?? ""),
+      postalCode: String(row.postal_code ?? ""),
+    } : null,
+  };
 }
 
 export async function submitMarketplaceGuestQuote(

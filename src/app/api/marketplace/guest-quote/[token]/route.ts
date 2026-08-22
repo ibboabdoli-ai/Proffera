@@ -1,7 +1,9 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 
+import { notifyMarketplaceCustomerOfferAvailableFromGuestToken } from "@/lib/marketplace-customer-comparison";
 import { hashMarketplaceGuestToken } from "@/lib/marketplace-guest-quote";
 import { submitMarketplaceGuestQuote } from "@/lib/marketplace-guest-quote-human-view";
+import { resolveMarketplacePublicBaseUrl } from "@/lib/marketplace-public-base-url";
 import { allowPublicSubmission } from "@/lib/public-form-protection";
 
 export const runtime = "nodejs";
@@ -104,5 +106,20 @@ export async function POST(request: Request, context: RouteContext) {
   }
 
   if (!result.ok) return redirectToGuest(request, token, result.code, locale);
+
+  after(async () => {
+    try {
+      const notification = await notifyMarketplaceCustomerOfferAvailableFromGuestToken({
+        guestToken: token,
+        baseUrl: resolveMarketplacePublicBaseUrl(),
+      });
+      if (!notification.ok) {
+        console.error("Marketplace customer comparison notification failed", { code: notification.code });
+      }
+    } catch (error) {
+      console.error("Marketplace customer comparison notification failed after offer submission", { error });
+    }
+  });
+
   return redirectToGuest(request, token, "sent", locale);
 }

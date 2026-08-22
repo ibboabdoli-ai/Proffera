@@ -27,6 +27,12 @@ const copy = {
     inspectionRequired: "Platsbesök krävs",
     available: "Tillgänglig",
     notSpecified: "Ej angivet",
+    winnerTitle: "Kunden valde er offert",
+    winnerBody: "Kontaktuppgifterna är nu upplåsta för er eftersom kunden valde just ert erbjudande.",
+    contactName: "Namn",
+    contactEmail: "E-post",
+    contactPhone: "Telefon",
+    contactAddress: "Adress",
     claimTitle: "Vill ni få nästa förfrågan direkt i ett eget Proffera-konto?",
     claimBody: "Företagsprofilen finns redan. Verifiera den för att koppla framtida offertförfrågningar till er workspace.",
     claimAction: "Verifiera företagsprofil",
@@ -73,6 +79,12 @@ const copy = {
     inspectionRequired: "Site visit required",
     available: "Available",
     notSpecified: "Not specified",
+    winnerTitle: "The customer selected your offer",
+    winnerBody: "The customer's contact details are now unlocked for you because they selected your offer.",
+    contactName: "Name",
+    contactEmail: "Email",
+    contactPhone: "Phone",
+    contactAddress: "Address",
     claimTitle: "Would you like the next request to arrive directly in your own Proffera account?",
     claimBody: "The business profile already exists. Verify it to connect future quote requests to your workspace.",
     claimAction: "Verify business profile",
@@ -179,6 +191,11 @@ export default async function MarketplaceGuestQuotePage({
   }
 
   if (view.status === "responded" && view.offer) {
+    const contact = view.customerContact;
+    const contactAddress = contact
+      ? [contact.addressLine1, contact.postalCode, contact.city].filter(Boolean).join(", ")
+      : "";
+
     return (
       <main lang={locale} className="min-h-screen bg-[#f7f7f4] px-4 py-10 sm:px-6">
         <section className="mx-auto max-w-2xl rounded-3xl bg-white p-7 shadow-sm ring-1 ring-[#dfe5dd] sm:p-10">
@@ -190,6 +207,20 @@ export default async function MarketplaceGuestQuotePage({
             <div><dt className="text-xs font-bold uppercase tracking-wide text-[#6b776d]">{text.price}</dt><dd className="mt-1 text-lg font-bold">{view.offer.priceKind === "inspection_required" ? text.inspectionRequired : money(view.offer.amountMinor, locale)}</dd></div>
             <div><dt className="text-xs font-bold uppercase tracking-wide text-[#6b776d]">{text.available}</dt><dd className="mt-1 font-semibold">{view.offer.availableDate || text.notSpecified}</dd></div>
           </dl>
+
+          {contact ? (
+            <section className="mt-7 rounded-2xl border border-[#a9cdb2] bg-[#edf8ef] p-5 text-[#17452f]">
+              <h2 className="text-lg font-bold">{text.winnerTitle}</h2>
+              <p className="mt-2 text-sm leading-6">{text.winnerBody}</p>
+              <dl className="mt-5 grid gap-4 text-sm sm:grid-cols-2">
+                <div><dt className="font-bold">{text.contactName}</dt><dd className="mt-1">{contact.name || text.notSpecified}</dd></div>
+                <div><dt className="font-bold">{text.contactEmail}</dt><dd className="mt-1">{contact.email ? <a href={`mailto:${contact.email}`} className="underline">{contact.email}</a> : text.notSpecified}</dd></div>
+                <div><dt className="font-bold">{text.contactPhone}</dt><dd className="mt-1">{contact.phone ? <a href={`tel:${contact.phone}`} className="underline">{contact.phone}</a> : text.notSpecified}</dd></div>
+                <div><dt className="font-bold">{text.contactAddress}</dt><dd className="mt-1">{contactAddress || text.notSpecified}</dd></div>
+              </dl>
+            </section>
+          ) : null}
+
           <div className="mt-8 rounded-2xl border border-[#dce5da] p-5">
             <h2 className="font-bold text-[#17201a]">{text.claimTitle}</h2>
             <p className="mt-2 text-sm leading-6 text-[#5b665f]">{text.claimBody}</p>
