@@ -82,7 +82,7 @@ export async function POST(request: Request, context: RouteContext) {
           : result.code === "revoked"
             ? "This review link is no longer active."
             : result.code === "unavailable"
-              ? "This completed service is not eligible for a review."
+              ? "This review is not available."
               : result.code === "database"
                 ? "The review could not be submitted right now."
                 : "This review link is invalid.";
