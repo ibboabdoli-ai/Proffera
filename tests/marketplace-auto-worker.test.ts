@@ -16,8 +16,8 @@ vi.mock("server-only", () => ({}));
 vi.mock("@/features/email/marketplace-guest-invitation-email", () => ({
   marketplaceGuestInvitationEmailConfigured: mocks.emailConfigured,
 }));
-vi.mock("@/features/matching/marketplace-auto-queue", () => ({
-  MARKETPLACE_AUTO_QUEUE_PAGE_SIZE: 50,
+vi.mock("@/features/matching/marketplace-auto-queue", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/features/matching/marketplace-auto-queue")>()),
   getMarketplaceAutoQueuePage: mocks.getQueuePage,
 }));
 vi.mock("@/features/matching/directory-guest-single", () => ({
@@ -36,6 +36,7 @@ vi.mock("@/lib/marketplace-rematch-worker", () => ({
   finalizeMarketplaceRematchWork: mocks.finalizeRematch,
 }));
 
+import { MARKETPLACE_AUTO_QUEUE_PAGE_SIZE } from "@/features/matching/marketplace-auto-queue";
 import {
   DEFAULT_MARKETPLACE_WAVE2_DELAY_MS,
   MARKETPLACE_AUTO_WORKER_ACTOR,
@@ -206,8 +207,8 @@ describe("Marketplace Auto Worker", () => {
     expect(mocks.sendInvitation).not.toHaveBeenCalled();
   });
 
-  it("pages past fifty older skipped requests so a later actionable request is not starved", async () => {
-    const oldRows = Array.from({ length: 50 }, (_, index) => queueRow(
+  it("pages past a full page of older skipped requests so a later actionable request is not starved", async () => {
+    const oldRows = Array.from({ length: MARKETPLACE_AUTO_QUEUE_PAGE_SIZE }, (_, index) => queueRow(
       `${String(index + 1).padStart(8, "0")}-1111-4111-8111-111111111111`,
       { createdAt: `2026-08-21T${String(Math.floor(index / 3)).padStart(2, "0")}:${String((index % 3) * 20).padStart(2, "0")}:00.000Z`, submittedOfferCount: 2 },
     ));
@@ -222,12 +223,19 @@ describe("Marketplace Auto Worker", () => {
 
     const result = await processMarketplaceAutoWorker({ baseUrl: "https://preview.proffera.test", batchSize: 1 });
 
-    expect(result).toMatchObject({ ok: true, attempted: 1, sent: 1, scanned: 51, skipped: { enough_offers: 50 } });
+    expect(result).toMatchObject({
+      ok: true,
+      attempted: 1,
+      sent: 1,
+      scanned: MARKETPLACE_AUTO_QUEUE_PAGE_SIZE + 1,
+      skipped: { enough_offers: MARKETPLACE_AUTO_QUEUE_PAGE_SIZE },
+    });
     expect(mocks.getQueuePage).toHaveBeenCalledTimes(2);
+    const lastOldRow = oldRows[MARKETPLACE_AUTO_QUEUE_PAGE_SIZE - 1];
     expect(mocks.getQueuePage).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      afterPriorityRank: oldRows[49]?.priorityRank,
-      afterCreatedAt: oldRows[49]?.createdAt,
-      afterId: oldRows[49]?.quoteRequestId,
+      afterPriorityRank: lastOldRow?.priorityRank,
+      afterCreatedAt: lastOldRow?.createdAt,
+      afterId: lastOldRow?.quoteRequestId,
     }));
     expect(mocks.getMatch).toHaveBeenCalledTimes(1);
     expect(mocks.getMatch).toHaveBeenCalledWith(actionableId);
@@ -246,6 +254,25 @@ describe("Marketplace Auto Worker", () => {
 
     expect(mocks.getQueuePage).toHaveBeenCalledWith(expect.objectContaining({ priorityQuoteRequestIds: [rematchId] }));
     expect(mocks.applyRematch).toHaveBeenCalledWith([expect.any(Object)], rematchContext);
+    expect(mocks.finalizeRematch).toHaveBeenCalledWith(rematchContext);
+  });
+
+  it("always finalizes leased rematches when a queue read fails", async () => {
+    const rematchId = "22222222-2222-4222-8222-222222222222";
+    const rematchContext = new Map([[rematchId, {
+      rematchId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      sourceQuoteRequestId: "11111111-1111-4111-8111-111111111111",
+      rematchQuoteRequestId: rematchId,
+      excludedProfileIds: new Set(),
+      excludedRecipientEmails: new Set(),
+    }]]);
+    mocks.prepareRematch.mockResolvedValue(rematchContext);
+    mocks.getQueuePage.mockResolvedValue({ ok: false, message: "database unavailable", rows: [] });
+
+    await expect(processMarketplaceAutoWorker({ baseUrl: "https://preview.proffera.test" }))
+      .resolves.toEqual({ ok: false, error: "matching_failed" });
+
+    expect(mocks.finalizeRematch).toHaveBeenCalledTimes(1);
     expect(mocks.finalizeRematch).toHaveBeenCalledWith(rematchContext);
   });
 
