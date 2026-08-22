@@ -23,8 +23,8 @@ function sameOrigin(request: Request) {
   }
 }
 
-function redirectToGuest(request: Request, token: string, locale: "sv" | "en", status: string) {
-  const target = new URL(`/offert/svara/${encodeURIComponent(token)}`, request.url);
+function redirectToJob(request: Request, token: string, locale: "sv" | "en", status: string) {
+  const target = new URL(`/offert/jobb/${encodeURIComponent(token)}`, request.url);
   target.searchParams.set("job", status);
   if (locale === "en") target.searchParams.set("lang", "en");
   return NextResponse.redirect(target, 303);
@@ -48,7 +48,7 @@ export async function POST(request: Request, context: RouteContext) {
   const form = await request.formData();
   const locale = String(form.get("lang") ?? "") === "en" ? "en" as const : "sv" as const;
   const status = nextStatus(form.get("nextStatus"));
-  if (!status) return redirectToGuest(request, token, locale, "invalid");
+  if (!status) return redirectToJob(request, token, locale, "invalid");
 
   const allowed = await allowPublicSubmission({
     scope: "marketplace-service-job-provider",
@@ -57,7 +57,7 @@ export async function POST(request: Request, context: RouteContext) {
     maxAttempts: 10,
     windowSeconds: 30 * 60,
   });
-  if (!allowed) return redirectToGuest(request, token, locale, "rate_limited");
+  if (!allowed) return redirectToJob(request, token, locale, "rate_limited");
 
   const result = await transitionMarketplaceServiceJobByGuestToken({
     token,
@@ -65,7 +65,7 @@ export async function POST(request: Request, context: RouteContext) {
     reason: String(form.get("reason") ?? ""),
     completionSummary: String(form.get("completionSummary") ?? ""),
   });
-  if (!result.ok) return redirectToGuest(request, token, locale, result.code);
+  if (!result.ok) return redirectToJob(request, token, locale, result.code);
 
   if (status === "completed") {
     after(async () => {
@@ -79,5 +79,5 @@ export async function POST(request: Request, context: RouteContext) {
     });
   }
 
-  return redirectToGuest(request, token, locale, status);
+  return redirectToJob(request, token, locale, status);
 }
