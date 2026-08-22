@@ -33,8 +33,16 @@ begin
     select 1
     from pg_index index_state
     where index_state.indexrelid = to_regclass('public.company_directory_field_sources_value_unique_idx')
+      and index_state.indrelid = to_regclass('public.company_directory_field_sources')
       and index_state.indisunique
       and index_state.indisvalid
+      and index_state.indnkeyatts = 4
+      and index_state.indpred is null
+      and index_state.indexprs is null
+      and (
+        select array_agg(pg_get_indexdef(index_state.indexrelid, key_position, true) order by key_position)
+        from generate_series(1, index_state.indnkeyatts) as key_position
+      ) = array['profile_id', 'field_name', 'source_name', 'value_hash']::text[]
   ) then
     raise exception using
       message = 'Required provenance unique index is missing or invalid',
