@@ -1,6 +1,11 @@
 -- Store exact customer location privately for marketplace matching.
 -- These fields are intentionally not part of provider-facing Guest Quote projections.
 -- Official address/reference verification is added through a separate bounded integration.
+--
+-- Rollout: apply and verify this additive migration before releasing any writer that
+-- persists the private customer-location fields, and record the applied migration revision.
+-- Rollback: revert the writer first. Keep these nullable columns/constraint in place
+-- until no deployed code references them; removing storage is a later deliberate migration.
 
 alter table quote_requests
   add column if not exists customer_address_line1 text,
