@@ -1,9 +1,11 @@
 "use server";
 
+import { headers } from "next/headers";
+
+import { verifyCustomerAddress, type VerifiedCustomerAddress } from "@/lib/lantmateriet-address-verification";
+import { allowPublicSubmission } from "@/lib/public-form-protection";
 import { storeQuoteRequest } from "./persistence";
 import { quoteRequestSchema, type QuoteRequestErrors, type QuoteRequestInput } from "./schema";
-import { headers } from "next/headers";
-import { allowPublicSubmission } from "@/lib/public-form-protection";
 
 type QuoteRequestSubmission = QuoteRequestInput & {
   website?: string;
@@ -54,7 +56,36 @@ export async function submitQuoteRequest(input: QuoteRequestSubmission): Promise
     return { ok: false, errors: { form: "För många försök. Vänta en stund och försök igen." } };
   }
 
-  const result = await storeQuoteRequest(parsed.data);
+  let verifiedAddress: VerifiedCustomerAddress | undefined;
+  if (parsed.data.locationSource === "address") {
+    const verification = await verifyCustomerAddress({
+      addressLine1: parsed.data.addressLine1,
+      postalCode: parsed.data.postalCode,
+      city: parsed.data.city,
+    });
+
+    if (verification.status === "no_match") {
+      return {
+        ok: false,
+        errors: {
+          addressLine1: "Adressen kunde inte verifieras mot Lantmäteriets adressregister. Kontrollera gata, postnummer och ort.",
+        },
+      };
+    }
+
+    if (verification.status === "unavailable" && verification.reason !== "not_configured") {
+      return {
+        ok: false,
+        errors: {
+          form: "Adressen kunde inte verifieras just nu. Försök igen om en stund eller använd Nära mig.",
+        },
+      };
+    }
+
+    if (verification.status === "matched") verifiedAddress = verification;
+  }
+
+  const result = await storeQuoteRequest(parsed.data, verifiedAddress);
 
   if (!result.ok) {
     return {
