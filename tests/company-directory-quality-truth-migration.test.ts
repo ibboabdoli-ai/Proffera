@@ -11,7 +11,7 @@ const RUN_POSTGRES_INTEGRATION =
   || process.env.PROFFERA_POSTGRES_INTEGRATION === "1";
 
 const FOUNDATION = "db/migrations/20260809_0037_company_profile_engine_foundation.sql";
-const QUALITY_MIGRATION = "db/migrations/20260822_0059_company_directory_quality_truth.sql";
+const QUALITY_MIGRATION = "db/migrations/20260822_0061_company_directory_quality_truth.sql";
 
 function docker(args: string[]) {
   return execFileSync("docker", args, { encoding: "utf8" }).trim();
