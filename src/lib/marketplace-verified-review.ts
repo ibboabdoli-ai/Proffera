@@ -250,83 +250,83 @@ export async function deliverMarketplaceServiceJobReviewInvitation(serviceJobId:
   const expiresAt = new Date(Date.now() + INVITATION_LIFETIME_MS).toISOString();
 
   try {
-    const [, rows] = await sql.transaction((txn) => [
-      txn`select pg_advisory_xact_lock(hashtextextended(${serviceJobId}, 0))`,
-      txn`
-        with target as (
-          select
-            job.id,
-            job.profile_id,
-            job.service_name,
-            request.contact_name,
-            request.contact_email,
-            request.locale as request_locale,
-            profile.display_name,
-            profile.public_slug
-          from marketplace_service_jobs job
-          join quote_requests request on request.id = job.quote_request_id
-          join company_directory_profiles profile on profile.id = job.profile_id
-          where job.id = ${serviceJobId}::uuid
-            and job.status = 'completed'
-          limit 1
-        ), existing as (
-          select invitation.id, invitation.status, invitation.expires_at
-          from website_review_invitations invitation
-          join target on target.id = invitation.marketplace_service_job_id
-          limit 1
-        ), upserted as (
-          insert into website_review_invitations (
-            workspace_id,
-            booking_id,
-            customer_id,
-            marketplace_service_job_id,
-            profile_id,
-            token_hash,
-            status,
-            expires_at,
-            used_at,
-            revoked_at,
-            created_by_user_id
-          )
-          select null, null, null, target.id, target.profile_id, ${tokenHash}, 'pending', ${expiresAt}::timestamptz, null, null, null
-          from target
-          where not exists (
-            select 1
-            from existing
-            where existing.status = 'used'
-               or (existing.status = 'pending' and existing.expires_at > now())
-          )
-          on conflict (marketplace_service_job_id) where marketplace_service_job_id is not null
-          do update set
-            token_hash = excluded.token_hash,
-            status = 'pending',
-            expires_at = excluded.expires_at,
-            used_at = null,
-            revoked_at = null,
-            updated_at = now()
-          where website_review_invitations.status <> 'used'
-            and not (
-              website_review_invitations.status = 'pending'
-              and website_review_invitations.expires_at > now()
-            )
-          returning id::text
-        )
+    const rows = await sql`
+      with lock_guard as materialized (
+        select pg_advisory_xact_lock(hashtextextended(${serviceJobId}, 0))
+      ), target as (
         select
-          target.id::text as service_job_id,
-          target.contact_name,
-          target.contact_email,
-          target.request_locale,
-          target.display_name,
-          target.public_slug,
-          target.service_name,
-          existing.status as existing_status,
-          existing.expires_at::text as existing_expires_at,
-          upserted.id as invitation_id
+          job.id,
+          job.profile_id,
+          job.service_name,
+          request.contact_name,
+          request.contact_email,
+          request.locale as request_locale,
+          profile.display_name,
+          profile.public_slug
+        from marketplace_service_jobs job
+        join quote_requests request on request.id = job.quote_request_id
+        join company_directory_profiles profile on profile.id = job.profile_id
+        cross join lock_guard
+        where job.id = ${serviceJobId}::uuid
+          and job.status = 'completed'
+        limit 1
+      ), existing as (
+        select invitation.id, invitation.status, invitation.expires_at
+        from website_review_invitations invitation
+        join target on target.id = invitation.marketplace_service_job_id
+        limit 1
+      ), upserted as (
+        insert into website_review_invitations (
+          workspace_id,
+          booking_id,
+          customer_id,
+          marketplace_service_job_id,
+          profile_id,
+          token_hash,
+          status,
+          expires_at,
+          used_at,
+          revoked_at,
+          created_by_user_id
+        )
+        select null, null, null, target.id, target.profile_id, ${tokenHash}, 'pending', ${expiresAt}::timestamptz, null, null, null
         from target
-        left join existing on true
-        left join upserted on true
-      `,
-    ]);
+        where not exists (
+          select 1
+          from existing
+          where existing.status = 'used'
+             or (existing.status = 'pending' and existing.expires_at > now())
+        )
+        on conflict (marketplace_service_job_id) where marketplace_service_job_id is not null
+        do update set
+          token_hash = excluded.token_hash,
+          status = 'pending',
+          expires_at = excluded.expires_at,
+          used_at = null,
+          revoked_at = null,
+          updated_at = now()
+        where website_review_invitations.status <> 'used'
+          and not (
+            website_review_invitations.status = 'pending'
+            and website_review_invitations.expires_at > now()
+          )
+        returning id::text
+      )
+      select
+        target.id::text as service_job_id,
+        target.contact_name,
+        target.contact_email,
+        target.request_locale,
+        target.display_name,
+        target.public_slug,
+        target.service_name,
+        existing.status as existing_status,
+        existing.expires_at::text as existing_expires_at,
+        upserted.id as invitation_id
+      from target
+      left join existing on true
+      left join upserted on true
+    `;
 
     const row = rows[0];
     if (!row) return { ok: false as const, code: "unavailable" as const };
@@ -369,19 +369,17 @@ export async function deliverMarketplaceServiceJobReviewInvitation(serviceJobId:
     });
 
     if (!delivery.ok) {
-      await sql.transaction((txn) => [
-        txn`
-          update website_review_invitations
-          set status = 'revoked', revoked_at = now(), updated_at = now()
-          where id = ${invitationId}::uuid
-            and token_hash = ${tokenHash}
-            and status = 'pending'
-        `,
-        txn`
-          insert into marketplace_service_job_events (service_job_id, actor_type, event_type, reason)
-          values (${text(row.service_job_id)}::uuid, 'system', 'review_invited', ${`Verified review invitation email failed: ${delivery.code}`})
-        `,
-      ]);
+      await sql`
+        update website_review_invitations
+        set status = 'revoked', revoked_at = now(), updated_at = now()
+        where id = ${invitationId}::uuid
+          and token_hash = ${tokenHash}
+          and status = 'pending'
+      `;
+      await sql`
+        insert into marketplace_service_job_events (service_job_id, actor_type, event_type, reason)
+        values (${text(row.service_job_id)}::uuid, 'system', 'review_invited', ${`Verified review invitation email failed: ${delivery.code}`})
+      `;
       return { ok: false as const, code: "email" as const };
     }
 
