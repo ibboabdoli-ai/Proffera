@@ -250,80 +250,110 @@ export async function deliverMarketplaceServiceJobReviewInvitation(serviceJobId:
   const expiresAt = new Date(Date.now() + INVITATION_LIFETIME_MS).toISOString();
 
   try {
-    const rows = await sql`
-      with target as (
-        select
-          job.id,
-          job.profile_id,
-          job.service_name,
-          job.status,
-          request.contact_name,
-          request.contact_email,
-          request.locale as request_locale,
-          profile.display_name,
-          profile.public_slug
-        from marketplace_service_jobs job
-        join quote_requests request on request.id = job.quote_request_id
-        join company_directory_profiles profile on profile.id = job.profile_id
-        where job.id = ${serviceJobId}::uuid
-          and job.status = 'completed'
-        limit 1
-      ), existing as (
-        select invitation.id, invitation.status
-        from website_review_invitations invitation
-        join target on target.id = invitation.marketplace_service_job_id
-        limit 1
-      ), upserted as (
-        insert into website_review_invitations (
-          workspace_id,
-          booking_id,
-          customer_id,
-          marketplace_service_job_id,
-          profile_id,
-          token_hash,
-          status,
-          expires_at,
-          used_at,
-          revoked_at,
-          created_by_user_id
+    const [, rows] = await sql.transaction((txn) => [
+      txn`select pg_advisory_xact_lock(hashtextextended(${serviceJobId}, 0))`,
+      txn`
+        with target as (
+          select
+            job.id,
+            job.profile_id,
+            job.service_name,
+            request.contact_name,
+            request.contact_email,
+            request.locale as request_locale,
+            profile.display_name,
+            profile.public_slug
+          from marketplace_service_jobs job
+          join quote_requests request on request.id = job.quote_request_id
+          join company_directory_profiles profile on profile.id = job.profile_id
+          where job.id = ${serviceJobId}::uuid
+            and job.status = 'completed'
+          limit 1
+        ), existing as (
+          select invitation.id, invitation.status, invitation.expires_at
+          from website_review_invitations invitation
+          join target on target.id = invitation.marketplace_service_job_id
+          limit 1
+        ), upserted as (
+          insert into website_review_invitations (
+            workspace_id,
+            booking_id,
+            customer_id,
+            marketplace_service_job_id,
+            profile_id,
+            token_hash,
+            status,
+            expires_at,
+            used_at,
+            revoked_at,
+            created_by_user_id
+          )
+          select null, null, null, target.id, target.profile_id, ${tokenHash}, 'pending', ${expiresAt}::timestamptz, null, null, null
+          from target
+          where not exists (
+            select 1
+            from existing
+            where existing.status = 'used'
+               or (existing.status = 'pending' and existing.expires_at > now())
+          )
+          on conflict (marketplace_service_job_id) where marketplace_service_job_id is not null
+          do update set
+            token_hash = excluded.token_hash,
+            status = 'pending',
+            expires_at = excluded.expires_at,
+            used_at = null,
+            revoked_at = null,
+            updated_at = now()
+          where website_review_invitations.status <> 'used'
+            and not (
+              website_review_invitations.status = 'pending'
+              and website_review_invitations.expires_at > now()
+            )
+          returning id::text
         )
-        select null, null, null, target.id, target.profile_id, ${tokenHash}, 'pending', ${expiresAt}::timestamptz, null, null, null
+        select
+          target.id::text as service_job_id,
+          target.contact_name,
+          target.contact_email,
+          target.request_locale,
+          target.display_name,
+          target.public_slug,
+          target.service_name,
+          existing.status as existing_status,
+          existing.expires_at::text as existing_expires_at,
+          upserted.id as invitation_id
         from target
-        where not exists (select 1 from existing where existing.status = 'used')
-        on conflict (marketplace_service_job_id) where marketplace_service_job_id is not null
-        do update set
-          token_hash = excluded.token_hash,
-          status = 'pending',
-          expires_at = excluded.expires_at,
-          used_at = null,
-          revoked_at = null,
-          updated_at = now()
-        where website_review_invitations.status <> 'used'
-        returning id::text
-      )
-      select
-        target.id::text as service_job_id,
-        target.contact_name,
-        target.contact_email,
-        target.request_locale,
-        target.display_name,
-        target.public_slug,
-        target.service_name,
-        existing.status as existing_status,
-        upserted.id as invitation_id
-      from target
-      left join existing on true
-      left join upserted on true
-    `;
+        left join existing on true
+        left join upserted on true
+      `,
+    ]);
+
     const row = rows[0];
     if (!row) return { ok: false as const, code: "unavailable" as const };
-    if (text(row.existing_status) === "used" && !text(row.invitation_id)) {
+
+    const existingStatus = text(row.existing_status);
+    const existingExpiresAt = new Date(text(row.existing_expires_at)).getTime();
+    if (existingStatus === "used" && !text(row.invitation_id)) {
       return { ok: false as const, code: "already_used" as const };
+    }
+    if (existingStatus === "pending" && Number.isFinite(existingExpiresAt) && existingExpiresAt > Date.now() && !text(row.invitation_id)) {
+      return { ok: true as const, code: "already_pending" as const };
     }
     if (!text(row.invitation_id)) return { ok: false as const, code: "database" as const };
 
+    const invitationId = text(row.invitation_id);
     const customerEmail = text(row.contact_email).trim();
-    if (!customerEmail) return { ok: false as const, code: "missing_email" as const };
+    if (!customerEmail) {
+      await sql`
+        update website_review_invitations
+        set status = 'revoked', revoked_at = now(), updated_at = now()
+        where id = ${invitationId}::uuid
+          and token_hash = ${tokenHash}
+          and status = 'pending'
+      `;
+      return { ok: false as const, code: "missing_email" as const };
+    }
+
     const requestLocale = locale(row.request_locale);
     const reviewUrl = new URL(`/review/marketplace/${encodeURIComponent(token)}`, resolveMarketplacePublicBaseUrl());
     if (requestLocale === "en") reviewUrl.searchParams.set("lang", "en");
@@ -338,17 +368,28 @@ export async function deliverMarketplaceServiceJobReviewInvitation(serviceJobId:
       timeZone: "Europe/Stockholm",
     });
 
+    if (!delivery.ok) {
+      await sql.transaction((txn) => [
+        txn`
+          update website_review_invitations
+          set status = 'revoked', revoked_at = now(), updated_at = now()
+          where id = ${invitationId}::uuid
+            and token_hash = ${tokenHash}
+            and status = 'pending'
+        `,
+        txn`
+          insert into marketplace_service_job_events (service_job_id, actor_type, event_type, reason)
+          values (${text(row.service_job_id)}::uuid, 'system', 'review_invited', ${`Verified review invitation email failed: ${delivery.code}`})
+        `,
+      ]);
+      return { ok: false as const, code: "email" as const };
+    }
+
     await sql`
       insert into marketplace_service_job_events (service_job_id, actor_type, event_type, reason)
-      values (
-        ${text(row.service_job_id)}::uuid,
-        'system',
-        'review_invited',
-        ${delivery.ok ? "Verified review invitation email sent" : `Verified review invitation email failed: ${delivery.code}`}
-      )
+      values (${text(row.service_job_id)}::uuid, 'system', 'review_invited', 'Verified review invitation email sent')
     `;
 
-    if (!delivery.ok) return { ok: false as const, code: "email" as const };
     return { ok: true as const, reviewUrl: reviewUrl.toString(), providerId: delivery.providerId };
   } catch (error) {
     console.error("Failed to deliver Marketplace verified review invitation", error);
