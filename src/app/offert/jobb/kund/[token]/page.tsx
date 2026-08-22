@@ -12,6 +12,8 @@ export const metadata: Metadata = {
 };
 
 type Locale = "sv" | "en";
+type ActionFeedback = { text: string; severity: "success" | "error" } | null;
+
 function localeFrom(value: string | string[] | undefined): Locale {
   return Array.isArray(value) ? (value[0] === "en" ? "en" : "sv") : value === "en" ? "en" : "sv";
 }
@@ -67,16 +69,17 @@ const copy = {
   },
 } as const;
 
-function actionMessage(value: string | undefined, locale: Locale) {
+function actionMessage(value: string | undefined, locale: Locale): ActionFeedback {
   const sv = locale === "sv";
-  if (value === "customer_cancelled") return sv ? "Jobbet har avbrutits." : "The job has been cancelled.";
-  if (value === "requested") return sv ? "En ny matchning har beställts." : "A new matching round has been requested.";
-  if (value === "already_requested") return sv ? "En ny matchning är redan beställd." : "A new matching round has already been requested.";
-  if (value === "rate_limited") return sv ? "För många försök. Vänta en stund och försök igen." : "Too many attempts. Wait a while and try again.";
-  if (value === "not_eligible") return sv ? "Jobbet kan inte matchas om i sin nuvarande status." : "This job cannot be rematched in its current status.";
-  if (value === "invalid" || value === "unavailable") return sv ? "Den säkra jobblänken kan inte användas för åtgärden." : "The secure job link cannot be used for this action.";
-  if (value === "database" || value === "transition") return sv ? "Åtgärden kunde inte sparas just nu. Försök igen." : "The action could not be saved right now. Try again.";
-  return "";
+  if (value === "customer_cancelled") return { text: sv ? "Jobbet har avbrutits." : "The job has been cancelled.", severity: "success" };
+  if (value === "requested") return { text: sv ? "En ny matchning har beställts." : "A new matching round has been requested.", severity: "success" };
+  if (value === "already_requested") return { text: sv ? "En ny matchning är redan beställd." : "A new matching round has already been requested.", severity: "success" };
+  if (value === "closed") return { text: sv ? "Jobbet är redan avslutat och kan inte längre avbrytas." : "The job is already closed and can no longer be cancelled.", severity: "error" };
+  if (value === "rate_limited") return { text: sv ? "För många försök. Vänta en stund och försök igen." : "Too many attempts. Wait a while and try again.", severity: "error" };
+  if (value === "not_eligible") return { text: sv ? "Jobbet kan inte matchas om i sin nuvarande status." : "This job cannot be rematched in its current status.", severity: "error" };
+  if (value === "invalid" || value === "unavailable") return { text: sv ? "Den säkra jobblänken kan inte användas för åtgärden." : "The secure job link cannot be used for this action.", severity: "error" };
+  if (value === "database" || value === "transition") return { text: sv ? "Åtgärden kunde inte sparas just nu. Försök igen." : "The action could not be saved right now. Try again.", severity: "error" };
+  return null;
 }
 
 function money(amountMinor: number, currency: string, locale: Locale) {
@@ -139,7 +142,7 @@ export default async function MarketplaceCustomerJobPage({
         </header>
 
         <div className="grid gap-6 p-6 sm:p-10">
-          {feedback ? <p role="status" className="rounded-xl border border-[#a9cdb2] bg-[#edf8ef] px-4 py-3 text-sm font-semibold text-[#17452f]">{feedback}</p> : null}
+          {feedback ? <p role={feedback.severity === "error" ? "alert" : "status"} className={feedback.severity === "error" ? "rounded-xl border border-[#efc2bb] bg-[#fff1ef] px-4 py-3 text-sm font-semibold text-[#8a2b20]" : "rounded-xl border border-[#a9cdb2] bg-[#edf8ef] px-4 py-3 text-sm font-semibold text-[#17452f]"}>{feedback.text}</p> : null}
 
           <section className="rounded-2xl border border-[#a9cdb2] bg-[#edf8ef] p-5">
             <p className="text-xs font-bold uppercase tracking-wide text-[#4c745a]">{text.provider}</p>
