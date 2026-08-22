@@ -1,14 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const TEST_COMPARISON_SECRET = "test-marketplace-customer-comparison-secret";
+
 const mocks = vi.hoisted(() => ({
   getSql: vi.fn(),
   sendComparisonEmail: vi.fn(),
   hashGuestToken: vi.fn(),
   validGuestToken: vi.fn(),
+  customerPortalSecret: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/db/server", () => ({ getSql: mocks.getSql }));
+vi.mock("@/lib/auth-secret", () => ({ resolveCustomerPortalSecret: mocks.customerPortalSecret }));
 vi.mock("@/features/email/marketplace-customer-comparison-email", () => ({
   sendMarketplaceCustomerComparisonEmail: mocks.sendComparisonEmail,
 }));
@@ -21,6 +25,7 @@ vi.mock("@/lib/marketplace-guest-opt-out-core", () => ({
 
 import {
   customerVisibleMarketplaceOfferNote,
+  deriveMarketplaceCustomerComparisonToken,
   getMarketplaceCustomerComparison,
   hashMarketplaceCustomerComparisonToken,
   marketplaceCustomerComparisonPath,
@@ -38,15 +43,38 @@ function queryText(call: unknown[] | undefined) {
   return (strings ?? []).join(" ? ").replace(/\s+/g, " ").trim();
 }
 
+function queryValues(call: unknown[] | undefined) {
+  return call?.slice(1) ?? [];
+}
+
 describe("marketplace customer comparison", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.validGuestToken.mockReturnValue(true);
     mocks.hashGuestToken.mockReturnValue("guest-token-hash");
+    mocks.customerPortalSecret.mockReturnValue(TEST_COMPARISON_SECRET);
   });
 
-  it("hashes customer tokens and keeps the raw token only in the link", () => {
-    const token = "a".repeat(43);
+  it("derives a stable opaque customer token from the persisted dispatch id", () => {
+    const quoteRequestId = "11111111-1111-4111-8111-111111111111";
+    const dispatchToken = "44444444-4444-4444-8444-444444444444";
+    const token = deriveMarketplaceCustomerComparisonToken({
+      quoteRequestId,
+      dispatchToken,
+      secret: TEST_COMPARISON_SECRET,
+    });
+
+    expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(deriveMarketplaceCustomerComparisonToken({
+      quoteRequestId,
+      dispatchToken,
+      secret: TEST_COMPARISON_SECRET,
+    })).toBe(token);
+    expect(deriveMarketplaceCustomerComparisonToken({
+      quoteRequestId,
+      dispatchToken: "55555555-5555-4555-8555-555555555555",
+      secret: TEST_COMPARISON_SECRET,
+    })).not.toBe(token);
     expect(hashMarketplaceCustomerComparisonToken(token)).toMatch(/^[0-9a-f]{64}$/);
     expect(marketplaceCustomerComparisonPath(token)).toBe(`/offert/jamfor/${token}`);
   });
@@ -122,6 +150,11 @@ describe("marketplace customer comparison", () => {
   it("sends one secure comparison email after the first submitted offer", async () => {
     const quoteRequestId = "11111111-1111-4111-8111-111111111111";
     const dispatchToken = "44444444-4444-4444-8444-444444444444";
+    const expectedToken = deriveMarketplaceCustomerComparisonToken({
+      quoteRequestId,
+      dispatchToken,
+      secret: TEST_COMPARISON_SECRET,
+    });
     const sql = sqlResponses(
       [{
         quote_request_id: quoteRequestId,
@@ -144,11 +177,11 @@ describe("marketplace customer comparison", () => {
     expect(mocks.sendComparisonEmail).toHaveBeenCalledTimes(1);
     expect(mocks.sendComparisonEmail).toHaveBeenCalledWith(expect.objectContaining({
       recipientEmail: "anna@example.se",
-      comparisonUrl: expect.stringMatching(/^https:\/\/www\.proffera\.se\/offert\/jamfor\/[A-Za-z0-9_-]{43}$/),
+      comparisonUrl: `https://www.proffera.se/offert/jamfor/${expectedToken}`,
       idempotencyKey: dispatchToken,
     }));
     expect(queryText(sql.mock.calls[1])).toContain("on conflict (quote_request_id) do nothing");
-    expect(queryText(sql.mock.calls[2])).toContain("set token_hash =");
+    expect(queryText(sql.mock.calls[2])).not.toContain("token_hash =");
   });
 
   it("does not send a duplicate email while a valid customer link is already sent", async () => {
@@ -176,9 +209,14 @@ describe("marketplace customer comparison", () => {
     expect(mocks.sendComparisonEmail).not.toHaveBeenCalled();
   });
 
-  it("retries delivery failures with the stable dispatch id and rotates the link only after acceptance", async () => {
+  it("retries delivery failures with the same dispatch id and exactly the same comparison link", async () => {
     const quoteRequestId = "11111111-1111-4111-8111-111111111111";
     const stableDispatch = "55555555-5555-4555-8555-555555555555";
+    const stableToken = deriveMarketplaceCustomerComparisonToken({
+      quoteRequestId,
+      dispatchToken: stableDispatch,
+      secret: TEST_COMPARISON_SECRET,
+    });
     const sql = sqlResponses(
       [{
         quote_request_id: quoteRequestId,
@@ -187,7 +225,11 @@ describe("marketplace customer comparison", () => {
         contact_email: "anna@example.se",
       }],
       [],
-      [{ quote_request_id: quoteRequestId, dispatch_token: stableDispatch }],
+      [{
+        quote_request_id: quoteRequestId,
+        dispatch_token: stableDispatch,
+        token_hash: hashMarketplaceCustomerComparisonToken(stableToken),
+      }],
       [{ quote_request_id: quoteRequestId }],
     );
     mocks.getSql.mockReturnValue(sql);
@@ -200,15 +242,21 @@ describe("marketplace customer comparison", () => {
 
     expect(result).toEqual({ ok: true, code: "sent" });
     expect(mocks.sendComparisonEmail).toHaveBeenCalledWith(expect.objectContaining({
+      comparisonUrl: `https://www.proffera.se/offert/jamfor/${stableToken}`,
       idempotencyKey: stableDispatch,
     }));
-    expect(queryText(sql.mock.calls[2])).not.toContain("token_hash =");
-    expect(queryText(sql.mock.calls[3])).toContain("set token_hash =");
+    expect(queryText(sql.mock.calls[2])).not.toContain("set token_hash =");
+    expect(queryText(sql.mock.calls[3])).not.toContain("token_hash =");
   });
 
-  it("keeps the original link valid when Brevo reports the stable dispatch id as a duplicate", async () => {
+  it("keeps the deterministic link valid when Brevo reports the stable dispatch id as a duplicate", async () => {
     const quoteRequestId = "11111111-1111-4111-8111-111111111111";
     const stableDispatch = "66666666-6666-4666-8666-666666666666";
+    const stableToken = deriveMarketplaceCustomerComparisonToken({
+      quoteRequestId,
+      dispatchToken: stableDispatch,
+      secret: TEST_COMPARISON_SECRET,
+    });
     const sql = sqlResponses(
       [{
         quote_request_id: quoteRequestId,
@@ -217,7 +265,11 @@ describe("marketplace customer comparison", () => {
         contact_email: "anna@example.se",
       }],
       [],
-      [{ quote_request_id: quoteRequestId, dispatch_token: stableDispatch }],
+      [{
+        quote_request_id: quoteRequestId,
+        dispatch_token: stableDispatch,
+        token_hash: hashMarketplaceCustomerComparisonToken(stableToken),
+      }],
       [{ quote_request_id: quoteRequestId }],
     );
     mocks.getSql.mockReturnValue(sql);
@@ -230,9 +282,55 @@ describe("marketplace customer comparison", () => {
 
     expect(result).toEqual({ ok: true, code: "already_sent" });
     expect(mocks.sendComparisonEmail).toHaveBeenCalledWith(expect.objectContaining({
+      comparisonUrl: `https://www.proffera.se/offert/jamfor/${stableToken}`,
       idempotencyKey: stableDispatch,
     }));
     expect(queryText(sql.mock.calls[3])).not.toContain("token_hash =");
+  });
+
+  it("activates a replacement token before sending an expired-link email", async () => {
+    const quoteRequestId = "11111111-1111-4111-8111-111111111111";
+    const sql = sqlResponses(
+      [{
+        quote_request_id: quoteRequestId,
+        reference_id: "PRO-123",
+        contact_name: "Anna",
+        contact_email: "anna@example.se",
+      }],
+      [],
+      [],
+      [{ quote_request_id: quoteRequestId }],
+      [],
+    );
+    mocks.getSql.mockReturnValue(sql);
+    mocks.sendComparisonEmail.mockResolvedValue({ ok: false, code: "network", providerMessageId: null });
+
+    const result = await notifyMarketplaceCustomerOfferAvailableFromGuestToken({
+      guestToken: "g".repeat(43),
+      baseUrl: "https://www.proffera.se",
+    });
+
+    expect(result).toEqual({ ok: false, code: "email_network" });
+    const comparisonUrl = String(mocks.sendComparisonEmail.mock.calls[0]?.[0]?.comparisonUrl ?? "");
+    const rawToken = comparisonUrl.split("/").at(-1) ?? "";
+    expect(rawToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(queryText(sql.mock.calls[3])).toContain("set token_hash =");
+    expect(queryValues(sql.mock.calls[3])).toContain(hashMarketplaceCustomerComparisonToken(rawToken));
+    expect(queryText(sql.mock.calls[4])).toContain("set status = 'delivery_failed'");
+  });
+
+  it("fails closed when the server comparison secret is unavailable", async () => {
+    mocks.customerPortalSecret.mockReturnValueOnce(null);
+    mocks.getSql.mockReturnValue(sqlResponses());
+
+    const result = await notifyMarketplaceCustomerOfferAvailableFromGuestToken({
+      guestToken: "g".repeat(43),
+      baseUrl: "https://www.proffera.se",
+    });
+
+    expect(result).toEqual({ ok: false, code: "configuration" });
+    expect(mocks.getSql).not.toHaveBeenCalled();
+    expect(mocks.sendComparisonEmail).not.toHaveBeenCalled();
   });
 
   it("selects one offer successfully", async () => {
