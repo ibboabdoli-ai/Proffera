@@ -11,16 +11,17 @@ concurrency:
   group: marketplace-auto-worker
   cancel-in-progress: false
 
+env:
+  MARKETPLACE_AUTO_WORKER_URL: https://www.proffera.se/api/cron/marketplace-auto-worker
+
 jobs:
   dispatch:
-    if: ${{ vars.MARKETPLACE_AUTO_WORKER_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
       - name: Verify Marketplace scheduler configuration
         env:
-          MARKETPLACE_AUTO_WORKER_URL: ${{ secrets.PROFFERA_MARKETPLACE_AUTO_WORKER_URL }}
-          CRON_SECRET: ${{ secrets.PROFFERA_MARKETPLACE_AUTO_WORKER_CRON_SECRET }}
+          CRON_SECRET: ${{ secrets.PROFFERA_REMINDER_CRON_SECRET }}
         run: |
           set -euo pipefail
           test -n "$MARKETPLACE_AUTO_WORKER_URL"
@@ -31,15 +32,14 @@ jobs:
 
           url = urllib.parse.urlparse(os.environ["MARKETPLACE_AUTO_WORKER_URL"])
           if url.scheme != "https" or not url.netloc:
-              raise SystemExit("PROFFERA_MARKETPLACE_AUTO_WORKER_URL must be an HTTPS URL")
+              raise SystemExit("MARKETPLACE_AUTO_WORKER_URL must be an HTTPS URL")
           if url.path.rstrip("/") != "/api/cron/marketplace-auto-worker":
-              raise SystemExit("PROFFERA_MARKETPLACE_AUTO_WORKER_URL must target /api/cron/marketplace-auto-worker")
+              raise SystemExit("MARKETPLACE_AUTO_WORKER_URL must target /api/cron/marketplace-auto-worker")
           PY
 
       - name: Process Marketplace invitation waves
         env:
-          MARKETPLACE_AUTO_WORKER_URL: ${{ secrets.PROFFERA_MARKETPLACE_AUTO_WORKER_URL }}
-          CRON_SECRET: ${{ secrets.PROFFERA_MARKETPLACE_AUTO_WORKER_CRON_SECRET }}
+          CRON_SECRET: ${{ secrets.PROFFERA_REMINDER_CRON_SECRET }}
         run: |
           set -euo pipefail
           response="$(curl --fail-with-body --silent --show-error \
@@ -60,7 +60,7 @@ jobs:
               raise SystemExit(1)
 
           skip_reason = payload.get("skipped") if isinstance(payload.get("skipped"), str) else None
-          if skip_reason in {"disabled", "production_not_authorized"}:
+          if skip_reason in {"disabled", "production_not_authorized", "production_cutoff_not_configured"}:
               print(f"Marketplace Auto Worker skipped safely: {skip_reason}")
               raise SystemExit(0)
 

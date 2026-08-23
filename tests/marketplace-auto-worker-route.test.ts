@@ -23,6 +23,7 @@ describe("Marketplace Auto Worker cron route", () => {
     process.env.CRON_SECRET = "cron-secret";
     process.env.MARKETPLACE_AUTO_WORKER_ENABLED = "true";
     process.env.VERCEL_ENV = "preview";
+    process.env.MARKETPLACE_AUTO_WORKER_NOT_BEFORE = "2026-08-23T09:24:45.000Z";
     delete process.env.MARKETPLACE_AUTO_WORKER_ALLOW_PRODUCTION;
     delete process.env.MARKETPLACE_AUTO_WAVE2_DELAY_MINUTES;
     delete process.env.MARKETPLACE_AUTO_WORKER_BATCH_SIZE;
@@ -59,6 +60,23 @@ describe("Marketplace Auto Worker cron route", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({ ok: true, skipped: "production_not_authorized" });
+    expect(mocks.processWorker).not.toHaveBeenCalled();
+  });
+
+  it("refuses Production writes without a valid rollout cutoff", async () => {
+    process.env.VERCEL_ENV = "production";
+    process.env.MARKETPLACE_AUTO_WORKER_ALLOW_PRODUCTION = "true";
+    delete process.env.MARKETPLACE_AUTO_WORKER_NOT_BEFORE;
+
+    let response = await GET(request());
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ ok: true, skipped: "production_cutoff_not_configured" });
+    expect(mocks.processWorker).not.toHaveBeenCalled();
+
+    process.env.MARKETPLACE_AUTO_WORKER_NOT_BEFORE = "not-a-date";
+    response = await GET(request());
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ ok: true, skipped: "production_cutoff_not_configured" });
     expect(mocks.processWorker).not.toHaveBeenCalled();
   });
 
