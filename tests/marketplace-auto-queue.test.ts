@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ getSql: vi.fn() }));
 
@@ -10,13 +10,22 @@ import {
   MARKETPLACE_AUTO_QUEUE_PAGE_SIZE,
 } from "@/features/matching/marketplace-auto-queue";
 
+const originalEnv = { ...process.env };
+
 function queryText(call: unknown[] | undefined) {
   const strings = call?.[0] as readonly string[] | undefined;
   return (strings ?? []).join(" ? ").replace(/\s+/g, " ").trim();
 }
 
 describe("Marketplace Auto Worker queue", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    delete process.env.MARKETPLACE_AUTO_WORKER_NOT_BEFORE;
+  });
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
 
   it("reads open requests oldest-first with offer counts and a bounded page", async () => {
     const sql = vi.fn(async () => [{
@@ -41,6 +50,29 @@ describe("Marketplace Auto Worker queue", () => {
     expect(query).toContain("order by priority_rank asc, created_at_sort asc, quote_request_id asc");
     expect(query).toContain("limit ?");
     expect(sql.mock.calls[0]).toContain(MARKETPLACE_AUTO_QUEUE_PAGE_SIZE);
+  });
+
+  it("filters out requests created before the configured rollout cutoff", async () => {
+    const sql = vi.fn(async () => []);
+    mocks.getSql.mockReturnValue(sql);
+    process.env.MARKETPLACE_AUTO_WORKER_NOT_BEFORE = "2026-08-23T09:24:45Z";
+
+    await getMarketplaceAutoQueuePage();
+
+    const query = queryText(sql.mock.calls[0]);
+    expect(query).toContain("request.created_at >= nullif( ? , '')::timestamptz");
+    expect(sql.mock.calls[0]).toContain("2026-08-23T09:24:45.000Z");
+  });
+
+  it("does not turn a malformed optional cutoff into a partial timestamp filter", async () => {
+    const sql = vi.fn(async () => []);
+    mocks.getSql.mockReturnValue(sql);
+    process.env.MARKETPLACE_AUTO_WORKER_NOT_BEFORE = "not-a-date";
+
+    await getMarketplaceAutoQueuePage();
+
+    expect(sql.mock.calls[0]).toContain("");
+    expect(sql.mock.calls[0]).not.toContain("not-a-date");
   });
 
   it("prioritizes leased rematches and uses a full composite cursor for later pages", async () => {
