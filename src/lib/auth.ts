@@ -3,10 +3,10 @@ import { Pool } from "pg";
 
 import { resolvePreviewAuthOriginConfig } from "@/lib/auth-origin";
 import { resolveAuthSecret } from "@/lib/auth-secret";
-import { resolveDatabaseUrl } from "@/lib/db/database-url";
+import { resolveNodePostgresDatabaseUrl } from "@/lib/db/database-url";
 
 function createAuth() {
-  const databaseUrl = resolveDatabaseUrl();
+  const databaseUrl = resolveNodePostgresDatabaseUrl();
   const authSecret = resolveAuthSecret();
   const previewAuthOriginConfig = resolvePreviewAuthOriginConfig();
 
