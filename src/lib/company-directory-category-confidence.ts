@@ -38,11 +38,14 @@ type SniFact = {
   label: string;
 };
 
+const MALERI_ACCENTED_TOKEN_FRAGMENTS = ["måleri", "målar", "målning"];
+const MALERI_UNACCENTED_TOKEN_PREFIXES = ["maleri", "malare", "malning"];
+
 const categoryKeywords: Record<string, string[]> = {
   stadning: ["stadning", "stadservice", "lokalvard", "rengor", "fonsterputs", "hemstad", "kontorsstad"],
   elektriker: ["elektr", "elinstall", "eltekn", "elkraft", "elservice"],
   vvs: ["vvs", "rorlagg", "rorinstall", "varme", "sanitar", "sanitet", "ventilation", "kylinstall"],
-  maleri: ["maleri", "malning"],
+  maleri: [],
   snickeri: ["snicker", "byggnadssnicker", "carpentry"],
   tradgard: ["tradgard", "markskotsel", "gronyt", "landskap"],
   flytt: ["flytt", "moving"],
@@ -107,26 +110,27 @@ function hasSwedishTokenPrefix(values: string[], prefixes: string[]) {
   return tokens.some((token) => normalizedPrefixes.some((prefix) => token.startsWith(prefix)));
 }
 
+function hasSwedishTokenFragment(values: string[], fragments: string[]) {
+  const tokens = swedishTokens(values);
+  if (!tokens.length) return false;
+  const normalizedFragments = fragments.map((fragment) => fragment.normalize("NFC").toLocaleLowerCase("sv-SE"));
+  return tokens.some((token) => normalizedFragments.some((fragment) => token.includes(fragment)));
+}
+
 function hasCategoryKeyword(categorySlug: string, values: string[]) {
+  // Keep Swedish vowel identity for painting terms. Accented stems can safely
+  // match inside compounds such as "fasadmåleri" while "mälar" stays distinct
+  // from "målar". ASCII fallbacks remain prefix-only to avoid broad false hits.
+  if (categorySlug === "maleri") {
+    return hasSwedishTokenFragment(values, MALERI_ACCENTED_TOKEN_FRAGMENTS)
+      || hasSwedishTokenPrefix(values, MALERI_UNACCENTED_TOKEN_PREFIXES);
+  }
+
   const keywords = categoryKeywords[categorySlug] ?? [];
   if (!keywords.length) return false;
 
   if (categorySlug === "stadning" && hasExactSwedishToken(values, "städ")) {
     return true;
-  }
-
-  // Preserve Swedish vowel identity for painting terms. Folding å/ä to "a" made
-  // words such as "Mälarsanering" look like the stem "målar" and falsely signal
-  // the Måleri category. Real painting words keep their own token prefixes.
-  if (categorySlug === "maleri") {
-    return hasSwedishTokenPrefix(values, [
-      "måleri",
-      "målar",
-      "målning",
-      "maleri",
-      "malare",
-      "malning",
-    ]);
   }
 
   let sourceText = values.filter(Boolean).join(" \n ").normalize("NFC");
