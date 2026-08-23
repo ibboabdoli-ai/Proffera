@@ -1,5 +1,9 @@
 import "server-only";
 
+import {
+  resolveCompanyDirectoryPublicAddressResolution,
+  type DirectoryPublicAddress,
+} from "@/lib/company-directory-scb-address";
 import { getPlatformAdmin } from "@/lib/platform-admin";
 import { getSql } from "@/lib/db/server";
 
@@ -8,6 +12,7 @@ const DEFAULT_LANTMATERIET_BASE_URL =
 const GEOCODE_SOURCE = "lantmateriet_belagenhetsadress_v4_2";
 const NO_MATCH_SOURCE = "lantmateriet_no_match_v4_2";
 const NO_MATCH_SOURCE_PATTERN = `${NO_MATCH_SOURCE.replaceAll("_", "\\_")}%`;
+const SCB_WORKPLACE_NO_MATCH_SOURCE_PREFIX = `${NO_MATCH_SOURCE}:scb_workplace:`;
 const MAX_DETAIL_FALLBACK_CANDIDATES = 5;
 const GEOCODING_ACTION_BUDGET_MS = 240_000;
 const GEOCODING_FINAL_COUNTS_RESERVE_MS = 10_000;
@@ -94,6 +99,13 @@ export type LantmaterietAddressReference = {
   adressComponents?: AddressComponents;
 };
 
+type DirectoryGeocodingAddressSource = "profile" | "scb_workplace";
+
+type DirectoryGeocodingAddressSelection = {
+  address: DirectoryPublicAddress;
+  source: DirectoryGeocodingAddressSource;
+};
+
 type PilotProfile = {
   id: string;
   organizationNumber: string;
@@ -101,6 +113,7 @@ type PilotProfile = {
   addressLine1: string;
   postalCode: string;
   city: string;
+  addressSource: DirectoryGeocodingAddressSource;
 };
 
 type SwerefPoint = {
@@ -160,6 +173,52 @@ function normalizeStreetAddress(value: unknown) {
     .replace(/(\d)\s+([a-z])\b/g, "$1$2");
 }
 
+function parseJsonArray(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== "string" || !value.trim()) return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function hasScbConflicts(value: unknown) {
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value !== "string" || !value.trim()) return false;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return !Array.isArray(parsed) || parsed.length > 0;
+  } catch {
+    return true;
+  }
+}
+
+function sameDirectoryGeocodingLookupAddress(
+  left: DirectoryPublicAddress,
+  right: DirectoryPublicAddress,
+) {
+  return normalizeStreetAddress(left.addressLine1) === normalizeStreetAddress(right.addressLine1)
+    && normalizePostcode(left.postalCode) === normalizePostcode(right.postalCode)
+    && normalizeText(left.city) === normalizeText(right.city);
+}
+
+export function selectDirectoryGeocodingAddress(input: {
+  profileAddress: DirectoryPublicAddress;
+  scbWorkplaces: unknown;
+  scbConflicts: unknown;
+}): DirectoryGeocodingAddressSelection {
+  const resolution = resolveCompanyDirectoryPublicAddressResolution(
+    input.profileAddress,
+    hasScbConflicts(input.scbConflicts) ? [] : parseJsonArray(input.scbWorkplaces),
+  );
+  return {
+    address: resolution.address,
+    source: resolution.source,
+  };
+}
+
 function isUuid(value: unknown) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
     .test(String(value ?? ""));
@@ -196,8 +255,13 @@ export function classifyDirectoryGeocodingBatchError(error: unknown) {
   return error instanceof GeocodingDeadlineExceeded ? "deadline" as const : "error" as const;
 }
 
-export function buildDirectoryGeocodingNoMatchSource(reason: DirectoryGeocodingNoMatchReason) {
-  return `${NO_MATCH_SOURCE}:${reason}`;
+export function buildDirectoryGeocodingNoMatchSource(
+  reason: DirectoryGeocodingNoMatchReason,
+  addressSource: DirectoryGeocodingAddressSource = "profile",
+) {
+  return addressSource === "scb_workplace"
+    ? `${SCB_WORKPLACE_NO_MATCH_SOURCE_PREFIX}${reason}`
+    : `${NO_MATCH_SOURCE}:${reason}`;
 }
 
 export function isDirectoryGeocodingNoMatchSource(value: unknown) {
@@ -209,6 +273,21 @@ export function shouldRetryLegacyDirectoryNoMatch(organizationNumber: unknown, s
   return String(source ?? "") === NO_MATCH_SOURCE
     && (DIRECTORY_GEOCODING_DIAGNOSTIC_RETRY_ORGS as readonly string[])
       .includes(String(organizationNumber ?? ""));
+}
+
+export function shouldRetryDirectoryNoMatchWithCanonicalAddress(input: {
+  geocodeSource: unknown;
+  profileAddress: DirectoryPublicAddress;
+  selectedAddress: DirectoryGeocodingAddressSelection;
+}) {
+  const source = String(input.geocodeSource ?? "");
+  if (!isDirectoryGeocodingNoMatchSource(source)) return false;
+  if (source.startsWith(SCB_WORKPLACE_NO_MATCH_SOURCE_PREFIX)) return false;
+  if (input.selectedAddress.source !== "scb_workplace") return false;
+  return !sameDirectoryGeocodingLookupAddress(
+    input.profileAddress,
+    input.selectedAddress.address,
+  );
 }
 
 export function cleanDirectoryStreetAddress(value: unknown) {
@@ -500,6 +579,40 @@ async function postgisReady() {
   return Boolean(rows[0]?.ready);
 }
 
+function profileAddressFromRow(row: Record<string, unknown>): DirectoryPublicAddress {
+  return {
+    addressLine1: String(row.address_line1 ?? "").trim(),
+    postalCode: String(row.postal_code ?? "").trim(),
+    city: String(row.city ?? "").trim(),
+    municipality: String(row.municipality ?? "").trim(),
+  };
+}
+
+function selectedAddressFromRow(row: Record<string, unknown>) {
+  return selectDirectoryGeocodingAddress({
+    profileAddress: profileAddressFromRow(row),
+    scbWorkplaces: row.scb_workplaces,
+    scbConflicts: row.scb_conflicts,
+  });
+}
+
+function rowNeedsGeocodingAttempt(row: Record<string, unknown>) {
+  const latitude = row.latitude;
+  const longitude = row.longitude;
+  if (latitude !== null && latitude !== undefined && longitude !== null && longitude !== undefined) {
+    return false;
+  }
+  const source = String(row.geocode_source ?? "");
+  if (!isDirectoryGeocodingNoMatchSource(source)) return true;
+  if (shouldRetryLegacyDirectoryNoMatch(row.organization_number, source)) return true;
+  const selectedAddress = selectedAddressFromRow(row);
+  return shouldRetryDirectoryNoMatchWithCanonicalAddress({
+    geocodeSource: source,
+    profileAddress: profileAddressFromRow(row),
+    selectedAddress,
+  });
+}
+
 async function pilotCounts(deadline?: number) {
   if (deadline) assertBeforeDeadline(deadline);
   const sql = getSql();
@@ -507,42 +620,45 @@ async function pilotCounts(deadline?: number) {
     return { geocoded: 0, remaining: DIRECTORY_GEOCODING_PILOT_ORGS.length, needsReview: 0 };
   }
   const orgsJson = JSON.stringify(DIRECTORY_GEOCODING_PILOT_ORGS);
-  const diagnosticOrgsJson = JSON.stringify(DIRECTORY_GEOCODING_DIAGNOSTIC_RETRY_ORGS);
   const rows = await sql`
     select
-      count(*) filter (where location.latitude is not null and location.longitude is not null)::int as geocoded,
-      count(*) filter (
-        where location.geocode_source like ${NO_MATCH_SOURCE_PATTERN}
-          and not (
-            location.geocode_source = ${NO_MATCH_SOURCE}
-            and profile.organization_number in (
-              select jsonb_array_elements_text(${diagnosticOrgsJson}::jsonb)
-            )
-          )
-      )::int as needs_review,
-      count(*) filter (
-        where (location.latitude is null or location.longitude is null)
-          and (
-            coalesce(location.geocode_source, '') not like ${NO_MATCH_SOURCE_PATTERN}
-            or (
-              location.geocode_source = ${NO_MATCH_SOURCE}
-              and profile.organization_number in (
-                select jsonb_array_elements_text(${diagnosticOrgsJson}::jsonb)
-              )
-            )
-          )
-      )::int as remaining
+      profile.organization_number,
+      profile.address_line1,
+      profile.postal_code,
+      profile.city,
+      profile.municipality,
+      location.latitude::float8 as latitude,
+      location.longitude::float8 as longitude,
+      location.geocode_source,
+      scb.workplaces as scb_workplaces,
+      scb.conflicts as scb_conflicts
     from company_directory_profiles profile
     left join company_directory_business_locations location on location.profile_id = profile.id
+    left join company_directory_scb_enrichment scb on scb.profile_id = profile.id
     where profile.organization_number in (
       select jsonb_array_elements_text(${orgsJson}::jsonb)
     )
   `;
-  return {
-    geocoded: Number(rows[0]?.geocoded ?? 0),
-    needsReview: Number(rows[0]?.needs_review ?? 0),
-    remaining: Number(rows[0]?.remaining ?? DIRECTORY_GEOCODING_PILOT_ORGS.length),
-  };
+
+  let geocoded = 0;
+  let remaining = 0;
+  let needsReview = 0;
+  for (const row of rows as Record<string, unknown>[]) {
+    const hasCoordinates = row.latitude !== null
+      && row.latitude !== undefined
+      && row.longitude !== null
+      && row.longitude !== undefined;
+    if (hasCoordinates) {
+      geocoded += 1;
+      continue;
+    }
+    if (rowNeedsGeocodingAttempt(row)) {
+      remaining += 1;
+      continue;
+    }
+    if (isDirectoryGeocodingNoMatchSource(row.geocode_source)) needsReview += 1;
+  }
+  return { geocoded, remaining, needsReview };
 }
 
 export async function getDirectoryGeocodingStatus(): Promise<DirectoryGeocodingStatus> {
@@ -562,12 +678,13 @@ export async function getDirectoryGeocodingStatus(): Promise<DirectoryGeocodingS
 async function markNoMatch(
   profileId: string,
   reason: DirectoryGeocodingNoMatchReason,
+  addressSource: DirectoryGeocodingAddressSource,
   deadline?: number,
 ) {
   if (deadline) assertBeforeDeadline(deadline);
   const sql = getSql();
   if (!sql) return;
-  const source = buildDirectoryGeocodingNoMatchSource(reason);
+  const source = buildDirectoryGeocodingNoMatchSource(reason, addressSource);
   await sql`
     insert into company_directory_business_locations (
       profile_id, geocode_source, geocode_precision, geocode_confidence,
@@ -603,7 +720,6 @@ export async function geocodeDirectoryPilotFromAdmin(limit = 5): Promise<Directo
   assertBeforeDeadline(processingDeadline);
   const boundedLimit = Math.max(1, Math.min(5, Math.floor(Number(limit) || 5)));
   const orgsJson = JSON.stringify(DIRECTORY_GEOCODING_PILOT_ORGS);
-  const diagnosticOrgsJson = JSON.stringify(DIRECTORY_GEOCODING_DIAGNOSTIC_RETRY_ORGS);
   const rows = await sql`
     select
       profile.id::text,
@@ -611,63 +727,53 @@ export async function geocodeDirectoryPilotFromAdmin(limit = 5): Promise<Directo
       profile.display_name,
       profile.address_line1,
       profile.postal_code,
-      profile.city
+      profile.city,
+      profile.municipality,
+      location.latitude::float8 as latitude,
+      location.longitude::float8 as longitude,
+      location.geocode_source,
+      scb.workplaces as scb_workplaces,
+      scb.conflicts as scb_conflicts
     from company_directory_profiles profile
     left join company_directory_business_locations location on location.profile_id = profile.id
+    left join company_directory_scb_enrichment scb on scb.profile_id = profile.id
     where profile.organization_number in (
       select jsonb_array_elements_text(${orgsJson}::jsonb)
     )
       and profile.publication_status in ('ready', 'published')
       and profile.is_active = true
       and profile.privacy_blocked = false
-      and profile.address_line1 <> ''
-      and lower(profile.address_line1) not like 'box %'
-      and lower(profile.address_line1) not like 'kivra:%'
       and (location.latitude is null or location.longitude is null)
-      and (
-        coalesce(location.geocode_source, '') not like ${NO_MATCH_SOURCE_PATTERN}
-        or (
-          location.geocode_source = ${NO_MATCH_SOURCE}
-          and profile.organization_number in (
-            select jsonb_array_elements_text(${diagnosticOrgsJson}::jsonb)
-          )
-        )
-      )
-    order by
-      case
-        when location.geocode_source = ${NO_MATCH_SOURCE}
-          and profile.organization_number in (
-            select jsonb_array_elements_text(${diagnosticOrgsJson}::jsonb)
-          )
-        then 0
-        else 1
-      end,
-      profile.category_slug,
-      profile.display_name
-    limit ${boundedLimit}
+    order by profile.category_slug, profile.display_name
   `;
+
+  const candidates = (rows as Record<string, unknown>[])
+    .filter(rowNeedsGeocodingAttempt)
+    .slice(0, boundedLimit);
 
   let attempted = 0;
   let geocoded = 0;
   let noMatch = 0;
   let errors = 0;
 
-  for (const row of rows) {
+  for (const row of candidates) {
     if (Date.now() >= processingDeadline) break;
     attempted += 1;
+    const selectedAddress = selectedAddressFromRow(row);
     const profile: PilotProfile = {
       id: String(row.id),
       organizationNumber: String(row.organization_number),
       companyName: String(row.display_name),
-      addressLine1: String(row.address_line1),
-      postalCode: String(row.postal_code),
-      city: String(row.city),
+      addressLine1: selectedAddress.address.addressLine1,
+      postalCode: selectedAddress.address.postalCode,
+      city: selectedAddress.address.city,
+      addressSource: selectedAddress.source,
     };
     try {
       const resolution = await resolveOfficialAddress(profile, config, processingDeadline);
       assertBeforeDeadline(processingDeadline);
       if (resolution.status === "no_match") {
-        await markNoMatch(profile.id, resolution.reason, processingDeadline);
+        await markNoMatch(profile.id, resolution.reason, profile.addressSource, processingDeadline);
         noMatch += 1;
         continue;
       }
