@@ -118,6 +118,33 @@ beforeEach(() => {
 });
 
 describe("Company Directory category policy revalidation", () => {
+  it("clamps an oversized batch request to the safe maximum", async () => {
+    configure();
+
+    await revalidateCompanyDirectoryCategoryPolicyBatch(500);
+
+    const selection = sqlCalls.find((call) => call.query.includes("select profile.id::text"));
+    expect(selection?.values).toContain(20);
+  });
+
+  it("clamps a non-positive batch request to one candidate", async () => {
+    configure();
+
+    await revalidateCompanyDirectoryCategoryPolicyBatch(0);
+
+    const selection = sqlCalls.find((call) => call.query.includes("select profile.id::text"));
+    expect(selection?.values).toContain(1);
+  });
+
+  it("derives remaining backlog from the initial selection without a second candidate scan", async () => {
+    configure();
+
+    const result = await revalidateCompanyDirectoryCategoryPolicyBatch(10);
+
+    expect(result.remaining).toBe(0);
+    expect(sqlCalls.filter((call) => call.query.includes("select profile.id::text"))).toHaveLength(1);
+  });
+
   it("demotes a stale-policy Ready profile and records the policy decision in the same statement", async () => {
     configure({ status: "ready" });
     mocks.assessConfidence.mockReturnValue({
