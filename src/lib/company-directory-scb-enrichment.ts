@@ -195,9 +195,9 @@ async function saveScbEnrichment(
   // workplace's physical municipality. Project only the municipality from the
   // same unambiguous workplace visiting address used by the public resolver.
   // Existing non-SCB/manual values and claimed Workspace-owned profiles are
-  // preserved. Values created by the older company-level projection are repaired
-  // only when their provenance hash still matches the current profile value, so
-  // later human/claimed edits win.
+  // preserved. Values owned either by the legacy company-level projection or
+  // by the same current workplace may be refreshed only while their provenance
+  // hash still matches the profile value, so later human/claimed edits win.
   //
   // The projection intentionally does not change profile.updated_at. That token
   // belongs to the comparison snapshot captured before the SCB request; changing
@@ -217,9 +217,17 @@ async function saveScbEnrichment(
               from company_directory_field_sources existing_source
               where existing_source.profile_id = profile.id
                 and existing_source.field_name = 'municipality'
-                and existing_source.source_name = 'scb_foretagsregistret'
-                and existing_source.source_record_id = ${data.organizationNumber}
                 and existing_source.value_hash = ${existingMunicipalityValueHash}
+                and (
+                  (
+                    existing_source.source_name = 'scb_foretagsregistret'
+                    and existing_source.source_record_id = ${data.organizationNumber}
+                  )
+                  or (
+                    existing_source.source_name = 'scb_foretagsregistret:workplace'
+                    and existing_source.source_record_id = ${sourceRecordId}
+                  )
+                )
             )
           )
         )
