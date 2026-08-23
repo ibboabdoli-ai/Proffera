@@ -38,7 +38,10 @@ function reasonText(row: Awaited<ReturnType<typeof getCompanyDirectoryMarketplac
   if (reason === "needs_contact") return "Kontakt saknas";
   if (reason === "claimed_workspace_route") return "Hanteras via Workspace";
   if (reason === "scb_conflict") return "SCB-konflikt";
-  return reason;
+  if (reason === "privacy_blocked") return "Blockerad av integritetspolicy";
+  if (reason === "not_juridical_person") return "Inte en juridisk person";
+  if (reason === "no_public_service") return "Ingen publicerad tjänst";
+  return "Behöver manuell granskning";
 }
 
 export default async function DirectoryMarketplaceReadinessPage() {
