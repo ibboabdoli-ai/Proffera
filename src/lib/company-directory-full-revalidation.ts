@@ -228,6 +228,7 @@ async function selectCandidates(limit: number, cursorValue: string) {
            normalized_organization_number, status_rank
     from eligible
     order by
+      case when status_rank = 0 then 0 else 1 end,
       case when (
         status_rank > ${cursor.statusRank}
         or (status_rank = ${cursor.statusRank} and normalized_organization_number > ${cursor.organizationNumber})
