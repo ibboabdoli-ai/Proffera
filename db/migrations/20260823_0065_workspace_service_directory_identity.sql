@@ -3,8 +3,21 @@
 -- This migration is intentionally additive and backward compatible. Runtime readers
 -- may continue to use `public_slug` during the rollout, while new/updated provider
 -- activation can persist a durable primary Directory taxonomy identity separately.
-
-begin;
+--
+-- IMPORTANT: execute this file in autocommit mode. Do NOT wrap it in BEGIN/COMMIT
+-- or in a migration-runner transaction because CREATE INDEX CONCURRENTLY cannot
+-- run inside a transaction block. The DDL/backfill statements are idempotent so a
+-- partially interrupted deployment can safely be retried before the concurrent
+-- index phase completes.
+--
+-- Deployment sequence:
+--   1. Add/validate the nullable FK and exact-only backfill below.
+--   2. Build workspace_services_primary_directory_service_idx concurrently.
+--   3. Apply the column comment.
+-- Rollback is deliberate and separate:
+--   DROP INDEX CONCURRENTLY IF EXISTS workspace_services_primary_directory_service_idx;
+--   ALTER TABLE workspace_services DROP CONSTRAINT IF EXISTS workspace_services_primary_directory_service_fk;
+--   ALTER TABLE workspace_services DROP COLUMN IF EXISTS primary_directory_service_slug;
 
 alter table workspace_services
   add column if not exists primary_directory_service_slug text;
@@ -32,11 +45,9 @@ where service.primary_directory_service_slug is null
   and service.public_slug is not null
   and service.public_slug = directory_service.slug;
 
-create index if not exists workspace_services_primary_directory_service_idx
+create index concurrently if not exists workspace_services_primary_directory_service_idx
   on workspace_services (workspace_id, primary_directory_service_slug)
   where primary_directory_service_slug is not null;
 
 comment on column workspace_services.primary_directory_service_slug is
   'Primary canonical Proffera Directory service taxonomy identity. Independent from public_slug, which remains the public URL/SEO slug. A future many-to-many mapping may extend this primary reference when a real use case requires it.';
-
-commit;
