@@ -37,14 +37,17 @@ function postgresSql(client: Client) {
 }
 
 (RUN_POSTGRES_INTEGRATION ? describe.sequential : describe.skip)(
-  "public Directory canonical workplace search PostgreSQL integration",
+  "Directory service identity tenant isolation PostgreSQL integration",
   () => {
     let containerName = "";
     let connectionString = "";
     let client: Client | null = null;
+
     const profileId = "11111111-1111-4111-8111-111111111111";
     const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
     const workspaceServiceId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const competingWorkspaceId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    const competingServiceId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 
     async function waitForPostgres() {
       let lastError: unknown = null;
@@ -64,26 +67,8 @@ function postgresSql(client: Client) {
       throw lastError ?? new Error("PostgreSQL test container did not become ready");
     }
 
-    // Every fail-closed case below must keep the profile/Workspace location as
-    // the authoritative public fallback and must not leak the rejected SCB location.
-    async function expectProfileFallback() {
-      const stockholm = await searchPublishedCompanyDirectory({ location: "Stockholm" });
-      expect(stockholm.totalCount).toBe(1);
-      expect(stockholm.results).toHaveLength(1);
-      expect(stockholm.results[0]).toMatchObject({
-        slug: "canonical-workplace-ab",
-        postalCode: "111 11",
-        city: "Stockholm",
-        municipality: "Stockholm",
-      });
-
-      const sodertalje = await searchPublishedCompanyDirectory({ location: "Södertälje" });
-      expect(sodertalje.totalCount).toBe(0);
-      expect(sodertalje.results).toEqual([]);
-    }
-
     beforeAll(async () => {
-      containerName = `proffera-public-search-workplace-${process.pid}-${Date.now()}`;
+      containerName = `proffera-service-identity-tenant-${process.pid}-${Date.now()}`;
       docker([
         "run", "--rm", "-d", "--name", containerName,
         "-e", "POSTGRES_PASSWORD=postgres",
@@ -102,9 +87,6 @@ function postgresSql(client: Client) {
       client = new Client({ connectionString });
       await client.connect();
 
-      // This fixture intentionally contains only the columns read by
-      // searchPublishedCompanyDirectory. Migration-backed SCB projection behavior is
-      // covered separately in company-directory-scb-enrichment.test.ts.
       await client.query(`
         create table workspaces (
           id uuid primary key,
@@ -186,7 +168,6 @@ function postgresSql(client: Client) {
     beforeEach(async () => {
       mocks.getSql.mockReset();
       mocks.getWorkspaceDirectoryPublicAccessForWorkspaces.mockReset();
-      mocks.getWorkspaceDirectoryPublicAccessForWorkspaces.mockResolvedValue(new Map());
       mocks.getSql.mockReturnValue(postgresSql(client!));
 
       await client!.query(`
@@ -197,14 +178,22 @@ function postgresSql(client: Client) {
       `);
 
       await client!.query(`
+        insert into workspaces (id, status, slug)
+        values
+          ($1, 'active', 'marketplace-company'),
+          ($2, 'active', 'competing-company')
+      `, [workspaceId, competingWorkspaceId]);
+      await client!.query(`
         insert into company_directory_profiles (
           id, public_slug, display_name, category_slug, publication_status,
-          address_line1, postal_code, city, municipality, quality_score
+          address_line1, postal_code, city, municipality, quality_score,
+          claimed_workspace_id, published_at
         ) values (
-          $1, 'canonical-workplace-ab', 'Canonical Workplace AB', 'vvs', 'published',
-          'Gamla vägen 1', '111 11', 'Stockholm', 'Stockholm', 98
+          $1, 'canonical-workplace-ab', 'Canonical Workplace AB', 'vvs', 'claimed',
+          'Gamla vägen 1', '111 11', 'Stockholm', 'Stockholm', 98,
+          $2, now()
         )
-      `, [profileId]);
+      `, [profileId, workspaceId]);
       await client!.query(`
         insert into company_directory_services (slug, category_slug, label)
         values ('vvs', 'vvs', 'VVS / Rörmokare')
@@ -214,78 +203,12 @@ function postgresSql(client: Client) {
         values ($1, 'vvs')
       `, [profileId]);
       await client!.query(`
-        insert into company_directory_scb_enrichment (profile_id, workplaces, conflicts)
-        values (
-          $1,
-          '[{"cfarNumber":"12345678","municipality":"Södertälje","visitingAddress":{"addressLine":"NYA VÄGEN 2","postalCode":"151 00","city":"SÖDERTÄLJE"}}]'::jsonb,
-          '[]'::jsonb
-        )
-      `, [profileId]);
-    });
-
-    it("returns the canonical SCB workplace city and excludes the stale profile city", async () => {
-      const sodertalje = await searchPublishedCompanyDirectory({ location: "Södertälje" });
-      expect(sodertalje.totalCount).toBe(1);
-      expect(sodertalje.results).toHaveLength(1);
-      expect(sodertalje.results[0]).toMatchObject({
-        slug: "canonical-workplace-ab",
-        postalCode: "151 00",
-        city: "SÖDERTÄLJE",
-        municipality: "Södertälje",
-      });
-
-      const stockholm = await searchPublishedCompanyDirectory({ location: "Stockholm" });
-      expect(stockholm.totalCount).toBe(0);
-      expect(stockholm.results).toEqual([]);
-    }, 30_000);
-
-    it("keeps the profile location when SCB evidence has conflicts", async () => {
-      await client!.query(`
-        update company_directory_scb_enrichment
-        set conflicts = '[{"field":"legal_name","code":"legal_name_mismatch"}]'::jsonb
-        where profile_id = $1
-      `, [profileId]);
-
-      await expectProfileFallback();
-    }, 30_000);
-
-    it("keeps the profile location when SCB reports multiple workplaces", async () => {
-      await client!.query(`
-        update company_directory_scb_enrichment
-        set workplaces = workplaces || workplaces
-        where profile_id = $1
-      `, [profileId]);
-
-      await expectProfileFallback();
-    }, 30_000);
-
-    it("keeps the profile location when the workplace municipality is missing", async () => {
-      await client!.query(`
-        update company_directory_scb_enrichment
-        set workplaces = jsonb_set(workplaces, '{0,municipality}', '""'::jsonb)
-        where profile_id = $1
-      `, [profileId]);
-
-      await expectProfileFallback();
-    }, 30_000);
-
-    it("matches claimed Marketplace services by canonical identity while preserving the public URL slug", async () => {
-      await client!.query(`
-        insert into workspaces (id, status, slug)
-        values ($1, 'active', 'marketplace-company')
-      `, [workspaceId]);
-      await client!.query(`
-        update company_directory_profiles
-        set publication_status = 'claimed',
-            claimed_workspace_id = $1,
-            published_at = now()
-        where id = $2
-      `, [workspaceId, profileId]);
-      await client!.query(`
         insert into workspace_services (
           id, workspace_id, public_slug, primary_directory_service_slug, conversion_mode
-        ) values ($1, $2, 'custom-vvs-sodertalje', 'vvs', 'quote')
-      `, [workspaceServiceId, workspaceId]);
+        ) values
+          ($1, $2, 'custom-vvs-sodertalje', 'vvs', 'quote'),
+          ($3, $4, 'vvs', null, 'quote')
+      `, [workspaceServiceId, workspaceId, competingServiceId, competingWorkspaceId]);
       await client!.query(`
         insert into company_directory_service_areas (
           profile_id, service_slug, radius_km, public_visible, confirmed_at
@@ -295,7 +218,9 @@ function postgresSql(client: Client) {
       mocks.getWorkspaceDirectoryPublicAccessForWorkspaces.mockResolvedValue(new Map([
         [workspaceId, { planAccess: true, websiteBuilder: true, onlineBooking: false }],
       ]));
+    });
 
+    it("selects only the claimed workspace service when another tenant uses the same canonical service", async () => {
       const result = await searchPublishedCompanyDirectory({ service: "vvs", location: "Stockholm" });
 
       expect(result.totalCount).toBe(1);
@@ -306,27 +231,9 @@ function postgresSql(client: Client) {
         claimedServiceId: workspaceServiceId,
         claimedServiceSlug: "custom-vvs-sodertalje",
         conversionMode: "quote",
-        bookingAvailable: false,
       });
-
-      const storedService = await client!.query(
-        "select public_slug, primary_directory_service_slug from workspace_services where id = $1",
-        [workspaceServiceId],
-      );
-      expect(storedService.rows[0]).toMatchObject({
-        public_slug: "custom-vvs-sodertalje",
-        primary_directory_service_slug: "vvs",
-      });
-    }, 30_000);
-
-    it("keeps claimed Workspace-owned profile location authoritative", async () => {
-      await client!.query(`
-        update company_directory_profiles
-        set claimed_workspace_id = $1::uuid
-        where id = $2
-      `, [workspaceId, profileId]);
-
-      await expectProfileFallback();
+      expect(result.results[0]?.claimedServiceId).not.toBe(competingServiceId);
+      expect(result.results[0]?.claimedServiceSlug).not.toBe("wrong-tenant-vvs");
     }, 30_000);
   },
 );
