@@ -4,7 +4,12 @@ vi.mock("server-only", () => ({}));
 vi.mock("@/lib/platform-admin", () => ({ getPlatformAdmin: vi.fn() }));
 vi.mock("@/lib/db/server", () => ({ getSql: vi.fn() }));
 
-import { selectDirectoryGeocodingAddress } from "@/lib/company-directory-geocoding";
+import {
+  selectDirectoryGeocodingAddress,
+  shouldRetryDirectoryNoMatchWithCanonicalAddress,
+} from "@/lib/company-directory-geocoding";
+
+const LEGACY_NO_MATCH = "lantmateriet_no_match_v4_2:no_reference";
 
 const profileAddress = {
   addressLine1: "Gamla vägen 1",
@@ -74,5 +79,44 @@ describe("Directory geocoding SCB input guards", () => {
         scbConflicts: conflicts,
       })).toEqual(expectedWorkplace);
     }
+  });
+
+  it("does not retry when canonical selection falls back to the profile address", () => {
+    const selected = selectDirectoryGeocodingAddress({
+      profileAddress,
+      scbWorkplaces: [],
+      scbConflicts: [],
+    });
+
+    expect(selected).toEqual({ source: "profile", address: profileAddress });
+    expect(shouldRetryDirectoryNoMatchWithCanonicalAddress({
+      geocodeSource: LEGACY_NO_MATCH,
+      profileAddress,
+      selectedAddress: selected,
+    })).toBe(false);
+  });
+
+  it("does not retry when the canonical workplace leaves the lookup address unchanged", () => {
+    const unchangedWorkplace = [{
+      cfarNumber: "99999999",
+      municipality: profileAddress.municipality,
+      visitingAddress: {
+        addressLine: profileAddress.addressLine1,
+        postalCode: profileAddress.postalCode,
+        city: profileAddress.city,
+      },
+    }];
+    const selected = selectDirectoryGeocodingAddress({
+      profileAddress,
+      scbWorkplaces: unchangedWorkplace,
+      scbConflicts: [],
+    });
+
+    expect(selected.source).toBe("scb_workplace");
+    expect(shouldRetryDirectoryNoMatchWithCanonicalAddress({
+      geocodeSource: LEGACY_NO_MATCH,
+      profileAddress,
+      selectedAddress: selected,
+    })).toBe(false);
   });
 });
