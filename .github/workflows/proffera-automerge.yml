@@ -98,11 +98,17 @@ jobs:
           head_ref="$(jq -r '.headRefName' <<< "$pr_json")"
           head_sha="$(jq -r '.headRefOid' <<< "$pr_json")"
           is_draft="$(jq -r '.isDraft' <<< "$pr_json")"
-          pr_body="$(jq -r '.body // ""' <<< "$pr_json")"
+          pr_body="$(jq -r '.body // ""' <<< "$pr_json" | tr -d '\r')"
           pr_author="$(jq -r '.author.login // ""' <<< "$pr_json")"
           is_cross_repo="$(jq -r '.isCrossRepository' <<< "$pr_json")"
           head_repo_owner="$(jq -r '.headRepositoryOwner.login // ""' <<< "$pr_json")"
           has_label="$(jq -r '.labels[].name' <<< "$pr_json" | grep -Fxq 'ibbo-approved' && echo yes || echo no)"
+          head_commit_json="$(gh api "repos/$REPOSITORY/commits/$head_sha")"
+          head_message="$(jq -r '.commit.message // ""' <<< "$head_commit_json")"
+          generated_autofix_head=no
+          if [[ "$head_message" == \[codex-autofix\]* ]]; then
+            generated_autofix_head=yes
+          fi
 
           summary "## Proffera gated automerge"
           summary ""
@@ -113,6 +119,7 @@ jobs:
           summary "- PR author: ${pr_author:-none}"
           summary "- Cross-repository: $is_cross_repo"
           summary "- Head repository owner: ${head_repo_owner:-none}"
+          summary "- Generated autofix head: $generated_autofix_head"
           summary "- Merge method: squash"
           summary "- Admin bypass: not used"
           summary ""
@@ -134,6 +141,8 @@ jobs:
           #    anchored to the exact current head commit; or
           # 2) a scoped standing authorization committed on main.
           # The PR branch can never self-authorize because the standing policy is read from main.
+          # Machine-generated Codex autofix heads are intentionally excluded from standing auth;
+          # they require fresh exact-head owner authorization before merge.
           authorization_mode="none"
           standing_authorized="no"
           standing_json=""
@@ -178,6 +187,7 @@ jobs:
               && [ "$standing_prefix_match" = "yes" ] \
               && [ "$standing_handoff_match" = "yes" ] \
               && [ "$standing_origin_match" = "yes" ] \
+              && [ "$generated_autofix_head" = "no" ] \
               && [ "$expires_epoch" -gt "$now_epoch" ]; then
               standing_authorized="yes"
               authorization_mode="standing:${standing_scope}"
@@ -191,6 +201,7 @@ jobs:
             summary "- Branch allowed: $standing_prefix_match"
             summary "- Supervisor handoff matched: $standing_handoff_match"
             summary "- Trusted same-repository owner origin: $standing_origin_match"
+            summary "- Generated autofix head excluded: $generated_autofix_head"
             summary "- Expires: ${standing_expires_at:-none}"
             summary ""
           else
@@ -234,12 +245,12 @@ jobs:
           fi
           summary ""
 
-          # Standing authorization must never auto-merge infrastructure, secrets,
-          # auth, deployment, database/schema, package or other previously blocked paths.
+          # Standing authorization must never auto-merge control-plane, infrastructure,
+          # secrets, auth, deployment, database/schema, package or other blocked paths.
           sensitive_match=""
           while IFS= read -r file; do
             case "$file" in
-              .github/workflows/*|.github/proffera-standing-merge-authorization.json|.env*|vercel.json|next.config.*|middleware.*|src/app/api/*|src/app/api/**|src/lib/auth/*|src/lib/auth/**|src/lib/supabase/*|src/lib/supabase/**|src/lib/workspace/*|src/lib/workspace/**|db/migrations/*|migrations/*|supabase/*|supabase/**|prisma/*|prisma/**|package.json|package-lock.json|pnpm-lock.yaml|yarn.lock)
+              .github/*|AGENTS.md|WORKER_BOOTSTRAP.md|.env*|vercel.json|next.config.*|middleware.*|src/app/api/*|src/app/api/**|src/lib/auth/*|src/lib/auth/**|src/lib/supabase/*|src/lib/supabase/**|src/lib/workspace/*|src/lib/workspace/**|db/migrations/*|migrations/*|supabase/*|supabase/**|prisma/*|prisma/**|package.json|package-lock.json|pnpm-lock.yaml|yarn.lock)
                 sensitive_match="${sensitive_match}${file}"$'\n'
                 ;;
             esac
