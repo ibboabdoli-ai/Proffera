@@ -22,7 +22,7 @@ const authorization = JSON.parse(source(".github/proffera-standing-merge-authori
 
 function authorizationShellBlock() {
   const startMarker = '          pr_json="$(gh pr view';
-  const endMarker = '          changed_files="$(gh pr diff';
+  const endMarker = '          file_count="$(grep -c';
   const start = workflow.indexOf(startMarker);
   const end = workflow.indexOf(endMarker, start);
   expect(start).toBeGreaterThanOrEqual(0);
@@ -40,6 +40,7 @@ type AuthorizationFixture = {
   policy?: Record<string, unknown>;
   events?: Array<Record<string, unknown>>;
   reviews?: Array<Record<string, unknown>>;
+  changedFiles?: string;
 };
 
 function runAuthorizationFixture(fixture: AuthorizationFixture) {
@@ -53,6 +54,10 @@ args="$*"
 expected_policy_path="repos/ibboabdoli-ai/Proffera/contents/.github/proffera-standing-merge-authorization.json?ref=main"
 if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
   printf '%s\\n' "$FAKE_PR_JSON"
+  exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "diff" ]; then
+  printf '%s' "$FAKE_CHANGED_FILES"
   exit 0
 fi
 if [ "$1" = "api" ] && [ "$2" = "$expected_policy_path" ]; then
@@ -69,6 +74,10 @@ if [ "$1" = "api" ] && [[ "$args" == *"/issues/"*"/events"* ]]; then
 fi
 if [ "$1" = "api" ] && [[ "$args" == *"/pulls/"*"/reviews"* ]]; then
   printf '%s\\n' "$FAKE_REVIEWS_NDJSON"
+  exit 0
+fi
+if [ "$1" = "api" ] && [[ "$args" == *"/commits/"* ]]; then
+  printf '%s\\n' "$FAKE_COMMIT_JSON"
   exit 0
 fi
 printf 'unexpected gh invocation: %s\\n' "$args" >&2
@@ -97,6 +106,12 @@ printf 'AUTH_MODE=%s\\n' "$authorization_mode"
     expires_at: "2099-09-30T23:59:59Z",
   };
   const reviews = fixture.reviews ?? [];
+  const changedFiles = fixture.changedFiles ?? "src/app/page.tsx\nsrc/lib/utils.ts";
+  const commitJson = {
+    commit: {
+      message: "Regular commit message",
+    },
+  };
   const result = spawnSync("bash", [script], {
     encoding: "utf8",
     env: {
@@ -106,6 +121,8 @@ printf 'AUTH_MODE=%s\\n' "$authorization_mode"
       FAKE_POLICY_B64: Buffer.from(JSON.stringify(policy), "utf8").toString("base64"),
       FAKE_EVENTS_JSON: JSON.stringify(fixture.events ?? []),
       FAKE_REVIEWS_NDJSON: reviews.map((item) => JSON.stringify(item)).join("\n"),
+      FAKE_CHANGED_FILES: changedFiles,
+      FAKE_COMMIT_JSON: JSON.stringify(commitJson),
     },
   });
 
@@ -147,6 +164,13 @@ describe("Proffera standing automerge authorization", () => {
 
   it("executes the standing-authorization branch for a trusted same-repository owner PR", () => {
     expect(runAuthorizationFixture({ pr: basePr() })).toContain("AUTH_MODE=standing:marketplace-core-loop");
+  });
+
+  it("handles CRLF line endings in PR body handoff line", () => {
+    const output = runAuthorizationFixture({
+      pr: basePr({ body: "Some text\r\nSupervisor handoff: #548\r\nMore text" }),
+    });
+    expect(output).toContain("AUTH_MODE=standing:marketplace-core-loop");
   });
 
   it("rejects an expired standing authorization", () => {
@@ -239,5 +263,14 @@ describe("Proffera standing automerge authorization", () => {
     expect(workflow).toContain("pull_request_review:");
     expect(workflow).toContain("issue_comment:");
     expect(workflow).toContain("ready_for_review");
+  });
+
+  it("blocks sensitive paths from standing authorization", () => {
+    const output = runAuthorizationFixture({
+      pr: basePr(),
+      changedFiles: ".github/workflows/proffera-automerge.yml\n.github/proffera-standing-merge-authorization.json\ndb/migrations/0059_x.sql",
+    });
+    expect(output).toContain("REFUSED:");
+    expect(output).not.toContain("AUTH_MODE=standing:");
   });
 });
