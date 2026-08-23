@@ -20,6 +20,7 @@ vi.mock("@/lib/workspace-feature-entitlement-db", () => ({
 }));
 
 import {
+  getPublicBusinessProfileViewForRequest,
   getPublicProfileBusinessProjection,
   getResolvedPublicBusinessProfile,
   getSeoBusinessProjection,
@@ -91,6 +92,37 @@ function extras() {
   };
 }
 
+function claimedSql() {
+  return vi.fn(async (strings: TemplateStringsArray) => {
+    const query = strings.join(" ");
+    if (query.includes("from company_directory_profiles profile")) {
+      return [{
+        legal_name: "Official Company AB",
+        claimed_workspace_id: WORKSPACE_ID,
+        owner_workspace_id: WORKSPACE_ID,
+        workspace_slug: "owner-company",
+        public_booking_slug: "owner-booking",
+        company_name: "Owner Brand",
+        business_intro: "Owner introduction",
+        logo_url: "/owner/logo.png",
+        hero_image_url: "/owner/hero.jpg",
+        featured_media_url: "/owner/featured.jpg",
+      }];
+    }
+    if (query.includes("from workspace_services service")) {
+      return [{
+        id: "33333333-3333-4333-8333-333333333333",
+        name: "Akut VVS",
+        description: "Akuta jobb",
+        public_slug: "akut-vvs-sodertalje",
+        primary_directory_service_slug: "vvs",
+        conversion_mode: "quote",
+      }];
+    }
+    return [];
+  });
+}
+
 describe("single-profile BusinessProfile resolver", () => {
   beforeEach(() => {
     for (const mock of Object.values(mocks)) mock.mockReset();
@@ -99,34 +131,7 @@ describe("single-profile BusinessProfile resolver", () => {
 
   it("hydrates owner truth only through the Directory profile's linked Workspace", async () => {
     mocks.getPublicDirectoryBusinessForRequest.mockResolvedValue(publicBusiness("claimed"));
-    const sql = vi.fn(async (strings: TemplateStringsArray) => {
-      const query = strings.join(" ");
-      if (query.includes("from company_directory_profiles profile")) {
-        return [{
-          legal_name: "Official Company AB",
-          claimed_workspace_id: WORKSPACE_ID,
-          owner_workspace_id: WORKSPACE_ID,
-          workspace_slug: "owner-company",
-          public_booking_slug: "owner-booking",
-          company_name: "Owner Brand",
-          business_intro: "Owner introduction",
-          logo_url: "/owner/logo.png",
-          hero_image_url: "/owner/hero.jpg",
-          featured_media_url: "/owner/featured.jpg",
-        }];
-      }
-      if (query.includes("from workspace_services service")) {
-        return [{
-          id: "33333333-3333-4333-8333-333333333333",
-          name: "Akut VVS",
-          description: "Akuta jobb",
-          public_slug: "akut-vvs-sodertalje",
-          primary_directory_service_slug: "vvs",
-          conversion_mode: "quote",
-        }];
-      }
-      return [];
-    });
+    const sql = claimedSql();
     mocks.getSql.mockReturnValue(sql);
     mocks.getWorkspaceDirectoryPublicAccessForWorkspaces.mockResolvedValue(new Map([
       [WORKSPACE_ID, { planAccess: true, websiteBuilder: true, onlineBooking: true }],
@@ -153,6 +158,27 @@ describe("single-profile BusinessProfile resolver", () => {
     });
     expect(mocks.getWorkspaceDirectoryPublicAccessForWorkspaces).toHaveBeenCalledWith([WORKSPACE_ID]);
     expect(sql).toHaveBeenCalledTimes(2);
+  });
+
+  it("projects the central policy back into the established public profile UI contract", async () => {
+    mocks.getPublicDirectoryBusinessForRequest.mockResolvedValue(publicBusiness("claimed"));
+    mocks.getSql.mockReturnValue(claimedSql());
+    mocks.getWorkspaceDirectoryPublicAccessForWorkspaces.mockResolvedValue(new Map([
+      [WORKSPACE_ID, { planAccess: true, websiteBuilder: false, onlineBooking: false }],
+    ]));
+
+    const view = await getPublicBusinessProfileViewForRequest("official-company-ab");
+
+    expect(view?.business.companyName).toBe("Owner Brand");
+    expect(view?.business.activityDescription).toBe("Owner introduction");
+    expect(view?.business.media?.url).toBe("/owner/hero.jpg");
+    expect(view?.business.contact.phone).toBe("070-123 45 67");
+    expect(view?.extras.services).toEqual([
+      expect.objectContaining({ slug: "vvs", label: "Akut VVS", sourceType: "owner", confirmed: true }),
+    ]);
+    expect(view?.extras.reputation?.verifiedReviews).toBe(8);
+    expect(view?.profile.capabilities.richWebsite).toBe(false);
+    expect(view?.profile.capabilities.onlineBooking).toBe(false);
   });
 
   it("keeps an unclaimed profile on official data and never asks for Workspace entitlements", async () => {
