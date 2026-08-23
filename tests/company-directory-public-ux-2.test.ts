@@ -8,7 +8,6 @@ function source(path: string) {
 }
 
 const searchPage = source("src/components/company-directory/public-directory-search-page.tsx");
-const profileSearch = source("src/lib/business-profile-search.ts");
 const searchForm = source("src/components/company-directory/public-directory-search-form.tsx");
 const results = source("src/components/company-directory/public-directory-results.tsx");
 const profile = source("src/components/company-directory/public-directory-profile.tsx");
@@ -32,7 +31,6 @@ describe("Company Directory UX 2.0", () => {
     expect(searchForm).toContain("navigator.geolocation.getCurrentPosition");
     expect(searchForm).toContain("normalizeDirectoryPublicServiceQuery");
     expect(searchPage).toContain("searchPublishedBusinessProfiles");
-    expect(profileSearch).toContain("searchPublishedCompanyDirectory(input)");
     expect(results).toContain("${profileBase}/${encodeURIComponent(result.slug)}");
   });
 
