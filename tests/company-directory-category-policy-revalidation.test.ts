@@ -145,6 +145,23 @@ describe("Company Directory category policy revalidation", () => {
     expect(sqlCalls.filter((call) => call.query.includes("select profile.id::text"))).toHaveLength(1);
   });
 
+  it("passes one deadline AbortSignal through every Neon SQL client", async () => {
+    configure();
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    try {
+      await revalidateCompanyDirectoryCategoryPolicyBatch(10, {
+        deadlineAt: 1_100_000,
+      });
+
+      const signals = mocks.getSql.mock.calls.map((call) => call[0]?.signal);
+      expect(signals.length).toBeGreaterThan(1);
+      expect(signals.every((signal) => signal instanceof AbortSignal)).toBe(true);
+      expect(new Set(signals).size).toBe(1);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
   it("demotes a stale-policy Ready profile and records the policy decision in the same statement", async () => {
     configure({ status: "ready" });
     mocks.assessConfidence.mockReturnValue({
@@ -315,7 +332,7 @@ describe("Company Directory category policy revalidation", () => {
     expect(selection?.query).toContain("regexp_replace(profile.organization_number");
   });
 
-  it("reserves deadline headroom for the existing full revalidation worker", async () => {
+  it("reserves deadline headroom before starting any policy SQL", async () => {
     configure();
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
     try {
@@ -324,14 +341,15 @@ describe("Company Directory category policy revalidation", () => {
       });
 
       expect(result).toMatchObject({
-        selected: 1,
+        selected: 0,
         evaluated: 0,
         movedToReview: 0,
-        deferred: 1,
+        deferred: 10,
         errors: 0,
+        remaining: null,
       });
+      expect(mocks.getSql).not.toHaveBeenCalled();
       expect(mocks.assessConfidence).not.toHaveBeenCalled();
-      expect(sqlCalls.some((call) => call.query.includes("update company_directory_"))).toBe(false);
     } finally {
       nowSpy.mockRestore();
     }
