@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { MarketplaceProfileClaimPrompt } from "@/components/company-directory/marketplace-profile-claim-prompt";
 import { PublicDirectoryProfile } from "@/components/company-directory/public-directory-profile";
 import { directoryCategoryLabels } from "@/components/company-directory/public-directory-copy";
-import { getPublicDirectoryBusinessForRequest } from "@/lib/company-directory-public-data";
+import { getSeoBusinessProjection } from "@/lib/business-profile-public";
 import { siteConfig } from "@/lib/site";
 
 export const dynamic = "force-dynamic";
@@ -19,34 +19,34 @@ function first(value: string | string[] | undefined) {
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
-  const business = await getPublicDirectoryBusinessForRequest(slug);
+  const business = await getSeoBusinessProjection(slug);
   if (!business) return {};
   const category = directoryCategoryLabels.en[business.categorySlug] ?? "Service business";
-  const enPath = `/en/companies/${encodeURIComponent(business.slug)}`;
-  const svPath = `/foretag/listad/${encodeURIComponent(business.slug)}`;
+  const enPath = `/en/companies/${encodeURIComponent(business.directorySlug)}`;
+  const svPath = `/foretag/listad/${encodeURIComponent(business.directorySlug)}`;
   const canonical = `${siteConfig.url}${enPath}`;
-  const hasActualBusinessMedia = Boolean(business.media?.isActualBusinessMedia && business.media.url);
-  const description = `${business.companyName}${business.city ? ` in ${business.city}` : ""} – ${category}. Official Swedish company data on Proffera.`;
+  const hasBusinessMedia = Boolean(business.mediaUrl);
+  const description = business.description || `${business.displayName}${business.city ? ` in ${business.city}` : ""} – ${category}. Official Swedish company data on Proffera.`;
   return {
-    title: business.companyName,
+    title: business.displayName,
     description,
     alternates: { canonical, languages: { "sv-SE": svPath, en: enPath } },
     robots: { index: true, follow: true },
     openGraph: {
-      title: business.companyName,
+      title: business.displayName,
       description,
       url: canonical,
       type: "website",
-      ...(hasActualBusinessMedia ? {
-        images: [{ url: new URL(business.media!.url, siteConfig.url).toString(), alt: business.companyName }],
+      ...(hasBusinessMedia ? {
+        images: [{ url: new URL(business.mediaUrl, siteConfig.url).toString(), alt: business.displayName }],
       } : {}),
     },
     twitter: {
-      card: hasActualBusinessMedia ? "summary_large_image" : "summary",
-      title: business.companyName,
+      card: hasBusinessMedia ? "summary_large_image" : "summary",
+      title: business.displayName,
       description,
-      ...(hasActualBusinessMedia ? {
-        images: [{ url: new URL(business.media!.url, siteConfig.url).toString(), alt: business.companyName }],
+      ...(hasBusinessMedia ? {
+        images: [{ url: new URL(business.mediaUrl, siteConfig.url).toString(), alt: business.displayName }],
       } : {}),
     },
   };
