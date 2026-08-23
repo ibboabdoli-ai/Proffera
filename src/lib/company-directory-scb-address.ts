@@ -5,6 +5,12 @@ export type DirectoryPublicAddress = {
   municipality: string;
 };
 
+export type DirectoryPublicAddressResolution = {
+  address: DirectoryPublicAddress;
+  source: "profile" | "scb_workplace";
+  sourceIndex: number | null;
+};
+
 type ScbWorkplaceAddress = DirectoryPublicAddress & {
   sourceIndex: number;
 };
@@ -77,6 +83,68 @@ function selectedAddress(address: ScbWorkplaceAddress): DirectoryPublicAddress {
   };
 }
 
+function profileResolution(address: DirectoryPublicAddress): DirectoryPublicAddressResolution {
+  return { address, source: "profile", sourceIndex: null };
+}
+
+function workplaceResolution(address: ScbWorkplaceAddress): DirectoryPublicAddressResolution {
+  return {
+    address: selectedAddress(address),
+    source: "scb_workplace",
+    sourceIndex: address.sourceIndex,
+  };
+}
+
+/**
+ * Resolve a customer-facing address and report which source actually won.
+ *
+ * SCB company-level municipality describes the registered seat and is not a
+ * physical service/workplace location. Only a selected workplace visiting
+ * address may therefore replace the profile's geographic address bundle.
+ */
+export function resolveCompanyDirectoryPublicAddressResolution(
+  profile: DirectoryPublicAddress,
+  workplaces: unknown,
+): DirectoryPublicAddressResolution {
+  const fallback = {
+    addressLine1: text(profile.addressLine1),
+    postalCode: text(profile.postalCode),
+    city: text(profile.city),
+    municipality: text(profile.municipality),
+  };
+  if (!Array.isArray(workplaces)) return profileResolution(fallback);
+
+  const complete = workplaces
+    .map((value, index) => workplaceVisitingAddress(value, index))
+    .filter((value): value is ScbWorkplaceAddress => Boolean(value));
+  if (complete.length === 0) return profileResolution(fallback);
+  if (workplaces.length === 1 && complete.length === 1) {
+    return workplaceResolution(complete[0]);
+  }
+
+  const normalizedStreet = normalizeText(fallback.addressLine1);
+  if (normalizedStreet) {
+    const streetMatch = uniqueMatch(
+      complete,
+      (address) => normalizeText(address.addressLine1) === normalizedStreet,
+    );
+    if (streetMatch) return workplaceResolution(streetMatch);
+  }
+
+  const normalizedPostal = normalizePostalCode(fallback.postalCode);
+  const normalizedCity = normalizeText(fallback.city);
+  if (normalizedPostal && normalizedCity) {
+    const postalMatch = uniqueMatch(
+      complete,
+      (address) => normalizePostalCode(address.postalCode) === normalizedPostal
+        && normalizeText(address.city) === normalizedCity,
+    );
+    if (postalMatch) return workplaceResolution(postalMatch);
+  }
+
+  return profileResolution(fallback);
+}
+
 /**
  * Resolve a customer-facing address without confusing SCB postal addresses
  * (which may be a PO box) with a workplace visiting address.
@@ -93,41 +161,5 @@ export function resolveCompanyDirectoryPublicAddress(
   profile: DirectoryPublicAddress,
   workplaces: unknown,
 ): DirectoryPublicAddress {
-  const fallback = {
-    addressLine1: text(profile.addressLine1),
-    postalCode: text(profile.postalCode),
-    city: text(profile.city),
-    municipality: text(profile.municipality),
-  };
-  if (!Array.isArray(workplaces)) return fallback;
-
-  const complete = workplaces
-    .map((value, index) => workplaceVisitingAddress(value, index))
-    .filter((value): value is ScbWorkplaceAddress => Boolean(value));
-  if (complete.length === 0) return fallback;
-  if (workplaces.length === 1 && complete.length === 1) {
-    return selectedAddress(complete[0]);
-  }
-
-  const normalizedStreet = normalizeText(fallback.addressLine1);
-  if (normalizedStreet) {
-    const streetMatch = uniqueMatch(
-      complete,
-      (address) => normalizeText(address.addressLine1) === normalizedStreet,
-    );
-    if (streetMatch) return selectedAddress(streetMatch);
-  }
-
-  const normalizedPostal = normalizePostalCode(fallback.postalCode);
-  const normalizedCity = normalizeText(fallback.city);
-  if (normalizedPostal && normalizedCity) {
-    const postalMatch = uniqueMatch(
-      complete,
-      (address) => normalizePostalCode(address.postalCode) === normalizedPostal
-        && normalizeText(address.city) === normalizedCity,
-    );
-    if (postalMatch) return selectedAddress(postalMatch);
-  }
-
-  return fallback;
+  return resolveCompanyDirectoryPublicAddressResolution(profile, workplaces).address;
 }
