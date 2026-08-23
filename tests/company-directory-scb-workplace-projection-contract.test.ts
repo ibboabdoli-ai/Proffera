@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -320,6 +321,69 @@ function scbData(overrides: Partial<ScbCompanyRegistryEnrichment> = {}): ScbComp
         source_name: "scb_foretagsregistret:workplace",
         source_record_id: "87654321",
       });
+    }, 30_000);
+
+    it("refreshes municipality when the same workplace provenance still owns the profile value", async () => {
+      const profileId = "44444444-4444-4444-8444-444444444444";
+      const organizationNumber = "5563115710";
+      const cfarNumber = "87650000";
+      const oldMunicipality = "Södertälje";
+      const oldValueHash = createHash("sha256").update(oldMunicipality).digest("hex");
+
+      await seedProfile({
+        profileId,
+        organizationNumber,
+        legalName: "Projection AB",
+        municipality: oldMunicipality,
+      });
+      await client!.query(`
+        insert into company_directory_field_sources (
+          profile_id, field_name, source_name, source_record_id,
+          source_url, value_hash, confidence, observed_at
+        ) values (
+          $1, 'municipality', 'scb_foretagsregistret:workplace', $2,
+          '', $3, 100, now() - interval '1 day'
+        )
+      `, [profileId, cfarNumber, oldValueHash]);
+
+      mocks.fetchScbCompanyRegistryEnrichment.mockResolvedValue({
+        status: "ok",
+        data: scbData({
+          organizationNumber,
+          workplaces: [workplace("Nykvarn", cfarNumber)],
+        }),
+      });
+
+      await expect(enrichCompanyDirectoryScbForProfile(profileId)).resolves.toMatchObject({
+        status: "saved",
+        conflicts: [],
+      });
+
+      const profile = await client!.query<{ municipality: string }>(
+        "select municipality from company_directory_profiles where id = $1",
+        [profileId],
+      );
+      expect(profile.rows[0]?.municipality).toBe("Nykvarn");
+
+      const refreshedSource = await client!.query<{
+        source_name: string;
+        source_record_id: string;
+        value_hash: string;
+      }>(`
+        select source_name, source_record_id, value_hash
+        from company_directory_field_sources
+        where profile_id = $1
+          and field_name = 'municipality'
+          and source_name = 'scb_foretagsregistret:workplace'
+          and source_record_id = $2
+          and value_hash = $3
+        limit 1
+      `, [
+        profileId,
+        cfarNumber,
+        createHash("sha256").update("Nykvarn").digest("hex"),
+      ]);
+      expect(refreshedSource.rows).toHaveLength(1);
     }, 30_000);
   },
 );
