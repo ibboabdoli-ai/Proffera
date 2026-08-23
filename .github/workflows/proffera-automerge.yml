@@ -2,7 +2,7 @@ name: Proffera gated automerge
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, labeled, unlabeled]
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
   pull_request_review:
     types: [submitted]
   issue_comment:
@@ -48,6 +48,7 @@ jobs:
           SELF_CHECK_NAME: Gated automerge
           SELF_WORKFLOW_NAME: Proffera gated automerge
           HUMAN_APPROVER: ibboabdoli-ai
+          STANDING_AUTH_PATH: .github/proffera-standing-merge-authorization.json
         shell: bash
         run: |
           set -euo pipefail
@@ -88,17 +89,20 @@ jobs:
             pr_number="${INPUT_PR_NUMBER:-}"
           fi
 
-          if [ -z "$pr_number" ]; then
-            refuse "No pull request number was provided."
+          if ! [[ "$pr_number" =~ ^[1-9][0-9]*$ ]]; then
+            refuse "No valid pull request number was provided."
           fi
 
-          pr_json="$(gh pr view "$pr_number" --repo "$REPOSITORY" --json number,baseRefName,headRefName,headRefOid,labels,isDraft)"
-
-          base_ref="$(echo "$pr_json" | jq -r '.baseRefName')"
-          head_ref="$(echo "$pr_json" | jq -r '.headRefName')"
-          head_sha="$(echo "$pr_json" | jq -r '.headRefOid')"
-          is_draft="$(echo "$pr_json" | jq -r '.isDraft')"
-          has_label="$(echo "$pr_json" | jq -r '.labels[].name' | grep -Fxq 'ibbo-approved' && echo yes || echo no)"
+          pr_json="$(gh pr view "$pr_number" --repo "$REPOSITORY" --json number,baseRefName,headRefName,headRefOid,labels,isDraft,body,author,isCrossRepository,headRepositoryOwner)"
+          base_ref="$(jq -r '.baseRefName' <<< "$pr_json")"
+          head_ref="$(jq -r '.headRefName' <<< "$pr_json")"
+          head_sha="$(jq -r '.headRefOid' <<< "$pr_json")"
+          is_draft="$(jq -r '.isDraft' <<< "$pr_json")"
+          pr_body="$(jq -r '.body // ""' <<< "$pr_json")"
+          pr_author="$(jq -r '.author.login // ""' <<< "$pr_json")"
+          is_cross_repo="$(jq -r '.isCrossRepository' <<< "$pr_json")"
+          head_repo_owner="$(jq -r '.headRepositoryOwner.login // ""' <<< "$pr_json")"
+          has_label="$(jq -r '.labels[].name' <<< "$pr_json" | grep -Fxq 'ibbo-approved' && echo yes || echo no)"
 
           summary "## Proffera gated automerge"
           summary ""
@@ -106,8 +110,9 @@ jobs:
           summary "- Base branch: $base_ref"
           summary "- Head branch: $head_ref"
           summary "- Head SHA: $head_sha"
-          summary "- Required label: ibbo-approved"
-          summary "- Required human approver: $HUMAN_APPROVER"
+          summary "- PR author: ${pr_author:-none}"
+          summary "- Cross-repository: $is_cross_repo"
+          summary "- Head repository owner: ${head_repo_owner:-none}"
           summary "- Merge method: squash"
           summary "- Admin bypass: not used"
           summary ""
@@ -124,27 +129,99 @@ jobs:
             refuse "Refused: PR is still a draft."
           fi
 
-          if [ "$has_label" != "yes" ]; then
-            refuse "Refused: PR does not have the required 'ibbo-approved' label."
+          # Authorization has two safe modes:
+          # 1) an owner-applied ibbo-approved label plus an owner APPROVED review
+          #    anchored to the exact current head commit; or
+          # 2) a scoped standing authorization committed on main.
+          # The PR branch can never self-authorize because the standing policy is read from main.
+          authorization_mode="none"
+          standing_authorized="no"
+          standing_json=""
+
+          set +e
+          standing_b64="$(gh api "repos/$REPOSITORY/contents/$STANDING_AUTH_PATH?ref=main" --jq '.content' 2>/dev/null)"
+          standing_status=$?
+          set -e
+          if [ "$standing_status" -eq 0 ] && [ -n "$standing_b64" ]; then
+            standing_json="$(printf '%s' "$standing_b64" | tr -d '\n' | base64 --decode 2>/dev/null || true)"
           fi
 
-          approval_json="$(gh api "repos/$REPOSITORY/issues/$pr_number/events?per_page=100")"
-          approval_actor="$(echo "$approval_json" | jq -r '[.[] | select(.event == "labeled" and .label.name == "ibbo-approved")] | last | .actor.login // ""')"
-          approval_time="$(echo "$approval_json" | jq -r '[.[] | select(.event == "labeled" and .label.name == "ibbo-approved")] | last | .created_at // ""')"
-          head_commit_time="$(gh api "repos/$REPOSITORY/commits/$head_sha" --jq '.commit.committer.date')"
+          if [ -n "$standing_json" ] && jq -e . >/dev/null 2>&1 <<< "$standing_json"; then
+            standing_enabled="$(jq -r '.enabled == true' <<< "$standing_json")"
+            standing_owner="$(jq -r '.authorized_by // ""' <<< "$standing_json")"
+            standing_scope="$(jq -r '.scope // ""' <<< "$standing_json")"
+            standing_issue="$(jq -r '.supervisor_issue // 0' <<< "$standing_json")"
+            standing_expires_at="$(jq -r '.expires_at // ""' <<< "$standing_json")"
+            standing_prefix_match="no"
 
-          summary "- Approval actor: ${approval_actor:-none}"
-          summary "- Approval time: ${approval_time:-none}"
-          summary "- Head commit time: $head_commit_time"
+            while IFS= read -r prefix; do
+              [ -z "$prefix" ] && continue
+              if [[ "$head_ref" == "$prefix"* ]]; then
+                standing_prefix_match="yes"
+                break
+              fi
+            done < <(jq -r '.branch_prefixes[]? // empty' <<< "$standing_json")
+
+            now_epoch="$(date -u +%s)"
+            expires_epoch="$(date -u -d "$standing_expires_at" +%s 2>/dev/null || echo 0)"
+            handoff_line="Supervisor handoff: #${standing_issue}"
+            standing_handoff_match="$(grep -Fxq "$handoff_line" <<< "$pr_body" && echo yes || echo no)"
+            standing_origin_match="no"
+            if [ "$pr_author" = "$HUMAN_APPROVER" ] \
+              && [ "$is_cross_repo" = "false" ] \
+              && [ "$head_repo_owner" = "$HUMAN_APPROVER" ]; then
+              standing_origin_match="yes"
+            fi
+
+            if [ "$standing_enabled" = "true" ] \
+              && [ "$standing_owner" = "$HUMAN_APPROVER" ] \
+              && [ "$standing_prefix_match" = "yes" ] \
+              && [ "$standing_handoff_match" = "yes" ] \
+              && [ "$standing_origin_match" = "yes" ] \
+              && [ "$expires_epoch" -gt "$now_epoch" ]; then
+              standing_authorized="yes"
+              authorization_mode="standing:${standing_scope}"
+            fi
+
+            summary "### Standing authorization"
+            summary "- Policy source: main/$STANDING_AUTH_PATH"
+            summary "- Enabled: $standing_enabled"
+            summary "- Authorized by: ${standing_owner:-none}"
+            summary "- Scope: ${standing_scope:-none}"
+            summary "- Branch allowed: $standing_prefix_match"
+            summary "- Supervisor handoff matched: $standing_handoff_match"
+            summary "- Trusted same-repository owner origin: $standing_origin_match"
+            summary "- Expires: ${standing_expires_at:-none}"
+            summary ""
+          else
+            summary "### Standing authorization"
+            summary "- No valid standing policy was available on main."
+            summary ""
+          fi
+
+          if [ "$standing_authorized" != "yes" ] && [ "$has_label" = "yes" ]; then
+            approval_json="$(gh api "repos/$REPOSITORY/issues/$pr_number/events?per_page=100")"
+            approval_actor="$(jq -r '[.[] | select(.event == "labeled" and .label.name == "ibbo-approved")] | last | .actor.login // ""' <<< "$approval_json")"
+            reviews_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq '.[]' | jq -s '.')"
+            owner_head_approval_count="$(jq -r --arg owner "$HUMAN_APPROVER" --arg sha "$head_sha" '[.[] | select(.user.login == $owner and .state == "APPROVED" and .commit_id == $sha)] | length' <<< "$reviews_json")"
+
+            summary "### Per-PR human authorization"
+            summary "- Label actor: ${approval_actor:-none}"
+            summary "- Exact-current-head owner approvals: $owner_head_approval_count"
+            summary ""
+
+            if [ "$approval_actor" = "$HUMAN_APPROVER" ] \
+              && [ "$owner_head_approval_count" -gt 0 ]; then
+              authorization_mode="fresh-owner-label"
+            fi
+          fi
+
+          if [ "$authorization_mode" = "none" ]; then
+            refuse "Refused: neither a valid scoped standing authorization from main nor an owner label plus exact-current-head owner APPROVED review authorizes this PR."
+          fi
+
+          summary "- Authorization mode: $authorization_mode"
           summary ""
-
-          if [ "$approval_actor" != "$HUMAN_APPROVER" ]; then
-            refuse "Refused: 'ibbo-approved' was not most recently applied by the repository owner '$HUMAN_APPROVER'."
-          fi
-
-          if [ -z "$approval_time" ] || [[ "$approval_time" < "$head_commit_time" ]]; then
-            refuse "Refused: human approval predates the current PR head. Remove and re-apply 'ibbo-approved' after the latest commit."
-          fi
 
           changed_files="$(gh pr diff "$pr_number" --repo "$REPOSITORY" --name-only)"
           summary "### Changed files"
@@ -157,10 +234,12 @@ jobs:
           fi
           summary ""
 
+          # Standing authorization must never auto-merge infrastructure, secrets,
+          # auth, deployment, database/schema, package or other previously blocked paths.
           sensitive_match=""
           while IFS= read -r file; do
             case "$file" in
-              .github/workflows/*|.env*|vercel.json|next.config.*|middleware.*|src/app/api/*|src/app/api/**|src/lib/auth/*|src/lib/auth/**|src/lib/supabase/*|src/lib/supabase/**|src/lib/workspace/*|src/lib/workspace/**|supabase/*|supabase/**|prisma/*|prisma/**|package.json|package-lock.json|pnpm-lock.yaml|yarn.lock)
+              .github/workflows/*|.github/proffera-standing-merge-authorization.json|.env*|vercel.json|next.config.*|middleware.*|src/app/api/*|src/app/api/**|src/lib/auth/*|src/lib/auth/**|src/lib/supabase/*|src/lib/supabase/**|src/lib/workspace/*|src/lib/workspace/**|db/migrations/*|migrations/*|supabase/*|supabase/**|prisma/*|prisma/**|package.json|package-lock.json|pnpm-lock.yaml|yarn.lock)
                 sensitive_match="${sensitive_match}${file}"$'\n'
                 ;;
             esac
@@ -171,7 +250,7 @@ jobs:
             while IFS= read -r file; do
               [ -n "$file" ] && summary "- $file"
             done <<< "$sensitive_match"
-            refuse "Refused: PR changes blocked sensitive paths."
+            refuse "Refused: PR changes blocked sensitive paths and requires the normal controlled merge path."
           fi
 
           file_count="$(grep -c . <<< "$changed_files" || true)"
@@ -204,7 +283,7 @@ jobs:
           done <<< "$changed_files"
 
           if [ "$needs_ai_review" = "true" ]; then
-            has_review_route="$(echo "$pr_json" | jq -r '.labels[].name' | grep -Fxq 'needs-ai-review' && echo yes || echo no)"
+            has_review_route="$(jq -r '.labels[].name' <<< "$pr_json" | grep -Fxq 'needs-ai-review' && echo yes || echo no)"
             summary "### AI review gate"
             summary "- Required: yes"
             summary "- Reason: $ai_review_reason"
@@ -215,13 +294,13 @@ jobs:
             fi
 
             reviews_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq '.[]' | jq -s '.')"
-            current_reviews="$(echo "$reviews_json" | jq -c --arg sha "$head_sha" '[.[] | select(.user.login == "coderabbitai[bot]" and .commit_id == $sha)]')"
-            latest_changes="$(echo "$current_reviews" | jq -r '[.[] | select(.state == "CHANGES_REQUESTED") | .submitted_at] | max // empty')"
-            latest_approval="$(echo "$current_reviews" | jq -r '[.[] | select(.state == "APPROVED") | .submitted_at] | max // empty')"
-            terminal_count="$(echo "$current_reviews" | jq -r '[.[] | select(.state == "APPROVED" or .state == "COMMENTED")] | length')"
+            current_reviews="$(jq -c --arg sha "$head_sha" '[.[] | select(.user.login == "coderabbitai[bot]" and .commit_id == $sha)]' <<< "$reviews_json")"
+            latest_changes="$(jq -r '[.[] | select(.state == "CHANGES_REQUESTED") | .submitted_at] | max // empty' <<< "$current_reviews")"
+            latest_approval="$(jq -r '[.[] | select(.state == "APPROVED") | .submitted_at] | max // empty' <<< "$current_reviews")"
+            terminal_count="$(jq -r '[.[] | select(.state == "APPROVED" or .state == "COMMENTED")] | length' <<< "$current_reviews")"
 
             comments_json="$(gh api --paginate "repos/$REPOSITORY/issues/$pr_number/comments?per_page=100" --jq '.[]' | jq -s '.')"
-            clean_summary_count="$(echo "$comments_json" | jq -r --arg sha "$head_sha" '
+            clean_summary_count="$(jq -r --arg sha "$head_sha" '
               [
                 .[]
                 | select(.user.login == "coderabbitai[bot]")
@@ -235,7 +314,7 @@ jobs:
                   )
               ]
               | length
-            ')"
+            ' <<< "$comments_json")"
 
             if [ -n "$latest_changes" ]; then
               if [ -z "$latest_approval" ] || [[ ! "$latest_approval" > "$latest_changes" ]]; then
@@ -283,10 +362,10 @@ jobs:
               refuse "Refused: no status checks were found for this PR."
             fi
 
-            non_self_check_count="$(echo "$checks_json" | jq -r --arg self_check "$SELF_CHECK_NAME" --arg self_workflow "$SELF_WORKFLOW_NAME" '[.[] | select(.name != $self_check and .name != $self_workflow)] | length')"
-            failing_checks="$(echo "$checks_json" | jq -r --arg self_check "$SELF_CHECK_NAME" --arg self_workflow "$SELF_WORKFLOW_NAME" '.[] | select(.name != $self_check and .name != $self_workflow) | select(.bucket == "fail" or .bucket == "cancel") | .name')"
-            pending_checks="$(echo "$checks_json" | jq -r --arg self_check "$SELF_CHECK_NAME" --arg self_workflow "$SELF_WORKFLOW_NAME" '.[] | select(.name != $self_check and .name != $self_workflow) | select(.bucket == "pending") | .name')"
-            unknown_checks="$(echo "$checks_json" | jq -r --arg self_check "$SELF_CHECK_NAME" --arg self_workflow "$SELF_WORKFLOW_NAME" '.[] | select(.name != $self_check and .name != $self_workflow) | select(.bucket != "pass" and .bucket != "skipping" and .bucket != "pending" and .bucket != "fail" and .bucket != "cancel") | .name')"
+            non_self_check_count="$(jq -r --arg self_check "$SELF_CHECK_NAME" --arg self_workflow "$SELF_WORKFLOW_NAME" '[.[] | select(.name != $self_check and .name != $self_workflow)] | length' <<< "$checks_json")"
+            failing_checks="$(jq -r --arg self_check "$SELF_CHECK_NAME" --arg self_workflow "$SELF_WORKFLOW_NAME" '.[] | select(.name != $self_check and .name != $self_workflow) | select(.bucket == "fail" or .bucket == "cancel") | .name' <<< "$checks_json")"
+            pending_checks="$(jq -r --arg self_check "$SELF_CHECK_NAME" --arg self_workflow "$SELF_WORKFLOW_NAME" '.[] | select(.name != $self_check and .name != $self_workflow) | select(.bucket == "pending") | .name' <<< "$checks_json")"
+            unknown_checks="$(jq -r --arg self_check "$SELF_CHECK_NAME" --arg self_workflow "$SELF_WORKFLOW_NAME" '.[] | select(.name != $self_check and .name != $self_workflow) | select(.bucket != "pass" and .bucket != "skipping" and .bucket != "pending" and .bucket != "fail" and .bucket != "cancel") | .name' <<< "$checks_json")"
 
             if [ "$non_self_check_count" -eq 0 ]; then
               refuse "Refused: no non-self status checks were found for this PR."
@@ -301,7 +380,7 @@ jobs:
           done
 
           summary "### Checks"
-          echo "$checks_json" | jq -r '.[] | "- " + .name + ": " + .state + " (" + .bucket + ")"' >> "$GITHUB_STEP_SUMMARY"
+          jq -r '.[] | "- " + .name + ": " + .state + " (" + .bucket + ")"' <<< "$checks_json" >> "$GITHUB_STEP_SUMMARY"
           summary ""
           summary "Self-check names ignored while gating pending/failing checks: $SELF_CHECK_NAME, $SELF_WORKFLOW_NAME"
           summary "Non-self status checks found: $non_self_check_count"
