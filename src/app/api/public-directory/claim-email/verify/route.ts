@@ -7,6 +7,7 @@ import {
   serializeClaimEmailEvidence,
   validBusinessEmail,
 } from "@/lib/company-directory-claim-email";
+import { tryAutoProvisionMarketplaceCompanyClaim } from "@/lib/company-directory-marketplace-claim";
 import { getSql } from "@/lib/db/server";
 import { allowPublicSubmission } from "@/lib/public-form-protection";
 
@@ -118,7 +119,7 @@ export async function POST(request: Request) {
     return NextResponse.redirect(new URL(`${returnTo}?status=${status}`, request.url), 303);
   }
 
-  await sql`
+  const verified = await sql`
     update company_directory_claims
     set verification_reference = ${verificationReference},
         verification_method = 'email_domain',
@@ -127,7 +128,29 @@ export async function POST(request: Request) {
       and claimant_user_id = ${userId}
       and status = 'pending'
       and verification_method = 'email_domain'
+    returning id::text
   `;
+  if (!verified[0]?.id) {
+    return NextResponse.redirect(new URL(`${returnTo}?status=unavailable`, request.url), 303);
+  }
+
+  try {
+    const marketplaceClaim = await tryAutoProvisionMarketplaceCompanyClaim({
+      claimId: String(row.id),
+      claimantUserId: userId,
+    });
+    if (marketplaceClaim.status === "provisioned") {
+      const target = new URL("/dashboard/marknadsplats", request.url);
+      target.searchParams.set("status", "linked");
+      if (returnTo.startsWith("/en/")) target.searchParams.set("lang", "en");
+      return NextResponse.redirect(target, 303);
+    }
+  } catch (error) {
+    console.error("Marketplace company claim auto-provisioning failed", {
+      claimId: String(row.id),
+      error,
+    });
+  }
 
   return NextResponse.redirect(new URL(`${returnTo}?status=sent`, request.url), 303);
 }

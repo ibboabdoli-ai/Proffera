@@ -22,5 +22,7 @@ export function guestOptOutHref(token: string, locale: GuestFlowLocale, status?:
 
 export function guestClaimHref(slug: string, locale: GuestFlowLocale) {
   const encodedSlug = encodeURIComponent(slug);
-  return locale === "en" ? `/en/companies/claim/${encodedSlug}` : `/foretag/claim/${encodedSlug}`;
+  return locale === "en"
+    ? `/en/companies/${encodedSlug}?from=marketplace`
+    : `/foretag/listad/${encodedSlug}?from=marketplace`;
 }
