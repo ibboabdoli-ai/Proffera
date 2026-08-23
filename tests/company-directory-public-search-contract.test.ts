@@ -30,9 +30,13 @@ describe("public company directory search contract", () => {
     expect(searchSource).toContain("location.is_public = true");
   });
 
-  it("keeps exact city search usable without requiring coordinates", () => {
-    expect(searchSource).toContain("${nearbyEnabled} = true");
-    expect(searchSource).toContain("or lower(profile.city) = ${normalizedLocation}");
+  it("keeps exact city search usable while preferring a conflict-free single SCB workplace", () => {
+    expect(searchSource).toContain("company_directory_scb_enrichment");
+    expect(searchSource).toContain("scb_location.conflicts = '[]'::jsonb");
+    expect(searchSource).toContain("profile.claimed_workspace_id is null");
+    expect(searchSource).toContain("jsonb_array_length(coalesce(scb_location.workplaces, '[]'::jsonb)) = 1");
+    expect(searchSource).toContain("or lower(public_location.city) = ${normalizedLocation}");
+    expect(searchSource).toContain("or lower(public_location.municipality) = ${normalizedLocation}");
     expect(searchSource).toContain("${nearbyEnabled} = false");
     expect(searchSource).not.toContain("lower(profile.address_line1) not like 'box %'");
   });

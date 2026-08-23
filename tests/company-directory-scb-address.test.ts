@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveCompanyDirectoryPublicAddress } from "@/lib/company-directory-scb-address";
+import {
+  resolveCompanyDirectoryPublicAddress,
+  resolveCompanyDirectoryPublicAddressResolution,
+} from "@/lib/company-directory-scb-address";
 
 const profile = {
   addressLine1: "Bohusgatan 47 I",
@@ -172,25 +175,26 @@ describe("Company Directory SCB public address resolution", () => {
     expect(resolved).toEqual(fallback);
   });
 
-  it("does not mix a selected SCB visiting address with the old profile municipality", () => {
-    const resolved = resolveCompanyDirectoryPublicAddress({
+  it("keeps the profile fallback when a workplace municipality is missing", () => {
+    const fallback = {
       addressLine1: "Gamla vägen 1",
       postalCode: "11111",
       city: "STOCKHOLM",
       municipality: "Stockholm",
-    }, [{
+    };
+    const workplaces = [{
       visitingAddress: {
         addressLine: "NYA VÄGEN 2",
         postalCode: "16979",
         city: "SOLNA",
       },
-    }]);
+    }];
+    const resolved = resolveCompanyDirectoryPublicAddress(fallback, workplaces);
+    const resolution = resolveCompanyDirectoryPublicAddressResolution(fallback, workplaces);
 
-    expect(resolved).toEqual({
-      addressLine1: "NYA VÄGEN 2",
-      postalCode: "169 79",
-      city: "SOLNA",
-      municipality: "",
-    });
+    expect(resolved).toEqual(fallback);
+    expect(resolution.source).toBe("profile");
+    expect(resolution.sourceIndex).toBeNull();
+    expect(resolution.address).toEqual(fallback);
   });
 });
