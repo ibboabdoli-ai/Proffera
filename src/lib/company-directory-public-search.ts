@@ -112,6 +112,7 @@ export async function getPublishedDirectoryLocationSuggestions(limit = 50) {
             and nullif(trim(workplaces -> 0 #>> '{visitingAddress,addressLine}'), '') is not null
             and nullif(trim(workplaces -> 0 #>> '{visitingAddress,postalCode}'), '') is not null
             and nullif(trim(workplaces -> 0 #>> '{visitingAddress,city}'), '') is not null
+            and nullif(trim(workplaces -> 0 ->> 'municipality'), '') is not null
           then trim(workplaces -> 0 #>> '{visitingAddress,city}')
           else city
         end as city,
@@ -121,6 +122,7 @@ export async function getPublishedDirectoryLocationSuggestions(limit = 50) {
             and nullif(trim(workplaces -> 0 #>> '{visitingAddress,addressLine}'), '') is not null
             and nullif(trim(workplaces -> 0 #>> '{visitingAddress,postalCode}'), '') is not null
             and nullif(trim(workplaces -> 0 #>> '{visitingAddress,city}'), '') is not null
+            and nullif(trim(workplaces -> 0 ->> 'municipality'), '') is not null
           then coalesce(trim(workplaces -> 0 ->> 'municipality'), '')
           else municipality
         end as municipality
@@ -210,6 +212,7 @@ export async function searchPublishedCompanyDirectory(
           and nullif(trim(scb_location.workplaces -> 0 #>> '{visitingAddress,addressLine}'), '') is not null
           and nullif(trim(scb_location.workplaces -> 0 #>> '{visitingAddress,postalCode}'), '') is not null
           and nullif(trim(scb_location.workplaces -> 0 #>> '{visitingAddress,city}'), '') is not null
+          and nullif(trim(scb_location.workplaces -> 0 ->> 'municipality'), '') is not null
         ) as use_scb_workplace
       ) location_choice
       cross join lateral (
@@ -342,6 +345,7 @@ export async function searchPublishedCompanyDirectory(
           and nullif(trim(scb_location.workplaces -> 0 #>> '{visitingAddress,addressLine}'), '') is not null
           and nullif(trim(scb_location.workplaces -> 0 #>> '{visitingAddress,postalCode}'), '') is not null
           and nullif(trim(scb_location.workplaces -> 0 #>> '{visitingAddress,city}'), '') is not null
+          and nullif(trim(scb_location.workplaces -> 0 ->> 'municipality'), '') is not null
         ) as use_scb_workplace
       ) location_choice
       cross join lateral (
