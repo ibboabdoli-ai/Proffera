@@ -10,6 +10,8 @@ permissions: {}
 env:
   BLOCKED_PATH_PATTERNS: |
     .github/*
+    AGENTS.md
+    WORKER_BOOTSTRAP.md
     .env*
     vercel.json
     next.config.*
@@ -87,6 +89,7 @@ jobs:
               echo "base_sha=$base_sha"
             } >> "$GITHUB_OUTPUT"
           }
+
           trap finish EXIT
 
           is_blocked_path() {
@@ -112,7 +115,7 @@ jobs:
           base_sha="$(jq -r '.base.sha' <<< "$pr_json")"
           head_ref="$(jq -r '.head.ref' <<< "$pr_json")"
           head_sha="$(jq -r '.head.sha' <<< "$pr_json")"
-          pr_body="$(jq -r '.body // ""' <<< "$pr_json")"
+          pr_body="$(jq -r '.body // ""' <<< "$pr_json" | tr -d '\r')"
           is_draft="$(jq -r '.draft' <<< "$pr_json")"
           pr_author="$(jq -r '.user.login // ""' <<< "$pr_json")"
           head_repo="$(jq -r '.head.repo.full_name // ""' <<< "$pr_json")"
@@ -136,9 +139,8 @@ jobs:
           fi
 
           commit_json="$(gh api "repos/$REPOSITORY/commits/$head_sha")"
-          head_author="$(jq -r '.author.login // ""' <<< "$commit_json")"
           head_message="$(jq -r '.commit.message // ""' <<< "$commit_json")"
-          if [ "$head_author" = "github-actions[bot]" ] && [[ "$head_message" == \[codex-autofix\]* ]]; then
+          if [[ "$head_message" == \[codex-autofix\]* ]]; then
             echo "The failed head is already a Codex autofix commit; refusing an automatic loop."
             exit 0
           fi
