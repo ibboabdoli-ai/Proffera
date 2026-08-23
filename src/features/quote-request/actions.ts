@@ -3,11 +3,13 @@
 import { headers } from "next/headers";
 
 import { verifyCustomerAddress, type VerifiedCustomerAddress } from "@/lib/lantmateriet-address-verification";
+import type { PublicLocale } from "@/lib/public-locale";
 import { allowPublicSubmission } from "@/lib/public-form-protection";
 import { storeQuoteRequest } from "./persistence";
-import { quoteRequestSchema, type QuoteRequestErrors, type QuoteRequestInput } from "./schema";
+import { createQuoteRequestSchema, type QuoteRequestErrors, type QuoteRequestInput } from "./schema";
 
 type QuoteRequestSubmission = QuoteRequestInput & {
+  locale?: PublicLocale;
   website?: string;
   formStartedAt?: number;
 };
@@ -29,13 +31,15 @@ function canContinueWithoutVerifiedAddress(reason: string) {
 }
 
 export async function submitQuoteRequest(input: QuoteRequestSubmission): Promise<SubmitQuoteRequestResult> {
+  const requestHeaders = await headers();
+  const locale: PublicLocale = input.locale === "en" || requestHeaders.get("x-proffera-locale") === "en" ? "en" : "sv";
   const elapsed = Date.now() - Number(input.formStartedAt);
 
   if (input.website || !Number.isFinite(elapsed) || elapsed < 2_500 || elapsed > 24 * 60 * 60 * 1_000) {
-    return { ok: false, errors: { form: "Förfrågan kunde inte skickas. Försök igen om en stund." } };
+    return { ok: false, errors: { form: locale === "en" ? "The request could not be sent. Please try again shortly." : "Förfrågan kunde inte skickas. Försök igen om en stund." } };
   }
 
-  const parsed = quoteRequestSchema.safeParse(input);
+  const parsed = createQuoteRequestSchema(locale).safeParse(input);
 
   if (!parsed.success) {
     const errors: QuoteRequestErrors = {};
@@ -52,14 +56,14 @@ export async function submitQuoteRequest(input: QuoteRequestSubmission): Promise
 
   const allowed = await allowPublicSubmission({
     scope: "quote_request",
-    requestHeaders: await headers(),
+    requestHeaders,
     identity: `${parsed.data.contactEmail}:${parsed.data.contactPhone}`,
     maxAttempts: 3,
     windowSeconds: 15 * 60,
   });
 
   if (!allowed) {
-    return { ok: false, errors: { form: "För många försök. Vänta en stund och försök igen." } };
+    return { ok: false, errors: { form: locale === "en" ? "Too many attempts. Wait a while and try again." : "För många försök. Vänta en stund och försök igen." } };
   }
 
   let verifiedAddress: VerifiedCustomerAddress | undefined;
@@ -74,7 +78,9 @@ export async function submitQuoteRequest(input: QuoteRequestSubmission): Promise
       return {
         ok: false,
         errors: {
-          addressLine1: "Adressen kunde inte verifieras mot Lantmäteriets adressregister. Kontrollera gata, postnummer och ort.",
+          addressLine1: locale === "en"
+            ? "The address could not be verified against Lantmäteriet's address register. Check the street, postal code and city."
+            : "Adressen kunde inte verifieras mot Lantmäteriets adressregister. Kontrollera gata, postnummer och ort.",
         },
       };
     }
@@ -83,7 +89,9 @@ export async function submitQuoteRequest(input: QuoteRequestSubmission): Promise
       return {
         ok: false,
         errors: {
-          form: "Adressen kunde inte verifieras just nu. Försök igen om en stund eller använd Nära mig.",
+          form: locale === "en"
+            ? "The address could not be verified right now. Try again shortly or use Near me."
+            : "Adressen kunde inte verifieras just nu. Försök igen om en stund eller använd Nära mig.",
         },
       };
     }
@@ -91,7 +99,7 @@ export async function submitQuoteRequest(input: QuoteRequestSubmission): Promise
     if (verification.status === "matched") verifiedAddress = verification;
   }
 
-  const result = await storeQuoteRequest(parsed.data, verifiedAddress);
+  const result = await storeQuoteRequest(parsed.data, verifiedAddress, locale);
 
   if (!result.ok) {
     return {

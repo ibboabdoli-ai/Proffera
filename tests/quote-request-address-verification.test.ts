@@ -79,9 +79,32 @@ describe("quote request official address verification", () => {
         status: "matched",
         referenceId: "439b33bf-6279-4b65-b32c-9741646d8d3e",
       }),
+      "sv",
     );
     expect(mocks.allowPublicSubmission.mock.invocationCallOrder[0])
       .toBeLessThan(mocks.verifyCustomerAddress.mock.invocationCallOrder[0]);
+  });
+
+  it("persists English locale from the public English request context", async () => {
+    const requestHeaders = new Headers();
+    requestHeaders.set("x-proffera-locale", "en");
+    mocks.headers.mockResolvedValue(requestHeaders);
+
+    await expect(submitQuoteRequest(request())).resolves.toEqual({ ok: true, referenceId: "PRO-TEST" });
+    expect(mocks.storeQuoteRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ locationSource: "address" }),
+      expect.objectContaining({ status: "matched" }),
+      "en",
+    );
+  });
+
+  it("persists English locale from input when request headers are empty", async () => {
+    await expect(submitQuoteRequest(request({ locale: "en" }))).resolves.toEqual({ ok: true, referenceId: "PRO-TEST" });
+    expect(mocks.storeQuoteRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ locationSource: "address" }),
+      expect.objectContaining({ status: "matched" }),
+      "en",
+    );
   });
 
   it("does not call Lantmäteriet when abuse protection denies the submission", async () => {
@@ -92,6 +115,19 @@ describe("quote request official address verification", () => {
     expect(result).toEqual({
       ok: false,
       errors: { form: "För många försök. Vänta en stund och försök igen." },
+    });
+    expect(mocks.verifyCustomerAddress).not.toHaveBeenCalled();
+    expect(mocks.storeQuoteRequest).not.toHaveBeenCalled();
+  });
+
+  it("returns the English rate-limit error without persisting", async () => {
+    mocks.allowPublicSubmission.mockResolvedValue(false);
+
+    const result = await submitQuoteRequest(request({ locale: "en" }));
+
+    expect(result).toEqual({
+      ok: false,
+      errors: { form: "Too many attempts. Wait a while and try again." },
     });
     expect(mocks.verifyCustomerAddress).not.toHaveBeenCalled();
     expect(mocks.storeQuoteRequest).not.toHaveBeenCalled();
@@ -111,6 +147,20 @@ describe("quote request official address verification", () => {
     expect(mocks.storeQuoteRequest).not.toHaveBeenCalled();
   });
 
+  it("returns the English definitive no-match error without persisting", async () => {
+    mocks.verifyCustomerAddress.mockResolvedValue({ status: "no_match", reason: "street_mismatch" });
+
+    const result = await submitQuoteRequest(request({ locale: "en" }));
+
+    expect(result).toEqual({
+      ok: false,
+      errors: {
+        addressLine1: "The address could not be verified against Lantmäteriet's address register. Check the street, postal code and city.",
+      },
+    });
+    expect(mocks.storeQuoteRequest).not.toHaveBeenCalled();
+  });
+
   it.each([
     "too_many_candidates",
     "ambiguous_exact_match",
@@ -124,6 +174,7 @@ describe("quote request official address verification", () => {
     expect(mocks.storeQuoteRequest).toHaveBeenCalledWith(
       expect.objectContaining({ locationSource: "address" }),
       undefined,
+      "sv",
     );
   });
 
@@ -150,6 +201,7 @@ describe("quote request official address verification", () => {
     expect(mocks.storeQuoteRequest).toHaveBeenCalledWith(
       expect.objectContaining({ locationSource: "address" }),
       undefined,
+      "sv",
     );
   });
 
@@ -166,6 +218,7 @@ describe("quote request official address verification", () => {
     expect(mocks.storeQuoteRequest).toHaveBeenCalledWith(
       expect.objectContaining({ locationSource: "geolocation" }),
       undefined,
+      "sv",
     );
   });
 });
