@@ -155,6 +155,7 @@ function postgresSql(client: Client) {
           id uuid primary key,
           workspace_id text not null,
           public_slug text not null,
+          primary_directory_service_slug text,
           conversion_mode text,
           is_active boolean not null default true,
           public_status text not null default 'published'
