@@ -194,7 +194,7 @@ export async function activateProviderMarketplaceService(input: {
   const rows = await sql`
     select
       service.id::text,
-      nullif(trim(service.public_slug), '') as previous_public_slug,
+      nullif(trim(service.primary_directory_service_slug), '') as previous_directory_service_slug,
       profile.id::text as profile_id
     from workspace_services service
     join company_directory_profiles profile
@@ -227,7 +227,9 @@ export async function activateProviderMarketplaceService(input: {
   if (!service) throw new Error("service_not_eligible");
 
   const profileId = String(service.profile_id);
-  const previousPublicSlug = service.previous_public_slug ? String(service.previous_public_slug) : null;
+  const previousDirectoryServiceSlug = service.previous_directory_service_slug
+    ? String(service.previous_directory_service_slug)
+    : null;
 
   const published = await sql`
     with area_guard as (
@@ -243,7 +245,6 @@ export async function activateProviderMarketplaceService(input: {
     published_service as (
       update workspace_services service
       set primary_directory_service_slug = ${input.directoryServiceSlug},
-          public_slug = ${input.directoryServiceSlug},
           public_status = 'published',
           conversion_mode = ${input.conversionMode},
           updated_at = now()
@@ -257,9 +258,9 @@ export async function activateProviderMarketplaceService(input: {
       delete from company_directory_service_areas area
       where exists (select 1 from published_service)
         and area.profile_id = ${profileId}::uuid
-        and area.service_slug = ${previousPublicSlug}
-        and ${previousPublicSlug}::text is not null
-        and ${previousPublicSlug}::text <> ${input.directoryServiceSlug}
+        and area.service_slug = ${previousDirectoryServiceSlug}
+        and ${previousDirectoryServiceSlug}::text is not null
+        and ${previousDirectoryServiceSlug}::text <> ${input.directoryServiceSlug}
         and area.source_type = 'owner'
       returning area.profile_id
     ),

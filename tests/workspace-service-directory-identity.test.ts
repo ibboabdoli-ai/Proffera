@@ -10,6 +10,7 @@ function source(path: string) {
 const migration = source("db/migrations/20260823_0065_workspace_service_directory_identity.sql");
 const servicesDb = source("src/lib/workspace-services-db.ts");
 const providerActivation = source("src/lib/company-directory-provider-activation.ts");
+const publicSearch = source("src/lib/company-directory-public-search.ts");
 
 describe("Workspace service Directory identity migration", () => {
   it("adds a nullable primary taxonomy reference without replacing the public URL slug", () => {
@@ -49,9 +50,16 @@ describe("Workspace service Directory identity runtime bridge", () => {
     expect(servicesDb).toContain("recoveredLegacyPrimaryDirectoryServiceSlug");
   });
 
-  it("dual-writes provider activation before public Search switches readers", () => {
+  it("makes public Search prefer primary identity with a bounded legacy URL fallback", () => {
+    expect(publicSearch).toContain(
+      "coalesce(claimed_service.primary_directory_service_slug, claimed_service.public_slug) = relation.service_slug",
+    );
+  });
+
+  it("keeps provider public URL independent once Search reads canonical identity", () => {
     expect(providerActivation).toContain("set primary_directory_service_slug = ${input.directoryServiceSlug}");
-    expect(providerActivation).toContain("public_slug = ${input.directoryServiceSlug}");
+    expect(providerActivation).not.toContain("public_slug = ${input.directoryServiceSlug}");
+    expect(providerActivation).toContain("previous_directory_service_slug");
     expect(providerActivation).toContain("coalesce(duplicate.primary_directory_service_slug, duplicate.public_slug)");
   });
 });
