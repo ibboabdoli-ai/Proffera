@@ -190,9 +190,10 @@ async function saveScbEnrichment(
   // Company-level SCB municipality is a registered-seat attribute, not the
   // workplace's physical municipality. Project only the municipality from the
   // same unambiguous workplace visiting address used by the public resolver.
-  // Existing non-SCB/manual values are preserved. Values created by the older
-  // company-level projection are repaired only when their provenance hash still
-  // matches the current profile value, so later human/claimed edits win.
+  // Existing non-SCB/manual values and claimed Workspace-owned profiles are
+  // preserved. Values created by the older company-level projection are repaired
+  // only when their provenance hash still matches the current profile value, so
+  // later human/claimed edits win.
   //
   // The projection intentionally does not change profile.updated_at. That token
   // belongs to the comparison snapshot captured before the SCB request; changing
@@ -202,6 +203,7 @@ async function saveScbEnrichment(
       update company_directory_profiles profile
       set municipality = ${municipality}
       where profile.id = ${profileId}::uuid
+        and profile.claimed_workspace_id is null
         and (
           nullif(trim(profile.municipality), '') is null
           or (
