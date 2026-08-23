@@ -24,8 +24,7 @@ import {
 } from "@/components/company-directory/public-directory-copy";
 import { directoryProfileCopy } from "@/components/company-directory/public-directory-profile-copy";
 import { quoteRequestHref } from "@/features/quote-request/directory-prefill";
-import { getPublicDirectoryBusinessForRequest } from "@/lib/company-directory-public-data";
-import { getPublicDirectoryProfileExtras } from "@/lib/company-directory-public-profile-extras";
+import { getPublicBusinessProfileViewForRequest } from "@/lib/business-profile-public";
 import { getClaimedDirectoryWorkspaceSlug } from "@/lib/company-directory-routing";
 import type { PublicLocale } from "@/lib/public-locale";
 import { siteConfig } from "@/lib/site";
@@ -46,18 +45,19 @@ function websiteHref(value: string) {
 }
 
 export async function PublicDirectoryProfile({ slug, locale }: { slug: string; locale: PublicLocale }) {
-  const business = await getPublicDirectoryBusinessForRequest(slug);
-  if (!business) {
+  const view = await getPublicBusinessProfileViewForRequest(slug);
+  if (!view) {
     const workspaceSlug = await getClaimedDirectoryWorkspaceSlug(slug);
     if (workspaceSlug) redirect(locale === "en" ? `/foretag/${encodeURIComponent(workspaceSlug)}?lang=en` : `/foretag/${encodeURIComponent(workspaceSlug)}`);
     notFound();
   }
-  if (business.publicationStatus === "claimed") {
-    const workspaceSlug = await getClaimedDirectoryWorkspaceSlug(slug);
-    if (workspaceSlug) redirect(locale === "en" ? `/foretag/${encodeURIComponent(workspaceSlug)}?lang=en` : `/foretag/${encodeURIComponent(workspaceSlug)}`);
+
+  const { business, extras, profile } = view;
+  if (profile.identity.ownershipState === "claimed" && profile.capabilities.richWebsite && profile.identity.workspaceSlug) {
+    const workspaceSlug = profile.identity.workspaceSlug;
+    redirect(locale === "en" ? `/foretag/${encodeURIComponent(workspaceSlug)}?lang=en` : `/foretag/${encodeURIComponent(workspaceSlug)}`);
   }
 
-  const extras = await getPublicDirectoryProfileExtras(business.id);
   const t = directoryProfileCopy[locale];
   const category = directoryCategoryLabels[locale][business.categorySlug] ?? business.primarySniLabel ?? t.fallbackCategory;
   const location = [business.postalCode, business.city].filter(Boolean).join(" ");
@@ -197,7 +197,7 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
                 <h1 className="mt-4 break-words text-3xl font-black tracking-[-0.035em] text-ink sm:text-5xl">{business.companyName}</h1>
                 {location ? <p className="mt-3 flex items-center gap-2 text-body"><MapPin className="h-4 w-4 text-brand" /> {location}</p> : null}
               </div>
-              {locale === "sv" && business.publicationStatus !== "claimed" ? (
+              {locale === "sv" && profile.identity.ownershipState !== "claimed" ? (
                 <Link href={`/foretag/claim/${encodeURIComponent(business.slug)}`} className="inline-flex min-h-12 shrink-0 items-center justify-center rounded-control bg-brand px-5 font-black text-white transition hover:bg-brand-strong">
                   {t.claim}<ArrowRight className="ml-2 h-4 w-4" />
                 </Link>
