@@ -55,11 +55,11 @@ if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
   printf '%s\\n' "$FAKE_PR_JSON"
   exit 0
 fi
-if [ "$1" = "api" ] && [ "${2:-}" = "$expected_policy_path" ]; then
+if [ "$1" = "api" ] && [ "$2" = "$expected_policy_path" ]; then
   printf '%s\\n' "$FAKE_POLICY_B64"
   exit 0
 fi
-if [ "$1" = "api" ] && [[ "${2:-}" == *"/contents/"* ]]; then
+if [ "$1" = "api" ] && [[ "$2" == *"/contents/"* ]]; then
   printf 'standing policy request did not exactly match main path: %s\\n' "$args" >&2
   exit 2
 fi
