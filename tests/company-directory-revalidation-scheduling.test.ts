@@ -143,13 +143,14 @@ describe("dedicated Company Directory revalidation scheduling", () => {
     }
   });
 
-  it("schedules only the dedicated revalidation endpoint every five minutes", () => {
+  it("schedules only the dedicated revalidation endpoint every five minutes away from minute zero", () => {
     const workflow = readFileSync(
       resolve(process.cwd(), ".github/workflows/company-directory-revalidation.yml"),
       "utf8",
     );
 
-    expect(workflow).toContain('cron: "*/5 * * * *"');
+    expect(workflow).toContain('cron: "2-59/5 * * * *"');
+    expect(workflow).not.toContain('cron: "*/5 * * * *"');
     expect(workflow).toContain("/api/cron/company-directory-revalidation");
     expect(workflow).toContain('--header "Authorization: Bearer $CRON_SECRET"');
     expect(workflow).toContain('hostname not in {"proffera.se", "www.proffera.se"}');
