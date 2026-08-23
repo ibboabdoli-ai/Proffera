@@ -23,7 +23,7 @@ describe("company directory claim account email gate", () => {
     expect(verify).toContain("checkClaimEmailCode");
   });
 
-  it("keeps workspace provisioning behind verified business email and manual admin review", () => {
+  it("keeps the normal claim approval surface behind manual admin review", () => {
     const admin = source("src/lib/company-directory-claims-admin.ts");
     const adminPage = source("src/app/admin/foretag/claims/page.tsx");
 

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 
+import { MarketplaceProfileClaimPrompt } from "@/components/company-directory/marketplace-profile-claim-prompt";
 import { PublicDirectoryProfile } from "@/components/company-directory/public-directory-profile";
 import { directoryCategoryLabels } from "@/components/company-directory/public-directory-copy";
 import { getPublicDirectoryBusinessForRequest } from "@/lib/company-directory-public-data";
@@ -7,10 +8,17 @@ import { siteConfig } from "@/lib/site";
 
 export const dynamic = "force-dynamic";
 
-type Props = { params: Promise<{ slug: string }> };
+type Props = {
+  params: Promise<{ slug: string }>;
+  searchParams?: Promise<{ from?: string | string[] }>;
+};
 
 function absoluteUrl(value: string) {
   return new URL(value, siteConfig.url).toString();
+}
+
+function first(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
@@ -61,7 +69,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
-export default async function ListedBusinessPage({ params }: Props) {
-  const { slug } = await params;
-  return <PublicDirectoryProfile slug={slug} locale="sv" />;
+export default async function ListedBusinessPage({ params, searchParams }: Props) {
+  const [{ slug }, query] = await Promise.all([params, searchParams ?? Promise.resolve(undefined)]);
+  const marketplaceEntry = first(query?.from) === "marketplace";
+  return (
+    <>
+      {marketplaceEntry ? <MarketplaceProfileClaimPrompt slug={slug} locale="sv" /> : null}
+      <PublicDirectoryProfile slug={slug} locale="sv" />
+    </>
+  );
 }

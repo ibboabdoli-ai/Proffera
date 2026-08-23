@@ -41,6 +41,18 @@ function parseSender(raw: string) {
   return { name: "Proffera", email: raw.trim() };
 }
 
+function marketplaceProfileEntryUrl(replyUrl: string, language: "sv" | "en" | undefined) {
+  try {
+    const url = new URL(replyUrl);
+    url.pathname = `${url.pathname.replace(/\/+$/, "")}/profil`;
+    url.search = "";
+    if (language === "en") url.searchParams.set("lang", "en");
+    return url.toString();
+  } catch {
+    return replyUrl;
+  }
+}
+
 export function marketplaceGuestInvitationEmailConfigured() {
   const recipient = resolveEmailRecipient({
     email: "preview-readiness@example.invalid",
@@ -99,6 +111,7 @@ export function buildMarketplaceGuestInvitationEmail(input: MarketplaceGuestInvi
 
   const subject = `Ny offertförfrågan i ${input.city}: ${input.category}`;
   const preferredDate = input.preferredDate.trim() || "Inte angivet";
+  const profileEntryUrl = marketplaceProfileEntryUrl(input.replyUrl, input.language);
   const text = [
     `Hej ${input.companyName},`,
     "",
@@ -112,6 +125,9 @@ export function buildMarketplaceGuestInvitationEmail(input: MarketplaceGuestInvi
     "Kundens kontaktuppgifter delas inte i detta steg.",
     "Öppna förfrågan och svara med pris eller uppskattning:",
     input.replyUrl,
+    "",
+    "Är detta ert företag? Proffera har redan en företagsprofil. Öppna profilen och verifiera företaget för att få en egen workspace och hantera framtida kundförfrågningar:",
+    profileEntryUrl,
     "",
     "Vill ni inte få fler sådana förfrågningar från Proffera?",
     input.optOutUrl,
@@ -138,6 +154,11 @@ export function buildMarketplaceGuestInvitationEmail(input: MarketplaceGuestInvi
             </table>
             <p style="margin:0 0 18px;color:#657068;font-size:13px;line-height:1.7;">Kundens namn, e-post och telefonnummer delas inte i detta steg.</p>
             <p style="margin:22px 0;"><a href="${escapeHtml(input.replyUrl)}" style="display:inline-block;border-radius:12px;background:#17452f;color:#ffffff;padding:14px 22px;text-decoration:none;font-weight:700;">Visa förfrågan och svara</a></p>
+            <div style="margin:24px 0 0;border-radius:14px;border:1px solid #d7e4da;background:#f7fbf8;padding:18px;">
+              <p style="margin:0;font-size:15px;font-weight:800;color:#17201a;">Är detta ert företag?</p>
+              <p style="margin:7px 0 0;color:#5d685f;font-size:13px;line-height:1.7;">Företagsprofilen finns redan på Proffera. Verifiera företaget för att öppna er workspace och hantera framtida kundförfrågningar där.</p>
+              <p style="margin:14px 0 0;"><a href="${escapeHtml(profileEntryUrl)}" style="color:#17452f;font-size:13px;font-weight:800;text-decoration:underline;">Visa företagsprofil och verifiera</a></p>
+            </div>
             <p style="margin:26px 0 0;color:#7a837d;font-size:12px;line-height:1.6;">Vill ni inte få fler sådana förfrågningar? <a href="${escapeHtml(input.optOutUrl)}" style="color:#536057;">Avregistrera denna företagsadress</a>.</p>
           </td></tr>
         </table>
