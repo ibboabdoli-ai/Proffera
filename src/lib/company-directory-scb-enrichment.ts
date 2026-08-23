@@ -171,6 +171,10 @@ async function saveScbEnrichment(
       updated_at = now()
   `;
 
+  // Keep conflicting SCB evidence for review/audit, but never project location
+  // fields into the profile when the cross-source identity/category check failed.
+  if (conflicts.length > 0) return;
+
   const resolution = resolveCompanyDirectoryPublicAddressResolution(profileAddress, data.workplaces);
   if (resolution.source !== "scb_workplace" || resolution.sourceIndex === null) return;
 
