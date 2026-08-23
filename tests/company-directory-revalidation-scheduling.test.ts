@@ -242,6 +242,7 @@ describe("dedicated Company Directory revalidation scheduling", () => {
       await expect(response.json()).resolves.toMatchObject({
         ok: true,
         policyEvaluation: {
+          policyVersion: "2026-08-23.1",
           skipped: true,
           reason: "worker_error",
           errors: 1,
