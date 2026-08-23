@@ -172,11 +172,53 @@ export async function getDirectoryGuestLeadMatch(quoteRequestId: string) {
       join company_directory_service_categories category
         on category.slug = service.category_slug
        and category.is_active = true
-      left join company_directory_business_locations location
+      join company_directory_business_locations location
         on location.profile_id = profile.id
        and location.is_public = true
-      left join company_directory_scb_enrichment scb
+       and location.latitude is not null
+       and location.longitude is not null
+       and location.geocode_source = 'lantmateriet_belagenhetsadress_v4_2'
+       and location.geocode_precision = 'address'
+       and location.geocode_confidence = 100
+       and location.geocoded_at is not null
+      join company_directory_scb_enrichment scb
         on scb.profile_id = profile.id
+       and jsonb_array_length(coalesce(scb.conflicts, '[]'::jsonb)) = 0
+      join lateral (
+        select
+          count(distinct concat_ws(
+            '|',
+            lower(btrim(evidence.visiting_address)),
+            regexp_replace(evidence.visiting_postal_code, '\\D', '', 'g'),
+            lower(btrim(evidence.visiting_city))
+          )) filter (
+            where evidence.visiting_address <> ''
+              and evidence.visiting_postal_code <> ''
+              and evidence.visiting_city <> ''
+              and lower(btrim(evidence.visiting_address)) !~ '^(box([ :]|$)|post\\s*box([ :]|$)|kivra([ :]|$))'
+          ) as visiting_count,
+          count(distinct concat_ws(
+            '|',
+            lower(btrim(evidence.postal_address)),
+            regexp_replace(evidence.postal_code, '\\D', '', 'g'),
+            lower(btrim(evidence.postal_city))
+          )) filter (
+            where evidence.postal_address <> ''
+              and evidence.postal_code <> ''
+              and evidence.postal_city <> ''
+              and lower(btrim(evidence.postal_address)) !~ '^(box([ :]|$)|post\\s*box([ :]|$)|kivra([ :]|$))'
+          ) as postal_count
+        from (
+          select
+            btrim(coalesce(workplace.value->'visitingAddress'->>'addressLine', '')) as visiting_address,
+            btrim(coalesce(workplace.value->'visitingAddress'->>'postalCode', '')) as visiting_postal_code,
+            btrim(coalesce(workplace.value->'visitingAddress'->>'city', '')) as visiting_city,
+            btrim(coalesce(workplace.value->'postalAddress'->>'addressLine', '')) as postal_address,
+            btrim(coalesce(workplace.value->'postalAddress'->>'postalCode', '')) as postal_code,
+            btrim(coalesce(workplace.value->'postalAddress'->>'city', '')) as postal_city
+          from jsonb_array_elements(coalesce(scb.workplaces, '[]'::jsonb)) workplace(value)
+        ) evidence
+      ) workplace_evidence on true
       left join lateral (
         select area.radius_km
         from company_directory_service_areas area
@@ -195,11 +237,13 @@ export async function getDirectoryGuestLeadMatch(quoteRequestId: string) {
         and profile.is_active = true
         and profile.privacy_blocked = false
         and (
+          workplace_evidence.visiting_count = 1
+          or (workplace_evidence.visiting_count = 0 and workplace_evidence.postal_count = 1)
+        )
+        and (
           (
             ${originLatitude}::float8 is not null
             and ${originLongitude}::float8 is not null
-            and location.latitude is not null
-            and location.longitude is not null
             and 6371 * 2 * asin(
               sqrt(
                 least(
@@ -242,7 +286,9 @@ export async function getDirectoryGuestLeadMatch(quoteRequestId: string) {
       scbConflicts: row.scb_conflicts as CandidateRows[number]["scbConflicts"],
     })) satisfies CandidateRows;
 
-    const candidates = rankDirectoryGuestCandidates(lead, candidatesInput);
+    const candidates = rankDirectoryGuestCandidates(lead, candidatesInput)
+      .filter((candidate) => Boolean(candidate.recipientEmail)
+        && candidate.contactBasis === "official_business_register");
     return {
       ok: true as const,
       match: {
