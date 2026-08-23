@@ -4,6 +4,7 @@ import {
   verifiedReviewSubmissionSchema,
   verifiedReviewTokenSchema,
 } from "@/features/reviews/verified-review";
+import { submitMarketplaceVerifiedReviewByHash } from "@/lib/marketplace-verified-review";
 import { allowPublicSubmission } from "@/lib/public-form-protection";
 import { submitVerifiedReview } from "@/lib/verified-review-invitations";
 import { hashVerifiedReviewToken } from "@/lib/verified-review-token";
@@ -50,10 +51,11 @@ export async function POST(request: Request, context: RouteContext) {
     return NextResponse.json({ error: "Please wait a moment and try again." }, { status: 400 });
   }
 
+  const tokenHash = hashVerifiedReviewToken(parsedToken.data);
   const allowed = await allowPublicSubmission({
     scope: "verified_review",
     requestHeaders: request.headers,
-    identity: hashVerifiedReviewToken(parsedToken.data),
+    identity: tokenHash,
     maxAttempts: 4,
     windowSeconds: 30 * 60,
   });
@@ -65,7 +67,11 @@ export async function POST(request: Request, context: RouteContext) {
     );
   }
 
-  const result = await submitVerifiedReview(parsedToken.data, review);
+  const marketplaceResult = await submitMarketplaceVerifiedReviewByHash(tokenHash, review);
+  const result = marketplaceResult.ok || marketplaceResult.code !== "invalid"
+    ? marketplaceResult
+    : await submitVerifiedReview(parsedToken.data, review);
+
   if (!result.ok) {
     const status = result.code === "invalid" ? 404 : result.code === "database" ? 503 : 409;
     const error =
@@ -76,7 +82,7 @@ export async function POST(request: Request, context: RouteContext) {
           : result.code === "revoked"
             ? "This review link is no longer active."
             : result.code === "unavailable"
-              ? "This booking is not eligible for a review."
+              ? "This review is not available."
               : result.code === "database"
                 ? "The review could not be submitted right now."
                 : "This review link is invalid.";

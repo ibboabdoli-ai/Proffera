@@ -13,6 +13,7 @@ import {
   Phone,
   Search,
   ShieldCheck,
+  Star,
 } from "lucide-react";
 import { notFound, redirect } from "next/navigation";
 
@@ -70,6 +71,8 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
   const profilePath = `${profileBase}/${encodeURIComponent(business.slug)}`;
   const canonical = `${siteConfig.url}${profilePath}`;
   const description = business.activityDescription || `${business.companyName}${business.city ? ` i ${business.city}` : ""} – ${category}.`;
+  const reputation = extras.reputation;
+  const hasReputation = Boolean(reputation && (reputation.verifiedReviews > 0 || reputation.completedJobs > 0));
   const structuredData = {
     "@context": "https://schema.org",
     "@type": "LocalBusiness",
@@ -84,6 +87,15 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
         ...(business.postalCode ? { postalCode: business.postalCode } : {}),
         ...(business.city ? { addressLocality: business.city } : {}),
         addressCountry: "SE",
+      },
+    } : {}),
+    ...(reputation && reputation.verifiedReviews > 0 && reputation.rating > 0 ? {
+      aggregateRating: {
+        "@type": "AggregateRating",
+        ratingValue: reputation.rating,
+        reviewCount: reputation.verifiedReviews,
+        bestRating: 5,
+        worstRating: 1,
       },
     } : {}),
     ...(hasMedia ? { image: absoluteUrl(business.media!.url) } : {}),
@@ -101,6 +113,10 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
     serviceSlug: primaryServiceSlug,
   });
   const radiusFormatter = new Intl.NumberFormat(locale === "en" ? "en-SE" : "sv-SE", { maximumFractionDigits: 1 });
+  const ratingFormatter = new Intl.NumberFormat(locale === "en" ? "en-SE" : "sv-SE", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  });
   const directAddress = business.contact.addressLine1
     ? [business.contact.addressLine1, business.postalCode, business.city].filter(Boolean).join(", ")
     : "";
@@ -205,6 +221,34 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
                 <p className="mt-1 font-bold text-ink">{t.checked}</p>
               </section>
             </div>
+
+            {hasReputation && reputation ? (
+              <section className="mt-8 rounded-panel border border-brand/15 bg-brand-soft p-5 sm:p-6">
+                <div className="flex items-center gap-2 text-brand-deep">
+                  <Star className="h-5 w-5 fill-current" />
+                  <h2 className="text-lg font-black">{locale === "en" ? "Verified Proffera reputation" : "Verifierat rykte på Proffera"}</h2>
+                </div>
+                <p className="mt-2 text-sm leading-6 text-body">
+                  {locale === "en"
+                    ? "Based only on approved verified reviews and completed work handled through Proffera."
+                    : "Bygger endast på godkända verifierade omdömen och slutförda jobb som hanterats via Proffera."}
+                </p>
+                <dl className="mt-5 grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-card border border-brand/10 bg-white p-4">
+                    <dt className="text-xs font-black uppercase tracking-wide text-muted">{locale === "en" ? "Rating" : "Betyg"}</dt>
+                    <dd className="mt-1 text-2xl font-black text-brand-deep">{reputation.verifiedReviews > 0 && reputation.rating > 0 ? `${ratingFormatter.format(reputation.rating)} / 5` : "—"}</dd>
+                  </div>
+                  <div className="rounded-card border border-brand/10 bg-white p-4">
+                    <dt className="text-xs font-black uppercase tracking-wide text-muted">{locale === "en" ? "Verified reviews" : "Verifierade omdömen"}</dt>
+                    <dd className="mt-1 text-2xl font-black text-brand-deep">{reputation.verifiedReviews}</dd>
+                  </div>
+                  <div className="rounded-card border border-brand/10 bg-white p-4">
+                    <dt className="text-xs font-black uppercase tracking-wide text-muted">{locale === "en" ? "Completed jobs" : "Slutförda jobb"}</dt>
+                    <dd className="mt-1 text-2xl font-black text-brand-deep">{reputation.completedJobs}</dd>
+                  </div>
+                </dl>
+              </section>
+            ) : null}
 
             {business.activityDescription ? (
               <section className="mt-9">
