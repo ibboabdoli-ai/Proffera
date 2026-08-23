@@ -93,12 +93,15 @@ jobs:
             refuse "No valid pull request number was provided."
           fi
 
-          pr_json="$(gh pr view "$pr_number" --repo "$REPOSITORY" --json number,baseRefName,headRefName,headRefOid,labels,isDraft,body)"
+          pr_json="$(gh pr view "$pr_number" --repo "$REPOSITORY" --json number,baseRefName,headRefName,headRefOid,labels,isDraft,body,author,isCrossRepository,headRepositoryOwner)"
           base_ref="$(jq -r '.baseRefName' <<< "$pr_json")"
           head_ref="$(jq -r '.headRefName' <<< "$pr_json")"
           head_sha="$(jq -r '.headRefOid' <<< "$pr_json")"
           is_draft="$(jq -r '.isDraft' <<< "$pr_json")"
           pr_body="$(jq -r '.body // ""' <<< "$pr_json")"
+          pr_author="$(jq -r '.author.login // ""' <<< "$pr_json")"
+          is_cross_repo="$(jq -r '.isCrossRepository' <<< "$pr_json")"
+          head_repo_owner="$(jq -r '.headRepositoryOwner.login // ""' <<< "$pr_json")"
           has_label="$(jq -r '.labels[].name' <<< "$pr_json" | grep -Fxq 'ibbo-approved' && echo yes || echo no)"
 
           summary "## Proffera gated automerge"
@@ -107,6 +110,9 @@ jobs:
           summary "- Base branch: $base_ref"
           summary "- Head branch: $head_ref"
           summary "- Head SHA: $head_sha"
+          summary "- PR author: ${pr_author:-none}"
+          summary "- Cross-repository: $is_cross_repo"
+          summary "- Head repository owner: ${head_repo_owner:-none}"
           summary "- Merge method: squash"
           summary "- Admin bypass: not used"
           summary ""
@@ -124,7 +130,8 @@ jobs:
           fi
 
           # Authorization has two safe modes:
-          # 1) existing fresh owner-applied ibbo-approved label; or
+          # 1) an owner-applied ibbo-approved label plus an owner APPROVED review
+          #    anchored to the exact current head commit; or
           # 2) a scoped standing authorization committed on main.
           # The PR branch can never self-authorize because the standing policy is read from main.
           authorization_mode="none"
@@ -159,11 +166,18 @@ jobs:
             expires_epoch="$(date -u -d "$standing_expires_at" +%s 2>/dev/null || echo 0)"
             handoff_line="Supervisor handoff: #${standing_issue}"
             standing_handoff_match="$(grep -Fxq "$handoff_line" <<< "$pr_body" && echo yes || echo no)"
+            standing_origin_match="no"
+            if [ "$pr_author" = "$HUMAN_APPROVER" ] \
+              && [ "$is_cross_repo" = "false" ] \
+              && [ "$head_repo_owner" = "$HUMAN_APPROVER" ]; then
+              standing_origin_match="yes"
+            fi
 
             if [ "$standing_enabled" = "true" ] \
               && [ "$standing_owner" = "$HUMAN_APPROVER" ] \
               && [ "$standing_prefix_match" = "yes" ] \
               && [ "$standing_handoff_match" = "yes" ] \
+              && [ "$standing_origin_match" = "yes" ] \
               && [ "$expires_epoch" -gt "$now_epoch" ]; then
               standing_authorized="yes"
               authorization_mode="standing:${standing_scope}"
@@ -176,6 +190,7 @@ jobs:
             summary "- Scope: ${standing_scope:-none}"
             summary "- Branch allowed: $standing_prefix_match"
             summary "- Supervisor handoff matched: $standing_handoff_match"
+            summary "- Trusted same-repository owner origin: $standing_origin_match"
             summary "- Expires: ${standing_expires_at:-none}"
             summary ""
           else
@@ -187,24 +202,22 @@ jobs:
           if [ "$standing_authorized" != "yes" ] && [ "$has_label" = "yes" ]; then
             approval_json="$(gh api "repos/$REPOSITORY/issues/$pr_number/events?per_page=100")"
             approval_actor="$(jq -r '[.[] | select(.event == "labeled" and .label.name == "ibbo-approved")] | last | .actor.login // ""' <<< "$approval_json")"
-            approval_time="$(jq -r '[.[] | select(.event == "labeled" and .label.name == "ibbo-approved")] | last | .created_at // ""' <<< "$approval_json")"
-            head_commit_time="$(gh api "repos/$REPOSITORY/commits/$head_sha" --jq '.commit.committer.date')"
+            reviews_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq '.[]' | jq -s '.')"
+            owner_head_approval_count="$(jq -r --arg owner "$HUMAN_APPROVER" --arg sha "$head_sha" '[.[] | select(.user.login == $owner and .state == "APPROVED" and .commit_id == $sha)] | length' <<< "$reviews_json")"
 
             summary "### Per-PR human authorization"
-            summary "- Approval actor: ${approval_actor:-none}"
-            summary "- Approval time: ${approval_time:-none}"
-            summary "- Head commit time: $head_commit_time"
+            summary "- Label actor: ${approval_actor:-none}"
+            summary "- Exact-current-head owner approvals: $owner_head_approval_count"
             summary ""
 
             if [ "$approval_actor" = "$HUMAN_APPROVER" ] \
-              && [ -n "$approval_time" ] \
-              && [[ ! "$approval_time" < "$head_commit_time" ]]; then
+              && [ "$owner_head_approval_count" -gt 0 ]; then
               authorization_mode="fresh-owner-label"
             fi
           fi
 
           if [ "$authorization_mode" = "none" ]; then
-            refuse "Refused: neither a valid scoped standing authorization from main nor a fresh owner-applied 'ibbo-approved' label authorizes this PR."
+            refuse "Refused: neither a valid scoped standing authorization from main nor an owner label plus exact-current-head owner APPROVED review authorizes this PR."
           fi
 
           summary "- Authorization mode: $authorization_mode"
