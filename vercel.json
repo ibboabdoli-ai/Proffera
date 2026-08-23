@@ -5,6 +5,13 @@
       "work/proffera-*": false
     }
   },
+  "env": {
+    "MARKETPLACE_AUTO_WORKER_ENABLED": "true",
+    "MARKETPLACE_AUTO_WORKER_ALLOW_PRODUCTION": "true",
+    "MARKETPLACE_AUTO_WORKER_NOT_BEFORE": "2026-08-23T09:24:45.000Z",
+    "MARKETPLACE_AUTO_WORKER_BATCH_SIZE": "1",
+    "MARKETPLACE_AUTO_WAVE2_DELAY_MINUTES": "360"
+  },
   "crons": [
     {
       "path": "/api/cron/company-directory-official-facts",
