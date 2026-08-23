@@ -429,6 +429,23 @@ function scbData(overrides: Partial<ScbCompanyRegistryEnrichment> = {}): ScbComp
         [profileId],
       );
       expect(profile.rows[0]?.municipality).toBe("Södertälje");
+
+      const repairedSource = await client!.query<{
+        source_name: string;
+        source_record_id: string;
+      }>(`
+        select source_name, source_record_id
+        from company_directory_field_sources
+        where profile_id = $1
+          and field_name = 'municipality'
+          and source_name = 'scb_foretagsregistret:workplace'
+        order by observed_at desc
+        limit 1
+      `, [profileId]);
+      expect(repairedSource.rows[0]).toEqual({
+        source_name: "scb_foretagsregistret:workplace",
+        source_record_id: "87650001",
+      });
     }, 30_000);
 
     it("does not repair a legacy projection after the profile value no longer matches its provenance hash", async () => {
