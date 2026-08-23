@@ -385,5 +385,102 @@ function scbData(overrides: Partial<ScbCompanyRegistryEnrichment> = {}): ScbComp
       ]);
       expect(refreshedSource.rows).toHaveLength(1);
     }, 30_000);
+
+    it("repairs a legacy company-level projection when its provenance still owns the profile value", async () => {
+      const profileId = "55555555-5555-4555-8555-555555555555";
+      const organizationNumber = "5563115711";
+      const oldMunicipality = "Jönköping";
+
+      await seedProfile({
+        profileId,
+        organizationNumber,
+        legalName: "Projection AB",
+        municipality: oldMunicipality,
+      });
+      await client!.query(`
+        insert into company_directory_field_sources (
+          profile_id, field_name, source_name, source_record_id,
+          source_url, value_hash, confidence, observed_at
+        ) values (
+          $1, 'municipality', 'scb_foretagsregistret', $2,
+          '', $3, 100, now() - interval '1 day'
+        )
+      `, [
+        profileId,
+        organizationNumber,
+        createHash("sha256").update(oldMunicipality).digest("hex"),
+      ]);
+
+      mocks.fetchScbCompanyRegistryEnrichment.mockResolvedValue({
+        status: "ok",
+        data: scbData({
+          organizationNumber,
+          workplaces: [workplace("Södertälje", "87650001")],
+        }),
+      });
+
+      await expect(enrichCompanyDirectoryScbForProfile(profileId)).resolves.toMatchObject({
+        status: "saved",
+        conflicts: [],
+      });
+
+      const profile = await client!.query<{ municipality: string }>(
+        "select municipality from company_directory_profiles where id = $1",
+        [profileId],
+      );
+      expect(profile.rows[0]?.municipality).toBe("Södertälje");
+    }, 30_000);
+
+    it("does not repair a legacy projection after the profile value no longer matches its provenance hash", async () => {
+      const profileId = "66666666-6666-4666-8666-666666666666";
+      const organizationNumber = "5563115712";
+
+      await seedProfile({
+        profileId,
+        organizationNumber,
+        legalName: "Projection AB",
+        municipality: "Stockholm",
+      });
+      await client!.query(`
+        insert into company_directory_field_sources (
+          profile_id, field_name, source_name, source_record_id,
+          source_url, value_hash, confidence, observed_at
+        ) values (
+          $1, 'municipality', 'scb_foretagsregistret', $2,
+          '', $3, 100, now() - interval '1 day'
+        )
+      `, [
+        profileId,
+        organizationNumber,
+        createHash("sha256").update("Jönköping").digest("hex"),
+      ]);
+
+      mocks.fetchScbCompanyRegistryEnrichment.mockResolvedValue({
+        status: "ok",
+        data: scbData({
+          organizationNumber,
+          workplaces: [workplace("Södertälje", "87650002")],
+        }),
+      });
+
+      await expect(enrichCompanyDirectoryScbForProfile(profileId)).resolves.toMatchObject({
+        status: "saved",
+        conflicts: [],
+      });
+
+      const profile = await client!.query<{ municipality: string }>(
+        "select municipality from company_directory_profiles where id = $1",
+        [profileId],
+      );
+      expect(profile.rows[0]?.municipality).toBe("Stockholm");
+
+      const newProjection = await client!.query<{ count: number }>(`
+        select count(*)::int as count
+        from company_directory_field_sources
+        where profile_id = $1
+          and source_name = 'scb_foretagsregistret:workplace'
+      `, [profileId]);
+      expect(newProjection.rows[0]?.count).toBe(0);
+    }, 30_000);
   },
 );
