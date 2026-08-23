@@ -81,6 +81,7 @@ describe("Directory geocoding SCB input guards", () => {
     }
   });
 
+  // Explicit retry-suppression guards keep stale no-match rows from re-entering the upstream pilot unnecessarily.
   it("does not retry when canonical selection falls back to the profile address", () => {
     const selected = selectDirectoryGeocodingAddress({
       profileAddress,
