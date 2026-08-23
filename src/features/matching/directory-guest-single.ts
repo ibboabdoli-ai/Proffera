@@ -6,6 +6,7 @@ import {
   type DirectoryGuestLeadMatch,
   type DirectoryGuestOffer,
 } from "./directory-guest";
+import { classifyDirectoryMarketplaceReadiness } from "@/lib/company-directory-marketplace-readiness";
 import { getSql } from "@/lib/db/server";
 import { serviceCategoryForQuoteCategory } from "@/lib/service-catalog";
 
@@ -153,13 +154,25 @@ export async function getDirectoryGuestLeadMatch(quoteRequestId: string) {
         profile.municipality,
         profile.category_slug,
         profile.quality_score,
+        profile.publication_status,
+        profile.is_active,
+        profile.privacy_blocked,
+        profile.organization_kind,
+        profile.claimed_workspace_id::text as claimed_workspace_id,
         relation.service_slug,
         service.label as service_name,
         category.label as service_category,
         location.latitude::float8 as latitude,
         location.longitude::float8 as longitude,
+        location.geocode_source,
+        location.geocode_precision,
+        location.geocode_confidence,
+        location.geocoded_at::text as geocoded_at,
+        location.is_public as location_is_public,
         service_area.radius_km::float8 as service_area_radius_km,
         scb.email as recipient_email,
+        scb.phone as scb_phone,
+        scb.workplaces as scb_workplaces,
         scb.conflicts as scb_conflicts
       from company_directory_profiles profile
       join company_directory_profile_services relation
@@ -172,11 +185,14 @@ export async function getDirectoryGuestLeadMatch(quoteRequestId: string) {
       join company_directory_service_categories category
         on category.slug = service.category_slug
        and category.is_active = true
-      left join company_directory_business_locations location
+      join company_directory_business_locations location
         on location.profile_id = profile.id
-       and location.is_public = true
-      left join company_directory_scb_enrichment scb
+       and location.latitude is not null
+       and location.longitude is not null
+      join company_directory_scb_enrichment scb
         on scb.profile_id = profile.id
+       and coalesce(scb.email, '') <> ''
+       and jsonb_array_length(coalesce(scb.workplaces, '[]'::jsonb)) > 0
       left join lateral (
         select area.radius_km
         from company_directory_service_areas area
@@ -198,8 +214,6 @@ export async function getDirectoryGuestLeadMatch(quoteRequestId: string) {
           (
             ${originLatitude}::float8 is not null
             and ${originLongitude}::float8 is not null
-            and location.latitude is not null
-            and location.longitude is not null
             and 6371 * 2 * asin(
               sqrt(
                 least(
@@ -224,25 +238,49 @@ export async function getDirectoryGuestLeadMatch(quoteRequestId: string) {
       limit 500
     `;
 
-    const candidatesInput = (candidateRows as Record<string, unknown>[]).map((row) => ({
-      profileId: text(row.profile_id),
-      slug: text(row.public_slug),
-      companyName: text(row.display_name),
-      city: text(row.city),
-      municipality: text(row.municipality),
-      categorySlug: text(row.category_slug),
-      serviceSlug: text(row.service_slug),
-      serviceName: text(row.service_name),
-      serviceCategory: text(row.service_category),
-      qualityScore: Number(row.quality_score ?? 0),
-      latitude: finiteCoordinate(row.latitude, -90, 90),
-      longitude: finiteCoordinate(row.longitude, -180, 180),
-      serviceAreaRadiusKm: finiteRadius(row.service_area_radius_km),
-      recipientEmail: text(row.recipient_email),
-      scbConflicts: row.scb_conflicts as CandidateRows[number]["scbConflicts"],
-    })) satisfies CandidateRows;
+    const candidatesInput = (candidateRows as Record<string, unknown>[]).flatMap((row) => {
+      const readiness = classifyDirectoryMarketplaceReadiness({
+        publicationStatus: row.publication_status,
+        isActive: row.is_active,
+        privacyBlocked: row.privacy_blocked,
+        organizationKind: row.organization_kind,
+        claimedWorkspaceId: row.claimed_workspace_id,
+        hasPublicService: true,
+        latitude: row.latitude,
+        longitude: row.longitude,
+        geocodeSource: row.geocode_source,
+        geocodePrecision: row.geocode_precision,
+        geocodeConfidence: row.geocode_confidence,
+        geocodedAt: row.geocoded_at,
+        locationIsPublic: row.location_is_public,
+        scbWorkplaces: row.scb_workplaces,
+        scbEmail: row.recipient_email,
+        scbPhone: row.scb_phone,
+        scbConflicts: row.scb_conflicts,
+      });
+      if (!readiness.autoOutreachReady) return [];
+      return [{
+        profileId: text(row.profile_id),
+        slug: text(row.public_slug),
+        companyName: text(row.display_name),
+        city: text(row.city),
+        municipality: text(row.municipality),
+        categorySlug: text(row.category_slug),
+        serviceSlug: text(row.service_slug),
+        serviceName: text(row.service_name),
+        serviceCategory: text(row.service_category),
+        qualityScore: Number(row.quality_score ?? 0),
+        latitude: finiteCoordinate(row.latitude, -90, 90),
+        longitude: finiteCoordinate(row.longitude, -180, 180),
+        serviceAreaRadiusKm: finiteRadius(row.service_area_radius_km),
+        recipientEmail: readiness.businessEmail,
+        scbConflicts: row.scb_conflicts as CandidateRows[number]["scbConflicts"],
+      }];
+    }) satisfies CandidateRows;
 
-    const candidates = rankDirectoryGuestCandidates(lead, candidatesInput);
+    const candidates = rankDirectoryGuestCandidates(lead, candidatesInput)
+      .filter((candidate) => Boolean(candidate.recipientEmail)
+        && candidate.contactBasis === "official_business_register");
     return {
       ok: true as const,
       match: {
