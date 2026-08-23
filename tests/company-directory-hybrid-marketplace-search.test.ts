@@ -279,6 +279,8 @@ describe("PublicDirectoryProfile redirect behavior", async () => {
     // Render the component to static HTML and verify the company name appears
     const html = renderToStaticMarkup(result);
     expect(html).toContain("Test Company AB");
+    expect(html).not.toContain("/foretag/claim/test-company");
+    expect(html).not.toContain("Äger du företaget?");
   });
 
   it("redirects with English locale parameter when locale is en", async () => {
