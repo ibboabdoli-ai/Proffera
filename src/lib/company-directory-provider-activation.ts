@@ -219,7 +219,7 @@ export async function activateProviderMarketplaceService(input: {
         from workspace_services duplicate
         where duplicate.workspace_id = service.workspace_id
           and duplicate.id <> service.id
-          and duplicate.public_slug = ${input.directoryServiceSlug}
+          and coalesce(duplicate.primary_directory_service_slug, duplicate.public_slug) = ${input.directoryServiceSlug}
       )
     limit 1
   `;
@@ -242,7 +242,8 @@ export async function activateProviderMarketplaceService(input: {
     ),
     published_service as (
       update workspace_services service
-      set public_slug = ${input.directoryServiceSlug},
+      set primary_directory_service_slug = ${input.directoryServiceSlug},
+          public_slug = ${input.directoryServiceSlug},
           public_status = 'published',
           conversion_mode = ${input.conversionMode},
           updated_at = now()
