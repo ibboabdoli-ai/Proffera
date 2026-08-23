@@ -45,7 +45,11 @@ function number(value: unknown) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function fallbackSearchCard(result: PublishedDirectorySearchResult): SearchCardBusinessProjection {
+function fallbackSearchCard(
+  result: PublishedDirectorySearchResult,
+  options: { failClosed?: boolean } = {},
+): SearchCardBusinessProjection {
+  const failClosed = options.failClosed === true;
   return {
     profileId: result.id,
     directorySlug: result.slug,
@@ -58,8 +62,8 @@ function fallbackSearchCard(result: PublishedDirectorySearchResult): SearchCardB
     canonicalServiceSlugs: [],
     reputation: null,
     capabilities: {
-      richWebsite: Boolean(result.claimedWorkspaceSlug),
-      onlineBooking: result.bookingAvailable,
+      richWebsite: failClosed ? false : Boolean(result.claimedWorkspaceSlug),
+      onlineBooking: failClosed ? false : result.bookingAvailable,
       mediatedQuote: true,
     },
   };
@@ -182,6 +186,9 @@ async function hydrateSearchCards(
     profileId: normalizeProfileId(result.id),
   }));
   const fallback = new Map(normalizedResults.map(({ result }) => [result.id, fallbackSearchCard(result)]));
+  const failureFallback = new Map(
+    normalizedResults.map(({ result }) => [result.id, fallbackSearchCard(result, { failClosed: true })]),
+  );
   const profileIds = [...new Set(
     normalizedResults
       .map(({ profileId }) => profileId)
@@ -319,12 +326,10 @@ async function hydrateSearchCards(
       if (claimedWorkspaceId && ownerWorkspaceId === claimedWorkspaceId) claimedWorkspaceIds.push(claimedWorkspaceId);
     }
 
-    const [ownerServices, directoryServices, reputationByProfileId, accessByWorkspace] = await Promise.all([
-      groupOwnerServices(ownerServiceRows as Array<Record<string, unknown>>),
-      groupDirectoryServices(directoryServiceRows as Array<Record<string, unknown>>),
-      mapReputation(reputationRows as Array<Record<string, unknown>>),
-      getWorkspaceDirectoryPublicAccessForWorkspaces(claimedWorkspaceIds),
-    ]);
+    const ownerServices = groupOwnerServices(ownerServiceRows as Array<Record<string, unknown>>);
+    const directoryServices = groupDirectoryServices(directoryServiceRows as Array<Record<string, unknown>>);
+    const reputationByProfileId = mapReputation(reputationRows as Array<Record<string, unknown>>);
+    const accessByWorkspace = await getWorkspaceDirectoryPublicAccessForWorkspaces(claimedWorkspaceIds);
 
     const cards = new Map<string, SearchCardBusinessProjection>();
     for (const { result, profileId } of normalizedResults) {
@@ -402,7 +407,7 @@ async function hydrateSearchCards(
     return cards;
   } catch (error) {
     console.error("Failed to hydrate BusinessProfile Search cards", error);
-    return fallback;
+    return failureFallback;
   }
 }
 
