@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   sql: vi.fn(),
   access: vi.fn(),
+  searchDirectory: vi.fn(),
 }));
 
 vi.mock("@/lib/db/server", () => ({
@@ -13,12 +14,18 @@ vi.mock("@/lib/workspace-feature-entitlement-db", () => ({
   getWorkspaceDirectoryPublicAccessForWorkspaces: mocks.access,
 }));
 
+vi.mock("@/lib/company-directory-public-search", () => ({
+  searchPublishedCompanyDirectory: mocks.searchDirectory,
+}));
+
 import {
   applyBusinessProfileSearchCard,
   hydratePublishedDirectorySearchWithBusinessProfiles,
+  searchPublishedBusinessProfiles,
 } from "@/lib/business-profile-search";
 import type { SearchCardBusinessProjection } from "@/lib/business-profile-policy";
 import type {
+  PublishedDirectorySearchInput,
   PublishedDirectorySearchResponse,
   PublishedDirectorySearchResult,
 } from "@/lib/company-directory-public-search";
@@ -70,10 +77,64 @@ function response(results: PublishedDirectorySearchResult[]): PublishedDirectory
   };
 }
 
+function unclaimedResult() {
+  return result({
+    id: PROFILE_B,
+    slug: "beta-vvs",
+    companyName: "Beta VVS AB",
+    claimedWorkspaceSlug: null,
+    claimedServiceId: null,
+    claimedServiceSlug: null,
+    claimedBookingSlug: null,
+    conversionMode: null,
+    bookingAvailable: false,
+  });
+}
+
+function configureUnclaimedHydrationSql(reputationError?: Error & { code?: string }) {
+  mocks.sql.mockImplementation((strings: TemplateStringsArray) => {
+    const query = strings.join(" ");
+    if (query.includes("featured_media.public_url")) {
+      return Promise.resolve([
+        {
+          profile_id: PROFILE_B,
+          claimed_workspace_id: null,
+          legal_name: "Beta VVS AB",
+          legal_form: "AB",
+          organization_status: "active",
+          organization_number: "5590000002",
+          primary_sni_code: "43.221",
+          primary_sni_label: "VVS",
+          owner_workspace_id: null,
+          workspace_slug: "",
+          public_booking_slug: "",
+          company_name: "",
+          business_intro: "",
+          logo_url: "",
+          hero_image_url: "",
+          featured_media_url: "",
+          directory_media_url: "https://cdn.example/beta-real.jpg",
+          directory_media_kind: "image",
+          directory_media_attribution: "",
+          directory_media_actual: true,
+        },
+      ]);
+    }
+    if (query.includes("join workspace_services service")) return Promise.resolve([]);
+    if (query.includes("join company_directory_profile_services relation")) return Promise.resolve([]);
+    if (query.includes("join marketplace_profile_reputation reputation")) {
+      return reputationError ? Promise.reject(reputationError) : Promise.resolve([]);
+    }
+    throw new Error(`Unexpected query: ${query}`);
+  });
+  mocks.access.mockResolvedValue(new Map());
+}
+
 describe("BusinessProfile Search projection", () => {
   beforeEach(() => {
     mocks.sql.mockReset();
     mocks.access.mockReset();
+    mocks.searchDirectory.mockReset();
   });
 
   it("uses the SearchCard projection for presentation while capability downgrade disables direct marketplace actions", () => {
@@ -124,17 +185,7 @@ describe("BusinessProfile Search projection", () => {
 
   it("hydrates a page in a bounded batch instead of one owner/reputation query per result", async () => {
     const first = result();
-    const second = result({
-      id: PROFILE_B,
-      slug: "beta-vvs",
-      companyName: "Beta VVS AB",
-      claimedWorkspaceSlug: null,
-      claimedServiceId: null,
-      claimedServiceSlug: null,
-      claimedBookingSlug: null,
-      conversionMode: null,
-      bookingAvailable: false,
-    });
+    const second = unclaimedResult();
 
     mocks.sql.mockImplementation((strings: TemplateStringsArray) => {
       const query = strings.join(" ");
@@ -235,8 +286,78 @@ describe("BusinessProfile Search projection", () => {
     expect(hydrated.results[0].profile.media?.url).toBe("https://cdn.example/hero.jpg");
     expect(hydrated.results[0].profile.canonicalServiceSlugs).toEqual(["vvs"]);
     expect(hydrated.results[0].profile.reputation).toEqual({ rating: 4.9, verifiedReviews: 12 });
+    expect(hydrated.results[0].claimedWorkspaceSlug).toBe("alpha-workspace");
+    expect(hydrated.results[0].claimedServiceId).toBe("33333333-3333-4333-8333-333333333333");
+    expect(hydrated.results[0].claimedServiceSlug).toBe("custom-vvs");
+    expect(hydrated.results[0].conversionMode).toBe("book_or_quote");
+    expect(hydrated.results[0].bookingAvailable).toBe(true);
     expect(hydrated.results[1].companyName).toBe("Beta VVS AB");
     expect(hydrated.results[1].profile.media?.role).toBe("illustration");
     expect(hydrated.results[1].profile.canonicalServiceSlugs).toEqual([]);
+    expect(hydrated.results[1].claimedWorkspaceSlug).toBeNull();
+    expect(hydrated.results[1].claimedServiceId).toBeNull();
+    expect(hydrated.results[1].claimedServiceSlug).toBeNull();
+    expect(hydrated.results[1].conversionMode).toBeNull();
+    expect(hydrated.results[1].bookingAvailable).toBe(false);
+  });
+
+  it("falls back every result when a required batch query rejects", async () => {
+    const first = result();
+    const second = unclaimedResult();
+    mocks.sql.mockRejectedValueOnce(new Error("context query failed"));
+    mocks.sql.mockResolvedValue([]);
+
+    const hydrated = await hydratePublishedDirectorySearchWithBusinessProfiles(response([first, second]));
+
+    expect(hydrated.results).toHaveLength(2);
+    expect(hydrated.results[0].profile.displayName).toBe(first.companyName);
+    expect(hydrated.results[0].profile.media).toBeNull();
+    expect(hydrated.results[1].profile.displayName).toBe(second.companyName);
+    expect(hydrated.results[1].profile.media).toBeNull();
+    expect(mocks.access).not.toHaveBeenCalled();
+  });
+
+  it.each(["42P01", "42703"])("tolerates optional reputation schema error %s", async (code) => {
+    const error = Object.assign(new Error("optional reputation schema unavailable"), { code });
+    configureUnclaimedHydrationSql(error);
+
+    const hydrated = await hydratePublishedDirectorySearchWithBusinessProfiles(response([unclaimedResult()]));
+
+    expect(hydrated.results[0].profile.media?.url).toBe("https://cdn.example/beta-real.jpg");
+    expect(hydrated.results[0].profile.reputation).toBeNull();
+    expect(mocks.access).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back when reputation hydration fails with an unexpected error", async () => {
+    const error = Object.assign(new Error("reputation query failed"), { code: "XX000" });
+    configureUnclaimedHydrationSql(error);
+
+    const hydrated = await hydratePublishedDirectorySearchWithBusinessProfiles(response([unclaimedResult()]));
+
+    expect(hydrated.results[0].profile.media).toBeNull();
+    expect(hydrated.results[0].profile.reputation).toBeNull();
+    expect(mocks.access).not.toHaveBeenCalled();
+  });
+
+  it("forwards the exact Directory input and hydrates the returned response", async () => {
+    const input: PublishedDirectorySearchInput = {
+      service: "vvs",
+      location: "Södertälje",
+      radiusKm: "25",
+      page: "2",
+      limit: 30,
+    };
+    const directoryResponse = response([result()]);
+    mocks.searchDirectory.mockResolvedValue(directoryResponse);
+    mocks.sql.mockResolvedValue([]);
+    mocks.access.mockResolvedValue(new Map());
+
+    const hydrated = await searchPublishedBusinessProfiles(input);
+
+    expect(mocks.searchDirectory).toHaveBeenCalledTimes(1);
+    expect(mocks.searchDirectory).toHaveBeenCalledWith(input);
+    expect(hydrated.results).toHaveLength(1);
+    expect(hydrated.results[0].profile.profileId).toBe(PROFILE_A);
+    expect(hydrated.results[0].profile.displayName).toBe("Alpha VVS AB");
   });
 });
