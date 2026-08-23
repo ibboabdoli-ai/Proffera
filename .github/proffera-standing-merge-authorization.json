@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "enabled": true,
+  "authorized_by": "ibboabdoli-ai",
+  "scope": "marketplace-core-loop",
+  "supervisor_issue": 548,
+  "branch_prefixes": [
+    "work/proffera-business-profile-",
+    "work/proffera-marketplace-",
+    "work/proffera-search-",
+    "work/proffera-profile-"
+  ],
+  "expires_at": "2026-09-30T23:59:59Z",
+  "note": "Standing merge authorization granted by the repository owner on 2026-08-23 for the agreed Marketplace, Business Profile, Search, and Profile phases. Current-head CI, risk-routed CodeRabbit, blocked sensitive-path checks, trusted same-repository owner origin, and match-head merge safety remain mandatory. This policy file itself is never eligible for gated automerge."
+}
