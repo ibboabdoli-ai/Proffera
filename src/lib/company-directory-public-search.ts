@@ -331,7 +331,7 @@ export async function searchPublishedCompanyDirectory(
         on claimed_service.workspace_id = profile.claimed_workspace_id::text
        and claimed_service.is_active = true
        and claimed_service.public_status = 'published'
-       and claimed_service.public_slug = relation.service_slug
+       and coalesce(claimed_service.primary_directory_service_slug, claimed_service.public_slug) = relation.service_slug
       left join company_directory_business_locations location
         on location.profile_id = profile.id
        and location.is_public = true

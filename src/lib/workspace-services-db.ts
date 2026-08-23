@@ -71,6 +71,7 @@ export type DashboardWorkspaceService = {
   isActive: boolean;
   sortOrder: number;
   publicSlug: string;
+  primaryDirectoryServiceSlug: string;
   publicStatus: WorkspaceServicePublicStatus;
   conversionMode: WorkspaceServiceConversionMode;
   coverImageUrl: string;
@@ -121,15 +122,41 @@ async function resolveUniquePublicSlug(sql: SqlClient, workspaceId: string, base
   throw new Error("Could not allocate a unique public service slug");
 }
 
+async function resolveExactPrimaryDirectoryServiceSlug(sql: SqlClient, workspaceId: string, candidateSlug: string | null) {
+  const normalized = candidateSlug?.trim() ?? "";
+  if (!normalized) return null;
+
+  const rows = await sql`
+    select relation.service_slug
+    from company_directory_profiles profile
+    join company_directory_profile_services relation
+      on relation.profile_id = profile.id
+     and relation.service_slug = ${normalized}
+     and relation.is_active = true
+     and relation.public_visible = true
+    join company_directory_services directory_service
+      on directory_service.slug = relation.service_slug
+     and directory_service.is_active = true
+    where profile.claimed_workspace_id::text = ${workspaceId}
+      and profile.publication_status = 'claimed'
+      and profile.is_active = true
+      and profile.privacy_blocked = false
+    limit 1
+  `;
+
+  return rows[0]?.service_slug ? String(rows[0].service_slug) : null;
+}
+
 function ownerServiceAreaMutationQuery(
   sql: SqlClient,
   workspaceId: string,
-  publicSlug: string,
+  directoryServiceSlug: string | null,
   input: WriteDashboardWorkspaceServiceInput,
 ) {
   const radiusKm = normalizeCompanyDirectoryServiceAreaRadius(input.serviceAreaRadiusKm);
   const confirmationRequested = Boolean(
-    input.serviceAreaConfirmed === true
+    directoryServiceSlug
+    && input.serviceAreaConfirmed === true
     && radiusKm !== null
     && input.serviceArea.trim()
     && input.isActive
@@ -150,7 +177,7 @@ function ownerServiceAreaMutationQuery(
       from claimed_profile profile
       join company_directory_profile_services relation
         on relation.profile_id = profile.id
-       and relation.service_slug = ${publicSlug}
+       and relation.service_slug = ${directoryServiceSlug}
        and relation.is_active = true
        and relation.public_visible = true
       join company_directory_services service
@@ -160,8 +187,9 @@ function ownerServiceAreaMutationQuery(
     ), removed_stale_owner_evidence as (
       delete from company_directory_service_areas area
       using claimed_profile profile
-      where area.profile_id = profile.id
-        and area.service_slug = ${publicSlug}
+      where ${directoryServiceSlug}::text is not null
+        and area.profile_id = profile.id
+        and area.service_slug = ${directoryServiceSlug}
         and area.source_type = 'owner'
         and not exists (select 1 from eligible where eligible.id = profile.id)
       returning area.id
@@ -169,9 +197,10 @@ function ownerServiceAreaMutationQuery(
     insert into company_directory_service_areas (
       profile_id, service_slug, radius_km, source_type, confidence, public_visible, confirmed_at, updated_at
     )
-    select eligible.id, ${publicSlug}, ${radiusKm}, 'owner', 100, true, now(), now()
+    select eligible.id, ${directoryServiceSlug}, ${radiusKm}, 'owner', 100, true, now(), now()
     from eligible
-    where ${radiusKm}::numeric between 1 and 300
+    where ${directoryServiceSlug}::text is not null
+      and ${radiusKm}::numeric between 1 and 300
     on conflict (profile_id, service_slug) where service_slug is not null
     do update set
       radius_km = excluded.radius_km,
@@ -186,18 +215,19 @@ function ownerServiceAreaMutationQuery(
 function previousOwnerServiceAreaCleanupQuery(
   sql: SqlClient,
   workspaceId: string,
-  previousPublicSlug: string | null,
-  publicSlug: string,
+  previousDirectoryServiceSlug: string | null,
+  directoryServiceSlug: string | null,
 ) {
   return sql`
     delete from company_directory_service_areas area
     using company_directory_profiles profile
-    where ${previousPublicSlug}::text is not null
-      and ${previousPublicSlug}::text <> ${publicSlug}
+    where ${previousDirectoryServiceSlug}::text is not null
+      and ${directoryServiceSlug}::text is not null
+      and ${previousDirectoryServiceSlug}::text <> ${directoryServiceSlug}::text
       and profile.claimed_workspace_id::text = ${workspaceId}
       and profile.publication_status = 'claimed'
       and area.profile_id = profile.id
-      and area.service_slug = ${previousPublicSlug}
+      and area.service_slug = ${previousDirectoryServiceSlug}
       and area.source_type = 'owner'
   `;
 }
@@ -213,8 +243,8 @@ export async function getDashboardWorkspaceServices(): Promise<DashboardWorkspac
         service.id, service.workspace_id, service.name, service.description, service.short_description, service.category, service.price_label,
         service.price_type, service.price_amount_minor, service.base_price_sek, service.duration_minutes,
         service.buffer_before_minutes, service.buffer_after_minutes, service.minimum_notice_minutes, service.maximum_advance_days,
-        service.service_area, service.is_active, service.sort_order, service.public_slug, service.public_status, service.conversion_mode,
-        service.cover_image_url, service.seo_title, service.seo_description,
+        service.service_area, service.is_active, service.sort_order, service.public_slug, service.primary_directory_service_slug,
+        service.public_status, service.conversion_mode, service.cover_image_url, service.seo_title, service.seo_description,
         confirmed_area.radius_km::float8 as service_area_radius_km,
         (confirmed_area.confirmed_at is not null) as service_area_confirmed
       from workspace_services service
@@ -231,11 +261,14 @@ export async function getDashboardWorkspaceServices(): Promise<DashboardWorkspac
         select area.radius_km, area.confirmed_at
         from company_directory_service_areas area
         where area.profile_id = claimed_profile.id
-          and (area.service_slug = service.public_slug or area.service_slug is null)
+          and (
+            area.service_slug = coalesce(service.primary_directory_service_slug, service.public_slug)
+            or area.service_slug is null
+          )
           and area.public_visible = true
           and area.confirmed_at is not null
           and area.radius_km between 1 and 300
-        order by case when area.service_slug = service.public_slug then 0 else 1 end
+        order by case when area.service_slug = coalesce(service.primary_directory_service_slug, service.public_slug) then 0 else 1 end
         limit 1
       ) confirmed_area on true
       where service.workspace_id = ${workspaceId}
@@ -264,6 +297,7 @@ export async function getDashboardWorkspaceServices(): Promise<DashboardWorkspac
       isActive: toBoolean(row.is_active, true),
       sortOrder: toNumber(row.sort_order) ?? 100,
       publicSlug: toText(row.public_slug),
+      primaryDirectoryServiceSlug: toText(row.primary_directory_service_slug),
       publicStatus: toPublicStatus(row.public_status),
       conversionMode: toConversionMode(row.conversion_mode),
       coverImageUrl: toText(row.cover_image_url),
@@ -282,23 +316,24 @@ export async function createDashboardWorkspaceService(input: WriteDashboardWorks
 
   const workspaceId = await getActiveWorkspaceId();
   const publicSlug = await resolveUniquePublicSlug(sql, workspaceId, input.publicSlug);
+  const primaryDirectoryServiceSlug = await resolveExactPrimaryDirectoryServiceSlug(sql, workspaceId, publicSlug);
   const [rows] = await sql.transaction([
     sql`
       insert into workspace_services (
         workspace_id, name, description, short_description, category, price_label, price_type, price_amount_minor,
         base_price_sek, duration_minutes, buffer_before_minutes, buffer_after_minutes, minimum_notice_minutes,
-        maximum_advance_days, service_area, is_active, sort_order, public_slug, public_status,
+        maximum_advance_days, service_area, is_active, sort_order, public_slug, primary_directory_service_slug, public_status,
         conversion_mode, cover_image_url, seo_title, seo_description
       ) values (
         ${workspaceId}, ${input.name}, ${input.description}, ${input.shortDescription}, ${input.category}, ${input.priceLabel},
         ${input.priceType}, ${input.priceAmountMinor}, ${input.basePriceSek}, ${input.durationMinutes}, ${input.bufferBeforeMinutes},
         ${input.bufferAfterMinutes}, ${input.minimumNoticeMinutes}, ${input.maximumAdvanceDays}, ${input.serviceArea},
-        ${input.isActive}, ${input.sortOrder}, ${publicSlug}, ${input.publicStatus}, ${input.conversionMode},
+        ${input.isActive}, ${input.sortOrder}, ${publicSlug}, ${primaryDirectoryServiceSlug}, ${input.publicStatus}, ${input.conversionMode},
         ${input.coverImageUrl}, ${input.seoTitle}, ${input.seoDescription}
       )
       returning id
     `,
-    ownerServiceAreaMutationQuery(sql, workspaceId, publicSlug, input),
+    ownerServiceAreaMutationQuery(sql, workspaceId, primaryDirectoryServiceSlug, input),
   ]);
   if (!rows?.[0]) throw new Error("Workspace service was not created");
 }
@@ -309,14 +344,21 @@ export async function updateDashboardWorkspaceService(input: UpdateDashboardWork
 
   const workspaceId = await getActiveWorkspaceId();
   const previousRows = await sql`
-    select public_slug
+    select public_slug, primary_directory_service_slug
     from workspace_services
     where id = ${input.id}::uuid
       and workspace_id = ${workspaceId}
     limit 1
   `;
   const previousPublicSlug = previousRows[0]?.public_slug ? String(previousRows[0].public_slug) : null;
+  const storedPrimaryDirectoryServiceSlug = previousRows[0]?.primary_directory_service_slug
+    ? String(previousRows[0].primary_directory_service_slug)
+    : null;
+  const recoveredLegacyPrimaryDirectoryServiceSlug = storedPrimaryDirectoryServiceSlug
+    ?? await resolveExactPrimaryDirectoryServiceSlug(sql, workspaceId, previousPublicSlug);
   const publicSlug = await resolveUniquePublicSlug(sql, workspaceId, input.publicSlug, input.id);
+  const primaryDirectoryServiceSlug = recoveredLegacyPrimaryDirectoryServiceSlug
+    ?? await resolveExactPrimaryDirectoryServiceSlug(sql, workspaceId, publicSlug);
   const [rows] = await sql.transaction([
     sql`
       update workspace_services
@@ -328,14 +370,20 @@ export async function updateDashboardWorkspaceService(input: UpdateDashboardWork
         buffer_after_minutes = ${input.bufferAfterMinutes}, minimum_notice_minutes = ${input.minimumNoticeMinutes},
         maximum_advance_days = ${input.maximumAdvanceDays}, service_area = ${input.serviceArea},
         is_active = ${input.isActive}, sort_order = ${input.sortOrder}, public_slug = ${publicSlug},
+        primary_directory_service_slug = ${primaryDirectoryServiceSlug},
         public_status = ${input.publicStatus}, conversion_mode = ${input.conversionMode}, cover_image_url = ${input.coverImageUrl},
         seo_title = ${input.seoTitle}, seo_description = ${input.seoDescription}, updated_at = now()
       where id = ${input.id}::uuid
         and workspace_id = ${workspaceId}
       returning id
     `,
-    previousOwnerServiceAreaCleanupQuery(sql, workspaceId, previousPublicSlug, publicSlug),
-    ownerServiceAreaMutationQuery(sql, workspaceId, publicSlug, input),
+    previousOwnerServiceAreaCleanupQuery(
+      sql,
+      workspaceId,
+      recoveredLegacyPrimaryDirectoryServiceSlug,
+      primaryDirectoryServiceSlug,
+    ),
+    ownerServiceAreaMutationQuery(sql, workspaceId, primaryDirectoryServiceSlug, input),
   ]);
   if (!rows?.[0]) throw new Error("Workspace service was not found for the active workspace");
 }
