@@ -14,11 +14,6 @@ function sqlResponses(...responses: unknown[][]) {
   return vi.fn(async () => responses[index++] ?? []);
 }
 
-function queryText(call: unknown[] | undefined) {
-  const strings = call?.[0] as readonly string[] | undefined;
-  return (strings ?? []).join(" ? ").replace(/\s+/g, " ").trim();
-}
-
 const leadRow = {
   id: "11111111-1111-4111-8111-111111111111",
   reference_id: "QR-READY",
@@ -33,6 +28,14 @@ const leadRow = {
   created_at: "2026-08-23T00:00:00.000Z",
 };
 
+const workplace = {
+  visitingAddress: {
+    addressLine: "ERIKSHÄLLSGATAN 40",
+    postalCode: "151 46",
+    city: "SÖDERTÄLJE",
+  },
+};
+
 const candidateRow = {
   profile_id: "22222222-2222-4222-8222-222222222222",
   public_slug: "ror-ab",
@@ -41,13 +44,25 @@ const candidateRow = {
   municipality: "Södertälje",
   category_slug: "vvs",
   quality_score: 95,
+  publication_status: "published",
+  is_active: true,
+  privacy_blocked: false,
+  organization_kind: "juridical_person",
+  claimed_workspace_id: null,
   service_slug: "vvs",
   service_name: "VVS / Rörmokare",
   service_category: "VVS",
   latitude: 59.1955,
   longitude: 17.6253,
+  geocode_source: "lantmateriet_belagenhetsadress_v4_2",
+  geocode_precision: "address",
+  geocode_confidence: 100,
+  geocoded_at: "2026-08-23T00:00:00.000Z",
+  location_is_public: true,
   service_area_radius_km: 25,
   recipient_email: "offert@rorfirma.se",
+  scb_phone: "+46 70 123 45 67",
+  scb_workplaces: [workplace],
   scb_conflicts: [],
 };
 
@@ -56,7 +71,7 @@ describe("single-request Marketplace readiness gate", () => {
     vi.clearAllMocks();
   });
 
-  it("requires verified Lantmäteriet coordinates and one unambiguous SCB workplace in the candidate query", async () => {
+  it("returns a candidate only when the shared readiness classifier marks it Auto Outreach Ready", async () => {
     const sql = sqlResponses([leadRow], [], [candidateRow]);
     mocks.getSql.mockReturnValue(sql);
 
@@ -64,12 +79,42 @@ describe("single-request Marketplace readiness gate", () => {
 
     expect(result.ok).toBe(true);
     expect(result.match?.candidates).toHaveLength(1);
-    const candidateQuery = queryText(sql.mock.calls[2]);
-    expect(candidateQuery).toContain("location.geocode_source = 'lantmateriet_belagenhetsadress_v4_2'");
-    expect(candidateQuery).toContain("location.geocode_precision = 'address'");
-    expect(candidateQuery).toContain("location.geocode_confidence = 100");
-    expect(candidateQuery).toContain("workplace_evidence.visiting_count = 1");
-    expect(candidateQuery).toContain("workplace_evidence.visiting_count = 0 and workplace_evidence.postal_count = 1");
+    expect(result.match?.candidates[0]?.recipientEmail).toBe("offert@rorfirma.se");
+  });
+
+  it("rejects arbitrary finite coordinates without verified Lantmäteriet provenance", async () => {
+    const sql = sqlResponses([leadRow], [], [{
+      ...candidateRow,
+      geocode_source: "manual",
+    }]);
+    mocks.getSql.mockReturnValue(sql);
+
+    const result = await getDirectoryGuestLeadMatch(leadRow.id);
+
+    expect(result.ok).toBe(true);
+    expect(result.match?.candidates).toEqual([]);
+  });
+
+  it("rejects ambiguous multiple SCB workplaces", async () => {
+    const sql = sqlResponses([leadRow], [], [{
+      ...candidateRow,
+      scb_workplaces: [
+        workplace,
+        {
+          visitingAddress: {
+            addressLine: "RINGVÄGEN 80",
+            postalCode: "118 60",
+            city: "STOCKHOLM",
+          },
+        },
+      ],
+    }]);
+    mocks.getSql.mockReturnValue(sql);
+
+    const result = await getDirectoryGuestLeadMatch(leadRow.id);
+
+    expect(result.ok).toBe(true);
+    expect(result.match?.candidates).toEqual([]);
   });
 
   it("does not return a public-mailbox candidate to automatic outreach", async () => {
