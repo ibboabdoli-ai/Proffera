@@ -74,6 +74,17 @@ describe("dedicated Company Directory revalidation scheduling", () => {
     expect(mocks.revalidate).not.toHaveBeenCalled();
   });
 
+  it("continues to accept the existing CRON_SECRET", async () => {
+    const { GET } = await loadRoute();
+    const response = await GET(new Request(
+      "https://example.test/api/cron/company-directory-revalidation",
+      { headers: { authorization: "Bearer test-secret" } },
+    ));
+
+    expect(response.status).toBe(200);
+    expect(mocks.revalidate).toHaveBeenCalledTimes(1);
+  });
+
   it("accepts a dedicated external scheduler secret without exposing CRON_SECRET", async () => {
     delete process.env.CRON_SECRET;
     process.env.COMPANY_DIRECTORY_REVALIDATION_SCHEDULER_SECRET = "external-scheduler-secret";
