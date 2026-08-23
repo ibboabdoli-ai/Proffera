@@ -172,13 +172,14 @@ describe("Company Directory SCB public address resolution", () => {
     expect(resolved).toEqual(fallback);
   });
 
-  it("does not mix a selected SCB visiting address with the old profile municipality", () => {
-    const resolved = resolveCompanyDirectoryPublicAddress({
+  it("keeps the profile fallback when a workplace municipality is missing", () => {
+    const fallback = {
       addressLine1: "Gamla vägen 1",
       postalCode: "11111",
       city: "STOCKHOLM",
       municipality: "Stockholm",
-    }, [{
+    };
+    const resolved = resolveCompanyDirectoryPublicAddress(fallback, [{
       visitingAddress: {
         addressLine: "NYA VÄGEN 2",
         postalCode: "16979",
@@ -186,11 +187,6 @@ describe("Company Directory SCB public address resolution", () => {
       },
     }]);
 
-    expect(resolved).toEqual({
-      addressLine1: "NYA VÄGEN 2",
-      postalCode: "169 79",
-      city: "SOLNA",
-      municipality: "",
-    });
+    expect(resolved).toEqual(fallback);
   });
 });
