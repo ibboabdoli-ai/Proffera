@@ -1,5 +1,7 @@
 import "server-only";
 
+import { cache } from "react";
+
 import {
   projectBusinessProfilePublicProfile,
   projectBusinessProfileSeo,
@@ -221,12 +223,12 @@ async function resolvePublicBusinessProfile(
  * intentionally remains separate so Search can stay bounded and avoid N+1
  * owner/entitlement lookups.
  */
-export async function getResolvedPublicBusinessProfile(
+export const getResolvedPublicBusinessProfile = cache(async (
   directorySlug: string,
-): Promise<ResolvedBusinessProfile | null> {
+): Promise<ResolvedBusinessProfile | null> => {
   const business = await getPublicDirectoryBusinessForRequest(directorySlug);
   return business ? resolvePublicBusinessProfile(business) : null;
-}
+});
 
 /**
  * Compatibility view for the existing Directory profile UI. The public page
