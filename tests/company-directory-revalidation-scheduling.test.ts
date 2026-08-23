@@ -12,6 +12,7 @@ vi.mock("@/lib/company-directory-full-revalidation", () => ({
 
 const ENV_KEYS = [
   "CRON_SECRET",
+  "COMPANY_DIRECTORY_REVALIDATION_SCHEDULER_SECRET",
   "COMPANY_DIRECTORY_SYNC_ENABLED",
   "COMPANY_DIRECTORY_PROFILE_PROCESSING_ENABLED",
 ] as const;
@@ -36,8 +37,11 @@ describe("dedicated Company Directory revalidation scheduling", () => {
   beforeEach(() => {
     previousEnv = {
       CRON_SECRET: process.env.CRON_SECRET,
+      COMPANY_DIRECTORY_REVALIDATION_SCHEDULER_SECRET:
+        process.env.COMPANY_DIRECTORY_REVALIDATION_SCHEDULER_SECRET,
       COMPANY_DIRECTORY_SYNC_ENABLED: process.env.COMPANY_DIRECTORY_SYNC_ENABLED,
-      COMPANY_DIRECTORY_PROFILE_PROCESSING_ENABLED: process.env.COMPANY_DIRECTORY_PROFILE_PROCESSING_ENABLED,
+      COMPANY_DIRECTORY_PROFILE_PROCESSING_ENABLED:
+        process.env.COMPANY_DIRECTORY_PROFILE_PROCESSING_ENABLED,
     };
 
     mocks.revalidate.mockReset();
@@ -53,6 +57,7 @@ describe("dedicated Company Directory revalidation scheduling", () => {
       remaining: 390,
     });
     process.env.CRON_SECRET = "test-secret";
+    delete process.env.COMPANY_DIRECTORY_REVALIDATION_SCHEDULER_SECRET;
     process.env.COMPANY_DIRECTORY_SYNC_ENABLED = "true";
     process.env.COMPANY_DIRECTORY_PROFILE_PROCESSING_ENABLED = "true";
   });
@@ -61,9 +66,47 @@ describe("dedicated Company Directory revalidation scheduling", () => {
     for (const key of ENV_KEYS) restoreEnv(key, previousEnv[key]);
   });
 
-  it("protects the fast revalidation endpoint with CRON_SECRET", async () => {
+  it("protects the fast revalidation endpoint with an authorized scheduler secret", async () => {
     const { GET } = await loadRoute();
     const response = await GET(new Request("https://example.test/api/cron/company-directory-revalidation"));
+
+    expect(response.status).toBe(401);
+    expect(mocks.revalidate).not.toHaveBeenCalled();
+  });
+
+  it("continues to accept the existing CRON_SECRET", async () => {
+    const { GET } = await loadRoute();
+    const response = await GET(new Request(
+      "https://example.test/api/cron/company-directory-revalidation",
+      { headers: { authorization: "Bearer test-secret" } },
+    ));
+
+    expect(response.status).toBe(200);
+    expect(mocks.revalidate).toHaveBeenCalledTimes(1);
+  });
+
+  it("accepts a dedicated external scheduler secret without exposing CRON_SECRET", async () => {
+    delete process.env.CRON_SECRET;
+    process.env.COMPANY_DIRECTORY_REVALIDATION_SCHEDULER_SECRET = "external-scheduler-secret";
+
+    const { GET } = await loadRoute();
+    const response = await GET(new Request(
+      "https://example.test/api/cron/company-directory-revalidation",
+      { headers: { authorization: "Bearer external-scheduler-secret" } },
+    ));
+
+    expect(response.status).toBe(200);
+    expect(mocks.revalidate).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects an incorrect external scheduler secret", async () => {
+    process.env.COMPANY_DIRECTORY_REVALIDATION_SCHEDULER_SECRET = "external-scheduler-secret";
+
+    const { GET } = await loadRoute();
+    const response = await GET(new Request(
+      "https://example.test/api/cron/company-directory-revalidation",
+      { headers: { authorization: "Bearer wrong-secret" } },
+    ));
 
     expect(response.status).toBe(401);
     expect(mocks.revalidate).not.toHaveBeenCalled();
