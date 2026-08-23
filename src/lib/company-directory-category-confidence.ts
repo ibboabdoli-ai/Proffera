@@ -1,6 +1,8 @@
 import { swedishCompanyNamesEquivalent } from "@/lib/company-directory-company-name";
 import { mapSniToDirectoryCategory, normalizeSniCode } from "@/lib/company-directory-policy";
 
+export const COMPANY_DIRECTORY_CATEGORY_CONFIDENCE_POLICY_VERSION = "2026-08-23.1";
+
 export type CompanyDirectoryCategoryConfidenceLevel = "high" | "review" | "low";
 
 export type CompanyDirectoryCategoryConfidenceInput = {
@@ -40,7 +42,7 @@ const categoryKeywords: Record<string, string[]> = {
   stadning: ["stadning", "stadservice", "lokalvard", "rengor", "fonsterputs", "hemstad", "kontorsstad"],
   elektriker: ["elektr", "elinstall", "eltekn", "elkraft", "elservice"],
   vvs: ["vvs", "rorlagg", "rorinstall", "varme", "sanitar", "sanitet", "ventilation", "kylinstall"],
-  maleri: ["maleri", "malar", "malning"],
+  maleri: ["maleri", "malning"],
   snickeri: ["snicker", "byggnadssnicker", "carpentry"],
   tradgard: ["tradgard", "markskotsel", "gronyt", "landskap"],
   flytt: ["flytt", "moving"],
@@ -79,17 +81,30 @@ function fold(value: unknown) {
     .replace(/ö/g, "o");
 }
 
-function hasExactSwedishToken(values: string[], token: string) {
-  const haystack = values
+function swedishTokens(values: string[]) {
+  return values
     .filter(Boolean)
     .join(" ")
     .normalize("NFC")
     .toLocaleLowerCase("sv-SE")
     .replace(/[^a-z0-9åäö]+/g, " ")
-    .trim();
-  if (!haystack) return false;
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function hasExactSwedishToken(values: string[], token: string) {
+  const tokens = swedishTokens(values);
+  if (!tokens.length) return false;
   const normalizedToken = token.normalize("NFC").toLocaleLowerCase("sv-SE");
-  return ` ${haystack} `.includes(` ${normalizedToken} `);
+  return tokens.includes(normalizedToken);
+}
+
+function hasSwedishTokenPrefix(values: string[], prefixes: string[]) {
+  const tokens = swedishTokens(values);
+  if (!tokens.length) return false;
+  const normalizedPrefixes = prefixes.map((prefix) => prefix.normalize("NFC").toLocaleLowerCase("sv-SE"));
+  return tokens.some((token) => normalizedPrefixes.some((prefix) => token.startsWith(prefix)));
 }
 
 function hasCategoryKeyword(categorySlug: string, values: string[]) {
@@ -98,6 +113,20 @@ function hasCategoryKeyword(categorySlug: string, values: string[]) {
 
   if (categorySlug === "stadning" && hasExactSwedishToken(values, "städ")) {
     return true;
+  }
+
+  // Preserve Swedish vowel identity for painting terms. Folding å/ä to "a" made
+  // words such as "Mälarsanering" look like the stem "målar" and falsely signal
+  // the Måleri category. Real painting words keep their own token prefixes.
+  if (categorySlug === "maleri") {
+    return hasSwedishTokenPrefix(values, [
+      "måleri",
+      "målar",
+      "målning",
+      "maleri",
+      "malare",
+      "malning",
+    ]);
   }
 
   let sourceText = values.filter(Boolean).join(" \n ").normalize("NFC");

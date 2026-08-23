@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { revalidateCompanyDirectoryCategoryPolicyBatch } from "@/lib/company-directory-category-policy-revalidation";
 import { revalidateAllCompanyDirectoryBatch } from "@/lib/company-directory-full-revalidation";
 
 export const dynamic = "force-dynamic";
@@ -7,6 +8,21 @@ export const maxDuration = 60;
 
 const REVALIDATION_BATCH_SIZE = 10;
 const DEADLINE_BUFFER_MS = 5_000;
+
+function failedPolicyEvaluation(error: unknown) {
+  return {
+    skipped: true,
+    reason: "worker_error",
+    selected: 0,
+    evaluated: 0,
+    kept: 0,
+    movedToReview: 0,
+    deferred: 0,
+    errors: 1,
+    errorSummary: error instanceof Error ? error.message : "Category policy revalidation failed",
+    remaining: null as number | null,
+  };
+}
 
 export async function GET(request: Request) {
   const cronSecret = process.env.CRON_SECRET;
@@ -37,12 +53,23 @@ export async function GET(request: Request) {
   }
 
   const deadlineAt = Date.now() + maxDuration * 1_000 - DEADLINE_BUFFER_MS;
+  let policyEvaluation;
+  try {
+    policyEvaluation = await revalidateCompanyDirectoryCategoryPolicyBatch(
+      REVALIDATION_BATCH_SIZE,
+      { deadlineAt },
+    );
+  } catch (error) {
+    console.error("Company directory category policy revalidation failed", error);
+    policyEvaluation = failedPolicyEvaluation(error);
+  }
+
   try {
     const result = await revalidateAllCompanyDirectoryBatch(
       REVALIDATION_BATCH_SIZE,
       { deadlineAt },
     );
-    return NextResponse.json({ ok: true, ...result });
+    return NextResponse.json({ ok: true, ...result, policyEvaluation });
   } catch (error) {
     console.error("Company directory dedicated revalidation failed", error);
     return NextResponse.json(
