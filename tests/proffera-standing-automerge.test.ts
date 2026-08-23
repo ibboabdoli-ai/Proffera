@@ -50,16 +50,17 @@ function runAuthorizationFixture(fixture: AuthorizationFixture) {
   const ghScript = `#!/usr/bin/env bash
 set -euo pipefail
 args="$*"
+expected_policy_path="repos/ibboabdoli-ai/Proffera/contents/.github/proffera-standing-merge-authorization.json?ref=main"
 if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
   printf '%s\\n' "$FAKE_PR_JSON"
   exit 0
 fi
-if [ "$1" = "api" ] && [[ "$args" == *"contents/"* ]] && [[ "$args" == *"?ref=main"* ]]; then
+if [ "$1" = "api" ] && [ "${2:-}" = "$expected_policy_path" ]; then
   printf '%s\\n' "$FAKE_POLICY_B64"
   exit 0
 fi
-if [ "$1" = "api" ] && [[ "$args" == *"contents/"* ]]; then
-  printf 'standing policy request was not pinned to main: %s\\n' "$args" >&2
+if [ "$1" = "api" ] && [[ "${2:-}" == *"/contents/"* ]]; then
+  printf 'standing policy request did not exactly match main path: %s\\n' "$args" >&2
   exit 2
 fi
 if [ "$1" = "api" ] && [[ "$args" == *"/issues/"*"/events"* ]]; then
