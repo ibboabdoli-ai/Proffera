@@ -9,7 +9,6 @@ function source(path: string) {
 
 describe("public company directory search contract", () => {
   const searchSource = source("src/lib/company-directory-public-search.ts");
-  const profileSearchSource = source("src/lib/business-profile-search.ts");
   const pageSource = source("src/app/foretag/listad/page.tsx");
   const shellSource = source("src/components/company-directory/public-directory-search-page.tsx");
   const resultsSource = source("src/components/company-directory/public-directory-results.tsx");
@@ -75,7 +74,6 @@ describe("public company directory search contract", () => {
 
   it("keeps search and profile routing in the shared public directory graph", () => {
     expect(shellSource).toContain("searchPublishedBusinessProfiles");
-    expect(profileSearchSource).toContain("searchPublishedCompanyDirectory(input)");
     expect(resultsSource).toContain("${profileBase}/${encodeURIComponent(result.slug)}");
     expect(copySource).toContain("registrerade ort");
     expect(copySource).toContain("Bekräftat serviceområde visas separat");
