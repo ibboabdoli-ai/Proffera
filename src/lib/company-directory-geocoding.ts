@@ -11,7 +11,6 @@ const DEFAULT_LANTMATERIET_BASE_URL =
   "https://api.lantmateriet.se/distribution/produkter/belagenhetsadress/v4.2";
 const GEOCODE_SOURCE = "lantmateriet_belagenhetsadress_v4_2";
 const NO_MATCH_SOURCE = "lantmateriet_no_match_v4_2";
-const NO_MATCH_SOURCE_PATTERN = `${NO_MATCH_SOURCE.replaceAll("_", "\\_")}%`;
 const SCB_WORKPLACE_NO_MATCH_SOURCE_PREFIX = `${NO_MATCH_SOURCE}:scb_workplace:`;
 const MAX_DETAIL_FALLBACK_CANDIDATES = 5;
 const GEOCODING_ACTION_BUDGET_MS = 240_000;
