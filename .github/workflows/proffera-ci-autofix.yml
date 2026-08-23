@@ -5,11 +5,27 @@ on:
     workflows: [CI]
     types: [completed]
 
-permissions:
-  contents: write
-  pull-requests: write
-  issues: write
-  actions: read
+permissions: {}
+
+env:
+  BLOCKED_PATH_PATTERNS: |
+    .github/*
+    .env*
+    vercel.json
+    next.config.*
+    middleware.*
+    src/app/api/*
+    src/lib/auth/*
+    src/lib/supabase/*
+    src/lib/workspace/*
+    db/migrations/*
+    migrations/*
+    supabase/*
+    prisma/*
+    package.json
+    package-lock.json
+    pnpm-lock.yaml
+    yarn.lock
 
 concurrency:
   group: proffera-ci-autofix-${{ github.event.workflow_run.pull_requests[0].number || github.event.workflow_run.id }}
@@ -20,12 +36,18 @@ jobs:
     name: Qualify CI failure
     if: github.event.workflow_run.conclusion == 'failure'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
     outputs:
       safe: ${{ steps.qualify.outputs.safe }}
       pr_number: ${{ steps.qualify.outputs.pr_number }}
       head_ref: ${{ steps.qualify.outputs.head_ref }}
       head_sha: ${{ steps.qualify.outputs.head_sha }}
+      base_sha: ${{ steps.qualify.outputs.base_sha }}
       api_available: ${{ steps.qualify.outputs.api_available }}
+      push_available: ${{ steps.qualify.outputs.push_available }}
     steps:
       - name: Qualify current-head failure for one bounded Codex attempt
         id: qualify
@@ -36,15 +58,48 @@ jobs:
           RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           EVENT_PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          AUTOFIX_PUSH_TOKEN: ${{ secrets.PROFFERA_AUTOFIX_PUSH_TOKEN }}
           STANDING_AUTH_PATH: .github/proffera-standing-merge-authorization.json
           HUMAN_APPROVER: ibboabdoli-ai
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "safe=no" >> "$GITHUB_OUTPUT"
-          echo "api_available=no" >> "$GITHUB_OUTPUT"
-          [ -n "$OPENAI_API_KEY" ] && echo "api_available=yes" >> "$GITHUB_OUTPUT"
+          safe=no
+          api_available=no
+          push_available=no
+          pr_number=""
+          head_ref=""
+          head_sha=""
+          base_sha=""
+
+          [ -n "$OPENAI_API_KEY" ] && api_available=yes
+          [ -n "$AUTOFIX_PUSH_TOKEN" ] && push_available=yes
+
+          finish() {
+            {
+              echo "safe=$safe"
+              echo "api_available=$api_available"
+              echo "push_available=$push_available"
+              echo "pr_number=$pr_number"
+              echo "head_ref=$head_ref"
+              echo "head_sha=$head_sha"
+              echo "base_sha=$base_sha"
+            } >> "$GITHUB_OUTPUT"
+          }
+          trap finish EXIT
+
+          is_blocked_path() {
+            local path="$1"
+            local pattern
+            while IFS= read -r pattern; do
+              [ -z "$pattern" ] && continue
+              if [[ "$path" == $pattern ]]; then
+                return 0
+              fi
+            done <<< "$BLOCKED_PATH_PATTERNS"
+            return 1
+          }
 
           pr_number="${EVENT_PR_NUMBER:-}"
           if ! [[ "$pr_number" =~ ^[1-9][0-9]*$ ]]; then
@@ -52,18 +107,16 @@ jobs:
             exit 0
           fi
 
-          pr_json="$(gh pr view "$pr_number" --repo "$REPOSITORY" --json number,baseRefName,headRefName,headRefOid,body,isDraft,isCrossRepository,headRepositoryOwner)"
-          base_ref="$(jq -r '.baseRefName' <<< "$pr_json")"
-          head_ref="$(jq -r '.headRefName' <<< "$pr_json")"
-          head_sha="$(jq -r '.headRefOid' <<< "$pr_json")"
+          pr_json="$(gh api "repos/$REPOSITORY/pulls/$pr_number")"
+          base_ref="$(jq -r '.base.ref' <<< "$pr_json")"
+          base_sha="$(jq -r '.base.sha' <<< "$pr_json")"
+          head_ref="$(jq -r '.head.ref' <<< "$pr_json")"
+          head_sha="$(jq -r '.head.sha' <<< "$pr_json")"
           pr_body="$(jq -r '.body // ""' <<< "$pr_json")"
-          is_draft="$(jq -r '.isDraft' <<< "$pr_json")"
-          is_cross_repo="$(jq -r '.isCrossRepository' <<< "$pr_json")"
-          head_owner="$(jq -r '.headRepositoryOwner.login // ""' <<< "$pr_json")"
-
-          echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
-          echo "head_ref=$head_ref" >> "$GITHUB_OUTPUT"
-          echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
+          is_draft="$(jq -r '.draft' <<< "$pr_json")"
+          pr_author="$(jq -r '.user.login // ""' <<< "$pr_json")"
+          head_repo="$(jq -r '.head.repo.full_name // ""' <<< "$pr_json")"
+          head_owner="$(jq -r '.head.repo.owner.login // ""' <<< "$pr_json")"
 
           if [ "$base_ref" != "main" ] || [ "$is_draft" = "true" ]; then
             echo "PR #$pr_number is not an eligible ready PR to main."
@@ -73,7 +126,7 @@ jobs:
             echo "PR #$pr_number is not on a work/proffera-* branch."
             exit 0
           fi
-          if [ "$is_cross_repo" = "true" ] || [ "$head_owner" != "$HUMAN_APPROVER" ]; then
+          if [ "$pr_author" != "$HUMAN_APPROVER" ] || [ "$head_owner" != "$HUMAN_APPROVER" ] || [ "$head_repo" != "$REPOSITORY" ]; then
             echo "Cross-repository or non-owner PRs are never eligible for secret-backed autofix."
             exit 0
           fi
@@ -105,11 +158,11 @@ jobs:
           standing_owner="$(jq -r '.authorized_by // ""' <<< "$standing_json")"
           standing_issue="$(jq -r '.supervisor_issue // 0' <<< "$standing_json")"
           standing_expires_at="$(jq -r '.expires_at // ""' <<< "$standing_json")"
-          standing_prefix_match="no"
+          standing_prefix_match=no
           while IFS= read -r prefix; do
             [ -z "$prefix" ] && continue
             if [[ "$head_ref" == "$prefix"* ]]; then
-              standing_prefix_match="yes"
+              standing_prefix_match=yes
               break
             fi
           done < <(jq -r '.branch_prefixes[]? // empty' <<< "$standing_json")
@@ -129,12 +182,10 @@ jobs:
           changed_files="$(gh pr diff "$pr_number" --repo "$REPOSITORY" --name-only)"
           while IFS= read -r file; do
             [ -z "$file" ] && continue
-            case "$file" in
-              .github/*|.env*|vercel.json|next.config.*|middleware.*|src/app/api/*|src/app/api/**|src/lib/auth/*|src/lib/auth/**|src/lib/supabase/*|src/lib/supabase/**|src/lib/workspace/*|src/lib/workspace/**|db/migrations/*|migrations/*|supabase/*|supabase/**|prisma/*|prisma/**|package.json|package-lock.json|pnpm-lock.yaml|yarn.lock)
-                echo "PR #$pr_number changes blocked sensitive path '$file'; autofix is disabled."
-                exit 0
-                ;;
-            esac
+            if is_blocked_path "$file"; then
+              echo "PR #$pr_number changes blocked sensitive path '$file'; autofix is disabled."
+              exit 0
+            fi
           done <<< "$changed_files"
 
           jobs_json="$(gh api "repos/$REPOSITORY/actions/runs/$RUN_ID/jobs?per_page=100")"
@@ -144,7 +195,7 @@ jobs:
             exit 0
           fi
 
-          echo "safe=yes" >> "$GITHUB_OUTPUT"
+          safe=yes
           echo "PR #$pr_number head $head_sha qualifies for one bounded autofix attempt."
 
   autofix:
@@ -152,19 +203,32 @@ jobs:
     needs: prepare
     if: needs.prepare.outputs.safe == 'yes'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      actions: read
     steps:
-      - name: Report missing API key without weakening CI
-        if: needs.prepare.outputs.api_available != 'yes'
+      - name: Report missing autofix secrets without weakening CI
+        if: needs.prepare.outputs.api_available != 'yes' || needs.prepare.outputs.push_available != 'yes'
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
+          API_AVAILABLE: ${{ needs.prepare.outputs.api_available }}
+          PUSH_AVAILABLE: ${{ needs.prepare.outputs.push_available }}
         shell: bash
         run: |
           set -euo pipefail
           marker='<!-- proffera-ci-autofix -->'
-          body="${marker}
-          Instant CI autofix is configured for this authorized PR, but the repository does not currently expose an \`OPENAI_API_KEY\` secret to GitHub Actions. No code was changed and merge gates remain fail-closed."
+          missing=""
+          [ "$API_AVAILABLE" != "yes" ] && missing="OPENAI_API_KEY"
+          if [ "$PUSH_AVAILABLE" != "yes" ]; then
+            [ -n "$missing" ] && missing="$missing and "
+            missing="${missing}PROFFERA_AUTOFIX_PUSH_TOKEN"
+          fi
+          body="$(printf '%s\n%s\n' \
+            "$marker" \
+            "Instant CI autofix is configured for this authorized PR, but ${missing} is not available to GitHub Actions. No code was changed and merge gates remain fail-closed.")"
           comments="$(gh api --paginate "repos/$REPOSITORY/issues/$PR_NUMBER/comments?per_page=100" --jq '.[]' | jq -s '.')"
           comment_id="$(jq -r --arg marker "$marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | last | .id // empty' <<< "$comments")"
           if [ -n "$comment_id" ]; then
@@ -174,7 +238,7 @@ jobs:
           fi
 
       - name: Checkout exact failed head
-        if: needs.prepare.outputs.api_available == 'yes'
+        if: needs.prepare.outputs.api_available == 'yes' && needs.prepare.outputs.push_available == 'yes'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ needs.prepare.outputs.head_sha }}
@@ -182,18 +246,18 @@ jobs:
           persist-credentials: false
 
       - name: Setup Node
-        if: needs.prepare.outputs.api_available == 'yes'
+        if: needs.prepare.outputs.api_available == 'yes' && needs.prepare.outputs.push_available == 'yes'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22
           cache: npm
 
       - name: Install dependencies before sandboxed repair
-        if: needs.prepare.outputs.api_available == 'yes'
+        if: needs.prepare.outputs.api_available == 'yes' && needs.prepare.outputs.push_available == 'yes'
         run: npm ci --no-audit --no-fund
 
       - name: Capture failed CI logs as untrusted input
-        if: needs.prepare.outputs.api_available == 'yes'
+        if: needs.prepare.outputs.api_available == 'yes' && needs.prepare.outputs.push_available == 'yes'
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
@@ -208,7 +272,7 @@ jobs:
           } > .codex-ci-failure.log
 
       - name: Run one bounded Codex repair attempt
-        if: needs.prepare.outputs.api_available == 'yes'
+        if: needs.prepare.outputs.api_available == 'yes' && needs.prepare.outputs.push_available == 'yes'
         id: codex
         uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e
         with:
@@ -226,26 +290,30 @@ jobs:
 
             You may run targeted lint, typecheck, Vitest or other already-installed local checks. Do not commit, push, merge, deploy, access Production, or use network-based package installation. If the failure cannot be safely fixed inside these limits, leave the checkout unchanged and explain the blocker in your final message.
 
-      - name: Validate and push bounded repair
-        if: needs.prepare.outputs.api_available == 'yes'
+      - name: Validate bounded repair without repository token
+        if: needs.prepare.outputs.api_available == 'yes' && needs.prepare.outputs.push_available == 'yes'
+        id: validate_repair
         env:
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
-          HEAD_REF: ${{ needs.prepare.outputs.head_ref }}
+          BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
           EXPECTED_HEAD: ${{ needs.prepare.outputs.head_sha }}
-          CODEX_MESSAGE: ${{ steps.codex.outputs.final-message }}
+          PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
         shell: bash
         run: |
           set -euo pipefail
           rm -f .codex-ci-failure.log
           git config --local core.hooksPath /dev/null
 
-          current_head="$(gh pr view "$PR_NUMBER" --repo "$REPOSITORY" --json headRefOid --jq '.headRefOid')"
-          if [ "$current_head" != "$EXPECTED_HEAD" ]; then
-            echo "PR head moved during autofix; discarding stale repair."
-            exit 0
-          fi
+          is_blocked_path() {
+            local path="$1"
+            local pattern
+            while IFS= read -r pattern; do
+              [ -z "$pattern" ] && continue
+              if [[ "$path" == $pattern ]]; then
+                return 0
+              fi
+            done <<< "$BLOCKED_PATH_PATTERNS"
+            return 1
+          }
 
           changed="$(git ls-files --modified --deleted --others --exclude-standard)"
           if [ -z "$changed" ]; then
@@ -253,17 +321,15 @@ jobs:
             exit 0
           fi
 
-          pr_files="$(gh pr diff "$PR_NUMBER" --repo "$REPOSITORY" --name-only)"
+          pr_files="$(git diff --name-only "$BASE_SHA...$EXPECTED_HEAD")"
           while IFS= read -r file; do
             [ -z "$file" ] && continue
-            case "$file" in
-              .github/*|.env*|vercel.json|next.config.*|middleware.*|src/app/api/*|src/app/api/**|src/lib/auth/*|src/lib/auth/**|src/lib/supabase/*|src/lib/supabase/**|src/lib/workspace/*|src/lib/workspace/**|db/migrations/*|migrations/*|supabase/*|supabase/**|prisma/*|prisma/**|package.json|package-lock.json|pnpm-lock.yaml|yarn.lock)
-                echo "Refused: Codex touched blocked path '$file'." >&2
-                git reset --hard HEAD
-                git clean -fd
-                exit 1
-                ;;
-            esac
+            if is_blocked_path "$file"; then
+              echo "Refused: Codex touched blocked path '$file'." >&2
+              git reset --hard HEAD
+              git clean -fd
+              exit 1
+            fi
             if ! grep -Fxq "$file" <<< "$pr_files" && [[ "$file" != tests/* ]]; then
               echo "Refused: Codex expanded the PR outside existing files/tests with '$file'." >&2
               git reset --hard HEAD
@@ -272,22 +338,64 @@ jobs:
             fi
           done <<< "$changed"
 
+          npm run lint
           npm run typecheck
           npm test
+          python3 -m py_compile scripts/company-directory-discovery.py
+          python3 tests/test_company_directory_discovery_worker.py
+          npm run build
           git diff --check
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add --all
           git commit -m "[codex-autofix] Fix CI blocker for PR #$PR_NUMBER"
-          git push "https://x-access-token:${GH_TOKEN}@github.com/${REPOSITORY}.git" "HEAD:refs/heads/${HEAD_REF}"
+          echo "new_head=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Push validated repair and report
+        if: needs.prepare.outputs.api_available == 'yes' && needs.prepare.outputs.push_available == 'yes' && steps.validate_repair.outputs.new_head != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUSH_TOKEN: ${{ secrets.PROFFERA_AUTOFIX_PUSH_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
+          HEAD_REF: ${{ needs.prepare.outputs.head_ref }}
+          EXPECTED_HEAD: ${{ needs.prepare.outputs.head_sha }}
+          NEW_HEAD: ${{ steps.validate_repair.outputs.new_head }}
+          CODEX_MESSAGE: ${{ steps.codex.outputs.final-message }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          current_head="$(gh api "repos/$REPOSITORY/pulls/$PR_NUMBER" --jq '.head.sha')"
+          if [ "$current_head" != "$EXPECTED_HEAD" ]; then
+            echo "PR head moved during autofix; discarding stale repair."
+            exit 0
+          fi
+          if [ -z "$PUSH_TOKEN" ]; then
+            echo "Refused: dedicated autofix push token is unavailable." >&2
+            exit 1
+          fi
+
+          git config --local core.hooksPath /dev/null
+          git push "https://x-access-token:${PUSH_TOKEN}@github.com/${REPOSITORY}.git" "HEAD:refs/heads/${HEAD_REF}"
+
+          for attempt in $(seq 1 10); do
+            remote_head="$(gh api "repos/$REPOSITORY/pulls/$PR_NUMBER" --jq '.head.sha')"
+            [ "$remote_head" = "$NEW_HEAD" ] && break
+            sleep 2
+          done
+          remote_head="$(gh api "repos/$REPOSITORY/pulls/$PR_NUMBER" --jq '.head.sha')"
+          if [ "$remote_head" != "$NEW_HEAD" ]; then
+            echo "Refused: pushed repair was not observed as the PR head." >&2
+            exit 1
+          fi
 
           marker='<!-- proffera-ci-autofix -->'
-          new_head="$(git rev-parse HEAD)"
-          body="${marker}
-          Bounded Codex CI autofix pushed \`${new_head}\` after local typecheck, tests and whitespace validation. CI will re-run on the new head. A second automatic repair loop is intentionally blocked if this generated head still fails.
-
-          Codex summary: ${CODEX_MESSAGE}"
+          body="$(printf '%s\n%s\n\n%s\n' \
+            "$marker" \
+            "Bounded Codex CI autofix pushed \`${NEW_HEAD}\` after local lint, typecheck, tests, discovery-worker validation, build and whitespace checks. The dedicated push credential will emit a normal PR synchronize event so CI runs on the new head. A second automatic repair loop is intentionally blocked if this generated head still fails." \
+            "Codex summary: ${CODEX_MESSAGE}")"
           comments="$(gh api --paginate "repos/$REPOSITORY/issues/$PR_NUMBER/comments?per_page=100" --jq '.[]' | jq -s '.')"
           comment_id="$(jq -r --arg marker "$marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | last | .id // empty' <<< "$comments")"
           if [ -n "$comment_id" ]; then
