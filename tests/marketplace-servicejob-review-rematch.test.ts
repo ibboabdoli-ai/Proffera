@@ -335,7 +335,7 @@ describe("Verified Review and Reputation", () => {
     await expect(getMarketplaceVerifiedReviewPreviewByHash("a".repeat(64)))
       .resolves.toMatchObject({ state: "valid", language: "en" });
 
-    const deliverySql = sqlResponses([{
+    const deliverySql = sqlResponses([], [{
       service_job_id: jobRow.id,
       contact_name: "Anna",
       contact_email: "anna@example.com",
