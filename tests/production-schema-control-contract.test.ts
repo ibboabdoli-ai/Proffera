@@ -60,4 +60,17 @@ describe("Production schema control plane", () => {
     expect(workflow).toContain('"$environment" = "production"');
     expect(workflow).toContain("timeout-minutes: 8");
   });
+
+  it("blocks every later PR until its exact main base has a green Production health result", () => {
+    const workflow = source(".github/workflows/production-base-health.yml");
+
+    expect(workflow).toContain("pull_request:");
+    expect(workflow).toContain("actions: read");
+    expect(workflow).toContain("BASE_SHA: ${{ github.event.pull_request.base.sha }}");
+    expect(workflow).toContain("contents/.github/workflows/$HEALTH_WORKFLOW?ref=$BASE_SHA");
+    expect(workflow).toContain("select(.head_sha == $sha)");
+    expect(workflow).toContain('"$conclusion" = "success"');
+    expect(workflow).toContain("New work is blocked");
+    expect(workflow).toContain("allowing bootstrap PR only");
+  });
 });
