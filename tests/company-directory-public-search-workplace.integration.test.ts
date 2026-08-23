@@ -42,6 +42,7 @@ function postgresSql(client: Client) {
     let containerName = "";
     let connectionString = "";
     let client: Client | null = null;
+    const profileId = "11111111-1111-4111-8111-111111111111";
 
     async function waitForPostgres() {
       let lastError: unknown = null;
@@ -59,6 +60,22 @@ function postgresSql(client: Client) {
         }
       }
       throw lastError ?? new Error("PostgreSQL test container did not become ready");
+    }
+
+    async function expectProfileFallback() {
+      const stockholm = await searchPublishedCompanyDirectory({ location: "Stockholm" });
+      expect(stockholm.totalCount).toBe(1);
+      expect(stockholm.results).toHaveLength(1);
+      expect(stockholm.results[0]).toMatchObject({
+        slug: "canonical-workplace-ab",
+        postalCode: "111 11",
+        city: "Stockholm",
+        municipality: "Stockholm",
+      });
+
+      const sodertalje = await searchPublishedCompanyDirectory({ location: "Södertälje" });
+      expect(sodertalje.totalCount).toBe(0);
+      expect(sodertalje.results).toEqual([]);
     }
 
     beforeAll(async () => {
@@ -81,6 +98,9 @@ function postgresSql(client: Client) {
       client = new Client({ connectionString });
       await client.connect();
 
+      // This fixture intentionally contains only the columns read by
+      // searchPublishedCompanyDirectory. Migration-backed SCB projection behavior is
+      // covered separately in company-directory-scb-enrichment.test.ts.
       await client.query(`
         create table workspaces (
           id uuid primary key,
@@ -171,7 +191,6 @@ function postgresSql(client: Client) {
           company_directory_profiles, workspaces
       `);
 
-      const profileId = "11111111-1111-4111-8111-111111111111";
       await client!.query(`
         insert into company_directory_profiles (
           id, public_slug, display_name, category_slug, publication_status,
@@ -213,6 +232,46 @@ function postgresSql(client: Client) {
       const stockholm = await searchPublishedCompanyDirectory({ location: "Stockholm" });
       expect(stockholm.totalCount).toBe(0);
       expect(stockholm.results).toEqual([]);
+    }, 30_000);
+
+    it("keeps the profile location when SCB evidence has conflicts", async () => {
+      await client!.query(`
+        update company_directory_scb_enrichment
+        set conflicts = '[{"field":"legal_name","code":"legal_name_mismatch"}]'::jsonb
+        where profile_id = $1
+      `, [profileId]);
+
+      await expectProfileFallback();
+    }, 30_000);
+
+    it("keeps the profile location when SCB reports multiple workplaces", async () => {
+      await client!.query(`
+        update company_directory_scb_enrichment
+        set workplaces = workplaces || workplaces
+        where profile_id = $1
+      `, [profileId]);
+
+      await expectProfileFallback();
+    }, 30_000);
+
+    it("keeps the profile location when the workplace municipality is missing", async () => {
+      await client!.query(`
+        update company_directory_scb_enrichment
+        set workplaces = jsonb_set(workplaces, '{0,municipality}', '""'::jsonb)
+        where profile_id = $1
+      `, [profileId]);
+
+      await expectProfileFallback();
+    }, 30_000);
+
+    it("keeps claimed Workspace-owned profile location authoritative", async () => {
+      await client!.query(`
+        update company_directory_profiles
+        set claimed_workspace_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'::uuid
+        where id = $1
+      `, [profileId]);
+
+      await expectProfileFallback();
     }, 30_000);
   },
 );
