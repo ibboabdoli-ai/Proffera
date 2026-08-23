@@ -48,7 +48,20 @@ Documentation impact: none
 
 The bootstrap baseline must match the PR base SHA used for the validated work. If `main` advances and the branch is refreshed, update the line before rerunning CI.
 
-Never add or remove `ibbo-approved`. That label is human merge authorization only.
+Never add or remove `ibbo-approved`. That label remains per-PR human merge authorization only.
+
+## Standing merge authorization
+
+A separate repository-owner authorization may be committed on `main` in `.github/proffera-standing-merge-authorization.json` for a narrowly defined phase. This is a durable authorization source for gated automerge and is not worker self-approval.
+
+Rules:
+
+- the automerge workflow reads the standing policy only from `main`, never from the PR branch;
+- ordinary workers must not create, edit, expand or extend the standing policy;
+- the policy must be scoped by owner, phase, Supervisor issue, explicit branch prefixes and expiry;
+- the policy file and workflow files are blocked from gated automerge and require the normal controlled merge path;
+- current-head `Validate`, required browser/review gates, risk-routed CodeRabbit decisions and head-SHA matching remain mandatory;
+- blocked infrastructure, secret, auth, deployment, database/schema and package paths remain outside standing automerge even when the phase is authorized.
 
 ## Automatic Supervisor event log
 
