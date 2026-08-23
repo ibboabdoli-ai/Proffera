@@ -31,6 +31,13 @@ function uuid(value: unknown) {
     : "";
 }
 
+function rolloutCutoff(value: string | undefined) {
+  const normalized = text(value);
+  if (!normalized) return "";
+  const timestamp = Date.parse(normalized);
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : "";
+}
+
 export async function getMarketplaceAutoQueuePage(input: {
   priorityQuoteRequestIds?: string[];
   afterPriorityRank?: number | null;
@@ -53,6 +60,7 @@ export async function getMarketplaceAutoQueuePage(input: {
     : null;
   const afterCreatedAt = text(input.afterCreatedAt);
   const afterId = text(input.afterId).toLowerCase();
+  const notBefore = rolloutCutoff(process.env.MARKETPLACE_AUTO_WORKER_NOT_BEFORE);
   const limit = boundedLimit(input.limit);
 
   try {
@@ -73,6 +81,10 @@ export async function getMarketplaceAutoQueuePage(input: {
           ) as submitted_offer_count
         from quote_requests request
         where request.status in ('submitted', 'pending_review', 'approved', 'matched', 'answered')
+          and (
+            nullif(${notBefore}, '')::timestamptz is null
+            or request.created_at >= nullif(${notBefore}, '')::timestamptz
+          )
       )
       select
         quote_request_id,

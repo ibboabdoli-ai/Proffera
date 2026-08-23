@@ -1,6 +1,6 @@
 # Proffera Current Status
 
-Last updated: 2026-08-22
+Last updated: 2026-08-23
 
 This is the canonical factual status document for Proffera. For worker rules, live task state, current `main` SHA, and roadmap order, also read `AGENTS.md`, `WORKER_BOOTSTRAP.md`, GitHub issue #548, GitHub issue #276, and `docs/README.md`.
 
@@ -138,6 +138,8 @@ The architectural RLS blocker from that audit remains the safe assumption until 
 ## Operations notes
 
 Vercel Production and Preview state are independently readable through the connected Vercel tooling.
+
+Marketplace invitation automation has a bounded first-Production-rollout configuration. The GitHub scheduler calls the authenticated Production worker every 15 minutes using the existing operations scheduler secret; the server route still requires both general enablement and the separate Production authorization gate. Production additionally fails closed unless a valid rollout cutoff is configured. The initial cutoff is `2026-08-23T09:24:45.000Z`, so older Quote Request backlog is excluded without modifying or cancelling those rows, and the initial worker batch is limited to one Quote Request per run. Wave 2 retains the six-hour delay. A merged configuration is not by itself proof of live sending; the matching Production deployment and runtime worker result must be verified after release.
 
 Company Directory discovery uses an hourly lightweight probe of the official SCB/Bolagsverket source. A full bulk scan runs when the upstream `Last-Modified` value is newer than the latest completed discovery snapshot, once daily as a safety fallback, on manual dispatch, and after discovery automation/worker/ingest changes reach `main`. Stockholm and Södertälje remain always-on discovery locations. Outside those locations, eligible companies are admitted through a deterministic 20-bucket nationwide rollout, one bucket per UTC day, so the eligible Swedish coverage accumulates across roughly 20 daily buckets without flooding the verification queue in one run. The discovery SNI scope includes the canonical Directory mappings, including 96.210 for `frisor`. Queue and profile processing remain separate on the 15-minute operations workflow.
 

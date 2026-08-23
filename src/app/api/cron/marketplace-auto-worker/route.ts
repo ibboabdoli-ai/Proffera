@@ -25,6 +25,11 @@ function authorizedSchedulerRequest(request: Request, secret: string | undefined
   return expected.length === received.length && timingSafeEqual(expected, received);
 }
 
+function validRolloutCutoff(value: string | undefined) {
+  const normalized = value?.trim();
+  return Boolean(normalized && Number.isFinite(Date.parse(normalized)));
+}
+
 export async function GET(request: Request) {
   if (!authorizedSchedulerRequest(request, process.env.CRON_SECRET)) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
@@ -34,11 +39,13 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: true, skipped: "disabled" });
   }
 
-  if (
-    process.env.VERCEL_ENV === "production"
-    && process.env.MARKETPLACE_AUTO_WORKER_ALLOW_PRODUCTION !== "true"
-  ) {
+  const isProduction = process.env.VERCEL_ENV === "production";
+  if (isProduction && process.env.MARKETPLACE_AUTO_WORKER_ALLOW_PRODUCTION !== "true") {
     return NextResponse.json({ ok: true, skipped: "production_not_authorized" });
+  }
+
+  if (isProduction && !validRolloutCutoff(process.env.MARKETPLACE_AUTO_WORKER_NOT_BEFORE)) {
+    return NextResponse.json({ ok: true, skipped: "production_cutoff_not_configured" });
   }
 
   const wave2DelayMinutes = boundedNumber(
