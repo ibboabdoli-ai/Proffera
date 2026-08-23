@@ -9,6 +9,18 @@ function source(path: string) {
   return readFileSync(resolve(process.cwd(), path), "utf8");
 }
 
+function controlledMigrations() {
+  return readdirSync(resolve(process.cwd(), "db/migrations"))
+    .map((filename) => ({
+      filename,
+      key: filename.match(/^(\d{8}_\d{4})_.*\.sql$/)?.[1] ?? null,
+    }))
+    .filter((item): item is { filename: string; key: string } => Boolean(
+      item.key && item.key >= "20260823_0065",
+    ))
+    .sort((left, right) => left.key.localeCompare(right.key));
+}
+
 describe("Production schema control plane", () => {
   it("keeps the migration ledger additive and bootstraps only independently verified migrations", () => {
     const migration = source("db/migrations/20260823_0066_production_schema_ledger.sql").toLowerCase();
@@ -24,12 +36,17 @@ describe("Production schema control plane", () => {
   });
 
   it("forces every migration from the schema-control baseline forward into the health contract", () => {
-    const migrationKeys = readdirSync(resolve(process.cwd(), "db/migrations"))
-      .map((filename) => filename.match(/^(\d{8}_\d{4})_.*\.sql$/)?.[1] ?? null)
-      .filter((key): key is string => Boolean(key && key >= "20260823_0065"))
-      .sort();
+    const migrationKeys = controlledMigrations().map((item) => item.key);
 
     expect([...REQUIRED_PRODUCTION_MIGRATIONS].sort()).toEqual(migrationKeys);
+  });
+
+  it("requires every post-ledger migration to record its own durable ledger entry", () => {
+    for (const migration of controlledMigrations().filter((item) => item.key >= "20260823_0066")) {
+      const sql = source(`db/migrations/${migration.filename}`).toLowerCase();
+      expect(sql, migration.filename).toContain("insert into proffera_schema_migrations");
+      expect(sql, migration.filename).toContain(`'${migration.key}'`);
+    }
   });
 
   it("requires exact deployed-sha and authenticated schema health after main pushes", () => {
