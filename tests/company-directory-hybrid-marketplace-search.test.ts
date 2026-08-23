@@ -3,10 +3,29 @@ import { resolve } from "node:path";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PublicDirectoryResults } from "@/components/company-directory/public-directory-results";
 import type { PublishedDirectorySearchResponse, PublishedDirectorySearchResult } from "@/lib/company-directory-public-search";
+
+const profileRedirectMocks = vi.hoisted(() => ({
+  getPublicBusinessProfileViewForRequest: vi.fn(),
+  getClaimedDirectoryWorkspaceSlug: vi.fn(),
+  redirect: vi.fn(),
+  notFound: vi.fn(),
+}));
+
+vi.mock("server-only", () => ({}));
+vi.mock("@/lib/business-profile-public", () => ({
+  getPublicBusinessProfileViewForRequest: profileRedirectMocks.getPublicBusinessProfileViewForRequest,
+}));
+vi.mock("@/lib/company-directory-routing", () => ({
+  getClaimedDirectoryWorkspaceSlug: profileRedirectMocks.getClaimedDirectoryWorkspaceSlug,
+}));
+vi.mock("next/navigation", () => ({
+  redirect: profileRedirectMocks.redirect,
+  notFound: profileRedirectMocks.notFound,
+}));
 
 function source(path: string) {
   return readFileSync(resolve(process.cwd(), path), "utf8");
@@ -59,7 +78,6 @@ describe("hybrid directory marketplace search", () => {
   const publicDataSource = source("src/lib/company-directory-public-data.ts");
   const routingSource = source("src/lib/company-directory-routing.ts");
   const entitlementSource = source("src/lib/workspace-feature-entitlement-db.ts");
-  const profileSource = source("src/components/company-directory/public-directory-profile.tsx");
 
   it("keeps unclaimed published profiles and safe previously-published claimed profiles searchable", () => {
     expect(searchSource).toContain("profile.publication_status = 'published'");
@@ -78,8 +96,6 @@ describe("hybrid directory marketplace search", () => {
     expect(publicDataSource).toContain("profile.published_at is not null");
     expect(publicDataSource).toContain("profile.auto_public_eligible = true");
     expect(publicDataSource).toContain("profile.privacy_blocked = false");
-    expect(profileSource).toContain('profile.identity.ownershipState === "claimed"');
-    expect(profileSource).toContain("profile.capabilities.richWebsite");
   });
 
   it("only upgrades a claimed result to Marketplace actions with an exact published workspace-service mapping", () => {
@@ -159,5 +175,163 @@ describe("hybrid directory marketplace search", () => {
     expect(directoryHtml).not.toContain('data-marketplace-action="book"');
     expect(directoryHtml).not.toContain('data-marketplace-action="quote"');
     expect(directoryHtml).not.toContain('data-marketplace-action="contact"');
+  });
+});
+
+describe("PublicDirectoryProfile redirect behavior", async () => {
+  const { PublicDirectoryProfile } = await import("@/components/company-directory/public-directory-profile");
+
+  const baseProfileView = {
+    business: {
+      id: "profile-1",
+      slug: "test-company",
+      companyName: "Test Company AB",
+      legalForm: "AB",
+      organizationStatus: "Aktivt",
+      categorySlug: "vvs",
+      primarySniLabel: "VVS-arbeten",
+      activityDescription: "Description",
+      addressLine1: "Test Street 1",
+      postalCode: "151 00",
+      city: "Södertälje",
+      municipality: "Södertälje",
+      region: "Stockholm",
+      qualityScore: 95,
+      officialSource: "bolagsverket",
+      sourceUpdatedAt: "2026-08-23T00:00:00.000Z",
+      lastCheckedAt: "2026-08-23T00:00:00.000Z",
+      media: null,
+      contact: {
+        entitled: true,
+        addressLine1: "Test Street 1",
+        phone: "070-123 45 67",
+        email: "test@example.se",
+        website: "example.se",
+        available: { addressLine1: true, phone: true, email: true, website: true },
+      },
+    },
+    extras: {
+      services: [],
+      serviceAreas: [],
+      reputation: null,
+    },
+    profile: {
+      identity: {
+        ownershipState: "claimed" as const,
+        workspaceSlug: "test-workspace",
+      },
+      capabilities: {
+        richWebsite: false,
+        directContact: true,
+        onlineBooking: false,
+      },
+    },
+  };
+
+  beforeEach(() => {
+    for (const mock of Object.values(profileRedirectMocks)) mock.mockReset();
+  });
+
+  it("redirects claimed profiles with rich-website access to the workspace page", async () => {
+    const viewWithRichWebsite = {
+      ...baseProfileView,
+      profile: {
+        ...baseProfileView.profile,
+        capabilities: {
+          ...baseProfileView.profile.capabilities,
+          richWebsite: true,
+        },
+      },
+    };
+
+    profileRedirectMocks.getPublicBusinessProfileViewForRequest.mockResolvedValue(viewWithRichWebsite);
+    profileRedirectMocks.redirect.mockImplementation(() => {
+      throw new Error("NEXT_REDIRECT");
+    });
+
+    await expect(
+      PublicDirectoryProfile({ slug: "test-company", locale: "sv" })
+    ).rejects.toThrow("NEXT_REDIRECT");
+
+    expect(profileRedirectMocks.redirect).toHaveBeenCalledWith("/foretag/test-workspace");
+    expect(profileRedirectMocks.getPublicBusinessProfileViewForRequest).toHaveBeenCalledWith("test-company");
+  });
+
+  it("shows Directory surface for claimed profiles without rich-website access", async () => {
+    const viewWithoutRichWebsite = {
+      ...baseProfileView,
+      profile: {
+        ...baseProfileView.profile,
+        capabilities: {
+          ...baseProfileView.profile.capabilities,
+          richWebsite: false,
+        },
+      },
+    };
+
+    profileRedirectMocks.getPublicBusinessProfileViewForRequest.mockResolvedValue(viewWithoutRichWebsite);
+
+    const result = await PublicDirectoryProfile({ slug: "test-company", locale: "sv" });
+
+    expect(profileRedirectMocks.redirect).not.toHaveBeenCalled();
+    expect(result).toBeDefined();
+
+    // Render the component to static HTML and verify the company name appears
+    const html = renderToStaticMarkup(result);
+    expect(html).toContain("Test Company AB");
+  });
+
+  it("redirects with English locale parameter when locale is en", async () => {
+    const viewWithRichWebsite = {
+      ...baseProfileView,
+      profile: {
+        ...baseProfileView.profile,
+        capabilities: {
+          ...baseProfileView.profile.capabilities,
+          richWebsite: true,
+        },
+      },
+    };
+
+    profileRedirectMocks.getPublicBusinessProfileViewForRequest.mockResolvedValue(viewWithRichWebsite);
+    profileRedirectMocks.redirect.mockImplementation(() => {
+      throw new Error("NEXT_REDIRECT");
+    });
+
+    await expect(
+      PublicDirectoryProfile({ slug: "test-company", locale: "en" })
+    ).rejects.toThrow("NEXT_REDIRECT");
+
+    expect(profileRedirectMocks.redirect).toHaveBeenCalledWith("/foretag/test-workspace?lang=en");
+  });
+
+  it("falls back to routing check when view is null and redirects if workspace has website builder", async () => {
+    profileRedirectMocks.getPublicBusinessProfileViewForRequest.mockResolvedValue(null);
+    profileRedirectMocks.getClaimedDirectoryWorkspaceSlug.mockResolvedValue("claimed-workspace");
+    profileRedirectMocks.redirect.mockImplementation(() => {
+      throw new Error("NEXT_REDIRECT");
+    });
+
+    await expect(
+      PublicDirectoryProfile({ slug: "claimed-company", locale: "sv" })
+    ).rejects.toThrow("NEXT_REDIRECT");
+
+    expect(profileRedirectMocks.getClaimedDirectoryWorkspaceSlug).toHaveBeenCalledWith("claimed-company");
+    expect(profileRedirectMocks.redirect).toHaveBeenCalledWith("/foretag/claimed-workspace");
+  });
+
+  it("returns notFound when view is null and no workspace slug available", async () => {
+    profileRedirectMocks.getPublicBusinessProfileViewForRequest.mockResolvedValue(null);
+    profileRedirectMocks.getClaimedDirectoryWorkspaceSlug.mockResolvedValue(null);
+    profileRedirectMocks.notFound.mockImplementation(() => {
+      throw new Error("NEXT_NOT_FOUND");
+    });
+
+    await expect(
+      PublicDirectoryProfile({ slug: "unknown-company", locale: "sv" })
+    ).rejects.toThrow("NEXT_NOT_FOUND");
+
+    expect(profileRedirectMocks.notFound).toHaveBeenCalled();
+    expect(profileRedirectMocks.redirect).not.toHaveBeenCalled();
   });
 });
