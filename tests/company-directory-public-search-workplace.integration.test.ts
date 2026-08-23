@@ -179,17 +179,23 @@ function postgresSql(client: Client) {
         ) values (
           $1, 'canonical-workplace-ab', 'Canonical Workplace AB', 'vvs', 'published',
           'Gamla vägen 1', '111 11', 'Stockholm', 'Stockholm', 98
-        );
+        )
+      `, [profileId]);
+      await client!.query(`
         insert into company_directory_services (slug, category_slug, label)
-        values ('vvs', 'vvs', 'VVS / Rörmokare');
+        values ('vvs', 'vvs', 'VVS / Rörmokare')
+      `);
+      await client!.query(`
         insert into company_directory_profile_services (profile_id, service_slug)
-        values ($1, 'vvs');
+        values ($1, 'vvs')
+      `, [profileId]);
+      await client!.query(`
         insert into company_directory_scb_enrichment (profile_id, workplaces, conflicts)
         values (
           $1,
           '[{"cfarNumber":"12345678","municipality":"Södertälje","visitingAddress":{"addressLine":"NYA VÄGEN 2","postalCode":"151 00","city":"SÖDERTÄLJE"}}]'::jsonb,
           '[]'::jsonb
-        );
+        )
       `, [profileId]);
     });
 
