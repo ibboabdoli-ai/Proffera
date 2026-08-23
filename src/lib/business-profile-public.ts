@@ -18,6 +18,8 @@ import { getWorkspaceDirectoryPublicAccessForWorkspaces } from "@/lib/workspace-
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+type PublicDirectoryBusiness = NonNullable<Awaited<ReturnType<typeof getPublicDirectoryBusinessForRequest>>>;
+
 function text(value: unknown) {
   return String(value ?? "").trim();
 }
@@ -148,22 +150,9 @@ async function getProfileEntitlements(
   };
 }
 
-/**
- * Resolve one public business identity from the Directory profile first, then
- * overlay only the Workspace that is actually linked through
- * company_directory_profiles.claimed_workspace_id. The function never accepts
- * a caller-supplied Workspace id.
- *
- * This is the single-profile BusinessProfilePolicy path. Bulk Search hydration
- * intentionally remains separate so Search can stay bounded and avoid N+1
- * owner/entitlement lookups.
- */
-export async function getResolvedPublicBusinessProfile(
-  directorySlug: string,
-): Promise<ResolvedBusinessProfile | null> {
-  const business = await getPublicDirectoryBusinessForRequest(directorySlug);
-  if (!business) return null;
-
+async function resolvePublicBusinessProfile(
+  business: PublicDirectoryBusiness,
+): Promise<ResolvedBusinessProfile> {
   const [extras, ownerContext] = await Promise.all([
     getPublicDirectoryProfileExtras(business.id),
     getProfileOwnerContext(business.id),
@@ -220,6 +209,81 @@ export async function getResolvedPublicBusinessProfile(
     },
     entitlements,
   });
+}
+
+/**
+ * Resolve one public business identity from the Directory profile first, then
+ * overlay only the Workspace that is actually linked through
+ * company_directory_profiles.claimed_workspace_id. The function never accepts
+ * a caller-supplied Workspace id.
+ *
+ * This is the single-profile BusinessProfilePolicy path. Bulk Search hydration
+ * intentionally remains separate so Search can stay bounded and avoid N+1
+ * owner/entitlement lookups.
+ */
+export async function getResolvedPublicBusinessProfile(
+  directorySlug: string,
+): Promise<ResolvedBusinessProfile | null> {
+  const business = await getPublicDirectoryBusinessForRequest(directorySlug);
+  return business ? resolvePublicBusinessProfile(business) : null;
+}
+
+/**
+ * Compatibility view for the existing Directory profile UI. The public page
+ * keeps its established layout/source timestamps while all user-visible
+ * presentation, contact, exact services, service areas and reputation are
+ * supplied by the central BusinessProfile policy.
+ */
+export async function getPublicBusinessProfileViewForRequest(directorySlug: string) {
+  const business = await getPublicDirectoryBusinessForRequest(directorySlug);
+  if (!business) return null;
+
+  const profile = await resolvePublicBusinessProfile(business);
+  const services = profile.services
+    .map((service) => ({
+      slug: service.canonicalServiceSlug || service.publicSlug || "",
+      label: service.name,
+      sourceType: service.source === "owner" ? "owner" : "proffera",
+      confidence: 1,
+      confirmed: true,
+    }))
+    .filter((service) => Boolean(service.slug));
+
+  return {
+    profile,
+    business: {
+      ...business,
+      companyName: profile.presentation.displayName.value,
+      categorySlug: profile.presentation.categorySlug,
+      primarySniCode: profile.legal.primarySniCode,
+      primarySniLabel: profile.legal.primarySniLabel,
+      activityDescription: profile.presentation.description.value,
+      addressLine1: profile.location.addressLine1,
+      postalCode: profile.location.postalCode,
+      city: profile.location.city,
+      municipality: profile.location.municipality,
+      legalForm: profile.legal.legalForm,
+      organizationStatus: profile.legal.organizationStatus,
+      organizationNumber: profile.legal.organizationNumber,
+      contact: {
+        ...profile.contact,
+        available: { ...profile.contact.available },
+      },
+      media: profile.presentation.media
+        ? {
+            url: profile.presentation.media.url,
+            kind: profile.presentation.media.kind,
+            attribution: profile.presentation.media.attribution,
+            isActualBusinessMedia: profile.presentation.media.role !== "illustration",
+          }
+        : null,
+    },
+    extras: {
+      services,
+      serviceAreas: profile.serviceAreas.map((area) => ({ ...area })),
+      reputation: profile.reputation ? { ...profile.reputation } : null,
+    },
+  };
 }
 
 export async function getPublicProfileBusinessProjection(
