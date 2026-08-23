@@ -71,9 +71,9 @@ describe("confirmed service-area integration wiring", () => {
     expect(serviceActions).toContain("normalizeCompanyDirectoryServiceAreaRadius");
   });
 
-  it("keeps service mutation and owner evidence in one database transaction", () => {
+  it("keeps service mutation and canonical owner evidence in one database transaction", () => {
     expect(servicesDb.match(/sql\.transaction\(\[/g)?.length).toBe(2);
-    expect(servicesDb).toContain("ownerServiceAreaMutationQuery(sql, workspaceId, publicSlug, input)");
+    expect(servicesDb).toContain("ownerServiceAreaMutationQuery(sql, workspaceId, primaryDirectoryServiceSlug, input)");
     expect(servicesDb).not.toContain("syncOwnerConfirmedServiceAreaSafely");
   });
 
