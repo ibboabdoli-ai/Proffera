@@ -184,8 +184,10 @@ function parseJsonArray(value: unknown): unknown[] {
 }
 
 function hasScbConflicts(value: unknown) {
+  if (value === null || value === undefined) return false;
   if (Array.isArray(value)) return value.length > 0;
-  if (typeof value !== "string" || !value.trim()) return false;
+  if (typeof value !== "string") return true;
+  if (!value.trim()) return false;
   try {
     const parsed = JSON.parse(value) as unknown;
     return !Array.isArray(parsed) || parsed.length > 0;
@@ -637,6 +639,9 @@ async function pilotCounts(deadline?: number) {
     where profile.organization_number in (
       select jsonb_array_elements_text(${orgsJson}::jsonb)
     )
+      and profile.publication_status in ('ready', 'published')
+      and profile.is_active = true
+      and profile.privacy_blocked = false
   `;
 
   let geocoded = 0;
