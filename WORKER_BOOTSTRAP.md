@@ -48,7 +48,7 @@ Documentation impact: none
 
 The bootstrap baseline must match the PR base SHA used for the validated work. If `main` advances and the branch is refreshed, update the line before rerunning CI.
 
-Never add or remove `ibbo-approved`. That label remains per-PR human merge authorization only.
+Never add or remove `ibbo-approved`. That label remains per-PR human merge authorization only; when used as the automerge fallback, it must also be backed by a repository-owner `APPROVED` review anchored to the exact current PR head commit.
 
 ## Standing merge authorization
 
@@ -59,13 +59,14 @@ Rules:
 - the automerge workflow reads the standing policy only from `main`, never from the PR branch;
 - ordinary workers must not create, edit, expand or extend the standing policy;
 - the policy must be scoped by owner, phase, Supervisor issue, explicit branch prefixes and expiry;
+- standing authorization applies only to same-repository PRs authored from a branch owned by the repository owner; matching fork PRs or PRs authored by another account are rejected;
 - the policy file and workflow files are blocked from gated automerge and require the normal controlled merge path;
 - current-head `Validate`, required browser/review gates, risk-routed CodeRabbit decisions and head-SHA matching remain mandatory;
 - blocked infrastructure, secret, auth, deployment, database/schema and package paths remain outside standing automerge even when the phase is authorized.
 
 ## Automatic Supervisor event log
 
-GitHub Actions records `work/proffera-*` PR lifecycle events into issue #548 when a PR is opened/reopened, marked ready for review, or closed/merged.
+GitHub Actions records `work/proffera-*` PR lifecycle events into issue #548 when PRs are opened/reopened, marked ready for review, or closed/merged.
 
 This automatic event log does not replace the worker's responsibility to provide accurate PR scope, validation evidence, blockers, and remaining work.
 
