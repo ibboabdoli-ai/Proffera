@@ -211,7 +211,7 @@ describe("Directory geocoding pilot canonical-address behavior", () => {
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const referenceUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
-    expect(referenceUrl.pathname).toEndWith("/referens/fritext");
+    expect(referenceUrl.pathname.endsWith("/referens/fritext")).toBe(true);
     expect(referenceUrl.searchParams.get("adress")).toBe("NYA VÄGEN 2, SÖDERTÄLJE");
     const save = sqlCalls.find((call) => call.query.startsWith("with transformed as"));
     expect(save?.values).toContain(VERIFIED_SOURCE);
