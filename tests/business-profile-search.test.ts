@@ -301,7 +301,7 @@ describe("BusinessProfile Search projection", () => {
     expect(hydrated.results[1].bookingAvailable).toBe(false);
   });
 
-  it("falls back every result when a required batch query rejects", async () => {
+  it("fails closed for every result when a required batch query rejects", async () => {
     const first = result();
     const second = unclaimedResult();
     mocks.sql.mockRejectedValueOnce(new Error("context query failed"));
@@ -312,8 +312,15 @@ describe("BusinessProfile Search projection", () => {
     expect(hydrated.results).toHaveLength(2);
     expect(hydrated.results[0].profile.displayName).toBe(first.companyName);
     expect(hydrated.results[0].profile.media).toBeNull();
+    expect(hydrated.results[0].profile.capabilities.richWebsite).toBe(false);
+    expect(hydrated.results[0].profile.capabilities.onlineBooking).toBe(false);
+    expect(hydrated.results[0].claimedWorkspaceSlug).toBeNull();
+    expect(hydrated.results[0].claimedServiceId).toBeNull();
+    expect(hydrated.results[0].conversionMode).toBeNull();
+    expect(hydrated.results[0].bookingAvailable).toBe(false);
     expect(hydrated.results[1].profile.displayName).toBe(second.companyName);
     expect(hydrated.results[1].profile.media).toBeNull();
+    expect(hydrated.results[1].claimedWorkspaceSlug).toBeNull();
     expect(mocks.access).not.toHaveBeenCalled();
   });
 
@@ -328,14 +335,20 @@ describe("BusinessProfile Search projection", () => {
     expect(mocks.access).toHaveBeenCalledTimes(1);
   });
 
-  it("falls back when reputation hydration fails with an unexpected error", async () => {
+  it("fails closed when reputation hydration fails with an unexpected error", async () => {
     const error = Object.assign(new Error("reputation query failed"), { code: "XX000" });
     configureUnclaimedHydrationSql(error);
 
-    const hydrated = await hydratePublishedDirectorySearchWithBusinessProfiles(response([unclaimedResult()]));
+    const hydrated = await hydratePublishedDirectorySearchWithBusinessProfiles(response([result()]));
 
     expect(hydrated.results[0].profile.media).toBeNull();
     expect(hydrated.results[0].profile.reputation).toBeNull();
+    expect(hydrated.results[0].profile.capabilities.richWebsite).toBe(false);
+    expect(hydrated.results[0].profile.capabilities.onlineBooking).toBe(false);
+    expect(hydrated.results[0].claimedWorkspaceSlug).toBeNull();
+    expect(hydrated.results[0].claimedServiceId).toBeNull();
+    expect(hydrated.results[0].conversionMode).toBeNull();
+    expect(hydrated.results[0].bookingAvailable).toBe(false);
     expect(mocks.access).not.toHaveBeenCalled();
   });
 
