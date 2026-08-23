@@ -52,6 +52,27 @@ describe("Company Directory Swedish painting keyword regression", () => {
     expect(result.score).toBe(100);
   });
 
+  it("recognizes painting stems inside Swedish compound words", () => {
+    const result = assessCompanyDirectoryCategoryConfidence({
+      categorySlug: "maleri",
+      primarySniCode: "43.341",
+      legalName: "Stockholms Industrimåleri AB",
+      displayName: "Stockholms Industrimåleri AB",
+      activityDescription: "Företaget utför byggmålning och fasadmåleri på fastigheter.",
+      registeredNames: [{
+        name: "Stockholms Industrimåleri AB",
+        typeCode: "FORETAGSNAMN",
+        specialBusinessDescription: "",
+      }],
+      sniCodes: [{ code: "43341", label: "Måleriarbeten" }],
+    });
+
+    expect(result.signals).toContain("Verksamhetsbeskrivningen stödjer kategorin");
+    expect(result.signals).toContain("Företagsnamn stödjer kategorin");
+    expect(result.level).toBe("high");
+    expect(result.score).toBe(100);
+  });
+
   it("recognizes supported unaccented painting spellings", () => {
     for (const term of ["maleri", "malare", "malning"]) {
       const result = assessCompanyDirectoryCategoryConfidence({
