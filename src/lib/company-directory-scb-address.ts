@@ -46,20 +46,21 @@ function displayPostalCode(value: unknown) {
   return digits.length === 5 ? `${digits.slice(0, 3)} ${digits.slice(3)}` : text(value);
 }
 
-/** Extract a complete visiting address from one SCB workplace. */
+/** Extract one fully coherent physical location from an SCB workplace. */
 function workplaceVisitingAddress(value: unknown, sourceIndex: number): ScbWorkplaceAddress | null {
   const workplace = record(value);
   const visiting = record(workplace?.visitingAddress);
   const addressLine1 = text(visiting?.addressLine);
   const postalCode = displayPostalCode(visiting?.postalCode);
   const city = text(visiting?.city);
-  if (!addressLine1 || !postalCode || !city) return null;
+  const municipality = text(workplace?.municipality);
+  if (!addressLine1 || !postalCode || !city || !municipality) return null;
 
   return {
     addressLine1,
     postalCode,
     city,
-    municipality: text(workplace?.municipality),
+    municipality,
     sourceIndex,
   };
 }
@@ -99,8 +100,8 @@ function workplaceResolution(address: ScbWorkplaceAddress): DirectoryPublicAddre
  * Resolve a customer-facing address and report which source actually won.
  *
  * SCB company-level municipality describes the registered seat and is not a
- * physical service/workplace location. Only a selected workplace visiting
- * address may therefore replace the profile's geographic address bundle.
+ * physical service/workplace location. Only a complete selected workplace
+ * visiting-address bundle may therefore replace the profile location.
  */
 export function resolveCompanyDirectoryPublicAddressResolution(
   profile: DirectoryPublicAddress,
@@ -154,8 +155,8 @@ export function resolveCompanyDirectoryPublicAddressResolution(
  * matches the profile's current street or postal-code/city pair. Otherwise the
  * existing profile address remains the safe, non-guessed fallback.
  *
- * The selected SCB address is kept coherent: municipality is never borrowed
- * from the old profile address when SCB did not provide it for that workplace.
+ * Street, postcode, city and workplace municipality are treated as one coherent
+ * location bundle; partial SCB locations never replace profile location data.
  */
 export function resolveCompanyDirectoryPublicAddress(
   profile: DirectoryPublicAddress,
