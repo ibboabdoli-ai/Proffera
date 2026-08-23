@@ -84,7 +84,7 @@ describe("hybrid directory marketplace search", () => {
   it("only upgrades a claimed result to Marketplace actions with an exact published workspace-service mapping", () => {
     expect(searchSource).toContain("claimed_service.is_active = true");
     expect(searchSource).toContain("claimed_service.public_status = 'published'");
-    expect(searchSource).toContain("claimed_service.public_slug = relation.service_slug");
+    expect(searchSource).toContain("coalesce(claimed_service.primary_directory_service_slug, claimed_service.public_slug) = relation.service_slug");
     expect(searchSource).toContain("const marketplaceAvailable = Boolean(");
     expect(searchSource).toContain("&& row.claimed_service_id");
     expect(searchSource).toContain("&& row.claimed_service_slug");
