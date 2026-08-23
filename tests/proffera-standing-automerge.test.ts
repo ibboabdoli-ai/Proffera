@@ -35,12 +35,46 @@ function authorizationShellBlock() {
     .join("\n");
 }
 
+function parseWorkflowTriggers(yaml: string) {
+  const lines = yaml.split(/\r?\n/);
+  const onIndex = lines.findIndex((line) => line === "on:");
+  expect(onIndex).toBeGreaterThanOrEqual(0);
+
+  const triggers = new Map<string, { types: string[]; workflows: string[] }>();
+  let currentTrigger: string | null = null;
+
+  for (let index = onIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (line.length > 0 && !line.startsWith(" ")) break;
+
+    const triggerMatch = line.match(/^  ([a-z_]+):(?:\s*\[(.*)\])?$/);
+    if (triggerMatch) {
+      currentTrigger = triggerMatch[1];
+      triggers.set(currentTrigger, { types: [], workflows: [] });
+      continue;
+    }
+
+    if (!currentTrigger) continue;
+    const childMatch = line.match(/^    (types|workflows):\s*\[(.*)\]$/);
+    if (!childMatch) continue;
+
+    const values = childMatch[2]
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+    triggers.get(currentTrigger)![childMatch[1] as "types" | "workflows"] = values;
+  }
+
+  return triggers;
+}
+
 type AuthorizationFixture = {
   pr: Record<string, unknown>;
   policy?: Record<string, unknown>;
   events?: Array<Record<string, unknown>>;
   reviews?: Array<Record<string, unknown>>;
   changedFiles?: string;
+  commitMessage?: string;
 };
 
 function runAuthorizationFixture(fixture: AuthorizationFixture) {
@@ -109,7 +143,7 @@ printf 'AUTH_MODE=%s\\n' "$authorization_mode"
   const changedFiles = fixture.changedFiles ?? "src/app/page.tsx\nsrc/lib/utils.ts";
   const commitJson = {
     commit: {
-      message: "Regular commit message",
+      message: fixture.commitMessage ?? "Regular commit message",
     },
   };
   const result = spawnSync("bash", [script], {
@@ -201,6 +235,15 @@ describe("Proffera standing automerge authorization", () => {
     expect(output).not.toContain("AUTH_MODE=standing:");
   });
 
+  it("excludes Codex-generated heads from standing authorization", () => {
+    const output = runAuthorizationFixture({
+      pr: basePr(),
+      commitMessage: "[codex-autofix] Fix CI blocker for PR #695",
+    });
+    expect(output).toContain("REFUSED:");
+    expect(output).not.toContain("AUTH_MODE=standing:");
+  });
+
   it("rejects manual fallback when the owner approval targets a stale head", () => {
     const currentHead = "2222222222222222222222222222222222222222";
     const output = runAuthorizationFixture({
@@ -258,17 +301,18 @@ describe("Proffera standing automerge authorization", () => {
   });
 
   it("reacts to CI completion and review events instead of depending on polling", () => {
-    expect(workflow).toContain("workflow_run:");
-    expect(workflow).toContain("workflows: [CI]");
-    expect(workflow).toContain("pull_request_review:");
-    expect(workflow).toContain("issue_comment:");
-    expect(workflow).toContain("ready_for_review");
+    const triggers = parseWorkflowTriggers(workflow);
+    expect(triggers.get("workflow_run")?.workflows).toContain("CI");
+    expect(triggers.get("workflow_run")?.types).toContain("completed");
+    expect(triggers.has("pull_request_review")).toBe(true);
+    expect(triggers.has("issue_comment")).toBe(true);
+    expect(triggers.get("pull_request")?.types).toContain("ready_for_review");
   });
 
-  it("blocks sensitive paths from standing authorization", () => {
+  it("blocks sensitive control-plane and schema paths from standing authorization", () => {
     const output = runAuthorizationFixture({
       pr: basePr(),
-      changedFiles: ".github/workflows/proffera-automerge.yml\n.github/proffera-standing-merge-authorization.json\ndb/migrations/0059_x.sql",
+      changedFiles: ".github/workflows/proffera-automerge.yml\nAGENTS.md\nWORKER_BOOTSTRAP.md\ndb/migrations/0059_x.sql",
     });
     expect(output).toContain("REFUSED:");
     expect(output).not.toContain("AUTH_MODE=standing:");
