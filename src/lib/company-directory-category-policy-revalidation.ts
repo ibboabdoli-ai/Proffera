@@ -296,17 +296,13 @@ async function moveEvaluatedProfileToReview(input: {
   return Boolean(rows[0]);
 }
 
-async function backlogCount() {
-  const rows = await loadCandidates(1);
-  return Math.max(0, number(rows[0]?.policy_backlog_count));
-}
-
 export async function revalidateCompanyDirectoryCategoryPolicyBatch(
   limit?: number,
   options: RevalidationOptions = {},
 ) {
   const safeLimit = boundedLimit(limit);
   const candidates = await loadCandidates(safeLimit);
+  const initialBacklog = Math.max(0, number(candidates[0]?.policy_backlog_count));
   let evaluated = 0;
   let kept = 0;
   let movedToReview = 0;
@@ -431,6 +427,6 @@ export async function revalidateCompanyDirectoryCategoryPolicyBatch(
     deferred,
     errors,
     errorSummary: errorMessages.join(" | "),
-    remaining: await backlogCount(),
+    remaining: Math.max(0, initialBacklog - evaluated),
   };
 }
