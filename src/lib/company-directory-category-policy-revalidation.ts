@@ -39,6 +39,13 @@ type PolicyCandidate = {
   policy_backlog_count?: unknown;
 };
 
+class PolicyDeadlineError extends Error {
+  constructor() {
+    super("Category policy revalidation deadline reached");
+    this.name = "AbortError";
+  }
+}
+
 function text(value: unknown) {
   return value === null || value === undefined ? "" : String(value).trim();
 }
@@ -72,8 +79,44 @@ function deadlineReached(deadlineAt?: number) {
     && Date.now() + FULL_REVALIDATION_HEADROOM_MS >= Number(deadlineAt);
 }
 
-async function loadCandidates(limit: number): Promise<PolicyCandidate[]> {
-  const sql = getSql();
+function createDeadlineSignal(deadlineAt?: number) {
+  if (!Number.isFinite(deadlineAt)) {
+    return {
+      signal: undefined as AbortSignal | undefined,
+      cleanup: () => undefined,
+    };
+  }
+
+  const controller = new AbortController();
+  const abortInMs = Number(deadlineAt) - FULL_REVALIDATION_HEADROOM_MS - Date.now();
+  if (abortInMs <= 0) {
+    controller.abort(new PolicyDeadlineError());
+    return {
+      signal: controller.signal,
+      cleanup: () => undefined,
+    };
+  }
+
+  const timeout = setTimeout(() => controller.abort(new PolicyDeadlineError()), abortInMs);
+  timeout.unref?.();
+  return {
+    signal: controller.signal,
+    cleanup: () => clearTimeout(timeout),
+  };
+}
+
+function deadlineAborted(error: unknown, signal?: AbortSignal) {
+  return Boolean(signal?.aborted)
+    || (error instanceof Error && error.name === "AbortError");
+}
+
+function sqlWithDeadline(signal?: AbortSignal) {
+  return getSql(signal ? { signal } : undefined);
+}
+
+async function loadCandidates(limit: number, signal?: AbortSignal): Promise<PolicyCandidate[]> {
+  if (signal?.aborted) throw new PolicyDeadlineError();
+  const sql = sqlWithDeadline(signal);
   if (!sql) throw new Error("Database is not configured");
 
   return await sql`
@@ -134,8 +177,9 @@ async function markPolicyAttempt(input: {
   factsLastSyncedToken: string;
   factsSourcePayloadHash: string;
   scbSourcePayloadHash: string;
-}) {
-  const sql = getSql();
+}, signal?: AbortSignal) {
+  if (signal?.aborted) throw new PolicyDeadlineError();
+  const sql = sqlWithDeadline(signal);
   if (!sql) return false;
 
   const rows = await sql`
@@ -181,8 +225,9 @@ async function markPolicyEvaluation(input: {
   factsLastSyncedToken: string;
   factsSourcePayloadHash: string;
   scbSourcePayloadHash: string;
-}) {
-  const sql = getSql();
+}, signal?: AbortSignal) {
+  if (signal?.aborted) throw new PolicyDeadlineError();
+  const sql = sqlWithDeadline(signal);
   if (!sql) return false;
 
   const rows = await sql`
@@ -233,8 +278,9 @@ async function moveEvaluatedProfileToReview(input: {
   factsLastSyncedToken: string;
   factsSourcePayloadHash: string;
   scbSourcePayloadHash: string;
-}) {
-  const sql = getSql();
+}, signal?: AbortSignal) {
+  if (signal?.aborted) throw new PolicyDeadlineError();
+  const sql = sqlWithDeadline(signal);
   if (!sql) return false;
 
   const rows = await sql`
@@ -296,12 +342,43 @@ async function moveEvaluatedProfileToReview(input: {
   return Boolean(rows[0]);
 }
 
+function deferredBeforeSelection(limit: number) {
+  return {
+    policyVersion: COMPANY_DIRECTORY_CATEGORY_CONFIDENCE_POLICY_VERSION,
+    selected: 0,
+    evaluated: 0,
+    kept: 0,
+    movedToReview: 0,
+    deferred: limit,
+    errors: 0,
+    errorSummary: "",
+    remaining: null as number | null,
+  };
+}
+
 export async function revalidateCompanyDirectoryCategoryPolicyBatch(
   limit?: number,
   options: RevalidationOptions = {},
 ) {
   const safeLimit = boundedLimit(limit);
-  const candidates = await loadCandidates(safeLimit);
+  const deadline = createDeadlineSignal(options.deadlineAt);
+
+  if (deadline.signal?.aborted || deadlineReached(options.deadlineAt)) {
+    deadline.cleanup();
+    return deferredBeforeSelection(safeLimit);
+  }
+
+  let candidates: PolicyCandidate[];
+  try {
+    candidates = await loadCandidates(safeLimit, deadline.signal);
+  } catch (error) {
+    deadline.cleanup();
+    if (deadlineAborted(error, deadline.signal)) {
+      return deferredBeforeSelection(safeLimit);
+    }
+    throw error;
+  }
+
   const initialBacklog = Math.max(0, number(candidates[0]?.policy_backlog_count));
   let evaluated = 0;
   let kept = 0;
@@ -310,112 +387,120 @@ export async function revalidateCompanyDirectoryCategoryPolicyBatch(
   let errors = 0;
   const errorMessages: string[] = [];
 
-  for (let index = 0; index < candidates.length; index += 1) {
-    if (deadlineReached(options.deadlineAt)) {
-      deferred += candidates.length - index;
-      break;
-    }
+  try {
+    for (let index = 0; index < candidates.length; index += 1) {
+      if (deadline.signal?.aborted || deadlineReached(options.deadlineAt)) {
+        deferred += candidates.length - index;
+        break;
+      }
 
-    const candidate = candidates[index];
-    const profileId = text(candidate.id);
-    const organizationNumber = text(candidate.organization_number).replace(/\D/g, "");
-    const status = text(candidate.publication_status);
-    const profileUpdatedToken = text(candidate.profile_updated_token);
-    const factsLastSyncedToken = text(candidate.facts_last_synced_token);
-    const factsSourcePayloadHash = text(candidate.facts_source_payload_hash);
-    const scbSourcePayloadHash = text(candidate.scb_source_payload_hash);
+      const candidate = candidates[index];
+      const profileId = text(candidate.id);
+      const organizationNumber = text(candidate.organization_number).replace(/\D/g, "");
+      const status = text(candidate.publication_status);
+      const profileUpdatedToken = text(candidate.profile_updated_token);
+      const factsLastSyncedToken = text(candidate.facts_last_synced_token);
+      const factsSourcePayloadHash = text(candidate.facts_source_payload_hash);
+      const scbSourcePayloadHash = text(candidate.scb_source_payload_hash);
 
-    if (
-      !profileId
-      || organizationNumber.length !== 10
-      || (status !== "published" && status !== "ready")
-      || !profileUpdatedToken
-      || !factsLastSyncedToken
-      || !factsSourcePayloadHash
-      || !scbSourcePayloadHash
-    ) {
-      errors += 1;
-      if (errorMessages.length < 5) errorMessages.push("Category policy candidate is invalid");
-      continue;
-    }
-
-    try {
-      const attempted = await markPolicyAttempt({
-        profileId,
-        status,
-        profileUpdatedToken,
-        factsLastSyncedToken,
-        factsSourcePayloadHash,
-        scbSourcePayloadHash,
-      });
-      if (!attempted) {
-        deferred += 1;
+      if (
+        !profileId
+        || organizationNumber.length !== 10
+        || (status !== "published" && status !== "ready")
+        || !profileUpdatedToken
+        || !factsLastSyncedToken
+        || !factsSourcePayloadHash
+        || !scbSourcePayloadHash
+      ) {
+        errors += 1;
+        if (errorMessages.length < 5) errorMessages.push("Category policy candidate is invalid");
         continue;
       }
 
-      const confidence = assessCompanyDirectoryCategoryConfidence({
-        categorySlug: text(candidate.category_slug),
-        primarySniCode: text(candidate.primary_sni_code),
-        legalName: text(candidate.legal_name),
-        displayName: text(candidate.display_name),
-        activityDescription: text(candidate.activity_description),
-        registeredNames: candidate.registered_names,
-        sniCodes: candidate.sni_codes,
-      });
-
-      const unsafe = !Boolean(candidate.is_active)
-        || Boolean(candidate.privacy_blocked)
-        || !Boolean(candidate.auto_public_eligible)
-        || Boolean(candidate.deregistration_date)
-        || Boolean(candidate.advertising_blocked)
-        || jsonArray(candidate.ongoing_procedures).length > 0;
-      const shouldReview = unsafe
-        || !confidence.officialFactsReady
-        || confidence.score < 95
-        || Math.max(0, number(candidate.scb_conflict_count)) > 0;
-
-      if (shouldReview) {
-        const moved = await moveEvaluatedProfileToReview({
+      try {
+        const attempted = await markPolicyAttempt({
           profileId,
           status,
           profileUpdatedToken,
           factsLastSyncedToken,
           factsSourcePayloadHash,
           scbSourcePayloadHash,
+        }, deadline.signal);
+        if (!attempted) {
+          deferred += 1;
+          continue;
+        }
+
+        const confidence = assessCompanyDirectoryCategoryConfidence({
+          categorySlug: text(candidate.category_slug),
+          primarySniCode: text(candidate.primary_sni_code),
+          legalName: text(candidate.legal_name),
+          displayName: text(candidate.display_name),
+          activityDescription: text(candidate.activity_description),
+          registeredNames: candidate.registered_names,
+          sniCodes: candidate.sni_codes,
         });
-        if (!moved) {
+
+        const unsafe = !Boolean(candidate.is_active)
+          || Boolean(candidate.privacy_blocked)
+          || !Boolean(candidate.auto_public_eligible)
+          || Boolean(candidate.deregistration_date)
+          || Boolean(candidate.advertising_blocked)
+          || jsonArray(candidate.ongoing_procedures).length > 0;
+        const shouldReview = unsafe
+          || !confidence.officialFactsReady
+          || confidence.score < 95
+          || Math.max(0, number(candidate.scb_conflict_count)) > 0;
+
+        if (shouldReview) {
+          const moved = await moveEvaluatedProfileToReview({
+            profileId,
+            status,
+            profileUpdatedToken,
+            factsLastSyncedToken,
+            factsSourcePayloadHash,
+            scbSourcePayloadHash,
+          }, deadline.signal);
+          if (!moved) {
+            deferred += 1;
+            continue;
+          }
+
+          evaluated += 1;
+          movedToReview += 1;
+          continue;
+        }
+
+        const marked = await markPolicyEvaluation({
+          profileId,
+          status,
+          profileUpdatedToken,
+          factsLastSyncedToken,
+          factsSourcePayloadHash,
+          scbSourcePayloadHash,
+        }, deadline.signal);
+        if (!marked) {
           deferred += 1;
           continue;
         }
 
         evaluated += 1;
-        movedToReview += 1;
-        continue;
-      }
-
-      const marked = await markPolicyEvaluation({
-        profileId,
-        status,
-        profileUpdatedToken,
-        factsLastSyncedToken,
-        factsSourcePayloadHash,
-        scbSourcePayloadHash,
-      });
-      if (!marked) {
-        deferred += 1;
-        continue;
-      }
-
-      evaluated += 1;
-      kept += 1;
-    } catch (error) {
-      errors += 1;
-      if (errorMessages.length < 5) {
-        errorMessages.push(
-          `${organizationNumber}: ${error instanceof Error ? error.message : "Unknown category policy revalidation error"}`,
-        );
+        kept += 1;
+      } catch (error) {
+        if (deadlineAborted(error, deadline.signal)) {
+          deferred += candidates.length - index;
+          break;
+        }
+        errors += 1;
+        if (errorMessages.length < 5) {
+          errorMessages.push(
+            `${organizationNumber}: ${error instanceof Error ? error.message : "Unknown category policy revalidation error"}`,
+          );
+        }
       }
     }
+  } finally {
+    deadline.cleanup();
   }
 
   return {
