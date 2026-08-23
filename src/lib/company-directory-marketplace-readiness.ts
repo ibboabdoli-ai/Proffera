@@ -3,6 +3,9 @@ import "server-only";
 import { businessEmailDomainKind, validBusinessEmail } from "@/lib/company-directory-claim-email";
 import { getSql } from "@/lib/db/server";
 
+const VERIFIED_GEOCODE_SOURCE = "lantmateriet_belagenhetsadress_v4_2";
+const READINESS_QUEUE_LIMIT = 150;
+
 export type DirectoryMarketplaceAddress = {
   addressLine1: string;
   postalCode: string;
@@ -12,6 +15,7 @@ export type DirectoryMarketplaceAddress = {
 
 export type DirectoryMarketplaceReadiness = {
   eligible: boolean;
+  guestEligible: boolean;
   marketplaceReady: boolean;
   autoOutreachReady: boolean;
   needsGeocoding: boolean;
@@ -21,7 +25,7 @@ export type DirectoryMarketplaceReadiness = {
   address: DirectoryMarketplaceAddress | null;
   businessEmail: string;
   phone: string;
-  hasCoordinates: boolean;
+  hasVerifiedCoordinates: boolean;
   reasons: string[];
 };
 
@@ -38,18 +42,12 @@ export type DirectoryMarketplaceReadinessRow = DirectoryMarketplaceReadiness & {
 export type DirectoryMarketplaceReadinessReport = {
   generatedAt: string;
   publishedActive: number;
-  guestEligible: number;
-  withUsableWorkplaceAddress: number;
-  withReachableContact: number;
-  withBusinessEmail: number;
-  withPhone: number;
-  geocoded: number;
+  loaded: number;
   marketplaceReady: number;
   autoOutreachReady: number;
   needsGeocoding: number;
   needsContact: number;
   needsLocationSource: number;
-  potentialAutoOutreachAfterGeocoding: number;
   rows: DirectoryMarketplaceReadinessRow[];
 };
 
@@ -62,6 +60,11 @@ type AddressCandidate = {
 type WorkplaceCandidate = {
   visitingAddress?: AddressCandidate | null;
   postalAddress?: AddressCandidate | null;
+};
+
+type AddressResolution = {
+  address: DirectoryMarketplaceAddress | null;
+  ambiguous: boolean;
 };
 
 function text(value: unknown) {
@@ -86,7 +89,10 @@ function boxLikeAddress(value: unknown) {
     || /^kivra(?:\s|:|$)/.test(normalized);
 }
 
-function normalizedAddress(candidate: AddressCandidate | null | undefined, source: DirectoryMarketplaceAddress["source"]) {
+function normalizedAddress(
+  candidate: AddressCandidate | null | undefined,
+  source: DirectoryMarketplaceAddress["source"],
+) {
   if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return null;
   const addressLine1 = text(candidate.addressLine);
   const postalCode = text(candidate.postalCode);
@@ -95,20 +101,39 @@ function normalizedAddress(candidate: AddressCandidate | null | undefined, sourc
   return { addressLine1, postalCode, city, source } satisfies DirectoryMarketplaceAddress;
 }
 
-export function selectDirectoryMarketplaceWorkplaceAddress(workplaces: unknown): DirectoryMarketplaceAddress | null {
+function addressKey(address: DirectoryMarketplaceAddress) {
+  return [address.addressLine1, address.postalCode, address.city]
+    .map((value) => value.normalize("NFKC").toLocaleLowerCase("sv-SE").replace(/\s+/g, " ").trim())
+    .join("|");
+}
+
+function uniqueAddresses(addresses: DirectoryMarketplaceAddress[]) {
+  const unique = new Map<string, DirectoryMarketplaceAddress>();
+  for (const address of addresses) unique.set(addressKey(address), address);
+  return [...unique.values()];
+}
+
+function resolveDirectoryMarketplaceWorkplaceAddress(workplaces: unknown): AddressResolution {
   const parsed = parseJsonArray(workplaces).filter(
     (item): item is WorkplaceCandidate => Boolean(item) && typeof item === "object" && !Array.isArray(item),
   );
 
-  for (const workplace of parsed) {
-    const visiting = normalizedAddress(workplace.visitingAddress, "scb_visiting_address");
-    if (visiting) return visiting;
-  }
-  for (const workplace of parsed) {
-    const postal = normalizedAddress(workplace.postalAddress, "scb_postal_address");
-    if (postal) return postal;
-  }
-  return null;
+  const visiting = uniqueAddresses(parsed
+    .map((workplace) => normalizedAddress(workplace.visitingAddress, "scb_visiting_address"))
+    .filter((address): address is DirectoryMarketplaceAddress => Boolean(address)));
+  if (visiting.length === 1) return { address: visiting[0], ambiguous: false };
+  if (visiting.length > 1) return { address: null, ambiguous: true };
+
+  const postal = uniqueAddresses(parsed
+    .map((workplace) => normalizedAddress(workplace.postalAddress, "scb_postal_address"))
+    .filter((address): address is DirectoryMarketplaceAddress => Boolean(address)));
+  if (postal.length === 1) return { address: postal[0], ambiguous: false };
+  if (postal.length > 1) return { address: null, ambiguous: true };
+  return { address: null, ambiguous: false };
+}
+
+export function selectDirectoryMarketplaceWorkplaceAddress(workplaces: unknown): DirectoryMarketplaceAddress | null {
+  return resolveDirectoryMarketplaceWorkplaceAddress(workplaces).address;
 }
 
 function hasScbConflicts(value: unknown) {
@@ -132,14 +157,34 @@ function safeBusinessEmail(value: unknown, conflicts: unknown) {
 function safePhone(value: unknown, conflicts: unknown) {
   if (hasScbConflicts(conflicts)) return "";
   const phone = text(value);
-  const digits = phone.replace(/\D/g, "");
-  return digits.length >= 7 && digits.length <= 15 ? phone : "";
+  if (!phone || !/^[+\d\s().-]+$/.test(phone)) return "";
+  const normalized = phone.replace(/[\s().-]/g, "");
+  return /^\+?\d{7,15}$/.test(normalized) ? phone : "";
 }
 
 function finiteCoordinate(value: unknown, minimum: number, maximum: number) {
   if (value === null || value === undefined || value === "") return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= minimum && parsed <= maximum ? parsed : null;
+}
+
+export function isVerifiedDirectoryMarketplaceLocation(input: {
+  latitude?: unknown;
+  longitude?: unknown;
+  geocodeSource?: unknown;
+  geocodePrecision?: unknown;
+  geocodeConfidence?: unknown;
+  geocodedAt?: unknown;
+  locationIsPublic?: unknown;
+}) {
+  const latitude = finiteCoordinate(input.latitude, -90, 90);
+  const longitude = finiteCoordinate(input.longitude, -180, 180);
+  if (latitude === null || longitude === null || (latitude === 0 && longitude === 0)) return false;
+  return Boolean(input.locationIsPublic)
+    && text(input.geocodeSource) === VERIFIED_GEOCODE_SOURCE
+    && text(input.geocodePrecision) === "address"
+    && Number(input.geocodeConfidence) === 100
+    && Boolean(text(input.geocodedAt));
 }
 
 export function classifyDirectoryMarketplaceReadiness(input: {
@@ -151,6 +196,11 @@ export function classifyDirectoryMarketplaceReadiness(input: {
   hasPublicService: unknown;
   latitude?: unknown;
   longitude?: unknown;
+  geocodeSource?: unknown;
+  geocodePrecision?: unknown;
+  geocodeConfidence?: unknown;
+  geocodedAt?: unknown;
+  locationIsPublic?: unknown;
   scbWorkplaces?: unknown;
   scbEmail?: unknown;
   scbPhone?: unknown;
@@ -159,13 +209,13 @@ export function classifyDirectoryMarketplaceReadiness(input: {
   const reasons: string[] = [];
   const claimed = Boolean(text(input.claimedWorkspaceId));
   const conflicts = hasScbConflicts(input.scbConflicts);
-  const baseEligible = text(input.publicationStatus) === "published"
+  const eligible = text(input.publicationStatus) === "published"
     && Boolean(input.isActive)
     && !Boolean(input.privacyBlocked)
     && text(input.organizationKind) === "juridical_person"
     && Boolean(input.hasPublicService)
     && !conflicts;
-  const eligible = baseEligible && !claimed;
+  const guestEligible = eligible && !claimed;
 
   if (text(input.publicationStatus) !== "published") reasons.push("not_published");
   if (!Boolean(input.isActive)) reasons.push("inactive");
@@ -175,93 +225,113 @@ export function classifyDirectoryMarketplaceReadiness(input: {
   if (conflicts) reasons.push("scb_conflict");
   if (claimed) reasons.push("claimed_workspace_route");
 
-  const address = selectDirectoryMarketplaceWorkplaceAddress(input.scbWorkplaces);
-  const latitude = finiteCoordinate(input.latitude, -90, 90);
-  const longitude = finiteCoordinate(input.longitude, -180, 180);
-  const hasCoordinates = latitude !== null && longitude !== null && !(latitude === 0 && longitude === 0);
+  const location = resolveDirectoryMarketplaceWorkplaceAddress(input.scbWorkplaces);
+  const address = location.address;
+  const hasVerifiedCoordinates = isVerifiedDirectoryMarketplaceLocation(input);
   const businessEmail = safeBusinessEmail(input.scbEmail, input.scbConflicts);
   const phone = safePhone(input.scbPhone, input.scbConflicts);
   const hasReachableContact = Boolean(businessEmail || phone);
 
-  if (eligible && !address && !hasCoordinates) reasons.push("missing_workplace_address");
-  if (eligible && !hasCoordinates && address) reasons.push("needs_geocoding");
+  if (eligible && location.ambiguous) reasons.push("ambiguous_workplace");
+  else if (eligible && !address) reasons.push("missing_workplace_address");
+  if (eligible && address && !hasVerifiedCoordinates) reasons.push("needs_geocoding");
   if (eligible && !hasReachableContact) reasons.push("needs_contact");
-  if (eligible && hasCoordinates && hasReachableContact) reasons.push("marketplace_ready");
-  if (eligible && hasCoordinates && businessEmail) reasons.push("auto_outreach_ready");
+
+  const marketplaceReady = eligible && Boolean(address) && hasVerifiedCoordinates && hasReachableContact;
+  const autoOutreachReady = guestEligible && marketplaceReady && Boolean(businessEmail);
+  if (marketplaceReady) reasons.push("marketplace_ready");
+  if (autoOutreachReady) reasons.push("auto_outreach_ready");
 
   return {
     eligible,
-    marketplaceReady: eligible && hasCoordinates && hasReachableContact,
-    autoOutreachReady: eligible && hasCoordinates && Boolean(businessEmail),
-    needsGeocoding: eligible && !hasCoordinates && Boolean(address),
+    guestEligible,
+    marketplaceReady,
+    autoOutreachReady,
+    needsGeocoding: eligible && Boolean(address) && !hasVerifiedCoordinates,
     needsContact: eligible && !hasReachableContact,
-    needsLocationSource: eligible && !hasCoordinates && !address,
-    potentialAutoOutreachAfterGeocoding: eligible && !hasCoordinates && Boolean(address) && Boolean(businessEmail),
+    needsLocationSource: eligible && !address,
+    potentialAutoOutreachAfterGeocoding: guestEligible
+      && Boolean(address)
+      && !hasVerifiedCoordinates
+      && Boolean(businessEmail),
     address,
     businessEmail,
     phone,
-    hasCoordinates,
+    hasVerifiedCoordinates,
     reasons,
+  };
+}
+
+function emptyReport(): DirectoryMarketplaceReadinessReport {
+  return {
+    generatedAt: new Date().toISOString(),
+    publishedActive: 0,
+    loaded: 0,
+    marketplaceReady: 0,
+    autoOutreachReady: 0,
+    needsGeocoding: 0,
+    needsContact: 0,
+    needsLocationSource: 0,
+    rows: [],
   };
 }
 
 export async function getCompanyDirectoryMarketplaceReadinessReport(): Promise<DirectoryMarketplaceReadinessReport> {
   const sql = getSql();
-  if (!sql) {
-    return {
-      generatedAt: new Date().toISOString(),
-      publishedActive: 0,
-      guestEligible: 0,
-      withUsableWorkplaceAddress: 0,
-      withReachableContact: 0,
-      withBusinessEmail: 0,
-      withPhone: 0,
-      geocoded: 0,
-      marketplaceReady: 0,
-      autoOutreachReady: 0,
-      needsGeocoding: 0,
-      needsContact: 0,
-      needsLocationSource: 0,
-      potentialAutoOutreachAfterGeocoding: 0,
-      rows: [],
-    };
-  }
+  if (!sql) return emptyReport();
 
-  const rows = await sql`
-    select
-      profile.id::text as profile_id,
-      profile.organization_number,
-      profile.display_name,
-      profile.public_slug,
-      profile.city,
-      profile.municipality,
-      profile.publication_status,
-      profile.is_active,
-      profile.privacy_blocked,
-      profile.organization_kind,
-      profile.claimed_workspace_id::text as claimed_workspace_id,
-      location.latitude::float8 as latitude,
-      location.longitude::float8 as longitude,
-      scb.email as scb_email,
-      scb.phone as scb_phone,
-      scb.workplaces as scb_workplaces,
-      scb.conflicts as scb_conflicts,
-      exists (
-        select 1
-        from company_directory_profile_services relation
-        where relation.profile_id = profile.id
-          and relation.is_active = true
-          and relation.public_visible = true
-      ) as has_public_service
-    from company_directory_profiles profile
-    left join company_directory_business_locations location
-      on location.profile_id = profile.id
-     and location.is_public = true
-    left join company_directory_scb_enrichment scb on scb.profile_id = profile.id
-    where profile.publication_status = 'published'
-      and profile.is_active = true
-    order by profile.display_name asc, profile.id asc
-  `;
+  const [countRows, rows] = await Promise.all([
+    sql`
+      select count(*)::int as published_active
+      from company_directory_profiles profile
+      where profile.publication_status = 'published'
+        and profile.is_active = true
+    `,
+    sql`
+      select
+        profile.id::text as profile_id,
+        profile.organization_number,
+        profile.display_name,
+        profile.public_slug,
+        profile.city,
+        profile.municipality,
+        profile.publication_status,
+        profile.is_active,
+        profile.privacy_blocked,
+        profile.organization_kind,
+        profile.claimed_workspace_id::text as claimed_workspace_id,
+        location.latitude::float8 as latitude,
+        location.longitude::float8 as longitude,
+        location.geocode_source,
+        location.geocode_precision,
+        location.geocode_confidence,
+        location.geocoded_at::text as geocoded_at,
+        location.is_public as location_is_public,
+        scb.email as scb_email,
+        scb.phone as scb_phone,
+        scb.workplaces as scb_workplaces,
+        scb.conflicts as scb_conflicts,
+        exists (
+          select 1
+          from company_directory_profile_services relation
+          where relation.profile_id = profile.id
+            and relation.is_active = true
+            and relation.public_visible = true
+        ) as has_public_service
+      from company_directory_profiles profile
+      left join company_directory_business_locations location
+        on location.profile_id = profile.id
+      left join company_directory_scb_enrichment scb on scb.profile_id = profile.id
+      where profile.publication_status = 'published'
+        and profile.is_active = true
+      order by
+        case when coalesce(scb.email, '') <> '' then 0 else 1 end,
+        case when jsonb_array_length(coalesce(scb.workplaces, '[]'::jsonb)) > 0 then 0 else 1 end,
+        profile.display_name asc,
+        profile.id asc
+      limit ${READINESS_QUEUE_LIMIT}
+    `,
+  ]);
 
   const classified = (rows as Record<string, unknown>[]).map((row): DirectoryMarketplaceReadinessRow => {
     const readiness = classifyDirectoryMarketplaceReadiness({
@@ -273,6 +343,11 @@ export async function getCompanyDirectoryMarketplaceReadinessReport(): Promise<D
       hasPublicService: row.has_public_service,
       latitude: row.latitude,
       longitude: row.longitude,
+      geocodeSource: row.geocode_source,
+      geocodePrecision: row.geocode_precision,
+      geocodeConfidence: row.geocode_confidence,
+      geocodedAt: row.geocoded_at,
+      locationIsPublic: row.location_is_public,
       scbWorkplaces: row.scb_workplaces,
       scbEmail: row.scb_email,
       scbPhone: row.scb_phone,
@@ -290,8 +365,7 @@ export async function getCompanyDirectoryMarketplaceReadinessReport(): Promise<D
     };
   });
 
-  const guestRows = classified.filter((row) => row.eligible);
-  const priorityRows = [...guestRows].sort((left, right) => {
+  const priorityRows = [...classified].sort((left, right) => {
     const priority = (row: DirectoryMarketplaceReadinessRow) => {
       if (row.potentialAutoOutreachAfterGeocoding) return 0;
       if (row.needsGeocoding) return 1;
@@ -305,21 +379,16 @@ export async function getCompanyDirectoryMarketplaceReadinessReport(): Promise<D
       || left.companyName.localeCompare(right.companyName, "sv");
   });
 
+  const publishedActive = Number((countRows as Record<string, unknown>[])[0]?.published_active ?? 0);
   return {
     generatedAt: new Date().toISOString(),
-    publishedActive: classified.length,
-    guestEligible: guestRows.length,
-    withUsableWorkplaceAddress: guestRows.filter((row) => Boolean(row.address)).length,
-    withReachableContact: guestRows.filter((row) => Boolean(row.businessEmail || row.phone)).length,
-    withBusinessEmail: guestRows.filter((row) => Boolean(row.businessEmail)).length,
-    withPhone: guestRows.filter((row) => Boolean(row.phone)).length,
-    geocoded: guestRows.filter((row) => row.hasCoordinates).length,
-    marketplaceReady: guestRows.filter((row) => row.marketplaceReady).length,
-    autoOutreachReady: guestRows.filter((row) => row.autoOutreachReady).length,
-    needsGeocoding: guestRows.filter((row) => row.needsGeocoding).length,
-    needsContact: guestRows.filter((row) => row.needsContact).length,
-    needsLocationSource: guestRows.filter((row) => row.needsLocationSource).length,
-    potentialAutoOutreachAfterGeocoding: guestRows.filter((row) => row.potentialAutoOutreachAfterGeocoding).length,
-    rows: priorityRows.slice(0, 150),
+    publishedActive,
+    loaded: classified.length,
+    marketplaceReady: classified.filter((row) => row.marketplaceReady).length,
+    autoOutreachReady: classified.filter((row) => row.autoOutreachReady).length,
+    needsGeocoding: classified.filter((row) => row.needsGeocoding).length,
+    needsContact: classified.filter((row) => row.needsContact).length,
+    needsLocationSource: classified.filter((row) => row.needsLocationSource).length,
+    rows: priorityRows,
   };
 }
