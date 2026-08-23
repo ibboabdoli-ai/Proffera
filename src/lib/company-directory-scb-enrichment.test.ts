@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -34,6 +35,34 @@ const RUNTIME_MIGRATION_PATHS = [
   "db/migrations/20260812_0044_company_directory_official_facts.sql",
   "db/migrations/20260819_0048_company_directory_scb_enrichment.sql",
 ] as const;
+
+function workplace(
+  municipality: string | null,
+  cfarNumber = "12345678",
+): ScbCompanyRegistryEnrichment["workplaces"][number] {
+  return {
+    cfarNumber,
+    name: null,
+    phone: null,
+    email: null,
+    visitingAddress: {
+      careOf: null,
+      addressLine: "STORGATAN 1",
+      postalCode: "151 00",
+      city: "SÖDERTÄLJE",
+    },
+    postalAddress: {
+      careOf: null,
+      addressLine: "STORGATAN 1",
+      postalCode: "151 00",
+      city: "SÖDERTÄLJE",
+    },
+    municipality,
+    sniCodes: ["43.210"],
+    coordinates: null,
+    source: "scb_foretagsregistret",
+  };
+}
 
 function scb(overrides: Partial<ScbCompanyRegistryEnrichment> = {}): ScbCompanyRegistryEnrichment {
   return {
@@ -269,12 +298,15 @@ describe("SCB company directory enrichment guards", () => {
       }
     }, 30_000);
 
-    it("projects only a verified SCB municipality with provenance while preserving profile timestamps", async () => {
+    it("projects workplace municipality, repairs only legacy SCB-owned values and preserves manual values", async () => {
       const blankProfile = "11111111-1111-4111-8111-111111111111";
       const existingProfile = "22222222-2222-4222-8222-222222222222";
-      const blankScbProfile = "33333333-3333-4333-8333-333333333333";
+      const legacyProfile = "33333333-3333-4333-8333-333333333333";
+      const noWorkplaceProfile = "44444444-4444-4444-8444-444444444444";
       const profileUpdatedAt = "2026-08-21T20:00:00.000Z";
       const factsSyncedAt = "2026-08-21T19:59:00.000Z";
+      const legacyMunicipality = "Jönköping";
+      const legacyMunicipalityHash = createHash("sha256").update(legacyMunicipality).digest("hex");
 
       await client!.query(`
         truncate table company_directory_field_sources, company_directory_scb_enrichment,
@@ -288,24 +320,39 @@ describe("SCB company directory enrichment guards", () => {
         ) values
           (
             $1, '5563115707', 'juridical_person', 'Blank Municipality AB', 'Blank Municipality AB',
-            'blank-municipality-ab', '', $4
+            'blank-municipality-ab', '', $5
           ),
           (
             $2, '5563115708', 'juridical_person', 'Existing Municipality AB', 'Existing Municipality AB',
-            'existing-municipality-ab', 'Stockholm', $4
+            'existing-municipality-ab', 'Stockholm', $5
           ),
           (
-            $3, '5563115709', 'juridical_person', 'No SCB Municipality AB', 'No SCB Municipality AB',
-            'no-scb-municipality-ab', '', $4
+            $3, '5563115709', 'juridical_person', 'Legacy Municipality AB', 'Legacy Municipality AB',
+            'legacy-municipality-ab', $6, $5
+          ),
+          (
+            $4, '5563115710', 'juridical_person', 'No Workplace AB', 'No Workplace AB',
+            'no-workplace-ab', '', $5
           )
-      `, [blankProfile, existingProfile, blankScbProfile, profileUpdatedAt]);
+      `, [blankProfile, existingProfile, legacyProfile, noWorkplaceProfile, profileUpdatedAt, legacyMunicipality]);
 
       await client!.query(`
         insert into company_directory_official_facts (profile_id, sni_codes, last_synced_at) values
-          ($1, '[{"code":"43.210"}]'::jsonb, $4),
-          ($2, '[{"code":"43.210"}]'::jsonb, $4),
-          ($3, '[{"code":"43.210"}]'::jsonb, $4)
-      `, [blankProfile, existingProfile, blankScbProfile, factsSyncedAt]);
+          ($1, '[{"code":"43.210"}]'::jsonb, $5),
+          ($2, '[{"code":"43.210"}]'::jsonb, $5),
+          ($3, '[{"code":"43.210"}]'::jsonb, $5),
+          ($4, '[{"code":"43.210"}]'::jsonb, $5)
+      `, [blankProfile, existingProfile, legacyProfile, noWorkplaceProfile, factsSyncedAt]);
+
+      await client!.query(`
+        insert into company_directory_field_sources (
+          profile_id, field_name, source_name, source_record_id,
+          source_url, value_hash, confidence, observed_at
+        ) values (
+          $1, 'municipality', 'scb_foretagsregistret', '5563115709',
+          '', $2, 100, now() - interval '1 day'
+        )
+      `, [legacyProfile, legacyMunicipalityHash]);
 
       const before = await client!.query<{ id: string; updated_at: string }>(`
         select id::text, updated_at::text
@@ -323,7 +370,8 @@ describe("SCB company directory enrichment guards", () => {
             data: scb({
               organizationNumber,
               legalName: "Blank Municipality AB",
-              municipality: "Södertälje",
+              municipality: "Jönköping",
+              workplaces: [workplace("Södertälje", "10000001")],
             }),
           };
         }
@@ -333,7 +381,19 @@ describe("SCB company directory enrichment guards", () => {
             data: scb({
               organizationNumber,
               legalName: "Existing Municipality AB",
-              municipality: "Södertälje",
+              municipality: "Jönköping",
+              workplaces: [workplace("Södertälje", "10000002")],
+            }),
+          };
+        }
+        if (organizationNumber === "5563115709") {
+          return {
+            status: "ok",
+            data: scb({
+              organizationNumber,
+              legalName: "Legacy Municipality AB",
+              municipality: "Jönköping",
+              workplaces: [workplace("Södertälje", "10000003")],
             }),
           };
         }
@@ -341,8 +401,9 @@ describe("SCB company directory enrichment guards", () => {
           status: "ok",
           data: scb({
             organizationNumber,
-            legalName: "No SCB Municipality AB",
-            municipality: null,
+            legalName: "No Workplace AB",
+            municipality: "Jönköping",
+            workplaces: [],
           }),
         };
       });
@@ -357,7 +418,12 @@ describe("SCB company directory enrichment guards", () => {
         saved: true,
         conflicts: [],
       });
-      await expect(enrichCompanyDirectoryScbForProfile(blankScbProfile)).resolves.toEqual({
+      await expect(enrichCompanyDirectoryScbForProfile(legacyProfile)).resolves.toEqual({
+        status: "saved",
+        saved: true,
+        conflicts: [],
+      });
+      await expect(enrichCompanyDirectoryScbForProfile(noWorkplaceProfile)).resolves.toEqual({
         status: "saved",
         saved: true,
         conflicts: [],
@@ -383,9 +449,14 @@ describe("SCB company directory enrichment guards", () => {
         updated_at: before.rows[1]?.updated_at,
       });
       expect(profiles.rows[2]).toMatchObject({
-        id: blankScbProfile,
-        municipality: "",
+        id: legacyProfile,
+        municipality: "Södertälje",
         updated_at: before.rows[2]?.updated_at,
+      });
+      expect(profiles.rows[3]).toMatchObject({
+        id: noWorkplaceProfile,
+        municipality: "",
+        updated_at: before.rows[3]?.updated_at,
       });
 
       const provenance = await client!.query<{
@@ -396,19 +467,33 @@ describe("SCB company directory enrichment guards", () => {
       }>(`
         select profile_id::text, field_name, source_name, source_record_id
         from company_directory_field_sources
-        order by profile_id
+        order by profile_id, source_name
       `);
-      expect(provenance.rows).toEqual([{
-        profile_id: blankProfile,
-        field_name: "municipality",
-        source_name: "scb_foretagsregistret",
-        source_record_id: "5563115707",
-      }]);
+      expect(provenance.rows).toEqual([
+        {
+          profile_id: blankProfile,
+          field_name: "municipality",
+          source_name: "scb_foretagsregistret:workplace",
+          source_record_id: "10000001",
+        },
+        {
+          profile_id: legacyProfile,
+          field_name: "municipality",
+          source_name: "scb_foretagsregistret",
+          source_record_id: "5563115709",
+        },
+        {
+          profile_id: legacyProfile,
+          field_name: "municipality",
+          source_name: "scb_foretagsregistret:workplace",
+          source_record_id: "10000003",
+        },
+      ]);
 
       const enrichmentCount = await client!.query<{ count: number }>(`
         select count(*)::int as count from company_directory_scb_enrichment
       `);
-      expect(enrichmentCount.rows[0]?.count).toBe(3);
+      expect(enrichmentCount.rows[0]?.count).toBe(4);
     }, 30_000);
   },
 );

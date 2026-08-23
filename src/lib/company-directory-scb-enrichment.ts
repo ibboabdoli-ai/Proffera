@@ -2,6 +2,10 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 
+import {
+  resolveCompanyDirectoryPublicAddressResolution,
+  type DirectoryPublicAddress,
+} from "./company-directory-scb-address";
 import { normalizeSwedishCompanyIdentityName } from "./company-directory-company-name";
 import {
   fetchScbCompanyRegistryEnrichment,
@@ -121,7 +125,7 @@ async function saveScbEnrichment(
   data: ScbCompanyRegistryEnrichment,
   conflicts: ScbConflict[],
   comparisonSnapshot: ScbComparisonSnapshot,
-  existingProfileMunicipality: unknown,
+  profileAddress: DirectoryPublicAddress,
 ) {
   const sql = getSql();
   if (!sql) throw new Error("Database is not configured");
@@ -167,14 +171,35 @@ async function saveScbEnrichment(
       updated_at = now()
   `;
 
-  const municipality = text(data.municipality);
-  if (text(existingProfileMunicipality) || !municipality) return;
+  // Keep conflicting SCB evidence for review/audit, but never project location
+  // fields into the profile when the cross-source identity/category check failed.
+  if (conflicts.length > 0) return;
 
+  const resolution = resolveCompanyDirectoryPublicAddressResolution(profileAddress, data.workplaces);
+  if (resolution.source !== "scb_workplace" || resolution.sourceIndex === null) return;
+
+  const municipality = text(resolution.address.municipality);
+  if (!municipality) return;
+
+  const selectedWorkplace = data.workplaces[resolution.sourceIndex];
+  const sourceRecordId = text(selectedWorkplace?.cfarNumber) || data.organizationNumber;
+  const existingMunicipality = text(profileAddress.municipality);
+  const existingMunicipalityValueHash = createHash("sha256")
+    .update(existingMunicipality)
+    .digest("hex");
   const municipalityValueHash = createHash("sha256")
     .update(municipality)
     .digest("hex");
 
-  // This projection intentionally does not change profile.updated_at. That token
+  // Company-level SCB municipality is a registered-seat attribute, not the
+  // workplace's physical municipality. Project only the municipality from the
+  // same unambiguous workplace visiting address used by the public resolver.
+  // Existing non-SCB/manual values and claimed Workspace-owned profiles are
+  // preserved. Values owned either by the legacy company-level projection or
+  // by the same current workplace may be refreshed only while their provenance
+  // hash still matches the profile value, so later human/claimed edits win.
+  //
+  // The projection intentionally does not change profile.updated_at. That token
   // belongs to the comparison snapshot captured before the SCB request; changing
   // it here would immediately make the just-saved SCB snapshot look stale.
   await sql`
@@ -182,7 +207,30 @@ async function saveScbEnrichment(
       update company_directory_profiles profile
       set municipality = ${municipality}
       where profile.id = ${profileId}::uuid
-        and nullif(trim(profile.municipality), '') is null
+        and profile.claimed_workspace_id is null
+        and (
+          nullif(trim(profile.municipality), '') is null
+          or (
+            trim(profile.municipality) = ${existingMunicipality}
+            and exists (
+              select 1
+              from company_directory_field_sources existing_source
+              where existing_source.profile_id = profile.id
+                and existing_source.field_name = 'municipality'
+                and existing_source.value_hash = ${existingMunicipalityValueHash}
+                and (
+                  (
+                    existing_source.source_name = 'scb_foretagsregistret'
+                    and existing_source.source_record_id = ${data.organizationNumber}
+                  )
+                  or (
+                    existing_source.source_name = 'scb_foretagsregistret:workplace'
+                    and existing_source.source_record_id = ${sourceRecordId}
+                  )
+                )
+            )
+          )
+        )
       returning profile.id
     )
     insert into company_directory_field_sources (
@@ -190,7 +238,7 @@ async function saveScbEnrichment(
       source_url, value_hash, confidence, observed_at
     )
     select
-      projected.id, 'municipality', ${data.provenance.municipality}, ${data.organizationNumber},
+      projected.id, 'municipality', 'scb_foretagsregistret:workplace', ${sourceRecordId},
       '', ${municipalityValueHash}, 100, now()
     from projected
     on conflict (profile_id, field_name, source_name, value_hash) do update set
@@ -216,6 +264,9 @@ export async function enrichCompanyDirectoryScbForProfile(
       profile.organization_number,
       profile.organization_kind,
       profile.legal_name,
+      profile.address_line1,
+      profile.postal_code,
+      profile.city,
       profile.municipality,
       profile.updated_at::text as profile_updated_token,
       facts.sni_codes,
@@ -261,7 +312,12 @@ export async function enrichCompanyDirectoryScbForProfile(
     fetched.data,
     conflicts,
     comparisonSnapshot,
-    rows[0]?.municipality,
+    {
+      addressLine1: text(rows[0]?.address_line1),
+      postalCode: text(rows[0]?.postal_code),
+      city: text(rows[0]?.city),
+      municipality: text(rows[0]?.municipality),
+    },
   );
   return { status: "saved", saved: true, conflicts };
 }

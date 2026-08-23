@@ -5,6 +5,12 @@ export type DirectoryPublicAddress = {
   municipality: string;
 };
 
+export type DirectoryPublicAddressResolution = {
+  address: DirectoryPublicAddress;
+  source: "profile" | "scb_workplace";
+  sourceIndex: number | null;
+};
+
 type ScbWorkplaceAddress = DirectoryPublicAddress & {
   sourceIndex: number;
 };
@@ -40,20 +46,21 @@ function displayPostalCode(value: unknown) {
   return digits.length === 5 ? `${digits.slice(0, 3)} ${digits.slice(3)}` : text(value);
 }
 
-/** Extract a complete visiting address from one SCB workplace. */
+/** Extract one fully coherent physical location from an SCB workplace. */
 function workplaceVisitingAddress(value: unknown, sourceIndex: number): ScbWorkplaceAddress | null {
   const workplace = record(value);
   const visiting = record(workplace?.visitingAddress);
   const addressLine1 = text(visiting?.addressLine);
   const postalCode = displayPostalCode(visiting?.postalCode);
   const city = text(visiting?.city);
-  if (!addressLine1 || !postalCode || !city) return null;
+  const municipality = text(workplace?.municipality);
+  if (!addressLine1 || !postalCode || !city || !municipality) return null;
 
   return {
     addressLine1,
     postalCode,
     city,
-    municipality: text(workplace?.municipality),
+    municipality,
     sourceIndex,
   };
 }
@@ -77,36 +84,43 @@ function selectedAddress(address: ScbWorkplaceAddress): DirectoryPublicAddress {
   };
 }
 
+function profileResolution(address: DirectoryPublicAddress): DirectoryPublicAddressResolution {
+  return { address, source: "profile", sourceIndex: null };
+}
+
+function workplaceResolution(address: ScbWorkplaceAddress): DirectoryPublicAddressResolution {
+  return {
+    address: selectedAddress(address),
+    source: "scb_workplace",
+    sourceIndex: address.sourceIndex,
+  };
+}
+
 /**
- * Resolve a customer-facing address without confusing SCB postal addresses
- * (which may be a PO box) with a workplace visiting address.
+ * Resolve a customer-facing address and report which source actually won.
  *
- * A true single-workplace company can safely use its complete visiting address.
- * Multi-workplace companies are only switched when one workplace uniquely
- * matches the profile's current street or postal-code/city pair. Otherwise the
- * existing profile address remains the safe, non-guessed fallback.
- *
- * The selected SCB address is kept coherent: municipality is never borrowed
- * from the old profile address when SCB did not provide it for that workplace.
+ * SCB company-level municipality describes the registered seat and is not a
+ * physical service/workplace location. Only a complete selected workplace
+ * visiting-address bundle may therefore replace the profile location.
  */
-export function resolveCompanyDirectoryPublicAddress(
+export function resolveCompanyDirectoryPublicAddressResolution(
   profile: DirectoryPublicAddress,
   workplaces: unknown,
-): DirectoryPublicAddress {
+): DirectoryPublicAddressResolution {
   const fallback = {
     addressLine1: text(profile.addressLine1),
     postalCode: text(profile.postalCode),
     city: text(profile.city),
     municipality: text(profile.municipality),
   };
-  if (!Array.isArray(workplaces)) return fallback;
+  if (!Array.isArray(workplaces)) return profileResolution(fallback);
 
   const complete = workplaces
     .map((value, index) => workplaceVisitingAddress(value, index))
     .filter((value): value is ScbWorkplaceAddress => Boolean(value));
-  if (complete.length === 0) return fallback;
+  if (complete.length === 0) return profileResolution(fallback);
   if (workplaces.length === 1 && complete.length === 1) {
-    return selectedAddress(complete[0]);
+    return workplaceResolution(complete[0]);
   }
 
   const normalizedStreet = normalizeText(fallback.addressLine1);
@@ -115,7 +129,7 @@ export function resolveCompanyDirectoryPublicAddress(
       complete,
       (address) => normalizeText(address.addressLine1) === normalizedStreet,
     );
-    if (streetMatch) return selectedAddress(streetMatch);
+    if (streetMatch) return workplaceResolution(streetMatch);
   }
 
   const normalizedPostal = normalizePostalCode(fallback.postalCode);
@@ -126,8 +140,27 @@ export function resolveCompanyDirectoryPublicAddress(
       (address) => normalizePostalCode(address.postalCode) === normalizedPostal
         && normalizeText(address.city) === normalizedCity,
     );
-    if (postalMatch) return selectedAddress(postalMatch);
+    if (postalMatch) return workplaceResolution(postalMatch);
   }
 
-  return fallback;
+  return profileResolution(fallback);
+}
+
+/**
+ * Resolve a customer-facing address without confusing SCB postal addresses
+ * (which may be a PO box) with a workplace visiting address.
+ *
+ * A true single-workplace company can safely use its complete visiting address.
+ * Multi-workplace companies are only switched when one workplace uniquely
+ * matches the profile's current street or postal-code/city pair. Otherwise the
+ * existing profile address remains the safe, non-guessed fallback.
+ *
+ * Street, postcode, city and workplace municipality are treated as one coherent
+ * location bundle; partial SCB locations never replace profile location data.
+ */
+export function resolveCompanyDirectoryPublicAddress(
+  profile: DirectoryPublicAddress,
+  workplaces: unknown,
+): DirectoryPublicAddress {
+  return resolveCompanyDirectoryPublicAddressResolution(profile, workplaces).address;
 }

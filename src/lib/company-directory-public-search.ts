@@ -88,20 +88,52 @@ export async function getPublishedDirectoryLocationSuggestions(limit = 50) {
   const safeLimit = boundedLimit(limit, 50, 100);
 
   const rows = await sql`
-    select location_label
-    from (
-      select distinct nullif(trim(profile.city), '') as location_label
+    with eligible as (
+      select
+        profile.id,
+        profile.address_line1,
+        profile.postal_code,
+        profile.city,
+        profile.municipality,
+        profile.claimed_workspace_id,
+        scb.workplaces
       from company_directory_profiles profile
+      left join company_directory_scb_enrichment scb
+        on scb.profile_id = profile.id
+       and scb.conflicts = '[]'::jsonb
       where profile.publication_status = 'published'
         and profile.is_active = true
         and profile.privacy_blocked = false
+    ), resolved as (
+      select
+        case
+          when claimed_workspace_id is null
+            and jsonb_array_length(coalesce(workplaces, '[]'::jsonb)) = 1
+            and nullif(trim(workplaces -> 0 #>> '{visitingAddress,addressLine}'), '') is not null
+            and nullif(trim(workplaces -> 0 #>> '{visitingAddress,postalCode}'), '') is not null
+            and nullif(trim(workplaces -> 0 #>> '{visitingAddress,city}'), '') is not null
+            and nullif(trim(workplaces -> 0 ->> 'municipality'), '') is not null
+          then trim(workplaces -> 0 #>> '{visitingAddress,city}')
+          else city
+        end as city,
+        case
+          when claimed_workspace_id is null
+            and jsonb_array_length(coalesce(workplaces, '[]'::jsonb)) = 1
+            and nullif(trim(workplaces -> 0 #>> '{visitingAddress,addressLine}'), '') is not null
+            and nullif(trim(workplaces -> 0 #>> '{visitingAddress,postalCode}'), '') is not null
+            and nullif(trim(workplaces -> 0 #>> '{visitingAddress,city}'), '') is not null
+            and nullif(trim(workplaces -> 0 ->> 'municipality'), '') is not null
+          then coalesce(trim(workplaces -> 0 ->> 'municipality'), '')
+          else municipality
+        end as municipality
+      from eligible
+    ), locations as (
+      select distinct nullif(trim(city), '') as location_label from resolved
       union
-      select distinct nullif(trim(profile.municipality), '') as location_label
-      from company_directory_profiles profile
-      where profile.publication_status = 'published'
-        and profile.is_active = true
-        and profile.privacy_blocked = false
-    ) locations
+      select distinct nullif(trim(municipality), '') as location_label from resolved
+    )
+    select location_label
+    from locations
     where location_label is not null
     order by location_label asc
     limit ${safeLimit}
@@ -170,6 +202,30 @@ export async function searchPublishedCompanyDirectory(
       left join company_directory_business_locations location
         on location.profile_id = profile.id
        and location.is_public = true
+      left join company_directory_scb_enrichment scb_location
+        on scb_location.profile_id = profile.id
+       and scb_location.conflicts = '[]'::jsonb
+      cross join lateral (
+        select (
+          profile.claimed_workspace_id is null
+          and jsonb_array_length(coalesce(scb_location.workplaces, '[]'::jsonb)) = 1
+          and nullif(trim(scb_location.workplaces -> 0 #>> '{visitingAddress,addressLine}'), '') is not null
+          and nullif(trim(scb_location.workplaces -> 0 #>> '{visitingAddress,postalCode}'), '') is not null
+          and nullif(trim(scb_location.workplaces -> 0 #>> '{visitingAddress,city}'), '') is not null
+          and nullif(trim(scb_location.workplaces -> 0 ->> 'municipality'), '') is not null
+        ) as use_scb_workplace
+      ) location_choice
+      cross join lateral (
+        select
+          case when location_choice.use_scb_workplace
+            then trim(scb_location.workplaces -> 0 #>> '{visitingAddress,city}')
+            else profile.city
+          end as city,
+          case when location_choice.use_scb_workplace
+            then coalesce(trim(scb_location.workplaces -> 0 ->> 'municipality'), '')
+            else profile.municipality
+          end as municipality
+      ) public_location
       where (
           profile.publication_status = 'published'
           or (
@@ -187,8 +243,8 @@ export async function searchPublishedCompanyDirectory(
         and (
           ${nearbyEnabled} = true
           or ${normalizedLocation} = ''
-          or lower(profile.city) = ${normalizedLocation}
-          or lower(profile.municipality) = ${normalizedLocation}
+          or lower(public_location.city) = ${normalizedLocation}
+          or lower(public_location.municipality) = ${normalizedLocation}
         )
         and (
           ${nearbyEnabled} = false
@@ -243,10 +299,10 @@ export async function searchPublishedCompanyDirectory(
         relation.service_slug,
         service.label as service_label,
         profile.activity_description,
-        profile.address_line1,
-        profile.postal_code,
-        profile.city,
-        profile.municipality,
+        public_location.address_line1,
+        public_location.postal_code,
+        public_location.city,
+        public_location.municipality,
         profile.quality_score,
         location.latitude::float8 as latitude,
         location.longitude::float8 as longitude,
@@ -275,10 +331,42 @@ export async function searchPublishedCompanyDirectory(
         on claimed_service.workspace_id = profile.claimed_workspace_id::text
        and claimed_service.is_active = true
        and claimed_service.public_status = 'published'
-       and claimed_service.public_slug = relation.service_slug
+       and coalesce(claimed_service.primary_directory_service_slug, claimed_service.public_slug) = relation.service_slug
       left join company_directory_business_locations location
         on location.profile_id = profile.id
        and location.is_public = true
+      left join company_directory_scb_enrichment scb_location
+        on scb_location.profile_id = profile.id
+       and scb_location.conflicts = '[]'::jsonb
+      cross join lateral (
+        select (
+          profile.claimed_workspace_id is null
+          and jsonb_array_length(coalesce(scb_location.workplaces, '[]'::jsonb)) = 1
+          and nullif(trim(scb_location.workplaces -> 0 #>> '{visitingAddress,addressLine}'), '') is not null
+          and nullif(trim(scb_location.workplaces -> 0 #>> '{visitingAddress,postalCode}'), '') is not null
+          and nullif(trim(scb_location.workplaces -> 0 #>> '{visitingAddress,city}'), '') is not null
+          and nullif(trim(scb_location.workplaces -> 0 ->> 'municipality'), '') is not null
+        ) as use_scb_workplace
+      ) location_choice
+      cross join lateral (
+        select
+          case when location_choice.use_scb_workplace
+            then trim(scb_location.workplaces -> 0 #>> '{visitingAddress,addressLine}')
+            else profile.address_line1
+          end as address_line1,
+          case when location_choice.use_scb_workplace
+            then trim(scb_location.workplaces -> 0 #>> '{visitingAddress,postalCode}')
+            else profile.postal_code
+          end as postal_code,
+          case when location_choice.use_scb_workplace
+            then trim(scb_location.workplaces -> 0 #>> '{visitingAddress,city}')
+            else profile.city
+          end as city,
+          case when location_choice.use_scb_workplace
+            then coalesce(trim(scb_location.workplaces -> 0 ->> 'municipality'), '')
+            else profile.municipality
+          end as municipality
+      ) public_location
       left join lateral (
         select area.radius_km
         from company_directory_service_areas area
@@ -307,8 +395,8 @@ export async function searchPublishedCompanyDirectory(
         and (
           ${nearbyEnabled} = true
           or ${normalizedLocation} = ''
-          or lower(profile.city) = ${normalizedLocation}
-          or lower(profile.municipality) = ${normalizedLocation}
+          or lower(public_location.city) = ${normalizedLocation}
+          or lower(public_location.municipality) = ${normalizedLocation}
         )
         and (
           ${nearbyEnabled} = false
