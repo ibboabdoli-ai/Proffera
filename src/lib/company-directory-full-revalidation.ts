@@ -380,9 +380,9 @@ async function markReviewRecoveryEvaluation(input: {
           coalesce(scb.provenance, '{}'::jsonb),
           '{reviewRecoveryEvaluation}',
           jsonb_build_object(
-            'profileUpdatedToken', ${input.profileUpdatedToken},
-            'officialFactsLastSyncedToken', ${input.factsLastSyncedToken},
-            'officialFactsSourcePayloadHash', ${input.factsSourcePayloadHash}
+            'profileUpdatedToken', ${input.profileUpdatedToken}::text,
+            'officialFactsLastSyncedToken', ${input.factsLastSyncedToken}::text,
+            'officialFactsSourcePayloadHash', ${input.factsSourcePayloadHash}::text
           ),
           true
         ),
