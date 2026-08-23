@@ -9,6 +9,7 @@ function source(path: string) {
 describe("company directory request cache contract", () => {
   it("uses one React request memoizer for public directory business data", () => {
     const helper = source("src/lib/company-directory-public-data.ts");
+    const profileResolver = source("src/lib/business-profile-public.ts");
     const swedishRoute = source("src/app/foretag/listad/[slug]/page.tsx");
     const englishRoute = source("src/app/en/companies/[slug]/page.tsx");
     const profile = source("src/components/company-directory/public-directory-profile.tsx");
@@ -19,8 +20,12 @@ describe("company directory request cache contract", () => {
     expect(helper).toContain("getSafeClaimedDirectoryFallback(slug)");
     expect(helper.match(/\bcache\(/g)?.length).toBe(1);
 
+    expect(profileResolver).toContain("getPublicDirectoryBusinessForRequest");
+    expect(swedishRoute).toContain("getSeoBusinessProjection");
+    expect(englishRoute).toContain("getSeoBusinessProjection");
+    expect(profile).toContain("getPublicBusinessProfileViewForRequest");
+
     for (const consumer of [swedishRoute, englishRoute, profile]) {
-      expect(consumer).toContain("getPublicDirectoryBusinessForRequest");
       expect(consumer).not.toContain('from "@/lib/company-directory-engine"');
     }
   });
