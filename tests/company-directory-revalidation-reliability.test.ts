@@ -157,7 +157,8 @@ describe("Company Directory revalidation reliability", () => {
 
   it("drains two bounded batches per scheduler wake-up without changing the five-minute cadence", () => {
     const workflow = readFileSync(resolve(process.cwd(), ".github/workflows/company-directory-revalidation.yml"), "utf8");
-    expect(workflow).toContain('cron: "*/5 * * * *"');
+    expect(workflow).toContain('cron: "2-59/5 * * * *"');
+    expect(workflow).not.toContain('cron: "*/5 * * * *"');
     expect(workflow).toContain("BATCHES_PER_RUN=2");
     expect(workflow).toContain('for batch in $(seq 1 "$BATCHES_PER_RUN")');
     expect(workflow).toContain("/api/cron/company-directory-revalidation");
