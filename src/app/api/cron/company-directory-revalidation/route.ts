@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { COMPANY_DIRECTORY_CATEGORY_CONFIDENCE_POLICY_VERSION } from "@/lib/company-directory-category-confidence";
 import { revalidateCompanyDirectoryCategoryPolicyBatch } from "@/lib/company-directory-category-policy-revalidation";
 import { revalidateAllCompanyDirectoryBatch } from "@/lib/company-directory-full-revalidation";
 
@@ -11,6 +12,7 @@ const DEADLINE_BUFFER_MS = 5_000;
 
 function failedPolicyEvaluation(error: unknown) {
   return {
+    policyVersion: COMPANY_DIRECTORY_CATEGORY_CONFIDENCE_POLICY_VERSION,
     skipped: true,
     reason: "worker_error",
     selected: 0,
