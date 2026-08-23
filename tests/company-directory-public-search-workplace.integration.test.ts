@@ -43,6 +43,8 @@ function postgresSql(client: Client) {
     let connectionString = "";
     let client: Client | null = null;
     const profileId = "11111111-1111-4111-8111-111111111111";
+    const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const workspaceServiceId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
     async function waitForPostgres() {
       let lastError: unknown = null;
@@ -267,12 +269,62 @@ function postgresSql(client: Client) {
       await expectProfileFallback();
     }, 30_000);
 
+    it("matches claimed Marketplace services by canonical identity while preserving the public URL slug", async () => {
+      await client!.query(`
+        insert into workspaces (id, status, slug)
+        values ($1, 'active', 'marketplace-company')
+      `, [workspaceId]);
+      await client!.query(`
+        update company_directory_profiles
+        set publication_status = 'claimed',
+            claimed_workspace_id = $1,
+            published_at = now()
+        where id = $2
+      `, [workspaceId, profileId]);
+      await client!.query(`
+        insert into workspace_services (
+          id, workspace_id, public_slug, primary_directory_service_slug, conversion_mode
+        ) values ($1, $2, 'custom-vvs-sodertalje', 'vvs', 'quote')
+      `, [workspaceServiceId, workspaceId]);
+      await client!.query(`
+        insert into company_directory_service_areas (
+          profile_id, service_slug, radius_km, public_visible, confirmed_at
+        ) values ($1, 'vvs', 25, true, now())
+      `, [profileId]);
+
+      mocks.getWorkspaceDirectoryPublicAccessForWorkspaces.mockResolvedValue(new Map([
+        [workspaceId, { planAccess: true, websiteBuilder: true, onlineBooking: false }],
+      ]));
+
+      const result = await searchPublishedCompanyDirectory({ service: "vvs", location: "Stockholm" });
+
+      expect(result.totalCount).toBe(1);
+      expect(result.results).toHaveLength(1);
+      expect(result.results[0]).toMatchObject({
+        matchedServiceSlug: "vvs",
+        claimedWorkspaceSlug: "marketplace-company",
+        claimedServiceId: workspaceServiceId,
+        claimedServiceSlug: "custom-vvs-sodertalje",
+        conversionMode: "quote",
+        bookingAvailable: false,
+      });
+
+      const storedService = await client!.query(
+        "select public_slug, primary_directory_service_slug from workspace_services where id = $1",
+        [workspaceServiceId],
+      );
+      expect(storedService.rows[0]).toMatchObject({
+        public_slug: "custom-vvs-sodertalje",
+        primary_directory_service_slug: "vvs",
+      });
+    }, 30_000);
+
     it("keeps claimed Workspace-owned profile location authoritative", async () => {
       await client!.query(`
         update company_directory_profiles
-        set claimed_workspace_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'::uuid
-        where id = $1
-      `, [profileId]);
+        set claimed_workspace_id = $1::uuid
+        where id = $2
+      `, [workspaceId, profileId]);
 
       await expectProfileFallback();
     }, 30_000);
