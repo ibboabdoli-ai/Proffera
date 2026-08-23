@@ -62,6 +62,8 @@ function postgresSql(client: Client) {
       throw lastError ?? new Error("PostgreSQL test container did not become ready");
     }
 
+    // Every fail-closed case below must keep the profile/Workspace location as
+    // the authoritative public fallback and must not leak the rejected SCB location.
     async function expectProfileFallback() {
       const stockholm = await searchPublishedCompanyDirectory({ location: "Stockholm" });
       expect(stockholm.totalCount).toBe(1);
