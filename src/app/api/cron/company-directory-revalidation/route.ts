@@ -9,9 +9,14 @@ const REVALIDATION_BATCH_SIZE = 10;
 const DEADLINE_BUFFER_MS = 5_000;
 
 export async function GET(request: Request) {
-  const secret = process.env.CRON_SECRET;
+  const cronSecret = process.env.CRON_SECRET;
+  const schedulerSecret = process.env.COMPANY_DIRECTORY_REVALIDATION_SCHEDULER_SECRET;
   const authorization = request.headers.get("authorization");
-  if (!secret || authorization !== `Bearer ${secret}`) {
+  const authorized = [cronSecret, schedulerSecret]
+    .filter((secret): secret is string => Boolean(secret))
+    .some((secret) => authorization === `Bearer ${secret}`);
+
+  if (!authorized) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
