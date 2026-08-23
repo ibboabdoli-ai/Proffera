@@ -31,8 +31,12 @@ function text(value: unknown) {
   return String(value ?? "").trim();
 }
 
+function normalizeProfileId(value: unknown) {
+  return text(value).toLowerCase();
+}
+
 function nullableUuid(value: unknown) {
-  const normalized = text(value).toLowerCase();
+  const normalized = normalizeProfileId(value);
   return UUID_PATTERN.test(normalized) ? normalized : null;
 }
 
@@ -120,7 +124,7 @@ type ContextRow = {
 function groupOwnerServices(rows: Array<Record<string, unknown>>) {
   const grouped = new Map<string, BusinessProfileOwnerServiceSource[]>();
   for (const row of rows) {
-    const profileId = text(row.profile_id).toLowerCase();
+    const profileId = normalizeProfileId(row.profile_id);
     if (!UUID_PATTERN.test(profileId)) continue;
     const current = grouped.get(profileId) ?? [];
     current.push({
@@ -139,7 +143,7 @@ function groupOwnerServices(rows: Array<Record<string, unknown>>) {
 function groupDirectoryServices(rows: Array<Record<string, unknown>>) {
   const grouped = new Map<string, BusinessProfileDirectoryServiceSource[]>();
   for (const row of rows) {
-    const profileId = text(row.profile_id).toLowerCase();
+    const profileId = normalizeProfileId(row.profile_id);
     if (!UUID_PATTERN.test(profileId)) continue;
     const current = grouped.get(profileId) ?? [];
     current.push({
@@ -155,7 +159,7 @@ function groupDirectoryServices(rows: Array<Record<string, unknown>>) {
 function mapReputation(rows: Array<Record<string, unknown>>) {
   const mapped = new Map<string, BusinessProfileReputationSource>();
   for (const row of rows) {
-    const profileId = text(row.profile_id).toLowerCase();
+    const profileId = normalizeProfileId(row.profile_id);
     if (!UUID_PATTERN.test(profileId)) continue;
     mapped.set(profileId, {
       rating: number(row.rating),
@@ -173,10 +177,14 @@ function mapReputation(rows: Array<Record<string, unknown>>) {
 async function hydrateSearchCards(
   results: PublishedDirectorySearchResult[],
 ): Promise<Map<string, SearchCardBusinessProjection>> {
-  const fallback = new Map(results.map((result) => [result.id, fallbackSearchCard(result)]));
+  const normalizedResults = results.map((result) => ({
+    result,
+    profileId: normalizeProfileId(result.id),
+  }));
+  const fallback = new Map(normalizedResults.map(({ result }) => [result.id, fallbackSearchCard(result)]));
   const profileIds = [...new Set(
-    results
-      .map((result) => result.id.trim().toLowerCase())
+    normalizedResults
+      .map(({ profileId }) => profileId)
       .filter((profileId) => UUID_PATTERN.test(profileId)),
   )];
   const sql = getSql();
@@ -303,7 +311,7 @@ async function hydrateSearchCards(
     const contextByProfileId = new Map<string, ContextRow>();
     const claimedWorkspaceIds: string[] = [];
     for (const row of contextRows as ContextRow[]) {
-      const profileId = text(row.profile_id).toLowerCase();
+      const profileId = normalizeProfileId(row.profile_id);
       if (!UUID_PATTERN.test(profileId)) continue;
       contextByProfileId.set(profileId, row);
       const claimedWorkspaceId = nullableUuid(row.claimed_workspace_id);
@@ -312,15 +320,14 @@ async function hydrateSearchCards(
     }
 
     const [ownerServices, directoryServices, reputationByProfileId, accessByWorkspace] = await Promise.all([
-      Promise.resolve(groupOwnerServices(ownerServiceRows as Array<Record<string, unknown>>)),
-      Promise.resolve(groupDirectoryServices(directoryServiceRows as Array<Record<string, unknown>>)),
-      Promise.resolve(mapReputation(reputationRows as Array<Record<string, unknown>>)),
+      groupOwnerServices(ownerServiceRows as Array<Record<string, unknown>>),
+      groupDirectoryServices(directoryServiceRows as Array<Record<string, unknown>>),
+      mapReputation(reputationRows as Array<Record<string, unknown>>),
       getWorkspaceDirectoryPublicAccessForWorkspaces(claimedWorkspaceIds),
     ]);
 
     const cards = new Map<string, SearchCardBusinessProjection>();
-    for (const result of results) {
-      const profileId = result.id.toLowerCase();
+    for (const { result, profileId } of normalizedResults) {
       const context = contextByProfileId.get(profileId);
       if (!context) {
         cards.set(result.id, fallbackSearchCard(result));
