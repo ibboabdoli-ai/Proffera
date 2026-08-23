@@ -78,7 +78,8 @@ describe("hybrid directory marketplace search", () => {
     expect(publicDataSource).toContain("profile.published_at is not null");
     expect(publicDataSource).toContain("profile.auto_public_eligible = true");
     expect(publicDataSource).toContain("profile.privacy_blocked = false");
-    expect(profileSource).toContain('business.publicationStatus !== "claimed"');
+    expect(profileSource).toContain('profile.identity.ownershipState === "claimed"');
+    expect(profileSource).toContain("profile.capabilities.richWebsite");
   });
 
   it("only upgrades a claimed result to Marketplace actions with an exact published workspace-service mapping", () => {
