@@ -207,7 +207,7 @@ function postgresSql(client: Client) {
           id, workspace_id, public_slug, primary_directory_service_slug, conversion_mode
         ) values
           ($1, $2, 'custom-vvs-sodertalje', 'vvs', 'quote'),
-          ($3, $4, 'wrong-tenant-vvs', 'vvs', 'quote')
+          ($3, $4, 'vvs', null, 'quote')
       `, [workspaceServiceId, workspaceId, competingServiceId, competingWorkspaceId]);
       await client!.query(`
         insert into company_directory_service_areas (
