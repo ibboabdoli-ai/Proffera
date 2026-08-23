@@ -54,9 +54,13 @@ if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
   printf '%s\\n' "$FAKE_PR_JSON"
   exit 0
 fi
-if [ "$1" = "api" ] && [[ "$args" == *"contents/"* ]]; then
+if [ "$1" = "api" ] && [[ "$args" == *"contents/"* ]] && [[ "$args" == *"?ref=main"* ]]; then
   printf '%s\\n' "$FAKE_POLICY_B64"
   exit 0
+fi
+if [ "$1" = "api" ] && [[ "$args" == *"contents/"* ]]; then
+  printf 'standing policy request was not pinned to main: %s\\n' "$args" >&2
+  exit 2
 fi
 if [ "$1" = "api" ] && [[ "$args" == *"/issues/"*"/events"* ]]; then
   printf '%s\\n' "$FAKE_EVENTS_JSON"
@@ -142,6 +146,18 @@ describe("Proffera standing automerge authorization", () => {
 
   it("executes the standing-authorization branch for a trusted same-repository owner PR", () => {
     expect(runAuthorizationFixture({ pr: basePr() })).toContain("AUTH_MODE=standing:marketplace-core-loop");
+  });
+
+  it("rejects an expired standing authorization", () => {
+    const output = runAuthorizationFixture({
+      pr: basePr(),
+      policy: {
+        ...authorization,
+        expires_at: "2026-08-22T23:59:59Z",
+      },
+    });
+    expect(output).toContain("REFUSED:");
+    expect(output).not.toContain("AUTH_MODE=standing:");
   });
 
   it("rejects a fork even when its branch and handoff match the standing policy", () => {
