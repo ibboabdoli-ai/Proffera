@@ -30,7 +30,7 @@ describe("Company Directory UX 2.0", () => {
   it("keeps search, nearby lookup and profile routing behavior intact", () => {
     expect(searchForm).toContain("navigator.geolocation.getCurrentPosition");
     expect(searchForm).toContain("normalizeDirectoryPublicServiceQuery");
-    expect(searchPage).toContain("searchPublishedCompanyDirectory");
+    expect(searchPage).toContain("searchPublishedBusinessProfiles");
     expect(results).toContain("${profileBase}/${encodeURIComponent(result.slug)}");
   });
 

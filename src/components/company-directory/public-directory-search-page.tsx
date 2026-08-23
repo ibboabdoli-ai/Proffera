@@ -4,7 +4,8 @@ import { Navigation, ShieldCheck, Sparkles } from "lucide-react";
 import { directoryCopy, directoryPaths, directoryServiceLabel, normalizeDirectoryPublicServiceQuery, popularDirectoryServices } from "@/components/company-directory/public-directory-copy";
 import { PublicDirectoryResults } from "@/components/company-directory/public-directory-results";
 import { PublicDirectorySearchForm } from "@/components/company-directory/public-directory-search-form";
-import { getPublishedDirectoryLocationSuggestions, searchPublishedCompanyDirectory } from "@/lib/company-directory-public-search";
+import { searchPublishedBusinessProfiles } from "@/lib/business-profile-search";
+import { getPublishedDirectoryLocationSuggestions } from "@/lib/company-directory-public-search";
 import { DIRECTORY_SERVICES } from "@/lib/company-directory-service-taxonomy";
 import type { PublicLocale } from "@/lib/public-locale";
 
@@ -37,7 +38,7 @@ export async function PublicDirectorySearchPage({ locale, searchParams }: { loca
 
   const [locationSuggestions, search] = await Promise.all([
     getPublishedDirectoryLocationSuggestions(60),
-    searched ? searchPublishedCompanyDirectory({ service: searchService, location, latitude, longitude, radiusKm: radius, page, limit: 30 }) : Promise.resolve(null),
+    searched ? searchPublishedBusinessProfiles({ service: searchService, location, latitude, longitude, radiusKm: radius, page, limit: 30 }) : Promise.resolve(null),
   ]);
   const serviceSuggestions = DIRECTORY_SERVICES.map((item) => directoryServiceLabel(item.slug, item.label, locale));
   const nearbyActive = Boolean(search?.nearbyEnabled);

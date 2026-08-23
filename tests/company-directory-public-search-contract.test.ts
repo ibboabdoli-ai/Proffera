@@ -73,7 +73,7 @@ describe("public company directory search contract", () => {
   });
 
   it("keeps search and profile routing in the shared public directory graph", () => {
-    expect(shellSource).toContain("searchPublishedCompanyDirectory");
+    expect(shellSource).toContain("searchPublishedBusinessProfiles");
     expect(resultsSource).toContain("${profileBase}/${encodeURIComponent(result.slug)}");
     expect(copySource).toContain("registrerade ort");
     expect(copySource).toContain("Bekräftat serviceområde visas separat");
