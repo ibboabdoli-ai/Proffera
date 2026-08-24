@@ -20,6 +20,8 @@ type PendingQuery = {
 
 type QueryBarrier = {
   wait: () => Promise<void>;
+  abort: (error: unknown) => void;
+  arrivals: () => number;
 };
 
 const mocks = vi.hoisted(() => ({
@@ -55,19 +57,51 @@ function taggedQuery(strings: TemplateStringsArray, values: unknown[]): PendingQ
   return { text, values };
 }
 
-function createQueryBarrier(parties = 2): QueryBarrier {
+function createQueryBarrier(parties = 2, timeoutMs = 5_000): QueryBarrier {
   let arrived = 0;
+  let settled = false;
+  let failure: Error | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
   let release!: () => void;
-  const released = new Promise<void>((resolve) => {
+  let reject!: (error: Error) => void;
+  const released = new Promise<void>((resolve, rejectPromise) => {
     release = resolve;
+    reject = rejectPromise;
   });
+
+  const clearTimer = () => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+  };
+
+  const abort = (error: unknown) => {
+    if (settled) return;
+    failure = error instanceof Error ? error : new Error(String(error ?? "Query barrier aborted"));
+    settled = true;
+    clearTimer();
+    reject(failure);
+  };
 
   return {
     async wait() {
+      if (failure) throw failure;
+      if (settled) return;
+
       arrived += 1;
-      if (arrived === parties) release();
+      if (arrived === 1) {
+        timer = setTimeout(() => {
+          abort(new Error(`Query barrier timed out after ${timeoutMs}ms waiting for ${parties} participants`));
+        }, timeoutMs);
+      }
+      if (arrived >= parties) {
+        settled = true;
+        clearTimer();
+        release();
+      }
       await released;
     },
+    abort,
+    arrivals: () => arrived,
   };
 }
 
@@ -91,6 +125,7 @@ function createPostgresSqlAdapter(
         if (
           index === 0
           && query.text.includes("from company_directory_profiles profile")
+          && /\bfor\s+update\b/iu.test(query.text)
           && options.profileLockBarrier
         ) {
           await options.profileLockBarrier.wait();
@@ -101,6 +136,7 @@ function createPostgresSqlAdapter(
       await transactionClient.query("commit");
       return results;
     } catch (error) {
+      options.profileLockBarrier?.abort(error);
       await transactionClient.query("rollback").catch(() => undefined);
       throw error;
     } finally {
@@ -240,6 +276,16 @@ function primaryLocationInput(purpose: "storefront" | "service_base") {
       }
     }, 30_000);
 
+    it("fails a waiting query barrier instead of hanging when another participant aborts", async () => {
+      const barrier = createQueryBarrier(2, 100);
+      const waiting = barrier.wait();
+      barrier.abort(new Error("participant failed before reaching the profile lock"));
+
+      await expect(waiting).rejects.toThrow("participant failed before reaching the profile lock");
+      await expect(barrier.wait()).rejects.toThrow("participant failed before reaching the profile lock");
+      expect(barrier.arrivals()).toBe(1);
+    });
+
     it("serializes concurrent primary creates so exactly one active primary remains", async () => {
       const barrier = createQueryBarrier();
       mocks.getSql.mockReturnValue(createPostgresSqlAdapter(connectionString, { profileLockBarrier: barrier }));
@@ -249,6 +295,7 @@ function primaryLocationInput(purpose: "storefront" | "service_base") {
         createOwnerBusinessProfileLocation(primaryLocationInput("service_base")),
       ]);
 
+      expect(barrier.arrivals()).toBe(2);
       expect(first.id).not.toBe(second.id);
 
       const rows = await client.query<{
@@ -279,6 +326,8 @@ function primaryLocationInput(purpose: "storefront" | "service_base") {
         deactivateOwnerBusinessProfileLocation(existing.id),
         createOwnerBusinessProfileLocation(primaryLocationInput("service_base")),
       ]);
+
+      expect(barrier.arrivals()).toBe(2);
 
       const oldRow = await client.query<{
         is_active: boolean;
