@@ -181,45 +181,50 @@ async function selectCandidates(limit: number, cursorValue: string) {
           facts.profile_id is null
           or facts.source_payload_hash = ''
           or facts.last_synced_at < profile.last_synced_at
-          or scb.profile_id is null
-          or scb.source_payload_hash = ''
-          or scb.last_synced_at < now() - interval '7 days'
-          or scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' is distinct from profile.updated_at::text
-          or scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' is distinct from facts.last_synced_at::text
           or (
-            profile.publication_status = 'review'
-            and profile.is_active = true
-            and profile.privacy_blocked = false
-            and profile.auto_public_eligible = true
-            and profile.claimed_workspace_id is null
-            and not exists (
-              select 1
-              from company_directory_discovery_queue queue
-              where queue.state = 'failed'
-                and (
-                  queue.profile_id = profile.id
-                  or (
-                    queue.country_code = profile.country_code
-                    and queue.organization_number = regexp_replace(profile.organization_number, '\\D', '', 'g')
-                  )
-                )
-            )
-            and facts.profile_id is not null
-            and facts.source_payload_hash <> ''
-            and facts.last_synced_at >= profile.last_synced_at
-            and facts.deregistration_date is null
-            and coalesce(facts.advertising_blocked, false) = false
-            and jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) = 0
-            and scb.profile_id is not null
-            and scb.source_payload_hash <> ''
-            and scb.last_synced_at >= now() - interval '7 days'
-            and jsonb_array_length(coalesce(scb.conflicts, '[]'::jsonb)) = 0
-            and scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
-            and scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = facts.last_synced_at::text
+            profile.publication_status <> 'inactive'
             and (
-              scb.provenance #>> '{reviewRecoveryEvaluation,profileUpdatedToken}' is distinct from profile.updated_at::text
-              or scb.provenance #>> '{reviewRecoveryEvaluation,officialFactsLastSyncedToken}' is distinct from facts.last_synced_at::text
-              or scb.provenance #>> '{reviewRecoveryEvaluation,officialFactsSourcePayloadHash}' is distinct from facts.source_payload_hash
+              scb.profile_id is null
+              or scb.source_payload_hash = ''
+              or scb.last_synced_at < now() - interval '7 days'
+              or scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' is distinct from profile.updated_at::text
+              or scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' is distinct from facts.last_synced_at::text
+              or (
+                profile.publication_status = 'review'
+                and profile.is_active = true
+                and profile.privacy_blocked = false
+                and profile.auto_public_eligible = true
+                and profile.claimed_workspace_id is null
+                and not exists (
+                  select 1
+                  from company_directory_discovery_queue queue
+                  where queue.state = 'failed'
+                    and (
+                      queue.profile_id = profile.id
+                      or (
+                        queue.country_code = profile.country_code
+                        and queue.organization_number = regexp_replace(profile.organization_number, '\\D', '', 'g')
+                      )
+                    )
+                )
+                and facts.profile_id is not null
+                and facts.source_payload_hash <> ''
+                and facts.last_synced_at >= profile.last_synced_at
+                and facts.deregistration_date is null
+                and coalesce(facts.advertising_blocked, false) = false
+                and jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) = 0
+                and scb.profile_id is not null
+                and scb.source_payload_hash <> ''
+                and scb.last_synced_at >= now() - interval '7 days'
+                and jsonb_array_length(coalesce(scb.conflicts, '[]'::jsonb)) = 0
+                and scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
+                and scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = facts.last_synced_at::text
+                and (
+                  scb.provenance #>> '{reviewRecoveryEvaluation,profileUpdatedToken}' is distinct from profile.updated_at::text
+                  or scb.provenance #>> '{reviewRecoveryEvaluation,officialFactsLastSyncedToken}' is distinct from facts.last_synced_at::text
+                  or scb.provenance #>> '{reviewRecoveryEvaluation,officialFactsSourcePayloadHash}' is distinct from facts.source_payload_hash
+                )
+              )
             )
           )
         )
@@ -256,46 +261,51 @@ async function backlogCount() {
         facts.profile_id is null
         or facts.source_payload_hash = ''
         or facts.last_synced_at < profile.last_synced_at
-        or scb.profile_id is null
-        or scb.source_payload_hash = ''
-        or scb.last_synced_at < now() - interval '7 days'
-        or scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' is distinct from profile.updated_at::text
-        or scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' is distinct from facts.last_synced_at::text
         or (
-          profile.publication_status = 'review'
-          and profile.is_active = true
-          and profile.privacy_blocked = false
-            and profile.auto_public_eligible = true
-            and profile.claimed_workspace_id is null
-            and not exists (
-              select 1
-              from company_directory_discovery_queue queue
-              where queue.state = 'failed'
-                and (
-                  queue.profile_id = profile.id
-                  or (
-                    queue.country_code = profile.country_code
-                    and queue.organization_number = regexp_replace(profile.organization_number, '\\D', '', 'g')
+          profile.publication_status <> 'inactive'
+          and (
+            scb.profile_id is null
+            or scb.source_payload_hash = ''
+            or scb.last_synced_at < now() - interval '7 days'
+            or scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' is distinct from profile.updated_at::text
+            or scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' is distinct from facts.last_synced_at::text
+            or (
+              profile.publication_status = 'review'
+              and profile.is_active = true
+              and profile.privacy_blocked = false
+              and profile.auto_public_eligible = true
+              and profile.claimed_workspace_id is null
+              and not exists (
+                select 1
+                from company_directory_discovery_queue queue
+                where queue.state = 'failed'
+                  and (
+                    queue.profile_id = profile.id
+                    or (
+                      queue.country_code = profile.country_code
+                      and queue.organization_number = regexp_replace(profile.organization_number, '\\D', '', 'g')
+                    )
                   )
-                )
+              )
+              and facts.profile_id is not null
+              and facts.source_payload_hash <> ''
+              and facts.last_synced_at >= profile.last_synced_at
+              and facts.deregistration_date is null
+              and coalesce(facts.advertising_blocked, false) = false
+              and jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) = 0
+              and scb.profile_id is not null
+              and scb.source_payload_hash <> ''
+              and scb.last_synced_at >= now() - interval '7 days'
+              and jsonb_array_length(coalesce(scb.conflicts, '[]'::jsonb)) = 0
+              and scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
+              and scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = facts.last_synced_at::text
+              and (
+                scb.provenance #>> '{reviewRecoveryEvaluation,profileUpdatedToken}' is distinct from profile.updated_at::text
+                or scb.provenance #>> '{reviewRecoveryEvaluation,officialFactsLastSyncedToken}' is distinct from facts.last_synced_at::text
+                or scb.provenance #>> '{reviewRecoveryEvaluation,officialFactsSourcePayloadHash}' is distinct from facts.source_payload_hash
+              )
             )
-            and facts.profile_id is not null
-          and facts.source_payload_hash <> ''
-          and facts.last_synced_at >= profile.last_synced_at
-          and facts.deregistration_date is null
-          and coalesce(facts.advertising_blocked, false) = false
-          and jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) = 0
-            and scb.profile_id is not null
-            and scb.source_payload_hash <> ''
-            and scb.last_synced_at >= now() - interval '7 days'
-            and jsonb_array_length(coalesce(scb.conflicts, '[]'::jsonb)) = 0
-            and scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
-            and scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = facts.last_synced_at::text
-            and (
-              scb.provenance #>> '{reviewRecoveryEvaluation,profileUpdatedToken}' is distinct from profile.updated_at::text
-              or scb.provenance #>> '{reviewRecoveryEvaluation,officialFactsLastSyncedToken}' is distinct from facts.last_synced_at::text
-              or scb.provenance #>> '{reviewRecoveryEvaluation,officialFactsSourcePayloadHash}' is distinct from facts.source_payload_hash
-            )
+          )
         )
       )
   `;
@@ -638,6 +648,12 @@ export async function revalidateAllCompanyDirectoryBatch(
 
       try {
         await enrichCompanyDirectoryOfficialFactsForProfile(profileId);
+        if (text(candidate.publication_status) === "inactive") {
+          refreshed += 1;
+          kept += 1;
+          continue;
+        }
+
         if (deadlineReached(options.deadlineAt, SCB_START_HEADROOM_MS)) {
           deferred += candidates.length - index;
           break candidateLoop;
