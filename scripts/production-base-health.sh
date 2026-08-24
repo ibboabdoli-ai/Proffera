@@ -26,11 +26,17 @@ else
 fi
 
 for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
-  runs="$(gh api "repos/$REPOSITORY/actions/workflows/$HEALTH_WORKFLOW/runs?branch=main&event=push&head_sha=$BASE_SHA&per_page=100")"
+  push_runs="$(gh api "repos/$REPOSITORY/actions/workflows/$HEALTH_WORKFLOW/runs?branch=main&event=push&head_sha=$BASE_SHA&per_page=100")"
+  dispatch_runs="$(gh api "repos/$REPOSITORY/actions/workflows/$HEALTH_WORKFLOW/runs?branch=main&event=repository_dispatch&head_sha=$BASE_SHA&per_page=100")"
+  runs="$(jq -n \
+    --argjson push "$push_runs" \
+    --argjson dispatch "$dispatch_runs" \
+    '{workflow_runs: (($push.workflow_runs // []) + ($dispatch.workflow_runs // []))}')"
   conclusion="$(jq -r '.workflow_runs | sort_by(.created_at) | last | .conclusion // ""' <<< "$runs")"
   status="$(jq -r '.workflow_runs | sort_by(.created_at) | last | .status // ""' <<< "$runs")"
+  event="$(jq -r '.workflow_runs | sort_by(.created_at) | last | .event // ""' <<< "$runs")"
 
-  echo "Base health attempt $attempt/$MAX_ATTEMPTS: base=$BASE_SHA status=${status:-missing} conclusion=${conclusion:-missing}"
+  echo "Base health attempt $attempt/$MAX_ATTEMPTS: base=$BASE_SHA event=${event:-missing} status=${status:-missing} conclusion=${conclusion:-missing}"
 
   if [ "$status" = "completed" ] && [ "$conclusion" = "success" ]; then
     echo "Production is healthy on exact PR base $BASE_SHA."
