@@ -2,12 +2,14 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import {
+  businessProfileLocationGeocodePrecisions,
   businessProfileLocationVisibilities,
   createOwnerBusinessProfileLocation,
   deactivateOwnerBusinessProfileLocation,
   editableBusinessProfileLocationPurposes,
   listOwnerBusinessProfileLocations,
   updateOwnerBusinessProfileLocation,
+  type BusinessProfileLocationGeocodePrecision,
   type BusinessProfileLocationVisibility,
   type EditableBusinessProfileLocationPurpose,
   type WriteBusinessProfileLocationInput,
@@ -98,7 +100,26 @@ async function updateLocationAction(formData: FormData) {
   if (!input || !id) redirect(pageUrl({ error: "invalid" }));
 
   try {
-    await updateOwnerBusinessProfileLocation({ ...input, id });
+    const currentLocations = await listOwnerBusinessProfileLocations();
+    const existingLocation = currentLocations.find(
+      (location) => location.id === id && location.sourceType === "owner",
+    );
+    if (!existingLocation) redirect(pageUrl({ error: "invalid" }));
+
+    const geocodePrecision = businessProfileLocationGeocodePrecisions.includes(
+      existingLocation.geocodePrecision as BusinessProfileLocationGeocodePrecision,
+    )
+      ? existingLocation.geocodePrecision as BusinessProfileLocationGeocodePrecision
+      : "unknown";
+
+    await updateOwnerBusinessProfileLocation({
+      ...input,
+      id,
+      latitude: existingLocation.latitude,
+      longitude: existingLocation.longitude,
+      geocodeSource: existingLocation.geocodeSource,
+      geocodePrecision,
+    });
   } catch {
     redirect(pageUrl({ error: "save" }));
   }
