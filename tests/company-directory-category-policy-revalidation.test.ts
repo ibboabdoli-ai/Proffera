@@ -418,8 +418,18 @@ describe("Company Directory category policy revalidation", () => {
   });
 
   it("defers remaining candidates when deadline is reached mid-batch", async () => {
-    const row1 = { ...candidate(), id: "11111111-1111-4111-8111-111111111111", organization_number: "5563115701" };
-    const row2 = { ...candidate(), id: "22222222-2222-4222-8222-222222222222", organization_number: "5563115702" };
+    const row1 = {
+      ...candidate(),
+      id: "11111111-1111-4111-8111-111111111111",
+      organization_number: "5563115701",
+      policy_backlog_count: 2,
+    };
+    const row2 = {
+      ...candidate(),
+      id: "22222222-2222-4222-8222-222222222222",
+      organization_number: "5563115702",
+      policy_backlog_count: 2,
+    };
     let candidateReads = 0;
     let assessments = 0;
 
