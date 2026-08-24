@@ -81,7 +81,7 @@ describe("Production schema health", () => {
     expect(result.workspaceServiceIdentity[field]).toBe(false);
   });
 
-  it("fails closed when a required migration is missing", async () => {
+  it("fails closed when required migrations are missing", async () => {
     const query = vi.fn()
       .mockResolvedValueOnce({ rows: contractRows() })
       .mockResolvedValueOnce({ rows: [{ migration_key: "20260823_0065" }] });
@@ -89,6 +89,9 @@ describe("Production schema health", () => {
     const result = await inspectProductionSchema(query);
 
     expect(result.ok).toBe(false);
-    expect(result.missingMigrations).toEqual(["20260823_0066"]);
+    expect(result.missingMigrations).toEqual([
+      "20260823_0066",
+      "20260824_0067",
+    ]);
   });
 });
