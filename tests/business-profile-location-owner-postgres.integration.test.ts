@@ -33,7 +33,10 @@ vi.mock("@/lib/workspace-access", () => ({
   canManageWorkspaceSettings: mocks.canManageWorkspaceSettings,
 }));
 
-import { createOwnerBusinessProfileLocation } from "../src/lib/business-profile-location-owner";
+import {
+  createOwnerBusinessProfileLocation,
+  deactivateOwnerBusinessProfileLocation,
+} from "../src/lib/business-profile-location-owner";
 
 function docker(args: string[]) {
   return execFileSync("docker", args, { encoding: "utf8" }).trim();
@@ -75,6 +78,24 @@ function createPostgresSqlAdapter(connectionString: string) {
   };
 
   return sql;
+}
+
+function primaryLocationInput(purpose: "storefront" | "service_base") {
+  return {
+    purpose,
+    visibility: "private" as const,
+    isVisitable: true,
+    isPrimary: true,
+    confirmed: false,
+    addressLine1: purpose === "storefront" ? "Storgatan 1" : "Industrivägen 2",
+    postalCode: "151 00",
+    city: "Södertälje",
+    municipality: "Södertälje",
+    latitude: 59.1955,
+    longitude: 17.6253,
+    geocodeSource: "owner",
+    geocodePrecision: "address" as const,
+  };
 }
 
 (RUN_POSTGRES_INTEGRATION ? describe.sequential : describe.skip)(
@@ -189,25 +210,9 @@ function createPostgresSqlAdapter(connectionString: string) {
     }, 30_000);
 
     it("serializes concurrent primary creates so exactly one active primary remains", async () => {
-      const createPrimary = (purpose: "storefront" | "service_base") => createOwnerBusinessProfileLocation({
-        purpose,
-        visibility: "private",
-        isVisitable: true,
-        isPrimary: true,
-        confirmed: false,
-        addressLine1: purpose === "storefront" ? "Storgatan 1" : "Industrivägen 2",
-        postalCode: "151 00",
-        city: "Södertälje",
-        municipality: "Södertälje",
-        latitude: 59.1955,
-        longitude: 17.6253,
-        geocodeSource: "owner",
-        geocodePrecision: "address",
-      });
-
       const [first, second] = await Promise.all([
-        createPrimary("storefront"),
-        createPrimary("service_base"),
+        createOwnerBusinessProfileLocation(primaryLocationInput("storefront")),
+        createOwnerBusinessProfileLocation(primaryLocationInput("service_base")),
       ]);
 
       expect(first.id).not.toBe(second.id);
@@ -229,6 +234,50 @@ function createPostgresSqlAdapter(connectionString: string) {
       expect(rows.rows).toHaveLength(2);
       expect(rows.rows.every((row) => row.owner_workspace_id === WORKSPACE_ID)).toBe(true);
       expect(rows.rows.filter((row) => row.is_primary)).toHaveLength(1);
+    });
+
+    it("serializes deactivation against a concurrent primary create", async () => {
+      const existing = await createOwnerBusinessProfileLocation(primaryLocationInput("storefront"));
+
+      const [, replacement] = await Promise.all([
+        deactivateOwnerBusinessProfileLocation(existing.id),
+        createOwnerBusinessProfileLocation(primaryLocationInput("service_base")),
+      ]);
+
+      const oldRow = await client.query<{
+        is_active: boolean;
+        is_primary: boolean;
+        visibility: string;
+      }>(`
+        select is_active, is_primary, visibility
+        from company_directory_profile_locations
+        where id = $1
+      `, [existing.id]);
+      expect(oldRow.rows[0]).toEqual({
+        is_active: false,
+        is_primary: false,
+        visibility: "private",
+      });
+
+      const activeRows = await client.query<{
+        id: string;
+        is_primary: boolean;
+        owner_workspace_id: string;
+      }>(`
+        select id::text, is_primary, owner_workspace_id::text
+        from company_directory_profile_locations
+        where profile_id = $1
+          and source_type = 'owner'
+          and is_active = true
+        order by created_at, id
+      `, [PROFILE_ID]);
+
+      expect(activeRows.rows).toHaveLength(1);
+      expect(activeRows.rows[0]).toEqual({
+        id: replacement.id,
+        is_primary: true,
+        owner_workspace_id: WORKSPACE_ID,
+      });
     });
   },
 );
