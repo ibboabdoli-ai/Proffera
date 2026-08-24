@@ -194,7 +194,7 @@ describe("full Directory revalidation hard-block and deterministic SCB handling"
       (call) => call.query.includes("insert into company_directory_scb_enrichment")
         && call.query.includes("revalidationFailure"),
     );
-    expect(marker?.query).toContain("'company_match_count'");
+    expect(marker?.values).toContain("company_match_count");
     expect(marker?.query).toContain("source_payload_hash");
     expect(marker?.query).toContain("on conflict (profile_id) do update");
   });
