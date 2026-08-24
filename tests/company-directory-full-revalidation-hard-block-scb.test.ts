@@ -116,16 +116,11 @@ beforeEach(() => {
 });
 
 describe("full Directory revalidation hard-block and deterministic SCB handling", () => {
-  it("moves a Ready profile with persisted bankruptcy/fusion evidence to Review before upstream calls", async () => {
+  it("moves a Ready profile with persisted bankruptcy/fusion evidence to Review before SCB configuration is needed", async () => {
     responder = async (query) => {
+      if (query.includes("with blocked as (")) return [{ id: PROFILE_ID }];
       if (query.includes("started_at < now() - interval '10 minutes'")) return [];
       if (query.includes("insert into company_directory_sync_runs")) return [{ id: RUN_ID, cursor_value: "" }];
-      if (query.includes("with eligible as (")) return [candidate("ready", true)];
-      if (
-        query.includes("update company_directory_profiles profile")
-        && query.includes("facts.deregistration_date is not null")
-        && query.includes("ongoing_procedures")
-      ) return [{ id: PROFILE_ID }];
       if (query.includes("update company_directory_sync_runs") && query.includes("where id =")) return [];
       if (query.includes("select count(*)::int as count")) return [{ count: 0 }];
       throw new Error(`Unexpected SQL in persisted hard-block test: ${query}`);
@@ -145,11 +140,34 @@ describe("full Directory revalidation hard-block and deterministic SCB handling"
     expect(mocks.assessConfidence).not.toHaveBeenCalled();
   });
 
+  it("still demotes a persisted hard block when SCB access is unavailable", async () => {
+    responder = async (query) => {
+      if (query.includes("with blocked as (")) return [{ id: PROFILE_ID }];
+      if (query.includes("select count(*)::int as count")) return [{ count: 0 }];
+      throw new Error(`Unexpected SQL in SCB-unavailable hard-block test: ${query}`);
+    };
+    mocks.createScbTransport.mockReturnValue(null);
+
+    const result = await revalidateAllCompanyDirectoryBatch(10);
+
+    expect(result).toMatchObject({
+      skipped: true,
+      reason: "scb_access_not_configured",
+      selected: 1,
+      movedToReview: 1,
+      errors: 0,
+      remaining: 0,
+    });
+    expect(mocks.enrichOfficialFacts).not.toHaveBeenCalled();
+    expect(mocks.enrichScb).not.toHaveBeenCalled();
+  });
+
   it("moves a Ready profile to Review and records a fail-closed retry marker after deterministic SCB no-match", async () => {
     const fresh = evaluation();
     let evaluationReads = 0;
 
     responder = async (query) => {
+      if (query.includes("with blocked as (")) return [];
       if (query.includes("started_at < now() - interval '10 minutes'")) return [];
       if (query.includes("insert into company_directory_sync_runs")) return [{ id: RUN_ID, cursor_value: "" }];
       if (query.includes("with eligible as (")) return [candidate("ready")];
@@ -195,8 +213,9 @@ describe("full Directory revalidation hard-block and deterministic SCB handling"
     expect(marker?.query).toContain("on conflict (profile_id) do update");
   });
 
-  it("suppresses hard-blocked Review rows and current deterministic SCB failures from selection/backlog", async () => {
+  it("suppresses blocked Review rows between bounded Official Facts rechecks and current SCB failures", async () => {
     responder = async (query) => {
+      if (query.includes("with blocked as (")) return [];
       if (query.includes("started_at < now() - interval '10 minutes'")) return [];
       if (query.includes("insert into company_directory_sync_runs")) return [{ id: RUN_ID, cursor_value: "" }];
       if (query.includes("with eligible as (")) return [];
@@ -213,6 +232,7 @@ describe("full Directory revalidation hard-block and deterministic SCB handling"
     for (const call of [selection, backlog]) {
       expect(call?.query).toContain("profile.publication_status = 'review'");
       expect(call?.query).toContain("ongoing_procedures");
+      expect(call?.query).toContain("greatest(facts.last_synced_at, profile.updated_at)");
       expect(call?.query).toContain("revalidationFailure");
       expect(call?.query).toContain("profileUpdatedToken");
       expect(call?.query).toContain("officialFactsLastSyncedToken");
