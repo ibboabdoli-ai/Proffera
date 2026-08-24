@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   resolvePublicCustomDomain: vi.fn(),
   getPublicBusinessHub: vi.fn(),
   getPublicDirectoryBusinessForRequest: vi.fn(),
+  getSeoBusinessProjection: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -25,6 +26,9 @@ vi.mock("@/lib/public-business-hub", () => ({
 }));
 vi.mock("@/lib/company-directory-public-data", () => ({
   getPublicDirectoryBusinessForRequest: mocks.getPublicDirectoryBusinessForRequest,
+}));
+vi.mock("@/lib/business-profile-public", () => ({
+  getSeoBusinessProjection: mocks.getSeoBusinessProjection,
 }));
 vi.mock("@/components/company-directory/public-directory-profile", () => ({
   PublicDirectoryProfile: () => null,
@@ -61,6 +65,14 @@ describe("public directory SEO hygiene", () => {
     mocks.resolvePublicCustomDomain.mockResolvedValue(null);
     mocks.getPublicBusinessHub.mockResolvedValue(null);
     mocks.getPublicDirectoryBusinessForRequest.mockResolvedValue(profile);
+    mocks.getSeoBusinessProjection.mockResolvedValue({
+      directorySlug: profile.slug,
+      displayName: profile.companyName,
+      description: profile.activityDescription,
+      categorySlug: profile.categorySlug,
+      city: profile.city,
+      mediaUrl: "",
+    });
   });
 
   it("uses the redirect target as the single platform origin", () => {

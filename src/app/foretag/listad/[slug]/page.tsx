@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { MarketplaceProfileClaimPrompt } from "@/components/company-directory/marketplace-profile-claim-prompt";
 import { PublicDirectoryProfile } from "@/components/company-directory/public-directory-profile";
 import { directoryCategoryLabels } from "@/components/company-directory/public-directory-copy";
-import { getPublicDirectoryBusinessForRequest } from "@/lib/company-directory-public-data";
+import { getSeoBusinessProjection } from "@/lib/business-profile-public";
 import { siteConfig } from "@/lib/site";
 
 export const dynamic = "force-dynamic";
@@ -23,17 +23,17 @@ function first(value: string | string[] | undefined) {
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
-  const business = await getPublicDirectoryBusinessForRequest(slug);
+  const business = await getSeoBusinessProjection(slug);
   if (!business) return {};
-  const category = directoryCategoryLabels.sv[business.categorySlug] ?? business.primarySniLabel ?? "Tjänster";
-  const description = business.activityDescription || `${business.companyName} i ${business.city} – ${category}.`;
-  const swedishPath = `/foretag/listad/${encodeURIComponent(business.slug)}`;
-  const englishPath = `/en/companies/${encodeURIComponent(business.slug)}`;
+  const category = directoryCategoryLabels.sv[business.categorySlug] ?? "Tjänster";
+  const description = business.description || `${business.displayName}${business.city ? ` i ${business.city}` : ""} – ${category}.`;
+  const swedishPath = `/foretag/listad/${encodeURIComponent(business.directorySlug)}`;
+  const englishPath = `/en/companies/${encodeURIComponent(business.directorySlug)}`;
   const canonical = `${siteConfig.url}${swedishPath}`;
-  const hasActualBusinessMedia = Boolean(business.media?.isActualBusinessMedia && business.media.url);
+  const hasBusinessMedia = Boolean(business.mediaUrl);
 
   return {
-    title: business.companyName,
+    title: business.displayName,
     description,
     alternates: {
       canonical,
@@ -44,25 +44,25 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     },
     robots: { index: true, follow: true },
     openGraph: {
-      title: business.companyName,
+      title: business.displayName,
       description,
       url: canonical,
       type: "website",
-      ...(hasActualBusinessMedia ? {
+      ...(hasBusinessMedia ? {
         images: [{
-          url: absoluteUrl(business.media!.url),
-          alt: business.companyName,
+          url: absoluteUrl(business.mediaUrl),
+          alt: business.displayName,
         }],
       } : {}),
     },
     twitter: {
-      card: hasActualBusinessMedia ? "summary_large_image" : "summary",
-      title: business.companyName,
+      card: hasBusinessMedia ? "summary_large_image" : "summary",
+      title: business.displayName,
       description,
-      ...(hasActualBusinessMedia ? {
+      ...(hasBusinessMedia ? {
         images: [{
-          url: absoluteUrl(business.media!.url),
-          alt: business.companyName,
+          url: absoluteUrl(business.mediaUrl),
+          alt: business.displayName,
         }],
       } : {}),
     },
