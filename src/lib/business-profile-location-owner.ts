@@ -88,6 +88,13 @@ export function normalizeBusinessProfileLocationWrite(input: WriteBusinessProfil
   if (!businessProfileLocationVisibilities.includes(input.visibility)) {
     throw new Error("Invalid Business Profile location visibility");
   }
+  if (
+    typeof input.isVisitable !== "boolean"
+    || typeof input.isPrimary !== "boolean"
+    || typeof input.confirmed !== "boolean"
+  ) {
+    throw new Error("Business Profile location state flags must be booleans");
+  }
 
   const geocodePrecision = input.geocodePrecision ?? "unknown";
   if (!businessProfileLocationGeocodePrecisions.includes(geocodePrecision)) {
@@ -107,9 +114,9 @@ export function normalizeBusinessProfileLocationWrite(input: WriteBusinessProfil
     id: normalizeUuid(input.id, "Business Profile location id"),
     purpose: input.purpose,
     visibility: input.visibility,
-    isVisitable: Boolean(input.isVisitable),
-    isPrimary: Boolean(input.isPrimary),
-    confirmed: Boolean(input.confirmed),
+    isVisitable: input.isVisitable,
+    isPrimary: input.isPrimary,
+    confirmed: input.confirmed,
     addressLine1: cleanText(input.addressLine1, 250),
     postalCode: cleanText(input.postalCode, 32),
     city: cleanText(input.city, 120),
