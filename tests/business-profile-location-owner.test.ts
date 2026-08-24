@@ -116,6 +116,16 @@ describe("Business Profile claimed-owner location boundary", () => {
       confirmed: true,
     }))).toThrow("visitable");
 
+    for (const unsafeFlags of [
+      { isVisitable: "false", confirmed: "false" },
+      { isPrimary: "false" },
+    ]) {
+      expect(() => normalizeBusinessProfileLocationWrite({
+        ...validInput({ visibility: "public", isVisitable: true, confirmed: true }),
+        ...unsafeFlags,
+      } as unknown as WriteBusinessProfileLocationInput)).toThrow("state flags must be booleans");
+    }
+
     expect(() => normalizeBusinessProfileLocationWrite(validInput({
       latitude: 59.1955,
       longitude: null,
