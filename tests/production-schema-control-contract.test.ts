@@ -1,5 +1,14 @@
-import { readdirSync, readFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
+import { spawnSync } from "node:child_process";
 
 import { describe, expect, it } from "vitest";
 
@@ -21,15 +30,52 @@ function controlledMigrations() {
     .sort((left, right) => left.key.localeCompare(right.key));
 }
 
+function runBaseHealth(mode: "success" | "failure" | "missing") {
+  const bin = mkdtempSync(resolve(tmpdir(), "proffera-base-health-"));
+  const gh = resolve(bin, "gh");
+  const payload = mode === "missing"
+    ? '{"workflow_runs":[]}'
+    : JSON.stringify({
+      workflow_runs: [{
+        status: "completed",
+        conclusion: mode === "success" ? "success" : "failure",
+        created_at: "2026-08-24T00:00:00Z",
+      }],
+    });
+
+  writeFileSync(gh, `#!/usr/bin/env bash\nset -euo pipefail\nif [[ "$*" == *"/contents/.github/workflows/"* ]]; then\n  printf '{}\\n'\n  exit 0\nfi\nprintf '%s\\n' '${payload}'\n`);
+  chmodSync(gh, 0o755);
+
+  try {
+    return spawnSync("bash", [resolve(process.cwd(), "scripts/production-base-health.sh")], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH ?? ""}`,
+        REPOSITORY: "ibboabdoli-ai/Proffera",
+        BASE_SHA: "1111111111111111111111111111111111111111",
+        HEALTH_WORKFLOW: "production-health.yml",
+        BASE_HEALTH_ATTEMPTS: "1",
+        BASE_HEALTH_SLEEP_SECONDS: "0",
+      },
+    });
+  } finally {
+    rmSync(bin, { recursive: true, force: true });
+  }
+}
+
 describe("Production schema control plane", () => {
-  it("keeps the migration ledger additive and bootstraps only independently verified migrations", () => {
+  it("keeps the migration ledger additive, atomic and limited to verified bootstrap migrations", () => {
     const migration = source("db/migrations/20260823_0066_production_schema_ledger.sql").toLowerCase();
 
+    expect(migration).toContain("begin;");
+    expect(migration).toContain("commit;");
     expect(migration).toContain("create table if not exists proffera_schema_migrations");
     expect(migration).toContain("migration_key text primary key");
     expect(migration).toContain("'20260823_0065'");
     expect(migration).toContain("'20260823_0066'");
     expect(migration).toContain("bootstrap-verified");
+    expect(migration).toContain("recovery");
     expect(migration).not.toMatch(/\bdrop\s+(table|column|schema)\b/);
     expect(migration).not.toMatch(/\btruncate\b/);
     expect(migration).not.toMatch(/\bdelete\s+from\b/);
@@ -53,6 +99,7 @@ describe("Production schema control plane", () => {
     const workflow = source(".github/workflows/production-health.yml");
 
     expect(workflow).toContain("branches: [main]");
+    expect(workflow).toContain("group: proffera-production-health-${{ github.event_name }}");
     expect(workflow).toContain("PROFFERA_REMINDER_CRON_SECRET");
     expect(workflow).toContain("/api/cron/production-health");
     expect(workflow).toContain('deployed_sha" != "$TARGET_SHA');
@@ -61,16 +108,29 @@ describe("Production schema control plane", () => {
     expect(workflow).toContain("timeout-minutes: 8");
   });
 
-  it("blocks every later PR until its exact main base has a green Production health result", () => {
+  it("binds later PRs to the executable exact-SHA Production base health gate", () => {
     const workflow = source(".github/workflows/production-base-health.yml");
+    const script = source("scripts/production-base-health.sh");
 
     expect(workflow).toContain("pull_request:");
     expect(workflow).toContain("actions: read");
     expect(workflow).toContain("BASE_SHA: ${{ github.event.pull_request.base.sha }}");
-    expect(workflow).toContain("contents/.github/workflows/$HEALTH_WORKFLOW?ref=$BASE_SHA");
-    expect(workflow).toContain("select(.head_sha == $sha)");
-    expect(workflow).toContain('"$conclusion" = "success"');
-    expect(workflow).toContain("New work is blocked");
-    expect(workflow).toContain("allowing bootstrap PR only");
+    expect(workflow).toContain("bash scripts/production-base-health.sh");
+    expect(script).toContain("head_sha=$BASE_SHA");
+    expect(script).toContain("New work is blocked");
+    expect(script).toContain("allowing bootstrap PR only");
+  });
+
+  it("executes exact-base health success and failure paths", () => {
+    const success = runBaseHealth("success");
+    const failure = runBaseHealth("failure");
+    const missing = runBaseHealth("missing");
+
+    expect(success.status, success.stderr).toBe(0);
+    expect(success.stdout).toContain("Production is healthy on exact PR base");
+    expect(failure.status).not.toBe(0);
+    expect(failure.stdout).toContain("New work is blocked");
+    expect(missing.status).not.toBe(0);
+    expect(missing.stdout).toContain("No successful Production health result became available");
   });
 });
