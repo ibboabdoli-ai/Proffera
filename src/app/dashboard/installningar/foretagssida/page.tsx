@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { getSql } from "@/lib/db/server";
@@ -62,7 +63,10 @@ export default async function PublicBusinessSettingsPage({ searchParams }: { sea
         <p className="text-xs font-bold uppercase tracking-[0.18em] text-white/65">Företagssida</p>
         <div className="mt-2 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div><h1 className="text-3xl font-black">Din publika företagsyta</h1><p className="mt-3 max-w-3xl text-sm leading-7 text-white/80">Tjänster, bokning, offert, omdömen, galleri och kontakt använder samma workspace-data. Ingen separat tjänstekatalog behöver underhållas.</p></div>
-          <a href={publicUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center justify-center rounded-xl bg-white px-4 py-2.5 text-sm font-black text-[#173e2b]">Förhandsvisa företagssida</a>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Link href="/dashboard/installningar/foretagssida/platser" className="inline-flex min-h-11 items-center justify-center rounded-xl border border-white/35 px-4 py-2.5 text-sm font-black text-white">Hantera företagsplatser</Link>
+            <a href={publicUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center justify-center rounded-xl bg-white px-4 py-2.5 text-sm font-black text-[#173e2b]">Förhandsvisa företagssida</a>
+          </div>
         </div>
       </header>
 
