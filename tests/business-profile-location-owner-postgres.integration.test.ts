@@ -18,6 +18,10 @@ type PendingQuery = {
   values: unknown[];
 };
 
+type QueryBarrier = {
+  wait: () => Promise<void>;
+};
+
 const mocks = vi.hoisted(() => ({
   getSql: vi.fn(),
   getPlatformAdmin: vi.fn(),
@@ -51,7 +55,26 @@ function taggedQuery(strings: TemplateStringsArray, values: unknown[]): PendingQ
   return { text, values };
 }
 
-function createPostgresSqlAdapter(connectionString: string) {
+function createQueryBarrier(parties = 2): QueryBarrier {
+  let arrived = 0;
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+
+  return {
+    async wait() {
+      arrived += 1;
+      if (arrived === parties) release();
+      await released;
+    },
+  };
+}
+
+function createPostgresSqlAdapter(
+  connectionString: string,
+  options: { profileLockBarrier?: QueryBarrier } = {},
+) {
   const sql = ((strings: TemplateStringsArray, ...values: unknown[]) => taggedQuery(strings, values)) as unknown as {
     (strings: TemplateStringsArray, ...values: unknown[]): PendingQuery;
     transaction: (queries: PendingQuery[]) => Promise<Record<string, unknown>[][]>;
@@ -63,7 +86,15 @@ function createPostgresSqlAdapter(connectionString: string) {
     try {
       await transactionClient.query("begin");
       const results: Record<string, unknown>[][] = [];
-      for (const query of queries) {
+      for (let index = 0; index < queries.length; index += 1) {
+        const query = queries[index]!;
+        if (
+          index === 0
+          && query.text.includes("from company_directory_profiles profile")
+          && options.profileLockBarrier
+        ) {
+          await options.profileLockBarrier.wait();
+        }
         const result = await transactionClient.query(query.text, query.values);
         results.push(result.rows as Record<string, unknown>[]);
       }
@@ -210,6 +241,9 @@ function primaryLocationInput(purpose: "storefront" | "service_base") {
     }, 30_000);
 
     it("serializes concurrent primary creates so exactly one active primary remains", async () => {
+      const barrier = createQueryBarrier();
+      mocks.getSql.mockReturnValue(createPostgresSqlAdapter(connectionString, { profileLockBarrier: barrier }));
+
       const [first, second] = await Promise.all([
         createOwnerBusinessProfileLocation(primaryLocationInput("storefront")),
         createOwnerBusinessProfileLocation(primaryLocationInput("service_base")),
@@ -238,6 +272,8 @@ function primaryLocationInput(purpose: "storefront" | "service_base") {
 
     it("serializes deactivation against a concurrent primary create", async () => {
       const existing = await createOwnerBusinessProfileLocation(primaryLocationInput("storefront"));
+      const barrier = createQueryBarrier();
+      mocks.getSql.mockReturnValue(createPostgresSqlAdapter(connectionString, { profileLockBarrier: barrier }));
 
       const [, replacement] = await Promise.all([
         deactivateOwnerBusinessProfileLocation(existing.id),
