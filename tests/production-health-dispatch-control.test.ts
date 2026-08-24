@@ -95,7 +95,7 @@ describe("Production health dispatch control", () => {
     expect(workflow).toContain("DISPATCH_SHA: ${{ github.event.client_payload.sha }}");
     expect(workflow).toContain('if [ "$DISPATCH_SHA" != "$DEFAULT_BRANCH_SHA" ]');
     expect(workflow).toContain('require_exact_commit=yes');
-    expect(workflow).toContain('[ "$deployed_sha" != "$target_sha" ]');
+    expect(workflow).toContain('[ "$deployed_sha" != "$TARGET_SHA" ]');
     expect(workflow).toContain('max_attempts=24');
   });
 
