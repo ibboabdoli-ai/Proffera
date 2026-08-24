@@ -2,6 +2,10 @@ import "server-only";
 
 import { assessCompanyDirectoryCategoryConfidence } from "@/lib/company-directory-category-confidence";
 import { enrichCompanyDirectoryOfficialFactsForProfile } from "@/lib/company-directory-official-facts";
+import {
+  SCB_COMPANY_REGISTRY_MATCH_COUNT_FAILURE_CODE as DETERMINISTIC_SCB_FAILURE_CODE,
+  isScbCompanyRegistryMatchCountError,
+} from "@/lib/company-directory-scb-provider";
 import { enrichCompanyDirectoryScbForProfile } from "@/lib/company-directory-scb-enrichment";
 import { createScbCompanyRegistryTransportFromEnv } from "@/lib/company-directory-scb-transport";
 import { getSql } from "@/lib/db/server";
@@ -11,8 +15,6 @@ const DEFAULT_BATCH_SIZE = 10;
 const MAX_BATCH_SIZE = 10;
 const OFFICIAL_FACTS_START_HEADROOM_MS = 30_000;
 const SCB_START_HEADROOM_MS = 18_000;
-const DETERMINISTIC_SCB_MATCH_ERROR = "SCB company registry response must contain exactly one matching company";
-const DETERMINISTIC_SCB_FAILURE_CODE = "company_match_count";
 
 type RevalidationOptions = {
   deadlineAt?: number;
@@ -49,10 +51,6 @@ function hardOfficialFactsBlock(row: Record<string, unknown> | null | undefined)
   return Boolean(row?.deregistration_date)
     || Boolean(row?.advertising_blocked)
     || jsonArray(row?.ongoing_procedures).length > 0;
-}
-
-function deterministicScbMatchFailure(error: unknown) {
-  return error instanceof Error && error.message === DETERMINISTIC_SCB_MATCH_ERROR;
 }
 
 function boundedLimit(value: unknown) {
@@ -655,6 +653,7 @@ async function recordDeterministicScbFailure(input: {
         excluded.provenance -> 'revalidationFailure',
         true
       ),
+      source_payload_hash = '',
       updated_at = now()
     returning profile_id::text
   `;
@@ -916,16 +915,34 @@ export async function revalidateAllCompanyDirectoryBatch(
           continue;
         }
 
-        if (candidateStatus === "review" && Boolean(candidate.known_hard_official_facts_block)) {
+        if (
+          candidateStatus === "published"
+          || candidateStatus === "ready"
+          || candidateStatus === "review"
+        ) {
           const refreshedFacts = await loadFreshEvaluation(profileId);
           if (!refreshedFacts) {
             deferred += 1;
             continue;
           }
+
           if (hardOfficialFactsBlock(refreshedFacts)) {
-            refreshed += 1;
-            kept += 1;
-            continue;
+            const refreshedStatus = text(refreshedFacts.publication_status);
+            if (refreshedStatus === "published" || refreshedStatus === "ready") {
+              const moved = await moveKnownHardBlockedProfileToReview(profileId, refreshedStatus);
+              if (!moved) {
+                deferred += 1;
+                continue;
+              }
+              refreshed += 1;
+              movedToReview += 1;
+              continue;
+            }
+            if (refreshedStatus === "review") {
+              refreshed += 1;
+              kept += 1;
+              continue;
+            }
           }
         }
 
@@ -940,7 +957,7 @@ export async function revalidateAllCompanyDirectoryBatch(
             allowWhenDisabledWithExplicitTransport: true,
           });
         } catch (error) {
-          if (!deterministicScbMatchFailure(error)) throw error;
+          if (!isScbCompanyRegistryMatchCountError(error)) throw error;
 
           const failureEvaluation = await loadFreshEvaluation(profileId);
           if (!failureEvaluation) {

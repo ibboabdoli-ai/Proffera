@@ -4,6 +4,27 @@ import { createScbCompanyRegistryTransportFromEnv } from "./company-directory-sc
 
 const SCB_SOURCE = "scb_foretagsregistret" as const;
 
+export const SCB_COMPANY_REGISTRY_MATCH_COUNT_FAILURE_CODE = "company_match_count" as const;
+export const SCB_COMPANY_REGISTRY_MATCH_COUNT_ERROR_MESSAGE =
+  "SCB company registry response must contain exactly one matching company";
+
+export class ScbCompanyRegistryMatchCountError extends Error {
+  readonly code = SCB_COMPANY_REGISTRY_MATCH_COUNT_FAILURE_CODE;
+
+  constructor() {
+    super(SCB_COMPANY_REGISTRY_MATCH_COUNT_ERROR_MESSAGE);
+    this.name = "ScbCompanyRegistryMatchCountError";
+  }
+}
+
+export function isScbCompanyRegistryMatchCountError(error: unknown) {
+  return error instanceof ScbCompanyRegistryMatchCountError
+    || (
+      error instanceof Error
+      && error.message === SCB_COMPANY_REGISTRY_MATCH_COUNT_ERROR_MESSAGE
+    );
+}
+
 type UnknownRecord = Record<string, unknown>;
 
 export type ScbCompanyRegistryAddress = {
@@ -234,7 +255,7 @@ export function normalizeScbCompanyRegistryPayload(
   const companies = recordsFromPayload(companyPayload);
   const matchingCompanies = companies.filter((record) => organizationNumberFor(record) === expected);
   if (matchingCompanies.length !== 1) {
-    throw new Error("SCB company registry response must contain exactly one matching company");
+    throw new ScbCompanyRegistryMatchCountError();
   }
   const company = matchingCompanies[0];
   ensureExpectedOrganizationNumber(company, expected);

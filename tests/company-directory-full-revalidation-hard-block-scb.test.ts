@@ -24,6 +24,7 @@ vi.mock("@/lib/company-directory-scb-transport", () => ({
 }));
 
 import { revalidateAllCompanyDirectoryBatch } from "../src/lib/company-directory-full-revalidation";
+import { ScbCompanyRegistryMatchCountError } from "../src/lib/company-directory-scb-provider";
 
 type SqlCall = { query: string; values: unknown[] };
 type SqlResponder = (query: string, values: unknown[]) => Promise<unknown[]> | unknown[];
@@ -34,7 +35,6 @@ const ORGANIZATION_NUMBER = "5594022609";
 const PROFILE_TOKEN = "2026-08-24 18:35:00.000000+00";
 const FACTS_TOKEN = "2026-08-24 18:35:02.000000+00";
 const FACTS_HASH = "facts-hash";
-const DETERMINISTIC_SCB_ERROR = "SCB company registry response must contain exactly one matching company";
 
 const transport = {
   fetchCompany: vi.fn(),
@@ -163,6 +163,43 @@ describe("full Directory revalidation hard-block and deterministic SCB handling"
     expect(mocks.enrichScb).not.toHaveBeenCalled();
   });
 
+  it("demotes a Ready profile that becomes hard-blocked during Official Facts refresh before SCB", async () => {
+    const hardBlocked = evaluation({
+      publication_status: "ready",
+      ongoing_procedures: [{ code: "KK", label: "Konkurs" }],
+    });
+
+    responder = async (query) => {
+      if (query.includes("with blocked as (")) return [];
+      if (query.includes("started_at < now() - interval '10 minutes'")) return [];
+      if (query.includes("insert into company_directory_sync_runs")) return [{ id: RUN_ID, cursor_value: "" }];
+      if (query.includes("with eligible as (")) return [candidate("ready", false)];
+      if (query.includes("profile.category_slug") && query.includes("scb_snapshot_fresh")) return [hardBlocked];
+      if (
+        query.includes("update company_directory_profiles profile")
+        && query.includes("facts.deregistration_date is not null")
+      ) return [{ id: PROFILE_ID }];
+      if (query.includes("update company_directory_sync_runs") && query.includes("where id =")) return [];
+      if (query.includes("select count(*)::int as count")) return [{ count: 0 }];
+      throw new Error(`Unexpected SQL in refreshed hard-block test: ${query}`);
+    };
+
+    mocks.enrichScb.mockRejectedValue(new Error("SCB must not run after a hard block is refreshed"));
+
+    const result = await revalidateAllCompanyDirectoryBatch(10);
+
+    expect(result).toMatchObject({
+      selected: 1,
+      refreshed: 1,
+      movedToReview: 1,
+      errors: 0,
+      remaining: 0,
+    });
+    expect(mocks.enrichOfficialFacts).toHaveBeenCalledTimes(1);
+    expect(mocks.enrichScb).not.toHaveBeenCalled();
+    expect(mocks.assessConfidence).not.toHaveBeenCalled();
+  });
+
   it("moves a Ready profile to Review and records a fail-closed retry marker after deterministic SCB no-match", async () => {
     const fresh = evaluation();
     let evaluationReads = 0;
@@ -189,7 +226,7 @@ describe("full Directory revalidation hard-block and deterministic SCB handling"
       throw new Error(`Unexpected SQL in deterministic SCB test: ${query}`);
     };
 
-    mocks.enrichScb.mockRejectedValue(new Error(DETERMINISTIC_SCB_ERROR));
+    mocks.enrichScb.mockRejectedValue(new ScbCompanyRegistryMatchCountError());
 
     const result = await revalidateAllCompanyDirectoryBatch(10);
 
@@ -200,7 +237,7 @@ describe("full Directory revalidation hard-block and deterministic SCB handling"
       errorSummary: "",
       remaining: 0,
     });
-    expect(evaluationReads).toBe(1);
+    expect(evaluationReads).toBe(2);
     expect(mocks.enrichOfficialFacts).toHaveBeenCalledTimes(1);
     expect(mocks.enrichScb).toHaveBeenCalledTimes(1);
     expect(mocks.assessConfidence).not.toHaveBeenCalled();
@@ -210,8 +247,8 @@ describe("full Directory revalidation hard-block and deterministic SCB handling"
         && call.query.includes("revalidationFailure"),
     );
     expect(marker?.values).toContain("company_match_count");
-    expect(marker?.query).toContain("source_payload_hash");
     expect(marker?.query).toContain("on conflict (profile_id) do update");
+    expect(marker?.query).toContain("source_payload_hash = ''");
   });
 
   it("suppresses blocked Review rows between bounded Official Facts rechecks and current SCB failures", async () => {
