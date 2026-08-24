@@ -196,6 +196,6 @@ describe("Production health dispatch control", () => {
     expect(fixture.result.status).not.toBe(0);
     expect(fixture.dispatched).toBe(false);
     expect(fixture.summary).not.toContain("Proffera gated automerge: merged");
-    expect(fixture.result.stderr).toContain("pull request was not confirmed merged");
+    expect(fixture.result.stdout).toContain("pull request was not confirmed merged");
   });
 });
