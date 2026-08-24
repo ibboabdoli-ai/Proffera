@@ -66,6 +66,7 @@ describe("full Company Directory evaluation deadline", () => {
 
     const sql = vi.fn(async (strings: TemplateStringsArray, ..._values: unknown[]) => {
       const query = normalizeQuery(strings);
+      if (query.includes("with blocked as (") && query.includes("for update of profile skip locked")) return [];
       queries.push(query);
 
       if (query.includes("started_at < now() - interval '10 minutes'")) return [];
