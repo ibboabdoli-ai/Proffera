@@ -30,7 +30,7 @@ const PROFILE_ID = "22222222-2222-4222-8222-222222222222";
 const LOCATION_ID = "33333333-3333-4333-8333-333333333333";
 
 function queryText(strings: TemplateStringsArray) {
-  return strings.join(" ? ").replace(/\s+/g, " ").trim();
+  return strings.join(" ? ").replace(/\s+/g, " ").replace(/\?\s+::/g, "?::").trim();
 }
 
 type QueryRecord = { text: string; values: unknown[] };
