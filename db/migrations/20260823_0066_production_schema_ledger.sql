@@ -4,7 +4,11 @@
 -- entry is 0065 because its canonical migration was independently applied and verified
 -- against Production on 2026-08-23 before this ledger was introduced.
 --
--- This migration is additive, idempotent and transaction-safe.
+-- This migration is additive, idempotent, and atomic. If execution fails before COMMIT,
+-- PostgreSQL rolls the entire migration back. Recovery is to fix the cause and rerun the
+-- same canonical file; ON CONFLICT keeps the verified bootstrap rows idempotent.
+
+begin;
 
 create table if not exists proffera_schema_migrations (
   migration_key text primary key,
@@ -49,3 +53,5 @@ values
     'Introduces the forward-looking Production schema migration ledger.'
   )
 on conflict (migration_key) do nothing;
+
+commit;
