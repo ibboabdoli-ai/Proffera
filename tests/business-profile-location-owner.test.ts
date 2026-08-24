@@ -182,6 +182,16 @@ describe("Business Profile claimed-owner location boundary", () => {
     );
   });
 
+  it("rejects a blank update id before resolving Workspace or database access", async () => {
+    await expect(updateOwnerBusinessProfileLocation({
+      ...validInput(),
+      id: "   ",
+    })).rejects.toThrow("location id is required");
+
+    expect(mocks.getUserWorkspaceAccess).not.toHaveBeenCalled();
+    expect(mocks.getSql).not.toHaveBeenCalled();
+  });
+
   it("cannot update a stale owner row and guards primary cleanup behind target ownership", async () => {
     const { sql, queries } = createSqlMock(async (query) => {
       if (query.text.startsWith("select profile.id")) return [{ id: PROFILE_ID }];
@@ -203,16 +213,24 @@ describe("Business Profile claimed-owner location boundary", () => {
     expect(queries[2]?.text).toContain("location.owner_workspace_id = ?::uuid");
   });
 
-  it("deactivates only an owner row still bound to the active claimed Workspace", async () => {
-    const { sql, queries } = createSqlMock(async () => [{ id: LOCATION_ID }]);
+  it("serializes deactivation with primary writes and keeps it bound to the active claim", async () => {
+    const { sql, queries } = createSqlMock(async (query) => {
+      if (query.text.startsWith("select profile.id")) return [{ id: PROFILE_ID }];
+      if (query.text.startsWith("update company_directory_profile_locations")) return [{ id: LOCATION_ID }];
+      return [];
+    });
     mocks.getSql.mockReturnValue(sql);
 
     await expect(deactivateOwnerBusinessProfileLocation(LOCATION_ID)).resolves.toBeUndefined();
 
-    expect(queries[0]?.text).toContain("location.source_type = 'owner'");
-    expect(queries[0]?.text).toContain("location.owner_workspace_id = ?::uuid");
+    expect(sql.transaction).toHaveBeenCalledTimes(1);
+    expect(queries).toHaveLength(2);
+    expect(queries[0]?.text).toContain("for update");
     expect(queries[0]?.text).toContain("profile.claimed_workspace_id = ?::uuid");
-    expect(queries[0]?.text).toContain("visibility = 'private'");
+    expect(queries[1]?.text).toContain("location.source_type = 'owner'");
+    expect(queries[1]?.text).toContain("location.owner_workspace_id = ?::uuid");
+    expect(queries[1]?.text).toContain("profile.claimed_workspace_id = ?::uuid");
+    expect(queries[1]?.text).toContain("visibility = 'private'");
   });
 
   it("keeps super-admin inspection behind the existing platform-admin boundary", async () => {
