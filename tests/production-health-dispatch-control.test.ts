@@ -109,6 +109,8 @@ describe("Production health dispatch control", () => {
     expect(resolveIndex).toBeGreaterThan(mergeIndex);
     expect(dispatchIndex).toBeGreaterThan(resolveIndex);
     expect(workflow).toContain('{event_type:"production-health",client_payload:{sha:$sha}}');
-    expect(workflow).toContain('if ! [[ "$merged_sha" =~ ^[0-9a-f]{40}$ ]]');
+    expect(workflow).toContain('if [ "$pr_merged" != "true" ] || ! [[ "$merged_sha" =~ ^[0-9a-f]{40}$ ]]');
+    expect(workflow).toContain('.merged');
+    expect(workflow).toContain('if [ "$pr_merged" != "true" ]');
   });
 });
