@@ -45,6 +45,12 @@ function jsonArray(value: unknown): unknown[] {
   return [];
 }
 
+function hardOfficialFactsBlock(row: Record<string, unknown> | null | undefined) {
+  return Boolean(row?.deregistration_date)
+    || Boolean(row?.advertising_blocked)
+    || jsonArray(row?.ongoing_procedures).length > 0;
+}
+
 function deterministicScbMatchFailure(error: unknown) {
   return error instanceof Error && error.message === DETERMINISTIC_SCB_MATCH_ERROR;
 }
@@ -155,6 +161,46 @@ async function finishRun(input: {
   `;
 }
 
+async function demoteKnownHardBlockedProfiles(limit: number) {
+  const sql = getSql();
+  if (!sql) throw new Error("Database is not configured");
+
+  const rows = await sql`
+    with blocked as (
+      select profile.id
+      from company_directory_profiles profile
+      join company_directory_official_facts facts on facts.profile_id = profile.id
+      where profile.country_code = 'SE'
+        and profile.organization_kind = 'juridical_person'
+        and profile.publication_status in ('published', 'ready')
+        and profile.claimed_workspace_id is null
+        and facts.source_payload_hash <> ''
+        and facts.last_synced_at >= profile.last_synced_at
+        and (
+          facts.deregistration_date is not null
+          or coalesce(facts.advertising_blocked, false) = true
+          or jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) > 0
+        )
+      order by
+        case profile.publication_status when 'published' then 0 else 1 end,
+        regexp_replace(profile.organization_number, '\\D', '', 'g')
+      limit ${limit}
+      for update of profile skip locked
+    )
+    update company_directory_profiles profile
+    set publication_status = 'review',
+        published_at = null,
+        updated_at = now()
+    from blocked
+    where profile.id = blocked.id
+      and profile.publication_status in ('published', 'ready')
+      and profile.claimed_workspace_id is null
+    returning profile.id::text
+  `;
+
+  return rows.length;
+}
+
 async function selectCandidates(limit: number, cursorValue: string) {
   const sql = getSql();
   if (!sql) throw new Error("Database is not configured");
@@ -177,11 +223,8 @@ async function selectCandidates(limit: number, cursorValue: string) {
           else 5
         end as status_rank,
         (
-          profile.publication_status in ('published', 'ready')
-          and profile.claimed_workspace_id is null
-          and facts.profile_id is not null
+          facts.profile_id is not null
           and facts.source_payload_hash <> ''
-          and facts.last_synced_at >= profile.last_synced_at
           and (
             facts.deregistration_date is not null
             or coalesce(facts.advertising_blocked, false) = true
@@ -198,14 +241,34 @@ async function selectCandidates(limit: number, cursorValue: string) {
         and (
           facts.profile_id is null
           or facts.source_payload_hash = ''
-          or facts.last_synced_at < profile.last_synced_at
+          or (
+            profile.publication_status = 'review'
+            and facts.source_payload_hash <> ''
+            and (
+              facts.deregistration_date is not null
+              or coalesce(facts.advertising_blocked, false) = true
+              or jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) > 0
+            )
+            and greatest(facts.last_synced_at, profile.updated_at) < now() - interval '24 hours'
+          )
+          or (
+            not (
+              profile.publication_status = 'review'
+              and facts.source_payload_hash <> ''
+              and (
+                facts.deregistration_date is not null
+                or coalesce(facts.advertising_blocked, false) = true
+                or jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) > 0
+              )
+            )
+            and facts.last_synced_at < profile.last_synced_at
+          )
           or (
             profile.publication_status <> 'inactive'
             and not (
               profile.publication_status = 'review'
               and facts.profile_id is not null
               and facts.source_payload_hash <> ''
-              and facts.last_synced_at >= profile.last_synced_at
               and (
                 facts.deregistration_date is not null
                 or coalesce(facts.advertising_blocked, false) = true
@@ -295,14 +358,34 @@ async function backlogCount() {
       and (
         facts.profile_id is null
         or facts.source_payload_hash = ''
-        or facts.last_synced_at < profile.last_synced_at
+        or (
+          profile.publication_status = 'review'
+          and facts.source_payload_hash <> ''
+          and (
+            facts.deregistration_date is not null
+            or coalesce(facts.advertising_blocked, false) = true
+            or jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) > 0
+          )
+          and greatest(facts.last_synced_at, profile.updated_at) < now() - interval '24 hours'
+        )
+        or (
+          not (
+            profile.publication_status = 'review'
+            and facts.source_payload_hash <> ''
+            and (
+              facts.deregistration_date is not null
+              or coalesce(facts.advertising_blocked, false) = true
+              or jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) > 0
+            )
+          )
+          and facts.last_synced_at < profile.last_synced_at
+        )
         or (
           profile.publication_status <> 'inactive'
           and not (
             profile.publication_status = 'review'
             and facts.profile_id is not null
             and facts.source_payload_hash <> ''
-            and facts.last_synced_at >= profile.last_synced_at
             and (
               facts.deregistration_date is not null
               or coalesce(facts.advertising_blocked, false) = true
@@ -725,6 +808,9 @@ export async function revalidateAllCompanyDirectoryBatch(
   if (!sql) throw new Error("Database is not configured");
 
   const safeLimit = boundedLimit(limit);
+  const preflightMovedToReview = await demoteKnownHardBlockedProfiles(safeLimit);
+  const remainingLimit = Math.max(0, safeLimit - preflightMovedToReview);
+
   let transport;
   try {
     transport = createScbCompanyRegistryTransportFromEnv();
@@ -732,10 +818,10 @@ export async function revalidateAllCompanyDirectoryBatch(
     return {
       skipped: true,
       reason: "scb_access_invalid",
-      selected: 0,
+      selected: preflightMovedToReview,
       refreshed: 0,
       kept: 0,
-      movedToReview: 0,
+      movedToReview: preflightMovedToReview,
       recoveredToReady: 0,
       deferred: 0,
       errors: 1,
@@ -748,10 +834,10 @@ export async function revalidateAllCompanyDirectoryBatch(
     return {
       skipped: true,
       reason: "scb_access_not_configured",
-      selected: 0,
+      selected: preflightMovedToReview,
       refreshed: 0,
       kept: 0,
-      movedToReview: 0,
+      movedToReview: preflightMovedToReview,
       recoveredToReady: 0,
       deferred: 0,
       errors: 0,
@@ -765,10 +851,10 @@ export async function revalidateAllCompanyDirectoryBatch(
     return {
       skipped: true,
       reason: "already_running",
-      selected: 0,
+      selected: preflightMovedToReview,
       refreshed: 0,
       kept: 0,
-      movedToReview: 0,
+      movedToReview: preflightMovedToReview,
       recoveredToReady: 0,
       deferred: 0,
       errors: 0,
@@ -782,14 +868,14 @@ export async function revalidateAllCompanyDirectoryBatch(
   let candidates: Awaited<ReturnType<typeof selectCandidates>> = [];
   let refreshed = 0;
   let kept = 0;
-  let movedToReview = 0;
+  let movedToReview = preflightMovedToReview;
   let recoveredToReady = 0;
   let deferred = 0;
   let errors = 0;
   const errorMessages: string[] = [];
 
   try {
-    candidates = await selectCandidates(safeLimit, cursorValue);
+    candidates = remainingLimit > 0 ? await selectCandidates(remainingLimit, cursorValue) : [];
 
     candidateLoop:
     for (let index = 0; index < candidates.length; index += 1) {
@@ -828,6 +914,19 @@ export async function revalidateAllCompanyDirectoryBatch(
           refreshed += 1;
           kept += 1;
           continue;
+        }
+
+        if (candidateStatus === "review" && Boolean(candidate.known_hard_official_facts_block)) {
+          const refreshedFacts = await loadFreshEvaluation(profileId);
+          if (!refreshedFacts) {
+            deferred += 1;
+            continue;
+          }
+          if (hardOfficialFactsBlock(refreshedFacts)) {
+            refreshed += 1;
+            kept += 1;
+            continue;
+          }
         }
 
         if (deadlineReached(options.deadlineAt, SCB_START_HEADROOM_MS)) {
@@ -1078,11 +1177,12 @@ export async function revalidateAllCompanyDirectoryBatch(
       }
     }
 
+    const selected = preflightMovedToReview + candidates.length;
     const errorSummary = errorMessages.join(" | ");
     await finishRun({
       runId,
       cursorValue,
-      selected: candidates.length,
+      selected,
       refreshed,
       kept,
       movedToReview,
@@ -1093,7 +1193,7 @@ export async function revalidateAllCompanyDirectoryBatch(
     return {
       skipped: false,
       reason: "",
-      selected: candidates.length,
+      selected,
       refreshed,
       kept,
       movedToReview,
@@ -1105,10 +1205,11 @@ export async function revalidateAllCompanyDirectoryBatch(
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Full Directory revalidation failed";
+    const selected = preflightMovedToReview + candidates.length;
     await finishRun({
       runId,
       cursorValue,
-      selected: candidates.length,
+      selected,
       refreshed,
       kept,
       movedToReview,
