@@ -11,6 +11,8 @@ const DEFAULT_BATCH_SIZE = 10;
 const MAX_BATCH_SIZE = 10;
 const OFFICIAL_FACTS_START_HEADROOM_MS = 30_000;
 const SCB_START_HEADROOM_MS = 18_000;
+const DETERMINISTIC_SCB_MATCH_ERROR = "SCB company registry response must contain exactly one matching company";
+const DETERMINISTIC_SCB_FAILURE_CODE = "company_match_count";
 
 type RevalidationOptions = {
   deadlineAt?: number;
@@ -41,6 +43,16 @@ function jsonArray(value: unknown): unknown[] {
     }
   }
   return [];
+}
+
+function hardOfficialFactsBlock(row: Record<string, unknown> | null | undefined) {
+  return Boolean(row?.deregistration_date)
+    || Boolean(row?.advertising_blocked)
+    || jsonArray(row?.ongoing_procedures).length > 0;
+}
+
+function deterministicScbMatchFailure(error: unknown) {
+  return error instanceof Error && error.message === DETERMINISTIC_SCB_MATCH_ERROR;
 }
 
 function boundedLimit(value: unknown) {
@@ -183,6 +195,20 @@ async function selectCandidates(limit: number, cursorValue: string) {
           or facts.last_synced_at < profile.last_synced_at
           or (
             profile.publication_status <> 'inactive'
+            and not (
+              profile.publication_status = 'review'
+              and (
+                facts.deregistration_date is not null
+                or coalesce(facts.advertising_blocked, false) = true
+                or jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) > 0
+              )
+            )
+            and not (
+              scb.provenance #>> '{revalidationFailure,code}' = ${DETERMINISTIC_SCB_FAILURE_CODE}
+              and scb.provenance #>> '{revalidationFailure,profileUpdatedToken}' = profile.updated_at::text
+              and scb.provenance #>> '{revalidationFailure,officialFactsLastSyncedToken}' = facts.last_synced_at::text
+              and scb.updated_at >= now() - interval '24 hours'
+            )
             and (
               scb.profile_id is null
               or scb.source_payload_hash = ''
@@ -263,6 +289,20 @@ async function backlogCount() {
         or facts.last_synced_at < profile.last_synced_at
         or (
           profile.publication_status <> 'inactive'
+          and not (
+            profile.publication_status = 'review'
+            and (
+              facts.deregistration_date is not null
+              or coalesce(facts.advertising_blocked, false) = true
+              or jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) > 0
+            )
+          )
+          and not (
+            scb.provenance #>> '{revalidationFailure,code}' = ${DETERMINISTIC_SCB_FAILURE_CODE}
+            and scb.provenance #>> '{revalidationFailure,profileUpdatedToken}' = profile.updated_at::text
+            and scb.provenance #>> '{revalidationFailure,officialFactsLastSyncedToken}' = facts.last_synced_at::text
+            and scb.updated_at >= now() - interval '24 hours'
+          )
           and (
             scb.profile_id is null
             or scb.source_payload_hash = ''
@@ -410,6 +450,125 @@ async function markReviewRecoveryEvaluation(input: {
           and facts.source_payload_hash = ${input.factsSourcePayloadHash}
       )
     returning scb.profile_id::text
+  `;
+
+  return Boolean(rows[0]);
+}
+
+async function moveProfileToReviewFromOfficialFacts(input: {
+  profileId: string;
+  expectedStatus: string;
+  profileUpdatedToken: string;
+  factsLastSyncedToken: string;
+  factsSourcePayloadHash: string;
+}) {
+  const sql = getSql();
+  if (!sql) return false;
+
+  const rows = await sql`
+    update company_directory_profiles profile
+    set publication_status = 'review',
+        published_at = null,
+        updated_at = now()
+    where profile.id = ${input.profileId}::uuid
+      and profile.publication_status = ${input.expectedStatus}
+      and profile.country_code = 'SE'
+      and profile.organization_kind = 'juridical_person'
+      and profile.claimed_workspace_id is null
+      and profile.updated_at::text = ${input.profileUpdatedToken}
+      and exists (
+        select 1
+        from company_directory_official_facts facts
+        where facts.profile_id = profile.id
+          and facts.last_synced_at::text = ${input.factsLastSyncedToken}
+          and facts.source_payload_hash = ${input.factsSourcePayloadHash}
+          and (
+            facts.deregistration_date is not null
+            or coalesce(facts.advertising_blocked, false) = true
+            or jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) > 0
+          )
+      )
+    returning profile.id::text
+  `;
+
+  return Boolean(rows[0]);
+}
+
+async function moveProfileToReviewAfterScbFailure(input: {
+  profileId: string;
+  expectedStatus: string;
+  profileUpdatedToken: string;
+  factsLastSyncedToken: string;
+  factsSourcePayloadHash: string;
+}) {
+  const sql = getSql();
+  if (!sql) return false;
+
+  const rows = await sql`
+    update company_directory_profiles profile
+    set publication_status = 'review',
+        published_at = null,
+        updated_at = now()
+    where profile.id = ${input.profileId}::uuid
+      and profile.publication_status = ${input.expectedStatus}
+      and profile.country_code = 'SE'
+      and profile.organization_kind = 'juridical_person'
+      and profile.claimed_workspace_id is null
+      and profile.updated_at::text = ${input.profileUpdatedToken}
+      and exists (
+        select 1
+        from company_directory_official_facts facts
+        where facts.profile_id = profile.id
+          and facts.last_synced_at::text = ${input.factsLastSyncedToken}
+          and facts.source_payload_hash = ${input.factsSourcePayloadHash}
+      )
+    returning profile.id::text
+  `;
+
+  return Boolean(rows[0]);
+}
+
+async function recordDeterministicScbFailure(input: {
+  profileId: string;
+  factsLastSyncedToken: string;
+}) {
+  const sql = getSql();
+  if (!sql) return false;
+
+  const rows = await sql`
+    insert into company_directory_scb_enrichment (
+      profile_id,
+      organization_number,
+      provenance,
+      source_payload_hash,
+      updated_at
+    )
+    select
+      profile.id,
+      regexp_replace(profile.organization_number, '\\D', '', 'g'),
+      jsonb_build_object(
+        'revalidationFailure',
+        jsonb_build_object(
+          'code', ${DETERMINISTIC_SCB_FAILURE_CODE}::text,
+          'profileUpdatedToken', profile.updated_at::text,
+          'officialFactsLastSyncedToken', facts.last_synced_at::text
+        )
+      ),
+      '',
+      now()
+    from company_directory_profiles profile
+    join company_directory_official_facts facts on facts.profile_id = profile.id
+    where profile.id = ${input.profileId}::uuid
+      and facts.last_synced_at::text = ${input.factsLastSyncedToken}
+    on conflict (profile_id) do update set
+      provenance = jsonb_set(
+        coalesce(company_directory_scb_enrichment.provenance, '{}'::jsonb),
+        '{revalidationFailure}',
+        excluded.provenance -> 'revalidationFailure',
+        true
+      ),
+      updated_at = now()
+    returning profile_id::text
   `;
 
   return Boolean(rows[0]);
@@ -647,10 +806,56 @@ export async function revalidateAllCompanyDirectoryBatch(
       cursorValue = serializeCursor(candidate.publication_status, organizationNumber);
 
       try {
+        const storedRow = await loadFreshEvaluation(profileId);
+        const storedStatus = text(storedRow?.publication_status);
+        if (
+          (storedStatus === "published" || storedStatus === "ready")
+          && hardOfficialFactsBlock(storedRow)
+        ) {
+          const moved = await moveProfileToReviewFromOfficialFacts({
+            profileId,
+            expectedStatus: storedStatus,
+            profileUpdatedToken: text(storedRow?.profile_updated_token),
+            factsLastSyncedToken: text(storedRow?.facts_last_synced_token),
+            factsSourcePayloadHash: text(storedRow?.facts_source_payload_hash),
+          });
+          if (moved) {
+            movedToReview += 1;
+            continue;
+          }
+        }
+
         await enrichCompanyDirectoryOfficialFactsForProfile(profileId);
         if (text(candidate.publication_status) === "inactive") {
           refreshed += 1;
           kept += 1;
+          continue;
+        }
+
+        const officialFactsRow = await loadFreshEvaluation(profileId);
+        if (!officialFactsRow) {
+          deferred += 1;
+          continue;
+        }
+        const officialFactsStatus = text(officialFactsRow.publication_status);
+        if (hardOfficialFactsBlock(officialFactsRow) && officialFactsStatus !== "claimed") {
+          refreshed += 1;
+          if (officialFactsStatus === "published" || officialFactsStatus === "ready") {
+            const moved = await moveProfileToReviewFromOfficialFacts({
+              profileId,
+              expectedStatus: officialFactsStatus,
+              profileUpdatedToken: text(officialFactsRow.profile_updated_token),
+              factsLastSyncedToken: text(officialFactsRow.facts_last_synced_token),
+              factsSourcePayloadHash: text(officialFactsRow.facts_source_payload_hash),
+            });
+            if (!moved) {
+              deferred += 1;
+              continue;
+            }
+            movedToReview += 1;
+          } else {
+            kept += 1;
+          }
           continue;
         }
 
@@ -659,9 +864,43 @@ export async function revalidateAllCompanyDirectoryBatch(
           break candidateLoop;
         }
 
-        const scb = await enrichCompanyDirectoryScbForProfile(profileId, transport, {
-          allowWhenDisabledWithExplicitTransport: true,
-        });
+        let scb;
+        try {
+          scb = await enrichCompanyDirectoryScbForProfile(profileId, transport, {
+            allowWhenDisabledWithExplicitTransport: true,
+          });
+        } catch (error) {
+          if (!deterministicScbMatchFailure(error)) throw error;
+
+          const status = text(officialFactsRow.publication_status);
+          const factsLastSyncedToken = text(officialFactsRow.facts_last_synced_token);
+          const factsSourcePayloadHash = text(officialFactsRow.facts_source_payload_hash);
+          if (status === "published" || status === "ready") {
+            const moved = await moveProfileToReviewAfterScbFailure({
+              profileId,
+              expectedStatus: status,
+              profileUpdatedToken: text(officialFactsRow.profile_updated_token),
+              factsLastSyncedToken,
+              factsSourcePayloadHash,
+            });
+            if (!moved) {
+              deferred += 1;
+              continue;
+            }
+            movedToReview += 1;
+          }
+
+          const recorded = await recordDeterministicScbFailure({
+            profileId,
+            factsLastSyncedToken,
+          });
+          if (!recorded) {
+            deferred += 1;
+            continue;
+          }
+          if (status !== "published" && status !== "ready") deferred += 1;
+          continue;
+        }
 
         if (scb.status !== "saved") {
           deferred += 1;
