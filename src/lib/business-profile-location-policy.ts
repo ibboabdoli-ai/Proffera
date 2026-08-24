@@ -62,8 +62,9 @@ function isConfirmed(value: unknown) {
 }
 
 function finiteCoordinate(value: unknown, minimum: number, maximum: number) {
-  if (value === null || value === undefined || value === "") return null;
-  const parsed = Number(value);
+  const normalized = typeof value === "string" ? value.trim() : value;
+  if (normalized === null || normalized === undefined || normalized === "") return null;
+  const parsed = Number(normalized);
   if (!Number.isFinite(parsed) || parsed < minimum || parsed > maximum) return null;
   return parsed;
 }
