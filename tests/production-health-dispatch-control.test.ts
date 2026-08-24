@@ -90,15 +90,15 @@ function runAutomergePostMergeFixture(merged: boolean, mergeCommitSha: string) {
 
   writeFileSync(gh, `#!/usr/bin/env bash
 set -euo pipefail
-if [ "${1:-}" = "pr" ] && [ "${2:-}" = "merge" ]; then
+if [ "$1" = "pr" ] && [ "$2" = "merge" ]; then
   printf 'merge accepted\\n'
   exit 0
 fi
-if [ "${1:-}" = "api" ] && [[ "$*" == *"/pulls/706"* ]]; then
+if [ "$1" = "api" ] && [[ "$*" == *"/pulls/706"* ]]; then
   printf '%s\\n' '${apiPayload}'
   exit 0
 fi
-if [ "${1:-}" = "api" ] && [[ "$*" == *"/dispatches"* ]]; then
+if [ "$1" = "api" ] && [[ "$*" == *"/dispatches"* ]]; then
   : > "$DISPATCH_MARKER"
   exit 0
 fi
