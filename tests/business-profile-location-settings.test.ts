@@ -14,7 +14,7 @@ describe("Business Profile location settings wiring", () => {
   it("routes all mutations through the existing owner-scoped location boundary", () => {
     expect(page).toContain("listOwnerBusinessProfileLocations()");
     expect(page).toContain("createOwnerBusinessProfileLocation(input)");
-    expect(page).toContain("updateOwnerBusinessProfileLocation({ ...input, id })");
+    expect(page).toContain("updateOwnerBusinessProfileLocation({");
     expect(page).toContain("deactivateOwnerBusinessProfileLocation(id)");
     expect(page).not.toContain('from "@/lib/db/server"');
     expect(page).not.toContain("workspaceId");
@@ -29,6 +29,16 @@ describe("Business Profile location settings wiring", () => {
     expect(page).not.toContain('name="latitude"');
     expect(page).not.toContain('name="longitude"');
     expect(page).toContain("Exakta kartkoordinater hanteras inte på den här sidan");
+  });
+
+  it("preserves server-owned geocoding metadata when the edit form does not expose it", () => {
+    expect(page).toContain("const currentLocations = await listOwnerBusinessProfileLocations()");
+    expect(page).toContain('location.id === id && location.sourceType === "owner"');
+    expect(page).toContain("latitude: existingLocation.latitude");
+    expect(page).toContain("longitude: existingLocation.longitude");
+    expect(page).toContain("geocodeSource: existingLocation.geocodeSource");
+    expect(page).toContain("businessProfileLocationGeocodePrecisions.includes");
+    expect(page).toContain("geocodePrecision,");
   });
 
   it("renders non-owner source rows read-only and exposes edit controls only for owner rows", () => {
