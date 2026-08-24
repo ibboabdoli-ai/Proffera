@@ -125,8 +125,8 @@ beforeEach(() => {
   responder = async () => [];
   sql = vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
     const query = normalizeQuery(strings);
-    sqlCalls.push({ query, values });
     if (query.includes("with blocked as (") && query.includes("for update of profile skip locked")) return [];
+    sqlCalls.push({ query, values });
     return await responder(query, values);
   });
 
