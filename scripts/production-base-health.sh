@@ -7,12 +7,22 @@ HEALTH_WORKFLOW="${HEALTH_WORKFLOW:-production-health.yml}"
 MAX_ATTEMPTS="${BASE_HEALTH_ATTEMPTS:-24}"
 SLEEP_SECONDS="${BASE_HEALTH_SLEEP_SECONDS:-15}"
 
-# Bootstrap exception: the PR that introduces Production health has a base
-# where the health workflow does not yet exist. Every later base must have
-# an exact-SHA successful Production health run.
-if ! gh api "repos/$REPOSITORY/contents/.github/workflows/$HEALTH_WORKFLOW?ref=$BASE_SHA" >/dev/null 2>&1; then
-  echo "Production health is not yet active on base $BASE_SHA; allowing bootstrap PR only."
-  exit 0
+# Bootstrap is allowed only when the exact base genuinely predates the health
+# workflow. Authentication, network, rate-limit and other lookup failures fail closed.
+error_file="$(mktemp)"
+if gh api "repos/$REPOSITORY/contents/.github/workflows/$HEALTH_WORKFLOW?ref=$BASE_SHA" >/dev/null 2>"$error_file"; then
+  rm -f "$error_file"
+else
+  error_text="$(cat "$error_file")"
+  rm -f "$error_file"
+  if grep -Fq '(HTTP 404)' <<< "$error_text"; then
+    echo "Production health is not yet active on base $BASE_SHA; allowing bootstrap PR only."
+    exit 0
+  fi
+
+  printf '%s\n' "$error_text" >&2
+  echo "::error::Could not verify Production health workflow on exact base $BASE_SHA."
+  exit 1
 fi
 
 for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
