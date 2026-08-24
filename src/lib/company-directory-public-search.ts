@@ -437,8 +437,10 @@ export async function searchPublishedCompanyDirectory(
     from ranked
     where ${nearbyEnabled} = false or distance_km <= ${radiusKm}
     order by
-      case when ${sort} in ('recommended', 'nearest') and ${nearbyEnabled} = true then distance_km end asc nulls last,
-      case when ${sort} in ('recommended', 'nearest') then quality_score end desc nulls last,
+      case when ${sort} = 'nearest' and ${nearbyEnabled} = true then distance_km end asc nulls last,
+      case when ${sort} = 'recommended' then quality_score end desc nulls last,
+      case when ${sort} = 'recommended' and ${nearbyEnabled} = true then distance_km end asc nulls last,
+      case when ${sort} = 'nearest' then quality_score end desc nulls last,
       case when ${sort} = 'name' then lower(display_name) end asc nulls last,
       display_name asc,
       id asc
