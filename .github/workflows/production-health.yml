@@ -3,6 +3,8 @@ name: Production health gate
 on:
   push:
     branches: [main]
+  repository_dispatch:
+    types: [production-health]
   schedule:
     - cron: "7,37 * * * *"
   workflow_dispatch:
@@ -27,14 +29,31 @@ jobs:
         env:
           CRON_SECRET: ${{ secrets.PROFFERA_REMINDER_CRON_SECRET }}
           EVENT_NAME: ${{ github.event_name }}
-          TARGET_SHA: ${{ github.sha }}
+          DEFAULT_BRANCH_SHA: ${{ github.sha }}
+          DISPATCH_SHA: ${{ github.event.client_payload.sha }}
         shell: bash
         run: |
           set -euo pipefail
           test -n "$CRON_SECRET"
 
+          target_sha="$DEFAULT_BRANCH_SHA"
+          require_exact_commit=no
           max_attempts=1
+
           if [ "$EVENT_NAME" = "push" ]; then
+            require_exact_commit=yes
+            max_attempts=24
+          elif [ "$EVENT_NAME" = "repository_dispatch" ]; then
+            if ! [[ "$DISPATCH_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "::error::Production health dispatch is missing a valid exact commit SHA."
+              exit 1
+            fi
+            if [ "$DISPATCH_SHA" != "$DEFAULT_BRANCH_SHA" ]; then
+              echo "::error::Production health dispatch SHA does not match the current default-branch head."
+              exit 1
+            fi
+            target_sha="$DISPATCH_SHA"
+            require_exact_commit=yes
             max_attempts=24
           fi
 
@@ -59,10 +78,10 @@ jobs:
               environment="$(jq -r '.environment // "unknown"' <<< "$response")"
               missing="$(jq -r '.schema.missingMigrations // [] | join(",")' <<< "$response")"
 
-              echo "Production health attempt $attempt/$max_attempts: status=${status:-unknown} env=$environment deployed=${deployed_sha:-none} ok=$ok missing=${missing:-none}"
+              echo "Production health attempt $attempt/$max_attempts: event=$EVENT_NAME status=${status:-unknown} env=$environment target=${target_sha:-none} deployed=${deployed_sha:-none} ok=$ok missing=${missing:-none}"
 
               commit_matches=yes
-              if [ "$EVENT_NAME" = "push" ] && [ "$deployed_sha" != "$TARGET_SHA" ]; then
+              if [ "$require_exact_commit" = "yes" ] && [ "$deployed_sha" != "$target_sha" ]; then
                 commit_matches=no
               fi
 
