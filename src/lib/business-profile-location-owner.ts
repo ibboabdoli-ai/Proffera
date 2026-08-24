@@ -321,7 +321,9 @@ export async function createOwnerBusinessProfileLocation(input: WriteBusinessPro
 }
 
 export async function updateOwnerBusinessProfileLocation(input: WriteBusinessProfileLocationInput & { id: string }) {
-  return writeOwnerBusinessProfileLocation(input);
+  const id = normalizeUuid(input.id, "Business Profile location id");
+  if (!id) throw new Error("Business Profile location id is required");
+  return writeOwnerBusinessProfileLocation({ ...input, id });
 }
 
 export async function deactivateOwnerBusinessProfileLocation(locationId: string) {
@@ -331,7 +333,17 @@ export async function deactivateOwnerBusinessProfileLocation(locationId: string)
   const sql = getSql();
   if (!sql) throw new Error("Database is not configured");
 
-  const rows = await sql`
+  const lockProfile = sql`
+    select profile.id
+    from company_directory_profiles profile
+    where profile.claimed_workspace_id = ${access.workspaceId}::uuid
+      and profile.publication_status = 'claimed'
+      and profile.is_active = true
+      and profile.privacy_blocked = false
+    limit 1
+    for update
+  `;
+  const deactivateLocation = sql`
     update company_directory_profile_locations location
     set is_active = false, is_primary = false, visibility = 'private', updated_at = now()
     from company_directory_profiles profile
@@ -346,7 +358,12 @@ export async function deactivateOwnerBusinessProfileLocation(locationId: string)
       and location.is_active = true
     returning location.id::text
   `;
-  if (!rows[0]?.id) throw new Error("Business Profile location is not editable by the active Workspace");
+
+  const [profileRows, rows] = await sql.transaction([lockProfile, deactivateLocation]);
+  if (!profileRows?.[0]?.id) {
+    throw new Error("The active Workspace does not own an eligible claimed Business Profile");
+  }
+  if (!rows?.[0]?.id) throw new Error("Business Profile location is not editable by the active Workspace");
 }
 
 export async function listAdminBusinessProfileLocations(profileId: string): Promise<DashboardBusinessProfileLocation[]> {
