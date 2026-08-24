@@ -3,27 +3,37 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("server-only", () => ({}));
 
 import { PublicDirectorySortControls } from "@/components/company-directory/public-directory-sort-controls";
+import { normalizeDirectorySearchSort } from "@/lib/company-directory-public-search";
 
 function source(path: string) {
   return readFileSync(resolve(process.cwd(), path), "utf8");
 }
 
 describe("public directory search sorting", () => {
+  it("normalizes invalid and unavailable sort values safely", () => {
+    expect(normalizeDirectorySearchSort("recommended", false)).toBe("recommended");
+    expect(normalizeDirectorySearchSort("name", false)).toBe("name");
+    expect(normalizeDirectorySearchSort("nearest", true)).toBe("nearest");
+    expect(normalizeDirectorySearchSort("nearest", false)).toBe("recommended");
+    expect(normalizeDirectorySearchSort("sponsored", true)).toBe("recommended");
+    expect(normalizeDirectorySearchSort("", true)).toBe("recommended");
+  });
+
   it("keeps sorting bounded to distinct recommended, nearby nearest and alphabetical modes", () => {
     const searchSource = source("src/lib/company-directory-public-search.ts");
 
     expect(searchSource).toContain('export type DirectorySearchSort = "recommended" | "nearest" | "name"');
-    expect(searchSource).toContain('if (normalized === "name") return "name"');
-    expect(searchSource).toContain('if (normalized === "nearest" && nearbyEnabled) return "nearest"');
-    expect(searchSource).toContain('return "recommended"');
     expect(searchSource).toContain("case when ${sort} = 'nearest' and ${nearbyEnabled} = true then distance_km end asc nulls last");
     expect(searchSource).toContain("case when ${sort} = 'recommended' then quality_score end desc nulls last");
     expect(searchSource).toContain("case when ${sort} = 'recommended' and ${nearbyEnabled} = true then distance_km end asc nulls last");
     expect(searchSource).toContain("case when ${sort} = 'nearest' then quality_score end desc nulls last");
     expect(searchSource).toContain("case when ${sort} = 'name' then lower(display_name) end asc nulls last");
+    expect(searchSource).toContain("display_name asc,\n      id asc");
   });
 
   it("does not use plan or entitlement state as a ranking signal", () => {
