@@ -45,12 +45,6 @@ function jsonArray(value: unknown): unknown[] {
   return [];
 }
 
-function hardOfficialFactsBlock(row: Record<string, unknown> | null | undefined) {
-  return Boolean(row?.deregistration_date)
-    || Boolean(row?.advertising_blocked)
-    || jsonArray(row?.ongoing_procedures).length > 0;
-}
-
 function deterministicScbMatchFailure(error: unknown) {
   return error instanceof Error && error.message === DETERMINISTIC_SCB_MATCH_ERROR;
 }
@@ -181,7 +175,19 @@ async function selectCandidates(limit: number, cursorValue: string) {
           when 'inactive' then 3
           when 'claimed' then 4
           else 5
-        end as status_rank
+        end as status_rank,
+        (
+          profile.publication_status in ('published', 'ready')
+          and profile.claimed_workspace_id is null
+          and facts.profile_id is not null
+          and facts.source_payload_hash <> ''
+          and facts.last_synced_at >= profile.last_synced_at
+          and (
+            facts.deregistration_date is not null
+            or coalesce(facts.advertising_blocked, false) = true
+            or jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) > 0
+          )
+        ) as known_hard_official_facts_block
       from company_directory_profiles profile
       left join company_directory_official_facts facts on facts.profile_id = profile.id
       left join company_directory_scb_enrichment scb on scb.profile_id = profile.id
@@ -197,18 +203,21 @@ async function selectCandidates(limit: number, cursorValue: string) {
             profile.publication_status <> 'inactive'
             and not (
               profile.publication_status = 'review'
+              and facts.profile_id is not null
+              and facts.source_payload_hash <> ''
+              and facts.last_synced_at >= profile.last_synced_at
               and (
                 facts.deregistration_date is not null
                 or coalesce(facts.advertising_blocked, false) = true
                 or jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) > 0
               )
             )
-            and not (
+            and not coalesce((
               scb.provenance #>> '{revalidationFailure,code}' = ${DETERMINISTIC_SCB_FAILURE_CODE}
               and scb.provenance #>> '{revalidationFailure,profileUpdatedToken}' = profile.updated_at::text
               and scb.provenance #>> '{revalidationFailure,officialFactsLastSyncedToken}' = facts.last_synced_at::text
               and scb.updated_at >= now() - interval '24 hours'
-            )
+            ), false)
             and (
               scb.profile_id is null
               or scb.source_payload_hash = ''
@@ -256,7 +265,7 @@ async function selectCandidates(limit: number, cursorValue: string) {
         )
     )
     select id, organization_number, display_name, publication_status,
-           normalized_organization_number, status_rank
+           normalized_organization_number, status_rank, known_hard_official_facts_block
     from eligible
     order by
       case when status_rank = 0 then 0 else 1 end,
@@ -291,18 +300,21 @@ async function backlogCount() {
           profile.publication_status <> 'inactive'
           and not (
             profile.publication_status = 'review'
+            and facts.profile_id is not null
+            and facts.source_payload_hash <> ''
+            and facts.last_synced_at >= profile.last_synced_at
             and (
               facts.deregistration_date is not null
               or coalesce(facts.advertising_blocked, false) = true
               or jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) > 0
             )
           )
-          and not (
+          and not coalesce((
             scb.provenance #>> '{revalidationFailure,code}' = ${DETERMINISTIC_SCB_FAILURE_CODE}
             and scb.provenance #>> '{revalidationFailure,profileUpdatedToken}' = profile.updated_at::text
             and scb.provenance #>> '{revalidationFailure,officialFactsLastSyncedToken}' = facts.last_synced_at::text
             and scb.updated_at >= now() - interval '24 hours'
-          )
+          ), false)
           and (
             scb.profile_id is null
             or scb.source_payload_hash = ''
@@ -455,13 +467,7 @@ async function markReviewRecoveryEvaluation(input: {
   return Boolean(rows[0]);
 }
 
-async function moveProfileToReviewFromOfficialFacts(input: {
-  profileId: string;
-  expectedStatus: string;
-  profileUpdatedToken: string;
-  factsLastSyncedToken: string;
-  factsSourcePayloadHash: string;
-}) {
+async function moveKnownHardBlockedProfileToReview(profileId: string, expectedStatus: string) {
   const sql = getSql();
   if (!sql) return false;
 
@@ -470,18 +476,17 @@ async function moveProfileToReviewFromOfficialFacts(input: {
     set publication_status = 'review',
         published_at = null,
         updated_at = now()
-    where profile.id = ${input.profileId}::uuid
-      and profile.publication_status = ${input.expectedStatus}
+    where profile.id = ${profileId}::uuid
+      and profile.publication_status = ${expectedStatus}
       and profile.country_code = 'SE'
       and profile.organization_kind = 'juridical_person'
       and profile.claimed_workspace_id is null
-      and profile.updated_at::text = ${input.profileUpdatedToken}
       and exists (
         select 1
         from company_directory_official_facts facts
         where facts.profile_id = profile.id
-          and facts.last_synced_at::text = ${input.factsLastSyncedToken}
-          and facts.source_payload_hash = ${input.factsSourcePayloadHash}
+          and facts.source_payload_hash <> ''
+          and facts.last_synced_at >= profile.last_synced_at
           and (
             facts.deregistration_date is not null
             or coalesce(facts.advertising_blocked, false) = true
@@ -806,19 +811,12 @@ export async function revalidateAllCompanyDirectoryBatch(
       cursorValue = serializeCursor(candidate.publication_status, organizationNumber);
 
       try {
-        const storedRow = await loadFreshEvaluation(profileId);
-        const storedStatus = text(storedRow?.publication_status);
+        const candidateStatus = text(candidate.publication_status);
         if (
-          (storedStatus === "published" || storedStatus === "ready")
-          && hardOfficialFactsBlock(storedRow)
+          (candidateStatus === "published" || candidateStatus === "ready")
+          && Boolean(candidate.known_hard_official_facts_block)
         ) {
-          const moved = await moveProfileToReviewFromOfficialFacts({
-            profileId,
-            expectedStatus: storedStatus,
-            profileUpdatedToken: text(storedRow?.profile_updated_token),
-            factsLastSyncedToken: text(storedRow?.facts_last_synced_token),
-            factsSourcePayloadHash: text(storedRow?.facts_source_payload_hash),
-          });
+          const moved = await moveKnownHardBlockedProfileToReview(profileId, candidateStatus);
           if (moved) {
             movedToReview += 1;
             continue;
@@ -826,36 +824,9 @@ export async function revalidateAllCompanyDirectoryBatch(
         }
 
         await enrichCompanyDirectoryOfficialFactsForProfile(profileId);
-        if (text(candidate.publication_status) === "inactive") {
+        if (candidateStatus === "inactive") {
           refreshed += 1;
           kept += 1;
-          continue;
-        }
-
-        const officialFactsRow = await loadFreshEvaluation(profileId);
-        if (!officialFactsRow) {
-          deferred += 1;
-          continue;
-        }
-        const officialFactsStatus = text(officialFactsRow.publication_status);
-        if (hardOfficialFactsBlock(officialFactsRow) && officialFactsStatus !== "claimed") {
-          refreshed += 1;
-          if (officialFactsStatus === "published" || officialFactsStatus === "ready") {
-            const moved = await moveProfileToReviewFromOfficialFacts({
-              profileId,
-              expectedStatus: officialFactsStatus,
-              profileUpdatedToken: text(officialFactsRow.profile_updated_token),
-              factsLastSyncedToken: text(officialFactsRow.facts_last_synced_token),
-              factsSourcePayloadHash: text(officialFactsRow.facts_source_payload_hash),
-            });
-            if (!moved) {
-              deferred += 1;
-              continue;
-            }
-            movedToReview += 1;
-          } else {
-            kept += 1;
-          }
           continue;
         }
 
@@ -872,14 +843,26 @@ export async function revalidateAllCompanyDirectoryBatch(
         } catch (error) {
           if (!deterministicScbMatchFailure(error)) throw error;
 
-          const status = text(officialFactsRow.publication_status);
-          const factsLastSyncedToken = text(officialFactsRow.facts_last_synced_token);
-          const factsSourcePayloadHash = text(officialFactsRow.facts_source_payload_hash);
-          if (status === "published" || status === "ready") {
+          const failureEvaluation = await loadFreshEvaluation(profileId);
+          if (!failureEvaluation) {
+            deferred += 1;
+            continue;
+          }
+
+          const failureStatus = text(failureEvaluation.publication_status);
+          const profileUpdatedToken = text(failureEvaluation.profile_updated_token);
+          const factsLastSyncedToken = text(failureEvaluation.facts_last_synced_token);
+          const factsSourcePayloadHash = text(failureEvaluation.facts_source_payload_hash);
+          if (!profileUpdatedToken || !factsLastSyncedToken || !factsSourcePayloadHash) {
+            deferred += 1;
+            continue;
+          }
+
+          if (failureStatus === "published" || failureStatus === "ready") {
             const moved = await moveProfileToReviewAfterScbFailure({
               profileId,
-              expectedStatus: status,
-              profileUpdatedToken: text(officialFactsRow.profile_updated_token),
+              expectedStatus: failureStatus,
+              profileUpdatedToken,
               factsLastSyncedToken,
               factsSourcePayloadHash,
             });
@@ -898,7 +881,8 @@ export async function revalidateAllCompanyDirectoryBatch(
             deferred += 1;
             continue;
           }
-          if (status !== "published" && status !== "ready") deferred += 1;
+
+          deferred += 1;
           continue;
         }
 
