@@ -8,10 +8,10 @@ export function hasDatabaseConfig() {
   return Boolean(databaseUrl);
 }
 
-export function getSql() {
+export function getSql(fetchOptions?: RequestInit) {
   if (!databaseUrl) {
     return null;
   }
 
-  return neon(databaseUrl);
+  return neon(databaseUrl, fetchOptions ? { fetchOptions } : undefined);
 }
