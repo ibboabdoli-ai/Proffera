@@ -106,7 +106,12 @@ async function updateLocationAction(formData: FormData) {
     );
     if (!existingLocation) redirect(pageUrl({ error: "invalid" }));
 
-    const geocodePrecision = businessProfileLocationGeocodePrecisions.includes(
+    const addressUnchanged =
+      String(input.addressLine1 ?? "").trim() === existingLocation.addressLine1
+      && String(input.postalCode ?? "").trim() === existingLocation.postalCode
+      && String(input.city ?? "").trim() === existingLocation.city
+      && String(input.municipality ?? "").trim() === existingLocation.municipality;
+    const geocodePrecision = addressUnchanged && businessProfileLocationGeocodePrecisions.includes(
       existingLocation.geocodePrecision as BusinessProfileLocationGeocodePrecision,
     )
       ? existingLocation.geocodePrecision as BusinessProfileLocationGeocodePrecision
@@ -115,9 +120,9 @@ async function updateLocationAction(formData: FormData) {
     await updateOwnerBusinessProfileLocation({
       ...input,
       id,
-      latitude: existingLocation.latitude,
-      longitude: existingLocation.longitude,
-      geocodeSource: existingLocation.geocodeSource,
+      latitude: addressUnchanged ? existingLocation.latitude : null,
+      longitude: addressUnchanged ? existingLocation.longitude : null,
+      geocodeSource: addressUnchanged ? existingLocation.geocodeSource : "",
       geocodePrecision,
     });
   } catch {
