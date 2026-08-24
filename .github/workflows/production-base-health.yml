@@ -24,11 +24,40 @@ jobs:
       BASE_SHA: ${{ github.event.pull_request.base.sha }}
       HEALTH_WORKFLOW: production-health.yml
     steps:
-      - name: Checkout gate script
+      - name: Checkout trusted base gate
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: trusted-base
           persist-credentials: false
 
       - name: Require exact-base Production health success
         shell: bash
-        run: bash scripts/production-base-health.sh
+        run: |
+          set -euo pipefail
+
+          trusted_script="trusted-base/scripts/production-base-health.sh"
+          if [ -f "$trusted_script" ]; then
+            bash "$trusted_script"
+            exit $?
+          fi
+
+          # Bootstrap is allowed only for the one base that predates the health
+          # control plane. Any lookup failure other than an explicit 404 fails closed.
+          error_file="$(mktemp)"
+          if gh api "repos/$REPOSITORY/contents/.github/workflows/$HEALTH_WORKFLOW?ref=$BASE_SHA" >/dev/null 2>"$error_file"; then
+            rm -f "$error_file"
+            echo "::error::Production health workflow exists on base $BASE_SHA but the trusted gate script is missing."
+            exit 1
+          fi
+
+          error_text="$(cat "$error_file")"
+          rm -f "$error_file"
+          if grep -Fq '(HTTP 404)' <<< "$error_text"; then
+            echo "Production health is not yet active on base $BASE_SHA; allowing the control-plane bootstrap PR only."
+            exit 0
+          fi
+
+          printf '%s\n' "$error_text" >&2
+          echo "::error::Could not verify the trusted Production health bootstrap state."
+          exit 1
