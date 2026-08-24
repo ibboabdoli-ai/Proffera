@@ -5,17 +5,17 @@ import { directoryCopy, directoryPaths, directoryServiceLabel, normalizeDirector
 import { PublicDirectoryResults } from "@/components/company-directory/public-directory-results";
 import { PublicDirectorySearchForm } from "@/components/company-directory/public-directory-search-form";
 import { searchPublishedBusinessProfiles } from "@/lib/business-profile-search";
-import { getPublishedDirectoryLocationSuggestions } from "@/lib/company-directory-public-search";
+import { getPublishedDirectoryLocationSuggestions, normalizeDirectorySearchSort } from "@/lib/company-directory-public-search";
 import { DIRECTORY_SERVICES } from "@/lib/company-directory-service-taxonomy";
 import type { PublicLocale } from "@/lib/public-locale";
 
-type SearchParams = { service?: string | string[]; location?: string | string[]; latitude?: string | string[]; longitude?: string | string[]; radius?: string | string[]; page?: string | string[] };
+type SearchParams = { service?: string | string[]; location?: string | string[]; latitude?: string | string[]; longitude?: string | string[]; radius?: string | string[]; sort?: string | string[]; page?: string | string[] };
 
 function firstParam(value?: string | string[]) { return Array.isArray(value) ? value[0] : value; }
 
 function paginationBaseHref(path: string, params: SearchParams | undefined) {
   const query = new URLSearchParams();
-  for (const key of ["service", "location", "latitude", "longitude", "radius"] as const) {
+  for (const key of ["service", "location", "latitude", "longitude", "radius", "sort"] as const) {
     const value = firstParam(params?.[key]);
     if (value?.trim()) query.set(key, value);
   }
@@ -30,6 +30,7 @@ export async function PublicDirectorySearchPage({ locale, searchParams }: { loca
   const latitude = firstParam(params?.latitude);
   const longitude = firstParam(params?.longitude);
   const radius = firstParam(params?.radius) ?? "25";
+  const requestedSort = firstParam(params?.sort) ?? "";
   const page = firstParam(params?.page) ?? "1";
   const searched = Boolean(service.trim() || location.trim() || latitude?.trim() || longitude?.trim());
   const t = directoryCopy[locale];
@@ -38,10 +39,11 @@ export async function PublicDirectorySearchPage({ locale, searchParams }: { loca
 
   const [locationSuggestions, search] = await Promise.all([
     getPublishedDirectoryLocationSuggestions(60),
-    searched ? searchPublishedBusinessProfiles({ service: searchService, location, latitude, longitude, radiusKm: radius, page, limit: 30 }) : Promise.resolve(null),
+    searched ? searchPublishedBusinessProfiles({ service: searchService, location, latitude, longitude, radiusKm: radius, sort: requestedSort, page, limit: 30 }) : Promise.resolve(null),
   ]);
   const serviceSuggestions = DIRECTORY_SERVICES.map((item) => directoryServiceLabel(item.slug, item.label, locale));
   const nearbyActive = Boolean(search?.nearbyEnabled);
+  const activeSort = normalizeDirectorySearchSort(requestedSort, nearbyActive);
   const paginationHref = paginationBaseHref(paths.search, params);
 
   return (
@@ -85,7 +87,7 @@ export async function PublicDirectorySearchPage({ locale, searchParams }: { loca
         ) : null}
 
         {search?.nearbyRequested && !search.nearbyEnabled ? <div className="mt-5 rounded-card border border-amber-300 bg-amber-50 p-4 text-sm font-semibold text-amber-900">{t.badPosition}</div> : null}
-        {search ? <PublicDirectoryResults locale={locale} search={search} paginationBaseHref={paginationHref} /> : null}
+        {search ? <PublicDirectoryResults locale={locale} search={search} sort={activeSort} paginationBaseHref={paginationHref} /> : null}
       </div>
     </div>
   );
