@@ -21,7 +21,7 @@ else
   fi
 
   printf '%s\n' "$error_text" >&2
-  echo "::error::Could not verify Production health workflow on exact base $BASE_SHA."
+  echo "::error::Could not verify Production health workflow on exact base $BASE_SHA." >&2
   exit 1
 fi
 
