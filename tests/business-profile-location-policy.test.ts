@@ -105,4 +105,18 @@ describe("Business Profile public location policy", () => {
       mapPoint: null,
     });
   });
+
+  it("treats whitespace-only coordinate strings as missing rather than zero", () => {
+    const result = resolvePublicBusinessProfileLocation(location({
+      latitude: "   ",
+      longitude: "\t",
+    }));
+
+    expect(result).toMatchObject({
+      visibility: "public",
+      isVisitable: true,
+      addressLine1: "Storgatan 1",
+      mapPoint: null,
+    });
+  });
 });
