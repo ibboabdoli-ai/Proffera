@@ -422,10 +422,31 @@ jobs:
           fi
 
           merge_output="$(gh pr merge "$pr_number" --repo "$REPOSITORY" --squash --delete-branch --match-head-commit "$head_sha" 2>&1)"
+
+          pr_merged="false"
+          merged_sha=""
+          for attempt in $(seq 1 10); do
+            merge_state_json="$(gh api "repos/$REPOSITORY/pulls/$pr_number")"
+            pr_merged="$(jq -r '.merged == true' <<< "$merge_state_json")"
+            merged_sha="$(jq -r '.merge_commit_sha // empty' <<< "$merge_state_json")"
+            if [ "$pr_merged" = "true" ] && [[ "$merged_sha" =~ ^[0-9a-f]{40}$ ]]; then
+              break
+            fi
+            sleep 1
+          done
+          if [ "$pr_merged" != "true" ] || ! [[ "$merged_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Merge command completed but the pull request was not confirmed merged with a valid final commit SHA; Production health dispatch was not emitted."
+            exit 1
+          fi
+
+          dispatch_body="$(jq -n --arg sha "$merged_sha" '{event_type:"production-health",client_payload:{sha:$sha}}')"
+          printf '%s' "$dispatch_body" | gh api --method POST "repos/$REPOSITORY/dispatches" --input -
+
           summary "## Proffera gated automerge: merged"
           summary ""
           summary "Squash merge completed with head-SHA safety check."
           summary "Source branch was deleted only after successful merge."
+          summary "Production health dispatch emitted for exact merged SHA $merged_sha."
           summary ""
           summary '```'
           summary "$merge_output"
