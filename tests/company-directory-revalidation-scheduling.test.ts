@@ -2,10 +2,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+import { COMPANY_DIRECTORY_CATEGORY_CONFIDENCE_POLICY_VERSION } from "../src/lib/company-directory-category-confidence";
+
 const mocks = vi.hoisted(() => ({
+  revalidatePolicy: vi.fn(),
   revalidate: vi.fn(),
 }));
 
+vi.mock("@/lib/company-directory-category-policy-revalidation", () => ({
+  revalidateCompanyDirectoryCategoryPolicyBatch: mocks.revalidatePolicy,
+}));
 vi.mock("@/lib/company-directory-full-revalidation", () => ({
   revalidateAllCompanyDirectoryBatch: mocks.revalidate,
 }));
@@ -44,7 +50,19 @@ describe("dedicated Company Directory revalidation scheduling", () => {
         process.env.COMPANY_DIRECTORY_PROFILE_PROCESSING_ENABLED,
     };
 
+    mocks.revalidatePolicy.mockReset();
     mocks.revalidate.mockReset();
+    mocks.revalidatePolicy.mockResolvedValue({
+      policyVersion: "2026-08-23.1",
+      selected: 10,
+      evaluated: 10,
+      kept: 10,
+      movedToReview: 0,
+      deferred: 0,
+      errors: 0,
+      errorSummary: "",
+      remaining: 745,
+    });
     mocks.revalidate.mockResolvedValue({
       skipped: false,
       selected: 10,
@@ -71,6 +89,7 @@ describe("dedicated Company Directory revalidation scheduling", () => {
     const response = await GET(new Request("https://example.test/api/cron/company-directory-revalidation"));
 
     expect(response.status).toBe(401);
+    expect(mocks.revalidatePolicy).not.toHaveBeenCalled();
     expect(mocks.revalidate).not.toHaveBeenCalled();
   });
 
@@ -82,6 +101,7 @@ describe("dedicated Company Directory revalidation scheduling", () => {
     ));
 
     expect(response.status).toBe(200);
+    expect(mocks.revalidatePolicy).toHaveBeenCalledTimes(1);
     expect(mocks.revalidate).toHaveBeenCalledTimes(1);
   });
 
@@ -96,6 +116,7 @@ describe("dedicated Company Directory revalidation scheduling", () => {
     ));
 
     expect(response.status).toBe(200);
+    expect(mocks.revalidatePolicy).toHaveBeenCalledTimes(1);
     expect(mocks.revalidate).toHaveBeenCalledTimes(1);
   });
 
@@ -109,6 +130,7 @@ describe("dedicated Company Directory revalidation scheduling", () => {
     ));
 
     expect(response.status).toBe(401);
+    expect(mocks.revalidatePolicy).not.toHaveBeenCalled();
     expect(mocks.revalidate).not.toHaveBeenCalled();
   });
 
@@ -126,6 +148,7 @@ describe("dedicated Company Directory revalidation scheduling", () => {
       skipped: true,
       reason: "Company directory sync is disabled",
     });
+    expect(mocks.revalidatePolicy).not.toHaveBeenCalled();
     expect(mocks.revalidate).not.toHaveBeenCalled();
   });
 
@@ -143,12 +166,72 @@ describe("dedicated Company Directory revalidation scheduling", () => {
       skipped: true,
       reason: "Company directory profile processing is disabled",
     });
+    expect(mocks.revalidatePolicy).not.toHaveBeenCalled();
     expect(mocks.revalidate).not.toHaveBeenCalled();
   });
 
-  it("runs only one bounded full-revalidation batch with a shared deadline", async () => {
+  it("runs one bounded policy sweep before one bounded full-revalidation batch", async () => {
     const startedAt = 1_000_000;
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(startedAt);
+    try {
+      const order: string[] = [];
+      mocks.revalidatePolicy.mockImplementation(async () => {
+        order.push("policy");
+        return {
+          policyVersion: "2026-08-23.1",
+          selected: 0,
+          evaluated: 0,
+          kept: 0,
+          movedToReview: 0,
+          deferred: 0,
+          errors: 0,
+          errorSummary: "",
+          remaining: 0,
+        };
+      });
+      mocks.revalidate.mockImplementation(async () => {
+        order.push("full");
+        return {
+          skipped: false,
+          selected: 0,
+          refreshed: 0,
+          kept: 0,
+          movedToReview: 0,
+          deferred: 0,
+          errors: 0,
+          errorSummary: "",
+          remaining: 0,
+        };
+      });
+
+      const { GET } = await loadRoute();
+      const response = await GET(new Request(
+        "https://example.test/api/cron/company-directory-revalidation",
+        { headers: { authorization: "Bearer test-secret" } },
+      ));
+
+      expect(response.status).toBe(200);
+      expect(order).toEqual(["policy", "full"]);
+      expect(mocks.revalidatePolicy).toHaveBeenCalledWith(10, {
+        deadlineAt: startedAt + 55_000,
+      });
+      expect(mocks.revalidate).toHaveBeenCalledWith(10, {
+        deadlineAt: startedAt + 55_000,
+      });
+      await expect(response.json()).resolves.toMatchObject({
+        ok: true,
+        policyEvaluation: {
+          policyVersion: "2026-08-23.1",
+        },
+      });
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it("reports a policy sweep failure but still runs the existing full revalidation", async () => {
+    mocks.revalidatePolicy.mockRejectedValue(new Error("Policy sweep unavailable"));
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     try {
       const { GET } = await loadRoute();
       const response = await GET(new Request(
@@ -158,11 +241,19 @@ describe("dedicated Company Directory revalidation scheduling", () => {
 
       expect(response.status).toBe(200);
       expect(mocks.revalidate).toHaveBeenCalledTimes(1);
-      expect(mocks.revalidate).toHaveBeenCalledWith(10, {
-        deadlineAt: startedAt + 55_000,
+      await expect(response.json()).resolves.toMatchObject({
+        ok: true,
+        policyEvaluation: {
+          policyVersion: COMPANY_DIRECTORY_CATEGORY_CONFIDENCE_POLICY_VERSION,
+          skipped: true,
+          reason: "worker_error",
+          errors: 1,
+          errorSummary: "Policy sweep unavailable",
+          remaining: null,
+        },
       });
     } finally {
-      nowSpy.mockRestore();
+      errorSpy.mockRestore();
     }
   });
 

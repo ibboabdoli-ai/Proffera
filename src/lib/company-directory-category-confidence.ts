@@ -1,6 +1,8 @@
 import { swedishCompanyNamesEquivalent } from "@/lib/company-directory-company-name";
 import { mapSniToDirectoryCategory, normalizeSniCode } from "@/lib/company-directory-policy";
 
+export const COMPANY_DIRECTORY_CATEGORY_CONFIDENCE_POLICY_VERSION = "2026-08-23.1";
+
 export type CompanyDirectoryCategoryConfidenceLevel = "high" | "review" | "low";
 
 export type CompanyDirectoryCategoryConfidenceInput = {
@@ -36,11 +38,14 @@ type SniFact = {
   label: string;
 };
 
+const MALERI_ACCENTED_TOKEN_FRAGMENTS = ["måleri", "målar", "målning"];
+const MALERI_UNACCENTED_TOKEN_PREFIXES = ["maleri", "malare", "malning"];
+
 const categoryKeywords: Record<string, string[]> = {
   stadning: ["stadning", "stadservice", "lokalvard", "rengor", "fonsterputs", "hemstad", "kontorsstad"],
   elektriker: ["elektr", "elinstall", "eltekn", "elkraft", "elservice"],
   vvs: ["vvs", "rorlagg", "rorinstall", "varme", "sanitar", "sanitet", "ventilation", "kylinstall"],
-  maleri: ["maleri", "malar", "malning"],
+  maleri: [],
   snickeri: ["snicker", "byggnadssnicker", "carpentry"],
   tradgard: ["tradgard", "markskotsel", "gronyt", "landskap"],
   flytt: ["flytt", "moving"],
@@ -79,20 +84,45 @@ function fold(value: unknown) {
     .replace(/ö/g, "o");
 }
 
-function hasExactSwedishToken(values: string[], token: string) {
-  const haystack = values
+function swedishTokens(values: string[]) {
+  return values
     .filter(Boolean)
     .join(" ")
     .normalize("NFC")
     .toLocaleLowerCase("sv-SE")
     .replace(/[^a-z0-9åäö]+/g, " ")
-    .trim();
-  if (!haystack) return false;
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function hasExactSwedishToken(values: string[], token: string) {
+  const tokens = swedishTokens(values);
+  if (!tokens.length) return false;
   const normalizedToken = token.normalize("NFC").toLocaleLowerCase("sv-SE");
-  return ` ${haystack} `.includes(` ${normalizedToken} `);
+  return tokens.includes(normalizedToken);
+}
+
+function hasSwedishTokenPrefix(values: string[], prefixes: string[]) {
+  const tokens = swedishTokens(values);
+  if (!tokens.length) return false;
+  const normalizedPrefixes = prefixes.map((prefix) => prefix.normalize("NFC").toLocaleLowerCase("sv-SE"));
+  return tokens.some((token) => normalizedPrefixes.some((prefix) => token.startsWith(prefix)));
+}
+
+function hasSwedishTokenFragment(values: string[], fragments: string[]) {
+  const tokens = swedishTokens(values);
+  if (!tokens.length) return false;
+  const normalizedFragments = fragments.map((fragment) => fragment.normalize("NFC").toLocaleLowerCase("sv-SE"));
+  return tokens.some((token) => normalizedFragments.some((fragment) => token.includes(fragment)));
 }
 
 function hasCategoryKeyword(categorySlug: string, values: string[]) {
+  if (categorySlug === "maleri") {
+    return hasSwedishTokenFragment(values, MALERI_ACCENTED_TOKEN_FRAGMENTS)
+      || hasSwedishTokenPrefix(values, MALERI_UNACCENTED_TOKEN_PREFIXES);
+  }
+
   const keywords = categoryKeywords[categorySlug] ?? [];
   if (!keywords.length) return false;
 
