@@ -423,16 +423,19 @@ jobs:
 
           merge_output="$(gh pr merge "$pr_number" --repo "$REPOSITORY" --squash --delete-branch --match-head-commit "$head_sha" 2>&1)"
 
+          pr_merged="false"
           merged_sha=""
           for attempt in $(seq 1 10); do
-            merged_sha="$(gh api "repos/$REPOSITORY/pulls/$pr_number" --jq '.merge_commit_sha // empty')"
-            if [[ "$merged_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            merge_state_json="$(gh api "repos/$REPOSITORY/pulls/$pr_number")"
+            pr_merged="$(jq -r '.merged == true' <<< "$merge_state_json")"
+            merged_sha="$(jq -r '.merge_commit_sha // empty' <<< "$merge_state_json")"
+            if [ "$pr_merged" = "true" ] && [[ "$merged_sha" =~ ^[0-9a-f]{40}$ ]]; then
               break
             fi
             sleep 1
           done
-          if ! [[ "$merged_sha" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "::error::Merge completed but the exact merged commit SHA could not be resolved for Production health dispatch."
+          if [ "$pr_merged" != "true" ] || ! [[ "$merged_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Merge command completed but the pull request was not confirmed merged with a valid final commit SHA; Production health dispatch was not emitted."
             exit 1
           fi
 
