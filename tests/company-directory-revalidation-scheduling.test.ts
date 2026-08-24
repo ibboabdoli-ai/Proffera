@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+import { COMPANY_DIRECTORY_CATEGORY_CONFIDENCE_POLICY_VERSION } from "../src/lib/company-directory-category-confidence";
+
 const mocks = vi.hoisted(() => ({
   revalidatePolicy: vi.fn(),
   revalidate: vi.fn(),
@@ -242,7 +244,7 @@ describe("dedicated Company Directory revalidation scheduling", () => {
       await expect(response.json()).resolves.toMatchObject({
         ok: true,
         policyEvaluation: {
-          policyVersion: "2026-08-23.1",
+          policyVersion: COMPANY_DIRECTORY_CATEGORY_CONFIDENCE_POLICY_VERSION,
           skipped: true,
           reason: "worker_error",
           errors: 1,
