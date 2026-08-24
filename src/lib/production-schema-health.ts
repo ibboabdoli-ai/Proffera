@@ -42,12 +42,15 @@ export async function inspectProductionSchema(
         select 1
         from pg_constraint
         where conname = 'workspace_services_primary_directory_service_fk'
+          and conrelid = to_regclass('public.workspace_services')
+          and contype = 'f'
           and convalidated
       ) as foreign_key_validated,
       exists (
         select 1
         from pg_indexes
         where schemaname = 'public'
+          and tablename = 'workspace_services'
           and indexname = 'workspace_services_primary_directory_service_idx'
       ) as index_present,
       to_regclass('public.proffera_schema_migrations') is not null as ledger_present
@@ -128,6 +131,7 @@ export async function readProductionSchemaHealth(): Promise<ProductionSchemaHeal
     max: 1,
     connectionTimeoutMillis: 5_000,
     idleTimeoutMillis: 5_000,
+    statement_timeout: 10_000,
   });
 
   try {
