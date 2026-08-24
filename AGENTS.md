@@ -31,6 +31,98 @@ The default operating model is **Graph Engineering**: understand the project as 
 
 ---
 
+## 1A. Fast autonomous execution overlay
+
+This overlay is mandatory for implementation work. It exists to reduce PR churn and external-review repair loops without weakening Graph Engineering, tenant safety, Production safety, or exact-head delivery gates.
+
+### Roles
+
+Use three logical roles only:
+
+- **Supervisor** — resolves current `main`, active PRs, dependencies and graph locks; prepares the task packet; serializes merge decisions; releases the lock after verified completion.
+- **Builder** — owns the single writable implementation for one graph path; researches, implements, tests and repairs that path.
+- **Verifier / Red Team** — reviews the proposed diff and evidence independently before the first push. It must challenge assumptions rather than defend the Builder's design.
+
+A Builder may use parallel read-only research passes or subagents for separate questions, but there is still only one writable implementation owner for the graph path.
+
+### Supervisor task packet
+
+Before implementation, the Supervisor should reduce broad project context into the smallest complete packet needed for the task:
+
+```text
+Goal: <observable outcome>
+Baseline: <current 40-character main SHA>
+Graph path: <single bounded dependency path>
+Touch set: <expected files/directories/tables/routes/workflows>
+Depends on: <PR/issue/none>
+Preserved invariants: <behavior that must not change>
+Acceptance criteria: <observable pass conditions>
+Forbidden areas: <out-of-scope/high-risk nodes>
+Merge/deploy authority: <authorized / not authorized / standing scope>
+```
+
+Workers must still read the canonical sources required by `WORKER_BOOTSTRAP.md`, but should not repeatedly re-analyze unrelated project areas once the current task packet and graph are proven sufficient.
+
+### Pre-push Red Team gate
+
+Before the first implementation push, perform an independent adversarial review of the complete intended diff, relevant tests and graph assumptions. At minimum check for:
+
+- race conditions and lost-update behavior;
+- stale state/evidence surviving a failure path;
+- retry loops, unbounded polling or repeated external calls;
+- missing idempotency or duplicate side effects;
+- fail-open authorization, entitlement, privacy or publication behavior;
+- tenant/workspace identity accepted from the wrong boundary;
+- duplicated contracts/helpers instead of the canonical source of truth;
+- tests that mock away the actual failure edge;
+- test schema/DDL that can drift from canonical migrations;
+- recovery dead-ends where a reversible state can never become eligible again;
+- hidden downstream API/SEO/Search/Marketplace exposure.
+
+Valid findings are fixed **before** the primary push whenever practical, and the nearest relevant checks are rerun.
+
+### One-primary-push discipline
+
+Development churn should stay local or on the isolated worker branch until the Builder and Verifier agree the change is ready for CI.
+
+- Prefer one consolidated primary implementation push after targeted validation and the Red Team gate.
+- Batch closely related repairs instead of pushing each small edit separately.
+- Do not request CodeRabbit/Codex review after every development commit; risk-routed external review is a final-head gate.
+- More than roughly five meaningful implementation commits or more than two external-review repair cycles on one bounded task is a **process warning**, not a hard Git limit. Pause and re-check the graph/root-cause model before stacking more patches.
+
+### External review policy
+
+External AI review is an adversarial gate, not the primary developer.
+
+- Treat every CodeRabbit/Codex finding as a hypothesis to verify against the current head and repository invariants before editing.
+- Prefer the graph-owning Builder to apply verified fixes.
+- Do not blindly run autofix on workflow, auth/RBAC, tenant-isolation, database/schema, payment, webhook, deployment, secret or other high-risk paths.
+- For `.github/workflows/**`, use external review as review-only unless an explicitly authorized writer can safely apply the patch.
+- Re-enter final review only after the valid findings have been batched and locally validated.
+
+### Baseline refresh without restart
+
+When `main` advances during active work:
+
+1. compare the new `main` changes with the reserved graph path and touch set;
+2. if there is no material overlap, refresh the branch and rerun the affected gates without restarting the task analysis from zero;
+3. if the source-of-truth node, dependency contract or invariant changed, stop implementation and update the graph before continuing.
+
+### Autonomous continuation
+
+Within an explicitly authorized phase, the Supervisor should not wait for a human “continue” message after every successful task.
+
+After merge and any required exact-SHA Production verification:
+
+1. release the completed graph lock;
+2. resolve current `main` and open PRs again;
+3. select the highest-priority unblocked task inside the authorized phase;
+4. start the next independent task packet.
+
+Stop and ask for human input when a real product decision is required, high-risk authorization is missing, Production mutation is not authorized, two architecture choices have materially different business consequences, or the current evidence cannot safely resolve the ambiguity.
+
+---
+
 ## 2. Mandatory graph-engineering workflow
 
 For every task, follow this loop in order.
@@ -125,10 +217,12 @@ If validation fails, return to the graph and update the root-cause model. Do not
 
 ### Phase H — Publish carefully
 
+- Complete the pre-push Red Team gate from section 1A before the first implementation push.
 - Review the complete diff before push.
 - Confirm no forbidden or unrelated files changed.
 - Prefer one consolidated push and avoid repeated deploy-triggering commits.
 - Create a focused PR with the graph path, root cause, patch, blast radius, and validation evidence.
+- Use external AI review only as the final risk-routed gate on the current head; verify findings before applying them.
 - Merge or deploy only when authorized by the user or by an explicit standing instruction.
 
 ### Phase I — Final report
@@ -157,6 +251,7 @@ These rules apply unless the user explicitly overrides them for the current task
 - Never make direct changes to `main`.
 - Use at most one coding worker on the same graph path at a time.
 - Do not create duplicate branches, competing fixes, or parallel implementations for the same issue.
+- Read-only research/review may run in parallel across the same path, but it must not create a competing implementation.
 
 ### Forbidden artificial files and probes
 
@@ -201,6 +296,14 @@ Always preserve:
 - production data safety.
 
 Never test destructive or uncertain changes against a real customer workspace. Do not use `juliussalong` for tests unless the user explicitly authorizes it.
+
+### Test and fixture realism
+
+- Use canonical migrations and shared test harnesses/fixtures when they exist. Do not copy Production table DDL into an integration test when a canonical migration or reusable helper can create the relevant contract.
+- When a bug lives in SQL selection, locking, uniqueness, migration or transaction behavior, include a real PostgreSQL-backed regression when practical; do not mock away the responsible database edge.
+- Create only the minimal dependency schema that is genuinely outside the canonical migration path.
+- Keep expensive Docker/PostgreSQL suites explicitly opt-in when the repository has an integration-test flag or convention; normal unit-test runs should not unexpectedly provision infrastructure.
+- Reuse canonical seed/build helpers instead of creating task-specific copies of common Workspace, Directory, Claim or Marketplace fixtures.
 
 ### Deployment discipline
 
@@ -265,6 +368,7 @@ Use these rules when choices compete:
 - Choose one validated implementation over multiple unfinished options.
 - Choose delayed deployment over repeated unnecessary deploys.
 - Choose transparent blocker reporting over risky workaround attempts.
+- Choose local repair and one validated primary push over PR-by-PR development churn.
 
 ---
 
@@ -294,6 +398,7 @@ Every substantial worker response must contain:
 - Expected result:
 - Observed result:
 - Acceptance criteria status:
+- Pre-push Red Team: passed | findings fixed | not applicable (reason)
 
 ### Delivery status
 
@@ -316,8 +421,10 @@ A task is done only when all of the following are true:
 - the smallest safe patch was applied;
 - unrelated nodes were not changed;
 - relevant checks passed;
+- the pre-push Red Team review was completed for implementation work and valid findings were resolved;
 - the user-visible acceptance criteria were verified;
 - tenant, auth, data, and deployment invariants were preserved;
+- blocking current-head review findings are resolved or explicitly accepted by an authorized human;
 - branch, commit, PR, merge, and deployment states were reported accurately;
 - any remaining risk is explicit.
 
