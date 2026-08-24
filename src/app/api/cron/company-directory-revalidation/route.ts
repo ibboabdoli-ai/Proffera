@@ -66,12 +66,23 @@ export async function GET(request: Request) {
     policyEvaluation = failedPolicyEvaluation(error);
   }
 
-  if (policyEvaluation.reason === "worker_error" || (typeof policyEvaluation.remaining === "number" && policyEvaluation.remaining > 0)) {
-    console.error("Category policy sweep failure detected", {
+  const policySweepFailed = policyEvaluation.reason === "worker_error"
+    || policyEvaluation.errors > 0
+    || policyEvaluation.deferred > 0;
+
+  if (policySweepFailed) {
+    console.error("Category policy sweep issue detected", {
       reason: policyEvaluation.reason,
       remaining: policyEvaluation.remaining,
+      deferred: policyEvaluation.deferred,
       errors: policyEvaluation.errors,
       errorSummary: policyEvaluation.errorSummary,
+    });
+  } else if (typeof policyEvaluation.remaining === "number" && policyEvaluation.remaining > 0) {
+    console.info("Category policy sweep backlog remains", {
+      remaining: policyEvaluation.remaining,
+      deferred: policyEvaluation.deferred,
+      errors: policyEvaluation.errors,
     });
   }
 
