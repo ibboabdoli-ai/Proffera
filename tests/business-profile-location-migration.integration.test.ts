@@ -130,24 +130,34 @@ function docker(args: string[]) {
       expect(inserted.rows[0]).toEqual({ visibility: "private", is_visitable: false });
     });
 
-    it("rejects registered or postal rows from becoming exact public locations", async () => {
-      await expect(client!.query(
-        `
-          insert into company_directory_profile_locations (
-            profile_id, purpose, visibility, is_visitable, source_type, confirmed_at
-          ) values ($1, 'registered', 'public', true, 'official', now())
-        `,
-        [profileId],
-      )).rejects.toMatchObject({ code: "23514" });
+    it("rejects registered and postal rows from exact public disclosure through the public-exact constraint", async () => {
+      for (const purpose of ["registered", "postal"] as const) {
+        await expect(client!.query(
+          `
+            insert into company_directory_profile_locations (
+              profile_id, purpose, visibility, is_visitable, source_type, confirmed_at
+            ) values ($1, $2, 'public', false, 'official', now())
+          `,
+          [profileId, purpose],
+        )).rejects.toMatchObject({
+          code: "23514",
+          constraint: "company_directory_profile_locations_public_exact_check",
+        });
+      }
+    });
 
+    it("rejects visitability on a non-mappable registered purpose through the visitable-purpose constraint", async () => {
       await expect(client!.query(
         `
           insert into company_directory_profile_locations (
-            profile_id, purpose, visibility, is_visitable, source_type, confirmed_at
-          ) values ($1, 'postal', 'public', true, 'official', now())
+            profile_id, purpose, visibility, is_visitable, source_type
+          ) values ($1, 'registered', 'approximate', true, 'official')
         `,
         [profileId],
-      )).rejects.toMatchObject({ code: "23514" });
+      )).rejects.toMatchObject({
+        code: "23514",
+        constraint: "company_directory_profile_locations_visitable_purpose_check",
+      });
     });
 
     it("requires owner provenance to identify a Workspace", async () => {
@@ -158,7 +168,10 @@ function docker(args: string[]) {
           ) values ($1, 'workplace', 'owner')
         `,
         [profileId],
-      )).rejects.toMatchObject({ code: "23514" });
+      )).rejects.toMatchObject({
+        code: "23514",
+        constraint: "company_directory_profile_locations_owner_source_check",
+      });
 
       const inserted = await client!.query(
         `
@@ -180,7 +193,10 @@ function docker(args: string[]) {
           ) values ($1, 'workplace', 'public', true, 'official')
         `,
         [profileId],
-      )).rejects.toMatchObject({ code: "23514" });
+      )).rejects.toMatchObject({
+        code: "23514",
+        constraint: "company_directory_profile_locations_public_exact_check",
+      });
 
       await expect(client!.query(
         `
@@ -189,7 +205,10 @@ function docker(args: string[]) {
           ) values ($1, 'workplace', 'public', false, 'official', now())
         `,
         [profileId],
-      )).rejects.toMatchObject({ code: "23514" });
+      )).rejects.toMatchObject({
+        code: "23514",
+        constraint: "company_directory_profile_locations_public_exact_check",
+      });
 
       const inserted = await client!.query(
         `
@@ -212,6 +231,44 @@ function docker(args: string[]) {
         is_visitable: true,
         latitude: 59.1955,
         longitude: 17.6253,
+      });
+    });
+
+    it("rejects unpaired and out-of-range coordinates with the intended constraints", async () => {
+      await expect(client!.query(
+        `
+          insert into company_directory_profile_locations (
+            profile_id, purpose, source_type, latitude
+          ) values ($1, 'workplace', 'official', 59.1955)
+        `,
+        [profileId],
+      )).rejects.toMatchObject({
+        code: "23514",
+        constraint: "company_directory_profile_locations_coordinate_pair_check",
+      });
+
+      await expect(client!.query(
+        `
+          insert into company_directory_profile_locations (
+            profile_id, purpose, source_type, latitude, longitude
+          ) values ($1, 'workplace', 'official', 91, 17.6253)
+        `,
+        [profileId],
+      )).rejects.toMatchObject({
+        code: "23514",
+        constraint: "company_directory_profile_locations_latitude_check",
+      });
+
+      await expect(client!.query(
+        `
+          insert into company_directory_profile_locations (
+            profile_id, purpose, source_type, latitude, longitude
+          ) values ($1, 'workplace', 'official', 59.1955, 181)
+        `,
+        [profileId],
+      )).rejects.toMatchObject({
+        code: "23514",
+        constraint: "company_directory_profile_locations_longitude_check",
       });
     });
   },
