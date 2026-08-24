@@ -2,8 +2,9 @@ import Link from "next/link";
 import { ArrowRight, CalendarCheck2, ChevronLeft, ChevronRight, FileText, Mail, MapPin, Navigation, ShieldCheck } from "lucide-react";
 
 import { directoryCopy, directoryPaths, directoryServiceLabel, popularDirectoryServices } from "@/components/company-directory/public-directory-copy";
+import { PublicDirectorySortControls } from "@/components/company-directory/public-directory-sort-controls";
 import { quoteRequestPaths } from "@/features/quote-request/localization";
-import type { PublishedDirectorySearchResponse, PublishedDirectorySearchResult } from "@/lib/company-directory-public-search";
+import type { DirectorySearchSort, PublishedDirectorySearchResponse, PublishedDirectorySearchResult } from "@/lib/company-directory-public-search";
 import type { PublicLocale } from "@/lib/public-locale";
 
 function withWorkspaceLocale(path: string, locale: PublicLocale) {
@@ -78,10 +79,12 @@ function paginationPages(currentPage: number, totalPages: number) {
 export function PublicDirectoryResults({
   locale,
   search,
+  sort = "recommended",
   paginationBaseHref = directoryPaths[locale].search,
 }: {
   locale: PublicLocale;
   search: PublishedDirectorySearchResponse;
+  sort?: DirectorySearchSort;
   paginationBaseHref?: string;
 }) {
   const t = directoryCopy[locale];
@@ -120,7 +123,10 @@ export function PublicDirectoryResults({
           <p className="mt-1 text-xs font-semibold text-muted">{t.publishedOnly}</p>
           {search.totalCount > 0 ? <p className="mt-1 text-xs font-bold text-body">{t.range(from, to, search.totalCount)}</p> : null}
         </div>
-        {nearbyActive ? <p className="inline-flex items-center gap-1.5 text-xs font-bold text-muted"><Navigation className="h-4 w-4 text-brand" />{t.nearest(search.radiusKm)}</p> : null}
+        <div className="flex flex-col items-start gap-2 sm:items-end">
+          {nearbyActive ? <p className="inline-flex items-center gap-1.5 text-xs font-bold text-muted"><Navigation className="h-4 w-4 text-brand" />{sort === "name" ? t.withinRadius(search.radiusKm) : t.nearest(search.radiusKm)}</p> : null}
+          {search.totalCount > 0 ? <PublicDirectorySortControls locale={locale} sort={sort} nearbyActive={nearbyActive} baseHref={paginationBaseHref} /> : null}
+        </div>
       </div>
 
       <div className="mt-4 grid gap-3">
