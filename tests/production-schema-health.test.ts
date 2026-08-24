@@ -26,6 +26,11 @@ describe("Production schema health", () => {
     expect(result.databaseReachable).toBe(true);
     expect(result.missingMigrations).toEqual([]);
     expect(query).toHaveBeenCalledTimes(2);
+
+    const contractSql = String(query.mock.calls[0]?.[0] ?? "");
+    expect(contractSql).toContain("conrelid = to_regclass('public.workspace_services')");
+    expect(contractSql).toContain("contype = 'f'");
+    expect(contractSql).toContain("tablename = 'workspace_services'");
   });
 
   it("fails closed when the ledger is missing and does not query a missing table", async () => {
