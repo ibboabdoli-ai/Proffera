@@ -49,13 +49,14 @@ function normalizeQuery(strings: TemplateStringsArray) {
   return strings.join("?").replace(/\s+/g, " ").trim();
 }
 
-function candidate(status = "ready") {
+function candidate(status = "ready", knownHardOfficialFactsBlock = false) {
   return {
     id: PROFILE_ID,
     organization_number: ORGANIZATION_NUMBER,
     display_name: "Example AB",
     publication_status: status,
     normalized_organization_number: ORGANIZATION_NUMBER,
+    known_hard_official_facts_block: knownHardOfficialFactsBlock,
   };
 }
 
@@ -116,15 +117,10 @@ beforeEach(() => {
 
 describe("full Directory revalidation hard-block and deterministic SCB handling", () => {
   it("moves a Ready profile with persisted bankruptcy/fusion evidence to Review before upstream calls", async () => {
-    const blocked = evaluation({
-      ongoing_procedures: [{ code: "KK", label: "Konkurs", fromDate: "2026-08-04" }],
-    });
-
     responder = async (query) => {
       if (query.includes("started_at < now() - interval '10 minutes'")) return [];
       if (query.includes("insert into company_directory_sync_runs")) return [{ id: RUN_ID, cursor_value: "" }];
-      if (query.includes("with eligible as (")) return [candidate("ready")];
-      if (query.includes("profile.category_slug") && query.includes("scb_snapshot_fresh")) return [blocked];
+      if (query.includes("with eligible as (")) return [candidate("ready", true)];
       if (
         query.includes("update company_directory_profiles profile")
         && query.includes("facts.deregistration_date is not null")
@@ -185,7 +181,7 @@ describe("full Directory revalidation hard-block and deterministic SCB handling"
       errorSummary: "",
       remaining: 0,
     });
-    expect(evaluationReads).toBeGreaterThanOrEqual(2);
+    expect(evaluationReads).toBe(1);
     expect(mocks.enrichOfficialFacts).toHaveBeenCalledTimes(1);
     expect(mocks.enrichScb).toHaveBeenCalledTimes(1);
     expect(mocks.assessConfidence).not.toHaveBeenCalled();
