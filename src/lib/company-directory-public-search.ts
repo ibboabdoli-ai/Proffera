@@ -11,6 +11,7 @@ import { resolveDirectoryServiceQuery } from "@/lib/company-directory-service-ta
 import { getWorkspaceDirectoryPublicAccessForWorkspaces } from "@/lib/workspace-feature-entitlement-db";
 
 export type DirectoryMarketplaceConversionMode = "book" | "quote" | "book_or_quote" | "contact";
+export type DirectorySearchSort = "recommended" | "nearest" | "name";
 
 export type PublishedDirectorySearchInput = {
   service?: string;
@@ -20,6 +21,7 @@ export type PublishedDirectorySearchInput = {
   latitude?: number | string;
   longitude?: number | string;
   radiusKm?: number | string;
+  sort?: string;
 };
 
 export type PublishedDirectorySearchResult = {
@@ -74,6 +76,13 @@ function boundedPage(value: unknown) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return 1;
   return Math.max(1, Math.floor(parsed));
+}
+
+export function normalizeDirectorySearchSort(value: unknown, nearbyEnabled: boolean): DirectorySearchSort {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (normalized === "name") return "name";
+  if (normalized === "nearest" && nearbyEnabled) return "nearest";
+  return "recommended";
 }
 
 function marketplaceConversionMode(value: unknown): DirectoryMarketplaceConversionMode | null {
@@ -156,6 +165,7 @@ export async function searchPublishedCompanyDirectory(
   const nearbyRequested = input.latitude !== undefined || input.longitude !== undefined;
   const nearbyEnabled = coordinates !== null;
   const radiusKm = normalizeDirectoryRadiusKm(input.radiusKm, 25);
+  const sort = normalizeDirectorySearchSort(input.sort, nearbyEnabled);
 
   const emptyResponse = (serviceResolved: boolean): PublishedDirectorySearchResponse => ({
     serviceQuery,
@@ -427,8 +437,9 @@ export async function searchPublishedCompanyDirectory(
     from ranked
     where ${nearbyEnabled} = false or distance_km <= ${radiusKm}
     order by
-      case when ${nearbyEnabled} = true then distance_km end asc nulls last,
-      quality_score desc,
+      case when ${sort} in ('recommended', 'nearest') and ${nearbyEnabled} = true then distance_km end asc nulls last,
+      case when ${sort} in ('recommended', 'nearest') then quality_score end desc nulls last,
+      case when ${sort} = 'name' then lower(display_name) end asc nulls last,
       display_name asc,
       id asc
     limit ${pageSize}
