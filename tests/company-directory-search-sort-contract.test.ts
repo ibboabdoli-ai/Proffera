@@ -12,15 +12,17 @@ function source(path: string) {
 }
 
 describe("public directory search sorting", () => {
-  it("keeps sorting bounded to recommended, nearby nearest and alphabetical modes", () => {
+  it("keeps sorting bounded to distinct recommended, nearby nearest and alphabetical modes", () => {
     const searchSource = source("src/lib/company-directory-public-search.ts");
 
     expect(searchSource).toContain('export type DirectorySearchSort = "recommended" | "nearest" | "name"');
     expect(searchSource).toContain('if (normalized === "name") return "name"');
     expect(searchSource).toContain('if (normalized === "nearest" && nearbyEnabled) return "nearest"');
     expect(searchSource).toContain('return "recommended"');
-    expect(searchSource).toContain("case when ${sort} in ('recommended', 'nearest') and ${nearbyEnabled} = true then distance_km end asc nulls last");
-    expect(searchSource).toContain("case when ${sort} in ('recommended', 'nearest') then quality_score end desc nulls last");
+    expect(searchSource).toContain("case when ${sort} = 'nearest' and ${nearbyEnabled} = true then distance_km end asc nulls last");
+    expect(searchSource).toContain("case when ${sort} = 'recommended' then quality_score end desc nulls last");
+    expect(searchSource).toContain("case when ${sort} = 'recommended' and ${nearbyEnabled} = true then distance_km end asc nulls last");
+    expect(searchSource).toContain("case when ${sort} = 'nearest' then quality_score end desc nulls last");
     expect(searchSource).toContain("case when ${sort} = 'name' then lower(display_name) end asc nulls last");
   });
 
@@ -29,6 +31,7 @@ describe("public directory search sorting", () => {
     const orderBy = searchSource.split("order by\n      case when ${sort}")[1]?.split("limit ${pageSize}")[0] ?? "";
 
     expect(orderBy).toContain("quality_score");
+    expect(orderBy).toContain("distance_km");
     expect(orderBy).toContain("display_name");
     expect(orderBy).not.toContain("planAccess");
     expect(orderBy).not.toContain("websiteBuilder");
