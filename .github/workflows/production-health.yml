@@ -1,0 +1,81 @@
+name: Production health gate
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "7,37 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: proffera-production-health-${{ github.event_name }}
+  cancel-in-progress: true
+
+env:
+  PRODUCTION_HEALTH_URL: https://www.proffera.se/api/cron/production-health
+
+jobs:
+  verify:
+    name: Verify Production health
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Verify deployed commit and schema health
+        env:
+          CRON_SECRET: ${{ secrets.PROFFERA_REMINDER_CRON_SECRET }}
+          EVENT_NAME: ${{ github.event_name }}
+          TARGET_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$CRON_SECRET"
+
+          max_attempts=1
+          if [ "$EVENT_NAME" = "push" ]; then
+            max_attempts=24
+          fi
+
+          for attempt in $(seq 1 "$max_attempts"); do
+            response_file="$(mktemp)"
+            status="$(curl --silent --show-error \
+              --connect-timeout 10 \
+              --max-time 20 \
+              --output "$response_file" \
+              --write-out '%{http_code}' \
+              --header "Authorization: Bearer $CRON_SECRET" \
+              --header "User-Agent: proffera-production-health-github-actions" \
+              "$PRODUCTION_HEALTH_URL" || true)"
+            response="$(cat "$response_file")"
+            rm -f "$response_file"
+
+            if ! jq -e . >/dev/null 2>&1 <<< "$response"; then
+              echo "Production health returned invalid JSON (HTTP ${status:-unknown})."
+            else
+              ok="$(jq -r '.ok == true' <<< "$response")"
+              deployed_sha="$(jq -r '.commit // ""' <<< "$response")"
+              environment="$(jq -r '.environment // "unknown"' <<< "$response")"
+              missing="$(jq -r '.schema.missingMigrations // [] | join(",")' <<< "$response")"
+
+              echo "Production health attempt $attempt/$max_attempts: status=${status:-unknown} env=$environment deployed=${deployed_sha:-none} ok=$ok missing=${missing:-none}"
+
+              commit_matches=yes
+              if [ "$EVENT_NAME" = "push" ] && [ "$deployed_sha" != "$TARGET_SHA" ]; then
+                commit_matches=no
+              fi
+
+              if [ "$status" = "200" ] && [ "$ok" = "true" ] && [ "$environment" = "production" ] && [ "$commit_matches" = "yes" ]; then
+                echo "Production health gate passed."
+                exit 0
+              fi
+            fi
+
+            if [ "$attempt" -lt "$max_attempts" ]; then
+              sleep 15
+            fi
+          done
+
+          echo "::error::Production health gate failed for the deployed release/schema contract."
+          exit 1
