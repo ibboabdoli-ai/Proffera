@@ -1,5 +1,6 @@
 import {
   chmodSync,
+  existsSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -65,6 +66,80 @@ esac
   }
 }
 
+function runAutomergePostMergeFixture(merged: boolean, mergeCommitSha: string) {
+  const workflow = source(".github/workflows/proffera-automerge.yml");
+  const startMarker = '          merge_output="$(gh pr merge "$pr_number"';
+  const start = workflow.indexOf(startMarker);
+
+  if (start < 0) {
+    throw new Error("Could not locate the gated automerge post-merge block");
+  }
+
+  const postMergeBlock = workflow
+    .slice(start)
+    .split("\n")
+    .map((line) => (line.startsWith("          ") ? line.slice(10) : line))
+    .join("\n");
+
+  const bin = mkdtempSync(resolve(tmpdir(), "proffera-automerge-merge-confirmation-"));
+  const gh = resolve(bin, "gh");
+  const sleep = resolve(bin, "sleep");
+  const summary = resolve(bin, "summary.md");
+  const dispatchMarker = resolve(bin, "dispatch-called");
+  const apiPayload = JSON.stringify({ merged, merge_commit_sha: mergeCommitSha });
+
+  writeFileSync(gh, `#!/usr/bin/env bash
+set -euo pipefail
+if [ "${1:-}" = "pr" ] && [ "${2:-}" = "merge" ]; then
+  printf 'merge accepted\\n'
+  exit 0
+fi
+if [ "${1:-}" = "api" ] && [[ "$*" == *"/pulls/706"* ]]; then
+  printf '%s\\n' '${apiPayload}'
+  exit 0
+fi
+if [ "${1:-}" = "api" ] && [[ "$*" == *"/dispatches"* ]]; then
+  : > "$DISPATCH_MARKER"
+  exit 0
+fi
+printf 'unexpected gh invocation: %s\\n' "$*" >&2
+exit 2
+`);
+  writeFileSync(sleep, "#!/usr/bin/env bash\nexit 0\n");
+  chmodSync(gh, 0o755);
+  chmodSync(sleep, 0o755);
+  writeFileSync(summary, "");
+
+  const script = `set -euo pipefail
+summary() {
+  echo "$1" >> "$GITHUB_STEP_SUMMARY"
+}
+REPOSITORY="ibboabdoli-ai/Proffera"
+pr_number="706"
+head_sha="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+${postMergeBlock}`;
+
+  try {
+    const result = spawnSync("bash", ["-c", script], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH ?? ""}`,
+        GITHUB_STEP_SUMMARY: summary,
+        DISPATCH_MARKER: dispatchMarker,
+      },
+    });
+
+    return {
+      result,
+      summary: readFileSync(summary, "utf8"),
+      dispatched: existsSync(dispatchMarker),
+    };
+  } finally {
+    rmSync(bin, { recursive: true, force: true });
+  }
+}
+
 describe("Production health dispatch control", () => {
   it("keeps push health and accepts an exact-base repository dispatch result", () => {
     const push = runBaseHealth("push-success");
@@ -112,5 +187,15 @@ describe("Production health dispatch control", () => {
     expect(workflow).toContain('if [ "$pr_merged" != "true" ] || ! [[ "$merged_sha" =~ ^[0-9a-f]{40}$ ]]');
     expect(workflow).toContain('.merged');
     expect(workflow).toContain('if [ "$pr_merged" != "true" ]');
+  });
+
+  it("does not dispatch or claim merged when GitHub still reports an unmerged temporary SHA", () => {
+    const temporarySha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const fixture = runAutomergePostMergeFixture(false, temporarySha);
+
+    expect(fixture.result.status).not.toBe(0);
+    expect(fixture.dispatched).toBe(false);
+    expect(fixture.summary).not.toContain("Proffera gated automerge: merged");
+    expect(fixture.result.stderr).toContain("pull request was not confirmed merged");
   });
 });
