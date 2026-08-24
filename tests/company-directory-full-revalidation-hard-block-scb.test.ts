@@ -121,6 +121,7 @@ describe("full Directory revalidation hard-block and deterministic SCB handling"
       if (query.includes("with blocked as (")) return [{ id: PROFILE_ID }];
       if (query.includes("started_at < now() - interval '10 minutes'")) return [];
       if (query.includes("insert into company_directory_sync_runs")) return [{ id: RUN_ID, cursor_value: "" }];
+      if (query.includes("with eligible as (")) return [];
       if (query.includes("update company_directory_sync_runs") && query.includes("where id =")) return [];
       if (query.includes("select count(*)::int as count")) return [{ count: 0 }];
       throw new Error(`Unexpected SQL in persisted hard-block test: ${query}`);
