@@ -256,6 +256,34 @@ function postgresSql(client: Client) {
       expect(row.rows[0]?.publication_status).toBe("review");
     }, 30_000);
 
+    it("demotes a Ready legal block even when SCB transport is unavailable", async () => {
+      await seedProfile({
+        id: READY_PROFILE_ID,
+        organizationNumber: READY_ORG,
+        status: "ready",
+        procedures: [{ code: "KK", label: "Konkurs", fromDate: "2026-08-04" }],
+      });
+      mocks.createScbTransport.mockReturnValue(null);
+
+      const result = await revalidateAllCompanyDirectoryBatch(10);
+      expect(result).toMatchObject({
+        skipped: true,
+        reason: "scb_access_not_configured",
+        selected: 1,
+        movedToReview: 1,
+        errors: 0,
+        remaining: 0,
+      });
+      expect(mocks.enrichOfficialFacts).not.toHaveBeenCalled();
+      expect(mocks.enrichScb).not.toHaveBeenCalled();
+
+      const row = await client!.query<{ publication_status: string }>(
+        "select publication_status from company_directory_profiles where id=$1::uuid",
+        [READY_PROFILE_ID],
+      );
+      expect(row.rows[0]?.publication_status).toBe("review");
+    }, 30_000);
+
     it("quarantines deterministic SCB no-match for 24 hours after fail-closed Ready-to-Review", async () => {
       await seedProfile({ id: READY_PROFILE_ID, organizationNumber: READY_ORG, status: "ready" });
       mocks.enrichScb.mockRejectedValue(new Error(DETERMINISTIC_SCB_ERROR));
@@ -289,7 +317,7 @@ function postgresSql(client: Client) {
       expect(mocks.enrichScb).not.toHaveBeenCalled();
     }, 30_000);
 
-    it("does not reselect a hard-blocked Review row solely for missing SCB", async () => {
+    it("does not reselect a fresh hard-blocked Review row solely for missing SCB", async () => {
       await seedProfile({
         id: REVIEW_PROFILE_ID,
         organizationNumber: REVIEW_ORG,
@@ -299,6 +327,53 @@ function postgresSql(client: Client) {
 
       const result = await revalidateAllCompanyDirectoryBatch(10);
       expect(result).toMatchObject({ selected: 0, errors: 0, remaining: 0 });
+      expect(mocks.enrichOfficialFacts).not.toHaveBeenCalled();
+      expect(mocks.enrichScb).not.toHaveBeenCalled();
+    }, 30_000);
+
+    it("rechecks a hard-blocked Review row after 24 hours and skips SCB while the block persists", async () => {
+      await seedProfile({
+        id: REVIEW_PROFILE_ID,
+        organizationNumber: REVIEW_ORG,
+        status: "review",
+        procedures: [{ code: "FUOL", label: "Överlåtande i fusion", fromDate: "2026-05-04" }],
+      });
+      await client!.query(
+        "update company_directory_profiles set updated_at=now()-interval '2 days' where id=$1::uuid",
+        [REVIEW_PROFILE_ID],
+      );
+      await client!.query(
+        "update company_directory_official_facts set last_synced_at=now()-interval '2 days' where profile_id=$1::uuid",
+        [REVIEW_PROFILE_ID],
+      );
+      mocks.enrichOfficialFacts.mockImplementation(async () => {
+        await client!.query(
+          "update company_directory_official_facts set last_synced_at=now() where profile_id=$1::uuid",
+          [REVIEW_PROFILE_ID],
+        );
+        return {
+          profileId: REVIEW_PROFILE_ID,
+          organizationNumber: REVIEW_ORG,
+          reusedVerifiedDetail: false,
+        };
+      });
+      mocks.enrichScb.mockRejectedValue(new Error("SCB must not be called while the legal block persists"));
+
+      const first = await revalidateAllCompanyDirectoryBatch(10);
+      expect(first).toMatchObject({
+        selected: 1,
+        refreshed: 1,
+        kept: 1,
+        movedToReview: 0,
+        errors: 0,
+        remaining: 0,
+      });
+      expect(mocks.enrichOfficialFacts).toHaveBeenCalledTimes(1);
+      expect(mocks.enrichScb).not.toHaveBeenCalled();
+
+      mocks.enrichOfficialFacts.mockClear();
+      const second = await revalidateAllCompanyDirectoryBatch(10);
+      expect(second).toMatchObject({ selected: 0, errors: 0, remaining: 0 });
       expect(mocks.enrichOfficialFacts).not.toHaveBeenCalled();
       expect(mocks.enrichScb).not.toHaveBeenCalled();
     }, 30_000);
