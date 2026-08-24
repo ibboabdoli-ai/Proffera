@@ -16,6 +16,7 @@ import { revalidateCompanyDirectoryCategoryPolicyBatch } from "../src/lib/compan
 
 type SqlCall = { query: string; values: unknown[] };
 type SqlResponder = (query: string, values: unknown[]) => Promise<unknown[]> | unknown[];
+type CandidateStatus = "published" | "ready" | "review";
 
 const PROFILE_ID = "11111111-1111-4111-8111-111111111111";
 const PROFILE_TOKEN = "2026-08-23 15:30:00+00";
@@ -31,7 +32,7 @@ function normalizeQuery(strings: TemplateStringsArray) {
   return strings.join("?").replace(/\s+/g, " ").trim();
 }
 
-function candidate(status: "published" | "ready" = "ready") {
+function candidate(status: CandidateStatus = "ready") {
   return {
     id: PROFILE_ID,
     organization_number: "5563115707",
@@ -63,7 +64,7 @@ function candidate(status: "published" | "ready" = "ready") {
 }
 
 function configure(input: {
-  status?: "published" | "ready";
+  status?: CandidateStatus;
   attemptRows?: unknown[];
   markRows?: unknown[];
   moveRows?: unknown[];
@@ -185,15 +186,17 @@ describe("Company Directory category policy revalidation", () => {
     });
 
     const selection = sqlCalls.find((call) => call.query.includes("select profile.id::text"));
-    expect(selection?.query).toContain("profile.publication_status in ('published', 'ready')");
+    expect(selection?.query).toContain("profile.publication_status in ('published', 'ready', 'review')");
     expect(selection?.query).toContain("categoryConfidencePolicyLastAttemptAt");
-    expect(selection?.query).toContain("when 'published' then 0 else 1");
+    expect(selection?.query).toContain("when 'published' then 0");
+    expect(selection?.query).toContain("when 'ready' then 1");
+    expect(selection?.query).toContain("when 'review' then 2");
     expect(selection?.query).toContain("categoryConfidencePolicy,version");
     expect(selection?.query).toContain("count(*) over()::int as policy_backlog_count");
     expect(selection?.values).toContain("test-policy-v2");
     expect(
       selection?.query.indexOf("categoryConfidencePolicyLastAttemptAt"),
-    ).toBeLessThan(selection?.query.indexOf("when 'published' then 0 else 1") ?? 0);
+    ).toBeLessThan(selection?.query.indexOf("when 'published' then 0") ?? 0);
 
     const attempt = sqlCalls.find((call) => (
       call.query.includes("update company_directory_scb_enrichment scb")
@@ -242,6 +245,65 @@ describe("Company Directory category policy revalidation", () => {
       call.query.startsWith("update company_directory_scb_enrichment scb")
       && call.query.includes("jsonb_build_object")
     ));
+    expect(policyMarker?.values).toContain("test-policy-v2");
+  });
+
+  it("queues a safe stale-policy Review profile for the existing recovery path exactly once per policy version", async () => {
+    configure({ status: "review" });
+
+    const result = await revalidateCompanyDirectoryCategoryPolicyBatch(10);
+
+    expect(result).toMatchObject({
+      selected: 1,
+      evaluated: 1,
+      kept: 1,
+      movedToReview: 0,
+      deferred: 0,
+      errors: 0,
+      remaining: 0,
+    });
+
+    const recovery = sqlCalls.find((call) => call.query.includes("#- '{reviewRecoveryEvaluation}'"));
+    expect(recovery?.query).toContain("profile.publication_status = 'review'");
+    expect(recovery?.query).toContain("'decision', 'review_recovery_queued'");
+    expect(recovery?.query).toContain("categoryConfidencePolicy,version");
+    expect(recovery?.values).toContain("test-policy-v2");
+    expect(recovery?.values).toContain(PROFILE_TOKEN);
+    expect(recovery?.values).toContain(FACTS_TOKEN);
+    expect(recovery?.values).toContain(FACTS_HASH);
+    expect(recovery?.values).toContain(SCB_HASH);
+    expect(sqlCalls.some((call) => call.query.includes("set publication_status = 'ready'"))).toBe(false);
+    expect(sqlCalls.some((call) => call.query.includes("with moved_profile as"))).toBe(false);
+  });
+
+  it("records an unsafe stale-policy Review profile without re-queueing recovery", async () => {
+    configure({ status: "review" });
+    mocks.assessConfidence.mockReturnValue({
+      score: 90,
+      officialFactsReady: true,
+      competingCategories: [],
+      conflictingTextCategories: ["maleri"],
+    });
+
+    const result = await revalidateCompanyDirectoryCategoryPolicyBatch(10);
+
+    expect(result).toMatchObject({
+      selected: 1,
+      evaluated: 1,
+      kept: 1,
+      movedToReview: 0,
+      deferred: 0,
+      errors: 0,
+      remaining: 0,
+    });
+    expect(sqlCalls.some((call) => call.query.includes("#- '{reviewRecoveryEvaluation}'"))).toBe(false);
+    expect(sqlCalls.some((call) => call.query.includes("with moved_profile as"))).toBe(false);
+    const policyMarker = sqlCalls.find((call) => (
+      call.query.startsWith("update company_directory_scb_enrichment scb")
+      && call.query.includes("jsonb_build_object")
+      && !call.query.includes("categoryConfidencePolicyLastAttemptAt")
+    ));
+    expect(policyMarker?.values).toContain("review");
     expect(policyMarker?.values).toContain("test-policy-v2");
   });
 
@@ -370,10 +432,10 @@ describe("Company Directory category policy revalidation", () => {
         query.includes("update company_directory_scb_enrichment scb")
         && query.includes("categoryConfidencePolicyLastAttemptAt")
       ) {
-        return [{ profile_id: query.includes(row1.id) ? row1.id : row2.id }];
+        return [{ profile_id: PROFILE_ID }];
       }
       if (query.includes("update company_directory_scb_enrichment scb")) {
-        return [{ profile_id: query.includes(row1.id) ? row1.id : row2.id }];
+        return [{ profile_id: PROFILE_ID }];
       }
       throw new Error(`Unexpected SQL: ${query}`);
     };
@@ -390,7 +452,9 @@ describe("Company Directory category policy revalidation", () => {
 
     const nowSpy = vi.spyOn(Date, "now");
     nowSpy.mockReturnValueOnce(1_000_000);
-    nowSpy.mockReturnValueOnce(1_030_000);
+    nowSpy.mockReturnValueOnce(1_000_000);
+    nowSpy.mockReturnValueOnce(1_000_000);
+    nowSpy.mockReturnValue(1_030_000);
 
     try {
       const result = await revalidateCompanyDirectoryCategoryPolicyBatch(2, {
