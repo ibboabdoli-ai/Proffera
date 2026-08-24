@@ -148,7 +148,7 @@ async function loadCandidates(limit: number, signal?: AbortSignal): Promise<Poli
     join company_directory_scb_enrichment scb on scb.profile_id = profile.id
     where profile.country_code = 'SE'
       and profile.organization_kind = 'juridical_person'
-      and profile.publication_status in ('published', 'ready')
+      and profile.publication_status in ('published', 'ready', 'review')
       and profile.claimed_workspace_id is null
       and length(regexp_replace(profile.organization_number, '\\D', '', 'g')) = 10
       and facts.last_synced_at >= profile.last_synced_at
@@ -164,7 +164,12 @@ async function loadCandidates(limit: number, signal?: AbortSignal): Promise<Poli
         (scb.provenance #>> '{categoryConfidencePolicyLastAttemptAt}')::timestamptz,
         '-infinity'::timestamptz
       ) asc,
-      case profile.publication_status when 'published' then 0 else 1 end,
+      case profile.publication_status
+        when 'published' then 0
+        when 'ready' then 1
+        when 'review' then 2
+        else 3
+      end,
       regexp_replace(profile.organization_number, '\\D', '', 'g') asc
     limit ${limit}
   ` as PolicyCandidate[];
@@ -256,6 +261,61 @@ async function markPolicyEvaluation(input: {
         where profile.id = scb.profile_id
           and profile.publication_status = ${input.status}
           and profile.updated_at::text = ${input.profileUpdatedToken}
+          and profile.claimed_workspace_id is null
+      )
+      and exists (
+        select 1
+        from company_directory_official_facts facts
+        where facts.profile_id = scb.profile_id
+          and facts.last_synced_at::text = ${input.factsLastSyncedToken}
+          and facts.source_payload_hash = ${input.factsSourcePayloadHash}
+      )
+    returning scb.profile_id::text
+  `;
+
+  return Boolean(rows[0]);
+}
+
+async function queueReviewRecoveryForCurrentPolicy(input: {
+  profileId: string;
+  profileUpdatedToken: string;
+  factsLastSyncedToken: string;
+  factsSourcePayloadHash: string;
+  scbSourcePayloadHash: string;
+}, signal?: AbortSignal) {
+  if (signal?.aborted) throw new PolicyDeadlineError();
+  const sql = sqlWithDeadline(signal);
+  if (!sql) return false;
+
+  const rows = await sql`
+    update company_directory_scb_enrichment scb
+    set provenance = jsonb_set(
+          coalesce(scb.provenance, '{}'::jsonb) #- '{reviewRecoveryEvaluation}',
+          '{categoryConfidencePolicy}',
+          jsonb_build_object(
+            'version', ${COMPANY_DIRECTORY_CATEGORY_CONFIDENCE_POLICY_VERSION}::text,
+            'profileUpdatedToken', ${input.profileUpdatedToken}::text,
+            'officialFactsLastSyncedToken', ${input.factsLastSyncedToken}::text,
+            'officialFactsSourcePayloadHash', ${input.factsSourcePayloadHash}::text,
+            'decision', 'review_recovery_queued'
+          ),
+          true
+        ),
+        updated_at = now()
+    where scb.profile_id = ${input.profileId}::uuid
+      and scb.source_payload_hash = ${input.scbSourcePayloadHash}
+      and scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = ${input.profileUpdatedToken}
+      and scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = ${input.factsLastSyncedToken}
+      and scb.provenance #>> '{categoryConfidencePolicy,version}'
+        is distinct from ${COMPANY_DIRECTORY_CATEGORY_CONFIDENCE_POLICY_VERSION}
+      and exists (
+        select 1
+        from company_directory_profiles profile
+        where profile.id = scb.profile_id
+          and profile.publication_status = 'review'
+          and profile.updated_at::text = ${input.profileUpdatedToken}
+          and profile.country_code = 'SE'
+          and profile.organization_kind = 'juridical_person'
           and profile.claimed_workspace_id is null
       )
       and exists (
@@ -407,7 +467,7 @@ export async function revalidateCompanyDirectoryCategoryPolicyBatch(
       if (
         !profileId
         || organizationNumber.length !== 10
-        || (status !== "published" && status !== "ready")
+        || (status !== "published" && status !== "ready" && status !== "review")
         || !profileUpdatedToken
         || !factsLastSyncedToken
         || !factsSourcePayloadHash
@@ -452,6 +512,34 @@ export async function revalidateCompanyDirectoryCategoryPolicyBatch(
           || !confidence.officialFactsReady
           || confidence.score < 95
           || Math.max(0, number(candidate.scb_conflict_count)) > 0;
+
+        if (status === "review") {
+          const recorded = shouldReview
+            ? await markPolicyEvaluation({
+                profileId,
+                status,
+                profileUpdatedToken,
+                factsLastSyncedToken,
+                factsSourcePayloadHash,
+                scbSourcePayloadHash,
+              }, deadline.signal)
+            : await queueReviewRecoveryForCurrentPolicy({
+                profileId,
+                profileUpdatedToken,
+                factsLastSyncedToken,
+                factsSourcePayloadHash,
+                scbSourcePayloadHash,
+              }, deadline.signal);
+
+          if (!recorded) {
+            deferred += 1;
+            continue;
+          }
+
+          evaluated += 1;
+          kept += 1;
+          continue;
+        }
 
         if (shouldReview) {
           const moved = await moveEvaluatedProfileToReview({
