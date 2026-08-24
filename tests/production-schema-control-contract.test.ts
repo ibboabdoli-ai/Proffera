@@ -30,7 +30,14 @@ function controlledMigrations() {
     .sort((left, right) => left.key.localeCompare(right.key));
 }
 
-function runBaseHealth(mode: "success" | "failure" | "missing") {
+type BaseHealthMode =
+  | "success"
+  | "failure"
+  | "missing"
+  | "bootstrap404"
+  | "lookup401";
+
+function runBaseHealth(mode: BaseHealthMode) {
   const bin = mkdtempSync(resolve(tmpdir(), "proffera-base-health-"));
   const gh = resolve(bin, "gh");
   const payload = mode === "missing"
@@ -43,7 +50,22 @@ function runBaseHealth(mode: "success" | "failure" | "missing") {
       }],
     });
 
-  writeFileSync(gh, `#!/usr/bin/env bash\nset -euo pipefail\nif [[ "$*" == *"/contents/.github/workflows/"* ]]; then\n  printf '{}\\n'\n  exit 0\nfi\nprintf '%s\\n' '${payload}'\n`);
+  writeFileSync(gh, `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$*" == *"/contents/.github/workflows/"* ]]; then
+  if [ "${mode}" = "bootstrap404" ]; then
+    printf '%s\n' 'gh: Not Found (HTTP 404)' >&2
+    exit 1
+  fi
+  if [ "${mode}" = "lookup401" ]; then
+    printf '%s\n' 'gh: Unauthorized (HTTP 401)' >&2
+    exit 1
+  fi
+  printf '{}\n'
+  exit 0
+fi
+printf '%s\n' '${payload}'
+`);
   chmodSync(gh, 0o755);
 
   try {
@@ -108,17 +130,20 @@ describe("Production schema control plane", () => {
     expect(workflow).toContain("timeout-minutes: 8");
   });
 
-  it("binds later PRs to the executable exact-SHA Production base health gate", () => {
+  it("runs the PR base gate only from the trusted base commit", () => {
     const workflow = source(".github/workflows/production-base-health.yml");
     const script = source("scripts/production-base-health.sh");
 
     expect(workflow).toContain("pull_request:");
     expect(workflow).toContain("actions: read");
     expect(workflow).toContain("BASE_SHA: ${{ github.event.pull_request.base.sha }}");
-    expect(workflow).toContain("bash scripts/production-base-health.sh");
+    expect(workflow).toContain("ref: ${{ github.event.pull_request.base.sha }}");
+    expect(workflow).toContain("path: trusted-base");
+    expect(workflow).toContain("persist-credentials: false");
+    expect(workflow).toContain('trusted_script="trusted-base/scripts/production-base-health.sh"');
+    expect(workflow).toContain('bash "$trusted_script"');
     expect(script).toContain("head_sha=$BASE_SHA");
     expect(script).toContain("New work is blocked");
-    expect(script).toContain("allowing bootstrap PR only");
   });
 
   it("executes exact-base health success and failure paths", () => {
@@ -132,5 +157,16 @@ describe("Production schema control plane", () => {
     expect(failure.stdout).toContain("New work is blocked");
     expect(missing.status).not.toBe(0);
     expect(missing.stdout).toContain("No successful Production health result became available");
+  });
+
+  it("allows bootstrap only for an explicit 404 and fails closed on lookup errors", () => {
+    const bootstrap = runBaseHealth("bootstrap404");
+    const unauthorized = runBaseHealth("lookup401");
+
+    expect(bootstrap.status, bootstrap.stderr).toBe(0);
+    expect(bootstrap.stdout).toContain("allowing bootstrap PR only");
+    expect(unauthorized.status).not.toBe(0);
+    expect(unauthorized.stderr).toContain("HTTP 401");
+    expect(unauthorized.stderr).toContain("Could not verify Production health workflow");
   });
 });
