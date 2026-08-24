@@ -5,6 +5,7 @@ import { resolveNodePostgresDatabaseUrl } from "@/lib/db/database-url";
 export const REQUIRED_PRODUCTION_MIGRATIONS = [
   "20260823_0065",
   "20260823_0066",
+  "20260824_0067",
 ] as const;
 
 type QueryExecutor = (
