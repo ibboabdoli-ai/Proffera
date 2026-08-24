@@ -1,6 +1,6 @@
 # Proffera Current Status
 
-Last updated: 2026-08-23
+Last updated: 2026-08-24
 
 This is the canonical factual status document for Proffera. For worker rules, live task state, current `main` SHA, and roadmap order, also read `AGENTS.md`, `WORKER_BOOTSTRAP.md`, GitHub issue #548, GitHub issue #276, and `docs/README.md`.
 
@@ -63,6 +63,8 @@ Current merge-safety rules include:
 - required `E2E public smoke` check;
 - no force push / protected default branch behavior;
 - gated automerge can use either an owner-applied `ibbo-approved` label backed by a repository-owner `APPROVED` review on the exact current head, or a scoped standing merge authorization committed on `main`; standing authorization is limited to trusted same-repository owner-authored PRs and never removes current-head CI/review/head-SHA gates or authorizes blocked sensitive paths.
+
+Production release health is bound to the exact merged `main` commit rather than to a generic scheduled probe. GitHub-token merges do not reliably generate downstream `push` workflow runs, so gated automerge emits a `repository_dispatch` event only after a successful merge and includes the resolved merge commit SHA. The Production health workflow rejects a dispatch whose SHA is missing, malformed or no longer equals the default-branch head, waits for the matching Vercel deployment, and requires that deployed SHA plus schema health to pass. The trusted PR-base gate accepts successful exact-base health evidence from either a normal `push` run or this repository-dispatch handoff; scheduled health remains supplemental rather than proof for a specific PR base.
 
 A dedicated `Worker supervisor sync` GitHub Actions workflow records `work/proffera-*` PR lifecycle events to issue #548 when PRs are opened/reopened, marked ready for review, or closed/merged. This gives the Supervisor a durable automatic event trail independent of private chat memory.
 
