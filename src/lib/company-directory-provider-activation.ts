@@ -48,6 +48,61 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
   const sql = getSql();
   if (!sql) throw new Error("database_unavailable");
 
+  // Materialize exact Directory classifications only as owner-visible drafts.
+  // These rows stay outside public Search/Marketplace truth until the owner
+  // explicitly publishes them through activateProviderMarketplaceService.
+  await sql`
+    insert into workspace_services (
+      workspace_id,
+      name,
+      category,
+      price_type,
+      price_amount_minor,
+      is_active,
+      sort_order,
+      public_slug,
+      primary_directory_service_slug,
+      public_status,
+      conversion_mode
+    )
+    select
+      ${access.workspaceId},
+      service.label,
+      service.label,
+      'quote',
+      null,
+      true,
+      100,
+      service.slug,
+      service.slug,
+      'draft',
+      'quote'
+    from company_directory_profiles profile
+    join company_directory_profile_services relation
+      on relation.profile_id = profile.id
+     and relation.is_active = true
+     and relation.public_visible = true
+    join company_directory_services service
+      on service.slug = relation.service_slug
+     and service.is_active = true
+    where profile.claimed_workspace_id = ${access.workspaceId}::uuid
+      and profile.publication_status = 'claimed'
+      and profile.is_active = true
+      and profile.privacy_blocked = false
+      and profile.auto_public_eligible = true
+      and not exists (
+        select 1
+        from workspace_services existing
+        where existing.workspace_id = ${access.workspaceId}
+          and (
+            coalesce(nullif(trim(existing.primary_directory_service_slug), ''), existing.public_slug) = service.slug
+            or existing.public_slug = service.slug
+            or lower(trim(existing.name)) = lower(trim(service.label))
+          )
+      )
+    on conflict do nothing
+  `;
+
   const [profileRows, claimRows, workspaceServices] = await Promise.all([
     sql`
       select
