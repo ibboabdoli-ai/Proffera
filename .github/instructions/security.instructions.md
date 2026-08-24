@@ -1,5 +1,5 @@
 ---
-applyTo: "src/lib/auth/**,src/lib/workspace/**,src/app/api/**,middleware.*,tests/**/*auth*.ts,tests/**/*tenant*.ts,tests/**/*workspace*.ts,tests/**/*security*.ts"
+applyTo: "src/lib/auth*.ts,src/lib/workspace*.ts,src/lib/auth/**,src/lib/workspace/**,src/app/api/**,middleware.*,tests/**/*auth*.ts,tests/**/*tenant*.ts,tests/**/*workspace*.ts,tests/**/*security*.ts"
 ---
 
 # Security, privacy and tenant-boundary worker instructions

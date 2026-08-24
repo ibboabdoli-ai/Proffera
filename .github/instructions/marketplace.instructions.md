@@ -1,5 +1,5 @@
 ---
-applyTo: "src/lib/marketplace-*.ts,src/lib/*quote*.ts,src/app/**/offert/**,src/app/**/quote/**,tests/marketplace-*,tests/*quote*"
+applyTo: "src/lib/marketplace-*.ts,src/lib/*quote*.ts,src/features/matching/**,src/app/api/marketplace/**,src/app/**/offert/**,src/app/**/quote/**,tests/marketplace-*,tests/*quote*"
 ---
 
 # Marketplace worker instructions

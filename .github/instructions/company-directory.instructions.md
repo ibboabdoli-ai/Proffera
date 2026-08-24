@@ -1,5 +1,5 @@
 ---
-applyTo: "src/lib/company-directory-*.ts,src/components/company-directory/**,src/app/api/cron/company-directory-*/**,tests/company-directory-*"
+applyTo: "src/lib/company-directory-*.ts,src/components/company-directory/**,src/app/api/cron/company-directory-*/**,src/app/api/public-directory/**,src/app/en/companies/**,src/app/foretag/listad/**,tests/company-directory-*"
 ---
 
 # Company Directory worker instructions

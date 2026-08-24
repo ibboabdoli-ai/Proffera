@@ -1,5 +1,5 @@
 ---
-applyTo: "db/migrations/**,src/lib/db/**,tests/**/*.integration.test.ts,tests/**/*.integration.test.tsx"
+applyTo: "db/migrations/**,src/lib/db/**,src/lib/*-db.ts,tests/**/*.integration.test.ts,tests/**/*.integration.test.tsx"
 ---
 
 # Database and integration-test worker instructions
