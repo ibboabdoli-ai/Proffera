@@ -2,17 +2,15 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import {
-  businessProfileLocationGeocodePrecisions,
-  businessProfileLocationVisibilities,
-  createOwnerBusinessProfileLocation,
-  deactivateOwnerBusinessProfileLocation,
+  createLocationAction,
+  deactivateLocationAction,
+  updateLocationAction,
+} from "@/app/dashboard/installningar/foretagssida/platser/actions";
+import {
   editableBusinessProfileLocationPurposes,
   listOwnerBusinessProfileLocations,
-  updateOwnerBusinessProfileLocation,
-  type BusinessProfileLocationGeocodePrecision,
   type BusinessProfileLocationVisibility,
   type EditableBusinessProfileLocationPurpose,
-  type WriteBusinessProfileLocationInput,
 } from "@/lib/business-profile-location-owner";
 
 export const dynamic = "force-dynamic";
@@ -40,109 +38,6 @@ const sourceLabels: Record<string, string> = {
 
 const inputClass =
   "rounded-xl border border-[#d9e1d7] bg-white px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/15";
-
-function pageUrl(input?: { updated?: string; error?: string }) {
-  const query = new URLSearchParams();
-  if (input?.updated) query.set("updated", input.updated);
-  if (input?.error) query.set("error", input.error);
-  return `/dashboard/installningar/foretagssida/platser${query.size ? `?${query}` : ""}`;
-}
-
-function readPurpose(formData: FormData): EditableBusinessProfileLocationPurpose | null {
-  const purpose = String(formData.get("purpose") ?? "");
-  return editableBusinessProfileLocationPurposes.includes(purpose as EditableBusinessProfileLocationPurpose)
-    ? purpose as EditableBusinessProfileLocationPurpose
-    : null;
-}
-
-function readVisibility(formData: FormData): BusinessProfileLocationVisibility | null {
-  const visibility = String(formData.get("visibility") ?? "");
-  return businessProfileLocationVisibilities.includes(visibility as BusinessProfileLocationVisibility)
-    ? visibility as BusinessProfileLocationVisibility
-    : null;
-}
-
-function readLocationInput(formData: FormData): WriteBusinessProfileLocationInput | null {
-  const purpose = readPurpose(formData);
-  const visibility = readVisibility(formData);
-  if (!purpose || !visibility) return null;
-
-  return {
-    purpose,
-    visibility,
-    isVisitable: formData.get("isVisitable") === "on",
-    isPrimary: formData.get("isPrimary") === "on",
-    confirmed: formData.get("confirmed") === "on",
-    addressLine1: String(formData.get("addressLine1") ?? ""),
-    postalCode: String(formData.get("postalCode") ?? ""),
-    city: String(formData.get("city") ?? ""),
-    municipality: String(formData.get("municipality") ?? ""),
-  };
-}
-
-async function createLocationAction(formData: FormData) {
-  "use server";
-  const input = readLocationInput(formData);
-  if (!input) redirect(pageUrl({ error: "invalid" }));
-
-  try {
-    await createOwnerBusinessProfileLocation(input);
-  } catch {
-    redirect(pageUrl({ error: "save" }));
-  }
-  redirect(pageUrl({ updated: "created" }));
-}
-
-async function updateLocationAction(formData: FormData) {
-  "use server";
-  const input = readLocationInput(formData);
-  const id = String(formData.get("id") ?? "").trim();
-  if (!input || !id) redirect(pageUrl({ error: "invalid" }));
-
-  try {
-    const currentLocations = await listOwnerBusinessProfileLocations();
-    const existingLocation = currentLocations.find(
-      (location) => location.id === id && location.sourceType === "owner",
-    );
-    if (!existingLocation) redirect(pageUrl({ error: "invalid" }));
-
-    const addressUnchanged =
-      String(input.addressLine1 ?? "").trim() === existingLocation.addressLine1
-      && String(input.postalCode ?? "").trim() === existingLocation.postalCode
-      && String(input.city ?? "").trim() === existingLocation.city
-      && String(input.municipality ?? "").trim() === existingLocation.municipality;
-    const geocodePrecision = addressUnchanged && businessProfileLocationGeocodePrecisions.includes(
-      existingLocation.geocodePrecision as BusinessProfileLocationGeocodePrecision,
-    )
-      ? existingLocation.geocodePrecision as BusinessProfileLocationGeocodePrecision
-      : "unknown";
-
-    await updateOwnerBusinessProfileLocation({
-      ...input,
-      id,
-      latitude: addressUnchanged ? existingLocation.latitude : null,
-      longitude: addressUnchanged ? existingLocation.longitude : null,
-      geocodeSource: addressUnchanged ? existingLocation.geocodeSource : "",
-      geocodePrecision,
-    });
-  } catch {
-    redirect(pageUrl({ error: "save" }));
-  }
-  redirect(pageUrl({ updated: "updated" }));
-}
-
-async function deactivateLocationAction(formData: FormData) {
-  "use server";
-  const id = String(formData.get("id") ?? "").trim();
-  if (!id) redirect(pageUrl({ error: "invalid" }));
-
-  try {
-    await deactivateOwnerBusinessProfileLocation(id);
-  } catch {
-    redirect(pageUrl({ error: "save" }));
-  }
-  redirect(pageUrl({ updated: "deactivated" }));
-}
 
 function LocationFields({
   defaults,
