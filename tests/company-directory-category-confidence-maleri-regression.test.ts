@@ -94,6 +94,25 @@ describe("Company Directory Swedish painting keyword regression", () => {
     }
   });
 
+  it("does not treat ASCII malarsanering activity as painting signal", () => {
+    const result = assessCompanyDirectoryCategoryConfidence({
+      categorySlug: "stadning",
+      primarySniCode: "81.221",
+      legalName: "BELFOR Sweden AB",
+      displayName: "BELFOR Sweden AB",
+      activityDescription: "Bolaget utför malarsanering och skadesanering.",
+      registeredNames: [{
+        name: "BELFOR Sweden AB",
+        typeCode: "FORETAGSNAMN",
+        specialBusinessDescription: "",
+      }],
+      sniCodes: [{ code: "81221", label: "Rengöring av byggnader" }],
+    });
+
+    expect(result.signals).not.toContain("Verksamhetsbeskrivningen stödjer kategorin");
+    expect(result.conflictingTextCategories).not.toContain("maleri");
+  });
+
   it("does not count Mälarsanering as a Måleri name signal on a painting profile", () => {
     const result = assessCompanyDirectoryCategoryConfidence({
       categorySlug: "maleri",

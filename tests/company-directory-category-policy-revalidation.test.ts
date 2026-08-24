@@ -355,6 +355,63 @@ describe("Company Directory category policy revalidation", () => {
     }
   });
 
+  it("defers remaining candidates when deadline is reached mid-batch", async () => {
+    const row1 = { ...candidate(), id: "11111111-1111-4111-8111-111111111111", organization_number: "5563115701" };
+    const row2 = { ...candidate(), id: "22222222-2222-4222-8222-222222222222", organization_number: "5563115702" };
+    let candidateReads = 0;
+    let assessments = 0;
+
+    responder = async (query) => {
+      if (query.includes("select profile.id::text") && query.includes("categoryConfidencePolicy")) {
+        candidateReads += 1;
+        return candidateReads === 1 ? [row1, row2] : [];
+      }
+      if (
+        query.includes("update company_directory_scb_enrichment scb")
+        && query.includes("categoryConfidencePolicyLastAttemptAt")
+      ) {
+        return [{ profile_id: query.includes(row1.id) ? row1.id : row2.id }];
+      }
+      if (query.includes("update company_directory_scb_enrichment scb")) {
+        return [{ profile_id: query.includes(row1.id) ? row1.id : row2.id }];
+      }
+      throw new Error(`Unexpected SQL: ${query}`);
+    };
+
+    mocks.assessConfidence.mockImplementation(() => {
+      assessments += 1;
+      return {
+        score: 95,
+        officialFactsReady: true,
+        competingCategories: [],
+        conflictingTextCategories: [],
+      };
+    });
+
+    const nowSpy = vi.spyOn(Date, "now");
+    nowSpy.mockReturnValueOnce(1_000_000);
+    nowSpy.mockReturnValueOnce(1_030_000);
+
+    try {
+      const result = await revalidateCompanyDirectoryCategoryPolicyBatch(2, {
+        deadlineAt: 1_050_000,
+      });
+
+      expect(result).toMatchObject({
+        selected: 2,
+        evaluated: 1,
+        kept: 1,
+        movedToReview: 0,
+        deferred: 1,
+        errors: 0,
+        remaining: 1,
+      });
+      expect(assessments).toBe(1);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
   it("uses only fresh bound Official Facts and SCB evidence for the policy sweep", async () => {
     configure();
 

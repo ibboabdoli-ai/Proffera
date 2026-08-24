@@ -66,6 +66,15 @@ export async function GET(request: Request) {
     policyEvaluation = failedPolicyEvaluation(error);
   }
 
+  if (policyEvaluation.reason === "worker_error" || (typeof policyEvaluation.remaining === "number" && policyEvaluation.remaining > 0)) {
+    console.error("Category policy sweep failure detected", {
+      reason: policyEvaluation.reason,
+      remaining: policyEvaluation.remaining,
+      errors: policyEvaluation.errors,
+      errorSummary: policyEvaluation.errorSummary,
+    });
+  }
+
   try {
     const result = await revalidateAllCompanyDirectoryBatch(
       REVALIDATION_BATCH_SIZE,

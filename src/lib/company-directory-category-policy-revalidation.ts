@@ -141,7 +141,7 @@ async function loadCandidates(limit: number, signal?: AbortSignal): Promise<Poli
       facts.last_synced_at::text as facts_last_synced_token,
       facts.source_payload_hash as facts_source_payload_hash,
       scb.source_payload_hash as scb_source_payload_hash,
-      coalesce(jsonb_array_length(scb.conflicts), 0)::int as scb_conflict_count,
+      case when jsonb_typeof(scb.conflicts) = 'array' then jsonb_array_length(scb.conflicts) else 0 end::int as scb_conflict_count,
       count(*) over()::int as policy_backlog_count
     from company_directory_profiles profile
     join company_directory_official_facts facts on facts.profile_id = profile.id
@@ -353,6 +353,7 @@ function deferredBeforeSelection(limit: number) {
     errors: 0,
     errorSummary: "",
     remaining: null as number | null,
+    reason: undefined as string | undefined,
   };
 }
 
@@ -513,5 +514,6 @@ export async function revalidateCompanyDirectoryCategoryPolicyBatch(
     errors,
     errorSummary: errorMessages.join(" | "),
     remaining: Math.max(0, initialBacklog - evaluated),
+    reason: undefined as string | undefined,
   };
 }

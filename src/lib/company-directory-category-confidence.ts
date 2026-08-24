@@ -118,9 +118,6 @@ function hasSwedishTokenFragment(values: string[], fragments: string[]) {
 }
 
 function hasCategoryKeyword(categorySlug: string, values: string[]) {
-  // Keep Swedish vowel identity for painting terms. Accented stems can safely
-  // match inside compounds such as "fasadmåleri" while "mälar" stays distinct
-  // from "målar". ASCII fallbacks remain prefix-only to avoid broad false hits.
   if (categorySlug === "maleri") {
     return hasSwedishTokenFragment(values, MALERI_ACCENTED_TOKEN_FRAGMENTS)
       || hasSwedishTokenPrefix(values, MALERI_UNACCENTED_TOKEN_PREFIXES);
