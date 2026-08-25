@@ -1,7 +1,7 @@
 import { swedishCompanyNamesEquivalent } from "@/lib/company-directory-company-name";
 import { mapSniToDirectoryCategory, normalizeSniCode } from "@/lib/company-directory-policy";
 
-export const COMPANY_DIRECTORY_CATEGORY_CONFIDENCE_POLICY_VERSION = "2026-08-25.1";
+export const COMPANY_DIRECTORY_CATEGORY_CONFIDENCE_POLICY_VERSION = "2026-08-25.2";
 
 export type CompanyDirectoryCategoryConfidenceLevel = "high" | "review" | "low";
 
@@ -163,10 +163,62 @@ function hasCleaningSwedishSignal(values: string[]) {
     || hasSwedishTokenPrefix(values, STADNING_ACCENTED_TOKEN_PREFIXES);
 }
 
+function isElectricianSalesToken(token: string) {
+  if (token === "handelsbolag") return false;
+  const salesPrefixes = ["sälj", "försälj", "handel", "återförsälj", "grossist", "butik"];
+  return salesPrefixes.some((prefix) => token.startsWith(prefix));
+}
+
+function hasElectricianSalesContext(tokens: string[]) {
+  const productPrefixes = ["material", "produkt", "varor", "komponent", "utrustning", "apparat"];
+  return tokens.some((token) => isElectricianSalesToken(token))
+    && tokens.some((token) => productPrefixes.some((prefix) => token.startsWith(prefix)));
+}
+
+function hasBoundedElectricianServiceSequence(values: string[], sequence: string[]) {
+  const tokens = swedishTokens(values);
+  const normalizedSequence = sequence.map((token) => token.normalize("NFC").toLocaleLowerCase("sv-SE"));
+  if (!tokens.length || !normalizedSequence.length || normalizedSequence.length > tokens.length) return false;
+
+  for (let index = 0; index <= tokens.length - normalizedSequence.length; index += 1) {
+    if (!normalizedSequence.every((token, offset) => tokens[index + offset] === token)) continue;
+    const precedingContext = tokens.slice(Math.max(0, index - 6), index);
+    if (!hasElectricianSalesContext(precedingContext)) return true;
+  }
+  return false;
+}
+
+function hasElectricianFacilityServiceContext(values: string[]) {
+  const tokens = swedishTokens(values);
+  const serviceActions = new Set([
+    "installation",
+    "installationer",
+    "service",
+    "underhåll",
+    "reparation",
+    "reparationer",
+  ]);
+
+  for (let index = 0; index < tokens.length - 1; index += 1) {
+    if (tokens[index] !== "elektriska" || tokens[index + 1] !== "anläggningar") continue;
+    const precedingContext = tokens.slice(Math.max(0, index - 7), index);
+    if (hasElectricianSalesContext(precedingContext)) continue;
+    if (precedingContext.some((token) => serviceActions.has(token))) return true;
+  }
+  return false;
+}
+
 function hasElectricianElectricalContext(values: string[]) {
+  const tokens = swedishTokens(values);
+  if (hasElectricianSalesContext(tokens)) return false;
+  if (tokens.some((token) => token.startsWith("elarbet"))) return true;
+
   const boundedServiceSequences = [
     ["elektriska", "arbeten"],
     ["elektriskt", "arbete"],
+    ["elektrisk", "installation"],
+    ["elektriska", "installationer"],
+    ["installationsrörelse", "inom", "el"],
     ["installation", "av", "elektriska", "system"],
     ["installationer", "av", "elektriska", "system"],
     ["service", "av", "elektriska", "system"],
@@ -180,7 +232,28 @@ function hasElectricianElectricalContext(values: string[]) {
     ["reparation", "av", "elektriska", "anläggningar"],
     ["reparationer", "av", "elektriska", "anläggningar"],
   ];
-  return boundedServiceSequences.some((sequence) => hasSwedishTokenSequence(values, sequence));
+  return boundedServiceSequences.some((sequence) => hasBoundedElectricianServiceSequence(values, sequence))
+    || hasElectricianFacilityServiceContext(values);
+}
+
+function hasElectricianCompanyNameContext(values: string[]) {
+  const tokens = swedishTokens(values);
+  const blockedTradeTokens = [
+    "appliance",
+    "apparat",
+    "electronics",
+    "elektronik",
+    "handel",
+    "butik",
+    "product",
+    "produkt",
+  ];
+  const hasBlockedTradeToken = tokens.some((token) => (
+    token !== "handelsbolag"
+    && blockedTradeTokens.some((blocked) => token.startsWith(blocked))
+  ));
+  if (hasBlockedTradeToken) return false;
+  return tokens.includes("elektriska") || tokens.includes("electrical");
 }
 
 function hasHairdresserHairContext(values: string[]) {
@@ -309,11 +382,9 @@ export function assessCompanyDirectoryCategoryConfidence(
   }
 
   const registeredNameValues = registeredNames.map((item) => item.name).filter(Boolean);
-  const nameSupportsCategory = hasCategoryKeyword(input.categorySlug, [
-    input.legalName,
-    input.displayName,
-    ...registeredNameValues,
-  ]);
+  const companyNameValues = [input.legalName, input.displayName, ...registeredNameValues];
+  const nameSupportsCategory = hasCategoryKeyword(input.categorySlug, companyNameValues)
+    || (input.categorySlug === "elektriker" && hasElectricianCompanyNameContext(companyNameValues));
   if (nameSupportsCategory) {
     score += 10;
     signals.push("Företagsnamn stödjer kategorin");
