@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  resolveCompanyDirectoryCanonicalWorkplaceAddress,
   resolveCompanyDirectoryPublicAddress,
   resolveCompanyDirectoryPublicAddressResolution,
 } from "@/lib/company-directory-scb-address";
@@ -60,12 +61,13 @@ describe("Company Directory SCB public address resolution", () => {
   });
 
   it("selects the one matching visiting address for a multi-workplace company", () => {
-    const resolved = resolveCompanyDirectoryPublicAddress({
+    const input = {
       addressLine1: "Strandbergsgatan 55",
       postalCode: "11251",
       city: "STOCKHOLM",
       municipality: "Stockholm",
-    }, [
+    };
+    const workplaces = [
       {
         municipality: "Stockholm",
         visitingAddress: {
@@ -82,20 +84,32 @@ describe("Company Directory SCB public address resolution", () => {
           city: "GÖTEBORG",
         },
       },
-    ]);
+    ];
+    const resolved = resolveCompanyDirectoryPublicAddress(input, workplaces);
+    const canonical = resolveCompanyDirectoryCanonicalWorkplaceAddress(input, workplaces);
 
     expect(resolved.addressLine1).toBe("STRANDBERGSGATAN 55");
     expect(resolved.postalCode).toBe("112 51");
+    expect(canonical).toEqual({
+      status: "resolved",
+      address: {
+        addressLine1: "STRANDBERGSGATAN 55",
+        postalCode: "112 51",
+        city: "STOCKHOLM",
+        municipality: "Stockholm",
+      },
+      sourceIndex: 0,
+    });
   });
 
-  it("keeps the profile fallback when multiple workplaces are ambiguous", () => {
+  it("keeps the legacy profile fallback but marks physical location unavailable when multiple workplaces are ambiguous", () => {
     const fallback = {
       addressLine1: "Box 24153",
       postalCode: "10451",
       city: "STOCKHOLM",
       municipality: "Stockholm",
     };
-    const resolved = resolveCompanyDirectoryPublicAddress(fallback, [
+    const workplaces = [
       {
         municipality: "Solna",
         visitingAddress: {
@@ -112,9 +126,17 @@ describe("Company Directory SCB public address resolution", () => {
           city: "STOCKHOLM",
         },
       },
-    ]);
+    ];
+    const resolved = resolveCompanyDirectoryPublicAddress(fallback, workplaces);
+    const canonical = resolveCompanyDirectoryCanonicalWorkplaceAddress(fallback, workplaces);
 
     expect(resolved).toEqual(fallback);
+    expect(canonical).toEqual({
+      status: "unavailable",
+      reason: "ambiguous_workplaces",
+      address: null,
+      sourceIndex: null,
+    });
   });
 
   it("does not treat one complete address as single-workplace when other workplaces are incomplete", () => {
@@ -124,7 +146,7 @@ describe("Company Directory SCB public address resolution", () => {
       city: "STOCKHOLM",
       municipality: "Stockholm",
     };
-    const resolved = resolveCompanyDirectoryPublicAddress(fallback, [
+    const workplaces = [
       {
         municipality: "Solna",
         visitingAddress: {
@@ -141,9 +163,15 @@ describe("Company Directory SCB public address resolution", () => {
           city: "STOCKHOLM",
         },
       },
-    ]);
+    ];
+    const resolved = resolveCompanyDirectoryPublicAddress(fallback, workplaces);
+    const canonical = resolveCompanyDirectoryCanonicalWorkplaceAddress(fallback, workplaces);
 
     expect(resolved).toEqual(fallback);
+    expect(canonical.status).toBe("unavailable");
+    if (canonical.status === "unavailable") {
+      expect(canonical.reason).toBe("ambiguous_workplaces");
+    }
   });
 
   it("does not match only by postal code when a multi-workplace profile city is missing", () => {
@@ -175,7 +203,7 @@ describe("Company Directory SCB public address resolution", () => {
     expect(resolved).toEqual(fallback);
   });
 
-  it("keeps the profile fallback when a workplace municipality is missing", () => {
+  it("keeps the legacy profile fallback but marks physical location unavailable when workplace municipality is missing", () => {
     const fallback = {
       addressLine1: "Gamla vägen 1",
       postalCode: "11111",
@@ -191,10 +219,46 @@ describe("Company Directory SCB public address resolution", () => {
     }];
     const resolved = resolveCompanyDirectoryPublicAddress(fallback, workplaces);
     const resolution = resolveCompanyDirectoryPublicAddressResolution(fallback, workplaces);
+    const canonical = resolveCompanyDirectoryCanonicalWorkplaceAddress(fallback, workplaces);
 
     expect(resolved).toEqual(fallback);
     expect(resolution.source).toBe("profile");
     expect(resolution.sourceIndex).toBeNull();
     expect(resolution.address).toEqual(fallback);
+    expect(canonical).toEqual({
+      status: "unavailable",
+      reason: "no_complete_workplace",
+      address: null,
+      sourceIndex: null,
+    });
+  });
+
+  it("marks physical location unavailable when the visiting address is missing", () => {
+    const canonical = resolveCompanyDirectoryCanonicalWorkplaceAddress(profile, [{
+      municipality: "Stockholm",
+      postalAddress: {
+        addressLine: "BOX 11194",
+        postalCode: "100 61",
+        city: "STOCKHOLM",
+      },
+    }]);
+
+    expect(canonical).toEqual({
+      status: "unavailable",
+      reason: "no_complete_workplace",
+      address: null,
+      sourceIndex: null,
+    });
+  });
+
+  it("marks physical location unavailable when SCB has no workplaces", () => {
+    const canonical = resolveCompanyDirectoryCanonicalWorkplaceAddress(profile, []);
+
+    expect(canonical).toEqual({
+      status: "unavailable",
+      reason: "no_workplaces",
+      address: null,
+      sourceIndex: null,
+    });
   });
 });
