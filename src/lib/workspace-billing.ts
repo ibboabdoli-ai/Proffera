@@ -28,7 +28,10 @@ function isBillingStatus(value: string): value is WorkspaceBillingStatus {
 }
 
 function normalizeStripeStatus(status: Stripe.Subscription.Status): WorkspaceBillingStatus {
-  if (status === "active" || status === "trialing" || status === "past_due" || status === "paused") return status;
+  if (status === "active") return "active";
+  if (status === "trialing") return "trialing";
+  if (status === "past_due") return "past_due";
+  if (status === "paused") return "paused";
   if (status === "canceled" || status === "incomplete_expired") return "cancelled";
   return "past_due";
 }
