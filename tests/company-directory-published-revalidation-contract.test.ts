@@ -298,7 +298,7 @@ describe("published Directory revalidation scheduling", () => {
     expect(mocks.routeRevalidate).not.toHaveBeenCalled();
   });
 
-  it("runs bounded revalidation from the already-active automatic queue with one shared deadline", async () => {
+  it("keeps only published-profile revalidation in the automatic Operations queue", async () => {
     process.env.CRON_SECRET = "test-secret";
     process.env.COMPANY_DIRECTORY_SYNC_ENABLED = "true";
     process.env.COMPANY_DIRECTORY_PROFILE_PROCESSING_ENABLED = "true";
@@ -362,22 +362,14 @@ describe("published Directory revalidation scheduling", () => {
       const body = await response.json();
 
       expect(response.status).toBe(200);
-      expect(mocks.fullRevalidate).toHaveBeenCalledTimes(1);
+      expect(mocks.fullRevalidate).not.toHaveBeenCalled();
       expect(mocks.routeRevalidate).toHaveBeenCalledTimes(1);
-      const fullOptions = mocks.fullRevalidate.mock.calls[0]?.[1];
       const publishedOptions = mocks.routeRevalidate.mock.calls[0]?.[1];
-      expect(mocks.fullRevalidate.mock.calls[0]?.[0]).toBe(10);
       expect(mocks.routeRevalidate.mock.calls[0]?.[0]).toBe(2);
-      expect(fullOptions).toEqual({ deadlineAt: expectedDeadlineAt });
       expect(publishedOptions).toEqual({ deadlineAt: expectedDeadlineAt });
       expect(body).toMatchObject({
         ok: true,
         mode: "automatic_queue",
-        fullRevalidation: {
-          selected: 3,
-          refreshed: 3,
-          remaining: 1500,
-        },
         publishedRevalidation: {
           selected: 2,
           revalidated: 2,
@@ -386,6 +378,7 @@ describe("published Directory revalidation scheduling", () => {
           remaining: 471,
         },
       });
+      expect(body).not.toHaveProperty("fullRevalidation");
     } finally {
       nowSpy.mockRestore();
     }
