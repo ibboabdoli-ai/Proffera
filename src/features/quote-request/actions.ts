@@ -7,9 +7,11 @@ import type { PublicLocale } from "@/lib/public-locale";
 import { allowPublicSubmission } from "@/lib/public-form-protection";
 import { storeQuoteRequest } from "./persistence";
 import { createQuoteRequestSchema, type QuoteRequestErrors, type QuoteRequestInput } from "./schema";
+import { getQuoteTargetCompany, normalizeQuoteTargetProfileSlug } from "./target-company";
 
 type QuoteRequestSubmission = QuoteRequestInput & {
   locale?: PublicLocale;
+  targetProfileSlug?: string;
   website?: string;
   formStartedAt?: number;
 };
@@ -66,6 +68,33 @@ export async function submitQuoteRequest(input: QuoteRequestSubmission): Promise
     return { ok: false, errors: { form: locale === "en" ? "Too many attempts. Wait a while and try again." : "För många försök. Vänta en stund och försök igen." } };
   }
 
+  const rawTargetSlug = typeof input.targetProfileSlug === "string" ? input.targetProfileSlug : "";
+  const requestedTargetSlug = normalizeQuoteTargetProfileSlug(rawTargetSlug);
+  if (rawTargetSlug && !requestedTargetSlug) {
+    return {
+      ok: false,
+      errors: {
+        form: locale === "en"
+          ? "The selected company is invalid. Return to the company profile and try again."
+          : "Det valda företaget är ogiltigt. Gå tillbaka till företagsprofilen och försök igen.",
+      },
+    };
+  }
+
+  const targetCompany = requestedTargetSlug
+    ? await getQuoteTargetCompany(requestedTargetSlug, parsed.data.category)
+    : null;
+  if (requestedTargetSlug && !targetCompany) {
+    return {
+      ok: false,
+      errors: {
+        form: locale === "en"
+          ? "The selected company is no longer available for this request. Proffera did not switch to another company."
+          : "Det valda företaget är inte längre tillgängligt för den här förfrågan. Proffera bytte inte till något annat företag.",
+      },
+    };
+  }
+
   let verifiedAddress: VerifiedCustomerAddress | undefined;
   if (parsed.data.locationSource === "address") {
     const verification = await verifyCustomerAddress({
@@ -99,7 +128,9 @@ export async function submitQuoteRequest(input: QuoteRequestSubmission): Promise
     if (verification.status === "matched") verifiedAddress = verification;
   }
 
-  const result = await storeQuoteRequest(parsed.data, verifiedAddress, locale);
+  const result = await storeQuoteRequest(parsed.data, verifiedAddress, locale, {
+    targetProfileId: targetCompany?.profileId ?? null,
+  });
 
   if (!result.ok) {
     return {
