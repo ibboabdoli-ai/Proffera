@@ -40,6 +40,20 @@ type SniFact = {
 
 const MALERI_ACCENTED_TOKEN_FRAGMENTS = ["måleri", "målar", "målning"];
 const MALERI_UNACCENTED_TOKEN_PREFIXES = ["maleri", "malare", "malning"];
+const STADNING_ACCENTED_TOKEN_PREFIXES = [
+  "städentrepren",
+  "städtjänst",
+  "städverksam",
+  "städrörelse",
+  "städuppdrag",
+  "städfirma",
+  "städkonsult",
+  "städbransch",
+  "städrelater",
+  "städar",
+  "städbolag",
+  "städföretag",
+];
 
 const categoryKeywords: Record<string, string[]> = {
   stadning: ["stadning", "stadservice", "lokalvard", "rengor", "fonsterputs", "hemstad", "kontorsstad"],
@@ -132,6 +146,11 @@ function hasSwedishTokenFragment(values: string[], fragments: string[]) {
   return tokens.some((token) => normalizedFragments.some((fragment) => token.includes(fragment)));
 }
 
+function hasCleaningSwedishSignal(values: string[]) {
+  return hasExactSwedishToken(values, "städ")
+    || hasSwedishTokenPrefix(values, STADNING_ACCENTED_TOKEN_PREFIXES);
+}
+
 function hasHairdresserHairContext(values: string[]) {
   const tokens = swedishTokens(values);
   if (!tokens.includes("hår")) return false;
@@ -149,7 +168,7 @@ function hasCategoryKeyword(categorySlug: string, values: string[]) {
   const keywords = categoryKeywords[categorySlug] ?? [];
   if (!keywords.length) return false;
 
-  if (categorySlug === "stadning" && hasSwedishTokenPrefix(values, ["städ"])) {
+  if (categorySlug === "stadning" && hasCleaningSwedishSignal(values)) {
     return true;
   }
 
