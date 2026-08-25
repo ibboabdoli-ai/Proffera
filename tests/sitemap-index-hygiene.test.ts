@@ -49,6 +49,9 @@ describe("sitemap index hygiene", () => {
     expect(seo).toContain("where workspace.status = 'active'");
     expect(seo).toContain("isIndexablePublicBusinessWorkspace");
     expect(seo).toContain('companyName.startsWith("proffera test")');
+    expect(seo).toContain("left join workspace_settings settings");
+    expect(seo).toContain("coalesce(nullif(settings.company_name, ''), workspace.company_name, workspace.name, '') as company_name");
+    expect(hub).toContain("coalesce(nullif(settings.company_name, ''), workspace.company_name, workspace.name) as company_name");
     expect(hub).toContain("workspace.status,");
     expect(hub).toContain('status: row.status === "active" ? "active" : "trial"');
     expect(sitemap).toContain("isIndexablePublicBusinessWorkspace(hub.workspace)");
