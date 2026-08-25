@@ -6,7 +6,10 @@ type DirectoryQuoteInput = {
   categorySlug: string;
   serviceSlug?: string;
   city?: string;
+  targetProfileSlug?: string;
 };
+
+const PROFILE_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 const categoryMap: Record<string, string> = {
   stadning: "Städning",
@@ -56,6 +59,10 @@ export function quoteRequestHref(locale: PublicLocale, input: DirectoryQuoteInpu
   if (prefill.category) params.set("category", prefill.category);
   if (prefill.serviceType) params.set("service", prefill.serviceType);
   if (prefill.city) params.set("city", prefill.city);
+  const targetProfileSlug = input.targetProfileSlug?.trim().toLowerCase() ?? "";
+  if (targetProfileSlug.length <= 180 && PROFILE_SLUG_PATTERN.test(targetProfileSlug)) {
+    params.set("company", targetProfileSlug);
+  }
   const query = params.toString();
   return `${quoteRequestPaths[locale]}${query ? `?${query}` : ""}`;
 }
