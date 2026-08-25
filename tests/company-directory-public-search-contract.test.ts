@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { PublicDirectoryResults } from "@/components/company-directory/public-directory-results";
+import type { SearchCardBusinessProjection } from "@/lib/business-profile-policy";
 
 function source(path: string) {
   return readFileSync(resolve(process.cwd(), path), "utf8");
@@ -133,7 +134,7 @@ describe("public company directory search contract", () => {
             canonicalServiceSlugs: ["malare"],
             reputation: { rating: 4.8, verifiedReviews: 2 },
             capabilities: { richWebsite: false, onlineBooking: false, mediatedQuote: true },
-          },
+          } satisfies SearchCardBusinessProjection,
         },
         {
           ...baseResult,
@@ -158,7 +159,7 @@ describe("public company directory search contract", () => {
             canonicalServiceSlugs: ["malare"],
             reputation: null,
             capabilities: { richWebsite: false, onlineBooking: false, mediatedQuote: true },
-          },
+          } satisfies SearchCardBusinessProjection,
         },
         {
           ...baseResult,
@@ -177,7 +178,7 @@ describe("public company directory search contract", () => {
             canonicalServiceSlugs: ["malare"],
             reputation: { rating: 5, verifiedReviews: 0 },
             capabilities: { richWebsite: false, onlineBooking: false, mediatedQuote: true },
-          },
+          } satisfies SearchCardBusinessProjection,
         },
       ],
     };
