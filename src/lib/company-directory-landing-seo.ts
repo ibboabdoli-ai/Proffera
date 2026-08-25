@@ -53,13 +53,16 @@ export async function listDirectorySeoLandings(): Promise<DirectorySeoLanding[]>
         id,
         service_slug,
         case
-          when claimed_workspace_id is null
-            and jsonb_array_length(coalesce(workplaces, '[]'::jsonb)) = 1
-            and nullif(trim(workplaces -> 0 #>> '{visitingAddress,addressLine}'), '') is not null
-            and nullif(trim(workplaces -> 0 #>> '{visitingAddress,postalCode}'), '') is not null
-            and nullif(trim(workplaces -> 0 #>> '{visitingAddress,city}'), '') is not null
-            and nullif(trim(workplaces -> 0 ->> 'municipality'), '') is not null
-          then trim(workplaces -> 0 #>> '{visitingAddress,city}')
+          when claimed_workspace_id is null then
+            case
+              when jsonb_array_length(coalesce(workplaces, '[]'::jsonb)) = 1
+                and nullif(trim(workplaces -> 0 #>> '{visitingAddress,addressLine}'), '') is not null
+                and nullif(trim(workplaces -> 0 #>> '{visitingAddress,postalCode}'), '') is not null
+                and nullif(trim(workplaces -> 0 #>> '{visitingAddress,city}'), '') is not null
+                and nullif(trim(workplaces -> 0 ->> 'municipality'), '') is not null
+              then trim(workplaces -> 0 #>> '{visitingAddress,city}')
+              else null
+            end
           else coalesce(nullif(trim(city), ''), nullif(trim(municipality), ''))
         end as location_label
       from eligible
