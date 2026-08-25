@@ -155,13 +155,17 @@ describe("Company Directory revalidation reliability", () => {
     expect(httpsMock.request).toHaveBeenCalledTimes(2);
   });
 
-  it("drains two bounded batches per scheduler wake-up without changing the five-minute cadence", () => {
+  it("runs one bounded maintenance call twice per hour to limit steady-state Vercel wake-ups", () => {
     const workflow = readFileSync(resolve(process.cwd(), ".github/workflows/company-directory-revalidation.yml"), "utf8");
-    expect(workflow).toContain('cron: "2-59/5 * * * *"');
+    expect(workflow).toContain('cron: "14,44 * * * *"');
+    expect(workflow).not.toContain('cron: "2-59/5 * * * *"');
+    expect(workflow).not.toContain('cron: "22,52 * * * *"');
     expect(workflow).not.toContain('cron: "*/5 * * * *"');
-    expect(workflow).toContain("BATCHES_PER_RUN=2");
-    expect(workflow).toContain('for batch in $(seq 1 "$BATCHES_PER_RUN")');
-    expect(workflow).toContain("/api/cron/company-directory-revalidation");
+    expect(workflow).not.toContain("BATCHES_PER_RUN=2");
+    expect(workflow).not.toContain('for batch in $(seq 1 "$BATCHES_PER_RUN")');
+    expect(workflow.match(/\/api\/cron\/company-directory-revalidation/g) ?? []).toHaveLength(1);
+    expect(workflow).toContain("--connect-timeout 10");
+    expect(workflow).toContain("--max-time 75");
     expect(workflow).not.toContain("/api/cron/company-directory-sync");
   });
 });
