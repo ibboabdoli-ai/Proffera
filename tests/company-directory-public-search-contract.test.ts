@@ -185,8 +185,8 @@ describe("public company directory search contract", () => {
 
     const svMarkup = renderToStaticMarkup(createElement(PublicDirectoryResults, { locale: "sv", search }));
     const enMarkup = renderToStaticMarkup(createElement(PublicDirectoryResults, { locale: "en", search }));
-    const svZeroReviewCard = svMarkup.match(/<article[^>]*>[\s\S]*?Zero Review AB[\s\S]*?<\/article>/)?.[0];
-    const enZeroReviewCard = enMarkup.match(/<article[^>]*>[\s\S]*?Zero Review AB[\s\S]*?<\/article>/)?.[0];
+    const svZeroReviewCard = svMarkup.match(/<article\b[\s\S]*?<\/article>/g)?.find((card) => card.includes("Zero Review AB"));
+    const enZeroReviewCard = enMarkup.match(/<article\b[\s\S]*?<\/article>/g)?.find((card) => card.includes("Zero Review AB"));
 
     expect(svMarkup).toContain('data-search-card-media="true"');
     expect(svMarkup).toContain('src="https://example.com/trusted.jpg"');
