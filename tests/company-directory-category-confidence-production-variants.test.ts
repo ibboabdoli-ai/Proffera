@@ -85,7 +85,8 @@ describe("company directory category confidence Production text variants", () =>
   it.each([
     "Bolaget ska bedriva elektronikhandel och försäljning av datorutrustning.",
     "Bolaget ska bedriva försäljning av elektriska produkter och hushållsapparater.",
-  ])("does not treat product trade as electrician service evidence: %s", (activityDescription) => {
+    "Service av elektriska hushållsapparater.",
+  ])("does not treat product or appliance service as electrician evidence: %s", (activityDescription) => {
     const result = assess({
       categorySlug: "elektriker",
       primarySniCode: "43.210",

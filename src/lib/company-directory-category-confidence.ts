@@ -164,22 +164,23 @@ function hasCleaningSwedishSignal(values: string[]) {
 }
 
 function hasElectricianElectricalContext(values: string[]) {
-  const tokens = swedishTokens(values);
-  const hasElectricalWord = tokens.some((token) => token.startsWith("elektrisk"));
-  if (!hasElectricalWord) return false;
-
-  const serviceContextPrefixes = [
-    "arbete",
-    "installation",
-    "service",
-    "reparation",
-    "system",
-    "anläggning",
-    "montage",
-    "projekter",
-    "felsök",
+  const boundedServiceSequences = [
+    ["elektriska", "arbeten"],
+    ["elektriskt", "arbete"],
+    ["installation", "av", "elektriska", "system"],
+    ["installationer", "av", "elektriska", "system"],
+    ["service", "av", "elektriska", "system"],
+    ["reparation", "av", "elektriska", "system"],
+    ["reparationer", "av", "elektriska", "system"],
+    ["service", "och", "reparation", "av", "elektriska", "system"],
+    ["service", "och", "reparationer", "av", "elektriska", "system"],
+    ["installation", "av", "elektriska", "anläggningar"],
+    ["installationer", "av", "elektriska", "anläggningar"],
+    ["service", "av", "elektriska", "anläggningar"],
+    ["reparation", "av", "elektriska", "anläggningar"],
+    ["reparationer", "av", "elektriska", "anläggningar"],
   ];
-  return tokens.some((token) => serviceContextPrefixes.some((prefix) => token.startsWith(prefix)));
+  return boundedServiceSequences.some((sequence) => hasSwedishTokenSequence(values, sequence));
 }
 
 function hasHairdresserHairContext(values: string[]) {
