@@ -58,7 +58,9 @@ const STADNING_ACCENTED_TOKEN_PREFIXES = [
 const categoryKeywords: Record<string, string[]> = {
   stadning: ["stadning", "stadservice", "lokalvard", "rengor", "fonsterputs", "hemstad", "kontorsstad"],
   elektriker: [
-    "elektr",
+    "elektrisk",
+    "elektriker",
+    "elektrifier",
     "elinstall",
     "elinstal",
     "elentrepren",
@@ -75,7 +77,7 @@ const categoryKeywords: Record<string, string[]> = {
   ],
   vvs: ["vvs", "rorlagg", "rorinstall", "varme", "sanitar", "sanitet", "ventilation", "kylinstall", "luftbehandling"],
   maleri: [],
-  snickeri: ["snicker", "byggnadssnicker", "carpentry", "koksmonter", "montering av kok"],
+  snickeri: ["snicker", "byggnadssnicker", "carpentry", "koksmonter"],
   tradgard: ["tradgard", "markskotsel", "gronyt", "landskap", "tradvard", "tradfall", "arborist", "beskar", "bevattning"],
   flytt: ["flytt", "moving"],
   hemservice: ["hemservice", "hushallsnara", "hushallstjanst", "homeservice"],
@@ -146,6 +148,17 @@ function hasSwedishTokenFragment(values: string[], fragments: string[]) {
   return tokens.some((token) => normalizedFragments.some((fragment) => token.includes(fragment)));
 }
 
+function hasSwedishTokenSequence(values: string[], sequence: string[]) {
+  const tokens = swedishTokens(values);
+  const normalizedSequence = sequence.map((token) => token.normalize("NFC").toLocaleLowerCase("sv-SE"));
+  if (!tokens.length || !normalizedSequence.length || normalizedSequence.length > tokens.length) return false;
+
+  for (let index = 0; index <= tokens.length - normalizedSequence.length; index += 1) {
+    if (normalizedSequence.every((token, offset) => tokens[index + offset] === token)) return true;
+  }
+  return false;
+}
+
 function hasCleaningSwedishSignal(values: string[]) {
   return hasExactSwedishToken(values, "städ")
     || hasSwedishTokenPrefix(values, STADNING_ACCENTED_TOKEN_PREFIXES);
@@ -173,6 +186,10 @@ function hasCategoryKeyword(categorySlug: string, values: string[]) {
   }
 
   if (categorySlug === "frisor" && hasHairdresserHairContext(values)) {
+    return true;
+  }
+
+  if (categorySlug === "snickeri" && hasSwedishTokenSequence(values, ["montering", "av", "kök"])) {
     return true;
   }
 
