@@ -185,15 +185,19 @@ describe("public company directory search contract", () => {
 
     const svMarkup = renderToStaticMarkup(createElement(PublicDirectoryResults, { locale: "sv", search }));
     const enMarkup = renderToStaticMarkup(createElement(PublicDirectoryResults, { locale: "en", search }));
-    const svZeroReviewCard = svMarkup.match(/<article\b[\s\S]*?<\/article>/g)?.find((card) => card.includes("Zero Review AB"));
-    const enZeroReviewCard = enMarkup.match(/<article\b[\s\S]*?<\/article>/g)?.find((card) => card.includes("Zero Review AB"));
+    const svCards = svMarkup.match(/<article\b[\s\S]*?<\/article>/g) ?? [];
+    const enCards = enMarkup.match(/<article\b[\s\S]*?<\/article>/g) ?? [];
+    const svTrustedCard = svCards.find((card) => card.includes("Trusted AB"));
+    const svZeroReviewCard = svCards.find((card) => card.includes("Zero Review AB"));
+    const enZeroReviewCard = enCards.find((card) => card.includes("Zero Review AB"));
 
-    expect(svMarkup).toContain('data-search-card-media="true"');
-    expect(svMarkup).toContain('src="https://example.com/trusted.jpg"');
+    expect(svTrustedCard).toBeTruthy();
+    expect(svTrustedCard).toContain('data-search-card-media="true"');
+    expect(svTrustedCard).toContain('src="https://example.com/trusted.jpg"');
+    expect(svTrustedCard).toContain('data-search-card-reputation="true"');
+    expect(svTrustedCard).toContain("4.8");
+    expect(svTrustedCard).toContain("2 verifierade omdömen");
     expect(svMarkup).not.toContain("https://example.com/illustration.jpg");
-    expect(svMarkup).toContain('data-search-card-reputation="true"');
-    expect(svMarkup).toContain("4.8");
-    expect(svMarkup).toContain("2 verifierade omdömen");
     expect(enMarkup).toContain("2 verified reviews");
     expect(svZeroReviewCard).toBeTruthy();
     expect(svZeroReviewCard).not.toContain('data-search-card-reputation="true"');
