@@ -78,7 +78,7 @@ describe("sitemap index hygiene", () => {
     expect(englishThankYouLayout({ children: "en-thanks" })).toBe("en-thanks");
   });
 
-  it("filters platform business sitemap entries with the effective company name and active status", async () => {
+  it("filters platform business sitemap entries with the trimmed effective company name and active status", async () => {
     mocks.sqlRows = [
       {
         workspace_id: ACTIVE_WORKSPACE_ID,
@@ -124,7 +124,9 @@ describe("sitemap index hygiene", () => {
     ]);
 
     expect(mocks.sqlQuery).toContain("left join workspace_settings settings");
-    expect(mocks.sqlQuery).toContain("coalesce(nullif(settings.company_name, ''), workspace.company_name, workspace.name, '') as company_name");
+    expect(mocks.sqlQuery).toContain("nullif(btrim(settings.company_name), '')");
+    expect(mocks.sqlQuery).toContain("nullif(btrim(workspace.company_name), '')");
+    expect(mocks.sqlQuery).toContain("nullif(btrim(workspace.name), '')");
   });
 
   it("adds only quality-gated Directory landing URLs to the platform sitemap", async () => {
@@ -143,6 +145,8 @@ describe("sitemap index hygiene", () => {
     expect(urls).not.toContain("https://www.proffera.se/foretag/listad");
     expect(urls).not.toContain("https://www.proffera.se/anslut-foretag/registrera");
     expect(urls).not.toContain("https://www.proffera.se/anslut-foretag/tack");
+    expect(urls).not.toContain("https://www.proffera.se/en/join-business/register");
+    expect(urls).not.toContain("https://www.proffera.se/en/join-business/thank-you");
   });
 
   it("uses the same active/non-test policy for custom-domain sitemaps", async () => {
