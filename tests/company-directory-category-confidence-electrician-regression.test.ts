@@ -73,6 +73,10 @@ describe("company directory electrician Production regressions", () => {
       activityDescription: "Bolaget säljer elektriska hushållsapparater.",
     },
     {
+      legalName: "Elektriska Apparater AB",
+      activityDescription: "Bolaget säljer hushållsapparater och andra elektriska apparater.",
+    },
+    {
       legalName: "Elektriska Produkter AB",
       activityDescription: "Bolaget bedriver produktförsäljning utan installationsverksamhet.",
     },
@@ -84,7 +88,11 @@ describe("company directory electrician Production regressions", () => {
       legalName: "Exempel AB",
       activityDescription: "Bolaget utför elektroniska installationer och säljer elektronikprodukter.",
     },
-  ])("keeps electronics and appliance wording in Review: $legalName", (input) => {
+    {
+      legalName: "Exempel AB",
+      activityDescription: "Bolaget bedriver försäljning av material för elektriska installationer.",
+    },
+  ])("keeps electronics, appliance and sales wording in Review: $legalName", (input) => {
     const result = assess(input);
 
     expect(result.score).toBe(90);
