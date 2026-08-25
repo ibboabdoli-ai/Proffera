@@ -149,10 +149,54 @@ export async function upsertCompanyDirectoryCandidate(candidate: NormalizedDirec
       category_slug = excluded.category_slug,
       service_slugs = excluded.service_slugs,
       activity_description = excluded.activity_description,
-      address_line1 = excluded.address_line1,
-      postal_code = excluded.postal_code,
-      city = excluded.city,
-      municipality = excluded.municipality,
+      address_line1 = case
+        when company_directory_profiles.claimed_workspace_id is not null
+          or (
+            select count(distinct source.field_name) = 4
+            from company_directory_field_sources source
+            where source.profile_id = company_directory_profiles.id
+              and source.source_name = 'scb_foretagsregistret:workplace'
+              and source.field_name in ('addressLine1', 'postalCode', 'city', 'municipality')
+          )
+          then company_directory_profiles.address_line1
+        else excluded.address_line1
+      end,
+      postal_code = case
+        when company_directory_profiles.claimed_workspace_id is not null
+          or (
+            select count(distinct source.field_name) = 4
+            from company_directory_field_sources source
+            where source.profile_id = company_directory_profiles.id
+              and source.source_name = 'scb_foretagsregistret:workplace'
+              and source.field_name in ('addressLine1', 'postalCode', 'city', 'municipality')
+          )
+          then company_directory_profiles.postal_code
+        else excluded.postal_code
+      end,
+      city = case
+        when company_directory_profiles.claimed_workspace_id is not null
+          or (
+            select count(distinct source.field_name) = 4
+            from company_directory_field_sources source
+            where source.profile_id = company_directory_profiles.id
+              and source.source_name = 'scb_foretagsregistret:workplace'
+              and source.field_name in ('addressLine1', 'postalCode', 'city', 'municipality')
+          )
+          then company_directory_profiles.city
+        else excluded.city
+      end,
+      municipality = case
+        when company_directory_profiles.claimed_workspace_id is not null
+          or (
+            select count(distinct source.field_name) = 4
+            from company_directory_field_sources source
+            where source.profile_id = company_directory_profiles.id
+              and source.source_name = 'scb_foretagsregistret:workplace'
+              and source.field_name in ('addressLine1', 'postalCode', 'city', 'municipality')
+          )
+          then company_directory_profiles.municipality
+        else excluded.municipality
+      end,
       region = excluded.region,
       publication_status = case
         when company_directory_profiles.claimed_workspace_id is not null then 'claimed'
