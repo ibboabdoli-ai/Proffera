@@ -60,7 +60,7 @@ describe("Company Directory SCB public address resolution", () => {
     });
   });
 
-  it("selects the one matching visiting address for a multi-workplace company", () => {
+  it("keeps the legacy unique multi-workplace match but fails closed for canonical physical location", () => {
     const input = {
       addressLine1: "Strandbergsgatan 55",
       postalCode: "11251",
@@ -91,14 +91,10 @@ describe("Company Directory SCB public address resolution", () => {
     expect(resolved.addressLine1).toBe("STRANDBERGSGATAN 55");
     expect(resolved.postalCode).toBe("112 51");
     expect(canonical).toEqual({
-      status: "resolved",
-      address: {
-        addressLine1: "STRANDBERGSGATAN 55",
-        postalCode: "112 51",
-        city: "STOCKHOLM",
-        municipality: "Stockholm",
-      },
-      sourceIndex: 0,
+      status: "unavailable",
+      reason: "ambiguous_workplaces",
+      address: null,
+      sourceIndex: null,
     });
   });
 
