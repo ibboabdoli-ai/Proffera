@@ -1,11 +1,8 @@
 name: Company Directory revalidation
 
+# Automatic full revalidation is owned by the external QStash scheduler.
+# Keep this workflow as an authenticated manual fallback only.
 on:
-  schedule:
-    # The backlog is normally empty after the initial catch-up. Keep a bounded
-    # maintenance sweep twice per hour instead of continuously waking Vercel.
-    # Use minutes not occupied by Operations, Marketplace, health, or discovery schedulers.
-    - cron: "14,44 * * * *"
   workflow_dispatch:
 
 permissions: {}
@@ -56,7 +53,7 @@ jobs:
           PY
           )"
 
-          # One bounded ten-profile sweep is enough for steady-state maintenance.
+          # One bounded ten-profile sweep is enough for manual recovery.
           # The endpoint itself keeps the existing 60-second execution deadline.
           curl --fail-with-body --silent --show-error \
             --connect-timeout 10 \
