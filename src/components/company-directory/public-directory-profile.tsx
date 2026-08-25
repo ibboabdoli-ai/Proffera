@@ -108,9 +108,11 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
   if (business.city) similarParams.set("location", business.city);
   const similarQuery = similarParams.toString();
   const similarHref = `${profileBase}${similarQuery ? `?${similarQuery}` : ""}`;
+  const specificQuoteTarget = profile.identity.ownershipState === "unclaimed";
   const quoteHref = quoteRequestHref(locale, {
     categorySlug: business.categorySlug,
     serviceSlug: primaryServiceSlug,
+    targetProfileSlug: specificQuoteTarget ? business.slug : undefined,
   });
   const radiusFormatter = new Intl.NumberFormat(locale === "en" ? "en-SE" : "sv-SE", { maximumFractionDigits: 1 });
   const ratingFormatter = new Intl.NumberFormat(locale === "en" ? "en-SE" : "sv-SE", {
@@ -327,11 +329,21 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
             <div className="mt-10 grid gap-4 lg:grid-cols-2">
               <section className="rounded-panel border border-brand/15 bg-brand-soft p-6">
                 <FileText className="h-6 w-6 text-brand" />
-                <h2 className="mt-4 text-xl font-black text-brand-deep">{t.quoteTitle}</h2>
-                <p className="mt-2 text-sm leading-6 text-body">{t.quoteLead}</p>
-                <p className="mt-2 text-xs font-semibold leading-5 text-muted">{t.quoteDisclosure}</p>
+                <h2 className="mt-4 text-xl font-black text-brand-deep">
+                  {specificQuoteTarget ? (locale === "en" ? "Request a quote from this company" : "Begär offert från företaget") : t.quoteTitle}
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-body">
+                  {specificQuoteTarget
+                    ? (locale === "en" ? `Keep ${business.companyName} selected and send the request through Proffera.` : `Behåll ${business.companyName} som valt företag och skicka förfrågan via Proffera.`)
+                    : t.quoteLead}
+                </p>
+                <p className="mt-2 text-xs font-semibold leading-5 text-muted">
+                  {specificQuoteTarget
+                    ? (locale === "en" ? "Proffera will not automatically send this request to other companies." : "Proffera skickar inte automatiskt den här förfrågan till andra företag.")
+                    : t.quoteDisclosure}
+                </p>
                 <Link href={quoteHref} className="mt-5 inline-flex min-h-11 items-center justify-center gap-2 rounded-control bg-brand px-4 text-sm font-black text-white transition hover:bg-brand-strong">
-                  {t.quoteCta}<ArrowRight className="h-4 w-4" />
+                  {specificQuoteTarget ? (locale === "en" ? "Continue with this company" : "Fortsätt med företaget") : t.quoteCta}<ArrowRight className="h-4 w-4" />
                 </Link>
               </section>
 
