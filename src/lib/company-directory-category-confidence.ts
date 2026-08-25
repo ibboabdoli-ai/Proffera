@@ -163,10 +163,15 @@ function hasCleaningSwedishSignal(values: string[]) {
     || hasSwedishTokenPrefix(values, STADNING_ACCENTED_TOKEN_PREFIXES);
 }
 
+function isElectricianSalesToken(token: string) {
+  if (token === "handelsbolag") return false;
+  const salesPrefixes = ["sälj", "försälj", "handel", "återförsälj", "grossist", "butik"];
+  return salesPrefixes.some((prefix) => token.startsWith(prefix));
+}
+
 function hasElectricianSalesContext(tokens: string[]) {
-  const salesPrefixes = ["försälj", "handel", "återförsälj", "grossist", "butik"];
   const productPrefixes = ["material", "produkt", "varor", "komponent", "utrustning", "apparat"];
-  return tokens.some((token) => salesPrefixes.some((prefix) => token.startsWith(prefix)))
+  return tokens.some((token) => isElectricianSalesToken(token))
     && tokens.some((token) => productPrefixes.some((prefix) => token.startsWith(prefix)));
 }
 
@@ -205,6 +210,7 @@ function hasElectricianFacilityServiceContext(values: string[]) {
 
 function hasElectricianElectricalContext(values: string[]) {
   const tokens = swedishTokens(values);
+  if (hasElectricianSalesContext(tokens)) return false;
   if (tokens.some((token) => token.startsWith("elarbet"))) return true;
 
   const boundedServiceSequences = [
@@ -242,7 +248,11 @@ function hasElectricianCompanyNameContext(values: string[]) {
     "product",
     "produkt",
   ];
-  if (tokens.some((token) => blockedTradeTokens.some((blocked) => token.startsWith(blocked)))) return false;
+  const hasBlockedTradeToken = tokens.some((token) => (
+    token !== "handelsbolag"
+    && blockedTradeTokens.some((blocked) => token.startsWith(blocked))
+  ));
+  if (hasBlockedTradeToken) return false;
   return tokens.includes("elektriska") || tokens.includes("electrical");
 }
 

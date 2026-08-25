@@ -52,6 +52,7 @@ describe("company directory electrician Production regressions", () => {
   it.each([
     "Palmgren & Larsson Elektriska Aktiebolag",
     "CCS Elektriska AB",
+    "CCS Elektriska Handelsbolag",
     "Mellett Electrical Sweden Filial",
   ])("accepts explicit electrician trade wording in a company name: %s", (legalName) => {
     const result = assess({
@@ -91,6 +92,14 @@ describe("company directory electrician Production regressions", () => {
     {
       legalName: "Exempel AB",
       activityDescription: "Bolaget bedriver försäljning av material för elektriska installationer.",
+    },
+    {
+      legalName: "Exempel AB",
+      activityDescription: "Bolaget säljer material för elektriska installationer.",
+    },
+    {
+      legalName: "Exempel AB",
+      activityDescription: "Bolaget utför elarbeten och bedriver försäljning av material.",
     },
   ])("keeps electronics, appliance and sales wording in Review: $legalName", (input) => {
     const result = assess(input);
