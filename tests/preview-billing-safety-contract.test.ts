@@ -128,4 +128,17 @@ describe("preview billing safety behavior", () => {
       vi.unstubAllEnvs();
     }
   });
+
+  it("renders the canonical server snapshot in Preview before hydration", () => {
+    vi.stubEnv("VERCEL_ENV", "preview");
+    try {
+      const canonical = "https://www.proffera.se/boka/iboren-preview-test";
+      const html = renderToStaticMarkup(createElement(BookingLinkCard, { url: canonical }));
+
+      expect(html).toContain(`href="${canonical}"`);
+      expect(html).toContain(canonical);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 });
