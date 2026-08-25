@@ -58,7 +58,6 @@ const STADNING_ACCENTED_TOKEN_PREFIXES = [
 const categoryKeywords: Record<string, string[]> = {
   stadning: ["stadning", "stadservice", "lokalvard", "rengor", "fonsterputs", "hemstad", "kontorsstad"],
   elektriker: [
-    "elektrisk",
     "elektriker",
     "elektrifier",
     "elinstall",
@@ -164,6 +163,25 @@ function hasCleaningSwedishSignal(values: string[]) {
     || hasSwedishTokenPrefix(values, STADNING_ACCENTED_TOKEN_PREFIXES);
 }
 
+function hasElectricianElectricalContext(values: string[]) {
+  const tokens = swedishTokens(values);
+  const hasElectricalWord = tokens.some((token) => token.startsWith("elektrisk"));
+  if (!hasElectricalWord) return false;
+
+  const serviceContextPrefixes = [
+    "arbete",
+    "installation",
+    "service",
+    "reparation",
+    "system",
+    "anläggning",
+    "montage",
+    "projekter",
+    "felsök",
+  ];
+  return tokens.some((token) => serviceContextPrefixes.some((prefix) => token.startsWith(prefix)));
+}
+
 function hasHairdresserHairContext(values: string[]) {
   const tokens = swedishTokens(values);
   if (!tokens.includes("hår")) return false;
@@ -182,6 +200,10 @@ function hasCategoryKeyword(categorySlug: string, values: string[]) {
   if (!keywords.length) return false;
 
   if (categorySlug === "stadning" && hasCleaningSwedishSignal(values)) {
+    return true;
+  }
+
+  if (categorySlug === "elektriker" && hasElectricianElectricalContext(values)) {
     return true;
   }
 
