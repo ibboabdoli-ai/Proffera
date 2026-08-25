@@ -101,7 +101,7 @@ function postgresSql(client: Client) {
     await client!.query("insert into company_directory_services (slug, label) values ('vvs', 'VVS / Rörmokare')");
   });
 
-  async function insertProfile(index: number, workplaces: unknown[], claimed = false) {
+  async function insertProfile(index: number, workplaces: unknown, claimed = false, conflicts: unknown[] = []) {
     const id = `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`;
     const workspaceId = claimed ? `10000000-0000-4000-8000-${String(index).padStart(12, "0")}` : null;
     await client!.query(
@@ -109,7 +109,10 @@ function postgresSql(client: Client) {
       [id, workspaceId],
     );
     await client!.query("insert into company_directory_profile_services (profile_id, service_slug) values ($1, 'vvs')", [id]);
-    await client!.query("insert into company_directory_scb_enrichment (profile_id, workplaces) values ($1, $2::jsonb)", [id, JSON.stringify(workplaces)]);
+    await client!.query(
+      "insert into company_directory_scb_enrichment (profile_id, workplaces, conflicts) values ($1, $2::jsonb, $3::jsonb)",
+      [id, JSON.stringify(workplaces), JSON.stringify(conflicts)],
+    );
   }
 
   const completeWorkplace = [{ municipality: "Södertälje", visitingAddress: { addressLine: "Nya vägen 2", postalCode: "151 00", city: "Södertälje" } }];
@@ -127,10 +130,18 @@ function postgresSql(client: Client) {
     ["missing", []],
     ["multiple", [...completeWorkplace, ...completeWorkplace]],
     ["incomplete", [{ municipality: "Södertälje", visitingAddress: { addressLine: "Nya vägen 2", postalCode: "", city: "Södertälje" } }]],
+    ["non-array", { municipality: "Södertälje" }],
   ])("fails closed when one unclaimed profile has a %s SCB workplace", async (_name, unsafeWorkplaces) => {
     await insertProfile(1, completeWorkplace);
     await insertProfile(2, completeWorkplace);
-    await insertProfile(3, unsafeWorkplaces as unknown[]);
+    await insertProfile(3, unsafeWorkplaces);
+    expect(await listDirectorySeoLandings()).toEqual([]);
+  });
+
+  it("fails closed when one otherwise complete unclaimed profile has SCB conflicts", async () => {
+    await insertProfile(1, completeWorkplace);
+    await insertProfile(2, completeWorkplace);
+    await insertProfile(3, completeWorkplace, false, [{ field: "workplaces", reason: "ambiguous" }]);
     expect(await listDirectorySeoLandings()).toEqual([]);
   });
 
