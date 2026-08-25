@@ -67,6 +67,7 @@ describe("company directory category confidence Production text variants", () =>
     "Filialen ska bedriva elentreprenad.",
     "Filialen ska bedriva elinstalaltioner på byggarbetsplatser.",
     "Bolaget utför elektriska arbeten i kommersiella byggnader.",
+    "Bolaget utför service och reparation av elektriska system.",
     "Bolaget projekterar och installerar svagströmsanläggningar.",
     "Bolaget installerar laddningsstationer för elfordon.",
     "Bolaget bedriver installationsrörelse inom el-branschen.",
@@ -81,11 +82,14 @@ describe("company directory category confidence Production text variants", () =>
     expect(result.signals).toContain("Verksamhetsbeskrivningen stödjer kategorin");
   });
 
-  it("does not treat electronics trade as electrician evidence", () => {
+  it.each([
+    "Bolaget ska bedriva elektronikhandel och försäljning av datorutrustning.",
+    "Bolaget ska bedriva försäljning av elektriska produkter och hushållsapparater.",
+  ])("does not treat product trade as electrician service evidence: %s", (activityDescription) => {
     const result = assess({
       categorySlug: "elektriker",
       primarySniCode: "43.210",
-      activityDescription: "Bolaget ska bedriva elektronikhandel och försäljning av datorutrustning.",
+      activityDescription,
     });
 
     expect(result.score).toBe(90);
