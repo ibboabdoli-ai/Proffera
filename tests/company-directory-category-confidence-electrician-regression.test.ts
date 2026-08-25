@@ -69,6 +69,14 @@ describe("company directory electrician Production regressions", () => {
       activityDescription: "Bolaget säljer elektronik och hushållsapparater.",
     },
     {
+      legalName: "Electrical Appliances AB",
+      activityDescription: "Bolaget säljer elektriska hushållsapparater.",
+    },
+    {
+      legalName: "Elektriska Produkter AB",
+      activityDescription: "Bolaget bedriver produktförsäljning utan installationsverksamhet.",
+    },
+    {
       legalName: "Exempel AB",
       activityDescription: "Service av elektriska hushållsapparater.",
     },
