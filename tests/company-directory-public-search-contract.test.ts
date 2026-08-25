@@ -1,7 +1,11 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 
 import { describe, expect, it } from "vitest";
+
+import { PublicDirectoryResults } from "@/components/company-directory/public-directory-results";
 
 function source(path: string) {
   return readFileSync(resolve(process.cwd(), path), "utf8");
@@ -73,14 +77,122 @@ describe("public company directory search contract", () => {
   });
 
   it("renders only trusted SearchCard media and verified reputation when hydration provides them", () => {
-    expect(shellSource).toContain("searchPublishedBusinessProfiles");
-    expect(resultsSource).toContain("result.profile?.media");
-    expect(resultsSource).toContain('profileMedia.role !== "illustration"');
-    expect(resultsSource).toContain("data-search-card-media");
-    expect(resultsSource).toContain("result.profile?.reputation");
-    expect(resultsSource).toContain("verifiedReviews > 0");
-    expect(resultsSource).toContain("data-search-card-reputation");
-    expect(resultsSource).toContain("verifiedReviewsLabel");
+    const baseResult = {
+      categorySlug: "malare",
+      matchedServiceSlug: "malare",
+      matchedServiceLabel: "Målare",
+      activityDescription: "",
+      addressLine1: "",
+      postalCode: "",
+      city: "Södertälje",
+      municipality: "Södertälje",
+      qualityScore: 100,
+      distanceKm: null,
+      serviceAreaRadiusKm: null,
+      servesNearbyLocation: false,
+      claimedWorkspaceSlug: null,
+      claimedServiceId: null,
+      claimedServiceSlug: null,
+      claimedBookingSlug: null,
+      conversionMode: null,
+      bookingAvailable: false,
+    } as const;
+
+    const search = {
+      serviceQuery: "målare",
+      locationQuery: "Södertälje",
+      serviceResolved: true,
+      nearbyRequested: false,
+      nearbyEnabled: false,
+      radiusKm: 25,
+      totalCount: 3,
+      page: 1,
+      pageSize: 30,
+      totalPages: 1,
+      results: [
+        {
+          ...baseResult,
+          id: "trusted",
+          slug: "trusted",
+          companyName: "Trusted AB",
+          profile: {
+            profileId: "trusted",
+            directorySlug: "trusted",
+            workspaceSlug: null,
+            displayName: "Trusted AB",
+            categorySlug: "malare",
+            city: "Södertälje",
+            municipality: "Södertälje",
+            media: {
+              url: "https://example.com/trusted.jpg",
+              role: "business_photo",
+              source: "proffera",
+              kind: "image",
+              attribution: "",
+            },
+            canonicalServiceSlugs: ["malare"],
+            reputation: { rating: 4.8, verifiedReviews: 2 },
+            capabilities: { richWebsite: false, onlineBooking: false, mediatedQuote: true },
+          },
+        },
+        {
+          ...baseResult,
+          id: "illustration",
+          slug: "illustration",
+          companyName: "Illustration AB",
+          profile: {
+            profileId: "illustration",
+            directorySlug: "illustration",
+            workspaceSlug: null,
+            displayName: "Illustration AB",
+            categorySlug: "malare",
+            city: "Södertälje",
+            municipality: "Södertälje",
+            media: {
+              url: "https://example.com/illustration.jpg",
+              role: "illustration",
+              source: "proffera",
+              kind: "image",
+              attribution: "",
+            },
+            canonicalServiceSlugs: ["malare"],
+            reputation: null,
+            capabilities: { richWebsite: false, onlineBooking: false, mediatedQuote: true },
+          },
+        },
+        {
+          ...baseResult,
+          id: "zero-review",
+          slug: "zero-review",
+          companyName: "Zero Review AB",
+          profile: {
+            profileId: "zero-review",
+            directorySlug: "zero-review",
+            workspaceSlug: null,
+            displayName: "Zero Review AB",
+            categorySlug: "malare",
+            city: "Södertälje",
+            municipality: "Södertälje",
+            media: null,
+            canonicalServiceSlugs: ["malare"],
+            reputation: { rating: 5, verifiedReviews: 0 },
+            capabilities: { richWebsite: false, onlineBooking: false, mediatedQuote: true },
+          },
+        },
+      ],
+    };
+
+    const svMarkup = renderToStaticMarkup(createElement(PublicDirectoryResults, { locale: "sv", search }));
+    const enMarkup = renderToStaticMarkup(createElement(PublicDirectoryResults, { locale: "en", search }));
+
+    expect(svMarkup).toContain('data-search-card-media="true"');
+    expect(svMarkup).toContain('src="https://example.com/trusted.jpg"');
+    expect(svMarkup).not.toContain("https://example.com/illustration.jpg");
+    expect(svMarkup).toContain('data-search-card-reputation="true"');
+    expect(svMarkup).toContain("4.8");
+    expect(svMarkup).toContain("2 verifierade omdömen");
+    expect(svMarkup).not.toContain("5.0");
+    expect(enMarkup).toContain("2 verified reviews");
   });
 
   it("keeps search and profile routing in the shared public directory graph", () => {
