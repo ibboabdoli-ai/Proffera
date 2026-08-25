@@ -212,6 +212,11 @@ export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, t
             {checkoutPlans.map((plan) => {
               const isLoading = loadingPlanKey === plan.key;
               const isPreferred = preferredPlanKey === plan.key;
+              const planPriceLabel = plan.configured
+                ? plan.priceLabel
+                : locale === "en"
+                  ? "Price confirmed by Stripe"
+                  : "Pris bekräftas i Stripe";
 
               return (
                 <button
@@ -224,7 +229,7 @@ export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, t
                   <span className="flex items-start justify-between gap-3">
                     <span>
                       <span className="block text-base font-bold text-[#17201a]">{plan.name}</span>
-                      <span className="mt-1 block text-sm font-semibold text-[#17452f]">{testMode ? `${plan.priceLabel} · Stripe Sandbox` : plan.priceLabel}</span>
+                      <span className="mt-1 block text-sm font-semibold text-[#17452f]">{testMode ? `${planPriceLabel} · Stripe Sandbox` : planPriceLabel}</span>
                     </span>
                     {isLoading ? <LoaderCircle className="h-4 w-4 animate-spin text-[#17452f]" aria-hidden="true" /> : <CreditCard className="h-4 w-4 text-[#17452f]" aria-hidden="true" />}
                   </span>

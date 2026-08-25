@@ -1,7 +1,7 @@
 const productionBookingHosts = new Set(["proffera.se", "www.proffera.se"]);
 
-export function resolveBookingUrlForLocation(url: string, hostname: string, origin: string) {
-  if (!hostname.endsWith(".vercel.app")) return url;
+export function resolveBookingUrlForLocation(url: string, isPreview: boolean, origin: string) {
+  if (!isPreview) return url;
 
   try {
     const target = new URL(url);

@@ -56,6 +56,8 @@ describe("preview billing safety behavior", () => {
 
     expect(html).toContain("Starter · 199 kr/mån (test)");
     expect(html).toContain("Professional · 599 kr/mån (test)");
+    expect(html).toContain("199 kr/mån · Stripe Sandbox");
+    expect(html).toContain("599 kr/mån · Stripe Sandbox");
     expect(html).not.toContain("1 kr/mån (test)");
   });
 
@@ -63,30 +65,50 @@ describe("preview billing safety behavior", () => {
     const html = renderBilling([{ ...starterPlan, configured: false }, professionalPlan]);
 
     expect(html).toContain("Starter · Pris bekräftas i Stripe (test)");
+    expect(html).toContain("Pris bekräftas i Stripe · Stripe Sandbox");
+    expect(html).not.toContain("199 kr/mån · Stripe Sandbox");
     expect(html).not.toContain("Starter · 199 kr/mån (test)");
   });
 
-  it("rewrites a canonical production booking URL to the active Vercel Preview origin", () => {
+  it("rewrites a canonical production booking URL only when the server marks the deployment as Preview", () => {
+    const canonical = "https://www.proffera.se/boka/iboren-preview-test?lang=en#booking-form";
+
     expect(resolveBookingUrlForLocation(
-      "https://www.proffera.se/boka/iboren-preview-test?lang=en#booking-form",
-      "proffera-jhap-preview.vercel.app",
+      canonical,
+      true,
       "https://proffera-jhap-preview.vercel.app",
     )).toBe("https://proffera-jhap-preview.vercel.app/boka/iboren-preview-test?lang=en#booking-form");
+
+    expect(resolveBookingUrlForLocation(
+      canonical,
+      false,
+      "https://proffera-jhap-production.vercel.app",
+    )).toBe(canonical);
   });
 
-  it("keeps booking URLs canonical outside Vercel Preview and ignores unrelated URLs", () => {
-    const canonical = "https://www.proffera.se/boka/iboren-preview-test";
-
-    expect(resolveBookingUrlForLocation(canonical, "www.proffera.se", "https://www.proffera.se")).toBe(canonical);
-    expect(resolveBookingUrlForLocation("https://example.com/boka/test", "preview.vercel.app", "https://preview.vercel.app")).toBe("https://example.com/boka/test");
-    expect(resolveBookingUrlForLocation("https://www.proffera.se/dashboard", "preview.vercel.app", "https://preview.vercel.app")).toBe("https://www.proffera.se/dashboard");
+  it("keeps unrelated URLs unchanged even in Preview", () => {
+    expect(resolveBookingUrlForLocation(
+      "https://example.com/boka/test",
+      true,
+      "https://preview.vercel.app",
+    )).toBe("https://example.com/boka/test");
+    expect(resolveBookingUrlForLocation(
+      "https://www.proffera.se/dashboard",
+      true,
+      "https://preview.vercel.app",
+    )).toBe("https://www.proffera.se/dashboard");
   });
 
-  it("renders the canonical server snapshot before Preview hydration", () => {
-    const canonical = "https://www.proffera.se/boka/iboren-preview-test";
-    const html = renderToStaticMarkup(createElement(BookingLinkCard, { url: canonical }));
+  it("renders the canonical server snapshot outside Preview", () => {
+    vi.stubEnv("VERCEL_ENV", "production");
+    try {
+      const canonical = "https://www.proffera.se/boka/iboren-preview-test";
+      const html = renderToStaticMarkup(createElement(BookingLinkCard, { url: canonical }));
 
-    expect(html).toContain(`href="${canonical}"`);
-    expect(html).toContain(canonical);
+      expect(html).toContain(`href="${canonical}"`);
+      expect(html).toContain(canonical);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });
