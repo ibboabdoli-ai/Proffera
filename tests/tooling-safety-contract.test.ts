@@ -69,6 +69,7 @@ describe("tooling safety contract", () => {
     const project = source("sonar-project.properties");
 
     expect(sonar).toContain("vars.SONARQUBE_ENABLED == 'true'");
+    expect(sonar).toContain("github.actor != 'dependabot[bot]'");
     expect(sonar).toContain("github.event.pull_request.head.repo.full_name == github.repository");
     expect(sonar).toContain("secrets.SONAR_TOKEN");
     expect(sonar).toContain("vars.SONAR_PROJECT_KEY");
