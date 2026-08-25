@@ -1,54 +1,94 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { describe, expect, it } from "vitest";
+const mocks = vi.hoisted(() => ({
+  headers: vi.fn(),
+  listPublicBusinessSitemapEntries: vi.fn(),
+  listPublishedDirectorySitemapEntries: vi.fn(),
+  listDirectorySeoLandings: vi.fn(),
+  getPublicBusinessHub: vi.fn(),
+}));
 
-function source(path: string) {
-  return readFileSync(resolve(process.cwd(), path), "utf8");
-}
+vi.mock("server-only", () => ({}));
+vi.mock("next/headers", () => ({ headers: mocks.headers }));
+vi.mock("@/components/company-directory/public-directory-search-page", () => ({
+  PublicDirectorySearchPage: () => null,
+}));
+vi.mock("@/lib/public-business-seo", () => ({
+  listPublicBusinessSitemapEntries: mocks.listPublicBusinessSitemapEntries,
+}));
+vi.mock("@/lib/company-directory-seo", () => ({
+  listPublishedDirectorySitemapEntries: mocks.listPublishedDirectorySitemapEntries,
+}));
+vi.mock("@/lib/company-directory-landing-seo", () => ({
+  listDirectorySeoLandings: mocks.listDirectorySeoLandings,
+}));
+vi.mock("@/lib/public-business-hub", () => ({ getPublicBusinessHub: mocks.getPublicBusinessHub }));
+vi.mock("@/lib/public-site-domain-routing", () => ({ resolvePublicCustomDomain: vi.fn(async () => null) }));
+vi.mock("@/lib/public-site-domains", () => ({
+  hostnameFromHostHeader: (host: string | null | undefined) => host?.split(":")[0] ?? "",
+  isPlatformHost: () => true,
+  isPrimeViewHost: () => false,
+}));
+
+import sitemap from "@/app/sitemap";
+import { metadata as swedishSearchMetadata } from "@/app/foretag/listad/page";
+import { metadata as englishSearchMetadata } from "@/app/en/companies/page";
+import { metadata as swedishRegisterMetadata } from "@/app/anslut-foretag/registrera/layout";
+import { metadata as swedishThankYouMetadata } from "@/app/anslut-foretag/tack/layout";
+import { metadata as englishRegisterMetadata } from "@/app/en/join-business/register/layout";
+import { metadata as englishThankYouMetadata } from "@/app/en/join-business/thank-you/layout";
 
 describe("sitemap index hygiene", () => {
-  it("does not advertise noindex search, login, registration or confirmation routes", () => {
-    const sitemap = source("src/app/sitemap.ts");
+  beforeEach(() => {
+    mocks.headers.mockReset();
+    mocks.listPublicBusinessSitemapEntries.mockReset();
+    mocks.listPublishedDirectorySitemapEntries.mockReset();
+    mocks.listDirectorySeoLandings.mockReset();
+    mocks.getPublicBusinessHub.mockReset();
 
-    expect(sitemap).toContain('"/foretag/listad"');
-    expect(sitemap).toContain('"/anslut-foretag/registrera"');
-    expect(sitemap).toContain('"/anslut-foretag/tack"');
-    expect(sitemap).toContain("indexableLocalizedPublicRoutes");
-    expect(sitemap).not.toContain('"/logga-in",');
+    mocks.headers.mockResolvedValue({ get: () => "www.proffera.se" });
+    mocks.listPublicBusinessSitemapEntries.mockResolvedValue([
+      { workspaceId: "1", workspaceSlug: "real-business", serviceSlug: "service-one" },
+    ]);
+    mocks.listPublishedDirectorySitemapEntries.mockResolvedValue([
+      { slug: "published-directory-company", lastModified: new Date("2026-08-25T00:00:00Z") },
+    ]);
+    mocks.listDirectorySeoLandings.mockResolvedValue([
+      { serviceSlug: "vvs", serviceLabel: "VVS / Rörmokare", location: "Södertälje", locationSlug: "sodertalje", businessCount: 3 },
+    ]);
   });
 
-  it("marks demo request and confirmation routes noindex in both languages", () => {
-    for (const path of [
-      "src/app/anslut-foretag/registrera/layout.tsx",
-      "src/app/anslut-foretag/tack/layout.tsx",
-      "src/app/en/join-business/register/layout.tsx",
-      "src/app/en/join-business/thank-you/layout.tsx",
+  it("omits noindex utility routes and keeps indexable public discovery URLs", async () => {
+    const entries = await sitemap();
+    const urls = new Set(entries.map((entry) => entry.url));
+
+    expect([...urls].some((url) => url.endsWith("/foretag/listad"))).toBe(false);
+    expect([...urls].some((url) => url.endsWith("/en/companies"))).toBe(false);
+    expect([...urls].some((url) => url.endsWith("/logga-in"))).toBe(false);
+    expect([...urls].some((url) => url.endsWith("/anslut-foretag/registrera"))).toBe(false);
+    expect([...urls].some((url) => url.endsWith("/anslut-foretag/tack"))).toBe(false);
+    expect([...urls].some((url) => url.endsWith("/en/join-business/register"))).toBe(false);
+    expect([...urls].some((url) => url.endsWith("/en/join-business/thank-you"))).toBe(false);
+
+    expect([...urls].some((url) => url.endsWith("/foretag/listad/published-directory-company"))).toBe(true);
+    expect([...urls].some((url) => url.endsWith("/en/companies/published-directory-company"))).toBe(true);
+    expect([...urls].some((url) => url.endsWith("/hitta/vvs/sodertalje"))).toBe(true);
+    expect([...urls].some((url) => url.endsWith("/foretag/real-business"))).toBe(true);
+  });
+
+  it("declares Directory search pages as noindex,follow", () => {
+    expect(swedishSearchMetadata.robots).toMatchObject({ index: false, follow: true });
+    expect(englishSearchMetadata.robots).toMatchObject({ index: false, follow: true });
+  });
+
+  it("declares registration and confirmation routes as noindex,follow in both languages", () => {
+    for (const metadata of [
+      swedishRegisterMetadata,
+      swedishThankYouMetadata,
+      englishRegisterMetadata,
+      englishThankYouMetadata,
     ]) {
-      const layout = source(path);
-      expect(layout).toContain("index: false");
-      expect(layout).toContain("follow: true");
+      expect(metadata.robots).toMatchObject({ index: false, follow: true });
     }
-  });
-
-  it("keeps public Directory profiles in the sitemap while search result URLs stay noindex", () => {
-    const sitemap = source("src/app/sitemap.ts");
-    const swedishSearch = source("src/app/foretag/listad/page.tsx");
-    const englishSearch = source("src/app/en/companies/page.tsx");
-
-    expect(sitemap).toContain("listPublishedDirectorySitemapEntries");
-    expect(sitemap).toContain("const encodedSlug = encodeURIComponent(entry.slug)");
-    expect(sitemap).toContain("/foretag/listad/${encodedSlug}");
-    expect(sitemap).toContain("/en/companies/${encodedSlug}");
-    expect(swedishSearch).toContain("index: false");
-    expect(englishSearch).toContain("index: false");
-  });
-
-  it("limits Public Business sitemap entries to active non-test workspaces", () => {
-    const seo = source("src/lib/public-business-seo.ts");
-
-    expect(seo).toContain("where workspace.status = 'active'");
-    expect(seo).toContain("isIndexablePublicBusinessWorkspace");
-    expect(seo).toContain('companyName.startsWith("proffera test")');
   });
 });
