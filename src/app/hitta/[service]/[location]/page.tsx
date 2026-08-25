@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { cache } from "react";
 
 import { PublicDirectoryResults } from "@/components/company-directory/public-directory-results";
 import { getDirectorySeoLanding } from "@/lib/company-directory-landing-seo";
@@ -8,13 +9,15 @@ import { searchPublishedCompanyDirectory } from "@/lib/company-directory-public-
 
 export const dynamic = "force-dynamic";
 
+const getCachedDirectorySeoLanding = cache(getDirectorySeoLanding);
+
 type Props = {
   params: Promise<{ service: string; location: string }>;
 };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { service, location } = await params;
-  const landing = await getDirectorySeoLanding(service, location);
+  const landing = await getCachedDirectorySeoLanding(service, location);
   if (!landing) return { robots: { index: false, follow: true } };
 
   const title = `${landing.serviceLabel} i ${landing.location}`;
@@ -32,7 +35,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function DirectoryServiceLocationPage({ params }: Props) {
   const { service, location } = await params;
-  const landing = await getDirectorySeoLanding(service, location);
+  const landing = await getCachedDirectorySeoLanding(service, location);
   if (!landing) notFound();
 
   const search = await searchPublishedCompanyDirectory({
