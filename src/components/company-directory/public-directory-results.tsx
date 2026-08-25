@@ -1,11 +1,20 @@
 import Link from "next/link";
-import { ArrowRight, CalendarCheck2, ChevronLeft, ChevronRight, FileText, Mail, MapPin, Navigation, ShieldCheck } from "lucide-react";
+import { ArrowRight, CalendarCheck2, ChevronLeft, ChevronRight, FileText, Mail, MapPin, Navigation, ShieldCheck, Star } from "lucide-react";
 
 import { directoryCopy, directoryPaths, directoryServiceLabel, popularDirectoryServices } from "@/components/company-directory/public-directory-copy";
 import { PublicDirectorySortControls } from "@/components/company-directory/public-directory-sort-controls";
 import { quoteRequestPaths } from "@/features/quote-request/localization";
+import type { SearchCardBusinessProjection } from "@/lib/business-profile-policy";
 import type { DirectorySearchSort, PublishedDirectorySearchResponse, PublishedDirectorySearchResult } from "@/lib/company-directory-public-search";
 import type { PublicLocale } from "@/lib/public-locale";
+
+type PublicDirectorySearchCardResult = PublishedDirectorySearchResult & {
+  profile?: SearchCardBusinessProjection;
+};
+
+type PublicDirectorySearchCardResponse = Omit<PublishedDirectorySearchResponse, "results"> & {
+  results: PublicDirectorySearchCardResult[];
+};
 
 function withWorkspaceLocale(path: string, locale: PublicLocale) {
   return locale === "en" ? `${path}?lang=en` : path;
@@ -35,6 +44,12 @@ function registeredLocation(result: PublishedDirectorySearchResult, locale: Publ
   const t = directoryCopy[locale];
   const place = result.city || result.municipality || t.country;
   return t.registeredIn(place);
+}
+
+function verifiedReviewsLabel(count: number, locale: PublicLocale) {
+  const formatted = new Intl.NumberFormat(locale === "sv" ? "sv-SE" : "en").format(count);
+  if (locale === "en") return `${formatted} verified ${count === 1 ? "review" : "reviews"}`;
+  return `${formatted} ${count === 1 ? "verifierat omdöme" : "verifierade omdömen"}`;
 }
 
 function pageHref(baseHref: string, page: number) {
@@ -83,7 +98,7 @@ export function PublicDirectoryResults({
   paginationBaseHref = directoryPaths[locale].search,
 }: {
   locale: PublicLocale;
-  search: PublishedDirectorySearchResponse;
+  search: PublicDirectorySearchCardResponse;
   sort?: DirectorySearchSort;
   paginationBaseHref?: string;
 }) {
@@ -135,23 +150,48 @@ export function PublicDirectoryResults({
           const canQuote = result.conversionMode === "quote" || result.conversionMode === "book_or_quote";
           const canContact = result.conversionMode === "contact";
           const hasPrimaryMarketplaceAction = Boolean(marketplace?.bookingHref || canQuote || canContact);
+          const profileMedia = result.profile?.media;
+          const cardMedia = profileMedia && profileMedia.kind === "image" && profileMedia.role !== "illustration"
+            ? profileMedia
+            : null;
+          const reputation = result.profile?.reputation && result.profile.reputation.verifiedReviews > 0
+            ? result.profile.reputation
+            : null;
 
           return (
             <article key={result.id} className="min-w-0 rounded-2xl border border-line bg-surface p-4 shadow-sm transition hover:border-brand/25 hover:shadow-card sm:p-5">
               <div className="grid min-w-0 gap-4 md:grid-cols-[minmax(0,1fr)_160px] md:items-center lg:grid-cols-[minmax(0,1fr)_180px]">
-                <div className="min-w-0">
-                  <h3 className="break-words text-lg font-black tracking-[-0.02em] text-ink sm:text-xl">{result.companyName}</h3>
+                <div className="flex min-w-0 items-start gap-3 sm:gap-4">
+                  {cardMedia ? (
+                    <div data-search-card-media className="h-20 w-20 shrink-0 overflow-hidden rounded-xl border border-line bg-surface-subtle sm:h-24 sm:w-24">
+                      {/* Search-card media may use tenant-specific Blob hosts, so keep the original public URL without image rewriting. */}
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={cardMedia.url} alt="" className="h-full w-full object-cover" loading="lazy" decoding="async" />
+                    </div>
+                  ) : null}
 
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <span className="rounded-full bg-brand-soft px-3 py-1 text-xs font-black text-brand">{directoryServiceLabel(result.matchedServiceSlug, result.matchedServiceLabel, locale)}</span>
-                    <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-subtle px-3 py-1 text-xs font-bold text-body"><ShieldCheck className="h-3.5 w-3.5 text-brand" /> {t.verifiedDetails}</span>
-                    {marketplace ? <span className="rounded-full bg-brand-tint px-3 py-1 text-xs font-black text-brand">{t.profferaBusiness}</span> : null}
-                  </div>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="break-words text-lg font-black tracking-[-0.02em] text-ink sm:text-xl">{result.companyName}</h3>
 
-                  <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-body">
-                    <span className="inline-flex items-center gap-2"><MapPin className="h-4 w-4 shrink-0 text-brand" />{registeredLocation(result, locale)}</span>
-                    {result.distanceKm !== null ? <span className="inline-flex items-center gap-1.5 font-semibold text-muted"><Navigation className="h-4 w-4 text-brand" />{t.away(result.distanceKm)}</span> : null}
-                    {result.servesNearbyLocation ? <span className="inline-flex items-center gap-1.5 text-xs font-bold text-brand"><ShieldCheck className="h-3.5 w-3.5" />{t.serviceAreaMatch}</span> : null}
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <span className="rounded-full bg-brand-soft px-3 py-1 text-xs font-black text-brand">{directoryServiceLabel(result.matchedServiceSlug, result.matchedServiceLabel, locale)}</span>
+                      <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-subtle px-3 py-1 text-xs font-bold text-body"><ShieldCheck className="h-3.5 w-3.5 text-brand" /> {t.verifiedDetails}</span>
+                      {marketplace ? <span className="rounded-full bg-brand-tint px-3 py-1 text-xs font-black text-brand">{t.profferaBusiness}</span> : null}
+                    </div>
+
+                    {reputation ? (
+                      <div data-search-card-reputation className="mt-2 inline-flex flex-wrap items-center gap-1.5 text-xs font-bold text-body">
+                        <Star className="h-4 w-4 fill-current text-brand" aria-hidden="true" />
+                        <span className="font-black text-ink">{reputation.rating.toFixed(1)}</span>
+                        <span className="text-muted">· {verifiedReviewsLabel(reputation.verifiedReviews, locale)}</span>
+                      </div>
+                    ) : null}
+
+                    <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-body">
+                      <span className="inline-flex items-center gap-2"><MapPin className="h-4 w-4 shrink-0 text-brand" />{registeredLocation(result, locale)}</span>
+                      {result.distanceKm !== null ? <span className="inline-flex items-center gap-1.5 font-semibold text-muted"><Navigation className="h-4 w-4 text-brand" />{t.away(result.distanceKm)}</span> : null}
+                      {result.servesNearbyLocation ? <span className="inline-flex items-center gap-1.5 text-xs font-bold text-brand"><ShieldCheck className="h-3.5 w-3.5" />{t.serviceAreaMatch}</span> : null}
+                    </div>
                   </div>
                 </div>
 
