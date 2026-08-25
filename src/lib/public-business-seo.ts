@@ -150,9 +150,11 @@ export async function listPublicBusinessSitemapEntries(): Promise<PublicBusiness
         workspace.id::text as workspace_id,
         workspace.slug as workspace_slug,
         workspace.status,
-        coalesce(workspace.company_name, workspace.name, '') as company_name,
+        coalesce(nullif(settings.company_name, ''), workspace.company_name, workspace.name, '') as company_name,
         service.public_slug as service_slug
       from workspaces workspace
+      left join workspace_settings settings
+        on settings.workspace_id = workspace.id::text
       left join workspace_services service
         on service.workspace_id = workspace.id::text
        and service.is_active = true
