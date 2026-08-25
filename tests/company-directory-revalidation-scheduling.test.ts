@@ -122,7 +122,6 @@ describe("dedicated Company Directory revalidation scheduling", () => {
 
   it("rejects an incorrect external scheduler secret", async () => {
     process.env.COMPANY_DIRECTORY_REVALIDATION_SCHEDULER_SECRET = "external-scheduler-secret";
-
     const { GET } = await loadRoute();
     const response = await GET(new Request(
       "https://example.test/api/cron/company-directory-revalidation",
@@ -277,14 +276,15 @@ describe("dedicated Company Directory revalidation scheduling", () => {
     }
   });
 
-  it("schedules only the dedicated revalidation endpoint every five minutes away from minute zero", () => {
+  it("schedules one bounded revalidation call twice per hour away from other schedulers", () => {
     const workflow = readFileSync(
       resolve(process.cwd(), ".github/workflows/company-directory-revalidation.yml"),
       "utf8",
     );
 
-    expect(workflow).toContain('cron: "2-59/5 * * * *"');
-    expect(workflow).not.toContain('cron: "*/5 * * * *"');
+    expect(workflow).toContain('cron: "22,52 * * * *"');
+    expect(workflow).not.toContain('cron: "2-59/5 * * * *"');
+    expect(workflow).not.toContain("BATCHES_PER_RUN=2");
     expect(workflow).toContain("/api/cron/company-directory-revalidation");
     expect(workflow).toContain('--header "Authorization: Bearer $CRON_SECRET"');
     expect(workflow).toContain('hostname not in {"proffera.se", "www.proffera.se"}');
