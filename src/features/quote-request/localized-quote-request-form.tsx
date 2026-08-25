@@ -71,11 +71,13 @@ function discardLanguageDraft() {
 export function LocalizedQuoteRequestForm({
   locale,
   initialValues,
+  targetCompany,
   alternateLocaleHref,
   alternateLocaleLabel,
 }: {
   locale: PublicLocale;
   initialValues?: QuoteRequestPrefill;
+  targetCompany?: { slug: string; companyName: string };
   alternateLocaleHref?: string;
   alternateLocaleLabel?: string;
 }) {
@@ -217,11 +219,16 @@ export function LocalizedQuoteRequestForm({
     const allErrors = validate(submissionData);
     if (Object.keys(allErrors).length > 0) { setErrors(allErrors); return; }
     startTransition(() => {
-      void submitQuoteRequest({ ...submissionData, website, formStartedAt: startedAt }).then((result) => {
+      void submitQuoteRequest({
+        ...submissionData,
+        targetProfileSlug: targetCompany?.slug,
+        website,
+        formStartedAt: startedAt,
+      }).then((result) => {
         if (!result.ok) {
           if (locale === "en") {
             const localizedErrors = validate(submissionData);
-            setErrors(Object.keys(localizedErrors).length > 0 ? localizedErrors : { form: t.serverError });
+            setErrors(Object.keys(localizedErrors).length > 0 ? localizedErrors : { form: result.errors.form ?? t.serverError });
           } else {
             setErrors(result.errors);
           }
@@ -237,7 +244,11 @@ export function LocalizedQuoteRequestForm({
   if (reference) return <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-[#dfe5dd]">
     <CheckCircle2 className="h-12 w-12 text-[#17452f]" aria-hidden="true" />
     <h2 className="mt-5 text-2xl font-bold text-[#17201a]">{t.sent}</h2>
-    <p className="mt-3 text-[#5b665f]">{t.sentText}</p>
+    <p className="mt-3 text-[#5b665f]">{targetCompany
+      ? (locale === "en"
+          ? `Your request keeps ${targetCompany.companyName} as the only selected company.`
+          : `Din förfrågan behåller ${targetCompany.companyName} som enda valt företag.`)
+      : t.sentText}</p>
     <div className="mt-6 rounded-2xl bg-[#eef5ef] p-4 text-sm font-semibold text-[#17452f]">{t.reference}: {reference}</div>
   </div>;
 
@@ -245,6 +256,12 @@ export function LocalizedQuoteRequestForm({
 
   return <div className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[#dfe5dd] sm:p-8">
     <label className="absolute left-[-10000px]" aria-hidden="true">{t.website}<input type="text" tabIndex={-1} autoComplete="off" value={website} onChange={(event) => setWebsite(event.target.value)} /></label>
+    {targetCompany ? <div className="mb-5 rounded-2xl border border-[#b9d2bf] bg-[#eef5ef] p-4 text-sm text-[#17452f]">
+      <p className="font-bold">{locale === "en" ? "Selected company" : "Valt företag"}: {targetCompany.companyName}</p>
+      <p className="mt-1 text-xs font-semibold leading-5 text-[#4f6658]">{locale === "en"
+        ? "This choice is verified again when you submit. Proffera will not silently broaden a specific-company request to other companies."
+        : "Valet verifieras igen när du skickar. Proffera breddar inte i tysthet en företagsspecifik förfrågan till andra företag."}</p>
+    </div> : null}
     {alternateLocaleHref && alternateLocaleLabel ? <div className="mb-5 flex justify-end">
       <button type="button" onClick={switchLanguage} className="rounded-full border border-[#dfe5dd] bg-white px-4 py-2 text-sm font-semibold text-[#17452f] transition hover:bg-[#f4f8f4]">{alternateLocaleLabel}</button>
     </div> : null}
