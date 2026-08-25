@@ -92,12 +92,14 @@ function configureWorker(input: {
   status?: string;
   evaluation?: Record<string, unknown>;
   finalEvaluation?: Record<string, unknown>;
+  evaluationSequence?: Record<string, unknown>[];
   moveRows?: unknown[];
   backlog?: number;
 } = {}) {
   const status = input.status ?? "ready";
   const fresh = input.evaluation ?? evaluation(status);
   const finalFresh = input.finalEvaluation ?? fresh;
+  const evaluations = input.evaluationSequence ?? [fresh, finalFresh];
   const moveRows = input.moveRows ?? [{ profile_updated_token: PROFILE_TOKEN }];
   const backlog = input.backlog ?? 0;
   let evaluationReads = 0;
@@ -110,7 +112,7 @@ function configureWorker(input: {
     }
     if (query.includes("profile.category_slug") && query.includes("scb_snapshot_fresh")) {
       evaluationReads += 1;
-      return [evaluationReads === 1 ? fresh : finalFresh];
+      return [evaluations[Math.min(evaluationReads - 1, evaluations.length - 1)] ?? finalFresh];
     }
     if (query.includes("update company_directory_scb_enrichment")) return [{ profile_id: PROFILE_ID }];
     if (query.includes("update company_directory_profiles profile")) return moveRows;
@@ -253,8 +255,11 @@ describe("full Company Directory revalidation", () => {
   it("returns a recovered profile to Review when its final SCB snapshot conflicts", async () => {
     configureWorker({
       status: "review",
-      evaluation: evaluation("review"),
-      finalEvaluation: evaluation("ready", { scb_conflict_count: 1 }),
+      evaluationSequence: [
+        evaluation("review"),
+        evaluation("review"),
+        evaluation("ready", { scb_conflict_count: 1 }),
+      ],
     });
 
     const result = await revalidateAllCompanyDirectoryBatch(10);
@@ -432,7 +437,7 @@ describe("full Company Directory revalidation", () => {
       });
       expect(pendingEvaluation).toBe(true);
       expect(mocks.enrichScb).toHaveBeenCalledTimes(1);
-      expect(sqlCalls.some((call) => call.query.includes("profile.category_slug"))).toBe(false);
+      expect(sqlCalls.filter((call) => call.query.includes("profile.category_slug"))).toHaveLength(1);
       expect(sqlCalls.some((call) => call.query.includes("update company_directory_profiles profile"))).toBe(false);
 
       now = deadlineAt + 100;
