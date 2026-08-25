@@ -3,9 +3,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   rows: [] as Array<Record<string, unknown>>,
   query: "",
+  notFound: vi.fn(() => {
+    throw new Error("NEXT_NOT_FOUND");
+  }),
 }));
 
 vi.mock("server-only", () => ({}));
+vi.mock("next/navigation", () => ({
+  notFound: mocks.notFound,
+}));
 vi.mock("@/lib/db/server", () => ({
   getSql: vi.fn(() => async (strings: TemplateStringsArray) => {
     mocks.query = strings.join("?");
@@ -25,6 +31,7 @@ describe("Company Directory service-city SEO landings", () => {
   beforeEach(() => {
     mocks.rows = [];
     mocks.query = "";
+    mocks.notFound.mockClear();
   });
 
   afterEach(() => {
@@ -74,7 +81,7 @@ describe("Company Directory service-city SEO landings", () => {
     expect(mocks.query).toContain("having count(distinct id) >=");
   });
 
-  it("resolves a route landing and emits indexable metadata only for a qualifying row", async () => {
+  it("resolves a route landing, emits indexable metadata, and rejects a missing landing", async () => {
     const service = DIRECTORY_SERVICES[0];
     mocks.rows = [{
       service_slug: service.slug,
@@ -97,10 +104,12 @@ describe("Company Directory service-city SEO landings", () => {
     expect(metadata.alternates).toEqual({ canonical: `/hitta/${service.slug}/sodertalje` });
 
     mocks.rows = [];
-    const missingMetadata = await page.generateMetadata({
-      params: Promise.resolve({ service: service.slug, location: "stockholm" }),
-    });
+    const missingParams = Promise.resolve({ service: service.slug, location: "stockholm" });
+    const missingMetadata = await page.generateMetadata({ params: missingParams });
     expect(missingMetadata.robots).toEqual({ index: false, follow: true });
+
+    await expect(page.default({ params: missingParams })).rejects.toThrow("NEXT_NOT_FOUND");
+    expect(mocks.notFound).toHaveBeenCalledTimes(1);
   });
 
   it("memoizes the shared landing lookup across metadata and page rendering", async () => {
