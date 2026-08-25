@@ -55,7 +55,9 @@ export async function listDirectorySeoLandings(): Promise<DirectorySeoLanding[]>
         case
           when claimed_workspace_id is null then
             case
-              when jsonb_array_length(coalesce(workplaces, '[]'::jsonb)) = 1
+              when jsonb_array_length(
+                case when jsonb_typeof(workplaces) = 'array' then workplaces else '[]'::jsonb end
+              ) = 1
                 and nullif(trim(workplaces -> 0 #>> '{visitingAddress,addressLine}'), '') is not null
                 and nullif(trim(workplaces -> 0 #>> '{visitingAddress,postalCode}'), '') is not null
                 and nullif(trim(workplaces -> 0 #>> '{visitingAddress,city}'), '') is not null
