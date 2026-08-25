@@ -310,13 +310,17 @@ describe("dedicated Company Directory revalidation scheduling", () => {
     }
   });
 
-  it("schedules one bounded revalidation call twice per hour away from other schedulers", () => {
+  it("keeps GitHub as a manual fallback while automatic full revalidation stays out of Operations", () => {
     const workflow = readFileSync(
       resolve(process.cwd(), ".github/workflows/company-directory-revalidation.yml"),
       "utf8",
     );
     const operationsWorkflow = readFileSync(
       resolve(process.cwd(), ".github/workflows/booking-reminders.yml"),
+      "utf8",
+    );
+    const operationsRoute = readFileSync(
+      resolve(process.cwd(), "src/app/api/cron/company-directory-sync/route.ts"),
       "utf8",
     );
     const marketplaceWorkflow = readFileSync(
@@ -332,10 +336,9 @@ describe("dedicated Company Directory revalidation scheduling", () => {
       "utf8",
     );
 
-    expect(workflow).toContain('cron: "14,44 * * * *"');
-    expect(workflow).not.toContain('cron: "2-59/5 * * * *"');
-    expect(workflow).not.toContain('cron: "22,52 * * * *"');
-    expect(workflow).not.toContain('cron: "*/5 * * * *"');
+    expect(workflow).toContain("workflow_dispatch:");
+    expect(workflow).not.toContain("schedule:");
+    expect(workflow).not.toContain("cron:");
     expect(workflow).not.toContain("BATCHES_PER_RUN=2");
     expect(workflow).not.toContain('for batch in $(seq 1 "$BATCHES_PER_RUN")');
     expect(operationsWorkflow).toContain('cron: "7,22,37,52 * * * *"');
@@ -360,5 +363,10 @@ describe("dedicated Company Directory revalidation scheduling", () => {
     expect(workflow).not.toContain("/api/cron/company-directory-sync");
     expect(workflow).not.toContain("/api/cron/company-directory-official-facts");
     expect(workflow).not.toContain("Booking reminders");
+    expect(operationsWorkflow).toContain("/api/cron/company-directory-sync");
+    expect(operationsWorkflow).not.toContain("/api/cron/company-directory-revalidation");
+    expect(operationsRoute).not.toContain("revalidateAllCompanyDirectoryBatch");
+    expect(operationsRoute).not.toContain("fullRevalidation");
+    expect(operationsRoute).toContain("revalidatePublishedCompanyDirectoryBatch");
   });
 });

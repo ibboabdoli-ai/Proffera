@@ -5,7 +5,6 @@ import {
   processNewCompanyDirectoryDiscoveryQueueBatch,
 } from "@/lib/company-directory-discovery-queue";
 import { syncCompanyDirectory } from "@/lib/company-directory-engine";
-import { revalidateAllCompanyDirectoryBatch } from "@/lib/company-directory-full-revalidation";
 import { revalidatePublishedCompanyDirectoryBatch } from "@/lib/company-directory-published-revalidation";
 import { autoPublishReadyHighConfidenceCompanyDirectoryBatch } from "@/lib/company-directory-ready-auto-publish";
 import { getSql } from "@/lib/db/server";
@@ -14,7 +13,6 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 const AUTOMATIC_QUEUE_CRON_BATCH_SIZE = 5;
-const FULL_REVALIDATION_AUTOMATIC_BATCH_SIZE = 10;
 const PUBLISHED_REVALIDATION_AUTOMATIC_BATCH_SIZE = 2;
 const AUTOMATIC_QUEUE_HISTORY_PROVIDER = "automatic_queue";
 const AUTOMATIC_QUEUE_DEADLINE_BUFFER_MS = 5_000;
@@ -26,19 +24,6 @@ const EMPTY_QUEUE_RESULT = {
   blocked: 0,
   errors: 0,
   errorSummary: "",
-};
-
-const FAILED_FULL_REVALIDATION_RESULT = {
-  skipped: true,
-  reason: "worker_error",
-  selected: 0,
-  refreshed: 0,
-  kept: 0,
-  movedToReview: 0,
-  deferred: 0,
-  errors: 1,
-  errorSummary: "Full Directory revalidation worker failed",
-  remaining: null as number | null,
 };
 
 const FAILED_PUBLISHED_REVALIDATION_RESULT = {
@@ -93,22 +78,6 @@ async function recordAutomaticQueueSyncRunSafely(run: AutomaticQueueRun) {
   } catch (error) {
     console.error("Company directory automatic queue history write failed", error);
     return false;
-  }
-}
-
-async function revalidateAllCompanyDirectorySafely(deadlineAt: number) {
-  try {
-    return await revalidateAllCompanyDirectoryBatch(
-      FULL_REVALIDATION_AUTOMATIC_BATCH_SIZE,
-      { deadlineAt },
-    );
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Full Directory revalidation worker failed";
-    console.error("Company directory full revalidation failed inside automatic queue", error);
-    return {
-      ...FAILED_FULL_REVALIDATION_RESULT,
-      errorSummary: message,
-    };
   }
 }
 
@@ -168,23 +137,20 @@ export async function GET(request: Request) {
       const result = remainingBatchSize > 0
         ? await processCompanyDirectoryDiscoveryQueue(remainingBatchSize)
         : EMPTY_QUEUE_RESULT;
-      const fullRevalidation = await revalidateAllCompanyDirectorySafely(revalidationDeadlineAt);
       const publishedRevalidation = await revalidatePublishedCompanyDirectorySafely(revalidationDeadlineAt);
       const history = {
         scanned: readyAutoPublish.scanned + newCompanies.claimed + result.claimed
-          + fullRevalidation.selected + publishedRevalidation.selected,
+          + publishedRevalidation.selected,
         upserted: newCompanies.processed + result.processed
-          + fullRevalidation.refreshed + publishedRevalidation.revalidated,
+          + publishedRevalidation.revalidated,
         published: readyAutoPublish.published + newCompanies.published + result.published,
-        blocked: newCompanies.blocked + result.blocked
-          + fullRevalidation.movedToReview + publishedRevalidation.movedToReview,
+        blocked: newCompanies.blocked + result.blocked + publishedRevalidation.movedToReview,
         errors: readyAutoPublish.errors + newCompanies.errors + result.errors
-          + fullRevalidation.errors + publishedRevalidation.errors,
+          + publishedRevalidation.errors,
         errorSummary: automaticQueueErrorSummary(
           readyAutoPublish.errorSummary,
           newCompanies.errorSummary,
           result.errorSummary,
-          fullRevalidation.errorSummary,
           publishedRevalidation.errorSummary,
         ),
       };
@@ -201,7 +167,6 @@ export async function GET(request: Request) {
         ...result,
         newCompanies,
         readyAutoPublish,
-        fullRevalidation,
         publishedRevalidation,
         historyRecorded,
       });
