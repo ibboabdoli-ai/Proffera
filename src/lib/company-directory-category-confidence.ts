@@ -163,6 +163,25 @@ function hasCleaningSwedishSignal(values: string[]) {
     || hasSwedishTokenPrefix(values, STADNING_ACCENTED_TOKEN_PREFIXES);
 }
 
+function hasElectricianFacilityServiceContext(values: string[]) {
+  const tokens = swedishTokens(values);
+  const serviceActions = new Set([
+    "installation",
+    "installationer",
+    "service",
+    "underhåll",
+    "reparation",
+    "reparationer",
+  ]);
+
+  for (let index = 0; index < tokens.length - 1; index += 1) {
+    if (tokens[index] !== "elektriska" || tokens[index + 1] !== "anläggningar") continue;
+    const precedingContext = tokens.slice(Math.max(0, index - 7), index);
+    if (precedingContext.some((token) => serviceActions.has(token))) return true;
+  }
+  return false;
+}
+
 function hasElectricianElectricalContext(values: string[]) {
   const tokens = swedishTokens(values);
   if (tokens.some((token) => token.startsWith("elarbet"))) return true;
@@ -186,22 +205,14 @@ function hasElectricianElectricalContext(values: string[]) {
     ["reparation", "av", "elektriska", "anläggningar"],
     ["reparationer", "av", "elektriska", "anläggningar"],
   ];
-  if (boundedServiceSequences.some((sequence) => hasSwedishTokenSequence(values, sequence))) return true;
-
-  const hasElectricalFacility = hasSwedishTokenSequence(values, ["elektriska", "anläggningar"]);
-  const hasFacilityServiceAction = tokens.some((token) => [
-    "installation",
-    "installationer",
-    "service",
-    "underhåll",
-    "reparation",
-    "reparationer",
-  ].includes(token));
-  return hasElectricalFacility && hasFacilityServiceAction;
+  return boundedServiceSequences.some((sequence) => hasSwedishTokenSequence(values, sequence))
+    || hasElectricianFacilityServiceContext(values);
 }
 
 function hasElectricianCompanyNameContext(values: string[]) {
   const tokens = swedishTokens(values);
+  const blockedTradeTokens = ["appliance", "electronics", "elektronik", "handel", "butik", "product", "produkt"];
+  if (tokens.some((token) => blockedTradeTokens.some((blocked) => token.startsWith(blocked)))) return false;
   return tokens.includes("elektriska") || tokens.includes("electrical");
 }
 
