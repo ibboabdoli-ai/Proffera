@@ -51,6 +51,18 @@ describe("company directory category confidence Production text variants", () =>
     expect(result.signals).not.toContain("Företagsnamn stödjer kategorin");
   });
 
+  it("does not treat Swedish städer as a cleaning compound", () => {
+    const result = assess({
+      categorySlug: "stadning",
+      primarySniCode: "81.210",
+      activityDescription: "Bolaget bedriver verksamhet i svenska städer.",
+    });
+
+    expect(result.score).toBe(90);
+    expect(result.level).toBe("review");
+    expect(result.warnings).toContain("Ingen oberoende textsignal stödjer kategorin");
+  });
+
   it.each([
     "Filialen ska bedriva elentreprenad.",
     "Filialen ska bedriva elinstalaltioner på byggarbetsplatser.",
