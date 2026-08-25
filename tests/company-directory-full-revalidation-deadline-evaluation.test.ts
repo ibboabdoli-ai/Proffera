@@ -57,7 +57,7 @@ beforeEach(() => {
 });
 
 describe("full Company Directory evaluation deadline", () => {
-  it("does not start a Ready-to-Review update when evaluation finishes at the deadline", async () => {
+  it("does not start SCB or a Ready-to-Review update when the safety evaluation reaches the deadline", async () => {
     let now = 1_000;
     const deadlineAt = 50_000;
     let pendingEvaluationMarked = false;
@@ -66,6 +66,7 @@ describe("full Company Directory evaluation deadline", () => {
 
     const sql = vi.fn(async (strings: TemplateStringsArray, ..._values: unknown[]) => {
       const query = normalizeQuery(strings);
+      if (query.includes("with blocked as (") && query.includes("for update of profile skip locked")) return [];
       queries.push(query);
 
       if (query.includes("started_at < now() - interval '10 minutes'")) return [];
@@ -113,7 +114,7 @@ describe("full Company Directory evaluation deadline", () => {
         return [];
       }
       if (query.includes("update company_directory_sync_runs") && query.includes("where id =")) return [];
-      if (query.includes("select count(*)::int as count")) return [{ count: pendingEvaluationMarked ? 1 : 0 }];
+      if (query.includes("select count(*)::int as count")) return [{ count: 1 }];
       if (query.includes("update company_directory_profiles profile")) {
         throw new Error("profile status update must not start after the deadline");
       }
@@ -127,15 +128,15 @@ describe("full Company Directory evaluation deadline", () => {
 
       expect(result).toMatchObject({
         selected: 1,
-        refreshed: 1,
+        refreshed: 0,
         movedToReview: 0,
         deferred: 1,
         errors: 0,
         remaining: 1,
       });
       expect(mocks.enrichOfficialFacts).toHaveBeenCalledTimes(1);
-      expect(mocks.enrichScb).toHaveBeenCalledTimes(1);
-      expect(pendingEvaluationMarked).toBe(true);
+      expect(mocks.enrichScb).not.toHaveBeenCalled();
+      expect(pendingEvaluationMarked).toBe(false);
       expect(queries.some((query) => query.includes("update company_directory_profiles profile"))).toBe(false);
     } finally {
       nowSpy.mockRestore();

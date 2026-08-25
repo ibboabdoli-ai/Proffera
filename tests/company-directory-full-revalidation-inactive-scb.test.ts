@@ -43,6 +43,7 @@ beforeEach(() => {
     const query = normalizeQuery(strings);
     sqlCalls.push({ query, values });
 
+    if (query.includes("with blocked as (") && query.includes("for update of profile skip locked")) return [];
     if (query.includes("started_at < now() - interval '10 minutes'")) return [];
     if (query.includes("insert into company_directory_sync_runs")) return [{ id: RUN_ID, cursor_value: "" }];
     if (query.includes("with eligible as")) {

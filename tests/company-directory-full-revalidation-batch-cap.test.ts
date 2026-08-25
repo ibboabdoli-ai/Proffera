@@ -102,6 +102,7 @@ describe("full Company Directory revalidation batch cap", () => {
     const sql = vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
       const query = normalizeQuery(strings);
 
+      if (query.includes("with blocked as (") && query.includes("for update of profile skip locked")) return [];
       if (query.includes("started_at < now() - interval '10 minutes'")) return [];
       if (query.includes("insert into company_directory_sync_runs")) return [{ id: RUN_ID }];
 
