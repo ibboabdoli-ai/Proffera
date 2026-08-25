@@ -1,7 +1,7 @@
 import { swedishCompanyNamesEquivalent } from "@/lib/company-directory-company-name";
 import { mapSniToDirectoryCategory, normalizeSniCode } from "@/lib/company-directory-policy";
 
-export const COMPANY_DIRECTORY_CATEGORY_CONFIDENCE_POLICY_VERSION = "2026-08-23.1";
+export const COMPANY_DIRECTORY_CATEGORY_CONFIDENCE_POLICY_VERSION = "2026-08-25.1";
 
 export type CompanyDirectoryCategoryConfidenceLevel = "high" | "review" | "low";
 
@@ -40,17 +40,47 @@ type SniFact = {
 
 const MALERI_ACCENTED_TOKEN_FRAGMENTS = ["måleri", "målar", "målning"];
 const MALERI_UNACCENTED_TOKEN_PREFIXES = ["maleri", "malare", "malning"];
+const STADNING_ACCENTED_TOKEN_PREFIXES = [
+  "städentrepren",
+  "städtjänst",
+  "städverksam",
+  "städrörelse",
+  "städuppdrag",
+  "städfirma",
+  "städkonsult",
+  "städbransch",
+  "städrelater",
+  "städar",
+  "städbolag",
+  "städföretag",
+];
 
 const categoryKeywords: Record<string, string[]> = {
   stadning: ["stadning", "stadservice", "lokalvard", "rengor", "fonsterputs", "hemstad", "kontorsstad"],
-  elektriker: ["elektr", "elinstall", "eltekn", "elkraft", "elservice"],
-  vvs: ["vvs", "rorlagg", "rorinstall", "varme", "sanitar", "sanitet", "ventilation", "kylinstall"],
+  elektriker: [
+    "elektriker",
+    "elektrifier",
+    "elinstall",
+    "elinstal",
+    "elentrepren",
+    "el-bransch",
+    "elbransch",
+    "eltekn",
+    "elkraft",
+    "elservice",
+    "starkstrom",
+    "svagstrom",
+    "hogspanning",
+    "lagspanning",
+    "laddningsstation",
+  ],
+  vvs: ["vvs", "rorlagg", "rorinstall", "varme", "sanitar", "sanitet", "ventilation", "kylinstall", "luftbehandling"],
   maleri: [],
-  snickeri: ["snicker", "byggnadssnicker", "carpentry"],
-  tradgard: ["tradgard", "markskotsel", "gronyt", "landskap"],
+  snickeri: ["snicker", "byggnadssnicker", "carpentry", "koksmonter"],
+  tradgard: ["tradgard", "markskotsel", "gronyt", "landskap", "tradvard", "tradfall", "arborist", "beskar", "bevattning"],
   flytt: ["flytt", "moving"],
   hemservice: ["hemservice", "hushallsnara", "hushallstjanst", "homeservice"],
-  frisor: ["frisor", "barber", "harvard", "harfrisering", "frisering"],
+  frisor: ["frisor", "frisyr", "barber", "harvard", "harsalong", "harfrisering", "frisering"],
 };
 
 function object(value: unknown): UnknownRecord | null {
@@ -117,6 +147,50 @@ function hasSwedishTokenFragment(values: string[], fragments: string[]) {
   return tokens.some((token) => normalizedFragments.some((fragment) => token.includes(fragment)));
 }
 
+function hasSwedishTokenSequence(values: string[], sequence: string[]) {
+  const tokens = swedishTokens(values);
+  const normalizedSequence = sequence.map((token) => token.normalize("NFC").toLocaleLowerCase("sv-SE"));
+  if (!tokens.length || !normalizedSequence.length || normalizedSequence.length > tokens.length) return false;
+
+  for (let index = 0; index <= tokens.length - normalizedSequence.length; index += 1) {
+    if (normalizedSequence.every((token, offset) => tokens[index + offset] === token)) return true;
+  }
+  return false;
+}
+
+function hasCleaningSwedishSignal(values: string[]) {
+  return hasExactSwedishToken(values, "städ")
+    || hasSwedishTokenPrefix(values, STADNING_ACCENTED_TOKEN_PREFIXES);
+}
+
+function hasElectricianElectricalContext(values: string[]) {
+  const boundedServiceSequences = [
+    ["elektriska", "arbeten"],
+    ["elektriskt", "arbete"],
+    ["installation", "av", "elektriska", "system"],
+    ["installationer", "av", "elektriska", "system"],
+    ["service", "av", "elektriska", "system"],
+    ["reparation", "av", "elektriska", "system"],
+    ["reparationer", "av", "elektriska", "system"],
+    ["service", "och", "reparation", "av", "elektriska", "system"],
+    ["service", "och", "reparationer", "av", "elektriska", "system"],
+    ["installation", "av", "elektriska", "anläggningar"],
+    ["installationer", "av", "elektriska", "anläggningar"],
+    ["service", "av", "elektriska", "anläggningar"],
+    ["reparation", "av", "elektriska", "anläggningar"],
+    ["reparationer", "av", "elektriska", "anläggningar"],
+  ];
+  return boundedServiceSequences.some((sequence) => hasSwedishTokenSequence(values, sequence));
+}
+
+function hasHairdresserHairContext(values: string[]) {
+  const tokens = swedishTokens(values);
+  if (!tokens.includes("hår")) return false;
+
+  const contextualPrefixes = ["salong", "hudvård", "skönhetsvård", "klipp", "frisyr", "styling"];
+  return tokens.some((token) => contextualPrefixes.some((prefix) => token.startsWith(prefix)));
+}
+
 function hasCategoryKeyword(categorySlug: string, values: string[]) {
   if (categorySlug === "maleri") {
     return hasSwedishTokenFragment(values, MALERI_ACCENTED_TOKEN_FRAGMENTS)
@@ -126,7 +200,19 @@ function hasCategoryKeyword(categorySlug: string, values: string[]) {
   const keywords = categoryKeywords[categorySlug] ?? [];
   if (!keywords.length) return false;
 
-  if (categorySlug === "stadning" && hasExactSwedishToken(values, "städ")) {
+  if (categorySlug === "stadning" && hasCleaningSwedishSignal(values)) {
+    return true;
+  }
+
+  if (categorySlug === "elektriker" && hasElectricianElectricalContext(values)) {
+    return true;
+  }
+
+  if (categorySlug === "frisor" && hasHairdresserHairContext(values)) {
+    return true;
+  }
+
+  if (categorySlug === "snickeri" && hasSwedishTokenSequence(values, ["montering", "av", "kök"])) {
     return true;
   }
 
