@@ -37,7 +37,9 @@ describe("sitemap index hygiene", () => {
     const englishSearch = source("src/app/en/companies/page.tsx");
 
     expect(sitemap).toContain("listPublishedDirectorySitemapEntries");
-    expect(sitemap).toContain("/foretag/listad/${encodeURIComponent(entry.slug)}");
+    expect(sitemap).toContain("const encodedSlug = encodeURIComponent(entry.slug)");
+    expect(sitemap).toContain("/foretag/listad/${encodedSlug}");
+    expect(sitemap).toContain("/en/companies/${encodedSlug}");
     expect(swedishSearch).toContain("index: false");
     expect(englishSearch).toContain("index: false");
   });
