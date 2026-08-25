@@ -163,6 +163,26 @@ function hasCleaningSwedishSignal(values: string[]) {
     || hasSwedishTokenPrefix(values, STADNING_ACCENTED_TOKEN_PREFIXES);
 }
 
+function hasElectricianSalesContext(tokens: string[]) {
+  const salesPrefixes = ["försälj", "handel", "återförsälj", "grossist", "butik"];
+  const productPrefixes = ["material", "produkt", "varor", "komponent", "utrustning", "apparat"];
+  return tokens.some((token) => salesPrefixes.some((prefix) => token.startsWith(prefix)))
+    && tokens.some((token) => productPrefixes.some((prefix) => token.startsWith(prefix)));
+}
+
+function hasBoundedElectricianServiceSequence(values: string[], sequence: string[]) {
+  const tokens = swedishTokens(values);
+  const normalizedSequence = sequence.map((token) => token.normalize("NFC").toLocaleLowerCase("sv-SE"));
+  if (!tokens.length || !normalizedSequence.length || normalizedSequence.length > tokens.length) return false;
+
+  for (let index = 0; index <= tokens.length - normalizedSequence.length; index += 1) {
+    if (!normalizedSequence.every((token, offset) => tokens[index + offset] === token)) continue;
+    const precedingContext = tokens.slice(Math.max(0, index - 6), index);
+    if (!hasElectricianSalesContext(precedingContext)) return true;
+  }
+  return false;
+}
+
 function hasElectricianFacilityServiceContext(values: string[]) {
   const tokens = swedishTokens(values);
   const serviceActions = new Set([
@@ -177,6 +197,7 @@ function hasElectricianFacilityServiceContext(values: string[]) {
   for (let index = 0; index < tokens.length - 1; index += 1) {
     if (tokens[index] !== "elektriska" || tokens[index + 1] !== "anläggningar") continue;
     const precedingContext = tokens.slice(Math.max(0, index - 7), index);
+    if (hasElectricianSalesContext(precedingContext)) continue;
     if (precedingContext.some((token) => serviceActions.has(token))) return true;
   }
   return false;
@@ -205,13 +226,22 @@ function hasElectricianElectricalContext(values: string[]) {
     ["reparation", "av", "elektriska", "anläggningar"],
     ["reparationer", "av", "elektriska", "anläggningar"],
   ];
-  return boundedServiceSequences.some((sequence) => hasSwedishTokenSequence(values, sequence))
+  return boundedServiceSequences.some((sequence) => hasBoundedElectricianServiceSequence(values, sequence))
     || hasElectricianFacilityServiceContext(values);
 }
 
 function hasElectricianCompanyNameContext(values: string[]) {
   const tokens = swedishTokens(values);
-  const blockedTradeTokens = ["appliance", "electronics", "elektronik", "handel", "butik", "product", "produkt"];
+  const blockedTradeTokens = [
+    "appliance",
+    "apparat",
+    "electronics",
+    "elektronik",
+    "handel",
+    "butik",
+    "product",
+    "produkt",
+  ];
   if (tokens.some((token) => blockedTradeTokens.some((blocked) => token.startsWith(blocked)))) return false;
   return tokens.includes("elektriska") || tokens.includes("electrical");
 }
