@@ -185,6 +185,8 @@ describe("public company directory search contract", () => {
 
     const svMarkup = renderToStaticMarkup(createElement(PublicDirectoryResults, { locale: "sv", search }));
     const enMarkup = renderToStaticMarkup(createElement(PublicDirectoryResults, { locale: "en", search }));
+    const svZeroReviewCard = svMarkup.match(/<article[^>]*>[\s\S]*?Zero Review AB[\s\S]*?<\/article>/)?.[0];
+    const enZeroReviewCard = enMarkup.match(/<article[^>]*>[\s\S]*?Zero Review AB[\s\S]*?<\/article>/)?.[0];
 
     expect(svMarkup).toContain('data-search-card-media="true"');
     expect(svMarkup).toContain('src="https://example.com/trusted.jpg"');
@@ -192,8 +194,13 @@ describe("public company directory search contract", () => {
     expect(svMarkup).toContain('data-search-card-reputation="true"');
     expect(svMarkup).toContain("4.8");
     expect(svMarkup).toContain("2 verifierade omdömen");
-    expect(svMarkup).not.toContain("5.0");
     expect(enMarkup).toContain("2 verified reviews");
+    expect(svZeroReviewCard).toBeTruthy();
+    expect(svZeroReviewCard).not.toContain('data-search-card-reputation="true"');
+    expect(svZeroReviewCard).not.toMatch(/verifierat omdöme|verifierade omdömen/);
+    expect(enZeroReviewCard).toBeTruthy();
+    expect(enZeroReviewCard).not.toContain('data-search-card-reputation="true"');
+    expect(enZeroReviewCard).not.toMatch(/verified review|verified reviews/);
   });
 
   it("keeps search and profile routing in the shared public directory graph", () => {
