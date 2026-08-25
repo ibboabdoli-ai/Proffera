@@ -1,7 +1,7 @@
 import { swedishCompanyNamesEquivalent } from "@/lib/company-directory-company-name";
 import { mapSniToDirectoryCategory, normalizeSniCode } from "@/lib/company-directory-policy";
 
-export const COMPANY_DIRECTORY_CATEGORY_CONFIDENCE_POLICY_VERSION = "2026-08-25.1";
+export const COMPANY_DIRECTORY_CATEGORY_CONFIDENCE_POLICY_VERSION = "2026-08-25.2";
 
 export type CompanyDirectoryCategoryConfidenceLevel = "high" | "review" | "low";
 
@@ -164,9 +164,15 @@ function hasCleaningSwedishSignal(values: string[]) {
 }
 
 function hasElectricianElectricalContext(values: string[]) {
+  const tokens = swedishTokens(values);
+  if (tokens.some((token) => token.startsWith("elarbet"))) return true;
+
   const boundedServiceSequences = [
     ["elektriska", "arbeten"],
     ["elektriskt", "arbete"],
+    ["elektrisk", "installation"],
+    ["elektriska", "installationer"],
+    ["installationsrörelse", "inom", "el"],
     ["installation", "av", "elektriska", "system"],
     ["installationer", "av", "elektriska", "system"],
     ["service", "av", "elektriska", "system"],
@@ -180,7 +186,23 @@ function hasElectricianElectricalContext(values: string[]) {
     ["reparation", "av", "elektriska", "anläggningar"],
     ["reparationer", "av", "elektriska", "anläggningar"],
   ];
-  return boundedServiceSequences.some((sequence) => hasSwedishTokenSequence(values, sequence));
+  if (boundedServiceSequences.some((sequence) => hasSwedishTokenSequence(values, sequence))) return true;
+
+  const hasElectricalFacility = hasSwedishTokenSequence(values, ["elektriska", "anläggningar"]);
+  const hasFacilityServiceAction = tokens.some((token) => [
+    "installation",
+    "installationer",
+    "service",
+    "underhåll",
+    "reparation",
+    "reparationer",
+  ].includes(token));
+  return hasElectricalFacility && hasFacilityServiceAction;
+}
+
+function hasElectricianCompanyNameContext(values: string[]) {
+  const tokens = swedishTokens(values);
+  return tokens.includes("elektriska") || tokens.includes("electrical");
 }
 
 function hasHairdresserHairContext(values: string[]) {
@@ -309,11 +331,9 @@ export function assessCompanyDirectoryCategoryConfidence(
   }
 
   const registeredNameValues = registeredNames.map((item) => item.name).filter(Boolean);
-  const nameSupportsCategory = hasCategoryKeyword(input.categorySlug, [
-    input.legalName,
-    input.displayName,
-    ...registeredNameValues,
-  ]);
+  const companyNameValues = [input.legalName, input.displayName, ...registeredNameValues];
+  const nameSupportsCategory = hasCategoryKeyword(input.categorySlug, companyNameValues)
+    || (input.categorySlug === "elektriker" && hasElectricianCompanyNameContext(companyNameValues));
   if (nameSupportsCategory) {
     score += 10;
     signals.push("Företagsnamn stödjer kategorin");
