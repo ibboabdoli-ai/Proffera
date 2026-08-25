@@ -21,6 +21,21 @@ Do not start implementation when:
 - the repository baseline changed materially during analysis and the graph was not refreshed;
 - required secrets, Production access, or high-risk authorization are missing.
 
+## Existing engineering toolchain
+
+Use the tooling already present in Proffera before adding overlapping tools or broad manual substitutes. Select only what the current graph path needs and report `not performed` when a tool is not applicable or unavailable.
+
+- **Graphify 0.9.42** — for cross-node architecture, dependency, caller/callee, and blast-radius work. Read `.codex/skills/graphify/SKILL.md`, prefer a sufficiently current existing graph, and keep live repository/runtime/database evidence authoritative. Never include secrets, customer data, or generated graph output in commits.
+- **ESLint / TypeScript / Vitest / Next build** — run the narrowest relevant checks first and broaden according to `AGENTS.md`; a green build alone is not runtime proof.
+- **Playwright** — use the existing `e2e/` browser stack for relevant public/customer flows and approved isolated Preview proof. Never run destructive/state-changing browser flows against Production or real customer Workspaces.
+- **GitHub Actions / CodeQL** — required CI remains the delivery gate. Workflow/action changes are security-sensitive; preserve least privilege and immutable action SHA pinning.
+- **SonarQube** — `.github/workflows/sonarqube.yml` is an optional additional code-quality/maintainability signal. It stays dormant unless `SONARQUBE_ENABLED=true`, `SONAR_PROJECT_KEY`, exactly one of `SONAR_HOST_URL` or `SONAR_ORGANIZATION`, and secret `SONAR_TOKEN` are configured. The initial quality gate is advisory (`sonar.qualitygate.wait=false`) and does not replace CodeQL, tests, review, or runtime proof. Prioritize findings in new/touched/reachable code rather than expanding scope into unrelated historical debt.
+- **CodeRabbit** — final risk-routed review only; do not consume a new review after every development commit and never treat stale review evidence as current-head approval.
+- **Dependabot** — use the existing dependency-maintenance path for routine package/action updates instead of introducing a second updater without a proven gap.
+- **Preview/runtime proof** — state-changing Auth, Booking, Quote, Marketplace, email, billing, migration, or tenant-isolation verification belongs in an explicitly isolated non-Production boundary with controlled external egress.
+
+SonarQube credentials must never be committed or logged. The repository-side integration is intentionally fail-closed when explicitly enabled with incomplete or ambiguous Server/Cloud configuration.
+
 ## Branch and task identity
 
 - Use one branch named `work/proffera-*`.
