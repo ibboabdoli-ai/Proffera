@@ -66,6 +66,7 @@ describe("company directory category confidence Production text variants", () =>
   it.each([
     "Filialen ska bedriva elentreprenad.",
     "Filialen ska bedriva elinstalaltioner på byggarbetsplatser.",
+    "Bolaget utför elektriska arbeten i kommersiella byggnader.",
     "Bolaget projekterar och installerar svagströmsanläggningar.",
     "Bolaget installerar laddningsstationer för elfordon.",
     "Bolaget bedriver installationsrörelse inom el-branschen.",
@@ -78,6 +79,18 @@ describe("company directory category confidence Production text variants", () =>
 
     expect(result.level).toBe("high");
     expect(result.signals).toContain("Verksamhetsbeskrivningen stödjer kategorin");
+  });
+
+  it("does not treat electronics trade as electrician evidence", () => {
+    const result = assess({
+      categorySlug: "elektriker",
+      primarySniCode: "43.210",
+      activityDescription: "Bolaget ska bedriva elektronikhandel och försäljning av datorutrustning.",
+    });
+
+    expect(result.score).toBe(90);
+    expect(result.level).toBe("review");
+    expect(result.signals).not.toContain("Verksamhetsbeskrivningen stödjer kategorin");
   });
 
   it.each([
@@ -128,6 +141,18 @@ describe("company directory category confidence Production text variants", () =>
     });
 
     expect(result.level).toBe("high");
+  });
+
+  it("does not treat kitchen removal as carpentry installation evidence", () => {
+    const result = assess({
+      categorySlug: "snickeri",
+      primarySniCode: "43.320",
+      activityDescription: "Bolaget utför demontering av kök och bortforsling.",
+    });
+
+    expect(result.score).toBe(90);
+    expect(result.level).toBe("review");
+    expect(result.signals).not.toContain("Verksamhetsbeskrivningen stödjer kategorin");
   });
 
   it.each([
