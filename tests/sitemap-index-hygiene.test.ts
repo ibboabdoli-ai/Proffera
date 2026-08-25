@@ -1,59 +1,173 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { describe, expect, it } from "vitest";
+const mocks = vi.hoisted(() => ({
+  host: "www.proffera.se",
+  sqlRows: [] as Array<Record<string, unknown>>,
+  sqlQuery: "",
+  directoryLandings: [] as Array<Record<string, unknown>>,
+  directoryEntries: [] as Array<Record<string, unknown>>,
+  customTarget: null as null | { workspaceSlug: string; publicHomeMode: string },
+  hub: null as null | {
+    workspace: { status: string; companyName: string; slug: string };
+    services: Array<{ publicSlug: string }>;
+  },
+}));
 
-function source(path: string) {
-  return readFileSync(resolve(process.cwd(), path), "utf8");
-}
+vi.mock("server-only", () => ({}));
+vi.mock("next/headers", () => ({
+  headers: vi.fn(async () => ({ get: (name: string) => name.toLowerCase() === "host" ? mocks.host : null })),
+}));
+vi.mock("@/lib/db/server", () => ({
+  getSql: vi.fn(() => async (strings: TemplateStringsArray) => {
+    mocks.sqlQuery = strings.join("?");
+    return mocks.sqlRows;
+  }),
+}));
+vi.mock("@/lib/workspace-feature-entitlement-db", () => ({
+  hasWorkspaceFeatureAccessForWorkspace: vi.fn(async () => true),
+}));
+vi.mock("@/lib/company-directory-landing-seo", () => ({
+  listDirectorySeoLandings: vi.fn(async () => mocks.directoryLandings),
+}));
+vi.mock("@/lib/company-directory-seo", () => ({
+  listPublishedDirectorySitemapEntries: vi.fn(async () => mocks.directoryEntries),
+}));
+vi.mock("@/lib/public-site-domain-routing", () => ({
+  resolvePublicCustomDomain: vi.fn(async () => mocks.customTarget),
+}));
+vi.mock("@/lib/public-business-hub", () => ({
+  getPublicBusinessHub: vi.fn(async () => mocks.hub),
+}));
+
+import registrationLayout, { metadata as registrationMetadata } from "../src/app/anslut-foretag/registrera/layout";
+import thankYouLayout, { metadata as thankYouMetadata } from "../src/app/anslut-foretag/tack/layout";
+import englishRegistrationLayout, { metadata as englishRegistrationMetadata } from "../src/app/en/join-business/register/layout";
+import englishThankYouLayout, { metadata as englishThankYouMetadata } from "../src/app/en/join-business/thank-you/layout";
+import sitemap from "../src/app/sitemap";
+import { listPublicBusinessSitemapEntries } from "@/lib/public-business-seo";
+
+const ACTIVE_WORKSPACE_ID = "11111111-1111-4111-8111-111111111111";
+const RENAMED_WORKSPACE_ID = "22222222-2222-4222-8222-222222222222";
+const TRIAL_WORKSPACE_ID = "33333333-3333-4333-8333-333333333333";
+const TEST_WORKSPACE_ID = "44444444-4444-4444-8444-444444444444";
 
 describe("sitemap index hygiene", () => {
-  it("does not advertise noindex Directory search, registration or confirmation routes", () => {
-    const sitemap = source("src/app/sitemap.ts");
-
-    expect(sitemap).toContain('"/foretag/listad"');
-    expect(sitemap).toContain('"/anslut-foretag/registrera"');
-    expect(sitemap).toContain('"/anslut-foretag/tack"');
-    expect(sitemap).toContain("indexableLocalizedPublicRoutes");
+  beforeEach(() => {
+    mocks.host = "www.proffera.se";
+    mocks.sqlRows = [];
+    mocks.sqlQuery = "";
+    mocks.directoryLandings = [];
+    mocks.directoryEntries = [];
+    mocks.customTarget = null;
+    mocks.hub = null;
   });
 
-  it("marks demo request and confirmation routes noindex in both languages", () => {
-    for (const path of [
-      "src/app/anslut-foretag/registrera/layout.tsx",
-      "src/app/anslut-foretag/tack/layout.tsx",
-      "src/app/en/join-business/register/layout.tsx",
-      "src/app/en/join-business/thank-you/layout.tsx",
+  it("emits noindex/follow metadata from registration and confirmation layouts", () => {
+    for (const metadata of [
+      registrationMetadata,
+      thankYouMetadata,
+      englishRegistrationMetadata,
+      englishThankYouMetadata,
     ]) {
-      const layout = source(path);
-      expect(layout).toContain("index: false");
-      expect(layout).toContain("follow: true");
+      expect(metadata.robots).toEqual({ index: false, follow: true });
     }
+
+    expect(registrationLayout({ children: "sv-register" })).toBe("sv-register");
+    expect(thankYouLayout({ children: "sv-thanks" })).toBe("sv-thanks");
+    expect(englishRegistrationLayout({ children: "en-register" })).toBe("en-register");
+    expect(englishThankYouLayout({ children: "en-thanks" })).toBe("en-thanks");
   });
 
-  it("keeps published Directory profiles in the sitemap while search result URLs stay noindex", () => {
-    const sitemap = source("src/app/sitemap.ts");
-    const swedishSearch = source("src/app/foretag/listad/page.tsx");
-    const englishSearch = source("src/app/en/companies/page.tsx");
+  it("filters platform business sitemap entries with the effective company name and active status", async () => {
+    mocks.sqlRows = [
+      {
+        workspace_id: ACTIVE_WORKSPACE_ID,
+        workspace_slug: "real-company",
+        status: "active",
+        company_name: "Real Company AB",
+        service_slug: "maleri",
+      },
+      {
+        workspace_id: RENAMED_WORKSPACE_ID,
+        workspace_slug: "renamed-company",
+        status: "active",
+        company_name: "Owner Renamed AB",
+        service_slug: null,
+      },
+      {
+        workspace_id: TRIAL_WORKSPACE_ID,
+        workspace_slug: "trial-company",
+        status: "trial",
+        company_name: "Trial Company AB",
+        service_slug: null,
+      },
+      {
+        workspace_id: TEST_WORKSPACE_ID,
+        workspace_slug: "test-company",
+        status: "active",
+        company_name: "Proffera Test Workspace",
+        service_slug: null,
+      },
+    ];
 
-    expect(sitemap).toContain("listPublishedDirectorySitemapEntries");
-    expect(sitemap).toContain("/foretag/listad/${encodedSlug}");
-    expect(swedishSearch).toContain("index: false");
-    expect(englishSearch).toContain("index: false");
+    await expect(listPublicBusinessSitemapEntries()).resolves.toEqual([
+      {
+        workspaceId: ACTIVE_WORKSPACE_ID,
+        workspaceSlug: "real-company",
+        serviceSlug: "maleri",
+      },
+      {
+        workspaceId: RENAMED_WORKSPACE_ID,
+        workspaceSlug: "renamed-company",
+        serviceSlug: null,
+      },
+    ]);
+
+    expect(mocks.sqlQuery).toContain("left join workspace_settings settings");
+    expect(mocks.sqlQuery).toContain("coalesce(nullif(settings.company_name, ''), workspace.company_name, workspace.name, '') as company_name");
   });
 
-  it("limits Public Business sitemap entries to active non-test workspaces on platform and custom domains", () => {
-    const sitemap = source("src/app/sitemap.ts");
-    const hub = source("src/lib/public-business-hub.ts");
-    const seo = source("src/lib/public-business-seo.ts");
+  it("adds only quality-gated Directory landing URLs to the platform sitemap", async () => {
+    mocks.directoryLandings = [{
+      serviceSlug: "maleri",
+      serviceLabel: "Måleri",
+      location: "Södertälje",
+      locationSlug: "sodertalje",
+      businessCount: 3,
+    }];
 
-    expect(seo).toContain("where workspace.status = 'active'");
-    expect(seo).toContain("isIndexablePublicBusinessWorkspace");
-    expect(seo).toContain('companyName.startsWith("proffera test")');
-    expect(seo).toContain("left join workspace_settings settings");
-    expect(seo).toContain("coalesce(nullif(settings.company_name, ''), workspace.company_name, workspace.name, '') as company_name");
-    expect(hub).toContain("coalesce(nullif(settings.company_name, ''), workspace.company_name, workspace.name) as company_name");
-    expect(hub).toContain("workspace.status,");
-    expect(hub).toContain('status: row.status === "active" ? "active" : "trial"');
-    expect(sitemap).toContain("isIndexablePublicBusinessWorkspace(hub.workspace)");
+    const entries = await sitemap();
+    const urls = entries.map((entry) => entry.url);
+
+    expect(urls).toContain("https://www.proffera.se/hitta/maleri/sodertalje");
+    expect(urls).not.toContain("https://www.proffera.se/foretag/listad");
+    expect(urls).not.toContain("https://www.proffera.se/anslut-foretag/registrera");
+    expect(urls).not.toContain("https://www.proffera.se/anslut-foretag/tack");
+  });
+
+  it("uses the same active/non-test policy for custom-domain sitemaps", async () => {
+    mocks.host = "example.se";
+    mocks.customTarget = { workspaceSlug: "custom-company", publicHomeMode: "website" };
+    mocks.hub = {
+      workspace: { status: "active", companyName: "Custom Company AB", slug: "custom-company" },
+      services: [{ publicSlug: "maleri" }],
+    };
+
+    await expect(sitemap()).resolves.toEqual([
+      { url: "https://example.se/", changeFrequency: "weekly", priority: 1 },
+      { url: "https://example.se/tjanster/maleri", changeFrequency: "monthly", priority: 0.9 },
+    ]);
+
+    mocks.hub = {
+      workspace: { status: "trial", companyName: "Trial Company AB", slug: "custom-company" },
+      services: [],
+    };
+    await expect(sitemap()).resolves.toEqual([]);
+
+    mocks.hub = {
+      workspace: { status: "active", companyName: "Proffera Test Custom", slug: "custom-company" },
+      services: [],
+    };
+    await expect(sitemap()).resolves.toEqual([]);
   });
 });
