@@ -11,6 +11,19 @@ export type DirectoryPublicAddressResolution = {
   sourceIndex: number | null;
 };
 
+export type DirectoryCanonicalWorkplaceResolution =
+  | {
+      status: "resolved";
+      address: DirectoryPublicAddress;
+      sourceIndex: number;
+    }
+  | {
+      status: "unavailable";
+      reason: "no_workplaces" | "no_complete_workplace" | "ambiguous_workplaces";
+      address: null;
+      sourceIndex: null;
+    };
+
 type ScbWorkplaceAddress = DirectoryPublicAddress & {
   sourceIndex: number;
 };
@@ -97,11 +110,99 @@ function workplaceResolution(address: ScbWorkplaceAddress): DirectoryPublicAddre
 }
 
 /**
+ * Resolve the canonical physical workplace location without falling back to a
+ * registered/company/postal address.
+ *
+ * This is the source-of-truth contract for physical Search/Map/distance use.
+ * A result is returned only when one complete SCB Arbetsställe visiting-address
+ * bundle can be selected safely. Otherwise the result is explicitly unavailable
+ * so downstream code cannot accidentally present a postal address as a physical
+ * workplace location.
+ */
+export function resolveCompanyDirectoryCanonicalWorkplaceAddress(
+  profile: DirectoryPublicAddress,
+  workplaces: unknown,
+): DirectoryCanonicalWorkplaceResolution {
+  if (!Array.isArray(workplaces) || workplaces.length === 0) {
+    return {
+      status: "unavailable",
+      reason: "no_workplaces",
+      address: null,
+      sourceIndex: null,
+    };
+  }
+
+  const complete = workplaces
+    .map((value, index) => workplaceVisitingAddress(value, index))
+    .filter((value): value is ScbWorkplaceAddress => Boolean(value));
+  if (complete.length === 0) {
+    return {
+      status: "unavailable",
+      reason: "no_complete_workplace",
+      address: null,
+      sourceIndex: null,
+    };
+  }
+
+  if (workplaces.length === 1 && complete.length === 1) {
+    return {
+      status: "resolved",
+      address: selectedAddress(complete[0]),
+      sourceIndex: complete[0].sourceIndex,
+    };
+  }
+
+  const normalizedStreet = normalizeText(profile.addressLine1);
+  if (normalizedStreet) {
+    const streetMatch = uniqueMatch(
+      complete,
+      (address) => normalizeText(address.addressLine1) === normalizedStreet,
+    );
+    if (streetMatch) {
+      return {
+        status: "resolved",
+        address: selectedAddress(streetMatch),
+        sourceIndex: streetMatch.sourceIndex,
+      };
+    }
+  }
+
+  const normalizedPostal = normalizePostalCode(profile.postalCode);
+  const normalizedCity = normalizeText(profile.city);
+  if (normalizedPostal && normalizedCity) {
+    const postalMatch = uniqueMatch(
+      complete,
+      (address) => normalizePostalCode(address.postalCode) === normalizedPostal
+        && normalizeText(address.city) === normalizedCity,
+    );
+    if (postalMatch) {
+      return {
+        status: "resolved",
+        address: selectedAddress(postalMatch),
+        sourceIndex: postalMatch.sourceIndex,
+      };
+    }
+  }
+
+  return {
+    status: "unavailable",
+    reason: "ambiguous_workplaces",
+    address: null,
+    sourceIndex: null,
+  };
+}
+
+/**
  * Resolve a customer-facing address and report which source actually won.
  *
  * SCB company-level municipality describes the registered seat and is not a
  * physical service/workplace location. Only a complete selected workplace
  * visiting-address bundle may therefore replace the profile location.
+ *
+ * Legacy/profile fallback remains here for existing callers that still render
+ * registered/postal facts. New physical-location consumers should use
+ * resolveCompanyDirectoryCanonicalWorkplaceAddress and fail closed when it is
+ * unavailable.
  */
 export function resolveCompanyDirectoryPublicAddressResolution(
   profile: DirectoryPublicAddress,
@@ -113,36 +214,14 @@ export function resolveCompanyDirectoryPublicAddressResolution(
     city: text(profile.city),
     municipality: text(profile.municipality),
   };
-  if (!Array.isArray(workplaces)) return profileResolution(fallback);
-
-  const complete = workplaces
-    .map((value, index) => workplaceVisitingAddress(value, index))
-    .filter((value): value is ScbWorkplaceAddress => Boolean(value));
-  if (complete.length === 0) return profileResolution(fallback);
-  if (workplaces.length === 1 && complete.length === 1) {
-    return workplaceResolution(complete[0]);
+  const canonical = resolveCompanyDirectoryCanonicalWorkplaceAddress(fallback, workplaces);
+  if (canonical.status === "resolved") {
+    return {
+      address: canonical.address,
+      source: "scb_workplace",
+      sourceIndex: canonical.sourceIndex,
+    };
   }
-
-  const normalizedStreet = normalizeText(fallback.addressLine1);
-  if (normalizedStreet) {
-    const streetMatch = uniqueMatch(
-      complete,
-      (address) => normalizeText(address.addressLine1) === normalizedStreet,
-    );
-    if (streetMatch) return workplaceResolution(streetMatch);
-  }
-
-  const normalizedPostal = normalizePostalCode(fallback.postalCode);
-  const normalizedCity = normalizeText(fallback.city);
-  if (normalizedPostal && normalizedCity) {
-    const postalMatch = uniqueMatch(
-      complete,
-      (address) => normalizePostalCode(address.postalCode) === normalizedPostal
-        && normalizeText(address.city) === normalizedCity,
-    );
-    if (postalMatch) return workplaceResolution(postalMatch);
-  }
-
   return profileResolution(fallback);
 }
 
@@ -153,7 +232,7 @@ export function resolveCompanyDirectoryPublicAddressResolution(
  * A true single-workplace company can safely use its complete visiting address.
  * Multi-workplace companies are only switched when one workplace uniquely
  * matches the profile's current street or postal-code/city pair. Otherwise the
- * existing profile address remains the safe, non-guessed fallback.
+ * existing profile address remains the legacy fallback.
  *
  * Street, postcode, city and workplace municipality are treated as one coherent
  * location bundle; partial SCB locations never replace profile location data.
