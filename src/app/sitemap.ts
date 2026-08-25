@@ -2,7 +2,8 @@ import type { MetadataRoute } from "next";
 import { headers } from "next/headers";
 
 import { getPublicBusinessHub } from "@/lib/public-business-hub";
-import { listPublicBusinessSitemapEntries } from "@/lib/public-business-seo";
+import { isIndexablePublicBusinessWorkspace, listPublicBusinessSitemapEntries } from "@/lib/public-business-seo";
+import { listDirectorySeoLandings } from "@/lib/company-directory-landing-seo";
 import { listPublishedDirectorySitemapEntries } from "@/lib/company-directory-seo";
 import { marketingIndustrySlugs } from "@/lib/marketing-industry-pages";
 import { marketingServiceSlugs } from "@/lib/marketing-service-pages";
@@ -20,6 +21,8 @@ const swedishOnlyRoutes = [
 ];
 const nonIndexableLocalizedRoutes = new Set([
   "/foretag/listad",
+  "/anslut-foretag/registrera",
+  "/anslut-foretag/tack",
 ]);
 const indexableLocalizedPublicRoutes = localizedPublicRoutes.filter(
   (route) => !nonIndexableLocalizedRoutes.has(route.sv),
@@ -51,7 +54,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     if (!target || target.publicHomeMode !== "website") return [];
 
     const hub = await getPublicBusinessHub(target.workspaceSlug);
-    if (!hub) return [];
+    if (!hub || !isIndexablePublicBusinessWorkspace(hub.workspace)) return [];
 
     const hostname = hostnameFromHostHeader(host);
     const origin = `https://${hostname}`;
@@ -65,9 +68,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     ];
   }
 
-  const [publicBusinessEntries, directoryEntries] = await Promise.all([
+  const [publicBusinessEntries, directoryEntries, directoryLandings] = await Promise.all([
     listPublicBusinessSitemapEntries(),
     listPublishedDirectorySitemapEntries(),
+    listDirectorySeoLandings(),
   ]);
   const seenBusinesses = new Set<string>();
   const publicBusinessRoutes: MetadataRoute.Sitemap = [];
@@ -114,6 +118,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       },
     ];
   });
+  const directoryLandingRoutes: MetadataRoute.Sitemap = directoryLandings.map((landing) => ({
+    url: `${siteConfig.url}/hitta/${encodeURIComponent(landing.serviceSlug)}/${encodeURIComponent(landing.locationSlug)}`,
+    changeFrequency: "weekly",
+    priority: 0.72,
+  }));
 
   return [
     ...indexableLocalizedPublicRoutes.flatMap((route) => {
@@ -125,6 +134,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     }),
     ...swedishOnlyRoutes.map((route) => ({ url: `${siteConfig.url}${route}`, changeFrequency: "monthly" as const, priority: 0.8 })),
     ...publicBusinessRoutes,
+    ...directoryLandingRoutes,
     ...directoryRoutes,
   ];
 }
