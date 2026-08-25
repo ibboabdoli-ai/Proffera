@@ -72,6 +72,17 @@ describe("public company directory search contract", () => {
     expect(copySource).toContain("Nära mig");
   });
 
+  it("renders only trusted SearchCard media and verified reputation when hydration provides them", () => {
+    expect(shellSource).toContain("searchPublishedBusinessProfiles");
+    expect(resultsSource).toContain("result.profile?.media");
+    expect(resultsSource).toContain('profileMedia.role !== "illustration"');
+    expect(resultsSource).toContain("data-search-card-media");
+    expect(resultsSource).toContain("result.profile?.reputation");
+    expect(resultsSource).toContain("verifiedReviews > 0");
+    expect(resultsSource).toContain("data-search-card-reputation");
+    expect(resultsSource).toContain("verifiedReviewsLabel");
+  });
+
   it("keeps search and profile routing in the shared public directory graph", () => {
     expect(shellSource).toContain("searchPublishedBusinessProfiles");
     expect(resultsSource).toContain("${profileBase}/${encodeURIComponent(result.slug)}");
