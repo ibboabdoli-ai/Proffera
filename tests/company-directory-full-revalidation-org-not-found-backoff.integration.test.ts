@@ -276,7 +276,7 @@ function postgresSql(client: Client) {
       expect(marked).toBeDefined();
       expect(marked?.state).toBe("review");
       expect(marked?.attempt_count).toBe(INITIAL_ATTEMPT_COUNT);
-      expect(marked?.last_error.startsWith(BACKOFF_PREFIX)).toBe(true);
+      expect(marked?.last_error.startsWith(`${BACKOFF_PREFIX}:`)).toBe(true);
       expect(marked?.next_attempt_at.getTime()).toBeGreaterThan(Date.now() + (6 * 24 * 60 * 60 * 1000));
 
       const second = await revalidateAllCompanyDirectoryBatch(10);
@@ -295,6 +295,27 @@ function postgresSql(client: Client) {
       expect(mocks.enrichOfficialFacts).toHaveBeenCalledTimes(2);
       expect(mocks.enrichScb).not.toHaveBeenCalled();
     }, 45_000);
+
+    it("does not suppress a lookalike error that only matches SQL LIKE wildcards", async () => {
+      await seedHardBlockedReview();
+      await client!.query(`
+        update company_directory_discovery_queue
+        set last_error = $2,
+            next_attempt_at = now() + interval '7 days'
+        where profile_id = $1::uuid
+      `, [
+        PROFILE_ID,
+        "fullXrevalidation:officialYfacts:organisationZnotZfound:unrelated",
+      ]);
+      mocks.enrichOfficialFacts.mockRejectedValue(new Error("lookalike marker must not suppress revalidation"));
+
+      const result = await revalidateAllCompanyDirectoryBatch(10);
+      expect(result.selected).toBe(1);
+      expect(result.errors).toBe(1);
+      expect(result.errorSummary).toContain("lookalike marker must not suppress revalidation");
+      expect(mocks.enrichOfficialFacts).toHaveBeenCalledTimes(1);
+      expect(mocks.enrichScb).not.toHaveBeenCalled();
+    }, 30_000);
 
     it("does not quarantine transient Official Facts failures", async () => {
       await seedHardBlockedReview();
