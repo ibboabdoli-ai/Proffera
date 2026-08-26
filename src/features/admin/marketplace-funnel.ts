@@ -70,7 +70,8 @@ export async function readAdminMarketplaceClaimPaidCounts(sql: MarketplaceSql) {
             and claim.requested_at > request.created_at
             and claim.resolved_at is not null
             and claim.resolved_at >= request.created_at
-            and nullif(btrim(billing.stripe_subscription_id), '') is not null
+            and billing.stripe_subscription_id is not null
+            and billing.stripe_subscription_id !~ '^[[:space:]]*$'
             and billing.status in ('active', 'trialing')
             and billing.created_at > claim.resolved_at
         )
