@@ -2,6 +2,7 @@ import "server-only";
 
 import { assessCompanyDirectoryCategoryConfidence } from "@/lib/company-directory-category-confidence";
 import { enrichCompanyDirectoryOfficialFactsForProfile } from "@/lib/company-directory-official-facts";
+import { isBolagsverketOrganizationNotFoundError } from "@/lib/company-directory-official-facts-errors";
 import {
   SCB_COMPANY_REGISTRY_MATCH_COUNT_FAILURE_CODE as DETERMINISTIC_SCB_FAILURE_CODE,
   isScbCompanyRegistryMatchCountError,
@@ -15,6 +16,8 @@ const DEFAULT_BATCH_SIZE = 10;
 const MAX_BATCH_SIZE = 10;
 const OFFICIAL_FACTS_START_HEADROOM_MS = 30_000;
 const SCB_START_HEADROOM_MS = 18_000;
+const OFFICIAL_FACTS_ORG_NOT_FOUND_BACKOFF_PREFIX = "full_revalidation:official_facts:organisation_not_found";
+const OFFICIAL_FACTS_ORG_NOT_FOUND_BACKOFF_DAYS = 7;
 
 type RevalidationOptions = {
   deadlineAt?: number;
@@ -203,6 +206,7 @@ async function selectCandidates(limit: number, cursorValue: string) {
   const sql = getSql();
   if (!sql) throw new Error("Database is not configured");
   const cursor = parseCursor(cursorValue);
+  const backoffMarkerPrefix = `${OFFICIAL_FACTS_ORG_NOT_FOUND_BACKOFF_PREFIX}:`;
 
   return await sql`
     with eligible as (
@@ -248,6 +252,14 @@ async function selectCandidates(limit: number, cursorValue: string) {
               or jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) > 0
             )
             and greatest(facts.last_synced_at, profile.updated_at) < now() - interval '24 hours'
+            and not exists (
+              select 1
+              from company_directory_discovery_queue queue
+              where queue.profile_id = profile.id
+                and queue.state = 'review'
+                and starts_with(queue.last_error, ${backoffMarkerPrefix})
+                and queue.next_attempt_at > now()
+            )
           )
           or (
             not (
@@ -343,6 +355,7 @@ async function selectCandidates(limit: number, cursorValue: string) {
 async function backlogCount() {
   const sql = getSql();
   if (!sql) return 0;
+  const backoffMarkerPrefix = `${OFFICIAL_FACTS_ORG_NOT_FOUND_BACKOFF_PREFIX}:`;
 
   const rows = await sql`
     select count(*)::int as count
@@ -365,6 +378,14 @@ async function backlogCount() {
             or jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) > 0
           )
           and greatest(facts.last_synced_at, profile.updated_at) < now() - interval '24 hours'
+          and not exists (
+            select 1
+            from company_directory_discovery_queue queue
+            where queue.profile_id = profile.id
+              and queue.state = 'review'
+              and starts_with(queue.last_error, ${backoffMarkerPrefix})
+              and queue.next_attempt_at > now()
+          )
         )
         or (
           not (
@@ -543,6 +564,26 @@ async function markReviewRecoveryEvaluation(input: {
           and facts.source_payload_hash = ${input.factsSourcePayloadHash}
       )
     returning scb.profile_id::text
+  `;
+
+  return Boolean(rows[0]);
+}
+
+async function recordOfficialFactsOrganizationNotFoundBackoff(profileId: string, error: Error) {
+  const sql = getSql();
+  if (!sql) return false;
+  const marker = `${OFFICIAL_FACTS_ORG_NOT_FOUND_BACKOFF_PREFIX}:${error.message}`.slice(0, 1000);
+
+  const rows = await sql`
+    update company_directory_discovery_queue queue
+    set next_attempt_at = greatest(
+          queue.next_attempt_at,
+          now() + (${OFFICIAL_FACTS_ORG_NOT_FOUND_BACKOFF_DAYS}::text || ' days')::interval
+        ),
+        last_error = ${marker}
+    where queue.profile_id = ${profileId}::uuid
+      and queue.state = 'review'
+    returning queue.id::text
   `;
 
   return Boolean(rows[0]);
@@ -908,7 +949,21 @@ export async function revalidateAllCompanyDirectoryBatch(
           }
         }
 
-        await enrichCompanyDirectoryOfficialFactsForProfile(profileId);
+        try {
+          await enrichCompanyDirectoryOfficialFactsForProfile(profileId);
+        } catch (error) {
+          const deterministicHardBlockedMiss = candidateStatus === "review"
+            && Boolean(candidate.known_hard_official_facts_block)
+            && isBolagsverketOrganizationNotFoundError(error);
+          if (!deterministicHardBlockedMiss) throw error;
+
+          deferred += 1;
+          const recorded = await recordOfficialFactsOrganizationNotFoundBackoff(profileId, error);
+          if (!recorded) throw error;
+          kept += 1;
+          continue;
+        }
+
         if (candidateStatus === "inactive") {
           refreshed += 1;
           kept += 1;

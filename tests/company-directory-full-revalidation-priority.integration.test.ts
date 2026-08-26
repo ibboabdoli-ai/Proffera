@@ -242,7 +242,9 @@ function postgresSql(client: Client) {
           profile_id uuid,
           country_code text,
           organization_number text,
-          state text not null
+          state text not null,
+          last_error text not null default '',
+          next_attempt_at timestamptz not null default now()
         );
       `);
     }, 120_000);
