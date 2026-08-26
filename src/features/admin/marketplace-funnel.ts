@@ -50,6 +50,7 @@ export async function readAdminMarketplaceClaimPaidCounts(sql: MarketplaceSql) {
           where invitation.quote_request_id = request.id
             and invitation.workspace_id is not null
             and claim.status = 'claimed'
+            and claim.requested_at >= request.created_at
             and claim.resolved_at is not null
             and claim.resolved_at >= request.created_at
         )
@@ -66,6 +67,7 @@ export async function readAdminMarketplaceClaimPaidCounts(sql: MarketplaceSql) {
           where invitation.quote_request_id = request.id
             and invitation.workspace_id is not null
             and claim.status = 'claimed'
+            and claim.requested_at >= request.created_at
             and claim.resolved_at is not null
             and claim.resolved_at >= request.created_at
             and billing.stripe_subscription_id is not null
@@ -87,9 +89,9 @@ export async function readAdminMarketplaceClaimPaidCounts(sql: MarketplaceSql) {
  * Counts are request-level so multiple invitation waves, offers, lifecycle
  * events, reviews, claims, or subscriptions do not inflate conversion stages.
  * Claim/Paid attribution requires the Marketplace invitation's explicit linked
- * Workspace plus the corresponding claimed Company Directory claim. Paid then
- * uses only the canonical Stripe-synchronised billing subscription state. No
- * customer contact fields are selected or returned.
+ * Workspace plus a Company Directory claim initiated and resolved after the
+ * Marketplace request. Paid then uses only the canonical Stripe-synchronised
+ * billing subscription state. No customer contact fields are selected or returned.
  */
 export async function getAdminMarketplaceFunnelSnapshot(): Promise<AdminMarketplaceFunnelResult> {
   const admin = await getAdminForArea("quote_admin");
