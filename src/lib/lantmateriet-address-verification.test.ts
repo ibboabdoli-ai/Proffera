@@ -37,6 +37,10 @@ describe("customer Lantmäteriet address verification", () => {
       "LANTMATERIET_ADDRESS_API_BASE_URL",
       "https://api-ver.lantmateriet.se/distribution/produkter/belagenhetsadress/v4.2",
     );
+    vi.stubEnv(
+      "LANTMATERIET_ADDRESS_LOOKUP_API_BASE_URL",
+      "https://api-ver.lantmateriet.se/distribution/produkter/uppslag/adress/v3",
+    );
   });
 
   afterEach(() => {
@@ -45,7 +49,7 @@ describe("customer Lantmäteriet address verification", () => {
     vi.restoreAllMocks();
   });
 
-  it("returns one exact official address with its SWEREF point and private reference", async () => {
+  it("looks up the register reference in Referens Uppslag Adress v3 before reading the official detail", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse([{
         objektidentitet: referenceId,
@@ -70,15 +74,18 @@ describe("customer Lantmäteriet address verification", () => {
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const searchUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
-    expect(searchUrl.pathname).toBe("/distribution/produkter/belagenhetsadress/v4.2/referens/fritext");
+    expect(searchUrl.pathname).toBe("/distribution/produkter/uppslag/adress/v3/fritext");
     expect(searchUrl.searchParams.get("adress")).toBe("Segelbåtsvägen 7 A, Stockholm");
-    expect(searchUrl.searchParams.get("status")).toBe("Gällande");
+    expect(searchUrl.searchParams.get("status")).toBeNull();
+    expect(searchUrl.searchParams.get("maxHits")).toBeNull();
+    expect(searchUrl.searchParams.get("splitAdress")).toBeNull();
     const detailUrl = new URL(String(fetchMock.mock.calls[1]?.[0]));
-    expect(detailUrl.pathname).toContain(referenceId);
+    expect(detailUrl.pathname).toBe(`/distribution/produkter/belagenhetsadress/v4.2/${referenceId}`);
+    expect(detailUrl.searchParams.get("includeData")).toBe("basinformation");
     expect(detailUrl.searchParams.get("srid")).toBe("3006");
   });
 
-  it("rejects an address when the official search has no reference", async () => {
+  it("rejects an address when the official lookup has no reference", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse([])));
 
     await expect(verifyCustomerAddress({
@@ -129,7 +136,7 @@ describe("customer Lantmäteriet address verification", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
-  it("reports missing configuration without making an upstream request", async () => {
+  it("reports missing credentials without making an upstream request", async () => {
     vi.stubEnv("LANTMATERIET_ADDRESS_API_USERNAME", "");
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
@@ -142,7 +149,7 @@ describe("customer Lantmäteriet address verification", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("rejects a non-HTTPS configured base URL without making an upstream request", async () => {
+  it("rejects a non-HTTPS detail base URL without making an upstream request", async () => {
     vi.stubEnv(
       "LANTMATERIET_ADDRESS_API_BASE_URL",
       "http://api-ver.lantmateriet.se/distribution/produkter/belagenhetsadress/v4.2",
@@ -158,10 +165,30 @@ describe("customer Lantmäteriet address verification", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("strips configured query and fragment components from the base URL", async () => {
+  it("rejects a non-HTTPS lookup base URL without making an upstream request", async () => {
+    vi.stubEnv(
+      "LANTMATERIET_ADDRESS_LOOKUP_API_BASE_URL",
+      "http://api-ver.lantmateriet.se/distribution/produkter/uppslag/adress/v3",
+    );
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(verifyCustomerAddress({
+      addressLine1: "Storgatan 12",
+      postalCode: "151 46",
+      city: "Södertälje",
+    })).resolves.toEqual({ status: "unavailable", reason: "not_configured" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("strips configured query and fragment components from both approved base URLs", async () => {
     vi.stubEnv(
       "LANTMATERIET_ADDRESS_API_BASE_URL",
       "https://api-ver.lantmateriet.se/distribution/produkter/belagenhetsadress/v4.2?unexpected=1#fragment",
+    );
+    vi.stubEnv(
+      "LANTMATERIET_ADDRESS_LOOKUP_API_BASE_URL",
+      "https://api-ver.lantmateriet.se/distribution/produkter/uppslag/adress/v3?unexpected=1#fragment",
     );
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse([]));
     vi.stubGlobal("fetch", fetchMock);
