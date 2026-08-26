@@ -20,6 +20,8 @@ const stages = [
   { key: "serviceJobRequests", label: "Service jobs" },
   { key: "completedJobRequests", label: "Completed jobs" },
   { key: "verifiedReviewRequests", label: "Verified reviews" },
+  { key: "claimedRequests", label: "Claimed" },
+  { key: "paidRequests", label: "Paid" },
 ] as const;
 
 export default async function MarketplaceFunnelAdminPage() {
@@ -32,8 +34,8 @@ export default async function MarketplaceFunnelAdminPage() {
         <div>
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#17452f]">Quote admin</p>
           <h1 className="mt-3 text-4xl font-bold tracking-tight text-[#17201a]">Marketplace funnel</h1>
-          <p className="mt-3 max-w-2xl text-[#5b665f]">
-            Read-only requestnivå för de senaste 30 dagarna. Flera waves, offers, jobbhändelser eller reviews räknas inte dubbelt.
+          <p className="mt-3 max-w-3xl text-[#5b665f]">
+            Read-only requestnivå för de senaste 30 dagarna. Flera waves, offers, jobbhändelser, reviews, claims eller subscriptions räknas inte dubbelt. Claim/Paid räknas bara när en Marketplace-inbjudan är explicit kopplad till samma claimed Workspace; Paid kräver dessutom en aktiv eller trialing Stripe-synkroniserad subscription.
           </p>
         </div>
 
@@ -54,7 +56,7 @@ export default async function MarketplaceFunnelAdminPage() {
         )}
 
         <p className="mt-5 text-xs text-[#768079]">
-          Observability only: inga statusar, offers, utskick, reviews eller betalningar ändras från den här vyn.
+          Observability only: inga statusar, offers, utskick, reviews, claims eller betalningar ändras från den här vyn. Paid/Claimed är mätvärden, aldrig ranking- eller trust-signaler.
         </p>
       </section>
     </main>
