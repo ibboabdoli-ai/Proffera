@@ -7,8 +7,10 @@ import {
 import { getPlatformAdmin } from "@/lib/platform-admin";
 import { getSql } from "@/lib/db/server";
 
-const DEFAULT_LANTMATERIET_BASE_URL =
+const DEFAULT_LANTMATERIET_DETAIL_BASE_URL =
   "https://api.lantmateriet.se/distribution/produkter/belagenhetsadress/v4.2";
+const DEFAULT_LANTMATERIET_LOOKUP_BASE_URL =
+  "https://api.lantmateriet.se/distribution/produkter/uppslag/adress/v3";
 const GEOCODE_SOURCE = "lantmateriet_belagenhetsadress_v4_2";
 const NO_MATCH_SOURCE = "lantmateriet_no_match_v4_2";
 const SCB_WORKPLACE_NO_MATCH_SOURCE_PREFIX = `${NO_MATCH_SOURCE}:scb_workplace:`;
@@ -94,7 +96,7 @@ type AddressDetailProperties = {
 
 export type LantmaterietAddressReference = {
   objektidentitet?: string;
-  adress?: string;
+  adress?: string | (AddressComponents & Record<string, unknown>);
   adressComponents?: AddressComponents;
 };
 
@@ -306,6 +308,14 @@ export function buildDirectoryAddressSearchText(streetAddress: unknown, city: un
     .join(", ");
 }
 
+function referenceAddressComponents(reference: LantmaterietAddressReference) {
+  if (reference.adressComponents) return reference.adressComponents;
+  if (reference.adress && typeof reference.adress === "object" && !Array.isArray(reference.adress)) {
+    return reference.adress;
+  }
+  return undefined;
+}
+
 export function selectUniqueDirectoryAddressReference(
   references: LantmaterietAddressReference[],
   postalCode: unknown,
@@ -314,7 +324,7 @@ export function selectUniqueDirectoryAddressReference(
   const expectedPostcode = normalizePostcode(postalCode);
   const expectedCity = normalizeText(city);
   const matches = references.filter((reference) => {
-    const components = reference.adressComponents;
+    const components = referenceAddressComponents(reference);
     if (!components) return false;
     return normalizePostcode(components.postnummer) === expectedPostcode
       && normalizeText(components.postort) === expectedCity
@@ -334,8 +344,9 @@ export function selectDirectoryAddressReferenceCandidates(
 
   return references.filter((reference) => {
     if (!isUuid(reference.objektidentitet)) return false;
-    const referencePostcode = normalizePostcode(reference.adressComponents?.postnummer);
-    const referenceCity = normalizeText(reference.adressComponents?.postort);
+    const components = referenceAddressComponents(reference);
+    const referencePostcode = normalizePostcode(components?.postnummer);
+    const referenceCity = normalizeText(components?.postort);
     const postcodeCompatible = !referencePostcode || referencePostcode === expectedPostcode;
     const cityCompatible = !referenceCity || referenceCity === expectedCity;
     return postcodeCompatible && cityCompatible;
@@ -445,26 +456,64 @@ function geocodingEnabled() {
   return process.env.COMPANY_DIRECTORY_GEOCODING_ENABLED?.trim().toLowerCase() === "true";
 }
 
+function normalizeApprovedBaseUrl(input: {
+  rawUrl: string;
+  fallbackUrl: string;
+  expectedPath: string;
+}) {
+  let parsedUrl: URL | null = null;
+  try {
+    parsedUrl = new URL(input.rawUrl);
+  } catch {
+    parsedUrl = null;
+  }
+
+  const allowedProtocol = parsedUrl?.protocol === "https:";
+  const allowedHost = parsedUrl?.hostname === "api.lantmateriet.se"
+    || parsedUrl?.hostname === "api-ver.lantmateriet.se";
+  const allowedPath = parsedUrl?.pathname === input.expectedPath
+    || parsedUrl?.pathname === `${input.expectedPath}/`;
+  const accepted = Boolean(parsedUrl) && allowedProtocol && allowedHost && allowedPath;
+  const normalizedUrl = parsedUrl
+    ? `${parsedUrl.origin}${parsedUrl.pathname}`.replace(/\/$/, "")
+    : input.fallbackUrl;
+
+  return {
+    accepted,
+    baseUrl: accepted ? normalizedUrl : input.fallbackUrl,
+  };
+}
+
 function getGeocodingConfig() {
   const enabled = geocodingEnabled();
   const username = process.env.LANTMATERIET_ADDRESS_API_USERNAME?.trim() ?? "";
   const password = process.env.LANTMATERIET_ADDRESS_API_PASSWORD?.trim() ?? "";
-  const rawBase = process.env.LANTMATERIET_ADDRESS_API_BASE_URL?.trim() || DEFAULT_LANTMATERIET_BASE_URL;
-  let baseUrl: URL;
-  try {
-    baseUrl = new URL(rawBase);
-  } catch {
-    baseUrl = new URL(DEFAULT_LANTMATERIET_BASE_URL);
-  }
-  const allowedHost = baseUrl.hostname === "api.lantmateriet.se" || baseUrl.hostname === "api-ver.lantmateriet.se";
-  const allowedPath = baseUrl.pathname === "/distribution/produkter/belagenhetsadress/v4.2"
-    || baseUrl.pathname === "/distribution/produkter/belagenhetsadress/v4.2/";
+  const rawDetailBase = process.env.LANTMATERIET_ADDRESS_API_BASE_URL?.trim()
+    || DEFAULT_LANTMATERIET_DETAIL_BASE_URL;
+  const rawLookupBase = process.env.LANTMATERIET_ADDRESS_LOOKUP_API_BASE_URL?.trim()
+    || DEFAULT_LANTMATERIET_LOOKUP_BASE_URL;
+  const detail = normalizeApprovedBaseUrl({
+    rawUrl: rawDetailBase,
+    fallbackUrl: DEFAULT_LANTMATERIET_DETAIL_BASE_URL,
+    expectedPath: "/distribution/produkter/belagenhetsadress/v4.2",
+  });
+  const lookup = normalizeApprovedBaseUrl({
+    rawUrl: rawLookupBase,
+    fallbackUrl: DEFAULT_LANTMATERIET_LOOKUP_BASE_URL,
+    expectedPath: "/distribution/produkter/uppslag/adress/v3",
+  });
+
   return {
     enabled,
     username,
     password,
-    baseUrl: allowedHost && allowedPath ? baseUrl.toString().replace(/\/$/, "") : DEFAULT_LANTMATERIET_BASE_URL,
-    configured: enabled && Boolean(username) && Boolean(password) && allowedHost && allowedPath,
+    lookupBaseUrl: lookup.baseUrl,
+    detailBaseUrl: detail.baseUrl,
+    configured: enabled
+      && Boolean(username)
+      && Boolean(password)
+      && lookup.accepted
+      && detail.accepted,
   };
 }
 
@@ -507,11 +556,8 @@ async function resolveOfficialAddress(
     return { status: "no_match", reason: "invalid_address" };
   }
 
-  const searchUrl = new URL(`${config.baseUrl}/referens/fritext`);
+  const searchUrl = new URL(`${config.lookupBaseUrl}/fritext`);
   searchUrl.searchParams.set("adress", buildDirectoryAddressSearchText(streetAddress, profile.city));
-  searchUrl.searchParams.set("status", "Gällande");
-  searchUrl.searchParams.set("maxHits", "20");
-  searchUrl.searchParams.set("splitAdress", "true");
 
   const referencePayload = await fetchJson(searchUrl, config.username, config.password, deadline);
   if (!Array.isArray(referencePayload)) {
@@ -544,7 +590,7 @@ async function resolveOfficialAddress(
   for (const candidate of candidates) {
     assertBeforeDeadline(deadline);
     if (!candidate.objektidentitet) continue;
-    const detailUrl = new URL(`${config.baseUrl}/${encodeURIComponent(candidate.objektidentitet)}`);
+    const detailUrl = new URL(`${config.detailBaseUrl}/${encodeURIComponent(candidate.objektidentitet)}`);
     detailUrl.searchParams.set("includeData", "basinformation");
     detailUrl.searchParams.set("srid", "3006");
     const detailPayload = await fetchJson(detailUrl, config.username, config.password, deadline);
