@@ -155,7 +155,7 @@ export function buildMarketplaceGuestQuoteView(
       priceKind: String(row.price_kind),
       currency: String(row.currency),
       amountMinor: Number(row.amount_minor ?? 0),
-      availableDate: String(row.available_date),
+      availableDate: String(row.available_date ?? ""),
       companyNote: String(row.company_note ?? ""),
       submittedAt: String(row.submitted_at),
     } : null,
@@ -434,6 +434,31 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
     throw error;
   }
   if (!dispatchRows[0]?.id) {
+    try {
+      await sql`
+        update marketplace_quote_invitations invitation
+        set status = 'delivery_failed',
+            dispatch_token = null,
+            updated_at = now()
+        where invitation.id = ${invitationId}::uuid
+          and invitation.status = 'sending'
+          and invitation.dispatch_token = ${dispatchToken}::uuid
+          and not exists (
+            select 1
+            from marketplace_outreach_suppressions suppression
+            where suppression.email_normalized = lower(btrim(invitation.recipient_email))
+          )
+          and not exists (
+            select 1
+            from company_directory_official_facts facts
+            where facts.profile_id = invitation.profile_id
+              and facts.advertising_blocked is false
+          )
+      `;
+    } catch (error) {
+      console.error("Failed to release Marketplace invitation after advertising permission check", { invitationId, error });
+    }
+
     const stateRows = await sql`
       select status
       from marketplace_quote_invitations
