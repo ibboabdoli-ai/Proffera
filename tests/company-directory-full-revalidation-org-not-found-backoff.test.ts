@@ -32,6 +32,7 @@ type SqlResponder = (query: string, values: unknown[]) => Promise<unknown[]> | u
 const RUN_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const PROFILE_ID = "06316ff1-f162-4c26-b997-cb7aa2515b95";
 const ORGANIZATION_NUMBER = "5592643778";
+const BACKOFF_PREFIX = "full_revalidation:official_facts:organisation_not_found";
 
 const transport = {
   fetchCompany: vi.fn(),
@@ -67,7 +68,7 @@ beforeEach(() => {
 
 describe("full Directory deterministic Official Facts retry backoff", () => {
   it("backs off ORGANISATION_FINNS_EJ for an already hard-blocked Review profile without calling SCB", async () => {
-    responder = async (query) => {
+    responder = async (query, values) => {
       if (query.includes("with blocked as (")) return [];
       if (query.includes("started_at < now() - interval '10 minutes'")) return [];
       if (query.includes("insert into company_directory_sync_runs")) {
@@ -86,7 +87,7 @@ describe("full Directory deterministic Official Facts retry backoff", () => {
       }
       if (
         query.includes("update company_directory_discovery_queue")
-        && query.includes("full_revalidation:official_facts:organisation_not_found")
+        && values.some((value) => String(value).startsWith(BACKOFF_PREFIX))
       ) {
         return [{ id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" }];
       }
@@ -115,15 +116,13 @@ describe("full Directory deterministic Official Facts retry backoff", () => {
     expect(mocks.enrichScb).not.toHaveBeenCalled();
     expect(mocks.assessConfidence).not.toHaveBeenCalled();
 
-    const backoff = sqlCalls.find(
-      (call) => call.query.includes("update company_directory_discovery_queue")
-        && call.query.includes("full_revalidation:official_facts:organisation_not_found"),
-    );
+    const backoff = sqlCalls.find((call) => call.query.includes("update company_directory_discovery_queue"));
     expect(backoff).toBeDefined();
     expect(backoff?.query).toContain("state = 'review'");
     expect(backoff?.query).toContain("next_attempt_at");
-    expect(backoff?.query).toContain("interval '7 days'");
+    expect(backoff?.values).toContain(7);
     expect(backoff?.values).toContain(PROFILE_ID);
+    expect(backoff?.values.some((value) => String(value).startsWith(BACKOFF_PREFIX))).toBe(true);
   });
 
   it("keeps transient Official Facts failures as errors instead of quarantining them", async () => {
@@ -156,7 +155,7 @@ describe("full Directory deterministic Official Facts retry backoff", () => {
     expect(result.errors).toBe(1);
     expect(result.errorSummary).toContain("Official facts lookup timed out");
     expect(mocks.enrichScb).not.toHaveBeenCalled();
-    expect(sqlCalls.some((call) => call.query.includes("full_revalidation:official_facts:organisation_not_found"))).toBe(false);
+    expect(sqlCalls.some((call) => call.query.includes("update company_directory_discovery_queue"))).toBe(false);
   });
 
   it("adds a bounded queue marker to candidate and backlog suppression queries", async () => {
@@ -178,9 +177,9 @@ describe("full Directory deterministic Official Facts retry backoff", () => {
     const selection = sqlCalls.find((call) => call.query.includes("with eligible as ("));
     const backlog = sqlCalls.find((call) => call.query.includes("select count(*)::int as count"));
     for (const call of [selection, backlog]) {
-      expect(call?.query).toContain("full_revalidation:official_facts:organisation_not_found");
       expect(call?.query).toContain("next_attempt_at > now()");
       expect(call?.query).toContain("queue.state = 'review'");
+      expect(call?.values).toContain(`${BACKOFF_PREFIX}%`);
     }
   });
 });
