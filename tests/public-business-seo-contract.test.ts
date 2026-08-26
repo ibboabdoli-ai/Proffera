@@ -10,13 +10,15 @@ function source(path: string) {
 describe("Public Business Hub SEO contract", () => {
   it("indexes only published active services from website-enabled workspaces", () => {
     const seo = source("src/lib/public-business-seo.ts");
+    const cache = source("src/lib/public-read-cache.ts");
     const sitemap = source("src/app/sitemap.ts");
 
     expect(seo).toContain("service.is_active = true");
     expect(seo).toContain("service.public_status = 'published'");
     expect(seo).toContain("service.public_slug is not null");
     expect(seo).toContain('hasWorkspaceFeatureAccessForWorkspace(workspaceId, "website_builder")');
-    expect(sitemap).toContain("listPublicBusinessSitemapEntries");
+    expect(cache).toContain("listPublicBusinessSitemapEntries()");
+    expect(sitemap).toContain("getCachedPlatformSitemapData()");
     expect(sitemap).toContain("/foretag/${encodeURIComponent(entry.workspaceSlug)}");
   });
 
