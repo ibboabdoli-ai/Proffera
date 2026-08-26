@@ -123,7 +123,8 @@ export async function getPublishedDirectoryLocationSuggestions(limit = 50) {
             and nullif(trim(workplaces -> 0 #>> '{visitingAddress,city}'), '') is not null
             and nullif(trim(workplaces -> 0 ->> 'municipality'), '') is not null
           then trim(workplaces -> 0 #>> '{visitingAddress,city}')
-          else city
+          when claimed_workspace_id is not null then city
+          else ''
         end as city,
         case
           when claimed_workspace_id is null
@@ -133,7 +134,8 @@ export async function getPublishedDirectoryLocationSuggestions(limit = 50) {
             and nullif(trim(workplaces -> 0 #>> '{visitingAddress,city}'), '') is not null
             and nullif(trim(workplaces -> 0 ->> 'municipality'), '') is not null
           then coalesce(trim(workplaces -> 0 ->> 'municipality'), '')
-          else municipality
+          when claimed_workspace_id is not null then municipality
+          else ''
         end as municipality
       from eligible
     ), locations as (
@@ -227,13 +229,17 @@ export async function searchPublishedCompanyDirectory(
       ) location_choice
       cross join lateral (
         select
-          case when location_choice.use_scb_workplace
-            then trim(scb_location.workplaces -> 0 #>> '{visitingAddress,city}')
-            else profile.city
+          case
+            when location_choice.use_scb_workplace
+              then trim(scb_location.workplaces -> 0 #>> '{visitingAddress,city}')
+            when profile.claimed_workspace_id is not null then profile.city
+            else ''
           end as city,
-          case when location_choice.use_scb_workplace
-            then coalesce(trim(scb_location.workplaces -> 0 ->> 'municipality'), '')
-            else profile.municipality
+          case
+            when location_choice.use_scb_workplace
+              then coalesce(trim(scb_location.workplaces -> 0 ->> 'municipality'), '')
+            when profile.claimed_workspace_id is not null then profile.municipality
+            else ''
           end as municipality
       ) public_location
       where (
@@ -360,21 +366,29 @@ export async function searchPublishedCompanyDirectory(
       ) location_choice
       cross join lateral (
         select
-          case when location_choice.use_scb_workplace
-            then trim(scb_location.workplaces -> 0 #>> '{visitingAddress,addressLine}')
-            else profile.address_line1
+          case
+            when location_choice.use_scb_workplace
+              then trim(scb_location.workplaces -> 0 #>> '{visitingAddress,addressLine}')
+            when profile.claimed_workspace_id is not null then profile.address_line1
+            else ''
           end as address_line1,
-          case when location_choice.use_scb_workplace
-            then trim(scb_location.workplaces -> 0 #>> '{visitingAddress,postalCode}')
-            else profile.postal_code
+          case
+            when location_choice.use_scb_workplace
+              then trim(scb_location.workplaces -> 0 #>> '{visitingAddress,postalCode}')
+            when profile.claimed_workspace_id is not null then profile.postal_code
+            else ''
           end as postal_code,
-          case when location_choice.use_scb_workplace
-            then trim(scb_location.workplaces -> 0 #>> '{visitingAddress,city}')
-            else profile.city
+          case
+            when location_choice.use_scb_workplace
+              then trim(scb_location.workplaces -> 0 #>> '{visitingAddress,city}')
+            when profile.claimed_workspace_id is not null then profile.city
+            else ''
           end as city,
-          case when location_choice.use_scb_workplace
-            then coalesce(trim(scb_location.workplaces -> 0 ->> 'municipality'), '')
-            else profile.municipality
+          case
+            when location_choice.use_scb_workplace
+              then coalesce(trim(scb_location.workplaces -> 0 ->> 'municipality'), '')
+            when profile.claimed_workspace_id is not null then profile.municipality
+            else ''
           end as municipality
       ) public_location
       left join lateral (
