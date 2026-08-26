@@ -9,8 +9,10 @@ import {
   type LantmaterietAddressReference,
 } from "@/lib/company-directory-geocoding";
 
-const DEFAULT_LANTMATERIET_BASE_URL =
+const DEFAULT_LANTMATERIET_DETAIL_BASE_URL =
   "https://api.lantmateriet.se/distribution/produkter/belagenhetsadress/v4.2";
+const DEFAULT_LANTMATERIET_LOOKUP_BASE_URL =
+  "https://api.lantmateriet.se/distribution/produkter/uppslag/adress/v3";
 export const CUSTOMER_ADDRESS_VERIFICATION_SOURCE = "lantmateriet_belagenhetsadress_v4_2" as const;
 const MAX_DETAIL_CANDIDATES = 5;
 const VERIFICATION_BUDGET_MS = 10_000;
@@ -21,7 +23,8 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 type VerificationConfig = {
   username: string;
   password: string;
-  baseUrl: string;
+  lookupBaseUrl: string;
+  detailBaseUrl: string;
   configured: boolean;
 };
 
@@ -49,31 +52,74 @@ export function isValidCustomerAddressReferenceId(value: unknown): value is stri
   return typeof value === "string" && value === value.trim() && UUID_PATTERN.test(value);
 }
 
+function normalizeApprovedBaseUrl(input: {
+  rawUrl: string;
+  fallbackUrl: string;
+  expectedPath: string;
+}) {
+  let parsedUrl: URL | null = null;
+  try {
+    parsedUrl = new URL(input.rawUrl);
+  } catch {
+    parsedUrl = null;
+  }
+
+  const allowedProtocol = parsedUrl?.protocol === "https:";
+  const allowedHost = parsedUrl?.hostname === "api.lantmateriet.se"
+    || parsedUrl?.hostname === "api-ver.lantmateriet.se";
+  const allowedPath = parsedUrl?.pathname === input.expectedPath
+    || parsedUrl?.pathname === `${input.expectedPath}/`;
+  const accepted = Boolean(parsedUrl) && allowedProtocol && allowedHost && allowedPath;
+  const normalizedUrl = parsedUrl
+    ? `${parsedUrl.origin}${parsedUrl.pathname}`.replace(/\/$/, "")
+    : input.fallbackUrl;
+
+  return {
+    accepted,
+    baseUrl: accepted ? normalizedUrl : input.fallbackUrl,
+  };
+}
+
+function lookupBaseForDetailEnvironment(detailBaseUrl: string) {
+  const detailUrl = new URL(detailBaseUrl);
+  return `${detailUrl.origin}/distribution/produkter/uppslag/adress/v3`;
+}
+
+function sameApiEnvironment(leftBaseUrl: string, rightBaseUrl: string) {
+  return new URL(leftBaseUrl).hostname === new URL(rightBaseUrl).hostname;
+}
+
 function getVerificationConfig(): VerificationConfig {
   const username = process.env.LANTMATERIET_ADDRESS_API_USERNAME?.trim() ?? "";
   const password = process.env.LANTMATERIET_ADDRESS_API_PASSWORD?.trim() ?? "";
-  const rawBase = process.env.LANTMATERIET_ADDRESS_API_BASE_URL?.trim() || DEFAULT_LANTMATERIET_BASE_URL;
-  let parsedBaseUrl: URL | null = null;
-  try {
-    parsedBaseUrl = new URL(rawBase);
-  } catch {
-    parsedBaseUrl = null;
-  }
+  const rawDetailBase = process.env.LANTMATERIET_ADDRESS_API_BASE_URL?.trim()
+    || DEFAULT_LANTMATERIET_DETAIL_BASE_URL;
 
-  const fallbackBaseUrl = new URL(DEFAULT_LANTMATERIET_BASE_URL);
-  const baseUrl = parsedBaseUrl ?? fallbackBaseUrl;
-  const allowedProtocol = parsedBaseUrl?.protocol === "https:";
-  const allowedHost = baseUrl.hostname === "api.lantmateriet.se" || baseUrl.hostname === "api-ver.lantmateriet.se";
-  const allowedPath = baseUrl.pathname === "/distribution/produkter/belagenhetsadress/v4.2"
-    || baseUrl.pathname === "/distribution/produkter/belagenhetsadress/v4.2/";
-  const acceptedBaseUrl = Boolean(parsedBaseUrl) && allowedProtocol && allowedHost && allowedPath;
-  const normalizedBaseUrl = `${baseUrl.origin}${baseUrl.pathname}`.replace(/\/$/, "");
+  const detail = normalizeApprovedBaseUrl({
+    rawUrl: rawDetailBase,
+    fallbackUrl: DEFAULT_LANTMATERIET_DETAIL_BASE_URL,
+    expectedPath: "/distribution/produkter/belagenhetsadress/v4.2",
+  });
+  const derivedLookupBase = lookupBaseForDetailEnvironment(detail.baseUrl);
+  const rawLookupBase = process.env.LANTMATERIET_ADDRESS_LOOKUP_API_BASE_URL?.trim()
+    || derivedLookupBase;
+  const lookup = normalizeApprovedBaseUrl({
+    rawUrl: rawLookupBase,
+    fallbackUrl: DEFAULT_LANTMATERIET_LOOKUP_BASE_URL,
+    expectedPath: "/distribution/produkter/uppslag/adress/v3",
+  });
+  const alignedEnvironment = detail.accepted
+    && lookup.accepted
+    && sameApiEnvironment(detail.baseUrl, lookup.baseUrl);
 
   return {
     username,
     password,
-    baseUrl: acceptedBaseUrl ? normalizedBaseUrl : DEFAULT_LANTMATERIET_BASE_URL,
-    configured: Boolean(username) && Boolean(password) && acceptedBaseUrl,
+    lookupBaseUrl: lookup.baseUrl,
+    detailBaseUrl: detail.baseUrl,
+    configured: Boolean(username)
+      && Boolean(password)
+      && alignedEnvironment,
   };
 }
 
@@ -130,11 +176,8 @@ export async function verifyCustomerAddress(input: {
 
   const deadline = Date.now() + VERIFICATION_BUDGET_MS;
   try {
-    const searchUrl = new URL(`${config.baseUrl}/referens/fritext`);
+    const searchUrl = new URL(`${config.lookupBaseUrl}/fritext`);
     searchUrl.searchParams.set("adress", buildDirectoryAddressSearchText(streetAddress, input.city));
-    searchUrl.searchParams.set("status", "Gällande");
-    searchUrl.searchParams.set("maxHits", "20");
-    searchUrl.searchParams.set("splitAdress", "true");
 
     const referencePayload = await fetchJson(searchUrl, config, deadline);
     if (!Array.isArray(referencePayload)) {
@@ -159,7 +202,7 @@ export async function verifyCustomerAddress(input: {
       }
       if (Date.now() >= deadline) throw new VerificationTimeoutError();
 
-      const detailUrl = new URL(`${config.baseUrl}/${encodeURIComponent(referenceId)}`);
+      const detailUrl = new URL(`${config.detailBaseUrl}/${encodeURIComponent(referenceId)}`);
       detailUrl.searchParams.set("includeData", "basinformation");
       detailUrl.searchParams.set("srid", "3006");
       const detailPayload = await fetchJson(detailUrl, config, deadline);
