@@ -13,6 +13,8 @@ const readCachedPublishedDirectoryLocationSuggestions = unstable_cache(
 );
 
 export async function getCachedPublishedDirectoryLocationSuggestions(limit = 24) {
-  const safeLimit = Math.max(1, Math.min(100, Math.floor(Number(limit) || 24)));
+  const parsedLimit = Number(limit);
+  const normalizedLimit = Number.isFinite(parsedLimit) ? parsedLimit : 24;
+  const safeLimit = Math.max(1, Math.min(100, Math.floor(normalizedLimit)));
   return readCachedPublishedDirectoryLocationSuggestions(safeLimit);
 }
