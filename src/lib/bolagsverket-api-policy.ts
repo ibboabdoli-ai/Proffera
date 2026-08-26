@@ -1,6 +1,6 @@
 import "server-only";
 
-const VARDDEFULLA_DATA_MIN_INTERVAL_MS = 1_050;
+const VARDEFULLA_DATA_MIN_INTERVAL_MS = 1_050;
 const PAID_COMPANY_INFO_MIN_INTERVAL_MS = 55;
 
 let requestQueue: Promise<void> = Promise.resolve();
@@ -21,7 +21,7 @@ export function bolagsverketMinimumIntervalMs(provider: unknown) {
   if (value.includes("foretagsinformation") && !value.includes("vardefulla")) {
     return PAID_COMPANY_INFO_MIN_INTERVAL_MS;
   }
-  return VARDDEFULLA_DATA_MIN_INTERVAL_MS;
+  return VARDEFULLA_DATA_MIN_INTERVAL_MS;
 }
 
 /** Validate that an upstream Bolagsverket URL is HTTPS and contains no credentials. */
@@ -65,6 +65,8 @@ export async function waitForBolagsverketRequestSlot(provider: unknown) {
 /**
  * Automated Company Directory detail lookups intentionally stay on Swedish
  * juridical-person identities and never use a personnummer/sole-trader path.
+ * Swedish organisationsnummer have ten digits and a third digit of at least 2,
+ * which keeps personnummer-shaped identifiers outside this adapter boundary.
  */
 export function canQueryBolagsverketCompanyDetail(candidate: {
   countryCode: unknown;
@@ -72,7 +74,9 @@ export function canQueryBolagsverketCompanyDetail(candidate: {
   organizationKind: unknown;
 }) {
   const organizationNumber = String(candidate.organizationNumber ?? "").replace(/\D/g, "");
+  const hasOrganizationNumberShape = /^\d{10}$/.test(organizationNumber)
+    && Number(organizationNumber[2]) >= 2;
   return String(candidate.countryCode ?? "").trim().toUpperCase() === "SE"
     && candidate.organizationKind === "juridical_person"
-    && /^\d{10}$/.test(organizationNumber);
+    && hasOrganizationNumberShape;
 }
