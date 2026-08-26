@@ -1,35 +1,33 @@
 # Bolagsverket API usage policy
 
-Status: binding project policy for Proffera code that obtains, verifies, stores or publishes company information from Bolagsverket APIs. This document translates the applicable API rules into engineering controls; it does not replace Bolagsverket's current terms, contracts or product documentation.
+This policy is binding for Proffera code that uses Bolagsverket APIs. It documents the safe runtime boundary for Company Directory ingestion, verification and future extensions.
 
-## 1. Keep API products separate
+## 1. Product separation
 
-Proffera must distinguish between the two relevant Bolagsverket API families instead of applying one product's limits/contract rules to the other.
+Bolagsverket products are not interchangeable. Code and configuration must preserve which product is being used and which terms/rate limits apply.
 
 ### Värdefulla datamängder
 
-- This is the current default Company Directory provider: `bolagsverket_vardefulla_datamangder`.
-- Access is free and does not require a separate paid företagsinformation contract.
-- Authentication uses OAuth 2/client credentials issued by Bolagsverket for the applicable environment.
-- Requests must use HTTPS.
-- Maximum use is 60 requests per minute per user. Proffera applies a conservative process-local spacing of at least 1.05 seconds between data requests.
+- Free product under the applicable terms.
+- OAuth 2 authentication.
+- HTTPS only.
+- Keep usage below 60 requests/minute/user.
+- Proffera uses this product for the automated Company Directory source and official company verification path unless another explicitly configured provider is selected.
 
-### Full / paid företagsinformation API
+### Full/paid företagsinformation
 
-- Use requires the applicable Bolagsverket agreement and transaction/payment terms.
-- Authentication is OAuth 2 with Client ID/Client Secret for the ordinary API flow; an endpoint that explicitly requires stronger authentication such as mTLS must follow that endpoint's official contract.
-- Requests must use HTTPS.
-- Maximum use is 20 requests per second per user. Proffera applies a conservative process-local spacing of at least 55 ms when a provider is explicitly identified as the paid företagsinformation API.
+- Subject to the applicable contract, transaction terms and fees.
+- OAuth 2 authentication, plus any stronger endpoint-specific authentication required by the product.
+- HTTPS only.
+- Keep usage below 20 requests/second/user.
+- Do not reuse Värdefulla datamängder assumptions, credentials, quotas or licensing statements for this product.
 
-Unknown/misclassified providers use the stricter Värdefulla datamängder spacing instead of failing open to the faster limit.
+## 2. Transport and credentials
 
-## 2. Credentials and transport
-
-- Client IDs, client secrets, bearer tokens and any certificates/private keys are server-side secrets.
-- Secrets must never be committed, logged, returned to clients, embedded in URLs, pasted into issues/PRs, or exposed through browser code.
-- Token, source and detail endpoints must use HTTPS. URLs containing embedded username/password credentials are rejected.
-- Test and Production credentials/endpoints must remain separated.
-- A static bearer-token configuration is only an approved server-side operational fallback where explicitly configured; it does not change the product's authorization, privacy or rate-limit rules.
+- Bolagsverket token, source and detail endpoints must use HTTPS.
+- URLs containing embedded username/password credentials are rejected.
+- OAuth client secrets, bearer tokens and other credentials must remain server-side and must never be committed, logged or projected into client/public payloads.
+- Do not send credentials to an endpoint before validating its URL and product configuration.
 
 ## 3. Rate limiting and concurrency
 
@@ -42,8 +40,8 @@ Unknown/misclassified providers use the stricter Värdefulla datamängder spacin
 ## 4. Privacy and person data
 
 - The automated public Company Directory path is for Swedish juridical-person companies, not personnummer/private-person lookup.
-- Automated Bolagsverket detail verification may run only for a Swedish `juridical_person` with a valid 10-digit organisationsnummer.
-- Sole traders and unknown/private identities may remain blocked/review records for safety, but the automated detail adapter must not turn them into a personnummer lookup or fetch extra personal data.
+- Automated Bolagsverket detail verification may run for a known Swedish `juridical_person`, or for an `unknown` pre-classification discovery seed only when its Swedish 10-digit organisationsnummer has a company-shaped, non-personnummer identity. The detail response may then establish the legal form.
+- Known sole traders, personnummer-shaped identifiers and other private-person identities remain blocked from automated detail/Official Facts lookup.
 - Personnummer, firmatecknare or other person-linked fields available from a broader/paid API must not be added to public Directory, Marketplace outreach, SEO, public API or analytics merely because the upstream product exposes them.
 - Any new processing of person-linked data requires a specific product need, GDPR/legal basis, data-minimization review, disclosure policy and tests before implementation.
 
@@ -58,18 +56,5 @@ Unknown/misclassified providers use the stricter Värdefulla datamängder spacin
 
 - Insecure or malformed upstream URLs fail closed before a network request.
 - Missing/invalid credentials or failed upstream verification must not cause guessed official facts to be published as verified data.
-- A non-juridical-person candidate skips the automated detail lookup instead of falling back to a personal-identity query.
-- Upstream errors must not expose secrets in logs or error payloads.
-
-## 7. Required engineering checks
-
-Any PR changing Bolagsverket-backed ingestion or verification must verify, where relevant:
-
-1. OAuth/client credentials remain server-only and absent from logs/source/client payloads;
-2. token/source/detail endpoints require HTTPS and reject embedded URL credentials;
-3. the correct API family's rate limit is used: Värdefulla datamängder <= 60/minute/user, paid företagsinformation <= 20/second/user;
-4. concurrency/retries cannot intentionally bypass the per-user limit;
-5. automated detail lookup remains limited to Swedish juridical persons with 10-digit organisationsnummer;
-6. personnummer/person-linked data is not introduced into public/automated flows without a separate approved privacy design;
-7. existing publication, privacy, contact-entitlement and provenance rules remain intact;
-8. tests cover insecure URLs and non-juridical-person fail-closed behavior.
+- Personnummer-shaped or otherwise ineligible identifiers fail closed before Bolagsverket detail/Official Facts network lookup.
+- Rate-limit protection is part of the transport boundary and must remain covered by regression tests.
