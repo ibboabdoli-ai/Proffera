@@ -32,6 +32,13 @@ vi.mock("@/lib/company-directory-landing-seo", () => ({
 vi.mock("@/lib/company-directory-seo", () => ({
   listPublishedDirectorySitemapEntries: vi.fn(async () => mocks.directoryEntries),
 }));
+vi.mock("@/lib/public-read-cache", () => ({
+  getCachedPlatformSitemapData: vi.fn(async () => ({
+    publicBusinessEntries: [],
+    directoryEntries: mocks.directoryEntries,
+    directoryLandings: mocks.directoryLandings,
+  })),
+}));
 vi.mock("@/lib/public-site-domain-routing", () => ({
   resolvePublicCustomDomain: vi.fn(async () => mocks.customTarget),
 }));
