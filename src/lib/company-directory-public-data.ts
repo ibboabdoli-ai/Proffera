@@ -7,7 +7,7 @@ import {
 import { getPublicDirectoryBusiness, type PublicDirectoryBusiness } from "@/lib/company-directory-engine";
 import { hasActivePaidDirectoryContactAccess } from "@/lib/company-directory-paid-contact-entitlement";
 import {
-  resolveCompanyDirectoryPublicAddress,
+  resolveCompanyDirectoryCanonicalWorkplaceAddress,
   type DirectoryPublicAddress,
 } from "@/lib/company-directory-scb-address";
 import { getSql } from "@/lib/db/server";
@@ -23,6 +23,13 @@ type ScbDirectContact = {
   phone: string;
   email: string;
   workplaces: unknown;
+};
+
+const EMPTY_PHYSICAL_ADDRESS: DirectoryPublicAddress = {
+  addressLine1: "",
+  postalCode: "",
+  city: "",
+  municipality: "",
 };
 
 function emptyContact() {
@@ -50,6 +57,14 @@ function profileAddress(row: {
     city: String(row.city ?? ""),
     municipality: String(row.municipality ?? ""),
   };
+}
+
+function canonicalPublishedPhysicalAddress(
+  profile: DirectoryPublicAddress,
+  workplaces: unknown,
+): DirectoryPublicAddress {
+  const resolution = resolveCompanyDirectoryCanonicalWorkplaceAddress(profile, workplaces);
+  return resolution.status === "resolved" ? resolution.address : EMPTY_PHYSICAL_ADDRESS;
 }
 
 async function getConflictFreeScbContact(
@@ -82,12 +97,12 @@ async function getConflictFreeScbContact(
 
 async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
   const sql = getSql();
-  const fallbackAddress = profileAddress(business);
+  const storedAddress = profileAddress(business);
   if (!sql) {
     return {
       organizationNumber: "",
       primarySniCode: "",
-      address: fallbackAddress,
+      address: EMPTY_PHYSICAL_ADDRESS,
       contact: emptyContact(),
     };
   }
@@ -109,13 +124,13 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
     return {
       organizationNumber: "",
       primarySniCode: "",
-      address: fallbackAddress,
+      address: EMPTY_PHYSICAL_ADDRESS,
       contact: emptyContact(),
     };
   }
 
   const scb = await getConflictFreeScbContact(sql, business.id);
-  const address = resolveCompanyDirectoryPublicAddress(fallbackAddress, scb?.workplaces);
+  const address = canonicalPublishedPhysicalAddress(storedAddress, scb?.workplaces);
   return {
     organizationNumber: String(row.organization_number ?? ""),
     primarySniCode: String(row.primary_sni_code ?? ""),
@@ -185,7 +200,7 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
   const workspaceId = String(row.claimed_workspace_id ?? "");
   const entitled = await hasActivePaidDirectoryContactAccess(workspaceId);
   const scb = await getConflictFreeScbContact(sql, String(row.id));
-  const address = resolveCompanyDirectoryPublicAddress(profileAddress(row), scb?.workplaces);
+  const address = profileAddress(row);
   const contact = discloseDirectoryDirectContact({
     addressLine1: address.addressLine1,
     phone: scb?.phone,
