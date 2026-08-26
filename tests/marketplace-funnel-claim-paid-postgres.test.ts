@@ -201,6 +201,13 @@ if (RUN_POSTGRES_INTEGRATION) {
         billingStatus: "active",
         stripeSubscriptionId: "   ",
       });
+      await seedProvider({
+        requestId: blankSubscription,
+        requestCreatedAt: blankSubscriptionCreated,
+        claimOffsetMs: 120_000,
+        billingStatus: "active",
+        stripeSubscriptionId: "\t\n",
+      });
 
       const preRequestClaimCreated = new Date(now - 24 * 60 * 60_000);
       const preRequestClaim = await seedRequest(preRequestClaimCreated);
