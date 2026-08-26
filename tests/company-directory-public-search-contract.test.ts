@@ -27,19 +27,29 @@ describe("public company directory search contract", () => {
     expect(searchSource).toContain("profile.privacy_blocked = false");
   });
 
-  it("uses canonical service relations and public verified coordinates", () => {
+  it("uses canonical service relations and source-qualified physical coordinates", () => {
     expect(searchSource).toContain("company_directory_profile_services");
     expect(searchSource).toContain("relation.public_visible = true");
     expect(searchSource).toContain("company_directory_services");
     expect(searchSource).toContain("company_directory_business_locations");
     expect(searchSource).toContain("location.is_public = true");
+    expect(searchSource).toContain("company_directory_profile_locations");
+    expect(searchSource).toContain("owner.owner_workspace_id = profile.claimed_workspace_id");
+    expect(searchSource).toContain("owner.source_type = 'owner'");
+    expect(searchSource).toContain("owner.is_primary = true");
+    expect(searchSource).toContain("when owner_location.owner_exact_public then owner_location.latitude");
+    expect(searchSource).toContain("when location_choice.use_scb_workplace then location.latitude::float8");
+    expect(searchSource).toContain("public_coordinate.latitude is not null");
   });
 
-  it("keeps exact city search usable while preferring a conflict-free single SCB workplace", () => {
+  it("keeps exact city search usable while preferring owner location or one conflict-free SCB workplace", () => {
     expect(searchSource).toContain("company_directory_scb_enrichment");
     expect(searchSource).toContain("scb_location.conflicts = '[]'::jsonb");
-    expect(searchSource).toContain("profile.claimed_workspace_id is null");
     expect(searchSource).toContain("jsonb_array_length(coalesce(scb_location.workplaces, '[]'::jsonb)) = 1");
+    expect(searchSource).toContain("owner_location.id is null");
+    expect(searchSource).toContain("owner_location.visibility = 'approximate'");
+    expect(searchSource).toContain("owner_location.owner_exact_public");
+    expect(searchSource).toContain("claimed_workspace.status in ('active', 'trial')");
     expect(searchSource).toContain("or lower(public_location.city) = ${normalizedLocation}");
     expect(searchSource).toContain("or lower(public_location.municipality) = ${normalizedLocation}");
     expect(searchSource).toContain("${nearbyEnabled} = false");
