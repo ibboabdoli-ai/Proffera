@@ -264,7 +264,11 @@ export async function searchPublishedCompanyDirectory(
         )
         and (
           ${nearbyEnabled} = false
-          or (location.latitude is not null and location.longitude is not null)
+          or (
+            location.latitude is not null
+            and location.longitude is not null
+            and (profile.claimed_workspace_id is not null or location_choice.use_scb_workplace)
+          )
         )
     ), ranked as (
       select
@@ -424,7 +428,11 @@ export async function searchPublishedCompanyDirectory(
         )
         and (
           ${nearbyEnabled} = false
-          or (location.latitude is not null and location.longitude is not null)
+          or (
+            location.latitude is not null
+            and location.longitude is not null
+            and (profile.claimed_workspace_id is not null or location_choice.use_scb_workplace)
+          )
         )
     ), ranked as (
       select
