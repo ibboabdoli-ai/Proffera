@@ -79,13 +79,15 @@ describe("marketplace results UI contract", () => {
     expect(sv).toContain("Test Rör AB");
     expect(sv).toContain("VVS / Rörmokare");
     expect(sv).toContain("Företagsuppgifter verifierade");
-    expect(sv).toContain("Registrerad i Stockholm");
+    expect(sv).toContain("Verksamhetsplats: Stockholm");
+    expect(sv).not.toContain("Registrerad i Stockholm");
     expect(sv).not.toContain(baseResult.activityDescription);
 
     expect(en).toContain("Test Rör AB");
     expect(en).toContain("Plumber / Plumbing");
     expect(en).toContain("Company details verified");
-    expect(en).toContain("Registered in Stockholm");
+    expect(en).toContain("Business location: Stockholm");
+    expect(en).not.toContain("Registered in Stockholm");
     expect(en).not.toContain(baseResult.activityDescription);
   });
 
