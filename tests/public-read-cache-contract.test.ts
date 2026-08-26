@@ -5,7 +5,11 @@ import { describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   locationSuggestions: vi.fn(async (limit: number) => [`location-${limit}`]),
-  unstableCache: vi.fn((loader: (limit: number) => Promise<string[]>) => loader),
+  unstableCache: vi.fn((
+    loader: (limit: number) => Promise<string[]>,
+    _keyParts: string[],
+    _options: { revalidate: number },
+  ) => loader),
 }));
 
 vi.mock("server-only", () => ({}));
