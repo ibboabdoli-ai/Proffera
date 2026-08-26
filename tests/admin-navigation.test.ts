@@ -53,13 +53,47 @@ describe("admin navigation policy", () => {
     expect(canAccessAdminArea("support_admin", "company_admin")).toBe(false);
   });
 
-  it("maps nested routes to the same server-side area", () => {
-    expect(resolveAdminArea("/admin/billing/alerts")).toBe("billing");
-    expect(resolveAdminArea("/admin/workspaces/11111111-1111-4111-8111-111111111111")).toBe("workspaces");
-    expect(resolveAdminArea("/admin/foretag/claims")).toBe("company_admin");
-    expect(resolveAdminArea("/admin/platform-admins")).toBe("platform_admins");
-    expect(resolveAdminArea("/admin/status")).toBe("operations");
+  it("maps every current admin route family explicitly", () => {
+    expect(resolveAdminArea("/admin/saas")).toBe("saas");
     expect(resolveAdminArea("/admin/status/details")).toBe("operations");
+    expect(resolveAdminArea("/admin/workspaces/11111111-1111-4111-8111-111111111111")).toBe("workspaces");
+    expect(resolveAdminArea("/admin/support/11111111-1111-4111-8111-111111111111")).toBe("workspaces");
+    expect(resolveAdminArea("/admin/foretag/claims")).toBe("company_admin");
+    expect(resolveAdminArea("/admin/billing/alerts")).toBe("billing");
+    expect(resolveAdminArea("/admin/platform-admins")).toBe("platform_admins");
+    expect(resolveAdminArea("/admin/audit")).toBe("audit");
+    expect(resolveAdminArea("/admin/marketplace/reviews")).toBe("quote_admin");
+    expect(resolveAdminArea("/admin/matchning")).toBe("quote_admin");
+    expect(resolveAdminArea("/admin/skicka-lead")).toBe("quote_admin");
+    expect(resolveAdminArea("/admin/leverans")).toBe("quote_admin");
     expect(resolveAdminArea("/admin")).toBe("quote_admin");
+  });
+
+  it("uses the workspace authorization domain for read-only support routes", () => {
+    const supportArea = resolveAdminArea("/admin/support/11111111-1111-4111-8111-111111111111");
+    expect(supportArea).toBe("workspaces");
+    if (!supportArea) throw new Error("Support area must be mapped");
+
+    const roles = [
+      "super_admin",
+      "support_admin",
+      "billing_admin",
+      "operations_admin",
+      "read_only_admin",
+      "developer_admin",
+    ] as const;
+
+    for (const role of roles) {
+      expect(canAccessAdminArea(role, supportArea)).toBe(true);
+    }
+    expect(canAccessAdminArea("support_admin", "quote_admin")).toBe(false);
+    expect(canAccessAdminArea("read_only_admin", "quote_admin")).toBe(false);
+  });
+
+  it("fails closed for unknown or lookalike admin route families", () => {
+    expect(resolveAdminArea("/admin/unknown")).toBeNull();
+    expect(resolveAdminArea("/admin/statusish")).toBeNull();
+    expect(resolveAdminArea("/admin/workspaces-extra")).toBeNull();
+    expect(resolveAdminArea("/admin/marketplaceish")).toBeNull();
   });
 });

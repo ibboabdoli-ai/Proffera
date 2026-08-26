@@ -1,5 +1,5 @@
 import { headers } from "next/headers";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { AdminNavigation } from "@/components/admin/admin-navigation";
 import { canAccessAdminArea, resolveAdminArea } from "@/lib/admin-navigation";
@@ -12,6 +12,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const requestHeaders = await headers();
   const pathname = requestHeaders.get("x-proffera-admin-path") ?? "/admin";
   const area = resolveAdminArea(pathname);
+  if (!area) notFound();
   if (!canAccessAdminArea(admin.role, area)) redirect("/admin/saas?denied=1");
 
   return (

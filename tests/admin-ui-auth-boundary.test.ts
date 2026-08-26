@@ -18,6 +18,14 @@ describe("admin UI authentication boundary", () => {
     expect(code).not.toContain("WWW-Authenticate");
   });
 
+  it("fails closed when an admin route family has no explicit authorization mapping", () => {
+    const layoutCode = source("src/app/admin/layout.tsx");
+
+    expect(layoutCode).toContain("const area = resolveAdminArea(pathname)");
+    expect(layoutCode).toContain("if (!area) notFound()");
+    expect(layoutCode).toContain("canAccessAdminArea(admin.role, area)");
+  });
+
   it("leaves sensitive admin API authorization to Better Auth and Platform Admin RBAC", () => {
     const proxyCode = source("src/proxy.ts");
     const outboxCode = source("src/app/api/outbox/route.ts");

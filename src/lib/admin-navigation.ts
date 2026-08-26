@@ -48,13 +48,23 @@ export function getAdminNavigationItems(role: PlatformAdminRole) {
   return ADMIN_NAVIGATION_ITEMS.filter((item) => canAccessAdminArea(role, item.area));
 }
 
-export function resolveAdminArea(pathname: string): AdminArea {
-  if (pathname === "/admin/saas" || pathname.startsWith("/admin/saas/")) return "saas";
-  if (pathname === "/admin/status" || pathname.startsWith("/admin/status/")) return "operations";
-  if (pathname === "/admin/workspaces" || pathname.startsWith("/admin/workspaces/")) return "workspaces";
-  if (pathname === "/admin/foretag" || pathname.startsWith("/admin/foretag/")) return "company_admin";
-  if (pathname === "/admin/billing" || pathname.startsWith("/admin/billing/")) return "billing";
-  if (pathname === "/admin/platform-admins" || pathname.startsWith("/admin/platform-admins/")) return "platform_admins";
-  if (pathname === "/admin/audit" || pathname.startsWith("/admin/audit/")) return "audit";
-  return "quote_admin";
+function matchesAdminRoute(pathname: string, route: string) {
+  return pathname === route || pathname.startsWith(`${route}/`);
+}
+
+export function resolveAdminArea(pathname: string): AdminArea | null {
+  if (pathname === "/admin") return "quote_admin";
+  if (matchesAdminRoute(pathname, "/admin/saas")) return "saas";
+  if (matchesAdminRoute(pathname, "/admin/status")) return "operations";
+  if (matchesAdminRoute(pathname, "/admin/workspaces")) return "workspaces";
+  if (matchesAdminRoute(pathname, "/admin/support")) return "workspaces";
+  if (matchesAdminRoute(pathname, "/admin/foretag")) return "company_admin";
+  if (matchesAdminRoute(pathname, "/admin/billing")) return "billing";
+  if (matchesAdminRoute(pathname, "/admin/platform-admins")) return "platform_admins";
+  if (matchesAdminRoute(pathname, "/admin/audit")) return "audit";
+  if (matchesAdminRoute(pathname, "/admin/marketplace")) return "quote_admin";
+  if (matchesAdminRoute(pathname, "/admin/matchning")) return "quote_admin";
+  if (matchesAdminRoute(pathname, "/admin/skicka-lead")) return "quote_admin";
+  if (matchesAdminRoute(pathname, "/admin/leverans")) return "quote_admin";
+  return null;
 }
