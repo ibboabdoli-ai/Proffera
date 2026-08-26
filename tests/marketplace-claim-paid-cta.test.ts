@@ -23,10 +23,12 @@ describe("Marketplace Claim to Paid CTA", () => {
     expect(copy.action).toBe("Open plans");
   });
 
-  it("gates the CTA on the existing linked Directory profile and adds no payment mutation", () => {
+  it("gates the CTA on both the linked Directory profile and subscription-management permission", () => {
     const layoutSource = readFileSync(join(process.cwd(), "src/app/dashboard/marknadsplats/layout.tsx"), "utf8");
 
     expect(layoutSource).toContain("providerState?.linkedDirectoryProfileId");
+    expect(layoutSource).toContain("canManageWorkspaceMembers(access)");
+    expect(layoutSource).toContain("hasLinkedClaimedProfile && canManageSubscription");
     expect(layoutSource).toContain("<MarketplaceClaimPaidCta />");
     expect(layoutSource).not.toMatch(/stripe|checkout|subscription/i);
   });
