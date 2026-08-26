@@ -7,7 +7,7 @@ import { PublicDirectoryResults } from "@/components/company-directory/public-di
 import type { SearchCardBusinessProjection } from "@/lib/business-profile-policy";
 
 describe("Directory SearchCard canonical media", () => {
-  it("renders canonical photo/logo media and rejects category illustrations", () => {
+  it("renders canonical photo/logo media and fails closed for rejected media combinations", () => {
     const baseResult = {
       categorySlug: "malare",
       matchedServiceSlug: "malare",
@@ -55,7 +55,7 @@ describe("Directory SearchCard canonical media", () => {
       nearbyRequested: false,
       nearbyEnabled: false,
       radiusKm: 25,
-      totalCount: 3,
+      totalCount: 5,
       page: 1,
       pageSize: 30,
       totalPages: 1,
@@ -88,14 +88,40 @@ describe("Directory SearchCard canonical media", () => {
         },
         {
           ...baseResult,
-          id: "illustration",
-          slug: "illustration",
-          companyName: "Illustration AB",
-          profile: profile("illustration", {
-            url: "https://example.com/category-illustration.jpg",
+          id: "illustration-role",
+          slug: "illustration-role",
+          companyName: "Illustration Role AB",
+          profile: profile("illustration-role", {
+            url: "https://example.com/illustration-role.jpg",
             role: "illustration",
             source: "proffera",
+            kind: "photo",
+            attribution: "",
+          }),
+        },
+        {
+          ...baseResult,
+          id: "category-kind",
+          slug: "category-kind",
+          companyName: "Category Kind AB",
+          profile: profile("category-kind", {
+            url: "https://example.com/category-kind.jpg",
+            role: "business_photo",
+            source: "proffera",
             kind: "category_illustration",
+            attribution: "",
+          }),
+        },
+        {
+          ...baseResult,
+          id: "unknown-kind",
+          slug: "unknown-kind",
+          companyName: "Unknown Kind AB",
+          profile: profile("unknown-kind", {
+            url: "https://example.com/unknown-kind.jpg",
+            role: "business_photo",
+            source: "proffera",
+            kind: "unknown_future_kind",
             attribution: "",
           }),
         },
@@ -106,16 +132,23 @@ describe("Directory SearchCard canonical media", () => {
       createElement(PublicDirectoryResults, { locale: "sv", search }),
     );
     const cards = markup.match(/<article\b[\s\S]*?<\/article>/g) ?? [];
-    const photoCard = cards.find((card) => card.includes("Photo AB"));
-    const logoCard = cards.find((card) => card.includes("Logo AB"));
-    const illustrationCard = cards.find((card) => card.includes("Illustration AB"));
+    const cardFor = (companyName: string) => cards.find((card) => card.includes(companyName));
+    const photoCard = cardFor("Photo AB");
+    const logoCard = cardFor("Logo AB");
 
     expect(photoCard).toContain('data-search-card-media="true"');
     expect(photoCard).toContain('src="https://example.com/business-photo.jpg"');
     expect(logoCard).toContain('data-search-card-media="true"');
     expect(logoCard).toContain('src="https://example.com/business-logo.png"');
-    expect(illustrationCard).toBeTruthy();
-    expect(illustrationCard).not.toContain('data-search-card-media="true"');
-    expect(markup).not.toContain("https://example.com/category-illustration.jpg");
+
+    for (const companyName of ["Illustration Role AB", "Category Kind AB", "Unknown Kind AB"]) {
+      const card = cardFor(companyName);
+      expect(card).toBeTruthy();
+      expect(card).not.toContain('data-search-card-media="true"');
+    }
+
+    expect(markup).not.toContain("https://example.com/illustration-role.jpg");
+    expect(markup).not.toContain("https://example.com/category-kind.jpg");
+    expect(markup).not.toContain("https://example.com/unknown-kind.jpg");
   });
 });
