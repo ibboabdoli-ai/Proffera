@@ -37,7 +37,7 @@ Do not label Bolagsverket-, owner-, Lantmäteriet- or Proffera-originated fields
 
 ## 5. Reklamspärr / marketing restrictions
 
-SCB's `Reklam` variable is a marketing restriction signal and must be enforced before outreach.
+SCB's `Reklam` variable is a marketing restriction signal and must be enforced before outreach. In the current Proffera data model, the canonical enforcement input is `company_directory_official_facts.advertising_blocked`.
 
 SCB documents these values:
 
