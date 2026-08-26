@@ -66,7 +66,7 @@ describe("public directory contact Preview compatibility", () => {
       website: "",
       entitled: false,
       available: {
-        addressLine1: true,
+        addressLine1: false,
         phone: false,
         email: false,
         website: false,
