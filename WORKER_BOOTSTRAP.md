@@ -21,6 +21,8 @@ Do not start implementation when:
 - the repository baseline changed materially during analysis and the graph was not refreshed;
 - required secrets, Production access, or high-risk authorization are missing.
 
+The existence of another writable PR is not itself a blocker. Parallel writable PRs may continue when their graph paths are independent and there is no material touch-set overlap, shared source-of-truth conflict, incompatible invariant, or explicit merge-order dependency. If `main` advances because an unrelated PR merges, refresh/revalidate the affected branch as needed instead of stopping or restarting unrelated work from zero.
+
 ## Existing engineering toolchain
 
 Use the tooling already present in Proffera before adding overlapping tools or broad manual substitutes. Select only what the current graph path needs and report `not performed` when a tool is not applicable or unavailable.
