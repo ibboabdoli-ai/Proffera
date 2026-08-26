@@ -33,7 +33,7 @@ describe("Marketplace funnel observability", () => {
     expect(funnel).toContain("billing.workspace_id = invitation.workspace_id");
     expect(funnel).toContain("billing.stripe_subscription_id is not null");
     expect(funnel).toContain("billing.status in ('active', 'trialing')");
-    expect(funnel).toContain("billing.created_at >= claim.resolved_at");
+    expect(funnel).toContain("billing.created_at > claim.resolved_at");
     expect(funnel).not.toMatch(/insert\s+into|update\s+(marketplace_|website_reviews|company_directory_|workspace_billing)|delete\s+from|contact_email|contact_phone/i);
   });
 
