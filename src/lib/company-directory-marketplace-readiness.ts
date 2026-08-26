@@ -162,6 +162,12 @@ function safePhone(value: unknown, conflicts: unknown) {
   return /^\+?\d{7,15}$/.test(normalized) ? phone : "";
 }
 
+function advertisingBlockedState(value: unknown): boolean | null {
+  if (value === true || value === 1 || value === "1" || text(value).toLowerCase() === "true") return true;
+  if (value === false || value === 0 || value === "0" || text(value).toLowerCase() === "false") return false;
+  return null;
+}
+
 function finiteCoordinate(value: unknown, minimum: number, maximum: number) {
   if (value === null || value === undefined || value === "") return null;
   const parsed = Number(value);
@@ -194,6 +200,7 @@ export function classifyDirectoryMarketplaceReadiness(input: {
   organizationKind: unknown;
   claimedWorkspaceId?: unknown;
   hasPublicService: unknown;
+  advertisingBlocked?: unknown;
   latitude?: unknown;
   longitude?: unknown;
   geocodeSource?: unknown;
@@ -209,6 +216,7 @@ export function classifyDirectoryMarketplaceReadiness(input: {
   const reasons: string[] = [];
   const claimed = Boolean(text(input.claimedWorkspaceId));
   const conflicts = hasScbConflicts(input.scbConflicts);
+  const advertisingBlocked = advertisingBlockedState(input.advertisingBlocked);
   const eligible = text(input.publicationStatus) === "published"
     && Boolean(input.isActive)
     && !Boolean(input.privacyBlocked)
@@ -224,6 +232,8 @@ export function classifyDirectoryMarketplaceReadiness(input: {
   if (!Boolean(input.hasPublicService)) reasons.push("no_public_service");
   if (conflicts) reasons.push("scb_conflict");
   if (claimed) reasons.push("claimed_workspace_route");
+  if (guestEligible && advertisingBlocked === true) reasons.push("advertising_blocked");
+  if (guestEligible && advertisingBlocked === null) reasons.push("advertising_block_unknown");
 
   const location = resolveDirectoryMarketplaceWorkplaceAddress(input.scbWorkplaces);
   const address = location.address;
@@ -238,7 +248,10 @@ export function classifyDirectoryMarketplaceReadiness(input: {
   if (eligible && !hasReachableContact) reasons.push("needs_contact");
 
   const marketplaceReady = eligible && Boolean(address) && hasVerifiedCoordinates && hasReachableContact;
-  const autoOutreachReady = guestEligible && marketplaceReady && Boolean(businessEmail);
+  const autoOutreachReady = guestEligible
+    && marketplaceReady
+    && Boolean(businessEmail)
+    && advertisingBlocked === false;
   if (marketplaceReady) reasons.push("marketplace_ready");
   if (autoOutreachReady) reasons.push("auto_outreach_ready");
 
@@ -253,7 +266,8 @@ export function classifyDirectoryMarketplaceReadiness(input: {
     potentialAutoOutreachAfterGeocoding: guestEligible
       && Boolean(address)
       && !hasVerifiedCoordinates
-      && Boolean(businessEmail),
+      && Boolean(businessEmail)
+      && advertisingBlocked === false,
     address,
     businessEmail,
     phone,
@@ -300,6 +314,7 @@ export async function getCompanyDirectoryMarketplaceReadinessReport(): Promise<D
         profile.privacy_blocked,
         profile.organization_kind,
         profile.claimed_workspace_id::text as claimed_workspace_id,
+        facts.advertising_blocked,
         location.latitude::float8 as latitude,
         location.longitude::float8 as longitude,
         location.geocode_source,
@@ -322,6 +337,7 @@ export async function getCompanyDirectoryMarketplaceReadinessReport(): Promise<D
       left join company_directory_business_locations location
         on location.profile_id = profile.id
       left join company_directory_scb_enrichment scb on scb.profile_id = profile.id
+      left join company_directory_official_facts facts on facts.profile_id = profile.id
       where profile.publication_status = 'published'
         and profile.is_active = true
       order by
@@ -341,6 +357,7 @@ export async function getCompanyDirectoryMarketplaceReadinessReport(): Promise<D
       organizationKind: row.organization_kind,
       claimedWorkspaceId: row.claimed_workspace_id,
       hasPublicService: row.has_public_service,
+      advertisingBlocked: row.advertising_blocked,
       latitude: row.latitude,
       longitude: row.longitude,
       geocodeSource: row.geocode_source,

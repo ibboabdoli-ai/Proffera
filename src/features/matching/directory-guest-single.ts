@@ -159,6 +159,7 @@ export async function getDirectoryGuestLeadMatch(quoteRequestId: string) {
         profile.privacy_blocked,
         profile.organization_kind,
         profile.claimed_workspace_id::text as claimed_workspace_id,
+        facts.advertising_blocked,
         relation.service_slug,
         service.label as service_name,
         category.label as service_category,
@@ -189,6 +190,9 @@ export async function getDirectoryGuestLeadMatch(quoteRequestId: string) {
         on location.profile_id = profile.id
        and location.latitude is not null
        and location.longitude is not null
+      join company_directory_official_facts facts
+        on facts.profile_id = profile.id
+       and facts.advertising_blocked is false
       join company_directory_scb_enrichment scb
         on scb.profile_id = profile.id
        and coalesce(scb.email, '') <> ''
@@ -246,6 +250,7 @@ export async function getDirectoryGuestLeadMatch(quoteRequestId: string) {
         organizationKind: row.organization_kind,
         claimedWorkspaceId: row.claimed_workspace_id,
         hasPublicService: true,
+        advertisingBlocked: row.advertising_blocked,
         latitude: row.latitude,
         longitude: row.longitude,
         geocodeSource: row.geocode_source,

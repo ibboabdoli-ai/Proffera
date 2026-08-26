@@ -30,6 +30,7 @@ function baseInput() {
     organizationKind: "juridical_person",
     claimedWorkspaceId: null,
     hasPublicService: true,
+    advertisingBlocked: false,
     scbWorkplaces: [{ visitingAddress }],
     scbEmail: "info@example-company.se",
     scbPhone: "",
@@ -110,6 +111,31 @@ describe("company directory marketplace readiness", () => {
     expect(readiness.potentialAutoOutreachAfterGeocoding).toBe(true);
     expect(readiness.marketplaceReady).toBe(false);
     expect(readiness.autoOutreachReady).toBe(false);
+  });
+
+  it("keeps a reklamspärr company Marketplace-visible but blocks automatic outreach", () => {
+    const readiness = classifyDirectoryMarketplaceReadiness({
+      ...baseInput(),
+      ...verifiedLocation,
+      advertisingBlocked: true,
+    });
+
+    expect(readiness.marketplaceReady).toBe(true);
+    expect(readiness.autoOutreachReady).toBe(false);
+    expect(readiness.reasons).toContain("advertising_blocked");
+    expect(readiness.reasons).not.toContain("auto_outreach_ready");
+  });
+
+  it("fails closed for automatic outreach when advertising status is unknown", () => {
+    const readiness = classifyDirectoryMarketplaceReadiness({
+      ...baseInput(),
+      ...verifiedLocation,
+      advertisingBlocked: null,
+    });
+
+    expect(readiness.marketplaceReady).toBe(true);
+    expect(readiness.autoOutreachReady).toBe(false);
+    expect(readiness.reasons).toContain("advertising_block_unknown");
   });
 
   it("does not treat arbitrary finite coordinates as verified", () => {
