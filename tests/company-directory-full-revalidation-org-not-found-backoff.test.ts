@@ -158,7 +158,7 @@ describe("full Directory deterministic Official Facts retry backoff", () => {
     expect(sqlCalls.some((call) => call.query.includes("update company_directory_discovery_queue"))).toBe(false);
   });
 
-  it("uses the exact namespaced marker boundary in candidate and backlog suppression queries", async () => {
+  it("matches the backoff marker namespace literally in candidate and backlog queries", async () => {
     responder = async (query) => {
       if (query.includes("with blocked as (")) return [];
       if (query.includes("started_at < now() - interval '10 minutes'")) return [];
@@ -177,10 +177,12 @@ describe("full Directory deterministic Official Facts retry backoff", () => {
     const selection = sqlCalls.find((call) => call.query.includes("with eligible as ("));
     const backlog = sqlCalls.find((call) => call.query.includes("select count(*)::int as count"));
     for (const call of [selection, backlog]) {
+      expect(call?.query).toContain("starts_with(queue.last_error");
+      expect(call?.query).not.toContain("queue.last_error like");
       expect(call?.query).toContain("next_attempt_at > now()");
       expect(call?.query).toContain("queue.state = 'review'");
-      expect(call?.values).toContain(`${BACKOFF_PREFIX}:%`);
-      expect(call?.values).not.toContain(`${BACKOFF_PREFIX}%`);
+      expect(call?.values).toContain(`${BACKOFF_PREFIX}:`);
+      expect(call?.values.some((value) => String(value).includes("%"))).toBe(false);
     }
   });
 });
