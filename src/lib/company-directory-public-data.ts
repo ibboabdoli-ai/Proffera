@@ -25,6 +25,13 @@ type ScbDirectContact = {
   workplaces: unknown;
 };
 
+type ClaimedOwnerPrimaryLocation = {
+  visibility: string;
+  isVisitable: boolean;
+  confirmed: boolean;
+  address: DirectoryPublicAddress;
+};
+
 const EMPTY_PHYSICAL_ADDRESS: DirectoryPublicAddress = {
   addressLine1: "",
   postalCode: "",
@@ -36,11 +43,11 @@ function emptyContact() {
   return discloseDirectoryDirectContact({}, false);
 }
 
-function isMissingScbEnrichmentTable(error: unknown) {
+function isMissingDirectoryTable(error: unknown, tableName: string) {
   if (!error || typeof error !== "object") return false;
   const candidate = error as { code?: unknown; message?: unknown };
   return candidate.code === "42P01"
-    && String(candidate.message ?? "").includes("company_directory_scb_enrichment");
+    && String(candidate.message ?? "").includes(tableName);
 }
 
 function profileAddress(row: {
@@ -67,6 +74,31 @@ function canonicalPublishedPhysicalAddress(
   return resolution.status === "resolved" ? resolution.address : EMPTY_PHYSICAL_ADDRESS;
 }
 
+function ownerPrimaryPublicAddress(location: ClaimedOwnerPrimaryLocation): DirectoryPublicAddress {
+  if (location.visibility === "approximate") {
+    return {
+      addressLine1: "",
+      postalCode: "",
+      city: location.address.city.trim(),
+      municipality: location.address.municipality.trim(),
+    };
+  }
+
+  if (
+    location.visibility !== "public"
+    || !location.isVisitable
+    || !location.confirmed
+    || !location.address.addressLine1.trim()
+    || !location.address.postalCode.trim()
+    || !location.address.city.trim()
+    || !location.address.municipality.trim()
+  ) {
+    return EMPTY_PHYSICAL_ADDRESS;
+  }
+
+  return location.address;
+}
+
 async function getConflictFreeScbContact(
   sql: NonNullable<ReturnType<typeof getSql>>,
   profileId: string,
@@ -90,9 +122,66 @@ async function getConflictFreeScbContact(
       workplaces: row.workplaces,
     };
   } catch (error) {
-    if (isMissingScbEnrichmentTable(error)) return null;
+    if (isMissingDirectoryTable(error, "company_directory_scb_enrichment")) return null;
     throw error;
   }
+}
+
+async function getClaimedOwnerPrimaryLocation(
+  sql: NonNullable<ReturnType<typeof getSql>>,
+  profileId: string,
+  workspaceId: string,
+): Promise<ClaimedOwnerPrimaryLocation | null> {
+  try {
+    const rows = await sql`
+      select
+        visibility,
+        is_visitable,
+        confirmed_at,
+        address_line1,
+        postal_code,
+        city,
+        municipality
+      from company_directory_profile_locations
+      where profile_id = ${profileId}::uuid
+        and owner_workspace_id = ${workspaceId}::uuid
+        and source_type = 'owner'
+        and is_active = true
+        and is_primary = true
+        and purpose in ('workplace', 'storefront', 'service_base')
+      limit 1
+    `;
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      visibility: String(row.visibility ?? "private"),
+      isVisitable: Boolean(row.is_visitable),
+      confirmed: Boolean(row.confirmed_at),
+      address: profileAddress(row),
+    };
+  } catch (error) {
+    if (isMissingDirectoryTable(error, "company_directory_profile_locations")) return null;
+    throw error;
+  }
+}
+
+async function resolvePublishedPhysicalAddress(input: {
+  sql: NonNullable<ReturnType<typeof getSql>>;
+  profileId: string;
+  claimedWorkspaceId: string;
+  profile: DirectoryPublicAddress;
+  workplaces: unknown;
+}) {
+  if (input.claimedWorkspaceId) {
+    const ownerLocation = await getClaimedOwnerPrimaryLocation(
+      input.sql,
+      input.profileId,
+      input.claimedWorkspaceId,
+    );
+    if (ownerLocation) return ownerPrimaryPublicAddress(ownerLocation);
+  }
+
+  return canonicalPublishedPhysicalAddress(input.profile, input.workplaces);
 }
 
 async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
@@ -131,9 +220,14 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
   }
 
   const scb = await getConflictFreeScbContact(sql, business.id);
-  const address = row.claimed_workspace_id
-    ? storedAddress
-    : canonicalPublishedPhysicalAddress(storedAddress, scb?.workplaces);
+  const claimedWorkspaceId = String(row.claimed_workspace_id ?? "");
+  const address = await resolvePublishedPhysicalAddress({
+    sql,
+    profileId: business.id,
+    claimedWorkspaceId,
+    profile: storedAddress,
+    workplaces: scb?.workplaces,
+  });
   return {
     organizationNumber: String(row.organization_number ?? ""),
     primarySniCode: String(row.primary_sni_code ?? ""),
@@ -203,7 +297,13 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
   const workspaceId = String(row.claimed_workspace_id ?? "");
   const entitled = await hasActivePaidDirectoryContactAccess(workspaceId);
   const scb = await getConflictFreeScbContact(sql, String(row.id));
-  const address = profileAddress(row);
+  const address = await resolvePublishedPhysicalAddress({
+    sql,
+    profileId: String(row.id),
+    claimedWorkspaceId: workspaceId,
+    profile: profileAddress(row),
+    workplaces: scb?.workplaces,
+  });
   const contact = discloseDirectoryDirectContact({
     addressLine1: address.addressLine1,
     phone: scb?.phone,
