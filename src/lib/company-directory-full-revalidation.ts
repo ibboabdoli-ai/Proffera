@@ -184,7 +184,7 @@ async function demoteKnownHardBlockedProfiles(limit: number) {
         )
       order by
         case profile.publication_status when 'published' then 0 else 1 end,
-        regexp_replace(profile.organization_number, '\D', '', 'g')
+        regexp_replace(profile.organization_number, '\\D', '', 'g')
       limit ${limit}
       for update of profile skip locked
     )
@@ -215,7 +215,7 @@ async function selectCandidates(limit: number, cursorValue: string) {
         profile.organization_number,
         profile.display_name,
         profile.publication_status,
-        regexp_replace(profile.organization_number, '\D', '', 'g') as normalized_organization_number,
+        regexp_replace(profile.organization_number, '\\D', '', 'g') as normalized_organization_number,
         case profile.publication_status
           when 'published' then 0
           when 'ready' then 1
@@ -239,7 +239,7 @@ async function selectCandidates(limit: number, cursorValue: string) {
       where profile.country_code = 'SE'
         and profile.organization_kind = 'juridical_person'
         and profile.publication_status in ('published', 'ready', 'review', 'inactive', 'claimed')
-        and length(regexp_replace(profile.organization_number, '\D', '', 'g')) = 10
+        and length(regexp_replace(profile.organization_number, '\\D', '', 'g')) = 10
         and (
           facts.profile_id is null
           or facts.source_payload_hash = ''
@@ -311,7 +311,7 @@ async function selectCandidates(limit: number, cursorValue: string) {
                       queue.profile_id = profile.id
                       or (
                         queue.country_code = profile.country_code
-                        and queue.organization_number = regexp_replace(profile.organization_number, '\D', '', 'g')
+                        and queue.organization_number = regexp_replace(profile.organization_number, '\\D', '', 'g')
                       )
                     )
                 )
@@ -365,7 +365,7 @@ async function backlogCount() {
     where profile.country_code = 'SE'
       and profile.organization_kind = 'juridical_person'
       and profile.publication_status in ('published', 'ready', 'review', 'inactive', 'claimed')
-      and length(regexp_replace(profile.organization_number, '\D', '', 'g')) = 10
+      and length(regexp_replace(profile.organization_number, '\\D', '', 'g')) = 10
       and (
         facts.profile_id is null
         or facts.source_payload_hash = ''
@@ -437,7 +437,7 @@ async function backlogCount() {
                     queue.profile_id = profile.id
                     or (
                       queue.country_code = profile.country_code
-                      and queue.organization_number = regexp_replace(profile.organization_number, '\D', '', 'g')
+                      and queue.organization_number = regexp_replace(profile.organization_number, '\\D', '', 'g')
                     )
                   )
               )
@@ -672,7 +672,7 @@ async function recordDeterministicScbFailure(input: {
     )
     select
       profile.id,
-      regexp_replace(profile.organization_number, '\D', '', 'g'),
+      regexp_replace(profile.organization_number, '\\D', '', 'g'),
       jsonb_build_object(
         'revalidationFailure',
         jsonb_build_object(
@@ -809,7 +809,7 @@ async function restoreSafeReviewProfileToReady(input: {
             queue.profile_id = profile.id
             or (
               queue.country_code = profile.country_code
-              and queue.organization_number = regexp_replace(profile.organization_number, '\D', '', 'g')
+              and queue.organization_number = regexp_replace(profile.organization_number, '\\D', '', 'g')
             )
           )
       )
