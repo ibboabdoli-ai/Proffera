@@ -2,6 +2,11 @@ import "server-only";
 
 import { createHash, randomUUID } from "node:crypto";
 
+import {
+  isBolagsverketJuridicalOrganizationNumber,
+  requireBolagsverketHttpsUrl,
+  waitForBolagsverketRequestSlot,
+} from "@/lib/bolagsverket-api-policy";
 import { takeCompleteBolagsverketOrganizationRecord } from "@/lib/company-directory-detail-cache";
 import {
   collectBolagsverketApiErrors,
@@ -41,6 +46,7 @@ type OfficialFacts = {
 };
 
 const MAX_ENRICH_PER_RUN = 10;
+const DEFAULT_BOLAGSVERKET_PROVIDER = "bolagsverket_vardefulla_datamangder";
 
 function object(value: unknown): AnyRecord | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as AnyRecord : null;
@@ -265,11 +271,12 @@ async function oauthAccessToken() {
   const staticToken = process.env.COMPANY_DIRECTORY_SOURCE_BEARER_TOKEN?.trim();
   if (staticToken) return staticToken;
 
-  const tokenUrl = process.env.COMPANY_DIRECTORY_TOKEN_URL?.trim();
+  const tokenUrlValue = process.env.COMPANY_DIRECTORY_TOKEN_URL?.trim();
   const clientId = process.env.BOLAGSVERKET_CLIENT_ID?.trim();
   const clientSecret = process.env.BOLAGSVERKET_CLIENT_SECRET?.trim();
-  if (!tokenUrl || !clientId || !clientSecret) return "";
+  if (!tokenUrlValue || !clientId || !clientSecret) return "";
 
+  const tokenUrl = requireBolagsverketHttpsUrl(tokenUrlValue, "COMPANY_DIRECTORY_TOKEN_URL").toString();
   const basic = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
   const scope = process.env.COMPANY_DIRECTORY_OAUTH_SCOPE?.trim();
   const body = new URLSearchParams({ grant_type: "client_credentials" });
@@ -295,7 +302,8 @@ async function oauthAccessToken() {
 function detailRequest(template: string, organizationNumber: string) {
   const normalized = organizationNumber.replace(/\D/g, "");
   const method = process.env.COMPANY_DIRECTORY_DETAIL_METHOD?.trim().toUpperCase() === "GET" ? "GET" : "POST";
-  const url = template.replaceAll("{organizationNumber}", encodeURIComponent(normalized));
+  const rawUrl = template.replaceAll("{organizationNumber}", encodeURIComponent(normalized));
+  const url = requireBolagsverketHttpsUrl(rawUrl, "COMPANY_DIRECTORY_DETAIL_URL_TEMPLATE").toString();
   const bodyTemplate = process.env.COMPANY_DIRECTORY_DETAIL_BODY_TEMPLATE?.trim();
   const body = method === "POST"
     ? (bodyTemplate
@@ -306,10 +314,15 @@ function detailRequest(template: string, organizationNumber: string) {
 }
 
 async function fetchOfficialFacts(organizationNumber: string, token: string) {
+  if (!isBolagsverketJuridicalOrganizationNumber(organizationNumber)) {
+    throw new Error("Official facts lookup requires a Swedish juridical-person organization number");
+  }
+
   const template = process.env.COMPANY_DIRECTORY_DETAIL_URL_TEMPLATE?.trim();
   if (!template) throw new Error("Official detail endpoint is not configured");
   const request = detailRequest(template, organizationNumber);
 
+  await waitForBolagsverketRequestSlot(process.env.COMPANY_DIRECTORY_PROVIDER || DEFAULT_BOLAGSVERKET_PROVIDER);
   const response = await fetchWithTimeout(request.url, {
     method: request.method,
     headers: {
@@ -397,7 +410,7 @@ export async function getCompanyDirectoryOfficialFactsBacklog() {
     from company_directory_profiles profile
     left join company_directory_official_facts facts on facts.profile_id = profile.id
     where profile.country_code = 'SE'
-      and length(regexp_replace(profile.organization_number, '\\D', '', 'g')) = 10
+      and regexp_replace(profile.organization_number, '\\D', '', 'g') ~ '^[0-9]{2}[2-9][0-9]{7}$'
       and (facts.profile_id is null or facts.last_synced_at < profile.last_synced_at)
   `;
 
@@ -419,8 +432,8 @@ export async function enrichCompanyDirectoryOfficialFactsForProfile(profileId: s
     limit 1
   `;
   const organizationNumber = text(rows[0]?.organization_number).replace(/\D/g, "");
-  if (organizationNumber.length !== 10) {
-    throw new Error("A Swedish 10-digit organization number is required");
+  if (!isBolagsverketJuridicalOrganizationNumber(organizationNumber)) {
+    throw new Error("A Swedish juridical-person organization number is required");
   }
 
   const cachedFacts = takeCachedOfficialFacts(organizationNumber);
@@ -450,7 +463,7 @@ export async function enrichCompanyDirectoryOfficialFacts(limit?: number) {
     from company_directory_profiles profile
     left join company_directory_official_facts facts on facts.profile_id = profile.id
     where profile.country_code = 'SE'
-      and length(regexp_replace(profile.organization_number, '\\D', '', 'g')) = 10
+      and regexp_replace(profile.organization_number, '\\D', '', 'g') ~ '^[0-9]{2}[2-9][0-9]{7}$'
       and (facts.profile_id is null or facts.last_synced_at < profile.last_synced_at)
       and not exists (
         select 1
