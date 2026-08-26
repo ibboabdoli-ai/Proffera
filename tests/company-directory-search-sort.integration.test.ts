@@ -198,6 +198,18 @@ function postgresSql(client: Client) {
           insert into company_directory_business_locations (profile_id, latitude, longitude, is_public)
           values ($1, $2, $3, true)
         `, [id, latitude, longitude]);
+        await client!.query(`
+          insert into company_directory_scb_enrichment (profile_id, workplaces, conflicts)
+          values ($1, $2::jsonb, '[]'::jsonb)
+        `, [id, JSON.stringify([{
+          cfarNumber: id.slice(0, 8),
+          municipality: "Stockholm",
+          visitingAddress: {
+            addressLine: "Testgatan 1",
+            postalCode: "111 11",
+            city: "Stockholm",
+          },
+        }])]);
       }
     });
 
