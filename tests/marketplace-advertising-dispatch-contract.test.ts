@@ -58,33 +58,63 @@ function queryText(args: readonly unknown[]) {
 }
 
 function createSql(advertisingBlocked: boolean | null | undefined) {
-  return vi.fn(async (...args: unknown[]) => {
+  const state: {
+    status: "none" | "sending" | "pending" | "delivery_failed" | "sent";
+    dispatchToken: string | null;
+  } = {
+    status: "none",
+    dispatchToken: null,
+  };
+
+  const sql = vi.fn(async (...args: unknown[]) => {
     const query = queryText(args);
 
     if (query.includes("from quote_requests q")) return [eligibleRow];
     if (query.includes("select id from marketplace_outreach_suppressions")) return [];
     if (query.includes("stale_reservation") && query.includes("from marketplace_quote_invitations")) return [];
-    if (query.includes("insert into marketplace_quote_invitations")) return [{ id: invitationId }];
+
+    if (query.includes("insert into marketplace_quote_invitations")) {
+      state.status = "sending";
+      state.dispatchToken = String(args[6] ?? "");
+      return [{ id: invitationId }];
+    }
 
     if (query.includes("set status = 'pending'") && query.includes("company_directory_official_facts facts")) {
-      return advertisingBlocked === false ? [{ id: invitationId }] : [];
+      const ownsLease = state.status === "sending"
+        && state.dispatchToken !== null
+        && state.dispatchToken === String(args[2] ?? "");
+      if (advertisingBlocked === false && ownsLease) {
+        state.status = "pending";
+        return [{ id: invitationId }];
+      }
+      return [];
     }
 
     if (query.includes("set status = 'delivery_failed'") && query.includes("company_directory_official_facts facts")) {
+      const ownsLease = state.status === "sending"
+        && state.dispatchToken !== null
+        && state.dispatchToken === String(args[2] ?? "");
+      if (advertisingBlocked !== false && ownsLease) {
+        state.status = "delivery_failed";
+        state.dispatchToken = null;
+      }
       return [];
     }
 
     if (query.includes("select status") && query.includes("from marketplace_quote_invitations")) {
-      return [{ status: advertisingBlocked === false ? "pending" : "delivery_failed" }];
+      return state.status === "none" ? [] : [{ status: state.status }];
     }
 
     if (query.includes("provider_message_id =") && query.includes("invitation.status = 'pending'")) {
+      if (state.status === "pending") state.status = "sent";
       return [{ id: invitationId }];
     }
 
     if (query.includes("insert into admin_audit_logs")) return [];
     return [];
   });
+
+  return { sql, state };
 }
 
 describe("Marketplace advertising dispatch contract", () => {
@@ -106,13 +136,15 @@ describe("Marketplace advertising dispatch contract", () => {
     ["unknown", null],
     ["missing", undefined],
   ])("does not deliver when advertising permission is %s", async (_label, advertisingBlocked) => {
-    const sql = createSql(advertisingBlocked);
+    const { sql, state } = createSql(advertisingBlocked);
     mocks.getSql.mockReturnValue(sql);
 
     const result = await sendMarketplaceGuestQuoteInvitation(invitationInput());
 
     expect(result).toEqual({ ok: false, code: "conflict" });
     expect(mocks.sendInvitationEmail).not.toHaveBeenCalled();
+    expect(state.status).toBe("delivery_failed");
+    expect(state.dispatchToken).toBeNull();
 
     const queries = sql.mock.calls.map((call) => queryText(call));
     const dispatchClaim = queries.find((query) => query.includes("set status = 'pending'"));
@@ -129,7 +161,7 @@ describe("Marketplace advertising dispatch contract", () => {
   });
 
   it("delivers when advertising permission is explicitly false", async () => {
-    const sql = createSql(false);
+    const { sql, state } = createSql(false);
     mocks.getSql.mockReturnValue(sql);
     mocks.sendInvitationEmail.mockResolvedValue({ ok: true, providerMessageId: "provider-1" });
 
@@ -137,6 +169,9 @@ describe("Marketplace advertising dispatch contract", () => {
 
     expect(result).toEqual({ ok: true, invitationId });
     expect(mocks.sendInvitationEmail).toHaveBeenCalledTimes(1);
+    expect(state.status).toBe("sent");
+    expect(state.dispatchToken).not.toBeNull();
+
     const queries = sql.mock.calls.map((call) => queryText(call));
     expect(queries.some(
       (query) => query.includes("set status = 'pending'")
