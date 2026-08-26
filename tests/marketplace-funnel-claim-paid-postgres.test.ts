@@ -177,6 +177,13 @@ if (RUN_POSTGRES_INTEGRATION) {
       const claimedOnlyCreated = new Date(now - 36 * 60 * 60_000);
       const claimedOnly = await seedRequest(claimedOnlyCreated);
       await seedProvider({ requestId: claimedOnly, requestCreatedAt: claimedOnlyCreated, claimOffsetMs: 60_000, billingStatus: "past_due" });
+      await seedProvider({
+        requestId: claimedOnly,
+        requestCreatedAt: claimedOnlyCreated,
+        claimOffsetMs: 120_000,
+        billingStatus: "active",
+        billingCreatedOffsetMs: 0,
+      });
 
       const preRequestClaimCreated = new Date(now - 24 * 60 * 60_000);
       const preRequestClaim = await seedRequest(preRequestClaimCreated);
