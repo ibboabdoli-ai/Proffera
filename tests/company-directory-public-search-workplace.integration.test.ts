@@ -110,7 +110,7 @@ function postgresSql(client: Client) {
       expect(nearby.results).toEqual([]);
     }
 
-    async function expectClaimedProfileLocation() {
+    async function expectClaimedOwnerLocation() {
       const stockholm = await searchPublishedCompanyDirectory({ location: "Stockholm" });
       expect(stockholm.totalCount).toBe(1);
       expect(stockholm.results).toHaveLength(1);
@@ -124,6 +124,10 @@ function postgresSql(client: Client) {
       const sodertalje = await searchPublishedCompanyDirectory({ location: "Södertälje" });
       expect(sodertalje.totalCount).toBe(0);
       expect(sodertalje.results).toEqual([]);
+
+      const suggestions = await getPublishedDirectoryLocationSuggestions();
+      expect(suggestions).toContain("Stockholm");
+      expect(suggestions).not.toContain("Södertälje");
     }
 
     beforeAll(async () => {
@@ -192,6 +196,24 @@ function postgresSql(client: Client) {
           longitude numeric,
           is_public boolean not null default true
         );
+        create table company_directory_profile_locations (
+          id uuid primary key,
+          profile_id uuid not null,
+          owner_workspace_id uuid,
+          purpose text not null,
+          visibility text not null default 'private',
+          is_visitable boolean not null default false,
+          is_primary boolean not null default false,
+          is_active boolean not null default true,
+          source_type text not null,
+          address_line1 text not null default '',
+          postal_code text not null default '',
+          city text not null default '',
+          municipality text not null default '',
+          latitude numeric,
+          longitude numeric,
+          confirmed_at timestamptz
+        );
         create table company_directory_scb_enrichment (
           profile_id uuid primary key,
           workplaces jsonb not null default '[]'::jsonb,
@@ -235,9 +257,9 @@ function postgresSql(client: Client) {
 
       await client!.query(`
         truncate table company_directory_service_areas, workspace_services,
-          company_directory_scb_enrichment, company_directory_business_locations,
-          company_directory_profile_services, company_directory_services,
-          company_directory_profiles, workspaces
+          company_directory_scb_enrichment, company_directory_profile_locations,
+          company_directory_business_locations, company_directory_profile_services,
+          company_directory_services, company_directory_profiles, workspaces
       `);
 
       await client!.query(`
@@ -340,7 +362,7 @@ function postgresSql(client: Client) {
         [workspaceId, { planAccess: true, websiteBuilder: true, onlineBooking: false }],
       ]));
 
-      const result = await searchPublishedCompanyDirectory({ service: "vvs", location: "Stockholm" });
+      const result = await searchPublishedCompanyDirectory({ service: "vvs", location: "Södertälje" });
 
       expect(result.totalCount).toBe(1);
       expect(result.results).toHaveLength(1);
@@ -363,7 +385,7 @@ function postgresSql(client: Client) {
       });
     }, 30_000);
 
-    it("keeps claimed Workspace-owned profile location authoritative", async () => {
+    it("does not treat a claim alone as authority for the stored profile postal location", async () => {
       await client!.query(`
         insert into workspaces (id, status, slug)
         values ($1, 'active', 'claimed-company')
@@ -376,7 +398,88 @@ function postgresSql(client: Client) {
         where id = $2
       `, [workspaceId, profileId]);
 
-      await expectClaimedProfileLocation();
+      const stockholm = await searchPublishedCompanyDirectory({ location: "Stockholm" });
+      expect(stockholm.totalCount).toBe(0);
+      const sodertalje = await searchPublishedCompanyDirectory({ location: "Södertälje" });
+      expect(sodertalje.totalCount).toBe(1);
+      expect(sodertalje.results[0]).toMatchObject({
+        postalCode: "151 00",
+        city: "SÖDERTÄLJE",
+        municipality: "Södertälje",
+      });
+      const suggestions = await getPublishedDirectoryLocationSuggestions();
+      expect(suggestions).toContain("Södertälje");
+      expect(suggestions).not.toContain("Stockholm");
+    }, 30_000);
+
+    it("keeps the claimed Workspace primary owner location authoritative", async () => {
+      await client!.query(`
+        insert into workspaces (id, status, slug)
+        values ($1, 'active', 'claimed-company')
+      `, [workspaceId]);
+      await client!.query(`
+        update company_directory_profiles
+        set publication_status = 'claimed',
+            claimed_workspace_id = $1::uuid,
+            published_at = now()
+        where id = $2
+      `, [workspaceId, profileId]);
+      await client!.query(`
+        insert into company_directory_profile_locations (
+          id, profile_id, owner_workspace_id, purpose, visibility,
+          is_visitable, is_primary, source_type,
+          address_line1, postal_code, city, municipality,
+          latitude, longitude, confirmed_at
+        ) values (
+          'cccccccc-cccc-4ccc-8ccc-cccccccccccc', $1, $2, 'workplace', 'public',
+          true, true, 'owner',
+          'OWNERGATAN 1', '111 11', 'Stockholm', 'Stockholm',
+          59.3293, 18.0686, now()
+        )
+      `, [profileId, workspaceId]);
+
+      await expectClaimedOwnerLocation();
+
+      await client!.query(`
+        insert into company_directory_business_locations (profile_id, latitude, longitude, is_public)
+        values ($1, 55.6050, 13.0038, true)
+      `, [profileId]);
+      const nearby = await searchPublishedCompanyDirectory({
+        latitude: 59.3293,
+        longitude: 18.0686,
+        radiusKm: 5,
+      });
+      expect(nearby.totalCount).toBe(1);
+      expect(nearby.results[0]?.distanceKm).not.toBeNull();
+    }, 30_000);
+
+    it("does not admit an inactive claimed Workspace into location suggestions", async () => {
+      await client!.query(`
+        insert into workspaces (id, status, slug)
+        values ($1, 'inactive', 'inactive-company')
+      `, [workspaceId]);
+      await client!.query(`
+        update company_directory_profiles
+        set publication_status = 'claimed',
+            claimed_workspace_id = $1::uuid,
+            published_at = now()
+        where id = $2
+      `, [workspaceId, profileId]);
+      await client!.query(`
+        insert into company_directory_profile_locations (
+          id, profile_id, owner_workspace_id, purpose, visibility,
+          is_visitable, is_primary, source_type,
+          address_line1, postal_code, city, municipality, confirmed_at
+        ) values (
+          'dddddddd-dddd-4ddd-8ddd-dddddddddddd', $1, $2, 'workplace', 'public',
+          true, true, 'owner',
+          'OWNERGATAN 1', '111 11', 'Stockholm', 'Stockholm', now()
+        )
+      `, [profileId, workspaceId]);
+
+      const suggestions = await getPublishedDirectoryLocationSuggestions();
+      expect(suggestions).not.toContain("Stockholm");
+      expect(suggestions).not.toContain("Södertälje");
     }, 30_000);
   },
 );
