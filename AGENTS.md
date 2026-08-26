@@ -26,8 +26,9 @@ The default operating model is **Graph Engineering**: understand the project as 
    - Never claim something is fixed, deployed, merged, or verified without direct evidence.
 
 5. **One controlled loop at a time.**
-   - Complete analysis, implementation, validation, and reporting for the current graph path before starting another path.
-   - Do not jump phases or open multiple competing implementations.
+   - Complete analysis, implementation, validation, and reporting for the current graph path before starting another path within the same worker lane.
+   - Do not jump phases or open multiple competing implementations for the same graph path.
+   - This rule does **not** prohibit simultaneous writable PRs on independent graph paths when their touch sets, source-of-truth nodes, invariants, and merge order do not materially conflict.
 
 ---
 
@@ -251,6 +252,8 @@ These rules apply unless the user explicitly overrides them for the current task
 - Never make direct changes to `main`.
 - Use at most one coding worker on the same graph path at a time.
 - Do not create duplicate branches, competing fixes, or parallel implementations for the same issue.
+- Parallel writable PRs are **allowed** when they are on independent graph paths and there is no material touch-set overlap, shared source-of-truth conflict, incompatible invariant, or explicit merge-order dependency. The mere existence of another writable PR is **not** a blocker and is not a reason to pause unrelated work.
+- Before each new push or merge decision, re-check current `main` and active PRs. If another PR changes only unrelated nodes, continue and refresh/revalidate as needed. Pause only when a material overlap, source-of-truth conflict, invariant conflict, stale-base risk that affects the reserved path, or required merge-order dependency is actually proven.
 - Read-only research/review may run in parallel across the same path, but it must not create a competing implementation.
 
 ### Forbidden artificial files and probes

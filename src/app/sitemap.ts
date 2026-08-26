@@ -2,14 +2,15 @@ import type { MetadataRoute } from "next";
 import { headers } from "next/headers";
 
 import { getPublicBusinessHub } from "@/lib/public-business-hub";
-import { isIndexablePublicBusinessWorkspace } from "@/lib/public-business-seo";
+import { isIndexablePublicBusinessWorkspace, listPublicBusinessSitemapEntries } from "@/lib/public-business-seo";
+import { listDirectorySeoLandings } from "@/lib/company-directory-landing-seo";
+import { listPublishedDirectorySitemapEntries } from "@/lib/company-directory-seo";
 import { marketingIndustrySlugs } from "@/lib/marketing-industry-pages";
 import { marketingServiceSlugs } from "@/lib/marketing-service-pages";
 import { primeViewAreaPages } from "@/lib/primeview-area-pages";
 import { primeViewSite } from "@/lib/primeview-seo";
 import { primeViewServicePages } from "@/lib/primeview-seo-pages";
 import { localizedPublicRoutes } from "@/lib/public-locale";
-import { getCachedPlatformSitemapData } from "@/lib/public-read-cache";
 import { resolvePublicCustomDomain } from "@/lib/public-site-domain-routing";
 import { hostnameFromHostHeader, isPlatformHost, isPrimeViewHost } from "@/lib/public-site-domains";
 import { siteConfig } from "@/lib/site";
@@ -67,7 +68,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     ];
   }
 
-  const { publicBusinessEntries, directoryEntries, directoryLandings } = await getCachedPlatformSitemapData();
+  const [publicBusinessEntries, directoryEntries, directoryLandings] = await Promise.all([
+    listPublicBusinessSitemapEntries(),
+    listPublishedDirectorySitemapEntries(),
+    listDirectorySeoLandings(),
+  ]);
   const seenBusinesses = new Set<string>();
   const publicBusinessRoutes: MetadataRoute.Sitemap = [];
 

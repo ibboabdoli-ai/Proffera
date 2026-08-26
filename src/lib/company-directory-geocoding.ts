@@ -1,7 +1,7 @@
 import "server-only";
 
 import {
-  resolveCompanyDirectoryPublicAddressResolution,
+  resolveCompanyDirectoryCanonicalWorkplaceAddress,
   type DirectoryPublicAddress,
 } from "@/lib/company-directory-scb-address";
 import { getPlatformAdmin } from "@/lib/platform-admin";
@@ -211,14 +211,16 @@ export function selectDirectoryGeocodingAddress(input: {
   profileAddress: DirectoryPublicAddress;
   scbWorkplaces: unknown;
   scbConflicts: unknown;
-}): DirectoryGeocodingAddressSelection {
-  const resolution = resolveCompanyDirectoryPublicAddressResolution(
+}): DirectoryGeocodingAddressSelection | null {
+  if (hasScbConflicts(input.scbConflicts)) return null;
+  const resolution = resolveCompanyDirectoryCanonicalWorkplaceAddress(
     input.profileAddress,
-    hasScbConflicts(input.scbConflicts) ? [] : parseJsonArray(input.scbWorkplaces),
+    parseJsonArray(input.scbWorkplaces),
   );
+  if (resolution.status !== "resolved") return null;
   return {
     address: resolution.address,
-    source: resolution.source,
+    source: "scb_workplace",
   };
 }
 
@@ -675,10 +677,11 @@ function rowNeedsGeocodingAttempt(row: Record<string, unknown>) {
   if (latitude !== null && latitude !== undefined && longitude !== null && longitude !== undefined) {
     return false;
   }
+  const selectedAddress = selectedAddressFromRow(row);
+  if (!selectedAddress) return false;
   const source = String(row.geocode_source ?? "");
   if (!isDirectoryGeocodingNoMatchSource(source)) return true;
   if (shouldRetryLegacyDirectoryNoMatch(row.organization_number, source)) return true;
-  const selectedAddress = selectedAddressFromRow(row);
   return shouldRetryDirectoryNoMatchWithCanonicalAddress({
     geocodeSource: source,
     profileAddress: profileAddressFromRow(row),
@@ -834,8 +837,9 @@ export async function geocodeDirectoryPilotFromAdmin(limit = 5): Promise<Directo
 
   for (const row of candidates) {
     if (Date.now() >= processingDeadline) break;
-    attempted += 1;
     const selectedAddress = selectedAddressFromRow(row);
+    if (!selectedAddress) continue;
+    attempted += 1;
     const profile: PilotProfile = {
       id: String(row.id),
       organizationNumber: String(row.organization_number),

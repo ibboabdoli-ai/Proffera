@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   collectBolagsverketApiErrors,
   formatBolagsverketApiErrors,
+  isDeterministicBolagsverketOrganizationNotFound,
   resolveBolagsverketOrganizationRecord,
 } from "./company-directory-official-facts-errors";
 
@@ -48,6 +49,20 @@ describe("collectBolagsverketApiErrors", () => {
       "OTILLGANGLIG_UPPGIFTSKALLA",
       "ORGANISATION_FINNS_EJ",
     ]);
+  });
+
+  it("classifies only a non-empty all-ORGANISATION_FINNS_EJ error set as deterministic", () => {
+    expect(isDeterministicBolagsverketOrganizationNotFound([])).toBe(false);
+
+    expect(isDeterministicBolagsverketOrganizationNotFound([
+      { path: "organisation.a.fel", type: "ORGANISATION_FINNS_EJ", description: "" },
+      { path: "organisation.b.fel", type: " organisation_finns_ej ", description: "missing" },
+    ])).toBe(true);
+
+    expect(isDeterministicBolagsverketOrganizationNotFound([
+      { path: "organisation.a.fel", type: "ORGANISATION_FINNS_EJ", description: "" },
+      { path: "organisation.b.fel", type: "TIMEOUT", description: "temporary" },
+    ])).toBe(false);
   });
 
   it("formats errors for sync diagnostics without exposing an unbounded payload", () => {

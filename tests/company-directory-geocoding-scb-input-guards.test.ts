@@ -47,12 +47,12 @@ describe("Directory geocoding SCB input guards", () => {
     })).toEqual(expectedWorkplace);
   });
 
-  it("fails closed to the profile address for malformed workplace JSON", () => {
+  it("fails closed for malformed workplace JSON instead of using the profile address", () => {
     expect(selectDirectoryGeocodingAddress({
       profileAddress,
       scbWorkplaces: "{not-json",
       scbConflicts: [],
-    })).toEqual({ source: "profile", address: profileAddress });
+    })).toBeNull();
   });
 
   it("treats non-array SCB conflict payloads as conflicting", () => {
@@ -67,7 +67,7 @@ describe("Directory geocoding SCB input guards", () => {
         profileAddress,
         scbWorkplaces: singleScbWorkplace,
         scbConflicts: conflicts,
-      })).toEqual({ source: "profile", address: profileAddress });
+      })).toBeNull();
     }
   });
 
@@ -81,20 +81,14 @@ describe("Directory geocoding SCB input guards", () => {
     }
   });
 
-  // Explicit retry-suppression guards keep stale no-match rows from re-entering the upstream pilot unnecessarily.
-  it("does not retry when canonical selection falls back to the profile address", () => {
+  it("returns no geocoding selection when there is no canonical workplace", () => {
     const selected = selectDirectoryGeocodingAddress({
       profileAddress,
       scbWorkplaces: [],
       scbConflicts: [],
     });
 
-    expect(selected).toEqual({ source: "profile", address: profileAddress });
-    expect(shouldRetryDirectoryNoMatchWithCanonicalAddress({
-      geocodeSource: LEGACY_NO_MATCH,
-      profileAddress,
-      selectedAddress: selected,
-    })).toBe(false);
+    expect(selected).toBeNull();
   });
 
   it("does not retry when the canonical workplace leaves the lookup address unchanged", () => {
@@ -112,6 +106,7 @@ describe("Directory geocoding SCB input guards", () => {
       scbWorkplaces: unchangedWorkplace,
       scbConflicts: [],
     });
+    if (!selected) throw new Error("Expected canonical SCB workplace selection");
 
     expect(selected.source).toBe("scb_workplace");
     expect(shouldRetryDirectoryNoMatchWithCanonicalAddress({
