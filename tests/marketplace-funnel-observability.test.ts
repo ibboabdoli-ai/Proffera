@@ -15,17 +15,33 @@ describe("Marketplace funnel observability", () => {
     expect(funnel).toContain("now() - interval '30 days'");
     expect(funnel).toContain("marketplace_quote_invitations");
     expect(funnel).toContain("marketplace_quote_offers");
+    expect(funnel).toContain("marketplace_service_jobs");
+    expect(funnel).toContain("website_reviews");
     expect(funnel).toContain("invitation.viewed_at is not null");
     expect(funnel).toContain("invitation.responded_at is not null");
     expect(funnel).toContain("offer.status = 'selected'");
-    expect(funnel).not.toMatch(/insert\s+into|update\s+marketplace_|delete\s+from|contact_email|contact_phone/i);
+    expect(funnel).toContain("job.status = 'completed'");
+    expect(funnel).toContain("job.completed_at is not null");
+    expect(funnel).toContain("review.is_verified = true");
+    expect(funnel).toContain("review.status = 'approved'");
+    expect(funnel).not.toMatch(/insert\s+into|update\s+(marketplace_|website_reviews)|delete\s+from|contact_email|contact_phone/i);
   });
 
   it("surfaces all request-level stages without adding mutation controls", () => {
     const page = source("src/app/admin/marketplace/funnel/page.tsx");
     const layout = source("src/app/admin/marketplace/layout.tsx");
 
-    for (const label of ["Requests", "Invited", "Viewed", "Responded", "Offers", "Selected"]) {
+    for (const label of [
+      "Requests",
+      "Invited",
+      "Viewed",
+      "Responded",
+      "Offers",
+      "Selected",
+      "Service jobs",
+      "Completed jobs",
+      "Verified reviews",
+    ]) {
       expect(page).toContain(label);
     }
     expect(page).toContain("Observability only");
