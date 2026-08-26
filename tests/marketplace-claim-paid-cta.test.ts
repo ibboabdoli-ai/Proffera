@@ -26,7 +26,7 @@ describe("Marketplace Claim to Paid CTA", () => {
   it("gates the CTA on both the linked Directory profile and subscription-management permission", () => {
     const layoutSource = readFileSync(join(process.cwd(), "src/app/dashboard/marknadsplats/layout.tsx"), "utf8");
 
-    expect(layoutSource).toContain("providerState?.linkedDirectoryProfileId");
+    expect(layoutSource).toContain("providerState.linkedProfile?.id");
     expect(layoutSource).toContain("canManageWorkspaceMembers(access)");
     expect(layoutSource).toContain("hasLinkedClaimedProfile && canManageSubscription");
     expect(layoutSource).toContain("<MarketplaceClaimPaidCta />");
