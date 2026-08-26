@@ -114,6 +114,7 @@ if (RUN_POSTGRES_INTEGRATION) {
         requestId: string;
         requestCreatedAt: Date;
         claimOffsetMs: number;
+        claimRequestedOffsetMs?: number;
         claimStatus?: "claimed" | "verified";
         billingStatus?: "active" | "trialing" | "past_due";
         billingCreatedOffsetMs?: number;
@@ -121,6 +122,9 @@ if (RUN_POSTGRES_INTEGRATION) {
         const workspaceId = randomUUID();
         const profileId = randomUUID();
         const claimId = randomUUID();
+        const claimRequestedAt = new Date(
+          input.requestCreatedAt.getTime() + (input.claimRequestedOffsetMs ?? 30_000),
+        );
         const claimResolvedAt = new Date(input.requestCreatedAt.getTime() + input.claimOffsetMs);
         const invitationTokenHash = profileId.replace(/-/gu, "").padEnd(64, "0");
 
@@ -149,9 +153,9 @@ if (RUN_POSTGRES_INTEGRATION) {
         await client.query(`
           insert into company_directory_claims (
             id, profile_id, claimant_user_id, requested_workspace_id, status,
-            verification_method, resolved_at
-          ) values ($1, $2, 'integration-user', $3, $4, 'email_domain', $5)
-        `, [claimId, profileId, workspaceId, input.claimStatus ?? "claimed", claimResolvedAt]);
+            verification_method, requested_at, resolved_at
+          ) values ($1, $2, 'integration-user', $3, $4, 'email_domain', $5, $6)
+        `, [claimId, profileId, workspaceId, input.claimStatus ?? "claimed", claimRequestedAt, claimResolvedAt]);
 
         if (input.billingStatus) {
           const billingCreatedAt = new Date(
@@ -177,6 +181,16 @@ if (RUN_POSTGRES_INTEGRATION) {
       const preRequestClaimCreated = new Date(now - 24 * 60 * 60_000);
       const preRequestClaim = await seedRequest(preRequestClaimCreated);
       await seedProvider({ requestId: preRequestClaim, requestCreatedAt: preRequestClaimCreated, claimOffsetMs: -60_000, billingStatus: "active" });
+
+      const preRequestInitiationCreated = new Date(now - 18 * 60 * 60_000);
+      const preRequestInitiation = await seedRequest(preRequestInitiationCreated);
+      await seedProvider({
+        requestId: preRequestInitiation,
+        requestCreatedAt: preRequestInitiationCreated,
+        claimRequestedOffsetMs: -60_000,
+        claimOffsetMs: 60_000,
+        billingStatus: "active",
+      });
 
       const verifiedOnlyCreated = new Date(now - 12 * 60 * 60_000);
       const verifiedOnly = await seedRequest(verifiedOnlyCreated);
