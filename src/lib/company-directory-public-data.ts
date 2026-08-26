@@ -111,7 +111,8 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
     select
       organization_number,
       primary_sni_code,
-      website_url
+      website_url,
+      claimed_workspace_id::text
     from company_directory_profiles
     where id = ${business.id}::uuid
       and publication_status = 'published'
@@ -130,7 +131,9 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
   }
 
   const scb = await getConflictFreeScbContact(sql, business.id);
-  const address = canonicalPublishedPhysicalAddress(storedAddress, scb?.workplaces);
+  const address = row.claimed_workspace_id
+    ? storedAddress
+    : canonicalPublishedPhysicalAddress(storedAddress, scb?.workplaces);
   return {
     organizationNumber: String(row.organization_number ?? ""),
     primarySniCode: String(row.primary_sni_code ?? ""),
