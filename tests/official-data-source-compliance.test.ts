@@ -84,10 +84,10 @@ describe("official data source compliance", () => {
       .toThrow("TEST must not embed credentials");
   });
 
-  it("allows automated detail lookup only for Swedish juridical-person organisation identifiers", () => {
+  it("allows company-shaped discovery seeds but blocks sole traders and person-shaped identifiers", () => {
     expect(canQueryBolagsverketCompanyDetail(candidate())).toBe(true);
+    expect(canQueryBolagsverketCompanyDetail(candidate({ organizationKind: "unknown" }))).toBe(true);
     expect(canQueryBolagsverketCompanyDetail(candidate({ organizationKind: "sole_trader", legalForm: "Enskild firma" }))).toBe(false);
-    expect(canQueryBolagsverketCompanyDetail(candidate({ organizationKind: "unknown" }))).toBe(false);
     expect(canQueryBolagsverketCompanyDetail(candidate({ countryCode: "NO" }))).toBe(false);
     expect(canQueryBolagsverketCompanyDetail(candidate({ organizationNumber: "8501011234" }))).toBe(false);
     expect(canQueryBolagsverketCompanyDetail(candidate({ organizationNumber: "123" }))).toBe(false);
