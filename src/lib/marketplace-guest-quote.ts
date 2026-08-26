@@ -9,13 +9,13 @@ import {
   normalizeMarketplaceRecipientEmail,
   suppressMarketplaceGuestRecipientIdentity,
 } from "@/lib/marketplace-guest-opt-out-core";
+import { isQuoteRequestOpenForMatchingOrDelivery } from "@/lib/quote-request-lifecycle";
 import { sendMarketplaceGuestInvitationEmail } from "@/features/email/marketplace-guest-invitation-email";
 
 export { normalizeMarketplaceRecipientEmail } from "@/lib/marketplace-guest-opt-out-core";
 
 const GUEST_INVITATION_TTL_DAYS = 7;
 const ACTIVE_INVITATION_STATUSES = new Set(["pending", "sending", "sent", "viewed", "responded"]);
-const SENDABLE_QUOTE_STATUSES = new Set(["submitted", "pending_review", "approved", "matched", "answered"]);
 const REDACTED_CONTACT = "[…]";
 
 export type MarketplaceGuestQuoteView = {
@@ -244,7 +244,7 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
   const row = rows[0];
   if (!row) return { ok: false as const, code: "not_found" };
 
-  if (!SENDABLE_QUOTE_STATUSES.has(String(row.quote_status))) {
+  if (!isQuoteRequestOpenForMatchingOrDelivery(String(row.quote_status))) {
     return { ok: false as const, code: "quote_closed" };
   }
   if (!Boolean(row.consent_accepted)) {
@@ -624,7 +624,7 @@ async function loadGuestQuoteView(
   if (!row) return null;
   if (Boolean(row.recipient_suppressed)) row.status = "suppressed";
 
-  const quoteOpen = SENDABLE_QUOTE_STATUSES.has(String(row.quote_status));
+  const quoteOpen = isQuoteRequestOpenForMatchingOrDelivery(String(row.quote_status));
   if (!quoteOpen && !options?.allowClosed) return null;
 
   const expiresAt = new Date(String(row.expires_at));
@@ -694,7 +694,7 @@ export async function submitMarketplaceGuestQuote(input: {
   `;
   const row = rows[0];
   if (!row) return { ok: false as const, code: "invalid" };
-  if (!SENDABLE_QUOTE_STATUSES.has(String(row.quote_status))) {
+  if (!isQuoteRequestOpenForMatchingOrDelivery(String(row.quote_status))) {
     return { ok: false as const, code: "closed" };
   }
   if (["suppressed", "declined", "cancelled", "expired"].includes(String(row.status))) {

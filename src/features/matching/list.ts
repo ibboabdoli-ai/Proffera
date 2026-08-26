@@ -1,4 +1,5 @@
 import { getSql } from "@/lib/db/server";
+import { QUOTE_REQUEST_MATCHING_DELIVERY_STATUSES } from "@/lib/quote-request-lifecycle";
 import {
   buildWorkspaceLeadSuggestions,
   type WorkspaceLeadCandidate,
@@ -21,6 +22,14 @@ export type LeadMatch = {
   lead: LeadRow;
   suggestions: WorkspaceLeadSuggestion[];
 };
+
+const [
+  submittedStatus,
+  pendingReviewStatus,
+  approvedStatus,
+  matchedStatus,
+  answeredStatus,
+] = QUOTE_REQUEST_MATCHING_DELIVERY_STATUSES;
 
 function asText(value: unknown) {
   return value === null || value === undefined ? "" : String(value);
@@ -78,6 +87,13 @@ export async function getLeadMatches() {
     const leads = await sql`
       select id, reference_id, category, service_type, city, postal_code, description, status, created_at
       from quote_requests
+      where status in (
+        ${submittedStatus},
+        ${pendingReviewStatus},
+        ${approvedStatus},
+        ${matchedStatus},
+        ${answeredStatus}
+      )
       order by created_at desc
       limit 50
     `;
