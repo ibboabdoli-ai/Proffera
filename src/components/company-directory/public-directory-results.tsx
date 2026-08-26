@@ -151,7 +151,9 @@ export function PublicDirectoryResults({
           const canContact = result.conversionMode === "contact";
           const hasPrimaryMarketplaceAction = Boolean(marketplace?.bookingHref || canQuote || canContact);
           const profileMedia = result.profile?.media;
-          const cardMedia = profileMedia && profileMedia.kind === "image" && profileMedia.role !== "illustration"
+          const cardMedia = profileMedia
+            && profileMedia.role !== "illustration"
+            && (profileMedia.kind === "image" || profileMedia.kind === "photo" || profileMedia.kind === "logo")
             ? profileMedia
             : null;
           const reputation = result.profile?.reputation && result.profile.reputation.verifiedReviews > 0
