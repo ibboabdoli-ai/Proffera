@@ -130,6 +130,24 @@ function postgresSql(client: Client) {
           longitude numeric,
           is_public boolean not null default true
         );
+        create table company_directory_profile_locations (
+          id uuid primary key,
+          profile_id uuid not null,
+          owner_workspace_id uuid,
+          purpose text not null,
+          visibility text not null default 'private',
+          is_visitable boolean not null default false,
+          is_primary boolean not null default false,
+          is_active boolean not null default true,
+          source_type text not null,
+          address_line1 text not null default '',
+          postal_code text not null default '',
+          city text not null default '',
+          municipality text not null default '',
+          latitude numeric,
+          longitude numeric,
+          confirmed_at timestamptz
+        );
         create table company_directory_scb_enrichment (
           profile_id uuid primary key,
           workplaces jsonb not null default '[]'::jsonb,
@@ -172,9 +190,9 @@ function postgresSql(client: Client) {
 
       await client!.query(`
         truncate table company_directory_service_areas, workspace_services,
-          company_directory_scb_enrichment, company_directory_business_locations,
-          company_directory_profile_services, company_directory_services,
-          company_directory_profiles, workspaces
+          company_directory_scb_enrichment, company_directory_profile_locations,
+          company_directory_business_locations, company_directory_profile_services,
+          company_directory_services, company_directory_profiles, workspaces
       `);
 
       await client!.query(`
@@ -192,6 +210,17 @@ function postgresSql(client: Client) {
           $1, 'canonical-workplace-ab', 'Canonical Workplace AB', 'vvs', 'claimed',
           'Gamla vägen 1', '111 11', 'Stockholm', 'Stockholm', 98,
           $2, now()
+        )
+      `, [profileId, workspaceId]);
+      await client!.query(`
+        insert into company_directory_profile_locations (
+          id, profile_id, owner_workspace_id, purpose, visibility,
+          is_visitable, is_primary, source_type,
+          address_line1, postal_code, city, municipality, confirmed_at
+        ) values (
+          'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', $1, $2, 'workplace', 'public',
+          true, true, 'owner',
+          'Ownergatan 1', '111 11', 'Stockholm', 'Stockholm', now()
         )
       `, [profileId, workspaceId]);
       await client!.query(`
