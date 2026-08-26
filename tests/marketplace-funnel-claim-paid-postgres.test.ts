@@ -122,6 +122,7 @@ if (RUN_POSTGRES_INTEGRATION) {
         const profileId = randomUUID();
         const claimId = randomUUID();
         const claimResolvedAt = new Date(input.requestCreatedAt.getTime() + input.claimOffsetMs);
+        const invitationTokenHash = profileId.replace(/-/gu, "").padEnd(64, "0");
 
         await client.query(`
           insert into workspaces (id, slug, name, company_name, primary_city, status)
@@ -144,7 +145,7 @@ if (RUN_POSTGRES_INTEGRATION) {
             sent_at, created_by_admin_user_id
           ) values ($1, $2, $3, 'provider@example.se', $4, 'sent', 1, 90, '[]'::jsonb,
             'manual_business_contact', now() + interval '7 days', now(), 'integration-test')
-        `, [input.requestId, profileId, workspaceId, "a".repeat(64)]);
+        `, [input.requestId, profileId, workspaceId, invitationTokenHash]);
         await client.query(`
           insert into company_directory_claims (
             id, profile_id, claimant_user_id, requested_workspace_id, status,
