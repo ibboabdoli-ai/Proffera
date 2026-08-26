@@ -118,6 +118,7 @@ if (RUN_POSTGRES_INTEGRATION) {
         claimStatus?: "claimed" | "verified";
         billingStatus?: "active" | "trialing" | "past_due";
         billingCreatedOffsetMs?: number;
+        stripeSubscriptionId?: string;
       }) {
         const workspaceId = randomUUID();
         const profileId = randomUUID();
@@ -165,7 +166,13 @@ if (RUN_POSTGRES_INTEGRATION) {
             insert into workspace_billing_subscriptions (
               id, workspace_id, stripe_subscription_id, stripe_price_id, status, created_at
             ) values ($1, $2, $3, 'price_test', $4, $5)
-          `, [randomUUID(), workspaceId, `sub_${workspaceId.replace(/-/gu, "")}`, input.billingStatus, billingCreatedAt]);
+          `, [
+            randomUUID(),
+            workspaceId,
+            input.stripeSubscriptionId ?? `sub_${workspaceId.replace(/-/gu, "")}`,
+            input.billingStatus,
+            billingCreatedAt,
+          ]);
         }
       }
 
@@ -183,6 +190,16 @@ if (RUN_POSTGRES_INTEGRATION) {
         claimOffsetMs: 120_000,
         billingStatus: "active",
         billingCreatedOffsetMs: 0,
+      });
+
+      const blankSubscriptionCreated = new Date(now - 30 * 60 * 60_000);
+      const blankSubscription = await seedRequest(blankSubscriptionCreated);
+      await seedProvider({
+        requestId: blankSubscription,
+        requestCreatedAt: blankSubscriptionCreated,
+        claimOffsetMs: 60_000,
+        billingStatus: "active",
+        stripeSubscriptionId: "   ",
       });
 
       const preRequestClaimCreated = new Date(now - 24 * 60 * 60_000);
@@ -229,7 +246,7 @@ if (RUN_POSTGRES_INTEGRATION) {
       }) as unknown as Parameters<typeof readAdminMarketplaceClaimPaidCounts>[0];
 
       const counts = await readAdminMarketplaceClaimPaidCounts(pgSql);
-      expect(counts).toEqual({ claimedRequests: 3, paidRequests: 1 });
+      expect(counts).toEqual({ claimedRequests: 4, paidRequests: 1 });
     });
   });
 }
