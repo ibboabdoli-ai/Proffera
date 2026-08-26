@@ -11,6 +11,28 @@ const MAX_ERROR_PATH_LENGTH = 160;
 const MAX_ERROR_TYPE_LENGTH = 80;
 const MAX_ERROR_DESCRIPTION_LENGTH = 240;
 const MAX_ERROR_SUMMARY_LENGTH = 1600;
+const ORGANIZATION_NOT_FOUND_ERROR_TYPE = "ORGANISATION_FINNS_EJ";
+
+export class BolagsverketOrganizationNotFoundError extends Error {
+  constructor(message = ORGANIZATION_NOT_FOUND_ERROR_TYPE) {
+    super(message);
+    this.name = "BolagsverketOrganizationNotFoundError";
+  }
+}
+
+export function isBolagsverketOrganizationNotFoundError(
+  error: unknown,
+): error is BolagsverketOrganizationNotFoundError {
+  return error instanceof BolagsverketOrganizationNotFoundError;
+}
+
+export function isDeterministicBolagsverketOrganizationNotFound(
+  errors: BolagsverketApiError[],
+) {
+  return errors.length > 0 && errors.every(
+    (error) => error.type.trim().toUpperCase() === ORGANIZATION_NOT_FOUND_ERROR_TYPE,
+  );
+}
 
 function object(value: unknown): AnyRecord | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as AnyRecord : null;
