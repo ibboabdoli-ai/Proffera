@@ -484,36 +484,62 @@ function normalizeApprovedBaseUrl(input: {
   };
 }
 
-function getGeocodingConfig() {
-  const enabled = geocodingEnabled();
-  const username = process.env.LANTMATERIET_ADDRESS_API_USERNAME?.trim() ?? "";
-  const password = process.env.LANTMATERIET_ADDRESS_API_PASSWORD?.trim() ?? "";
-  const rawDetailBase = process.env.LANTMATERIET_ADDRESS_API_BASE_URL?.trim()
-    || DEFAULT_LANTMATERIET_DETAIL_BASE_URL;
-  const rawLookupBase = process.env.LANTMATERIET_ADDRESS_LOOKUP_API_BASE_URL?.trim()
-    || DEFAULT_LANTMATERIET_LOOKUP_BASE_URL;
+function lookupBaseForDetailEnvironment(detailBaseUrl: string) {
+  const detailUrl = new URL(detailBaseUrl);
+  return `${detailUrl.origin}/distribution/produkter/uppslag/adress/v3`;
+}
+
+function sameApiEnvironment(leftBaseUrl: string, rightBaseUrl: string) {
+  return new URL(leftBaseUrl).hostname === new URL(rightBaseUrl).hostname;
+}
+
+export function resolveDirectoryGeocodingApiBases(input: {
+  detailBaseUrl?: string;
+  lookupBaseUrl?: string;
+}) {
+  const rawDetailBase = input.detailBaseUrl?.trim() || DEFAULT_LANTMATERIET_DETAIL_BASE_URL;
   const detail = normalizeApprovedBaseUrl({
     rawUrl: rawDetailBase,
     fallbackUrl: DEFAULT_LANTMATERIET_DETAIL_BASE_URL,
     expectedPath: "/distribution/produkter/belagenhetsadress/v4.2",
   });
+  const derivedLookupBase = lookupBaseForDetailEnvironment(detail.baseUrl);
+  const rawLookupBase = input.lookupBaseUrl?.trim() || derivedLookupBase;
   const lookup = normalizeApprovedBaseUrl({
     rawUrl: rawLookupBase,
-    fallbackUrl: DEFAULT_LANTMATERIET_LOOKUP_BASE_URL,
+    fallbackUrl: detail.accepted ? derivedLookupBase : DEFAULT_LANTMATERIET_LOOKUP_BASE_URL,
     expectedPath: "/distribution/produkter/uppslag/adress/v3",
+  });
+  const accepted = detail.accepted
+    && lookup.accepted
+    && sameApiEnvironment(detail.baseUrl, lookup.baseUrl);
+
+  return {
+    accepted,
+    lookupBaseUrl: lookup.baseUrl,
+    detailBaseUrl: detail.baseUrl,
+  };
+}
+
+function getGeocodingConfig() {
+  const enabled = geocodingEnabled();
+  const username = process.env.LANTMATERIET_ADDRESS_API_USERNAME?.trim() ?? "";
+  const password = process.env.LANTMATERIET_ADDRESS_API_PASSWORD?.trim() ?? "";
+  const apiBases = resolveDirectoryGeocodingApiBases({
+    detailBaseUrl: process.env.LANTMATERIET_ADDRESS_API_BASE_URL,
+    lookupBaseUrl: process.env.LANTMATERIET_ADDRESS_LOOKUP_API_BASE_URL,
   });
 
   return {
     enabled,
     username,
     password,
-    lookupBaseUrl: lookup.baseUrl,
-    detailBaseUrl: detail.baseUrl,
+    lookupBaseUrl: apiBases.lookupBaseUrl,
+    detailBaseUrl: apiBases.detailBaseUrl,
     configured: enabled
       && Boolean(username)
       && Boolean(password)
-      && lookup.accepted
-      && detail.accepted,
+      && apiBases.accepted,
   };
 }
 
