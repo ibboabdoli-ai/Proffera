@@ -63,20 +63,29 @@ export async function waitForBolagsverketRequestSlot(provider: unknown) {
 }
 
 /**
- * Automated Company Directory detail lookups intentionally stay on Swedish
- * juridical-person identities and never use a personnummer/sole-trader path.
- * Swedish organisationsnummer have ten digits and a third digit of at least 2,
- * which keeps personnummer-shaped identifiers outside this adapter boundary.
+ * Swedish juridical-person organisation numbers have a non-date identity
+ * shape: the third digit is at least 2. Personnummer-shaped identities use the
+ * month position there and are excluded before automatic Bolagsverket lookup.
+ */
+export function isBolagsverketJuridicalOrganizationNumber(value: unknown) {
+  const organizationNumber = String(value ?? "").replace(/\D/g, "");
+  return /^\d{10}$/.test(organizationNumber)
+    && Number(organizationNumber[2]) >= 2;
+}
+
+/**
+ * Automated Company Directory detail lookups stay on Swedish company-shaped
+ * identities. Discovery seeds are `unknown` until the official detail response
+ * supplies the legal form, so they may be verified when the identifier is not
+ * person-shaped. Known sole traders remain blocked.
  */
 export function canQueryBolagsverketCompanyDetail(candidate: {
   countryCode: unknown;
   organizationNumber: unknown;
   organizationKind: unknown;
 }) {
-  const organizationNumber = String(candidate.organizationNumber ?? "").replace(/\D/g, "");
-  const hasOrganizationNumberShape = /^\d{10}$/.test(organizationNumber)
-    && Number(organizationNumber[2]) >= 2;
+  const kind = String(candidate.organizationKind ?? "").trim();
   return String(candidate.countryCode ?? "").trim().toUpperCase() === "SE"
-    && candidate.organizationKind === "juridical_person"
-    && hasOrganizationNumberShape;
+    && isBolagsverketJuridicalOrganizationNumber(candidate.organizationNumber)
+    && (kind === "juridical_person" || kind === "unknown");
 }
