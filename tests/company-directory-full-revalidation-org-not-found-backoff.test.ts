@@ -122,7 +122,7 @@ describe("full Directory deterministic Official Facts retry backoff", () => {
     expect(backoff?.query).toContain("next_attempt_at");
     expect(backoff?.values).toContain(7);
     expect(backoff?.values).toContain(PROFILE_ID);
-    expect(backoff?.values.some((value) => String(value).startsWith(BACKOFF_PREFIX))).toBe(true);
+    expect(backoff?.values.some((value) => String(value).startsWith(`${BACKOFF_PREFIX}:`))).toBe(true);
   });
 
   it("keeps transient Official Facts failures as errors instead of quarantining them", async () => {
@@ -158,7 +158,7 @@ describe("full Directory deterministic Official Facts retry backoff", () => {
     expect(sqlCalls.some((call) => call.query.includes("update company_directory_discovery_queue"))).toBe(false);
   });
 
-  it("adds a bounded queue marker to candidate and backlog suppression queries", async () => {
+  it("uses the exact namespaced marker boundary in candidate and backlog suppression queries", async () => {
     responder = async (query) => {
       if (query.includes("with blocked as (")) return [];
       if (query.includes("started_at < now() - interval '10 minutes'")) return [];
@@ -179,7 +179,8 @@ describe("full Directory deterministic Official Facts retry backoff", () => {
     for (const call of [selection, backlog]) {
       expect(call?.query).toContain("next_attempt_at > now()");
       expect(call?.query).toContain("queue.state = 'review'");
-      expect(call?.values).toContain(`${BACKOFF_PREFIX}%`);
+      expect(call?.values).toContain(`${BACKOFF_PREFIX}:%`);
+      expect(call?.values).not.toContain(`${BACKOFF_PREFIX}%`);
     }
   });
 });
