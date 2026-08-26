@@ -2,6 +2,11 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 
+import {
+  canQueryBolagsverketCompanyDetail,
+  requireBolagsverketHttpsUrl,
+  waitForBolagsverketRequestSlot,
+} from "@/lib/bolagsverket-api-policy";
 import { resolveCompleteBolagsverketOrganizationRecord } from "@/lib/company-directory-detail-validation";
 import {
   classifyOrganizationKind,
@@ -463,13 +468,14 @@ async function oauthAccessToken() {
   const clientId = process.env.BOLAGSVERKET_CLIENT_ID?.trim();
   const clientSecret = process.env.BOLAGSVERKET_CLIENT_SECRET?.trim();
   if (!tokenUrl || !clientId || !clientSecret) return "";
+  const secureTokenUrl = requireBolagsverketHttpsUrl(tokenUrl, "COMPANY_DIRECTORY_TOKEN_URL");
 
   const basic = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
   const scope = process.env.COMPANY_DIRECTORY_OAUTH_SCOPE?.trim();
   const body = new URLSearchParams({ grant_type: "client_credentials" });
   if (scope) body.set("scope", scope);
 
-  const response = await fetch(tokenUrl, {
+  const response = await fetch(secureTokenUrl, {
     method: "POST",
     headers: {
       authorization: `Basic ${basic}`,
@@ -545,11 +551,13 @@ function mergeVerifiedCandidate(
 export async function fetchOfficialCompanyDirectoryBatch(input: { cursor?: string; limit?: number } = {}): Promise<CompanyDirectorySourceBatch> {
   const sourceUrl = process.env.COMPANY_DIRECTORY_SOURCE_URL?.trim();
   if (!sourceUrl) throw new Error("COMPANY_DIRECTORY_SOURCE_URL is not configured");
+  const secureSourceUrl = requireBolagsverketHttpsUrl(sourceUrl, "COMPANY_DIRECTORY_SOURCE_URL");
 
   const provider = process.env.COMPANY_DIRECTORY_PROVIDER?.trim() || DEFAULT_PROVIDER;
   const limit = Math.max(1, Math.min(100, input.limit ?? Number(process.env.COMPANY_DIRECTORY_BATCH_SIZE || 20)));
   const token = await oauthAccessToken();
-  const response = await fetch(withCursor(sourceUrl, input.cursor ?? "", limit), {
+  await waitForBolagsverketRequestSlot(provider);
+  const response = await fetch(withCursor(secureSourceUrl.toString(), input.cursor ?? "", limit), {
     headers: {
       accept: "application/json",
       ...(token ? { authorization: `Bearer ${token}` } : {}),
@@ -573,11 +581,16 @@ export async function fetchOfficialCompanyDirectoryBatch(input: { cursor?: strin
 export async function verifyOfficialCompanyCandidate(candidate: NormalizedDirectoryCandidate) {
   const template = process.env.COMPANY_DIRECTORY_DETAIL_URL_TEMPLATE?.trim();
   if (!template) return candidate;
+  if (!canQueryBolagsverketCompanyDetail(candidate)) return candidate;
 
+  const provider = candidate.officialSource.trim() || DEFAULT_PROVIDER;
   const token = await oauthAccessToken();
   const method = process.env.COMPANY_DIRECTORY_DETAIL_METHOD?.trim().toUpperCase() === "GET" ? "GET" : "POST";
   const organizationNumber = candidate.organizationNumber.replace(/\D/g, "");
-  const url = replaceOrganizationNumber(template, organizationNumber);
+  const url = requireBolagsverketHttpsUrl(
+    replaceOrganizationNumber(template, organizationNumber),
+    "COMPANY_DIRECTORY_DETAIL_URL_TEMPLATE",
+  );
   const bodyTemplate = process.env.COMPANY_DIRECTORY_DETAIL_BODY_TEMPLATE?.trim();
   const body = method === "POST"
     ? (bodyTemplate
@@ -585,6 +598,7 @@ export async function verifyOfficialCompanyCandidate(candidate: NormalizedDirect
       : JSON.stringify({ identitetsbeteckning: organizationNumber }))
     : undefined;
 
+  await waitForBolagsverketRequestSlot(provider);
   const response = await fetch(url, {
     method,
     headers: {
@@ -600,8 +614,8 @@ export async function verifyOfficialCompanyCandidate(candidate: NormalizedDirect
   if (!response.ok) throw new Error(`Official company verification failed (${response.status})`);
 
   const row = detailRecord(await response.json(), organizationNumber);
-  const provider = `${candidate.officialSource}:detail`;
-  const verified = normalizeSourceRecord(row, provider);
+  const detailProvider = `${provider}:detail`;
+  const verified = normalizeSourceRecord(row, detailProvider);
   if (!verified) throw new Error("Official company verification record could not be normalized");
   if (verified.organizationNumber !== organizationNumber) {
     throw new Error("Official company verification returned a different organization number");
