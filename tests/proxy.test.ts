@@ -22,6 +22,32 @@ describe("proxy request boundary", () => {
     expect(response.headers.get("www-authenticate")).toBeNull();
   });
 
+  it("fails closed unknown admin route families before document or RSC rendering", async () => {
+    const documentResponse = await proxy(request("/admin/unknown"));
+    const rscResponse = await proxy(request("/admin/unknown", {
+      RSC: "1",
+      "Next-Router-State-Tree": "%5B%22%22%5D",
+    }));
+
+    for (const response of [documentResponse, rscResponse]) {
+      expect(response.status).toBe(404);
+      expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow");
+      expect(response.headers.get("x-middleware-next")).toBeNull();
+    }
+  });
+
+  it("allows mapped admin RSC navigation and preserves the exact authorization path", async () => {
+    const response = await proxy(request("/admin/support/session-123", {
+      RSC: "1",
+      "Next-Router-State-Tree": "%5B%22%22%5D",
+    }));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(response.headers.get("x-middleware-request-x-proffera-admin-path")).toBe("/admin/support/session-123");
+    expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow");
+  });
+
   it("does not require a shared Basic Auth secret before route-level Platform Admin authorization", async () => {
     const response = await proxy(request("/api/outbox"));
 
