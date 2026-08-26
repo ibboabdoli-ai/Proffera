@@ -113,10 +113,10 @@ function postgresSql(client: Client) {
       if (withQueue) {
         await client!.query(`
           insert into company_directory_discovery_queue (
-            profile_id, country_code, organization_number, state,
+            profile_id, country_code, organization_number, provider, state,
             attempt_count, next_attempt_at, last_error
           ) values (
-            $1::uuid, 'SE', $2, 'review',
+            $1::uuid, 'SE', $2, 'bolagsverket_vardefulla_datamangder', 'review',
             $3, now() - interval '1 day', ''
           )
         `, [PROFILE_ID, ORGANIZATION_NUMBER, INITIAL_ATTEMPT_COUNT]);
@@ -211,16 +211,34 @@ function postgresSql(client: Client) {
         );
         create table company_directory_discovery_queue (
           id uuid primary key default gen_random_uuid(),
-          profile_id uuid,
           country_code text not null default 'SE',
           organization_number text not null,
-          state text not null,
+          provider text not null,
+          source_fingerprint text not null default '',
+          source_url text not null default '',
+          state text not null default 'pending_verify',
           attempt_count integer not null default 0,
           next_attempt_at timestamptz not null default now(),
-          last_error text not null default '',
           locked_at timestamptz,
-          lock_token uuid
+          lock_token uuid,
+          last_error text not null default '',
+          first_seen_at timestamptz not null default now(),
+          last_seen_at timestamptz not null default now(),
+          verified_at timestamptz,
+          profile_id uuid references company_directory_profiles(id) on delete set null,
+          constraint company_directory_discovery_queue_country_check check (country_code ~ '^[A-Z]{2}$'),
+          constraint company_directory_discovery_queue_org_check check (organization_number ~ '^[0-9]{10}$'),
+          constraint company_directory_discovery_queue_state_check check (
+            state in ('pending_verify', 'processing', 'ready', 'review', 'blocked', 'inactive', 'published', 'claimed', 'failed')
+          ),
+          constraint company_directory_discovery_queue_attempt_check check (attempt_count >= 0),
+          constraint company_directory_discovery_queue_lock_pair_check check (
+            (locked_at is null and lock_token is null)
+            or (locked_at is not null and lock_token is not null)
+          )
         );
+        create unique index company_directory_discovery_country_org_unique_idx
+          on company_directory_discovery_queue (country_code, organization_number);
       `);
     }, 120_000);
 
