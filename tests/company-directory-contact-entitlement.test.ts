@@ -205,7 +205,15 @@ describe("company directory direct-contact entitlement", () => {
       website_url: "https://example.se",
       phone: "+46 8 123 45 67",
       email: "kontakt@example.se",
-      direct_address_line1: "SCB-gatan 2",
+      workplaces: [{
+        cfarNumber: "12345678",
+        municipality: "Stockholm",
+        visitingAddress: {
+          addressLine: "SCB-gatan 2",
+          postalCode: "111 11",
+          city: "Stockholm",
+        },
+      }],
     }]));
 
     const result = await getPublicDirectoryBusinessForRequest("scb-public-profile");
