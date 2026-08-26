@@ -163,7 +163,7 @@ describe("Bolagsverket official /organisationer response", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe("https://gw.api.bolagsverket.se/vardefulla-datamangder/v1/organisationer");
+    expect(String(url)).toBe("https://gw.api.bolagsverket.se/vardefulla-datamangder/v1/organisationer");
     expect(init).toMatchObject({
       method: "POST",
       body: JSON.stringify({ identitetsbeteckning: "5299999994" }),
