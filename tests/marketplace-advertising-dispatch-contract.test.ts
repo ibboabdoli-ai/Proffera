@@ -39,6 +39,17 @@ const eligibleRow = {
   claimed_workspace_id: null,
 };
 
+type FixtureOptions = {
+  advertisingBlocked: boolean | null | undefined;
+  factsPresent?: boolean;
+  existingStatus?: "delivery_failed" | null;
+};
+
+type InvitationState = {
+  status: "none" | "sending" | "pending" | "delivery_failed" | "sent";
+  dispatchToken: string | null;
+};
+
 function invitationInput() {
   return {
     quoteRequestId: eligibleRow.quote_request_id,
@@ -57,13 +68,14 @@ function queryText(args: readonly unknown[]) {
   return (strings ?? []).join(" ? ").replace(/\s+/g, " ").trim();
 }
 
-function createSql(advertisingBlocked: boolean | null | undefined) {
-  const state: {
-    status: "none" | "sending" | "pending" | "delivery_failed" | "sent";
-    dispatchToken: string | null;
-  } = {
-    status: "none",
-    dispatchToken: null,
+function createSql({
+  advertisingBlocked,
+  factsPresent = true,
+  existingStatus = null,
+}: FixtureOptions) {
+  const state: InvitationState = {
+    status: existingStatus ?? "none",
+    dispatchToken: existingStatus ? "existing-dispatch-token" : null,
   };
 
   const sql = vi.fn(async (...args: unknown[]) => {
@@ -71,9 +83,25 @@ function createSql(advertisingBlocked: boolean | null | undefined) {
 
     if (query.includes("from quote_requests q")) return [eligibleRow];
     if (query.includes("select id from marketplace_outreach_suppressions")) return [];
-    if (query.includes("stale_reservation") && query.includes("from marketplace_quote_invitations")) return [];
+
+    if (query.includes("stale_reservation") && query.includes("from marketplace_quote_invitations")) {
+      if (state.status === "none") return [];
+      return [{
+        id: invitationId,
+        status: state.status,
+        stale_reservation: false,
+      }];
+    }
+
+    if (query.includes("set recipient_email =") && query.includes("status = 'sending'")) {
+      if (state.status !== "delivery_failed") return [];
+      state.status = "sending";
+      state.dispatchToken = String(args[4] ?? "");
+      return [{ id: invitationId }];
+    }
 
     if (query.includes("insert into marketplace_quote_invitations")) {
+      if (state.status !== "none") return [];
       state.status = "sending";
       state.dispatchToken = String(args[6] ?? "");
       return [{ id: invitationId }];
@@ -83,7 +111,7 @@ function createSql(advertisingBlocked: boolean | null | undefined) {
       const ownsLease = state.status === "sending"
         && state.dispatchToken !== null
         && state.dispatchToken === String(args[2] ?? "");
-      if (advertisingBlocked === false && ownsLease) {
+      if (factsPresent && advertisingBlocked === false && ownsLease) {
         state.status = "pending";
         return [{ id: invitationId }];
       }
@@ -94,7 +122,7 @@ function createSql(advertisingBlocked: boolean | null | undefined) {
       const ownsLease = state.status === "sending"
         && state.dispatchToken !== null
         && state.dispatchToken === String(args[2] ?? "");
-      if (advertisingBlocked !== false && ownsLease) {
+      if ((!factsPresent || advertisingBlocked !== false) && ownsLease) {
         state.status = "delivery_failed";
         state.dispatchToken = null;
       }
@@ -117,6 +145,20 @@ function createSql(advertisingBlocked: boolean | null | undefined) {
   return { sql, state };
 }
 
+async function expectDispatchBlocked(options: FixtureOptions) {
+  const { sql, state } = createSql(options);
+  mocks.getSql.mockReturnValue(sql);
+
+  const result = await sendMarketplaceGuestQuoteInvitation(invitationInput());
+
+  expect(result).toEqual({ ok: false, code: "conflict" });
+  expect(mocks.sendInvitationEmail).not.toHaveBeenCalled();
+  expect(state.status).toBe("delivery_failed");
+  expect(state.dispatchToken).toBeNull();
+
+  return sql;
+}
+
 describe("Marketplace advertising dispatch contract", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -132,19 +174,11 @@ describe("Marketplace advertising dispatch contract", () => {
   });
 
   it.each([
-    ["blocked", true],
-    ["unknown", null],
-    ["missing", undefined],
-  ])("does not deliver when advertising permission is %s", async (_label, advertisingBlocked) => {
-    const { sql, state } = createSql(advertisingBlocked);
-    mocks.getSql.mockReturnValue(sql);
-
-    const result = await sendMarketplaceGuestQuoteInvitation(invitationInput());
-
-    expect(result).toEqual({ ok: false, code: "conflict" });
-    expect(mocks.sendInvitationEmail).not.toHaveBeenCalled();
-    expect(state.status).toBe("delivery_failed");
-    expect(state.dispatchToken).toBeNull();
+    ["blocked", { advertisingBlocked: true, factsPresent: true }],
+    ["unknown", { advertisingBlocked: null, factsPresent: true }],
+    ["missing Official Facts row", { advertisingBlocked: undefined, factsPresent: false }],
+  ] as const)("does not deliver when advertising permission is %s", async (_label, options) => {
+    const sql = await expectDispatchBlocked(options);
 
     const queries = sql.mock.calls.map((call) => queryText(call));
     const dispatchClaim = queries.find((query) => query.includes("set status = 'pending'"));
@@ -161,7 +195,7 @@ describe("Marketplace advertising dispatch contract", () => {
   });
 
   it("delivers when advertising permission is explicitly false", async () => {
-    const { sql, state } = createSql(false);
+    const { sql, state } = createSql({ advertisingBlocked: false });
     mocks.getSql.mockReturnValue(sql);
     mocks.sendInvitationEmail.mockResolvedValue({ ok: true, providerMessageId: "provider-1" });
 
@@ -181,6 +215,36 @@ describe("Marketplace advertising dispatch contract", () => {
       (query) => query.includes("set status = 'delivery_failed'")
         && query.includes("company_directory_official_facts facts"),
     )).toBe(false);
+  });
+
+  it.each([
+    ["blocked", { advertisingBlocked: true, factsPresent: true }],
+    ["unknown", { advertisingBlocked: null, factsPresent: true }],
+    ["missing Official Facts row", { advertisingBlocked: undefined, factsPresent: false }],
+  ] as const)("releases a reused invitation lease when permission is %s", async (_label, options) => {
+    await expectDispatchBlocked({
+      ...options,
+      existingStatus: "delivery_failed",
+    });
+  });
+
+  it("delivers through the existing-invitation update path when permission is explicitly false", async () => {
+    const { sql, state } = createSql({
+      advertisingBlocked: false,
+      existingStatus: "delivery_failed",
+    });
+    mocks.getSql.mockReturnValue(sql);
+    mocks.sendInvitationEmail.mockResolvedValue({ ok: true, providerMessageId: "provider-existing" });
+
+    const result = await sendMarketplaceGuestQuoteInvitation(invitationInput());
+
+    expect(result).toEqual({ ok: true, invitationId });
+    expect(mocks.sendInvitationEmail).toHaveBeenCalledTimes(1);
+    expect(state.status).toBe("sent");
+    expect(state.dispatchToken).not.toBeNull();
+    expect(sql.mock.calls.map((call) => queryText(call)).some(
+      (query) => query.includes("set recipient_email =") && query.includes("status = 'sending'"),
+    )).toBe(true);
   });
 
   it("renders a missing offer availability date as an empty string", () => {
