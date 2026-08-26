@@ -100,40 +100,84 @@ export async function getPublishedDirectoryLocationSuggestions(limit = 50) {
     with eligible as (
       select
         profile.id,
-        profile.address_line1,
-        profile.postal_code,
-        profile.city,
-        profile.municipality,
         profile.claimed_workspace_id,
-        scb.workplaces
+        scb.workplaces,
+        owner_location.id as owner_location_id,
+        owner_location.visibility as owner_visibility,
+        owner_location.owner_exact_public,
+        owner_location.city as owner_city,
+        owner_location.municipality as owner_municipality
       from company_directory_profiles profile
+      left join workspaces claimed_workspace
+        on claimed_workspace.id = profile.claimed_workspace_id
       left join company_directory_scb_enrichment scb
         on scb.profile_id = profile.id
        and scb.conflicts = '[]'::jsonb
-      where profile.publication_status = 'published'
+      left join lateral (
+        select
+          location.id,
+          location.visibility,
+          location.city,
+          location.municipality,
+          (
+            location.visibility = 'public'
+            and location.is_visitable = true
+            and location.confirmed_at is not null
+            and nullif(trim(location.address_line1), '') is not null
+            and nullif(trim(location.postal_code), '') is not null
+            and nullif(trim(location.city), '') is not null
+            and nullif(trim(location.municipality), '') is not null
+          ) as owner_exact_public
+        from company_directory_profile_locations location
+        where location.profile_id = profile.id
+          and location.owner_workspace_id = profile.claimed_workspace_id
+          and location.source_type = 'owner'
+          and location.is_active = true
+          and location.is_primary = true
+          and location.purpose in ('workplace', 'storefront', 'service_base')
+        limit 1
+      ) owner_location on true
+      where (
+          profile.publication_status = 'published'
+          or (
+            profile.publication_status = 'claimed'
+            and profile.claimed_workspace_id is not null
+            and profile.published_at is not null
+            and profile.auto_public_eligible = true
+            and claimed_workspace.status in ('active', 'trial')
+          )
+        )
         and profile.is_active = true
         and profile.privacy_blocked = false
     ), resolved as (
       select
         case
-          when claimed_workspace_id is null
-            and jsonb_array_length(coalesce(workplaces, '[]'::jsonb)) = 1
+          when owner_location_id is not null and owner_visibility = 'approximate'
+            then coalesce(trim(owner_city), '')
+          when owner_location_id is not null and owner_exact_public
+            then coalesce(trim(owner_city), '')
+          when owner_location_id is not null then ''
+          when jsonb_array_length(coalesce(workplaces, '[]'::jsonb)) = 1
             and nullif(trim(workplaces -> 0 #>> '{visitingAddress,addressLine}'), '') is not null
             and nullif(trim(workplaces -> 0 #>> '{visitingAddress,postalCode}'), '') is not null
             and nullif(trim(workplaces -> 0 #>> '{visitingAddress,city}'), '') is not null
             and nullif(trim(workplaces -> 0 ->> 'municipality'), '') is not null
           then trim(workplaces -> 0 #>> '{visitingAddress,city}')
-          else city
+          else ''
         end as city,
         case
-          when claimed_workspace_id is null
-            and jsonb_array_length(coalesce(workplaces, '[]'::jsonb)) = 1
+          when owner_location_id is not null and owner_visibility = 'approximate'
+            then coalesce(trim(owner_municipality), '')
+          when owner_location_id is not null and owner_exact_public
+            then coalesce(trim(owner_municipality), '')
+          when owner_location_id is not null then ''
+          when jsonb_array_length(coalesce(workplaces, '[]'::jsonb)) = 1
             and nullif(trim(workplaces -> 0 #>> '{visitingAddress,addressLine}'), '') is not null
             and nullif(trim(workplaces -> 0 #>> '{visitingAddress,postalCode}'), '') is not null
             and nullif(trim(workplaces -> 0 #>> '{visitingAddress,city}'), '') is not null
             and nullif(trim(workplaces -> 0 ->> 'municipality'), '') is not null
           then coalesce(trim(workplaces -> 0 ->> 'municipality'), '')
-          else municipality
+          else ''
         end as municipality
       from eligible
     ), locations as (
@@ -193,8 +237,8 @@ export async function searchPublishedCompanyDirectory(
     with matches as (
       select
         profile.id::text,
-        location.latitude::float8 as latitude,
-        location.longitude::float8 as longitude,
+        public_coordinate.latitude,
+        public_coordinate.longitude,
         row_number() over (
           partition by profile.id
           order by service.label asc, relation.service_slug asc
@@ -215,9 +259,37 @@ export async function searchPublishedCompanyDirectory(
       left join company_directory_scb_enrichment scb_location
         on scb_location.profile_id = profile.id
        and scb_location.conflicts = '[]'::jsonb
+      left join lateral (
+        select
+          owner.id,
+          owner.visibility,
+          owner.address_line1,
+          owner.postal_code,
+          owner.city,
+          owner.municipality,
+          owner.latitude::float8 as latitude,
+          owner.longitude::float8 as longitude,
+          (
+            owner.visibility = 'public'
+            and owner.is_visitable = true
+            and owner.confirmed_at is not null
+            and nullif(trim(owner.address_line1), '') is not null
+            and nullif(trim(owner.postal_code), '') is not null
+            and nullif(trim(owner.city), '') is not null
+            and nullif(trim(owner.municipality), '') is not null
+          ) as owner_exact_public
+        from company_directory_profile_locations owner
+        where owner.profile_id = profile.id
+          and owner.owner_workspace_id = profile.claimed_workspace_id
+          and owner.source_type = 'owner'
+          and owner.is_active = true
+          and owner.is_primary = true
+          and owner.purpose in ('workplace', 'storefront', 'service_base')
+        limit 1
+      ) owner_location on true
       cross join lateral (
         select (
-          profile.claimed_workspace_id is null
+          owner_location.id is null
           and jsonb_array_length(coalesce(scb_location.workplaces, '[]'::jsonb)) = 1
           and nullif(trim(scb_location.workplaces -> 0 #>> '{visitingAddress,addressLine}'), '') is not null
           and nullif(trim(scb_location.workplaces -> 0 #>> '{visitingAddress,postalCode}'), '') is not null
@@ -227,15 +299,40 @@ export async function searchPublishedCompanyDirectory(
       ) location_choice
       cross join lateral (
         select
-          case when location_choice.use_scb_workplace
-            then trim(scb_location.workplaces -> 0 #>> '{visitingAddress,city}')
-            else profile.city
+          case
+            when owner_location.id is not null and owner_location.visibility = 'approximate'
+              then coalesce(trim(owner_location.city), '')
+            when owner_location.owner_exact_public
+              then coalesce(trim(owner_location.city), '')
+            when owner_location.id is not null then ''
+            when location_choice.use_scb_workplace
+              then trim(scb_location.workplaces -> 0 #>> '{visitingAddress,city}')
+            else ''
           end as city,
-          case when location_choice.use_scb_workplace
-            then coalesce(trim(scb_location.workplaces -> 0 ->> 'municipality'), '')
-            else profile.municipality
+          case
+            when owner_location.id is not null and owner_location.visibility = 'approximate'
+              then coalesce(trim(owner_location.municipality), '')
+            when owner_location.owner_exact_public
+              then coalesce(trim(owner_location.municipality), '')
+            when owner_location.id is not null then ''
+            when location_choice.use_scb_workplace
+              then coalesce(trim(scb_location.workplaces -> 0 ->> 'municipality'), '')
+            else ''
           end as municipality
       ) public_location
+      cross join lateral (
+        select
+          case
+            when owner_location.owner_exact_public then owner_location.latitude
+            when location_choice.use_scb_workplace then location.latitude::float8
+            else null
+          end as latitude,
+          case
+            when owner_location.owner_exact_public then owner_location.longitude
+            when location_choice.use_scb_workplace then location.longitude::float8
+            else null
+          end as longitude
+      ) public_coordinate
       where (
           profile.publication_status = 'published'
           or (
@@ -258,7 +355,7 @@ export async function searchPublishedCompanyDirectory(
         )
         and (
           ${nearbyEnabled} = false
-          or (location.latitude is not null and location.longitude is not null)
+          or (public_coordinate.latitude is not null and public_coordinate.longitude is not null)
         )
     ), ranked as (
       select
@@ -314,8 +411,8 @@ export async function searchPublishedCompanyDirectory(
         public_location.city,
         public_location.municipality,
         profile.quality_score,
-        location.latitude::float8 as latitude,
-        location.longitude::float8 as longitude,
+        public_coordinate.latitude,
+        public_coordinate.longitude,
         service_area.radius_km::float8 as service_area_radius_km,
         claimed_workspace.id::text as claimed_workspace_id,
         claimed_workspace.slug as claimed_workspace_slug,
@@ -348,9 +445,37 @@ export async function searchPublishedCompanyDirectory(
       left join company_directory_scb_enrichment scb_location
         on scb_location.profile_id = profile.id
        and scb_location.conflicts = '[]'::jsonb
+      left join lateral (
+        select
+          owner.id,
+          owner.visibility,
+          owner.address_line1,
+          owner.postal_code,
+          owner.city,
+          owner.municipality,
+          owner.latitude::float8 as latitude,
+          owner.longitude::float8 as longitude,
+          (
+            owner.visibility = 'public'
+            and owner.is_visitable = true
+            and owner.confirmed_at is not null
+            and nullif(trim(owner.address_line1), '') is not null
+            and nullif(trim(owner.postal_code), '') is not null
+            and nullif(trim(owner.city), '') is not null
+            and nullif(trim(owner.municipality), '') is not null
+          ) as owner_exact_public
+        from company_directory_profile_locations owner
+        where owner.profile_id = profile.id
+          and owner.owner_workspace_id = profile.claimed_workspace_id
+          and owner.source_type = 'owner'
+          and owner.is_active = true
+          and owner.is_primary = true
+          and owner.purpose in ('workplace', 'storefront', 'service_base')
+        limit 1
+      ) owner_location on true
       cross join lateral (
         select (
-          profile.claimed_workspace_id is null
+          owner_location.id is null
           and jsonb_array_length(coalesce(scb_location.workplaces, '[]'::jsonb)) = 1
           and nullif(trim(scb_location.workplaces -> 0 #>> '{visitingAddress,addressLine}'), '') is not null
           and nullif(trim(scb_location.workplaces -> 0 #>> '{visitingAddress,postalCode}'), '') is not null
@@ -360,23 +485,56 @@ export async function searchPublishedCompanyDirectory(
       ) location_choice
       cross join lateral (
         select
-          case when location_choice.use_scb_workplace
-            then trim(scb_location.workplaces -> 0 #>> '{visitingAddress,addressLine}')
-            else profile.address_line1
+          case
+            when owner_location.owner_exact_public
+              then trim(owner_location.address_line1)
+            when owner_location.id is not null then ''
+            when location_choice.use_scb_workplace
+              then trim(scb_location.workplaces -> 0 #>> '{visitingAddress,addressLine}')
+            else ''
           end as address_line1,
-          case when location_choice.use_scb_workplace
-            then trim(scb_location.workplaces -> 0 #>> '{visitingAddress,postalCode}')
-            else profile.postal_code
+          case
+            when owner_location.owner_exact_public
+              then trim(owner_location.postal_code)
+            when owner_location.id is not null then ''
+            when location_choice.use_scb_workplace
+              then trim(scb_location.workplaces -> 0 #>> '{visitingAddress,postalCode}')
+            else ''
           end as postal_code,
-          case when location_choice.use_scb_workplace
-            then trim(scb_location.workplaces -> 0 #>> '{visitingAddress,city}')
-            else profile.city
+          case
+            when owner_location.id is not null and owner_location.visibility = 'approximate'
+              then coalesce(trim(owner_location.city), '')
+            when owner_location.owner_exact_public
+              then coalesce(trim(owner_location.city), '')
+            when owner_location.id is not null then ''
+            when location_choice.use_scb_workplace
+              then trim(scb_location.workplaces -> 0 #>> '{visitingAddress,city}')
+            else ''
           end as city,
-          case when location_choice.use_scb_workplace
-            then coalesce(trim(scb_location.workplaces -> 0 ->> 'municipality'), '')
-            else profile.municipality
+          case
+            when owner_location.id is not null and owner_location.visibility = 'approximate'
+              then coalesce(trim(owner_location.municipality), '')
+            when owner_location.owner_exact_public
+              then coalesce(trim(owner_location.municipality), '')
+            when owner_location.id is not null then ''
+            when location_choice.use_scb_workplace
+              then coalesce(trim(scb_location.workplaces -> 0 ->> 'municipality'), '')
+            else ''
           end as municipality
       ) public_location
+      cross join lateral (
+        select
+          case
+            when owner_location.owner_exact_public then owner_location.latitude
+            when location_choice.use_scb_workplace then location.latitude::float8
+            else null
+          end as latitude,
+          case
+            when owner_location.owner_exact_public then owner_location.longitude
+            when location_choice.use_scb_workplace then location.longitude::float8
+            else null
+          end as longitude
+      ) public_coordinate
       left join lateral (
         select area.radius_km
         from company_directory_service_areas area
@@ -410,7 +568,7 @@ export async function searchPublishedCompanyDirectory(
         )
         and (
           ${nearbyEnabled} = false
-          or (location.latitude is not null and location.longitude is not null)
+          or (public_coordinate.latitude is not null and public_coordinate.longitude is not null)
         )
     ), ranked as (
       select

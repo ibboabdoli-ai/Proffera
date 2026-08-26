@@ -124,6 +124,24 @@ function postgresSql(client: Client) {
           longitude numeric,
           is_public boolean not null default true
         );
+        create table company_directory_profile_locations (
+          id uuid primary key,
+          profile_id uuid not null,
+          owner_workspace_id uuid,
+          purpose text not null,
+          visibility text not null default 'private',
+          is_visitable boolean not null default false,
+          is_primary boolean not null default false,
+          is_active boolean not null default true,
+          source_type text not null,
+          address_line1 text not null default '',
+          postal_code text not null default '',
+          city text not null default '',
+          municipality text not null default '',
+          latitude numeric,
+          longitude numeric,
+          confirmed_at timestamptz
+        );
         create table company_directory_scb_enrichment (
           profile_id uuid primary key,
           workplaces jsonb not null default '[]'::jsonb,
@@ -167,9 +185,9 @@ function postgresSql(client: Client) {
 
       await client!.query(`
         truncate table company_directory_service_areas, workspace_services,
-          company_directory_scb_enrichment, company_directory_business_locations,
-          company_directory_profile_services, company_directory_services,
-          company_directory_profiles, workspaces
+          company_directory_scb_enrichment, company_directory_profile_locations,
+          company_directory_business_locations, company_directory_profile_services,
+          company_directory_services, company_directory_profiles, workspaces
       `);
       await client!.query(`
         insert into company_directory_services (slug, category_slug, label)
@@ -198,6 +216,18 @@ function postgresSql(client: Client) {
           insert into company_directory_business_locations (profile_id, latitude, longitude, is_public)
           values ($1, $2, $3, true)
         `, [id, latitude, longitude]);
+        await client!.query(`
+          insert into company_directory_scb_enrichment (profile_id, workplaces, conflicts)
+          values ($1, $2::jsonb, '[]'::jsonb)
+        `, [id, JSON.stringify([{
+          cfarNumber: id.slice(0, 8),
+          municipality: "Stockholm",
+          visitingAddress: {
+            addressLine: "Testgatan 1",
+            postalCode: "111 11",
+            city: "Stockholm",
+          },
+        }])]);
       }
     });
 
