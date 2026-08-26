@@ -220,7 +220,9 @@ describe("public company directory search contract", () => {
   it("keeps search and profile routing in the shared public directory graph", () => {
     expect(shellSource).toContain("searchPublishedBusinessProfiles");
     expect(resultsSource).toContain("${profileBase}/${encodeURIComponent(result.slug)}");
-    expect(copySource).toContain("registrerade ort");
+    expect(copySource).toContain("verksamhetsplats");
+    expect(copySource).toContain("operating location");
+    expect(copySource).not.toContain("registrerade ort");
     expect(copySource).toContain("Bekräftat serviceområde visas separat");
     expect(copySource).toContain('search: "/foretag/listad"');
     expect(copySource).toContain('search: "/en/companies"');
