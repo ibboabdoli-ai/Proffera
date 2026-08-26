@@ -34,6 +34,9 @@ describe("public read cache contract", () => {
     await expect(getCachedPublishedDirectoryLocationSuggestions(999.9)).resolves.toEqual(["location-100"]);
     expect(mocks.locationSuggestions).toHaveBeenLastCalledWith(100);
 
+    await expect(getCachedPublishedDirectoryLocationSuggestions(0)).resolves.toEqual(["location-1"]);
+    expect(mocks.locationSuggestions).toHaveBeenLastCalledWith(1);
+
     await expect(getCachedPublishedDirectoryLocationSuggestions(Number.NaN)).resolves.toEqual(["location-24"]);
     expect(mocks.locationSuggestions).toHaveBeenLastCalledWith(24);
   });
