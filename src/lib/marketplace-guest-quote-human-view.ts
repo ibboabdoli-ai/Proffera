@@ -8,8 +8,7 @@ import {
   type MarketplaceGuestQuoteView,
 } from "@/lib/marketplace-guest-quote";
 import { isValidMarketplaceGuestToken } from "@/lib/marketplace-guest-opt-out-core";
-
-const SENDABLE_QUOTE_STATUSES = new Set(["submitted", "pending_review", "approved", "matched", "answered"]);
+import { isQuoteRequestOpenForMatchingOrDelivery } from "@/lib/quote-request-lifecycle";
 
 export type MarketplaceGuestQuoteHumanView = MarketplaceGuestQuoteView & {
   customerContact: null | {
@@ -71,7 +70,7 @@ export async function getMarketplaceGuestQuoteView(token: string): Promise<Marke
   if (Boolean(row.recipient_suppressed)) row.status = "suppressed";
 
   const winnerSelected = String(row.offer_status) === "selected";
-  const quoteOpen = SENDABLE_QUOTE_STATUSES.has(String(row.quote_status));
+  const quoteOpen = isQuoteRequestOpenForMatchingOrDelivery(String(row.quote_status));
   if (!quoteOpen && !winnerSelected) return null;
 
   const expiresAt = new Date(String(row.expires_at));
