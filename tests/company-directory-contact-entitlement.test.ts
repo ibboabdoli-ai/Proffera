@@ -236,7 +236,31 @@ describe("company directory direct-contact entitlement", () => {
   });
 
   it("keeps Free or Trial claimed profiles locked and reveals paid active contact", async () => {
-    const sql = vi.fn(async () => [claimedFallbackRow(freeWorkspaceId, "claimed-free-profile", "Freegatan 2")]);
+    let claimedRow = claimedFallbackRow(freeWorkspaceId, "claimed-free-profile", "Freegatan 2");
+    let ownerAddressLine1 = "Freegatan 2";
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = strings.join(" ");
+      if (query.includes("from company_directory_profiles profile")) return [claimedRow];
+      if (query.includes("from company_directory_scb_enrichment")) {
+        return [{
+          phone: "+46 8 123 45 67",
+          email: "kontakt@claimed.example",
+          workplaces: [],
+        }];
+      }
+      if (query.includes("from company_directory_profile_locations")) {
+        return [{
+          visibility: "public",
+          is_visitable: true,
+          confirmed_at: "2026-08-26T00:00:00.000Z",
+          address_line1: ownerAddressLine1,
+          postal_code: "111 11",
+          city: "Stockholm",
+          municipality: "Stockholm",
+        }];
+      }
+      return [];
+    });
     mocks.getSql.mockReturnValue(sql);
     mocks.hasActivePaidDirectoryContactAccess.mockResolvedValue(false);
 
@@ -246,7 +270,8 @@ describe("company directory direct-contact entitlement", () => {
     expect(freeResult?.contact.available.phone).toBe(true);
     expect(freeResult?.contact.phone).toBe("");
 
-    sql.mockImplementation(async () => [claimedFallbackRow(paidWorkspaceId, "claimed-paid-profile", "  Paidgatan 3  ")]);
+    claimedRow = claimedFallbackRow(paidWorkspaceId, "claimed-paid-profile", "Stored postal address");
+    ownerAddressLine1 = "  Paidgatan 3  ";
     mocks.hasActivePaidDirectoryContactAccess.mockResolvedValue(true);
 
     const paidResult = await getPublicDirectoryBusinessForRequest("claimed-paid-profile");
