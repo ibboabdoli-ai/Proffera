@@ -3,7 +3,7 @@ import { ArrowRight, CheckCircle2, Hammer, Leaf, Paintbrush, Search, Sparkles, S
 
 import { directoryPaths } from "@/components/company-directory/public-directory-copy";
 import { PublicDirectorySearchForm } from "@/components/company-directory/public-directory-search-form";
-import { getPublishedDirectoryLocationSuggestions } from "@/lib/company-directory-public-search";
+import { getCachedPublishedDirectoryLocationSuggestions } from "@/lib/public-read-cache";
 import type { PublicLocale } from "@/lib/public-locale";
 
 type MarketplaceHomeCopy = {
@@ -93,7 +93,7 @@ export async function MarketplaceHome({ locale }: { locale: PublicLocale }) {
   const paths = directoryPaths[locale];
   const businessHref = locale === "en" ? "/en/for-business" : "/for-foretag";
   const loginHref = locale === "en" ? "/logga-in?lang=en" : "/logga-in?lang=sv";
-  const locationSuggestions = (await getPublishedDirectoryLocationSuggestions(24)).slice(0, 12);
+  const locationSuggestions = (await getCachedPublishedDirectoryLocationSuggestions(24)).slice(0, 12);
   const serviceSuggestions = t.categories.map((category) => category.label);
 
   return (
