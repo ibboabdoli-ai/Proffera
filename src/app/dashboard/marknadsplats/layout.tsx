@@ -2,10 +2,12 @@ import type { ReactNode } from "react";
 
 import { MarketplaceClaimPaidCta } from "@/app/dashboard/marknadsplats/claim-paid-cta";
 import { getProviderActivationStateForWorkspace } from "@/lib/company-directory-provider-activation";
-import { canManageWorkspaceMembers, getWorkspaceAccess } from "@/lib/workspace-access";
+import { canManageWorkspaceMembers, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 export default async function MarketplaceLayout({ children }: { children: ReactNode }) {
-  const access = await getWorkspaceAccess();
+  const access = await getUserWorkspaceAccess();
+  if (!access.ok) return <>{children}</>;
+
   const providerState = await getProviderActivationStateForWorkspace(access.workspaceId);
   const hasLinkedClaimedProfile = Boolean(providerState?.linkedDirectoryProfileId);
   const canManageSubscription = canManageWorkspaceMembers(access);
