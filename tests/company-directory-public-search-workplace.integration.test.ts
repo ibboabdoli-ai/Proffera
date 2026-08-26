@@ -15,7 +15,10 @@ vi.mock("@/lib/workspace-feature-entitlement-db", () => ({
   getWorkspaceDirectoryPublicAccessForWorkspaces: mocks.getWorkspaceDirectoryPublicAccessForWorkspaces,
 }));
 
-import { searchPublishedCompanyDirectory } from "@/lib/company-directory-public-search";
+import {
+  getPublishedDirectoryLocationSuggestions,
+  searchPublishedCompanyDirectory,
+} from "@/lib/company-directory-public-search";
 
 const RUN_POSTGRES_INTEGRATION =
   process.env.GITHUB_ACTIONS === "true"
@@ -64,9 +67,31 @@ function postgresSql(client: Client) {
       throw lastError ?? new Error("PostgreSQL test container did not become ready");
     }
 
-    // Every fail-closed case below must keep the profile/Workspace location as
-    // the authoritative public fallback and must not leak the rejected SCB location.
-    async function expectProfileFallback() {
+    async function expectUnclaimedPhysicalLocationUnavailable() {
+      const unfiltered = await searchPublishedCompanyDirectory();
+      expect(unfiltered.totalCount).toBe(1);
+      expect(unfiltered.results).toHaveLength(1);
+      expect(unfiltered.results[0]).toMatchObject({
+        slug: "canonical-workplace-ab",
+        postalCode: "",
+        city: "",
+        municipality: "",
+      });
+
+      const stockholm = await searchPublishedCompanyDirectory({ location: "Stockholm" });
+      expect(stockholm.totalCount).toBe(0);
+      expect(stockholm.results).toEqual([]);
+
+      const sodertalje = await searchPublishedCompanyDirectory({ location: "Södertälje" });
+      expect(sodertalje.totalCount).toBe(0);
+      expect(sodertalje.results).toEqual([]);
+
+      const suggestions = await getPublishedDirectoryLocationSuggestions();
+      expect(suggestions).not.toContain("Stockholm");
+      expect(suggestions).not.toContain("Södertälje");
+    }
+
+    async function expectClaimedProfileLocation() {
       const stockholm = await searchPublishedCompanyDirectory({ location: "Stockholm" });
       expect(stockholm.totalCount).toBe(1);
       expect(stockholm.results).toHaveLength(1);
@@ -239,34 +264,34 @@ function postgresSql(client: Client) {
       expect(stockholm.results).toEqual([]);
     }, 30_000);
 
-    it("keeps the profile location when SCB evidence has conflicts", async () => {
+    it("fails closed instead of using the profile location when SCB evidence has conflicts", async () => {
       await client!.query(`
         update company_directory_scb_enrichment
         set conflicts = '[{"field":"legal_name","code":"legal_name_mismatch"}]'::jsonb
         where profile_id = $1
       `, [profileId]);
 
-      await expectProfileFallback();
+      await expectUnclaimedPhysicalLocationUnavailable();
     }, 30_000);
 
-    it("keeps the profile location when SCB reports multiple workplaces", async () => {
+    it("fails closed instead of using the profile location for multiple SCB workplaces", async () => {
       await client!.query(`
         update company_directory_scb_enrichment
         set workplaces = workplaces || workplaces
         where profile_id = $1
       `, [profileId]);
 
-      await expectProfileFallback();
+      await expectUnclaimedPhysicalLocationUnavailable();
     }, 30_000);
 
-    it("keeps the profile location when the workplace municipality is missing", async () => {
+    it("fails closed instead of using the profile location when workplace municipality is missing", async () => {
       await client!.query(`
         update company_directory_scb_enrichment
         set workplaces = jsonb_set(workplaces, '{0,municipality}', '""'::jsonb)
         where profile_id = $1
       `, [profileId]);
 
-      await expectProfileFallback();
+      await expectUnclaimedPhysicalLocationUnavailable();
     }, 30_000);
 
     it("matches claimed Marketplace services by canonical identity while preserving the public URL slug", async () => {
@@ -321,12 +346,18 @@ function postgresSql(client: Client) {
 
     it("keeps claimed Workspace-owned profile location authoritative", async () => {
       await client!.query(`
+        insert into workspaces (id, status, slug)
+        values ($1, 'active', 'claimed-company')
+      `, [workspaceId]);
+      await client!.query(`
         update company_directory_profiles
-        set claimed_workspace_id = $1::uuid
+        set publication_status = 'claimed',
+            claimed_workspace_id = $1::uuid,
+            published_at = now()
         where id = $2
       `, [workspaceId, profileId]);
 
-      await expectProfileFallback();
+      await expectClaimedProfileLocation();
     }, 30_000);
   },
 );
