@@ -155,9 +155,9 @@ export function buildMarketplaceGuestQuoteView(
       priceKind: String(row.price_kind),
       currency: String(row.currency),
       amountMinor: Number(row.amount_minor ?? 0),
-      availableDate: String(row.available_date ?? ""),
+      availableDate: String(row.available_date),
       companyNote: String(row.company_note ?? ""),
-      submittedAt: String(row.submitted_at ?? ""),
+      submittedAt: String(row.submitted_at),
     } : null,
   };
 }
@@ -388,8 +388,11 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
 
   // Atomically claim provider dispatch. Migration 0050 makes this sending ->
   // pending transition acquire the same normalized-email advisory lock as a
-  // permanent opt-out. dispatch_token is also a lease token: only this attempt
-  // may complete or fail the row after a stale reservation has been reclaimed.
+  // permanent opt-out. The same claim also rechecks SCB/Official Facts marketing
+  // permission, so auto and direct-admin invitations fail closed immediately
+  // before provider delivery unless advertising_blocked is explicitly false.
+  // dispatch_token is also a lease token: only this attempt may complete or fail
+  // the row after a stale reservation has been reclaimed.
   let dispatchRows;
   try {
     dispatchRows = await sql`
@@ -402,6 +405,12 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
           select 1
           from marketplace_outreach_suppressions suppression
           where suppression.email_normalized = lower(btrim(invitation.recipient_email))
+        )
+        and exists (
+          select 1
+          from company_directory_official_facts facts
+          where facts.profile_id = invitation.profile_id
+            and facts.advertising_blocked is false
         )
       returning invitation.id::text
     `;
