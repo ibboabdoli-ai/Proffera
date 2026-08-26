@@ -206,7 +206,7 @@ async function selectCandidates(limit: number, cursorValue: string) {
   const sql = getSql();
   if (!sql) throw new Error("Database is not configured");
   const cursor = parseCursor(cursorValue);
-  const backoffPattern = `${OFFICIAL_FACTS_ORG_NOT_FOUND_BACKOFF_PREFIX}:%`;
+  const backoffMarkerPrefix = `${OFFICIAL_FACTS_ORG_NOT_FOUND_BACKOFF_PREFIX}:`;
 
   return await sql`
     with eligible as (
@@ -257,7 +257,7 @@ async function selectCandidates(limit: number, cursorValue: string) {
               from company_directory_discovery_queue queue
               where queue.profile_id = profile.id
                 and queue.state = 'review'
-                and queue.last_error like ${backoffPattern}
+                and starts_with(queue.last_error, ${backoffMarkerPrefix})
                 and queue.next_attempt_at > now()
             )
           )
@@ -355,7 +355,7 @@ async function selectCandidates(limit: number, cursorValue: string) {
 async function backlogCount() {
   const sql = getSql();
   if (!sql) return 0;
-  const backoffPattern = `${OFFICIAL_FACTS_ORG_NOT_FOUND_BACKOFF_PREFIX}:%`;
+  const backoffMarkerPrefix = `${OFFICIAL_FACTS_ORG_NOT_FOUND_BACKOFF_PREFIX}:`;
 
   const rows = await sql`
     select count(*)::int as count
@@ -383,7 +383,7 @@ async function backlogCount() {
             from company_directory_discovery_queue queue
             where queue.profile_id = profile.id
               and queue.state = 'review'
-              and queue.last_error like ${backoffPattern}
+              and starts_with(queue.last_error, ${backoffMarkerPrefix})
               and queue.next_attempt_at > now()
           )
         )
