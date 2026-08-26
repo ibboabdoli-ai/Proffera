@@ -50,7 +50,7 @@ export async function readAdminMarketplaceClaimPaidCounts(sql: MarketplaceSql) {
           where invitation.quote_request_id = request.id
             and invitation.workspace_id is not null
             and claim.status = 'claimed'
-            and claim.requested_at >= request.created_at
+            and claim.requested_at > request.created_at
             and claim.resolved_at is not null
             and claim.resolved_at >= request.created_at
         )
@@ -67,7 +67,7 @@ export async function readAdminMarketplaceClaimPaidCounts(sql: MarketplaceSql) {
           where invitation.quote_request_id = request.id
             and invitation.workspace_id is not null
             and claim.status = 'claimed'
-            and claim.requested_at >= request.created_at
+            and claim.requested_at > request.created_at
             and claim.resolved_at is not null
             and claim.resolved_at >= request.created_at
             and billing.stripe_subscription_id is not null
