@@ -118,7 +118,7 @@ if (RUN_POSTGRES_INTEGRATION) {
         claimStatus?: "claimed" | "verified";
         billingStatus?: "active" | "trialing" | "past_due";
         billingCreatedOffsetMs?: number;
-        stripeSubscriptionId?: string;
+        stripeSubscriptionId?: string | null;
       }) {
         const workspaceId = randomUUID();
         const profileId = randomUUID();
@@ -162,6 +162,9 @@ if (RUN_POSTGRES_INTEGRATION) {
           const billingCreatedAt = new Date(
             claimResolvedAt.getTime() + (input.billingCreatedOffsetMs ?? 60_000),
           );
+          const stripeSubscriptionId = input.stripeSubscriptionId === undefined
+            ? `sub_${workspaceId.replace(/-/gu, "")}`
+            : input.stripeSubscriptionId;
           await client.query(`
             insert into workspace_billing_subscriptions (
               id, workspace_id, stripe_subscription_id, stripe_price_id, status, created_at
@@ -169,7 +172,7 @@ if (RUN_POSTGRES_INTEGRATION) {
           `, [
             randomUUID(),
             workspaceId,
-            input.stripeSubscriptionId ?? `sub_${workspaceId.replace(/-/gu, "")}`,
+            stripeSubscriptionId,
             input.billingStatus,
             billingCreatedAt,
           ]);
@@ -207,6 +210,13 @@ if (RUN_POSTGRES_INTEGRATION) {
         claimOffsetMs: 120_000,
         billingStatus: "active",
         stripeSubscriptionId: "\t\n",
+      });
+      await seedProvider({
+        requestId: blankSubscription,
+        requestCreatedAt: blankSubscriptionCreated,
+        claimOffsetMs: 180_000,
+        billingStatus: "active",
+        stripeSubscriptionId: null,
       });
 
       const preRequestClaimCreated = new Date(now - 24 * 60 * 60_000);
