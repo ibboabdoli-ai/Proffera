@@ -103,12 +103,12 @@ describe("canonical SCB workplace selection for Directory geocoding", () => {
     });
   });
 
-  it("fails closed to the profile address for conflicted or ambiguous SCB workplaces", () => {
+  it("fails closed when SCB workplaces are conflicted or ambiguous", () => {
     expect(selectDirectoryGeocodingAddress({
       profileAddress,
       scbWorkplaces: singleScbWorkplace,
       scbConflicts: [{ field: "legal_name", code: "legal_name_mismatch" }],
-    })).toEqual({ source: "profile", address: profileAddress });
+    })).toBeNull();
 
     const ambiguous = [
       singleScbWorkplace[0],
@@ -126,7 +126,7 @@ describe("canonical SCB workplace selection for Directory geocoding", () => {
       profileAddress,
       scbWorkplaces: ambiguous,
       scbConflicts: [],
-    })).toEqual({ source: "profile", address: profileAddress });
+    })).toBeNull();
   });
 
   it("retries an old no-match only when canonical SCB changed the lookup input", () => {
@@ -135,6 +135,7 @@ describe("canonical SCB workplace selection for Directory geocoding", () => {
       scbWorkplaces: singleScbWorkplace,
       scbConflicts: [],
     });
+    if (!selected) throw new Error("Expected canonical SCB workplace selection");
 
     expect(shouldRetryDirectoryNoMatchWithCanonicalAddress({
       geocodeSource: LEGACY_NO_MATCH,
@@ -256,5 +257,44 @@ describe("Directory geocoding pilot canonical-address behavior", () => {
       call.query.startsWith("insert into company_directory_business_locations")
       && call.values.includes(CANONICAL_NO_MATCH));
     expect(noMatchWrite).toBeDefined();
+  });
+
+  it("does not geocode an unresolved canonical workplace even for a legacy diagnostic retry org", async () => {
+    const unresolvedRow = {
+      ...pilotRow("lantmateriet_no_match_v4_2"),
+      organization_number: "5564208337",
+      scb_conflicts: [{ field: "legal_name", code: "legal_name_mismatch" }],
+    };
+    const sqlCalls: Array<{ query: string; values: unknown[] }> = [];
+
+    const sql = vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      const query = normalizeQuery(strings);
+      sqlCalls.push({ query, values });
+      if (query.includes("select exists(") && query.includes("pg_extension")) return [{ ready: true }];
+      if (query.includes("profile.id::text") && query.includes("scb.workplaces as scb_workplaces")) {
+        return [unresolvedRow];
+      }
+      if (query.includes("profile.organization_number") && query.includes("location.latitude::float8")) {
+        return [unresolvedRow];
+      }
+      throw new Error(`Unexpected SQL: ${query}`);
+    });
+    mocks.getSql.mockReturnValue(sql);
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+
+    const result = await geocodeDirectoryPilotFromAdmin(5);
+
+    expect(result).toMatchObject({
+      attempted: 0,
+      geocoded: 0,
+      noMatch: 0,
+      errors: 0,
+      remaining: 0,
+      needsReview: 1,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(sqlCalls.some((call) => call.query.startsWith("insert into company_directory_business_locations")))
+      .toBe(false);
+    expect(sqlCalls.some((call) => call.query.startsWith("with transformed as"))).toBe(false);
   });
 });
