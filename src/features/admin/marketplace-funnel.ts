@@ -28,6 +28,31 @@ function count(value: unknown) {
 }
 
 /**
+ * Counts only requests with persisted delivery evidence. Invitation rows can
+ * exist in pending/sending/delivery_failed states without ever reaching the
+ * provider, so row existence alone must not advance the Invited funnel stage.
+ */
+export async function readAdminMarketplaceInvitedCount(sql: MarketplaceSql) {
+  const rows = await sql`
+    with recent_requests as (
+      select request.id
+      from quote_requests request
+      where request.created_at >= now() - interval '30 days'
+    )
+    select count(*) filter (
+      where exists (
+        select 1
+        from marketplace_quote_invitations invitation
+        where invitation.quote_request_id = request.id
+          and invitation.sent_at is not null
+      )
+    ) as invited_requests
+    from recent_requests request
+  `;
+  return count(rows[0]?.invited_requests);
+}
+
+/**
  * Executes the claim/paid conversion slice against the canonical persisted
  * Marketplace claim link and Stripe-synchronised billing state. Kept separate
  * so PostgreSQL integration tests execute the exact production query.
@@ -89,10 +114,11 @@ export async function readAdminMarketplaceClaimPaidCounts(sql: MarketplaceSql) {
  * Returns a privacy-safe, read-only 30-day Marketplace funnel for Quote Admin.
  * Counts are request-level so multiple invitation waves, offers, lifecycle
  * events, reviews, claims, or subscriptions do not inflate conversion stages.
- * Claim/Paid attribution requires the Marketplace invitation's explicit linked
- * Workspace plus a Company Directory claim initiated and resolved after the
- * Marketplace request. Paid then uses only the canonical Stripe-synchronised
- * billing subscription state. No customer contact fields are selected or returned.
+ * Invited requires persisted sent_at delivery evidence. Claim/Paid attribution
+ * requires the Marketplace invitation's explicit linked Workspace plus a
+ * Company Directory claim initiated and resolved after the Marketplace request.
+ * Paid then uses only the canonical Stripe-synchronised billing subscription
+ * state. No customer contact fields are selected or returned.
  */
 export async function getAdminMarketplaceFunnelSnapshot(): Promise<AdminMarketplaceFunnelResult> {
   const admin = await getAdminForArea("quote_admin");
@@ -102,7 +128,7 @@ export async function getAdminMarketplaceFunnelSnapshot(): Promise<AdminMarketpl
   if (!sql) return { ok: false, message: "Databasen är inte konfigurerad ännu." };
 
   try {
-    const [rows, claimPaid] = await Promise.all([
+    const [rows, invitedRequests, claimPaid] = await Promise.all([
       sql`
         with recent_requests as (
           select request.id
@@ -111,10 +137,6 @@ export async function getAdminMarketplaceFunnelSnapshot(): Promise<AdminMarketpl
         )
         select
           count(*) as requests,
-          count(*) filter (where exists (
-            select 1 from marketplace_quote_invitations invitation
-            where invitation.quote_request_id = request.id
-          )) as invited_requests,
           count(*) filter (where exists (
             select 1 from marketplace_quote_invitations invitation
             where invitation.quote_request_id = request.id and invitation.viewed_at is not null
@@ -147,6 +169,7 @@ export async function getAdminMarketplaceFunnelSnapshot(): Promise<AdminMarketpl
           )) as verified_review_requests
         from recent_requests request
       `,
+      readAdminMarketplaceInvitedCount(sql),
       readAdminMarketplaceClaimPaidCounts(sql),
     ]);
     const row = rows[0] ?? {};
@@ -155,7 +178,7 @@ export async function getAdminMarketplaceFunnelSnapshot(): Promise<AdminMarketpl
       ok: true,
       snapshot: {
         requests: count(row.requests),
-        invitedRequests: count(row.invited_requests),
+        invitedRequests,
         viewedRequests: count(row.viewed_requests),
         respondedRequests: count(row.responded_requests),
         offeredRequests: count(row.offered_requests),
