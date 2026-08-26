@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { resolveAdminArea } from "./lib/admin-navigation";
 import { isEnglishPublicPath } from "./lib/public-locale";
 import { resolvePublicCustomDomain } from "./lib/public-site-domain-routing";
 import {
@@ -166,6 +167,10 @@ export async function proxy(request: NextRequest) {
   }
 
   if (isAdminPath(pathname)) {
+    // The proxy runs for every matched request, including App Router RSC/client
+    // navigations where a shared layout may be reused. Keep the layout check as
+    // defense in depth, but reject unmapped Admin route families here first.
+    if (!resolveAdminArea(pathname)) return notFound();
     return allowAdminWithPath(request);
   }
 
