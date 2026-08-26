@@ -49,6 +49,7 @@ const candidateRow = {
   privacy_blocked: false,
   organization_kind: "juridical_person",
   claimed_workspace_id: null,
+  advertising_blocked: false,
   service_slug: "vvs",
   service_name: "VVS / Rörmokare",
   service_category: "VVS",
@@ -80,6 +81,32 @@ describe("single-request Marketplace readiness gate", () => {
     expect(result.ok).toBe(true);
     expect(result.match?.candidates).toHaveLength(1);
     expect(result.match?.candidates[0]?.recipientEmail).toBe("offert@rorfirma.se");
+  });
+
+  it("blocks a candidate with SCB reklamspärr from automatic outreach", async () => {
+    const sql = sqlResponses([leadRow], [], [{
+      ...candidateRow,
+      advertising_blocked: true,
+    }]);
+    mocks.getSql.mockReturnValue(sql);
+
+    const result = await getDirectoryGuestLeadMatch(leadRow.id);
+
+    expect(result.ok).toBe(true);
+    expect(result.match?.candidates).toEqual([]);
+  });
+
+  it("blocks automatic outreach when reklamspärr status is unknown", async () => {
+    const sql = sqlResponses([leadRow], [], [{
+      ...candidateRow,
+      advertising_blocked: null,
+    }]);
+    mocks.getSql.mockReturnValue(sql);
+
+    const result = await getDirectoryGuestLeadMatch(leadRow.id);
+
+    expect(result.ok).toBe(true);
+    expect(result.match?.candidates).toEqual([]);
   });
 
   it("rejects arbitrary finite coordinates without verified Lantmäteriet provenance", async () => {
