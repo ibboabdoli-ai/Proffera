@@ -5,8 +5,9 @@ import { directoryCopy, directoryPaths, directoryServiceLabel, normalizeDirector
 import { PublicDirectoryResults } from "@/components/company-directory/public-directory-results";
 import { PublicDirectorySearchForm } from "@/components/company-directory/public-directory-search-form";
 import { searchPublishedBusinessProfiles } from "@/lib/business-profile-search";
-import { getPublishedDirectoryLocationSuggestions, normalizeDirectorySearchSort } from "@/lib/company-directory-public-search";
+import { normalizeDirectorySearchSort } from "@/lib/company-directory-public-search";
 import { DIRECTORY_SERVICES } from "@/lib/company-directory-service-taxonomy";
+import { getCachedPublishedDirectoryLocationSuggestions } from "@/lib/public-read-cache";
 import type { PublicLocale } from "@/lib/public-locale";
 
 type SearchParams = { service?: string | string[]; location?: string | string[]; latitude?: string | string[]; longitude?: string | string[]; radius?: string | string[]; sort?: string | string[]; page?: string | string[] };
@@ -38,7 +39,7 @@ export async function PublicDirectorySearchPage({ locale, searchParams }: { loca
   const searchService = normalizeDirectoryPublicServiceQuery(service, locale);
 
   const [locationSuggestions, search] = await Promise.all([
-    getPublishedDirectoryLocationSuggestions(60),
+    getCachedPublishedDirectoryLocationSuggestions(60),
     searched ? searchPublishedBusinessProfiles({ service: searchService, location, latitude, longitude, radiusKm: radius, sort: requestedSort, page, limit: 30 }) : Promise.resolve(null),
   ]);
   const serviceSuggestions = DIRECTORY_SERVICES.map((item) => directoryServiceLabel(item.slug, item.label, locale));
