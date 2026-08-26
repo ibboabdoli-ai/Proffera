@@ -18,6 +18,13 @@ vi.mock("@/lib/public-business-seo", () => ({
 vi.mock("@/lib/company-directory-seo", () => ({
   listPublishedDirectorySitemapEntries: mocks.listPublishedDirectorySitemapEntries,
 }));
+vi.mock("@/lib/public-read-cache", () => ({
+  getCachedPlatformSitemapData: vi.fn(async () => ({
+    publicBusinessEntries: await mocks.listPublicBusinessSitemapEntries(),
+    directoryEntries: await mocks.listPublishedDirectorySitemapEntries(),
+    directoryLandings: [],
+  })),
+}));
 vi.mock("@/lib/public-site-domain-routing", () => ({
   resolvePublicCustomDomain: mocks.resolvePublicCustomDomain,
 }));
