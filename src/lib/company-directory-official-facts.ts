@@ -9,8 +9,10 @@ import {
 } from "@/lib/bolagsverket-api-policy";
 import { takeCompleteBolagsverketOrganizationRecord } from "@/lib/company-directory-detail-cache";
 import {
+  BolagsverketOrganizationNotFoundError,
   collectBolagsverketApiErrors,
   formatBolagsverketApiErrors,
+  isDeterministicBolagsverketOrganizationNotFound,
   resolveBolagsverketOrganizationRecord,
 } from "@/lib/company-directory-official-facts-errors";
 import { getSql } from "@/lib/db/server";
@@ -339,7 +341,12 @@ async function fetchOfficialFacts(organizationNumber: string, token: string) {
   const payload = await response.json();
   const apiErrors = collectBolagsverketApiErrors(payload);
   if (apiErrors.length > 0) {
-    throw new Error(`Official facts lookup returned partial data: ${formatBolagsverketApiErrors(apiErrors)}`);
+    const summary = formatBolagsverketApiErrors(apiErrors);
+    const message = `Official facts lookup returned partial data: ${summary}`;
+    if (isDeterministicBolagsverketOrganizationNotFound(apiErrors)) {
+      throw new BolagsverketOrganizationNotFoundError(message);
+    }
+    throw new Error(message);
   }
 
   const row = resolveBolagsverketOrganizationRecord(payload, organizationNumber);
