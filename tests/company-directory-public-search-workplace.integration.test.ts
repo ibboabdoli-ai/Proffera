@@ -89,6 +89,25 @@ function postgresSql(client: Client) {
       const suggestions = await getPublishedDirectoryLocationSuggestions();
       expect(suggestions).not.toContain("Stockholm");
       expect(suggestions).not.toContain("Södertälje");
+
+      // A stale/legacy coordinate must not resurrect an unavailable unclaimed
+      // physical location in nearby search.
+      await client!.query(`
+        insert into company_directory_business_locations (
+          profile_id, latitude, longitude, is_public
+        ) values ($1, 59.3293, 18.0686, true)
+        on conflict (profile_id) do update set
+          latitude = excluded.latitude,
+          longitude = excluded.longitude,
+          is_public = true
+      `, [profileId]);
+      const nearby = await searchPublishedCompanyDirectory({
+        latitude: 59.3293,
+        longitude: 18.0686,
+        radiusKm: 5,
+      });
+      expect(nearby.totalCount).toBe(0);
+      expect(nearby.results).toEqual([]);
     }
 
     async function expectClaimedProfileLocation() {
