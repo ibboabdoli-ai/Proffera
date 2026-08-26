@@ -11,6 +11,8 @@ export type AdminMarketplaceFunnelSnapshot = {
   serviceJobRequests: number;
   completedJobRequests: number;
   verifiedReviewRequests: number;
+  claimedRequests: number;
+  paidRequests: number;
   windowDays: 30;
 };
 
@@ -26,8 +28,11 @@ function count(value: unknown) {
 /**
  * Returns a privacy-safe, read-only 30-day Marketplace funnel for Quote Admin.
  * Counts are request-level so multiple invitation waves, offers, lifecycle
- * events, or reviews do not inflate conversion stages. No customer contact
- * fields are selected or returned.
+ * events, reviews, claims, or subscriptions do not inflate conversion stages.
+ * Claim/Paid attribution requires the Marketplace invitation's explicit linked
+ * Workspace plus the corresponding claimed Company Directory claim. Paid then
+ * uses only the canonical Stripe-synchronised billing subscription state. No
+ * customer contact fields are selected or returned.
  */
 export async function getAdminMarketplaceFunnelSnapshot(): Promise<AdminMarketplaceFunnelResult> {
   const admin = await getAdminForArea("quote_admin");
@@ -43,7 +48,7 @@ export async function getAdminMarketplaceFunnelSnapshot(): Promise<AdminMarketpl
   try {
     const rows = await sql`
       with recent_requests as (
-        select request.id
+        select request.id, request.created_at
         from quote_requests request
         where request.created_at >= now() - interval '30 days'
       )
@@ -114,7 +119,40 @@ export async function getAdminMarketplaceFunnelSnapshot(): Promise<AdminMarketpl
               and review.is_verified = true
               and review.status = 'approved'
           )
-        ) as verified_review_requests
+        ) as verified_review_requests,
+        count(*) filter (
+          where exists (
+            select 1
+            from marketplace_quote_invitations invitation
+            join company_directory_claims claim
+              on claim.profile_id = invitation.profile_id
+             and claim.requested_workspace_id = invitation.workspace_id
+            where invitation.quote_request_id = request.id
+              and invitation.workspace_id is not null
+              and claim.status = 'claimed'
+              and claim.resolved_at is not null
+              and claim.resolved_at >= request.created_at
+          )
+        ) as claimed_requests,
+        count(*) filter (
+          where exists (
+            select 1
+            from marketplace_quote_invitations invitation
+            join company_directory_claims claim
+              on claim.profile_id = invitation.profile_id
+             and claim.requested_workspace_id = invitation.workspace_id
+            join workspace_billing_subscriptions billing
+              on billing.workspace_id = invitation.workspace_id
+            where invitation.quote_request_id = request.id
+              and invitation.workspace_id is not null
+              and claim.status = 'claimed'
+              and claim.resolved_at is not null
+              and claim.resolved_at >= request.created_at
+              and billing.stripe_subscription_id is not null
+              and billing.status in ('active', 'trialing')
+              and billing.created_at >= claim.resolved_at
+          )
+        ) as paid_requests
       from recent_requests request
     `;
     const row = rows[0] ?? {};
@@ -131,6 +169,8 @@ export async function getAdminMarketplaceFunnelSnapshot(): Promise<AdminMarketpl
         serviceJobRequests: count(row.service_job_requests),
         completedJobRequests: count(row.completed_job_requests),
         verifiedReviewRequests: count(row.verified_review_requests),
+        claimedRequests: count(row.claimed_requests),
+        paidRequests: count(row.paid_requests),
         windowDays: 30,
       },
     };
