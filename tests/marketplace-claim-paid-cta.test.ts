@@ -30,6 +30,6 @@ describe("Marketplace Claim to Paid CTA", () => {
     expect(layoutSource).toContain("canManageWorkspaceMembers(access)");
     expect(layoutSource).toContain("hasLinkedClaimedProfile && canManageSubscription");
     expect(layoutSource).toContain("<MarketplaceClaimPaidCta />");
-    expect(layoutSource).not.toMatch(/stripe|checkout|subscription/i);
+    expect(layoutSource).not.toMatch(/\/api\/stripe|checkout|create.*subscription|update.*subscription/i);
   });
 });
