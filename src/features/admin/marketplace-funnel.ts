@@ -8,6 +8,9 @@ export type AdminMarketplaceFunnelSnapshot = {
   respondedRequests: number;
   offeredRequests: number;
   selectedRequests: number;
+  serviceJobRequests: number;
+  completedJobRequests: number;
+  verifiedReviewRequests: number;
   windowDays: 30;
 };
 
@@ -22,8 +25,9 @@ function count(value: unknown) {
 
 /**
  * Returns a privacy-safe, read-only 30-day Marketplace funnel for Quote Admin.
- * Counts are request-level so multiple invitation waves or offers do not inflate
- * conversion stages. No customer contact fields are selected or returned.
+ * Counts are request-level so multiple invitation waves, offers, lifecycle
+ * events, or reviews do not inflate conversion stages. No customer contact
+ * fields are selected or returned.
  */
 export async function getAdminMarketplaceFunnelSnapshot(): Promise<AdminMarketplaceFunnelResult> {
   const admin = await getAdminForArea("quote_admin");
@@ -83,7 +87,34 @@ export async function getAdminMarketplaceFunnelSnapshot(): Promise<AdminMarketpl
               and offer.status = 'selected'
               and offer.selected_at is not null
           )
-        ) as selected_requests
+        ) as selected_requests,
+        count(*) filter (
+          where exists (
+            select 1
+            from marketplace_service_jobs job
+            where job.quote_request_id = request.id
+          )
+        ) as service_job_requests,
+        count(*) filter (
+          where exists (
+            select 1
+            from marketplace_service_jobs job
+            where job.quote_request_id = request.id
+              and job.status = 'completed'
+              and job.completed_at is not null
+          )
+        ) as completed_job_requests,
+        count(*) filter (
+          where exists (
+            select 1
+            from marketplace_service_jobs job
+            join website_reviews review
+              on review.marketplace_service_job_id = job.id
+            where job.quote_request_id = request.id
+              and review.is_verified = true
+              and review.status = 'approved'
+          )
+        ) as verified_review_requests
       from recent_requests request
     `;
     const row = rows[0] ?? {};
@@ -97,6 +128,9 @@ export async function getAdminMarketplaceFunnelSnapshot(): Promise<AdminMarketpl
         respondedRequests: count(row.responded_requests),
         offeredRequests: count(row.offered_requests),
         selectedRequests: count(row.selected_requests),
+        serviceJobRequests: count(row.service_job_requests),
+        completedJobRequests: count(row.completed_job_requests),
+        verifiedReviewRequests: count(row.verified_review_requests),
         windowDays: 30,
       },
     };
