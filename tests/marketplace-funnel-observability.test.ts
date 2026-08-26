@@ -28,7 +28,7 @@ describe("Marketplace funnel observability", () => {
     expect(funnel).toContain("review.status = 'approved'");
     expect(funnel).toContain("claim.requested_workspace_id = invitation.workspace_id");
     expect(funnel).toContain("claim.status = 'claimed'");
-    expect(funnel).toContain("claim.requested_at >= request.created_at");
+    expect(funnel).toContain("claim.requested_at > request.created_at");
     expect(funnel).toContain("claim.resolved_at >= request.created_at");
     expect(funnel).toContain("billing.workspace_id = invitation.workspace_id");
     expect(funnel).toContain("billing.stripe_subscription_id is not null");
