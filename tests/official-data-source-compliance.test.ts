@@ -4,6 +4,7 @@ import {
   bolagsverketMinimumIntervalMs,
   canQueryBolagsverketCompanyDetail,
   requireBolagsverketHttpsUrl,
+  waitForBolagsverketRequestSlot,
 } from "../src/lib/bolagsverket-api-policy";
 import { directoryCopy } from "../src/components/company-directory/public-directory-copy";
 import { directoryProfileCopy } from "../src/components/company-directory/public-directory-profile-copy";
@@ -24,6 +25,7 @@ const ENV_KEYS = [
   "COMPANY_DIRECTORY_DETAIL_URL_TEMPLATE",
   "COMPANY_DIRECTORY_DETAIL_METHOD",
   "COMPANY_DIRECTORY_DETAIL_BODY_TEMPLATE",
+  "BOLAGSVERKET_RATE_LIMIT_TEST_MODE",
 ] as const;
 
 const originalEnv = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
@@ -61,6 +63,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   for (const key of ENV_KEYS) {
     const value = originalEnv[key];
@@ -74,6 +77,30 @@ describe("official data source compliance", () => {
     expect(bolagsverketMinimumIntervalMs("bolagsverket_vardefulla_datamangder")).toBe(1_050);
     expect(bolagsverketMinimumIntervalMs("bolagsverket_foretagsinformation")).toBe(55);
     expect(bolagsverketMinimumIntervalMs("unknown")).toBe(1_050);
+  });
+
+  it("serializes concurrent Bolagsverket request starts by the selected minimum interval", async () => {
+    process.env.BOLAGSVERKET_RATE_LIMIT_TEST_MODE = "true";
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2030-01-01T00:00:00.000Z"));
+
+    const starts: number[] = [];
+    const provider = "bolagsverket_foretagsinformation";
+    const minimumInterval = bolagsverketMinimumIntervalMs(provider);
+    const first = waitForBolagsverketRequestSlot(provider).then(() => starts.push(Date.now()));
+    const second = waitForBolagsverketRequestSlot(provider).then(() => starts.push(Date.now()));
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(starts).toHaveLength(1);
+
+    await vi.advanceTimersByTimeAsync(minimumInterval - 1);
+    expect(starts).toHaveLength(1);
+
+    await vi.advanceTimersByTimeAsync(1);
+    await Promise.all([first, second]);
+
+    expect(starts).toHaveLength(2);
+    expect(starts[1] - starts[0]).toBeGreaterThanOrEqual(minimumInterval);
   });
 
   it("requires HTTPS and rejects credentials embedded in Bolagsverket URLs", () => {
