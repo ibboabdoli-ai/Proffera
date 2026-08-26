@@ -80,31 +80,46 @@ function normalizeApprovedBaseUrl(input: {
   };
 }
 
+function lookupBaseForDetailEnvironment(detailBaseUrl: string) {
+  const detailUrl = new URL(detailBaseUrl);
+  return `${detailUrl.origin}/distribution/produkter/uppslag/adress/v3`;
+}
+
+function sameApiEnvironment(leftBaseUrl: string, rightBaseUrl: string) {
+  return new URL(leftBaseUrl).hostname === new URL(rightBaseUrl).hostname;
+}
+
 function getVerificationConfig(): VerificationConfig {
   const username = process.env.LANTMATERIET_ADDRESS_API_USERNAME?.trim() ?? "";
   const password = process.env.LANTMATERIET_ADDRESS_API_PASSWORD?.trim() ?? "";
   const rawDetailBase = process.env.LANTMATERIET_ADDRESS_API_BASE_URL?.trim()
     || DEFAULT_LANTMATERIET_DETAIL_BASE_URL;
-  const rawLookupBase = process.env.LANTMATERIET_ADDRESS_LOOKUP_API_BASE_URL?.trim()
-    || DEFAULT_LANTMATERIET_LOOKUP_BASE_URL;
 
   const detail = normalizeApprovedBaseUrl({
     rawUrl: rawDetailBase,
     fallbackUrl: DEFAULT_LANTMATERIET_DETAIL_BASE_URL,
     expectedPath: "/distribution/produkter/belagenhetsadress/v4.2",
   });
+  const derivedLookupBase = lookupBaseForDetailEnvironment(detail.baseUrl);
+  const rawLookupBase = process.env.LANTMATERIET_ADDRESS_LOOKUP_API_BASE_URL?.trim()
+    || derivedLookupBase;
   const lookup = normalizeApprovedBaseUrl({
     rawUrl: rawLookupBase,
     fallbackUrl: DEFAULT_LANTMATERIET_LOOKUP_BASE_URL,
     expectedPath: "/distribution/produkter/uppslag/adress/v3",
   });
+  const alignedEnvironment = detail.accepted
+    && lookup.accepted
+    && sameApiEnvironment(detail.baseUrl, lookup.baseUrl);
 
   return {
     username,
     password,
     lookupBaseUrl: lookup.baseUrl,
     detailBaseUrl: detail.baseUrl,
-    configured: Boolean(username) && Boolean(password) && lookup.accepted && detail.accepted,
+    configured: Boolean(username)
+      && Boolean(password)
+      && alignedEnvironment,
   };
 }
 
