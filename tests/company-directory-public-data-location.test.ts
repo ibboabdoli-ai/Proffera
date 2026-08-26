@@ -44,7 +44,22 @@ function publicBusiness() {
   };
 }
 
-function sqlForPublished(workplaces: unknown, claimedWorkspaceId: string | null = null) {
+function scbWorkplace() {
+  return {
+    municipality: "Södertälje",
+    visitingAddress: {
+      addressLine: "SCB-GATAN 9",
+      postalCode: "151 00",
+      city: "SÖDERTÄLJE",
+    },
+  };
+}
+
+function sqlForPublished(
+  workplaces: unknown,
+  claimedWorkspaceId: string | null = null,
+  ownerLocation: Record<string, unknown> | null = null,
+) {
   return vi.fn(async (strings: TemplateStringsArray) => {
     const query = strings.join(" ");
     if (query.includes("from company_directory_profiles") && !query.includes("from company_directory_profiles profile")) {
@@ -57,6 +72,9 @@ function sqlForPublished(workplaces: unknown, claimedWorkspaceId: string | null 
     }
     if (query.includes("from company_directory_scb_enrichment")) {
       return [{ phone: "", email: "", workplaces }];
+    }
+    if (query.includes("from company_directory_profile_locations")) {
+      return ownerLocation ? [ownerLocation] : [];
     }
     return [];
   });
@@ -74,7 +92,7 @@ function claimedRow() {
     primary_sni_code: "43.221",
     primary_sni_label: "VVS-arbeten",
     activity_description: "VVS",
-    address_line1: "OWNERGATAN 1",
+    address_line1: "POSTGATAN 1",
     postal_code: "111 11",
     city: "Stockholm",
     municipality: "Stockholm",
@@ -89,6 +107,20 @@ function claimedRow() {
   };
 }
 
+function claimedSql(ownerLocation: Record<string, unknown> | null = null) {
+  return vi.fn(async (strings: TemplateStringsArray) => {
+    const query = strings.join(" ");
+    if (query.includes("from company_directory_profiles profile")) return [claimedRow()];
+    if (query.includes("from company_directory_scb_enrichment")) {
+      return [{ phone: "", email: "", workplaces: [scbWorkplace()] }];
+    }
+    if (query.includes("from company_directory_profile_locations")) {
+      return ownerLocation ? [ownerLocation] : [];
+    }
+    return [];
+  });
+}
+
 describe("public Directory physical-location read contract", () => {
   beforeEach(() => {
     mocks.getSql.mockReset();
@@ -98,14 +130,7 @@ describe("public Directory physical-location read contract", () => {
 
   it("uses the one complete SCB workplace for an unclaimed published profile", async () => {
     mocks.getPublicDirectoryBusiness.mockResolvedValue(publicBusiness());
-    mocks.getSql.mockReturnValue(sqlForPublished([{
-      municipality: "Södertälje",
-      visitingAddress: {
-        addressLine: "VERKSTADSGATAN 2",
-        postalCode: "151 00",
-        city: "SÖDERTÄLJE",
-      },
-    }]));
+    mocks.getSql.mockReturnValue(sqlForPublished([scbWorkplace()]));
 
     const result = await getPublicDirectoryBusinessForRequest("physical-location-ab");
 
@@ -121,14 +146,7 @@ describe("public Directory physical-location read contract", () => {
   it("fails closed instead of exposing the profile postal address as physical for ambiguous workplaces", async () => {
     mocks.getPublicDirectoryBusiness.mockResolvedValue(publicBusiness());
     mocks.getSql.mockReturnValue(sqlForPublished([
-      {
-        municipality: "Södertälje",
-        visitingAddress: {
-          addressLine: "VERKSTADSGATAN 2",
-          postalCode: "151 00",
-          city: "SÖDERTÄLJE",
-        },
-      },
+      scbWorkplace(),
       {
         municipality: "Stockholm",
         visitingAddress: {
@@ -150,27 +168,33 @@ describe("public Directory physical-location read contract", () => {
     });
   });
 
-  it("keeps the claimed Workspace-owned profile location authoritative over SCB", async () => {
+  it("does not treat a claim as proof that stored profile postal fields are a physical location", async () => {
     mocks.getPublicDirectoryBusiness.mockResolvedValue(null);
     mocks.hasActivePaidDirectoryContactAccess.mockResolvedValue(true);
-    mocks.getSql.mockReturnValue(vi.fn(async (strings: TemplateStringsArray) => {
-      const query = strings.join(" ");
-      if (query.includes("from company_directory_profiles profile")) return [claimedRow()];
-      if (query.includes("from company_directory_scb_enrichment")) {
-        return [{
-          phone: "",
-          email: "",
-          workplaces: [{
-            municipality: "Södertälje",
-            visitingAddress: {
-              addressLine: "SCB-GATAN 9",
-              postalCode: "151 00",
-              city: "SÖDERTÄLJE",
-            },
-          }],
-        }];
-      }
-      return [];
+    mocks.getSql.mockReturnValue(claimedSql());
+
+    const result = await getPublicDirectoryBusinessForRequest("physical-location-ab");
+
+    expect(result).toMatchObject({
+      publicationStatus: "claimed",
+      addressLine1: "SCB-GATAN 9",
+      postalCode: "151 00",
+      city: "SÖDERTÄLJE",
+      municipality: "Södertälje",
+    });
+  });
+
+  it("uses the claimed Workspace primary public owner location over SCB", async () => {
+    mocks.getPublicDirectoryBusiness.mockResolvedValue(null);
+    mocks.hasActivePaidDirectoryContactAccess.mockResolvedValue(true);
+    mocks.getSql.mockReturnValue(claimedSql({
+      visibility: "public",
+      is_visitable: true,
+      confirmed_at: "2026-08-26T00:00:00.000Z",
+      address_line1: "OWNERGATAN 1",
+      postal_code: "111 11",
+      city: "Stockholm",
+      municipality: "Stockholm",
     }));
 
     const result = await getPublicDirectoryBusinessForRequest("physical-location-ab");
@@ -181,6 +205,30 @@ describe("public Directory physical-location read contract", () => {
       postalCode: "111 11",
       city: "Stockholm",
       municipality: "Stockholm",
+    });
+  });
+
+  it("respects a claimed Workspace private primary owner location instead of leaking SCB exact location", async () => {
+    mocks.getPublicDirectoryBusiness.mockResolvedValue(null);
+    mocks.hasActivePaidDirectoryContactAccess.mockResolvedValue(true);
+    mocks.getSql.mockReturnValue(claimedSql({
+      visibility: "private",
+      is_visitable: false,
+      confirmed_at: null,
+      address_line1: "OWNERGATAN 1",
+      postal_code: "111 11",
+      city: "Stockholm",
+      municipality: "Stockholm",
+    }));
+
+    const result = await getPublicDirectoryBusinessForRequest("physical-location-ab");
+
+    expect(result).toMatchObject({
+      publicationStatus: "claimed",
+      addressLine1: "",
+      postalCode: "",
+      city: "",
+      municipality: "",
     });
   });
 });
