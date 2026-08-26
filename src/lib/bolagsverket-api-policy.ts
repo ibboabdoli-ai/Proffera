@@ -43,7 +43,8 @@ export function requireBolagsverketHttpsUrl(value: string, label: string) {
  * concurrency must remain bounded as documented in the repository policy.
  */
 export async function waitForBolagsverketRequestSlot(provider: unknown) {
-  if (process.env.NODE_ENV === "test" || process.env.VITEST) return;
+  const testLimiterEnabled = process.env.BOLAGSVERKET_RATE_LIMIT_TEST_MODE?.trim().toLowerCase() === "true";
+  if ((process.env.NODE_ENV === "test" || process.env.VITEST) && !testLimiterEnabled) return;
 
   const previous = requestQueue;
   let release: (() => void) | undefined;
