@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  resolveDirectoryGeocodingApiBases,
   selectDirectoryAddressReferenceCandidates,
   selectUniqueDirectoryAddressReference,
 } from "./company-directory-geocoding";
@@ -35,5 +36,24 @@ describe("Referens Uppslag Adress v3 response compatibility", () => {
 
     expect(selectDirectoryAddressReferenceCandidates(references, "112 64", "Stockholm"))
       .toEqual(references);
+  });
+});
+
+describe("Directory Lantmäteriet API environment alignment", () => {
+  it("derives the api-ver lookup base when only an api-ver detail base is configured", () => {
+    expect(resolveDirectoryGeocodingApiBases({
+      detailBaseUrl: "https://api-ver.lantmateriet.se/distribution/produkter/belagenhetsadress/v4.2",
+    })).toEqual({
+      accepted: true,
+      detailBaseUrl: "https://api-ver.lantmateriet.se/distribution/produkter/belagenhetsadress/v4.2",
+      lookupBaseUrl: "https://api-ver.lantmateriet.se/distribution/produkter/uppslag/adress/v3",
+    });
+  });
+
+  it("rejects an explicit lookup URL from a different Lantmäteriet environment", () => {
+    expect(resolveDirectoryGeocodingApiBases({
+      detailBaseUrl: "https://api-ver.lantmateriet.se/distribution/produkter/belagenhetsadress/v4.2",
+      lookupBaseUrl: "https://api.lantmateriet.se/distribution/produkter/uppslag/adress/v3",
+    }).accepted).toBe(false);
   });
 });
