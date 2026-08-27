@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { Navigation, ShieldCheck, Sparkles } from "lucide-react";
 
 import { directoryCopy, directoryPaths, directoryServiceLabel, normalizeDirectoryPublicServiceQuery, popularDirectoryServices } from "@/components/company-directory/public-directory-copy";
@@ -9,17 +10,32 @@ import { normalizeDirectorySearchSort } from "@/lib/company-directory-public-sea
 import { DIRECTORY_SERVICES } from "@/lib/company-directory-service-taxonomy";
 import { getCachedPublishedDirectoryLocationSuggestions } from "@/lib/public-read-cache";
 import type { PublicLocale } from "@/lib/public-locale";
+import {
+  parsePublicDirectoryNearbyValue,
+  publicDirectoryNearbyCookieName,
+} from "@/lib/public-directory-nearby";
 
-type SearchParams = { service?: string | string[]; location?: string | string[]; latitude?: string | string[]; longitude?: string | string[]; radius?: string | string[]; sort?: string | string[]; page?: string | string[] };
+type SearchParams = { service?: string | string[]; location?: string | string[]; nearby?: string | string[]; radius?: string | string[]; sort?: string | string[]; page?: string | string[] };
 
 function firstParam(value?: string | string[]) { return Array.isArray(value) ? value[0] : value; }
 
 function paginationBaseHref(path: string, params: SearchParams | undefined) {
   const query = new URLSearchParams();
-  for (const key of ["service", "location", "latitude", "longitude", "radius", "sort"] as const) {
-    const value = firstParam(params?.[key]);
-    if (value?.trim()) query.set(key, value);
+  const service = firstParam(params?.service);
+  const location = firstParam(params?.location);
+  const radius = firstParam(params?.radius);
+  const sort = firstParam(params?.sort);
+  const nearbyRequested = firstParam(params?.nearby) === "1";
+
+  if (service?.trim()) query.set("service", service);
+  if (nearbyRequested) {
+    query.set("nearby", "1");
+    if (radius?.trim()) query.set("radius", radius);
+  } else if (location?.trim()) {
+    query.set("location", location);
   }
+  if (sort?.trim()) query.set("sort", sort);
+
   const suffix = query.toString();
   return suffix ? `${path}?${suffix}` : path;
 }
@@ -27,16 +43,23 @@ function paginationBaseHref(path: string, params: SearchParams | undefined) {
 export async function PublicDirectorySearchPage({ locale, searchParams }: { locale: PublicLocale; searchParams?: Promise<SearchParams> }) {
   const params = await (searchParams ?? Promise.resolve(undefined));
   const service = firstParam(params?.service) ?? "";
-  const location = firstParam(params?.location) ?? "";
-  const latitude = firstParam(params?.latitude);
-  const longitude = firstParam(params?.longitude);
+  const requestedLocation = firstParam(params?.location) ?? "";
+  const nearbyRequested = firstParam(params?.nearby) === "1";
+  const location = nearbyRequested ? "" : requestedLocation;
   const radius = firstParam(params?.radius) ?? "25";
   const requestedSort = firstParam(params?.sort) ?? "";
   const page = firstParam(params?.page) ?? "1";
-  const searched = Boolean(service.trim() || location.trim() || latitude?.trim() || longitude?.trim());
+  const searched = Boolean(service.trim() || location.trim() || nearbyRequested);
   const t = directoryCopy[locale];
   const paths = directoryPaths[locale];
   const searchService = normalizeDirectoryPublicServiceQuery(service, locale);
+
+  const cookieStore = nearbyRequested ? await cookies() : null;
+  const nearbyCoordinates = nearbyRequested
+    ? parsePublicDirectoryNearbyValue(cookieStore?.get(publicDirectoryNearbyCookieName(locale))?.value)
+    : null;
+  const latitude = nearbyRequested ? nearbyCoordinates?.latitude ?? "" : undefined;
+  const longitude = nearbyRequested ? nearbyCoordinates?.longitude ?? "" : undefined;
 
   const [locationSuggestions, search] = await Promise.all([
     getCachedPublishedDirectoryLocationSuggestions(60),
