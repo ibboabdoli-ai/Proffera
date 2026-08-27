@@ -4,9 +4,9 @@ import {
   buildDirectoryAddressSearchText,
   cleanDirectoryStreetAddress,
   diagnoseExactSwerefAddressFromRegisterUnit,
+  isDirectoryAddressReference,
   selectDirectoryAddressReferenceCandidates,
   type DirectoryGeocodingNoMatchReason,
-  type LantmaterietAddressReference,
 } from "@/lib/company-directory-geocoding";
 
 const DEFAULT_LANTMATERIET_DETAIL_BASE_URL =
@@ -200,8 +200,8 @@ export async function verifyCustomerAddress(input: {
     }
     if (referencePayload.length === 0) return { status: "no_match", reason: "no_reference" };
 
-    const references = referencePayload as LantmaterietAddressReference[];
-    if (!references.some((reference) => isValidCustomerAddressReferenceId(reference.objektidentitet))) {
+    const references = referencePayload.filter(isDirectoryAddressReference);
+    if (references.length === 0) {
       return { status: "no_match", reason: "invalid_reference" };
     }
     const candidates = selectDirectoryAddressReferenceCandidates(references, input.postalCode, input.city);
