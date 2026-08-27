@@ -3,7 +3,7 @@ import "server-only";
 import {
   buildDirectoryAddressSearchText,
   cleanDirectoryStreetAddress,
-  diagnoseExactSwerefAddressDetail,
+  diagnoseExactSwerefAddressFromRegisterUnit,
   selectDirectoryAddressReferenceCandidates,
   type DirectoryGeocodingNoMatchReason,
   type LantmaterietAddressReference,
@@ -161,6 +161,24 @@ async function fetchJson(url: URL, config: VerificationConfig, deadline: number)
   return await response.json() as unknown;
 }
 
+async function fetchAddressReferences(
+  streetAddress: string,
+  city: string,
+  config: VerificationConfig,
+  deadline: number,
+) {
+  const primaryText = buildDirectoryAddressSearchText(streetAddress, city);
+  const searchUrl = new URL(`${config.lookupBaseUrl}/fritext`);
+  searchUrl.searchParams.set("adress", primaryText);
+  let payload = await fetchJson(searchUrl, config, deadline);
+  if (!Array.isArray(payload) || payload.length > 0 || primaryText === streetAddress) return payload;
+
+  const streetOnlyUrl = new URL(`${config.lookupBaseUrl}/fritext`);
+  streetOnlyUrl.searchParams.set("adress", streetAddress);
+  payload = await fetchJson(streetOnlyUrl, config, deadline);
+  return payload;
+}
+
 export async function verifyCustomerAddress(input: {
   addressLine1: string;
   postalCode: string;
@@ -176,10 +194,7 @@ export async function verifyCustomerAddress(input: {
 
   const deadline = Date.now() + VERIFICATION_BUDGET_MS;
   try {
-    const searchUrl = new URL(`${config.lookupBaseUrl}/fritext`);
-    searchUrl.searchParams.set("adress", buildDirectoryAddressSearchText(streetAddress, input.city));
-
-    const referencePayload = await fetchJson(searchUrl, config, deadline);
+    const referencePayload = await fetchAddressReferences(streetAddress, input.city, config, deadline);
     if (!Array.isArray(referencePayload)) {
       return { status: "no_match", reason: "unexpected_reference_response" };
     }
@@ -196,18 +211,21 @@ export async function verifyCustomerAddress(input: {
     let resolved: VerifiedCustomerAddress | null = null;
     const detailReasons = new Set<DirectoryGeocodingNoMatchReason>();
     for (const candidate of candidates) {
-      const referenceId = candidate.objektidentitet;
-      if (!isValidCustomerAddressReferenceId(referenceId)) {
+      const registerUnitId = candidate.objektidentitet;
+      if (!isValidCustomerAddressReferenceId(registerUnitId)) {
         return { status: "no_match", reason: "invalid_reference" };
       }
       if (Date.now() >= deadline) throw new VerificationTimeoutError();
 
-      const detailUrl = new URL(`${config.detailBaseUrl}/${encodeURIComponent(referenceId)}`);
+      const detailUrl = new URL(
+        `${config.detailBaseUrl}/registerenhet/${encodeURIComponent(registerUnitId)}`,
+      );
       detailUrl.searchParams.set("includeData", "basinformation");
       detailUrl.searchParams.set("srid", "3006");
       const detailPayload = await fetchJson(detailUrl, config, deadline);
-      const detail = diagnoseExactSwerefAddressDetail(
+      const detail = diagnoseExactSwerefAddressFromRegisterUnit(
         detailPayload,
+        registerUnitId,
         input.postalCode,
         input.city,
         streetAddress,
@@ -220,7 +238,7 @@ export async function verifyCustomerAddress(input: {
       resolved = {
         status: "matched",
         source: CUSTOMER_ADDRESS_VERIFICATION_SOURCE,
-        referenceId,
+        referenceId: detail.addressId,
         easting: detail.point.easting,
         northing: detail.point.northing,
       };
