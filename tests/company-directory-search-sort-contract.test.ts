@@ -54,7 +54,7 @@ describe("public directory search sorting", () => {
       locale: "sv",
       sort: "name",
       nearbyActive: true,
-      baseHref: "/foretag/listad?service=vvs&location=Stockholm&latitude=59.3&longitude=18.0&radius=25&sort=name&page=3",
+      baseHref: "/foretag/listad?service=vvs&nearby=1&radius=25&sort=name&page=3",
     }));
     const en = renderToStaticMarkup(createElement(PublicDirectorySortControls, {
       locale: "en",
@@ -69,9 +69,10 @@ describe("public directory search sorting", () => {
     expect(sv).toContain("A–Ö");
     expect(sv).toContain('data-search-sort="name" aria-current="page"');
     expect(sv).toContain("service=vvs");
-    expect(sv).toContain("location=Stockholm");
-    expect(sv).toContain("latitude=59.3");
-    expect(sv).toContain("longitude=18.0");
+    expect(sv).toContain("nearby=1");
+    expect(sv).toContain("radius=25");
+    expect(sv).not.toContain("latitude=");
+    expect(sv).not.toContain("longitude=");
     expect(sv).not.toContain("page=3");
 
     expect(en).toContain("Sort");
@@ -84,16 +85,21 @@ describe("public directory search sorting", () => {
     expect(en).not.toContain("page=2");
   });
 
-  it("threads sort through both localized pages and pagination state", () => {
+  it("threads sort through both localized pages and sanitized pagination state", () => {
     const shell = source("src/components/company-directory/public-directory-search-page.tsx");
     const svPage = source("src/app/foretag/listad/page.tsx");
     const enPage = source("src/app/en/companies/page.tsx");
 
-    expect(shell).toContain('"radius", "sort"');
+    expect(shell).toContain('const radius = firstParam(params?.radius);');
+    expect(shell).toContain('const sort = firstParam(params?.sort);');
+    expect(shell).toContain('const nearbyRequested = firstParam(params?.nearby) === "1";');
+    expect(shell).toContain('query.set("nearby", "1")');
     expect(shell).toContain("sort: requestedSort");
     expect(shell).toContain("normalizeDirectorySearchSort(requestedSort, nearbyActive)");
     expect(shell).toContain("sort={activeSort}");
+    expect(svPage).toContain("nearby?: string | string[]");
     expect(svPage).toContain("sort?: string | string[]");
+    expect(enPage).toContain("nearby?: string | string[]");
     expect(enPage).toContain("sort?: string | string[]");
   });
 });
