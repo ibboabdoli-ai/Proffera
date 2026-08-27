@@ -88,9 +88,23 @@ describe("Lantmäteriet register-unit address matching", () => {
     )).toEqual({ point: null, addressId: null, reason: "invalid_reference" });
   });
 
-  it("fails closed when the exact address omits registerenhetsreferens", () => {
+  it("accepts an exact address when the optional registerenhetsreferens is omitted", () => {
     expect(diagnoseExactSwerefAddressFromRegisterUnit(
       collection(feature({ includeRegisterReference: false })),
+      registerUnitId,
+      "11264",
+      "Stockholm",
+      "Segelbåtsvägen 7A",
+    )).toEqual({
+      point: { easting: 674000, northing: 6580000 },
+      addressId,
+      reason: null,
+    });
+  });
+
+  it("fails closed when a present registerenhetsreferens is malformed", () => {
+    expect(diagnoseExactSwerefAddressFromRegisterUnit(
+      collection(feature({ registerId: "not-a-uuid" })),
       registerUnitId,
       "11264",
       "Stockholm",
