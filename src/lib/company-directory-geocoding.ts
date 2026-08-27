@@ -14,6 +14,7 @@ const DEFAULT_LANTMATERIET_LOOKUP_BASE_URL =
 const GEOCODE_SOURCE = "lantmateriet_belagenhetsadress_v4_2";
 const NO_MATCH_SOURCE = "lantmateriet_no_match_v4_2";
 const SCB_WORKPLACE_NO_MATCH_SOURCE_PREFIX = `${NO_MATCH_SOURCE}:scb_workplace:`;
+const REGISTER_UNIT_NO_MATCH_SOURCE_PREFIX = `${NO_MATCH_SOURCE}:registerenhet_v1:scb_workplace:`;
 const MAX_DETAIL_FALLBACK_CANDIDATES = 5;
 const GEOCODING_ACTION_BUDGET_MS = 240_000;
 const GEOCODING_FINAL_COUNTS_RESERVE_MS = 10_000;
@@ -82,7 +83,13 @@ type AddressPlaceDesignation = {
   avvikandeAdressplatsbeteckning?: string | null;
 };
 
+type RegisterUnitReference = {
+  objektidentitet?: string | null;
+};
+
 type AddressDetailProperties = {
+  objektidentitet?: string | null;
+  registerenhetsreferens?: RegisterUnitReference | RegisterUnitReference[] | null;
   adressplatsattribut?: AddressComponents & {
     adressplatsbeteckning?: AddressPlaceDesignation;
   };
@@ -125,6 +132,10 @@ type SwerefPoint = {
 type AddressDetailDiagnostic =
   | { point: SwerefPoint; reason: null }
   | { point: null; reason: DirectoryGeocodingNoMatchReason };
+
+type RegisterUnitAddressDiagnostic =
+  | { point: SwerefPoint; addressId: string; reason: null }
+  | { point: null; addressId: null; reason: DirectoryGeocodingNoMatchReason };
 
 type OfficialAddressResolution =
   | { status: "matched"; easting: number; northing: number; objectId: string }
@@ -265,7 +276,7 @@ export function buildDirectoryGeocodingNoMatchSource(
   addressSource: DirectoryGeocodingAddressSource = "profile",
 ) {
   return addressSource === "scb_workplace"
-    ? `${SCB_WORKPLACE_NO_MATCH_SOURCE_PREFIX}${reason}`
+    ? `${REGISTER_UNIT_NO_MATCH_SOURCE_PREFIX}${reason}`
     : `${NO_MATCH_SOURCE}:${reason}`;
 }
 
@@ -280,6 +291,12 @@ export function shouldRetryLegacyDirectoryNoMatch(organizationNumber: unknown, s
       .includes(String(organizationNumber ?? ""));
 }
 
+export function shouldRetryDirectoryNoMatchAfterRegisterUnitFix(source: unknown) {
+  const normalizedSource = String(source ?? "");
+  return isDirectoryGeocodingNoMatchSource(normalizedSource)
+    && !normalizedSource.startsWith(REGISTER_UNIT_NO_MATCH_SOURCE_PREFIX);
+}
+
 export function shouldRetryDirectoryNoMatchWithCanonicalAddress(input: {
   geocodeSource: unknown;
   profileAddress: DirectoryPublicAddress;
@@ -288,6 +305,7 @@ export function shouldRetryDirectoryNoMatchWithCanonicalAddress(input: {
   const source = String(input.geocodeSource ?? "");
   if (!isDirectoryGeocodingNoMatchSource(source)) return false;
   if (source.startsWith(SCB_WORKPLACE_NO_MATCH_SOURCE_PREFIX)) return false;
+  if (source.startsWith(REGISTER_UNIT_NO_MATCH_SOURCE_PREFIX)) return false;
   if (input.selectedAddress.source !== "scb_workplace") return false;
   return !sameDirectoryGeocodingLookupAddress(
     input.profileAddress,
@@ -445,6 +463,96 @@ export function diagnoseExactSwerefAddressDetail(
   return { point, reason: null };
 }
 
+function exactAddressFeatureId(feature: Record<string, unknown>, properties: AddressDetailProperties) {
+  const featureId = feature.id;
+  const propertyId = properties.objektidentitet;
+  if (featureId !== undefined && featureId !== null && !isUuid(featureId)) return null;
+  if (propertyId !== undefined && propertyId !== null && !isUuid(propertyId)) return null;
+  const normalizedFeatureId = isUuid(featureId) ? String(featureId) : "";
+  const normalizedPropertyId = isUuid(propertyId) ? String(propertyId) : "";
+  if (
+    normalizedFeatureId
+    && normalizedPropertyId
+    && normalizedFeatureId.toLowerCase() !== normalizedPropertyId.toLowerCase()
+  ) return null;
+  return normalizedFeatureId || normalizedPropertyId || null;
+}
+
+function registerUnitReferences(properties: AddressDetailProperties) {
+  const raw = properties.registerenhetsreferens;
+  if (raw === null || raw === undefined) return [];
+  return Array.isArray(raw) ? raw : [raw];
+}
+
+function registerUnitReferenceMatches(properties: AddressDetailProperties, registerUnitId: string) {
+  const references = registerUnitReferences(properties);
+  if (references.length === 0) return true;
+  if (references.some((reference) => !isUuid(reference?.objektidentitet))) return false;
+  return references.some((reference) =>
+    String(reference.objektidentitet).toLowerCase() === registerUnitId.toLowerCase());
+}
+
+export function diagnoseExactSwerefAddressFromRegisterUnit(
+  payload: unknown,
+  registerUnitId: unknown,
+  postalCode: unknown,
+  city: unknown,
+  streetAddress: unknown,
+): RegisterUnitAddressDiagnostic {
+  if (!isUuid(registerUnitId)) {
+    return { point: null, addressId: null, reason: "invalid_reference" };
+  }
+  if (!payload || typeof payload !== "object") {
+    return { point: null, addressId: null, reason: "unexpected_detail_response" };
+  }
+  const features = (payload as { features?: unknown }).features;
+  if (!Array.isArray(features) || features.length === 0) {
+    return { point: null, addressId: null, reason: "unexpected_detail_response" };
+  }
+
+  const matches: Array<{ point: SwerefPoint; addressId: string }> = [];
+  const reasons = new Set<DirectoryGeocodingNoMatchReason>();
+  for (const feature of features) {
+    if (!feature || typeof feature !== "object" || Array.isArray(feature)) {
+      reasons.add("unexpected_detail_response");
+      continue;
+    }
+    const exact = diagnoseExactSwerefAddressDetail(
+      { type: "FeatureCollection", features: [feature] },
+      postalCode,
+      city,
+      streetAddress,
+    );
+    if (!exact.point) {
+      reasons.add(exact.reason);
+      continue;
+    }
+    const properties = (feature as { properties?: unknown }).properties;
+    if (!properties || typeof properties !== "object" || Array.isArray(properties)) {
+      reasons.add("unexpected_detail_response");
+      continue;
+    }
+    const typedProperties = properties as AddressDetailProperties;
+    const addressId = exactAddressFeatureId(feature as Record<string, unknown>, typedProperties);
+    if (!addressId || !registerUnitReferenceMatches(typedProperties, String(registerUnitId))) {
+      reasons.add("invalid_reference");
+      continue;
+    }
+    matches.push({ point: exact.point, addressId });
+  }
+
+  if (matches.length > 1) {
+    return { point: null, addressId: null, reason: "ambiguous_exact_match" };
+  }
+  if (matches.length === 1) {
+    return { ...matches[0], reason: null };
+  }
+  if (reasons.size === 1) {
+    return { point: null, addressId: null, reason: [...reasons][0] };
+  }
+  return { point: null, addressId: null, reason: "no_exact_detail_match" };
+}
+
 export function parseExactSwerefAddressDetail(
   payload: unknown,
   postalCode: unknown,
@@ -573,6 +681,24 @@ async function fetchJson(url: URL, username: string, password: string, deadline:
   }
 }
 
+async function fetchAddressReferences(
+  streetAddress: string,
+  city: string,
+  config: ReturnType<typeof getGeocodingConfig>,
+  deadline: number,
+) {
+  const primaryText = buildDirectoryAddressSearchText(streetAddress, city);
+  const searchUrl = new URL(`${config.lookupBaseUrl}/fritext`);
+  searchUrl.searchParams.set("adress", primaryText);
+  let payload = await fetchJson(searchUrl, config.username, config.password, deadline);
+  if (!Array.isArray(payload) || payload.length > 0 || primaryText === streetAddress) return payload;
+
+  const streetOnlyUrl = new URL(`${config.lookupBaseUrl}/fritext`);
+  streetOnlyUrl.searchParams.set("adress", streetAddress);
+  payload = await fetchJson(streetOnlyUrl, config.username, config.password, deadline);
+  return payload;
+}
+
 async function resolveOfficialAddress(
   profile: PilotProfile,
   config: ReturnType<typeof getGeocodingConfig>,
@@ -584,10 +710,7 @@ async function resolveOfficialAddress(
     return { status: "no_match", reason: "invalid_address" };
   }
 
-  const searchUrl = new URL(`${config.lookupBaseUrl}/fritext`);
-  searchUrl.searchParams.set("adress", buildDirectoryAddressSearchText(streetAddress, profile.city));
-
-  const referencePayload = await fetchJson(searchUrl, config.username, config.password, deadline);
+  const referencePayload = await fetchAddressReferences(streetAddress, profile.city, config, deadline);
   if (!Array.isArray(referencePayload)) {
     return { status: "no_match", reason: "unexpected_reference_response" };
   }
@@ -617,13 +740,17 @@ async function resolveOfficialAddress(
 
   for (const candidate of candidates) {
     assertBeforeDeadline(deadline);
-    if (!candidate.objektidentitet) continue;
-    const detailUrl = new URL(`${config.detailBaseUrl}/${encodeURIComponent(candidate.objektidentitet)}`);
+    const registerUnitId = candidate.objektidentitet;
+    if (!isUuid(registerUnitId)) continue;
+    const detailUrl = new URL(
+      `${config.detailBaseUrl}/registerenhet/${encodeURIComponent(registerUnitId)}`,
+    );
     detailUrl.searchParams.set("includeData", "basinformation");
     detailUrl.searchParams.set("srid", "3006");
     const detailPayload = await fetchJson(detailUrl, config.username, config.password, deadline);
-    const detail = diagnoseExactSwerefAddressDetail(
+    const detail = diagnoseExactSwerefAddressFromRegisterUnit(
       detailPayload,
+      registerUnitId,
       profile.postalCode,
       profile.city,
       streetAddress,
@@ -633,7 +760,7 @@ async function resolveOfficialAddress(
       continue;
     }
     if (resolved) return { status: "no_match", reason: "ambiguous_exact_match" };
-    resolved = { ...detail.point, objectId: candidate.objektidentitet };
+    resolved = { ...detail.point, objectId: detail.addressId };
   }
 
   if (resolved) return { status: "matched", ...resolved };
@@ -681,12 +808,7 @@ function rowNeedsGeocodingAttempt(row: Record<string, unknown>) {
   if (!selectedAddress) return false;
   const source = String(row.geocode_source ?? "");
   if (!isDirectoryGeocodingNoMatchSource(source)) return true;
-  if (shouldRetryLegacyDirectoryNoMatch(row.organization_number, source)) return true;
-  return shouldRetryDirectoryNoMatchWithCanonicalAddress({
-    geocodeSource: source,
-    profileAddress: profileAddressFromRow(row),
-    selectedAddress,
-  });
+  return shouldRetryDirectoryNoMatchAfterRegisterUnitFix(source);
 }
 
 async function pilotCounts(deadline?: number) {
