@@ -240,6 +240,11 @@ function isUuid(value: unknown) {
     .test(String(value ?? ""));
 }
 
+export function isDirectoryAddressReference(value: unknown): value is LantmaterietAddressReference {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  return isUuid((value as LantmaterietAddressReference).objektidentitet);
+}
+
 function assertBeforeDeadline(deadline: number, reserveMs = 0) {
   if (Date.now() + reserveMs >= deadline) throw new GeocodingDeadlineExceeded();
 }
@@ -344,11 +349,11 @@ export function selectUniqueDirectoryAddressReference(
   const expectedPostcode = normalizePostcode(postalCode);
   const expectedCity = normalizeText(city);
   const matches = references.filter((reference) => {
+    if (!isDirectoryAddressReference(reference)) return false;
     const components = referenceAddressComponents(reference);
     if (!components) return false;
     return normalizePostcode(components.postnummer) === expectedPostcode
-      && normalizeText(components.postort) === expectedCity
-      && isUuid(reference.objektidentitet);
+      && normalizeText(components.postort) === expectedCity;
   });
   return matches.length === 1 ? matches[0] : null;
 }
@@ -363,7 +368,7 @@ export function selectDirectoryAddressReferenceCandidates(
   if (!expectedPostcode || !expectedCity) return [];
 
   return references.filter((reference) => {
-    if (!isUuid(reference.objektidentitet)) return false;
+    if (!isDirectoryAddressReference(reference)) return false;
     const components = referenceAddressComponents(reference);
     const referencePostcode = normalizePostcode(components?.postnummer);
     const referenceCity = normalizeText(components?.postort);
@@ -718,8 +723,8 @@ async function resolveOfficialAddress(
     return { status: "no_match", reason: "no_reference" };
   }
 
-  const references = referencePayload as LantmaterietAddressReference[];
-  if (!references.some((reference) => isUuid(reference.objektidentitet))) {
+  const references = referencePayload.filter(isDirectoryAddressReference);
+  if (references.length === 0) {
     return { status: "no_match", reason: "invalid_reference" };
   }
 
