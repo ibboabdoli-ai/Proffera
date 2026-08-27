@@ -172,7 +172,7 @@ describe("customer Lantmäteriet address verification", () => {
     })).resolves.toEqual({ status: "no_match", reason: "invalid_reference" });
   });
 
-  it("rejects two exact register-unit candidates as ambiguous", async () => {
+  it("rejects two different exact register-unit candidates as ambiguous", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse([
         {
@@ -196,6 +196,47 @@ describe("customer Lantmäteriet address verification", () => {
       postalCode: "112 64",
       city: "Stockholm",
     })).resolves.toEqual({ status: "no_match", reason: "ambiguous_exact_match" });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("deduplicates the same exact address returned through multiple register units", async () => {
+    const baseFeature = addressFeature();
+    const sharedFeature = {
+      ...baseFeature,
+      properties: {
+        ...baseFeature.properties,
+        registerenhetsreferens: [
+          { objektidentitet: registerUnitId },
+          { objektidentitet: secondRegisterUnitId },
+        ],
+      },
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse([
+        {
+          objektidentitet: registerUnitId,
+          adressComponents: { postnummer: 11264, postort: "Stockholm" },
+        },
+        {
+          objektidentitet: secondRegisterUnitId,
+          adressComponents: { postnummer: 11264, postort: "Stockholm" },
+        },
+      ]))
+      .mockResolvedValueOnce(jsonResponse(registerUnitDetail(sharedFeature)))
+      .mockResolvedValueOnce(jsonResponse(registerUnitDetail(sharedFeature)));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(verifyCustomerAddress({
+      addressLine1: "Segelbåtsvägen 7 A",
+      postalCode: "112 64",
+      city: "Stockholm",
+    })).resolves.toEqual({
+      status: "matched",
+      source: "lantmateriet_belagenhetsadress_v4_2",
+      referenceId: addressId,
+      easting: 674000,
+      northing: 6580000,
+    });
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
@@ -253,7 +294,7 @@ describe("customer Lantmäteriet address verification", () => {
       "LANTMATERIET_ADDRESS_LOOKUP_API_BASE_URL",
       "https://api-ver.lantmateriet.se/distribution/produkter/uppslag/adress/v3?unexpected=1#fragment",
     );
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse([]));
+    const fetchMock = vi.fn().mockImplementation(async () => jsonResponse([]));
     vi.stubGlobal("fetch", fetchMock);
 
     await verifyCustomerAddress({
