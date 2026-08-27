@@ -11,6 +11,7 @@ function feature(input: {
   id?: string;
   propertyId?: string;
   registerId?: string;
+  includeRegisterReference?: boolean;
   street?: string;
   number?: string;
   geometry?: unknown;
@@ -22,7 +23,9 @@ function feature(input: {
     geometry: input.geometry ?? { type: "Point", coordinates: [674000, 6580000] },
     properties: {
       objektidentitet: input.propertyId ?? id,
-      registerenhetsreferens: { objektidentitet: input.registerId ?? registerUnitId },
+      ...(input.includeRegisterReference === false
+        ? {}
+        : { registerenhetsreferens: { objektidentitet: input.registerId ?? registerUnitId } }),
       adressplatsattribut: {
         postnummer: 11264,
         postort: "Stockholm",
@@ -78,6 +81,16 @@ describe("Lantmäteriet register-unit address matching", () => {
   it("fails closed on a register-unit mismatch", () => {
     expect(diagnoseExactSwerefAddressFromRegisterUnit(
       collection(feature({ registerId: otherRegisterUnitId })),
+      registerUnitId,
+      "11264",
+      "Stockholm",
+      "Segelbåtsvägen 7A",
+    )).toEqual({ point: null, addressId: null, reason: "invalid_reference" });
+  });
+
+  it("fails closed when the exact address omits registerenhetsreferens", () => {
+    expect(diagnoseExactSwerefAddressFromRegisterUnit(
+      collection(feature({ includeRegisterReference: false })),
       registerUnitId,
       "11264",
       "Stockholm",
