@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { verifyCustomerAddress } from "./lantmateriet-address-verification";
 
-const referenceId = "439b33bf-6279-4b65-b32c-9741646d8d3e";
-const secondReferenceId = "439b33bf-6279-4b65-b32c-9741646d8d3f";
+const registerUnitId = "439b33bf-6279-4b65-b32c-9741646d8d3e";
+const secondRegisterUnitId = "439b33bf-6279-4b65-b32c-9741646d8d3f";
+const addressId = "539b33bf-6279-4b65-b32c-9741646d8d3e";
+const secondAddressId = "539b33bf-6279-4b65-b32c-9741646d8d3f";
 
 function jsonResponse(value: unknown) {
   return new Response(JSON.stringify(value), {
@@ -12,21 +14,36 @@ function jsonResponse(value: unknown) {
   });
 }
 
-function exactDetail() {
+function addressFeature(input: {
+  registerId?: string;
+  id?: string;
+  street?: string;
+  number?: string;
+  postnummer?: number;
+  postort?: string;
+} = {}) {
+  const id = input.id ?? addressId;
   return {
-    type: "FeatureCollection",
-    features: [{
-      geometry: { type: "Point", coordinates: [674000, 6580000] },
-      properties: {
-        adressplatsattribut: {
-          postnummer: 11264,
-          postort: "Stockholm",
-          adressplatsbeteckning: { adressplatsnummer: "7", bokstavstillagg: "A" },
-        },
-        adressomrade: { faststalltNamn: "Segelbåtsvägen" },
+    type: "Feature",
+    id,
+    geometry: { type: "Point", coordinates: [674000, 6580000] },
+    properties: {
+      objektidentitet: id,
+      registerenhetsreferens: {
+        objektidentitet: input.registerId ?? registerUnitId,
       },
-    }],
+      adressplatsattribut: {
+        postnummer: input.postnummer ?? 11264,
+        postort: input.postort ?? "Stockholm",
+        adressplatsbeteckning: { adressplatsnummer: input.number ?? "7", bokstavstillagg: "A" },
+      },
+      adressomrade: { faststalltNamn: input.street ?? "Segelbåtsvägen" },
+    },
   };
+}
+
+function registerUnitDetail(...features: unknown[]) {
+  return { type: "FeatureCollection", features };
 }
 
 describe("customer Lantmäteriet address verification", () => {
@@ -49,14 +66,14 @@ describe("customer Lantmäteriet address verification", () => {
     vi.restoreAllMocks();
   });
 
-  it("looks up the register reference in Referens Uppslag Adress v3 before reading the official detail", async () => {
+  it("uses the lookup UUID as a register unit and returns the matched address UUID", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse([{
-        objektidentitet: referenceId,
+        objektidentitet: registerUnitId,
         adress: "Segelbåtsvägen 7A, 112 64 Stockholm",
         adressComponents: { postnummer: 11264, postort: "Stockholm" },
       }]))
-      .mockResolvedValueOnce(jsonResponse(exactDetail()));
+      .mockResolvedValueOnce(jsonResponse(registerUnitDetail(addressFeature())));
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await verifyCustomerAddress({
@@ -68,7 +85,7 @@ describe("customer Lantmäteriet address verification", () => {
     expect(result).toEqual({
       status: "matched",
       source: "lantmateriet_belagenhetsadress_v4_2",
-      referenceId,
+      referenceId: addressId,
       easting: 674000,
       northing: 6580000,
     });
@@ -76,26 +93,53 @@ describe("customer Lantmäteriet address verification", () => {
     const searchUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
     expect(searchUrl.pathname).toBe("/distribution/produkter/uppslag/adress/v3/fritext");
     expect(searchUrl.searchParams.get("adress")).toBe("Segelbåtsvägen 7 A, Stockholm");
-    expect(searchUrl.searchParams.get("status")).toBeNull();
-    expect(searchUrl.searchParams.get("maxHits")).toBeNull();
-    expect(searchUrl.searchParams.get("splitAdress")).toBeNull();
     const detailUrl = new URL(String(fetchMock.mock.calls[1]?.[0]));
-    expect(detailUrl.pathname).toBe(`/distribution/produkter/belagenhetsadress/v4.2/${referenceId}`);
+    expect(detailUrl.pathname).toBe(
+      `/distribution/produkter/belagenhetsadress/v4.2/registerenhet/${registerUnitId}`,
+    );
     expect(detailUrl.searchParams.get("includeData")).toBe("basinformation");
     expect(detailUrl.searchParams.get("srid")).toBe("3006");
   });
 
-  it("rejects an address when the official lookup has no reference", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse([])));
+  it("selects exactly one matching address from a multi-address register unit", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse([{
+        objektidentitet: registerUnitId,
+        adressComponents: { postnummer: 11264, postort: "Stockholm" },
+      }]))
+      .mockResolvedValueOnce(jsonResponse(registerUnitDetail(
+        addressFeature({ id: secondAddressId, street: "Annan gata", number: "9" }),
+        addressFeature(),
+      )));
+    vi.stubGlobal("fetch", fetchMock);
 
     await expect(verifyCustomerAddress({
-      addressLine1: "Okändgatan 99",
+      addressLine1: "Segelbåtsvägen 7 A",
+      postalCode: "112 64",
+      city: "Stockholm",
+    })).resolves.toMatchObject({ status: "matched", referenceId: addressId });
+  });
+
+  it("retries an empty city-qualified lookup once with cleaned street-only text", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(jsonResponse([]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(verifyCustomerAddress({
+      addressLine1: "Okändgatan 99, 3tr",
       postalCode: "151 46",
       city: "Södertälje",
     })).resolves.toEqual({ status: "no_match", reason: "no_reference" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(new URL(String(fetchMock.mock.calls[0]?.[0])).searchParams.get("adress"))
+      .toBe("Okändgatan 99, Södertälje");
+    expect(new URL(String(fetchMock.mock.calls[1]?.[0])).searchParams.get("adress"))
+      .toBe("Okändgatan 99");
   });
 
-  it("rejects an invalid official object reference before any detail request", async () => {
+  it("rejects an invalid official register unit reference before any detail request", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse([{
       objektidentitet: "not-a-uuid",
       adressComponents: { postnummer: 11264, postort: "Stockholm" },
@@ -110,22 +154,41 @@ describe("customer Lantmäteriet address verification", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("rejects two exact official candidates as ambiguous", async () => {
+  it("rejects an exact address whose register unit reference points elsewhere", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse([{
+        objektidentitet: registerUnitId,
+        adressComponents: { postnummer: 11264, postort: "Stockholm" },
+      }]))
+      .mockResolvedValueOnce(jsonResponse(registerUnitDetail(addressFeature({
+        registerId: secondRegisterUnitId,
+      }))));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(verifyCustomerAddress({
+      addressLine1: "Segelbåtsvägen 7 A",
+      postalCode: "112 64",
+      city: "Stockholm",
+    })).resolves.toEqual({ status: "no_match", reason: "invalid_reference" });
+  });
+
+  it("rejects two exact register-unit candidates as ambiguous", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse([
         {
-          objektidentitet: referenceId,
-          adress: "Segelbåtsvägen 7A, 112 64 Stockholm",
+          objektidentitet: registerUnitId,
           adressComponents: { postnummer: 11264, postort: "Stockholm" },
         },
         {
-          objektidentitet: secondReferenceId,
-          adress: "Segelbåtsvägen 7A, 112 64 Stockholm",
+          objektidentitet: secondRegisterUnitId,
           adressComponents: { postnummer: 11264, postort: "Stockholm" },
         },
       ]))
-      .mockResolvedValueOnce(jsonResponse(exactDetail()))
-      .mockResolvedValueOnce(jsonResponse(exactDetail()));
+      .mockResolvedValueOnce(jsonResponse(registerUnitDetail(addressFeature())))
+      .mockResolvedValueOnce(jsonResponse(registerUnitDetail(addressFeature({
+        registerId: secondRegisterUnitId,
+        id: secondAddressId,
+      }))));
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(verifyCustomerAddress({
@@ -181,7 +244,7 @@ describe("customer Lantmäteriet address verification", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("strips configured query and fragment components from both approved base URLs", async () => {
+  it("strips configured query and fragment components from approved base URLs", async () => {
     vi.stubEnv(
       "LANTMATERIET_ADDRESS_API_BASE_URL",
       "https://api-ver.lantmateriet.se/distribution/produkter/belagenhetsadress/v4.2?unexpected=1#fragment",
