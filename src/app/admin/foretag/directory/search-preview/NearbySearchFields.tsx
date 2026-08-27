@@ -46,6 +46,9 @@ export function NearbySearchFields({
   const [locating, setLocating] = useState(false);
   const validPosition = parseAdminNearbyCoordinatePair(latitude, longitude);
   const hasPosition = Boolean(validPosition);
+  const nearbyCoordinateValue = validPosition
+    ? `${validPosition.latitude},${validPosition.longitude}`
+    : "";
   const normalizedDefaultRadius = RADIUS_OPTIONS.includes(Number(defaultRadius)) ? defaultRadius : "25";
 
   /** Resolves the sibling manual-location field when this component needs to make Nearby the active mode. */
@@ -119,6 +122,8 @@ export function NearbySearchFields({
 
   return (
     <div className="grid gap-4">
+      <input type="hidden" name="nearbyCoordinates" value={nearbyCoordinateValue} />
+
       <div className="grid gap-3 sm:grid-cols-[150px_1fr_auto] sm:items-end">
         <label className="grid gap-2 text-sm font-bold text-[#2c392f]">
           Avstånd
@@ -145,8 +150,6 @@ export function NearbySearchFields({
 
         <button
           type="submit"
-          name="nearbyCoordinates"
-          value={validPosition ? `${validPosition.latitude},${validPosition.longitude}` : ""}
           formAction={searchNearbyAction}
           disabled={!hasPosition || locating}
           className="min-h-12 rounded-xl bg-[#173e2b] px-5 text-sm font-black text-white disabled:cursor-not-allowed disabled:bg-[#d9dedb] disabled:text-[#7b847e]"
