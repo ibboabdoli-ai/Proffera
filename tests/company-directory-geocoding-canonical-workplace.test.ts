@@ -27,6 +27,7 @@ const LEGACY_NO_MATCH = "lantmateriet_no_match_v4_2:no_reference";
 const OLD_SCB_NO_MATCH = "lantmateriet_no_match_v4_2:scb_workplace:no_reference";
 const CORRECTED_NO_MATCH = "lantmateriet_no_match_v4_2:registerenhet_v1:scb_workplace:no_reference";
 const REGISTER_UNIT_ID = "22222222-2222-4222-8222-222222222222";
+const SECOND_REGISTER_UNIT_ID = "22222222-2222-4222-8222-222222222223";
 const ADDRESS_ID = "33333333-3333-4333-8333-333333333333";
 
 const profileAddress = {
@@ -72,6 +73,27 @@ function jsonResponse(value: unknown) {
     status: 200,
     headers: { "content-type": "application/json" },
   });
+}
+
+function exactDirectoryAddressFeature() {
+  return {
+    type: "Feature",
+    id: ADDRESS_ID,
+    geometry: { type: "Point", coordinates: [674000, 6580000] },
+    properties: {
+      objektidentitet: ADDRESS_ID,
+      registerenhetsreferens: [
+        { objektidentitet: REGISTER_UNIT_ID },
+        { objektidentitet: SECOND_REGISTER_UNIT_ID },
+      ],
+      adressplatsattribut: {
+        postnummer: 15100,
+        postort: "Södertälje",
+        adressplatsbeteckning: { adressplatsnummer: "2" },
+      },
+      adressomrade: { faststalltNamn: "NYA VÄGEN" },
+    },
+  };
 }
 
 beforeEach(() => {
@@ -212,6 +234,51 @@ describe("Directory geocoding pilot canonical-address behavior", () => {
     );
     const save = sqlCalls.find((call) => call.query.startsWith("with transformed as"));
     expect(save?.values).toContain(VERIFIED_SOURCE);
+  });
+
+  it("deduplicates the same exact address returned through multiple register units", async () => {
+    let storedSource = OLD_SCB_NO_MATCH;
+    let storedLatitude: number | null = null;
+    let storedLongitude: number | null = null;
+
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = normalizeQuery(strings);
+      if (query.includes("select exists(") && query.includes("pg_extension")) return [{ ready: true }];
+      if (query.includes("profile.id::text") && query.includes("scb.workplaces as scb_workplaces")) {
+        return [pilotRow(storedSource, storedLatitude, storedLongitude)];
+      }
+      if (query.startsWith("with transformed as")) {
+        storedSource = VERIFIED_SOURCE;
+        storedLatitude = 59.1955;
+        storedLongitude = 17.6253;
+        return [{ profile_id: PROFILE_ID }];
+      }
+      if (query.includes("profile.organization_number") && query.includes("location.latitude::float8")) {
+        return [pilotRow(storedSource, storedLatitude, storedLongitude)];
+      }
+      throw new Error(`Unexpected SQL: ${query}`);
+    });
+    mocks.getSql.mockReturnValue(sql);
+
+    const sharedFeature = exactDirectoryAddressFeature();
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse([
+        {
+          objektidentitet: REGISTER_UNIT_ID,
+          adressComponents: { postnummer: 15100, postort: "Södertälje" },
+        },
+        {
+          objektidentitet: SECOND_REGISTER_UNIT_ID,
+          adressComponents: { postnummer: 15100, postort: "Södertälje" },
+        },
+      ]))
+      .mockResolvedValueOnce(jsonResponse({ type: "FeatureCollection", features: [sharedFeature] }))
+      .mockResolvedValueOnce(jsonResponse({ type: "FeatureCollection", features: [sharedFeature] }));
+
+    const result = await geocodeDirectoryPilotFromAdmin(5);
+
+    expect(result).toMatchObject({ attempted: 1, geocoded: 1, noMatch: 0, errors: 0 });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it("uses one street-only fallback, then writes a terminal corrected no-match", async () => {
