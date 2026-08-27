@@ -25,12 +25,17 @@ vi.mock("@/lib/company-directory-geocoding", () => ({
   geocodeDirectoryPilotFromAdmin: mocks.geocodeDirectoryPilotFromAdmin,
 }));
 
-import { searchDirectoryNearbyAction } from "@/app/admin/foretag/directory/search-preview/actions";
+import {
+  geocodeDirectoryPilotAction,
+  searchDirectoryNearbyAction,
+} from "@/app/admin/foretag/directory/search-preview/actions";
 import { ADMIN_DIRECTORY_NEARBY_COOKIE } from "@/app/admin/foretag/directory/search-preview/search-behavior";
 
 describe("admin directory Nearby server action", () => {
   beforeEach(() => {
     mocks.requireSuperAdmin.mockReset();
+    mocks.geocodeDirectoryPilotFromAdmin.mockReset();
+    mocks.revalidatePath.mockReset();
     mocks.cookies.mockReset();
     mocks.redirect.mockReset();
     mocks.cookieSet.mockReset();
@@ -40,6 +45,26 @@ describe("admin directory Nearby server action", () => {
     mocks.redirect.mockImplementation(() => {
       throw new Error("NEXT_REDIRECT");
     });
+  });
+
+  it("limits the production geocoding pilot action to three companies per run", async () => {
+    mocks.geocodeDirectoryPilotFromAdmin.mockResolvedValue({
+      attempted: 3,
+      geocoded: 1,
+      noMatch: 2,
+      errors: 0,
+      remaining: 16,
+      needsReview: 2,
+    });
+
+    await expect(geocodeDirectoryPilotAction()).rejects.toThrow("NEXT_REDIRECT");
+
+    expect(mocks.geocodeDirectoryPilotFromAdmin).toHaveBeenCalledTimes(1);
+    expect(mocks.geocodeDirectoryPilotFromAdmin).toHaveBeenCalledWith(3);
+    expect(mocks.revalidatePath).toHaveBeenCalledWith(
+      "/admin/foretag/directory/search-preview",
+    );
+    expect(mocks.redirect).toHaveBeenCalledWith(expect.stringContaining("attempted=3"));
   });
 
   it("expires the previously scoped Nearby cookie when submitted coordinates are invalid", async () => {

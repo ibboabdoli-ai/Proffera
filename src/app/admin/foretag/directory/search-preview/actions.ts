@@ -13,6 +13,7 @@ import {
 } from "./search-behavior";
 
 const ADMIN_DIRECTORY_NEARBY_COOKIE_PATH = "/admin/foretag/directory/search-preview";
+const DIRECTORY_GEOCODING_PILOT_BATCH_SIZE = 3;
 
 /** Returns the exact cookie attributes used for both storing and expiring an admin Nearby position. */
 function adminNearbyCookieOptions(maxAge: number) {
@@ -29,7 +30,7 @@ export async function geocodeDirectoryPilotAction() {
   let destination = "/admin/foretag/directory/search-preview?geocode=failed";
 
   try {
-    const result = await geocodeDirectoryPilotFromAdmin(5);
+    const result = await geocodeDirectoryPilotFromAdmin(DIRECTORY_GEOCODING_PILOT_BATCH_SIZE);
     revalidatePath("/admin/foretag/directory/search-preview");
     const params = new URLSearchParams({
       geocode: "done",
