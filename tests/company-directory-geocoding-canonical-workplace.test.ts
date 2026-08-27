@@ -238,7 +238,8 @@ describe("Directory geocoding pilot canonical-address behavior", () => {
     });
     mocks.getSql.mockReturnValue(sql);
 
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse([]));
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockImplementation(async () => jsonResponse([]));
 
     const first = await geocodeDirectoryPilotFromAdmin(5);
     expect(first).toMatchObject({ attempted: 1, geocoded: 0, noMatch: 1, errors: 0, remaining: 0, needsReview: 1 });
