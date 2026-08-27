@@ -486,7 +486,7 @@ function registerUnitReferences(properties: AddressDetailProperties) {
 
 function registerUnitReferenceMatches(properties: AddressDetailProperties, registerUnitId: string) {
   const references = registerUnitReferences(properties);
-  if (references.length === 0) return true;
+  if (references.length === 0) return false;
   if (references.some((reference) => !isUuid(reference?.objektidentitet))) return false;
   return references.some((reference) =>
     String(reference.objektidentitet).toLowerCase() === registerUnitId.toLowerCase());
