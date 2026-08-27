@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test.describe("public nearby geolocation reliability", () => {
-  test("retries after a transient geolocation timeout and continues nearby search", async ({ page }) => {
+  test("retries after a transient geolocation timeout and keeps exact coordinates out of the URL", async ({ page }) => {
     await page.addInitScript(() => {
       let attempts = 0;
       Object.defineProperty(navigator, "geolocation", {
@@ -43,9 +43,26 @@ test.describe("public nearby geolocation reliability", () => {
 
     await expect(page).toHaveURL(/\/foretag\/listad\?/);
     const url = new URL(page.url());
-    expect(url.searchParams.get("latitude")).toBe("59.329323");
-    expect(url.searchParams.get("longitude")).toBe("18.068581");
+    expect(url.searchParams.get("service")).toBe("VVS & rörmokare");
+    expect(url.searchParams.get("nearby")).toBe("1");
     expect(url.searchParams.get("radius")).toBe("25");
+    expect(url.searchParams.has("latitude")).toBe(false);
+    expect(url.searchParams.has("longitude")).toBe(false);
+    expect(page.url()).not.toContain("59.329323");
+    expect(page.url()).not.toContain("18.068581");
+
+    const cookies = await page.context().cookies();
+    const swedishNearbyCookie = cookies.find((cookie) => cookie.name === "proffera_public_directory_nearby_sv");
+    const englishNearbyCookie = cookies.find((cookie) => cookie.name === "proffera_public_directory_nearby_en");
+    expect(swedishNearbyCookie?.httpOnly).toBe(true);
+    expect(swedishNearbyCookie?.path).toBe("/foretag/listad");
+    expect(englishNearbyCookie?.httpOnly).toBe(true);
+    expect(englishNearbyCookie?.path).toBe("/en/companies");
+
+    await page.goto("/en/companies?service=plumber&nearby=1&radius=25");
+    await expect(page.getByLabel("Location")).toHaveValue("My location");
+    expect(page.url()).not.toContain("latitude=");
+    expect(page.url()).not.toContain("longitude=");
   });
 
   test("shows a permission-specific message instead of blaming every geolocation failure on permissions", async ({ page }) => {
