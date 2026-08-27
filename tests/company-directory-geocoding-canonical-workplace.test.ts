@@ -25,7 +25,8 @@ const ORGANIZATION_NUMBER = "5563115707";
 const VERIFIED_SOURCE = "lantmateriet_belagenhetsadress_v4_2";
 const LEGACY_NO_MATCH = "lantmateriet_no_match_v4_2:no_reference";
 const OLD_SCB_NO_MATCH = "lantmateriet_no_match_v4_2:scb_workplace:no_reference";
-const CORRECTED_NO_MATCH = "lantmateriet_no_match_v4_2:registerenhet_v1:scb_workplace:no_reference";
+const REGISTER_UNIT_V1_NO_MATCH = "lantmateriet_no_match_v4_2:registerenhet_v1:scb_workplace:no_reference";
+const CORRECTED_NO_MATCH = "lantmateriet_no_match_v4_2:registerenhet_v2:scb_workplace:no_reference";
 const REGISTER_UNIT_ID = "22222222-2222-4222-8222-222222222222";
 const SECOND_REGISTER_UNIT_ID = "22222222-2222-4222-8222-222222222223";
 const ADDRESS_ID = "33333333-3333-4333-8333-333333333333";
@@ -156,6 +157,7 @@ describe("canonical SCB workplace selection for Directory geocoding", () => {
   it("retries every old no-match once after the register-unit fix and terminates the corrected version", () => {
     expect(shouldRetryDirectoryNoMatchAfterRegisterUnitFix(LEGACY_NO_MATCH)).toBe(true);
     expect(shouldRetryDirectoryNoMatchAfterRegisterUnitFix(OLD_SCB_NO_MATCH)).toBe(true);
+    expect(shouldRetryDirectoryNoMatchAfterRegisterUnitFix(REGISTER_UNIT_V1_NO_MATCH)).toBe(true);
     expect(shouldRetryDirectoryNoMatchAfterRegisterUnitFix(CORRECTED_NO_MATCH)).toBe(false);
     expect(buildDirectoryGeocodingNoMatchSource("no_reference", "scb_workplace"))
       .toBe(CORRECTED_NO_MATCH);
@@ -294,7 +296,7 @@ describe("Directory geocoding pilot canonical-address behavior", () => {
       }
       if (query.startsWith("insert into company_directory_business_locations")) {
         const correctedSource = values.find((value) =>
-          String(value).startsWith("lantmateriet_no_match_v4_2:registerenhet_v1:"));
+          String(value).startsWith("lantmateriet_no_match_v4_2:registerenhet_v2:"));
         storedSource = String(correctedSource);
         return [];
       }

@@ -14,7 +14,8 @@ const DEFAULT_LANTMATERIET_LOOKUP_BASE_URL =
 const GEOCODE_SOURCE = "lantmateriet_belagenhetsadress_v4_2";
 const NO_MATCH_SOURCE = "lantmateriet_no_match_v4_2";
 const SCB_WORKPLACE_NO_MATCH_SOURCE_PREFIX = `${NO_MATCH_SOURCE}:scb_workplace:`;
-const REGISTER_UNIT_NO_MATCH_SOURCE_PREFIX = `${NO_MATCH_SOURCE}:registerenhet_v1:scb_workplace:`;
+const LEGACY_REGISTER_UNIT_NO_MATCH_SOURCE_PREFIX = `${NO_MATCH_SOURCE}:registerenhet_v1:scb_workplace:`;
+const REGISTER_UNIT_NO_MATCH_SOURCE_PREFIX = `${NO_MATCH_SOURCE}:registerenhet_v2:scb_workplace:`;
 const MAX_DETAIL_FALLBACK_CANDIDATES = 5;
 const GEOCODING_ACTION_BUDGET_MS = 240_000;
 const GEOCODING_FINAL_COUNTS_RESERVE_MS = 10_000;
@@ -75,6 +76,18 @@ type AddressComponents = {
   postort?: string | null;
 };
 
+type ReferenceAddressComponents = AddressComponents & {
+  kommun?: string | null;
+  kommundel?: string | null;
+  adressomrade?: string | null;
+  gardsadressomrade?: string | null;
+  adressplatsnummer?: number | string | null;
+  bokstavstillagg?: string | null;
+  lagestillagg?: string | null;
+  lagestillaggsnummer?: number | string | null;
+  avvikandeAdressplatsbeteckning?: string | null;
+};
+
 type AddressPlaceDesignation = {
   adressplatsnummer?: number | string | null;
   bokstavstillagg?: string | null;
@@ -103,8 +116,8 @@ type AddressDetailProperties = {
 
 export type LantmaterietAddressReference = {
   objektidentitet?: string;
-  adress?: string | (AddressComponents & Record<string, unknown>);
-  adressComponents?: AddressComponents;
+  adress?: string | (ReferenceAddressComponents & Record<string, unknown>);
+  adressComponents?: ReferenceAddressComponents;
 };
 
 type DirectoryGeocodingAddressSource = "profile" | "scb_workplace";
@@ -334,11 +347,46 @@ export function buildDirectoryAddressSearchText(streetAddress: unknown, city: un
 }
 
 function referenceAddressComponents(reference: LantmaterietAddressReference) {
-  if (reference.adressComponents) return reference.adressComponents;
   if (reference.adress && typeof reference.adress === "object" && !Array.isArray(reference.adress)) {
-    return reference.adress;
+    return reference.adress as ReferenceAddressComponents;
   }
+  if (reference.adressComponents) return reference.adressComponents;
   return undefined;
+}
+
+function referenceStreetAddresses(reference: LantmaterietAddressReference) {
+  const components = referenceAddressComponents(reference);
+  if (!components) return [];
+
+  const alternate = String(components.avvikandeAdressplatsbeteckning ?? "").trim();
+  const number = String(components.adressplatsnummer ?? "").trim();
+  const letter = String(components.bokstavstillagg ?? "").trim();
+  const location = String(components.lagestillagg ?? "").trim();
+  const locationNumber = String(components.lagestillaggsnummer ?? "").trim();
+  const place = alternate || (number
+    ? `${number}${letter}${location ? ` ${location}${locationNumber}` : ""}`
+    : "");
+  if (!place) return [];
+
+  const area = String(components.adressomrade ?? "").trim();
+  const farmArea = String(components.gardsadressomrade ?? "").trim();
+  const areaNames = [
+    area,
+    farmArea,
+    area && farmArea ? `${area} ${farmArea}` : "",
+  ].filter(Boolean);
+
+  return [...new Set(areaNames.map((areaName) => `${areaName} ${place}`.trim()))];
+}
+
+function dedupeRegisterUnitReferences(references: LantmaterietAddressReference[]) {
+  const seen = new Set<string>();
+  return references.filter((reference) => {
+    const id = String(reference.objektidentitet ?? "").toLowerCase();
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
 }
 
 export function selectUniqueDirectoryAddressReference(
@@ -362,12 +410,13 @@ export function selectDirectoryAddressReferenceCandidates(
   references: LantmaterietAddressReference[],
   postalCode: unknown,
   city: unknown,
+  streetAddress?: unknown,
 ) {
   const expectedPostcode = normalizePostcode(postalCode);
   const expectedCity = normalizeText(city);
   if (!expectedPostcode || !expectedCity) return [];
 
-  return references.filter((reference) => {
+  const compatible = references.filter((reference) => {
     if (!isDirectoryAddressReference(reference)) return false;
     const components = referenceAddressComponents(reference);
     const referencePostcode = normalizePostcode(components?.postnummer);
@@ -376,6 +425,16 @@ export function selectDirectoryAddressReferenceCandidates(
     const cityCompatible = !referenceCity || referenceCity === expectedCity;
     return postcodeCompatible && cityCompatible;
   });
+
+  const expectedStreet = normalizeStreetAddress(streetAddress);
+  if (!expectedStreet) return dedupeRegisterUnitReferences(compatible);
+
+  const exactStructured = compatible.filter((reference) =>
+    referenceStreetAddresses(reference)
+      .map(normalizeStreetAddress)
+      .includes(expectedStreet));
+
+  return dedupeRegisterUnitReferences(exactStructured.length > 0 ? exactStructured : compatible);
 }
 
 export function parseSwerefPointGeometry(payload: unknown) {
@@ -485,12 +544,13 @@ function exactAddressFeatureId(feature: Record<string, unknown>, properties: Add
 
 function registerUnitReferences(properties: AddressDetailProperties) {
   const raw = properties.registerenhetsreferens;
-  if (raw === null || raw === undefined) return [];
+  if (raw === null || raw === undefined) return null;
   return Array.isArray(raw) ? raw : [raw];
 }
 
 function registerUnitReferenceMatches(properties: AddressDetailProperties, registerUnitId: string) {
   const references = registerUnitReferences(properties);
+  if (references === null) return true;
   if (references.length === 0) return false;
   if (references.some((reference) => !isUuid(reference?.objektidentitet))) return false;
   return references.some((reference) =>
@@ -732,6 +792,7 @@ async function resolveOfficialAddress(
     references,
     profile.postalCode,
     profile.city,
+    streetAddress,
   );
   if (candidates.length === 0) {
     return { status: "no_match", reason: "reference_postal_mismatch" };

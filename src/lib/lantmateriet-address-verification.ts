@@ -204,7 +204,12 @@ export async function verifyCustomerAddress(input: {
     if (references.length === 0) {
       return { status: "no_match", reason: "invalid_reference" };
     }
-    const candidates = selectDirectoryAddressReferenceCandidates(references, input.postalCode, input.city);
+    const candidates = selectDirectoryAddressReferenceCandidates(
+      references,
+      input.postalCode,
+      input.city,
+      streetAddress,
+    );
     if (candidates.length === 0) return { status: "no_match", reason: "reference_postal_mismatch" };
     if (candidates.length > MAX_DETAIL_CANDIDATES) return { status: "no_match", reason: "too_many_candidates" };
 
