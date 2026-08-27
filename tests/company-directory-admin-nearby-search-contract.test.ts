@@ -89,7 +89,7 @@ describe("admin directory nearby search behavior", () => {
     expect(destination).not.toContain("longitude");
   });
 
-  it("renders only the combined coordinate submit control for Nearby", () => {
+  it("renders the combined coordinates as a successful form control for Nearby", () => {
     const html = renderToStaticMarkup(
       createElement(
         "form",
@@ -104,8 +104,7 @@ describe("admin directory nearby search behavior", () => {
       ),
     );
 
-    expect(html).toContain('name="nearbyCoordinates"');
-    expect(html).toContain('value="59.195500,17.625300"');
+    expect(html).toContain('<input type="hidden" name="nearbyCoordinates" value="59.195500,17.625300"/>');
     expect(html).not.toContain('name="latitude"');
     expect(html).not.toContain('name="longitude"');
     expect(html).toContain('value="25" selected=""');
@@ -125,8 +124,7 @@ describe("admin directory nearby search behavior", () => {
       ),
     );
 
-    expect(html).toContain('name="nearbyCoordinates"');
-    expect(html).toContain('value=""');
+    expect(html).toContain('<input type="hidden" name="nearbyCoordinates" value=""/>');
     expect(html).toContain('disabled=""');
   });
 
