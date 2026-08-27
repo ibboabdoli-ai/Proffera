@@ -277,10 +277,11 @@ describe("marketplace results UI contract", () => {
   it("does not manufacture a Near me attempt for a manual location search", () => {
     const searchPage = source("src/components/company-directory/public-directory-search-page.tsx");
 
-    expect(searchPage).toContain("const latitude = firstParam(params?.latitude);");
-    expect(searchPage).toContain("const longitude = firstParam(params?.longitude);");
-    expect(searchPage).not.toContain('const latitude = firstParam(params?.latitude) ?? ""');
-    expect(searchPage).not.toContain('const longitude = firstParam(params?.longitude) ?? ""');
+    expect(searchPage).toContain('const nearbyRequested = firstParam(params?.nearby) === "1";');
+    expect(searchPage).toContain('const location = nearbyRequested ? "" : requestedLocation;');
+    expect(searchPage).toContain("const cookieStore = nearbyRequested ? await cookies() : null;");
+    expect(searchPage).toContain('const latitude = nearbyRequested ? nearbyCoordinates?.latitude ?? "" : undefined;');
+    expect(searchPage).toContain('const longitude = nearbyRequested ? nearbyCoordinates?.longitude ?? "" : undefined;');
     expect(searchPage).toContain("search?.nearbyRequested && !search.nearbyEnabled");
   });
 
