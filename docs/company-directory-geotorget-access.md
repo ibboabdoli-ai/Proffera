@@ -57,7 +57,7 @@ Never prefix the username/password variables with `NEXT_PUBLIC_` and never commi
 
 ## Production readiness checklist
 
-Before pressing **Geocode nästa 5** in Platform Admin:
+Before pressing **Geocode nästa 3** in Platform Admin:
 
 - [x] Service + Location schema deployed
 - [x] Nearby search merged
@@ -75,7 +75,7 @@ Once all checks are complete:
 
 1. Open the internal Directory Search Pilot page as Super Admin.
 2. Confirm the status pills show Lantmäteriet configured and PostGIS ready.
-3. Run **Geocode nästa 5**.
+3. Run **Geocode nästa 3**.
 4. Review successful / no-match / error counts.
 5. Repeat until all safe matches are processed.
 6. Review no-match records manually; do not invent coordinates.
