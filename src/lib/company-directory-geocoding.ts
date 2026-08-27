@@ -759,7 +759,13 @@ async function resolveOfficialAddress(
       detailReasons.add(detail.reason);
       continue;
     }
-    if (resolved) return { status: "no_match", reason: "ambiguous_exact_match" };
+    if (resolved) {
+      const sameAddress = resolved.objectId.toLowerCase() === detail.addressId.toLowerCase()
+        && resolved.easting === detail.point.easting
+        && resolved.northing === detail.point.northing;
+      if (sameAddress) continue;
+      return { status: "no_match", reason: "ambiguous_exact_match" };
+    }
     resolved = { ...detail.point, objectId: detail.addressId };
   }
 
