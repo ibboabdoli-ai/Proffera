@@ -217,7 +217,7 @@ export default async function DirectorySearchPreviewPage({ searchParams }: PageP
                     disabled={!geocodingStatus.configured || !geocodingStatus.postgisReady}
                     className="min-h-11 rounded-xl bg-[#173e2b] px-4 text-sm font-black text-white disabled:cursor-not-allowed disabled:bg-[#d9dedb] disabled:text-[#7b847e]"
                   >
-                    Geokoda nästa 5
+                    Geokoda nästa 3
                   </button>
                 </form>
               ) : null}
