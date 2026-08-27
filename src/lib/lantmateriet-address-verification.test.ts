@@ -139,6 +139,20 @@ describe("customer Lantmäteriet address verification", () => {
       .toBe("Okändgatan 99");
   });
 
+  it("fails closed when the street-only fallback contains only malformed references", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(jsonResponse([null]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(verifyCustomerAddress({
+      addressLine1: "Okändgatan 99",
+      postalCode: "151 46",
+      city: "Södertälje",
+    })).resolves.toEqual({ status: "no_match", reason: "invalid_reference" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("rejects an invalid official register unit reference before any detail request", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse([{
       objektidentitet: "not-a-uuid",
