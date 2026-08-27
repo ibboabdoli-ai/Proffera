@@ -6,12 +6,12 @@ import {
   selectUniqueDirectoryAddressReference,
 } from "./company-directory-geocoding";
 
-const referenceId = "439b33bf-6279-4b65-b32c-9741646d8d3e";
+const registerUnitId = "439b33bf-6279-4b65-b32c-9741646d8d3e";
 
 describe("Referens Uppslag Adress v3 response compatibility", () => {
   it("accepts postcode and postort from the v3 structured adress object", () => {
     const references = [{
-      objektidentitet: referenceId,
+      objektidentitet: registerUnitId,
       adress: {
         kommun: "Stockholm",
         adressområde: "Segelbåtsvägen",
@@ -25,12 +25,12 @@ describe("Referens Uppslag Adress v3 response compatibility", () => {
     expect(selectDirectoryAddressReferenceCandidates(references, "112 64", "STOCKHOLM"))
       .toEqual(references);
     expect(selectUniqueDirectoryAddressReference(references, "11264", "Stockholm")?.objektidentitet)
-      .toBe(referenceId);
+      .toBe(registerUnitId);
   });
 
-  it("keeps a v3 label-only result for authoritative detail verification", () => {
+  it("keeps a v3 label-only register-unit result for authoritative address verification", () => {
     const references = [{
-      objektidentitet: referenceId,
+      objektidentitet: registerUnitId,
       adress: "Segelbåtsvägen 7A, 112 64 Stockholm",
     }];
 
