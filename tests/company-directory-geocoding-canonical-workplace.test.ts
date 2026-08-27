@@ -17,15 +17,17 @@ import {
   buildDirectoryGeocodingNoMatchSource,
   geocodeDirectoryPilotFromAdmin,
   selectDirectoryGeocodingAddress,
-  shouldRetryDirectoryNoMatchWithCanonicalAddress,
+  shouldRetryDirectoryNoMatchAfterRegisterUnitFix,
 } from "@/lib/company-directory-geocoding";
 
 const PROFILE_ID = "11111111-1111-4111-8111-111111111111";
 const ORGANIZATION_NUMBER = "5563115707";
 const VERIFIED_SOURCE = "lantmateriet_belagenhetsadress_v4_2";
 const LEGACY_NO_MATCH = "lantmateriet_no_match_v4_2:no_reference";
-const CANONICAL_NO_MATCH = "lantmateriet_no_match_v4_2:scb_workplace:no_reference";
-const OBJECT_ID = "22222222-2222-4222-8222-222222222222";
+const OLD_SCB_NO_MATCH = "lantmateriet_no_match_v4_2:scb_workplace:no_reference";
+const CORRECTED_NO_MATCH = "lantmateriet_no_match_v4_2:registerenhet_v1:scb_workplace:no_reference";
+const REGISTER_UNIT_ID = "22222222-2222-4222-8222-222222222222";
+const ADDRESS_ID = "33333333-3333-4333-8333-333333333333";
 
 const profileAddress = {
   addressLine1: "Gamla vägen 1",
@@ -129,32 +131,18 @@ describe("canonical SCB workplace selection for Directory geocoding", () => {
     })).toBeNull();
   });
 
-  it("retries an old no-match only when canonical SCB changed the lookup input", () => {
-    const selected = selectDirectoryGeocodingAddress({
-      profileAddress,
-      scbWorkplaces: singleScbWorkplace,
-      scbConflicts: [],
-    });
-    if (!selected) throw new Error("Expected canonical SCB workplace selection");
-
-    expect(shouldRetryDirectoryNoMatchWithCanonicalAddress({
-      geocodeSource: LEGACY_NO_MATCH,
-      profileAddress,
-      selectedAddress: selected,
-    })).toBe(true);
-    expect(shouldRetryDirectoryNoMatchWithCanonicalAddress({
-      geocodeSource: CANONICAL_NO_MATCH,
-      profileAddress,
-      selectedAddress: selected,
-    })).toBe(false);
+  it("retries every old no-match once after the register-unit fix and terminates the corrected version", () => {
+    expect(shouldRetryDirectoryNoMatchAfterRegisterUnitFix(LEGACY_NO_MATCH)).toBe(true);
+    expect(shouldRetryDirectoryNoMatchAfterRegisterUnitFix(OLD_SCB_NO_MATCH)).toBe(true);
+    expect(shouldRetryDirectoryNoMatchAfterRegisterUnitFix(CORRECTED_NO_MATCH)).toBe(false);
     expect(buildDirectoryGeocodingNoMatchSource("no_reference", "scb_workplace"))
-      .toBe(CANONICAL_NO_MATCH);
+      .toBe(CORRECTED_NO_MATCH);
   });
 });
 
 describe("Directory geocoding pilot canonical-address behavior", () => {
-  it("queries Lantmäteriet with the SCB workplace and preserves the verified success contract", async () => {
-    let storedSource = LEGACY_NO_MATCH;
+  it("resolves a register unit to the exact address and preserves the verified success contract", async () => {
+    let storedSource = OLD_SCB_NO_MATCH;
     let storedLatitude: number | null = null;
     let storedLongitude: number | null = null;
     const sqlCalls: Array<{ query: string; values: unknown[] }> = [];
@@ -181,15 +169,19 @@ describe("Directory geocoding pilot canonical-address behavior", () => {
 
     const fetchMock = vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(jsonResponse([{
-        objektidentitet: OBJECT_ID,
+        objektidentitet: REGISTER_UNIT_ID,
         adress: "NYA VÄGEN 2, 151 00 Södertälje",
         adressComponents: { postnummer: 15100, postort: "Södertälje" },
       }]))
       .mockResolvedValueOnce(jsonResponse({
         type: "FeatureCollection",
         features: [{
+          type: "Feature",
+          id: ADDRESS_ID,
           geometry: { type: "Point", coordinates: [674000, 6580000] },
           properties: {
+            objektidentitet: ADDRESS_ID,
+            registerenhetsreferens: { objektidentitet: REGISTER_UNIT_ID },
             adressplatsattribut: {
               postnummer: 15100,
               postort: "Södertälje",
@@ -214,12 +206,16 @@ describe("Directory geocoding pilot canonical-address behavior", () => {
     const referenceUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
     expect(referenceUrl.pathname.endsWith("/uppslag/adress/v3/fritext")).toBe(true);
     expect(referenceUrl.searchParams.get("adress")).toBe("NYA VÄGEN 2, SÖDERTÄLJE");
+    const detailUrl = new URL(String(fetchMock.mock.calls[1]?.[0]));
+    expect(detailUrl.pathname).toBe(
+      `/distribution/produkter/belagenhetsadress/v4.2/registerenhet/${REGISTER_UNIT_ID}`,
+    );
     const save = sqlCalls.find((call) => call.query.startsWith("with transformed as"));
     expect(save?.values).toContain(VERIFIED_SOURCE);
   });
 
-  it("marks a failed canonical retry so the next run does not call Lantmäteriet again", async () => {
-    let storedSource = LEGACY_NO_MATCH;
+  it("uses one street-only fallback, then writes a terminal corrected no-match", async () => {
+    let storedSource = OLD_SCB_NO_MATCH;
     const sqlCalls: Array<{ query: string; values: unknown[] }> = [];
 
     const sql = vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
@@ -230,8 +226,9 @@ describe("Directory geocoding pilot canonical-address behavior", () => {
         return [pilotRow(storedSource)];
       }
       if (query.startsWith("insert into company_directory_business_locations")) {
-        const canonicalSource = values.find((value) => String(value).startsWith("lantmateriet_no_match_v4_2:"));
-        storedSource = String(canonicalSource);
+        const correctedSource = values.find((value) =>
+          String(value).startsWith("lantmateriet_no_match_v4_2:registerenhet_v1:"));
+        storedSource = String(correctedSource);
         return [];
       }
       if (query.includes("profile.organization_number") && query.includes("location.latitude::float8")) {
@@ -245,8 +242,12 @@ describe("Directory geocoding pilot canonical-address behavior", () => {
 
     const first = await geocodeDirectoryPilotFromAdmin(5);
     expect(first).toMatchObject({ attempted: 1, geocoded: 0, noMatch: 1, errors: 0, remaining: 0, needsReview: 1 });
-    expect(storedSource).toBe(CANONICAL_NO_MATCH);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(storedSource).toBe(CORRECTED_NO_MATCH);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(new URL(String(fetchMock.mock.calls[0]?.[0])).searchParams.get("adress"))
+      .toBe("NYA VÄGEN 2, SÖDERTÄLJE");
+    expect(new URL(String(fetchMock.mock.calls[1]?.[0])).searchParams.get("adress"))
+      .toBe("NYA VÄGEN 2");
 
     fetchMock.mockClear();
     const second = await geocodeDirectoryPilotFromAdmin(5);
@@ -255,13 +256,13 @@ describe("Directory geocoding pilot canonical-address behavior", () => {
 
     const noMatchWrite = sqlCalls.find((call) =>
       call.query.startsWith("insert into company_directory_business_locations")
-      && call.values.includes(CANONICAL_NO_MATCH));
+      && call.values.includes(CORRECTED_NO_MATCH));
     expect(noMatchWrite).toBeDefined();
   });
 
-  it("does not geocode an unresolved canonical workplace even for a legacy diagnostic retry org", async () => {
+  it("does not geocode an unresolved canonical workplace even when its no-match is retryable", async () => {
     const unresolvedRow = {
-      ...pilotRow("lantmateriet_no_match_v4_2"),
+      ...pilotRow(OLD_SCB_NO_MATCH),
       organization_number: "5564208337",
       scb_conflicts: [{ field: "legal_name", code: "legal_name_mismatch" }],
     };
