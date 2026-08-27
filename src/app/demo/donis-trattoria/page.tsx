@@ -131,7 +131,7 @@ export default function DonisTrattoriaDemoPage() {
           <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(7,11,8,.98)_0%,rgba(7,11,8,.82)_43%,rgba(7,11,8,.28)_100%)]" />
           <div className="absolute inset-0 bg-gradient-to-t from-black/78 via-transparent to-black/35" />
 
-          <div className="relative mx-auto flex min-h-[720px] max-w-[1500px] flex-col px-4 pb-12 pt-5 sm:min-h-[760px] sm:px-6 lg:min-h-[790px] lg:px-10">
+          <div className="relative mx-auto flex min-h-[720px] max-w-[1500px] flex-col px-4 pb-28 pt-5 sm:min-h-[760px] sm:px-6 sm:pb-16 lg:min-h-[790px] lg:px-10 lg:pb-12">
             <header className="flex items-center justify-between rounded-full border border-white/15 bg-black/20 px-4 py-3 shadow-2xl backdrop-blur-xl sm:px-5">
               <a href="#top" className="flex min-w-0 items-center gap-3">
                 <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-[#d9bd7d]/60 bg-black/25 font-serif text-xl italic text-[#f0d18a]">D</span>
@@ -151,16 +151,16 @@ export default function DonisTrattoriaDemoPage() {
                 <a href="#boka" data-booking-trigger className="hidden items-center gap-2 rounded-full bg-[#dfbf76] px-5 py-2.5 text-sm font-black text-[#171b18] shadow-xl transition hover:-translate-y-0.5 sm:inline-flex">
                   Boka bord <ArrowRight className="h-4 w-4" />
                 </a>
-                <details className="group relative lg:hidden">
+                <details className="group relative z-40 lg:hidden">
                   <summary className="grid h-10 w-10 cursor-pointer list-none place-items-center rounded-full border border-white/15 bg-white/8 text-white transition hover:bg-white/14 [&::-webkit-details-marker]:hidden">
                     <Menu className="h-5 w-5" />
                     <span className="sr-only">Öppna meny</span>
                   </summary>
-                  <div className="absolute right-0 top-12 w-64 overflow-hidden rounded-[1.4rem] border border-white/10 bg-[#101511]/98 p-2 shadow-2xl backdrop-blur-xl">
+                  <div className="absolute right-0 top-12 z-50 max-h-[calc(100svh-9rem)] w-[min(76vw,15rem)] overflow-y-auto rounded-[1.2rem] border border-white/10 bg-[#101511]/98 p-1.5 shadow-[0_24px_70px_rgba(0,0,0,.45)] backdrop-blur-xl">
                     {navItems.map(([label, href]) => (
-                      <a key={href} href={href} className="block rounded-xl px-4 py-3 text-sm font-black text-white/75 transition hover:bg-white/8 hover:text-white">{label}</a>
+                      <a key={href} href={href} className="block rounded-lg px-3.5 py-2.5 text-[13px] font-black text-white/75 transition hover:bg-white/8 hover:text-white">{label}</a>
                     ))}
-                    <a href="#boka" data-booking-trigger className="mt-1 flex items-center justify-between rounded-xl bg-[#dfbf76] px-4 py-3 text-sm font-black text-[#171b18]">
+                    <a href="#boka" data-booking-trigger className="mt-1 flex items-center justify-between rounded-lg bg-[#dfbf76] px-3.5 py-2.5 text-[13px] font-black text-[#171b18]">
                       Boka bord <ArrowRight className="h-4 w-4" />
                     </a>
                   </div>
@@ -356,10 +356,10 @@ export default function DonisTrattoriaDemoPage() {
 
       <footer className="border-t border-white/8 bg-[#0b0e0c] px-4 py-9 text-white sm:px-6 lg:px-10"><div className="mx-auto flex max-w-[1500px] flex-col gap-6 sm:flex-row sm:items-end sm:justify-between"><div><p className="font-serif text-2xl font-semibold">Doni’s Trattoria</p><p className="mt-2 max-w-2xl text-xs font-semibold leading-5 text-white/32">Redesign concept by Proffera. Matbilder och maträttsnamn i demon kommer från Doni’s nuvarande webbplats. Bokningsflödet och kampanjen är illustrativa demo-funktioner.</p></div><a href="https://www.proffera.se" className="inline-flex items-center gap-2 text-xs font-black uppercase tracking-[0.14em] text-[#e7ca89]">proffera.se <ArrowRight className="h-4 w-4" /></a></div></footer>
 
-      <div className="fixed inset-x-3 bottom-[max(.75rem,env(safe-area-inset-bottom))] z-[85] grid grid-cols-3 overflow-hidden rounded-[1.25rem] border border-white/10 bg-[#101511]/96 p-1.5 text-white shadow-[0_20px_70px_rgba(0,0,0,.35)] backdrop-blur-xl lg:hidden">
-        <a href="#boka" data-booking-trigger className="flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl bg-[#dfbf76] text-[11px] font-black text-[#171b18]"><CalendarDays className="h-4 w-4" />Boka</a>
-        <a href={qoplaUrl} target="_blank" rel="noreferrer" className="flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl text-[11px] font-black text-white/80 transition hover:bg-white/8"><UtensilsCrossed className="h-4 w-4 text-[#e7ca84]" />Beställ</a>
-        <a href="tel:+4686568400" className="flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl text-[11px] font-black text-white/80 transition hover:bg-white/8"><Phone className="h-4 w-4 text-[#e7ca84]" />Ring</a>
+      <div className="fixed inset-x-4 bottom-[max(.65rem,env(safe-area-inset-bottom))] z-[85] grid grid-cols-3 overflow-hidden rounded-[1.1rem] border border-white/10 bg-[#101511]/96 p-1 text-white shadow-[0_18px_60px_rgba(0,0,0,.34)] backdrop-blur-xl lg:hidden">
+        <a href="#boka" data-booking-trigger className="flex min-h-12 flex-col items-center justify-center gap-1 rounded-[.85rem] bg-[#dfbf76] text-[11px] font-black text-[#171b18]"><CalendarDays className="h-4 w-4" />Boka</a>
+        <a href={qoplaUrl} target="_blank" rel="noreferrer" className="flex min-h-12 flex-col items-center justify-center gap-1 rounded-[.85rem] text-[11px] font-black text-white/80 transition hover:bg-white/8"><UtensilsCrossed className="h-4 w-4 text-[#e7ca84]" />Beställ</a>
+        <a href="tel:+4686568400" className="flex min-h-12 flex-col items-center justify-center gap-1 rounded-[.85rem] text-[11px] font-black text-white/80 transition hover:bg-white/8"><Phone className="h-4 w-4 text-[#e7ca84]" />Ring</a>
       </div>
     </div>
   );
