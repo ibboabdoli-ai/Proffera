@@ -740,7 +740,7 @@ async function resolveOfficialAddress(
 
   for (const candidate of candidates) {
     assertBeforeDeadline(deadline);
-    const registerUnitId = candidate.objektidentitet;
+    const registerUnitId = String(candidate.objektidentitet ?? "");
     if (!isUuid(registerUnitId)) continue;
     const detailUrl = new URL(
       `${config.detailBaseUrl}/registerenhet/${encodeURIComponent(registerUnitId)}`,
