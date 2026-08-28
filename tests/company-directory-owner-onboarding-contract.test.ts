@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   headers: vi.fn(),
   isJuridicalOrganizationNumber: vi.fn(),
+  onboardOwnerSoleTrader: vi.fn(),
   upsertCompanyDirectoryCandidate: vi.fn(),
   enrichCompanyDirectoryOfficialFactsForProfile: vi.fn(),
   autoPublishCompanyDirectoryProfileIfSafe: vi.fn(),
@@ -35,6 +36,9 @@ vi.mock("@/lib/company-directory-provider-activation-policy", () => ({
 }));
 vi.mock("@/lib/company-directory-publication", () => ({
   autoPublishCompanyDirectoryProfileIfSafe: mocks.autoPublishCompanyDirectoryProfileIfSafe,
+}));
+vi.mock("@/lib/company-directory-sole-trader-owner", () => ({
+  onboardOwnerSoleTrader: mocks.onboardOwnerSoleTrader,
 }));
 vi.mock("@/lib/company-directory-source", () => ({
   verifyOfficialCompanyCandidate: mocks.verifyOfficialCompanyCandidate,
@@ -141,6 +145,10 @@ describe("owner-initiated company Directory onboarding", () => {
     mocks.getUserWorkspaceAccess.mockResolvedValue(ownerAccess());
     mocks.canManageWorkspaceSettings.mockReturnValue(true);
     mocks.isJuridicalOrganizationNumber.mockReturnValue(true);
+    mocks.onboardOwnerSoleTrader.mockResolvedValue({
+      status: "sole_trader_review_pending",
+      companyName: "Example Sole Trader",
+    });
     mocks.allowPublicSubmission.mockResolvedValue(true);
     mocks.enrichCompanyDirectoryOfficialFactsForProfile.mockResolvedValue({ ok: true });
     mocks.autoPublishCompanyDirectoryProfileIfSafe.mockResolvedValue({ published: true });
@@ -152,13 +160,14 @@ describe("owner-initiated company Directory onboarding", () => {
     await expect(onboardOwnerCompanyByOrganizationNumber(JURIDICAL_ORG)).rejects.toThrow("workspace_access");
 
     expect(mocks.isJuridicalOrganizationNumber).not.toHaveBeenCalled();
+    expect(mocks.onboardOwnerSoleTrader).not.toHaveBeenCalled();
     expect(mocks.getSql).not.toHaveBeenCalled();
     expect(mocks.allowPublicSubmission).not.toHaveBeenCalled();
     expect(mocks.verifyOfficialCompanyCandidate).not.toHaveBeenCalled();
     expect(mocks.upsertCompanyDirectoryCandidate).not.toHaveBeenCalled();
   });
 
-  it("stops personnummer-shaped identifiers before generic DB lookup, external lookup or persistence", async () => {
+  it("routes personnummer-shaped identifiers only into the dedicated privacy-safe sole-trader branch", async () => {
     const actualPolicy = await vi.importActual<typeof import("../src/lib/bolagsverket-api-policy")>(
       "../src/lib/bolagsverket-api-policy",
     );
@@ -169,11 +178,12 @@ describe("owner-initiated company Directory onboarding", () => {
     );
 
     await expect(onboardOwnerCompanyByOrganizationNumber(PRIVATE_SHAPE)).resolves.toEqual({
-      status: "sole_trader_privacy",
-      companyName: "",
+      status: "sole_trader_review_pending",
+      companyName: "Example Sole Trader",
     });
 
     expect(mocks.isJuridicalOrganizationNumber).toHaveBeenCalledWith(PRIVATE_SHAPE);
+    expect(mocks.onboardOwnerSoleTrader).toHaveBeenCalledWith(PRIVATE_SHAPE);
     expect(mocks.getSql).not.toHaveBeenCalled();
     expect(mocks.allowPublicSubmission).not.toHaveBeenCalled();
     expect(mocks.verifyOfficialCompanyCandidate).not.toHaveBeenCalled();
@@ -285,7 +295,8 @@ describe("owner-initiated company Directory onboarding", () => {
     );
 
     expect(addPage).not.toContain('params.set("organizationNumber"');
-    expect(addPage).toContain('code === "rate_limited" ? "rate_limited"');
+    expect(addPage).toContain('code === "rate_limited"');
+    expect(addPage).toContain('? "rate_limited"');
     expect(marketplacePage).toContain('/dashboard/marknadsplats/lagg-till-foretag');
     expect(marketplacePage).toContain('status === "not_found"');
   });
