@@ -48,7 +48,7 @@ test.describe("public marketplace smoke", () => {
     await expect(page.locator("footer")).toHaveCount(0);
   });
 
-  test("Nära mig fills Ort and manual location clears nearby mode", async ({ page, context }) => {
+  test("Nära mig fills Ort, keeps coordinates private and manual location clears nearby mode", async ({ page, context }) => {
     await context.grantPermissions(["geolocation"]);
     await context.setGeolocation({ latitude: 59.329323, longitude: 18.068581 });
 
@@ -59,14 +59,18 @@ test.describe("public marketplace smoke", () => {
     await page.getByRole("button", { name: "Nära mig" }).click();
     await expect(page).toHaveURL(/\/foretag\/listad\?/);
     await expect(page.getByLabel("Ort")).toHaveValue("Min plats");
+    await expect(page.getByRole("button", { name: "Nära mig" })).toBeEnabled();
 
     let url = new URL(page.url());
     expect(url.pathname).toBe("/foretag/listad");
     expect(url.searchParams.get("service")).toBe("VVS & rörmokare");
-    expect(url.searchParams.get("latitude")).toBe("59.329323");
-    expect(url.searchParams.get("longitude")).toBe("18.068581");
+    expect(url.searchParams.get("nearby")).toBe("1");
     expect(url.searchParams.get("radius")).toBe("25");
+    expect(url.searchParams.has("latitude")).toBe(false);
+    expect(url.searchParams.has("longitude")).toBe(false);
     expect(url.searchParams.has("location")).toBe(false);
+    expect(page.url()).not.toContain("59.329323");
+    expect(page.url()).not.toContain("18.068581");
     await expect(page.getByText("Positionen kunde inte tolkas. Prova Nära mig igen eller sök med ort.")).toHaveCount(0);
 
     await page.getByLabel("Ort").fill("STOCKHOLM");
@@ -75,6 +79,7 @@ test.describe("public marketplace smoke", () => {
 
     url = new URL(page.url());
     expect(url.searchParams.get("location")).toBe("STOCKHOLM");
+    expect(url.searchParams.has("nearby")).toBe(false);
     expect(url.searchParams.has("latitude")).toBe(false);
     expect(url.searchParams.has("longitude")).toBe(false);
     expect(url.searchParams.has("radius")).toBe(false);

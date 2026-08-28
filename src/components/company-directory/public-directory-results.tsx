@@ -61,7 +61,7 @@ function pageHref(baseHref: string, page: number) {
 
 function withoutLocationHref(baseHref: string) {
   const url = new URL(baseHref, "https://proffera.invalid");
-  for (const key of ["location", "latitude", "longitude", "radius", "page"]) {
+  for (const key of ["location", "nearby", "radius", "page"]) {
     url.searchParams.delete(key);
   }
   return `${url.pathname}${url.search}`;
@@ -76,7 +76,7 @@ function withServiceHref(baseHref: string, service: string) {
 
 function hasLocationConstraint(baseHref: string) {
   const url = new URL(baseHref, "https://proffera.invalid");
-  return ["location", "latitude", "longitude"].some((key) => Boolean(url.searchParams.get(key)?.trim()));
+  return Boolean(url.searchParams.get("location")?.trim()) || url.searchParams.get("nearby") === "1";
 }
 
 function canSearchAllSweden(baseHref: string) {

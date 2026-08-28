@@ -274,14 +274,30 @@ describe("marketplace results UI contract", () => {
     expect(serviceAndLocation).toContain('href="/foretag/listad?service=stadning"');
   });
 
-  it("does not manufacture a Near me attempt for a manual location search", () => {
-    const searchPage = source("src/components/company-directory/public-directory-search-page.tsx");
+  it("keeps manual location and Nearby result navigation as separate URL modes", () => {
+    const manual = render(
+      "sv",
+      [],
+      { serviceQuery: "elektriker", locationQuery: "Stockholm", nearbyRequested: false, nearbyEnabled: false },
+      "/foretag/listad?service=elektriker&location=Stockholm&page=2",
+    );
+    const nearby = render(
+      "sv",
+      [],
+      { serviceQuery: "elektriker", locationQuery: "", nearbyRequested: true, nearbyEnabled: true, radiusKm: 25 },
+      "/foretag/listad?service=elektriker&nearby=1&radius=25&page=2",
+    );
 
-    expect(searchPage).toContain("const latitude = firstParam(params?.latitude);");
-    expect(searchPage).toContain("const longitude = firstParam(params?.longitude);");
-    expect(searchPage).not.toContain('const latitude = firstParam(params?.latitude) ?? ""');
-    expect(searchPage).not.toContain('const longitude = firstParam(params?.longitude) ?? ""');
-    expect(searchPage).toContain("search?.nearbyRequested && !search.nearbyEnabled");
+    expect(manual).toContain("Sök i hela Sverige");
+    expect(manual).toContain('href="/foretag/listad?service=elektriker"');
+    expect(manual).not.toContain("nearby=1");
+    expect(manual).not.toContain("latitude=");
+    expect(manual).not.toContain("longitude=");
+
+    expect(nearby).toContain("Sök i hela Sverige");
+    expect(nearby).toContain('href="/foretag/listad?service=elektriker"');
+    expect(nearby).not.toContain("latitude=");
+    expect(nearby).not.toContain("longitude=");
   });
 
   it("uses the compact Home-style search surface and denser result cards", () => {

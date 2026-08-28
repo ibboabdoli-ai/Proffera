@@ -4,6 +4,7 @@ import { MapPin, Navigation, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { FormEvent, useRef, useState } from "react";
 
+import { searchPublicDirectoryNearbyAction } from "@/components/company-directory/public-directory-nearby-action";
 import { directoryCopy, directoryPaths, normalizeDirectoryPublicServiceQuery } from "@/components/company-directory/public-directory-copy";
 import type { PublicLocale } from "@/lib/public-locale";
 
@@ -54,6 +55,9 @@ export function PublicDirectorySearchForm({
   const retryingLocationMessage = locale === "sv"
     ? "Första försöket misslyckades. Försöker hämta en noggrannare position…"
     : "The first attempt failed. Trying a more accurate position…";
+  const nearbySubmitErrorMessage = locale === "sv"
+    ? "Positionen hittades men sökningen kunde inte startas. Försök igen."
+    : "Your position was found, but the search could not start. Please try again.";
   const [locationValue, setLocationValue] = useState(nearbyActive ? nearbyLocationLabel : location);
   const [usingNearby, setUsingNearby] = useState(nearbyActive);
   const [nearbyStatus, setNearbyStatus] = useState("");
@@ -67,14 +71,8 @@ export function PublicDirectorySearchForm({
     if (serviceValue) params.set("service", serviceValue);
 
     if (usingNearby) {
-      const currentParams = new URLSearchParams(window.location.search);
-      const latitude = currentParams.get("latitude");
-      const longitude = currentParams.get("longitude");
-      if (latitude && longitude) {
-        params.set("latitude", latitude);
-        params.set("longitude", longitude);
-        params.set("radius", radius);
-      }
+      params.set("nearby", "1");
+      params.set("radius", radius);
     } else {
       const manualLocation = locationValue.trim();
       if (manualLocation) params.set("location", manualLocation);
@@ -89,24 +87,35 @@ export function PublicDirectorySearchForm({
       return;
     }
 
+    const wasUsingNearby = usingNearby;
     setNearbyLoading(true);
     setNearbyStatus(t.locating);
 
     const handlePosition = (position: GeolocationPosition) => {
       const form = formRef.current;
       const formData = form ? new FormData(form) : new FormData();
-      const currentService = normalizeDirectoryPublicServiceQuery(String(formData.get("service") ?? ""), locale);
-      const params = new URLSearchParams();
-      if (currentService) params.set("service", currentService);
-      params.set("latitude", position.coords.latitude.toFixed(6));
-      params.set("longitude", position.coords.longitude.toFixed(6));
-      params.set("radius", radius);
-      const target = `${searchPath}?${params.toString()}`;
+      const previousLocationValue = String(formData.get("location") ?? locationValue);
+      const manualLocationFallback = wasUsingNearby && previousLocationValue === nearbyLocationLabel
+        ? location
+        : previousLocationValue;
+      formData.set("locale", locale);
+      formData.set("radius", radius);
+      formData.set(
+        "nearbyCoordinates",
+        `${position.coords.latitude.toFixed(6)},${position.coords.longitude.toFixed(6)}`,
+      );
       setLocationValue(nearbyLocationLabel);
       setUsingNearby(true);
-      setNearbyLoading(false);
       setNearbyStatus(t.found);
-      window.location.assign(target);
+
+      void searchPublicDirectoryNearbyAction(formData).catch(() => {
+        setNearbyLoading(false);
+        setUsingNearby(false);
+        setLocationValue((currentValue) => (
+          currentValue === nearbyLocationLabel ? manualLocationFallback : currentValue
+        ));
+        setNearbyStatus(nearbySubmitErrorMessage);
+      });
     };
 
     const handleFinalError = (error: GeolocationPositionError) => {

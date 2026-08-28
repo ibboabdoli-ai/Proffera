@@ -18,8 +18,7 @@ type PageProps = {
   searchParams?: Promise<{
     service?: string | string[];
     location?: string | string[];
-    latitude?: string | string[];
-    longitude?: string | string[];
+    nearby?: string | string[];
     radius?: string | string[];
     sort?: string | string[];
     page?: string | string[];
