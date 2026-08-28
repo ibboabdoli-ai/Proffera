@@ -43,8 +43,8 @@ function emptyContact() {
   return discloseDirectoryDirectContact({}, false);
 }
 
-function publicOrganizationNumber(organizationKind: unknown, value: unknown) {
-  return String(organizationKind ?? "") === "sole_trader" ? "" : String(value ?? "");
+export function publicDirectoryOrganizationNumber(organizationKind: unknown, value: unknown) {
+  return String(organizationKind ?? "") === "juridical_person" ? String(value ?? "") : "";
 }
 
 function isMissingDirectoryTable(error: unknown, tableName: string) {
@@ -234,7 +234,7 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
     workplaces: scb?.workplaces,
   });
   return {
-    organizationNumber: publicOrganizationNumber(row.organization_kind, row.organization_number),
+    organizationNumber: publicDirectoryOrganizationNumber(row.organization_kind, row.organization_number),
     primarySniCode: String(row.primary_sni_code ?? ""),
     address,
     contact: discloseDirectoryDirectContact({
@@ -342,7 +342,7 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
       isActualBusinessMedia: Boolean(row.is_actual_business_media),
     } : null,
     publicationStatus: "claimed",
-    organizationNumber: publicOrganizationNumber(row.organization_kind, row.organization_number),
+    organizationNumber: publicDirectoryOrganizationNumber(row.organization_kind, row.organization_number),
     primarySniCode: String(row.primary_sni_code ?? ""),
     contact,
   };
