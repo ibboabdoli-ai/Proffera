@@ -63,14 +63,16 @@ function createSqlMock() {
   const query = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
     const sqlText = strings.join(" ? ").replace(/\s+/g, " ");
     persistedValues.push(...values.map((value) => String(value ?? "")));
-    if (sqlText.includes("publication_status = 'claimed'")) return Promise.resolve([]);
+    if (sqlText.includes("claimed_workspace_id = ?::uuid") && sqlText.includes("organization_kind = 'sole_trader'")) {
+      return Promise.resolve([]);
+    }
     if (sqlText.includes("claim.verification_method = 'manual_review'")) {
       return Promise.resolve(persisted ? [{ display_name: "Exempel Service" }] : []);
     }
     return Promise.resolve([]);
   }) as ReturnType<typeof vi.fn> & { transaction: ReturnType<typeof vi.fn> };
 
-  query.transaction = vi.fn(async (callback: (tx: typeof query) => Array<Promise<unknown>> ) => {
+  query.transaction = vi.fn(async (callback: (tx: typeof query) => Array<Promise<unknown>>) => {
     const tx = vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
       persistedValues.push(...values.map((value) => String(value ?? "")));
       return Promise.resolve([]);
@@ -97,9 +99,9 @@ describe("privacy-safe sole-trader owner verification", () => {
     mocks.waitForBolagsverketRequestSlot.mockReset();
 
     process.env.COMPANY_DIRECTORY_DETAIL_URL_TEMPLATE = "https://example.test/organisationer";
-    process.env.COMPANY_DIRECTORY_DETAIL_METHOD = "POST";
     process.env.COMPANY_DIRECTORY_SOURCE_BEARER_TOKEN = "test-token";
     delete process.env.COMPANY_DIRECTORY_DETAIL_BODY_TEMPLATE;
+    delete process.env.COMPANY_DIRECTORY_DETAIL_METHOD;
 
     mocks.headers.mockResolvedValue(new Headers({ "x-forwarded-for": "127.0.0.1" }));
     mocks.getUserWorkspaceAccess.mockResolvedValue({
@@ -115,7 +117,7 @@ describe("privacy-safe sole-trader owner verification", () => {
     mocks.allowPublicSubmission.mockResolvedValue(true);
   });
 
-  it("uses the private identity only for the live official lookup and discards it before DB persistence", async () => {
+  it("uses the private identity only in a POST body and discards it before DB persistence", async () => {
     const { query, persistedValues } = createSqlMock();
     mocks.getSql.mockReturnValue(query);
     const fetchMock = vi.fn().mockResolvedValue({
@@ -135,11 +137,52 @@ describe("privacy-safe sole-trader owner verification", () => {
       maxAttempts: 4,
     }));
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const [requestUrl, request] = fetchMock.mock.calls[0] as [URL | string, RequestInit];
+    expect(String(requestUrl)).not.toContain(PRIVATE_INPUT);
+    expect(String(requestUrl)).not.toContain(PRIVATE_OFFICIAL);
+    expect(request.method).toBe("POST");
     expect(String(request.body)).toContain(PRIVATE_OFFICIAL);
-    expect(persistedValues).not.toContain(PRIVATE_INPUT);
-    expect(persistedValues).not.toContain(PRIVATE_OFFICIAL);
+    const persistedText = persistedValues.join("\n");
+    expect(persistedText).not.toContain(PRIVATE_INPUT);
+    expect(persistedText).not.toContain(PRIVATE_OFFICIAL);
     expect(persistedValues.some((value) => value.startsWith("sole-trader-"))).toBe(true);
+    expect(persistedValues.some((value) => value.startsWith("exempel-service-"))).toBe(true);
+  });
+
+  it("fails closed before fetch when a private identifier placeholder is configured in the URL", async () => {
+    const { query } = createSqlMock();
+    mocks.getSql.mockReturnValue(query);
+    process.env.COMPANY_DIRECTORY_DETAIL_URL_TEMPLATE = "https://example.test/organisationer/{organizationNumber}";
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(onboardOwnerSoleTrader(PRIVATE_INPUT)).rejects.toThrow("sole_trader_source_error");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(query.transaction).not.toHaveBeenCalled();
+  });
+
+  it("preserves the provider's first valid SNI instead of promoting a supported secondary SNI", async () => {
+    const { query, persistedValues } = createSqlMock();
+    mocks.getSql.mockReturnValue(query);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        organisationer: [officialRecord({
+          naringsgrenOrganisation: {
+            sni: [{ kod: "99.999" }, { kod: "43.210" }],
+          },
+        })],
+      }),
+    }));
+
+    await expect(onboardOwnerSoleTrader(PRIVATE_INPUT)).resolves.toEqual({
+      status: "sole_trader_review_pending",
+      companyName: "Exempel Service",
+    });
+
+    const persistedText = persistedValues.join("\n");
+    expect(persistedText).toContain("99.999");
+    expect(persistedText).not.toContain("43.210");
   });
 
   it("fails closed when more than one current sole-trader business matches the same identity", async () => {
@@ -202,5 +245,44 @@ describe("privacy-safe sole-trader owner verification", () => {
     expect(() => assertSoleTraderAdminTextHasNoPersonalIdentifier(
       "Kontrollerad via Bolagsverket, ärende 123456/26",
     )).not.toThrow();
+  });
+
+  it("links verified ownership while keeping the sole-trader profile private", async () => {
+    mocks.getPlatformAdmin.mockResolvedValue({ userId: "admin-1", role: "super_admin" });
+    let executedSql = "";
+    const sql = vi.fn((strings: TemplateStringsArray) => {
+      executedSql = strings.join(" ? ").replace(/\s+/g, " ");
+      return Promise.resolve([{
+        id: "22222222-2222-4222-8222-222222222222",
+        workspace_id: WORKSPACE_ID,
+      }]);
+    });
+    mocks.getSql.mockReturnValue(sql);
+
+    await expect(approveSoleTraderDirectoryClaim({
+      claimId: "22222222-2222-4222-8222-222222222222",
+      reference: "Innehavarskap kontrollerat i Bolagsverket Mina sidor",
+    })).resolves.toEqual({
+      claimId: "22222222-2222-4222-8222-222222222222",
+      workspaceId: WORKSPACE_ID,
+    });
+
+    expect(executedSql).toContain("membership.role in ('owner', 'admin')");
+    expect(executedSql).toContain("claim.requested_workspace_id is not null");
+    expect(executedSql).toContain("profile.publication_status in ('blocked', 'review')");
+    expect(executedSql).toContain("set claimed_workspace_id = locked.workspace_id");
+    expect(executedSql).not.toContain("privacy_blocked = false");
+    expect(executedSql).not.toContain("auto_public_eligible = true");
+    expect(executedSql).not.toContain("published_at =");
+  });
+
+  it("fails closed when the sole-trader claim is no longer ownership-eligible", async () => {
+    mocks.getPlatformAdmin.mockResolvedValue({ userId: "admin-1", role: "super_admin" });
+    mocks.getSql.mockReturnValue(vi.fn().mockResolvedValue([]));
+
+    await expect(approveSoleTraderDirectoryClaim({
+      claimId: "22222222-2222-4222-8222-222222222222",
+      reference: "Innehavarskap kontrollerat i Bolagsverket Mina sidor",
+    })).rejects.toThrow("no longer eligible");
   });
 });
