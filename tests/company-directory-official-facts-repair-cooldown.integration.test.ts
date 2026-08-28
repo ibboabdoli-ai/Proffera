@@ -74,8 +74,9 @@ function postgresSql(client: Client) {
     async function seedProfile(input: {
       id: string;
       organizationNumber: string;
-      ageMinutes: number;
-      profileAgeMinutes?: number;
+      factsLastSyncedAt: string;
+      attemptAgeMinutes: number;
+      profileLastSyncedAt?: string;
       producer?: string;
       failed?: boolean;
     }) {
@@ -85,14 +86,14 @@ function postgresSql(client: Client) {
           public_slug, last_synced_at
         ) values (
           $1::uuid, $2, 'SE', $3, $3,
-          $4, now() - make_interval(mins => $5)
+          $4, $5::timestamptz
         )
       `, [
         input.id,
         input.organizationNumber,
         `Test ${input.organizationNumber}`,
         `test-${input.organizationNumber}`,
-        input.profileAgeMinutes ?? 120,
+        input.profileLastSyncedAt ?? "2026-08-28T05:00:00Z",
       ]);
 
       await client!.query(`
@@ -100,9 +101,14 @@ function postgresSql(client: Client) {
           profile_id, advertising_blocked, data_producers, last_synced_at, updated_at
         ) values (
           $1::uuid, null, jsonb_build_object('postadressOrganisation', $2::text),
-          now() - make_interval(mins => $3), now() - make_interval(mins => $3)
+          $3::timestamptz, now() - make_interval(mins => $4)
         )
-      `, [input.id, input.producer ?? "Bolagsverket", input.ageMinutes]);
+      `, [
+        input.id,
+        input.producer ?? "Bolagsverket",
+        input.factsLastSyncedAt,
+        input.attemptAgeMinutes,
+      ]);
 
       if (input.failed) {
         await client!.query(`
@@ -177,7 +183,7 @@ function postgresSql(client: Client) {
       delete process.env.COMPANY_DIRECTORY_DETAIL_METHOD;
     });
 
-    it("selects only eligible legacy rows, orders oldest first, excludes failed queue rows, and cools failed provider attempts for one hour", async () => {
+    it("bounds failed legacy repairs without starving untouched legacy rows", async () => {
       const oldest = {
         id: "20000000-0000-4000-8000-000000000001",
         organizationNumber: "5560000001",
@@ -194,15 +200,34 @@ function postgresSql(client: Client) {
         id: "20000000-0000-4000-8000-000000000004",
         organizationNumber: "5560000004",
       };
+      const untouched = {
+        id: "20000000-0000-4000-8000-000000000005",
+        organizationNumber: "5560000005",
+      };
 
-      await seedProfile({ ...oldest, ageMinutes: 90, producer: "bOlAgSvErKeT" });
+      await seedProfile({
+        ...oldest,
+        factsLastSyncedAt: "2026-08-28T05:30:00Z",
+        attemptAgeMinutes: 90,
+        producer: "bOlAgSvErKeT",
+      });
       await seedProfile({
         ...eligibleAndProfileStale,
-        ageMinutes: 61,
-        profileAgeMinutes: 30,
+        factsLastSyncedAt: "2026-08-28T06:00:00Z",
+        attemptAgeMinutes: 61,
+        profileLastSyncedAt: "2026-08-28T07:00:00Z",
       });
-      await seedProfile({ ...cooling, ageMinutes: 59 });
-      await seedProfile({ ...failed, ageMinutes: 120, failed: true });
+      await seedProfile({
+        ...cooling,
+        factsLastSyncedAt: "2026-08-28T06:10:00Z",
+        attemptAgeMinutes: 59,
+      });
+      await seedProfile({
+        ...failed,
+        factsLastSyncedAt: "2026-08-28T05:20:00Z",
+        attemptAgeMinutes: 120,
+        failed: true,
+      });
 
       const fetchMock = vi.fn().mockRejectedValue(new Error("provider unavailable"));
       vi.stubGlobal("fetch", fetchMock);
@@ -214,12 +239,12 @@ function postgresSql(client: Client) {
       expect(String(fetchMock.mock.calls[0]?.[0])).toContain(oldest.organizationNumber);
       expect(String(fetchMock.mock.calls[1]?.[0])).toContain(eligibleAndProfileStale.organizationNumber);
 
-      const attempts = await client!.query<{
+      const claims = await client!.query<{
         organization_number: string;
-        attempted_after_sync: boolean;
+        claimed_recently: boolean;
       }>(`
         select profile.organization_number,
-          facts.updated_at > facts.last_synced_at as attempted_after_sync
+          facts.updated_at > now() - interval '1 minute' as claimed_recently
         from company_directory_profiles profile
         join company_directory_official_facts facts on facts.profile_id = profile.id
         where profile.organization_number in ($1, $2, $3, $4)
@@ -230,20 +255,41 @@ function postgresSql(client: Client) {
         cooling.organizationNumber,
         failed.organizationNumber,
       ]);
-      expect(attempts.rows).toEqual([
-        { organization_number: oldest.organizationNumber, attempted_after_sync: true },
-        { organization_number: eligibleAndProfileStale.organizationNumber, attempted_after_sync: true },
-        { organization_number: cooling.organizationNumber, attempted_after_sync: false },
-        { organization_number: failed.organizationNumber, attempted_after_sync: false },
+      expect(claims.rows).toEqual([
+        { organization_number: oldest.organizationNumber, claimed_recently: true },
+        { organization_number: eligibleAndProfileStale.organizationNumber, claimed_recently: true },
+        { organization_number: cooling.organizationNumber, claimed_recently: false },
+        { organization_number: failed.organizationNumber, claimed_recently: false },
       ]);
 
       fetchMock.mockClear();
       const second = await enrichCompanyDirectoryOfficialFacts(10);
 
-      // The second row is still stale relative to its profile, so this proves
-      // the legacy cooldown takes precedence over the ordinary stale-facts path.
+      // One row is still stale relative to its profile, so this proves the
+      // legacy cooldown takes precedence over the ordinary stale-facts path.
       expect(second).toMatchObject({ selected: 0, processed: 0, errors: 0 });
       expect(fetchMock).not.toHaveBeenCalled();
+
+      // Make one previously failed repair eligible again, then add an older
+      // untouched attempt. Fair ordering must select the untouched row first
+      // even though the retried row has the older successful-sync timestamp.
+      await client!.query(`
+        update company_directory_official_facts
+        set updated_at = now() - interval '61 minutes'
+        where profile_id = $1::uuid
+      `, [oldest.id]);
+      await seedProfile({
+        ...untouched,
+        factsLastSyncedAt: "2026-08-28T06:15:00Z",
+        attemptAgeMinutes: 120,
+      });
+
+      fetchMock.mockClear();
+      const third = await enrichCompanyDirectoryOfficialFacts(1);
+
+      expect(third).toMatchObject({ selected: 1, processed: 0, errors: 1 });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(String(fetchMock.mock.calls[0]?.[0])).toContain(untouched.organizationNumber);
     }, 30_000);
   },
 );

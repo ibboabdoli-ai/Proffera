@@ -555,7 +555,13 @@ export async function enrichCompanyDirectoryOfficialFacts(limit?: number) {
         then 0
         else 1
       end,
-      facts.last_synced_at asc nulls first,
+      case
+        when facts.advertising_blocked is null
+          and lower(facts.data_producers->>'postadressOrganisation') = 'bolagsverket'
+          and facts.last_synced_at < ${LEGACY_REKLAMSPARR_NULL_REPAIR_BEFORE}::timestamptz
+        then greatest(facts.last_synced_at, facts.updated_at)
+        else facts.last_synced_at
+      end asc nulls first,
       profile.last_synced_at asc,
       profile.organization_number asc
     limit ${safeLimit}
