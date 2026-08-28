@@ -1,6 +1,3 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -53,6 +50,10 @@ vi.mock("@/lib/workspace-access", () => ({
 }));
 
 import { onboardOwnerCompanyByOrganizationNumber } from "../src/lib/company-directory-owner-onboarding";
+import {
+  ownerOnboardingErrorRedirect,
+  ownerOnboardingErrorStatus,
+} from "../src/lib/company-directory-owner-onboarding-ui";
 
 const WORKSPACE_ID = "11111111-1111-4111-8111-111111111111";
 const PROFILE_ID = "22222222-2222-4222-8222-222222222222";
@@ -191,7 +192,7 @@ describe("owner-initiated company Directory onboarding", () => {
   });
 
   it("rate-limits a missing company before starting the official lookup", async () => {
-    const sql = createSqlMock((text) => text.includes("profile.organization_number") ? [] : []);
+    const sql = createSqlMock(() => []);
     mocks.getSql.mockReturnValue(sql);
     mocks.allowPublicSubmission.mockResolvedValue(false);
 
@@ -284,20 +285,16 @@ describe("owner-initiated company Directory onboarding", () => {
     expect(mocks.enrichCompanyDirectoryOfficialFactsForProfile).not.toHaveBeenCalled();
   });
 
-  it("keeps the identifier out of redirect query strings and exposes a missing-company entry point", () => {
-    const addPage = readFileSync(
-      resolve(process.cwd(), "src/app/dashboard/marknadsplats/lagg-till-foretag/page.tsx"),
-      "utf8",
-    );
-    const marketplacePage = readFileSync(
-      resolve(process.cwd(), "src/app/dashboard/marknadsplats/page.tsx"),
-      "utf8",
-    );
+  it("maps onboarding failures to safe status-only redirects without echoing identifiers", () => {
+    expect(ownerOnboardingErrorStatus(new Error("organization_number"))).toBe("invalid");
+    expect(ownerOnboardingErrorStatus(new Error("sole_trader_identity"))).toBe("invalid");
+    expect(ownerOnboardingErrorStatus(new Error("rate_limited"))).toBe("rate_limited");
+    expect(ownerOnboardingErrorStatus(new Error("upstream_failed"))).toBe("source_error");
 
-    expect(addPage).not.toContain('params.set("organizationNumber"');
-    expect(addPage).toContain('code === "rate_limited"');
-    expect(addPage).toContain('? "rate_limited"');
-    expect(marketplacePage).toContain('/dashboard/marknadsplats/lagg-till-foretag');
-    expect(marketplacePage).toContain('status === "not_found"');
+    const redirectPath = ownerOnboardingErrorRedirect("sv", new Error("rate_limited"));
+    expect(redirectPath).toBe("/dashboard/marknadsplats/lagg-till-foretag?status=rate_limited");
+    expect(redirectPath).not.toContain(PRIVATE_SHAPE);
+    expect(ownerOnboardingErrorRedirect("en", new Error("organization_number")))
+      .toBe("/dashboard/marknadsplats/lagg-till-foretag?status=invalid&lang=en");
   });
 });
