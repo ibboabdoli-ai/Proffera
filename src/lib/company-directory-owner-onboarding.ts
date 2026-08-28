@@ -2,6 +2,7 @@ import "server-only";
 
 import { headers } from "next/headers";
 
+import { isBolagsverketJuridicalOrganizationNumber } from "@/lib/bolagsverket-api-policy";
 import { upsertCompanyDirectoryCandidate } from "@/lib/company-directory-engine";
 import { enrichCompanyDirectoryOfficialFactsForProfile } from "@/lib/company-directory-official-facts";
 import {
@@ -62,7 +63,6 @@ function seedCandidate(organizationNumber: string): NormalizedDirectoryCandidate
     employerStatus: "",
     primarySniCode: "",
     primarySniLabel: "",
-    primarySniVerified: false,
     activityDescription: "",
     addressLine1: "",
     postalCode: "",
@@ -209,9 +209,9 @@ async function lookupProfileStateById(profileId: string): Promise<ExistingProfil
  * already present locally. The official source remains authoritative; the user
  * cannot supply free-text company identity fields.
  *
- * Sole traders deliberately stop before persistence in this first slice. Their
- * identifier can be personnummer-shaped, so the generic juridical-person profile
- * path must not store/project it until the dedicated privacy-safe claim path is
+ * Personnummer-shaped identifiers deliberately stop before any generic profile
+ * lookup, external juridical-company request or persistence. A sole-trader owner
+ * must use the dedicated privacy-safe verification path once that next slice is
  * implemented.
  */
 export async function onboardOwnerCompanyByOrganizationNumber(
@@ -220,6 +220,10 @@ export async function onboardOwnerCompanyByOrganizationNumber(
   const access = await requireManageableWorkspace();
   const organizationNumber = normalizeSwedishOrganizationNumber(value);
   if (!organizationNumber) throw new Error("organization_number");
+
+  if (!isBolagsverketJuridicalOrganizationNumber(organizationNumber)) {
+    return { status: "sole_trader_privacy", companyName: "" };
+  }
 
   const existing = await lookupProfileState(organizationNumber);
   if (existing) {
@@ -233,9 +237,7 @@ export async function onboardOwnerCompanyByOrganizationNumber(
   const companyName = String(verified.displayName || verified.legalName || "").trim();
 
   if (verified.organizationKind !== "juridical_person") {
-    return verified.organizationKind === "sole_trader"
-      ? { status: "sole_trader_privacy", companyName }
-      : { status: "not_ready", companyName };
+    return { status: "not_ready", companyName };
   }
 
   const upserted = await upsertCompanyDirectoryCandidate(verified);
