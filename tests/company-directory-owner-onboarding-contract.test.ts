@@ -17,18 +17,40 @@ describe("owner-initiated company Directory onboarding", () => {
       .toBeLessThan(source.indexOf("upsertCompanyDirectoryCandidate(verified)"));
   });
 
-  it("deduplicates locally before official ingestion and reuses the canonical publication gates", () => {
+  it("deduplicates locally, resumes eligible ready profiles and reuses canonical publication gates", () => {
     const source = readFileSync(
       resolve(process.cwd(), "src/lib/company-directory-owner-onboarding.ts"),
       "utf8",
     );
 
-    expect(source).toContain("lookupExistingProfile(organizationNumber, access.workspaceId)");
-    expect(source).toContain("enrichCompanyDirectoryOfficialFactsForProfile(upserted.profileId)");
-    expect(source).toContain("autoPublishCompanyDirectoryProfileIfSafe(upserted.profileId)");
-    expect(source).toContain('String(row.publication_status) !== "published"');
-    expect(source).toContain("Boolean(row.privacy_blocked)");
-    expect(source).toContain("!Boolean(row.auto_public_eligible)");
+    expect(source).toContain("lookupProfileState(organizationNumber)");
+    expect(source).toContain("resumeReadyProfile(existing, access.workspaceId, access.userId)");
+    expect(source).toContain('profile.publicationStatus !== "ready"');
+    expect(source).toContain('profile.organizationKind !== "juridical_person"');
+    expect(source).toContain("enrichCompanyDirectoryOfficialFactsForProfile(profile.profileId)");
+    expect(source).toContain("autoPublishCompanyDirectoryProfileIfSafe(profile.profileId)");
+    expect(source).toContain('profile.publicationStatus !== "published"');
+    expect(source).toContain("profile.privacyBlocked");
+    expect(source).toContain("!profile.autoPublicEligible");
+  });
+
+  it("uses the existing durable database-backed rate limiter before owner-triggered official lookups", () => {
+    const source = readFileSync(
+      resolve(process.cwd(), "src/lib/company-directory-owner-onboarding.ts"),
+      "utf8",
+    );
+
+    expect(source).toContain('scope: "owner_directory_onboarding"');
+    expect(source).toContain("allowPublicSubmission");
+    expect(source).toContain("maxAttempts: 6");
+    expect(source).toContain("windowSeconds: 60 * 60");
+    expect(source).toContain('throw new Error("rate_limited")');
+
+    const rateGuard = source.lastIndexOf("await requireExternalLookupBudget({ workspaceId: access.workspaceId, userId: access.userId })");
+    const officialLookup = source.indexOf("verifyOfficialCompanyCandidate(seedCandidate(organizationNumber))");
+    expect(rateGuard).toBeGreaterThan(-1);
+    expect(officialLookup).toBeGreaterThan(-1);
+    expect(rateGuard).toBeLessThan(officialLookup);
   });
 
   it("fails closed for sole traders before the generic profile upsert", () => {
