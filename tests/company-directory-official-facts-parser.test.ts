@@ -69,6 +69,17 @@ describe("Bolagsverket official facts parser", () => {
     expect(extractOfficialFacts({ reklamsparr: { kod: "NEJ" } }).advertisingBlocked).toBe(false);
   });
 
+  it("keeps an explicit reklamspärr code unknown when its dataset carries an error", () => {
+    const facts = extractOfficialFacts({
+      reklamsparr: {
+        kod: "NEJ",
+        fel: { typ: "OVANTAT_FEL" },
+      },
+    });
+
+    expect(facts.advertisingBlocked).toBeNull();
+  });
+
   it("maps documented null reklamspärr to no block only with a successful Bolagsverket post address", () => {
     const facts = extractOfficialFacts({
       reklamsparr: null,
