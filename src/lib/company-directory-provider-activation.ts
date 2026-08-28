@@ -43,8 +43,8 @@ async function requireManageableWorkspace() {
   return access;
 }
 
-function ownerVisibleOrganizationNumber(kind: unknown, value: unknown) {
-  return String(kind ?? "") === "sole_trader" ? "" : String(value ?? "");
+export function ownerVisibleDirectoryOrganizationNumber(kind: unknown, value: unknown) {
+  return String(kind ?? "") === "juridical_person" ? String(value ?? "") : "";
 }
 
 export async function getProviderActivationState(): Promise<ProviderActivationState> {
@@ -115,7 +115,11 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
         profile.display_name,
         profile.organization_number,
         profile.organization_kind,
-        profile.city
+        profile.city,
+        profile.publication_status,
+        profile.privacy_blocked,
+        profile.auto_public_eligible,
+        profile.published_at
       from company_directory_profiles profile
       where profile.claimed_workspace_id = ${access.workspaceId}::uuid
       order by profile.updated_at desc
@@ -141,17 +145,22 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
   ]);
 
   const profile = profileRows[0];
+  const profileCanOpenPublicPage = profile
+    && String(profile.publication_status ?? "") === "claimed"
+    && !Boolean(profile.privacy_blocked)
+    && Boolean(profile.auto_public_eligible)
+    && Boolean(profile.published_at);
   const linkedProfile = profile
     ? {
         id: String(profile.id),
-        slug: String(profile.public_slug ?? ""),
+        slug: profileCanOpenPublicPage ? String(profile.public_slug ?? "") : "",
         companyName: String(profile.display_name ?? ""),
-        organizationNumber: ownerVisibleOrganizationNumber(profile.organization_kind, profile.organization_number),
+        organizationNumber: ownerVisibleDirectoryOrganizationNumber(profile.organization_kind, profile.organization_number),
         city: String(profile.city ?? ""),
       }
     : null;
 
-  const directoryRows = linkedProfile
+  const directoryRows = profileCanOpenPublicPage && linkedProfile
     ? await sql`
         select service.slug, service.label
         from company_directory_profile_services relation
@@ -172,7 +181,7 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
     ? {
         status: String(claim.status),
         companyName: String(claim.display_name ?? ""),
-        organizationNumber: ownerVisibleOrganizationNumber(claim.organization_kind, claim.organization_number),
+        organizationNumber: ownerVisibleDirectoryOrganizationNumber(claim.organization_kind, claim.organization_number),
         profileSlug: soleTraderManualReview || String(claim.publication_status ?? "") === "blocked"
           ? ""
           : String(claim.public_slug ?? ""),
