@@ -193,8 +193,7 @@ function sniFromRecord(row: AnyRecord) {
     }
   }
   const unique = [...new Map(candidates.map((item) => [item.code, item])).values()];
-  const supported = unique.find((item) => Boolean(mapSniToDirectoryCategory(item.code)));
-  return supported ?? unique[0] ?? { code: "", label: "" };
+  return unique[0] ?? { code: "", label: "" };
 }
 
 function activityDescription(row: AnyRecord) {
@@ -295,7 +294,7 @@ async function oauthAccessToken() {
 }
 
 function replaceIdentity(template: string, identity: string) {
-  return template.replaceAll("{organizationNumber}", encodeURIComponent(identity));
+  return template.replaceAll("{organizationNumber}", identity);
 }
 
 async function requireExternalLookupBudget(input: { workspaceId: string; userId: string }) {
@@ -313,23 +312,22 @@ async function verifyOfficialSoleTrader(identity10: string) {
   const identity12 = expandPrivateIdentity12(identity10);
   if (!identity12) throw new Error("sole_trader_identity");
   const template = process.env.COMPANY_DIRECTORY_DETAIL_URL_TEMPLATE?.trim();
-  if (!template) throw new Error("sole_trader_source_error");
+  if (!template || template.includes("{organizationNumber}")) throw new Error("sole_trader_source_error");
 
   const provider = process.env.COMPANY_DIRECTORY_PROVIDER?.trim() || "bolagsverket_vardefulla_datamangder";
   const token = await oauthAccessToken();
-  const method = process.env.COMPANY_DIRECTORY_DETAIL_METHOD?.trim().toUpperCase() === "GET" ? "GET" : "POST";
-  const url = requireBolagsverketHttpsUrl(replaceIdentity(template, identity12), "COMPANY_DIRECTORY_DETAIL_URL_TEMPLATE");
+  const url = requireBolagsverketHttpsUrl(template, "COMPANY_DIRECTORY_DETAIL_URL_TEMPLATE");
   const bodyTemplate = process.env.COMPANY_DIRECTORY_DETAIL_BODY_TEMPLATE?.trim();
-  const body = method === "POST"
-    ? (bodyTemplate ? replaceIdentity(bodyTemplate, identity12) : JSON.stringify({ identitetsbeteckning: identity12 }))
-    : undefined;
+  const body = bodyTemplate
+    ? replaceIdentity(bodyTemplate, identity12)
+    : JSON.stringify({ identitetsbeteckning: identity12 });
 
   await waitForBolagsverketRequestSlot(provider);
   const response = await fetch(url, {
-    method,
+    method: "POST",
     headers: {
       accept: "application/json",
-      ...(method === "POST" ? { "content-type": "application/json" } : {}),
+      "content-type": "application/json",
       ...(token ? { authorization: `Bearer ${token}` } : {}),
       "x-request-id": randomUUID(),
     },
@@ -355,7 +353,6 @@ async function currentSoleTraderState(workspaceId: string) {
     from company_directory_profiles
     where claimed_workspace_id = ${workspaceId}::uuid
       and organization_kind = 'sole_trader'
-      and publication_status = 'claimed'
     order by updated_at desc
     limit 1
   `;
@@ -539,7 +536,11 @@ function safeAdminReference(value: string) {
   return reference;
 }
 
-/** Super-admin manual approval for the dedicated sole-trader claim branch. */
+/**
+ * Super-admin ownership approval for the dedicated sole-trader branch.
+ * Ownership is linked, but the Directory profile deliberately remains blocked
+ * until a separate publication-safety path can establish publishable evidence.
+ */
 export async function approveSoleTraderDirectoryClaim(input: { claimId: string; reference: string }) {
   const admin = await getPlatformAdmin();
   if (!admin || admin.role !== "super_admin") throw new Error("Super admin access required");
@@ -590,10 +591,6 @@ export async function approveSoleTraderDirectoryClaim(input: { claimId: string; 
     ), claimed_profile as (
       update company_directory_profiles profile
       set claimed_workspace_id = locked.workspace_id,
-          publication_status = 'claimed',
-          privacy_blocked = false,
-          auto_public_eligible = true,
-          published_at = coalesce(profile.published_at, now()),
           updated_at = now()
       from locked
       where profile.id = locked.profile_id
@@ -625,7 +622,12 @@ export async function approveSoleTraderDirectoryClaim(input: { claimId: string; 
         ${admin.userId}, claimed_claim.workspace_id,
         'company_directory.sole_trader_claim.approved', ${reference},
         ${JSON.stringify({ claimId, status: "pending_or_verified", verificationMethod: "manual_review" })}::jsonb,
-        jsonb_build_object('claimId', ${claimId}, 'status', 'claimed', 'workspaceId', claimed_claim.workspace_id::text)
+        jsonb_build_object(
+          'claimId', ${claimId},
+          'status', 'claimed',
+          'workspaceId', claimed_claim.workspace_id::text,
+          'publicationStatus', 'blocked'
+        )
       from claimed_claim
       returning id
     )
