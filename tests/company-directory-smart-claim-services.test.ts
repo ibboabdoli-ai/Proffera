@@ -67,7 +67,12 @@ describe("Company Directory smart claim service suggestions", () => {
           public_slug: "owner-company-ab",
           display_name: "Owner Company AB",
           organization_number: "5560000000",
+          organization_kind: "juridical_person",
           city: "Södertälje",
+          publication_status: "claimed",
+          privacy_blocked: false,
+          auto_public_eligible: true,
+          published_at: "2026-08-28T00:00:00.000Z",
         }];
       }
       if (query.includes("from company_directory_claims claim")) return [];
