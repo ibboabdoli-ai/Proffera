@@ -72,7 +72,7 @@ describe("company directory queue quarantine contract", () => {
     expect(queue).toContain("? await autoPublishCompanyDirectoryProfileIfSafe(result.profileId)");
   });
 
-  it("keeps the observable backlog truthful but skips failed queue items in scheduled enrichment", () => {
+  it("keeps the observable backlog truthful, repairs old unknown reklamspärr, and skips failed queue items in scheduled enrichment", () => {
     const facts = source("src/lib/company-directory-official-facts.ts");
     const backlogStart = facts.indexOf("export async function getCompanyDirectoryOfficialFactsBacklog");
     const perProfileStart = facts.indexOf("export async function enrichCompanyDirectoryOfficialFactsForProfile", backlogStart);
@@ -80,8 +80,13 @@ describe("company directory queue quarantine contract", () => {
     const backlog = facts.slice(backlogStart, perProfileStart);
     const batch = facts.slice(batchStart);
 
-    expect(backlog).toContain("facts.profile_id is null or facts.last_synced_at < profile.last_synced_at");
+    expect(backlog).toContain("facts.profile_id is null");
+    expect(backlog).toContain("facts.last_synced_at < profile.last_synced_at");
+    expect(backlog).toContain("facts.advertising_blocked is null");
+    expect(backlog).toContain("facts.last_synced_at < now() - interval '1 hour'");
     expect(backlog).not.toContain("queue.state = 'failed'");
+    expect(batch).toContain("facts.advertising_blocked is null");
+    expect(batch).toContain("facts.last_synced_at asc nulls first");
     expect(batch).toContain("company_directory_discovery_queue queue");
     expect(batch).toContain("queue.state = 'failed'");
     expect(batch).toContain("queue.profile_id = profile.id");
