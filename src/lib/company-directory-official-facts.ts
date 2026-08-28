@@ -443,6 +443,7 @@ export async function getCompanyDirectoryOfficialFactsBacklog() {
         or facts.last_synced_at < profile.last_synced_at
         or (
           facts.advertising_blocked is null
+          and facts.data_producers->>'postadressOrganisation' = 'Bolagsverket'
           and facts.last_synced_at < now() - interval '1 hour'
         )
       )
@@ -503,6 +504,7 @@ export async function enrichCompanyDirectoryOfficialFacts(limit?: number) {
         or facts.last_synced_at < profile.last_synced_at
         or (
           facts.advertising_blocked is null
+          and facts.data_producers->>'postadressOrganisation' = 'Bolagsverket'
           and facts.last_synced_at < now() - interval '1 hour'
         )
       )
@@ -519,7 +521,12 @@ export async function enrichCompanyDirectoryOfficialFacts(limit?: number) {
           )
       )
     order by
-      case when facts.advertising_blocked is null then 0 else 1 end,
+      case
+        when facts.advertising_blocked is null
+          and facts.data_producers->>'postadressOrganisation' = 'Bolagsverket'
+        then 0
+        else 1
+      end,
       facts.last_synced_at asc nulls first,
       profile.last_synced_at asc,
       profile.organization_number asc
