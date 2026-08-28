@@ -47,6 +47,21 @@ export function ownerVisibleDirectoryOrganizationNumber(kind: unknown, value: un
   return String(kind ?? "") === "juridical_person" ? String(value ?? "") : "";
 }
 
+export function providerProfileCanOpenPublicPage(profile: {
+  publication_status?: unknown;
+  is_active?: unknown;
+  privacy_blocked?: unknown;
+  auto_public_eligible?: unknown;
+  published_at?: unknown;
+} | null | undefined) {
+  if (!profile) return false;
+  return String(profile.publication_status ?? "") === "claimed"
+    && Boolean(profile.is_active)
+    && !Boolean(profile.privacy_blocked)
+    && Boolean(profile.auto_public_eligible)
+    && Boolean(profile.published_at);
+}
+
 export async function getProviderActivationState(): Promise<ProviderActivationState> {
   const access = await requireManageableWorkspace();
   const sql = getSql();
@@ -117,6 +132,7 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
         profile.organization_kind,
         profile.city,
         profile.publication_status,
+        profile.is_active,
         profile.privacy_blocked,
         profile.auto_public_eligible,
         profile.published_at
@@ -145,11 +161,7 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
   ]);
 
   const profile = profileRows[0];
-  const profileCanOpenPublicPage = profile
-    && String(profile.publication_status ?? "") === "claimed"
-    && !Boolean(profile.privacy_blocked)
-    && Boolean(profile.auto_public_eligible)
-    && Boolean(profile.published_at);
+  const profileCanOpenPublicPage = providerProfileCanOpenPublicPage(profile);
   const linkedProfile = profile
     ? {
         id: String(profile.id),
