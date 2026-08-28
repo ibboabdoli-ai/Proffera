@@ -148,7 +148,11 @@ async function requireExternalLookupBudget(input: { workspaceId: string; userId:
   if (!allowed) throw new Error("rate_limited");
 }
 
-async function resumeReadyProfile(profile: ExistingProfileState, workspaceId: string, userId: string) {
+async function resumeReadyProfile(
+  profile: ExistingProfileState,
+  workspaceId: string,
+  userId: string,
+): Promise<OwnerDirectoryOnboardingResult> {
   if (
     profile.publicationStatus !== "ready"
     || profile.organizationKind !== "juridical_person"
