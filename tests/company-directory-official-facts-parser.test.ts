@@ -107,9 +107,17 @@ describe("Bolagsverket official facts parser", () => {
     expect(extractOfficialFacts({
       reklamsparr: null,
       postadressOrganisation: {
+        dataproducent: "Bolagsverket",
+        fel: null,
+        postadress: {},
+      },
+    }).advertisingBlocked).toBeNull();
+    expect(extractOfficialFacts({
+      reklamsparr: null,
+      postadressOrganisation: {
         dataproducent: "SCB",
         fel: null,
-        postadress: { land: "Sverige" },
+        postadress: { postnummer: "11111", land: "Sverige" },
       },
     }).advertisingBlocked).toBeNull();
     expect(extractOfficialFacts({
@@ -117,7 +125,7 @@ describe("Bolagsverket official facts parser", () => {
       postadressOrganisation: {
         dataproducent: "Bolagsverket",
         fel: { typ: "OTILLGANGLIG_UPPGIFTSKALLA" },
-        postadress: { land: "Sverige" },
+        postadress: { postnummer: "11111", land: "Sverige" },
       },
     }).advertisingBlocked).toBeNull();
   });
