@@ -445,9 +445,9 @@ export async function getCompanyDirectoryOfficialFactsBacklog() {
         or facts.last_synced_at < profile.last_synced_at
         or (
           facts.advertising_blocked is null
-          and facts.data_producers->>'postadressOrganisation' = 'Bolagsverket'
+          and lower(facts.data_producers->>'postadressOrganisation') = 'bolagsverket'
           and facts.last_synced_at < ${LEGACY_REKLAMSPARR_NULL_REPAIR_BEFORE}::timestamptz
-          and facts.last_synced_at < now() - interval '1 hour'
+          and greatest(facts.last_synced_at, facts.updated_at) < now() - interval '1 hour'
         )
       )
   `;
@@ -497,7 +497,16 @@ export async function enrichCompanyDirectoryOfficialFacts(limit?: number) {
   if (!token) throw new Error("Official facts enrichment requires Bolagsverket credentials");
 
   const rows = await sql`
-    select profile.id::text, profile.organization_number
+    select
+      profile.id::text,
+      profile.organization_number,
+      (
+        facts.profile_id is not null
+        and facts.advertising_blocked is null
+        and lower(facts.data_producers->>'postadressOrganisation') = 'bolagsverket'
+        and facts.last_synced_at < ${LEGACY_REKLAMSPARR_NULL_REPAIR_BEFORE}::timestamptz
+        and greatest(facts.last_synced_at, facts.updated_at) < now() - interval '1 hour'
+      ) as legacy_reklamsparr_repair
     from company_directory_profiles profile
     left join company_directory_official_facts facts on facts.profile_id = profile.id
     where profile.country_code = 'SE'
@@ -507,9 +516,9 @@ export async function enrichCompanyDirectoryOfficialFacts(limit?: number) {
         or facts.last_synced_at < profile.last_synced_at
         or (
           facts.advertising_blocked is null
-          and facts.data_producers->>'postadressOrganisation' = 'Bolagsverket'
+          and lower(facts.data_producers->>'postadressOrganisation') = 'bolagsverket'
           and facts.last_synced_at < ${LEGACY_REKLAMSPARR_NULL_REPAIR_BEFORE}::timestamptz
-          and facts.last_synced_at < now() - interval '1 hour'
+          and greatest(facts.last_synced_at, facts.updated_at) < now() - interval '1 hour'
         )
       )
       and not exists (
@@ -527,8 +536,9 @@ export async function enrichCompanyDirectoryOfficialFacts(limit?: number) {
     order by
       case
         when facts.advertising_blocked is null
-          and facts.data_producers->>'postadressOrganisation' = 'Bolagsverket'
+          and lower(facts.data_producers->>'postadressOrganisation') = 'bolagsverket'
           and facts.last_synced_at < ${LEGACY_REKLAMSPARR_NULL_REPAIR_BEFORE}::timestamptz
+          and greatest(facts.last_synced_at, facts.updated_at) < now() - interval '1 hour'
         then 0
         else 1
       end,
@@ -546,6 +556,20 @@ export async function enrichCompanyDirectoryOfficialFacts(limit?: number) {
     const profileId = text(row.id);
     const organizationNumber = text(row.organization_number).replace(/\D/g, "");
     try {
+      if (row.legacy_reklamsparr_repair === true) {
+        const claimed = await sql`
+          update company_directory_official_facts
+          set updated_at = now()
+          where profile_id = ${profileId}::uuid
+            and advertising_blocked is null
+            and lower(data_producers->>'postadressOrganisation') = 'bolagsverket'
+            and last_synced_at < ${LEGACY_REKLAMSPARR_NULL_REPAIR_BEFORE}::timestamptz
+            and greatest(last_synced_at, updated_at) < now() - interval '1 hour'
+          returning profile_id::text
+        `;
+        if (claimed.length === 0) continue;
+      }
+
       const facts = await fetchOfficialFacts(organizationNumber, token);
       await saveOfficialFacts(profileId, facts);
       processed += 1;
