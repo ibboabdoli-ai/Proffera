@@ -63,4 +63,76 @@ describe("Bolagsverket official facts parser", () => {
 
     expect(facts.ongoingProcedures.map((procedure) => procedure.fromDate)).toEqual(["", "", ""]);
   });
+
+  it("maps explicit reklamspärr JA and NEJ without changing their meaning", () => {
+    expect(extractOfficialFacts({ reklamsparr: { kod: "JA" } }).advertisingBlocked).toBe(true);
+    expect(extractOfficialFacts({ reklamsparr: { kod: "NEJ" } }).advertisingBlocked).toBe(false);
+  });
+
+  it("keeps an explicit reklamspärr code unknown when its dataset carries an error", () => {
+    const facts = extractOfficialFacts({
+      reklamsparr: {
+        kod: "NEJ",
+        fel: { typ: "OVANTAT_FEL" },
+      },
+    });
+
+    expect(facts.advertisingBlocked).toBeNull();
+  });
+
+  it("maps documented null reklamspärr to no block only with a successful Bolagsverket post address", () => {
+    const facts = extractOfficialFacts({
+      reklamsparr: null,
+      postadressOrganisation: {
+        dataproducent: "Bolagsverket",
+        fel: null,
+        postadress: {
+          utdelningsadress: "Testgatan 1",
+          postnummer: "11111",
+          postort: "STOCKHOLM",
+          land: "Sverige",
+        },
+      },
+    });
+
+    expect(facts.advertisingBlocked).toBe(false);
+  });
+
+  it("keeps null reklamspärr unknown when the documented post-address condition is not met", () => {
+    expect(extractOfficialFacts({ reklamsparr: null }).advertisingBlocked).toBeNull();
+    expect(extractOfficialFacts({
+      reklamsparr: null,
+      postadressOrganisation: { postadress: null },
+    }).advertisingBlocked).toBeNull();
+    expect(extractOfficialFacts({
+      reklamsparr: null,
+      postadressOrganisation: {
+        dataproducent: "Bolagsverket",
+        fel: null,
+        postadress: {},
+      },
+    }).advertisingBlocked).toBeNull();
+    expect(extractOfficialFacts({
+      reklamsparr: null,
+      postadressOrganisation: {
+        dataproducent: "SCB",
+        fel: null,
+        postadress: { postnummer: "11111", land: "Sverige" },
+      },
+    }).advertisingBlocked).toBeNull();
+    expect(extractOfficialFacts({
+      reklamsparr: null,
+      postadressOrganisation: {
+        dataproducent: "Bolagsverket",
+        fel: { typ: "OTILLGANGLIG_UPPGIFTSKALLA" },
+        postadress: { postnummer: "11111", land: "Sverige" },
+      },
+    }).advertisingBlocked).toBeNull();
+  });
+
+  it("keeps malformed or unknown reklamspärr codes fail-closed", () => {
+    expect(extractOfficialFacts({ reklamsparr: { kod: "KANSKE" } }).advertisingBlocked).toBeNull();
+    expect(extractOfficialFacts({ reklamsparr: {} }).advertisingBlocked).toBeNull();
+    expect(extractOfficialFacts({}).advertisingBlocked).toBeNull();
+  });
 });

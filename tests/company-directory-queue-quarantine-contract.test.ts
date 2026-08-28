@@ -72,19 +72,24 @@ describe("company directory queue quarantine contract", () => {
     expect(queue).toContain("? await autoPublishCompanyDirectoryProfileIfSafe(result.profileId)");
   });
 
-  it("keeps the observable backlog truthful but skips failed queue items in scheduled enrichment", () => {
+  it("keeps the observable backlog truthful, repairs only legacy Bolagsverket unknown reklamspärr, and skips failed queue items in scheduled enrichment", () => {
     const facts = source("src/lib/company-directory-official-facts.ts");
     const backlogStart = facts.indexOf("export async function getCompanyDirectoryOfficialFactsBacklog");
     const perProfileStart = facts.indexOf("export async function enrichCompanyDirectoryOfficialFactsForProfile", backlogStart);
     const batchStart = facts.indexOf("export async function enrichCompanyDirectoryOfficialFacts(limit?: number)");
     const backlog = facts.slice(backlogStart, perProfileStart);
     const batch = facts.slice(batchStart);
+    const legacyUnknownCooldown = /or\s*\(\s*facts\.advertising_blocked is null\s+and facts\.data_producers->>'postadressOrganisation' = 'Bolagsverket'\s+and facts\.last_synced_at < \$\{LEGACY_REKLAMSPARR_NULL_REPAIR_BEFORE\}::timestamptz\s+and facts\.last_synced_at < now\(\) - interval '1 hour'\s*\)/;
+    const repairableUnknownFirst = /order by\s+case\s+when facts\.advertising_blocked is null\s+and facts\.data_producers->>'postadressOrganisation' = 'Bolagsverket'\s+and facts\.last_synced_at < \$\{LEGACY_REKLAMSPARR_NULL_REPAIR_BEFORE\}::timestamptz\s+then 0\s+else 1\s+end,\s*facts\.last_synced_at asc nulls first,\s*profile\.last_synced_at asc,\s*profile\.organization_number asc/;
+    const failedQueueExclusion = /and not exists\s*\(\s*select 1\s+from company_directory_discovery_queue queue\s+where queue\.state = 'failed'\s+and \(\s*queue\.profile_id = profile\.id\s+or \(\s*queue\.country_code = profile\.country_code\s+and queue\.organization_number = regexp_replace\(profile\.organization_number[\s\S]*?\)\s*\)\s*\)\s*order by/;
 
-    expect(backlog).toContain("facts.profile_id is null or facts.last_synced_at < profile.last_synced_at");
+    expect(facts).toContain('const LEGACY_REKLAMSPARR_NULL_REPAIR_BEFORE = "2026-08-28T07:30:00.000Z";');
+    expect(backlog).toContain("facts.profile_id is null");
+    expect(backlog).toContain("facts.last_synced_at < profile.last_synced_at");
+    expect(backlog).toMatch(legacyUnknownCooldown);
     expect(backlog).not.toContain("queue.state = 'failed'");
-    expect(batch).toContain("company_directory_discovery_queue queue");
-    expect(batch).toContain("queue.state = 'failed'");
-    expect(batch).toContain("queue.profile_id = profile.id");
-    expect(batch).toContain("queue.organization_number = regexp_replace(profile.organization_number");
+    expect(batch).toMatch(legacyUnknownCooldown);
+    expect(batch).toMatch(repairableUnknownFirst);
+    expect(batch).toMatch(failedQueueExclusion);
   });
 });
