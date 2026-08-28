@@ -112,6 +112,23 @@ function yesNo(value: unknown): boolean | null {
   return null;
 }
 
+function advertisingBlockedFromRecord(row: AnyRecord): boolean | null {
+  const advertisingValue = row.reklamsparr;
+  const advertising = object(advertisingValue);
+  if (advertising) return yesNo(advertising.kod);
+
+  // Värdefulla datamängder documents reklamsparr=null as "no advertising
+  // block registered" only when Bolagsverket returned postadressOrganisation.
+  // Keep all absent/malformed cases unknown so Marketplace outreach remains
+  // fail-closed. Explicit nested API errors are rejected before extraction too.
+  if (advertisingValue !== null) return null;
+  const postalContainer = object(row.postadressOrganisation);
+  const postal = object(postalContainer?.postadress);
+  if (!postalContainer || !postal) return null;
+  if (postalContainer.fel !== null && postalContainer.fel !== undefined) return null;
+  return false;
+}
+
 function normalizeSni(value: unknown) {
   return text(value).replace(/\D/g, "");
 }
@@ -212,7 +229,6 @@ export function extractOfficialFacts(row: AnyRecord): OfficialFacts {
   const dates = object(row.organisationsdatum);
   const deregistered = object(row.avregistreradOrganisation);
   const deregistrationReason = codeLabel(row.avregistreringsorsak);
-  const advertising = object(row.reklamsparr);
   const postalContainer = object(row.postadressOrganisation);
   const postal = object(postalContainer?.postadress);
 
@@ -228,7 +244,7 @@ export function extractOfficialFacts(row: AnyRecord): OfficialFacts {
     deregistrationDate: timestamp(deregistered?.avregistreringsdatum),
     deregistrationReasonCode: deregistrationReason.code,
     deregistrationReasonLabel: deregistrationReason.label,
-    advertisingBlocked: yesNo(advertising?.kod),
+    advertisingBlocked: advertisingBlockedFromRecord(row),
     coAddress: text(postal?.coAdress),
     addressCountry: text(postal?.land),
     registeredNames: namesFromRecord(row),
@@ -418,7 +434,14 @@ export async function getCompanyDirectoryOfficialFactsBacklog() {
     left join company_directory_official_facts facts on facts.profile_id = profile.id
     where profile.country_code = 'SE'
       and regexp_replace(profile.organization_number, '\\D', '', 'g') ~ '^[0-9]{2}[2-9][0-9]{7}$'
-      and (facts.profile_id is null or facts.last_synced_at < profile.last_synced_at)
+      and (
+        facts.profile_id is null
+        or facts.last_synced_at < profile.last_synced_at
+        or (
+          facts.advertising_blocked is null
+          and facts.last_synced_at < now() - interval '1 hour'
+        )
+      )
   `;
 
   return Number(rows[0]?.count ?? 0);
@@ -471,7 +494,14 @@ export async function enrichCompanyDirectoryOfficialFacts(limit?: number) {
     left join company_directory_official_facts facts on facts.profile_id = profile.id
     where profile.country_code = 'SE'
       and regexp_replace(profile.organization_number, '\\D', '', 'g') ~ '^[0-9]{2}[2-9][0-9]{7}$'
-      and (facts.profile_id is null or facts.last_synced_at < profile.last_synced_at)
+      and (
+        facts.profile_id is null
+        or facts.last_synced_at < profile.last_synced_at
+        or (
+          facts.advertising_blocked is null
+          and facts.last_synced_at < now() - interval '1 hour'
+        )
+      )
       and not exists (
         select 1
         from company_directory_discovery_queue queue
@@ -484,7 +514,11 @@ export async function enrichCompanyDirectoryOfficialFacts(limit?: number) {
             )
           )
       )
-    order by profile.last_synced_at asc, profile.organization_number asc
+    order by
+      case when facts.advertising_blocked is null then 0 else 1 end,
+      facts.last_synced_at asc nulls first,
+      profile.last_synced_at asc,
+      profile.organization_number asc
     limit ${safeLimit}
   `;
 
