@@ -42,6 +42,7 @@ test.describe("public nearby geolocation reliability", () => {
     await page.getByRole("button", { name: "Nära mig" }).click();
 
     await expect(page).toHaveURL(/\/foretag\/listad\?/);
+    await expect(page.getByRole("button", { name: "Nära mig" })).toBeEnabled();
     const url = new URL(page.url());
     expect(url.searchParams.get("service")).toBe("VVS & rörmokare");
     expect(url.searchParams.get("nearby")).toBe("1");
@@ -61,8 +62,21 @@ test.describe("public nearby geolocation reliability", () => {
 
     await page.goto("/en/companies?service=plumber&nearby=1&radius=25");
     await expect(page.getByLabel("Location")).toHaveValue("My location");
+    await expect(page.getByRole("button", { name: "Near me" })).toBeEnabled();
     expect(page.url()).not.toContain("latitude=");
     expect(page.url()).not.toContain("longitude=");
+  });
+
+  test("fails closed when nearby is requested without a current private position cookie", async ({ page, context }) => {
+    await context.clearCookies();
+    await page.goto("/foretag/listad?service=elektriker&nearby=1&radius=25");
+
+    await expect(page.getByText("Positionen kunde inte tolkas. Prova Nära mig igen eller sök med ort.")).toBeVisible();
+    await expect(page.getByLabel("Ort")).toHaveValue("");
+    const url = new URL(page.url());
+    expect(url.searchParams.get("nearby")).toBe("1");
+    expect(url.searchParams.has("latitude")).toBe(false);
+    expect(url.searchParams.has("longitude")).toBe(false);
   });
 
   test("shows a permission-specific message instead of blaming every geolocation failure on permissions", async ({ page }) => {
