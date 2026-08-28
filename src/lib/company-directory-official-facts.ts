@@ -49,6 +49,7 @@ type OfficialFacts = {
 
 const MAX_ENRICH_PER_RUN = 10;
 const DEFAULT_BOLAGSVERKET_PROVIDER = "bolagsverket_vardefulla_datamangder";
+const LEGACY_REKLAMSPARR_NULL_REPAIR_BEFORE = "2026-08-28T07:30:00.000Z";
 
 function object(value: unknown): AnyRecord | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as AnyRecord : null;
@@ -130,6 +131,7 @@ function advertisingBlockedFromRecord(row: AnyRecord): boolean | null {
   if (!postalContainer || !postal) return null;
   if (text(postalContainer.dataproducent).toLocaleLowerCase("sv-SE") !== "bolagsverket") return null;
   if (postalContainer.fel !== null && postalContainer.fel !== undefined) return null;
+  if (!text(postal.postnummer)) return null;
   return false;
 }
 
@@ -444,6 +446,7 @@ export async function getCompanyDirectoryOfficialFactsBacklog() {
         or (
           facts.advertising_blocked is null
           and facts.data_producers->>'postadressOrganisation' = 'Bolagsverket'
+          and facts.last_synced_at < ${LEGACY_REKLAMSPARR_NULL_REPAIR_BEFORE}::timestamptz
           and facts.last_synced_at < now() - interval '1 hour'
         )
       )
@@ -505,6 +508,7 @@ export async function enrichCompanyDirectoryOfficialFacts(limit?: number) {
         or (
           facts.advertising_blocked is null
           and facts.data_producers->>'postadressOrganisation' = 'Bolagsverket'
+          and facts.last_synced_at < ${LEGACY_REKLAMSPARR_NULL_REPAIR_BEFORE}::timestamptz
           and facts.last_synced_at < now() - interval '1 hour'
         )
       )
@@ -524,6 +528,7 @@ export async function enrichCompanyDirectoryOfficialFacts(limit?: number) {
       case
         when facts.advertising_blocked is null
           and facts.data_producers->>'postadressOrganisation' = 'Bolagsverket'
+          and facts.last_synced_at < ${LEGACY_REKLAMSPARR_NULL_REPAIR_BEFORE}::timestamptz
         then 0
         else 1
       end,
