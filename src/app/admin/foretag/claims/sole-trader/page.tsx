@@ -87,7 +87,7 @@ export default async function SoleTraderClaimsPage() {
                       minLength={3}
                       maxLength={500}
                       placeholder="Exempel: innehavarskap kontrollerat i Bolagsverket Mina sidor. Ange inte personnummer."
-                      className="mt-2 min-h-24 w-full rounded-xl border border-[#cad8ce] bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#17452f]/20"
+                      className="mt-2 min-h-24 w-full rounded-xl border border-[#cad8ce] bg-white px-3 py-2 text-base outline-none focus:ring-2 focus:ring-[#17452f]/20"
                     />
                     <p className="mt-2 text-xs leading-5 text-[#5f6c63]">
                       Godkänn bara när du har kontrollerat att den inloggade användaren är registrerad innehavare. Personidentifieraren får inte kopieras hit.
@@ -107,7 +107,7 @@ export default async function SoleTraderClaimsPage() {
                       minLength={3}
                       maxLength={500}
                       placeholder="Varför ägarverifieringen inte kan godkännas"
-                      className="mt-2 min-h-11 w-full rounded-xl border border-[#e2cbc6] bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-[#9a3024]/15"
+                      className="mt-2 min-h-11 w-full rounded-xl border border-[#e2cbc6] bg-white px-3 text-base outline-none focus:ring-2 focus:ring-[#9a3024]/15"
                     />
                     <button type="submit" className="mt-3 min-h-11 w-full rounded-xl border border-[#d8a69d] bg-white px-4 text-sm font-black text-[#8b3024]">Avslå</button>
                   </form>
