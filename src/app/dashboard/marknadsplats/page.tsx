@@ -42,6 +42,8 @@ const copy = {
     noDirectoryServices: "Den officiella profilen saknar ännu en publicerbar tjänstekoppling. Proffera behöver komplettera tjänsteklassningen innan aktivering.",
     noWorkspaceServices: "Du har ingen aktiv tjänst att publicera. Lägg till eller aktivera en tjänst i Inställningar först.",
     manageServices: "Öppna Inställningar",
+    addMissingCompany: "Företaget saknas? Kontrollera och lägg till det via officiella källor.",
+    addCompany: "Lägg till företag",
   },
   en: {
     eyebrow: "Marketplace",
@@ -62,7 +64,7 @@ const copy = {
     radius: "Service area radius, km",
     activate: "Publish to marketplace",
     activeTitle: "Active marketplace services",
-    noneActive: "No service has been published to the marketplace yet.",
+    noneActive: "No service has been published in the marketplace yet.",
     searchTest: "Test in search",
     book: "Book appointment",
     quote: "Request quote",
@@ -71,6 +73,8 @@ const copy = {
     noDirectoryServices: "The official profile does not yet have an eligible service mapping. Proffera must complete the service classification before activation.",
     noWorkspaceServices: "You have no active service to publish. Add or activate a service in Settings first.",
     manageServices: "Open Settings",
+    addMissingCompany: "Business missing? Check and add it through official sources.",
+    addCompany: "Add business",
   },
 } as const;
 
@@ -171,7 +175,18 @@ export default async function MarketplaceActivationPage({
 
       {status && statusCopy[status] ? (
         <section className={`rounded-2xl p-4 text-sm font-bold ${status === "service_ok" || status === "linked" ? "bg-[#eaf6ed] text-[#17452f]" : "bg-[#fff5f2] text-[#8f2f1b]"}`} role="status">
-          {statusCopy[status][locale]}
+          <p>{statusCopy[status][locale]}</p>
+          {status === "not_found" ? (
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <p className="font-semibold">{t.addMissingCompany}</p>
+              <Link
+                href={withLang("/dashboard/marknadsplats/lagg-till-foretag", locale)}
+                className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[#d6b5ab] bg-white px-4 text-sm font-black text-[#8f2f1b]"
+              >
+                {t.addCompany}
+              </Link>
+            </div>
+          ) : null}
         </section>
       ) : null}
 
