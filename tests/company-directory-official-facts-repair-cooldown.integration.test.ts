@@ -93,7 +93,7 @@ function postgresSql(client: Client) {
         input.organizationNumber,
         `Test ${input.organizationNumber}`,
         `test-${input.organizationNumber}`,
-        input.profileLastSyncedAt ?? "2026-08-28T05:00:00Z",
+        input.profileLastSyncedAt ?? "2026-07-01T00:00:00Z",
       ]);
 
       await client!.query(`
@@ -174,9 +174,13 @@ function postgresSql(client: Client) {
           company_directory_official_facts,
           company_directory_profiles cascade
       `);
+      // PostgreSQL now() is transaction-scoped. Freeze it for the behavioral
+      // boundary checks so 59/61-minute cooldown fixtures cannot drift mid-test.
+      await client!.query("begin");
     });
 
-    afterEach(() => {
+    afterEach(async () => {
+      await client!.query("rollback");
       vi.unstubAllGlobals();
       delete process.env.COMPANY_DIRECTORY_SOURCE_BEARER_TOKEN;
       delete process.env.COMPANY_DIRECTORY_DETAIL_URL_TEMPLATE;
@@ -207,24 +211,24 @@ function postgresSql(client: Client) {
 
       await seedProfile({
         ...oldest,
-        factsLastSyncedAt: "2026-08-28T05:30:00Z",
+        factsLastSyncedAt: "2026-08-01T00:00:00Z",
         attemptAgeMinutes: 90,
         producer: "bOlAgSvErKeT",
       });
       await seedProfile({
         ...eligibleAndProfileStale,
-        factsLastSyncedAt: "2026-08-28T06:00:00Z",
+        factsLastSyncedAt: "2026-08-01T00:00:00Z",
         attemptAgeMinutes: 61,
         profileLastSyncedAt: "2026-08-28T07:00:00Z",
       });
       await seedProfile({
         ...cooling,
-        factsLastSyncedAt: "2026-08-28T06:10:00Z",
+        factsLastSyncedAt: "2026-08-01T00:00:00Z",
         attemptAgeMinutes: 59,
       });
       await seedProfile({
         ...failed,
-        factsLastSyncedAt: "2026-08-28T05:20:00Z",
+        factsLastSyncedAt: "2026-08-01T00:00:00Z",
         attemptAgeMinutes: 120,
         failed: true,
       });
@@ -280,7 +284,7 @@ function postgresSql(client: Client) {
       `, [oldest.id]);
       await seedProfile({
         ...untouched,
-        factsLastSyncedAt: "2026-08-28T06:15:00Z",
+        factsLastSyncedAt: "2026-08-01T00:00:00Z",
         attemptAgeMinutes: 120,
       });
 

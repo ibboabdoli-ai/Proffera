@@ -72,25 +72,9 @@ describe("company directory queue quarantine contract", () => {
     expect(queue).toContain("? await autoPublishCompanyDirectoryProfileIfSafe(result.profileId)");
   });
 
-  it("keeps legacy reklamspärr repair bounded, case-insensitive, and failed-queue safe", () => {
+  it("pins the one-time legacy reklamspärr repair cutoff", () => {
     const facts = source("src/lib/company-directory-official-facts.ts");
-    const backlogStart = facts.indexOf("export async function getCompanyDirectoryOfficialFactsBacklog");
-    const perProfileStart = facts.indexOf("export async function enrichCompanyDirectoryOfficialFactsForProfile", backlogStart);
-    const batchStart = facts.indexOf("export async function enrichCompanyDirectoryOfficialFacts(limit?: number)");
-    const backlog = facts.slice(backlogStart, perProfileStart);
-    const batch = facts.slice(batchStart);
 
     expect(facts).toContain('const LEGACY_REKLAMSPARR_NULL_REPAIR_BEFORE = "2026-08-28T07:30:00.000Z";');
-    expect(backlog).toContain("facts.profile_id is null");
-    expect(backlog).toContain("facts.last_synced_at < profile.last_synced_at");
-    expect(backlog).toContain("lower(facts.data_producers->>'postadressOrganisation') = 'bolagsverket'");
-    expect(backlog).toContain("greatest(facts.last_synced_at, facts.updated_at) < now() - interval '1 hour'");
-    expect(backlog).not.toContain("queue.state = 'failed'");
-
-    expect(batch).toContain("lower(facts.data_producers->>'postadressOrganisation') = 'bolagsverket'");
-    expect(batch).toContain("greatest(facts.last_synced_at, facts.updated_at) < now() - interval '1 hour'");
-    expect(batch).toContain("queue.state = 'failed'");
-    expect(batch).toContain("set updated_at = now()");
-    expect(batch).toContain("returning profile_id::text");
   });
 });
