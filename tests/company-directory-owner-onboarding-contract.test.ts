@@ -57,5 +57,6 @@ describe("owner-initiated company Directory onboarding", () => {
     expect(page).toContain("/foretag/claim/");
     expect(page).toContain("/en/companies/claim/");
     expect(page).toContain("Namn, adress eller andra fritextfält");
+    expect(page).not.toContain('params.set("organizationNumber"');
   });
 });
