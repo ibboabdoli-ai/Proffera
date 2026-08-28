@@ -79,14 +79,15 @@ describe("company directory queue quarantine contract", () => {
     const batchStart = facts.indexOf("export async function enrichCompanyDirectoryOfficialFacts(limit?: number)");
     const backlog = facts.slice(backlogStart, perProfileStart);
     const batch = facts.slice(batchStart);
+    const unknownCooldown = /or\s*\(\s*facts\.advertising_blocked is null\s+and facts\.last_synced_at < now\(\) - interval '1 hour'\s*\)/;
+    const unknownFirstOrder = /order by\s+case when facts\.advertising_blocked is null then 0 else 1 end,\s*facts\.last_synced_at asc nulls first,\s*profile\.last_synced_at asc,\s*profile\.organization_number asc/;
 
     expect(backlog).toContain("facts.profile_id is null");
     expect(backlog).toContain("facts.last_synced_at < profile.last_synced_at");
-    expect(backlog).toContain("facts.advertising_blocked is null");
-    expect(backlog).toContain("facts.last_synced_at < now() - interval '1 hour'");
+    expect(backlog).toMatch(unknownCooldown);
     expect(backlog).not.toContain("queue.state = 'failed'");
-    expect(batch).toContain("facts.advertising_blocked is null");
-    expect(batch).toContain("facts.last_synced_at asc nulls first");
+    expect(batch).toMatch(unknownCooldown);
+    expect(batch).toMatch(unknownFirstOrder);
     expect(batch).toContain("company_directory_discovery_queue queue");
     expect(batch).toContain("queue.state = 'failed'");
     expect(batch).toContain("queue.profile_id = profile.id");
