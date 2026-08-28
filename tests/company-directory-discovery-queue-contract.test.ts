@@ -162,6 +162,7 @@ describe("automatic company directory discovery contract", () => {
     expect(queue).toContain("enrichCompanyDirectoryOfficialFactsForProfile(result.profileId)");
     expect(source("src/lib/company-directory-official-facts.ts")).toContain("enrichCompanyDirectoryOfficialFactsForProfile");
     expect(workflow).toContain("workflow_dispatch:");
+    expect(workflow).toContain("organization_number:");
     expect(workflow).not.toContain("schedule:");
     expect(workflow).toContain("Process one new company directory candidate");
     expect(workflow).toContain("/api/cron/company-directory-pilot");
