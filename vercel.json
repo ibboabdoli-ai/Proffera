@@ -4,7 +4,7 @@
     "deploymentEnabled": {
       "**": false,
       "main": true,
-      "preview/*": true
+      "work/proffera-preview-*": true
     }
   },
   "env": {
