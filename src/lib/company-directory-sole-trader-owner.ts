@@ -512,12 +512,30 @@ function safeUuid(value: string) {
     : null;
 }
 
+function hasPersonnummerLikeValue(value: string) {
+  const candidates = value.matchAll(/(?:^|[^\d])(\d(?:[^\p{L}\d]*\d){9,11})(?!\d)/gu);
+  for (const match of candidates) {
+    const digits = String(match[1] ?? "").replace(/\D/g, "");
+    if (digits.length !== 10 && digits.length !== 12) continue;
+    const datePart = digits.length === 12 ? digits.slice(2, 8) : digits.slice(0, 6);
+    const month = Number(datePart.slice(2, 4));
+    const rawDay = Number(datePart.slice(4, 6));
+    const day = rawDay > 60 ? rawDay - 60 : rawDay;
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) return true;
+  }
+  return false;
+}
+
+export function assertSoleTraderAdminTextHasNoPersonalIdentifier(value: string) {
+  if (hasPersonnummerLikeValue(value)) {
+    throw new Error("Do not include personal identifiers in the verification reference");
+  }
+}
+
 function safeAdminReference(value: string) {
   const reference = value.trim();
   if (reference.length < 3 || reference.length > 500) throw new Error("Verification evidence/reference is required");
-  if (/\b\d{6}[-+]?\d{4}\b/.test(reference) || /\b\d{8}[-+]?\d{4}\b/.test(reference)) {
-    throw new Error("Do not include personal identifiers in the verification reference");
-  }
+  assertSoleTraderAdminTextHasNoPersonalIdentifier(reference);
   return reference;
 }
 
