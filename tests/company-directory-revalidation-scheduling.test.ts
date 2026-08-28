@@ -342,8 +342,8 @@ describe("dedicated Company Directory revalidation scheduling", () => {
     expect(workflow).not.toContain("BATCHES_PER_RUN=2");
     expect(workflow).not.toContain('for batch in $(seq 1 "$BATCHES_PER_RUN")');
     expect(operationsWorkflow).toContain('cron: "8,23,38,53 * * * *"');
-    expect(marketplaceWorkflow).toContain('cron: "11,26,41,56 * * * *"');
-    expect(productionHealthWorkflow).toContain('cron: "7,37 * * * *"');
+    expect(marketplaceWorkflow).toContain('cron: "8,23,38,53 * * * *"');
+    expect(productionHealthWorkflow).toContain('cron: "8,38 * * * *"');
     expect(directoryAutomationWorkflow).toContain('cron: "17 * * * *"');
     expect(directoryAutomationWorkflow).toContain('cron: "31 3 * * *"');
     for (const otherWorkflow of [
