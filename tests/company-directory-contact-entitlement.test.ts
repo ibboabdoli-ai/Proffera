@@ -58,6 +58,7 @@ function claimedFallbackRow(workspaceId: string, slug: string, addressLine1: str
     id: `${slug}-id`,
     public_slug: slug,
     organization_number: "5560000000",
+    organization_kind: "juridical_person",
     display_name: "Claimed AB",
     legal_form: "AB",
     organization_status: "Aktiv",
@@ -201,6 +202,7 @@ describe("company directory direct-contact entitlement", () => {
     );
     mocks.getSql.mockReturnValue(vi.fn(async () => [{
       organization_number: "5561234567",
+      organization_kind: "juridical_person",
       primary_sni_code: "43.221",
       website_url: "https://example.se",
       phone: "+46 8 123 45 67",
