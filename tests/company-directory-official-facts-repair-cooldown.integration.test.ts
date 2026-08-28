@@ -213,12 +213,19 @@ function postgresSql(client: Client) {
           facts.updated_at > facts.last_synced_at as attempted_after_sync
         from company_directory_profiles profile
         join company_directory_official_facts facts on facts.profile_id = profile.id
-        where profile.organization_number in ($1, $2)
+        where profile.organization_number in ($1, $2, $3, $4)
         order by profile.organization_number
-      `, [oldest.organizationNumber, eligible.organizationNumber]);
+      `, [
+        oldest.organizationNumber,
+        eligible.organizationNumber,
+        cooling.organizationNumber,
+        failed.organizationNumber,
+      ]);
       expect(attempts.rows).toEqual([
         { organization_number: oldest.organizationNumber, attempted_after_sync: true },
         { organization_number: eligible.organizationNumber, attempted_after_sync: true },
+        { organization_number: cooling.organizationNumber, attempted_after_sync: false },
+        { organization_number: failed.organizationNumber, attempted_after_sync: false },
       ]);
 
       fetchMock.mockClear();
