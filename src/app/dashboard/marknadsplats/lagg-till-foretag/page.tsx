@@ -24,6 +24,7 @@ const copy = {
     busy: "Ett annat verifieringsärende pågår för företaget. Försök igen senare.",
     linked: "Företaget är redan kopplat till den här arbetsytan.",
     invalid: "Kontrollera numret. Det ska innehålla 10 siffror.",
+    rateLimited: "För många officiella kontroller har gjorts på kort tid. Försök igen senare.",
     sourceError: "Den officiella verifieringen kunde inte slutföras just nu. Försök igen senare.",
     back: "Tillbaka till marknadsplatsen",
     safety: "Namn, adress eller andra fritextfält kan inte användas för att självmarkera ett företag som verifierat.",
@@ -42,6 +43,7 @@ const copy = {
     busy: "Another verification is already in progress for this business. Try again later.",
     linked: "The business is already connected to this workspace.",
     invalid: "Check the number. It must contain 10 digits.",
+    rateLimited: "Too many official checks were requested in a short period. Try again later.",
     sourceError: "Official verification could not be completed right now. Try again later.",
     back: "Back to marketplace",
     safety: "Names, addresses or other free-text fields can never be used to self-mark a company as verified.",
@@ -79,11 +81,10 @@ async function addCompanyAction(formData: FormData) {
       target = withStatus(locale, result.status);
     }
   } catch (error) {
+    const code = error instanceof Error ? error.message : "";
     target = withStatus(
       locale,
-      error instanceof Error && error.message === "organization_number"
-        ? "invalid"
-        : "source_error",
+      code === "organization_number" ? "invalid" : code === "rate_limited" ? "rate_limited" : "source_error",
     );
   }
 
@@ -115,9 +116,11 @@ export default async function AddMarketplaceCompanyPage({
             ? { title: t.linked, body: "", tone: "green" }
             : status === "invalid"
               ? { title: t.invalid, body: "", tone: "red" }
-              : status === "source_error"
-                ? { title: t.sourceError, body: "", tone: "red" }
-                : null;
+              : status === "rate_limited"
+                ? { title: t.rateLimited, body: "", tone: "amber" }
+                : status === "source_error"
+                  ? { title: t.sourceError, body: "", tone: "red" }
+                  : null;
 
   return (
     <div className="grid gap-6">
