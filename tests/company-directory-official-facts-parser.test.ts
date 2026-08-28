@@ -98,6 +98,19 @@ describe("Bolagsverket official facts parser", () => {
     expect(facts.advertisingBlocked).toBe(false);
   });
 
+  it("accepts the documented minimal Bolagsverket post address without requiring optional fields", () => {
+    const facts = extractOfficialFacts({
+      reklamsparr: null,
+      postadressOrganisation: {
+        dataproducent: "Bolagsverket",
+        fel: null,
+        postadress: { postnummer: "11111" },
+      },
+    });
+
+    expect(facts.advertisingBlocked).toBe(false);
+  });
+
   it("keeps null reklamspärr unknown when the documented post-address condition is not met", () => {
     expect(extractOfficialFacts({ reklamsparr: null }).advertisingBlocked).toBeNull();
     expect(extractOfficialFacts({
