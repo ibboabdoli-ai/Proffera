@@ -149,10 +149,32 @@ describe("privacy-safe sole-trader owner verification", () => {
     expect(persistedValues.some((value) => value.startsWith("exempel-service-"))).toBe(true);
   });
 
-  it("fails closed before fetch when a private identifier placeholder is configured in the URL", async () => {
+  it("strips a legacy trailing organization-number placeholder instead of putting the private identity in the URL", async () => {
     const { query } = createSqlMock();
     mocks.getSql.mockReturnValue(query);
     process.env.COMPANY_DIRECTORY_DETAIL_URL_TEMPLATE = "https://example.test/organisationer/{organizationNumber}";
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ organisationer: [officialRecord()] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(onboardOwnerSoleTrader(PRIVATE_INPUT)).resolves.toEqual({
+      status: "sole_trader_review_pending",
+      companyName: "Exempel Service",
+    });
+
+    const [requestUrl, request] = fetchMock.mock.calls[0] as [URL | string, RequestInit];
+    expect(String(requestUrl)).toBe("https://example.test/organisationer");
+    expect(String(requestUrl)).not.toContain(PRIVATE_OFFICIAL);
+    expect(request.method).toBe("POST");
+    expect(String(request.body)).toContain(PRIVATE_OFFICIAL);
+  });
+
+  it("fails closed when an identity placeholder remains anywhere else in the request URL", async () => {
+    const { query } = createSqlMock();
+    mocks.getSql.mockReturnValue(query);
+    process.env.COMPANY_DIRECTORY_DETAIL_URL_TEMPLATE = "https://example.test/organisationer?identity={organizationNumber}";
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
@@ -271,6 +293,8 @@ describe("privacy-safe sole-trader owner verification", () => {
     expect(executedSql).toContain("claim.requested_workspace_id is not null");
     expect(executedSql).toContain("profile.publication_status in ('blocked', 'review')");
     expect(executedSql).toContain("set claimed_workspace_id = locked.workspace_id");
+    expect(executedSql).toContain("insert into admin_audit_logs");
+    expect(executedSql).toContain("'publicationStatus', 'blocked'");
     expect(executedSql).not.toContain("privacy_blocked = false");
     expect(executedSql).not.toContain("auto_public_eligible = true");
     expect(executedSql).not.toContain("published_at =");
