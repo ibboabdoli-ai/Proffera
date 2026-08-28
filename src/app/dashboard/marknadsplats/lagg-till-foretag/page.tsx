@@ -3,6 +3,10 @@ import { redirect } from "next/navigation";
 import { ArrowLeft, Building2, Search, ShieldCheck } from "lucide-react";
 
 import { onboardOwnerCompanyByOrganizationNumber } from "@/lib/company-directory-owner-onboarding";
+import {
+  ownerOnboardingErrorRedirect,
+  ownerOnboardingStatusPath,
+} from "@/lib/company-directory-owner-onboarding-ui";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 export const dynamic = "force-dynamic";
@@ -21,7 +25,7 @@ const copy = {
     soleTraderInfo: "För enskild firma används en separat integritetssäker kontroll. Den privata identiteten används endast för den direkta kontrollen mot Bolagsverket och sparas inte i Directory-profilen eller i webbadressen.",
     soleTraderPendingTitle: "Enskild firma hittad – ägargranskning väntar",
     soleTraderPending: "Bolagsverket-kontrollen hittade en aktuell enskild firma. Företagsprofilen hålls privat tills en superadmin har granskat ägarunderlaget och kopplat den till arbetsytan.",
-    soleTraderLinked: "Den enskilda firman är redan verifierad och kopplad till den här arbetsytan.",
+    soleTraderLinked: "Ägarskapet för den enskilda firman är verifierat och kopplat till den här arbetsytan. Profilen förblir privat tills publiceringskraven har verifierats separat.",
     soleTraderAmbiguous: "Bolagsverket returnerade mer än en aktuell enskild verksamhet för identiteten. Proffera väljer inte företag genom gissning; ärendet måste granskas manuellt.",
     soleTraderNotActive: "Ingen aktuell registrerad enskild firma kunde verifieras för identiteten.",
     notReady: "Företaget hittades men uppfyller inte ännu alla säkra publiceringskrav. Ingen verifierad koppling skapades.",
@@ -45,7 +49,7 @@ const copy = {
     soleTraderInfo: "Sole traders use a separate privacy-safe check. The private identity is used only for the direct Bolagsverket verification and is not stored in the Directory profile or placed in a URL.",
     soleTraderPendingTitle: "Sole trader found – owner review pending",
     soleTraderPending: "The Bolagsverket check found a current sole trader. The business profile stays private until a super admin reviews the ownership evidence and connects it to the workspace.",
-    soleTraderLinked: "The sole trader is already verified and connected to this workspace.",
+    soleTraderLinked: "Ownership of the sole trader is verified and connected to this workspace. The profile remains private until publication requirements are verified separately.",
     soleTraderAmbiguous: "Bolagsverket returned more than one current sole-trader business for the identity. Proffera does not guess which business is intended; manual review is required.",
     soleTraderNotActive: "No current registered sole trader could be verified for the identity.",
     notReady: "The business was found but does not yet satisfy all safe publication requirements. No verified connection was created.",
@@ -65,9 +69,7 @@ function first(value: string | string[] | undefined) {
 }
 
 function withStatus(locale: Locale, status: string) {
-  const params = new URLSearchParams({ status });
-  if (locale === "en") params.set("lang", "en");
-  return `/dashboard/marknadsplats/lagg-till-foretag?${params.toString()}`;
+  return ownerOnboardingStatusPath(locale, status);
 }
 
 function claimHref(slug: string, locale: Locale) {
@@ -91,15 +93,7 @@ async function addCompanyAction(formData: FormData) {
       target = withStatus(locale, result.status);
     }
   } catch (error) {
-    const code = error instanceof Error ? error.message : "";
-    target = withStatus(
-      locale,
-      code === "organization_number" || code === "sole_trader_identity"
-        ? "invalid"
-        : code === "rate_limited"
-          ? "rate_limited"
-          : "source_error",
-    );
+    target = ownerOnboardingErrorRedirect(locale, error);
   }
 
   redirect(target);
