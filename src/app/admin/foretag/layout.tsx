@@ -18,6 +18,9 @@ export default async function Layout({ children }: { children: React.ReactNode }
               <Link className="rounded-xl px-3 py-2 text-sm font-bold text-[#17452f] hover:bg-[#eef5ef]" href="/admin/foretag/directory">
                 Directory Engine
               </Link>
+              <Link className="rounded-xl px-3 py-2 text-sm font-bold text-[#17452f] hover:bg-[#eef5ef]" href="/dashboard/marknadsplats/lagg-till-foretag">
+                Lägg till företag
+              </Link>
               <Link className="rounded-xl px-3 py-2 text-sm font-bold text-[#17452f] hover:bg-[#eef5ef]" href="/admin/foretag/directory/preview">
                 Källtest
               </Link>
