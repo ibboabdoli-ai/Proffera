@@ -442,7 +442,14 @@ export async function getCompanyDirectoryOfficialFactsBacklog() {
       and regexp_replace(profile.organization_number, '\\D', '', 'g') ~ '^[0-9]{2}[2-9][0-9]{7}$'
       and (
         facts.profile_id is null
-        or facts.last_synced_at < profile.last_synced_at
+        or (
+          facts.last_synced_at < profile.last_synced_at
+          and not (
+            facts.advertising_blocked is null
+            and lower(facts.data_producers->>'postadressOrganisation') = 'bolagsverket'
+            and facts.last_synced_at < ${LEGACY_REKLAMSPARR_NULL_REPAIR_BEFORE}::timestamptz
+          )
+        )
         or (
           facts.advertising_blocked is null
           and lower(facts.data_producers->>'postadressOrganisation') = 'bolagsverket'
@@ -505,7 +512,6 @@ export async function enrichCompanyDirectoryOfficialFacts(limit?: number) {
         and facts.advertising_blocked is null
         and lower(facts.data_producers->>'postadressOrganisation') = 'bolagsverket'
         and facts.last_synced_at < ${LEGACY_REKLAMSPARR_NULL_REPAIR_BEFORE}::timestamptz
-        and greatest(facts.last_synced_at, facts.updated_at) < now() - interval '1 hour'
       ) as legacy_reklamsparr_repair
     from company_directory_profiles profile
     left join company_directory_official_facts facts on facts.profile_id = profile.id
@@ -513,7 +519,14 @@ export async function enrichCompanyDirectoryOfficialFacts(limit?: number) {
       and regexp_replace(profile.organization_number, '\\D', '', 'g') ~ '^[0-9]{2}[2-9][0-9]{7}$'
       and (
         facts.profile_id is null
-        or facts.last_synced_at < profile.last_synced_at
+        or (
+          facts.last_synced_at < profile.last_synced_at
+          and not (
+            facts.advertising_blocked is null
+            and lower(facts.data_producers->>'postadressOrganisation') = 'bolagsverket'
+            and facts.last_synced_at < ${LEGACY_REKLAMSPARR_NULL_REPAIR_BEFORE}::timestamptz
+          )
+        )
         or (
           facts.advertising_blocked is null
           and lower(facts.data_producers->>'postadressOrganisation') = 'bolagsverket'

@@ -1,4 +1,6 @@
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { Client } from "pg";
@@ -22,6 +24,12 @@ import { enrichCompanyDirectoryOfficialFacts } from "../src/lib/company-director
 const RUN_POSTGRES_INTEGRATION =
   process.env.GITHUB_ACTIONS === "true"
   || process.env.PROFFERA_POSTGRES_INTEGRATION === "1";
+
+const DIRECTORY_MIGRATIONS = [
+  "db/migrations/20260809_0037_company_profile_engine_foundation.sql",
+  "db/migrations/20260810_0043_company_profile_discovery_queue.sql",
+  "db/migrations/20260812_0044_company_directory_official_facts.sql",
+] as const;
 
 function docker(args: string[]) {
   return execFileSync("docker", args, { encoding: "utf8" }).trim();
@@ -67,14 +75,25 @@ function postgresSql(client: Client) {
       id: string;
       organizationNumber: string;
       ageMinutes: number;
+      profileAgeMinutes?: number;
       producer?: string;
       failed?: boolean;
     }) {
       await client!.query(`
         insert into company_directory_profiles (
-          id, organization_number, country_code, last_synced_at
-        ) values ($1::uuid, $2, 'SE', now() - interval '2 hours')
-      `, [input.id, input.organizationNumber]);
+          id, organization_number, country_code, legal_name, display_name,
+          public_slug, last_synced_at
+        ) values (
+          $1::uuid, $2, 'SE', $3, $3,
+          $4, now() - make_interval(mins => $5)
+        )
+      `, [
+        input.id,
+        input.organizationNumber,
+        `Test ${input.organizationNumber}`,
+        `test-${input.organizationNumber}`,
+        input.profileAgeMinutes ?? 120,
+      ]);
 
       await client!.query(`
         insert into company_directory_official_facts (
@@ -88,8 +107,8 @@ function postgresSql(client: Client) {
       if (input.failed) {
         await client!.query(`
           insert into company_directory_discovery_queue (
-            profile_id, country_code, organization_number, state
-          ) values ($1::uuid, 'SE', $2, 'failed')
+            profile_id, country_code, organization_number, provider, state
+          ) values ($1::uuid, 'SE', $2, 'integration-test', 'failed')
         `, [input.id, input.organizationNumber]);
       }
     }
@@ -114,27 +133,13 @@ function postgresSql(client: Client) {
       client = new Client({ connectionString });
       await client.connect();
 
-      await client.query(`
-        create table company_directory_profiles (
-          id uuid primary key,
-          organization_number text not null,
-          country_code text not null,
-          last_synced_at timestamptz not null
-        );
-        create table company_directory_official_facts (
-          profile_id uuid primary key,
-          advertising_blocked boolean,
-          data_producers jsonb not null default '{}'::jsonb,
-          last_synced_at timestamptz not null,
-          updated_at timestamptz not null
-        );
-        create table company_directory_discovery_queue (
-          profile_id uuid,
-          country_code text,
-          organization_number text,
-          state text not null
-        );
-      `);
+      // Workspace ownership is outside this Directory migration slice; create
+      // only the minimal prerequisite, then execute the canonical Directory DDL.
+      await client.query("create table workspaces (id uuid primary key)");
+      for (const migrationPath of DIRECTORY_MIGRATIONS) {
+        const migration = readFileSync(resolve(process.cwd(), migrationPath), "utf8");
+        await client.query(migration);
+      }
     }, 120_000);
 
     afterAll(async () => {
@@ -161,7 +166,7 @@ function postgresSql(client: Client) {
       await client!.query(`
         truncate table company_directory_discovery_queue,
           company_directory_official_facts,
-          company_directory_profiles
+          company_directory_profiles cascade
       `);
     });
 
@@ -177,7 +182,7 @@ function postgresSql(client: Client) {
         id: "20000000-0000-4000-8000-000000000001",
         organizationNumber: "5560000001",
       };
-      const eligible = {
+      const eligibleAndProfileStale = {
         id: "20000000-0000-4000-8000-000000000002",
         organizationNumber: "5560000002",
       };
@@ -191,7 +196,11 @@ function postgresSql(client: Client) {
       };
 
       await seedProfile({ ...oldest, ageMinutes: 90, producer: "bOlAgSvErKeT" });
-      await seedProfile({ ...eligible, ageMinutes: 61 });
+      await seedProfile({
+        ...eligibleAndProfileStale,
+        ageMinutes: 61,
+        profileAgeMinutes: 30,
+      });
       await seedProfile({ ...cooling, ageMinutes: 59 });
       await seedProfile({ ...failed, ageMinutes: 120, failed: true });
 
@@ -203,7 +212,7 @@ function postgresSql(client: Client) {
       expect(first).toMatchObject({ selected: 2, processed: 0, errors: 2 });
       expect(fetchMock).toHaveBeenCalledTimes(2);
       expect(String(fetchMock.mock.calls[0]?.[0])).toContain(oldest.organizationNumber);
-      expect(String(fetchMock.mock.calls[1]?.[0])).toContain(eligible.organizationNumber);
+      expect(String(fetchMock.mock.calls[1]?.[0])).toContain(eligibleAndProfileStale.organizationNumber);
 
       const attempts = await client!.query<{
         organization_number: string;
@@ -217,13 +226,13 @@ function postgresSql(client: Client) {
         order by profile.organization_number
       `, [
         oldest.organizationNumber,
-        eligible.organizationNumber,
+        eligibleAndProfileStale.organizationNumber,
         cooling.organizationNumber,
         failed.organizationNumber,
       ]);
       expect(attempts.rows).toEqual([
         { organization_number: oldest.organizationNumber, attempted_after_sync: true },
-        { organization_number: eligible.organizationNumber, attempted_after_sync: true },
+        { organization_number: eligibleAndProfileStale.organizationNumber, attempted_after_sync: true },
         { organization_number: cooling.organizationNumber, attempted_after_sync: false },
         { organization_number: failed.organizationNumber, attempted_after_sync: false },
       ]);
@@ -231,6 +240,8 @@ function postgresSql(client: Client) {
       fetchMock.mockClear();
       const second = await enrichCompanyDirectoryOfficialFacts(10);
 
+      // The second row is still stale relative to its profile, so this proves
+      // the legacy cooldown takes precedence over the ordinary stale-facts path.
       expect(second).toMatchObject({ selected: 0, processed: 0, errors: 0 });
       expect(fetchMock).not.toHaveBeenCalled();
     }, 30_000);
