@@ -159,7 +159,14 @@ describe("owner-initiated company Directory onboarding", () => {
   });
 
   it("stops personnummer-shaped identifiers before generic DB lookup, external lookup or persistence", async () => {
-    mocks.isJuridicalOrganizationNumber.mockReturnValue(false);
+    const actualPolicy = await vi.importActual<typeof import("../src/lib/bolagsverket-api-policy")>(
+      "../src/lib/bolagsverket-api-policy",
+    );
+    expect(actualPolicy.isBolagsverketJuridicalOrganizationNumber(PRIVATE_SHAPE)).toBe(false);
+    expect(actualPolicy.isBolagsverketJuridicalOrganizationNumber(JURIDICAL_ORG)).toBe(true);
+    mocks.isJuridicalOrganizationNumber.mockImplementation(
+      actualPolicy.isBolagsverketJuridicalOrganizationNumber,
+    );
 
     await expect(onboardOwnerCompanyByOrganizationNumber(PRIVATE_SHAPE)).resolves.toEqual({
       status: "sole_trader_privacy",
