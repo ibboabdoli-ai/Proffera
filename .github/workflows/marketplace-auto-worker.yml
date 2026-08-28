@@ -2,7 +2,9 @@ name: Marketplace Auto Worker
 
 on:
   schedule:
-    - cron: "11,26,41,56 * * * *"
+    # Cluster recurring Production DB wakeups with Operations at the same cron
+    # windows so Neon gets longer idle time without reducing Marketplace cadence.
+    - cron: "8,23,38,53 * * * *"
   workflow_dispatch:
 
 permissions: {}

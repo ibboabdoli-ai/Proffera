@@ -6,7 +6,9 @@ on:
   repository_dispatch:
     types: [production-health]
   schedule:
-    - cron: "7,37 * * * *"
+    # Keep the twice-hourly fallback, but align it with existing Operations wakeups
+    # so the health probe does not create separate Neon activity windows.
+    - cron: "8,38 * * * *"
   workflow_dispatch:
 
 permissions:

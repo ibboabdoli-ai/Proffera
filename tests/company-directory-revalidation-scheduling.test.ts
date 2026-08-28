@@ -59,10 +59,15 @@ function cronMinuteFieldIncludes(minuteField: string, minute: number) {
   });
 }
 
+/** Return only active YAML cron entries so stale or extra schedules cannot hide in tests. */
+function cronExpressions(workflow: string) {
+  return [...workflow.matchAll(/^\s*-\s*cron:\s*"([^"]+)"\s*$/gm)].map((match) => match[1]);
+}
+
 /** Assert that every cron expression in a workflow avoids the dedicated revalidation minutes. */
 function expectNoRevalidationMinuteCollision(workflow: string) {
-  const minuteFields = [...workflow.matchAll(/cron:\s*"([^"]+)"/g)].map((match) =>
-    match[1].trim().split(/\s+/)[0]
+  const minuteFields = cronExpressions(workflow).map((expression) =>
+    expression.trim().split(/\s+/)[0]
   );
 
   expect(minuteFields.length).toBeGreaterThan(0);
@@ -341,11 +346,13 @@ describe("dedicated Company Directory revalidation scheduling", () => {
     expect(workflow).not.toContain("cron:");
     expect(workflow).not.toContain("BATCHES_PER_RUN=2");
     expect(workflow).not.toContain('for batch in $(seq 1 "$BATCHES_PER_RUN")');
-    expect(operationsWorkflow).toContain('cron: "8,23,38,53 * * * *"');
-    expect(marketplaceWorkflow).toContain('cron: "11,26,41,56 * * * *"');
-    expect(productionHealthWorkflow).toContain('cron: "7,37 * * * *"');
-    expect(directoryAutomationWorkflow).toContain('cron: "17 * * * *"');
-    expect(directoryAutomationWorkflow).toContain('cron: "31 3 * * *"');
+    expect(cronExpressions(operationsWorkflow)).toEqual(["8,23,38,53 * * * *"]);
+    expect(cronExpressions(marketplaceWorkflow)).toEqual(["8,23,38,53 * * * *"]);
+    expect(cronExpressions(productionHealthWorkflow)).toEqual(["8,38 * * * *"]);
+    expect(cronExpressions(directoryAutomationWorkflow)).toEqual([
+      "17 * * * *",
+      "31 3 * * *",
+    ]);
     for (const otherWorkflow of [
       operationsWorkflow,
       marketplaceWorkflow,
