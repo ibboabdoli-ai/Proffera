@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-import { ownerVisibleDirectoryOrganizationNumber } from "../src/lib/company-directory-provider-activation";
+import {
+  ownerVisibleDirectoryOrganizationNumber,
+  providerProfileCanOpenPublicPage,
+} from "../src/lib/company-directory-provider-activation";
 import { publicDirectoryOrganizationNumber } from "../src/lib/company-directory-public-data";
 
 describe("sole-trader privacy projection contract", () => {
@@ -18,5 +21,17 @@ describe("sole-trader privacy projection contract", () => {
     expect(ownerVisibleDirectoryOrganizationNumber("sole_trader", "sole-trader-opaque")).toBe("");
     expect(ownerVisibleDirectoryOrganizationNumber("unknown", "5561234567")).toBe("");
     expect(ownerVisibleDirectoryOrganizationNumber(undefined, "5561234567")).toBe("");
+  });
+
+  it("does not expose an inactive claimed profile even when all other public-page gates pass", () => {
+    const otherwiseEligible = {
+      publication_status: "claimed",
+      privacy_blocked: false,
+      auto_public_eligible: true,
+      published_at: new Date("2026-08-28T00:00:00Z"),
+    };
+
+    expect(providerProfileCanOpenPublicPage({ ...otherwiseEligible, is_active: false })).toBe(false);
+    expect(providerProfileCanOpenPublicPage({ ...otherwiseEligible, is_active: true })).toBe(true);
   });
 });
