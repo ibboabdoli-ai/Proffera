@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   cookies: vi.fn(),
@@ -23,6 +23,7 @@ import {
 
 describe("public Directory Nearby privacy", () => {
   beforeEach(() => {
+    vi.stubEnv("NODE_ENV", "production");
     mocks.cookies.mockReset();
     mocks.redirect.mockReset();
     mocks.cookieSet.mockReset();
@@ -30,6 +31,10 @@ describe("public Directory Nearby privacy", () => {
     mocks.redirect.mockImplementation(() => {
       throw new Error("NEXT_REDIRECT");
     });
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it("validates and normalizes private Nearby coordinates", () => {
@@ -43,7 +48,7 @@ describe("public Directory Nearby privacy", () => {
     expect(parsePublicDirectoryNearbyValue("59")).toBeNull();
   });
 
-  it("stores a valid position in short-lived HttpOnly locale cookies and redirects without coordinates", async () => {
+  it("stores a valid position in short-lived secure HttpOnly locale cookies and redirects without coordinates", async () => {
     const formData = new FormData();
     formData.set("locale", "sv");
     formData.set("radius", "50");
@@ -63,6 +68,7 @@ describe("public Directory Nearby privacy", () => {
       expect.objectContaining({
         httpOnly: true,
         sameSite: "lax",
+        secure: true,
         maxAge: 300,
         path: "/foretag/listad",
       }),
@@ -74,6 +80,7 @@ describe("public Directory Nearby privacy", () => {
       expect.objectContaining({
         httpOnly: true,
         sameSite: "lax",
+        secure: true,
         maxAge: 300,
         path: "/en/companies",
       }),
@@ -87,7 +94,7 @@ describe("public Directory Nearby privacy", () => {
     expect(destination).not.toContain("18.068581");
   });
 
-  it("expires both locale cookies when submitted coordinates are invalid", async () => {
+  it("expires both locale cookies securely when submitted coordinates are invalid", async () => {
     const formData = new FormData();
     formData.set("locale", "en");
     formData.set("radius", "25");
@@ -100,13 +107,13 @@ describe("public Directory Nearby privacy", () => {
       1,
       "proffera_public_directory_nearby_sv",
       "",
-      expect.objectContaining({ maxAge: 0, path: "/foretag/listad" }),
+      expect.objectContaining({ secure: true, maxAge: 0, path: "/foretag/listad" }),
     );
     expect(mocks.cookieSet).toHaveBeenNthCalledWith(
       2,
       "proffera_public_directory_nearby_en",
       "",
-      expect.objectContaining({ maxAge: 0, path: "/en/companies" }),
+      expect.objectContaining({ secure: true, maxAge: 0, path: "/en/companies" }),
     );
 
     const destination = String(mocks.redirect.mock.calls[0]?.[0] ?? "");
