@@ -115,7 +115,10 @@ function yesNo(value: unknown): boolean | null {
 function advertisingBlockedFromRecord(row: AnyRecord): boolean | null {
   const advertisingValue = row.reklamsparr;
   const advertising = object(advertisingValue);
-  if (advertising) return yesNo(advertising.kod);
+  if (advertising) {
+    if (advertising.fel !== null && advertising.fel !== undefined) return null;
+    return yesNo(advertising.kod);
+  }
 
   // Värdefulla datamängder documents reklamsparr=null as "no advertising
   // block registered" only when Bolagsverket returned postadressOrganisation.
