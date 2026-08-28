@@ -47,6 +47,7 @@ describe("public directory contact Preview compatibility", () => {
     const sql = vi.fn()
       .mockResolvedValueOnce([{
         organization_number: "5561234567",
+        organization_kind: "juridical_person",
         primary_sni_code: "43.210",
         website_url: "",
         address_line1: "Profilegatan 1",
