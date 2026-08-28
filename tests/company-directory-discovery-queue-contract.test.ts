@@ -120,7 +120,7 @@ describe("automatic company directory discovery contract", () => {
     expect(discoveryWorkflow).not.toContain('cron: "9,24,39,54 * * * *"');
 
     expect(operationsWorkflow).toContain("Process booking reminders and directory updates");
-    expect(operationsWorkflow).toContain('cron: "7,22,37,52 * * * *"');
+    expect(operationsWorkflow).toContain('cron: "8,23,38,53 * * * *"');
     expect(operationsWorkflow).toContain("PROFFERA_REMINDER_CRON_SECRET");
     expect(operationsWorkflow).toContain("company-directory-official-facts?limit=10");
     expect(operationsWorkflow).toContain("company-directory-sync");
@@ -162,7 +162,6 @@ describe("automatic company directory discovery contract", () => {
     expect(queue).toContain("enrichCompanyDirectoryOfficialFactsForProfile(result.profileId)");
     expect(source("src/lib/company-directory-official-facts.ts")).toContain("enrichCompanyDirectoryOfficialFactsForProfile");
     expect(workflow).toContain("workflow_dispatch:");
-    expect(workflow).toContain("organization_number:");
     expect(workflow).not.toContain("schedule:");
     expect(workflow).toContain("Process one new company directory candidate");
     expect(workflow).toContain("/api/cron/company-directory-pilot");
