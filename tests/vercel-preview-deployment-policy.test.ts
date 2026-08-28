@@ -10,6 +10,8 @@ describe("Vercel preview deployment policy", () => {
       };
     };
 
+    // Vercel evaluates overlapping minimatch rules so an explicit true keeps
+    // Production main and intentional preview/* branches deployable.
     expect(config.git?.deploymentEnabled).toEqual({
       "**": false,
       main: true,
