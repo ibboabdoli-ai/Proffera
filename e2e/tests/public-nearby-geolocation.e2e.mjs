@@ -105,4 +105,111 @@ test.describe("public nearby geolocation reliability", () => {
     );
     expect(new URL(page.url()).pathname).toBe("/");
   });
+
+  test("does not turn the generated nearby label into a manual location after a failed retry", async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, "geolocation", {
+        configurable: true,
+        value: {
+          getCurrentPosition(success) {
+            success({
+              coords: {
+                latitude: 59.329323,
+                longitude: 18.068581,
+                accuracy: 100,
+                altitude: null,
+                altitudeAccuracy: null,
+                heading: null,
+                speed: null,
+              },
+              timestamp: Date.now(),
+            });
+          },
+        },
+      });
+    });
+
+    await page.goto("/");
+    await page.getByLabel("Tjänst").fill("Elektriker");
+    await page.getByRole("button", { name: "Nära mig" }).click();
+    await expect(page).toHaveURL(/nearby=1/);
+    await expect(page.getByLabel("Ort")).toHaveValue("Min plats");
+
+    await page.route("**/*", async (route) => {
+      const request = route.request();
+      if (request.method() === "POST" && request.headers()["next-action"]) {
+        await route.abort("failed");
+        return;
+      }
+      await route.continue();
+    });
+
+    await page.getByRole("button", { name: "Nära mig" }).click();
+
+    await expect(page.getByRole("status")).toContainText(
+      "Positionen hittades men sökningen kunde inte startas",
+    );
+    await expect(page.getByLabel("Ort")).toHaveValue("");
+    await page.getByRole("button", { name: "Sök" }).click();
+    await expect.poll(() => new URL(page.url()).searchParams.get("location")).toBeNull();
+  });
+
+  test("preserves a manual location edit made while a nearby action is in flight and then fails", async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, "geolocation", {
+        configurable: true,
+        value: {
+          getCurrentPosition(success) {
+            success({
+              coords: {
+                latitude: 59.329323,
+                longitude: 18.068581,
+                accuracy: 100,
+                altitude: null,
+                altitudeAccuracy: null,
+                heading: null,
+                speed: null,
+              },
+              timestamp: Date.now(),
+            });
+          },
+        },
+      });
+    });
+
+    let markActionSeen;
+    const actionSeen = new Promise((resolve) => {
+      markActionSeen = resolve;
+    });
+    let releaseAction;
+    const actionGate = new Promise((resolve) => {
+      releaseAction = resolve;
+    });
+
+    await page.route("**/*", async (route) => {
+      const request = route.request();
+      if (request.method() === "POST" && request.headers()["next-action"]) {
+        markActionSeen();
+        await actionGate;
+        await route.abort("failed");
+        return;
+      }
+      await route.continue();
+    });
+
+    await page.goto("/");
+    const locationInput = page.getByLabel("Ort");
+    await locationInput.fill("Stockholm");
+    await page.getByRole("button", { name: "Nära mig" }).click();
+    await actionSeen;
+    await expect(locationInput).toHaveValue("Min plats");
+
+    await locationInput.fill("Södertälje");
+    releaseAction();
+
+    await expect(page.getByRole("status")).toContainText(
+      "Positionen hittades men sökningen kunde inte startas",
+    );
+    await expect(locationInput).toHaveValue("Södertälje");
+  });
 });
