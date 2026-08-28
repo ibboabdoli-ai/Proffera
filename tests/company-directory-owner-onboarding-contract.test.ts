@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("owner-initiated company Directory onboarding", () => {
-  it("verifies an exact Swedish organisation number through the official source before persistence", () => {
+  it("verifies an exact Swedish juridical organisation number through the official source before persistence", () => {
     const source = readFileSync(
       resolve(process.cwd(), "src/lib/company-directory-owner-onboarding.ts"),
       "utf8",
@@ -13,6 +13,7 @@ describe("owner-initiated company Directory onboarding", () => {
     expect(source).toContain("normalizeSwedishOrganizationNumber");
     expect(source).toContain("verifyOfficialCompanyCandidate(seedCandidate(organizationNumber))");
     expect(source).toContain("upsertCompanyDirectoryCandidate(verified)");
+    expect(source).not.toContain("primarySniVerified: false");
     expect(source.indexOf("verifyOfficialCompanyCandidate(seedCandidate(organizationNumber))"))
       .toBeLessThan(source.indexOf("upsertCompanyDirectoryCandidate(verified)"));
   });
@@ -53,22 +54,25 @@ describe("owner-initiated company Directory onboarding", () => {
     expect(rateGuard).toBeLessThan(officialLookup);
   });
 
-  it("fails closed for sole traders before the generic profile upsert", () => {
+  it("stops personnummer-shaped sole-trader identifiers before generic DB lookup, official company lookup or persistence", () => {
     const source = readFileSync(
       resolve(process.cwd(), "src/lib/company-directory-owner-onboarding.ts"),
       "utf8",
     );
 
-    const soleTraderGuard = source.indexOf('verified.organizationKind !== "juridical_person"');
+    const privacyGuard = source.indexOf("if (!isBolagsverketJuridicalOrganizationNumber(organizationNumber))");
+    const localLookup = source.indexOf("const existing = await lookupProfileState(organizationNumber)");
+    const officialLookup = source.indexOf("verifyOfficialCompanyCandidate(seedCandidate(organizationNumber))");
     const upsert = source.indexOf("upsertCompanyDirectoryCandidate(verified)");
 
-    expect(soleTraderGuard).toBeGreaterThan(-1);
-    expect(upsert).toBeGreaterThan(-1);
-    expect(soleTraderGuard).toBeLessThan(upsert);
+    expect(privacyGuard).toBeGreaterThan(-1);
+    expect(localLookup).toBeGreaterThan(privacyGuard);
+    expect(officialLookup).toBeGreaterThan(privacyGuard);
+    expect(upsert).toBeGreaterThan(privacyGuard);
     expect(source).toContain('status: "sole_trader_privacy"');
   });
 
-  it("keeps the owner UI server-posted and routes eligible companies into the existing claim flow", () => {
+  it("keeps the owner UI server-posted, surfaces throttling and routes eligible companies into the existing claim flow", () => {
     const page = readFileSync(
       resolve(process.cwd(), "src/app/dashboard/marknadsplats/lagg-till-foretag/page.tsx"),
       "utf8",
@@ -78,7 +82,19 @@ describe("owner-initiated company Directory onboarding", () => {
     expect(page).toContain("onboardOwnerCompanyByOrganizationNumber");
     expect(page).toContain("/foretag/claim/");
     expect(page).toContain("/en/companies/claim/");
+    expect(page).toContain('code === "rate_limited" ? "rate_limited"');
     expect(page).toContain("Namn, adress eller andra fritextfält");
     expect(page).not.toContain('params.set("organizationNumber"');
+  });
+
+  it("connects the Marketplace missing-company result to the add-company route", () => {
+    const marketplacePage = readFileSync(
+      resolve(process.cwd(), "src/app/dashboard/marknadsplats/page.tsx"),
+      "utf8",
+    );
+
+    expect(marketplacePage).toContain('status === "not_found"');
+    expect(marketplacePage).toContain('/dashboard/marknadsplats/lagg-till-foretag');
+    expect(marketplacePage).toContain("addMissingCompany");
   });
 });
