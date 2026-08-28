@@ -43,6 +43,10 @@ async function requireManageableWorkspace() {
   return access;
 }
 
+function ownerVisibleOrganizationNumber(kind: unknown, value: unknown) {
+  return String(kind ?? "") === "sole_trader" ? "" : String(value ?? "");
+}
+
 export async function getProviderActivationState(): Promise<ProviderActivationState> {
   const access = await requireManageableWorkspace();
   const sql = getSql();
@@ -110,6 +114,7 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
         profile.public_slug,
         profile.display_name,
         profile.organization_number,
+        profile.organization_kind,
         profile.city
       from company_directory_profiles profile
       where profile.claimed_workspace_id = ${access.workspaceId}::uuid
@@ -119,9 +124,12 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
     sql`
       select
         claim.status,
+        claim.verification_method,
         profile.display_name,
         profile.organization_number,
-        profile.public_slug
+        profile.organization_kind,
+        profile.public_slug,
+        profile.publication_status
       from company_directory_claims claim
       join company_directory_profiles profile on profile.id = claim.profile_id
       where claim.requested_workspace_id = ${access.workspaceId}::uuid
@@ -138,7 +146,7 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
         id: String(profile.id),
         slug: String(profile.public_slug ?? ""),
         companyName: String(profile.display_name ?? ""),
-        organizationNumber: String(profile.organization_number ?? ""),
+        organizationNumber: ownerVisibleOrganizationNumber(profile.organization_kind, profile.organization_number),
         city: String(profile.city ?? ""),
       }
     : null;
@@ -158,12 +166,16 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
     : [];
 
   const claim = claimRows[0];
+  const soleTraderManualReview = String(claim?.organization_kind ?? "") === "sole_trader"
+    && String(claim?.verification_method ?? "") === "manual_review";
   const pendingClaim = claim
     ? {
         status: String(claim.status),
         companyName: String(claim.display_name ?? ""),
-        organizationNumber: String(claim.organization_number ?? ""),
-        profileSlug: String(claim.public_slug ?? ""),
+        organizationNumber: ownerVisibleOrganizationNumber(claim.organization_kind, claim.organization_number),
+        profileSlug: soleTraderManualReview || String(claim.publication_status ?? "") === "blocked"
+          ? ""
+          : String(claim.public_slug ?? ""),
       }
     : null;
 
