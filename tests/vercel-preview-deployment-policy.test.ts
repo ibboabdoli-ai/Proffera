@@ -3,6 +3,7 @@ import { matchesGlob } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+/** Mirrors Vercel's additive branch-rule behavior for the policy cases under test. */
 function deploymentEnabledForBranch(rules: Record<string, boolean>, branch: string) {
   return Object.entries(rules)
     .filter(([pattern]) => matchesGlob(branch, pattern))
