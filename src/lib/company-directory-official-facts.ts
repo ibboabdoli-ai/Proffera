@@ -125,6 +125,7 @@ function advertisingBlockedFromRecord(row: AnyRecord): boolean | null {
   const postalContainer = object(row.postadressOrganisation);
   const postal = object(postalContainer?.postadress);
   if (!postalContainer || !postal) return null;
+  if (text(postalContainer.dataproducent).toLocaleLowerCase("sv-SE") !== "bolagsverket") return null;
   if (postalContainer.fel !== null && postalContainer.fel !== undefined) return null;
   return false;
 }
