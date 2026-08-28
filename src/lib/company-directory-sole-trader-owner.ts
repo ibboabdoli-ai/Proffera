@@ -297,9 +297,24 @@ function replaceIdentity(template: string, identity: string) {
 }
 
 function soleTraderDetailEndpoint(template: string) {
-  const endpoint = template.trim().replace(/\/?\{organizationNumber\}\/?$/, "");
-  if (!endpoint || endpoint.includes("{organizationNumber}")) throw new Error("sole_trader_source_error");
-  return endpoint;
+  const raw = template.trim();
+  if (!raw) throw new Error("sole_trader_source_error");
+
+  const queryIndex = raw.indexOf("?");
+  const hashIndex = raw.indexOf("#");
+  const suffixIndex = [queryIndex, hashIndex]
+    .filter((index) => index >= 0)
+    .reduce((lowest, index) => Math.min(lowest, index), raw.length);
+  const pathPart = raw.slice(0, suffixIndex);
+  const suffix = raw.slice(suffixIndex);
+
+  if (suffix.includes("{organizationNumber}")) throw new Error("sole_trader_source_error");
+
+  const endpointPath = pathPart.replace(/\/\{organizationNumber\}\/?$/, "");
+  if (!endpointPath || endpointPath.includes("{organizationNumber}")) {
+    throw new Error("sole_trader_source_error");
+  }
+  return `${endpointPath}${suffix}`;
 }
 
 async function requireExternalLookupBudget(input: { workspaceId: string; userId: string }) {
@@ -320,8 +335,8 @@ async function verifyOfficialSoleTrader(identity10: string) {
   if (!template) throw new Error("sole_trader_source_error");
 
   const provider = process.env.COMPANY_DIRECTORY_PROVIDER?.trim() || "bolagsverket_vardefulla_datamangder";
-  const token = await oauthAccessToken();
   const url = requireBolagsverketHttpsUrl(soleTraderDetailEndpoint(template), "COMPANY_DIRECTORY_DETAIL_URL_TEMPLATE");
+  const token = await oauthAccessToken();
   const bodyTemplate = process.env.COMPANY_DIRECTORY_DETAIL_BODY_TEMPLATE?.trim();
   const body = bodyTemplate
     ? replaceIdentity(bodyTemplate, identity12)
