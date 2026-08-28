@@ -69,7 +69,7 @@ describe("Bolagsverket official facts parser", () => {
     expect(extractOfficialFacts({ reklamsparr: { kod: "NEJ" } }).advertisingBlocked).toBe(false);
   });
 
-  it("maps documented null reklamspärr to no block only with a successful post address", () => {
+  it("maps documented null reklamspärr to no block only with a successful Bolagsverket post address", () => {
     const facts = extractOfficialFacts({
       reklamsparr: null,
       postadressOrganisation: {
@@ -96,6 +96,15 @@ describe("Bolagsverket official facts parser", () => {
     expect(extractOfficialFacts({
       reklamsparr: null,
       postadressOrganisation: {
+        dataproducent: "SCB",
+        fel: null,
+        postadress: { land: "Sverige" },
+      },
+    }).advertisingBlocked).toBeNull();
+    expect(extractOfficialFacts({
+      reklamsparr: null,
+      postadressOrganisation: {
+        dataproducent: "Bolagsverket",
         fel: { typ: "OTILLGANGLIG_UPPGIFTSKALLA" },
         postadress: { land: "Sverige" },
       },
