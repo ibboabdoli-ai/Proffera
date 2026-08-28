@@ -112,8 +112,7 @@ function organizationRecords(payload: unknown): AnyRecord[] {
 function identityType(row: AnyRecord) {
   const identity = object(row.organisationsidentitet ?? row.organizationIdentity);
   const raw = identity?.typ ?? identity?.type;
-  const value = text(object(raw)?.kod ?? object(raw)?.code ?? raw).toUpperCase();
-  return value;
+  return text(object(raw)?.kod ?? object(raw)?.code ?? raw).toUpperCase();
 }
 
 function identityValue(row: AnyRecord) {
@@ -297,6 +296,12 @@ function replaceIdentity(template: string, identity: string) {
   return template.replaceAll("{organizationNumber}", identity);
 }
 
+function soleTraderDetailEndpoint(template: string) {
+  const endpoint = template.trim().replace(/\/?\{organizationNumber\}\/?$/, "");
+  if (!endpoint || endpoint.includes("{organizationNumber}")) throw new Error("sole_trader_source_error");
+  return endpoint;
+}
+
 async function requireExternalLookupBudget(input: { workspaceId: string; userId: string }) {
   const allowed = await allowPublicSubmission({
     scope: "owner_sole_trader_onboarding",
@@ -312,11 +317,11 @@ async function verifyOfficialSoleTrader(identity10: string) {
   const identity12 = expandPrivateIdentity12(identity10);
   if (!identity12) throw new Error("sole_trader_identity");
   const template = process.env.COMPANY_DIRECTORY_DETAIL_URL_TEMPLATE?.trim();
-  if (!template || template.includes("{organizationNumber}")) throw new Error("sole_trader_source_error");
+  if (!template) throw new Error("sole_trader_source_error");
 
   const provider = process.env.COMPANY_DIRECTORY_PROVIDER?.trim() || "bolagsverket_vardefulla_datamangder";
   const token = await oauthAccessToken();
-  const url = requireBolagsverketHttpsUrl(template, "COMPANY_DIRECTORY_DETAIL_URL_TEMPLATE");
+  const url = requireBolagsverketHttpsUrl(soleTraderDetailEndpoint(template), "COMPANY_DIRECTORY_DETAIL_URL_TEMPLATE");
   const bodyTemplate = process.env.COMPANY_DIRECTORY_DETAIL_BODY_TEMPLATE?.trim();
   const body = bodyTemplate
     ? replaceIdentity(bodyTemplate, identity12)
