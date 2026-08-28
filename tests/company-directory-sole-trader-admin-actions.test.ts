@@ -35,6 +35,7 @@ describe("sole-trader admin actions", () => {
 
     expect(mocks.assertNoPersonalIdentifier).toHaveBeenCalledTimes(1);
     expect(mocks.rejectCompanyDirectoryClaim).not.toHaveBeenCalled();
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
   });
 
   it("validates a safe rejection reason before calling the generic helper", async () => {
@@ -54,5 +55,6 @@ describe("sole-trader admin actions", () => {
       claimId: "22222222-2222-4222-8222-222222222222",
       reason: "Underlaget kunde inte styrkas",
     });
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/admin/foretag/claims/sole-trader");
   });
 });
