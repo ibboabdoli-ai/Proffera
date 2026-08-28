@@ -93,6 +93,7 @@ export function PublicDirectorySearchForm({
     const handlePosition = (position: GeolocationPosition) => {
       const form = formRef.current;
       const formData = form ? new FormData(form) : new FormData();
+      const previousLocationValue = String(formData.get("location") ?? locationValue);
       formData.set("locale", locale);
       formData.set("radius", radius);
       formData.set(
@@ -106,7 +107,9 @@ export function PublicDirectorySearchForm({
       void searchPublicDirectoryNearbyAction(formData).catch(() => {
         setNearbyLoading(false);
         setUsingNearby(false);
-        setLocationValue(location);
+        setLocationValue((currentValue) => (
+          currentValue === nearbyLocationLabel ? previousLocationValue : currentValue
+        ));
         setNearbyStatus(nearbySubmitErrorMessage);
       });
     };
