@@ -2,7 +2,7 @@
 
 import { MapPin, Navigation, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { FormEvent, useRef, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 
 import { searchPublicDirectoryNearbyAction } from "@/components/company-directory/public-directory-nearby-action";
 import { directoryCopy, directoryPaths, normalizeDirectoryPublicServiceQuery } from "@/components/company-directory/public-directory-copy";
@@ -63,6 +63,13 @@ export function PublicDirectorySearchForm({
   const [nearbyStatus, setNearbyStatus] = useState("");
   const [nearbyLoading, setNearbyLoading] = useState(false);
 
+  useEffect(() => {
+    if (!nearbyActive) return;
+    setNearbyLoading(false);
+    setUsingNearby(true);
+    setLocationValue(nearbyLocationLabel);
+  }, [nearbyActive, nearbyLocationLabel]);
+
   function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
@@ -105,6 +112,8 @@ export function PublicDirectorySearchForm({
 
       void searchPublicDirectoryNearbyAction(formData).catch(() => {
         setNearbyLoading(false);
+        setUsingNearby(false);
+        setLocationValue(location);
         setNearbyStatus(nearbySubmitErrorMessage);
       });
     };
