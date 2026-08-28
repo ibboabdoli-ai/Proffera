@@ -3,7 +3,10 @@
 import { revalidatePath } from "next/cache";
 
 import { rejectCompanyDirectoryClaim } from "@/lib/company-directory-claims-admin";
-import { approveSoleTraderDirectoryClaim } from "@/lib/company-directory-sole-trader-owner";
+import {
+  approveSoleTraderDirectoryClaim,
+  assertSoleTraderAdminTextHasNoPersonalIdentifier,
+} from "@/lib/company-directory-sole-trader-owner";
 
 export async function approveSoleTraderClaimAction(formData: FormData) {
   const claimId = String(formData.get("claimId") ?? "");
@@ -18,6 +21,7 @@ export async function approveSoleTraderClaimAction(formData: FormData) {
 export async function rejectSoleTraderClaimAction(formData: FormData) {
   const claimId = String(formData.get("claimId") ?? "");
   const reason = String(formData.get("reason") ?? "");
+  assertSoleTraderAdminTextHasNoPersonalIdentifier(reason);
   await rejectCompanyDirectoryClaim({ claimId, reason });
   revalidatePath("/admin/foretag/claims/sole-trader");
 }
