@@ -31,6 +31,7 @@ vi.mock("@/lib/workspace-access", () => ({
 
 import {
   approveSoleTraderDirectoryClaim,
+  assertSoleTraderAdminTextHasNoPersonalIdentifier,
   onboardOwnerSoleTrader,
 } from "../src/lib/company-directory-sole-trader-owner";
 
@@ -180,13 +181,26 @@ describe("privacy-safe sole-trader owner verification", () => {
     expect(query.transaction).not.toHaveBeenCalled();
   });
 
-  it("rejects admin evidence that attempts to copy a personal identifier into audit/reference text", async () => {
+  it.each([
+    "Kontrollerad identitet 900101-1234",
+    "Kontrollerad identitet 900101 1234",
+    "Kontrollerad identitet 19900101 1234",
+    "Kontrollerad identitet 90-01-01-12-34",
+    "Kontrollerad identitet 900101+1234",
+    "Kontrollerad identitet 900101/1234",
+  ])("rejects admin evidence containing a formatted personal identifier: %s", async (reference) => {
     mocks.getPlatformAdmin.mockResolvedValue({ userId: "admin-1", role: "super_admin" });
     mocks.getSql.mockReturnValue(vi.fn());
 
     await expect(approveSoleTraderDirectoryClaim({
       claimId: "22222222-2222-4222-8222-222222222222",
-      reference: "Kontrollerad identitet 900101-1234",
+      reference,
     })).rejects.toThrow("Do not include personal identifiers");
+  });
+
+  it("allows ordinary case references that do not contain a personal identifier", () => {
+    expect(() => assertSoleTraderAdminTextHasNoPersonalIdentifier(
+      "Kontrollerad via Bolagsverket, ärende 123456/26",
+    )).not.toThrow();
   });
 });
