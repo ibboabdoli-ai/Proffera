@@ -82,13 +82,15 @@ Before the first implementation push, perform an independent adversarial review 
 
 Valid findings are fixed **before** the primary push whenever practical, and the nearest relevant checks are rerun.
 
+For **Class 3/4 work**, or work that would match the repository's sensitive/large AI-review routing, one local CodeRabbit CLI review may be used as an additional pre-push adversarial pass **after** targeted validation and the internal Red Team, provided the CLI is already installed and authenticated. Use `cr review --agent --base main`, verify every finding against the current graph and repository invariants, fix only verified critical/major issues, rerun affected checks, and allow at most two CLI passes for the same bounded task. This local CLI pass is development feedback only; it never replaces or satisfies the required final current-head PR review gate. If the CLI is unavailable or unauthenticated, do not install software, add credentials, or expand the task just to enable it.
+
 ### One-primary-push discipline
 
 Development churn should stay local or on the isolated worker branch until the Builder and Verifier agree the change is ready for CI.
 
 - Prefer one consolidated primary implementation push after targeted validation and the Red Team gate.
 - Batch closely related repairs instead of pushing each small edit separately.
-- Do not request CodeRabbit/Codex review after every development commit; risk-routed external review is a final-head gate.
+- Do not request PR-hosted CodeRabbit/Codex review after every development commit; risk-routed PR review is a final-head gate. The bounded local CLI pass above is the only pre-push exception.
 - More than roughly five meaningful implementation commits or more than two external-review repair cycles on one bounded task is a **process warning**, not a hard Git limit. Pause and re-check the graph/root-cause model before stacking more patches.
 
 ### External review policy
@@ -99,6 +101,7 @@ External AI review is an adversarial gate, not the primary developer.
 - Prefer the graph-owning Builder to apply verified fixes.
 - Do not blindly run autofix on workflow, auth/RBAC, tenant-isolation, database/schema, payment, webhook, deployment, secret or other high-risk paths.
 - For `.github/workflows/**`, use external review as review-only unless an explicitly authorized writer can safely apply the patch.
+- The optional local CodeRabbit CLI pass described above is development feedback only; PR-hosted CodeRabbit/Codex review remains the authoritative external delivery gate.
 - Re-enter final review only after the valid findings have been batched and locally validated.
 
 ### Baseline refresh without restart
@@ -223,7 +226,7 @@ If validation fails, return to the graph and update the root-cause model. Do not
 - Confirm no forbidden or unrelated files changed.
 - Prefer one consolidated push and avoid repeated deploy-triggering commits.
 - Create a focused PR with the graph path, root cause, patch, blast radius, and validation evidence.
-- Use external AI review only as the final risk-routed gate on the current head; verify findings before applying them.
+- Use PR-hosted external AI review only as the final risk-routed gate on the current head; verify findings before applying them. The bounded local CodeRabbit CLI pass in section 1A is development feedback and does not satisfy this delivery gate.
 - Merge or deploy only when authorized by the user or by an explicit standing instruction.
 
 ### Phase I — Final report
