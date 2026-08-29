@@ -513,7 +513,7 @@ function soleTraderDetailEndpoint(template: string) {
   if (suffix.includes("{organizationNumber}")) throw new Error("sole_trader_source_error");
 
   const endpointPath = pathPart.replace(/\/\{organizationNumber\}\/?$/, "");
-  if (!endpointPath || endpointPath.includes("{organizationNumber}")) {
+  if (!endpointPath || /[{}]/.test(endpointPath) || /[{}]/.test(suffix)) {
     throw new Error("sole_trader_source_error");
   }
   return `${endpointPath}${suffix}`;
