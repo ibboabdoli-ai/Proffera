@@ -276,7 +276,7 @@ const TRANSIENT_SOLE_TRADER_SOURCE_ERROR_TYPES = new Set([
 ]);
 
 const SOLE_TRADER_SOURCE_ATTEMPTS = 2;
-const PRODUCTION_SOLE_TRADER_TOKEN_URL = "https://gw.api.bolagsverket.se/oauth2/token";
+const PRODUCTION_SOLE_TRADER_TOKEN_URL = "https://portal.api.bolagsverket.se/oauth2/token";
 const PRODUCTION_SOLE_TRADER_DETAIL_URL = "https://gw.api.bolagsverket.se/vardefulla-datamangder/v1/organisationer";
 const PRODUCTION_SOLE_TRADER_SCOPE = "vardefulla-datamangder:read";
 
