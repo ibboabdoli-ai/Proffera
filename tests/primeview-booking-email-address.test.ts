@@ -57,7 +57,7 @@ describe("PrimeView booking emails", () => {
     expect(email.text).toContain(`Address: ${address}`);
     expect(email.text).toContain(`Postcode: ${postcode}`);
     expect(email.text).toContain("Area: London");
-    expect(email.html).toContain("<td style="padding:6px 16px;font-weight:700;color:#183e63;">Address</td>");
+    expect(email.html).toContain('<td style="padding:6px 16px;font-weight:700;color:#183e63;">Address</td>');
     expect(email.html).toContain(postcode);
   });
 });
