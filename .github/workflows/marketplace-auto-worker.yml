@@ -3,8 +3,10 @@ name: Marketplace Auto Worker
 on:
   schedule:
     # Keep one proven-live GitHub schedule owner and fan out to the reusable
-    # Production workers. Splitting the 15-minute cadence lets the health gate
-    # run only at :08/:38 without creating overlapping cron entries.
+    # Production workers. Child workflows retain manual/push fallbacks but do
+    # not own independent automatic schedules.
+    # Splitting the 15-minute cadence lets the health gate run only at :08/:38
+    # without creating overlapping cron entries.
     - cron: "8,38 * * * *"
     - cron: "23,53 * * * *"
     # Preserve the Directory source probe and daily safety scan cadences.
