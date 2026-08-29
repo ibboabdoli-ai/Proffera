@@ -172,8 +172,11 @@ describe("sole-trader Production request contract", () => {
     expect(String(tokenUrl)).not.toContain(PRIVATE_INPUT);
     expect(String(tokenUrl)).not.toContain(PRIVATE_OFFICIAL);
     expect(tokenRequest.method).toBe("POST");
-    expect(String(tokenRequest.body)).toContain("grant_type=client_credentials");
-    expect(String(tokenRequest.body)).toContain("scope=vardefulla-datamangder%3Aread");
+    const oauthParams = new URLSearchParams(String(tokenRequest.body));
+    expect([...oauthParams.entries()]).toEqual([
+      ["grant_type", "client_credentials"],
+      ["scope", "vardefulla-datamangder:read"],
+    ]);
     expect(tokenHeaders).toEqual(expect.objectContaining({
       authorization: EXPECTED_BASIC_AUTHORIZATION,
       "content-type": "application/x-www-form-urlencoded",
