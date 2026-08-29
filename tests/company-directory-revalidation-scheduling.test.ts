@@ -315,7 +315,7 @@ describe("dedicated Company Directory revalidation scheduling", () => {
     }
   });
 
-  it("keeps GitHub as a manual fallback while automatic full revalidation stays out of Operations", () => {
+  it("keeps GitHub as manual recovery while external QStash owns automatic Production scheduling", () => {
     const workflow = readFileSync(
       resolve(process.cwd(), ".github/workflows/company-directory-revalidation.yml"),
       "utf8",
@@ -346,21 +346,22 @@ describe("dedicated Company Directory revalidation scheduling", () => {
     expect(workflow).not.toContain("cron:");
     expect(workflow).not.toContain("BATCHES_PER_RUN=2");
     expect(workflow).not.toContain('for batch in $(seq 1 "$BATCHES_PER_RUN")');
-    expect(cronExpressions(operationsWorkflow)).toEqual(["8,23,38,53 * * * *"]);
-    expect(cronExpressions(marketplaceWorkflow)).toEqual(["8,23,38,53 * * * *"]);
-    expect(cronExpressions(productionHealthWorkflow)).toEqual(["8,38 * * * *"]);
+
+    expect(cronExpressions(operationsWorkflow)).toEqual([]);
+    expect(cronExpressions(marketplaceWorkflow)).toEqual([]);
+    expect(cronExpressions(productionHealthWorkflow)).toEqual([]);
+    expect(operationsWorkflow).toContain("workflow_dispatch:");
+    expect(marketplaceWorkflow).toContain("workflow_dispatch:");
+    expect(productionHealthWorkflow).toContain("workflow_dispatch:");
+    expect(productionHealthWorkflow).toContain("push:");
+    expect(productionHealthWorkflow).toContain("repository_dispatch:");
+
     expect(cronExpressions(directoryAutomationWorkflow)).toEqual([
       "17 * * * *",
       "31 3 * * *",
     ]);
-    for (const otherWorkflow of [
-      operationsWorkflow,
-      marketplaceWorkflow,
-      productionHealthWorkflow,
-      directoryAutomationWorkflow,
-    ]) {
-      expectNoRevalidationMinuteCollision(otherWorkflow);
-    }
+    expectNoRevalidationMinuteCollision(directoryAutomationWorkflow);
+
     expect(workflow.match(/\/api\/cron\/company-directory-revalidation/g) ?? []).toHaveLength(1);
     expect(workflow).toContain("--connect-timeout 10");
     expect(workflow).toContain("--max-time 75");
