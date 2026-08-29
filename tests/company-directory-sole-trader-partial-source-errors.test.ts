@@ -138,7 +138,7 @@ describe("sole-trader partial source errors", () => {
     mocks.allowPublicSubmission.mockResolvedValue(true);
   });
 
-  it("accepts a current Bolagsverket sole trader when only non-critical producer fields have errors", async () => {
+  it("accepts a current Bolagsverket sole trader when only allowlisted non-critical producer fields have errors", async () => {
     const { query, persistedValues } = createSqlMock();
     mocks.getSql.mockReturnValue(query);
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
@@ -158,7 +158,7 @@ describe("sole-trader partial source errors", () => {
     expect(persistedText).not.toContain(PRIVATE_OFFICIAL);
   });
 
-  it("still fails closed when the deregistration field itself has a producer error and logs only safe diagnostics", async () => {
+  it("fails closed when the deregistration field has a producer error and logs only safe diagnostics", async () => {
     const { query } = createSqlMock();
     mocks.getSql.mockReturnValue(query);
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
@@ -183,8 +183,40 @@ describe("sole-trader partial source errors", () => {
     expect(query.transaction).not.toHaveBeenCalled();
 
     const logged = JSON.stringify(warn.mock.calls);
-    expect(logged).toContain("critical_field_error");
+    expect(logged).toContain("producer_error");
     expect(logged).toContain("avregistreradOrganisation");
+    expect(logged).toContain("OTILLGANGLIG_UPPGIFTSKALLA");
+    expect(logged).not.toContain(PRIVATE_INPUT);
+    expect(logged).not.toContain(PRIVATE_OFFICIAL);
+  });
+
+  it("fails closed when identity has a producer error even if the identity remains parseable", async () => {
+    const { query } = createSqlMock();
+    mocks.getSql.mockReturnValue(query);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        organisationer: [activeRecord({
+          organisationsidentitet: {
+            identitetsbeteckning: PRIVATE_OFFICIAL,
+            typ: { kod: "PERSONNR" },
+            fel: {
+              typ: "OTILLGANGLIG_UPPGIFTSKALLA",
+              felBeskrivning: "Test-only upstream failure",
+            },
+          },
+        })],
+      }),
+    }));
+
+    await expect(onboardOwnerSoleTrader(PRIVATE_INPUT)).rejects.toThrow("sole_trader_source_error");
+    expect(query.transaction).not.toHaveBeenCalled();
+
+    const logged = JSON.stringify(warn.mock.calls);
+    expect(logged).toContain("producer_error");
+    expect(logged).toContain("organisationsidentitet");
     expect(logged).toContain("OTILLGANGLIG_UPPGIFTSKALLA");
     expect(logged).not.toContain(PRIVATE_INPUT);
     expect(logged).not.toContain(PRIVATE_OFFICIAL);
