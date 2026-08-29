@@ -1,0 +1,350 @@
+name: PrimeView booking email address patch
+
+on:
+  push:
+    branches:
+      - work/proffera-primeview-booking-email-address
+    paths:
+      - .github/workflows/primeview-booking-email-address-patch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: work/proffera-primeview-booking-email-address
+          fetch-depth: 0
+
+      - name: Patch PrimeView booking emails
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(text: str, old: str, new: str, label: str) -> str:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected exactly one match, found {count}")
+              return text.replace(old, new, 1)
+
+          lead_path = Path("src/features/email/lead-email.ts")
+          lead = lead_path.read_text()
+          lead = replace_once(
+              lead,
+              '''type SendBookingOwnerNotificationEmailInput = {
+            ownerEmail: string;
+            companyName: string;
+            customerName: string;
+            customerEmail: string;
+            customerPhone: string;
+            service: string;
+            startsAt: string;
+            endsAt: string;
+            city: string;
+            timeZone?: WorkspaceTimeZone;
+          };''',
+              '''type SendBookingOwnerNotificationEmailInput = {
+            ownerEmail: string;
+            companyName: string;
+            customerName: string;
+            customerEmail: string;
+            customerPhone: string;
+            service: string;
+            startsAt: string;
+            endsAt: string;
+            city: string;
+            address?: string;
+            postcode?: string;
+            timeZone?: WorkspaceTimeZone;
+            language?: "sv" | "en";
+          };''',
+              "owner input type",
+          )
+          lead = replace_once(
+              lead,
+              '''function formatBookingTime(value: string, timeZone: WorkspaceTimeZone = "Europe/Stockholm") {
+            const date = new Date(value);
+          
+            if (Number.isNaN(date.getTime())) {
+              return value;
+            }
+          
+            return new Intl.DateTimeFormat("sv-SE", {
+              timeZone,
+              dateStyle: "full",
+              timeStyle: "short",
+            }).format(date);
+          }''',
+              '''function formatBookingTime(
+            value: string,
+            timeZone: WorkspaceTimeZone = "Europe/Stockholm",
+            language: "sv" | "en" = "sv",
+          ) {
+            const date = new Date(value);
+          
+            if (Number.isNaN(date.getTime())) {
+              return value;
+            }
+          
+            return new Intl.DateTimeFormat(language === "en" ? "en-GB" : "sv-SE", {
+              timeZone,
+              dateStyle: "full",
+              timeStyle: "short",
+            }).format(date);
+          }''',
+              "booking time formatter",
+          )
+          owner_start = lead.index("export function buildBookingOwnerNotificationEmail")
+          owner_end = lead.index("\nexport function buildBookingStatusEmail", owner_start)
+          owner_function = '''export function buildBookingOwnerNotificationEmail(input: SendBookingOwnerNotificationEmailInput) {
+            const language = input.language ?? (input.companyName.trim().toLowerCase() === "primeview window care" ? "en" : "sv");
+            const isEnglish = language === "en";
+            const start = formatBookingTime(input.startsAt, input.timeZone, language);
+            const end = formatBookingTime(input.endsAt, input.timeZone, language);
+          
+            if (isEnglish) {
+              const subject = `New booking request – ${input.service}`;
+              const text = [
+                `Hello ${input.companyName},`,
+                "",
+                "A new booking request has been received via Proffera.",
+                "",
+                `Customer: ${input.customerName}`,
+                input.customerEmail ? `Email: ${input.customerEmail}` : "",
+                input.customerPhone ? `Phone: ${input.customerPhone}` : "",
+                `Service: ${input.service}`,
+                input.address ? `Address: ${input.address}` : "",
+                input.postcode ? `Postcode: ${input.postcode}` : "",
+                `Start: ${start}`,
+                `End: ${end}`,
+                input.city ? `Area: ${input.city}` : "",
+                "",
+                "Open Bookings in Proffera to confirm or cancel the request.",
+              ].filter(Boolean).join("\\n");
+              const html = `
+                <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #0b2a4a;">
+                  <p>Hello ${escapeHtml(input.companyName)},</p>
+                  <p>A new booking request has been received via Proffera.</p>
+                  <ul>
+                    <li><strong>Customer:</strong> ${escapeHtml(input.customerName)}</li>
+                    ${input.customerEmail ? `<li><strong>Email:</strong> ${escapeHtml(input.customerEmail)}</li>` : ""}
+                    ${input.customerPhone ? `<li><strong>Phone:</strong> ${escapeHtml(input.customerPhone)}</li>` : ""}
+                    <li><strong>Service:</strong> ${escapeHtml(input.service)}</li>
+                    ${input.address ? `<li><strong>Address:</strong> ${escapeHtml(input.address)}</li>` : ""}
+                    ${input.postcode ? `<li><strong>Postcode:</strong> ${escapeHtml(input.postcode)}</li>` : ""}
+                    <li><strong>Start:</strong> ${escapeHtml(start)}</li>
+                    <li><strong>End:</strong> ${escapeHtml(end)}</li>
+                    ${input.city ? `<li><strong>Area:</strong> ${escapeHtml(input.city)}</li>` : ""}
+                  </ul>
+                  <p>Open Bookings in Proffera to confirm or cancel the request.</p>
+                </div>
+              `;
+              return { subject, text, html };
+            }
+          
+            const subject = `Ny bokningsförfrågan – ${input.service}`;
+            const text = [
+              `Hej ${input.companyName},`,
+              "",
+              "En ny bokningsförfrågan har kommit in via Proffera.",
+              "",
+              `Kund: ${input.customerName}`,
+              input.customerEmail ? `E-post: ${input.customerEmail}` : "",
+              input.customerPhone ? `Telefon: ${input.customerPhone}` : "",
+              `Tjänst: ${input.service}`,
+              input.address ? `Adress: ${input.address}` : "",
+              input.postcode ? `Postnummer: ${input.postcode}` : "",
+              `Start: ${start}`,
+              `Slut: ${end}`,
+              input.city ? `Ort: ${input.city}` : "",
+              "",
+              "Öppna Bokningar i Proffera för att bekräfta eller avboka förfrågan.",
+            ].filter(Boolean).join("\\n");
+            const html = `
+              <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #17201a;">
+                <p>Hej ${escapeHtml(input.companyName)},</p>
+                <p>En ny bokningsförfrågan har kommit in via Proffera.</p>
+                <ul>
+                  <li><strong>Kund:</strong> ${escapeHtml(input.customerName)}</li>
+                  ${input.customerEmail ? `<li><strong>E-post:</strong> ${escapeHtml(input.customerEmail)}</li>` : ""}
+                  ${input.customerPhone ? `<li><strong>Telefon:</strong> ${escapeHtml(input.customerPhone)}</li>` : ""}
+                  <li><strong>Tjänst:</strong> ${escapeHtml(input.service)}</li>
+                  ${input.address ? `<li><strong>Adress:</strong> ${escapeHtml(input.address)}</li>` : ""}
+                  ${input.postcode ? `<li><strong>Postnummer:</strong> ${escapeHtml(input.postcode)}</li>` : ""}
+                  <li><strong>Start:</strong> ${escapeHtml(start)}</li>
+                  <li><strong>Slut:</strong> ${escapeHtml(end)}</li>
+                  ${input.city ? `<li><strong>Ort:</strong> ${escapeHtml(input.city)}</li>` : ""}
+                </ul>
+                <p>Öppna Bokningar i Proffera för att bekräfta eller avboka förfrågan.</p>
+              </div>
+            `;
+          
+            return { subject, text, html };
+          }
+          '''
+          lead = lead[:owner_start] + owner_function + lead[owner_end:]
+          lead_path.write_text(lead)
+
+          unified_path = Path("src/features/email/unified-booking-confirmation-email.ts")
+          unified = unified_path.read_text()
+          unified = replace_once(
+              unified,
+              '''  city: string;
+            timeZone?: WorkspaceTimeZone;''',
+              '''  city: string;
+            address?: string;
+            postcode?: string;
+            timeZone?: WorkspaceTimeZone;''',
+              "confirmation input address fields",
+          )
+          unified = replace_once(
+              unified,
+              '''        `Service: ${input.service}`,
+                  `Start: ${start}`,
+                  `End: ${end}`,
+                  input.city ? `Location: ${input.city}` : "",''',
+              '''        `Service: ${input.service}`,
+                  input.address ? `Address: ${input.address}` : "",
+                  input.postcode ? `Postcode: ${input.postcode}` : "",
+                  `Start: ${start}`,
+                  `End: ${end}`,
+                  input.city ? `Area: ${input.city}` : "",''',
+              "English confirmation text address",
+          )
+          unified = replace_once(
+              unified,
+              '''        `Tjänst: ${input.service}`,
+                  `Start: ${start}`,
+                  `Slut: ${end}`,
+                  input.city ? `Ort: ${input.city}` : "",''',
+              '''        `Tjänst: ${input.service}`,
+                  input.address ? `Adress: ${input.address}` : "",
+                  input.postcode ? `Postnummer: ${input.postcode}` : "",
+                  `Start: ${start}`,
+                  `Slut: ${end}`,
+                  input.city ? `Ort: ${input.city}` : "",''',
+              "Swedish confirmation text address",
+          )
+          unified = replace_once(
+              unified,
+              '''            <tr><td style="padding:14px 16px 6px;font-weight:700;width:110px;color:#183e63;">Service</td><td style="padding:14px 16px 6px;">${escapeHtml(input.service)}</td></tr>
+                      <tr><td style="padding:6px 16px;font-weight:700;color:#183e63;">Start</td><td style="padding:6px 16px;">${escapeHtml(start)}</td></tr>
+                      <tr><td style="padding:6px 16px;font-weight:700;color:#183e63;">End</td><td style="padding:6px 16px;">${escapeHtml(end)}</td></tr>
+                      ${input.city ? `<tr><td style="padding:6px 16px 14px;font-weight:700;color:#183e63;">Location</td><td style="padding:6px 16px 14px;">${escapeHtml(input.city)}</td></tr>` : ""}''',
+              '''            <tr><td style="padding:14px 16px 6px;font-weight:700;width:110px;color:#183e63;">Service</td><td style="padding:14px 16px 6px;">${escapeHtml(input.service)}</td></tr>
+                      ${input.address ? `<tr><td style="padding:6px 16px;font-weight:700;color:#183e63;">Address</td><td style="padding:6px 16px;">${escapeHtml(input.address)}</td></tr>` : ""}
+                      ${input.postcode ? `<tr><td style="padding:6px 16px;font-weight:700;color:#183e63;">Postcode</td><td style="padding:6px 16px;">${escapeHtml(input.postcode)}</td></tr>` : ""}
+                      <tr><td style="padding:6px 16px;font-weight:700;color:#183e63;">Start</td><td style="padding:6px 16px;">${escapeHtml(start)}</td></tr>
+                      <tr><td style="padding:6px 16px;font-weight:700;color:#183e63;">End</td><td style="padding:6px 16px;">${escapeHtml(end)}</td></tr>
+                      ${input.city ? `<tr><td style="padding:6px 16px 14px;font-weight:700;color:#183e63;">Area</td><td style="padding:6px 16px 14px;">${escapeHtml(input.city)}</td></tr>` : ""}''',
+              "English confirmation HTML address",
+          )
+          unified = replace_once(
+              unified,
+              '''            <tr><td style="padding:14px 16px 6px;font-weight:700;width:110px;">Tjänst</td><td style="padding:14px 16px 6px;">${escapeHtml(input.service)}</td></tr>
+                      <tr><td style="padding:6px 16px;font-weight:700;">Start</td><td style="padding:6px 16px;">${escapeHtml(start)}</td></tr>
+                      <tr><td style="padding:6px 16px;font-weight:700;">Slut</td><td style="padding:6px 16px;">${escapeHtml(end)}</td></tr>
+                      ${input.city ? `<tr><td style="padding:6px 16px 14px;font-weight:700;">Ort</td><td style="padding:6px 16px 14px;">${escapeHtml(input.city)}</td></tr>` : ""}''',
+              '''            <tr><td style="padding:14px 16px 6px;font-weight:700;width:110px;">Tjänst</td><td style="padding:14px 16px 6px;">${escapeHtml(input.service)}</td></tr>
+                      ${input.address ? `<tr><td style="padding:6px 16px;font-weight:700;">Adress</td><td style="padding:6px 16px;">${escapeHtml(input.address)}</td></tr>` : ""}
+                      ${input.postcode ? `<tr><td style="padding:6px 16px;font-weight:700;">Postnummer</td><td style="padding:6px 16px;">${escapeHtml(input.postcode)}</td></tr>` : ""}
+                      <tr><td style="padding:6px 16px;font-weight:700;">Start</td><td style="padding:6px 16px;">${escapeHtml(start)}</td></tr>
+                      <tr><td style="padding:6px 16px;font-weight:700;">Slut</td><td style="padding:6px 16px;">${escapeHtml(end)}</td></tr>
+                      ${input.city ? `<tr><td style="padding:6px 16px 14px;font-weight:700;">Ort</td><td style="padding:6px 16px 14px;">${escapeHtml(input.city)}</td></tr>` : ""}''',
+              "Swedish confirmation HTML address",
+          )
+          unified_path.write_text(unified)
+
+          verification_path = Path("src/lib/public-booking-verification.ts")
+          verification = verification_path.read_text()
+          verification = replace_once(
+              verification,
+              '''    sendUnifiedBookingConfirmationEmail({ customerName: String(challenge.customer_name), customerEmail: String(challenge.customer_email), companyName: String(challenge.company_name), service: String(challenge.service_name), startsAt, endsAt, city: String(challenge.city ?? ""), timeZone, portalUrl, rescheduleUrl }),
+              challenge.owner_email ? sendBookingOwnerNotificationEmail({ ownerEmail: String(challenge.owner_email), companyName: String(challenge.company_name), customerName: String(challenge.customer_name), customerEmail: String(challenge.customer_email), customerPhone: String(challenge.customer_phone ?? ""), service: String(challenge.service_name), startsAt, endsAt, city: String(challenge.city ?? ""), timeZone }) : Promise.resolve(),''',
+              '''    sendUnifiedBookingConfirmationEmail({ customerName: String(challenge.customer_name), customerEmail: String(challenge.customer_email), companyName: String(challenge.company_name), service: String(challenge.service_name), startsAt, endsAt, city: String(challenge.city ?? ""), address, postcode, timeZone, portalUrl, rescheduleUrl, language: String(challenge.public_booking_slug) === "primeview" ? "en" : undefined }),
+              challenge.owner_email ? sendBookingOwnerNotificationEmail({ ownerEmail: String(challenge.owner_email), companyName: String(challenge.company_name), customerName: String(challenge.customer_name), customerEmail: String(challenge.customer_email), customerPhone: String(challenge.customer_phone ?? ""), service: String(challenge.service_name), startsAt, endsAt, city: String(challenge.city ?? ""), address, postcode, timeZone, language: String(challenge.public_booking_slug) === "primeview" ? "en" : undefined }) : Promise.resolve(),''',
+              "booking email dispatch",
+          )
+          verification_path.write_text(verification)
+
+          test_path = Path("tests/primeview-booking-email-address.test.ts")
+          test_path.write_text('''import { describe, expect, it, vi } from "vitest";
+          
+          vi.mock("server-only", () => ({}));
+          
+          import { buildBookingOwnerNotificationEmail } from "../src/features/email/lead-email";
+          import { buildUnifiedBookingConfirmationEmail } from "../src/features/email/unified-booking-confirmation-email";
+          
+          const address = "Flat, Cricket Pavilion, Staveley Road, London";
+          const postcode = "W4 3ES";
+          
+          describe("PrimeView booking emails", () => {
+            it("sends the workspace owner an English notification with the exact address and postcode", () => {
+              const email = buildBookingOwnerNotificationEmail({
+                ownerEmail: "owner@example.com",
+                companyName: "PrimeView Window Care",
+                customerName: "Andrew Clark",
+                customerEmail: "andy.clark@example.co.uk",
+                customerPhone: "07973311643",
+                service: "Window Cleaning",
+                startsAt: "2026-09-01T10:00:00.000Z",
+                endsAt: "2026-09-01T11:00:00.000Z",
+                city: "London",
+                address,
+                postcode,
+                timeZone: "Europe/London",
+                language: "en",
+              });
+          
+              expect(email.subject).toBe("New booking request – Window Cleaning");
+              expect(email.text).toContain("Hello PrimeView Window Care,");
+              expect(email.text).toContain(`Address: ${address}`);
+              expect(email.text).toContain(`Postcode: ${postcode}`);
+              expect(email.text).toMatch(/Tuesday.*1 September 2026.*11:00/);
+              expect(email.text).not.toContain("Ny bokningsförfrågan");
+              expect(email.html).toContain("<strong>Address:</strong>");
+              expect(email.html).toContain(postcode);
+            });
+          
+            it("includes the exact address and postcode in the English customer confirmation", () => {
+              const email = buildUnifiedBookingConfirmationEmail({
+                customerName: "Andrew Clark",
+                customerEmail: "andy.clark@example.co.uk",
+                companyName: "PrimeView Window Care",
+                service: "Window Cleaning",
+                startsAt: "2026-09-01T10:00:00.000Z",
+                endsAt: "2026-09-01T11:00:00.000Z",
+                city: "London",
+                address,
+                postcode,
+                timeZone: "Europe/London",
+                portalUrl: "https://www.primeviewwindowcare.co.uk/my-bookings/example",
+                rescheduleUrl: "https://www.primeviewwindowcare.co.uk/my-bookings/example/reschedule",
+                language: "en",
+              });
+          
+              expect(email.subject).toBe("Booking request received – PrimeView Window Care");
+              expect(email.text).toContain(`Address: ${address}`);
+              expect(email.text).toContain(`Postcode: ${postcode}`);
+              expect(email.text).toContain("Area: London");
+              expect(email.html).toContain("<td style=\"padding:6px 16px;font-weight:700;color:#183e63;\">Address</td>");
+              expect(email.html).toContain(postcode);
+            });
+          });
+          ''')
+          PY
+
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/features/email/lead-email.ts src/features/email/unified-booking-confirmation-email.ts src/lib/public-booking-verification.ts tests/primeview-booking-email-address.test.ts
+          git diff --cached --check
+          git commit -m "fix: include PrimeView address in English booking emails"
+          git push origin HEAD:work/proffera-primeview-booking-email-address
