@@ -44,9 +44,12 @@ function officialRecord(overrides: Record<string, unknown> = {}) {
   return {
     organisationsidentitet: {
       identitetsbeteckning: PRIVATE_OFFICIAL,
-      typ: { kod: "PERSONNUMMER" },
+      typ: { kod: "PERSONNR" },
     },
-    organisationsform: { kod: "E", klartext: "Enskild näringsidkare" },
+    namnskyddslopnummer: 1,
+    organisationsform: { kod: "E", klartext: "Enskild näringsverksamhet" },
+    avregistreradOrganisation: null,
+    verksamOrganisation: { kod: "JA" },
     organisationsnamn: {
       organisationsnamnLista: [{ namn: "Exempel Service" }],
     },
@@ -180,6 +183,18 @@ describe("privacy-safe sole-trader owner verification", () => {
 
     await expect(onboardOwnerSoleTrader(PRIVATE_INPUT)).rejects.toThrow("sole_trader_source_error");
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(query.transaction).not.toHaveBeenCalled();
+  });
+
+  it("fails closed instead of reporting inactive when no sole-trader record matches", async () => {
+    const { query } = createSqlMock();
+    mocks.getSql.mockReturnValue(query);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ organisationer: [] }),
+    }));
+
+    await expect(onboardOwnerSoleTrader(PRIVATE_INPUT)).rejects.toThrow("sole_trader_source_error");
     expect(query.transaction).not.toHaveBeenCalled();
   });
 

@@ -234,6 +234,10 @@ function selectCurrentSoleTraderBusiness(payload: unknown, requestedIdentity10: 
       && responseIdentity10(identityValue(row)) === requestedIdentity10
       && isSoleTraderRecord(row);
   });
+  if (matching.length === 0) {
+    throw new Error("sole_trader_source_error");
+  }
+
   const current = matching.filter((row) => !hasDeregistrationEvidence(row));
   if (current.length === 0) {
     return { status: "not_active", companyName: matching.map(businessName).find(Boolean) ?? "" };
