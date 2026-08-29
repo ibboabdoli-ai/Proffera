@@ -32,7 +32,10 @@ type SendBookingOwnerNotificationEmailInput = {
   startsAt: string;
   endsAt: string;
   city: string;
+  address?: string;
+  postcode?: string;
   timeZone?: WorkspaceTimeZone;
+  language?: "sv" | "en";
 };
 
 type SendBookingStatusEmailInput = {
@@ -207,14 +210,18 @@ export function buildPrimeViewQuoteConfirmationEmail(input: SendPrimeViewQuoteEm
   return { subject, text, html };
 }
 
-function formatBookingTime(value: string, timeZone: WorkspaceTimeZone = "Europe/Stockholm") {
+function formatBookingTime(
+  value: string,
+  timeZone: WorkspaceTimeZone = "Europe/Stockholm",
+  language: "sv" | "en" = "sv",
+) {
   const date = new Date(value);
 
   if (Number.isNaN(date.getTime())) {
     return value;
   }
 
-  return new Intl.DateTimeFormat("sv-SE", {
+  return new Intl.DateTimeFormat(language === "en" ? "en-GB" : "sv-SE", {
     timeZone,
     dateStyle: "full",
     timeStyle: "short",
@@ -259,8 +266,51 @@ export function buildBookingConfirmationEmail(input: SendBookingConfirmationEmai
 }
 
 export function buildBookingOwnerNotificationEmail(input: SendBookingOwnerNotificationEmailInput) {
-  const start = formatBookingTime(input.startsAt, input.timeZone);
-  const end = formatBookingTime(input.endsAt, input.timeZone);
+  const language = input.language ?? (input.companyName.trim().toLowerCase() === "primeview window care" ? "en" : "sv");
+  const isEnglish = language === "en";
+  const start = formatBookingTime(input.startsAt, input.timeZone, language);
+  const end = formatBookingTime(input.endsAt, input.timeZone, language);
+
+  if (isEnglish) {
+    const subject = `New booking request – ${input.service}`;
+    const text = [
+      `Hello ${input.companyName},`,
+      "",
+      "A new booking request has been received via Proffera.",
+      "",
+      `Customer: ${input.customerName}`,
+      input.customerEmail ? `Email: ${input.customerEmail}` : "",
+      input.customerPhone ? `Phone: ${input.customerPhone}` : "",
+      `Service: ${input.service}`,
+      input.address ? `Address: ${input.address}` : "",
+      input.postcode ? `Postcode: ${input.postcode}` : "",
+      `Start: ${start}`,
+      `End: ${end}`,
+      input.city ? `Area: ${input.city}` : "",
+      "",
+      "Open Bookings in Proffera to confirm or cancel the request.",
+    ].filter(Boolean).join("\n");
+    const html = `
+      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #0b2a4a;">
+        <p>Hello ${escapeHtml(input.companyName)},</p>
+        <p>A new booking request has been received via Proffera.</p>
+        <ul>
+          <li><strong>Customer:</strong> ${escapeHtml(input.customerName)}</li>
+          ${input.customerEmail ? `<li><strong>Email:</strong> ${escapeHtml(input.customerEmail)}</li>` : ""}
+          ${input.customerPhone ? `<li><strong>Phone:</strong> ${escapeHtml(input.customerPhone)}</li>` : ""}
+          <li><strong>Service:</strong> ${escapeHtml(input.service)}</li>
+          ${input.address ? `<li><strong>Address:</strong> ${escapeHtml(input.address)}</li>` : ""}
+          ${input.postcode ? `<li><strong>Postcode:</strong> ${escapeHtml(input.postcode)}</li>` : ""}
+          <li><strong>Start:</strong> ${escapeHtml(start)}</li>
+          <li><strong>End:</strong> ${escapeHtml(end)}</li>
+          ${input.city ? `<li><strong>Area:</strong> ${escapeHtml(input.city)}</li>` : ""}
+        </ul>
+        <p>Open Bookings in Proffera to confirm or cancel the request.</p>
+      </div>
+    `;
+    return { subject, text, html };
+  }
+
   const subject = `Ny bokningsförfrågan – ${input.service}`;
   const text = [
     `Hej ${input.companyName},`,
@@ -271,6 +321,8 @@ export function buildBookingOwnerNotificationEmail(input: SendBookingOwnerNotifi
     input.customerEmail ? `E-post: ${input.customerEmail}` : "",
     input.customerPhone ? `Telefon: ${input.customerPhone}` : "",
     `Tjänst: ${input.service}`,
+    input.address ? `Adress: ${input.address}` : "",
+    input.postcode ? `Postnummer: ${input.postcode}` : "",
     `Start: ${start}`,
     `Slut: ${end}`,
     input.city ? `Ort: ${input.city}` : "",
@@ -286,6 +338,8 @@ export function buildBookingOwnerNotificationEmail(input: SendBookingOwnerNotifi
         ${input.customerEmail ? `<li><strong>E-post:</strong> ${escapeHtml(input.customerEmail)}</li>` : ""}
         ${input.customerPhone ? `<li><strong>Telefon:</strong> ${escapeHtml(input.customerPhone)}</li>` : ""}
         <li><strong>Tjänst:</strong> ${escapeHtml(input.service)}</li>
+        ${input.address ? `<li><strong>Adress:</strong> ${escapeHtml(input.address)}</li>` : ""}
+        ${input.postcode ? `<li><strong>Postnummer:</strong> ${escapeHtml(input.postcode)}</li>` : ""}
         <li><strong>Start:</strong> ${escapeHtml(start)}</li>
         <li><strong>Slut:</strong> ${escapeHtml(end)}</li>
         ${input.city ? `<li><strong>Ort:</strong> ${escapeHtml(input.city)}</li>` : ""}
