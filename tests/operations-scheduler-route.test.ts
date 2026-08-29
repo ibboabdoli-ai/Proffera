@@ -105,25 +105,38 @@ describe("Operations scheduler route", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("reports partial failure after attempting the remaining bounded child jobs", async () => {
+  it("waits for each child, records a rejected child, and still runs the remaining job", async () => {
+    let resolveFirst!: (response: Response) => void;
+    const firstResponse = new Promise<Response>((resolve) => {
+      resolveFirst = resolve;
+    });
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response("{}", { status: 200 }))
-      .mockResolvedValueOnce(new Response("{}", { status: 503 }))
+      .mockImplementationOnce(() => firstResponse)
+      .mockRejectedValueOnce(new Error("official facts unavailable"))
       .mockResolvedValueOnce(new Response("{}", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const { GET } = await loadRoute();
 
-    const response = await GET(request("qstash-scheduler-secret"));
+    try {
+      const responsePromise = GET(request("qstash-scheduler-secret"));
+      expect(fetchMock).toHaveBeenCalledTimes(1);
 
-    expect(response.status).toBe(503);
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    await expect(response.json()).resolves.toMatchObject({
-      ok: false,
-      results: [
-        { name: "booking_reminders", ok: true, status: 200 },
-        { name: "company_directory_official_facts", ok: false, status: 503 },
-        { name: "company_directory_sync", ok: true, status: 200 },
-      ],
-    });
+      resolveFirst(new Response("{}", { status: 200 }));
+      const response = await responsePromise;
+
+      expect(response.status).toBe(503);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      await expect(response.json()).resolves.toMatchObject({
+        ok: false,
+        results: [
+          { name: "booking_reminders", ok: true, status: 200 },
+          { name: "company_directory_official_facts", ok: false, status: 0 },
+          { name: "company_directory_sync", ok: true, status: 200 },
+        ],
+      });
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 });
