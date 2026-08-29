@@ -227,6 +227,28 @@ const OPTIONAL_SOLE_TRADER_SOURCE_ERROR_SECTIONS = new Set([
   "verksamhetsbeskrivning",
 ]);
 
+const SAFE_PRODUCER_ERROR_SECTIONS = new Set([
+  "$record",
+  "$response",
+  "avregistreradOrganisation",
+  "avregistreringsorsak",
+  "juridiskForm",
+  "namnskyddslopnummer",
+  "naringsgrenOrganisation",
+  "näringsgrenOrganisation",
+  "organisationsdatum",
+  "organisationsform",
+  "organisationsidentitet",
+  "organisationsnamn",
+  "pagaendeAvvecklingsEllerOmstruktureringsforfarande",
+  "pågåendeAvvecklingsEllerOmstruktureringsförfarande",
+  "postadressOrganisation",
+  "registreringsland",
+  "reklamsparr",
+  "verksamOrganisation",
+  "verksamhetsbeskrivning",
+]);
+
 const ORGANIZATION_CONTAINER_KEYS = new Set([
   "organisationer",
   "organisations",
@@ -237,6 +259,16 @@ const ORGANIZATION_CONTAINER_KEYS = new Set([
   "organization",
   "data",
   "result",
+]);
+
+const ORGANIZATION_RECORD_MARKER_KEYS = new Set([
+  "organisationsidentitet",
+  "organizationIdentity",
+  "organisationsform",
+  "organizationForm",
+  "organisationsnamn",
+  "organizationNames",
+  "namnskyddslopnummer",
 ]);
 
 type ProducerError = {
@@ -252,11 +284,17 @@ function safeProducerErrorType(value: unknown) {
 
 function producerErrorSection(path: string[]) {
   let index = 0;
-  if (ORGANIZATION_CONTAINER_KEYS.has(path[index] ?? "")) {
+  let fallback = "$response";
+  if (path[index] === "$record") {
+    index += 1;
+    fallback = "$record";
+  } else if (ORGANIZATION_CONTAINER_KEYS.has(path[index] ?? "")) {
     index += 1;
     if (/^\d+$/.test(path[index] ?? "")) index += 1;
+    fallback = "$record";
   }
-  return path[index] ?? "$response";
+  const rawSection = path[index] ?? fallback;
+  return SAFE_PRODUCER_ERROR_SECTIONS.has(rawSection) ? rawSection : "unknown_section";
 }
 
 function collectProducerErrors(value: unknown, path: string[] = [], depth = 0): ProducerError[] {
@@ -278,6 +316,32 @@ function collectProducerErrors(value: unknown, path: string[] = [], depth = 0): 
   return errors;
 }
 
+function looksLikeOrganizationRecord(value: AnyRecord) {
+  return [...ORGANIZATION_RECORD_MARKER_KEYS].some((key) => key in value);
+}
+
+function collectResponseProducerErrors(payload: unknown) {
+  if (Array.isArray(payload)) return [];
+  const root = object(payload);
+  if (!root || looksLikeOrganizationRecord(root)) return [];
+
+  const errors: ProducerError[] = [];
+  if (root.fel !== null && root.fel !== undefined) {
+    errors.push({ section: "$response", type: safeProducerErrorType(root.fel) });
+  }
+  for (const [key, child] of Object.entries(root)) {
+    if (key === "fel" || ORGANIZATION_CONTAINER_KEYS.has(key)) continue;
+    if (child && typeof child === "object") {
+      errors.push(...collectProducerErrors(child, [key], 1));
+    }
+  }
+  return errors;
+}
+
+function blockingProducerErrors(errors: ProducerError[]) {
+  return errors.filter((error) => !OPTIONAL_SOLE_TRADER_SOURCE_ERROR_SECTIONS.has(error.section));
+}
+
 function logSoleTraderSourceFailure(
   reason: string,
   details: Record<string, string | number | string[]> = {},
@@ -293,20 +357,20 @@ function failSoleTraderSource(
   throw new Error("sole_trader_source_error");
 }
 
+function failOnProducerErrors(errors: ProducerError[]) {
+  const blockingErrors = blockingProducerErrors(errors);
+  if (blockingErrors.length === 0) return;
+  failSoleTraderSource("producer_error", {
+    fields: [...new Set(blockingErrors.map((error) => error.section))],
+    errorTypes: [...new Set(blockingErrors.map((error) => error.type))],
+  });
+}
+
 function selectCurrentSoleTraderBusiness(payload: unknown, requestedIdentity10: string):
   | { status: "found"; business: SoleTraderOfficialBusiness }
   | { status: "ambiguous"; companyName: string }
   | { status: "not_active"; companyName: string } {
-  const producerErrors = collectProducerErrors(payload);
-  const blockingErrors = producerErrors.filter(
-    (error) => !OPTIONAL_SOLE_TRADER_SOURCE_ERROR_SECTIONS.has(error.section),
-  );
-  if (blockingErrors.length > 0) {
-    failSoleTraderSource("producer_error", {
-      fields: [...new Set(blockingErrors.map((error) => error.section))],
-      errorTypes: [...new Set(blockingErrors.map((error) => error.type))],
-    });
-  }
+  failOnProducerErrors(collectResponseProducerErrors(payload));
 
   const records = organizationRecords(payload);
   const identityMatches = records.filter((row) => {
@@ -317,6 +381,10 @@ function selectCurrentSoleTraderBusiness(payload: unknown, requestedIdentity10: 
   if (identityMatches.length === 0) {
     failSoleTraderSource("no_identity_match", { recordCount: records.length });
   }
+
+  failOnProducerErrors(
+    identityMatches.flatMap((row) => collectProducerErrors(row, ["$record"])),
+  );
 
   const matching = identityMatches.filter(isSoleTraderRecord);
   if (matching.length === 0) {
