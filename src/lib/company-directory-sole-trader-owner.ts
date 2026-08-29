@@ -1,6 +1,6 @@
 import "server-only";
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { headers } from "next/headers";
 
 import {
@@ -88,6 +88,19 @@ function responseIdentity10(value: unknown) {
   const digits = String(value ?? "").replace(/\D/g, "");
   if (/^\d{12}$/.test(digits)) return digits.slice(2);
   return /^\d{10}$/.test(digits) ? digits : "";
+}
+
+function responseIdentityDiagnostic(value: unknown) {
+  const digits = String(value ?? "").replace(/\D/g, "");
+  const normalized10 = responseIdentity10(value);
+  const fingerprint = normalized10
+    ? createHash("sha256").update(`${ACCEPTANCE2_IDENTITY_FINGERPRINT_PREFIX}${normalized10}`).digest("hex")
+    : "";
+  return {
+    state: normalized10 ? "different" : "missing",
+    shape: !digits ? "missing" : digits.length === 12 ? "12_digit" : digits.length === 10 ? "10_digit" : "other",
+    knownAcceptance2Identity: Boolean(fingerprint && ACCEPTANCE2_PERSON_IDENTITY_FINGERPRINTS.has(fingerprint)),
+  };
 }
 
 function organizationRecords(payload: unknown): AnyRecord[] {
@@ -279,6 +292,21 @@ const SOLE_TRADER_SOURCE_ATTEMPTS = 2;
 const PRODUCTION_SOLE_TRADER_TOKEN_URL = "https://portal.api.bolagsverket.se/oauth2/token";
 const PRODUCTION_SOLE_TRADER_DETAIL_URL = "https://gw.api.bolagsverket.se/vardefulla-datamangder/v1/organisationer";
 const PRODUCTION_SOLE_TRADER_SCOPE = "vardefulla-datamangder:read";
+const ACCEPTANCE2_IDENTITY_FINGERPRINT_PREFIX = "bolagsverket-acceptance2-diagnostic-v1:";
+const ACCEPTANCE2_PERSON_IDENTITY_FINGERPRINTS = new Set([
+  "ed6f76bcad9b55d77d27418994bb35d2936121b48ec319e75b5e2ad6585aa45b",
+  "b50392a40628b5d1efb557758e3936a353ec5fd27614035e13667e6c7b56404e",
+  "1549fa3190321e9213f04f22e741cec908b01cb462a51f50232287473fef77d3",
+  "095e6ae5b0449938e2cc342ac8f093815aa4e4e2523e8050d4ac51793737663d",
+  "fdfaac6fe9084970fe5fdda615b5d9a9d042ac0bd44510c483025857e40c5dd6",
+  "3dd84c545827768a49493eea913a54d7d5f543c1c9f9f44e0d0353cc15b74a91",
+  "5e6b0e14cd6eb78e4fc9751a2ba11c781c6b43f93966bd356d26e5e8579d4e9a",
+  "29d5b373b4e7a0cdc3b12cac3d492fcd968af54f9063c34adfef74d3ac0e4e9c",
+  "6a9cee6dec86de3ed0284cedd28fe225e440be0f33950464f29759dee73442c0",
+  "918043d6725d7567dea5609ea882b5ac77e19f1cb4b7bb7b63a22254a9d6a555",
+  "fa4e7ca851f477911bdcf1f5066340a1bb2c16862ef06384bd6ed4b9757b6044",
+  "b013776845deb7f82d5849a8870bf75d2e20205ff25f1a2eb6b11f1d1ef8a23d",
+]);
 
 type ProducerError = {
   section: string;
@@ -407,10 +435,21 @@ function selectCurrentSoleTraderBusiness(payload: unknown, requestedIdentity10: 
       identitylessRecords.flatMap((row) => collectProducerErrors(row, ["$record"])),
       true,
     );
-    const identityStates = [...new Set(records.map((row) => (
-      responseIdentity10(identityValue(row)) ? "different" : "missing"
-    )))];
-    failSoleTraderSource("no_identity_match", { recordCount: records.length, identityStates });
+    const diagnostics = records.map((row) => ({
+      ...responseIdentityDiagnostic(identityValue(row)),
+      typeState: (() => {
+        const type = identityType(row);
+        if (!type) return "missing";
+        return type === "PERSONNUMMER" || type === "PERSONNR" ? "person" : "other";
+      })(),
+    }));
+    failSoleTraderSource("no_identity_match", {
+      recordCount: records.length,
+      identityStates: [...new Set(diagnostics.map((item) => item.state))],
+      identityTypeStates: [...new Set(diagnostics.map((item) => item.typeState))],
+      identityShapeStates: [...new Set(diagnostics.map((item) => item.shape))],
+      knownAcceptance2Identity: diagnostics.some((item) => item.knownAcceptance2Identity) ? "yes" : "no",
+    });
   }
 
   failOnProducerErrors(
