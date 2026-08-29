@@ -21,6 +21,7 @@ describe("Marketplace Auto Worker cron route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.CRON_SECRET = "cron-secret";
+    process.env.PRODUCTION_SCHEDULER_SECRET = "qstash-secret";
     process.env.MARKETPLACE_AUTO_WORKER_ENABLED = "true";
     process.env.VERCEL_ENV = "preview";
     process.env.MARKETPLACE_AUTO_WORKER_NOT_BEFORE = "2026-08-23T09:24:45.000Z";
@@ -34,13 +35,23 @@ describe("Marketplace Auto Worker cron route", () => {
     process.env = { ...originalEnv };
   });
 
-  it("requires the scheduler secret, including when the server secret is missing", async () => {
+  it("requires an authorized scheduler secret, including when both server secrets are missing", async () => {
     expect((await GET(request("wrong"))).status).toBe(401);
     expect(mocks.processWorker).not.toHaveBeenCalled();
 
     delete process.env.CRON_SECRET;
+    delete process.env.PRODUCTION_SCHEDULER_SECRET;
     expect((await GET(request())).status).toBe(401);
     expect(mocks.processWorker).not.toHaveBeenCalled();
+  });
+
+  it("accepts the scoped external scheduler secret without exposing CRON_SECRET", async () => {
+    delete process.env.CRON_SECRET;
+
+    const response = await GET(request("qstash-secret"));
+
+    expect(response.status).toBe(200);
+    expect(mocks.processWorker).toHaveBeenCalledTimes(1);
   });
 
   it("is dormant unless explicitly enabled", async () => {

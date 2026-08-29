@@ -34,6 +34,7 @@ describe("Production health cron route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.CRON_SECRET = "cron-secret";
+    process.env.PRODUCTION_SCHEDULER_SECRET = "qstash-secret";
     process.env.VERCEL_ENV = "production";
     process.env.VERCEL_GIT_COMMIT_SHA = "1111111111111111111111111111111111111111";
     mocks.readHealth.mockResolvedValue(healthySchema);
@@ -43,13 +44,23 @@ describe("Production health cron route", () => {
     process.env = { ...originalEnv };
   });
 
-  it("requires the scheduler secret before touching the database", async () => {
+  it("requires an authorized scheduler secret before touching the database", async () => {
     expect((await GET(request("wrong"))).status).toBe(401);
     expect(mocks.readHealth).not.toHaveBeenCalled();
 
     delete process.env.CRON_SECRET;
+    delete process.env.PRODUCTION_SCHEDULER_SECRET;
     expect((await GET(request())).status).toBe(401);
     expect(mocks.readHealth).not.toHaveBeenCalled();
+  });
+
+  it("accepts the scoped external scheduler secret without CRON_SECRET", async () => {
+    delete process.env.CRON_SECRET;
+
+    const response = await GET(request("qstash-secret"));
+
+    expect(response.status).toBe(200);
+    expect(mocks.readHealth).toHaveBeenCalledTimes(1);
   });
 
   it("reports the exact deployed commit for a healthy Production schema", async () => {
