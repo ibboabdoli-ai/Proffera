@@ -1,0 +1,44 @@
+name: Temporary PR 779 review fix
+
+on:
+  push:
+    branches:
+      - work/proffera-sole-trader-source-environment-diagnostic
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: work/proffera-sole-trader-source-environment-diagnostic
+          fetch-depth: 0
+      - name: Strengthen fingerprint redaction regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('tests/company-directory-sole-trader-owner.test.ts')
+          text = path.read_text()
+          old = '''    expect(logged).not.toContain(PRIVATE_INPUT);\n    expect(logged).not.toContain(PRIVATE_OFFICIAL);\n    expect(logged).not.toContain("198101032384");\n    expect(query.transaction).not.toHaveBeenCalled();'''
+          new = '''    expect(logged).not.toContain(PRIVATE_INPUT);\n    expect(logged).not.toContain(PRIVATE_OFFICIAL);\n    expect(logged).not.toContain("198101032384");\n    expect(logged).not.toContain("bolagsverket-acceptance2-diagnostic-v1:");\n    expect(logged).not.toContain("1549fa3190321e9213f04f22e741cec908b01cb462a51f50232287473fef77d3");\n    expect(query.transaction).not.toHaveBeenCalled();'''
+          if text.count(old) != 1:
+              raise SystemExit('expected one diagnostic log assertion block')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          rm .github/workflows/temp-fix-779-review.yml
+          git diff --check
+      - name: Commit review fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tests/company-directory-sole-trader-owner.test.ts .github/workflows/temp-fix-779-review.yml
+          git commit -m 'Strengthen sole-trader diagnostic redaction test'
+          git push origin HEAD:work/proffera-sole-trader-source-environment-diagnostic
