@@ -37,6 +37,9 @@ const PRIVATE_INPUT = "9001011234";
 const PRIVATE_OFFICIAL = "199001011234";
 const CANONICAL_PRODUCTION_TOKEN_URL = "https://gw.api.bolagsverket.se/oauth2/token";
 const CANONICAL_PRODUCTION_DETAIL_URL = "https://gw.api.bolagsverket.se/vardefulla-datamangder/v1/organisationer";
+const PRODUCTION_CLIENT_ID = "production-client-id";
+const PRODUCTION_CLIENT_SECRET = "production-client-secret";
+const EXPECTED_BASIC_AUTHORIZATION = `Basic ${Buffer.from(`${PRODUCTION_CLIENT_ID}:${PRODUCTION_CLIENT_SECRET}`).toString("base64")}`;
 
 const ENV_KEYS = [
   "VERCEL_ENV",
@@ -111,8 +114,8 @@ beforeEach(() => {
   process.env.COMPANY_DIRECTORY_TOKEN_URL = "https://wrong-environment.example/oauth2/token";
   process.env.COMPANY_DIRECTORY_DETAIL_BODY_TEMPLATE = JSON.stringify({ identitetsbeteckning: "191212121212" });
   process.env.COMPANY_DIRECTORY_OAUTH_SCOPE = "wrong:scope";
-  process.env.BOLAGSVERKET_CLIENT_ID = "production-client-id";
-  process.env.BOLAGSVERKET_CLIENT_SECRET = "production-client-secret";
+  process.env.BOLAGSVERKET_CLIENT_ID = PRODUCTION_CLIENT_ID;
+  process.env.BOLAGSVERKET_CLIENT_SECRET = PRODUCTION_CLIENT_SECRET;
 
   mocks.headers.mockResolvedValue(new Headers({ "x-forwarded-for": "127.0.0.1" }));
   mocks.getUserWorkspaceAccess.mockResolvedValue({
@@ -164,13 +167,19 @@ describe("sole-trader Production request contract", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
     const [tokenUrl, tokenRequest] = fetchMock.mock.calls[0] as [URL | string, RequestInit];
+    const tokenHeaders = tokenRequest.headers as Record<string, string>;
     expect(String(tokenUrl)).toBe(CANONICAL_PRODUCTION_TOKEN_URL);
     expect(String(tokenUrl)).not.toContain(PRIVATE_INPUT);
     expect(String(tokenUrl)).not.toContain(PRIVATE_OFFICIAL);
     expect(tokenRequest.method).toBe("POST");
     expect(String(tokenRequest.body)).toContain("grant_type=client_credentials");
     expect(String(tokenRequest.body)).toContain("scope=vardefulla-datamangder%3Aread");
-    expect(String(tokenRequest.headers)).not.toContain("legacy-static-token");
+    expect(tokenHeaders).toEqual(expect.objectContaining({
+      authorization: EXPECTED_BASIC_AUTHORIZATION,
+      "content-type": "application/x-www-form-urlencoded",
+      accept: "application/json",
+    }));
+    expect(Object.values(tokenHeaders).join(" ")).not.toContain("legacy-static-token");
 
     const [detailUrl, detailRequest] = fetchMock.mock.calls[1] as [URL | string, RequestInit];
     expect(String(detailUrl)).toBe(CANONICAL_PRODUCTION_DETAIL_URL);
