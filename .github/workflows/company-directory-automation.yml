@@ -8,9 +8,13 @@ on:
       - ".github/workflows/company-directory-automation.yml"
       - "scripts/company-directory-discovery.py"
       - "src/app/api/cron/company-directory-discovery-ingest/route.ts"
-  schedule:
-    - cron: "17 * * * *"
-    - cron: "31 3 * * *"
+  workflow_call:
+    inputs:
+      trigger_schedule:
+        description: Original scheduler cron expression from the scheduler hub
+        required: false
+        type: string
+        default: ""
   workflow_dispatch:
 
 permissions:
@@ -57,7 +61,7 @@ jobs:
 
       - name: Probe official company source
         id: probe
-        if: github.event_name == 'schedule' && github.event.schedule == '17 * * * *'
+        if: inputs.trigger_schedule == '17 * * * *'
         env:
           INGEST_URL: ${{ steps.endpoint.outputs.ingest_url }}
           CRON_SECRET: ${{ secrets.PROFFERA_REMINDER_CRON_SECRET }}
@@ -93,24 +97,26 @@ jobs:
       - name: Decide whether to run full discovery
         id: scan
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          EVENT_SCHEDULE: ${{ github.event.schedule }}
+          TRIGGER_SCHEDULE: ${{ inputs.trigger_schedule }}
           SOURCE_CHANGED: ${{ steps.probe.outputs.source_changed }}
         run: |
           set -euo pipefail
 
-          if [ "$EVENT_NAME" != "schedule" ]; then
+          if [ -z "$TRIGGER_SCHEDULE" ]; then
             run_full="true"
             reason="manual-or-discovery-code-change"
-          elif [ "$EVENT_SCHEDULE" = "31 3 * * *" ]; then
+          elif [ "$TRIGGER_SCHEDULE" = "31 3 * * *" ]; then
             run_full="true"
             reason="daily-safety-scan"
-          elif [ "$SOURCE_CHANGED" = "true" ]; then
+          elif [ "$TRIGGER_SCHEDULE" = "17 * * * *" ] && [ "$SOURCE_CHANGED" = "true" ]; then
             run_full="true"
             reason="official-source-changed"
-          else
+          elif [ "$TRIGGER_SCHEDULE" = "17 * * * *" ]; then
             run_full="false"
             reason="official-source-unchanged"
+          else
+            echo "::error::Unsupported Company Directory scheduler route: $TRIGGER_SCHEDULE"
+            exit 1
           fi
 
           echo "run_full=$run_full" >> "$GITHUB_OUTPUT"
