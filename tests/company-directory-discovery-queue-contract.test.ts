@@ -3,6 +3,8 @@ import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { workflowCronExpressions, workflowTriggers } from "./github-workflow-yaml";
+
 function source(path: string) {
   return readFileSync(resolve(process.cwd(), path), "utf8");
 }
@@ -102,13 +104,17 @@ describe("automatic company directory discovery contract", () => {
     expect(worker).toContain("primary-supported-SNI + supported-form candidates");
   });
 
-  it("probes official discovery hourly, keeps a daily full scan, and leaves queue processing on the 15-minute runner", () => {
+  it("probes official discovery hourly, keeps a daily full scan, and leaves queue processing on the Operations runner", () => {
     const discoveryWorkflow = source(".github/workflows/company-directory-automation.yml");
     const operationsWorkflow = source(".github/workflows/booking-reminders.yml");
+    const discoveryTriggers = workflowTriggers(discoveryWorkflow);
+    const operationsTriggers = workflowTriggers(operationsWorkflow);
 
     expect(discoveryWorkflow).toContain("Discover official company candidates");
-    expect(discoveryWorkflow).toContain('cron: "17 * * * *"');
-    expect(discoveryWorkflow).toContain('cron: "31 3 * * *"');
+    expect(workflowCronExpressions(discoveryWorkflow)).toEqual([
+      "17 * * * *",
+      "31 3 * * *",
+    ]);
     expect(discoveryWorkflow).toContain("PROFFERA_REMINDER_CRON_SECRET");
     expect(discoveryWorkflow).toContain("company-directory-discovery-ingest");
     expect(discoveryWorkflow).toContain("source_probe=1");
@@ -116,11 +122,12 @@ describe("automatic company directory discovery contract", () => {
     expect(discoveryWorkflow).toContain("daily-safety-scan");
     expect(discoveryWorkflow).toContain("official-source-changed");
     expect(discoveryWorkflow).toContain("steps.scan.outputs.run_full == 'true'");
-    expect(discoveryWorkflow).toContain("push:");
-    expect(discoveryWorkflow).not.toContain('cron: "9,24,39,54 * * * *"');
+    expect(discoveryTriggers).toHaveProperty("push");
+    expect(workflowCronExpressions(discoveryWorkflow)).not.toContain("9,24,39,54 * * * *");
 
     expect(operationsWorkflow).toContain("Process booking reminders and directory updates");
-    expect(operationsWorkflow).toContain('cron: "8,23,38,53 * * * *"');
+    expect(operationsTriggers).toHaveProperty("workflow_dispatch");
+    expect(operationsTriggers).not.toHaveProperty("schedule");
     expect(operationsWorkflow).toContain("PROFFERA_REMINDER_CRON_SECRET");
     expect(operationsWorkflow).toContain("company-directory-official-facts?limit=10");
     expect(operationsWorkflow).toContain("company-directory-sync");
