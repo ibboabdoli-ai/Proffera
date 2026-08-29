@@ -1,10 +1,6 @@
 name: Marketplace Auto Worker
 
 on:
-  schedule:
-    # Cluster recurring Production DB wakeups with Operations at the same cron
-    # windows so Neon gets longer idle time without reducing Marketplace cadence.
-    - cron: "8,23,38,53 * * * *"
   workflow_dispatch:
 
 permissions: {}
@@ -100,5 +96,5 @@ jobs:
           )
           PY
 
-          # This scheduler is a best-effort trigger. Persisted Marketplace state
-          # and application-side monitoring remain the source of truth for throughput.
+          # This workflow is retained as a manual recovery path. Automatic
+          # Production scheduling is owned by the external QStash schedule.
