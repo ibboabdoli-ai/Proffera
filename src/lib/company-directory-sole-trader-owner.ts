@@ -271,6 +271,12 @@ const ORGANIZATION_RECORD_MARKER_KEYS = new Set([
   "namnskyddslopnummer",
 ]);
 
+const TRANSIENT_SOLE_TRADER_SOURCE_ERROR_TYPES = new Set([
+  "OTILLGANGLIG_UPPGIFTSKALLA",
+]);
+
+const SOLE_TRADER_SOURCE_ATTEMPTS = 2;
+
 type ProducerError = {
   section: string;
   type: string;
@@ -357,20 +363,30 @@ function failSoleTraderSource(
   throw new Error("sole_trader_source_error");
 }
 
-function failOnProducerErrors(errors: ProducerError[]) {
+function producerErrorsAreRetryable(errors: ProducerError[]) {
+  return errors.length > 0
+    && errors.every((error) => TRANSIENT_SOLE_TRADER_SOURCE_ERROR_TYPES.has(error.type));
+}
+
+function failOnProducerErrors(errors: ProducerError[], retryTransient = false) {
   const blockingErrors = blockingProducerErrors(errors);
   if (blockingErrors.length === 0) return;
-  failSoleTraderSource("producer_error", {
+  const details = {
     fields: [...new Set(blockingErrors.map((error) => error.section))],
     errorTypes: [...new Set(blockingErrors.map((error) => error.type))],
-  });
+  };
+  logSoleTraderSourceFailure("producer_error", details);
+  if (retryTransient && producerErrorsAreRetryable(blockingErrors)) {
+    throw new Error("sole_trader_retryable_source_error");
+  }
+  throw new Error("sole_trader_source_error");
 }
 
 function selectCurrentSoleTraderBusiness(payload: unknown, requestedIdentity10: string):
   | { status: "found"; business: SoleTraderOfficialBusiness }
   | { status: "ambiguous"; companyName: string }
   | { status: "not_active"; companyName: string } {
-  failOnProducerErrors(collectResponseProducerErrors(payload));
+  failOnProducerErrors(collectResponseProducerErrors(payload), true);
 
   const records = organizationRecords(payload);
   const identityMatches = records.filter((row) => {
@@ -379,11 +395,20 @@ function selectCurrentSoleTraderBusiness(payload: unknown, requestedIdentity10: 
     return supportedType && responseIdentity10(identityValue(row)) === requestedIdentity10;
   });
   if (identityMatches.length === 0) {
-    failSoleTraderSource("no_identity_match", { recordCount: records.length });
+    const identitylessRecords = records.filter((row) => !responseIdentity10(identityValue(row)));
+    failOnProducerErrors(
+      identitylessRecords.flatMap((row) => collectProducerErrors(row, ["$record"])),
+      true,
+    );
+    const identityStates = [...new Set(records.map((row) => (
+      responseIdentity10(identityValue(row)) ? "different" : "missing"
+    )))];
+    failSoleTraderSource("no_identity_match", { recordCount: records.length, identityStates });
   }
 
   failOnProducerErrors(
     identityMatches.flatMap((row) => collectProducerErrors(row, ["$record"])),
+    true,
   );
 
   const matching = identityMatches.filter(isSoleTraderRecord);
@@ -509,24 +534,38 @@ async function verifyOfficialSoleTrader(identity10: string) {
     ? replaceIdentity(bodyTemplate, identity12)
     : JSON.stringify({ identitetsbeteckning: identity12 });
 
-  await waitForBolagsverketRequestSlot(provider);
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      accept: "application/json",
-      "content-type": "application/json",
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
-      "x-request-id": randomUUID(),
-    },
-    body,
-    cache: "no-store",
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!response.ok) {
-    logSoleTraderSourceFailure("detail_http_error", { status: response.status });
-    throw new Error("sole_trader_source_error");
+  for (let attempt = 1; attempt <= SOLE_TRADER_SOURCE_ATTEMPTS; attempt += 1) {
+    await waitForBolagsverketRequestSlot(provider);
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+        "x-request-id": randomUUID(),
+      },
+      body,
+      cache: "no-store",
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!response.ok) {
+      logSoleTraderSourceFailure("detail_http_error", { status: response.status });
+      throw new Error("sole_trader_source_error");
+    }
+
+    try {
+      return selectCurrentSoleTraderBusiness(await response.json(), identity10);
+    } catch (error) {
+      const retryable = error instanceof Error && error.message === "sole_trader_retryable_source_error";
+      if (!retryable) throw error;
+      if (attempt >= SOLE_TRADER_SOURCE_ATTEMPTS) {
+        throw new Error("sole_trader_source_error");
+      }
+      logSoleTraderSourceFailure("retrying_transient_producer_error", { attempt });
+    }
   }
-  return selectCurrentSoleTraderBusiness(await response.json(), identity10);
+
+  throw new Error("sole_trader_source_error");
 }
 
 async function requireManageableWorkspace() {
