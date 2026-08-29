@@ -70,6 +70,7 @@ describe("Company Directory smart claim service suggestions", () => {
           organization_kind: "juridical_person",
           city: "Södertälje",
           publication_status: "claimed",
+          is_active: true,
           privacy_blocked: false,
           auto_public_eligible: true,
           published_at: "2026-08-28T00:00:00.000Z",
