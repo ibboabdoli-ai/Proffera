@@ -7,8 +7,8 @@ async function loadRoute() {
   return await import("../src/app/api/cron/operations/route");
 }
 
-function request(secret: string) {
-  return new Request("https://www.proffera.se/api/cron/operations", {
+function request(secret: string, url = "https://www.proffera.se/api/cron/operations") {
+  return new Request(url, {
     headers: { authorization: `Bearer ${secret}` },
   });
 }
@@ -33,6 +33,24 @@ describe("Operations scheduler route", () => {
     const response = await GET(request("wrong-secret"));
 
     expect(response.status).toBe(401);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an authorized request on a non-canonical host before forwarding CRON_SECRET", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const { GET } = await loadRoute();
+
+    const response = await GET(request(
+      "qstash-scheduler-secret",
+      "https://attacker.example/api/cron/operations",
+    ));
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      ok: false,
+      error: "Invalid scheduler origin",
+    });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
