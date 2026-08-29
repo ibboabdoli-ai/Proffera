@@ -64,6 +64,11 @@ function cronExpressions(workflow: string) {
   return [...workflow.matchAll(/^\s*-\s*cron:\s*"([^"]+)"\s*$/gm)].map((match) => match[1]);
 }
 
+/** Return whether a workflow owns an automatic schedule trigger. */
+function hasScheduleTrigger(workflow: string) {
+  return /^  schedule:\s*$/m.test(workflow);
+}
+
 /** Assert that every cron expression in a workflow avoids the dedicated revalidation minutes. */
 function expectNoRevalidationMinuteCollision(workflow: string) {
   const minuteFields = cronExpressions(workflow).map((expression) =>
@@ -315,7 +320,7 @@ describe("dedicated Company Directory revalidation scheduling", () => {
     }
   });
 
-  it("keeps GitHub as a manual fallback while automatic full revalidation stays out of Operations", () => {
+  it("keeps GitHub as a manual fallback while one live workflow owns automatic scheduling", () => {
     const workflow = readFileSync(
       resolve(process.cwd(), ".github/workflows/company-directory-revalidation.yml"),
       "utf8",
@@ -346,21 +351,38 @@ describe("dedicated Company Directory revalidation scheduling", () => {
     expect(workflow).not.toContain("cron:");
     expect(workflow).not.toContain("BATCHES_PER_RUN=2");
     expect(workflow).not.toContain('for batch in $(seq 1 "$BATCHES_PER_RUN")');
-    expect(cronExpressions(operationsWorkflow)).toEqual(["8,23,38,53 * * * *"]);
-    expect(cronExpressions(marketplaceWorkflow)).toEqual(["8,23,38,53 * * * *"]);
-    expect(cronExpressions(productionHealthWorkflow)).toEqual(["8,38 * * * *"]);
-    expect(cronExpressions(directoryAutomationWorkflow)).toEqual([
+
+    expect(hasScheduleTrigger(marketplaceWorkflow)).toBe(true);
+    expect(cronExpressions(marketplaceWorkflow)).toEqual([
+      "8,38 * * * *",
+      "23,53 * * * *",
       "17 * * * *",
       "31 3 * * *",
     ]);
-    for (const otherWorkflow of [
+    expectNoRevalidationMinuteCollision(marketplaceWorkflow);
+
+    for (const reusableWorker of [
       operationsWorkflow,
-      marketplaceWorkflow,
       productionHealthWorkflow,
       directoryAutomationWorkflow,
     ]) {
-      expectNoRevalidationMinuteCollision(otherWorkflow);
+      expect(hasScheduleTrigger(reusableWorker)).toBe(false);
+      expect(cronExpressions(reusableWorker)).toEqual([]);
+      expect(reusableWorker).toContain("workflow_call:");
     }
+
+    expect(marketplaceWorkflow).toContain("uses: ./.github/workflows/booking-reminders.yml");
+    expect(marketplaceWorkflow).toContain("uses: ./.github/workflows/production-health.yml");
+    expect(marketplaceWorkflow).toContain("uses: ./.github/workflows/company-directory-automation.yml");
+    expect(marketplaceWorkflow).toContain("secrets: inherit");
+    expect(marketplaceWorkflow).toContain("github.event.schedule == '8,38 * * * *'");
+    expect(marketplaceWorkflow).toContain("github.event.schedule == '23,53 * * * *'");
+    expect(marketplaceWorkflow).toContain("github.event.schedule == '17 * * * *'");
+    expect(marketplaceWorkflow).toContain("github.event.schedule == '31 3 * * *'");
+    expect(directoryAutomationWorkflow).toContain("trigger_schedule:");
+    expect(directoryAutomationWorkflow).toContain("if: inputs.trigger_schedule == '17 * * * *'");
+    expect(directoryAutomationWorkflow).toContain('TRIGGER_SCHEDULE: ${{ inputs.trigger_schedule }}');
+
     expect(workflow.match(/\/api\/cron\/company-directory-revalidation/g) ?? []).toHaveLength(1);
     expect(workflow).toContain("--connect-timeout 10");
     expect(workflow).toContain("--max-time 75");
