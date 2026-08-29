@@ -110,6 +110,21 @@ function createSqlMock() {
   return { query, persistedValues };
 }
 
+function expectPrivacySafeDiagnostic(
+  warn: ReturnType<typeof vi.spyOn>,
+  field: string,
+  errorType = "OTILLGANGLIG_UPPGIFTSKALLA",
+) {
+  const logged = JSON.stringify(warn.mock.calls);
+  expect(logged).toContain("producer_error");
+  expect(logged).toContain(field);
+  expect(logged).toContain(errorType);
+  expect(logged).not.toContain(PRIVATE_INPUT);
+  expect(logged).not.toContain(PRIVATE_OFFICIAL);
+  expect(logged).not.toContain(TEST_COMPANY_NAME);
+  expect(logged).not.toContain(TEST_UPSTREAM_DESCRIPTION);
+}
+
 describe("sole-trader partial source errors", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -183,15 +198,7 @@ describe("sole-trader partial source errors", () => {
 
     await expect(onboardOwnerSoleTrader(PRIVATE_INPUT)).rejects.toThrow("sole_trader_source_error");
     expect(query.transaction).not.toHaveBeenCalled();
-
-    const logged = JSON.stringify(warn.mock.calls);
-    expect(logged).toContain("producer_error");
-    expect(logged).toContain("avregistreradOrganisation");
-    expect(logged).toContain("OTILLGANGLIG_UPPGIFTSKALLA");
-    expect(logged).not.toContain(PRIVATE_INPUT);
-    expect(logged).not.toContain(PRIVATE_OFFICIAL);
-    expect(logged).not.toContain(TEST_COMPANY_NAME);
-    expect(logged).not.toContain(TEST_UPSTREAM_DESCRIPTION);
+    expectPrivacySafeDiagnostic(warn, "avregistreradOrganisation");
   });
 
   it("fails closed when identity has a producer error even if the identity remains parseable", async () => {
@@ -217,14 +224,49 @@ describe("sole-trader partial source errors", () => {
 
     await expect(onboardOwnerSoleTrader(PRIVATE_INPUT)).rejects.toThrow("sole_trader_source_error");
     expect(query.transaction).not.toHaveBeenCalled();
+    expectPrivacySafeDiagnostic(warn, "organisationsidentitet");
+  });
 
-    const logged = JSON.stringify(warn.mock.calls);
-    expect(logged).toContain("producer_error");
-    expect(logged).toContain("organisationsidentitet");
-    expect(logged).toContain("OTILLGANGLIG_UPPGIFTSKALLA");
-    expect(logged).not.toContain(PRIVATE_INPUT);
-    expect(logged).not.toContain(PRIVATE_OFFICIAL);
-    expect(logged).not.toContain(TEST_COMPANY_NAME);
-    expect(logged).not.toContain(TEST_UPSTREAM_DESCRIPTION);
+  it.each([
+    [
+      "organisationsform",
+      {
+        organisationsform: {
+          dataproducent: "Bolagsverket",
+          fel: {
+            typ: "OTILLGANGLIG_UPPGIFTSKALLA",
+            felBeskrivning: TEST_UPSTREAM_DESCRIPTION,
+          },
+          kod: "E",
+          klartext: "Enskild näringsverksamhet",
+        },
+      },
+    ],
+    [
+      "organisationsnamn",
+      {
+        organisationsnamn: {
+          dataproducent: "Bolagsverket",
+          fel: {
+            typ: "OTILLGANGLIG_UPPGIFTSKALLA",
+            felBeskrivning: TEST_UPSTREAM_DESCRIPTION,
+          },
+          organisationsnamnLista: [{ namn: TEST_COMPANY_NAME }],
+        },
+      },
+    ],
+  ])("fails closed when %s has a producer error", async (field, overrides) => {
+    const { query } = createSqlMock();
+    mocks.getSql.mockReturnValue(query);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ organisationer: [activeRecord(overrides)] }),
+    }));
+
+    await expect(onboardOwnerSoleTrader(PRIVATE_INPUT)).rejects.toThrow("sole_trader_source_error");
+    expect(query.transaction).not.toHaveBeenCalled();
+    expectPrivacySafeDiagnostic(warn, field);
   });
 });
