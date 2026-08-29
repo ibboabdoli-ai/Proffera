@@ -1,41 +1,49 @@
-# Booking reminder scheduler
+# Operations / booking reminder scheduler
 
-Booking reminders are processed by a GitHub Actions schedule, not a Vercel
-Cron Job. This keeps Vercel Hobby deployments valid and does not create a
-Vercel deployment for every scheduled run.
+Automatic Production scheduling for booking reminders is owned by the external
+QStash scheduler, not by a GitHub Actions `schedule:` trigger or a Vercel Cron
+Job.
 
-## Schedule
+## Automatic schedule
 
-The workflow [booking-reminders.yml](../.github/workflows/booking-reminders.yml)
-runs at minutes 7, 22, 37 and 52 of every hour. It prevents overlapping runs
-and calls the authenticated production endpoint:
+QStash calls the consolidated Operations endpoint four times per hour:
 
 ```text
-GET /api/cron/booking-reminders
+GET /api/cron/operations
 Authorization: Bearer <CRON_SECRET>
+cron: 8,23,38,53 * * * *
 ```
+
+The Operations route then runs these existing authenticated Production jobs in
+sequence:
+
+1. booking reminders;
+2. Company Directory Official Facts with `limit=10`;
+3. Company Directory sync.
 
 The reminder processor keeps delivery records in the database, so a later run
 does not duplicate a notification that has already been claimed.
 
-## One-time production configuration
+## GitHub Actions fallback
 
-Set these two GitHub repository secrets in
-`Settings → Secrets and variables → Actions`:
+[booking-reminders.yml](../.github/workflows/booking-reminders.yml) remains as a
+manual `workflow_dispatch` recovery path. It must not regain a recurring
+`schedule:` trigger while QStash owns automatic Operations scheduling.
+
+The fallback still uses these GitHub repository secrets:
 
 | Secret | Value |
 | --- | --- |
 | `PROFFERA_REMINDER_CRON_URL` | `https://proffera.se/api/cron/booking-reminders` |
 | `PROFFERA_REMINDER_CRON_SECRET` | The exact production Vercel value of `CRON_SECRET` |
 
-`CRON_SECRET` must also exist in Vercel Production. Use a new high-entropy
-value if it has not been configured yet, then place that same value in the
-GitHub secret. Never commit either value to the repository or include it in a
-workflow log.
+`CRON_SECRET` must also exist in Vercel Production. Never commit the secret or
+include it in workflow logs.
 
-## Verification
+## Cutover verification
 
-After both GitHub secrets are set, run the **Booking reminders** workflow once
-from its Actions page. A successful run returns the API response and confirms
-that GitHub Actions can securely reach the production endpoint. Scheduled runs
-then continue automatically without Vercel deployments.
+The QStash Operations schedule must remain paused until the scheduler-cutover
+PR is merged, the matching Vercel Production deployment is `READY`, and the
+official Production health gate succeeds on that exact merge SHA. After the
+schedule is resumed, verify the first automatic executions passively rather
+than manually dispatching state-changing Production workers just to test them.
