@@ -10,6 +10,8 @@ type Input = {
   startsAt: string;
   endsAt: string;
   city: string;
+  address?: string;
+  postcode?: string;
   timeZone?: WorkspaceTimeZone;
   portalUrl: string;
   rescheduleUrl: string;
@@ -65,9 +67,11 @@ export function buildUnifiedBookingConfirmationEmail(input: Input) {
         `We have received your booking request with ${input.companyName}.`,
         "",
         `Service: ${input.service}`,
+        input.address ? `Address: ${input.address}` : "",
+        input.postcode ? `Postcode: ${input.postcode}` : "",
         `Start: ${start}`,
         `End: ${end}`,
-        input.city ? `Location: ${input.city}` : "",
+        input.city ? `Area: ${input.city}` : "",
         "",
         "The company will confirm the appointment separately.",
         "You can view, reschedule or cancel the booking from your private booking page:",
@@ -88,6 +92,8 @@ export function buildUnifiedBookingConfirmationEmail(input: Input) {
         `Vi har tagit emot din bokningsförfrågan hos ${input.companyName}.`,
         "",
         `Tjänst: ${input.service}`,
+        input.address ? `Adress: ${input.address}` : "",
+        input.postcode ? `Postnummer: ${input.postcode}` : "",
         `Start: ${start}`,
         `Slut: ${end}`,
         input.city ? `Ort: ${input.city}` : "",
@@ -120,9 +126,11 @@ export function buildUnifiedBookingConfirmationEmail(input: Input) {
           <p>We have received your booking request. PrimeView will confirm the appointment separately.</p>
           <table role="presentation" style="width:100%;border-collapse:collapse;margin:22px 0;background:#f4f7fb;border-radius:14px;">
             <tr><td style="padding:14px 16px 6px;font-weight:700;width:110px;color:#183e63;">Service</td><td style="padding:14px 16px 6px;">${escapeHtml(input.service)}</td></tr>
+            ${input.address ? `<tr><td style="padding:6px 16px;font-weight:700;color:#183e63;">Address</td><td style="padding:6px 16px;">${escapeHtml(input.address)}</td></tr>` : ""}
+            ${input.postcode ? `<tr><td style="padding:6px 16px;font-weight:700;color:#183e63;">Postcode</td><td style="padding:6px 16px;">${escapeHtml(input.postcode)}</td></tr>` : ""}
             <tr><td style="padding:6px 16px;font-weight:700;color:#183e63;">Start</td><td style="padding:6px 16px;">${escapeHtml(start)}</td></tr>
             <tr><td style="padding:6px 16px;font-weight:700;color:#183e63;">End</td><td style="padding:6px 16px;">${escapeHtml(end)}</td></tr>
-            ${input.city ? `<tr><td style="padding:6px 16px 14px;font-weight:700;color:#183e63;">Location</td><td style="padding:6px 16px 14px;">${escapeHtml(input.city)}</td></tr>` : ""}
+            ${input.city ? `<tr><td style="padding:6px 16px 14px;font-weight:700;color:#183e63;">Area</td><td style="padding:6px 16px 14px;">${escapeHtml(input.city)}</td></tr>` : ""}
           </table>
           <h2 style="font-size:19px;margin:26px 0 8px;color:#071b42;">Manage your booking</h2>
           <p style="margin-top:0;color:#5d7187;">You can view, reschedule or cancel your booking without creating an account.</p>
@@ -151,6 +159,8 @@ export function buildUnifiedBookingConfirmationEmail(input: Input) {
           <p>Vi har tagit emot din bokningsförfrågan. Företaget bekräftar tiden separat.</p>
           <table role="presentation" style="width:100%;border-collapse:collapse;margin:22px 0;background:#f4f7f3;border-radius:14px;">
             <tr><td style="padding:14px 16px 6px;font-weight:700;width:110px;">Tjänst</td><td style="padding:14px 16px 6px;">${escapeHtml(input.service)}</td></tr>
+            ${input.address ? `<tr><td style="padding:6px 16px;font-weight:700;">Adress</td><td style="padding:6px 16px;">${escapeHtml(input.address)}</td></tr>` : ""}
+            ${input.postcode ? `<tr><td style="padding:6px 16px;font-weight:700;">Postnummer</td><td style="padding:6px 16px;">${escapeHtml(input.postcode)}</td></tr>` : ""}
             <tr><td style="padding:6px 16px;font-weight:700;">Start</td><td style="padding:6px 16px;">${escapeHtml(start)}</td></tr>
             <tr><td style="padding:6px 16px;font-weight:700;">Slut</td><td style="padding:6px 16px;">${escapeHtml(end)}</td></tr>
             ${input.city ? `<tr><td style="padding:6px 16px 14px;font-weight:700;">Ort</td><td style="padding:6px 16px 14px;">${escapeHtml(input.city)}</td></tr>` : ""}
