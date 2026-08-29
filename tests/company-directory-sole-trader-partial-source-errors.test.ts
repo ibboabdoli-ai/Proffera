@@ -35,6 +35,8 @@ const WORKSPACE_ID = "11111111-1111-4111-8111-111111111111";
 const USER_ID = "user-1";
 const PRIVATE_INPUT = "9001011234";
 const PRIVATE_OFFICIAL = "199001011234";
+const TEST_COMPANY_NAME = "Exempel Service";
+const TEST_UPSTREAM_DESCRIPTION = "Test-only upstream failure";
 
 function sourceError(type = "ORGANISATION_FINNS_EJ") {
   return {
@@ -67,7 +69,7 @@ function activeRecord(overrides: Record<string, unknown> = {}) {
     organisationsnamn: {
       dataproducent: "Bolagsverket",
       fel: null,
-      organisationsnamnLista: [{ namn: "Exempel Service" }],
+      organisationsnamnLista: [{ namn: TEST_COMPANY_NAME }],
     },
     juridiskForm: sourceError(),
     verksamOrganisation: { ...sourceError(), kod: null },
@@ -90,7 +92,7 @@ function createSqlMock() {
       return Promise.resolve([]);
     }
     if (sqlText.includes("claim.verification_method = 'manual_review'")) {
-      return Promise.resolve(persisted ? [{ display_name: "Exempel Service" }] : []);
+      return Promise.resolve(persisted ? [{ display_name: TEST_COMPANY_NAME }] : []);
     }
     return Promise.resolve([]);
   }) as ReturnType<typeof vi.fn> & { transaction: ReturnType<typeof vi.fn> };
@@ -149,7 +151,7 @@ describe("sole-trader partial source errors", () => {
 
     await expect(onboardOwnerSoleTrader(PRIVATE_INPUT)).resolves.toEqual({
       status: "sole_trader_review_pending",
-      companyName: "Exempel Service",
+      companyName: TEST_COMPANY_NAME,
     });
 
     expect(query.transaction).toHaveBeenCalledTimes(1);
@@ -171,7 +173,7 @@ describe("sole-trader partial source errors", () => {
             dataproducent: "Bolagsverket",
             fel: {
               typ: "OTILLGANGLIG_UPPGIFTSKALLA",
-              felBeskrivning: "Test-only upstream failure",
+              felBeskrivning: TEST_UPSTREAM_DESCRIPTION,
             },
             avregistreringsdatum: null,
           },
@@ -188,6 +190,8 @@ describe("sole-trader partial source errors", () => {
     expect(logged).toContain("OTILLGANGLIG_UPPGIFTSKALLA");
     expect(logged).not.toContain(PRIVATE_INPUT);
     expect(logged).not.toContain(PRIVATE_OFFICIAL);
+    expect(logged).not.toContain(TEST_COMPANY_NAME);
+    expect(logged).not.toContain(TEST_UPSTREAM_DESCRIPTION);
   });
 
   it("fails closed when identity has a producer error even if the identity remains parseable", async () => {
@@ -204,7 +208,7 @@ describe("sole-trader partial source errors", () => {
             typ: { kod: "PERSONNR" },
             fel: {
               typ: "OTILLGANGLIG_UPPGIFTSKALLA",
-              felBeskrivning: "Test-only upstream failure",
+              felBeskrivning: TEST_UPSTREAM_DESCRIPTION,
             },
           },
         })],
@@ -220,5 +224,7 @@ describe("sole-trader partial source errors", () => {
     expect(logged).toContain("OTILLGANGLIG_UPPGIFTSKALLA");
     expect(logged).not.toContain(PRIVATE_INPUT);
     expect(logged).not.toContain(PRIVATE_OFFICIAL);
+    expect(logged).not.toContain(TEST_COMPANY_NAME);
+    expect(logged).not.toContain(TEST_UPSTREAM_DESCRIPTION);
   });
 });
