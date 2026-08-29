@@ -104,23 +104,36 @@ describe("automatic company directory discovery contract", () => {
 
   it("probes official discovery hourly, keeps a daily full scan, and leaves queue processing on the 15-minute runner", () => {
     const discoveryWorkflow = source(".github/workflows/company-directory-automation.yml");
+    const schedulerHub = source(".github/workflows/marketplace-auto-worker.yml");
     const operationsWorkflow = source(".github/workflows/booking-reminders.yml");
 
     expect(discoveryWorkflow).toContain("Discover official company candidates");
-    expect(discoveryWorkflow).toContain('cron: "17 * * * *"');
-    expect(discoveryWorkflow).toContain('cron: "31 3 * * *"');
+    expect(discoveryWorkflow).toContain("workflow_call:");
+    expect(discoveryWorkflow).toContain("trigger_schedule:");
+    expect(discoveryWorkflow).not.toContain("  schedule:");
     expect(discoveryWorkflow).toContain("PROFFERA_REMINDER_CRON_SECRET");
     expect(discoveryWorkflow).toContain("company-directory-discovery-ingest");
     expect(discoveryWorkflow).toContain("source_probe=1");
     expect(discoveryWorkflow).toContain("Probe official company source");
+    expect(discoveryWorkflow).toContain("if: inputs.trigger_schedule == '17 * * * *'");
     expect(discoveryWorkflow).toContain("daily-safety-scan");
     expect(discoveryWorkflow).toContain("official-source-changed");
+    expect(discoveryWorkflow).toContain("Unsupported Company Directory scheduler route");
     expect(discoveryWorkflow).toContain("steps.scan.outputs.run_full == 'true'");
     expect(discoveryWorkflow).toContain("push:");
-    expect(discoveryWorkflow).not.toContain('cron: "9,24,39,54 * * * *"');
+
+    expect(schedulerHub).toContain('cron: "17 * * * *"');
+    expect(schedulerHub).toContain('cron: "31 3 * * *"');
+    expect(schedulerHub).toContain("uses: ./.github/workflows/company-directory-automation.yml");
+    expect(schedulerHub).toContain("trigger_schedule: ${{ github.event.schedule }}");
+    expect(schedulerHub).not.toContain('cron: "9,24,39,54 * * * *"');
 
     expect(operationsWorkflow).toContain("Process booking reminders and directory updates");
-    expect(operationsWorkflow).toContain('cron: "8,23,38,53 * * * *"');
+    expect(operationsWorkflow).toContain("workflow_call:");
+    expect(operationsWorkflow).not.toContain("  schedule:");
+    expect(schedulerHub).toContain('cron: "8,38 * * * *"');
+    expect(schedulerHub).toContain('cron: "23,53 * * * *"');
+    expect(schedulerHub).toContain("uses: ./.github/workflows/booking-reminders.yml");
     expect(operationsWorkflow).toContain("PROFFERA_REMINDER_CRON_SECRET");
     expect(operationsWorkflow).toContain("company-directory-official-facts?limit=10");
     expect(operationsWorkflow).toContain("company-directory-sync");
