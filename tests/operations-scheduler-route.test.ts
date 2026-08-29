@@ -105,6 +105,63 @@ describe("Operations scheduler route", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("times out one child at 75 seconds and still dispatches later jobs sequentially", async () => {
+    const controllers: AbortController[] = [];
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout").mockImplementation((milliseconds) => {
+      expect(milliseconds).toBe(75_000);
+      const controller = new AbortController();
+      controllers.push(controller);
+      return controller.signal;
+    });
+    const signals: AbortSignal[] = [];
+    const fetchMock = vi.fn(async (_input: URL | RequestInfo, init?: RequestInit) => {
+      const signal = init?.signal;
+      if (!(signal instanceof AbortSignal)) throw new Error("missing child abort signal");
+      signals.push(signal);
+
+      if (signals.length === 1) {
+        return await new Promise<Response>((_resolve, reject) => {
+          signal.addEventListener(
+            "abort",
+            () => reject(new DOMException("The operation was aborted", "AbortError")),
+            { once: true },
+          );
+        });
+      }
+
+      return new Response("{}", { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { GET } = await loadRoute();
+
+    try {
+      const responsePromise = GET(request("qstash-scheduler-secret"));
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(controllers).toHaveLength(1);
+      expect(signals[0]).toBe(controllers[0].signal);
+
+      controllers[0].abort();
+      const response = await responsePromise;
+
+      expect(response.status).toBe(503);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(timeoutSpy).toHaveBeenCalledTimes(3);
+      expect(signals).toHaveLength(3);
+      await expect(response.json()).resolves.toMatchObject({
+        ok: false,
+        results: [
+          { name: "booking_reminders", ok: false, status: 0 },
+          { name: "company_directory_official_facts", ok: true, status: 200 },
+          { name: "company_directory_sync", ok: true, status: 200 },
+        ],
+      });
+    } finally {
+      errorSpy.mockRestore();
+      timeoutSpy.mockRestore();
+    }
+  });
+
   it("waits for each child, records a rejected child, and still runs the remaining job", async () => {
     let resolveFirst!: (response: Response) => void;
     const firstResponse = new Promise<Response>((resolve) => {
