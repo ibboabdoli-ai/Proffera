@@ -5,6 +5,8 @@ import { NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 export const maxDuration = 240;
 
+const PRODUCTION_ORIGIN = "https://www.proffera.se";
+const ALLOWED_REQUEST_HOSTS = new Set(["proffera.se", "www.proffera.se"]);
 const OPERATIONS_ENDPOINTS = [
   {
     name: "booking_reminders",
@@ -35,9 +37,20 @@ function authorizedSchedulerRequest(request: Request) {
     || bearerMatches(authorization, process.env.PRODUCTION_SCHEDULER_SECRET);
 }
 
+function canonicalProductionRequest(request: Request) {
+  const url = new URL(request.url);
+  return url.protocol === "https:"
+    && url.port === ""
+    && ALLOWED_REQUEST_HOSTS.has(url.hostname.toLowerCase());
+}
+
 export async function GET(request: Request) {
   if (!authorizedSchedulerRequest(request)) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (!canonicalProductionRequest(request)) {
+    return NextResponse.json({ ok: false, error: "Invalid scheduler origin" }, { status: 400 });
   }
 
   const childSecret = process.env.CRON_SECRET;
@@ -48,7 +61,6 @@ export async function GET(request: Request) {
     );
   }
 
-  const origin = new URL(request.url).origin;
   const results: Array<{
     name: (typeof OPERATIONS_ENDPOINTS)[number]["name"];
     ok: boolean;
@@ -57,7 +69,7 @@ export async function GET(request: Request) {
 
   for (const endpoint of OPERATIONS_ENDPOINTS) {
     try {
-      const response = await fetch(new URL(endpoint.path, origin), {
+      const response = await fetch(new URL(endpoint.path, PRODUCTION_ORIGIN), {
         method: "GET",
         headers: {
           authorization: `Bearer ${childSecret}`,
