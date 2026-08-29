@@ -43,6 +43,25 @@ async function requireManageableWorkspace() {
   return access;
 }
 
+export function ownerVisibleDirectoryOrganizationNumber(kind: unknown, value: unknown) {
+  return String(kind ?? "") === "juridical_person" ? String(value ?? "") : "";
+}
+
+export function providerProfileCanOpenPublicPage(profile: {
+  publication_status?: unknown;
+  is_active?: unknown;
+  privacy_blocked?: unknown;
+  auto_public_eligible?: unknown;
+  published_at?: unknown;
+} | null | undefined) {
+  if (!profile) return false;
+  return String(profile.publication_status ?? "") === "claimed"
+    && Boolean(profile.is_active)
+    && !Boolean(profile.privacy_blocked)
+    && Boolean(profile.auto_public_eligible)
+    && Boolean(profile.published_at);
+}
+
 export async function getProviderActivationState(): Promise<ProviderActivationState> {
   const access = await requireManageableWorkspace();
   const sql = getSql();
@@ -110,7 +129,13 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
         profile.public_slug,
         profile.display_name,
         profile.organization_number,
-        profile.city
+        profile.organization_kind,
+        profile.city,
+        profile.publication_status,
+        profile.is_active,
+        profile.privacy_blocked,
+        profile.auto_public_eligible,
+        profile.published_at
       from company_directory_profiles profile
       where profile.claimed_workspace_id = ${access.workspaceId}::uuid
       order by profile.updated_at desc
@@ -119,9 +144,12 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
     sql`
       select
         claim.status,
+        claim.verification_method,
         profile.display_name,
         profile.organization_number,
-        profile.public_slug
+        profile.organization_kind,
+        profile.public_slug,
+        profile.publication_status
       from company_directory_claims claim
       join company_directory_profiles profile on profile.id = claim.profile_id
       where claim.requested_workspace_id = ${access.workspaceId}::uuid
@@ -133,17 +161,18 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
   ]);
 
   const profile = profileRows[0];
+  const profileCanOpenPublicPage = providerProfileCanOpenPublicPage(profile);
   const linkedProfile = profile
     ? {
         id: String(profile.id),
-        slug: String(profile.public_slug ?? ""),
+        slug: profileCanOpenPublicPage ? String(profile.public_slug ?? "") : "",
         companyName: String(profile.display_name ?? ""),
-        organizationNumber: String(profile.organization_number ?? ""),
+        organizationNumber: ownerVisibleDirectoryOrganizationNumber(profile.organization_kind, profile.organization_number),
         city: String(profile.city ?? ""),
       }
     : null;
 
-  const directoryRows = linkedProfile
+  const directoryRows = profileCanOpenPublicPage && linkedProfile
     ? await sql`
         select service.slug, service.label
         from company_directory_profile_services relation
@@ -158,12 +187,16 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
     : [];
 
   const claim = claimRows[0];
+  const soleTraderManualReview = String(claim?.organization_kind ?? "") === "sole_trader"
+    && String(claim?.verification_method ?? "") === "manual_review";
   const pendingClaim = claim
     ? {
         status: String(claim.status),
         companyName: String(claim.display_name ?? ""),
-        organizationNumber: String(claim.organization_number ?? ""),
-        profileSlug: String(claim.public_slug ?? ""),
+        organizationNumber: ownerVisibleDirectoryOrganizationNumber(claim.organization_kind, claim.organization_number),
+        profileSlug: soleTraderManualReview || String(claim.publication_status ?? "") === "blocked"
+          ? ""
+          : String(claim.public_slug ?? ""),
       }
     : null;
 

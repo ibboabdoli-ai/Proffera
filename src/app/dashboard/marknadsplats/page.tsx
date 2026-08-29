@@ -203,7 +203,7 @@ export default async function MarketplaceActivationPage({
           {state.pendingClaim ? (
             <div className="mt-5 rounded-2xl border border-[#e7d29c] bg-[#fff9e9] p-5">
               <p className="font-black text-[#76580d]">{t.pendingTitle}</p>
-              <p className="mt-1 text-sm leading-6 text-[#6f654c]">{state.pendingClaim.companyName} · {state.pendingClaim.organizationNumber}</p>
+              <p className="mt-1 text-sm leading-6 text-[#6f654c]">{[state.pendingClaim.companyName, state.pendingClaim.organizationNumber].filter(Boolean).join(" · ")}</p>
               <p className="mt-2 text-sm leading-6 text-[#6f654c]">{t.pendingLead}</p>
               {state.pendingClaim.profileSlug ? (
                 <Link href={claimHref(state.pendingClaim.profileSlug, locale)} className="mt-4 inline-flex min-h-11 items-center rounded-xl border border-[#d5bd7c] bg-white px-4 text-sm font-black text-[#76580d]">
@@ -231,7 +231,7 @@ export default async function MarketplaceActivationPage({
               <div>
                 <p className="inline-flex items-center gap-2 text-sm font-black text-[#17452f]"><BadgeCheck className="h-5 w-5" /> {t.linked}</p>
                 <h2 className="mt-2 text-2xl font-black text-[#17201a]">{linkedProfile.companyName}</h2>
-                <p className="mt-2 text-sm text-[#466352]">{linkedProfile.organizationNumber}{linkedProfile.city ? ` · ${linkedProfile.city}` : ""}</p>
+                <p className="mt-2 text-sm text-[#466352]">{[linkedProfile.organizationNumber, linkedProfile.city].filter(Boolean).join(" · ")}</p>
               </div>
               {linkedProfile.slug ? (
                 <Link href={locale === "en" ? `/en/companies/${encodeURIComponent(linkedProfile.slug)}` : `/foretag/listad/${encodeURIComponent(linkedProfile.slug)}`} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[#bcd8c3] bg-white px-4 text-sm font-black text-[#17452f]">

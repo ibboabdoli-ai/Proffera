@@ -15,6 +15,7 @@ import {
   verifyOfficialCompanyCandidate,
 } from "@/lib/company-directory-source";
 import type { NormalizedDirectoryCandidate } from "@/lib/company-directory-policy";
+import { onboardOwnerSoleTrader } from "@/lib/company-directory-sole-trader-owner";
 import { getSql } from "@/lib/db/server";
 import { allowPublicSubmission } from "@/lib/public-form-protection";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
@@ -25,7 +26,10 @@ export type OwnerDirectoryOnboardingResult =
   | { status: "claimed"; companyName: string }
   | { status: "busy"; companyName: string }
   | { status: "not_ready"; companyName?: string }
-  | { status: "sole_trader_privacy"; companyName: string };
+  | { status: "sole_trader_review_pending"; companyName: string }
+  | { status: "sole_trader_linked"; profileSlug: string; companyName: string }
+  | { status: "sole_trader_ambiguous"; companyName: string }
+  | { status: "sole_trader_not_active"; companyName: string };
 
 type ExistingProfileState = {
   profileId: string;
@@ -210,13 +214,9 @@ async function lookupProfileStateById(profileId: string): Promise<ExistingProfil
 
 /**
  * Owner-initiated Directory ingestion for a real Swedish company that is not
- * already present locally. The official source remains authoritative; the user
- * cannot supply free-text company identity fields.
- *
- * Personnummer-shaped identifiers deliberately stop before any generic profile
- * lookup, external juridical-company request or persistence. A sole-trader owner
- * must use the dedicated privacy-safe verification path once that next slice is
- * implemented.
+ * already present locally. Juridical persons use the normal Directory pipeline.
+ * Personnummer-shaped identities use the separate privacy-safe sole-trader
+ * verifier, which discards the private identifier before persistence.
  */
 export async function onboardOwnerCompanyByOrganizationNumber(
   value: unknown,
@@ -226,7 +226,7 @@ export async function onboardOwnerCompanyByOrganizationNumber(
   if (!organizationNumber) throw new Error("organization_number");
 
   if (!isBolagsverketJuridicalOrganizationNumber(organizationNumber)) {
-    return { status: "sole_trader_privacy", companyName: "" };
+    return onboardOwnerSoleTrader(value);
   }
 
   const existing = await lookupProfileState(organizationNumber);

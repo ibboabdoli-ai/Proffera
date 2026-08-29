@@ -43,6 +43,10 @@ function emptyContact() {
   return discloseDirectoryDirectContact({}, false);
 }
 
+export function publicDirectoryOrganizationNumber(organizationKind: unknown, value: unknown) {
+  return String(organizationKind ?? "") === "juridical_person" ? String(value ?? "") : "";
+}
+
 function isMissingDirectoryTable(error: unknown, tableName: string) {
   if (!error || typeof error !== "object") return false;
   const candidate = error as { code?: unknown; message?: unknown };
@@ -199,6 +203,7 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
   const rows = await sql`
     select
       organization_number,
+      organization_kind,
       primary_sni_code,
       website_url,
       claimed_workspace_id::text
@@ -229,7 +234,7 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
     workplaces: scb?.workplaces,
   });
   return {
-    organizationNumber: String(row.organization_number ?? ""),
+    organizationNumber: publicDirectoryOrganizationNumber(row.organization_kind, row.organization_number),
     primarySniCode: String(row.primary_sni_code ?? ""),
     address,
     contact: discloseDirectoryDirectContact({
@@ -252,6 +257,7 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
       profile.id::text,
       profile.public_slug,
       profile.organization_number,
+      profile.organization_kind,
       profile.display_name,
       profile.legal_form,
       profile.organization_status,
@@ -336,7 +342,7 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
       isActualBusinessMedia: Boolean(row.is_actual_business_media),
     } : null,
     publicationStatus: "claimed",
-    organizationNumber: String(row.organization_number ?? ""),
+    organizationNumber: publicDirectoryOrganizationNumber(row.organization_kind, row.organization_number),
     primarySniCode: String(row.primary_sni_code ?? ""),
     contact,
   };

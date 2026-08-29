@@ -1,11 +1,9 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
-
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   headers: vi.fn(),
   isJuridicalOrganizationNumber: vi.fn(),
+  onboardOwnerSoleTrader: vi.fn(),
   upsertCompanyDirectoryCandidate: vi.fn(),
   enrichCompanyDirectoryOfficialFactsForProfile: vi.fn(),
   autoPublishCompanyDirectoryProfileIfSafe: vi.fn(),
@@ -36,6 +34,9 @@ vi.mock("@/lib/company-directory-provider-activation-policy", () => ({
 vi.mock("@/lib/company-directory-publication", () => ({
   autoPublishCompanyDirectoryProfileIfSafe: mocks.autoPublishCompanyDirectoryProfileIfSafe,
 }));
+vi.mock("@/lib/company-directory-sole-trader-owner", () => ({
+  onboardOwnerSoleTrader: mocks.onboardOwnerSoleTrader,
+}));
 vi.mock("@/lib/company-directory-source", () => ({
   verifyOfficialCompanyCandidate: mocks.verifyOfficialCompanyCandidate,
 }));
@@ -49,6 +50,10 @@ vi.mock("@/lib/workspace-access", () => ({
 }));
 
 import { onboardOwnerCompanyByOrganizationNumber } from "../src/lib/company-directory-owner-onboarding";
+import {
+  ownerOnboardingErrorRedirect,
+  ownerOnboardingErrorStatus,
+} from "../src/lib/company-directory-owner-onboarding-ui";
 
 const WORKSPACE_ID = "11111111-1111-4111-8111-111111111111";
 const PROFILE_ID = "22222222-2222-4222-8222-222222222222";
@@ -141,6 +146,10 @@ describe("owner-initiated company Directory onboarding", () => {
     mocks.getUserWorkspaceAccess.mockResolvedValue(ownerAccess());
     mocks.canManageWorkspaceSettings.mockReturnValue(true);
     mocks.isJuridicalOrganizationNumber.mockReturnValue(true);
+    mocks.onboardOwnerSoleTrader.mockResolvedValue({
+      status: "sole_trader_review_pending",
+      companyName: "Example Sole Trader",
+    });
     mocks.allowPublicSubmission.mockResolvedValue(true);
     mocks.enrichCompanyDirectoryOfficialFactsForProfile.mockResolvedValue({ ok: true });
     mocks.autoPublishCompanyDirectoryProfileIfSafe.mockResolvedValue({ published: true });
@@ -152,13 +161,14 @@ describe("owner-initiated company Directory onboarding", () => {
     await expect(onboardOwnerCompanyByOrganizationNumber(JURIDICAL_ORG)).rejects.toThrow("workspace_access");
 
     expect(mocks.isJuridicalOrganizationNumber).not.toHaveBeenCalled();
+    expect(mocks.onboardOwnerSoleTrader).not.toHaveBeenCalled();
     expect(mocks.getSql).not.toHaveBeenCalled();
     expect(mocks.allowPublicSubmission).not.toHaveBeenCalled();
     expect(mocks.verifyOfficialCompanyCandidate).not.toHaveBeenCalled();
     expect(mocks.upsertCompanyDirectoryCandidate).not.toHaveBeenCalled();
   });
 
-  it("stops personnummer-shaped identifiers before generic DB lookup, external lookup or persistence", async () => {
+  it("routes personnummer-shaped identifiers only into the dedicated privacy-safe sole-trader branch", async () => {
     const actualPolicy = await vi.importActual<typeof import("../src/lib/bolagsverket-api-policy")>(
       "../src/lib/bolagsverket-api-policy",
     );
@@ -169,11 +179,12 @@ describe("owner-initiated company Directory onboarding", () => {
     );
 
     await expect(onboardOwnerCompanyByOrganizationNumber(PRIVATE_SHAPE)).resolves.toEqual({
-      status: "sole_trader_privacy",
-      companyName: "",
+      status: "sole_trader_review_pending",
+      companyName: "Example Sole Trader",
     });
 
     expect(mocks.isJuridicalOrganizationNumber).toHaveBeenCalledWith(PRIVATE_SHAPE);
+    expect(mocks.onboardOwnerSoleTrader).toHaveBeenCalledWith(PRIVATE_SHAPE);
     expect(mocks.getSql).not.toHaveBeenCalled();
     expect(mocks.allowPublicSubmission).not.toHaveBeenCalled();
     expect(mocks.verifyOfficialCompanyCandidate).not.toHaveBeenCalled();
@@ -181,7 +192,7 @@ describe("owner-initiated company Directory onboarding", () => {
   });
 
   it("rate-limits a missing company before starting the official lookup", async () => {
-    const sql = createSqlMock((text) => text.includes("profile.organization_number") ? [] : []);
+    const sql = createSqlMock(() => []);
     mocks.getSql.mockReturnValue(sql);
     mocks.allowPublicSubmission.mockResolvedValue(false);
 
@@ -274,19 +285,16 @@ describe("owner-initiated company Directory onboarding", () => {
     expect(mocks.enrichCompanyDirectoryOfficialFactsForProfile).not.toHaveBeenCalled();
   });
 
-  it("keeps the identifier out of redirect query strings and exposes a missing-company entry point", () => {
-    const addPage = readFileSync(
-      resolve(process.cwd(), "src/app/dashboard/marknadsplats/lagg-till-foretag/page.tsx"),
-      "utf8",
-    );
-    const marketplacePage = readFileSync(
-      resolve(process.cwd(), "src/app/dashboard/marknadsplats/page.tsx"),
-      "utf8",
-    );
+  it("maps onboarding failures to safe status-only redirects without echoing identifiers", () => {
+    expect(ownerOnboardingErrorStatus(new Error("organization_number"))).toBe("invalid");
+    expect(ownerOnboardingErrorStatus(new Error("sole_trader_identity"))).toBe("invalid");
+    expect(ownerOnboardingErrorStatus(new Error("rate_limited"))).toBe("rate_limited");
+    expect(ownerOnboardingErrorStatus(new Error("upstream_failed"))).toBe("source_error");
 
-    expect(addPage).not.toContain('params.set("organizationNumber"');
-    expect(addPage).toContain('code === "rate_limited" ? "rate_limited"');
-    expect(marketplacePage).toContain('/dashboard/marknadsplats/lagg-till-foretag');
-    expect(marketplacePage).toContain('status === "not_found"');
+    const redirectPath = ownerOnboardingErrorRedirect("sv", new Error("rate_limited"));
+    expect(redirectPath).toBe("/dashboard/marknadsplats/lagg-till-foretag?status=rate_limited");
+    expect(redirectPath).not.toContain(PRIVATE_SHAPE);
+    expect(ownerOnboardingErrorRedirect("en", new Error("organization_number")))
+      .toBe("/dashboard/marknadsplats/lagg-till-foretag?status=invalid&lang=en");
   });
 });

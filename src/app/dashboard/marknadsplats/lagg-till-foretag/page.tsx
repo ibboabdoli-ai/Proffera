@@ -3,6 +3,10 @@ import { redirect } from "next/navigation";
 import { ArrowLeft, Building2, Search, ShieldCheck } from "lucide-react";
 
 import { onboardOwnerCompanyByOrganizationNumber } from "@/lib/company-directory-owner-onboarding";
+import {
+  ownerOnboardingErrorRedirect,
+  ownerOnboardingStatusPath,
+} from "@/lib/company-directory-owner-onboarding-ui";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
 export const dynamic = "force-dynamic";
@@ -17,8 +21,13 @@ const copy = {
     organizationNumber: "Organisationsnummer",
     placeholder: "556123-4567",
     submit: "Kontrollera och lägg till",
-    privacyTitle: "Enskild firma kräver integritetssäker verifiering",
-    privacyLead: "Numret har ett personnummerformat och går därför inte genom den vanliga företagskontrollen. Proffera sparar eller publicerar inte identifieraren i den vanliga företagsprofilen. Den separata ägarverifieringen för enskild firma måste slutföras först.",
+    soleTraderInfoTitle: "Enskild firma stöds också",
+    soleTraderInfo: "För enskild firma används en separat integritetssäker kontroll. Den privata identiteten används endast för den direkta kontrollen mot Bolagsverket och sparas inte i Directory-profilen eller i webbadressen.",
+    soleTraderPendingTitle: "Enskild firma hittad – ägargranskning väntar",
+    soleTraderPending: "Bolagsverket-kontrollen hittade en aktuell enskild firma. Företagsprofilen hålls privat tills en superadmin har granskat ägarunderlaget och kopplat den till arbetsytan.",
+    soleTraderLinked: "Ägarskapet för den enskilda firman är verifierat och kopplat till den här arbetsytan. Profilen förblir privat tills publiceringskraven har verifierats separat.",
+    soleTraderAmbiguous: "Bolagsverket returnerade mer än en aktuell enskild verksamhet för identiteten. Proffera väljer inte företag genom gissning; ärendet måste granskas manuellt.",
+    soleTraderNotActive: "Ingen aktuell registrerad enskild firma kunde verifieras för identiteten.",
     notReady: "Företaget hittades men uppfyller inte ännu alla säkra publiceringskrav. Ingen verifierad koppling skapades.",
     claimed: "Företaget är redan kopplat till en annan Proffera-arbetsyta.",
     busy: "Ett annat verifieringsärende pågår för företaget. Försök igen senare.",
@@ -36,8 +45,13 @@ const copy = {
     organizationNumber: "Organisation number",
     placeholder: "556123-4567",
     submit: "Check and add",
-    privacyTitle: "Sole trader requires privacy-safe verification",
-    privacyLead: "The identifier has a personnummer-shaped format and is therefore kept out of the normal company lookup. Proffera does not store or publish it through the standard company-profile path. The dedicated owner verification for sole traders must be completed first.",
+    soleTraderInfoTitle: "Sole traders are supported too",
+    soleTraderInfo: "Sole traders use a separate privacy-safe check. The private identity is used only for the direct Bolagsverket verification and is not stored in the Directory profile or placed in a URL.",
+    soleTraderPendingTitle: "Sole trader found – owner review pending",
+    soleTraderPending: "The Bolagsverket check found a current sole trader. The business profile stays private until a super admin reviews the ownership evidence and connects it to the workspace.",
+    soleTraderLinked: "Ownership of the sole trader is verified and connected to this workspace. The profile remains private until publication requirements are verified separately.",
+    soleTraderAmbiguous: "Bolagsverket returned more than one current sole-trader business for the identity. Proffera does not guess which business is intended; manual review is required.",
+    soleTraderNotActive: "No current registered sole trader could be verified for the identity.",
     notReady: "The business was found but does not yet satisfy all safe publication requirements. No verified connection was created.",
     claimed: "The business is already connected to another Proffera workspace.",
     busy: "Another verification is already in progress for this business. Try again later.",
@@ -55,9 +69,7 @@ function first(value: string | string[] | undefined) {
 }
 
 function withStatus(locale: Locale, status: string) {
-  const params = new URLSearchParams({ status });
-  if (locale === "en") params.set("lang", "en");
-  return `/dashboard/marknadsplats/lagg-till-foretag?${params.toString()}`;
+  return ownerOnboardingStatusPath(locale, status);
 }
 
 function claimHref(slug: string, locale: Locale) {
@@ -81,11 +93,7 @@ async function addCompanyAction(formData: FormData) {
       target = withStatus(locale, result.status);
     }
   } catch (error) {
-    const code = error instanceof Error ? error.message : "";
-    target = withStatus(
-      locale,
-      code === "organization_number" ? "invalid" : code === "rate_limited" ? "rate_limited" : "source_error",
-    );
+    target = ownerOnboardingErrorRedirect(locale, error);
   }
 
   redirect(target);
@@ -104,23 +112,29 @@ export default async function AddMarketplaceCompanyPage({
   const status = first(params?.status) ?? "";
   const t = copy[locale];
 
-  const message = status === "sole_trader_privacy"
-    ? { title: t.privacyTitle, body: t.privacyLead, tone: "amber" }
-    : status === "not_ready"
-      ? { title: t.notReady, body: "", tone: "amber" }
-      : status === "claimed"
-        ? { title: t.claimed, body: "", tone: "red" }
-        : status === "busy"
-          ? { title: t.busy, body: "", tone: "amber" }
-          : status === "linked"
-            ? { title: t.linked, body: "", tone: "green" }
-            : status === "invalid"
-              ? { title: t.invalid, body: "", tone: "red" }
-              : status === "rate_limited"
-                ? { title: t.rateLimited, body: "", tone: "amber" }
-                : status === "source_error"
-                  ? { title: t.sourceError, body: "", tone: "red" }
-                  : null;
+  const message = status === "sole_trader_review_pending"
+    ? { title: t.soleTraderPendingTitle, body: t.soleTraderPending, tone: "green" }
+    : status === "sole_trader_linked"
+      ? { title: t.soleTraderLinked, body: "", tone: "green" }
+      : status === "sole_trader_ambiguous"
+        ? { title: t.soleTraderAmbiguous, body: "", tone: "amber" }
+        : status === "sole_trader_not_active"
+          ? { title: t.soleTraderNotActive, body: "", tone: "amber" }
+          : status === "not_ready"
+            ? { title: t.notReady, body: "", tone: "amber" }
+            : status === "claimed"
+              ? { title: t.claimed, body: "", tone: "red" }
+              : status === "busy"
+                ? { title: t.busy, body: "", tone: "amber" }
+                : status === "linked"
+                  ? { title: t.linked, body: "", tone: "green" }
+                  : status === "invalid"
+                    ? { title: t.invalid, body: "", tone: "red" }
+                    : status === "rate_limited"
+                      ? { title: t.rateLimited, body: "", tone: "amber" }
+                      : status === "source_error"
+                        ? { title: t.sourceError, body: "", tone: "red" }
+                        : null;
 
   return (
     <div className="grid gap-6">
@@ -136,6 +150,14 @@ export default async function AddMarketplaceCompanyPage({
         <h1 className="mt-2 text-3xl font-black">{t.title}</h1>
         <p className="mt-3 max-w-3xl text-sm leading-7 text-white/80">{t.lead}</p>
       </header>
+
+      <section className="flex gap-3 rounded-2xl border border-[#e7d29c] bg-[#fff9e9] p-5 text-[#76580d]">
+        <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0" />
+        <div>
+          <p className="font-black">{t.soleTraderInfoTitle}</p>
+          <p className="mt-2 text-sm leading-6">{t.soleTraderInfo}</p>
+        </div>
+      </section>
 
       {message ? (
         <section
