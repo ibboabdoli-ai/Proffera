@@ -213,42 +213,92 @@ function cityFromRecord(row: AnyRecord) {
   return text(post?.postort ?? post?.city ?? post?.ort ?? post?.postalTown);
 }
 
-function hasExplicitApiError(value: unknown, depth = 0): boolean {
-  if (depth > 7 || !value || typeof value !== "object") return false;
-  if (Array.isArray(value)) return value.some((item) => hasExplicitApiError(item, depth + 1));
-  const row = value as AnyRecord;
-  if (Object.prototype.hasOwnProperty.call(row, "fel") && row.fel !== null && row.fel !== undefined) return true;
-  return Object.entries(row).some(([key, child]) => key !== "fel" && hasExplicitApiError(child, depth + 1));
+function sourceFieldError(value: unknown) {
+  const row = object(value);
+  if (!row || !Object.prototype.hasOwnProperty.call(row, "fel") || row.fel === null || row.fel === undefined) {
+    return null;
+  }
+  const error = object(row.fel);
+  const rawType = text(error?.typ ?? error?.type).toUpperCase();
+  return /^[A-Z0-9_-]{1,80}$/.test(rawType) ? rawType : "UNKNOWN";
+}
+
+function logSoleTraderSourceFailure(
+  reason: string,
+  details: Record<string, string | number | string[]> = {},
+) {
+  console.warn("Sole-trader official verification failed", { reason, ...details });
+}
+
+function failSoleTraderSource(
+  reason: string,
+  details: Record<string, string | number | string[]> = {},
+): never {
+  logSoleTraderSourceFailure(reason, details);
+  throw new Error("sole_trader_source_error");
 }
 
 function selectCurrentSoleTraderBusiness(payload: unknown, requestedIdentity10: string):
   | { status: "found"; business: SoleTraderOfficialBusiness }
   | { status: "ambiguous"; companyName: string }
   | { status: "not_active"; companyName: string } {
-  if (hasExplicitApiError(payload)) throw new Error("sole_trader_source_error");
-
-  const matching = organizationRecords(payload).filter((row) => {
+  const records = organizationRecords(payload);
+  const identityMatches = records.filter((row) => {
     const type = identityType(row);
     const supportedType = !type || type === "PERSONNUMMER" || type === "PERSONNR";
-    return supportedType
-      && responseIdentity10(identityValue(row)) === requestedIdentity10
-      && isSoleTraderRecord(row);
+    return supportedType && responseIdentity10(identityValue(row)) === requestedIdentity10;
   });
+  if (identityMatches.length === 0) {
+    failSoleTraderSource("no_identity_match", { recordCount: records.length });
+  }
+
+  const formErrors = identityMatches
+    .map((row) => sourceFieldError(row.organisationsform ?? row.organizationForm))
+    .filter((value): value is string => Boolean(value));
+  if (formErrors.length > 0) {
+    failSoleTraderSource("critical_field_error", {
+      fields: ["organisationsform"],
+      errorTypes: [...new Set(formErrors)],
+    });
+  }
+
+  const matching = identityMatches.filter(isSoleTraderRecord);
   if (matching.length === 0) {
-    throw new Error("sole_trader_source_error");
+    failSoleTraderSource("no_sole_trader_form", { recordCount: identityMatches.length });
+  }
+
+  const deregistrationErrors = matching
+    .map((row) => sourceFieldError(row.avregistreradOrganisation ?? row.avregistrerad ?? row.deregisteredAt))
+    .filter((value): value is string => Boolean(value));
+  if (deregistrationErrors.length > 0) {
+    failSoleTraderSource("critical_field_error", {
+      fields: ["avregistreradOrganisation"],
+      errorTypes: [...new Set(deregistrationErrors)],
+    });
   }
 
   const current = matching.filter((row) => !hasDeregistrationEvidence(row));
   if (current.length === 0) {
     return { status: "not_active", companyName: matching.map(businessName).find(Boolean) ?? "" };
   }
+
+  const nameErrors = current
+    .map((row) => sourceFieldError(row.organisationsnamn ?? row.organizationNames))
+    .filter((value): value is string => Boolean(value));
+  if (nameErrors.length > 0) {
+    failSoleTraderSource("critical_field_error", {
+      fields: ["organisationsnamn"],
+      errorTypes: [...new Set(nameErrors)],
+    });
+  }
+
   if (current.length > 1) {
     return { status: "ambiguous", companyName: current.map(businessName).find(Boolean) ?? "" };
   }
 
   const row = current[0]!;
   const name = businessName(row);
-  if (!name) throw new Error("sole_trader_source_error");
+  if (!name) failSoleTraderSource("missing_business_name");
   const form = legalForm(row);
   const sni = sniFromRecord(row);
   return {
@@ -289,10 +339,16 @@ async function oauthAccessToken() {
     cache: "no-store",
     signal: AbortSignal.timeout(12_000),
   });
-  if (!response.ok) throw new Error("sole_trader_source_error");
+  if (!response.ok) {
+    logSoleTraderSourceFailure("oauth_http_error", { status: response.status });
+    throw new Error("sole_trader_source_error");
+  }
   const payload = object(await response.json());
   const token = payload ? text(payload.access_token) : "";
-  if (!token) throw new Error("sole_trader_source_error");
+  if (!token) {
+    logSoleTraderSourceFailure("oauth_missing_token");
+    throw new Error("sole_trader_source_error");
+  }
   return token;
 }
 
@@ -336,7 +392,10 @@ async function verifyOfficialSoleTrader(identity10: string) {
   const identity12 = expandPrivateIdentity12(identity10);
   if (!identity12) throw new Error("sole_trader_identity");
   const template = process.env.COMPANY_DIRECTORY_DETAIL_URL_TEMPLATE?.trim();
-  if (!template) throw new Error("sole_trader_source_error");
+  if (!template) {
+    logSoleTraderSourceFailure("detail_template_missing");
+    throw new Error("sole_trader_source_error");
+  }
 
   const provider = process.env.COMPANY_DIRECTORY_PROVIDER?.trim() || "bolagsverket_vardefulla_datamangder";
   const url = requireBolagsverketHttpsUrl(soleTraderDetailEndpoint(template), "COMPANY_DIRECTORY_DETAIL_URL_TEMPLATE");
@@ -359,7 +418,10 @@ async function verifyOfficialSoleTrader(identity10: string) {
     cache: "no-store",
     signal: AbortSignal.timeout(15_000),
   });
-  if (!response.ok) throw new Error("sole_trader_source_error");
+  if (!response.ok) {
+    logSoleTraderSourceFailure("detail_http_error", { status: response.status });
+    throw new Error("sole_trader_source_error");
+  }
   return selectCurrentSoleTraderBusiness(await response.json(), identity10);
 }
 
