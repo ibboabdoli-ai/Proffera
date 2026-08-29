@@ -85,6 +85,13 @@ function activeRecord(identity = PRIVATE_OFFICIAL) {
   };
 }
 
+function matchingTransientErrorRecord() {
+  return {
+    ...activeRecord(),
+    organisationsform: producerError("OTILLGANGLIG_UPPGIFTSKALLA"),
+  };
+}
+
 function createSqlMock() {
   const persistedValues: string[] = [];
   let persisted = false;
@@ -166,11 +173,21 @@ describe("sole-trader upstream retry contract", () => {
     const { query, persistedValues } = createSqlMock();
     mocks.getSql.mockReturnValue(query);
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const events: string[] = [];
+    mocks.waitForBolagsverketRequestSlot.mockImplementation(async () => {
+      events.push("slot");
+    });
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(response({
-        organisationer: [identitylessErrorRecord("OTILLGANGLIG_UPPGIFTSKALLA")],
-      }))
-      .mockResolvedValueOnce(response({ organisationer: [activeRecord()] }));
+      .mockImplementationOnce(async () => {
+        events.push("fetch");
+        return response({
+          organisationer: [identitylessErrorRecord("OTILLGANGLIG_UPPGIFTSKALLA")],
+        });
+      })
+      .mockImplementationOnce(async () => {
+        events.push("fetch");
+        return response({ organisationer: [activeRecord()] });
+      });
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(onboardOwnerSoleTrader(PRIVATE_INPUT)).resolves.toEqual({
@@ -180,9 +197,49 @@ describe("sole-trader upstream retry contract", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(mocks.waitForBolagsverketRequestSlot).toHaveBeenCalledTimes(2);
+    expect(events).toEqual(["slot", "fetch", "slot", "fetch"]);
     expect(mocks.allowPublicSubmission).toHaveBeenCalledTimes(1);
     expect(query.transaction).toHaveBeenCalledTimes(1);
     const persistedText = persistedValues.join("\n");
+    expect(persistedText).not.toContain(PRIVATE_INPUT);
+    expect(persistedText).not.toContain(PRIVATE_OFFICIAL);
+
+    const logged = expectNoPrivateDiagnosticLeak(warn);
+    expect(logged).toContain("producer_error");
+    expect(logged).toContain("OTILLGANGLIG_UPPGIFTSKALLA");
+    expect(logged).toContain("retrying_transient_producer_error");
+  });
+
+  it("retries a transient producer failure on the matching record and then persists the valid retry", async () => {
+    const { query, persistedValues } = createSqlMock();
+    mocks.getSql.mockReturnValue(query);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const events: string[] = [];
+    mocks.waitForBolagsverketRequestSlot.mockImplementation(async () => {
+      events.push("slot");
+    });
+    const fetchMock = vi.fn()
+      .mockImplementationOnce(async () => {
+        events.push("fetch");
+        return response({ organisationer: [matchingTransientErrorRecord()] });
+      })
+      .mockImplementationOnce(async () => {
+        events.push("fetch");
+        return response({ organisationer: [activeRecord()] });
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(onboardOwnerSoleTrader(PRIVATE_INPUT)).resolves.toEqual({
+      status: "sole_trader_review_pending",
+      companyName: TEST_COMPANY_NAME,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(mocks.waitForBolagsverketRequestSlot).toHaveBeenCalledTimes(2);
+    expect(events).toEqual(["slot", "fetch", "slot", "fetch"]);
+    expect(query.transaction).toHaveBeenCalledTimes(1);
+    const persistedText = persistedValues.join("\n");
+    expect(persistedText).toContain(TEST_COMPANY_NAME);
     expect(persistedText).not.toContain(PRIVATE_INPUT);
     expect(persistedText).not.toContain(PRIVATE_OFFICIAL);
 
