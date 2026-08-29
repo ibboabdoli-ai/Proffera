@@ -213,14 +213,69 @@ function cityFromRecord(row: AnyRecord) {
   return text(post?.postort ?? post?.city ?? post?.ort ?? post?.postalTown);
 }
 
-function sourceFieldError(value: unknown) {
-  const row = object(value);
-  if (!row || !Object.prototype.hasOwnProperty.call(row, "fel") || row.fel === null || row.fel === undefined) {
-    return null;
-  }
-  const error = object(row.fel);
+const OPTIONAL_SOLE_TRADER_SOURCE_ERROR_SECTIONS = new Set([
+  "avregistreringsorsak",
+  "juridiskForm",
+  "naringsgrenOrganisation",
+  "näringsgrenOrganisation",
+  "organisationsdatum",
+  "pagaendeAvvecklingsEllerOmstruktureringsforfarande",
+  "pågåendeAvvecklingsEllerOmstruktureringsförfarande",
+  "postadressOrganisation",
+  "reklamsparr",
+  "verksamOrganisation",
+  "verksamhetsbeskrivning",
+]);
+
+const ORGANIZATION_CONTAINER_KEYS = new Set([
+  "organisationer",
+  "organisations",
+  "organizations",
+  "items",
+  "results",
+  "organisation",
+  "organization",
+  "data",
+  "result",
+]);
+
+type ProducerError = {
+  section: string;
+  type: string;
+};
+
+function safeProducerErrorType(value: unknown) {
+  const error = object(value);
   const rawType = text(error?.typ ?? error?.type).toUpperCase();
   return /^[A-Z0-9_-]{1,80}$/.test(rawType) ? rawType : "UNKNOWN";
+}
+
+function producerErrorSection(path: string[]) {
+  let index = 0;
+  if (ORGANIZATION_CONTAINER_KEYS.has(path[index] ?? "")) {
+    index += 1;
+    if (/^\d+$/.test(path[index] ?? "")) index += 1;
+  }
+  return path[index] ?? "$response";
+}
+
+function collectProducerErrors(value: unknown, path: string[] = [], depth = 0): ProducerError[] {
+  if (depth > 8 || !value || typeof value !== "object") return [];
+  if (Array.isArray(value)) {
+    return value.flatMap((item, index) => collectProducerErrors(item, [...path, String(index)], depth + 1));
+  }
+  const row = value as AnyRecord;
+  const errors: ProducerError[] = [];
+  for (const [key, child] of Object.entries(row)) {
+    if (key === "fel" && child !== null && child !== undefined) {
+      errors.push({ section: producerErrorSection(path), type: safeProducerErrorType(child) });
+      continue;
+    }
+    if (child && typeof child === "object") {
+      errors.push(...collectProducerErrors(child, [...path, key], depth + 1));
+    }
+  }
+  return errors;
 }
 
 function logSoleTraderSourceFailure(
@@ -242,6 +297,17 @@ function selectCurrentSoleTraderBusiness(payload: unknown, requestedIdentity10: 
   | { status: "found"; business: SoleTraderOfficialBusiness }
   | { status: "ambiguous"; companyName: string }
   | { status: "not_active"; companyName: string } {
+  const producerErrors = collectProducerErrors(payload);
+  const blockingErrors = producerErrors.filter(
+    (error) => !OPTIONAL_SOLE_TRADER_SOURCE_ERROR_SECTIONS.has(error.section),
+  );
+  if (blockingErrors.length > 0) {
+    failSoleTraderSource("producer_error", {
+      fields: [...new Set(blockingErrors.map((error) => error.section))],
+      errorTypes: [...new Set(blockingErrors.map((error) => error.type))],
+    });
+  }
+
   const records = organizationRecords(payload);
   const identityMatches = records.filter((row) => {
     const type = identityType(row);
@@ -252,44 +318,14 @@ function selectCurrentSoleTraderBusiness(payload: unknown, requestedIdentity10: 
     failSoleTraderSource("no_identity_match", { recordCount: records.length });
   }
 
-  const formErrors = identityMatches
-    .map((row) => sourceFieldError(row.organisationsform ?? row.organizationForm))
-    .filter((value): value is string => Boolean(value));
-  if (formErrors.length > 0) {
-    failSoleTraderSource("critical_field_error", {
-      fields: ["organisationsform"],
-      errorTypes: [...new Set(formErrors)],
-    });
-  }
-
   const matching = identityMatches.filter(isSoleTraderRecord);
   if (matching.length === 0) {
     failSoleTraderSource("no_sole_trader_form", { recordCount: identityMatches.length });
   }
 
-  const deregistrationErrors = matching
-    .map((row) => sourceFieldError(row.avregistreradOrganisation ?? row.avregistrerad ?? row.deregisteredAt))
-    .filter((value): value is string => Boolean(value));
-  if (deregistrationErrors.length > 0) {
-    failSoleTraderSource("critical_field_error", {
-      fields: ["avregistreradOrganisation"],
-      errorTypes: [...new Set(deregistrationErrors)],
-    });
-  }
-
   const current = matching.filter((row) => !hasDeregistrationEvidence(row));
   if (current.length === 0) {
     return { status: "not_active", companyName: matching.map(businessName).find(Boolean) ?? "" };
-  }
-
-  const nameErrors = current
-    .map((row) => sourceFieldError(row.organisationsnamn ?? row.organizationNames))
-    .filter((value): value is string => Boolean(value));
-  if (nameErrors.length > 0) {
-    failSoleTraderSource("critical_field_error", {
-      fields: ["organisationsnamn"],
-      errorTypes: [...new Set(nameErrors)],
-    });
   }
 
   if (current.length > 1) {
