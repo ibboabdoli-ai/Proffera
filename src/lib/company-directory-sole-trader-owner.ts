@@ -276,11 +276,18 @@ const TRANSIENT_SOLE_TRADER_SOURCE_ERROR_TYPES = new Set([
 ]);
 
 const SOLE_TRADER_SOURCE_ATTEMPTS = 2;
+const PRODUCTION_SOLE_TRADER_TOKEN_URL = "https://gw.api.bolagsverket.se/oauth2/token";
+const PRODUCTION_SOLE_TRADER_DETAIL_URL = "https://gw.api.bolagsverket.se/vardefulla-datamangder/v1/organisationer";
+const PRODUCTION_SOLE_TRADER_SCOPE = "vardefulla-datamangder:read";
 
 type ProducerError = {
   section: string;
   type: string;
 };
+
+function isProductionRuntime() {
+  return process.env.VERCEL_ENV?.trim().toLowerCase() === "production";
+}
 
 function safeProducerErrorType(value: unknown) {
   const error = object(value);
@@ -444,16 +451,26 @@ function selectCurrentSoleTraderBusiness(payload: unknown, requestedIdentity10: 
 }
 
 async function oauthAccessToken() {
-  const staticToken = process.env.COMPANY_DIRECTORY_SOURCE_BEARER_TOKEN?.trim();
-  if (staticToken) return staticToken;
+  const production = isProductionRuntime();
+  if (!production) {
+    const staticToken = process.env.COMPANY_DIRECTORY_SOURCE_BEARER_TOKEN?.trim();
+    if (staticToken) return staticToken;
+  }
 
-  const tokenUrl = process.env.COMPANY_DIRECTORY_TOKEN_URL?.trim();
+  const tokenUrl = production
+    ? PRODUCTION_SOLE_TRADER_TOKEN_URL
+    : process.env.COMPANY_DIRECTORY_TOKEN_URL?.trim();
   const clientId = process.env.BOLAGSVERKET_CLIENT_ID?.trim();
   const clientSecret = process.env.BOLAGSVERKET_CLIENT_SECRET?.trim();
-  if (!tokenUrl || !clientId || !clientSecret) return "";
+  if (!tokenUrl || !clientId || !clientSecret) {
+    if (production) logSoleTraderSourceFailure("oauth_config_missing");
+    return "";
+  }
   const secureTokenUrl = requireBolagsverketHttpsUrl(tokenUrl, "COMPANY_DIRECTORY_TOKEN_URL");
   const basic = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
-  const scope = process.env.COMPANY_DIRECTORY_OAUTH_SCOPE?.trim();
+  const scope = production
+    ? PRODUCTION_SOLE_TRADER_SCOPE
+    : process.env.COMPANY_DIRECTORY_OAUTH_SCOPE?.trim();
   const body = new URLSearchParams({ grant_type: "client_credentials" });
   if (scope) body.set("scope", scope);
 
@@ -481,10 +498,6 @@ async function oauthAccessToken() {
   return token;
 }
 
-function replaceIdentity(template: string, identity: string) {
-  return template.replaceAll("{organizationNumber}", identity);
-}
-
 function soleTraderDetailEndpoint(template: string) {
   const raw = template.trim();
   if (!raw) throw new Error("sole_trader_source_error");
@@ -500,7 +513,7 @@ function soleTraderDetailEndpoint(template: string) {
   if (suffix.includes("{organizationNumber}")) throw new Error("sole_trader_source_error");
 
   const endpointPath = pathPart.replace(/\/\{organizationNumber\}\/?$/, "");
-  if (!endpointPath || endpointPath.includes("{organizationNumber}")) {
+  if (!endpointPath || /[{}]/.test(endpointPath) || /[{}]/.test(suffix)) {
     throw new Error("sole_trader_source_error");
   }
   return `${endpointPath}${suffix}`;
@@ -520,19 +533,24 @@ async function requireExternalLookupBudget(input: { workspaceId: string; userId:
 async function verifyOfficialSoleTrader(identity10: string) {
   const identity12 = expandPrivateIdentity12(identity10);
   if (!identity12) throw new Error("sole_trader_identity");
+  const production = isProductionRuntime();
   const template = process.env.COMPANY_DIRECTORY_DETAIL_URL_TEMPLATE?.trim();
-  if (!template) {
+  if (!production && !template) {
     logSoleTraderSourceFailure("detail_template_missing");
     throw new Error("sole_trader_source_error");
   }
 
   const provider = process.env.COMPANY_DIRECTORY_PROVIDER?.trim() || "bolagsverket_vardefulla_datamangder";
-  const url = requireBolagsverketHttpsUrl(soleTraderDetailEndpoint(template), "COMPANY_DIRECTORY_DETAIL_URL_TEMPLATE");
+  const detailUrl = production
+    ? PRODUCTION_SOLE_TRADER_DETAIL_URL
+    : soleTraderDetailEndpoint(template!);
+  const url = requireBolagsverketHttpsUrl(detailUrl, "COMPANY_DIRECTORY_DETAIL_URL_TEMPLATE");
   const token = await oauthAccessToken();
-  const bodyTemplate = process.env.COMPANY_DIRECTORY_DETAIL_BODY_TEMPLATE?.trim();
-  const body = bodyTemplate
-    ? replaceIdentity(bodyTemplate, identity12)
-    : JSON.stringify({ identitetsbeteckning: identity12 });
+  if (!token) {
+    logSoleTraderSourceFailure("oauth_missing_token");
+    throw new Error("sole_trader_source_error");
+  }
+  const body = JSON.stringify({ identitetsbeteckning: identity12 });
 
   for (let attempt = 1; attempt <= SOLE_TRADER_SOURCE_ATTEMPTS; attempt += 1) {
     await waitForBolagsverketRequestSlot(provider);
@@ -541,7 +559,7 @@ async function verifyOfficialSoleTrader(identity10: string) {
       headers: {
         accept: "application/json",
         "content-type": "application/json",
-        ...(token ? { authorization: `Bearer ${token}` } : {}),
+        authorization: `Bearer ${token}`,
         "x-request-id": randomUUID(),
       },
       body,
