@@ -8,6 +8,7 @@ const { load: parseYaml } = require("js-yaml") as {
 
 type YamlRecord = Record<string, unknown>;
 
+/** Return true when a parsed YAML value is a plain record-like object. */
 function isRecord(value: unknown): value is YamlRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
