@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
+// Parse the workflow as YAML so quoted keys and formatting cannot bypass scheduler assertions.
 const { load: parseYaml } = require("js-yaml") as {
   load: (source: string) => unknown;
 };
