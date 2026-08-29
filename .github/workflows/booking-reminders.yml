@@ -1,10 +1,7 @@
 name: Operations automation
 
 on:
-  schedule:
-    # Keep the 15-minute cadence but shift one minute so GitHub re-registers this
-    # workflow-specific schedule after scheduled events stopped after run #751.
-    - cron: "8,23,38,53 * * * *"
+  workflow_call:
   workflow_dispatch:
 
 permissions: {}
