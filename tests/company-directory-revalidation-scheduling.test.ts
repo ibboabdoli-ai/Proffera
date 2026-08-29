@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { COMPANY_DIRECTORY_CATEGORY_CONFIDENCE_POLICY_VERSION } from "../src/lib/company-directory-category-confidence";
+import { workflowCronExpressions, workflowTriggers } from "./github-workflow-yaml";
 
 const mocks = vi.hoisted(() => ({
   revalidatePolicy: vi.fn(),
@@ -59,14 +60,9 @@ function cronMinuteFieldIncludes(minuteField: string, minute: number) {
   });
 }
 
-/** Return only active YAML cron entries so stale or extra schedules cannot hide in tests. */
-function cronExpressions(workflow: string) {
-  return [...workflow.matchAll(/^\s*-\s*cron:\s*"([^"]+)"\s*$/gm)].map((match) => match[1]);
-}
-
-/** Assert that every cron expression in a workflow avoids the dedicated revalidation minutes. */
+/** Assert that every active workflow cron expression avoids the dedicated revalidation minutes. */
 function expectNoRevalidationMinuteCollision(workflow: string) {
-  const minuteFields = cronExpressions(workflow).map((expression) =>
+  const minuteFields = workflowCronExpressions(workflow).map((expression) =>
     expression.trim().split(/\s+/)[0]
   );
 
@@ -341,22 +337,29 @@ describe("dedicated Company Directory revalidation scheduling", () => {
       "utf8",
     );
 
-    expect(workflow).toContain("workflow_dispatch:");
-    expect(workflow).not.toContain("schedule:");
-    expect(workflow).not.toContain("cron:");
+    const revalidationTriggers = workflowTriggers(workflow);
+    const operationsTriggers = workflowTriggers(operationsWorkflow);
+    const marketplaceTriggers = workflowTriggers(marketplaceWorkflow);
+    const productionHealthTriggers = workflowTriggers(productionHealthWorkflow);
+
+    expect(revalidationTriggers).toHaveProperty("workflow_dispatch");
+    expect(revalidationTriggers).not.toHaveProperty("schedule");
     expect(workflow).not.toContain("BATCHES_PER_RUN=2");
     expect(workflow).not.toContain('for batch in $(seq 1 "$BATCHES_PER_RUN")');
 
-    expect(cronExpressions(operationsWorkflow)).toEqual([]);
-    expect(cronExpressions(marketplaceWorkflow)).toEqual([]);
-    expect(cronExpressions(productionHealthWorkflow)).toEqual([]);
-    expect(operationsWorkflow).toContain("workflow_dispatch:");
-    expect(marketplaceWorkflow).toContain("workflow_dispatch:");
-    expect(productionHealthWorkflow).toContain("workflow_dispatch:");
-    expect(productionHealthWorkflow).toContain("push:");
-    expect(productionHealthWorkflow).toContain("repository_dispatch:");
+    expect(workflowCronExpressions(operationsWorkflow)).toEqual([]);
+    expect(workflowCronExpressions(marketplaceWorkflow)).toEqual([]);
+    expect(workflowCronExpressions(productionHealthWorkflow)).toEqual([]);
+    expect(operationsTriggers).toHaveProperty("workflow_dispatch");
+    expect(operationsTriggers).not.toHaveProperty("schedule");
+    expect(marketplaceTriggers).toHaveProperty("workflow_dispatch");
+    expect(marketplaceTriggers).not.toHaveProperty("schedule");
+    expect(productionHealthTriggers).toHaveProperty("workflow_dispatch");
+    expect(productionHealthTriggers).toHaveProperty("push");
+    expect(productionHealthTriggers).toHaveProperty("repository_dispatch");
+    expect(productionHealthTriggers).not.toHaveProperty("schedule");
 
-    expect(cronExpressions(directoryAutomationWorkflow)).toEqual([
+    expect(workflowCronExpressions(directoryAutomationWorkflow)).toEqual([
       "17 * * * *",
       "31 3 * * *",
     ]);
