@@ -37,18 +37,80 @@ jobs:
           set -euo pipefail
           test -n "$MARKETPLACE_AUTO_WORKER_URL"
           test -n "$CRON_SECRET"
+          python - <<'PY'
+          import os
+          import urllib.parse
 
-      - name: Process Marketplace automation
+          url = urllib.parse.urlparse(os.environ["MARKETPLACE_AUTO_WORKER_URL"])
+          if url.scheme != "https" or not url.netloc:
+              raise SystemExit("MARKETPLACE_AUTO_WORKER_URL must be an HTTPS URL")
+          if url.path.rstrip("/") != "/api/cron/marketplace-auto-worker":
+              raise SystemExit("MARKETPLACE_AUTO_WORKER_URL must target /api/cron/marketplace-auto-worker")
+          PY
+
+      - name: Process Marketplace invitation waves
         env:
           CRON_SECRET: ${{ secrets.PROFFERA_REMINDER_CRON_SECRET }}
         run: |
           set -euo pipefail
-          curl --fail-with-body --silent --show-error \
+          response="$(curl --fail-with-body --silent --show-error \
             --connect-timeout 10 \
-            --max-time 75 \
+            --max-time 70 \
             --header "Authorization: Bearer $CRON_SECRET" \
             --header "User-Agent: proffera-marketplace-auto-worker-github-actions" \
-            "$MARKETPLACE_AUTO_WORKER_URL"
+            "$MARKETPLACE_AUTO_WORKER_URL")"
+
+          WORKER_RESPONSE="$response" python - <<'PY'
+          import json
+          import os
+
+          try:
+              payload = json.loads(os.environ["WORKER_RESPONSE"])
+          except json.JSONDecodeError as exc:
+              print(f"::error::Marketplace Auto Worker returned invalid JSON: {exc}")
+              raise SystemExit(1)
+
+          skip_reason = payload.get("skipped") if isinstance(payload.get("skipped"), str) else None
+          if skip_reason in {"disabled", "production_not_authorized", "production_cutoff_not_configured"}:
+              print(f"Marketplace Auto Worker skipped safely: {skip_reason}")
+              raise SystemExit(0)
+
+          if payload.get("ok") is not True:
+              print(f"::error::Marketplace Auto Worker failed: {payload.get('error', 'unknown_error')}")
+              raise SystemExit(1)
+
+          if payload.get("deadlineReached") is True:
+              print("::error::Marketplace Auto Worker reached its execution deadline")
+              raise SystemExit(1)
+
+          skip_counts = payload.get("skipped") if isinstance(payload.get("skipped"), dict) else {}
+          safe_delivery_states = {
+              "delivery_quote_closed",
+              "delivery_consent_required",
+              "delivery_profile_ineligible",
+              "delivery_suppressed",
+              "delivery_already_invited",
+              "delivery_conflict",
+          }
+          delivery_errors = sum(
+              int(value or 0)
+              for key, value in skip_counts.items()
+              if key.startswith("delivery_") and key not in safe_delivery_states
+          )
+          if delivery_errors > 0:
+              print(f"::error::Marketplace Auto Worker recorded {delivery_errors} delivery errors")
+              raise SystemExit(1)
+
+          print(
+              "Marketplace Auto Worker completed: "
+              f"scanned={payload.get('scanned', 0)} "
+              f"attempted={payload.get('attempted', 0)} "
+              f"sent={payload.get('sent', 0)}"
+          )
+          PY
+
+          # This scheduler is a best-effort trigger. Persisted Marketplace state
+          # and application-side monitoring remain the source of truth for throughput.
 
   operations:
     if: >-
