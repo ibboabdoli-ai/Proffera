@@ -18,11 +18,17 @@ function boundedNumber(value: string | undefined, fallback: number, minimum: num
   return Math.max(minimum, Math.min(maximum, parsed));
 }
 
-function authorizedSchedulerRequest(request: Request, secret: string | undefined) {
+function bearerMatches(authorization: string | null, secret: string | undefined) {
   if (!secret) return false;
   const expected = Buffer.from(`Bearer ${secret}`);
-  const received = Buffer.from(request.headers.get("authorization") ?? "");
+  const received = Buffer.from(authorization ?? "");
   return expected.length === received.length && timingSafeEqual(expected, received);
+}
+
+function authorizedSchedulerRequest(request: Request) {
+  const authorization = request.headers.get("authorization");
+  return bearerMatches(authorization, process.env.CRON_SECRET)
+    || bearerMatches(authorization, process.env.PRODUCTION_SCHEDULER_SECRET);
 }
 
 function validRolloutCutoff(value: string | undefined) {
@@ -31,7 +37,7 @@ function validRolloutCutoff(value: string | undefined) {
 }
 
 export async function GET(request: Request) {
-  if (!authorizedSchedulerRequest(request, process.env.CRON_SECRET)) {
+  if (!authorizedSchedulerRequest(request)) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
