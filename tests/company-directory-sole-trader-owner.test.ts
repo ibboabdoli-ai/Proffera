@@ -229,6 +229,8 @@ describe("privacy-safe sole-trader owner verification", () => {
     expect(logged).not.toContain(PRIVATE_INPUT);
     expect(logged).not.toContain(PRIVATE_OFFICIAL);
     expect(logged).not.toContain("198101032384");
+    expect(logged).not.toContain("bolagsverket-acceptance2-diagnostic-v1:");
+    expect(logged).not.toContain("1549fa3190321e9213f04f22e741cec908b01cb462a51f50232287473fef77d3");
     expect(query.transaction).not.toHaveBeenCalled();
   });
 
