@@ -56,6 +56,7 @@ function officialRecord(typeCode: string, identity = PRIVATE_OFFICIAL) {
 
 function createSqlMock() {
   let persisted = false;
+  const transactionSql: string[] = [];
 
   const query = vi.fn((strings: TemplateStringsArray) => {
     const sqlText = strings.join(" ? ").replace(/\s+/g, " ");
@@ -69,13 +70,17 @@ function createSqlMock() {
   }) as ReturnType<typeof vi.fn> & { transaction: ReturnType<typeof vi.fn> };
 
   query.transaction = vi.fn(async (callback: (tx: typeof query) => Array<Promise<unknown>>) => {
-    const tx = vi.fn(() => Promise.resolve([])) as unknown as typeof query;
+    const tx = vi.fn((strings: TemplateStringsArray) => {
+      transactionSql.push(strings.join(" ? ").replace(/\s+/g, " "));
+      return Promise.resolve([]);
+    }) as unknown as typeof query;
     await Promise.all(callback(tx));
-    persisted = true;
+    persisted = transactionSql.some((sqlText) => sqlText.includes("insert into company_directory_profiles"))
+      && transactionSql.some((sqlText) => sqlText.includes("insert into company_directory_claims"));
     return [];
   });
 
-  return query;
+  return { query, transactionSql };
 }
 
 describe("Bolagsverket PERSON identity type", () => {
@@ -111,7 +116,7 @@ describe("Bolagsverket PERSON identity type", () => {
   });
 
   it("accepts the Production-observed PERSON code when the identity matches exactly", async () => {
-    const query = createSqlMock();
+    const { query, transactionSql } = createSqlMock();
     mocks.getSql.mockReturnValue(query);
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
@@ -124,10 +129,12 @@ describe("Bolagsverket PERSON identity type", () => {
     });
     expect(mocks.waitForBolagsverketRequestSlot).toHaveBeenCalledTimes(1);
     expect(query.transaction).toHaveBeenCalledTimes(1);
+    expect(transactionSql.some((sqlText) => sqlText.includes("insert into company_directory_profiles"))).toBe(true);
+    expect(transactionSql.some((sqlText) => sqlText.includes("insert into company_directory_claims"))).toBe(true);
   });
 
   it("still fails closed for PERSON when the returned identity does not match", async () => {
-    const query = createSqlMock();
+    const { query } = createSqlMock();
     mocks.getSql.mockReturnValue(query);
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
@@ -140,7 +147,7 @@ describe("Bolagsverket PERSON identity type", () => {
   });
 
   it("does not broaden matching to unrelated identity type codes", async () => {
-    const query = createSqlMock();
+    const { query } = createSqlMock();
     mocks.getSql.mockReturnValue(query);
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
