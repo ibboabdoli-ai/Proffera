@@ -44,11 +44,13 @@ function fakeStorage(initialValue: string | null = null) {
 
   return {
     storage: {
-      getItem(_key: string) {
+      getItem(key: string) {
+        void key;
         if (failRead) throw new Error("read unavailable");
         return value;
       },
-      setItem(_key: string, nextValue: string) {
+      setItem(key: string, nextValue: string) {
+        void key;
         if (failWrite) throw new Error("write unavailable");
         value = nextValue;
       },
@@ -114,11 +116,10 @@ describe("authenticated navigation prefetch contract", () => {
   });
 
   it("renders Dashboard and Platform Admin navigation with prefetch disabled by default", () => {
-    const dashboard = renderToStaticMarkup(React.createElement(
-      DashboardShell,
-      { canManageSettings: true },
-      React.createElement("div", null, "Dashboard content"),
-    ));
+    const dashboard = renderToStaticMarkup(React.createElement(DashboardShell, {
+      canManageSettings: true,
+      children: React.createElement("div", null, "Dashboard content"),
+    }));
     const admin = renderToStaticMarkup(React.createElement(AdminNavigation, {
       role: "super_admin",
       email: "admin@example.test",
