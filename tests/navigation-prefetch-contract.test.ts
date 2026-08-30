@@ -141,6 +141,9 @@ describe("authenticated navigation prefetch contract", () => {
     expect(dashboard).toContain('data-test-href="/dashboard/bokningar" data-prefetch="false"');
     expect(settings).toContain('data-test-href="/dashboard/installningar" data-prefetch="false"');
     expect(settings).toContain('data-test-href="/dashboard/installningar/funktioner" data-prefetch="false"');
+    expect(settings).toContain('data-test-href="/dashboard/installningar/utseende" data-prefetch="false"');
+    expect(settings).toContain('data-test-href="/dashboard/installningar/foretagssida" data-prefetch="false"');
+    expect(settings).toContain('data-test-href="/dashboard/installningar/paminnelser" data-prefetch="false"');
     expect(settings).toContain('data-test-href="/dashboard/installningar/betalningar" data-prefetch="false"');
     expect(admin).toContain('data-test-href="/admin/saas" data-prefetch="false"');
     expect(admin).toContain('data-test-href="/admin/foretag" data-prefetch="false"');
