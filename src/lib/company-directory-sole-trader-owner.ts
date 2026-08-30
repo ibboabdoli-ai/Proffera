@@ -916,7 +916,7 @@ export async function approveSoleTraderDirectoryClaim(input: { claimId: string; 
         'company_directory.sole_trader_claim.approved', ${reference},
         ${JSON.stringify({ claimId, status: "pending_or_verified", verificationMethod: "manual_review" })}::jsonb,
         jsonb_build_object(
-          'claimId', ${claimId},
+          'claimId', ${claimId}::text,
           'status', 'claimed',
           'workspaceId', claimed_claim.workspace_id::text,
           'publicationStatus', 'blocked'
