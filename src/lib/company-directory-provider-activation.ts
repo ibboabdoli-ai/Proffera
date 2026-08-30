@@ -14,6 +14,9 @@ import {
   resolveDirectoryServiceQuery,
 } from "@/lib/company-directory-service-taxonomy";
 
+const SOLE_TRADER_OWNER_SOURCE = "bolagsverket_vardefulla_datamangder:sole_trader_owner";
+const SOLE_TRADER_SURROGATE_IDENTITY = /^sole-trader-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export type ProviderActivationDirectoryService = {
   slug: string;
   label: string;
@@ -64,6 +67,42 @@ export function providerProfileCanOpenPublicPage(profile: {
     && !Boolean(profile.privacy_blocked)
     && Boolean(profile.auto_public_eligible)
     && Boolean(profile.published_at);
+}
+
+export function providerSoleTraderProfileCanReleaseMarketplace(
+  profile: {
+    organization_kind?: unknown;
+    organization_number?: unknown;
+    publication_status?: unknown;
+    is_active?: unknown;
+    privacy_blocked?: unknown;
+    auto_public_eligible?: unknown;
+    published_at?: unknown;
+    official_source?: unknown;
+    display_name?: unknown;
+    legal_form?: unknown;
+    organization_status?: unknown;
+    address_line1?: unknown;
+    postal_code?: unknown;
+  } | null | undefined,
+  claim: { status?: unknown; verification_method?: unknown } | null | undefined,
+) {
+  if (!profile || !claim) return false;
+  return String(profile.organization_kind ?? "") === "sole_trader"
+    && SOLE_TRADER_SURROGATE_IDENTITY.test(String(profile.organization_number ?? ""))
+    && String(profile.publication_status ?? "") === "blocked"
+    && Boolean(profile.is_active)
+    && Boolean(profile.privacy_blocked)
+    && !Boolean(profile.auto_public_eligible)
+    && !Boolean(profile.published_at)
+    && String(profile.official_source ?? "") === SOLE_TRADER_OWNER_SOURCE
+    && String(profile.display_name ?? "").trim().length > 0
+    && String(profile.legal_form ?? "").trim().length > 0
+    && String(profile.organization_status ?? "") === "Registrerad"
+    && String(profile.address_line1 ?? "").trim() === ""
+    && String(profile.postal_code ?? "").trim() === ""
+    && String(claim.status ?? "") === "claimed"
+    && String(claim.verification_method ?? "") === "manual_review";
 }
 
 export function exactOwnerDirectoryServiceCandidate(value: unknown): ProviderActivationDirectoryService | null {
@@ -141,11 +180,16 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
         profile.display_name,
         profile.organization_number,
         profile.organization_kind,
+        profile.legal_form,
+        profile.organization_status,
+        profile.address_line1,
+        profile.postal_code,
         profile.city,
         profile.publication_status,
         profile.is_active,
         profile.privacy_blocked,
         profile.auto_public_eligible,
+        profile.official_source,
         profile.published_at
       from company_directory_profiles profile
       where profile.claimed_workspace_id = ${access.workspaceId}::uuid
@@ -164,7 +208,7 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
       from company_directory_claims claim
       join company_directory_profiles profile on profile.id = claim.profile_id
       where claim.requested_workspace_id = ${access.workspaceId}::uuid
-        and claim.status in ('pending', 'verified')
+        and claim.status in ('pending', 'verified', 'claimed')
       order by claim.requested_at desc
       limit 1
     `,
@@ -172,7 +216,10 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
   ]);
 
   const profile = profileRows[0];
+  const claim = claimRows[0];
   const profileCanOpenPublicPage = providerProfileCanOpenPublicPage(profile);
+  const soleTraderCanRelease = providerSoleTraderProfileCanReleaseMarketplace(profile, claim);
+  const profileCanOfferMarketplace = profileCanOpenPublicPage || soleTraderCanRelease;
   const linkedProfile = profile
     ? {
         id: String(profile.id),
@@ -183,7 +230,7 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
       }
     : null;
 
-  const directoryRows = profileCanOpenPublicPage && linkedProfile
+  const directoryRows = profileCanOfferMarketplace && linkedProfile
     ? await sql`
         select service.slug, service.label
         from company_directory_profile_services relation
@@ -202,7 +249,7 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
     const service = { slug: String(row.slug), label: String(row.label) };
     directoryServiceMap.set(service.slug, service);
   }
-  if (profileCanOpenPublicPage && linkedProfile) {
+  if (profileCanOfferMarketplace && linkedProfile) {
     for (const workspaceService of workspaceServices) {
       if (!workspaceService.isActive) continue;
       const candidate = exactOwnerDirectoryServiceCandidate(workspaceService.name);
@@ -212,12 +259,12 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
     }
   }
 
-  const claim = claimRows[0];
+  const claimStatus = String(claim?.status ?? "");
   const soleTraderManualReview = String(claim?.organization_kind ?? "") === "sole_trader"
     && String(claim?.verification_method ?? "") === "manual_review";
-  const pendingClaim = claim
+  const pendingClaim = claim && (claimStatus === "pending" || claimStatus === "verified")
     ? {
-        status: String(claim.status),
+        status: claimStatus,
         companyName: String(claim.display_name ?? ""),
         organizationNumber: ownerVisibleDirectoryOrganizationNumber(claim.organization_kind, claim.organization_number),
         profileSlug: soleTraderManualReview || String(claim.publication_status ?? "") === "blocked"
@@ -311,14 +358,41 @@ export async function activateProviderMarketplaceService(input: {
       service.name,
       nullif(trim(service.primary_directory_service_slug), '') as previous_directory_service_slug,
       profile.id::text as profile_id,
-      (relation.profile_id is not null) as has_existing_relation
+      (relation.profile_id is not null) as has_existing_relation,
+      (profile.organization_kind = 'sole_trader' and profile.publication_status = 'blocked') as requires_privacy_release
     from workspace_services service
     join company_directory_profiles profile
       on profile.claimed_workspace_id = ${access.workspaceId}::uuid
-     and profile.publication_status = 'claimed'
      and profile.is_active = true
-     and profile.privacy_blocked = false
-     and profile.auto_public_eligible = true
+     and (
+       (
+         profile.publication_status = 'claimed'
+         and profile.privacy_blocked = false
+         and profile.auto_public_eligible = true
+       )
+       or (
+         profile.organization_kind = 'sole_trader'
+         and profile.organization_number ~ '^sole-trader-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+         and profile.publication_status = 'blocked'
+         and profile.privacy_blocked = true
+         and profile.auto_public_eligible = false
+         and profile.published_at is null
+         and profile.official_source = 'bolagsverket_vardefulla_datamangder:sole_trader_owner'
+         and coalesce(trim(profile.display_name), '') <> ''
+         and coalesce(trim(profile.legal_form), '') <> ''
+         and profile.organization_status = 'Registrerad'
+         and coalesce(trim(profile.address_line1), '') = ''
+         and coalesce(trim(profile.postal_code), '') = ''
+         and exists (
+           select 1
+           from company_directory_claims owner_claim
+           where owner_claim.profile_id = profile.id
+             and owner_claim.requested_workspace_id = ${access.workspaceId}::uuid
+             and owner_claim.status = 'claimed'
+             and owner_claim.verification_method = 'manual_review'
+         )
+       )
+     )
     join company_directory_services directory_service
       on directory_service.slug = ${input.directoryServiceSlug}
      and directory_service.is_active = true
@@ -351,6 +425,7 @@ export async function activateProviderMarketplaceService(input: {
   }
 
   const profileId = String(service.profile_id);
+  const requiresPrivacyRelease = Boolean(service.requires_privacy_release);
   const previousDirectoryServiceSlug = service.previous_directory_service_slug
     ? String(service.previous_directory_service_slug)
     : null;
@@ -371,12 +446,52 @@ export async function activateProviderMarketplaceService(input: {
         )
       for update
     ),
+    profile_guard as (
+      select profile.id, ${requiresPrivacyRelease}::boolean as requires_privacy_release
+      from company_directory_profiles profile
+      where profile.id = ${profileId}::uuid
+        and profile.claimed_workspace_id = ${access.workspaceId}::uuid
+        and profile.is_active = true
+        and (
+          (
+            ${requiresPrivacyRelease} = false
+            and profile.publication_status = 'claimed'
+            and profile.privacy_blocked = false
+            and profile.auto_public_eligible = true
+          )
+          or (
+            ${requiresPrivacyRelease} = true
+            and profile.organization_kind = 'sole_trader'
+            and profile.organization_number ~ '^sole-trader-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+            and profile.publication_status = 'blocked'
+            and profile.privacy_blocked = true
+            and profile.auto_public_eligible = false
+            and profile.published_at is null
+            and profile.official_source = 'bolagsverket_vardefulla_datamangder:sole_trader_owner'
+            and coalesce(trim(profile.display_name), '') <> ''
+            and coalesce(trim(profile.legal_form), '') <> ''
+            and profile.organization_status = 'Registrerad'
+            and coalesce(trim(profile.address_line1), '') = ''
+            and coalesce(trim(profile.postal_code), '') = ''
+            and exists (
+              select 1
+              from company_directory_claims owner_claim
+              where owner_claim.profile_id = profile.id
+                and owner_claim.requested_workspace_id = ${access.workspaceId}::uuid
+                and owner_claim.status = 'claimed'
+                and owner_claim.verification_method = 'manual_review'
+            )
+          )
+        )
+      for update
+    ),
     confirmed_area as (
       insert into company_directory_service_areas (
         profile_id, service_slug, radius_km, source_type, confidence, public_visible, confirmed_at, updated_at
       )
-      select ${profileId}::uuid, ${input.directoryServiceSlug}, ${radiusKm}, 'owner', 100, true, now(), now()
+      select profile.id, ${input.directoryServiceSlug}, ${radiusKm}, 'owner', 100, true, now(), now()
       from service_guard
+      join profile_guard profile on true
       on conflict (profile_id, service_slug) where service_slug is not null
       do update set
         radius_km = excluded.radius_km,
@@ -437,6 +552,30 @@ export async function activateProviderMarketplaceService(input: {
         and relation.public_visible = true
       limit 1
     ),
+    released_profile as (
+      update company_directory_profiles profile
+      set publication_status = 'claimed',
+          privacy_blocked = false,
+          auto_public_eligible = true,
+          published_at = coalesce(profile.published_at, now()),
+          quality_reasons = (coalesce(profile.quality_reasons, '[]'::jsonb) - 'sole_trader_owner_verification_pending')
+            || '["sole_trader_owner_verified_business_safe"]'::jsonb,
+          updated_at = now()
+      from profile_guard guard
+      where profile.id = guard.id
+        and guard.requires_privacy_release = true
+        and exists (select 1 from confirmed_area)
+        and exists (select 1 from relation_guard)
+      returning profile.id
+    ),
+    publication_profile as (
+      select id
+      from profile_guard
+      where requires_privacy_release = false
+      union all
+      select id
+      from released_profile
+    ),
     published_service as (
       update workspace_services service
       set primary_directory_service_slug = ${input.directoryServiceSlug},
@@ -449,6 +588,7 @@ export async function activateProviderMarketplaceService(input: {
         and exists (select 1 from service_guard)
         and exists (select 1 from confirmed_area)
         and exists (select 1 from relation_guard)
+        and exists (select 1 from publication_profile)
       returning service.id
     ),
     removed_area as (
