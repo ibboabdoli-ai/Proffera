@@ -1,5 +1,4 @@
-import Link from "next/link";
-
+import { NavigationPrefetchControl, NavigationPrefetchLink } from "@/components/performance/navigation-prefetch-control";
 import { getAdminNavigationItems } from "@/lib/admin-navigation";
 import type { PlatformAdminRole } from "@/lib/platform-admin";
 
@@ -13,13 +12,16 @@ export function AdminNavigation({ role, email }: { role: PlatformAdminRole; emai
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Proffera Platform Admin</p>
           <p className="truncate text-xs text-slate-300">{email} · {role}</p>
         </div>
-        <nav className="flex flex-wrap gap-2" aria-label="Platform admin navigation">
-          {items.map((item) => (
-            <Link key={item.area} href={item.href} className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-semibold text-slate-100 transition hover:border-slate-400 hover:bg-slate-900">
-              {item.label}
-            </Link>
-          ))}
-        </nav>
+        <div className="flex flex-wrap items-center gap-2">
+          <NavigationPrefetchControl />
+          <nav className="flex flex-wrap gap-2" aria-label="Platform admin navigation">
+            {items.map((item) => (
+              <NavigationPrefetchLink key={item.area} href={item.href} className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-semibold text-slate-100 transition hover:border-slate-400 hover:bg-slate-900">
+                {item.label}
+              </NavigationPrefetchLink>
+            ))}
+          </nav>
+        </div>
       </div>
     </div>
   );
