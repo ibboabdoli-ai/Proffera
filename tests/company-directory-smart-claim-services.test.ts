@@ -183,7 +183,7 @@ describe("Company Directory smart claim service suggestions", () => {
           has_existing_relation: true,
         }];
       }
-      if (query.startsWith("with owner_relation as")) return [{ id: SERVICE_ID }];
+      if (query.startsWith("with service_guard as")) return [{ id: SERVICE_ID }];
       return [];
     });
     mocks.getSql.mockReturnValue(sql);
@@ -204,7 +204,7 @@ describe("Company Directory smart claim service suggestions", () => {
 
     const emittedQueries = sql.mock.calls.map(([strings]) => queryText(strings as TemplateStringsArray));
     const eligibility = emittedQueries.find((query) => query.includes("select service.id::text"));
-    const publication = emittedQueries.find((query) => query.startsWith("with owner_relation as"));
+    const publication = emittedQueries.find((query) => query.startsWith("with service_guard as"));
 
     expect(eligibility).toContain("left join company_directory_profile_services relation");
     expect(eligibility).toContain("relation.is_active = true");
@@ -217,7 +217,7 @@ describe("Company Directory smart claim service suggestions", () => {
     expect(publication).toContain("relation_guard");
   });
 
-  it("creates an owner relation atomically for an exact candidate before publication", async () => {
+  it("feeds a newly inserted owner relation directly into the publication guard", async () => {
     mocks.getDashboardWorkspaceServices.mockResolvedValue([
       { id: SERVICE_ID, name: "Fönsterputs", isActive: true, publicStatus: "draft" },
     ]);
@@ -232,7 +232,7 @@ describe("Company Directory smart claim service suggestions", () => {
           has_existing_relation: false,
         }];
       }
-      if (query.startsWith("with owner_relation as")) return [{ id: SERVICE_ID }];
+      if (query.startsWith("with service_guard as")) return [{ id: SERVICE_ID }];
       return [];
     });
     mocks.getSql.mockReturnValue(sql);
@@ -251,9 +251,12 @@ describe("Company Directory smart claim service suggestions", () => {
 
     const publication = sql.mock.calls
       .map(([strings]) => queryText(strings as TemplateStringsArray))
-      .find((query) => query.startsWith("with owner_relation as"));
+      .find((query) => query.startsWith("with service_guard as"));
     expect(publication).toContain("insert into company_directory_profile_services");
+    expect(publication).toContain("from service_guard");
     expect(publication).toContain("where company_directory_profile_services.source_type = 'owner'");
+    expect(publication).toContain("relation_guard as ( select profile_id from owner_relation union all select relation.profile_id");
+    expect(publication).toContain("and exists (select 1 from service_guard)");
     expect(publication).toContain("and exists (select 1 from relation_guard)");
   });
 
