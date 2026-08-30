@@ -483,12 +483,12 @@ function postgresSql(client: Client) {
         published_at: null,
       });
 
-      const service = await client!.query<{ public_status: string; primary_directory_service_slug: string | null }>(`
+      const serviceState = await client!.query<{ public_status: string; primary_directory_service_slug: string | null }>(`
         select public_status, primary_directory_service_slug
         from workspace_services
         where id = $1::uuid
       `, [SERVICE_ID]);
-      expect(service.rows[0]).toEqual({
+      expect(serviceState.rows[0]).toEqual({
         public_status: "draft",
         primary_directory_service_slug: null,
       });
