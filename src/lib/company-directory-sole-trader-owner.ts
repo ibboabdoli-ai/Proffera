@@ -90,14 +90,14 @@ function responseIdentity10(value: unknown) {
   return /^\d{10}$/.test(digits) ? digits : "";
 }
 
-function responseIdentityDiagnostic(value: unknown) {
+function responseIdentityDiagnostic(value: unknown, requestedIdentity10: string) {
   const digits = String(value ?? "").replace(/\D/g, "");
   const normalized10 = responseIdentity10(value);
   const fingerprint = normalized10
     ? createHash("sha256").update(`${ACCEPTANCE2_IDENTITY_FINGERPRINT_PREFIX}${normalized10}`).digest("hex")
     : "";
   return {
-    state: normalized10 ? "different" : "missing",
+    state: !normalized10 ? "missing" : normalized10 === requestedIdentity10 ? "matches_requested" : "different",
     shape: !digits ? "missing" : digits.length === 12 ? "12_digit" : digits.length === 10 ? "10_digit" : "other",
     knownAcceptance2Identity: Boolean(fingerprint && ACCEPTANCE2_PERSON_IDENTITY_FINGERPRINTS.has(fingerprint)),
   };
@@ -436,7 +436,7 @@ function selectCurrentSoleTraderBusiness(payload: unknown, requestedIdentity10: 
       true,
     );
     const diagnostics = records.map((row) => ({
-      ...responseIdentityDiagnostic(identityValue(row)),
+      ...responseIdentityDiagnostic(identityValue(row), requestedIdentity10),
       typeState: (() => {
         const type = identityType(row);
         if (!type) return "missing";

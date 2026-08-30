@@ -234,6 +234,39 @@ describe("privacy-safe sole-trader owner verification", () => {
     expect(query.transaction).not.toHaveBeenCalled();
   });
 
+  it("separates an exact identity value from an unsupported identity type", async () => {
+    const { query } = createSqlMock();
+    mocks.getSql.mockReturnValue(query);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        organisationer: [officialRecord({
+          organisationsidentitet: {
+            identitetsbeteckning: PRIVATE_OFFICIAL,
+            typ: { kod: "ORGANISATIONSNUMMER" },
+          },
+        })],
+      }),
+    }));
+
+    await expect(onboardOwnerSoleTrader(PRIVATE_INPUT)).rejects.toThrow("sole_trader_source_error");
+    expect(warn).toHaveBeenCalledWith(
+      "Sole-trader official verification failed",
+      expect.objectContaining({
+        reason: "no_identity_match",
+        identityStates: ["matches_requested"],
+        identityTypeStates: ["other"],
+        identityShapeStates: ["12_digit"],
+        knownAcceptance2Identity: "no",
+      }),
+    );
+    const logged = JSON.stringify(warn.mock.calls);
+    expect(logged).not.toContain(PRIVATE_INPUT);
+    expect(logged).not.toContain(PRIVATE_OFFICIAL);
+    expect(query.transaction).not.toHaveBeenCalled();
+  });
+
   it("preserves the provider's first valid SNI instead of promoting a supported secondary SNI", async () => {
     const { query, persistedValues } = createSqlMock();
     mocks.getSql.mockReturnValue(query);
