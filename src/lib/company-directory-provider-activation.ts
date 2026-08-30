@@ -356,7 +356,32 @@ export async function activateProviderMarketplaceService(input: {
     : null;
 
   const published = await sql`
-    with owner_relation as (
+    with service_guard as (
+      select service.id
+      from workspace_services service
+      where service.id = ${input.serviceId}::uuid
+        and service.workspace_id = ${access.workspaceId}
+        and service.is_active = true
+        and not exists (
+          select 1
+          from workspace_services duplicate
+          where duplicate.workspace_id = service.workspace_id
+            and duplicate.id <> service.id
+            and coalesce(duplicate.primary_directory_service_slug, duplicate.public_slug) = ${input.directoryServiceSlug}
+        )
+      for update
+    ),
+    area_guard as (
+      select 1 as allowed
+      where not exists (
+        select 1
+        from company_directory_service_areas area
+        where area.profile_id = ${profileId}::uuid
+          and area.service_slug = ${input.directoryServiceSlug}
+          and area.source_type <> 'owner'
+      )
+    ),
+    owner_relation as (
       insert into company_directory_profile_services (
         profile_id,
         service_slug,
@@ -378,7 +403,9 @@ export async function activateProviderMarketplaceService(input: {
         true,
         now(),
         now()
+      from service_guard
       where ${hasExistingRelation} = false
+        and exists (select 1 from area_guard)
       on conflict (profile_id, service_slug)
       do update set
         confidence = 100,
@@ -390,7 +417,10 @@ export async function activateProviderMarketplaceService(input: {
       returning profile_id
     ),
     relation_guard as (
-      select 1 as allowed
+      select profile_id
+      from owner_relation
+      union all
+      select relation.profile_id
       from company_directory_profile_services relation
       join company_directory_services directory_service
         on directory_service.slug = relation.service_slug
@@ -401,16 +431,6 @@ export async function activateProviderMarketplaceService(input: {
         and relation.public_visible = true
       limit 1
     ),
-    area_guard as (
-      select 1 as allowed
-      where not exists (
-        select 1
-        from company_directory_service_areas area
-        where area.profile_id = ${profileId}::uuid
-          and area.service_slug = ${input.directoryServiceSlug}
-          and area.source_type <> 'owner'
-      )
-    ),
     published_service as (
       update workspace_services service
       set primary_directory_service_slug = ${input.directoryServiceSlug},
@@ -420,6 +440,7 @@ export async function activateProviderMarketplaceService(input: {
       where service.id = ${input.serviceId}::uuid
         and service.workspace_id = ${access.workspaceId}
         and service.is_active = true
+        and exists (select 1 from service_guard)
         and exists (select 1 from relation_guard)
         and exists (select 1 from area_guard)
       returning service.id
