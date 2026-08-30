@@ -195,14 +195,18 @@ function postgresSql(client: Client) {
       `);
       await client!.query(`
         insert into company_directory_services (slug, is_active)
-        values ($1, true);
+        values ($1, true)
+      `, [TARGET_SLUG]);
+      await client!.query(`
         insert into company_directory_profiles (
           id, claimed_workspace_id, publication_status, is_active, privacy_blocked, auto_public_eligible
-        ) values ($2::uuid, $3::uuid, 'claimed', true, false, true);
+        ) values ($1::uuid, $2::uuid, 'claimed', true, false, true)
+      `, [PROFILE_ID, WORKSPACE_ID]);
+      await client!.query(`
         insert into workspace_services (
           id, workspace_id, name, is_active, public_status, conversion_mode
-        ) values ($4::uuid, $3::uuid, 'Fönsterputs', true, 'draft', 'quote');
-      `, [TARGET_SLUG, PROFILE_ID, WORKSPACE_ID, SERVICE_ID]);
+        ) values ($1::uuid, $2::uuid, 'Fönsterputs', true, 'draft', 'quote')
+      `, [SERVICE_ID, WORKSPACE_ID]);
     });
 
     it("does not publish or create an owner relation when a concurrent admin area wins the unique key", async () => {
