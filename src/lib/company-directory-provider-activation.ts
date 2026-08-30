@@ -15,7 +15,8 @@ import {
 } from "@/lib/company-directory-service-taxonomy";
 
 const SOLE_TRADER_OWNER_SOURCE = "bolagsverket_vardefulla_datamangder:sole_trader_owner";
-const SOLE_TRADER_SURROGATE_IDENTITY = /^sole-trader-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const SOLE_TRADER_SURROGATE_IDENTITY_PATTERN = "^sole-trader-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$";
+const SOLE_TRADER_SURROGATE_IDENTITY = new RegExp(SOLE_TRADER_SURROGATE_IDENTITY_PATTERN);
 
 export type ProviderActivationDirectoryService = {
   slug: string;
@@ -172,7 +173,7 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
     on conflict do nothing
   `;
 
-  const [profileRows, claimRows, workspaceServices] = await Promise.all([
+  const [profileRows, pendingClaimRows, workspaceServices] = await Promise.all([
     sql`
       select
         profile.id::text,
@@ -193,7 +194,10 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
         profile.published_at
       from company_directory_profiles profile
       where profile.claimed_workspace_id = ${access.workspaceId}::uuid
-      order by profile.updated_at desc
+      order by
+        case when profile.publication_status = 'claimed' then 0 else 1 end,
+        profile.updated_at desc,
+        profile.id asc
       limit 1
     `,
     sql`
@@ -208,17 +212,30 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
       from company_directory_claims claim
       join company_directory_profiles profile on profile.id = claim.profile_id
       where claim.requested_workspace_id = ${access.workspaceId}::uuid
-        and claim.status in ('pending', 'verified', 'claimed')
-      order by claim.requested_at desc
+        and claim.status in ('pending', 'verified')
+      order by claim.requested_at desc, claim.id asc
       limit 1
     `,
     getDashboardWorkspaceServices(),
   ]);
 
   const profile = profileRows[0];
-  const claim = claimRows[0];
+  const profileId = profile ? String(profile.id ?? "") : "";
+  const releaseClaimRows = profileId
+    ? await sql`
+        select claim.status, claim.verification_method
+        from company_directory_claims claim
+        where claim.profile_id = ${profileId}::uuid
+          and claim.requested_workspace_id = ${access.workspaceId}::uuid
+          and claim.status = 'claimed'
+          and claim.verification_method = 'manual_review'
+        order by claim.requested_at desc, claim.id asc
+        limit 1
+      `
+    : [];
+  const releaseClaim = releaseClaimRows[0];
   const profileCanOpenPublicPage = providerProfileCanOpenPublicPage(profile);
-  const soleTraderCanRelease = providerSoleTraderProfileCanReleaseMarketplace(profile, claim);
+  const soleTraderCanRelease = providerSoleTraderProfileCanReleaseMarketplace(profile, releaseClaim);
   const profileCanOfferMarketplace = profileCanOpenPublicPage || soleTraderCanRelease;
   const linkedProfile = profile
     ? {
@@ -259,17 +276,21 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
     }
   }
 
-  const claimStatus = String(claim?.status ?? "");
-  const soleTraderManualReview = String(claim?.organization_kind ?? "") === "sole_trader"
-    && String(claim?.verification_method ?? "") === "manual_review";
-  const pendingClaim = claim && (claimStatus === "pending" || claimStatus === "verified")
+  const pendingClaimRow = pendingClaimRows[0];
+  const pendingClaimStatus = String(pendingClaimRow?.status ?? "");
+  const soleTraderManualReview = String(pendingClaimRow?.organization_kind ?? "") === "sole_trader"
+    && String(pendingClaimRow?.verification_method ?? "") === "manual_review";
+  const pendingClaim = pendingClaimRow && (pendingClaimStatus === "pending" || pendingClaimStatus === "verified")
     ? {
-        status: claimStatus,
-        companyName: String(claim.display_name ?? ""),
-        organizationNumber: ownerVisibleDirectoryOrganizationNumber(claim.organization_kind, claim.organization_number),
-        profileSlug: soleTraderManualReview || String(claim.publication_status ?? "") === "blocked"
+        status: pendingClaimStatus,
+        companyName: String(pendingClaimRow.display_name ?? ""),
+        organizationNumber: ownerVisibleDirectoryOrganizationNumber(
+          pendingClaimRow.organization_kind,
+          pendingClaimRow.organization_number,
+        ),
+        profileSlug: soleTraderManualReview || String(pendingClaimRow.publication_status ?? "") === "blocked"
           ? ""
-          : String(claim.public_slug ?? ""),
+          : String(pendingClaimRow.public_slug ?? ""),
       }
     : null;
 
@@ -372,7 +393,7 @@ export async function activateProviderMarketplaceService(input: {
        )
        or (
          profile.organization_kind = 'sole_trader'
-         and profile.organization_number ~ '^sole-trader-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+         and profile.organization_number ~ ${SOLE_TRADER_SURROGATE_IDENTITY_PATTERN}
          and profile.publication_status = 'blocked'
          and profile.privacy_blocked = true
          and profile.auto_public_eligible = false
@@ -411,6 +432,10 @@ export async function activateProviderMarketplaceService(input: {
           and duplicate.id <> service.id
           and coalesce(duplicate.primary_directory_service_slug, duplicate.public_slug) = ${input.directoryServiceSlug}
       )
+    order by
+      case when profile.publication_status = 'claimed' then 0 else 1 end,
+      profile.updated_at desc,
+      profile.id asc
     limit 1
   `;
   const service = rows[0];
@@ -462,7 +487,7 @@ export async function activateProviderMarketplaceService(input: {
           or (
             ${requiresPrivacyRelease} = true
             and profile.organization_kind = 'sole_trader'
-            and profile.organization_number ~ '^sole-trader-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+            and profile.organization_number ~ ${SOLE_TRADER_SURROGATE_IDENTITY_PATTERN}
             and profile.publication_status = 'blocked'
             and profile.privacy_blocked = true
             and profile.auto_public_eligible = false
