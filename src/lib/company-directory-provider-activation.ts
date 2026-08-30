@@ -371,15 +371,21 @@ export async function activateProviderMarketplaceService(input: {
         )
       for update
     ),
-    area_guard as (
-      select 1 as allowed
-      where not exists (
-        select 1
-        from company_directory_service_areas area
-        where area.profile_id = ${profileId}::uuid
-          and area.service_slug = ${input.directoryServiceSlug}
-          and area.source_type <> 'owner'
+    confirmed_area as (
+      insert into company_directory_service_areas (
+        profile_id, service_slug, radius_km, source_type, confidence, public_visible, confirmed_at, updated_at
       )
+      select ${profileId}::uuid, ${input.directoryServiceSlug}, ${radiusKm}, 'owner', 100, true, now(), now()
+      from service_guard
+      on conflict (profile_id, service_slug) where service_slug is not null
+      do update set
+        radius_km = excluded.radius_km,
+        confidence = 100,
+        public_visible = true,
+        confirmed_at = now(),
+        updated_at = now()
+      where company_directory_service_areas.source_type = 'owner'
+      returning profile_id
     ),
     owner_relation as (
       insert into company_directory_profile_services (
@@ -405,7 +411,7 @@ export async function activateProviderMarketplaceService(input: {
         now()
       from service_guard
       where ${hasExistingRelation} = false
-        and exists (select 1 from area_guard)
+        and exists (select 1 from confirmed_area)
       on conflict (profile_id, service_slug)
       do update set
         confidence = 100,
@@ -441,8 +447,8 @@ export async function activateProviderMarketplaceService(input: {
         and service.workspace_id = ${access.workspaceId}
         and service.is_active = true
         and exists (select 1 from service_guard)
+        and exists (select 1 from confirmed_area)
         and exists (select 1 from relation_guard)
-        and exists (select 1 from area_guard)
       returning service.id
     ),
     removed_area as (
@@ -454,22 +460,6 @@ export async function activateProviderMarketplaceService(input: {
         and ${previousDirectoryServiceSlug}::text <> ${input.directoryServiceSlug}
         and area.source_type = 'owner'
       returning area.profile_id
-    ),
-    confirmed_area as (
-      insert into company_directory_service_areas (
-        profile_id, service_slug, radius_km, source_type, confidence, public_visible, confirmed_at, updated_at
-      )
-      select ${profileId}::uuid, ${input.directoryServiceSlug}, ${radiusKm}, 'owner', 100, true, now(), now()
-      from published_service
-      on conflict (profile_id, service_slug) where service_slug is not null
-      do update set
-        radius_km = excluded.radius_km,
-        confidence = 100,
-        public_visible = true,
-        confirmed_at = now(),
-        updated_at = now()
-      where company_directory_service_areas.source_type = 'owner'
-      returning profile_id
     )
     select service.id::text
     from published_service service
