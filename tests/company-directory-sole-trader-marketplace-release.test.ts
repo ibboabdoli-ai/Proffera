@@ -65,6 +65,13 @@ function claimedManualReview() {
   };
 }
 
+function pendingManualReview() {
+  return {
+    ...claimedManualReview(),
+    status: "pending",
+  };
+}
+
 describe("sole-trader Marketplace privacy release", () => {
   beforeEach(() => {
     for (const mock of Object.values(mocks)) mock.mockReset();
@@ -89,7 +96,7 @@ describe("sole-trader Marketplace privacy release", () => {
     ]);
   });
 
-  it("requires the privacy-safe blocked profile shape and a claimed manual review", () => {
+  it("requires the exact privacy-safe blocked profile shape and claimed manual review", () => {
     const profile = blockedSoleTraderProfile();
     expect(providerSoleTraderProfileCanReleaseMarketplace(profile, claimedManualReview())).toBe(true);
     expect(providerSoleTraderProfileCanReleaseMarketplace(profile, {
@@ -102,8 +109,24 @@ describe("sole-trader Marketplace privacy release", () => {
     }, claimedManualReview())).toBe(false);
     expect(providerSoleTraderProfileCanReleaseMarketplace({
       ...profile,
+      postal_code: "15132",
+    }, claimedManualReview())).toBe(false);
+    expect(providerSoleTraderProfileCanReleaseMarketplace({
+      ...profile,
       organization_number: "199001011234",
     }, claimedManualReview())).toBe(false);
+    expect(providerSoleTraderProfileCanReleaseMarketplace({
+      ...profile,
+      organization_number: `sole-trader-${PROFILE_ID.toUpperCase()}`,
+    }, claimedManualReview())).toBe(false);
+    expect(providerSoleTraderProfileCanReleaseMarketplace({
+      ...profile,
+      official_source: "bolagsverket_vardefulla_datamangder:company",
+    }, claimedManualReview())).toBe(false);
+    expect(providerSoleTraderProfileCanReleaseMarketplace(profile, {
+      ...claimedManualReview(),
+      verification_method: "email_domain",
+    })).toBe(false);
   });
 
   it("offers exact workspace service candidates before the public profile is released", async () => {
@@ -113,7 +136,10 @@ describe("sole-trader Marketplace privacy release", () => {
       if (query.includes("select profile.id::text") && query.includes("from company_directory_profiles profile")) {
         return [blockedSoleTraderProfile()];
       }
-      if (query.includes("from company_directory_claims claim")) return [claimedManualReview()];
+      if (query.includes("claim.status in ('pending', 'verified')")) return [];
+      if (query.includes("claim.status = 'claimed'") && query.includes("claim.profile_id")) {
+        return [{ status: "claimed", verification_method: "manual_review" }];
+      }
       if (query.includes("select service.slug, service.label")) return [];
       return [];
     });
@@ -133,7 +159,54 @@ describe("sole-trader Marketplace privacy release", () => {
     ]);
   });
 
-  it("releases the blocked sole-trader profile only inside explicit service publication guards", async () => {
+  it("keeps pending-claim reporting separate from release eligibility", async () => {
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = queryText(strings);
+      if (query.startsWith("insert into workspace_services")) return [];
+      if (query.includes("select profile.id::text") && query.includes("from company_directory_profiles profile")) {
+        return [blockedSoleTraderProfile()];
+      }
+      if (query.includes("claim.status in ('pending', 'verified')")) return [pendingManualReview()];
+      if (query.includes("claim.status = 'claimed'") && query.includes("claim.profile_id")) {
+        return [{ status: "claimed", verification_method: "manual_review" }];
+      }
+      if (query.includes("select service.slug, service.label")) return [];
+      return [];
+    });
+    mocks.getSql.mockReturnValue(sql);
+
+    const state = await getProviderActivationState();
+
+    expect(state.pendingClaim).toEqual(expect.objectContaining({
+      status: "pending",
+      companyName: "Owner Service",
+      organizationNumber: "",
+      profileSlug: "",
+    }));
+    expect(state.directoryServices).toEqual([
+      { slug: "fonsterputsning", label: "Fönsterputsning" },
+    ]);
+  });
+
+  it("does not offer a blocked sole trader without a matching claimed release claim", async () => {
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = queryText(strings);
+      if (query.startsWith("insert into workspace_services")) return [];
+      if (query.includes("select profile.id::text") && query.includes("from company_directory_profiles profile")) {
+        return [blockedSoleTraderProfile()];
+      }
+      if (query.includes("from company_directory_claims claim")) return [];
+      return [];
+    });
+    mocks.getSql.mockReturnValue(sql);
+
+    const state = await getProviderActivationState();
+
+    expect(state.linkedProfile).toEqual(expect.objectContaining({ id: PROFILE_ID, slug: "" }));
+    expect(state.directoryServices).toEqual([]);
+  });
+
+  it("delegates explicit release to the guarded PostgreSQL publication transaction", async () => {
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       const query = queryText(strings);
       if (query.includes("select service.id::text") && query.includes("from workspace_services service")) {
@@ -163,23 +236,8 @@ describe("sole-trader Marketplace privacy release", () => {
       radiusKm: 25,
     });
 
-    const queries = sql.mock.calls.map(([strings]) => queryText(strings as TemplateStringsArray));
-    const eligibility = queries.find((query) => query.includes("select service.id::text"));
-    const publication = queries.find((query) => query.startsWith("with service_guard as"));
-
-    expect(eligibility).toContain("profile.organization_kind = 'sole_trader'");
-    expect(eligibility).toContain("owner_claim.status = 'claimed'");
-    expect(eligibility).toContain("owner_claim.verification_method = 'manual_review'");
-    expect(eligibility).toContain("coalesce(trim(profile.address_line1), '') = ''");
-    expect(eligibility).toContain("coalesce(trim(profile.postal_code), '') = ''");
-
-    expect(publication).toContain("profile_guard as");
-    expect(publication).toContain("released_profile as");
-    expect(publication).toContain("publication_status = 'claimed'");
-    expect(publication).toContain("privacy_blocked = false");
-    expect(publication).toContain("auto_public_eligible = true");
-    expect(publication).toContain("published_at = coalesce(profile.published_at, now())");
-    expect(publication).toContain("sole_trader_owner_verified_business_safe");
-    expect(publication).toContain("exists (select 1 from publication_profile)");
+    expect(sql).toHaveBeenCalledTimes(2);
+    const publication = queryText(sql.mock.calls[1]![0] as TemplateStringsArray);
+    expect(publication.startsWith("with service_guard as")).toBe(true);
   });
 });
