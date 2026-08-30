@@ -117,7 +117,7 @@ describe("sole-trader Marketplace privacy release", () => {
     }, claimedManualReview())).toBe(false);
     expect(providerSoleTraderProfileCanReleaseMarketplace({
       ...profile,
-      organization_number: `sole-trader-${PROFILE_ID.toUpperCase()}`,
+      organization_number: "sole-trader-AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA",
     }, claimedManualReview())).toBe(false);
     expect(providerSoleTraderProfileCanReleaseMarketplace({
       ...profile,
