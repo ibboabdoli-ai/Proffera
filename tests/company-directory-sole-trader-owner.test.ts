@@ -198,6 +198,42 @@ describe("privacy-safe sole-trader owner verification", () => {
     expect(query.transaction).not.toHaveBeenCalled();
   });
 
+  it("classifies documented acceptance2 identities without logging identifiers", async () => {
+    const { query } = createSqlMock();
+    mocks.getSql.mockReturnValue(query);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        organisationer: [officialRecord({
+          organisationsidentitet: {
+            identitetsbeteckning: "198101032384",
+            typ: { kod: "PERSONNUMMER" },
+          },
+        })],
+      }),
+    }));
+
+    await expect(onboardOwnerSoleTrader(PRIVATE_INPUT)).rejects.toThrow("sole_trader_source_error");
+    expect(warn).toHaveBeenCalledWith(
+      "Sole-trader official verification failed",
+      expect.objectContaining({
+        reason: "no_identity_match",
+        identityStates: ["different"],
+        identityTypeStates: ["person"],
+        identityShapeStates: ["12_digit"],
+        knownAcceptance2Identity: "yes",
+      }),
+    );
+    const logged = JSON.stringify(warn.mock.calls);
+    expect(logged).not.toContain(PRIVATE_INPUT);
+    expect(logged).not.toContain(PRIVATE_OFFICIAL);
+    expect(logged).not.toContain("198101032384");
+    expect(logged).not.toContain("bolagsverket-acceptance2-diagnostic-v1:");
+    expect(logged).not.toContain("1549fa3190321e9213f04f22e741cec908b01cb462a51f50232287473fef77d3");
+    expect(query.transaction).not.toHaveBeenCalled();
+  });
+
   it("preserves the provider's first valid SNI instead of promoting a supported secondary SNI", async () => {
     const { query, persistedValues } = createSqlMock();
     mocks.getSql.mockReturnValue(query);
