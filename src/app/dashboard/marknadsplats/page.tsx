@@ -162,7 +162,10 @@ export default async function MarketplaceActivationPage({
   const allowedSlugs = new Set(state.directoryServices.map((service) => service.slug));
   const activatableWorkspaceServices = state.workspaceServices.filter((service) => service.isActive);
   const activeMarketplaceServices = state.workspaceServices.filter(
-    (service) => service.isActive && service.publicStatus === "published" && allowedSlugs.has(service.publicSlug) && service.serviceAreaConfirmed,
+    (service) => service.isActive
+      && service.publicStatus === "published"
+      && allowedSlugs.has(service.primaryDirectoryServiceSlug || service.publicSlug)
+      && service.serviceAreaConfirmed,
   );
 
   return (
