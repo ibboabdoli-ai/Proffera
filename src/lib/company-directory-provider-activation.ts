@@ -390,6 +390,7 @@ export async function activateProviderMarketplaceService(input: {
          profile.publication_status = 'claimed'
          and profile.privacy_blocked = false
          and profile.auto_public_eligible = true
+         and profile.published_at is not null
        )
        or (
          profile.organization_kind = 'sole_trader'
@@ -483,6 +484,7 @@ export async function activateProviderMarketplaceService(input: {
             and profile.publication_status = 'claimed'
             and profile.privacy_blocked = false
             and profile.auto_public_eligible = true
+            and profile.published_at is not null
           )
           or (
             ${requiresPrivacyRelease} = true
