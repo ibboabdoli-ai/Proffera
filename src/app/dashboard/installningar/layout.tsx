@@ -1,9 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
 
+import { NavigationPrefetchLink } from "@/components/performance/navigation-prefetch-control";
 import styles from "@/components/dashboard/secondary-workspace-ux-2.module.css";
 import mobileStyles from "@/components/dashboard/settings-mobile-ux.module.css";
 
@@ -44,7 +44,7 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
               const active = isActive(pathname, item.href);
               const href = isEnglish ? `${item.href}?lang=en` : item.href;
               return (
-                <Link
+                <NavigationPrefetchLink
                   key={item.href}
                   href={href}
                   aria-current={active ? "page" : undefined}
@@ -55,7 +55,7 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
                   }`}
                 >
                   {isEnglish ? item.en : item.sv}
-                </Link>
+                </NavigationPrefetchLink>
               );
             })}
           </nav>
