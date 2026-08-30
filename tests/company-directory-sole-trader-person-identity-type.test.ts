@@ -122,6 +122,7 @@ describe("Bolagsverket PERSON identity type", () => {
       status: "sole_trader_review_pending",
       companyName: "Exempel Service",
     });
+    expect(mocks.waitForBolagsverketRequestSlot).toHaveBeenCalledTimes(1);
     expect(query.transaction).toHaveBeenCalledTimes(1);
   });
 
