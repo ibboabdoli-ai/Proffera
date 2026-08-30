@@ -442,11 +442,18 @@ function selectCurrentSoleTraderBusiness(payload: unknown, requestedIdentity10: 
         if (!type) return "missing";
         return type === "PERSONNUMMER" || type === "PERSONNR" ? "person" : "other";
       })(),
+      typeCode: (() => {
+        const type = identityType(row);
+        if (!type) return "MISSING";
+        if (hasPersonnummerLikeValue(type)) return "REDACTED";
+        return /^[A-Z0-9_-]{1,40}$/.test(type) ? type : "OTHER";
+      })(),
     }));
     failSoleTraderSource("no_identity_match", {
       recordCount: records.length,
       identityStates: [...new Set(diagnostics.map((item) => item.state))],
       identityTypeStates: [...new Set(diagnostics.map((item) => item.typeState))],
+      identityTypeCodes: [...new Set(diagnostics.map((item) => item.typeCode))],
       identityShapeStates: [...new Set(diagnostics.map((item) => item.shape))],
       knownAcceptance2Identity: diagnostics.some((item) => item.knownAcceptance2Identity) ? "yes" : "no",
     });
