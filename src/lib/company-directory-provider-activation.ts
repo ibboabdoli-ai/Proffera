@@ -9,6 +9,10 @@ import {
   normalizeSwedishOrganizationNumber,
   type ProviderMarketplaceConversionMode,
 } from "@/lib/company-directory-provider-activation-policy";
+import {
+  getDirectoryServiceDefinition,
+  resolveDirectoryServiceQuery,
+} from "@/lib/company-directory-service-taxonomy";
 
 export type ProviderActivationDirectoryService = {
   slug: string;
@@ -60,6 +64,13 @@ export function providerProfileCanOpenPublicPage(profile: {
     && !Boolean(profile.privacy_blocked)
     && Boolean(profile.auto_public_eligible)
     && Boolean(profile.published_at);
+}
+
+export function exactOwnerDirectoryServiceCandidate(value: unknown): ProviderActivationDirectoryService | null {
+  const resolution = resolveDirectoryServiceQuery(String(value ?? ""));
+  if (!resolution || resolution.kind !== "service") return null;
+  const service = getDirectoryServiceDefinition(resolution.serviceSlug);
+  return service ? { slug: service.slug, label: service.label } : null;
 }
 
 export async function getProviderActivationState(): Promise<ProviderActivationState> {
@@ -186,6 +197,21 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
       `
     : [];
 
+  const directoryServiceMap = new Map<string, ProviderActivationDirectoryService>();
+  for (const row of directoryRows) {
+    const service = { slug: String(row.slug), label: String(row.label) };
+    directoryServiceMap.set(service.slug, service);
+  }
+  if (profileCanOpenPublicPage && linkedProfile) {
+    for (const workspaceService of workspaceServices) {
+      if (!workspaceService.isActive) continue;
+      const candidate = exactOwnerDirectoryServiceCandidate(workspaceService.name);
+      if (candidate && !directoryServiceMap.has(candidate.slug)) {
+        directoryServiceMap.set(candidate.slug, candidate);
+      }
+    }
+  }
+
   const claim = claimRows[0];
   const soleTraderManualReview = String(claim?.organization_kind ?? "") === "sole_trader"
     && String(claim?.verification_method ?? "") === "manual_review";
@@ -205,7 +231,7 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
     workspaceName: access.workspaceName,
     linkedProfile,
     pendingClaim,
-    directoryServices: directoryRows.map((row) => ({ slug: String(row.slug), label: String(row.label) })),
+    directoryServices: [...directoryServiceMap.values()].sort((left, right) => left.label.localeCompare(right.label, "sv")),
     workspaceServices,
   };
 }
@@ -282,8 +308,10 @@ export async function activateProviderMarketplaceService(input: {
   const rows = await sql`
     select
       service.id::text,
+      service.name,
       nullif(trim(service.primary_directory_service_slug), '') as previous_directory_service_slug,
-      profile.id::text as profile_id
+      profile.id::text as profile_id,
+      (relation.profile_id is not null) as has_existing_relation
     from workspace_services service
     join company_directory_profiles profile
       on profile.claimed_workspace_id = ${access.workspaceId}::uuid
@@ -291,14 +319,14 @@ export async function activateProviderMarketplaceService(input: {
      and profile.is_active = true
      and profile.privacy_blocked = false
      and profile.auto_public_eligible = true
-    join company_directory_profile_services relation
+    join company_directory_services directory_service
+      on directory_service.slug = ${input.directoryServiceSlug}
+     and directory_service.is_active = true
+    left join company_directory_profile_services relation
       on relation.profile_id = profile.id
-     and relation.service_slug = ${input.directoryServiceSlug}
+     and relation.service_slug = directory_service.slug
      and relation.is_active = true
      and relation.public_visible = true
-    join company_directory_services directory_service
-      on directory_service.slug = relation.service_slug
-     and directory_service.is_active = true
     where service.id = ${input.serviceId}::uuid
       and service.workspace_id = ${access.workspaceId}
       and service.is_active = true
@@ -314,21 +342,100 @@ export async function activateProviderMarketplaceService(input: {
   const service = rows[0];
   if (!service) throw new Error("service_not_eligible");
 
+  const hasExistingRelation = Boolean(service.has_existing_relation);
+  if (!hasExistingRelation) {
+    const candidate = exactOwnerDirectoryServiceCandidate(service.name);
+    if (!candidate || candidate.slug !== input.directoryServiceSlug) {
+      throw new Error("service_not_eligible");
+    }
+  }
+
   const profileId = String(service.profile_id);
   const previousDirectoryServiceSlug = service.previous_directory_service_slug
     ? String(service.previous_directory_service_slug)
     : null;
 
   const published = await sql`
-    with area_guard as (
-      select 1 as allowed
-      where not exists (
-        select 1
-        from company_directory_service_areas area
-        where area.profile_id = ${profileId}::uuid
-          and area.service_slug = ${input.directoryServiceSlug}
-          and area.source_type <> 'owner'
+    with service_guard as (
+      select service.id
+      from workspace_services service
+      where service.id = ${input.serviceId}::uuid
+        and service.workspace_id = ${access.workspaceId}
+        and service.is_active = true
+        and not exists (
+          select 1
+          from workspace_services duplicate
+          where duplicate.workspace_id = service.workspace_id
+            and duplicate.id <> service.id
+            and coalesce(duplicate.primary_directory_service_slug, duplicate.public_slug) = ${input.directoryServiceSlug}
+        )
+      for update
+    ),
+    confirmed_area as (
+      insert into company_directory_service_areas (
+        profile_id, service_slug, radius_km, source_type, confidence, public_visible, confirmed_at, updated_at
       )
+      select ${profileId}::uuid, ${input.directoryServiceSlug}, ${radiusKm}, 'owner', 100, true, now(), now()
+      from service_guard
+      on conflict (profile_id, service_slug) where service_slug is not null
+      do update set
+        radius_km = excluded.radius_km,
+        confidence = 100,
+        public_visible = true,
+        confirmed_at = now(),
+        updated_at = now()
+      where company_directory_service_areas.source_type = 'owner'
+      returning profile_id
+    ),
+    owner_relation as (
+      insert into company_directory_profile_services (
+        profile_id,
+        service_slug,
+        source_type,
+        confidence,
+        is_primary,
+        is_active,
+        public_visible,
+        confirmed_at,
+        updated_at
+      )
+      select
+        ${profileId}::uuid,
+        ${input.directoryServiceSlug},
+        'owner',
+        100,
+        false,
+        true,
+        true,
+        now(),
+        now()
+      from service_guard
+      where ${hasExistingRelation} = false
+        and exists (select 1 from confirmed_area)
+      on conflict (profile_id, service_slug)
+      do update set
+        confidence = 100,
+        is_active = true,
+        public_visible = true,
+        confirmed_at = now(),
+        updated_at = now()
+      where company_directory_profile_services.source_type = 'owner'
+      returning profile_id
+    ),
+    relation_guard as (
+      select profile_id
+      from owner_relation
+      union all
+      select relation.profile_id
+      from company_directory_profile_services relation
+      join company_directory_services directory_service
+        on directory_service.slug = relation.service_slug
+       and directory_service.is_active = true
+      where relation.profile_id = ${profileId}::uuid
+        and relation.service_slug = ${input.directoryServiceSlug}
+        and relation.is_active = true
+        and relation.public_visible = true
+      limit 1
     ),
     published_service as (
       update workspace_services service
@@ -339,7 +446,9 @@ export async function activateProviderMarketplaceService(input: {
       where service.id = ${input.serviceId}::uuid
         and service.workspace_id = ${access.workspaceId}
         and service.is_active = true
-        and exists (select 1 from area_guard)
+        and exists (select 1 from service_guard)
+        and exists (select 1 from confirmed_area)
+        and exists (select 1 from relation_guard)
       returning service.id
     ),
     removed_area as (
@@ -351,22 +460,6 @@ export async function activateProviderMarketplaceService(input: {
         and ${previousDirectoryServiceSlug}::text <> ${input.directoryServiceSlug}
         and area.source_type = 'owner'
       returning area.profile_id
-    ),
-    confirmed_area as (
-      insert into company_directory_service_areas (
-        profile_id, service_slug, radius_km, source_type, confidence, public_visible, confirmed_at, updated_at
-      )
-      select ${profileId}::uuid, ${input.directoryServiceSlug}, ${radiusKm}, 'owner', 100, true, now(), now()
-      from published_service
-      on conflict (profile_id, service_slug) where service_slug is not null
-      do update set
-        radius_km = excluded.radius_km,
-        confidence = 100,
-        public_visible = true,
-        confirmed_at = now(),
-        updated_at = now()
-      where company_directory_service_areas.source_type = 'owner'
-      returning profile_id
     )
     select service.id::text
     from published_service service
