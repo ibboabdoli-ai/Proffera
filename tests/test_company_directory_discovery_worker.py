@@ -28,9 +28,15 @@ class CompanyDirectoryDiscoveryWorkerTests(unittest.TestCase):
         self.assertFalse(MODULE.is_allowed_source_url("https://bolagsverket.se.evil.example/example.zip"))
         self.assertFalse(MODULE.is_allowed_source_url("https://example.com/example.zip"))
 
-    def test_current_catalog_resource_is_used(self):
-        self.assertIn("resource-76", MODULE.DATASET_ID)
+    def test_current_official_bulk_source_is_used(self):
+        expected = "https://vardefulla-datamangder.bolagsverket.se/scb/scb_bulkfil.zip"
+        padded_override = f"  {expected}  "
+        self.assertEqual(MODULE.DEFAULT_BULK_URL, expected)
+        self.assertEqual(MODULE.resolve_bulk_url(), expected)
+        self.assertEqual(MODULE.resolve_bulk_url(padded_override), expected)
         self.assertEqual(MODULE.DEFAULT_PROVIDER, "scb_hvd_bulk")
+        with self.assertRaises(RuntimeError):
+            MODULE.resolve_bulk_url("https://example.com/scb/scb_bulkfil.zip")
 
     def test_supported_sni_scope_is_explicit(self):
         for code in ["81210", "81221", "96910", "96210", "49420", "43210", "43221", "43341", "43320", "81300"]:
