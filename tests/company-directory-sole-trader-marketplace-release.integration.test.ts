@@ -444,6 +444,66 @@ function postgresSql(client: Client) {
       expect(service.rows[0]?.public_status).toBe("draft");
     }, 30_000);
 
+    it("fails closed when a claimed profile has no publication timestamp", async () => {
+      await client!.query(`
+        update company_directory_profiles
+        set organization_number = '5560000000',
+            organization_kind = 'juridical_person',
+            legal_form = 'Aktiebolag',
+            publication_status = 'claimed',
+            privacy_blocked = false,
+            auto_public_eligible = true,
+            official_source = 'bolagsverket_vardefulla_datamangder:company',
+            published_at = null,
+            quality_reasons = '[]'::jsonb
+        where id = $1::uuid
+      `, [PROFILE_ID]);
+
+      await expect(activateProviderMarketplaceService({
+        serviceId: SERVICE_ID,
+        directoryServiceSlug: TARGET_SLUG,
+        conversionMode: "quote",
+        radiusKm: 25,
+      })).rejects.toThrow("service_not_eligible");
+
+      const profile = await client!.query<{
+        publication_status: string;
+        privacy_blocked: boolean;
+        auto_public_eligible: boolean;
+        published_at: string | null;
+      }>(`
+        select publication_status, privacy_blocked, auto_public_eligible, published_at::text
+        from company_directory_profiles
+        where id = $1::uuid
+      `, [PROFILE_ID]);
+      expect(profile.rows[0]).toEqual({
+        publication_status: "claimed",
+        privacy_blocked: false,
+        auto_public_eligible: true,
+        published_at: null,
+      });
+
+      const service = await client!.query<{ public_status: string; primary_directory_service_slug: string | null }>(`
+        select public_status, primary_directory_service_slug
+        from workspace_services
+        where id = $1::uuid
+      `, [SERVICE_ID]);
+      expect(service.rows[0]).toEqual({
+        public_status: "draft",
+        primary_directory_service_slug: null,
+      });
+
+      const relation = await client!.query(`
+        select 1 from company_directory_profile_services where profile_id = $1::uuid
+      `, [PROFILE_ID]);
+      expect(relation.rows).toEqual([]);
+
+      const area = await client!.query(`
+        select 1 from company_directory_service_areas where profile_id = $1::uuid
+      `, [PROFILE_ID]);
+      expect(area.rows).toEqual([]);
+    }, 30_000);
+
     it("prefers an already-claimed profile over a blocked sole trader for the same workspace", async () => {
       await client!.query(`
         insert into company_directory_profiles (
