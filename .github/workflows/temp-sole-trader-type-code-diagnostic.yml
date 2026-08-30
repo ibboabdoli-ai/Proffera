@@ -1,0 +1,94 @@
+name: Temporary sole-trader type-code diagnostic
+
+on:
+  push:
+    branches:
+      - work/proffera-sole-trader-type-code-diagnostic
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: work/proffera-sole-trader-type-code-diagnostic
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Add privacy-safe identity type-code diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          source = Path('src/lib/company-directory-sole-trader-owner.ts')
+          text = source.read_text()
+          old = '''    const diagnostics = records.map((row) => ({
+      ...responseIdentityDiagnostic(identityValue(row), requestedIdentity10),
+      typeState: (() => {
+        const type = identityType(row);
+        if (!type) return "missing";
+        return type === "PERSONNUMMER" || type === "PERSONNR" ? "person" : "other";
+      })(),
+    }));
+    failSoleTraderSource("no_identity_match", {
+      recordCount: records.length,
+      identityStates: [...new Set(diagnostics.map((item) => item.state))],
+      identityTypeStates: [...new Set(diagnostics.map((item) => item.typeState))],
+      identityShapeStates: [...new Set(diagnostics.map((item) => item.shape))],
+      knownAcceptance2Identity: diagnostics.some((item) => item.knownAcceptance2Identity) ? "yes" : "no",
+    });
+'''
+          new = '''    const diagnostics = records.map((row) => ({
+      ...responseIdentityDiagnostic(identityValue(row), requestedIdentity10),
+      typeState: (() => {
+        const type = identityType(row);
+        if (!type) return "missing";
+        return type === "PERSONNUMMER" || type === "PERSONNR" ? "person" : "other";
+      })(),
+      typeCode: (() => {
+        const type = identityType(row);
+        if (!type) return "MISSING";
+        return /^[A-Z0-9_-]{1,40}$/.test(type) ? type : "OTHER";
+      })(),
+    }));
+    failSoleTraderSource("no_identity_match", {
+      recordCount: records.length,
+      identityStates: [...new Set(diagnostics.map((item) => item.state))],
+      identityTypeStates: [...new Set(diagnostics.map((item) => item.typeState))],
+      identityTypeCodes: [...new Set(diagnostics.map((item) => item.typeCode))],
+      identityShapeStates: [...new Set(diagnostics.map((item) => item.shape))],
+      knownAcceptance2Identity: diagnostics.some((item) => item.knownAcceptance2Identity) ? "yes" : "no",
+    });
+'''
+          if text.count(old) != 1:
+              raise SystemExit('diagnostic block not found exactly once')
+          source.write_text(text.replace(old, new, 1))
+
+          test = Path('tests/company-directory-sole-trader-owner.test.ts')
+          t = test.read_text()
+          old_test = '''        identityStates: ["matches_requested"],
+        identityTypeStates: ["other"],
+        identityShapeStates: ["12_digit"],
+        knownAcceptance2Identity: "no",
+'''
+          new_test = '''        identityStates: ["matches_requested"],
+        identityTypeStates: ["other"],
+        identityTypeCodes: ["ORGANISATIONSNUMMER"],
+        identityShapeStates: ["12_digit"],
+        knownAcceptance2Identity: "no",
+'''
+          if t.count(old_test) != 1:
+              raise SystemExit('unsupported type regression assertion not found exactly once')
+          test.write_text(t.replace(old_test, new_test, 1))
+          PY
+          rm .github/workflows/temp-sole-trader-type-code-diagnostic.yml
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/lib/company-directory-sole-trader-owner.ts tests/company-directory-sole-trader-owner.test.ts .github/workflows/temp-sole-trader-type-code-diagnostic.yml
+          git commit -m 'Expose safe sole-trader identity type code in diagnostics'
+          git push origin HEAD:work/proffera-sole-trader-type-code-diagnostic
