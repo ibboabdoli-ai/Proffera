@@ -131,7 +131,7 @@ describe("authenticated navigation prefetch contract", () => {
       email: "admin@example.test",
     }));
 
-    expect(dashboard).toContain('data-test-href="/dashboard/leads" data-prefetch="false"');
+    expect(dashboard).toContain('data-test-href="/dashboard/marknadsplats" data-prefetch="false"');
     expect(dashboard).toContain('data-test-href="/dashboard/bokningar" data-prefetch="false"');
     expect(admin).toContain('data-test-href="/admin/saas" data-prefetch="false"');
     expect(admin).toContain('data-test-href="/admin/foretag" data-prefetch="false"');
