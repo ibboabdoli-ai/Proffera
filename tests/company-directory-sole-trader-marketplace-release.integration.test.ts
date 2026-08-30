@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { Client } from "pg";
@@ -28,7 +29,9 @@ const RUN_POSTGRES_INTEGRATION =
   || process.env.PROFFERA_POSTGRES_INTEGRATION === "1";
 
 const WORKSPACE_ID = "11111111-1111-4111-8111-111111111111";
+const OTHER_WORKSPACE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const PROFILE_ID = "22222222-2222-4222-8222-222222222222";
+const CLAIMED_PROFILE_ID = "55555555-5555-4555-8555-555555555555";
 const CLAIM_ID = "44444444-4444-4444-8444-444444444444";
 const SERVICE_ID = "33333333-3333-4333-8333-333333333333";
 const TARGET_SLUG = "fonsterputsning";
@@ -98,42 +101,63 @@ function postgresSql(client: Client) {
           id uuid primary key,
           workspace_id uuid not null,
           name text not null,
+          description text not null default '',
+          category text not null default '',
+          price_type text not null default 'quote',
+          price_amount_minor integer,
           is_active boolean not null default true,
+          sort_order integer not null default 100,
           public_slug text,
           primary_directory_service_slug text,
           public_status text not null default 'draft',
           conversion_mode text not null default 'quote',
+          created_at timestamptz not null default now(),
           updated_at timestamptz not null default now()
         );
         create table company_directory_profiles (
           id uuid primary key,
+          country_code text not null default 'SE',
           claimed_workspace_id uuid,
-          organization_number text,
-          organization_kind text,
-          display_name text,
-          legal_form text,
-          organization_status text,
-          address_line1 text,
-          postal_code text,
+          organization_number text not null,
+          organization_kind text not null,
+          legal_name text not null,
+          display_name text not null,
+          legal_form text not null default '',
+          organization_status text not null default '',
+          category_slug text not null default '',
+          address_line1 text not null default '',
+          postal_code text not null default '',
+          city text not null default '',
+          public_slug text not null,
           publication_status text not null,
           is_active boolean not null default true,
           privacy_blocked boolean not null default false,
           auto_public_eligible boolean not null default true,
-          official_source text,
+          official_source text not null default '',
           published_at timestamptz,
           quality_reasons jsonb not null default '[]'::jsonb,
+          created_at timestamptz not null default now(),
           updated_at timestamptz not null default now()
         );
         create table company_directory_claims (
           id uuid primary key,
           profile_id uuid not null,
+          claimant_user_id text not null,
           requested_workspace_id uuid,
           status text not null,
-          verification_method text not null
+          verification_method text not null,
+          verification_reference text not null default '',
+          requested_at timestamptz not null default now(),
+          verified_at timestamptz,
+          resolved_at timestamptz
         );
         create table company_directory_services (
           slug text primary key,
-          is_active boolean not null default true
+          category_slug text not null,
+          label text not null,
+          is_active boolean not null default true,
+          created_at timestamptz not null default now(),
+          updated_at timestamptz not null default now()
         );
         create table company_directory_profile_services (
           profile_id uuid not null,
@@ -144,6 +168,7 @@ function postgresSql(client: Client) {
           is_active boolean not null default true,
           public_visible boolean not null default true,
           confirmed_at timestamptz,
+          created_at timestamptz not null default now(),
           updated_at timestamptz not null default now(),
           primary key (profile_id, service_slug)
         );
@@ -156,6 +181,7 @@ function postgresSql(client: Client) {
           confidence smallint not null,
           public_visible boolean not null default false,
           confirmed_at timestamptz,
+          created_at timestamptz not null default now(),
           updated_at timestamptz not null default now()
         );
         create unique index company_directory_service_areas_service_unique_idx
@@ -199,28 +225,85 @@ function postgresSql(client: Client) {
           company_directory_services
       `);
       await client!.query(`
-        insert into company_directory_services (slug, is_active)
-        values ($1, true);
+        insert into company_directory_services (slug, category_slug, label, is_active)
+        values ($1, 'stadning', 'Fönsterputsning', true)
+      `, [TARGET_SLUG]);
+      await client!.query(`
         insert into company_directory_profiles (
           id, claimed_workspace_id, organization_number, organization_kind,
-          display_name, legal_form, organization_status, address_line1, postal_code,
+          legal_name, display_name, legal_form, organization_status, category_slug,
+          address_line1, postal_code, city, public_slug,
           publication_status, is_active, privacy_blocked, auto_public_eligible,
           official_source, published_at, quality_reasons
         ) values (
-          $2::uuid, $3::uuid, $4, 'sole_trader',
-          'Owner Service', 'Enskild näringsverksamhet', 'Registrerad', '', '',
+          $1::uuid, $2::uuid, $3, 'sole_trader',
+          'Owner Service', 'Owner Service', 'Enskild näringsverksamhet', 'Registrerad', 'stadning',
+          '', '', 'Södertälje', 'owner-service-22222222',
           'blocked', true, true, false,
           'bolagsverket_vardefulla_datamangder:sole_trader_owner', null,
           '["sole_trader_owner_verification_pending"]'::jsonb
-        );
+        )
+      `, [PROFILE_ID, WORKSPACE_ID, `sole-trader-${PROFILE_ID}`]);
+      await client!.query(`
         insert into company_directory_claims (
-          id, profile_id, requested_workspace_id, status, verification_method
-        ) values ($5::uuid, $2::uuid, $3::uuid, 'claimed', 'manual_review');
+          id, profile_id, claimant_user_id, requested_workspace_id, status, verification_method
+        ) values ($1::uuid, $2::uuid, 'user-1', $3::uuid, 'claimed', 'manual_review')
+      `, [CLAIM_ID, PROFILE_ID, WORKSPACE_ID]);
+      await client!.query(`
         insert into workspace_services (
           id, workspace_id, name, is_active, public_status, conversion_mode
-        ) values ($6::uuid, $3::uuid, 'Fönsterputs', true, 'draft', 'quote');
-      `, [TARGET_SLUG, PROFILE_ID, WORKSPACE_ID, `sole-trader-${PROFILE_ID}`, CLAIM_ID, SERVICE_ID]);
+        ) values ($1::uuid, $2::uuid, 'Fönsterputs', true, 'draft', 'quote')
+      `, [SERVICE_ID, WORKSPACE_ID]);
     });
+
+    it("keeps fixture columns aligned with canonical Marketplace migrations", async () => {
+      const profileMigration = readFileSync(
+        new URL("../db/migrations/20260809_0037_company_profile_engine_foundation.sql", import.meta.url),
+        "utf8",
+      );
+      const serviceMigration = readFileSync(
+        new URL("../db/migrations/20260813_0045_company_directory_service_location_foundation.sql", import.meta.url),
+        "utf8",
+      );
+      const workspaceIdentityMigration = readFileSync(
+        new URL("../db/migrations/20260823_0065_workspace_service_directory_identity.sql", import.meta.url),
+        "utf8",
+      );
+
+      expect(profileMigration).toContain("legal_name text not null");
+      expect(profileMigration).toContain("public_slug text not null");
+      expect(profileMigration).toContain("claimant_user_id text not null");
+      expect(serviceMigration).toContain("category_slug text not null");
+      expect(serviceMigration).toContain("label text not null");
+      expect(workspaceIdentityMigration).toContain("add column if not exists primary_directory_service_slug text");
+
+      const schema = await client!.query<{
+        table_name: string;
+        column_name: string;
+        data_type: string;
+        is_nullable: string;
+      }>(`
+        select table_name, column_name, data_type, is_nullable
+        from information_schema.columns
+        where table_schema = 'public'
+          and (
+            (table_name = 'company_directory_profiles' and column_name in ('legal_name', 'public_slug'))
+            or (table_name = 'company_directory_claims' and column_name = 'claimant_user_id')
+            or (table_name = 'company_directory_services' and column_name in ('category_slug', 'label'))
+            or (table_name = 'workspace_services' and column_name = 'primary_directory_service_slug')
+          )
+      `);
+      const columns = new Map(
+        schema.rows.map((row) => [`${row.table_name}.${row.column_name}`, row]),
+      );
+
+      expect(columns.get("company_directory_profiles.legal_name")).toMatchObject({ data_type: "text", is_nullable: "NO" });
+      expect(columns.get("company_directory_profiles.public_slug")).toMatchObject({ data_type: "text", is_nullable: "NO" });
+      expect(columns.get("company_directory_claims.claimant_user_id")).toMatchObject({ data_type: "text", is_nullable: "NO" });
+      expect(columns.get("company_directory_services.category_slug")).toMatchObject({ data_type: "text", is_nullable: "NO" });
+      expect(columns.get("company_directory_services.label")).toMatchObject({ data_type: "text", is_nullable: "NO" });
+      expect(columns.get("workspace_services.primary_directory_service_slug")).toMatchObject({ data_type: "text", is_nullable: "YES" });
+    }, 30_000);
 
     it("releases only business-safe profile fields while publishing the explicit owner service", async () => {
       await expect(activateProviderMarketplaceService({
@@ -324,6 +407,89 @@ function postgresSql(client: Client) {
         select public_status from workspace_services where id = $1::uuid
       `, [SERVICE_ID]);
       expect(service.rows[0]?.public_status).toBe("draft");
+    }, 30_000);
+
+    it("fails closed when the claimed manual-review claim belongs to another workspace", async () => {
+      await client!.query(`
+        update company_directory_claims
+        set requested_workspace_id = $1::uuid
+        where id = $2::uuid
+      `, [OTHER_WORKSPACE_ID, CLAIM_ID]);
+
+      await expect(activateProviderMarketplaceService({
+        serviceId: SERVICE_ID,
+        directoryServiceSlug: TARGET_SLUG,
+        conversionMode: "quote",
+        radiusKm: 25,
+      })).rejects.toThrow("service_not_eligible");
+
+      const profile = await client!.query<{
+        publication_status: string;
+        privacy_blocked: boolean;
+        auto_public_eligible: boolean;
+      }>(`
+        select publication_status, privacy_blocked, auto_public_eligible
+        from company_directory_profiles
+        where id = $1::uuid
+      `, [PROFILE_ID]);
+      expect(profile.rows[0]).toEqual({
+        publication_status: "blocked",
+        privacy_blocked: true,
+        auto_public_eligible: false,
+      });
+
+      const service = await client!.query<{ public_status: string }>(`
+        select public_status from workspace_services where id = $1::uuid
+      `, [SERVICE_ID]);
+      expect(service.rows[0]?.public_status).toBe("draft");
+    }, 30_000);
+
+    it("prefers an already-claimed profile over a blocked sole trader for the same workspace", async () => {
+      await client!.query(`
+        insert into company_directory_profiles (
+          id, claimed_workspace_id, organization_number, organization_kind,
+          legal_name, display_name, legal_form, organization_status, category_slug,
+          address_line1, postal_code, city, public_slug,
+          publication_status, is_active, privacy_blocked, auto_public_eligible,
+          official_source, published_at, quality_reasons, updated_at
+        ) values (
+          $1::uuid, $2::uuid, '5560000000', 'juridical_person',
+          'Claimed Company AB', 'Claimed Company AB', 'Aktiebolag', 'Registrerad', 'stadning',
+          '', '', 'Södertälje', 'claimed-company-ab',
+          'claimed', true, false, true,
+          'bolagsverket_vardefulla_datamangder:company', now(), '[]'::jsonb,
+          now() - interval '1 day'
+        )
+      `, [CLAIMED_PROFILE_ID, WORKSPACE_ID]);
+
+      await expect(activateProviderMarketplaceService({
+        serviceId: SERVICE_ID,
+        directoryServiceSlug: TARGET_SLUG,
+        conversionMode: "quote",
+        radiusKm: 20,
+      })).resolves.toEqual(expect.objectContaining({ serviceId: SERVICE_ID, radiusKm: 20 }));
+
+      const blocked = await client!.query<{
+        publication_status: string;
+        privacy_blocked: boolean;
+        auto_public_eligible: boolean;
+      }>(`
+        select publication_status, privacy_blocked, auto_public_eligible
+        from company_directory_profiles
+        where id = $1::uuid
+      `, [PROFILE_ID]);
+      expect(blocked.rows[0]).toEqual({
+        publication_status: "blocked",
+        privacy_blocked: true,
+        auto_public_eligible: false,
+      });
+
+      const relation = await client!.query<{ profile_id: string }>(`
+        select profile_id::text
+        from company_directory_profile_services
+        where service_slug = $1
+      `, [TARGET_SLUG]);
+      expect(relation.rows).toEqual([{ profile_id: CLAIMED_PROFILE_ID }]);
     }, 30_000);
   },
 );
