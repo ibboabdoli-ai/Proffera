@@ -33,8 +33,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-DATASET_ID = "https-metadata-bolagsverket-se-store-2-resource-76"
-DATASET_API = f"https://data.europa.eu/api/hub/search/datasets/{DATASET_ID}"
+DEFAULT_BULK_URL = "https://vardefulla-datamangder.bolagsverket.se/scb/scb_bulkfil.zip"
 DEFAULT_PROVIDER = "scb_hvd_bulk"
 ALLOWED_HOST = "bolagsverket.se"
 MAX_DOWNLOAD_BYTES = 6 * 1024 * 1024 * 1024
@@ -185,20 +184,11 @@ def find_urls(value: Any, key_hint: str = "") -> Iterator[str]:
 
 
 def resolve_bulk_url(override: str = "") -> str:
-    if override:
-        if not is_allowed_scb_bulk_url(override):
-            raise RuntimeError("BOLAGSVERKET_BULK_URL must be the official Bolagsverket SCB HVD ZIP URL")
-        return override
-
-    payload = request_json(DATASET_API)
-    result = payload.get("result", payload) if isinstance(payload, dict) else payload
-    urls = list(dict.fromkeys(find_urls(result)))
-    candidates = [url for url in urls if is_allowed_scb_bulk_url(url)]
-
-    if candidates:
-        return candidates[0]
-
-    raise RuntimeError("No official SCB HVD ZIP URL was found in current data.europa.eu metadata")
+    source_url = override.strip() or DEFAULT_BULK_URL
+    if not is_allowed_scb_bulk_url(source_url):
+        source_name = "BOLAGSVERKET_BULK_URL" if override.strip() else "DEFAULT_BULK_URL"
+        raise RuntimeError(f"{source_name} must be the official Bolagsverket SCB HVD ZIP URL")
+    return source_url
 
 
 def _official_head(url: str) -> tuple[str, int]:

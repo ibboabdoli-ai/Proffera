@@ -78,7 +78,12 @@ describe("automatic company directory discovery contract", () => {
   it("discovers only from the current official SCB bulk source and prefilters primary service and legal-form scope", () => {
     const worker = source("scripts/company-directory-discovery.py");
 
-    expect(worker).toContain("https-metadata-bolagsverket-se-store-2-resource-76");
+    expect(worker).toContain(
+      'DEFAULT_BULK_URL = "https://vardefulla-datamangder.bolagsverket.se/scb/scb_bulkfil.zip"',
+    );
+    expect(worker).toContain("source_url = override.strip() or DEFAULT_BULK_URL");
+    expect(worker).not.toContain("https-metadata-bolagsverket-se-store-2-resource-76");
+    expect(worker).not.toContain("data.europa.eu/api/hub/search/datasets");
     expect(worker).toContain('DEFAULT_PROVIDER = "scb_hvd_bulk"');
     expect(worker).toContain('ALLOWED_HOST = "bolagsverket.se"');
     expect(worker).toContain("is_allowed_scb_bulk_url");
