@@ -5,26 +5,55 @@ import { useSyncExternalStore, type ComponentProps } from "react";
 
 export const NAVIGATION_PREFETCH_STORAGE_KEY = "proffera.navigation-prefetch.enabled";
 const NAVIGATION_PREFETCH_CHANGE_EVENT = "proffera:navigation-prefetch-change";
-let forceNavigationPrefetchDisabled = false;
+
+type NavigationPrefetchStorage = Pick<Storage, "getItem" | "setItem">;
 
 export function navigationPrefetchPreferenceEnabled(value: string | null) {
   return value === "on";
 }
 
+export function navigationPrefetchProp(enabled: boolean) {
+  return enabled ? undefined : false;
+}
+
+export function createNavigationPrefetchPreferenceStore(getStorage: () => NavigationPrefetchStorage) {
+  let forceDisabled = false;
+
+  return {
+    read() {
+      if (forceDisabled) return false;
+      try {
+        return navigationPrefetchPreferenceEnabled(getStorage().getItem(NAVIGATION_PREFETCH_STORAGE_KEY));
+      } catch {
+        return false;
+      }
+    },
+    write(enabled: boolean) {
+      try {
+        getStorage().setItem(NAVIGATION_PREFETCH_STORAGE_KEY, enabled ? "on" : "off");
+        forceDisabled = false;
+      } catch {
+        forceDisabled = true;
+      }
+    },
+    handleStorageEventKey(key: string | null) {
+      if (key !== NAVIGATION_PREFETCH_STORAGE_KEY && key !== null) return false;
+      forceDisabled = false;
+      return true;
+    },
+  };
+}
+
+const browserNavigationPrefetchStore = createNavigationPrefetchPreferenceStore(() => window.localStorage);
+
 function readNavigationPrefetchEnabled() {
-  if (typeof window === "undefined" || forceNavigationPrefetchDisabled) return false;
-  try {
-    return navigationPrefetchPreferenceEnabled(window.localStorage.getItem(NAVIGATION_PREFETCH_STORAGE_KEY));
-  } catch {
-    return false;
-  }
+  if (typeof window === "undefined") return false;
+  return browserNavigationPrefetchStore.read();
 }
 
 function subscribeToNavigationPrefetch(onStoreChange: () => void) {
   function handleStorage(event: StorageEvent) {
-    if (event.key !== NAVIGATION_PREFETCH_STORAGE_KEY) return;
-    forceNavigationPrefetchDisabled = false;
-    onStoreChange();
+    if (browserNavigationPrefetchStore.handleStorageEventKey(event.key)) onStoreChange();
   }
   function handleLocalChange() {
     onStoreChange();
@@ -47,12 +76,7 @@ export function useNavigationPrefetchEnabled() {
 }
 
 function setNavigationPrefetchEnabled(enabled: boolean) {
-  try {
-    window.localStorage.setItem(NAVIGATION_PREFETCH_STORAGE_KEY, enabled ? "on" : "off");
-    forceNavigationPrefetchDisabled = false;
-  } catch {
-    forceNavigationPrefetchDisabled = true;
-  }
+  browserNavigationPrefetchStore.write(enabled);
   window.dispatchEvent(new Event(NAVIGATION_PREFETCH_CHANGE_EVENT));
 }
 
@@ -60,7 +84,7 @@ type NavigationPrefetchLinkProps = ComponentProps<typeof Link>;
 
 export function NavigationPrefetchLink(props: NavigationPrefetchLinkProps) {
   const enabled = useNavigationPrefetchEnabled();
-  return <Link {...props} prefetch={enabled ? undefined : false} />;
+  return <Link {...props} prefetch={navigationPrefetchProp(enabled)} />;
 }
 
 export function NavigationPrefetchControl() {
