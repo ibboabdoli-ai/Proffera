@@ -37,6 +37,11 @@ import {
   navigationPrefetchProp,
 } from "../src/components/performance/navigation-prefetch-control";
 
+const DashboardShellForTest = DashboardShell as React.ComponentType<{
+  canManageSettings?: boolean;
+  children?: ReactNode;
+}>;
+
 function fakeStorage(initialValue: string | null = null) {
   let value = initialValue;
   let failRead = false;
@@ -116,10 +121,11 @@ describe("authenticated navigation prefetch contract", () => {
   });
 
   it("renders Dashboard and Platform Admin navigation with prefetch disabled by default", () => {
-    const dashboard = renderToStaticMarkup(React.createElement(DashboardShell, {
-      canManageSettings: true,
-      children: React.createElement("div", null, "Dashboard content"),
-    }));
+    const dashboard = renderToStaticMarkup(React.createElement(
+      DashboardShellForTest,
+      { canManageSettings: true },
+      React.createElement("div", null, "Dashboard content"),
+    ));
     const admin = renderToStaticMarkup(React.createElement(AdminNavigation, {
       role: "super_admin",
       email: "admin@example.test",
