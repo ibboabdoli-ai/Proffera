@@ -257,6 +257,7 @@ describe("privacy-safe sole-trader owner verification", () => {
         reason: "no_identity_match",
         identityStates: ["matches_requested"],
         identityTypeStates: ["other"],
+        identityTypeCodes: ["ORGANISATIONSNUMMER"],
         identityShapeStates: ["12_digit"],
         knownAcceptance2Identity: "no",
       }),
