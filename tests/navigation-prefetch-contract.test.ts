@@ -29,6 +29,7 @@ vi.mock("@/lib/auth-client", () => ({
   authClient: { signOut: vi.fn() },
 }));
 
+import SettingsLayout from "../src/app/dashboard/installningar/layout";
 import { AdminNavigation } from "../src/components/admin/admin-navigation";
 import { DashboardShell } from "../src/components/dashboard/dashboard-shell";
 import {
@@ -120,11 +121,16 @@ describe("authenticated navigation prefetch contract", () => {
     expect(store.read()).toBe(false);
   });
 
-  it("renders Dashboard and Platform Admin navigation with prefetch disabled by default", () => {
+  it("renders Dashboard, Settings, and Platform Admin navigation with prefetch disabled by default", () => {
     const dashboard = renderToStaticMarkup(React.createElement(
       DashboardShellForTest,
       { canManageSettings: true },
       React.createElement("div", null, "Dashboard content"),
+    ));
+    const settings = renderToStaticMarkup(React.createElement(
+      SettingsLayout,
+      null,
+      React.createElement("div", null, "Settings content"),
     ));
     const admin = renderToStaticMarkup(React.createElement(AdminNavigation, {
       role: "super_admin",
@@ -133,6 +139,12 @@ describe("authenticated navigation prefetch contract", () => {
 
     expect(dashboard).toContain('data-test-href="/dashboard/marknadsplats" data-prefetch="false"');
     expect(dashboard).toContain('data-test-href="/dashboard/bokningar" data-prefetch="false"');
+    expect(settings).toContain('data-test-href="/dashboard/installningar" data-prefetch="false"');
+    expect(settings).toContain('data-test-href="/dashboard/installningar/funktioner" data-prefetch="false"');
+    expect(settings).toContain('data-test-href="/dashboard/installningar/utseende" data-prefetch="false"');
+    expect(settings).toContain('data-test-href="/dashboard/installningar/foretagssida" data-prefetch="false"');
+    expect(settings).toContain('data-test-href="/dashboard/installningar/paminnelser" data-prefetch="false"');
+    expect(settings).toContain('data-test-href="/dashboard/installningar/betalningar" data-prefetch="false"');
     expect(admin).toContain('data-test-href="/admin/saas" data-prefetch="false"');
     expect(admin).toContain('data-test-href="/admin/foretag" data-prefetch="false"');
     expect(admin).toContain("Auto prefetch: Av");
