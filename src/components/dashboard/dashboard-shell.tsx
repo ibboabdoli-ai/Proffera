@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 
 import { switchWorkspaceAction } from "@/app/dashboard/workspace-actions";
+import { NavigationPrefetchLink } from "@/components/performance/navigation-prefetch-control";
 import { authClient } from "@/lib/auth-client";
 import { dashboardNavigation, type ProfferaModuleAccess } from "@/lib/proffera-modules";
 import type { WorkspaceOption } from "@/lib/workspace-access";
@@ -133,7 +134,7 @@ function NavigationLinks({ pathname, locale, moduleAccess, enabledFeatures, canM
           return <div key={item.href} aria-disabled="true" className="flex min-h-11 cursor-not-allowed items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-[#9bb0a2] opacity-80" title={text.lockedTitle}>{content}</div>;
         }
 
-        return <Link key={item.href} href={localizedHref(item.href, locale)} onClick={onNavigate} aria-current={isActive ? "page" : undefined} className={["group flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition", isActive ? "bg-white text-[#173e2b] shadow-[0_8px_24px_rgba(0,0,0,0.12)]" : "text-[#d8e5dc] hover:bg-white/10 hover:text-white"].join(" ")} style={isActive ? undefined : { color: "#e1eee5" }}>{content}</Link>;
+        return <NavigationPrefetchLink key={item.href} href={localizedHref(item.href, locale)} onClick={onNavigate} aria-current={isActive ? "page" : undefined} className={["group flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition", isActive ? "bg-white text-[#173e2b] shadow-[0_8px_24px_rgba(0,0,0,0.12)]" : "text-[#d8e5dc] hover:bg-white/10 hover:text-white"].join(" ")} style={isActive ? undefined : { color: "#e1eee5" }}>{content}</NavigationPrefetchLink>;
       })}
     </nav>
   );
