@@ -5,13 +5,14 @@ import { useSyncExternalStore, type ComponentProps } from "react";
 
 export const NAVIGATION_PREFETCH_STORAGE_KEY = "proffera.navigation-prefetch.enabled";
 const NAVIGATION_PREFETCH_CHANGE_EVENT = "proffera:navigation-prefetch-change";
+let forceNavigationPrefetchDisabled = false;
 
 export function navigationPrefetchPreferenceEnabled(value: string | null) {
   return value === "on";
 }
 
 function readNavigationPrefetchEnabled() {
-  if (typeof window === "undefined") return false;
+  if (typeof window === "undefined" || forceNavigationPrefetchDisabled) return false;
   try {
     return navigationPrefetchPreferenceEnabled(window.localStorage.getItem(NAVIGATION_PREFETCH_STORAGE_KEY));
   } catch {
@@ -21,7 +22,9 @@ function readNavigationPrefetchEnabled() {
 
 function subscribeToNavigationPrefetch(onStoreChange: () => void) {
   function handleStorage(event: StorageEvent) {
-    if (event.key === NAVIGATION_PREFETCH_STORAGE_KEY) onStoreChange();
+    if (event.key !== NAVIGATION_PREFETCH_STORAGE_KEY) return;
+    forceNavigationPrefetchDisabled = false;
+    onStoreChange();
   }
   function handleLocalChange() {
     onStoreChange();
@@ -46,8 +49,9 @@ export function useNavigationPrefetchEnabled() {
 function setNavigationPrefetchEnabled(enabled: boolean) {
   try {
     window.localStorage.setItem(NAVIGATION_PREFETCH_STORAGE_KEY, enabled ? "on" : "off");
+    forceNavigationPrefetchDisabled = false;
   } catch {
-    return;
+    forceNavigationPrefetchDisabled = true;
   }
   window.dispatchEvent(new Event(NAVIGATION_PREFETCH_CHANGE_EVENT));
 }

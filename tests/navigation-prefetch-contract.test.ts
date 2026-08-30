@@ -21,6 +21,15 @@ describe("authenticated navigation prefetch contract", () => {
     expect(control).toContain("window.localStorage.setItem");
   });
 
+  it("fails closed and still notifies links when saving the preference fails", () => {
+    const control = source("src/components/performance/navigation-prefetch-control.tsx");
+
+    expect(control).toContain("let forceNavigationPrefetchDisabled = false");
+    expect(control).toContain("forceNavigationPrefetchDisabled = true;");
+    expect(control).toContain("if (typeof window === \"undefined\" || forceNavigationPrefetchDisabled) return false;");
+    expect(control).toContain("window.dispatchEvent(new Event(NAVIGATION_PREFETCH_CHANGE_EVENT));");
+  });
+
   it("routes Dashboard and Platform Admin menu links through the browser preference", () => {
     const dashboard = source("src/components/dashboard/dashboard-shell.tsx");
     const admin = source("src/components/admin/admin-navigation.tsx");
