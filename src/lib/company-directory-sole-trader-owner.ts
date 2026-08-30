@@ -217,7 +217,6 @@ function activityDescription(row: AnyRecord) {
       ?? row.description,
   );
 }
-
 function cityFromRecord(row: AnyRecord) {
   const post = object(object(row.postadressOrganisation)?.postadress)
     ?? object(row.postadressOrganisation)
@@ -292,6 +291,7 @@ const SOLE_TRADER_SOURCE_ATTEMPTS = 2;
 const PRODUCTION_SOLE_TRADER_TOKEN_URL = "https://portal.api.bolagsverket.se/oauth2/token";
 const PRODUCTION_SOLE_TRADER_DETAIL_URL = "https://gw.api.bolagsverket.se/vardefulla-datamangder/v1/organisationer";
 const PRODUCTION_SOLE_TRADER_SCOPE = "vardefulla-datamangder:read";
+const SUPPORTED_PERSON_IDENTITY_TYPES = new Set(["PERSON", "PERSONNUMMER", "PERSONNR"]);
 const ACCEPTANCE2_IDENTITY_FINGERPRINT_PREFIX = "bolagsverket-acceptance2-diagnostic-v1:";
 const ACCEPTANCE2_PERSON_IDENTITY_FINGERPRINTS = new Set([
   "ed6f76bcad9b55d77d27418994bb35d2936121b48ec319e75b5e2ad6585aa45b",
@@ -426,7 +426,7 @@ function selectCurrentSoleTraderBusiness(payload: unknown, requestedIdentity10: 
   const records = organizationRecords(payload);
   const identityMatches = records.filter((row) => {
     const type = identityType(row);
-    const supportedType = !type || type === "PERSONNUMMER" || type === "PERSONNR";
+    const supportedType = !type || SUPPORTED_PERSON_IDENTITY_TYPES.has(type);
     return supportedType && responseIdentity10(identityValue(row)) === requestedIdentity10;
   });
   if (identityMatches.length === 0) {
@@ -440,7 +440,7 @@ function selectCurrentSoleTraderBusiness(payload: unknown, requestedIdentity10: 
       typeState: (() => {
         const type = identityType(row);
         if (!type) return "missing";
-        return type === "PERSONNUMMER" || type === "PERSONNR" ? "person" : "other";
+        return SUPPORTED_PERSON_IDENTITY_TYPES.has(type) ? "person" : "other";
       })(),
       typeCode: (() => {
         const type = identityType(row);
