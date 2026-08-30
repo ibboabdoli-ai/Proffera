@@ -445,6 +445,7 @@ function selectCurrentSoleTraderBusiness(payload: unknown, requestedIdentity10: 
       typeCode: (() => {
         const type = identityType(row);
         if (!type) return "MISSING";
+        if (hasPersonnummerLikeValue(type)) return "REDACTED";
         return /^[A-Z0-9_-]{1,40}$/.test(type) ? type : "OTHER";
       })(),
     }));
