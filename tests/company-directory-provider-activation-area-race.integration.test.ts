@@ -122,10 +122,29 @@ function postgresSql(client: Client) {
         create table company_directory_profiles (
           id uuid primary key,
           claimed_workspace_id uuid,
+          organization_number text not null default '',
+          organization_kind text not null default 'juridical_person',
+          display_name text not null default '',
+          legal_form text not null default '',
+          organization_status text not null default '',
+          address_line1 text not null default '',
+          postal_code text not null default '',
           publication_status text not null,
           is_active boolean not null default true,
           privacy_blocked boolean not null default false,
-          auto_public_eligible boolean not null default true
+          auto_public_eligible boolean not null default true,
+          official_source text not null default '',
+          published_at timestamptz,
+          quality_reasons jsonb not null default '[]'::jsonb,
+          updated_at timestamptz not null default now()
+        );
+        create table company_directory_claims (
+          id uuid primary key default gen_random_uuid(),
+          profile_id uuid not null,
+          requested_workspace_id uuid,
+          status text not null,
+          verification_method text not null,
+          requested_at timestamptz not null default now()
         );
         create table company_directory_services (
           slug text primary key,
@@ -189,6 +208,7 @@ function postgresSql(client: Client) {
       await client!.query(`
         truncate table company_directory_service_areas,
           company_directory_profile_services,
+          company_directory_claims,
           workspace_services,
           company_directory_profiles,
           company_directory_services
@@ -199,8 +219,15 @@ function postgresSql(client: Client) {
       `, [TARGET_SLUG]);
       await client!.query(`
         insert into company_directory_profiles (
-          id, claimed_workspace_id, publication_status, is_active, privacy_blocked, auto_public_eligible
-        ) values ($1::uuid, $2::uuid, 'claimed', true, false, true)
+          id, claimed_workspace_id, organization_number, organization_kind,
+          display_name, legal_form, organization_status, address_line1, postal_code,
+          publication_status, is_active, privacy_blocked, auto_public_eligible,
+          official_source, published_at, quality_reasons
+        ) values (
+          $1::uuid, $2::uuid, '5560000000', 'juridical_person',
+          'Owner Company AB', 'Aktiebolag', 'Registrerad', '', '',
+          'claimed', true, false, true, 'bolagsverket_vardefulla_datamangder:company', now(), '[]'::jsonb
+        )
       `, [PROFILE_ID, WORKSPACE_ID]);
       await client!.query(`
         insert into workspace_services (
