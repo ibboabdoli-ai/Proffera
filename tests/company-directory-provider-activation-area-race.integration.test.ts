@@ -84,7 +84,7 @@ function postgresSql(client: Client) {
         if (state.rows.some((row) => row.wait_event_type === "Lock")) return;
         await delay(25);
       }
-      throw new Error("Activation did not block on the concurrent service-area insert");
+      throw new Error("Activation did not block on the concurrent database lock");
     }
 
     beforeAll(async () => {
@@ -291,6 +291,69 @@ function postgresSql(client: Client) {
           where profile_id = $1::uuid and service_slug = $2
         `, [PROFILE_ID, TARGET_SLUG]);
         expect(area.rows).toEqual([{ source_type: "admin", radius_km: "40.00" }]);
+      } finally {
+        await blocker.query("rollback").catch(() => undefined);
+        await blocker.end().catch(() => undefined);
+      }
+    }, 30_000);
+
+    it("fails closed when the workspace service identity changes while activation waits on the row lock", async () => {
+      const blocker = new Client({ connectionString, application_name: "proffera-provider-service-identity-race-blocker" });
+      await blocker.connect();
+      try {
+        await blocker.query("begin");
+        await blocker.query(`
+          update workspace_services
+          set name = 'Flyttstädning', updated_at = now()
+          where id = $1::uuid
+        `, [SERVICE_ID]);
+
+        const activationOutcome = activateProviderMarketplaceService({
+          serviceId: SERVICE_ID,
+          directoryServiceSlug: TARGET_SLUG,
+          conversionMode: "quote",
+          radiusKm: 20,
+        }).then(
+          () => ({ ok: true as const, error: null }),
+          (error: unknown) => ({ ok: false as const, error }),
+        );
+
+        await waitForActivationToBlock(blocker);
+        await blocker.query("commit");
+
+        const outcome = await activationOutcome;
+        expect(outcome.ok).toBe(false);
+        expect(outcome.error).toBeInstanceOf(Error);
+        expect((outcome.error as Error).message).toBe("service_update");
+
+        const service = await client!.query<{
+          name: string;
+          public_status: string;
+          primary_directory_service_slug: string | null;
+        }>(`
+          select name, public_status, primary_directory_service_slug
+          from workspace_services
+          where id = $1::uuid
+        `, [SERVICE_ID]);
+        expect(service.rows[0]).toEqual({
+          name: "Flyttstädning",
+          public_status: "draft",
+          primary_directory_service_slug: null,
+        });
+
+        const relations = await client!.query<{ count: string }>(`
+          select count(*)::text as count
+          from company_directory_profile_services
+          where profile_id = $1::uuid and service_slug = $2
+        `, [PROFILE_ID, TARGET_SLUG]);
+        expect(relations.rows[0]?.count).toBe("0");
+
+        const areas = await client!.query<{ count: string }>(`
+          select count(*)::text as count
+          from company_directory_service_areas
+          where profile_id = $1::uuid and service_slug = $2
+        `, [PROFILE_ID, TARGET_SLUG]);
+        expect(areas.rows[0]?.count).toBe("0");
       } finally {
         await blocker.query("rollback").catch(() => undefined);
         await blocker.end().catch(() => undefined);
