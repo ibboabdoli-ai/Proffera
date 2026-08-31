@@ -121,6 +121,34 @@ describe("Marketplace first real publication smoke follow-up", () => {
     expect(sql).toHaveBeenCalledTimes(1);
   });
 
+  it("does not let an existing profile relation bypass exact name classification when no canonical identity is persisted", async () => {
+    const sql = vi.fn(async (strings: TemplateStringsArray) => {
+      const query = queryText(strings);
+      if (query.includes("select service.id::text") && query.includes("from workspace_services service")) {
+        return [{
+          id: SERVICE_ID,
+          name: "Hemstädning",
+          previous_directory_service_slug: null,
+          profile_id: PROFILE_ID,
+          has_existing_relation: true,
+          requires_privacy_release: false,
+        }];
+      }
+      if (query.startsWith("with service_guard as")) return [{ id: SERVICE_ID }];
+      return [];
+    });
+    mocks.getSql.mockReturnValue(sql);
+
+    await expect(activateProviderMarketplaceService({
+      serviceId: SERVICE_ID,
+      directoryServiceSlug: "flyttstadning",
+      conversionMode: "book",
+      radiusKm: 25,
+    })).rejects.toThrow("service_not_eligible");
+
+    expect(sql).toHaveBeenCalledTimes(1);
+  });
+
   it("preserves the valid exact canonical activation path and rechecks the locked service identity", async () => {
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       const query = queryText(strings);
