@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -108,6 +109,24 @@ describe("targeted CI shadow planner", () => {
       "e2e",
       "discovery-worker",
     ]);
+  });
+
+  it("keeps both sides of a rename in the shadow evidence", () => {
+    const workflow = readFileSync(
+      resolve(process.cwd(), ".github/workflows/ci-scope-shadow.yml"),
+      "utf8",
+    );
+
+    expect(workflow).toContain(
+      "--jq '.[] | .filename, (.previous_filename // empty)'",
+    );
+
+    const result = plan([
+      "docs/retired-workflow.md",
+      ".github/workflows/retired.yml",
+    ]);
+    expect(result.classification).toBe("restricted-full");
+    expect(result.reductionCandidate).toBe(false);
   });
 
   it("fails unknown paths conservatively to full CI", () => {
