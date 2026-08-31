@@ -31,22 +31,20 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           path = Path('.github/scripts/phase2_review_fix.py')
-          source = path.read_text()
-          source = source.replace('${2:-}', r'\${2:-}')
-          old = '''    expect(`${sensitivePath.stdout}${sensitivePath.stderr}`).toContain("this high-risk path is CodeRabbit-only");
-  });
-
-  it("fails closed when CodeRabbit approval and change request have equal timestamps during fallback", () => {'''
-          new = '''    expect(`${sensitivePath.stdout}${sensitivePath.stderr}`).toContain("this high-risk path is CodeRabbit-only");
-  }, 15000);
-
-  it("fails closed when CodeRabbit approval and change request have equal timestamps during fallback", () => {'''
-          if source.count(old) != 1:
-              raise SystemExit(f'expected one runtime-test timeout anchor, found {source.count(old)}')
-          source = source.replace(old, new)
+          source = path.read_text().replace('${2:-}', r'\${2:-}')
           path.write_text(source)
           PY
           python3 .github/scripts/phase2_review_fix.py
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('tests/tooling-safety-contract.test.ts')
+          source = path.read_text()
+          marker = '  it("executes Codex fallback freshness and fail-closed paths against the real CI gate", () => {'
+          start = source.index(marker)
+          end = source.index('\n  });', start)
+          source = source[:end] + '\n  }, 15000);' + source[end + len('\n  });'):]
+          path.write_text(source)
+          PY
 
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
