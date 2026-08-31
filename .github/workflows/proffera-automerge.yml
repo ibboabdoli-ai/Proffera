@@ -266,10 +266,12 @@ jobs:
 
           file_count="$(grep -c . <<< "$changed_files" || true)"
           needs_ai_review=false
+          fallback_eligible=false
           ai_review_reason=""
 
           if [ "$file_count" -ge 12 ]; then
             needs_ai_review=true
+            fallback_eligible=true
             ai_review_reason="large change (${file_count} files)"
           fi
 
@@ -277,8 +279,9 @@ jobs:
             [ -z "$file" ] && continue
 
             case "$file" in
-              .github/workflows/*|db/migrations/*|migrations/*|src/app/api/*|package.json|package-lock.json|vercel.json|next.config.*|src/proxy.*|middleware.*|scripts/company-directory-discovery.py)
+              .github/workflows/*|db/migrations/*|migrations/*|src/app/api/*|src/app/privacy/*|src/app/privacy/**|*/privacy/*|src/app/admin/foretag/directory/*|src/app/admin/foretag/directory/**|package.json|package-lock.json|pnpm-lock.yaml|yarn.lock|*/package-lock.json|*/pnpm-lock.yaml|*/yarn.lock|vercel.json|next.config.*|src/proxy.*|middleware.*|scripts/company-directory-discovery.py)
                 needs_ai_review=true
+                fallback_eligible=false
                 ai_review_reason="sensitive path: $file"
                 break
                 ;;
@@ -288,6 +291,7 @@ jobs:
                [[ "$file" =~ company[-_]directory ]] ||
                [[ "$file" =~ (^|/)\.env ]]; then
               needs_ai_review=true
+              fallback_eligible=false
               ai_review_reason="sensitive domain: $file"
               break
             fi
@@ -298,6 +302,7 @@ jobs:
             summary "### AI review gate"
             summary "- Required: yes"
             summary "- Reason: $ai_review_reason"
+            summary "- Codex fallback eligible: $fallback_eligible"
             summary "- needs-ai-review label: $has_review_route"
 
             if [ "$has_review_route" != "yes" ]; then
@@ -329,15 +334,67 @@ jobs:
 
             if [ -n "$latest_changes" ]; then
               if [ -z "$latest_approval" ] || [[ ! "$latest_approval" > "$latest_changes" ]]; then
-                refuse "Refused: CodeRabbit changes remain requested on the current PR head; only a later APPROVED review clears them."
+                refuse "Refused: CodeRabbit changes remain requested on the current PR head; Codex fallback can never clear them."
               fi
               summary "- Current-head CodeRabbit decision: APPROVED after latest change request"
             elif [ "$terminal_count" -gt 0 ]; then
               summary "- Current-head CodeRabbit decision: non-blocking review completed"
             elif [ "$clean_summary_count" -gt 0 ]; then
               summary "- Current-head CodeRabbit decision: clean review with no actionable comments"
+            elif [ "$fallback_eligible" = "true" ]; then
+              codex_marker="<!-- proffera-codex-fallback-review-request:${head_sha} -->"
+              codex_request_id="$(jq -r --arg marker "$codex_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | sort_by(.created_at) | last | .id // empty' <<< "$comments_json")"
+              codex_request_time="$(jq -r --arg marker "$codex_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | sort_by(.created_at) | last | .created_at // empty' <<< "$comments_json")"
+
+              if [ -z "$codex_request_id" ] || [ -z "$codex_request_time" ]; then
+                refuse "Refused: no exact-current-head GitHub Actions Codex fallback request exists."
+              fi
+
+              codex_reactions_json="$(gh api --paginate "repos/$REPOSITORY/issues/comments/${codex_request_id}/reactions?per_page=100" --jq '.[]' | jq -s '.')"
+              codex_clean_count="$(jq -r --arg request_time "$codex_request_time" '
+                [
+                  .[]
+                  | select(.user.login == "chatgpt-codex-connector[bot]")
+                  | select(.content == "+1")
+                  | select(.created_at >= $request_time)
+                ]
+                | length
+              ' <<< "$codex_reactions_json")"
+
+              codex_reviews_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq '.[]' | jq -s '.')"
+              codex_approval_count="$(jq -r --arg sha "$head_sha" --arg request_time "$codex_request_time" '
+                [
+                  .[]
+                  | select(.user.login == "chatgpt-codex-connector[bot]")
+                  | select(.commit_id == $sha)
+                  | select(.state == "APPROVED")
+                  | select(.submitted_at >= $request_time)
+                ]
+                | length
+              ' <<< "$codex_reviews_json")"
+
+              codex_inline_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/comments?per_page=100" --jq '.[]' | jq -s '.')"
+              codex_inline_count="$(jq -r --arg sha "$head_sha" --arg request_time "$codex_request_time" '
+                [
+                  .[]
+                  | select(.user.login == "chatgpt-codex-connector[bot]")
+                  | select(.commit_id == $sha)
+                  | select(.created_at >= $request_time)
+                ]
+                | length
+              ' <<< "$codex_inline_json")"
+
+              if [ "$codex_inline_count" -gt 0 ]; then
+                refuse "Refused: Codex fallback posted current-head review findings."
+              fi
+
+              if [ "$codex_clean_count" -eq 0 ] && [ "$codex_approval_count" -eq 0 ]; then
+                refuse "Refused: no clean exact-current-head Codex fallback result exists."
+              fi
+
+              summary "- Current-head Codex fallback decision: clean review after CodeRabbit availability failure"
             else
-              refuse "Refused: no completed CodeRabbit review exists for the current PR head."
+              refuse "Refused: no completed CodeRabbit review exists for the current PR head; this path is CodeRabbit-only."
             fi
           else
             summary "### AI review gate"
@@ -419,6 +476,17 @@ jobs:
               [ -n "$check" ] && summary "- $check"
             done <<< "$unknown_checks"
             refuse "Refused: one or more checks returned an unrecognized bucket."
+          fi
+
+          if [ "$needs_ai_review" = "true" ]; then
+            final_reviews_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq '.[]' | jq -s '.')"
+            final_current_reviews="$(jq -c --arg sha "$head_sha" '[.[] | select(.user.login == "coderabbitai[bot]" and .commit_id == $sha)]' <<< "$final_reviews_json")"
+            final_latest_changes="$(jq -r '[.[] | select(.state == "CHANGES_REQUESTED") | .submitted_at] | max // empty' <<< "$final_current_reviews")"
+            final_latest_approval="$(jq -r '[.[] | select(.state == "APPROVED") | .submitted_at] | max // empty' <<< "$final_current_reviews")"
+
+            if [ -n "$final_latest_changes" ] && { [ -z "$final_latest_approval" ] || [[ ! "$final_latest_approval" > "$final_latest_changes" ]]; }; then
+              refuse "Refused: CodeRabbit changes were requested on the current PR head after the earlier review gate; merge is blocked."
+            fi
           fi
 
           merge_output="$(gh pr merge "$pr_number" --repo "$REPOSITORY" --squash --delete-branch --match-head-commit "$head_sha" 2>&1)"

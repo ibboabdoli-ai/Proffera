@@ -102,6 +102,10 @@ External AI review is an adversarial gate, not the primary developer.
 - Do not blindly run autofix on workflow, auth/RBAC, tenant-isolation, database/schema, payment, webhook, deployment, secret or other high-risk paths.
 - For `.github/workflows/**`, use external review as review-only unless an explicitly authorized writer can safely apply the patch.
 - The optional local CodeRabbit CLI pass described above is development feedback only; PR-hosted CodeRabbit/Codex review remains the authoritative external delivery gate.
+- CodeRabbit remains the primary provider for risk-routed final PR review. Codex may act as an availability fallback only when CI classifies the PR as fallback-eligible medium risk and machine-observed evidence shows CodeRabbit is rate-limited, unavailable, skipped, or has exceeded the bounded response window.
+- Codex fallback evidence must be bound to the current head through an exact-head request marker, an unchanged PR head, and a fresh Codex result recorded after that marker. Stale reactions or reviews from an older head never satisfy the gate.
+- A current-head CodeRabbit `CHANGES_REQUESTED` decision is always blocking. Codex can never override it; only a later current-head CodeRabbit `APPROVED` decision may clear that state.
+- Workflow, auth/RBAC, tenant/workspace, database/migration, payment, privacy/Directory, package/lockfile, environment/secret, and deployment-sensitive paths remain CodeRabbit-only under the automated fallback policy. CI must fail closed if CodeRabbit is unavailable for those paths.
 - Re-enter final review only after the valid findings have been batched and locally validated.
 
 ### Baseline refresh without restart
