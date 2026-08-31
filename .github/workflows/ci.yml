@@ -17,7 +17,6 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
-      # This repository's GITHUB_TOKEN requires Pull Requests write for PR label mutation.
       pull-requests: write
 
     steps:
@@ -51,20 +50,15 @@ jobs:
         if: github.event.action != 'synchronize'
         run: echo "No new code on this event; final-review state is unchanged."
 
-  validate:
-    name: Validate
+  governance:
+    name: Governance
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: read
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-
-      - name: Governance
+      - name: Worker bootstrap governance
         if: github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -138,6 +132,25 @@ jobs:
 
           echo "Worker bootstrap governance passed for base $expected_base_sha."
 
+      - name: Push event governance
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "Push event: PR bootstrap governance is not applicable."
+
+  static_checks:
+    name: Static checks
+    needs: governance
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
@@ -153,6 +166,51 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Check whitespace errors
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+          PUSH_HEAD_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            git diff --check "$PR_BASE_SHA" "$PR_HEAD_SHA"
+            exit 0
+          fi
+
+          if [[ "$PUSH_BEFORE_SHA" =~ ^0+$ ]]; then
+            git show --check --format= "$PUSH_HEAD_SHA"
+            exit 0
+          fi
+
+          git diff --check "$PUSH_BEFORE_SHA" "$PUSH_HEAD_SHA"
+
+  unit_tests:
+    name: Unit and worker tests
+    needs: governance
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
       - name: Test
         run: npm test
 
@@ -161,11 +219,71 @@ jobs:
           python3 -m py_compile scripts/company-directory-discovery.py
           python3 tests/test_company_directory_discovery_worker.py
 
+  build:
+    name: Build
+    needs: governance
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
       - name: Build
         run: npm run build
 
-      - name: Check whitespace errors
-        run: git diff --check
+  validate:
+    name: Validate
+    if: always()
+    needs: [governance, static_checks, unit_tests, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Require all quality checks
+        env:
+          GOVERNANCE_RESULT: ${{ needs.governance.result }}
+          STATIC_RESULT: ${{ needs.static_checks.result }}
+          TEST_RESULT: ${{ needs.unit_tests.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "$GOVERNANCE_RESULT" != "success" ]; then
+            echo "Refused: governance did not succeed ($GOVERNANCE_RESULT)."
+            exit 1
+          fi
+
+          if [ "$STATIC_RESULT" != "success" ]; then
+            echo "Refused: static checks did not succeed ($STATIC_RESULT)."
+            exit 1
+          fi
+
+          if [ "$TEST_RESULT" != "success" ]; then
+            echo "Refused: unit/worker tests did not succeed ($TEST_RESULT)."
+            exit 1
+          fi
+
+          if [ "$BUILD_RESULT" != "success" ]; then
+            echo "Refused: build did not succeed ($BUILD_RESULT)."
+            exit 1
+          fi
+
+          echo "All governance and parallel quality checks succeeded."
 
   route_ai_review:
     name: AI review route
@@ -173,7 +291,6 @@ jobs:
     needs: [validate, reset_review_label]
     runs-on: ubuntu-latest
     permissions:
-      # Write permission is limited to PR labels/comments; this job never checks out PR code.
       pull-requests: write
 
     steps:
@@ -268,7 +385,7 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
-    needs: validate
+    needs: governance
     container:
       image: mcr.microsoft.com/playwright@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e # v1.62.1-noble
       options: --user 1001
@@ -308,7 +425,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     permissions:
-      # Metadata-only final gate: it never checks out or executes PR code.
       pull-requests: read
 
     steps:
