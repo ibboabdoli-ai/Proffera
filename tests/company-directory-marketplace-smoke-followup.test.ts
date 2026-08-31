@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { isValidElement, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
   getUserWorkspaceAccess: vi.fn(),
   canManageWorkspaceSettings: vi.fn(),
   getDashboardWorkspaceServices: vi.fn(),
+  getPublicBusinessProfileViewForRequest: vi.fn(),
+  getClaimedDirectoryWorkspaceSlug: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -17,7 +19,15 @@ vi.mock("@/lib/workspace-access", () => ({
 vi.mock("@/lib/workspace-services-db", () => ({
   getDashboardWorkspaceServices: mocks.getDashboardWorkspaceServices,
 }));
+vi.mock("@/lib/business-profile-public", () => ({
+  getPublicBusinessProfileViewForRequest: mocks.getPublicBusinessProfileViewForRequest,
+}));
+vi.mock("@/lib/company-directory-routing", () => ({
+  getClaimedDirectoryWorkspaceSlug: mocks.getClaimedDirectoryWorkspaceSlug,
+}));
 
+import MarketplaceActivationPage from "../src/app/dashboard/marknadsplats/page";
+import { PublicDirectoryProfile } from "../src/components/company-directory/public-directory-profile";
 import { directoryProfileCopy } from "../src/components/company-directory/public-directory-profile-copy";
 import {
   activateProviderMarketplaceService,
@@ -44,29 +54,168 @@ function access() {
   };
 }
 
+function walkReactTree(node: ReactNode, visit: (value: ReactNode) => void) {
+  if (Array.isArray(node)) {
+    for (const child of node) walkReactTree(child, visit);
+    return;
+  }
+  if (!isValidElement(node)) {
+    visit(node);
+    return;
+  }
+  visit(node);
+  walkReactTree((node.props as { children?: ReactNode }).children, visit);
+}
+
+function renderedHrefs(node: ReactNode) {
+  const hrefs: string[] = [];
+  walkReactTree(node, (value) => {
+    if (!isValidElement(value)) return;
+    const href = (value.props as { href?: unknown }).href;
+    if (typeof href === "string") hrefs.push(href);
+  });
+  return hrefs;
+}
+
+function renderedText(node: ReactNode) {
+  const parts: string[] = [];
+  walkReactTree(node, (value) => {
+    if (typeof value === "string" || typeof value === "number") parts.push(String(value));
+  });
+  return parts.join(" ");
+}
+
+function linkedProfileSql() {
+  return vi.fn(async (strings: TemplateStringsArray) => {
+    const query = queryText(strings);
+    if (query.startsWith("insert into workspace_services")) return [];
+    if (query.includes("select profile.id::text") && query.includes("from company_directory_profiles profile")) {
+      return [{
+        id: PROFILE_ID,
+        public_slug: "owner-company-ab",
+        display_name: "Owner Company AB",
+        organization_number: "5560000000",
+        organization_kind: "juridical_person",
+        legal_form: "Aktiebolag",
+        organization_status: "Registrerad",
+        address_line1: "",
+        postal_code: "",
+        city: "Södertälje",
+        publication_status: "claimed",
+        is_active: true,
+        privacy_blocked: false,
+        auto_public_eligible: true,
+        official_source: "bolagsverket_vardefulla_datamangder:company",
+        published_at: "2026-08-31T00:00:00.000Z",
+      }];
+    }
+    if (query.includes("from company_directory_claims claim")) return [];
+    if (query.includes("select service.slug, service.label")) {
+      return [{ slug: "hemstadning", label: "Hemstädning" }];
+    }
+    return [];
+  });
+}
+
+function profileView(ownershipState: "claimed" | "unclaimed") {
+  return {
+    business: {
+      id: PROFILE_ID,
+      slug: "owner-company-ab",
+      companyName: "Owner Company AB",
+      categorySlug: "stadning",
+      primarySniCode: "81210",
+      primarySniLabel: "Lokalvård",
+      activityDescription: "",
+      addressLine1: "",
+      postalCode: "",
+      city: "Södertälje",
+      municipality: "Södertälje",
+      legalForm: "Aktiebolag",
+      organizationStatus: "Registrerad",
+      organizationNumber: "5560000000",
+      lastCheckedAt: "2026-08-31T00:00:00.000Z",
+      media: null,
+      contact: {
+        entitled: false,
+        addressLine1: "",
+        phone: "",
+        email: "",
+        website: "",
+        available: {
+          addressLine1: false,
+          phone: false,
+          email: false,
+          website: false,
+        },
+      },
+    },
+    extras: {
+      services: [],
+      serviceAreas: [],
+      reputation: null,
+    },
+    profile: {
+      identity: {
+        ownershipState,
+        workspaceSlug: "",
+      },
+      capabilities: {
+        richWebsite: false,
+      },
+    },
+  };
+}
+
 describe("Marketplace first real publication smoke follow-up", () => {
   beforeEach(() => {
     for (const mock of Object.values(mocks)) mock.mockReset();
     mocks.getUserWorkspaceAccess.mockResolvedValue(access());
     mocks.canManageWorkspaceSettings.mockReturnValue(true);
+    mocks.getClaimedDirectoryWorkspaceSlug.mockResolvedValue(null);
   });
 
-  it("keeps the dashboard Testa i sök link service-only", () => {
-    const source = readFileSync("src/app/dashboard/marknadsplats/page.tsx", "utf8");
-    expect(source).not.toContain("linkedProfileCity");
-    expect(source).not.toContain("&location=${encodeURIComponent(linkedProfileCity)}");
-    expect(source).toContain("/foretag/listad?service=${encodeURIComponent(service.publicSlug)}");
-    expect(source).toContain("/en/companies?service=${encodeURIComponent(service.publicSlug)}");
+  it("renders Swedish and English Testa i sök links with service only", async () => {
+    mocks.getDashboardWorkspaceServices.mockResolvedValue([{
+      id: SERVICE_ID,
+      name: "Hemstädning",
+      isActive: true,
+      publicStatus: "published",
+      publicSlug: "hemstadning",
+      primaryDirectoryServiceSlug: "hemstadning",
+      conversionMode: "book",
+      serviceAreaConfirmed: true,
+      serviceAreaRadiusKm: 25,
+    }]);
+    mocks.getSql.mockReturnValue(linkedProfileSql());
+
+    const svPage = await MarketplaceActivationPage({ searchParams: Promise.resolve({}) });
+    const svSearchHref = renderedHrefs(svPage).find((href) => href.includes("service=hemstadning"));
+    expect(svSearchHref).toBe("/foretag/listad?service=hemstadning");
+    expect(svSearchHref).not.toContain("location=");
+
+    const enPage = await MarketplaceActivationPage({ searchParams: Promise.resolve({ lang: "en" }) });
+    const enSearchHref = renderedHrefs(enPage).find((href) => href.includes("service=hemstadning"));
+    expect(enSearchHref).toBe("/en/companies?service=hemstadning");
+    expect(enSearchHref).not.toContain("location=");
   });
 
-  it("uses ownership-aware source disclosures", () => {
-    expect(directoryProfileCopy.sv.sourceOwner).toContain("inte");
-    expect(directoryProfileCopy.sv.sourceOwnerClaimed).toContain("har verifierat");
-    expect(directoryProfileCopy.en.sourceOwner).toContain("does not mean");
-    expect(directoryProfileCopy.en.sourceOwnerClaimed).toContain("has verified and claimed");
+  it("renders ownership-aware source disclosures for claimed and unclaimed profiles", async () => {
+    mocks.getPublicBusinessProfileViewForRequest.mockResolvedValue(profileView("claimed"));
+    const claimedSv = renderedText(await PublicDirectoryProfile({ slug: "owner-company-ab", locale: "sv" }));
+    const claimedEn = renderedText(await PublicDirectoryProfile({ slug: "owner-company-ab", locale: "en" }));
+    expect(claimedSv).toContain(directoryProfileCopy.sv.sourceOwnerClaimed);
+    expect(claimedSv).not.toContain(directoryProfileCopy.sv.sourceOwner);
+    expect(claimedEn).toContain(directoryProfileCopy.en.sourceOwnerClaimed);
+    expect(claimedEn).not.toContain(directoryProfileCopy.en.sourceOwner);
 
-    const profileSource = readFileSync("src/components/company-directory/public-directory-profile.tsx", "utf8");
-    expect(profileSource).toContain('profile.identity.ownershipState === "claimed" ? t.sourceOwnerClaimed : t.sourceOwner');
+    mocks.getPublicBusinessProfileViewForRequest.mockResolvedValue(profileView("unclaimed"));
+    const unclaimedSv = renderedText(await PublicDirectoryProfile({ slug: "owner-company-ab", locale: "sv" }));
+    const unclaimedEn = renderedText(await PublicDirectoryProfile({ slug: "owner-company-ab", locale: "en" }));
+    expect(unclaimedSv).toContain(directoryProfileCopy.sv.sourceOwner);
+    expect(unclaimedSv).not.toContain(directoryProfileCopy.sv.sourceOwnerClaimed);
+    expect(unclaimedEn).toContain(directoryProfileCopy.en.sourceOwner);
+    expect(unclaimedEn).not.toContain(directoryProfileCopy.en.sourceOwnerClaimed);
   });
 
   it("treats an existing canonical Workspace Service identity as authoritative", () => {
