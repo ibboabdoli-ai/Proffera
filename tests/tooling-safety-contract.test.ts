@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { delimiter, join, resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -24,6 +25,158 @@ function runSonarValidation(overrides: Record<string, string>) {
       },
     },
   );
+}
+
+
+const reviewHead = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+function ciReviewGateShellBlock() {
+  const ci = source(".github/workflows/ci.yml");
+  const marker = "          changed_files=\"$(gh api --paginate \"repos/${REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100\" --jq '.[].filename')\"";
+  const first = ci.indexOf(marker);
+  const start = ci.indexOf(marker, first + marker.length);
+  const refusalMarker = '          if [ "$fallback_eligible" = "true" ]; then\n            echo "Refused: no acceptable CodeRabbit or Codex fallback decision was recorded for the current head within the gate window."';
+  const refusal = ci.indexOf(refusalMarker, start);
+  const exitIndex = ci.indexOf("          exit 1", refusal);
+  expect(first).toBeGreaterThanOrEqual(0);
+  expect(start).toBeGreaterThan(first);
+  expect(refusal).toBeGreaterThan(start);
+  expect(exitIndex).toBeGreaterThan(refusal);
+
+  return ci
+    .slice(start, exitIndex + "          exit 1".length)
+    .split("\n")
+    .map((line) => line.startsWith("          ") ? line.slice(10) : line)
+    .join("\n");
+}
+
+type CiReviewFixture = {
+  changedFiles: string;
+  firstReviews?: Array<Record<string, unknown>>;
+  laterReviews?: Array<Record<string, unknown>>;
+  comments?: Array<Record<string, unknown>>;
+  reactions?: Array<Record<string, unknown>>;
+  inlineComments?: Array<Record<string, unknown>>;
+  failOnPost?: boolean;
+};
+
+function toNdjson(items: Array<Record<string, unknown>> = []) {
+  return items.map((item) => JSON.stringify(item)).join("\n");
+}
+
+function runCiReviewFixture(fixture: CiReviewFixture) {
+  const dir = mkdtempSync(join(tmpdir(), "proffera-ci-review-"));
+  const fakeGh = join(dir, "gh");
+  const fakeSleep = join(dir, "sleep");
+  const script = join(dir, "review-gate.sh");
+  const stateFile = join(dir, "reviews-count");
+
+  writeFileSync(fakeGh, `#!/usr/bin/env bash
+set -euo pipefail
+args="$*"
+if [[ "$args" == *"/pulls/801/files?per_page=100"* ]]; then
+  printf '%s\\n' "$FAKE_CHANGED_FILES"
+  exit 0
+fi
+if [[ "$args" == *"/pulls/801/reviews?per_page=100"* ]]; then
+  count=0
+  [ -f "$FAKE_REVIEW_STATE" ] && count="$(cat "$FAKE_REVIEW_STATE")"
+  if [ "$count" -eq 0 ]; then
+    printf '%s\\n' "$FAKE_FIRST_REVIEWS"
+  else
+    printf '%s\\n' "$FAKE_LATER_REVIEWS"
+  fi
+  printf '%s' "$((count + 1))" > "$FAKE_REVIEW_STATE"
+  exit 0
+fi
+if [[ "$args" == *"/issues/801/comments?per_page=100"* ]]; then
+  printf '%s\\n' "$FAKE_COMMENTS"
+  exit 0
+fi
+if [[ "$args" == *"/issues/comments/42/reactions?per_page=100"* ]]; then
+  printf '%s\\n' "$FAKE_REACTIONS"
+  exit 0
+fi
+if [[ "$args" == *"/pulls/801/comments?per_page=100"* ]]; then
+  printf '%s\\n' "$FAKE_INLINE_COMMENTS"
+  exit 0
+fi
+if [ "$1" = "api" ] && [ "\${2:-}" = "repos/ibboabdoli-ai/Proffera/pulls/801" ]; then
+  if [[ "$args" == *"--jq .head.sha"* ]]; then
+    printf '%s\\n' "$FAKE_HEAD_SHA"
+  else
+    printf '{"head":{"sha":"%s"},"labels":[{"name":"needs-ai-review"}]}\\n' "$FAKE_HEAD_SHA"
+  fi
+  exit 0
+fi
+if [[ "$args" == *"--method POST"* ]]; then
+  if [ "$FAIL_ON_POST" = "true" ]; then
+    printf 'unexpected POST: %s\\n' "$args" >&2
+    exit 90
+  fi
+  printf '{"id":42,"created_at":"2026-08-31T10:02:00Z"}\\n'
+  exit 0
+fi
+printf 'unexpected gh invocation: %s\\n' "$args" >&2
+exit 91
+`, { mode: 0o755 });
+  writeFileSync(fakeSleep, "#!/usr/bin/env bash\nexit 0\n", { mode: 0o755 });
+  writeFileSync(script, `#!/usr/bin/env bash
+set -euo pipefail
+REPOSITORY=ibboabdoli-ai/Proffera
+PR_NUMBER=801
+HEAD_SHA=${reviewHead}
+pr_json='{"head":{"sha":"${reviewHead}"},"labels":[{"name":"needs-ai-review"}]}'
+${ciReviewGateShellBlock()}
+`, { mode: 0o755 });
+
+  const result = spawnSync("bash", [script], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PATH: `${dir}${delimiter}${process.env.PATH ?? ""}`,
+      FAKE_CHANGED_FILES: fixture.changedFiles,
+      FAKE_FIRST_REVIEWS: toNdjson(fixture.firstReviews),
+      FAKE_LATER_REVIEWS: toNdjson(fixture.laterReviews ?? fixture.firstReviews),
+      FAKE_COMMENTS: toNdjson(fixture.comments),
+      FAKE_REACTIONS: toNdjson(fixture.reactions),
+      FAKE_INLINE_COMMENTS: toNdjson(fixture.inlineComments),
+      FAKE_HEAD_SHA: reviewHead,
+      FAKE_REVIEW_STATE: stateFile,
+      FAIL_ON_POST: fixture.failOnPost ? "true" : "false",
+    },
+  });
+
+  rmSync(dir, { recursive: true, force: true });
+  return result;
+}
+
+function fallbackComments() {
+  return [
+    {
+      id: 10,
+      user: { login: "github-actions[bot]" },
+      body: `<!-- proffera-coderabbit-final-review-request:${reviewHead} -->`,
+      created_at: "2026-08-31T10:00:00Z",
+    },
+    {
+      id: 11,
+      user: { login: "coderabbitai[bot]" },
+      body: "Review rate limited",
+      created_at: "2026-08-31T10:01:00Z",
+      updated_at: "2026-08-31T10:01:00Z",
+    },
+    {
+      id: 42,
+      user: { login: "github-actions[bot]" },
+      body: `<!-- proffera-codex-fallback-review-request:${reviewHead} -->\n@codex review`,
+      created_at: "2026-08-31T10:02:00Z",
+    },
+  ];
+}
+
+function largeSafeChange() {
+  return Array.from({ length: 12 }, (_, index) => `src/features/example-${index}.ts`).join("\n");
 }
 
 describe("tooling safety contract", () => {
@@ -135,6 +288,99 @@ describe("tooling safety contract", () => {
     expect(config).not.toContain("url: localBaseUrl");
   });
 
+  it("executes Codex fallback freshness and fail-closed paths against the real CI gate", () => {
+    const staleReaction = runCiReviewFixture({
+      changedFiles: largeSafeChange(),
+      comments: fallbackComments(),
+      reactions: [{
+        user: { login: "chatgpt-codex-connector[bot]" },
+        content: "+1",
+        created_at: "2026-08-31T10:01:30Z",
+      }],
+    });
+    expect(staleReaction.status).toBe(1);
+    expect(`${staleReaction.stdout}${staleReaction.stderr}`).toContain("Codex fallback has not recorded a clean current-head result yet.");
+
+    const staleApproval = runCiReviewFixture({
+      changedFiles: largeSafeChange(),
+      comments: fallbackComments(),
+      firstReviews: [{
+        user: { login: "chatgpt-codex-connector[bot]" },
+        commit_id: reviewHead,
+        state: "APPROVED",
+        submitted_at: "2026-08-31T10:01:30Z",
+      }],
+    });
+    expect(staleApproval.status).toBe(1);
+
+    const inlineFinding = runCiReviewFixture({
+      changedFiles: largeSafeChange(),
+      comments: fallbackComments(),
+      reactions: [{
+        user: { login: "chatgpt-codex-connector[bot]" },
+        content: "+1",
+        created_at: "2026-08-31T10:03:00Z",
+      }],
+      inlineComments: [{
+        user: { login: "chatgpt-codex-connector[bot]" },
+        commit_id: reviewHead,
+        created_at: "2026-08-31T10:03:00Z",
+      }],
+    });
+    expect(inlineFinding.status).toBe(1);
+    expect(`${inlineFinding.stdout}${inlineFinding.stderr}`).toContain("Codex fallback posted current-head review findings");
+
+    const codeRabbitChanges = runCiReviewFixture({
+      changedFiles: largeSafeChange(),
+      comments: fallbackComments(),
+      firstReviews: [{
+        user: { login: "coderabbitai[bot]" },
+        commit_id: reviewHead,
+        state: "CHANGES_REQUESTED",
+        submitted_at: "2026-08-31T10:03:00Z",
+      }],
+    });
+    expect(codeRabbitChanges.status).toBe(1);
+    expect(`${codeRabbitChanges.stdout}${codeRabbitChanges.stderr}`).toContain("CodeRabbit changes remain requested for current head");
+
+    const sensitivePath = runCiReviewFixture({
+      changedFiles: `${largeSafeChange()}\nsrc/app/en/privacy/page.tsx\ne2e/package-lock.json`,
+      failOnPost: true,
+    });
+    expect(sensitivePath.status).toBe(1);
+    expect(`${sensitivePath.stdout}${sensitivePath.stderr}`).toContain("this high-risk path is CodeRabbit-only");
+  }, 15000);
+
+  it("fails closed when CodeRabbit approval and change request have equal timestamps during fallback", () => {
+    const equalTimestamp = "2026-08-31T10:04:00Z";
+    const result = runCiReviewFixture({
+      changedFiles: largeSafeChange(),
+      comments: fallbackComments(),
+      reactions: [{
+        user: { login: "chatgpt-codex-connector[bot]" },
+        content: "+1",
+        created_at: "2026-08-31T10:03:00Z",
+      }],
+      firstReviews: [],
+      laterReviews: [
+        {
+          user: { login: "coderabbitai[bot]" },
+          commit_id: reviewHead,
+          state: "CHANGES_REQUESTED",
+          submitted_at: equalTimestamp,
+        },
+        {
+          user: { login: "coderabbitai[bot]" },
+          commit_id: reviewHead,
+          state: "APPROVED",
+          submitted_at: equalTimestamp,
+        },
+      ],
+    });
+    expect(result.status).toBe(1);
+    expect(`${result.stdout}${result.stderr}`).toContain("CodeRabbit changes were recorded while Codex fallback was running");
+  });
+
   it("keeps Codex fallback availability-only, medium-risk, exact-head, and fail-closed", () => {
     const ci = source(".github/workflows/ci.yml");
     const automerge = source(".github/workflows/proffera-automerge.yml");
@@ -147,7 +393,8 @@ describe("tooling safety contract", () => {
     expect(ci).toContain("chatgpt-codex-connector[bot]");
     expect(ci).toContain("CodeRabbit changes remain requested for current head; Codex fallback cannot clear them.");
     expect(ci).toContain("CodeRabbit availability timeout reached; Codex fallback is allowed for this medium-risk PR.");
-    expect(ci).toContain("src/app/privacy/*|src/app/privacy/**|src/app/admin/foretag/directory/*|src/app/admin/foretag/directory/**");
+    expect(ci).toContain("src/app/privacy/*|src/app/privacy/**|*/privacy/*");
+    expect(ci).toContain("package-lock.json|pnpm-lock.yaml|yarn.lock|*/package-lock.json|*/pnpm-lock.yaml|*/yarn.lock");
     expect(ci).toContain("issues/comments/${codex_request_id}/reactions?per_page=100");
     expect(ci).not.toContain("issues/${PR_NUMBER}/reactions?per_page=100");
     expect((ci.match(/gh api --paginate "repos\/\$\{REPOSITORY\}\/pulls\/\$\{PR_NUMBER\}\/files\?per_page=100"/g) ?? []).length).toBe(2);
@@ -159,7 +406,8 @@ describe("tooling safety contract", () => {
     expect(automerge).toContain("issues/comments/${codex_request_id}/reactions?per_page=100");
     expect(automerge).toContain("Current-head Codex fallback decision: clean review after CodeRabbit availability failure");
     expect(automerge).toContain("CodeRabbit changes remain requested on the current PR head; Codex fallback can never clear them.");
-    expect(automerge).toContain("src/app/privacy/*|src/app/privacy/**|src/app/admin/foretag/directory/*|src/app/admin/foretag/directory/**");
+    expect(automerge).toContain("src/app/privacy/*|src/app/privacy/**|*/privacy/*");
+    expect(automerge).toContain("package-lock.json|pnpm-lock.yaml|yarn.lock|*/package-lock.json|*/pnpm-lock.yaml|*/yarn.lock");
 
     expect(agents).toContain("CodeRabbit remains the primary provider for risk-routed final PR review.");
     expect(agents).toContain("Codex may act as an availability fallback only when CI classifies the PR as fallback-eligible medium risk");

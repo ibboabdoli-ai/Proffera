@@ -335,7 +335,7 @@ jobs:
             [ -z "$file" ] && continue
 
             case "$file" in
-              .github/workflows/*|db/migrations/*|migrations/*|src/app/api/*|src/app/privacy/*|src/app/privacy/**|src/app/admin/foretag/directory/*|src/app/admin/foretag/directory/**|package.json|package-lock.json|vercel.json|next.config.*|src/proxy.*|middleware.*|scripts/company-directory-discovery.py)
+              .github/workflows/*|db/migrations/*|migrations/*|src/app/api/*|src/app/privacy/*|src/app/privacy/**|*/privacy/*|src/app/admin/foretag/directory/*|src/app/admin/foretag/directory/**|package.json|package-lock.json|pnpm-lock.yaml|yarn.lock|*/package-lock.json|*/pnpm-lock.yaml|*/yarn.lock|vercel.json|next.config.*|src/proxy.*|middleware.*|scripts/company-directory-discovery.py)
                 needs_review=true
                 fallback_eligible=false
                 reason="sensitive path: $file"
@@ -496,7 +496,7 @@ jobs:
             [ -z "$file" ] && continue
 
             case "$file" in
-              .github/workflows/*|db/migrations/*|migrations/*|src/app/api/*|src/app/privacy/*|src/app/privacy/**|src/app/admin/foretag/directory/*|src/app/admin/foretag/directory/**|package.json|package-lock.json|vercel.json|next.config.*|src/proxy.*|middleware.*|scripts/company-directory-discovery.py)
+              .github/workflows/*|db/migrations/*|migrations/*|src/app/api/*|src/app/privacy/*|src/app/privacy/**|*/privacy/*|src/app/admin/foretag/directory/*|src/app/admin/foretag/directory/**|package.json|package-lock.json|pnpm-lock.yaml|yarn.lock|*/package-lock.json|*/pnpm-lock.yaml|*/yarn.lock|vercel.json|next.config.*|src/proxy.*|middleware.*|scripts/company-directory-discovery.py)
                 needs_review=true
                 fallback_eligible=false
                 reason="sensitive path: $file"
@@ -667,7 +667,7 @@ jobs:
                   guard_latest_changes="$(jq -r '[.[] | select(.state == "CHANGES_REQUESTED") | .submitted_at] | max // empty' <<< "$guard_current_reviews")"
                   guard_latest_approval="$(jq -r '[.[] | select(.state == "APPROVED") | .submitted_at] | max // empty' <<< "$guard_current_reviews")"
 
-                  if [ -n "$guard_latest_changes" ] && { [ -z "$guard_latest_approval" ] || [[ "$guard_latest_approval" < "$guard_latest_changes" ]]; }; then
+                  if [ -n "$guard_latest_changes" ] && { [ -z "$guard_latest_approval" ] || [[ ! "$guard_latest_approval" > "$guard_latest_changes" ]]; }; then
                     echo "CodeRabbit changes were recorded while Codex fallback was running; Codex cannot clear them."
                     sleep 15
                     continue

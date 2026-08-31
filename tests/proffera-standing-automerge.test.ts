@@ -35,6 +35,72 @@ function authorizationShellBlock() {
     .join("\n");
 }
 
+
+function aiReviewShellBlock() {
+  const startMarker = '          file_count="$(grep -c . <<< "$changed_files" || true)"';
+  const endMarker = '          checks_json=""';
+  const start = workflow.indexOf(startMarker);
+  const end = workflow.indexOf(endMarker, start);
+  expect(start).toBeGreaterThanOrEqual(0);
+  expect(end).toBeGreaterThan(start);
+
+  return workflow
+    .slice(start, end)
+    .split("\n")
+    .map((line) => line.startsWith("          ") ? line.slice(10) : line)
+    .join("\n");
+}
+
+type AiReviewFixture = {
+  reviews: Array<Record<string, unknown>>;
+};
+
+function runAiReviewFixture(fixture: AiReviewFixture) {
+  const dir = mkdtempSync(join(tmpdir(), "proffera-automerge-review-"));
+  const fakeGh = join(dir, "gh");
+  const script = join(dir, "review.sh");
+  const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+  writeFileSync(fakeGh, `#!/usr/bin/env bash
+set -euo pipefail
+args="$*"
+if [[ "$args" == *"/pulls/695/reviews?per_page=100"* ]]; then
+  printf '%s\\n' "$FAKE_REVIEWS"
+  exit 0
+fi
+if [[ "$args" == *"/issues/695/comments?per_page=100"* ]]; then
+  printf '\\n'
+  exit 0
+fi
+printf 'unexpected gh invocation: %s\\n' "$args" >&2
+exit 2
+`, { mode: 0o755 });
+  writeFileSync(script, `#!/usr/bin/env bash
+set -euo pipefail
+summary() { :; }
+refuse() { printf 'REFUSED:%s\\n' "$1"; exit 0; }
+REPOSITORY=ibboabdoli-ai/Proffera
+pr_number=695
+head_sha=${headSha}
+changed_files="$(printf 'src/features/example-%s.ts\\n' {1..12})"
+pr_json='{"labels":[{"name":"needs-ai-review"}]}'
+${aiReviewShellBlock()}
+printf 'AI_REVIEW_OK\\n'
+`, { mode: 0o755 });
+
+  const result = spawnSync("bash", [script], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PATH: `${dir}${delimiter}${process.env.PATH ?? ""}`,
+      FAKE_REVIEWS: fixture.reviews.map((item) => JSON.stringify(item)).join("\n"),
+    },
+  });
+  rmSync(dir, { recursive: true, force: true });
+  expect(result.status, result.stderr).toBe(0);
+  return { output: result.stdout, headSha };
+}
+
 function parseWorkflowTriggers(yaml: string) {
   const lines = yaml.split(/\r?\n/);
   const onIndex = lines.findIndex((line) => line === "on:");
@@ -307,6 +373,46 @@ describe("Proffera standing automerge authorization", () => {
     expect(triggers.has("pull_request_review")).toBe(true);
     expect(triggers.has("issue_comment")).toBe(true);
     expect(triggers.get("pull_request")?.types).toContain("ready_for_review");
+  });
+
+  it("executes current-head CodeRabbit blocking precedence in the real automerge gate", () => {
+    const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const timestamp = "2026-08-31T10:04:00Z";
+    const changes = {
+      user: { login: "coderabbitai[bot]" },
+      commit_id: headSha,
+      state: "CHANGES_REQUESTED",
+      submitted_at: timestamp,
+    };
+
+    const blocked = runAiReviewFixture({ reviews: [changes] });
+    expect(blocked.output).toContain("REFUSED:Refused: CodeRabbit changes remain requested on the current PR head");
+
+    const equalApproval = runAiReviewFixture({
+      reviews: [
+        changes,
+        {
+          user: { login: "coderabbitai[bot]" },
+          commit_id: headSha,
+          state: "APPROVED",
+          submitted_at: timestamp,
+        },
+      ],
+    });
+    expect(equalApproval.output).toContain("REFUSED:Refused: CodeRabbit changes remain requested on the current PR head");
+
+    const laterApproval = runAiReviewFixture({
+      reviews: [
+        changes,
+        {
+          user: { login: "coderabbitai[bot]" },
+          commit_id: headSha,
+          state: "APPROVED",
+          submitted_at: "2026-08-31T10:05:00Z",
+        },
+      ],
+    });
+    expect(laterApproval.output).toContain("AI_REVIEW_OK");
   });
 
   it("blocks sensitive control-plane and schema paths from standing authorization", () => {
