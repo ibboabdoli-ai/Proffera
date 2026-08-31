@@ -117,6 +117,7 @@ describe("Company Directory smart claim service suggestions", () => {
     for (const query of materializations) {
       expect(query).toContain("profile.claimed_workspace_id =");
       expect(query).toContain("profile.publication_status = 'claimed'");
+      expect(query).toContain("profile.published_at is not null");
       expect(query).toContain("relation.is_active = true");
       expect(query).toContain("relation.public_visible = true");
       expect(query).toContain("service.slug = relation.service_slug");
@@ -178,7 +179,7 @@ describe("Company Directory smart claim service suggestions", () => {
         return [{
           id: SERVICE_ID,
           name: "VVS / Rörmokare",
-          previous_directory_service_slug: null,
+          previous_directory_service_slug: "vvs",
           profile_id: PROFILE_ID,
           has_existing_relation: true,
         }];
