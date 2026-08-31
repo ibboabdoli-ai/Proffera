@@ -362,7 +362,7 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
                 <div>
                   <p className="font-black text-brand">{t.sourceTitle}</p>
                   <p className="mt-1">{t.sourceLead} {t.lastChecked}: {lastChecked}.</p>
-                  <p className="mt-2">{t.sourceOwner}</p>
+                  <p className="mt-2">{profile.identity.ownershipState === "claimed" ? t.sourceOwnerClaimed : t.sourceOwner}</p>
                   {!hasMedia ? <p className="mt-2">{t.noImage}</p> : null}
                 </div>
               </div>

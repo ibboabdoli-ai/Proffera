@@ -158,7 +158,6 @@ export default async function MarketplaceActivationPage({
   const status = first(params?.status) ?? "";
   const state = await getProviderActivationState();
   const linkedProfile = state.linkedProfile;
-  const linkedProfileCity = linkedProfile?.city ?? "";
   const allowedSlugs = new Set(state.directoryServices.map((service) => service.slug));
   const activatableWorkspaceServices = state.workspaceServices.filter((service) => service.isActive);
   const activeMarketplaceServices = state.workspaceServices.filter(
@@ -311,8 +310,8 @@ export default async function MarketplaceActivationPage({
                       <p className="mt-1 text-xs font-semibold text-[#667168]">{service.publicSlug} · {service.conversionMode} · {service.serviceAreaRadiusKm ?? "–"} km</p>
                     </div>
                     <Link href={locale === "en"
-                      ? `/en/companies?service=${encodeURIComponent(service.publicSlug)}${linkedProfileCity ? `&location=${encodeURIComponent(linkedProfileCity)}` : ""}`
-                      : `/foretag/listad?service=${encodeURIComponent(service.publicSlug)}${linkedProfileCity ? `&location=${encodeURIComponent(linkedProfileCity)}` : ""}`}
+                      ? `/en/companies?service=${encodeURIComponent(service.publicSlug)}`
+                      : `/foretag/listad?service=${encodeURIComponent(service.publicSlug)}`}
                       className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[#cbd8ce] bg-white px-4 text-sm font-black text-[#17452f]">
                       {t.searchTest}
                     </Link>

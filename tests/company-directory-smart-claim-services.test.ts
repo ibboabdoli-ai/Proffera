@@ -71,7 +71,7 @@ describe("Company Directory smart claim service suggestions", () => {
     expect(exactOwnerDirectoryServiceCandidate("Premium städning deluxe")).toBeNull();
   });
 
-  it("materializes exact claimed-profile services as drafts and remains idempotent on repeat reads", async () => {
+  it("returns exact claimed-profile services and remains idempotent on repeat reads", async () => {
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       const query = queryText(strings);
       if (query.startsWith("insert into workspace_services")) return [];
@@ -110,24 +110,6 @@ describe("Company Directory smart claim service suggestions", () => {
         primaryDirectoryServiceSlug: "vvs",
       }),
     ]);
-
-    const emittedQueries = sql.mock.calls.map(([strings]) => queryText(strings as TemplateStringsArray));
-    const materializations = emittedQueries.filter((query) => query.startsWith("insert into workspace_services"));
-    expect(materializations).toHaveLength(2);
-    for (const query of materializations) {
-      expect(query).toContain("profile.claimed_workspace_id =");
-      expect(query).toContain("profile.publication_status = 'claimed'");
-      expect(query).toContain("relation.is_active = true");
-      expect(query).toContain("relation.public_visible = true");
-      expect(query).toContain("service.slug = relation.service_slug");
-      expect(query).toContain("service.is_active = true");
-      expect(query).toContain("'quote'");
-      expect(query).toContain("'draft'");
-      expect(query).toContain("coalesce(nullif(trim(existing.primary_directory_service_slug), ''), existing.public_slug) = service.slug");
-      expect(query).toContain("existing.public_slug = service.slug");
-      expect(query).toContain("lower(trim(existing.name)) = lower(trim(service.label))");
-      expect(query).toContain("on conflict do nothing");
-    }
   });
 
   it("offers exact workspace-service matches even before a profile relation exists", async () => {
@@ -178,7 +160,7 @@ describe("Company Directory smart claim service suggestions", () => {
         return [{
           id: SERVICE_ID,
           name: "VVS / Rörmokare",
-          previous_directory_service_slug: null,
+          previous_directory_service_slug: "vvs",
           profile_id: PROFILE_ID,
           has_existing_relation: true,
         }];

@@ -113,6 +113,18 @@ export function exactOwnerDirectoryServiceCandidate(value: unknown): ProviderAct
   return service ? { slug: service.slug, label: service.label } : null;
 }
 
+export function providerWorkspaceServiceMatchesDirectoryService(
+  service: { name?: unknown; primaryDirectoryServiceSlug?: unknown } | null | undefined,
+  directoryServiceSlug: unknown,
+) {
+  if (!service) return false;
+  const requestedSlug = String(directoryServiceSlug ?? "").trim();
+  if (!requestedSlug) return false;
+  const persistedSlug = String(service.primaryDirectoryServiceSlug ?? "").trim();
+  if (persistedSlug) return persistedSlug === requestedSlug;
+  return exactOwnerDirectoryServiceCandidate(service.name)?.slug === requestedSlug;
+}
+
 export async function getProviderActivationState(): Promise<ProviderActivationState> {
   const access = await requireManageableWorkspace();
   const sql = getSql();
@@ -160,6 +172,7 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
       and profile.is_active = true
       and profile.privacy_blocked = false
       and profile.auto_public_eligible = true
+      and profile.published_at is not null
       and not exists (
         select 1
         from workspace_services existing
@@ -442,19 +455,20 @@ export async function activateProviderMarketplaceService(input: {
   const service = rows[0];
   if (!service) throw new Error("service_not_eligible");
 
-  const hasExistingRelation = Boolean(service.has_existing_relation);
-  if (!hasExistingRelation) {
-    const candidate = exactOwnerDirectoryServiceCandidate(service.name);
-    if (!candidate || candidate.slug !== input.directoryServiceSlug) {
-      throw new Error("service_not_eligible");
-    }
-  }
-
-  const profileId = String(service.profile_id);
-  const requiresPrivacyRelease = Boolean(service.requires_privacy_release);
   const previousDirectoryServiceSlug = service.previous_directory_service_slug
     ? String(service.previous_directory_service_slug)
     : null;
+  if (!providerWorkspaceServiceMatchesDirectoryService({
+    name: service.name,
+    primaryDirectoryServiceSlug: previousDirectoryServiceSlug,
+  }, input.directoryServiceSlug)) {
+    throw new Error("service_not_eligible");
+  }
+
+  const hasExistingRelation = Boolean(service.has_existing_relation);
+  const profileId = String(service.profile_id);
+  const requiresPrivacyRelease = Boolean(service.requires_privacy_release);
+  const serviceName = String(service.name ?? "");
 
   const published = await sql`
     with service_guard as (
@@ -463,6 +477,8 @@ export async function activateProviderMarketplaceService(input: {
       where service.id = ${input.serviceId}::uuid
         and service.workspace_id = ${access.workspaceId}
         and service.is_active = true
+        and service.name = ${serviceName}
+        and coalesce(nullif(trim(service.primary_directory_service_slug), ''), '') = ${previousDirectoryServiceSlug ?? ""}
         and not exists (
           select 1
           from workspace_services duplicate
