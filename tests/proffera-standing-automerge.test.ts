@@ -101,6 +101,66 @@ printf 'AI_REVIEW_OK\\n'
   return { output: result.stdout, headSha };
 }
 
+function finalCodeRabbitGuardShellBlock() {
+  const startMarker = '          if [ "$needs_ai_review" = "true" ]; then\n            final_reviews_json=';
+  const endMarker = '          merge_output="$(gh pr merge';
+  const start = workflow.indexOf(startMarker);
+  const end = workflow.indexOf(endMarker, start);
+  expect(start).toBeGreaterThanOrEqual(0);
+  expect(end).toBeGreaterThan(start);
+
+  return workflow
+    .slice(start, end)
+    .split("\n")
+    .map((line) => line.startsWith("          ") ? line.slice(10) : line)
+    .join("\n");
+}
+
+type FinalCodeRabbitFixture = {
+  reviews: Array<Record<string, unknown>>;
+};
+
+function runFinalCodeRabbitFixture(fixture: FinalCodeRabbitFixture) {
+  const dir = mkdtempSync(join(tmpdir(), "proffera-automerge-final-review-"));
+  const fakeGh = join(dir, "gh");
+  const script = join(dir, "final-review.sh");
+  const headSha = "cccccccccccccccccccccccccccccccccccccccc";
+
+  writeFileSync(fakeGh, `#!/usr/bin/env bash
+set -euo pipefail
+args="$*"
+if [[ "$args" == *"/pulls/695/reviews?per_page=100"* ]]; then
+  printf '%s\\n' "$FAKE_REVIEWS"
+  exit 0
+fi
+printf 'unexpected gh invocation: %s\\n' "$args" >&2
+exit 2
+`, { mode: 0o755 });
+  writeFileSync(script, `#!/usr/bin/env bash
+set -euo pipefail
+summary() { :; }
+refuse() { printf 'REFUSED:%s\\n' "$1"; exit 0; }
+REPOSITORY=ibboabdoli-ai/Proffera
+pr_number=695
+head_sha=${headSha}
+needs_ai_review=true
+${finalCodeRabbitGuardShellBlock()}
+printf 'FINAL_REVIEW_OK\\n'
+`, { mode: 0o755 });
+
+  const result = spawnSync("bash", [script], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PATH: `${dir}${delimiter}${process.env.PATH ?? ""}`,
+      FAKE_REVIEWS: fixture.reviews.map((item) => JSON.stringify(item)).join("\n"),
+    },
+  });
+  rmSync(dir, { recursive: true, force: true });
+  expect(result.status, result.stderr).toBe(0);
+  return { output: result.stdout, headSha };
+}
+
 function parseWorkflowTriggers(yaml: string) {
   const lines = yaml.split(/\r?\n/);
   const onIndex = lines.findIndex((line) => line === "on:");
@@ -413,6 +473,32 @@ describe("Proffera standing automerge authorization", () => {
       ],
     });
     expect(laterApproval.output).toContain("AI_REVIEW_OK");
+  });
+
+  it("re-checks current-head CodeRabbit immediately before merge", () => {
+    const headSha = "cccccccccccccccccccccccccccccccccccccccc";
+    const changes = {
+      user: { login: "coderabbitai[bot]" },
+      commit_id: headSha,
+      state: "CHANGES_REQUESTED",
+      submitted_at: "2026-08-31T21:58:00Z",
+    };
+
+    const blocked = runFinalCodeRabbitFixture({ reviews: [changes] });
+    expect(blocked.output).toContain("REFUSED:Refused: CodeRabbit changes were requested on the current PR head after the earlier review gate; merge is blocked.");
+
+    const cleared = runFinalCodeRabbitFixture({
+      reviews: [
+        changes,
+        {
+          user: { login: "coderabbitai[bot]" },
+          commit_id: headSha,
+          state: "APPROVED",
+          submitted_at: "2026-08-31T21:59:00Z",
+        },
+      ],
+    });
+    expect(cleared.output).toContain("FINAL_REVIEW_OK");
   });
 
   it("blocks sensitive control-plane and schema paths from standing authorization", () => {

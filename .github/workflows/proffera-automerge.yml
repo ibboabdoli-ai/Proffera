@@ -478,6 +478,17 @@ jobs:
             refuse "Refused: one or more checks returned an unrecognized bucket."
           fi
 
+          if [ "$needs_ai_review" = "true" ]; then
+            final_reviews_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq '.[]' | jq -s '.')"
+            final_current_reviews="$(jq -c --arg sha "$head_sha" '[.[] | select(.user.login == "coderabbitai[bot]" and .commit_id == $sha)]' <<< "$final_reviews_json")"
+            final_latest_changes="$(jq -r '[.[] | select(.state == "CHANGES_REQUESTED") | .submitted_at] | max // empty' <<< "$final_current_reviews")"
+            final_latest_approval="$(jq -r '[.[] | select(.state == "APPROVED") | .submitted_at] | max // empty' <<< "$final_current_reviews")"
+
+            if [ -n "$final_latest_changes" ] && { [ -z "$final_latest_approval" ] || [[ ! "$final_latest_approval" > "$final_latest_changes" ]]; }; then
+              refuse "Refused: CodeRabbit changes were requested on the current PR head after the earlier review gate; merge is blocked."
+            fi
+          fi
+
           merge_output="$(gh pr merge "$pr_number" --repo "$REPOSITORY" --squash --delete-branch --match-head-commit "$head_sha" 2>&1)"
 
           pr_merged="false"
