@@ -134,4 +134,36 @@ describe("tooling safety contract", () => {
     expect(config).toContain("url: localServerUrl");
     expect(config).not.toContain("url: localBaseUrl");
   });
+
+  it("keeps Codex fallback availability-only, medium-risk, exact-head, and fail-closed", () => {
+    const ci = source(".github/workflows/ci.yml");
+    const automerge = source(".github/workflows/proffera-automerge.yml");
+    const agents = source("AGENTS.md");
+
+    expect(ci).toContain("fallback_eligible=true");
+    expect(ci).toContain("fallback_eligible=false");
+    expect(ci).toContain("proffera-codex-fallback-review-request:${HEAD_SHA}");
+    expect(ci).toContain("@codex review");
+    expect(ci).toContain("chatgpt-codex-connector[bot]");
+    expect(ci).toContain("CodeRabbit changes remain requested for current head; Codex fallback cannot clear them.");
+    expect(ci).toContain("CodeRabbit availability timeout reached; Codex fallback is allowed for this medium-risk PR.");
+    expect(ci).toContain("src/app/privacy/*|src/app/privacy/**|src/app/admin/foretag/directory/*|src/app/admin/foretag/directory/**");
+    expect(ci).toContain("issues/comments/${codex_request_id}/reactions?per_page=100");
+    expect(ci).not.toContain("issues/${PR_NUMBER}/reactions?per_page=100");
+    expect((ci.match(/gh api --paginate "repos\/\$\{REPOSITORY\}\/pulls\/\$\{PR_NUMBER\}\/files\?per_page=100"/g) ?? []).length).toBe(2);
+    expect(ci).toContain("Refused: no acceptable CodeRabbit or Codex fallback decision was recorded for the current head within the gate window.");
+
+    expect(automerge).toContain("fallback_eligible=true");
+    expect(automerge).toContain("fallback_eligible=false");
+    expect(automerge).toContain("proffera-codex-fallback-review-request:${head_sha}");
+    expect(automerge).toContain("issues/comments/${codex_request_id}/reactions?per_page=100");
+    expect(automerge).toContain("Current-head Codex fallback decision: clean review after CodeRabbit availability failure");
+    expect(automerge).toContain("CodeRabbit changes remain requested on the current PR head; Codex fallback can never clear them.");
+    expect(automerge).toContain("src/app/privacy/*|src/app/privacy/**|src/app/admin/foretag/directory/*|src/app/admin/foretag/directory/**");
+
+    expect(agents).toContain("CodeRabbit remains the primary provider for risk-routed final PR review.");
+    expect(agents).toContain("Codex may act as an availability fallback only when CI classifies the PR as fallback-eligible medium risk");
+    expect(agents).toContain("Codex can never override it");
+    expect(agents).toContain("remain CodeRabbit-only under the automated fallback policy");
+  });
 });

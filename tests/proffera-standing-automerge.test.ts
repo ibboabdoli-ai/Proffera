@@ -294,7 +294,7 @@ describe("Proffera standing automerge authorization", () => {
     expect(workflow).toContain("needs-ai-review");
     expect(workflow).toContain("coderabbitai[bot]");
     expect(workflow).toContain("commit_id == $sha");
-    expect(workflow).toContain("only a later APPROVED review clears them");
+    expect(workflow).toContain("CodeRabbit changes remain requested on the current PR head; Codex fallback can never clear them.");
     expect(workflow).toContain("--match-head-commit \"$head_sha\"");
     expect(workflow).not.toContain("head_commit_time");
     expect(workflow).not.toContain("approval_time");
