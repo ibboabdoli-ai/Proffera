@@ -33,6 +33,17 @@ jobs:
           path = Path('.github/scripts/phase2_review_fix.py')
           source = path.read_text()
           source = source.replace('${2:-}', r'\${2:-}')
+          old = '''    expect(`${sensitivePath.stdout}${sensitivePath.stderr}`).toContain("this high-risk path is CodeRabbit-only");
+  });
+
+  it("fails closed when CodeRabbit approval and change request have equal timestamps during fallback", () => {'''
+          new = '''    expect(`${sensitivePath.stdout}${sensitivePath.stderr}`).toContain("this high-risk path is CodeRabbit-only");
+  }, 15000);
+
+  it("fails closed when CodeRabbit approval and change request have equal timestamps during fallback", () => {'''
+          if source.count(old) != 1:
+              raise SystemExit(f'expected one runtime-test timeout anchor, found {source.count(old)}')
+          source = source.replace(old, new)
           path.write_text(source)
           PY
           python3 .github/scripts/phase2_review_fix.py
