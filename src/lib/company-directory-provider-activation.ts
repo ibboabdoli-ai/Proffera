@@ -172,6 +172,7 @@ export async function getProviderActivationState(): Promise<ProviderActivationSt
       and profile.is_active = true
       and profile.privacy_blocked = false
       and profile.auto_public_eligible = true
+      and profile.published_at is not null
       and not exists (
         select 1
         from workspace_services existing
