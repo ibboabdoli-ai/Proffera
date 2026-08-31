@@ -1,6 +1,6 @@
 # Proffera Current Status
 
-Last updated: 2026-08-29
+Last updated: 2026-08-31
 
 This is the canonical factual status document for Proffera. For worker rules, live task state, current `main` SHA, and roadmap order, also read `AGENTS.md`, `WORKER_BOOTSTRAP.md`, GitHub issue #548, GitHub issue #276, and `docs/README.md`.
 
@@ -50,6 +50,8 @@ Current control plane:
 5. `docs/CURRENT_STATUS.md` — stable factual project status.
 6. `docs/README.md` — documentation authority map.
 7. `.github/copilot-instructions.md` — automatic GitHub/Copilot agent entry instructions pointing to the same canonical sources.
+8. `scripts/ci/classify-pr-risk.mjs` — canonical deterministic PR risk classifier used by CI and, from `main`, by gated automerge.
+9. `scripts/ci/review-gate.sh` — canonical exact-head external-review evaluator and provider failover policy.
 
 Current merge-safety rules include:
 
@@ -61,27 +63,30 @@ Current merge-safety rules include:
 - PRs must declare exactly one of `Documentation impact: updated` or `Documentation impact: none`;
 - `Documentation impact: updated` requires this canonical status file to change in the same PR;
 - required `Validate` check;
-- required `E2E public smoke` check;
+- required `E2E public smoke` compatibility final gate;
 - no force push / protected default branch behavior;
-- gated automerge can use either an owner-applied `ibbo-approved` label backed by a repository-owner `APPROVED` review on the exact current head, or a scoped standing merge authorization committed on `main`; standing authorization is limited to trusted same-repository owner-authored PRs and never removes current-head CI/review/head-SHA gates or authorizes blocked sensitive paths.
+- gated automerge can use either an owner-applied `ibbo-approved` label backed by a repository-owner `APPROVED` review on the exact current head, or a scoped standing merge authorization committed on `main`; standing authorization is limited to trusted same-repository owner-authored PRs and never removes current-head CI/review/head-SHA gates;
+- the canonical risk classifier separates `reviewRisk`, `humanMergeRequired`, `dbTestsRequired`, and `productionImpact` instead of treating every sensitive path as one Boolean. A `humanMergeRequired=true` classification cannot be satisfied by standing authorization and requires fresh exact-head owner authorization.
 
 Production release health is bound to the exact merged `main` commit rather than to a generic scheduled probe. GitHub-token merges do not reliably generate downstream `push` workflow runs, so gated automerge emits a `repository_dispatch` event only after a successful merge and includes the resolved merge commit SHA. The Production health workflow rejects a dispatch whose SHA is missing, malformed or no longer equals the default-branch head, waits for the matching Vercel deployment, and requires that deployed SHA plus schema health to pass. The trusted PR-base gate accepts successful exact-base health evidence from either a normal `push` run or this repository-dispatch handoff; scheduled health remains supplemental rather than proof for a specific PR base.
 
 A dedicated `Worker supervisor sync` GitHub Actions workflow records `work/proffera-*` PR lifecycle events to issue #548 when PRs are opened/reopened, marked ready for review, or closed/merged. This gives the Supervisor a durable automatic event trail independent of private chat memory.
 
-CodeRabbit is opt-in rather than automatic on every PR. Review-label reset and post-Validate routing are serialized inside the required CI workflow under pull-request-scoped concurrency. Every fresh PR revision first removes stale `needs-ai-review`; after `Validate` succeeds, a metadata-only job reapplies it and requests one exact-head review whenever a non-draft PR still matches the sensitive/large risk predicate. Non-sensitive PRs do not consume an automatic CodeRabbit review.
+AI review is risk-routed and provider-neutral. Every fresh PR revision removes stale `needs-ai-review`; after `Validate`, the canonical classifier decides whether review is required and the route applies the label only for the exact current head. Codex is the primary reviewer. The gate accepts Codex only when evidence is bound to the current head: exact-head review comments/findings remain blocking, while a current-head approval or a fresh Codex clean reaction created after the current head commit/request can satisfy the review. If Codex is explicitly unavailable or does not produce acceptable evidence within the bounded primary window, the gate requests CodeRabbit as an availability fallback. A current-head CodeRabbit `CHANGES_REQUESTED` remains blocking unless a strictly later current-head CodeRabbit `APPROVED` review clears it.
 
-The required `E2E public smoke` check is fail-closed for routed PRs. The browser smoke itself runs in an unprivileged Playwright job; a separate metadata-only final gate keeps the required check pending until CodeRabbit has produced exact-current-head evidence. Accepted non-blocking evidence is either a current-head `COMMENTED`/`APPROVED` submitted review or CodeRabbit's bot-authored recent-review summary for the exact full head SHA stating that no actionable comments were generated. A current-head `CHANGES_REQUESTED` remains blocking even if CodeRabbit later submits a `COMMENTED` review or emits a clean summary; only a later current-head `APPROVED` review clears that change request. Missing/stale review state, stale routing, or a stale workflow head prevents the required check from succeeding. A new commit invalidates previous review evidence because all decisions are matched to the current head SHA.
+Provider switching is fail-closed for findings: a clean result from one provider never overrides a current-head finding from the other provider. A new commit invalidates old evidence. If neither Codex nor CodeRabbit produces acceptable exact-head evidence inside the bounded gate window, the PR remains blocked; external-provider unavailability is reported as review availability rather than being misrepresented as a browser failure.
 
-Gated automerge independently applies the same risk predicate and current-head CodeRabbit decision rules for paths it is otherwise allowed to merge. It reacts directly to successful CI completion, submitted reviews and review-comment updates rather than depending on a polling interval. A standing policy is read only from `main`, is constrained by repository owner, phase scope, Supervisor issue, explicit branch prefixes and expiry, and additionally requires the PR to be same-repository, authored by the repository owner and sourced from a branch owned by that same account; matching fork PRs or PRs from another author cannot inherit standing authorization. Its own policy/workflow files are blocked from gated automerge. Status-check reads are bounded by a per-attempt timeout, checks are classified with GitHub CLI buckets, fail/cancel outcomes are rejected, pending outcomes are retried for a bounded window, and unknown outcomes fail closed. Highly sensitive paths that were already blocked from automerge remain blocked and require the normal controlled merge path after required checks pass.
+PR-Agent/Gemini is not yet an authoritative merge-pass path. It may be evaluated later as an additional availability adapter, but it must not clear the final gate until the repository has both an approved credential/data boundary and a machine-verifiable clean-versus-finding contract proven on a real non-sensitive PR. No Gemini secret is required by the current delivery path.
 
-If CodeRabbit is rate-limited or otherwise unavailable, a sensitive/large PR intentionally remains blocked instead of silently merging without the required review.
+The actual browser check is `E2E public smoke run`. `AI review gate` is a separate visible job. The ruleset-required check name `E2E public smoke` is retained as a compatibility final gate so branch protection does not need to change; it requires the browser run, the applicable AI review gate, and the exact-current-head `Analyze JavaScript/TypeScript` CodeQL check to succeed. This prevents a provider outage from being mislabeled as a browser-test failure while preserving the existing required-check contract.
+
+Gated automerge independently fetches the canonical classifier and review evaluator from `main`, not from the PR branch, before making merge decisions. This prevents a PR from self-declassifying by editing the control-plane scripts. It still reads standing authorization only from `main`, rejects standing authorization when `humanMergeRequired=true`, waits for all non-self status checks, rechecks the live head SHA, and merges with `--match-head-commit`. The classifier, review evaluator, workflows, standing authorization, auth/tenant, database/schema, payment, secret, deployment, package/lockfile and other high-risk control paths require the normal fresh-human controlled merge path.
 
 Dependency-bot branches are handled separately by automation and are exempt from Worker Bootstrap declarations and automatic AI-review routing.
 
 ## CI and browser testing
 
-`Validate` covers:
+`Validate` covers the parallel core quality path:
 
 - Worker Bootstrap / branch / documentation governance checks;
 - dependency install;
@@ -92,7 +97,9 @@ Dependency-bot branches are handled separately by automation and are exempt from
 - Next.js production build;
 - whitespace validation.
 
-Playwright browser E2E is automated in CI. The actual browser run is `E2E public smoke run`; the required `E2E public smoke` check is the final browser-plus-review gate described above.
+PR risk classification runs once from the exact PR head and feeds downstream review metadata. PostgreSQL/race tests remain in their existing test execution model for now; the classifier exposes `dbTestsRequired` for later optimization, but this control-plane change does not reduce current database/concurrency coverage.
+
+Playwright browser E2E is automated in CI. The actual browser run is `E2E public smoke run`; `AI review gate` reports external-review status separately; the required `E2E public smoke` compatibility gate combines successful browser E2E, the applicable exact-head AI review result, and exact-head CodeQL without changing the repository ruleset check name.
 
 Committed non-destructive browser coverage includes:
 
@@ -159,7 +166,7 @@ A Production runtime warning observed on 2026-08-18 concerns PostgreSQL connecti
 
 1. Keep issue #548 as the live worker/PR state and current `main` baseline; use automatic Supervisor lifecycle events as the durable event trail.
 2. Keep this file synchronized only when a PR changes stable project-level truth; do not use it for fast-moving task/SHA/deployment state.
-3. Keep CodeRabbit consumption risk-routed and fail closed: sensitive/large PRs require an acceptable CodeRabbit decision on the current head before the required merge gate can pass.
+3. Keep AI review provider-neutral and fail closed: use the canonical classifier, prefer Codex, use CodeRabbit only as bounded availability fallback/optional evidence, and never let one provider's clean result override another provider's current-head finding.
 4. Monitor nationwide Company Directory rollout volume and queue health before increasing rollout speed.
 5. Configure an independent Preview Brevo credential and rotate the weak Preview Better Auth secret, then re-run controlled-recipient email and Admin-visible Marketplace E2E.
 6. Keep recurring state-changing Booking/Marketplace/Stripe browser automation gated until the remaining Preview runtime isolation checks are proven.
