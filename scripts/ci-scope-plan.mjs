@@ -51,7 +51,8 @@ function hasSensitivePath(file) {
   if (/^(next\.config\.|middleware\.|src\/proxy\.)/.test(file)) return true;
   if (/(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$/.test(file)) return true;
   if (/(^|\/)privacy\//.test(file)) return true;
-  if (/(^|\/)(auth|rbac|permissions?|tenant|workspace|billing|payments?|stripe|checkout|webhooks?|db|database|postgres|neon)(\/|[._-])/.test(file)) return true;
+  if (/(^|[\/._-])(auth|authentication|authorization|authorisation|rbac|permissions?|tenant|workspace|billing|payments?|stripe|checkout|webhooks?|db|database|postgres|neon|admin)([\/._-]|$)/i.test(file)) return true;
+  if (/(^|[\/._-])(privacy|integritet(?:spolicy)?|personuppgift(?:er)?|directory)([\/._-]|$)/i.test(file)) return true;
   if (/company[-_]directory/i.test(file)) return true;
   if (/(^|\/)\.env(?:\.|$)/.test(file)) return true;
   if (/^tests\/(tooling-safety-contract|proffera-standing-automerge)\.test\.ts$/.test(file)) return true;

@@ -83,10 +83,13 @@ describe("targeted CI shadow planner", () => {
     ["api", "src/app/api/quotes/route.ts"],
     ["database", "db/migrations/0060_example.sql"],
     ["auth", "src/lib/auth/session.ts"],
+    ["admin authorization", "src/lib/admin-authorization.ts"],
+    ["admin navigation", "src/lib/admin-navigation.ts"],
     ["workspace", "src/lib/workspace/access.ts"],
     ["payment", "src/lib/stripe/webhook.ts"],
     ["directory", "src/lib/company-directory/project.ts"],
     ["privacy", "src/app/en/privacy/page.tsx"],
+    ["localized privacy", "src/app/integritetspolicy/page.tsx"],
     ["nested lockfile", "e2e/package-lock.json"],
     ["worker control", "AGENTS.md"],
   ])("keeps %s paths on the full conservative lane set", (_label, file) => {
