@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 const workflow = readFileSync(join(process.cwd(), ".github/workflows/ci.yml"), "utf8");
 
 describe("high-risk AI review outage fallback", () => {
-  it("opens the exact-head Codex fallback only after an explicit CodeRabbit availability failure", () => {
+  it("allows exact-head Codex fallback after an explicit CodeRabbit outage or a bounded provider timeout", () => {
     const emergencyStart = workflow.indexOf('if [ "$fallback_eligible" != "true" ]; then');
     expect(emergencyStart).toBeGreaterThan(-1);
 
@@ -24,7 +24,17 @@ describe("high-risk AI review outage fallback", () => {
     expect(emergencyBlock).toContain(
       "emergency exact-head Codex fallback is allowed for this high-risk PR",
     );
-    expect(emergencyBlock).not.toContain('attempt" -ge');
+
+    expect(workflow).toContain('if [ "$attempt" -ge 20 ]; then');
+    expect(workflow).toContain(
+      "CodeRabbit high-risk availability timeout reached; exact-head Codex fallback will be allowed on the next poll.",
+    );
+    expect(workflow).toContain(
+      "Requested Codex fallback review for exact head $HEAD_SHA.",
+    );
+    expect(workflow).toContain(
+      "Refused: Codex fallback became stale; current PR head is $guard_head_sha, gate head is $HEAD_SHA.",
+    );
   });
 
   it("keeps current-head CodeRabbit change requests non-bypassable", () => {
@@ -35,7 +45,7 @@ describe("high-risk AI review outage fallback", () => {
       "CodeRabbit changes were recorded while Codex fallback was running; Codex cannot clear them.",
     );
     expect(workflow).toContain(
-      "No completed CodeRabbit review for current head yet; this high-risk path is CodeRabbit-only.",
+      "No completed CodeRabbit review for current head yet; high-risk path remains CodeRabbit-only while waiting for a review or provider signal.",
     );
   });
 });
