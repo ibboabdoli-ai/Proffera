@@ -418,7 +418,7 @@ describe("tooling safety contract", () => {
     expect(`${result.stdout}${result.stderr}`).toContain("CodeRabbit changes were recorded while Codex fallback was running");
   });
 
-  it("keeps Codex fallback availability-only, medium-risk, exact-head, and fail-closed", () => {
+  it("keeps Codex fallback availability-only, exact-head, bounded for high-risk, and fail-closed", () => {
     const ci = source(".github/workflows/ci.yml");
     const shadow = source(".github/workflows/ci-scope-shadow.yml");
     const automerge = source(".github/workflows/proffera-automerge.yml");
@@ -436,6 +436,8 @@ describe("tooling safety contract", () => {
     expect(ci).toContain("chatgpt-codex-connector[bot]");
     expect(ci).toContain("CodeRabbit changes remain requested for current head; Codex fallback cannot clear them.");
     expect(ci).toContain("CodeRabbit availability timeout reached; Codex fallback is allowed for this medium-risk PR.");
+    expect(ci).toContain("Machine-observed CodeRabbit availability failure; emergency exact-head Codex fallback is allowed for this high-risk PR.");
+    expect(ci).toContain("CodeRabbit high-risk availability timeout reached; exact-head Codex fallback will be allowed on the next poll.");
     expect(ci).toContain("src/app/privacy/*|src/app/privacy/**|*/privacy/*");
     expect(ci).toContain("package-lock.json|pnpm-lock.yaml|yarn.lock|*/package-lock.json|*/pnpm-lock.yaml|*/yarn.lock");
     expect(ci).toContain("issues/comments/${codex_request_id}/reactions?per_page=100");
@@ -461,8 +463,10 @@ describe("tooling safety contract", () => {
     expect(automerge).toContain("package-lock.json|pnpm-lock.yaml|yarn.lock|*/package-lock.json|*/pnpm-lock.yaml|*/yarn.lock");
 
     expect(agents).toContain("CodeRabbit remains the primary provider for risk-routed final PR review.");
-    expect(agents).toContain("Codex may act as an availability fallback only when CI classifies the PR as fallback-eligible medium risk");
+    expect(agents).toContain("High-risk PRs remain CodeRabbit-only during the normal review window");
+    expect(agents).toContain("exact-head Codex fallback may become eligible only after machine-observed CodeRabbit unavailability following the exact-head request or after the bounded high-risk provider timeout");
     expect(agents).toContain("Codex can never override it");
-    expect(agents).toContain("remain CodeRabbit-only under the automated fallback policy");
+    expect(agents).toContain("remain CodeRabbit-primary and CodeRabbit-only during the normal review window");
+    expect(agents).toContain("if neither provider produces an acceptable exact-head result, CI must fail closed");
   });
 });
