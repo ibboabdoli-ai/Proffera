@@ -316,7 +316,7 @@ describe("tooling safety contract", () => {
     expect(config).not.toContain("url: localBaseUrl");
   });
 
-  it("executes Codex fallback freshness and fail-closed paths against the real CI gate", () => {
+  it("rejects stale Codex evidence and blocking current-head review findings", () => {
     const staleReaction = runCiReviewFixture({
       changedFiles: largeSafeChange(),
       comments: fallbackComments(),
@@ -370,7 +370,9 @@ describe("tooling safety contract", () => {
     });
     expect(codeRabbitChanges.status).toBe(1);
     expect(`${codeRabbitChanges.stdout}${codeRabbitChanges.stderr}`).toContain("CodeRabbit changes remain requested for current head");
+  }, 120000);
 
+  it("executes bounded high-risk Codex fallback and trusted-request paths", () => {
     const sensitiveOutage = runCiReviewFixture({
       changedFiles: `${largeSafeChange()}\nsrc/app/en/privacy/page.tsx\ne2e/package-lock.json`,
       comments: fallbackComments(),
@@ -399,7 +401,9 @@ describe("tooling safety contract", () => {
     });
     expect(missingTrustedRequest.status).toBe(1);
     expect(`${missingTrustedRequest.stdout}${missingTrustedRequest.stderr}`).toContain("Trusted Codex fallback requires an exact-head @codex review request from ibboabdoli-ai");
+  }, 60000);
 
+  it("keeps fallback fail-closed for missing decisions and oversized PRs", () => {
     const sensitiveNoDecision = runCiReviewFixture({
       changedFiles: `${largeSafeChange()}\nsrc/app/en/privacy/page.tsx`,
       comments: codeRabbitRequestComments(),
