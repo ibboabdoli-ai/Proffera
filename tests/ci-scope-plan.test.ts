@@ -56,6 +56,23 @@ describe("targeted CI shadow planner", () => {
     ]);
   });
 
+  it("keeps browser coverage for non-public source changes", () => {
+    const result = plan(["src/lib/format.ts"]);
+
+    expect(result.classification).toBe("low-mapped");
+    expect(result.reductionCandidate).toBe(true);
+    expect(result.proposedLanes).toEqual([
+      "governance",
+      "whitespace",
+      "lint",
+      "typecheck",
+      "unit",
+      "build",
+      "e2e",
+    ]);
+    expect(result.reasons[0]).toContain("browser lanes");
+  });
+
   it("maps unit-test-only changes without requiring build or browser lanes", () => {
     const result = plan(["tests/example.test.ts"]);
 
