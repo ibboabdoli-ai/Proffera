@@ -13,8 +13,8 @@ describe("event-driven final review gate", () => {
     const wakeup = source(".github/workflows/proffera-final-gate-wakeup.yml");
 
     expect(ci).toContain("name: E2E public smoke");
-    expect(ci).toContain("No completed CodeRabbit review for current head yet; this high-risk path is CodeRabbit-only.");
-    expect(ci).toContain('echo "No completed CodeRabbit review for current head yet; this high-risk path is CodeRabbit-only."\n              exit 1');
+    expect(ci).toContain("No completed CodeRabbit review for current head yet; high-risk path remains CodeRabbit-only while waiting for a review or provider signal.");
+    expect(ci).toContain("CodeRabbit high-risk availability timeout reached; exact-head Codex fallback will be allowed on the next poll.");
     expect(ci).toContain('echo "CodeRabbit changes remain requested for current head; Codex fallback cannot clear them."\n              exit 1');
 
     expect(wakeup).toContain("pull_request_review:");
@@ -37,13 +37,16 @@ describe("event-driven final review gate", () => {
     expect(wakeup).not.toContain("seq 1");
   });
 
-  it("keeps unavailable CodeRabbit fail-closed for sensitive paths while preserving medium-risk fallback", () => {
+  it("keeps high-risk CodeRabbit-primary while allowing bounded exact-head fallback after provider failure", () => {
     const ci = source(".github/workflows/ci.yml");
 
     expect(ci).toContain("fallback_eligible=true");
     expect(ci).toContain("fallback_eligible=false");
     expect(ci).toContain("CodeRabbit availability timeout reached; Codex fallback is allowed for this medium-risk PR.");
-    expect(ci).toContain("this high-risk path is CodeRabbit-only");
+    expect(ci).toContain("No completed CodeRabbit review for current head yet; high-risk path remains CodeRabbit-only while waiting for a review or provider signal.");
+    expect(ci).toContain("Machine-observed CodeRabbit availability failure; emergency exact-head Codex fallback is allowed for this high-risk PR.");
+    expect(ci).toContain("CodeRabbit high-risk availability timeout reached; exact-head Codex fallback will be allowed on the next poll.");
     expect(ci).toContain("CodeRabbit changes remain requested for current head; Codex fallback cannot clear them.");
+    expect(ci).toContain("CodeRabbit changes were recorded while Codex fallback was running; Codex cannot clear them.");
   });
 });
