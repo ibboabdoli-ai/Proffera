@@ -28,38 +28,38 @@ jobs:
 
           path = Path('.github/workflows/ci.yml')
           text = path.read_text()
-          needle = '''            if [ "$fallback_eligible" = "true" ]; then
-              coderabbit_marker="<!-- proffera-coderabbit-final-review-request:${HEAD_SHA} -->"
-          '''
-          replacement = '''            if [ "$fallback_eligible" != "true" ]; then
-              coderabbit_marker="<!-- proffera-coderabbit-final-review-request:${HEAD_SHA} -->"
-              coderabbit_request_time="$(jq -r --arg marker "$coderabbit_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker))) | .created_at] | max // empty' <<< "$comments_json")"
+          search_from = text.index('            if [ "$clean_summary_count" -gt 0 ]; then')
+          anchor = '            if [ "$fallback_eligible" = "true" ]; then\n'
+          pos = text.find(anchor, search_from)
+          if pos < 0:
+              raise SystemExit('final-gate fallback anchor not found')
 
-              if [ -n "$coderabbit_request_time" ]; then
-                high_risk_unavailable_count="$(jq -r --arg request_time "$coderabbit_request_time" '
-                  [
-                    .[]
-                    | select(.user.login == "coderabbitai[bot]")
-                    | select((.updated_at // .created_at) >= $request_time)
-                    | select((.body // "") | test("Review limit reached|Review rate limited|Action not completed: Review rate limited|Review skipped|does not receive automatic reviews|temporarily unavailable|service unavailable"; "i"))
-                  ]
-                  | length
-                ' <<< "$comments_json")"
-
-                if [ "$high_risk_unavailable_count" -gt 0 ]; then
-                  fallback_eligible=true
-                  echo "Machine-observed CodeRabbit availability failure; emergency exact-head Codex fallback is allowed for this high-risk PR."
-                fi
-              fi
-            fi
-
-            if [ "$fallback_eligible" = "true" ]; then
-              coderabbit_marker="<!-- proffera-coderabbit-final-review-request:${HEAD_SHA} -->"
-          '''
-          count = text.count(needle)
-          if count != 1:
-              raise SystemExit(f'expected exactly one final-gate insertion point, found {count}')
-          path.write_text(text.replace(needle, replacement, 1))
+          lines = [
+              '            if [ "$fallback_eligible" != "true" ]; then',
+              '              coderabbit_marker="<!-- proffera-coderabbit-final-review-request:${HEAD_SHA} -->"',
+              '              coderabbit_request_time="$(jq -r --arg marker "$coderabbit_marker" \'[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker))) | .created_at] | max // empty\' <<< "$comments_json")"',
+              '',
+              '              if [ -n "$coderabbit_request_time" ]; then',
+              '                high_risk_unavailable_count="$(jq -r --arg request_time "$coderabbit_request_time" \'',
+              '                  [',
+              '                    .[]',
+              '                    | select(.user.login == "coderabbitai[bot]")',
+              '                    | select((.updated_at // .created_at) >= $request_time)',
+              '                    | select((.body // "") | test("Review limit reached|Review rate limited|Action not completed: Review rate limited|Review skipped|does not receive automatic reviews|temporarily unavailable|service unavailable"; "i"))',
+              '                  ]',
+              '                  | length',
+              '                \' <<< "$comments_json")"',
+              '',
+              '                if [ "$high_risk_unavailable_count" -gt 0 ]; then',
+              '                  fallback_eligible=true',
+              '                  echo "Machine-observed CodeRabbit availability failure; emergency exact-head Codex fallback is allowed for this high-risk PR."',
+              '                fi',
+              '              fi',
+              '            fi',
+              '',
+          ]
+          insertion = '\n'.join(lines) + '\n'
+          path.write_text(text[:pos] + insertion + text[pos:])
           PY
 
       - name: Remove temporary patch workflow and commit
