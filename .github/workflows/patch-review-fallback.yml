@@ -30,7 +30,7 @@ jobs:
           text = path.read_text()
           needle = '''            if [ "$fallback_eligible" = "true" ]; then
               coderabbit_marker="<!-- proffera-coderabbit-final-review-request:${HEAD_SHA} -->"
-'''
+          '''
           replacement = '''            if [ "$fallback_eligible" != "true" ]; then
               coderabbit_marker="<!-- proffera-coderabbit-final-review-request:${HEAD_SHA} -->"
               coderabbit_request_time="$(jq -r --arg marker "$coderabbit_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker))) | .created_at] | max // empty' <<< "$comments_json")"
@@ -55,7 +55,7 @@ jobs:
 
             if [ "$fallback_eligible" = "true" ]; then
               coderabbit_marker="<!-- proffera-coderabbit-final-review-request:${HEAD_SHA} -->"
-'''
+          '''
           count = text.count(needle)
           if count != 1:
               raise SystemExit(f'expected exactly one final-gate insertion point, found {count}')
