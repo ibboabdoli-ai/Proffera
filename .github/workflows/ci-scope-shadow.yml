@@ -47,26 +47,26 @@ jobs:
 
           summary "## Targeted CI shadow plan"
           summary ""
-          summary "> Advisory only. The existing required CI workflow still runs in full; this workflow skips nothing and cannot authorize merge."
+          summary "> Advisory mirror only. Required CI may use the same trusted-base policy for low-risk lane reduction; this workflow itself skips nothing and cannot authorize merge."
           summary ""
 
           pr_json="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")" || {
-            summary "⚠️ Could not read the pull request. Full CI remains authoritative."
+            summary "⚠️ Could not read the pull request. Required CI remains fail-closed."
             exit 0
           }
           current_head_sha="$(jq -r '.head.sha' <<< "$pr_json")"
           if [ "$current_head_sha" != "$EXPECTED_HEAD_SHA" ]; then
-            summary "⚠️ Shadow planner event is stale (expected \`$EXPECTED_HEAD_SHA\`, current \`$current_head_sha\`). Full CI remains authoritative."
+            summary "⚠️ Shadow planner event is stale (expected \`$EXPECTED_HEAD_SHA\`, current \`$current_head_sha\`). Required CI remains fail-closed."
             exit 0
           fi
 
           changed_files="$(gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100" --jq '.[] | .filename, (.previous_filename // empty)')" || {
-            summary "⚠️ Could not read changed files. Full CI remains authoritative."
+            summary "⚠️ Could not read changed files. Required CI remains fail-closed."
             exit 0
           }
 
           if [ ! -f scripts/ci-scope-plan.mjs ]; then
-            summary "ℹ️ The trusted base does not contain the shadow planner yet. This is expected on the activation PR; full CI remains authoritative."
+            summary "ℹ️ The trusted base does not contain the scope planner yet. Required CI remains authoritative."
             exit 0
           fi
 
@@ -78,7 +78,7 @@ jobs:
           set -e
 
           if [ "$planner_status" -ne 0 ] || ! jq -e . "$plan_file" >/dev/null 2>&1; then
-            summary "⚠️ Shadow planner failed. Full CI remains authoritative."
+            summary "⚠️ Shadow planner failed. Required CI remains fail-closed."
             if [ -s "$error_file" ]; then
               summary ""
               summary "Planner diagnostic: \`$(tr '\n' ' ' < "$error_file" | head -c 400)\`"
@@ -88,11 +88,13 @@ jobs:
 
           classification="$(jq -r '.classification' "$plan_file")"
           candidate="$(jq -r '.reductionCandidate' "$plan_file")"
+          full_ci="$(jq -r '.fullCiStillRequired' "$plan_file")"
           lanes="$(jq -r '.proposedLanes | join(", ")' "$plan_file")"
           file_count="$(jq -r '.files | length' "$plan_file")"
 
           summary "- Classification: **${classification}**"
-          summary "- Future reduced-CI candidate: **${candidate}**"
+          summary "- Reduced-CI candidate: **${candidate}**"
+          summary "- Full CI still required by policy: **${full_ci}**"
           summary "- Changed files: **${file_count}**"
           summary "- Proposed affected lanes: \`${lanes}\`"
           summary ""
@@ -102,4 +104,4 @@ jobs:
           done < <(jq -r '.reasons[]' "$plan_file")
           summary ""
           summary "### Evidence rule"
-          summary "No CI reduction is enabled by this PR. Compare this shadow recommendation with the normal full-CI result over later PRs before any low-risk lane is allowed to skip work. Sensitive, control-plane, unknown, and restricted paths remain full-CI candidates."
+          summary "Use this mirror to compare trusted-base classification with the required CI result. Sensitive, control-plane, unknown and restricted paths remain full-CI. Any stale event, read failure, planner failure or unsupported policy schema remains fail-closed to full CI."
