@@ -1,0 +1,105 @@
+name: Targeted CI shadow
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, ready_for_review]
+
+concurrency:
+  group: proffera-ci-scope-shadow-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  plan:
+    name: Targeted CI shadow plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout trusted base planner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+
+      - name: Compute advisory affected-lane plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          summary() {
+            printf '%s\n' "$1" >> "$GITHUB_STEP_SUMMARY"
+          }
+
+          summary "## Targeted CI shadow plan"
+          summary ""
+          summary "> Advisory only. The existing required CI workflow still runs in full; this workflow skips nothing and cannot authorize merge."
+          summary ""
+
+          pr_json="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")" || {
+            summary "⚠️ Could not read the pull request. Full CI remains authoritative."
+            exit 0
+          }
+          current_head_sha="$(jq -r '.head.sha' <<< "$pr_json")"
+          if [ "$current_head_sha" != "$EXPECTED_HEAD_SHA" ]; then
+            summary "⚠️ Shadow planner event is stale (expected \`$EXPECTED_HEAD_SHA\`, current \`$current_head_sha\`). Full CI remains authoritative."
+            exit 0
+          fi
+
+          changed_files="$(gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100" --jq '.[] | .filename, (.previous_filename // empty)')" || {
+            summary "⚠️ Could not read changed files. Full CI remains authoritative."
+            exit 0
+          }
+
+          if [ ! -f scripts/ci-scope-plan.mjs ]; then
+            summary "ℹ️ The trusted base does not contain the shadow planner yet. This is expected on the activation PR; full CI remains authoritative."
+            exit 0
+          fi
+
+          plan_file="$(mktemp)"
+          error_file="$(mktemp)"
+          set +e
+          printf '%s\n' "$changed_files" | env -u GH_TOKEN node scripts/ci-scope-plan.mjs >"$plan_file" 2>"$error_file"
+          planner_status=$?
+          set -e
+
+          if [ "$planner_status" -ne 0 ] || ! jq -e . "$plan_file" >/dev/null 2>&1; then
+            summary "⚠️ Shadow planner failed. Full CI remains authoritative."
+            if [ -s "$error_file" ]; then
+              summary ""
+              summary "Planner diagnostic: \`$(tr '\n' ' ' < "$error_file" | head -c 400)\`"
+            fi
+            exit 0
+          fi
+
+          classification="$(jq -r '.classification' "$plan_file")"
+          candidate="$(jq -r '.reductionCandidate' "$plan_file")"
+          lanes="$(jq -r '.proposedLanes | join(", ")' "$plan_file")"
+          file_count="$(jq -r '.files | length' "$plan_file")"
+
+          summary "- Classification: **${classification}**"
+          summary "- Future reduced-CI candidate: **${candidate}**"
+          summary "- Changed files: **${file_count}**"
+          summary "- Proposed affected lanes: \`${lanes}\`"
+          summary ""
+          summary "### Why"
+          while IFS= read -r reason; do
+            summary "- ${reason}"
+          done < <(jq -r '.reasons[]' "$plan_file")
+          summary ""
+          summary "### Evidence rule"
+          summary "No CI reduction is enabled by this PR. Compare this shadow recommendation with the normal full-CI result over later PRs before any low-risk lane is allowed to skip work. Sensitive, control-plane, unknown, and restricted paths remain full-CI candidates."
