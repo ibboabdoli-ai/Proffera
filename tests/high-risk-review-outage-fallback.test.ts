@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const workflow = readFileSync(join(process.cwd(), ".github/workflows/ci.yml"), "utf8");
+const automerge = readFileSync(join(process.cwd(), ".github/workflows/proffera-automerge.yml"), "utf8");
 
 describe("high-risk AI review outage fallback", () => {
   it("allows exact-head Codex fallback after an explicit CodeRabbit outage or a bounded provider timeout", () => {
@@ -35,12 +36,21 @@ describe("high-risk AI review outage fallback", () => {
     expect(workflow).toContain(
       "CodeRabbit high-risk availability timeout reached; exact-head Codex fallback will be allowed on the next poll.",
     );
-    expect(workflow).toContain(
-      "Requested Codex fallback review for exact head $HEAD_SHA.",
-    );
+    expect(workflow).toContain('trusted_codex_requester="ibboabdoli-ai"');
+    expect(workflow).toContain("GitHub Actions will not self-request Codex review");
+    expect(workflow).not.toContain("Requested Codex fallback review for exact head $HEAD_SHA.");
     expect(workflow).toContain(
       "Refused: Codex fallback became stale; current PR head is $guard_head_sha, gate head is $HEAD_SHA.",
     );
+  });
+
+  it("keeps automerge fallback outage-bounded and supervisor-triggered", () => {
+    expect(automerge).toContain("CodeRabbit availability failure after exact-head request");
+    expect(automerge).toContain("bounded 300-second CodeRabbit timeout");
+    expect(automerge).toContain("HUMAN_APPROVER: ibboabdoli-ai");
+    expect(automerge).toContain('select(.user.login == $requester');
+    expect(automerge).toContain('contains("@codex review")');
+    expect(automerge).toContain("no trusted exact-current-head Codex fallback request");
   });
 
   it("keeps current-head CodeRabbit change requests non-bypassable", () => {
@@ -52,6 +62,9 @@ describe("high-risk AI review outage fallback", () => {
     );
     expect(workflow).toContain(
       "No completed CodeRabbit review for current head yet; high-risk path remains CodeRabbit-only while waiting for a review or provider signal.",
+    );
+    expect(automerge).toContain(
+      "CodeRabbit changes remain requested on the current PR head; Codex fallback can never clear them.",
     );
   });
 });
