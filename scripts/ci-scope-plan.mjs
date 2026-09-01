@@ -2,7 +2,7 @@ import process from "node:process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const POLICY_VERSION = 1;
+const POLICY_VERSION = 2;
 const FULL_LANES = [
   "governance",
   "whitespace",
@@ -16,6 +16,39 @@ const FULL_LANES = [
 
 function uniqueSorted(values) {
   return [...new Set(values)].sort();
+}
+
+function executionFor(lanes) {
+  const selected = new Set(lanes);
+  return {
+    lint: selected.has("lint"),
+    typecheck: selected.has("typecheck"),
+    unit: selected.has("unit"),
+    build: selected.has("build"),
+    e2e: selected.has("e2e"),
+    discoveryWorker: selected.has("discovery-worker"),
+  };
+}
+
+function planResult({
+  classification,
+  reductionCandidate,
+  fullCiStillRequired,
+  proposedLanes,
+  reasons,
+  files,
+}) {
+  return {
+    policyVersion: POLICY_VERSION,
+    mode: "targeted",
+    classification,
+    reductionCandidate,
+    fullCiStillRequired,
+    proposedLanes,
+    execution: executionFor(proposedLanes),
+    reasons,
+    files,
+  };
 }
 
 function hasSensitivePath(file) {
@@ -43,6 +76,7 @@ function hasSensitivePath(file) {
       "eslint.config.mjs",
       "postcss.config.mjs",
       "scripts/company-directory-discovery.py",
+      "tests/test_company_directory_discovery_worker.py",
     ].includes(file)
   ) {
     return true;
@@ -94,43 +128,37 @@ export function classifyCiScope(inputFiles) {
   );
 
   if (files.length === 0) {
-    return {
-      policyVersion: POLICY_VERSION,
-      mode: "shadow",
+    return planResult({
       classification: "conservative-full",
       reductionCandidate: false,
       fullCiStillRequired: true,
       proposedLanes: FULL_LANES,
       reasons: ["No changed files were supplied; fail conservatively to the full lane set."],
       files,
-    };
+    });
   }
 
   const sensitive = files.filter(hasSensitivePath);
   if (sensitive.length > 0) {
-    return {
-      policyVersion: POLICY_VERSION,
-      mode: "shadow",
+    return planResult({
       classification: "restricted-full",
       reductionCandidate: false,
       fullCiStillRequired: true,
       proposedLanes: FULL_LANES,
       reasons: sensitive.map((file) => `Sensitive/control-plane path requires full CI: ${file}`),
       files,
-    };
+    });
   }
 
   if (files.every(isDocumentation)) {
-    return {
-      policyVersion: POLICY_VERSION,
-      mode: "shadow",
+    return planResult({
       classification: "low-docs",
       reductionCandidate: true,
-      fullCiStillRequired: true,
+      fullCiStillRequired: false,
       proposedLanes: ["governance", "whitespace"],
-      reasons: ["Documentation-only change; shadow plan would avoid runtime/build lanes."],
+      reasons: ["Documentation-only change; targeted CI can avoid runtime/build lanes."],
       files,
-    };
+    });
   }
 
   const known = files.every(
@@ -141,16 +169,14 @@ export function classifyCiScope(inputFiles) {
     const unknown = files.filter(
       (file) => !(isDocumentation(file) || isUnitTest(file) || isE2e(file) || isPublicSurface(file) || isSource(file)),
     );
-    return {
-      policyVersion: POLICY_VERSION,
-      mode: "shadow",
+    return planResult({
       classification: "conservative-full",
       reductionCandidate: false,
       fullCiStillRequired: true,
       proposedLanes: FULL_LANES,
       reasons: unknown.map((file) => `Unmapped path defaults to full CI: ${file}`),
       files,
-    };
+    });
   }
 
   const lanes = new Set(["governance", "whitespace"]);
@@ -190,16 +216,14 @@ export function classifyCiScope(inputFiles) {
     reasons.push("Documentation is mixed with mapped low-risk paths; retain the union of affected lanes.");
   }
 
-  return {
-    policyVersion: POLICY_VERSION,
-    mode: "shadow",
+  return planResult({
     classification: "low-mapped",
     reductionCandidate: true,
-    fullCiStillRequired: true,
+    fullCiStillRequired: false,
     proposedLanes: [...lanes],
-    reasons: reasons.length > 0 ? reasons : ["Mapped low-risk change; shadow plan uses only affected lanes."],
+    reasons: reasons.length > 0 ? reasons : ["Mapped low-risk change; targeted CI uses only affected lanes."],
     files,
-  };
+  });
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
