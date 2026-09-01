@@ -182,7 +182,8 @@ export function classifyCiScope(inputFiles) {
     lanes.add("typecheck");
     lanes.add("unit");
     lanes.add("build");
-    reasons.push("Non-public source graph changed; include static, unit, and build lanes.");
+    lanes.add("e2e");
+    reasons.push("Non-public source graph changed; include static, unit, build, and browser lanes.");
   }
 
   if (files.some((file) => isDocumentation(file)) && reasons.length === 0) {
