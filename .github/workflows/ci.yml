@@ -774,8 +774,7 @@ jobs:
                 exit 0
               fi
               echo "CodeRabbit changes remain requested for current head; Codex fallback cannot clear them."
-              sleep 15
-              continue
+              exit 1
             fi
 
             if [ "$terminal_count" -gt 0 ]; then
@@ -894,6 +893,7 @@ jobs:
               fi
             else
               echo "No completed CodeRabbit review for current head yet; this high-risk path is CodeRabbit-only."
+              exit 1
             fi
 
             sleep 15
