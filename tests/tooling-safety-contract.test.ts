@@ -203,6 +203,16 @@ function cleanCodexReaction() {
   }];
 }
 
+function cleanCodexComment(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 43,
+    user: { login: "chatgpt-codex-connector[bot]" },
+    body: `Codex Review: Didn't find any major issues. Breezy!\n\n**Reviewed commit:** \`${reviewHead.slice(0, 10)}\``,
+    created_at: "2026-08-31T10:03:00Z",
+    ...overrides,
+  };
+}
+
 function largeSafeChange() {
   return Array.from({ length: 12 }, (_, index) => `src/features/example-${index}.ts`).join("\n");
 }
@@ -423,6 +433,63 @@ describe("tooling safety contract", () => {
     expect(`${truncatedLargePr.stdout}${truncatedLargePr.stderr}`).toContain("exceeds GitHub's 3000-file API limit");
     expect(`${truncatedLargePr.stdout}${truncatedLargePr.stderr}`).toContain("emergency exact-head Codex fallback is allowed for this high-risk PR");
   }, 60000);
+
+  it("accepts only fresh exact-head official clean Codex comments", () => {
+    const cleanComment = runCiReviewFixture({
+      changedFiles: largeSafeChange(),
+      comments: [...fallbackComments(), cleanCodexComment()],
+      failOnPost: true,
+    });
+    expect(cleanComment.status).toBe(0);
+
+    const untrustedComment = runCiReviewFixture({
+      changedFiles: largeSafeChange(),
+      comments: [...fallbackComments(), cleanCodexComment({ user: { login: "untrusted-user" } })],
+      failOnPost: true,
+    });
+    expect(untrustedComment.status).toBe(1);
+
+    const wrongHeadComment = runCiReviewFixture({
+      changedFiles: largeSafeChange(),
+      comments: [...fallbackComments(), cleanCodexComment({
+        body: "Codex Review: Didn't find any major issues. Breezy!\n\n**Reviewed commit:** `deadbeef00`",
+      })],
+      failOnPost: true,
+    });
+    expect(wrongHeadComment.status).toBe(1);
+
+    const preRequestComment = runCiReviewFixture({
+      changedFiles: largeSafeChange(),
+      comments: [...fallbackComments(), cleanCodexComment({ created_at: "2026-08-31T10:01:30Z" })],
+      failOnPost: true,
+    });
+    expect(preRequestComment.status).toBe(1);
+
+    const inlineFinding = runCiReviewFixture({
+      changedFiles: largeSafeChange(),
+      comments: [...fallbackComments(), cleanCodexComment()],
+      inlineComments: [{
+        user: { login: "chatgpt-codex-connector[bot]" },
+        commit_id: reviewHead,
+        created_at: "2026-08-31T10:03:00Z",
+      }],
+      failOnPost: true,
+    });
+    expect(inlineFinding.status).toBe(1);
+
+    const codeRabbitChanges = runCiReviewFixture({
+      changedFiles: largeSafeChange(),
+      comments: [...fallbackComments(), cleanCodexComment()],
+      firstReviews: [{
+        user: { login: "coderabbitai[bot]" },
+        commit_id: reviewHead,
+        state: "CHANGES_REQUESTED",
+        submitted_at: "2026-08-31T10:03:00Z",
+      }],
+      failOnPost: true,
+    });
+    expect(codeRabbitChanges.status).toBe(1);
+  }, 120000);
 
   it("re-checks CodeRabbit state after Codex fallback and fails closed on equal-timestamp review races", () => {
     const equalTimestamp = "2026-08-31T10:04:00Z";

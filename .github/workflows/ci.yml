@@ -870,6 +870,18 @@ jobs:
                   | length
                 ' <<< "$codex_reviews_json")"
 
+                codex_clean_comment_count="$(jq -r --arg sha "$HEAD_SHA" --arg request_time "$codex_request_time" '
+                  [
+                    .[]
+                    | select(.user.login == "chatgpt-codex-connector[bot]")
+                    | select(.created_at >= $request_time)
+                    | select((.body // "") | startswith("Codex Review: Didn\u0027t find any major issues. Breezy!"))
+                    | ((.body // "") | capture("Reviewed commit:\\*{0,2}[[:space:]]*`?(?<reviewed>[0-9a-fA-F]{7,40})`?").reviewed | ascii_downcase) as $reviewed
+                    | select($sha | startswith($reviewed))
+                  ]
+                  | length
+                ' <<< "$comments_json")"
+
                 codex_inline_json="$(gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/comments?per_page=100" --jq '.[]' | jq -s '.')"
                 codex_inline_count="$(jq -r --arg sha "$HEAD_SHA" --arg request_time "$codex_request_time" '
                   [
@@ -886,7 +898,7 @@ jobs:
                   exit 1
                 fi
 
-                if [ "$codex_clean_count" -gt 0 ] || [ "$codex_approval_count" -gt 0 ]; then
+                if [ "$codex_clean_count" -gt 0 ] || [ "$codex_approval_count" -gt 0 ] || [ "$codex_clean_comment_count" -gt 0 ]; then
                   guard_head_sha="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}" --jq '.head.sha')"
                   if [ "$guard_head_sha" != "$HEAD_SHA" ]; then
                     echo "Refused: Codex fallback became stale; current PR head is $guard_head_sha, gate head is $HEAD_SHA."
