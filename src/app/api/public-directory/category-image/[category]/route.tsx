@@ -2,20 +2,47 @@ import { ImageResponse } from "next/og";
 
 export const runtime = "edge";
 
-const categories: Record<string, { label: string; icon: string; detail: string }> = {
-  stadning: { label: "Städning", icon: "✦", detail: "Städning & lokalvård" },
-  hemservice: { label: "Hemservice", icon: "⌂", detail: "Konsumenttjänster i hemmet" },
-  flytt: { label: "Flytt", icon: "↗", detail: "Flyttjänster" },
-  elektriker: { label: "Elektriker", icon: "⚡", detail: "Elinstallationer" },
-  vvs: { label: "VVS", icon: "◌", detail: "Värme & sanitet" },
-  maleri: { label: "Måleri", icon: "◒", detail: "Måleriarbeten" },
-  snickeri: { label: "Snickeri", icon: "◇", detail: "Byggnadssnickeri" },
-  tradgard: { label: "Trädgård", icon: "❋", detail: "Skötsel av grönytor" },
+const categories: Record<string, { label: string; detail: string }> = {
+  stadning: { label: "Städning", detail: "Städning & lokalvård" },
+  hemservice: { label: "Hemservice", detail: "Konsumenttjänster i hemmet" },
+  flytt: { label: "Flytt", detail: "Flyttjänster" },
+  elektriker: { label: "Elektriker", detail: "Elinstallationer" },
+  vvs: { label: "VVS", detail: "Värme & sanitet" },
+  maleri: { label: "Måleri", detail: "Måleriarbeten" },
+  snickeri: { label: "Snickeri", detail: "Byggnadssnickeri" },
+  tradgard: { label: "Trädgård", detail: "Skötsel av grönytor" },
 };
+
+function CategoryMark() {
+  return (
+    <div
+      aria-hidden="true"
+      style={{
+        width: 92,
+        height: 92,
+        borderRadius: 28,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "rgba(255,255,255,.14)",
+      }}
+    >
+      <div
+        style={{
+          width: 42,
+          height: 42,
+          border: "8px solid rgba(255,255,255,.92)",
+          borderRadius: 10,
+          transform: "rotate(45deg)",
+        }}
+      />
+    </div>
+  );
+}
 
 export async function GET(_: Request, context: { params: Promise<{ category: string }> }) {
   const { category } = await context.params;
-  const item = categories[category] ?? { label: "Tjänsteföretag", icon: "P", detail: "Proffera" };
+  const item = categories[category] ?? { label: "Tjänsteföretag", detail: "Proffera" };
 
   return new ImageResponse(
     (
@@ -34,20 +61,7 @@ export async function GET(_: Request, context: { params: Promise<{ category: str
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div style={{ fontSize: 30, fontWeight: 800, letterSpacing: "0.02em" }}>Proffera</div>
-          <div
-            style={{
-              width: 92,
-              height: 92,
-              borderRadius: 28,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              background: "rgba(255,255,255,.14)",
-              fontSize: 50,
-            }}
-          >
-            {item.icon}
-          </div>
+          <CategoryMark />
         </div>
         <div style={{ display: "flex", flexDirection: "column" }}>
           <div style={{ fontSize: 24, opacity: 0.72, marginBottom: 14 }}>Illustrationsbild</div>
