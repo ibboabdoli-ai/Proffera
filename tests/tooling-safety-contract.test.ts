@@ -165,6 +165,15 @@ function codeRabbitRequestComments() {
   ];
 }
 
+function trustedCodexRequestComment() {
+  return {
+    id: 42,
+    user: { login: "ibboabdoli-ai" },
+    body: `<!-- proffera-codex-fallback-review-request:${reviewHead} -->\n@codex review`,
+    created_at: "2026-08-31T10:02:00Z",
+  };
+}
+
 function fallbackComments() {
   return [
     ...codeRabbitRequestComments(),
@@ -175,12 +184,14 @@ function fallbackComments() {
       created_at: "2026-08-31T10:01:00Z",
       updated_at: "2026-08-31T10:01:00Z",
     },
-    {
-      id: 42,
-      user: { login: "github-actions[bot]" },
-      body: `<!-- proffera-codex-fallback-review-request:${reviewHead} -->\n@codex review`,
-      created_at: "2026-08-31T10:02:00Z",
-    },
+    trustedCodexRequestComment(),
+  ];
+}
+
+function timeoutFallbackComments() {
+  return [
+    ...codeRabbitRequestComments(),
+    trustedCodexRequestComment(),
   ];
 }
 
@@ -314,6 +325,7 @@ describe("tooling safety contract", () => {
         content: "+1",
         created_at: "2026-08-31T10:01:30Z",
       }],
+      failOnPost: true,
     });
     expect(staleReaction.status).toBe(1);
     expect(`${staleReaction.stdout}${staleReaction.stderr}`).toContain("Codex fallback has not recorded a clean current-head result yet.");
@@ -327,6 +339,7 @@ describe("tooling safety contract", () => {
         state: "APPROVED",
         submitted_at: "2026-08-31T10:01:30Z",
       }],
+      failOnPost: true,
     });
     expect(staleApproval.status).toBe(1);
 
@@ -339,6 +352,7 @@ describe("tooling safety contract", () => {
         commit_id: reviewHead,
         created_at: "2026-08-31T10:03:00Z",
       }],
+      failOnPost: true,
     });
     expect(inlineFinding.status).toBe(1);
     expect(`${inlineFinding.stdout}${inlineFinding.stderr}`).toContain("Codex fallback posted current-head review findings");
@@ -352,6 +366,7 @@ describe("tooling safety contract", () => {
         state: "CHANGES_REQUESTED",
         submitted_at: "2026-08-31T10:03:00Z",
       }],
+      failOnPost: true,
     });
     expect(codeRabbitChanges.status).toBe(1);
     expect(`${codeRabbitChanges.stdout}${codeRabbitChanges.stderr}`).toContain("CodeRabbit changes remain requested for current head");
@@ -360,6 +375,7 @@ describe("tooling safety contract", () => {
       changedFiles: `${largeSafeChange()}\nsrc/app/en/privacy/page.tsx\ne2e/package-lock.json`,
       comments: fallbackComments(),
       reactions: cleanCodexReaction(),
+      failOnPost: true,
     });
     expect(sensitiveOutage.status).toBe(0);
     expect(`${sensitiveOutage.stdout}${sensitiveOutage.stderr}`).toContain("emergency exact-head Codex fallback is allowed for this high-risk PR");
@@ -367,16 +383,27 @@ describe("tooling safety contract", () => {
 
     const sensitiveTimeout = runCiReviewFixture({
       changedFiles: `${largeSafeChange()}\nsrc/app/en/privacy/page.tsx`,
-      comments: codeRabbitRequestComments(),
+      comments: timeoutFallbackComments(),
       reactions: cleanCodexReaction(),
+      failOnPost: true,
     });
     expect(sensitiveTimeout.status).toBe(0);
     expect(`${sensitiveTimeout.stdout}${sensitiveTimeout.stderr}`).toContain("CodeRabbit high-risk availability timeout reached");
     expect(`${sensitiveTimeout.stdout}${sensitiveTimeout.stderr}`).toContain("Codex fallback completed clean for the current unchanged head");
 
+    const missingTrustedRequest = runCiReviewFixture({
+      changedFiles: `${largeSafeChange()}\nsrc/app/en/privacy/page.tsx`,
+      comments: codeRabbitRequestComments(),
+      reactions: cleanCodexReaction(),
+      failOnPost: true,
+    });
+    expect(missingTrustedRequest.status).toBe(1);
+    expect(`${missingTrustedRequest.stdout}${missingTrustedRequest.stderr}`).toContain("Trusted Codex fallback requires an exact-head @codex review request from ibboabdoli-ai");
+
     const sensitiveNoDecision = runCiReviewFixture({
       changedFiles: `${largeSafeChange()}\nsrc/app/en/privacy/page.tsx`,
       comments: codeRabbitRequestComments(),
+      failOnPost: true,
     });
     expect(sensitiveNoDecision.status).toBe(1);
     expect(`${sensitiveNoDecision.stdout}${sensitiveNoDecision.stderr}`).toContain("Refused: no acceptable CodeRabbit or Codex fallback decision was recorded for the current head within the gate window.");
@@ -386,6 +413,7 @@ describe("tooling safety contract", () => {
       reportedFileCount: 3001,
       comments: fallbackComments(),
       reactions: cleanCodexReaction(),
+      failOnPost: true,
     });
     expect(truncatedLargePr.status).toBe(0);
     expect(`${truncatedLargePr.stdout}${truncatedLargePr.stderr}`).toContain("exceeds GitHub's 3000-file API limit");
@@ -413,6 +441,7 @@ describe("tooling safety contract", () => {
           submitted_at: equalTimestamp,
         },
       ],
+      failOnPost: true,
     });
     expect(result.status).toBe(1);
     expect(`${result.stdout}${result.stderr}`).toContain("CodeRabbit changes were recorded while Codex fallback was running");
@@ -447,6 +476,11 @@ describe("tooling safety contract", () => {
     expect(gateBlock).toContain(".filename, (.previous_filename // empty)");
     expect(routeBlock).toContain("3000-file API limit");
     expect(gateBlock).toContain("3000-file API limit");
+    expect(gateBlock).toContain('trusted_codex_requester="ibboabdoli-ai"');
+    expect(gateBlock).toContain('select(.user.login == $requester');
+    expect(gateBlock).toContain('contains("@codex review")');
+    expect(gateBlock).toContain("GitHub Actions will not self-request Codex review");
+    expect(gateBlock).not.toContain('codex_response="$(gh api --method POST');
     expect(ci).toContain("Refused: no acceptable CodeRabbit or Codex fallback decision was recorded for the current head within the gate window.");
 
     expect(shadow).toContain(".policyVersion >= 2");
@@ -457,7 +491,10 @@ describe("tooling safety contract", () => {
     expect(automerge).toContain("fallback_eligible=false");
     expect(automerge).toContain("proffera-codex-fallback-review-request:${head_sha}");
     expect(automerge).toContain("issues/comments/${codex_request_id}/reactions?per_page=100");
-    expect(automerge).toContain("Current-head Codex fallback decision: clean review after CodeRabbit availability failure");
+    expect(automerge).toContain("bounded 300-second CodeRabbit timeout");
+    expect(automerge).toContain('select(.user.login == $requester');
+    expect(automerge).toContain('contains("@codex review")');
+    expect(automerge).toContain("Current-head Codex fallback decision: clean review after CodeRabbit availability failure or bounded timeout");
     expect(automerge).toContain("CodeRabbit changes remain requested on the current PR head; Codex fallback can never clear them.");
     expect(automerge).toContain("src/app/privacy/*|src/app/privacy/**|*/privacy/*");
     expect(automerge).toContain("package-lock.json|pnpm-lock.yaml|yarn.lock|*/package-lock.json|*/pnpm-lock.yaml|*/yarn.lock");

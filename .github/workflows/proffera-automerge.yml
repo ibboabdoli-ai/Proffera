@@ -341,13 +341,44 @@ jobs:
               summary "- Current-head CodeRabbit decision: non-blocking review completed"
             elif [ "$clean_summary_count" -gt 0 ]; then
               summary "- Current-head CodeRabbit decision: clean review with no actionable comments"
-            elif [ "$fallback_eligible" = "true" ]; then
+            else
+              coderabbit_marker="<!-- proffera-coderabbit-final-review-request:${head_sha} -->"
+              coderabbit_request_time="$(jq -r --arg marker "$coderabbit_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | sort_by(.created_at) | last | .created_at // empty' <<< "$comments_json")"
+              fallback_active=false
+
+              if [ -n "$coderabbit_request_time" ]; then
+                unavailable_count="$(jq -r --arg request_time "$coderabbit_request_time" '
+                  [
+                    .[]
+                    | select(.user.login == "coderabbitai[bot]")
+                    | select((.updated_at // .created_at) >= $request_time)
+                    | select((.body // "") | test("Review limit reached|Review rate limited|Action not completed: Review rate limited|Review skipped|temporarily unavailable|service unavailable"; "i"))
+                  ]
+                  | length
+                ' <<< "$comments_json")"
+                request_epoch="$(date -u -d "$coderabbit_request_time" +%s 2>/dev/null || echo 0)"
+                current_epoch="$(date -u +%s)"
+                elapsed_seconds=$((current_epoch - request_epoch))
+
+                if [ "$unavailable_count" -gt 0 ]; then
+                  fallback_active=true
+                  summary "- Codex fallback activation: CodeRabbit availability failure after exact-head request"
+                elif [ "$request_epoch" -gt 0 ] && [ "$elapsed_seconds" -ge 300 ]; then
+                  fallback_active=true
+                  summary "- Codex fallback activation: bounded 300-second CodeRabbit timeout"
+                fi
+              fi
+
+              if [ "$fallback_active" != "true" ]; then
+                refuse "Refused: no completed CodeRabbit review exists for the current PR head and the bounded Codex fallback is not active."
+              fi
+
               codex_marker="<!-- proffera-codex-fallback-review-request:${head_sha} -->"
-              codex_request_id="$(jq -r --arg marker "$codex_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | sort_by(.created_at) | last | .id // empty' <<< "$comments_json")"
-              codex_request_time="$(jq -r --arg marker "$codex_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | sort_by(.created_at) | last | .created_at // empty' <<< "$comments_json")"
+              codex_request_id="$(jq -r --arg marker "$codex_marker" --arg requester "$HUMAN_APPROVER" --arg request_time "$coderabbit_request_time" '[.[] | select(.user.login == $requester and ((.body // "") | contains($marker)) and ((.body // "") | contains("@codex review")) and .created_at >= $request_time)] | sort_by(.created_at) | last | .id // empty' <<< "$comments_json")"
+              codex_request_time="$(jq -r --arg marker "$codex_marker" --arg requester "$HUMAN_APPROVER" --arg request_time "$coderabbit_request_time" '[.[] | select(.user.login == $requester and ((.body // "") | contains($marker)) and ((.body // "") | contains("@codex review")) and .created_at >= $request_time)] | sort_by(.created_at) | last | .created_at // empty' <<< "$comments_json")"
 
               if [ -z "$codex_request_id" ] || [ -z "$codex_request_time" ]; then
-                refuse "Refused: no exact-current-head GitHub Actions Codex fallback request exists."
+                refuse "Refused: no trusted exact-current-head Codex fallback request from $HUMAN_APPROVER exists after the primary CodeRabbit request."
               fi
 
               codex_reactions_json="$(gh api --paginate "repos/$REPOSITORY/issues/comments/${codex_request_id}/reactions?per_page=100" --jq '.[]' | jq -s '.')"
@@ -392,9 +423,7 @@ jobs:
                 refuse "Refused: no clean exact-current-head Codex fallback result exists."
               fi
 
-              summary "- Current-head Codex fallback decision: clean review after CodeRabbit availability failure"
-            else
-              refuse "Refused: no completed CodeRabbit review exists for the current PR head; this path is CodeRabbit-only."
+              summary "- Current-head Codex fallback decision: clean review after CodeRabbit availability failure or bounded timeout"
             fi
           else
             summary "### AI review gate"

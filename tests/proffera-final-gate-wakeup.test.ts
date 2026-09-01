@@ -22,6 +22,11 @@ describe("event-driven final review gate", () => {
     expect(wakeup).toContain("workflow_dispatch:");
     expect(wakeup).toContain("github.actor == 'coderabbitai[bot]'");
     expect(wakeup).toContain("github.actor == 'chatgpt-codex-connector[bot]'");
+    expect(wakeup).toContain("github.actor == 'ibboabdoli-ai'");
+    expect(wakeup).toContain("proffera-codex-fallback-review-request:");
+    expect(wakeup).toContain("@codex review");
+    expect(wakeup).toContain("TRUSTED_CODEX_REQUESTER: ibboabdoli-ai");
+    expect(wakeup).toContain('codex_marker="<!-- proffera-codex-fallback-review-request:${head_sha} -->"');
     expect(wakeup).toContain("EVENT_REVIEW_COMMIT");
     expect(wakeup).toContain('EVENT_REVIEW_COMMIT" != "$head_sha');
     expect(wakeup).toContain('select(.head_sha == $sha)');
@@ -46,6 +51,7 @@ describe("event-driven final review gate", () => {
     expect(ci).toContain("No completed CodeRabbit review for current head yet; high-risk path remains CodeRabbit-only while waiting for a review or provider signal.");
     expect(ci).toContain("Machine-observed CodeRabbit availability failure; emergency exact-head Codex fallback is allowed for this high-risk PR.");
     expect(ci).toContain("CodeRabbit high-risk availability timeout reached; exact-head Codex fallback will be allowed on the next poll.");
+    expect(ci).toContain("Trusted Codex fallback requires an exact-head @codex review request from $trusted_codex_requester; GitHub Actions will not self-request Codex review.");
     expect(ci).toContain("CodeRabbit changes remain requested for current head; Codex fallback cannot clear them.");
     expect(ci).toContain("CodeRabbit changes were recorded while Codex fallback was running; Codex cannot clear them.");
   });

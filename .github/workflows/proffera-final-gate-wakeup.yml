@@ -27,7 +27,10 @@ jobs:
         (github.actor == 'coderabbitai[bot]' || github.actor == 'chatgpt-codex-connector[bot]')) ||
       (github.event_name == 'issue_comment' &&
         github.event.issue.pull_request != null &&
-        github.actor == 'coderabbitai[bot]')
+        (github.actor == 'coderabbitai[bot]' ||
+          (github.actor == 'ibboabdoli-ai' &&
+            contains(github.event.comment.body, 'proffera-codex-fallback-review-request:') &&
+            contains(github.event.comment.body, '@codex review'))))
     runs-on: ubuntu-latest
     timeout-minutes: 3
     permissions:
@@ -40,12 +43,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTOR: ${{ github.actor }}
           EVENT_PR_NUMBER: ${{ github.event.pull_request.number }}
           EVENT_ISSUE_NUMBER: ${{ github.event.issue.number }}
           EVENT_COMMENT_BODY: ${{ github.event.comment.body }}
           EVENT_REVIEW_STATE: ${{ github.event.review.state }}
           EVENT_REVIEW_COMMIT: ${{ github.event.review.commit_id }}
           INPUT_PR_NUMBER: ${{ inputs.pr_number }}
+          TRUSTED_CODEX_REQUESTER: ibboabdoli-ai
         shell: bash
         run: |
           set -euo pipefail
@@ -72,7 +77,7 @@ jobs:
             exit 0
           fi
 
-          if [ "$EVENT_NAME" = "issue_comment" ]; then
+          if [ "$EVENT_NAME" = "issue_comment" ] && [ "${EVENT_ACTOR:-}" = "coderabbitai[bot]" ]; then
             if ! grep -Eqi 'recent_review_start|Review limit reached|Review rate limited|Action not completed: Review rate limited|Review skipped|temporarily unavailable|service unavailable' <<< "${EVENT_COMMENT_BODY:-}"; then
               echo "CodeRabbit comment does not carry final-review or availability evidence; ignoring it."
               exit 0
@@ -101,6 +106,17 @@ jobs:
           fi
 
           if [ "$EVENT_NAME" = "issue_comment" ] \
+            && [ "${EVENT_ACTOR:-}" = "$TRUSTED_CODEX_REQUESTER" ]; then
+            codex_marker="<!-- proffera-codex-fallback-review-request:${head_sha} -->"
+            if ! grep -Fq "$codex_marker" <<< "${EVENT_COMMENT_BODY:-}" \
+              || ! grep -Fqi '@codex review' <<< "${EVENT_COMMENT_BODY:-}"; then
+              echo "Trusted Codex request is not bound to exact current head $head_sha; ignoring it."
+              exit 0
+            fi
+          fi
+
+          if [ "$EVENT_NAME" = "issue_comment" ] \
+            && [ "${EVENT_ACTOR:-}" = "coderabbitai[bot]" ] \
             && grep -Fq '<!-- recent_review_start -->' <<< "${EVENT_COMMENT_BODY:-}" \
             && ! grep -Fq "$head_sha" <<< "${EVENT_COMMENT_BODY:-}"; then
             echo "CodeRabbit summary does not reference the current head; ignoring stale evidence."

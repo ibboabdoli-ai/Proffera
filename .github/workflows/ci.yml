@@ -837,15 +837,14 @@ jobs:
 
               if [ "$coderabbit_unavailable" = "true" ]; then
                 codex_marker="<!-- proffera-codex-fallback-review-request:${HEAD_SHA} -->"
-                codex_request_id="$(jq -r --arg marker "$codex_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | sort_by(.created_at) | last | .id // empty' <<< "$comments_json")"
-                codex_request_time="$(jq -r --arg marker "$codex_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | sort_by(.created_at) | last | .created_at // empty' <<< "$comments_json")"
+                trusted_codex_requester="ibboabdoli-ai"
+                codex_request_id="$(jq -r --arg marker "$codex_marker" --arg requester "$trusted_codex_requester" '[.[] | select(.user.login == $requester and ((.body // "") | contains($marker)) and ((.body // "") | contains("@codex review")))] | sort_by(.created_at) | last | .id // empty' <<< "$comments_json")"
+                codex_request_time="$(jq -r --arg marker "$codex_marker" --arg requester "$trusted_codex_requester" '[.[] | select(.user.login == $requester and ((.body // "") | contains($marker)) and ((.body // "") | contains("@codex review")))] | sort_by(.created_at) | last | .created_at // empty' <<< "$comments_json")"
 
                 if [ -z "$codex_request_id" ] || [ -z "$codex_request_time" ]; then
-                  codex_body="$(printf '%s\n%s\n' "$codex_marker" '@codex review')"
-                  codex_response="$(gh api --method POST "repos/${REPOSITORY}/issues/${PR_NUMBER}/comments" -f body="$codex_body")"
-                  codex_request_id="$(jq -r '.id' <<< "$codex_response")"
-                  codex_request_time="$(jq -r '.created_at' <<< "$codex_response")"
-                  echo "Requested Codex fallback review for exact head $HEAD_SHA."
+                  echo "Trusted Codex fallback requires an exact-head @codex review request from $trusted_codex_requester; GitHub Actions will not self-request Codex review."
+                  sleep 15
+                  continue
                 fi
 
                 reactions_json="$(gh api --paginate "repos/${REPOSITORY}/issues/comments/${codex_request_id}/reactions?per_page=100" --jq '.[]' | jq -s '.')"
