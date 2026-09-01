@@ -25,6 +25,8 @@ describe("event-driven final review gate", () => {
     expect(wakeup).toContain("EVENT_REVIEW_COMMIT");
     expect(wakeup).toContain('EVENT_REVIEW_COMMIT" != "$head_sha');
     expect(wakeup).toContain('select(.head_sha == $sha)');
+    expect(wakeup).toContain("jobs?filter=all&per_page=100");
+    expect(wakeup).toContain("sort_by(.run_attempt // 0, .id)");
     expect(wakeup).toContain('require_success "Validate"');
     expect(wakeup).toContain('require_success "AI review route"');
     expect(wakeup).toContain('require_success "E2E public smoke run"');

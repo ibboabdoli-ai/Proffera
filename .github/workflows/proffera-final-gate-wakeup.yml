@@ -122,7 +122,7 @@ jobs:
 
           jobs_json="$(
             gh api --paginate \
-              "repos/$REPOSITORY/actions/runs/$run_id/jobs?filter=latest&per_page=100" \
+              "repos/$REPOSITORY/actions/runs/$run_id/jobs?filter=all&per_page=100" \
               --jq '.jobs[]' \
               | jq -s '.'
           )"
@@ -130,9 +130,9 @@ jobs:
           require_success() {
             local name="$1"
             local conclusion
-            conclusion="$(jq -r --arg name "$name" '[.[] | select(.name == $name)] | last | .conclusion // empty' <<< "$jobs_json")"
+            conclusion="$(jq -r --arg name "$name" '[.[] | select(.name == $name and .conclusion == "success")] | sort_by(.run_attempt // 0, .id) | last | .conclusion // empty' <<< "$jobs_json")"
             if [ "$conclusion" != "success" ]; then
-              echo "Prerequisite '$name' is not successful on exact head ($conclusion); final gate will not be re-run."
+              echo "Prerequisite '$name' has no successful exact-head attempt; final gate will not be re-run."
               exit 0
             fi
           }
@@ -141,9 +141,10 @@ jobs:
           require_success "AI review route"
           require_success "E2E public smoke run"
 
-          final_job_id="$(jq -r '[.[] | select(.name == "E2E public smoke")] | last | .id // empty' <<< "$jobs_json")"
-          final_status="$(jq -r '[.[] | select(.name == "E2E public smoke")] | last | .status // empty' <<< "$jobs_json")"
-          final_conclusion="$(jq -r '[.[] | select(.name == "E2E public smoke")] | last | .conclusion // empty' <<< "$jobs_json")"
+          final_job_json="$(jq -c '[.[] | select(.name == "E2E public smoke")] | sort_by(.run_attempt // 0, .id) | last // {}' <<< "$jobs_json")"
+          final_job_id="$(jq -r '.id // empty' <<< "$final_job_json")"
+          final_status="$(jq -r '.status // empty' <<< "$final_job_json")"
+          final_conclusion="$(jq -r '.conclusion // empty' <<< "$final_job_json")"
 
           if ! [[ "$final_job_id" =~ ^[1-9][0-9]*$ ]]; then
             echo "Exact-head CI run has no final E2E public smoke job; refusing to re-run anything."
