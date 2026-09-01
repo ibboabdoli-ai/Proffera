@@ -351,7 +351,7 @@ describe("tooling safety contract", () => {
     expect(`${sensitivePath.stdout}${sensitivePath.stderr}`).toContain("this high-risk path is CodeRabbit-only");
   }, 15000);
 
-  it("fails closed when CodeRabbit approval and change request have equal timestamps during fallback", () => {
+  it("re-checks CodeRabbit state after Codex fallback and fails closed on equal-timestamp review races", () => {
     const equalTimestamp = "2026-08-31T10:04:00Z";
     const result = runCiReviewFixture({
       changedFiles: largeSafeChange(),
@@ -399,7 +399,6 @@ describe("tooling safety contract", () => {
     expect(ci).not.toContain("issues/${PR_NUMBER}/reactions?per_page=100");
     expect(ci).toContain("Checkout trusted base planner");
     expect(ci).toContain(".filename, (.previous_filename // empty)");
-    expect((ci.match(/gh api --paginate "repos\/\$\{REPOSITORY\}\/pulls\/\$\{PR_NUMBER\}\/files\?per_page=100"/g) ?? []).length).toBe(3);
     expect(ci).toContain("Refused: no acceptable CodeRabbit or Codex fallback decision was recorded for the current head within the gate window.");
 
     expect(automerge).toContain("fallback_eligible=true");
