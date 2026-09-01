@@ -914,8 +914,12 @@ jobs:
                 echo "No completed CodeRabbit review yet; fallback is not active before an availability failure or bounded timeout."
               fi
             else
-              echo "No completed CodeRabbit review for current head yet; this high-risk path is CodeRabbit-only."
-              exit 1
+              if [ "$attempt" -ge 20 ]; then
+                fallback_eligible=true
+                echo "CodeRabbit high-risk availability timeout reached; exact-head Codex fallback will be allowed on the next poll."
+              else
+                echo "No completed CodeRabbit review for current head yet; high-risk path remains CodeRabbit-only while waiting for a review or provider signal."
+              fi
             fi
 
             sleep 15
