@@ -6,14 +6,20 @@ const workflow = readFileSync(join(process.cwd(), ".github/workflows/ci.yml"), "
 
 describe("high-risk AI review outage fallback", () => {
   it("allows exact-head Codex fallback after an explicit CodeRabbit outage or a bounded provider timeout", () => {
-    const emergencyStart = workflow.indexOf('if [ "$fallback_eligible" != "true" ]; then');
+    const unavailableCount = workflow.indexOf("high_risk_unavailable_count");
+    expect(unavailableCount).toBeGreaterThan(-1);
+
+    const emergencyStart = workflow.lastIndexOf(
+      'if [ "$fallback_eligible" != "true" ]; then',
+      unavailableCount,
+    );
     expect(emergencyStart).toBeGreaterThan(-1);
 
     const normalFallbackStart = workflow.indexOf(
       'if [ "$fallback_eligible" = "true" ]; then',
-      emergencyStart + 1,
+      unavailableCount,
     );
-    expect(normalFallbackStart).toBeGreaterThan(emergencyStart);
+    expect(normalFallbackStart).toBeGreaterThan(unavailableCount);
 
     const emergencyBlock = workflow.slice(emergencyStart, normalFallbackStart);
     expect(emergencyBlock).toContain("high_risk_unavailable_count");
