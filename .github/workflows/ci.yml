@@ -215,6 +215,11 @@ jobs:
             full_and_exit "Stale scope event; using full CI."
           fi
 
+          reported_file_count="$(jq -r '.changed_files' <<< "$pr_json")"
+          if ! [[ "$reported_file_count" =~ ^[0-9]+$ ]] || [ "$reported_file_count" -gt 3000 ]; then
+            full_and_exit "Changed-file evidence is incomplete or exceeds GitHub's 3000-file API limit; using full CI."
+          fi
+
           changed_files="$(gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100" --jq '.[] | .filename, (.previous_filename // empty)')" || full_and_exit "Changed-file read failed; using full CI."
 
           if [ ! -f scripts/ci-scope-plan.mjs ]; then
@@ -480,39 +485,57 @@ jobs:
             exit 0
           fi
 
-          changed_files="$(gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100" --jq '.[].filename')"
-          file_count="$(grep -c . <<< "$changed_files" || true)"
+          changed_files="$(gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100" --jq '.[] | .filename, (.previous_filename // empty)')"
+          reported_file_count="$(jq -r '.changed_files' <<< "$pr_json")"
+          file_count=0
           needs_review=false
           fallback_eligible=false
           reason=""
+          file_list_complete=true
 
-          if [ "$file_count" -ge 12 ]; then
+          if ! [[ "$reported_file_count" =~ ^[0-9]+$ ]]; then
+            needs_review=true
+            fallback_eligible=false
+            file_list_complete=false
+            reason="invalid changed-file count"
+          elif [ "$reported_file_count" -gt 3000 ]; then
+            needs_review=true
+            fallback_eligible=false
+            file_list_complete=false
+            reason="changed-file list exceeds GitHub's 3000-file API limit"
+          else
+            file_count="$reported_file_count"
+          fi
+
+          if [ "$file_list_complete" = "true" ] && [ "$file_count" -ge 12 ]; then
             needs_review=true
             fallback_eligible=true
             reason="large change (${file_count} files)"
           fi
 
-          while IFS= read -r file; do
-            [ -z "$file" ] && continue
+          if [ "$file_list_complete" = "true" ]; then
+            while IFS= read -r file; do
+              [ -z "$file" ] && continue
 
-            case "$file" in
-              .github/workflows/*|db/migrations/*|migrations/*|src/app/api/*|src/app/privacy/*|src/app/privacy/**|*/privacy/*|src/app/admin/foretag/directory/*|src/app/admin/foretag/directory/**|package.json|package-lock.json|pnpm-lock.yaml|yarn.lock|*/package-lock.json|*/pnpm-lock.yaml|*/yarn.lock|vercel.json|next.config.*|src/proxy.*|middleware.*|scripts/company-directory-discovery.py)
+              case "$file" in
+                .github/workflows/*|db/migrations/*|migrations/*|src/app/api/*|src/app/privacy/*|src/app/privacy/**|*/privacy/*|src/app/admin/foretag/directory/*|src/app/admin/foretag/directory/**|package.json|package-lock.json|pnpm-lock.yaml|yarn.lock|*/package-lock.json|*/pnpm-lock.yaml|*/yarn.lock|vercel.json|next.config.*|src/proxy.*|middleware.*|scripts/company-directory-discovery.py)
+                  needs_review=true
+                  fallback_eligible=false
+                  reason="sensitive path: $file"
+                  break
+                  ;;
+              esac
+
+              if [[ "$file" =~ (^|/)(auth|rbac|permissions?|tenant|workspace|billing|payments?|stripe|checkout|webhooks?|db|database|postgres|neon)(/|[._-]) ]] ||
+                 [[ "$file" =~ company[-_]directory ]] ||
+                 [[ "$file" =~ (^|/)\.env ]]; then
                 needs_review=true
                 fallback_eligible=false
-                reason="sensitive path: $file"
+                reason="sensitive domain: $file"
                 break
-                ;;
-            esac
-
-            if [[ "$file" =~ (^|/)(auth|rbac|permissions?|tenant|workspace|billing|payments?|stripe|checkout|webhooks?|db|database|postgres|neon)(/|[._-]) ]] ||
-               [[ "$file" =~ company[-_]directory ]] ||
-               [[ "$file" =~ (^|/)\.env ]]; then
-              needs_review=true
-              fallback_eligible=false
-              reason="sensitive domain: $file"
-              break
-            fi
-          done <<< "$changed_files"
+              fi
+            done <<< "$changed_files"
+          fi
 
           if [ "$needs_review" != "true" ]; then
             echo "PR #${PR_NUMBER}: final AI review not required."
@@ -650,39 +673,57 @@ jobs:
             exit 0
           fi
 
-          changed_files="$(gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100" --jq '.[].filename')"
-          file_count="$(grep -c . <<< "$changed_files" || true)"
+          changed_files="$(gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100" --jq '.[] | .filename, (.previous_filename // empty)')"
+          reported_file_count="$(jq -r '.changed_files' <<< "$pr_json")"
+          file_count=0
           needs_review=false
           fallback_eligible=false
           reason=""
+          file_list_complete=true
 
-          if [ "$file_count" -ge 12 ]; then
+          if ! [[ "$reported_file_count" =~ ^[0-9]+$ ]]; then
+            needs_review=true
+            fallback_eligible=false
+            file_list_complete=false
+            reason="invalid changed-file count"
+          elif [ "$reported_file_count" -gt 3000 ]; then
+            needs_review=true
+            fallback_eligible=false
+            file_list_complete=false
+            reason="changed-file list exceeds GitHub's 3000-file API limit"
+          else
+            file_count="$reported_file_count"
+          fi
+
+          if [ "$file_list_complete" = "true" ] && [ "$file_count" -ge 12 ]; then
             needs_review=true
             fallback_eligible=true
             reason="large change (${file_count} files)"
           fi
 
-          while IFS= read -r file; do
-            [ -z "$file" ] && continue
+          if [ "$file_list_complete" = "true" ]; then
+            while IFS= read -r file; do
+              [ -z "$file" ] && continue
 
-            case "$file" in
-              .github/workflows/*|db/migrations/*|migrations/*|src/app/api/*|src/app/privacy/*|src/app/privacy/**|*/privacy/*|src/app/admin/foretag/directory/*|src/app/admin/foretag/directory/**|package.json|package-lock.json|pnpm-lock.yaml|yarn.lock|*/package-lock.json|*/pnpm-lock.yaml|*/yarn.lock|vercel.json|next.config.*|src/proxy.*|middleware.*|scripts/company-directory-discovery.py)
+              case "$file" in
+                .github/workflows/*|db/migrations/*|migrations/*|src/app/api/*|src/app/privacy/*|src/app/privacy/**|*/privacy/*|src/app/admin/foretag/directory/*|src/app/admin/foretag/directory/**|package.json|package-lock.json|pnpm-lock.yaml|yarn.lock|*/package-lock.json|*/pnpm-lock.yaml|*/yarn.lock|vercel.json|next.config.*|src/proxy.*|middleware.*|scripts/company-directory-discovery.py)
+                  needs_review=true
+                  fallback_eligible=false
+                  reason="sensitive path: $file"
+                  break
+                  ;;
+              esac
+
+              if [[ "$file" =~ (^|/)(auth|rbac|permissions?|tenant|workspace|billing|payments?|stripe|checkout|webhooks?|db|database|postgres|neon)(/|[._-]) ]] ||
+                 [[ "$file" =~ company[-_]directory ]] ||
+                 [[ "$file" =~ (^|/)\.env ]]; then
                 needs_review=true
                 fallback_eligible=false
-                reason="sensitive path: $file"
+                reason="sensitive domain: $file"
                 break
-                ;;
-            esac
-
-            if [[ "$file" =~ (^|/)(auth|rbac|permissions?|tenant|workspace|billing|payments?|stripe|checkout|webhooks?|db|database|postgres|neon)(/|[._-]) ]] ||
-               [[ "$file" =~ company[-_]directory ]] ||
-               [[ "$file" =~ (^|/)\.env ]]; then
-              needs_review=true
-              fallback_eligible=false
-              reason="sensitive domain: $file"
-              break
-            fi
-          done <<< "$changed_files"
+              fi
+            done <<< "$changed_files"
+          fi
 
           if [ "$needs_review" != "true" ]; then
             echo "PR #${PR_NUMBER}: browser smoke passed and AI review is not required."

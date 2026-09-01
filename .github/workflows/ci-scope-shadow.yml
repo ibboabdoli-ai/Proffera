@@ -60,6 +60,12 @@ jobs:
             exit 0
           fi
 
+          reported_file_count="$(jq -r '.changed_files' <<< "$pr_json")"
+          if ! [[ "$reported_file_count" =~ ^[0-9]+$ ]] || [ "$reported_file_count" -gt 3000 ]; then
+            summary "⚠️ Changed-file evidence is incomplete or exceeds GitHub's 3000-file API limit. Required CI remains fail-closed."
+            exit 0
+          fi
+
           changed_files="$(gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100" --jq '.[] | .filename, (.previous_filename // empty)')" || {
             summary "⚠️ Could not read changed files. Required CI remains fail-closed."
             exit 0
@@ -83,6 +89,21 @@ jobs:
               summary ""
               summary "Planner diagnostic: \`$(tr '\n' ' ' < "$error_file" | head -c 400)\`"
             fi
+            exit 0
+          fi
+
+          if ! jq -e '
+            (.policyVersion | type) == "number"
+            and .policyVersion >= 2
+            and .mode == "targeted"
+            and (.classification | type) == "string"
+            and (.reductionCandidate | type) == "boolean"
+            and (.fullCiStillRequired | type) == "boolean"
+            and (.proposedLanes | type) == "array"
+            and (.files | type) == "array"
+            and (.reasons | type) == "array"
+          ' "$plan_file" >/dev/null; then
+            summary "⚠️ Trusted planner is pre-activation or has an unsupported schema. Required CI remains fail-closed."
             exit 0
           fi
 
