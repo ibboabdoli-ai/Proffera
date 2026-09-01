@@ -8,10 +8,10 @@ reviews:
   poem: false
   review_status: true
   auto_review:
-    enabled: false
+    enabled: true
     drafts: false
-    auto_incremental_review: false
-    # Final reviews are requested explicitly by CI with @coderabbitai review.
+    auto_incremental_review: true
+    # Keep current-head reviews automatic so CI does not depend on manual review commands.
   path_filters:
     - "!**/node_modules/**"
     - "!**/.next/**"
