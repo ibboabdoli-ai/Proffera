@@ -32,14 +32,14 @@ const reviewHead = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
 function ciReviewGateShellBlock() {
   const ci = source(".github/workflows/ci.yml");
-  const marker = "          changed_files=\"$(gh api --paginate \"repos/${REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100\" --jq '.[].filename')\"";
-  const first = ci.indexOf(marker);
-  const start = ci.indexOf(marker, first + marker.length);
+  const gateStart = ci.indexOf("  e2e_public_smoke:\n");
+  const marker = "          changed_files=\"$(gh api --paginate \"repos/${REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100\" --jq '.[] | .filename, (.previous_filename // empty)')\"";
+  const start = ci.indexOf(marker, gateStart);
   const refusalMarker = '          if [ "$fallback_eligible" = "true" ]; then\n            echo "Refused: no acceptable CodeRabbit or Codex fallback decision was recorded for the current head within the gate window."';
   const refusal = ci.indexOf(refusalMarker, start);
   const exitIndex = ci.indexOf("          exit 1", refusal);
-  expect(first).toBeGreaterThanOrEqual(0);
-  expect(start).toBeGreaterThan(first);
+  expect(gateStart).toBeGreaterThanOrEqual(0);
+  expect(start).toBeGreaterThan(gateStart);
   expect(refusal).toBeGreaterThan(start);
   expect(exitIndex).toBeGreaterThan(refusal);
 
@@ -52,6 +52,7 @@ function ciReviewGateShellBlock() {
 
 type CiReviewFixture = {
   changedFiles: string;
+  reportedFileCount?: number;
   firstReviews?: Array<Record<string, unknown>>;
   laterReviews?: Array<Record<string, unknown>>;
   comments?: Array<Record<string, unknown>>;
@@ -105,7 +106,7 @@ if [ "$1" = "api" ] && [ "\${2:-}" = "repos/ibboabdoli-ai/Proffera/pulls/801" ];
   if [[ "$args" == *"--jq .head.sha"* ]]; then
     printf '%s\\n' "$FAKE_HEAD_SHA"
   else
-    printf '{"head":{"sha":"%s"},"labels":[{"name":"needs-ai-review"}]}\\n' "$FAKE_HEAD_SHA"
+    printf '{"head":{"sha":"%s"},"changed_files":%s,"labels":[{"name":"needs-ai-review"}]}\\n' "$FAKE_HEAD_SHA" "$FAKE_REPORTED_FILE_COUNT"
   fi
   exit 0
 fi
@@ -126,16 +127,18 @@ set -euo pipefail
 REPOSITORY=ibboabdoli-ai/Proffera
 PR_NUMBER=801
 HEAD_SHA=${reviewHead}
-pr_json='{"head":{"sha":"${reviewHead}"},"labels":[{"name":"needs-ai-review"}]}'
+pr_json="$(printf '{\"head\":{\"sha\":\"%s\"},\"changed_files\":%s,\"labels\":[{\"name\":\"needs-ai-review\"}]}' "$HEAD_SHA" "$FAKE_REPORTED_FILE_COUNT")"
 ${ciReviewGateShellBlock()}
 `, { mode: 0o755 });
 
+  const reportedFileCount = fixture.reportedFileCount ?? fixture.changedFiles.split("\n").filter(Boolean).length;
   const result = spawnSync("bash", [script], {
     encoding: "utf8",
     env: {
       ...process.env,
       PATH: `${dir}${delimiter}${process.env.PATH ?? ""}`,
       FAKE_CHANGED_FILES: fixture.changedFiles,
+      FAKE_REPORTED_FILE_COUNT: String(reportedFileCount),
       FAKE_FIRST_REVIEWS: toNdjson(fixture.firstReviews),
       FAKE_LATER_REVIEWS: toNdjson(fixture.laterReviews ?? fixture.firstReviews),
       FAKE_COMMENTS: toNdjson(fixture.comments),
@@ -349,9 +352,18 @@ describe("tooling safety contract", () => {
     });
     expect(sensitivePath.status).toBe(1);
     expect(`${sensitivePath.stdout}${sensitivePath.stderr}`).toContain("this high-risk path is CodeRabbit-only");
+
+    const truncatedLargePr = runCiReviewFixture({
+      changedFiles: "docs/readme.md",
+      reportedFileCount: 3001,
+      failOnPost: true,
+    });
+    expect(truncatedLargePr.status).toBe(1);
+    expect(`${truncatedLargePr.stdout}${truncatedLargePr.stderr}`).toContain("exceeds GitHub's 3000-file API limit");
+    expect(`${truncatedLargePr.stdout}${truncatedLargePr.stderr}`).toContain("this high-risk path is CodeRabbit-only");
   }, 15000);
 
-  it("fails closed when CodeRabbit approval and change request have equal timestamps during fallback", () => {
+  it("re-checks CodeRabbit state after Codex fallback and fails closed on equal-timestamp review races", () => {
     const equalTimestamp = "2026-08-31T10:04:00Z";
     const result = runCiReviewFixture({
       changedFiles: largeSafeChange(),
@@ -383,8 +395,14 @@ describe("tooling safety contract", () => {
 
   it("keeps Codex fallback availability-only, medium-risk, exact-head, and fail-closed", () => {
     const ci = source(".github/workflows/ci.yml");
+    const shadow = source(".github/workflows/ci-scope-shadow.yml");
     const automerge = source(".github/workflows/proffera-automerge.yml");
     const agents = source("AGENTS.md");
+    const routeStart = ci.indexOf("  route_ai_review:\n");
+    const routeEnd = ci.indexOf("  e2e_public_smoke_run:\n", routeStart);
+    const gateStart = ci.indexOf("  e2e_public_smoke:\n");
+    const routeBlock = ci.slice(routeStart, routeEnd);
+    const gateBlock = ci.slice(gateStart);
 
     expect(ci).toContain("fallback_eligible=true");
     expect(ci).toContain("fallback_eligible=false");
@@ -397,8 +415,16 @@ describe("tooling safety contract", () => {
     expect(ci).toContain("package-lock.json|pnpm-lock.yaml|yarn.lock|*/package-lock.json|*/pnpm-lock.yaml|*/yarn.lock");
     expect(ci).toContain("issues/comments/${codex_request_id}/reactions?per_page=100");
     expect(ci).not.toContain("issues/${PR_NUMBER}/reactions?per_page=100");
-    expect((ci.match(/gh api --paginate "repos\/\$\{REPOSITORY\}\/pulls\/\$\{PR_NUMBER\}\/files\?per_page=100"/g) ?? []).length).toBe(2);
+    expect(ci).toContain("Checkout trusted base planner");
+    expect(routeBlock).toContain(".filename, (.previous_filename // empty)");
+    expect(gateBlock).toContain(".filename, (.previous_filename // empty)");
+    expect(routeBlock).toContain("3000-file API limit");
+    expect(gateBlock).toContain("3000-file API limit");
     expect(ci).toContain("Refused: no acceptable CodeRabbit or Codex fallback decision was recorded for the current head within the gate window.");
+
+    expect(shadow).toContain(".policyVersion >= 2");
+    expect(shadow).toContain("unsupported schema");
+    expect(shadow).toContain("3000-file API limit");
 
     expect(automerge).toContain("fallback_eligible=true");
     expect(automerge).toContain("fallback_eligible=false");

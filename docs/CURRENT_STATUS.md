@@ -1,6 +1,6 @@
 # Proffera Current Status
 
-Last updated: 2026-08-29
+Last updated: 2026-09-01
 
 This is the canonical factual status document for Proffera. For worker rules, live task state, current `main` SHA, and roadmap order, also read `AGENTS.md`, `WORKER_BOOTSTRAP.md`, GitHub issue #548, GitHub issue #276, and `docs/README.md`.
 
@@ -71,28 +71,33 @@ A dedicated `Worker supervisor sync` GitHub Actions workflow records `work/proff
 
 CodeRabbit is opt-in rather than automatic on every PR. Review-label reset and post-Validate routing are serialized inside the required CI workflow under pull-request-scoped concurrency. Every fresh PR revision first removes stale `needs-ai-review`; after `Validate` succeeds, a metadata-only job reapplies it and requests one exact-head review whenever a non-draft PR still matches the sensitive/large risk predicate. Non-sensitive PRs do not consume an automatic CodeRabbit review.
 
-The required `E2E public smoke` check is fail-closed for routed PRs. The browser smoke itself runs in an unprivileged Playwright job; a separate metadata-only final gate keeps the required check pending until CodeRabbit has produced exact-current-head evidence. Accepted non-blocking evidence is either a current-head `COMMENTED`/`APPROVED` submitted review or CodeRabbit's bot-authored recent-review summary for the exact full head SHA stating that no actionable comments were generated. A current-head `CHANGES_REQUESTED` remains blocking even if CodeRabbit later submits a `COMMENTED` review or emits a clean summary; only a later current-head `APPROVED` review clears that change request. Missing/stale review state, stale routing, or a stale workflow head prevents the required check from succeeding. A new commit invalidates previous review evidence because all decisions are matched to the current head SHA.
+Targeted CI uses a trusted-base scope planner for pull requests. The required CI workflow reads changed paths, including both sides of renames, but executes the planner from the PR base rather than from untrusted PR code. Policy version 2 allows bounded low-risk lane reduction while preserving the required `Validate` and `E2E public smoke` status names. Documentation-only changes keep governance and whitespace validation; unit-test-only changes keep lint, typecheck and unit tests; E2E-test-only changes keep lint, typecheck and browser smoke; normal application/source changes still keep lint, typecheck, unit, build and browser lanes. Discovery-worker control/test paths, workflows, APIs, auth/RBAC, tenant/workspace, database/migrations, payments, privacy/Directory, package/lock/configuration paths, unknown paths and other restricted scope remain full-CI. Pushes to `main` always run full CI. A stale event, changed-file read failure, missing planner, unsupported planner schema or planner failure defaults to full CI rather than skipping work. The separate `Targeted CI shadow` workflow remains an advisory mirror of the same trusted-base classification and cannot authorize merge.
 
-Gated automerge independently applies the same risk predicate and current-head CodeRabbit decision rules for paths it is otherwise allowed to merge. It reacts directly to successful CI completion, submitted reviews and review-comment updates rather than depending on a polling interval. A standing policy is read only from `main`, is constrained by repository owner, phase scope, Supervisor issue, explicit branch prefixes and expiry, and additionally requires the PR to be same-repository, authored by the repository owner and sourced from a branch owned by that same account; matching fork PRs or PRs from another author cannot inherit standing authorization. Its own policy/workflow files are blocked from gated automerge. Status-check reads are bounded by a per-attempt timeout, checks are classified with GitHub CLI buckets, fail/cancel outcomes are rejected, pending outcomes are retried for a bounded window, and unknown outcomes fail closed. Highly sensitive paths that were already blocked from automerge remain blocked and require the normal controlled merge path after required checks pass.
+The required `E2E public smoke` check is fail-closed for routed PRs. The browser smoke itself runs in an unprivileged Playwright job when the trusted scope requires that lane; the job remains present and succeeds with an explicit targeted-skip record when browser execution is not required. The metadata-only final gate preserves the existing required status name and exact-current-head review rules. Sensitive/high-risk CodeRabbit-only paths evaluate the available current-head review state once and fail closed immediately when review evidence is missing or blocking instead of holding a runner in a ten-minute polling loop. A dedicated `Proffera final gate wakeup` workflow listens only for relevant CodeRabbit/Codex review evidence (plus manual recovery), verifies the PR is still on the same exact head, requires successful `Validate`, `AI review route`, and actual `E2E public smoke run`, then re-runs only the failed/cancelled `E2E public smoke` final job. Heavy lint/test/build/browser jobs are not re-run just because review evidence arrived. Medium-risk non-sensitive fallback keeps its bounded availability window because timeout itself is part of the fallback policy. Accepted non-blocking evidence is either a current-head `COMMENTED`/`APPROVED` submitted review or CodeRabbit's bot-authored recent-review summary for the exact full head SHA stating that no actionable comments were generated. A current-head `CHANGES_REQUESTED` remains blocking even if CodeRabbit later submits a `COMMENTED` review or emits a clean summary; only a later current-head `APPROVED` review clears that change request. Missing/stale review state, stale routing, or a stale workflow head prevents the required check from succeeding. A new commit invalidates previous review evidence because all decisions are matched to the current head SHA.
 
-If CodeRabbit is rate-limited or otherwise unavailable, a sensitive/large PR intentionally remains blocked instead of silently merging without the required review.
+Gated automerge continues to apply its authorization, sensitive-path, status-check and immediate pre-merge current-head review guards as defense in depth. The final required `E2E public smoke` check remains the delivery-level browser-plus-review gate; the wakeup workflow only re-evaluates that existing gate and never merges. A standing policy is read only from `main`, is constrained by repository owner, phase scope, Supervisor issue, explicit branch prefixes and expiry, and additionally requires the PR to be same-repository, authored by the repository owner and sourced from a branch owned by that same account; matching fork PRs or PRs from another author cannot inherit standing authorization. Its own policy/workflow files are blocked from gated automerge. Status-check reads remain bounded and fail closed. Highly sensitive paths that were already blocked from automerge remain blocked and require the normal controlled merge path after required checks pass.
+
+For medium-risk non-sensitive PRs, a machine-observed CodeRabbit availability failure or bounded availability timeout may activate the exact-head Codex fallback; Codex cannot override a current-head CodeRabbit `CHANGES_REQUESTED`. Sensitive/high-risk paths remain CodeRabbit-only and intentionally stay blocked if the required CodeRabbit decision is unavailable.
 
 Dependency-bot branches are handled separately by automation and are exempt from Worker Bootstrap declarations and automatic AI-review routing.
 
 ## CI and browser testing
 
-`Validate` covers:
+`Validate` remains a required stable status and aggregates governance, fail-closed scope resolution, and the scope-selected quality jobs. The trusted-base planner may reduce expensive work only for mapped low-risk pull requests; restricted, sensitive, unknown or unreadable scope remains full-CI.
+
+Available CI lanes cover:
 
 - Worker Bootstrap / branch / documentation governance checks;
-- dependency install;
+- dependency install when a selected Node lane needs it;
 - ESLint;
 - TypeScript typecheck;
 - Vitest/test suite;
 - Company Directory discovery-worker Python validation;
 - Next.js production build;
-- whitespace validation.
+- whitespace validation;
+- Playwright browser smoke.
 
-Playwright browser E2E is automated in CI. The actual browser run is `E2E public smoke run`; the required `E2E public smoke` check is the final browser-plus-review gate described above.
+Playwright browser E2E is automated in CI. The actual browser job is `E2E public smoke run`; the required `E2E public smoke` check is the final browser-plus-review gate described above. For low-risk scope where browser execution is not selected, the browser job records an explicit targeted skip and the final required gate still runs. No required status name is removed by targeted CI.
 
 Committed non-destructive browser coverage includes:
 
@@ -159,7 +164,7 @@ A Production runtime warning observed on 2026-08-18 concerns PostgreSQL connecti
 
 1. Keep issue #548 as the live worker/PR state and current `main` baseline; use automatic Supervisor lifecycle events as the durable event trail.
 2. Keep this file synchronized only when a PR changes stable project-level truth; do not use it for fast-moving task/SHA/deployment state.
-3. Keep CodeRabbit consumption risk-routed and fail closed: sensitive/large PRs require an acceptable CodeRabbit decision on the current head before the required merge gate can pass.
+3. Keep AI-review routing fail closed while avoiding review latency as CI runner latency: low-risk PRs avoid unnecessary review, sensitive/high-risk paths fail fast while waiting for CodeRabbit and wake only the final gate when exact-head review evidence changes, and medium-risk non-sensitive PRs may use bounded Codex fallback only after CodeRabbit availability failure.
 4. Monitor nationwide Company Directory rollout volume and queue health before increasing rollout speed.
 5. Configure an independent Preview Brevo credential and rotate the weak Preview Better Auth secret, then re-run controlled-recipient email and Admin-visible Marketplace E2E.
 6. Keep recurring state-changing Booking/Marketplace/Stripe browser automation gated until the remaining Preview runtime isolation checks are proven.

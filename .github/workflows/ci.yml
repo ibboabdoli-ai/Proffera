@@ -137,9 +137,143 @@ jobs:
         run: |
           echo "Push event: PR bootstrap governance is not applicable."
 
+  ci_scope:
+    name: CI scope
+    needs: governance
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      lint: ${{ steps.scope.outputs.lint }}
+      typecheck: ${{ steps.scope.outputs.typecheck }}
+      unit: ${{ steps.scope.outputs.unit }}
+      build: ${{ steps.scope.outputs.build }}
+      e2e: ${{ steps.scope.outputs.e2e }}
+      discovery_worker: ${{ steps.scope.outputs.discovery_worker }}
+      classification: ${{ steps.scope.outputs.classification }}
+
+    steps:
+      - name: Checkout trusted base planner
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - name: Setup Node
+        if: github.event_name == 'pull_request'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+
+      - name: Resolve fail-closed execution lanes
+        id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          lint=true
+          typecheck=true
+          unit=true
+          build=true
+          e2e=true
+          discovery_worker=true
+          classification=full
+
+          emit() {
+            {
+              echo "lint=$lint"
+              echo "typecheck=$typecheck"
+              echo "unit=$unit"
+              echo "build=$build"
+              echo "e2e=$e2e"
+              echo "discovery_worker=$discovery_worker"
+              echo "classification=$classification"
+            } >> "$GITHUB_OUTPUT"
+          }
+
+          full_and_exit() {
+            echo "$1"
+            emit
+            exit 0
+          }
+
+          if [ "$EVENT_NAME" != "pull_request" ]; then
+            full_and_exit "Push event: full CI remains required."
+          fi
+
+          pr_json="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")" || full_and_exit "Scope read failed; using full CI."
+          current_head_sha="$(jq -r '.head.sha' <<< "$pr_json")"
+          if [ "$current_head_sha" != "$EXPECTED_HEAD_SHA" ]; then
+            full_and_exit "Stale scope event; using full CI."
+          fi
+
+          reported_file_count="$(jq -r '.changed_files' <<< "$pr_json")"
+          if ! [[ "$reported_file_count" =~ ^[0-9]+$ ]] || [ "$reported_file_count" -gt 3000 ]; then
+            full_and_exit "Changed-file evidence is incomplete or exceeds GitHub's 3000-file API limit; using full CI."
+          fi
+
+          changed_files="$(gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100" --jq '.[] | .filename, (.previous_filename // empty)')" || full_and_exit "Changed-file read failed; using full CI."
+
+          if [ ! -f scripts/ci-scope-plan.mjs ]; then
+            full_and_exit "Trusted base has no scope planner; using full CI."
+          fi
+
+          plan_file="$(mktemp)"
+          error_file="$(mktemp)"
+          set +e
+          printf '%s\n' "$changed_files" | env -u GH_TOKEN node scripts/ci-scope-plan.mjs >"$plan_file" 2>"$error_file"
+          planner_status=$?
+          set -e
+
+          if [ "$planner_status" -ne 0 ] || ! jq -e . "$plan_file" >/dev/null 2>&1; then
+            full_and_exit "Trusted-base planner failed; using full CI."
+          fi
+
+          if ! jq -e '
+            (.policyVersion | type) == "number"
+            and .policyVersion >= 2
+            and .mode == "targeted"
+            and (.reductionCandidate | type) == "boolean"
+            and (.fullCiStillRequired | type) == "boolean"
+            and (.execution | type) == "object"
+            and (.execution.lint | type) == "boolean"
+            and (.execution.typecheck | type) == "boolean"
+            and (.execution.unit | type) == "boolean"
+            and (.execution.build | type) == "boolean"
+            and (.execution.e2e | type) == "boolean"
+            and (.execution.discoveryWorker | type) == "boolean"
+          ' "$plan_file" >/dev/null; then
+            full_and_exit "Trusted planner is pre-activation or malformed; using full CI."
+          fi
+
+          if [ "$(jq -r '.reductionCandidate' "$plan_file")" != "true" ] ||
+             [ "$(jq -r '.fullCiStillRequired' "$plan_file")" != "false" ]; then
+            full_and_exit "Trusted planner requires full CI."
+          fi
+
+          lint="$(jq -r '.execution.lint' "$plan_file")"
+          typecheck="$(jq -r '.execution.typecheck' "$plan_file")"
+          unit="$(jq -r '.execution.unit' "$plan_file")"
+          build="$(jq -r '.execution.build' "$plan_file")"
+          e2e="$(jq -r '.execution.e2e' "$plan_file")"
+          discovery_worker="$(jq -r '.execution.discoveryWorker' "$plan_file")"
+          classification="$(jq -r '.classification' "$plan_file")"
+          emit
+
+          echo "Targeted CI classification: $classification"
+          echo "Selected lanes: lint=$lint typecheck=$typecheck unit=$unit build=$build e2e=$e2e discovery_worker=$discovery_worker"
+
   static_checks:
     name: Static checks
-    needs: governance
+    needs: [governance, ci_scope]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -152,18 +286,22 @@ jobs:
           persist-credentials: false
 
       - name: Setup Node
+        if: needs.ci_scope.outputs.lint == 'true' || needs.ci_scope.outputs.typecheck == 'true'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22
           cache: npm
 
       - name: Install dependencies
+        if: needs.ci_scope.outputs.lint == 'true' || needs.ci_scope.outputs.typecheck == 'true'
         run: npm ci --no-audit --no-fund
 
       - name: Lint
+        if: needs.ci_scope.outputs.lint == 'true'
         run: npm run lint
 
       - name: Typecheck
+        if: needs.ci_scope.outputs.typecheck == 'true'
         run: npm run typecheck
 
       - name: Check whitespace errors
@@ -189,82 +327,110 @@ jobs:
 
           git diff --check "$PUSH_BEFORE_SHA" "$PUSH_HEAD_SHA"
 
+      - name: Report targeted static skip
+        if: needs.ci_scope.outputs.lint != 'true' && needs.ci_scope.outputs.typecheck != 'true'
+        run: echo "Targeted CI skipped Node static analysis for this scope; whitespace validation still ran."
+
   unit_tests:
     name: Unit and worker tests
-    needs: governance
+    needs: [governance, ci_scope]
     runs-on: ubuntu-latest
     permissions:
       contents: read
 
     steps:
       - name: Checkout
+        if: needs.ci_scope.outputs.unit == 'true' || needs.ci_scope.outputs.discovery_worker == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
       - name: Setup Node
+        if: needs.ci_scope.outputs.unit == 'true'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22
           cache: npm
 
       - name: Install dependencies
+        if: needs.ci_scope.outputs.unit == 'true'
         run: npm ci --no-audit --no-fund
 
       - name: Test
+        if: needs.ci_scope.outputs.unit == 'true'
         run: npm test
 
       - name: Validate discovery worker
+        if: needs.ci_scope.outputs.discovery_worker == 'true'
         run: |
           python3 -m py_compile scripts/company-directory-discovery.py
           python3 tests/test_company_directory_discovery_worker.py
 
+      - name: Report targeted unit skip
+        if: needs.ci_scope.outputs.unit != 'true' && needs.ci_scope.outputs.discovery_worker != 'true'
+        run: echo "Targeted CI skipped unit and discovery-worker execution for this scope."
+
   build:
     name: Build
-    needs: governance
+    needs: [governance, ci_scope]
     runs-on: ubuntu-latest
     permissions:
       contents: read
 
     steps:
       - name: Checkout
+        if: needs.ci_scope.outputs.build == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
       - name: Setup Node
+        if: needs.ci_scope.outputs.build == 'true'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22
           cache: npm
 
       - name: Install dependencies
+        if: needs.ci_scope.outputs.build == 'true'
         run: npm ci --no-audit --no-fund
 
       - name: Build
+        if: needs.ci_scope.outputs.build == 'true'
         run: npm run build
+
+      - name: Report targeted build skip
+        if: needs.ci_scope.outputs.build != 'true'
+        run: echo "Targeted CI skipped the production build for this scope."
 
   validate:
     name: Validate
     if: always()
-    needs: [governance, static_checks, unit_tests, build]
+    needs: [governance, ci_scope, static_checks, unit_tests, build]
     runs-on: ubuntu-latest
     permissions:
       contents: read
 
     steps:
-      - name: Require all quality checks
+      - name: Require all scope-selected quality checks
         env:
           GOVERNANCE_RESULT: ${{ needs.governance.result }}
+          SCOPE_RESULT: ${{ needs.ci_scope.result }}
           STATIC_RESULT: ${{ needs.static_checks.result }}
           TEST_RESULT: ${{ needs.unit_tests.result }}
           BUILD_RESULT: ${{ needs.build.result }}
+          CLASSIFICATION: ${{ needs.ci_scope.outputs.classification }}
         shell: bash
         run: |
           set -euo pipefail
 
           if [ "$GOVERNANCE_RESULT" != "success" ]; then
             echo "Refused: governance did not succeed ($GOVERNANCE_RESULT)."
+            exit 1
+          fi
+
+          if [ "$SCOPE_RESULT" != "success" ]; then
+            echo "Refused: CI scope resolution did not succeed ($SCOPE_RESULT)."
             exit 1
           fi
 
@@ -283,7 +449,7 @@ jobs:
             exit 1
           fi
 
-          echo "All governance and parallel quality checks succeeded."
+          echo "All governance and scope-selected quality checks succeeded (classification=$CLASSIFICATION)."
 
   route_ai_review:
     name: AI review route
@@ -319,39 +485,57 @@ jobs:
             exit 0
           fi
 
-          changed_files="$(gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100" --jq '.[].filename')"
-          file_count="$(grep -c . <<< "$changed_files" || true)"
+          changed_files="$(gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100" --jq '.[] | .filename, (.previous_filename // empty)')"
+          reported_file_count="$(jq -r '.changed_files' <<< "$pr_json")"
+          file_count=0
           needs_review=false
           fallback_eligible=false
           reason=""
+          file_list_complete=true
 
-          if [ "$file_count" -ge 12 ]; then
+          if ! [[ "$reported_file_count" =~ ^[0-9]+$ ]]; then
+            needs_review=true
+            fallback_eligible=false
+            file_list_complete=false
+            reason="invalid changed-file count"
+          elif [ "$reported_file_count" -gt 3000 ]; then
+            needs_review=true
+            fallback_eligible=false
+            file_list_complete=false
+            reason="changed-file list exceeds GitHub's 3000-file API limit"
+          else
+            file_count="$reported_file_count"
+          fi
+
+          if [ "$file_list_complete" = "true" ] && [ "$file_count" -ge 12 ]; then
             needs_review=true
             fallback_eligible=true
             reason="large change (${file_count} files)"
           fi
 
-          while IFS= read -r file; do
-            [ -z "$file" ] && continue
+          if [ "$file_list_complete" = "true" ]; then
+            while IFS= read -r file; do
+              [ -z "$file" ] && continue
 
-            case "$file" in
-              .github/workflows/*|db/migrations/*|migrations/*|src/app/api/*|src/app/privacy/*|src/app/privacy/**|*/privacy/*|src/app/admin/foretag/directory/*|src/app/admin/foretag/directory/**|package.json|package-lock.json|pnpm-lock.yaml|yarn.lock|*/package-lock.json|*/pnpm-lock.yaml|*/yarn.lock|vercel.json|next.config.*|src/proxy.*|middleware.*|scripts/company-directory-discovery.py)
+              case "$file" in
+                .github/workflows/*|db/migrations/*|migrations/*|src/app/api/*|src/app/privacy/*|src/app/privacy/**|*/privacy/*|src/app/admin/foretag/directory/*|src/app/admin/foretag/directory/**|package.json|package-lock.json|pnpm-lock.yaml|yarn.lock|*/package-lock.json|*/pnpm-lock.yaml|*/yarn.lock|vercel.json|next.config.*|src/proxy.*|middleware.*|scripts/company-directory-discovery.py)
+                  needs_review=true
+                  fallback_eligible=false
+                  reason="sensitive path: $file"
+                  break
+                  ;;
+              esac
+
+              if [[ "$file" =~ (^|/)(auth|rbac|permissions?|tenant|workspace|billing|payments?|stripe|checkout|webhooks?|db|database|postgres|neon)(/|[._-]) ]] ||
+                 [[ "$file" =~ company[-_]directory ]] ||
+                 [[ "$file" =~ (^|/)\.env ]]; then
                 needs_review=true
                 fallback_eligible=false
-                reason="sensitive path: $file"
+                reason="sensitive domain: $file"
                 break
-                ;;
-            esac
-
-            if [[ "$file" =~ (^|/)(auth|rbac|permissions?|tenant|workspace|billing|payments?|stripe|checkout|webhooks?|db|database|postgres|neon)(/|[._-]) ]] ||
-               [[ "$file" =~ company[-_]directory ]] ||
-               [[ "$file" =~ (^|/)\.env ]]; then
-              needs_review=true
-              fallback_eligible=false
-              reason="sensitive domain: $file"
-              break
-            fi
-          done <<< "$changed_files"
+              fi
+            done <<< "$changed_files"
+          fi
 
           if [ "$needs_review" != "true" ]; then
             echo "PR #${PR_NUMBER}: final AI review not required."
@@ -389,18 +573,20 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
-    needs: governance
+    needs: [governance, ci_scope]
     container:
       image: mcr.microsoft.com/playwright@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e # v1.62.1-noble
       options: --user 1001
 
     steps:
       - name: Checkout
+        if: needs.ci_scope.outputs.e2e == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
 
       - name: Setup Node
+        if: needs.ci_scope.outputs.e2e == 'true'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22
@@ -410,17 +596,24 @@ jobs:
             e2e/package-lock.json
 
       - name: Install app dependencies
+        if: needs.ci_scope.outputs.e2e == 'true'
         run: npm ci --no-audit --no-fund
 
       - name: Install E2E dependencies
+        if: needs.ci_scope.outputs.e2e == 'true'
         working-directory: e2e
         run: npm ci --no-audit --no-fund
 
       - name: Run non-destructive public smoke tests
+        if: needs.ci_scope.outputs.e2e == 'true'
         working-directory: e2e
         env:
           E2E_BASE_URL: http://127.0.0.1:3000
         run: npm test
+
+      - name: Report targeted E2E skip
+        if: needs.ci_scope.outputs.e2e != 'true'
+        run: echo "Targeted CI skipped the browser smoke execution for this scope."
 
   e2e_public_smoke:
     name: E2E public smoke
@@ -480,39 +673,57 @@ jobs:
             exit 0
           fi
 
-          changed_files="$(gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100" --jq '.[].filename')"
-          file_count="$(grep -c . <<< "$changed_files" || true)"
+          changed_files="$(gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100" --jq '.[] | .filename, (.previous_filename // empty)')"
+          reported_file_count="$(jq -r '.changed_files' <<< "$pr_json")"
+          file_count=0
           needs_review=false
           fallback_eligible=false
           reason=""
+          file_list_complete=true
 
-          if [ "$file_count" -ge 12 ]; then
+          if ! [[ "$reported_file_count" =~ ^[0-9]+$ ]]; then
+            needs_review=true
+            fallback_eligible=false
+            file_list_complete=false
+            reason="invalid changed-file count"
+          elif [ "$reported_file_count" -gt 3000 ]; then
+            needs_review=true
+            fallback_eligible=false
+            file_list_complete=false
+            reason="changed-file list exceeds GitHub's 3000-file API limit"
+          else
+            file_count="$reported_file_count"
+          fi
+
+          if [ "$file_list_complete" = "true" ] && [ "$file_count" -ge 12 ]; then
             needs_review=true
             fallback_eligible=true
             reason="large change (${file_count} files)"
           fi
 
-          while IFS= read -r file; do
-            [ -z "$file" ] && continue
+          if [ "$file_list_complete" = "true" ]; then
+            while IFS= read -r file; do
+              [ -z "$file" ] && continue
 
-            case "$file" in
-              .github/workflows/*|db/migrations/*|migrations/*|src/app/api/*|src/app/privacy/*|src/app/privacy/**|*/privacy/*|src/app/admin/foretag/directory/*|src/app/admin/foretag/directory/**|package.json|package-lock.json|pnpm-lock.yaml|yarn.lock|*/package-lock.json|*/pnpm-lock.yaml|*/yarn.lock|vercel.json|next.config.*|src/proxy.*|middleware.*|scripts/company-directory-discovery.py)
+              case "$file" in
+                .github/workflows/*|db/migrations/*|migrations/*|src/app/api/*|src/app/privacy/*|src/app/privacy/**|*/privacy/*|src/app/admin/foretag/directory/*|src/app/admin/foretag/directory/**|package.json|package-lock.json|pnpm-lock.yaml|yarn.lock|*/package-lock.json|*/pnpm-lock.yaml|*/yarn.lock|vercel.json|next.config.*|src/proxy.*|middleware.*|scripts/company-directory-discovery.py)
+                  needs_review=true
+                  fallback_eligible=false
+                  reason="sensitive path: $file"
+                  break
+                  ;;
+              esac
+
+              if [[ "$file" =~ (^|/)(auth|rbac|permissions?|tenant|workspace|billing|payments?|stripe|checkout|webhooks?|db|database|postgres|neon)(/|[._-]) ]] ||
+                 [[ "$file" =~ company[-_]directory ]] ||
+                 [[ "$file" =~ (^|/)\.env ]]; then
                 needs_review=true
                 fallback_eligible=false
-                reason="sensitive path: $file"
+                reason="sensitive domain: $file"
                 break
-                ;;
-            esac
-
-            if [[ "$file" =~ (^|/)(auth|rbac|permissions?|tenant|workspace|billing|payments?|stripe|checkout|webhooks?|db|database|postgres|neon)(/|[._-]) ]] ||
-               [[ "$file" =~ company[-_]directory ]] ||
-               [[ "$file" =~ (^|/)\.env ]]; then
-              needs_review=true
-              fallback_eligible=false
-              reason="sensitive domain: $file"
-              break
-            fi
-          done <<< "$changed_files"
+              fi
+            done <<< "$changed_files"
+          fi
 
           if [ "$needs_review" != "true" ]; then
             echo "PR #${PR_NUMBER}: browser smoke passed and AI review is not required."
@@ -563,8 +774,7 @@ jobs:
                 exit 0
               fi
               echo "CodeRabbit changes remain requested for current head; Codex fallback cannot clear them."
-              sleep 15
-              continue
+              exit 1
             fi
 
             if [ "$terminal_count" -gt 0 ]; then
@@ -683,6 +893,7 @@ jobs:
               fi
             else
               echo "No completed CodeRabbit review for current head yet; this high-risk path is CodeRabbit-only."
+              exit 1
             fi
 
             sleep 15
