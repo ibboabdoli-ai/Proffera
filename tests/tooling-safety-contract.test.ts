@@ -110,7 +110,7 @@ if [ "$1" = "api" ] && [ "\${2:-}" = "repos/ibboabdoli-ai/Proffera/pulls/801" ];
   fi
   exit 0
 fi
-if [[ "$args" == *"--method POST"* ]]; then
+if [[ "$args" == *"--method POST"* || "$args" == *"-X POST"* ]]; then
   if [ "$FAIL_ON_POST" = "true" ]; then
     printf 'unexpected POST: %s\\n' "$args" >&2
     exit 90
