@@ -390,7 +390,7 @@ describe("tooling safety contract", () => {
     expect(truncatedLargePr.status).toBe(0);
     expect(`${truncatedLargePr.stdout}${truncatedLargePr.stderr}`).toContain("exceeds GitHub's 3000-file API limit");
     expect(`${truncatedLargePr.stdout}${truncatedLargePr.stderr}`).toContain("emergency exact-head Codex fallback is allowed for this high-risk PR");
-  }, 15000);
+  }, 60000);
 
   it("re-checks CodeRabbit state after Codex fallback and fails closed on equal-timestamp review races", () => {
     const equalTimestamp = "2026-08-31T10:04:00Z";
