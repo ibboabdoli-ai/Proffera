@@ -397,7 +397,9 @@ describe("tooling safety contract", () => {
     expect(ci).toContain("package-lock.json|pnpm-lock.yaml|yarn.lock|*/package-lock.json|*/pnpm-lock.yaml|*/yarn.lock");
     expect(ci).toContain("issues/comments/${codex_request_id}/reactions?per_page=100");
     expect(ci).not.toContain("issues/${PR_NUMBER}/reactions?per_page=100");
-    expect((ci.match(/gh api --paginate "repos\/\$\{REPOSITORY\}\/pulls\/\$\{PR_NUMBER\}\/files\?per_page=100"/g) ?? []).length).toBe(2);
+    expect(ci).toContain("Checkout trusted base planner");
+    expect(ci).toContain(".filename, (.previous_filename // empty)");
+    expect((ci.match(/gh api --paginate "repos\/\$\{REPOSITORY\}\/pulls\/\$\{PR_NUMBER\}\/files\?per_page=100"/g) ?? []).length).toBe(3);
     expect(ci).toContain("Refused: no acceptable CodeRabbit or Codex fallback decision was recorded for the current head within the gate window.");
 
     expect(automerge).toContain("fallback_eligible=true");
