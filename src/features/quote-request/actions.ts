@@ -1,8 +1,11 @@
 "use server";
 
 import { headers } from "next/headers";
+import { after } from "next/server";
 
 import { verifyCustomerAddress, type VerifiedCustomerAddress } from "@/lib/lantmateriet-address-verification";
+import { runMarketplaceAutoWorkerTrigger } from "@/lib/marketplace-auto-worker-trigger";
+import { resolveMarketplacePublicBaseUrl } from "@/lib/marketplace-public-base-url";
 import type { PublicLocale } from "@/lib/public-locale";
 import { allowPublicSubmission } from "@/lib/public-form-protection";
 import { storeQuoteRequest } from "./persistence";
@@ -28,6 +31,24 @@ function canContinueWithoutVerifiedAddress(reason: string) {
   return reason === "too_many_candidates"
     || reason === "ambiguous_exact_match"
     || reason === "unexpected_reference_response";
+}
+
+function scheduleMarketplaceAutoWorkerKick(referenceId: string) {
+  after(async () => {
+    try {
+      const result = await runMarketplaceAutoWorkerTrigger({
+        baseUrl: resolveMarketplacePublicBaseUrl(),
+        targetReferenceIds: [referenceId],
+      });
+      if (!result.ok) {
+        console.error("Marketplace Auto Worker event trigger failed after Quote Request submission", {
+          error: result.error,
+        });
+      }
+    } catch (error) {
+      console.error("Marketplace Auto Worker event trigger failed after Quote Request submission", { error });
+    }
+  });
 }
 
 export async function submitQuoteRequest(input: QuoteRequestSubmission): Promise<SubmitQuoteRequestResult> {
@@ -108,6 +129,10 @@ export async function submitQuoteRequest(input: QuoteRequestSubmission): Promise
         form: result.message,
       },
     };
+  }
+
+  if (result.created) {
+    scheduleMarketplaceAutoWorkerKick(result.referenceId);
   }
 
   return {

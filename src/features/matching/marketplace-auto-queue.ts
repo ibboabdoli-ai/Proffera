@@ -31,6 +31,11 @@ function uuid(value: unknown) {
     : "";
 }
 
+function referenceId(value: unknown) {
+  const normalized = text(value).toUpperCase();
+  return /^PRO-[A-Z0-9]+-[A-Z0-9]+$/.test(normalized) ? normalized : "";
+}
+
 function rolloutCutoff(value: string | undefined) {
   const normalized = text(value);
   if (!normalized) return "";
@@ -40,6 +45,7 @@ function rolloutCutoff(value: string | undefined) {
 
 export async function getMarketplaceAutoQueuePage(input: {
   priorityQuoteRequestIds?: string[];
+  onlyReferenceIds?: string[];
   afterPriorityRank?: number | null;
   afterCreatedAt?: string | null;
   afterId?: string | null;
@@ -55,6 +61,11 @@ export async function getMarketplaceAutoQueuePage(input: {
   }
 
   const priorityCsv = [...new Set((input.priorityQuoteRequestIds ?? []).map(uuid).filter(Boolean))].slice(0, 10).join(",");
+  const targetingRequested = (input.onlyReferenceIds?.length ?? 0) > 0;
+  const onlyReferenceCsv = [...new Set((input.onlyReferenceIds ?? []).map(referenceId).filter(Boolean))].slice(0, 10).join(",");
+  if (targetingRequested && !onlyReferenceCsv) {
+    return { ok: true, rows: [] };
+  }
   const afterPriorityRank = input.afterPriorityRank === 0 || input.afterPriorityRank === 1
     ? input.afterPriorityRank
     : null;
@@ -84,6 +95,10 @@ export async function getMarketplaceAutoQueuePage(input: {
           and (
             nullif(${notBefore}, '')::timestamptz is null
             or request.created_at >= nullif(${notBefore}, '')::timestamptz
+          )
+          and (
+            nullif(${onlyReferenceCsv}, '') is null
+            or request.reference_id = any(string_to_array(nullif(${onlyReferenceCsv}, ''), ','))
           )
       )
       select

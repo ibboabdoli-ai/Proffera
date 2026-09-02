@@ -7,6 +7,7 @@ type StoreQuoteRequestResult =
   | {
       ok: true;
       referenceId: string;
+      created: boolean;
     }
   | {
       ok: false;
@@ -62,7 +63,7 @@ export async function storeQuoteRequest(
     const recentReferenceId = String(recentRows[0]?.reference_id ?? "").trim();
 
     if (recentReferenceId) {
-      return { ok: true, referenceId: recentReferenceId };
+      return { ok: true, referenceId: recentReferenceId, created: false };
     }
 
     if (input.locationSource === "address" && verifiedAddress && !validVerifiedReference(verifiedAddress.referenceId)) {
@@ -320,5 +321,6 @@ export async function storeQuoteRequest(
   return {
     ok: true,
     referenceId,
+    created: true,
   };
 }
