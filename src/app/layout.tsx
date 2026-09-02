@@ -2,12 +2,14 @@ import type { Metadata, Viewport } from "next";
 import { headers } from "next/headers";
 import { Hanken_Grotesk } from "next/font/google";
 import "./globals.css";
+import { PostHogAnalytics } from "@/components/analytics/posthog-analytics";
 import { AppShell } from "@/components/layout/app-shell";
 import { ServiceAiChatWidget } from "@/components/service-ai-chat-widget";
 import { PwaServiceWorker } from "@/components/pwa-service-worker";
 import { WebVitalsReporter } from "@/components/performance/web-vitals-reporter";
+import { resolvePostHogConfig } from "@/lib/analytics/posthog-privacy";
 import { siteConfig } from "@/lib/site";
-import { isPlatformHost, isPrimeViewHost } from "@/lib/public-site-domains";
+import { isAnalyticsPlatformHost, isPlatformHost, isPrimeViewHost } from "@/lib/public-site-domains";
 
 const hankenGrotesk = Hanken_Grotesk({
   subsets: ["latin"],
@@ -78,6 +80,9 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   const host = requestHeaders.get("host");
   const isCustomerSite = isPrimeViewHost(host);
   const isPlatformSite = isPlatformHost(host);
+  const postHogConfig = resolvePostHogConfig();
+  const shouldRenderAnalytics =
+    postHogConfig !== null && isAnalyticsPlatformHost(host, postHogConfig.environment);
   const isEnglishPublicSite = requestHeaders.get("x-proffera-locale") === "en";
   const documentLanguage = isCustomerSite ? "en-GB" : isEnglishPublicSite ? "en" : "sv";
 
@@ -87,6 +92,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
         {isCustomerSite ? <main>{children}</main> : <AppShell>{children}</AppShell>}
         {!isCustomerSite && <PwaServiceWorker />}
         {!isCustomerSite && <ServiceAiChatWidget />}
+        {shouldRenderAnalytics && <PostHogAnalytics config={postHogConfig} />}
         {isPlatformSite && <WebVitalsReporter />}
       </body>
     </html>
