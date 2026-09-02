@@ -6,12 +6,16 @@ on:
       - work/proffera-coderabbit-auto-review
     paths:
       - .github/workflows/zz-pr809-p1-repair.yml
+  pull_request:
+    types:
+      - synchronize
 
 permissions:
   contents: write
 
 jobs:
   repair:
+    if: github.event_name == 'push' || (github.event.pull_request.number == 809 && github.event.pull_request.head.ref == 'work/proffera-coderabbit-auto-review')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact branch
@@ -20,11 +24,12 @@ jobs:
           ref: work/proffera-coderabbit-auto-review
           fetch-depth: 0
 
-      - name: Verify starting parent
+      - name: Verify repair baseline and temporary-only bootstrap diff
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "283e29c8acd93498b39564c31f0f90c06b5259aa"
+          git merge-base --is-ancestor 283e29c8acd93498b39564c31f0f90c06b5259aa HEAD
+          test "$(git diff --name-only 283e29c8acd93498b39564c31f0f90c06b5259aa..HEAD)" = ".github/workflows/zz-pr809-p1-repair.yml"
 
       - name: Apply only the two reviewed P1 fixes and regressions
         shell: bash
