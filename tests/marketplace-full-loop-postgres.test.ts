@@ -1,5 +1,4 @@
 import { execFileSync } from "node:child_process";
-import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -450,11 +449,16 @@ if (RUN_POSTGRES_INTEGRATION) {
 
       const reviewInvitation = await deliverMarketplaceServiceJobReviewInvitation(serviceJobId);
       expect(reviewInvitation).toMatchObject({ ok: true });
-      if (!reviewInvitation.ok || !("reviewUrl" in reviewInvitation)) {
+      if (
+        !reviewInvitation.ok
+        || !("reviewUrl" in reviewInvitation)
+        || !reviewInvitation.reviewUrl
+      ) {
         throw new Error("Verified review invitation was not delivered");
       }
       expect(mocks.sendVerifiedReviewInvitationEmail).toHaveBeenCalledTimes(1);
-      const reviewToken = tokenFromUrl(reviewInvitation.reviewUrl, "/review/marketplace/");
+      const reviewUrl = reviewInvitation.reviewUrl;
+      const reviewToken = tokenFromUrl(reviewUrl, "/review/marketplace/");
       const reviewTokenHash = hashVerifiedReviewToken(reviewToken);
 
       const reviewPreview = await getMarketplaceVerifiedReviewPreviewByHash(reviewTokenHash);
