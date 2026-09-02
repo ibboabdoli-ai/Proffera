@@ -121,7 +121,7 @@ jobs:
             && [ "${EVENT_ACTOR:-}" = "chatgpt-codex-connector[bot]" ]; then
             reviewed_prefix="$(jq -rn --arg body "${EVENT_COMMENT_BODY:-}" '
               $body
-              | select(startswith("Codex Review: Didn\u0027t find any major issues. Breezy!"))
+              | select(startswith("Codex Review: Didn\u0027t find any major issues."))
               | (try capture("Reviewed commit:\\*{0,2}[[:space:]]*`?(?<reviewed>[0-9a-fA-F]{7,40})`?").reviewed catch "")
               | ascii_downcase
             ')"

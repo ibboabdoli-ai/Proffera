@@ -47,7 +47,7 @@ describe("event-driven final review gate", () => {
 
     expect(wakeup).toContain("EVENT_COMMENT_CREATED_AT");
     expect(wakeup).toContain('EVENT_ACTOR:-}" = "chatgpt-codex-connector[bot]"');
-    expect(wakeup).toContain("Codex Review: Didn\\u0027t find any major issues. Breezy!");
+    expect(wakeup).toContain("Codex Review: Didn\\u0027t find any major issues.");
     expect(wakeup).toContain("Reviewed commit:");
     expect(wakeup).toContain("[0-9a-fA-F]{7,40}");
     expect(wakeup).toContain('[[ "$head_sha" != "$reviewed_prefix"* ]]');

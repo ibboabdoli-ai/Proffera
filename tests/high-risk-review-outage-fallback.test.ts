@@ -59,6 +59,8 @@ describe("high-risk AI review outage fallback", () => {
     expect(automerge).toContain("codex_clean_comment_count=");
     expect(automerge).toContain('select(.user.login == "chatgpt-codex-connector[bot]")');
     expect(automerge).toContain('select(.created_at >= $request_time)');
+    expect(automerge).toContain('startswith("Codex Review: Didn\\u0027t find any major issues.")');
+    expect(automerge).not.toContain('startswith("Codex Review: Didn\\u0027t find any major issues. Breezy!")');
     expect(automerge).toContain('select($sha | startswith($reviewed))');
     expect(automerge).toContain('"$codex_clean_comment_count" -eq 0');
     expect(automerge).toContain("Refused: Codex fallback posted current-head review findings.");

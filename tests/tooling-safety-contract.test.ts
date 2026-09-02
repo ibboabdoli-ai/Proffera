@@ -442,6 +442,15 @@ describe("tooling safety contract", () => {
     });
     expect(cleanComment.status).toBe(0);
 
+    const delightfulComment = runCiReviewFixture({
+      changedFiles: largeSafeChange(),
+      comments: [...fallbackComments(), cleanCodexComment({
+        body: `Codex Review: Didn't find any major issues. Delightful!\n\n**Reviewed commit:** \`${reviewHead.slice(0, 10)}\``,
+      })],
+      failOnPost: true,
+    });
+    expect(delightfulComment.status).toBe(0);
+
     const untrustedComment = runCiReviewFixture({
       changedFiles: largeSafeChange(),
       comments: [...fallbackComments(), cleanCodexComment({ user: { login: "untrusted-user" } })],
@@ -457,6 +466,15 @@ describe("tooling safety contract", () => {
       failOnPost: true,
     });
     expect(wrongHeadComment.status).toBe(1);
+
+    const malformedComment = runCiReviewFixture({
+      changedFiles: largeSafeChange(),
+      comments: [...fallbackComments(), cleanCodexComment({
+        body: "Codex Review: Didn't find any major issues. Delightful!\n\n**Reviewed commit:** `not-a-sha`",
+      })],
+      failOnPost: true,
+    });
+    expect(malformedComment.status).toBe(1);
 
     const preRequestComment = runCiReviewFixture({
       changedFiles: largeSafeChange(),

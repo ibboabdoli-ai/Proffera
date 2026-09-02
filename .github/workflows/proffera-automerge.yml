@@ -409,7 +409,7 @@ jobs:
                   .[]
                   | select(.user.login == "chatgpt-codex-connector[bot]")
                   | select(.created_at >= $request_time)
-                  | select((.body // "") | startswith("Codex Review: Didn\u0027t find any major issues. Breezy!"))
+                  | select((.body // "") | startswith("Codex Review: Didn\u0027t find any major issues."))
                   | ((.body // "") | capture("Reviewed commit:\\*{0,2}[[:space:]]*`?(?<reviewed>[0-9a-fA-F]{7,40})`?").reviewed | ascii_downcase) as $reviewed
                   | select($sha | startswith($reviewed))
                 ]
