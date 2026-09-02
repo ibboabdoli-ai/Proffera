@@ -13,6 +13,8 @@ const categories: Record<string, { label: string; detail: string }> = {
   tradgard: { label: "Trädgård", detail: "Skötsel av grönytor" },
 };
 
+const fallbackCategory = { label: "Tjänsteföretag", detail: "Proffera" };
+
 function CategoryMark() {
   return (
     <div
@@ -42,7 +44,7 @@ function CategoryMark() {
 
 export async function GET(_: Request, context: { params: Promise<{ category: string }> }) {
   const { category } = await context.params;
-  const item = categories[category] ?? { label: "Tjänsteföretag", detail: "Proffera" };
+  const item = Object.hasOwn(categories, category) ? categories[category] : fallbackCategory;
 
   return new ImageResponse(
     (
