@@ -13,6 +13,7 @@ describe("Company Directory category image renderer", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("image/png");
+    expect(response.headers.get("cache-control")).toContain("max-age=86400");
 
     const body = new Uint8Array(await response.arrayBuffer());
     expect(body.byteLength).toBeGreaterThan(pngSignature.length);
