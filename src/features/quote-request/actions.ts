@@ -6,10 +6,6 @@ import { after } from "next/server";
 import { verifyCustomerAddress, type VerifiedCustomerAddress } from "@/lib/lantmateriet-address-verification";
 import { runMarketplaceAutoWorkerTrigger } from "@/lib/marketplace-auto-worker-trigger";
 import { resolveMarketplacePublicBaseUrl } from "@/lib/marketplace-public-base-url";
-import {
-  isPreviewMarketplaceE2eCustomerEmail,
-  resolvePreviewMarketplaceE2eRunId,
-} from "@/lib/preview-marketplace-e2e";
 import type { PublicLocale } from "@/lib/public-locale";
 import { allowPublicSubmission } from "@/lib/public-form-protection";
 import { storeQuoteRequest } from "./persistence";
@@ -37,13 +33,12 @@ function canContinueWithoutVerifiedAddress(reason: string) {
     || reason === "unexpected_reference_response";
 }
 
-function scheduleMarketplaceAutoWorkerKick(referenceId: string, previewE2eRunId?: string) {
+function scheduleMarketplaceAutoWorkerKick(referenceId: string) {
   after(async () => {
     try {
       const result = await runMarketplaceAutoWorkerTrigger({
         baseUrl: resolveMarketplacePublicBaseUrl(),
         targetReferenceIds: [referenceId],
-        previewE2eRunId,
       });
       if (!result.ok) {
         console.error("Marketplace Auto Worker event trigger failed after Quote Request submission", {
@@ -137,13 +132,7 @@ export async function submitQuoteRequest(input: QuoteRequestSubmission): Promise
   }
 
   if (result.created) {
-    const previewE2eRunId = resolvePreviewMarketplaceE2eRunId(requestHeaders);
-    scheduleMarketplaceAutoWorkerKick(
-      result.referenceId,
-      previewE2eRunId && isPreviewMarketplaceE2eCustomerEmail(parsed.data.contactEmail, previewE2eRunId)
-        ? previewE2eRunId
-        : undefined,
-    );
+    scheduleMarketplaceAutoWorkerKick(result.referenceId);
   }
 
   return {
