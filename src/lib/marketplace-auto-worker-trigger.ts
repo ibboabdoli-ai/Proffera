@@ -28,6 +28,7 @@ function validRolloutCutoff(value: string | undefined) {
 export async function runMarketplaceAutoWorkerTrigger(input: {
   baseUrl: string;
   targetReferenceIds?: string[];
+  previewE2eRunId?: string;
 }): Promise<MarketplaceAutoWorkerTriggerResult> {
   if (process.env.MARKETPLACE_AUTO_WORKER_ENABLED !== "true") {
     return { ok: true, skipped: "disabled" };
@@ -55,5 +56,6 @@ export async function runMarketplaceAutoWorkerTrigger(input: {
     batchSize,
     wave2DelayMs: wave2DelayMinutes * 60_000,
     targetReferenceIds: input.targetReferenceIds,
+    previewE2eRunId: input.previewE2eRunId,
   });
 }
