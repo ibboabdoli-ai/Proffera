@@ -55,14 +55,20 @@ import {
 import { hashVerifiedReviewToken } from "@/lib/verified-review-token";
 
 const RUN_POSTGRES_INTEGRATION =
-  process.env.GITHUB_ACTIONS === "true"
-  || process.env.PROFFERA_POSTGRES_INTEGRATION === "1";
+  process.env.PROFFERA_POSTGRES_INTEGRATION === "1";
 
 const baseline = readFileSync(
   join(process.cwd(), "tests/fixtures/marketplace-guest-production-baseline.sql"),
   "utf8",
 );
 
+const verifiedReviewPrerequisites = readFileSync(
+  join(process.cwd(), "tests/fixtures/verified-review-production-prerequisites.sql"),
+  "utf8",
+);
+
+const authMigration = "20260616_0001_better_auth_core_schema.sql";
+const reviewMigration = "20260729_0019_website_reviews.sql";
 const migrationFiles = [
   "20260812_0044_company_directory_official_facts.sql",
   "20260820_0049_marketplace_guest_quotes.sql",
@@ -73,59 +79,6 @@ const migrationFiles = [
   "20260821_0056_quote_request_customer_location.sql",
   "20260822_0060_marketplace_customer_comparison.sql",
 ] as const;
-
-const reviewBaseline = `
-create table admin_audit_logs (
-  id uuid primary key default gen_random_uuid(),
-  admin_user_id text,
-  action text not null,
-  reason text not null default '',
-  new_value jsonb,
-  created_at timestamptz not null default now()
-);
-
-create table website_review_invitations (
-  id uuid primary key default gen_random_uuid(),
-  workspace_id uuid not null references workspaces(id) on delete cascade,
-  booking_id uuid not null,
-  customer_id uuid,
-  token_hash text not null unique,
-  status text not null default 'pending',
-  expires_at timestamptz not null,
-  used_at timestamptz,
-  revoked_at timestamptz,
-  created_by_user_id text,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  constraint website_review_invitations_status_check
-    check (status in ('pending', 'used', 'revoked')),
-  constraint website_review_invitations_booking_unique unique (workspace_id, booking_id)
-);
-
-create table website_reviews (
-  id uuid primary key default gen_random_uuid(),
-  workspace_id uuid not null references workspaces(id) on delete cascade,
-  reviewer_name text not null,
-  rating integer not null,
-  service text,
-  area text,
-  message text not null,
-  status text not null default 'pending',
-  review_invitation_id uuid references website_review_invitations(id) on delete set null,
-  booking_id uuid,
-  customer_id uuid,
-  is_verified boolean not null default false,
-  verified_at timestamptz,
-  moderated_at timestamptz,
-  published_at timestamptz,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  constraint website_reviews_rating_check check (rating between 1 and 5),
-  constraint website_reviews_status_check check (status in ('pending', 'approved', 'rejected')),
-  constraint website_reviews_reviewer_name_check check (char_length(btrim(reviewer_name)) between 2 and 80),
-  constraint website_reviews_message_check check (char_length(btrim(message)) between 10 and 1000)
-);
-`;
 
 const serviceJobMigration = "20260822_0063_marketplace_service_jobs_verified_reviews.sql";
 
@@ -226,9 +179,11 @@ if (RUN_POSTGRES_INTEGRATION) {
       await waitForPostgres();
       client = new Client({ connectionString });
       await client.connect();
+      await applyMigration(client, authMigration);
       await client.query(baseline);
+      await applyMigration(client, reviewMigration);
       for (const file of migrationFiles) await applyMigration(client, file);
-      await client.query(reviewBaseline);
+      await client.query(verifiedReviewPrerequisites);
       await applyMigration(client, serviceJobMigration);
       mocks.getSql.mockReturnValue(createPgSql(client));
     }, 120_000);
@@ -434,6 +389,10 @@ if (RUN_POSTGRES_INTEGRATION) {
       const serviceJobId = String(providerJob?.id ?? "");
       expect(serviceJobId).toMatch(/^[0-9a-f-]{36}$/u);
 
+      const blockedReviewInvitation = await deliverMarketplaceServiceJobReviewInvitation(serviceJobId);
+      expect(blockedReviewInvitation).toEqual({ ok: false, code: "unavailable" });
+      expect(mocks.sendVerifiedReviewInvitationEmail).not.toHaveBeenCalled();
+
       const started = await transitionMarketplaceServiceJobByGuestToken({
         token: guestToken,
         nextStatus: "in_progress",
@@ -525,6 +484,6 @@ if (RUN_POSTGRES_INTEGRATION) {
   });
 } else {
   describe.skip("Marketplace full loop PostgreSQL proof", () => {
-    it("requires Docker PostgreSQL integration opt-in", () => undefined);
+    it("requires explicit PROFFERA_POSTGRES_INTEGRATION=1 opt-in", () => undefined);
   });
 }

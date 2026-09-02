@@ -1,0 +1,94 @@
+name: Marketplace full-loop PostgreSQL
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, ready_for_review]
+    paths:
+      - "tests/marketplace-full-loop-postgres.test.ts"
+      - "tests/fixtures/marketplace-guest-production-baseline.sql"
+      - "tests/fixtures/verified-review-production-prerequisites.sql"
+      - "src/features/quote-request/**"
+      - "src/features/matching/**"
+      - "src/lib/marketplace-*.ts"
+      - "src/app/api/marketplace/service-job/**"
+      - "src/lib/verified-review-token.ts"
+      - "src/lib/quote-request-lifecycle.ts"
+      - "src/lib/company-directory-claim-email.ts"
+      - "src/lib/company-directory-marketplace-readiness.ts"
+      - "src/lib/service-catalog.ts"
+      - "src/lib/auth-secret.ts"
+      - "db/migrations/20260616_0001_better_auth_core_schema.sql"
+      - "db/migrations/20260729_0019_website_reviews.sql"
+      - "db/migrations/20260812_0044_company_directory_official_facts.sql"
+      - "db/migrations/20260820_0049_marketplace_guest_quotes.sql"
+      - "db/migrations/20260820_0050_marketplace_guest_dispatch_claim.sql"
+      - "db/migrations/20260820_0051_marketplace_guest_runtime_eligibility.sql"
+      - "db/migrations/20260821_0052_marketplace_guest_final_hardening.sql"
+      - "db/migrations/20260821_0054_marketplace_guest_status_validation.sql"
+      - "db/migrations/20260821_0056_quote_request_customer_location.sql"
+      - "db/migrations/20260822_0060_marketplace_customer_comparison.sql"
+      - "db/migrations/20260822_0063_marketplace_service_jobs_verified_reviews.sql"
+      - ".github/workflows/marketplace-full-loop-postgres.yml"
+  push:
+    branches: [main]
+    paths:
+      - "tests/marketplace-full-loop-postgres.test.ts"
+      - "tests/fixtures/marketplace-guest-production-baseline.sql"
+      - "tests/fixtures/verified-review-production-prerequisites.sql"
+      - "src/features/quote-request/**"
+      - "src/features/matching/**"
+      - "src/lib/marketplace-*.ts"
+      - "src/app/api/marketplace/service-job/**"
+      - "src/lib/verified-review-token.ts"
+      - "src/lib/quote-request-lifecycle.ts"
+      - "src/lib/company-directory-claim-email.ts"
+      - "src/lib/company-directory-marketplace-readiness.ts"
+      - "src/lib/service-catalog.ts"
+      - "src/lib/auth-secret.ts"
+      - "db/migrations/20260616_0001_better_auth_core_schema.sql"
+      - "db/migrations/20260729_0019_website_reviews.sql"
+      - "db/migrations/20260812_0044_company_directory_official_facts.sql"
+      - "db/migrations/20260820_0049_marketplace_guest_quotes.sql"
+      - "db/migrations/20260820_0050_marketplace_guest_dispatch_claim.sql"
+      - "db/migrations/20260820_0051_marketplace_guest_runtime_eligibility.sql"
+      - "db/migrations/20260821_0052_marketplace_guest_final_hardening.sql"
+      - "db/migrations/20260821_0054_marketplace_guest_status_validation.sql"
+      - "db/migrations/20260821_0056_quote_request_customer_location.sql"
+      - "db/migrations/20260822_0060_marketplace_customer_comparison.sql"
+      - "db/migrations/20260822_0063_marketplace_service_jobs_verified_reviews.sql"
+      - ".github/workflows/marketplace-full-loop-postgres.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: marketplace-full-loop-postgres-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integration:
+    name: Marketplace full-loop PostgreSQL
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Run Marketplace full-loop PostgreSQL proof
+        env:
+          PROFFERA_POSTGRES_INTEGRATION: "1"
+        run: npx vitest run tests/marketplace-full-loop-postgres.test.ts --reporter=verbose
