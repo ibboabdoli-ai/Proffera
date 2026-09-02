@@ -1,3 +1,7 @@
+import {
+  resolveBrevoApiKey,
+  resolveEmailRecipient,
+} from "@/lib/email-runtime-config";
 import { primeViewSite } from "@/lib/primeview-seo";
 
 export type ReviewInvitationEmailLanguage = "sv" | "en";
@@ -235,10 +239,14 @@ export function buildVerifiedReviewInvitationEmail(
 export async function sendVerifiedReviewInvitationEmail(
   input: SendVerifiedReviewInvitationEmailInput,
 ): Promise<VerifiedReviewInvitationEmailResult> {
-  const apiKey = process.env.BREVO_API_KEY;
+  const apiKey = resolveBrevoApiKey();
   const from = process.env.LEAD_FROM_EMAIL;
+  const recipient = resolveEmailRecipient({
+    email: input.customerEmail,
+    name: input.customerName,
+  });
 
-  if (!apiKey || !from) {
+  if (!apiKey || !from || !recipient) {
     return {
       ok: false,
       code: "configuration",
@@ -262,7 +270,7 @@ export async function sendVerifiedReviewInvitationEmail(
       },
       body: JSON.stringify({
         sender,
-        to: [{ email: input.customerEmail, name: input.customerName }],
+        to: [recipient],
         ...(primeView
           ? { replyTo: { email: primeViewSite.email, name: primeViewSite.name } }
           : {}),
