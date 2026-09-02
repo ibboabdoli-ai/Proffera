@@ -28,15 +28,15 @@ describe("Company Directory category image", () => {
   });
 
   it.each([
-    ["stadning", "Städning"],
-    ["hemservice", "Hemservice"],
-    ["flytt", "Flytt"],
-    ["elektriker", "Elektriker"],
-    ["vvs", "VVS"],
-    ["maleri", "Måleri"],
-    ["snickeri", "Snickeri"],
-    ["tradgard", "Trädgård"],
-  ])("renders %s without dynamic fallback-font glyphs", async (category, label) => {
+    ["stadning", "Städning", "Städning & lokalvård"],
+    ["hemservice", "Hemservice", "Konsumenttjänster i hemmet"],
+    ["flytt", "Flytt", "Flyttjänster"],
+    ["elektriker", "Elektriker", "Elinstallationer"],
+    ["vvs", "VVS", "Värme & sanitet"],
+    ["maleri", "Måleri", "Måleriarbeten"],
+    ["snickeri", "Snickeri", "Byggnadssnickeri"],
+    ["tradgard", "Trädgård", "Skötsel av grönytor"],
+  ])("renders %s without dynamic fallback-font glyphs", async (category, label, detail) => {
     const response = await GET(
       new Request(`https://www.proffera.se/api/public-directory/category-image/${category}`),
       { params: Promise.resolve({ category }) },
@@ -49,17 +49,21 @@ describe("Company Directory category image", () => {
     const renderedText = collectRenderedText(element);
 
     expect(renderedText).toContain(label);
+    expect(renderedText).toContain(detail);
     expect(renderedText.join(" ")).not.toMatch(/[✦⌂↗⚡◌◒◇❋]/u);
     expect(options).toMatchObject({ width: 1200, height: 720 });
   });
 
-  it("keeps the fallback category image contract", async () => {
-    await GET(
-      new Request("https://www.proffera.se/api/public-directory/category-image/unknown"),
-      { params: Promise.resolve({ category: "unknown" }) },
-    );
+  it.each(["unknown", "constructor", "toString", "__proto__"])(
+    "keeps the fallback category image contract for %s",
+    async (category) => {
+      await GET(
+        new Request(`https://www.proffera.se/api/public-directory/category-image/${category}`),
+        { params: Promise.resolve({ category }) },
+      );
 
-    const [element] = mocks.imageResponse.mock.calls[0] ?? [];
-    expect(collectRenderedText(element)).toEqual(expect.arrayContaining(["Tjänsteföretag", "Proffera"]));
-  });
+      const [element] = mocks.imageResponse.mock.calls[0] ?? [];
+      expect(collectRenderedText(element)).toEqual(expect.arrayContaining(["Tjänsteföretag", "Proffera"]));
+    },
+  );
 });
