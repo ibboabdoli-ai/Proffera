@@ -27,7 +27,11 @@ jobs:
         (github.actor == 'coderabbitai[bot]' || github.actor == 'chatgpt-codex-connector[bot]')) ||
       (github.event_name == 'issue_comment' &&
         github.event.issue.pull_request != null &&
-        github.actor == 'coderabbitai[bot]')
+        (github.actor == 'coderabbitai[bot]' ||
+          github.actor == 'chatgpt-codex-connector[bot]' ||
+          (github.actor == 'ibboabdoli-ai' &&
+            contains(github.event.comment.body, 'proffera-codex-fallback-review-request:') &&
+            contains(github.event.comment.body, '@codex review'))))
     runs-on: ubuntu-latest
     timeout-minutes: 3
     permissions:
@@ -40,12 +44,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTOR: ${{ github.actor }}
           EVENT_PR_NUMBER: ${{ github.event.pull_request.number }}
           EVENT_ISSUE_NUMBER: ${{ github.event.issue.number }}
           EVENT_COMMENT_BODY: ${{ github.event.comment.body }}
+          EVENT_COMMENT_CREATED_AT: ${{ github.event.comment.created_at }}
           EVENT_REVIEW_STATE: ${{ github.event.review.state }}
           EVENT_REVIEW_COMMIT: ${{ github.event.review.commit_id }}
           INPUT_PR_NUMBER: ${{ inputs.pr_number }}
+          TRUSTED_CODEX_REQUESTER: ibboabdoli-ai
         shell: bash
         run: |
           set -euo pipefail
@@ -72,7 +79,7 @@ jobs:
             exit 0
           fi
 
-          if [ "$EVENT_NAME" = "issue_comment" ]; then
+          if [ "$EVENT_NAME" = "issue_comment" ] && [ "${EVENT_ACTOR:-}" = "coderabbitai[bot]" ]; then
             if ! grep -Eqi 'recent_review_start|Review limit reached|Review rate limited|Action not completed: Review rate limited|Review skipped|temporarily unavailable|service unavailable' <<< "${EVENT_COMMENT_BODY:-}"; then
               echo "CodeRabbit comment does not carry final-review or availability evidence; ignoring it."
               exit 0
@@ -101,6 +108,78 @@ jobs:
           fi
 
           if [ "$EVENT_NAME" = "issue_comment" ] \
+            && [ "${EVENT_ACTOR:-}" = "$TRUSTED_CODEX_REQUESTER" ]; then
+            codex_marker="<!-- proffera-codex-fallback-review-request:${head_sha} -->"
+            if ! grep -Fq "$codex_marker" <<< "${EVENT_COMMENT_BODY:-}" \
+              || ! grep -Fqi '@codex review' <<< "${EVENT_COMMENT_BODY:-}"; then
+              echo "Trusted Codex request is not bound to exact current head $head_sha; ignoring it."
+              exit 0
+            fi
+          fi
+
+          if [ "$EVENT_NAME" = "issue_comment" ] \
+            && [ "${EVENT_ACTOR:-}" = "chatgpt-codex-connector[bot]" ]; then
+            reviewed_prefix="$(jq -rn --arg body "${EVENT_COMMENT_BODY:-}" '
+              $body
+              | select(startswith("Codex Review: Didn\u0027t find any major issues."))
+              | (try capture("Reviewed commit:\\*{0,2}[[:space:]]*`?(?<reviewed>[0-9a-fA-F]{7,40})`?").reviewed catch "")
+              | ascii_downcase
+            ')"
+            if [ -z "$reviewed_prefix" ] || [[ "$head_sha" != "$reviewed_prefix"* ]]; then
+              echo "Codex clean comment does not reference the exact current head $head_sha; ignoring stale or malformed evidence."
+              exit 0
+            fi
+            if [ -z "${EVENT_COMMENT_CREATED_AT:-}" ]; then
+              echo "Codex clean comment has no creation timestamp; refusing to wake the final gate."
+              exit 0
+            fi
+
+            comments_json="$(
+              gh api --paginate \
+                "repos/$REPOSITORY/issues/$pr_number/comments?per_page=100" \
+                --jq '.[]' \
+                | jq -s '.'
+            )"
+            coderabbit_marker="<!-- proffera-coderabbit-final-review-request:${head_sha} -->"
+            coderabbit_request_time="$(jq -r --arg marker "$coderabbit_marker" '
+              [
+                .[]
+                | select(.user.login == "github-actions[bot]")
+                | select((.body // "") | contains($marker))
+              ]
+              | sort_by(.created_at)
+              | last
+              | .created_at // empty
+            ' <<< "$comments_json")"
+            if [ -z "$coderabbit_request_time" ]; then
+              echo "No exact-head CodeRabbit request exists before this Codex result; refusing to wake the final gate."
+              exit 0
+            fi
+
+            codex_marker="<!-- proffera-codex-fallback-review-request:${head_sha} -->"
+            trusted_request_time="$(jq -r \
+              --arg marker "$codex_marker" \
+              --arg requester "$TRUSTED_CODEX_REQUESTER" \
+              --arg primary_time "$coderabbit_request_time" \
+              --arg result_time "$EVENT_COMMENT_CREATED_AT" '
+              [
+                .[]
+                | select(.user.login == $requester)
+                | select(((.body // "") | contains($marker)) and ((.body // "") | contains("@codex review")))
+                | select(.created_at >= $primary_time and .created_at <= $result_time)
+              ]
+              | sort_by(.created_at)
+              | last
+              | .created_at // empty
+            ' <<< "$comments_json")"
+            if [ -z "$trusted_request_time" ]; then
+              echo "No trusted exact-head Codex request exists after the primary CodeRabbit request and before this result; refusing to wake the final gate."
+              exit 0
+            fi
+          fi
+
+          if [ "$EVENT_NAME" = "issue_comment" ] \
+            && [ "${EVENT_ACTOR:-}" = "coderabbitai[bot]" ] \
             && grep -Fq '<!-- recent_review_start -->' <<< "${EVENT_COMMENT_BODY:-}" \
             && ! grep -Fq "$head_sha" <<< "${EVENT_COMMENT_BODY:-}"; then
             echo "CodeRabbit summary does not reference the current head; ignoring stale evidence."

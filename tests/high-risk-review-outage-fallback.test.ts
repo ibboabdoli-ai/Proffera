@@ -1,0 +1,83 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+
+const workflow = readFileSync(join(process.cwd(), ".github/workflows/ci.yml"), "utf8");
+const automerge = readFileSync(join(process.cwd(), ".github/workflows/proffera-automerge.yml"), "utf8");
+
+describe("high-risk AI review outage fallback", () => {
+  it("allows exact-head Codex fallback after an explicit CodeRabbit outage or a bounded provider timeout", () => {
+    const unavailableCount = workflow.indexOf("high_risk_unavailable_count");
+    expect(unavailableCount).toBeGreaterThan(-1);
+
+    const emergencyStart = workflow.lastIndexOf(
+      'if [ "$fallback_eligible" != "true" ]; then',
+      unavailableCount,
+    );
+    expect(emergencyStart).toBeGreaterThan(-1);
+
+    const normalFallbackStart = workflow.indexOf(
+      'if [ "$fallback_eligible" = "true" ]; then',
+      unavailableCount,
+    );
+    expect(normalFallbackStart).toBeGreaterThan(unavailableCount);
+
+    const emergencyBlock = workflow.slice(emergencyStart, normalFallbackStart);
+    expect(emergencyBlock).toContain("high_risk_unavailable_count");
+    expect(emergencyBlock).toContain("Review limit reached");
+    expect(emergencyBlock).toContain("Review rate limited");
+    expect(emergencyBlock).toContain("temporarily unavailable");
+    expect(emergencyBlock).toContain("service unavailable");
+    expect(emergencyBlock).toContain(
+      "emergency exact-head Codex fallback is allowed for this high-risk PR",
+    );
+
+    expect(workflow).toContain('if [ "$attempt" -ge 20 ]; then');
+    expect(workflow).toContain(
+      "CodeRabbit high-risk availability timeout reached; exact-head Codex fallback will be allowed on the next poll.",
+    );
+    expect(workflow).toContain('trusted_codex_requester="ibboabdoli-ai"');
+    expect(workflow).toContain('--arg request_time "$coderabbit_request_time"');
+    expect(workflow).toContain('and .created_at >= $request_time');
+    expect(workflow).toContain(
+      "Refused: no exact-head CodeRabbit review request timestamp exists for Codex fallback ordering.",
+    );
+    expect(workflow).toContain("GitHub Actions will not self-request Codex review");
+    expect(workflow).not.toContain("Requested Codex fallback review for exact head $HEAD_SHA.");
+    expect(workflow).toContain(
+      "Refused: Codex fallback became stale; current PR head is $guard_head_sha, gate head is $HEAD_SHA.",
+    );
+  });
+
+  it("keeps automerge fallback outage-bounded and supervisor-triggered", () => {
+    expect(automerge).toContain("CodeRabbit availability failure after exact-head request");
+    expect(automerge).toContain("bounded 300-second CodeRabbit timeout");
+    expect(automerge).toContain("HUMAN_APPROVER: ibboabdoli-ai");
+    expect(automerge).toContain('select(.user.login == $requester');
+    expect(automerge).toContain('contains("@codex review")');
+    expect(automerge).toContain("no trusted exact-current-head Codex fallback request");
+    expect(automerge).toContain("codex_clean_comment_count=");
+    expect(automerge).toContain('select(.user.login == "chatgpt-codex-connector[bot]")');
+    expect(automerge).toContain('select(.created_at >= $request_time)');
+    expect(automerge).toContain('startswith("Codex Review: Didn\\u0027t find any major issues.")');
+    expect(automerge).not.toContain('startswith("Codex Review: Didn\\u0027t find any major issues. Breezy!")');
+    expect(automerge).toContain('select($sha | startswith($reviewed))');
+    expect(automerge).toContain('"$codex_clean_comment_count" -eq 0');
+    expect(automerge).toContain("Refused: Codex fallback posted current-head review findings.");
+  });
+
+  it("keeps current-head CodeRabbit change requests non-bypassable", () => {
+    expect(workflow).toContain(
+      "CodeRabbit changes remain requested for current head; Codex fallback cannot clear them.",
+    );
+    expect(workflow).toContain(
+      "CodeRabbit changes were recorded while Codex fallback was running; Codex cannot clear them.",
+    );
+    expect(workflow).toContain(
+      "No completed CodeRabbit review for current head yet; high-risk path remains CodeRabbit-only while waiting for a review or provider signal.",
+    );
+    expect(automerge).toContain(
+      "CodeRabbit changes remain requested on the current PR head; Codex fallback can never clear them.",
+    );
+  });
+});
