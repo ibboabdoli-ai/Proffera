@@ -37,6 +37,11 @@ describe("high-risk AI review outage fallback", () => {
       "CodeRabbit high-risk availability timeout reached; exact-head Codex fallback will be allowed on the next poll.",
     );
     expect(workflow).toContain('trusted_codex_requester="ibboabdoli-ai"');
+    expect(workflow).toContain('--arg request_time "$coderabbit_request_time"');
+    expect(workflow).toContain('and .created_at >= $request_time');
+    expect(workflow).toContain(
+      "Refused: no exact-head CodeRabbit review request timestamp exists for Codex fallback ordering.",
+    );
     expect(workflow).toContain("GitHub Actions will not self-request Codex review");
     expect(workflow).not.toContain("Requested Codex fallback review for exact head $HEAD_SHA.");
     expect(workflow).toContain(
@@ -51,6 +56,12 @@ describe("high-risk AI review outage fallback", () => {
     expect(automerge).toContain('select(.user.login == $requester');
     expect(automerge).toContain('contains("@codex review")');
     expect(automerge).toContain("no trusted exact-current-head Codex fallback request");
+    expect(automerge).toContain("codex_clean_comment_count=");
+    expect(automerge).toContain('select(.user.login == "chatgpt-codex-connector[bot]")');
+    expect(automerge).toContain('select(.created_at >= $request_time)');
+    expect(automerge).toContain('select($sha | startswith($reviewed))');
+    expect(automerge).toContain('"$codex_clean_comment_count" -eq 0');
+    expect(automerge).toContain("Refused: Codex fallback posted current-head review findings.");
   });
 
   it("keeps current-head CodeRabbit change requests non-bypassable", () => {
