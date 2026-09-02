@@ -6,6 +6,7 @@ export const PREVIEW_MARKETPLACE_E2E_HEADER = "x-proffera-preview-e2e-run";
 export const PREVIEW_MARKETPLACE_E2E_BRANCH = "work/proffera-marketplace-browser-lifecycle-e2e";
 
 const runIdPattern = /^[a-f0-9]{32,64}$/;
+const customerEmailPattern = /^marketplace-e2e-([a-f0-9]{32,64})@customer\.example\.invalid$/;
 
 type PreviewTokenKind = "guest" | "customer" | "review";
 
@@ -59,7 +60,16 @@ export function isPreviewMarketplaceE2eToken(
 
 export function previewMarketplaceE2eCustomerEmail(runIdInput: string) {
   const runId = normalizedRunId(runIdInput);
-  return runId ? `marketplace-e2e-${runId.slice(0, 24)}@customer.example.invalid` : null;
+  return runId ? `marketplace-e2e-${runId}@customer.example.invalid` : null;
+}
+
+export function previewMarketplaceE2eRunIdFromCustomerEmail(
+  email: string,
+  env: NodeJS.ProcessEnv = process.env,
+) {
+  if (!isPreviewMarketplaceE2eRuntime(env)) return null;
+  const match = customerEmailPattern.exec(email.trim().toLowerCase());
+  return normalizedRunId(match?.[1]);
 }
 
 export function isPreviewMarketplaceE2eCustomerEmail(
