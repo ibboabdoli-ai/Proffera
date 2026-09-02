@@ -838,8 +838,12 @@ jobs:
               if [ "$coderabbit_unavailable" = "true" ]; then
                 codex_marker="<!-- proffera-codex-fallback-review-request:${HEAD_SHA} -->"
                 trusted_codex_requester="ibboabdoli-ai"
-                codex_request_id="$(jq -r --arg marker "$codex_marker" --arg requester "$trusted_codex_requester" '[.[] | select(.user.login == $requester and ((.body // "") | contains($marker)) and ((.body // "") | contains("@codex review")))] | sort_by(.created_at) | last | .id // empty' <<< "$comments_json")"
-                codex_request_time="$(jq -r --arg marker "$codex_marker" --arg requester "$trusted_codex_requester" '[.[] | select(.user.login == $requester and ((.body // "") | contains($marker)) and ((.body // "") | contains("@codex review")))] | sort_by(.created_at) | last | .created_at // empty' <<< "$comments_json")"
+                if [ -z "$coderabbit_request_time" ]; then
+                  echo "Refused: no exact-head CodeRabbit review request timestamp exists for Codex fallback ordering."
+                  exit 1
+                fi
+                codex_request_id="$(jq -r --arg marker "$codex_marker" --arg requester "$trusted_codex_requester" --arg request_time "$coderabbit_request_time" '[.[] | select(.user.login == $requester and ((.body // "") | contains($marker)) and ((.body // "") | contains("@codex review")) and .created_at >= $request_time)] | sort_by(.created_at) | last | .id // empty' <<< "$comments_json")"
+                codex_request_time="$(jq -r --arg marker "$codex_marker" --arg requester "$trusted_codex_requester" --arg request_time "$coderabbit_request_time" '[.[] | select(.user.login == $requester and ((.body // "") | contains($marker)) and ((.body // "") | contains("@codex review")) and .created_at >= $request_time)] | sort_by(.created_at) | last | .created_at // empty' <<< "$comments_json")"
 
                 if [ -z "$codex_request_id" ] || [ -z "$codex_request_time" ]; then
                   echo "Trusted Codex fallback requires an exact-head @codex review request from $trusted_codex_requester; GitHub Actions will not self-request Codex review."
