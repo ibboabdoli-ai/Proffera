@@ -787,6 +787,28 @@ jobs:
               exit 0
             fi
 
+            if [ "$fallback_eligible" != "true" ]; then
+              coderabbit_marker="<!-- proffera-coderabbit-final-review-request:${HEAD_SHA} -->"
+              coderabbit_request_time="$(jq -r --arg marker "$coderabbit_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker))) | .created_at] | max // empty' <<< "$comments_json")"
+
+              if [ -n "$coderabbit_request_time" ]; then
+                high_risk_unavailable_count="$(jq -r --arg request_time "$coderabbit_request_time" '
+                  [
+                    .[]
+                    | select(.user.login == "coderabbitai[bot]")
+                    | select((.updated_at // .created_at) >= $request_time)
+                    | select((.body // "") | test("Review limit reached|Review rate limited|Action not completed: Review rate limited|temporarily unavailable|service unavailable"; "i"))
+                  ]
+                  | length
+                ' <<< "$comments_json")"
+
+                if [ "$high_risk_unavailable_count" -gt 0 ]; then
+                  fallback_eligible=true
+                  echo "Machine-observed CodeRabbit availability failure; emergency exact-head Codex fallback is allowed for this high-risk PR."
+                fi
+              fi
+            fi
+
             if [ "$fallback_eligible" = "true" ]; then
               coderabbit_marker="<!-- proffera-coderabbit-final-review-request:${HEAD_SHA} -->"
               coderabbit_request_time="$(jq -r --arg marker "$coderabbit_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker))) | .created_at] | max // empty' <<< "$comments_json")"
@@ -815,15 +837,18 @@ jobs:
 
               if [ "$coderabbit_unavailable" = "true" ]; then
                 codex_marker="<!-- proffera-codex-fallback-review-request:${HEAD_SHA} -->"
-                codex_request_id="$(jq -r --arg marker "$codex_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | sort_by(.created_at) | last | .id // empty' <<< "$comments_json")"
-                codex_request_time="$(jq -r --arg marker "$codex_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | sort_by(.created_at) | last | .created_at // empty' <<< "$comments_json")"
+                trusted_codex_requester="ibboabdoli-ai"
+                if [ -z "$coderabbit_request_time" ]; then
+                  echo "Refused: no exact-head CodeRabbit review request timestamp exists for Codex fallback ordering."
+                  exit 1
+                fi
+                codex_request_id="$(jq -r --arg marker "$codex_marker" --arg requester "$trusted_codex_requester" --arg request_time "$coderabbit_request_time" '[.[] | select(.user.login == $requester and ((.body // "") | contains($marker)) and ((.body // "") | contains("@codex review")) and .created_at >= $request_time)] | sort_by(.created_at) | last | .id // empty' <<< "$comments_json")"
+                codex_request_time="$(jq -r --arg marker "$codex_marker" --arg requester "$trusted_codex_requester" --arg request_time "$coderabbit_request_time" '[.[] | select(.user.login == $requester and ((.body // "") | contains($marker)) and ((.body // "") | contains("@codex review")) and .created_at >= $request_time)] | sort_by(.created_at) | last | .created_at // empty' <<< "$comments_json")"
 
                 if [ -z "$codex_request_id" ] || [ -z "$codex_request_time" ]; then
-                  codex_body="$(printf '%s\n%s\n' "$codex_marker" '@codex review')"
-                  codex_response="$(gh api --method POST "repos/${REPOSITORY}/issues/${PR_NUMBER}/comments" -f body="$codex_body")"
-                  codex_request_id="$(jq -r '.id' <<< "$codex_response")"
-                  codex_request_time="$(jq -r '.created_at' <<< "$codex_response")"
-                  echo "Requested Codex fallback review for exact head $HEAD_SHA."
+                  echo "Trusted Codex fallback requires an exact-head @codex review request from $trusted_codex_requester; GitHub Actions will not self-request Codex review."
+                  sleep 15
+                  continue
                 fi
 
                 reactions_json="$(gh api --paginate "repos/${REPOSITORY}/issues/comments/${codex_request_id}/reactions?per_page=100" --jq '.[]' | jq -s '.')"
@@ -849,6 +874,18 @@ jobs:
                   | length
                 ' <<< "$codex_reviews_json")"
 
+                codex_clean_comment_count="$(jq -r --arg sha "$HEAD_SHA" --arg request_time "$codex_request_time" '
+                  [
+                    .[]
+                    | select(.user.login == "chatgpt-codex-connector[bot]")
+                    | select(.created_at >= $request_time)
+                    | select((.body // "") | startswith("Codex Review: Didn\u0027t find any major issues."))
+                    | ((.body // "") | capture("Reviewed commit:\\*{0,2}[[:space:]]*`?(?<reviewed>[0-9a-fA-F]{7,40})`?").reviewed | ascii_downcase) as $reviewed
+                    | select($sha | startswith($reviewed))
+                  ]
+                  | length
+                ' <<< "$comments_json")"
+
                 codex_inline_json="$(gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/comments?per_page=100" --jq '.[]' | jq -s '.')"
                 codex_inline_count="$(jq -r --arg sha "$HEAD_SHA" --arg request_time "$codex_request_time" '
                   [
@@ -865,7 +902,7 @@ jobs:
                   exit 1
                 fi
 
-                if [ "$codex_clean_count" -gt 0 ] || [ "$codex_approval_count" -gt 0 ]; then
+                if [ "$codex_clean_count" -gt 0 ] || [ "$codex_approval_count" -gt 0 ] || [ "$codex_clean_comment_count" -gt 0 ]; then
                   guard_head_sha="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}" --jq '.head.sha')"
                   if [ "$guard_head_sha" != "$HEAD_SHA" ]; then
                     echo "Refused: Codex fallback became stale; current PR head is $guard_head_sha, gate head is $HEAD_SHA."
@@ -892,8 +929,12 @@ jobs:
                 echo "No completed CodeRabbit review yet; fallback is not active before an availability failure or bounded timeout."
               fi
             else
-              echo "No completed CodeRabbit review for current head yet; this high-risk path is CodeRabbit-only."
-              exit 1
+              if [ "$attempt" -ge 20 ]; then
+                fallback_eligible=true
+                echo "CodeRabbit high-risk availability timeout reached; exact-head Codex fallback will be allowed on the next poll."
+              else
+                echo "No completed CodeRabbit review for current head yet; high-risk path remains CodeRabbit-only while waiting for a review or provider signal."
+              fi
             fi
 
             sleep 15
