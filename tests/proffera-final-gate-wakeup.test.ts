@@ -42,6 +42,24 @@ describe("event-driven final review gate", () => {
     expect(wakeup).not.toContain("seq 1");
   });
 
+  it("accepts only fresh exact-head official Codex clean comments with a prior trusted request", () => {
+    const wakeup = source(".github/workflows/proffera-final-gate-wakeup.yml");
+
+    expect(wakeup).toContain("EVENT_COMMENT_CREATED_AT");
+    expect(wakeup).toContain('EVENT_ACTOR:-}" = "chatgpt-codex-connector[bot]"');
+    expect(wakeup).toContain("Codex Review: Didn\\u0027t find any major issues. Breezy!");
+    expect(wakeup).toContain("Reviewed commit:");
+    expect(wakeup).toContain("[0-9a-fA-F]{7,40}");
+    expect(wakeup).toContain('[[ "$head_sha" != "$reviewed_prefix"* ]]');
+    expect(wakeup).toContain('coderabbit_marker="<!-- proffera-coderabbit-final-review-request:${head_sha} -->"');
+    expect(wakeup).toContain('select(.user.login == "github-actions[bot]")');
+    expect(wakeup).toContain('select(.user.login == $requester)');
+    expect(wakeup).toContain('contains("@codex review")');
+    expect(wakeup).toContain(".created_at >= $primary_time and .created_at <= $result_time");
+    expect(wakeup).toContain("No trusted exact-head Codex request exists after the primary CodeRabbit request and before this result");
+    expect(wakeup).toContain("Codex clean comment does not reference the exact current head");
+  });
+
   it("keeps high-risk CodeRabbit-primary while allowing bounded exact-head fallback after provider failure", () => {
     const ci = source(".github/workflows/ci.yml");
 
