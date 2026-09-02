@@ -2,21 +2,10 @@ import { timingSafeEqual } from "node:crypto";
 
 import { NextResponse } from "next/server";
 
-import {
-  DEFAULT_MARKETPLACE_WAVE2_DELAY_MS,
-  processMarketplaceAutoWorker,
-} from "@/lib/marketplace-auto-worker";
+import { runMarketplaceAutoWorkerTrigger } from "@/lib/marketplace-auto-worker-trigger";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
-
-function boundedNumber(value: string | undefined, fallback: number, minimum: number, maximum: number) {
-  const normalized = value?.trim();
-  if (!normalized) return fallback;
-  const parsed = Number(normalized);
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.max(minimum, Math.min(maximum, parsed));
-}
 
 function bearerMatches(authorization: string | null, secret: string | undefined) {
   if (!secret) return false;
@@ -31,42 +20,14 @@ function authorizedSchedulerRequest(request: Request) {
     || bearerMatches(authorization, process.env.PRODUCTION_SCHEDULER_SECRET);
 }
 
-function validRolloutCutoff(value: string | undefined) {
-  const normalized = value?.trim();
-  return Boolean(normalized && Number.isFinite(Date.parse(normalized)));
-}
-
 export async function GET(request: Request) {
   if (!authorizedSchedulerRequest(request)) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
-  if (process.env.MARKETPLACE_AUTO_WORKER_ENABLED !== "true") {
-    return NextResponse.json({ ok: true, skipped: "disabled" });
-  }
-
-  const isProduction = process.env.VERCEL_ENV === "production";
-  if (isProduction && process.env.MARKETPLACE_AUTO_WORKER_ALLOW_PRODUCTION !== "true") {
-    return NextResponse.json({ ok: true, skipped: "production_not_authorized" });
-  }
-
-  if (isProduction && !validRolloutCutoff(process.env.MARKETPLACE_AUTO_WORKER_NOT_BEFORE)) {
-    return NextResponse.json({ ok: true, skipped: "production_cutoff_not_configured" });
-  }
-
-  const wave2DelayMinutes = boundedNumber(
-    process.env.MARKETPLACE_AUTO_WAVE2_DELAY_MINUTES,
-    DEFAULT_MARKETPLACE_WAVE2_DELAY_MS / 60_000,
-    15,
-    24 * 60,
-  );
-  const batchSize = boundedNumber(process.env.MARKETPLACE_AUTO_WORKER_BATCH_SIZE, 5, 1, 10);
-
   try {
-    const result = await processMarketplaceAutoWorker({
+    const result = await runMarketplaceAutoWorkerTrigger({
       baseUrl: new URL(request.url).origin,
-      batchSize,
-      wave2DelayMs: wave2DelayMinutes * 60_000,
     });
     return NextResponse.json(result, { status: result.ok ? 200 : 503 });
   } catch (error) {

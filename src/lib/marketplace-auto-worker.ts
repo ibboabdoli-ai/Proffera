@@ -18,6 +18,7 @@ import {
   applyMarketplaceRematchContext,
   finalizeMarketplaceRematchWork,
   prepareMarketplaceRematchWork,
+  type MarketplaceRematchWorkerContext,
 } from "@/lib/marketplace-rematch-worker";
 
 export const MARKETPLACE_AUTO_WORKER_ACTOR = "system:marketplace-auto-worker";
@@ -69,6 +70,13 @@ function normalizedOrigin(value: string) {
   }
 }
 
+function normalizedTargetReferenceIds(values: string[] | undefined) {
+  return [...new Set((values ?? [])
+    .map((value) => String(value ?? "").trim().toUpperCase())
+    .filter((value) => /^PRO-[A-Z0-9]+-[A-Z0-9]+$/.test(value)))]
+    .slice(0, 10);
+}
+
 function submittedOfferCount(offers: Array<{ status: string }>) {
   return offers.filter((offer) => offer.status === "submitted" || offer.status === "selected").length;
 }
@@ -118,6 +126,7 @@ export async function processMarketplaceAutoWorker(input: {
   wave2DelayMs?: number;
   deadlineMs?: number;
   actorId?: string;
+  targetReferenceIds?: string[];
 }): Promise<MarketplaceAutoWorkerResult | { ok: false; error: string }> {
   if (!marketplaceGuestInvitationEmailConfigured()) {
     return { ok: false, error: "email_configuration" };
@@ -126,6 +135,12 @@ export async function processMarketplaceAutoWorker(input: {
   const baseUrl = normalizedOrigin(input.baseUrl);
   if (!baseUrl) return { ok: false, error: "invalid_base_url" };
 
+  const targetingRequested = (input.targetReferenceIds?.length ?? 0) > 0;
+  const targetReferenceIds = normalizedTargetReferenceIds(input.targetReferenceIds);
+  if (targetingRequested && targetReferenceIds.length === 0) {
+    return { ok: false, error: "invalid_target" };
+  }
+
   const nowMs = (input.now ?? new Date()).getTime();
   const batchSize = boundedInteger(input.batchSize, DEFAULT_BATCH_SIZE, 1, MAX_BATCH_SIZE);
   const wave2DelayMs = finiteDelayMs(input.wave2DelayMs);
@@ -133,18 +148,20 @@ export async function processMarketplaceAutoWorker(input: {
   const deadlineAt = Date.now() + deadlineMs;
   const actorId = String(input.actorId ?? MARKETPLACE_AUTO_WORKER_ACTOR).trim() || MARKETPLACE_AUTO_WORKER_ACTOR;
 
-  let rematchContext: Awaited<ReturnType<typeof prepareMarketplaceRematchWork>>;
-  try {
-    const remaining = deadlineAt - Date.now();
-    if (remaining <= 0) return { ok: false, error: "matching_failed" };
-    rematchContext = await withTimeout(
-      prepareMarketplaceRematchWork(batchSize),
-      remaining,
-      "Marketplace rematch pre-processing timed out",
-    );
-  } catch (error) {
-    console.error("Marketplace rematch pre-processing failed", { error });
-    return { ok: false, error: "matching_failed" };
+  let rematchContext: MarketplaceRematchWorkerContext = new Map();
+  if (targetReferenceIds.length === 0) {
+    try {
+      const remaining = deadlineAt - Date.now();
+      if (remaining <= 0) return { ok: false, error: "matching_failed" };
+      rematchContext = await withTimeout(
+        prepareMarketplaceRematchWork(batchSize),
+        remaining,
+        "Marketplace rematch pre-processing timed out",
+      );
+    } catch (error) {
+      console.error("Marketplace rematch pre-processing failed", { error });
+      return { ok: false, error: "matching_failed" };
+    }
   }
 
   const priorityQuoteRequestIds = [...rematchContext.keys()];
@@ -176,6 +193,7 @@ export async function processMarketplaceAutoWorker(input: {
         queuePage = await withTimeout(
           getMarketplaceAutoQueuePage({
             priorityQuoteRequestIds,
+            onlyReferenceIds: targetReferenceIds,
             afterPriorityRank,
             afterCreatedAt,
             afterId,
