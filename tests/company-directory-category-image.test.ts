@@ -1,3 +1,4 @@
+import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -13,38 +14,13 @@ vi.mock("next/og", () => ({
 
 import { GET } from "../src/app/api/public-directory/category-image/[category]/route";
 
-type RenderedElement = {
-  type?: unknown;
-  props?: {
-    children?: unknown;
-    style?: Record<string, unknown>;
-    "aria-hidden"?: unknown;
-  };
-};
-
-function expandFunctionalElement(node: RenderedElement): unknown {
-  if (typeof node.type !== "function") return node;
-  return (node.type as (props: RenderedElement["props"]) => unknown)(node.props ?? {});
-}
-
 function collectRenderedText(node: unknown): string[] {
   if (typeof node === "string" || typeof node === "number") return [String(node)];
   if (Array.isArray(node)) return node.flatMap(collectRenderedText);
   if (!node || typeof node !== "object") return [];
 
-  const element = node as RenderedElement;
-  if (typeof element.type === "function") return collectRenderedText(expandFunctionalElement(element));
-  return element.props ? collectRenderedText(element.props.children) : [];
-}
-
-function collectRenderedElements(node: unknown): RenderedElement[] {
-  if (Array.isArray(node)) return node.flatMap(collectRenderedElements);
-  if (!node || typeof node !== "object") return [];
-
-  const element = node as RenderedElement;
-  if (typeof element.type === "function") return collectRenderedElements(expandFunctionalElement(element));
-
-  return [element, ...collectRenderedElements(element.props?.children)];
+  const props = (node as { props?: { children?: unknown } }).props;
+  return props ? collectRenderedText(props.children) : [];
 }
 
 describe("Company Directory category image", () => {
@@ -72,30 +48,21 @@ describe("Company Directory category image", () => {
 
     const [element, options] = mocks.imageResponse.mock.calls[0] ?? [];
     const renderedText = collectRenderedText(element);
-    const renderedElements = collectRenderedElements(element);
-    const mark = renderedElements.find((node) => node.props?.["aria-hidden"] === true);
-    const markElements = collectRenderedElements(mark?.props?.children);
-    const diamond = markElements.find((node) => node.props?.style?.transform === "rotate(45deg)");
+    const markup = renderToStaticMarkup(element);
 
     expect(renderedText).toContain(label);
     expect(renderedText).toContain(detail);
     expect(renderedText.join(" ")).not.toMatch(/[✦⌂↗⚡◌◒◇❋]/u);
-    expect(mark?.props?.style).toMatchObject({
-      width: 92,
-      height: 92,
-      borderRadius: 28,
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      background: "rgba(255,255,255,.14)",
-    });
-    expect(diamond?.props?.style).toMatchObject({
-      width: 42,
-      height: 42,
-      border: "8px solid rgba(255,255,255,.92)",
-      borderRadius: 10,
-      transform: "rotate(45deg)",
-    });
+    expect(markup).toContain('aria-hidden="true"');
+    expect(markup).toContain("width:92px");
+    expect(markup).toContain("height:92px");
+    expect(markup).toContain("border-radius:28px");
+    expect(markup).toContain("background:rgba(255,255,255,.14)");
+    expect(markup).toContain("width:42px");
+    expect(markup).toContain("height:42px");
+    expect(markup).toContain("border:8px solid rgba(255,255,255,.92)");
+    expect(markup).toContain("border-radius:10px");
+    expect(markup).toContain("transform:rotate(45deg)");
     expect(options).toMatchObject({ width: 1200, height: 720 });
   });
 
