@@ -1,0 +1,178 @@
+name: PR809 scoped P1 repair
+
+on:
+  push:
+    branches:
+      - work/proffera-coderabbit-auto-review
+    paths:
+      - .github/workflows/zz-pr809-p1-repair.yml
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: work/proffera-coderabbit-auto-review
+          fetch-depth: 0
+
+      - name: Verify starting parent
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "283e29c8acd93498b39564c31f0f90c06b5259aa"
+
+      - name: Apply only the two reviewed P1 fixes and regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected exactly one replacement target, found {count}")
+              p.write_text(text.replace(old, new, 1))
+
+          ci = ".github/workflows/ci.yml"
+          old_ci = '''                codex_marker="<!-- proffera-codex-fallback-review-request:${HEAD_SHA} -->"
+                trusted_codex_requester="ibboabdoli-ai"
+                codex_request_id="$(jq -r --arg marker "$codex_marker" --arg requester "$trusted_codex_requester" '[.[] | select(.user.login == $requester and ((.body // "") | contains($marker)) and ((.body // "") | contains("@codex review")))] | sort_by(.created_at) | last | .id // empty' <<< "$comments_json")"
+                codex_request_time="$(jq -r --arg marker "$codex_marker" --arg requester "$trusted_codex_requester" '[.[] | select(.user.login == $requester and ((.body // "") | contains($marker)) and ((.body // "") | contains("@codex review")))] | sort_by(.created_at) | last | .created_at // empty' <<< "$comments_json")"
+'''
+          new_ci = '''                codex_marker="<!-- proffera-codex-fallback-review-request:${HEAD_SHA} -->"
+                trusted_codex_requester="ibboabdoli-ai"
+                if [ -z "$coderabbit_request_time" ]; then
+                  echo "Refused: no exact-head CodeRabbit review request timestamp exists for Codex fallback ordering."
+                  exit 1
+                fi
+                codex_request_id="$(jq -r --arg marker "$codex_marker" --arg requester "$trusted_codex_requester" --arg request_time "$coderabbit_request_time" '[.[] | select(.user.login == $requester and ((.body // "") | contains($marker)) and ((.body // "") | contains("@codex review")) and .created_at >= $request_time)] | sort_by(.created_at) | last | .id // empty' <<< "$comments_json")"
+                codex_request_time="$(jq -r --arg marker "$codex_marker" --arg requester "$trusted_codex_requester" --arg request_time "$coderabbit_request_time" '[.[] | select(.user.login == $requester and ((.body // "") | contains($marker)) and ((.body // "") | contains("@codex review")) and .created_at >= $request_time)] | sort_by(.created_at) | last | .created_at // empty' <<< "$comments_json")"
+'''
+          replace_once(ci, old_ci, new_ci)
+
+          automerge = ".github/workflows/proffera-automerge.yml"
+          approval_block = '''              codex_approval_count="$(jq -r --arg sha "$head_sha" --arg request_time "$codex_request_time" '
+                [
+                  .[]
+                  | select(.user.login == "chatgpt-codex-connector[bot]")
+                  | select(.commit_id == $sha)
+                  | select(.state == "APPROVED")
+                  | select(.submitted_at >= $request_time)
+                ]
+                | length
+              ' <<< "$codex_reviews_json")"
+
+'''
+          clean_comment_block = approval_block + '''              codex_clean_comment_count="$(jq -r --arg sha "$head_sha" --arg request_time "$codex_request_time" '
+                [
+                  .[]
+                  | select(.user.login == "chatgpt-codex-connector[bot]")
+                  | select(.created_at >= $request_time)
+                  | select((.body // "") | startswith("Codex Review: Didn\\u0027t find any major issues. Breezy!"))
+                  | ((.body // "") | capture("Reviewed commit:\\\\*{0,2}[[:space:]]*`?(?<reviewed>[0-9a-fA-F]{7,40})`?").reviewed | ascii_downcase) as $reviewed
+                  | select($sha | startswith($reviewed))
+                ]
+                | length
+              ' <<< "$comments_json")"
+
+'''
+          replace_once(automerge, approval_block, clean_comment_block)
+          replace_once(
+              automerge,
+              '              if [ "$codex_clean_count" -eq 0 ] && [ "$codex_approval_count" -eq 0 ]; then\n',
+              '              if [ "$codex_clean_count" -eq 0 ] && [ "$codex_approval_count" -eq 0 ] && [ "$codex_clean_comment_count" -eq 0 ]; then\n',
+          )
+
+          high_risk = "tests/high-risk-review-outage-fallback.test.ts"
+          old_assertions = '''    expect(automerge).toContain('select(.user.login == $requester');
+    expect(automerge).toContain('contains("@codex review")');
+    expect(automerge).toContain("no trusted exact-current-head Codex fallback request");
+'''
+          new_assertions = old_assertions + '''    expect(workflow).toContain('--arg request_time "$coderabbit_request_time"');
+    expect(workflow).toContain('and .created_at >= $request_time');
+    expect(automerge).toContain('codex_clean_comment_count=');
+    expect(automerge).toContain('select(.user.login == "chatgpt-codex-connector[bot]")');
+    expect(automerge).toContain('select(.created_at >= $request_time)');
+    expect(automerge).toContain('select($sha | startswith($reviewed))');
+    expect(automerge).toContain('"$codex_clean_comment_count" -eq 0');
+'''
+          replace_once(high_risk, old_assertions, new_assertions)
+
+          tooling = "tests/tooling-safety-contract.test.ts"
+          marker = '''  it("executes bounded high-risk Codex fallback and trusted-request paths", () => {
+'''
+          ordering_test = '''  it("requires trusted Codex requests to follow the exact-head CodeRabbit request", () => {
+    const postCodeRabbitRequest = runCiReviewFixture({
+      changedFiles: largeSafeChange(),
+      comments: fallbackComments(),
+      reactions: cleanCodexReaction(),
+      failOnPost: true,
+    });
+    expect(postCodeRabbitRequest.status).toBe(0);
+
+    const preCodeRabbitRequest = runCiReviewFixture({
+      changedFiles: largeSafeChange(),
+      comments: fallbackComments().map((comment) =>
+        comment.id === 42
+          ? { ...comment, created_at: "2026-08-31T09:59:00Z" }
+          : comment,
+      ),
+      reactions: cleanCodexReaction(),
+      failOnPost: true,
+    });
+    expect(preCodeRabbitRequest.status).toBe(1);
+    expect(`${preCodeRabbitRequest.stdout}${preCodeRabbitRequest.stderr}`).toContain(
+      "Trusted Codex fallback requires an exact-head @codex review request from ibboabdoli-ai",
+    );
+  }, 60000);
+
+'''
+          replace_once(tooling, marker, ordering_test + marker)
+          PY
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Targeted regression tests
+        run: npm test -- --run tests/high-risk-review-outage-fallback.test.ts tests/proffera-final-gate-wakeup.test.ts tests/tooling-safety-contract.test.ts
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Verify minimal diff and publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          changed="$(git diff --name-only | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/ci.yml' \
+            '.github/workflows/proffera-automerge.yml' \
+            'tests/high-risk-review-outage-fallback.test.ts' \
+            'tests/tooling-safety-contract.test.ts' | sort)"
+          test "$changed" = "$expected"
+
+          rm .github/workflows/zz-pr809-p1-repair.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/ci.yml .github/workflows/proffera-automerge.yml tests/high-risk-review-outage-fallback.test.ts tests/tooling-safety-contract.test.ts .github/workflows/zz-pr809-p1-repair.yml
+          git diff --cached --check
+          git commit -m "Fix exact-head Codex fallback evidence"
+          git push origin HEAD:work/proffera-coderabbit-auto-review
