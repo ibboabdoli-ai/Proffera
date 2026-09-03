@@ -1,0 +1,43 @@
+name: Temporary PostHog lock refresh
+
+on:
+  push:
+    branches:
+      - work/proffera-posthog-privacy-safe-analytics
+
+permissions:
+  contents: write
+
+jobs:
+  refresh-lockfile:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: work/proffera-posthog-privacy-safe-analytics
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Add exact PostHog dependency and refresh lockfile
+        run: npm install posthog-js@1.422.5 --save-exact --package-lock-only --ignore-scripts --no-audit --no-fund
+
+      - name: Commit dependency metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- package.json package-lock.json; then
+            echo "No dependency metadata changes were required."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+          git commit -m "Add posthog-js dependency"
+          git push origin HEAD:work/proffera-posthog-privacy-safe-analytics
