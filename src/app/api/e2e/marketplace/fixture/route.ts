@@ -16,12 +16,15 @@ import {
 
 export const dynamic = "force-dynamic";
 
-// Keep the synthetic provider in the North Sea so the targeted Preview match
-// cannot accidentally include a real Swedish Directory profile within 50 km.
+// The published synthetic Directory profile must satisfy the existing pilot
+// location contract, while its geocoded coordinates stay in the North Sea so
+// targeted Preview matching cannot accidentally include a real Swedish
+// Directory provider within 50 km.
 const TEST_LATITUDE = 60;
 const TEST_LONGITUDE = 0;
-const TEST_CITY = "Preview E2E";
-const TEST_POSTAL_CODE = "00000";
+const TEST_CITY = "Stockholm";
+const TEST_MUNICIPALITY = "Stockholm";
+const TEST_POSTAL_CODE = "11100";
 
 function unavailable() {
   return new NextResponse(null, { status: 404 });
@@ -162,7 +165,7 @@ export async function POST(request: Request) {
   const companyName = `Preview E2E Rör ${suiteRunId.slice(0, 8)} AB`;
   const workplaces = JSON.stringify([{
     cfarNumber: `E2E-${suiteRunId.slice(0, 12)}`,
-    municipality: TEST_CITY,
+    municipality: TEST_MUNICIPALITY,
     visitingAddress: {
       addressLine: "Preview Testgatan 1",
       postalCode: TEST_POSTAL_CODE,
@@ -179,7 +182,7 @@ export async function POST(request: Request) {
           publication_status, quality_score, privacy_blocked, auto_public_eligible, published_at
         ) values (
           ${profileId}::uuid, ${organizationNumber}, 'juridical_person', ${companyName}, ${companyName},
-          true, 'vvs', ${TEST_CITY}, ${TEST_CITY}, ${slug},
+          true, 'vvs', ${TEST_CITY}, ${TEST_MUNICIPALITY}, ${slug},
           'published', 100, false, true, now()
         )
       `,
@@ -229,7 +232,13 @@ export async function POST(request: Request) {
   return NextResponse.json({
     ok: true,
     provider: { profileId, slug, companyName },
-    location: { latitude: TEST_LATITUDE, longitude: TEST_LONGITUDE, city: TEST_CITY, postalCode: TEST_POSTAL_CODE },
+    location: {
+      latitude: TEST_LATITUDE,
+      longitude: TEST_LONGITUDE,
+      city: TEST_CITY,
+      municipality: TEST_MUNICIPALITY,
+      postalCode: TEST_POSTAL_CODE,
+    },
     isolation: {
       previewRuntime: true,
       databaseIsolated: Boolean(resolveDatabaseUrl()),
