@@ -167,7 +167,11 @@ describe("Preview Marketplace email reader route", () => {
       .fn()
       .mockResolvedValueOnce(jsonResponse({
         count: 1,
-        transactionalEmails: [{ uuid: "mail-uuid-1", email: sink, subject: "unrelated" }],
+        transactionalEmails: [{
+          uuid: "mail-uuid-1",
+          email: sink,
+          subject: `Preview E2E Rör ${suiteRunId.slice(0, 8)} AB`,
+        }],
       }))
       .mockResolvedValueOnce(jsonResponse({
         email: sink,
