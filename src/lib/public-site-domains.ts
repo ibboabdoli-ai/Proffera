@@ -12,7 +12,15 @@ const platformHosts = new Set([
   "::1",
 ]);
 
+const productionAnalyticsHosts = new Set([
+  "proffera.se",
+  "www.proffera.se",
+  "chat.proffera.se",
+]);
+
 const hostnameLabel = /^(?!-)[a-z0-9-]{1,63}(?<!-)$/;
+
+export type AnalyticsEnvironment = "production" | "preview";
 
 export function hostnameFromHostHeader(host: string | null | undefined) {
   const value = (host ?? "").trim().toLowerCase();
@@ -33,6 +41,20 @@ export function isPrimeViewHost(host: string | null | undefined) {
 export function isPlatformHost(host: string | null | undefined) {
   const hostname = hostnameFromHostHeader(host);
   return platformHosts.has(hostname) || hostname.endsWith(".vercel.app");
+}
+
+export function isAnalyticsPlatformHost(
+  host: string | null | undefined,
+  environment: AnalyticsEnvironment | null,
+) {
+  const hostname = hostnameFromHostHeader(host);
+  if (!hostname || !environment) return false;
+
+  if (environment === "production") {
+    return productionAnalyticsHosts.has(hostname);
+  }
+
+  return hostname.endsWith(".vercel.app");
 }
 
 export function normalizeCustomDomainInput(input: string | null | undefined) {
