@@ -217,6 +217,26 @@ describe("Marketplace advertising dispatch contract", () => {
     )).toBe(false);
   });
 
+  it("keeps system Marketplace dispatches out of the admin-user audit table", async () => {
+    const { sql, state } = createSql({ advertisingBlocked: false });
+    mocks.getSql.mockReturnValue(sql);
+    mocks.sendInvitationEmail.mockResolvedValue({ ok: true, providerMessageId: "provider-system" });
+
+    const result = await sendMarketplaceGuestQuoteInvitation({
+      ...invitationInput(),
+      adminUserId: "system:marketplace-auto-worker",
+    });
+
+    expect(result).toEqual({ ok: true, invitationId });
+    expect(state.status).toBe("sent");
+    const queries = sql.mock.calls.map((call) => queryText(call));
+    expect(queries.some((query) => query.includes("insert into admin_audit_logs"))).toBe(false);
+    expect(queries.some(
+      (query) => query.includes("insert into marketplace_quote_invitations")
+        && query.includes("created_by_admin_user_id"),
+    )).toBe(true);
+  });
+
   it.each([
     ["blocked", { advertisingBlocked: true, factsPresent: true }],
     ["unknown", { advertisingBlocked: null, factsPresent: true }],
