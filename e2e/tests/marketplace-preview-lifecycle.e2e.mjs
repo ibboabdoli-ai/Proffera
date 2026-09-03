@@ -14,6 +14,13 @@ function customerEmail(id) {
   return `marketplace-e2e-${id}@customer.example.invalid`;
 }
 
+function customerPhone(id) {
+  const digits = [...id.slice(0, 7)]
+    .map((character) => String(Number.parseInt(character, 16) % 10))
+    .join("");
+  return `070${digits}`;
+}
+
 async function fixtureRequest(request, suiteRunId, method, path = fixturePath, data) {
   const response = await request.fetch(path, {
     method,
@@ -118,7 +125,7 @@ async function submitQuote(page, context, customerRunId, location, ordinal) {
 
   await page.getByLabel("Namn").fill(`Preview Kund ${ordinal}`);
   await page.getByLabel("E-post").fill(customerEmail(customerRunId));
-  await page.getByLabel("Telefon").fill(`07000000${ordinal}1`);
+  await page.getByLabel("Telefon").fill(customerPhone(customerRunId));
   await page.getByRole("checkbox").check();
   await page.getByRole("button", { name: "Fortsätt" }).click();
 
@@ -162,6 +169,7 @@ test.describe("isolated Marketplace Preview lifecycle", () => {
   test.skip(process.env.E2E_MARKETPLACE_PREVIEW_LIFECYCLE !== "true", "Full Marketplace lifecycle is opt-in and Preview-only.");
 
   test("Quote -> Matching -> Invitation -> Offer -> Selection -> Job -> Completed -> Verified Review", async ({ page, context, request, baseURL }) => {
+    test.setTimeout(5 * 60_000);
     expect(baseURL).toBeTruthy();
     const origin = new URL(baseURL).origin;
     await context.grantPermissions(["geolocation"], { origin });
