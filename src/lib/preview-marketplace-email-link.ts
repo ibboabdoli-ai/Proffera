@@ -38,11 +38,19 @@ const pathByKind: Record<PreviewMarketplaceEmailKind, string> = {
 };
 
 function decodeHtmlUrl(value: string) {
-  return value
-    .replaceAll("&amp;", "&")
-    .replaceAll("&#38;", "&")
-    .replaceAll("&quot;", '"')
-    .replaceAll("&#39;", "'");
+  return value.replace(/&(amp|#38|quot|#39);/giu, (entity) => {
+    switch (entity.toLowerCase()) {
+      case "&amp;":
+      case "&#38;":
+        return "&";
+      case "&quot;":
+        return '"';
+      case "&#39;":
+        return "'";
+      default:
+        return entity;
+    }
+  });
 }
 
 function normalizedHttpsUrl(value: string) {
