@@ -15,16 +15,16 @@ const originalBrevoApiKey = process.env.BREVO_API_KEY;
 const originalPreviewBrevoApiKey = process.env.PROFFERA_PREVIEW_BREVO_API_KEY;
 const originalPreviewEmailRecipient = process.env.PROFFERA_PREVIEW_EMAIL_RECIPIENT;
 
-function previewEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
-  return {
+function previewEnv(overrides: Partial<NodeJS.ProcessEnv> = {}): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {
     NODE_ENV: "test",
     VERCEL_ENV: "preview",
     VERCEL_GIT_COMMIT_REF: "work/proffera-preview-unrelated",
     BREVO_API_KEY: "production-key",
     PROFFERA_PREVIEW_BREVO_API_KEY: "preview-key",
     PROFFERA_PREVIEW_EMAIL_RECIPIENT: "preview-inbox@example.com",
-    ...overrides,
   };
+  return Object.assign(env, overrides);
 }
 
 afterEach(() => {
