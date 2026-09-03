@@ -25,19 +25,24 @@ describe("Preview Marketplace email reader boundary", () => {
     expect(source).not.toContain("previewRecipient:");
   });
 
-  it("bounds Brevo reads to persisted provider message IDs before loading message bodies", () => {
-    expect(source).toContain('url.searchParams.set("limit", "20")');
+  it("uses persisted provider message IDs for exact guest/customer reads before loading message bodies", () => {
     expect(source).toContain("previewMarketplaceE2eUuid(\"provider\", suiteRunId)");
     expect(source).toContain("invitation.provider_message_id as guest_provider_message_id");
     expect(source).toContain("customer_access.provider_message_id as customer_provider_message_id");
+    expect(source).toContain('url.searchParams.set("messageId", messageId)');
+    expect(source).toContain("marker.providerMessageId\n    ? await listTransactionalEmailByMessageId(marker.providerMessageId, apiKey)");
     expect(source).toContain("String(item.messageId ?? \"\").trim() === marker.providerMessageId");
     expect(source).toContain('.slice(0, kind === "review" ? 3 : 1)');
+  });
+
+  it("keeps only the review fallback as a bounded sink scan", () => {
+    expect(source).toContain('url.searchParams.set("limit", "20")');
+    expect(source).toContain(": await listTransactionalEmails(sink, apiKey)");
   });
 
   it("does not burst Brevo during polling and retries one provider-directed rate limit", () => {
     expect(source).toContain("response.status === 429 && attempt === 0");
     expect(source).toContain("boundedRetryDelayMs(response)");
-    expect(source).toContain("const sinkList = await listTransactionalEmails(sink, apiKey)");
     expect(source).toContain("const originalList = await listTransactionalEmails(original, apiKey)");
     expect(source).not.toContain("Promise.all([\n    listTransactionalEmails(sink, apiKey)");
     expect(source.indexOf("const originalList = await listTransactionalEmails(original, apiKey)")).toBeGreaterThan(
