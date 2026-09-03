@@ -127,13 +127,7 @@ function isKnownPublicWorkspaceServiceSlug(segment: string, rawSegments: string[
   );
 }
 
-function isKnownPublicBookingSlug(segment: string, rawSegments: string[], index: number) {
-  const followsExactBookingRoute =
-    index === 2
-    && rawSegments[1] === "boka"
-    && rawSegments.slice(3).every((part) => part === "");
-  if (!followsExactBookingRoute) return false;
-
+function isKnownPublicWorkspaceSlug(segment: string) {
   const decoded = decodePathSegment(segment);
   return (
     decoded !== null
@@ -146,6 +140,22 @@ function isKnownPublicBookingSlug(segment: string, rawSegments: string[], index:
     && !DOT_DELIMITED_TOKEN.test(decoded)
     && !BEARER_TOKEN.test(decoded)
   );
+}
+
+function isKnownPublicBookingSlug(segment: string, rawSegments: string[], index: number) {
+  const followsExactBookingRoute =
+    index === 2
+    && rawSegments[1] === "boka"
+    && rawSegments.slice(3).every((part) => part === "");
+  return followsExactBookingRoute && isKnownPublicWorkspaceSlug(segment);
+}
+
+function isKnownPublicWorkspaceGallerySlug(segment: string, rawSegments: string[], index: number) {
+  const followsExactGalleryRoute =
+    index === 2
+    && (rawSegments[1] === "galleri" || rawSegments[1] === "gallery")
+    && rawSegments.slice(3).every((part) => part === "");
+  return followsExactGalleryRoute && isKnownPublicWorkspaceSlug(segment);
 }
 
 function isSensitiveSegment(segment: string) {
@@ -255,6 +265,7 @@ export function sanitizeAnalyticsPathname(pathname: string) {
       isKnownPublicDirectorySlug(segment, rawSegments, index)
       || isKnownPublicWorkspaceServiceSlug(segment, rawSegments, index)
       || isKnownPublicBookingSlug(segment, rawSegments, index)
+      || isKnownPublicWorkspaceGallerySlug(segment, rawSegments, index)
     ) {
       return segment;
     }
