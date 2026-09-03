@@ -45,6 +45,19 @@ describe("PostHog final review regressions", () => {
     expect(sanitizeAnalyticsPathname(`/review/${soleTraderSlug}`)).toBe("/review/:redacted");
   });
 
+  it("preserves validated long public service slugs only on the public service route", () => {
+    const workspaceSlug = "example-elektriska-ab-115707";
+    const serviceSlug = "my-very-long-public-workspace-service";
+
+    expect(sanitizeAnalyticsPathname(`/foretag/${workspaceSlug}/tjanster/${serviceSlug}`)).toBe(
+      `/foretag/${workspaceSlug}/tjanster/${serviceSlug}`,
+    );
+    expect(sanitizeAnalyticsPathname(`/review/${serviceSlug}`)).toBe("/review/:redacted");
+    expect(sanitizeAnalyticsPathname(`/foretag/${workspaceSlug}/tjanster/short-service`)).toBe(
+      `/foretag/${workspaceSlug}/tjanster/short-service`,
+    );
+  });
+
   it("synchronizes analytics consent changes and storage clears across open tabs", () => {
     const privacy = source("src/lib/analytics/posthog-privacy.ts");
     const client = source("src/components/analytics/posthog-analytics.tsx");
@@ -62,7 +75,7 @@ describe("PostHog final review regressions", () => {
     expect(control).toContain('window.addEventListener("storage", syncConsentFromStorage)');
   });
 
-  it("localizes the neutral consent control for pathname, route-level and query-localized flows", () => {
+  it("localizes the neutral consent control for English and Swedish client navigation plus query-localized flows", () => {
     const layout = source("src/app/layout.tsx");
     const control = source("src/components/analytics/analytics-consent-control.tsx");
     const guestQuote = source("src/app/offert/svara/[token]/page.tsx");
@@ -76,6 +89,7 @@ describe("PostHog final review regressions", () => {
     expect(control).toContain('const queryLanguage = searchParams.get("lang")');
     expect(control).toContain('pathname === "/en" || pathname?.startsWith("/en/")');
     expect(control).toContain('document.querySelector<HTMLElement>("main[lang]")');
+    expect(control).toContain('if (pathname) return "sv";');
     expect(control).toContain("document.documentElement.lang");
     expect(control).toContain("new MutationObserver");
     expect(control).toContain("}, [pathname, queryLanguage]);");
