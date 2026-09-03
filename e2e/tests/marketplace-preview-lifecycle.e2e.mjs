@@ -167,7 +167,7 @@ test.describe("isolated Marketplace Preview lifecycle", () => {
   test.skip(process.env.E2E_MARKETPLACE_PREVIEW_LIFECYCLE !== "true", "Full Marketplace lifecycle is opt-in and Preview-only.");
 
   test("Quote -> Matching -> Invitation -> Offer -> Selection -> Job -> Completed -> Verified Review", async ({ page, context, request, baseURL }) => {
-    test.setTimeout(5 * 60_000);
+    test.setTimeout(4 * 60_000);
     expect(baseURL).toBeTruthy();
     const origin = new URL(baseURL).origin;
     await context.grantPermissions(["geolocation"], { origin });
@@ -182,6 +182,7 @@ test.describe("isolated Marketplace Preview lifecycle", () => {
       const setup = await fixtureRequest(request, suiteRunId, "POST");
       expect(setup.response.ok(), JSON.stringify(setup.body)).toBeTruthy();
       expect(setup.body?.ok).toBe(true);
+      fixtureCreated = true;
       expect(setup.body?.isolation).toEqual({
         previewRuntime: true,
         databaseIsolated: true,
@@ -197,7 +198,6 @@ test.describe("isolated Marketplace Preview lifecycle", () => {
       expect(setup.body?.location?.latitude).toBeLessThanOrEqual(-20);
       expect(setup.body?.location?.longitude).toBeGreaterThanOrEqual(-170);
       expect(setup.body?.location?.longitude).toBeLessThanOrEqual(170);
-      fixtureCreated = true;
 
       await submitQuote(page, context, customerA, setup.body.location, 1);
       await submitQuote(page, context, customerB, setup.body.location, 2);

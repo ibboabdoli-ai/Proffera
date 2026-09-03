@@ -2,11 +2,11 @@ import {
   resolveBrevoApiKey,
   resolvePreviewEmailRecipient,
 } from "@/lib/email-runtime-config";
+import { PREVIEW_MARKETPLACE_E2E_BRANCH } from "@/lib/preview-marketplace-e2e-constants";
 
 const BREVO_API_ORIGIN = "https://api.brevo.com";
 const BREVO_TRANSACTIONAL_EMAIL_URL = `${BREVO_API_ORIGIN}/v3/smtp/email`;
 const BREVO_TRANSACTIONAL_EMAIL_LIST_PATH = "/v3/smtp/emails";
-const MARKETPLACE_E2E_PREVIEW_BRANCH = "work/proffera-marketplace-browser-lifecycle-e2e";
 const BREVO_EMAIL_DETAIL_PATH = /^\/v3\/smtp\/emails\/([A-Za-z0-9_-]{8,128})$/;
 const BREVO_EMAIL_RECIPIENT_LIST_QUERY_KEYS = ["email", "startDate", "endDate", "sort", "limit"] as const;
 
@@ -61,7 +61,7 @@ function parseBrevoPayload(body: BodyInit | null | undefined): BrevoPayload {
 }
 
 function isExactMarketplaceE2ePreview(env: NodeJS.ProcessEnv) {
-  return env.VERCEL_GIT_COMMIT_REF === MARKETPLACE_E2E_PREVIEW_BRANCH;
+  return env.VERCEL_GIT_COMMIT_REF === PREVIEW_MARKETPLACE_E2E_BRANCH;
 }
 
 function validRecipientListReaderUrl(url: URL) {

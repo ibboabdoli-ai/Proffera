@@ -218,6 +218,7 @@ describe("Marketplace advertising dispatch contract", () => {
       (query) => query.includes("set status = 'delivery_failed'")
         && query.includes("company_directory_official_facts facts"),
     )).toBe(false);
+    expect(queries.some((query) => query.includes("insert into admin_audit_logs"))).toBe(true);
   });
 
   it("keeps system Marketplace dispatches out of the admin-user audit table", async () => {

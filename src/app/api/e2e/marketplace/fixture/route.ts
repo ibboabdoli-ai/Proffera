@@ -33,9 +33,10 @@ function parseRunIds(value: string | null) {
   const values = String(value ?? "")
     .split(",")
     .map((item) => item.trim().toLowerCase())
-    .filter(Boolean)
+    .filter(Boolean);
+  return [...new Set(values)]
+    .filter((runId) => Boolean(previewMarketplaceE2eCustomerEmail(runId)))
     .slice(0, 4);
-  return [...new Set(values)].filter((runId) => Boolean(previewMarketplaceE2eCustomerEmail(runId)));
 }
 
 function parseBodyRunIds(value: unknown) {
@@ -151,6 +152,8 @@ export async function POST(request: Request) {
   if (!isPreviewMarketplaceE2eRuntime()) return unavailable();
   const suiteRunId = await resolveAuthorizedPreviewMarketplaceE2eRunId(request.headers);
   if (!suiteRunId) return unavailable();
+  const databaseUrl = resolveDatabaseUrl();
+  if (!databaseUrl) return NextResponse.json({ ok: false, error: "database" }, { status: 503 });
   const sql = getSql();
   if (!sql) return NextResponse.json({ ok: false, error: "database" }, { status: 503 });
 
@@ -241,7 +244,7 @@ export async function POST(request: Request) {
     },
     isolation: {
       previewRuntime: true,
-      databaseIsolated: Boolean(resolveDatabaseUrl()),
+      databaseIsolated: Boolean(databaseUrl),
       previewEmailConfigured: Boolean(resolveBrevoApiKey() && previewRecipient),
       controlledRecipientConfigured: Boolean(previewRecipient),
     },

@@ -103,10 +103,12 @@ async function brevoJson<T>(url: URL, apiKey: string): Promise<T | null> {
 }
 
 async function listTransactionalEmails(email: string, apiKey: string) {
-  const today = new Date().toISOString().slice(0, 10);
+  const nowMs = Date.now();
+  const today = new Date(nowMs).toISOString().slice(0, 10);
+  const yesterday = new Date(nowMs - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const url = new URL("https://api.brevo.com/v3/smtp/emails");
   url.searchParams.set("email", email);
-  url.searchParams.set("startDate", today);
+  url.searchParams.set("startDate", yesterday);
   url.searchParams.set("endDate", today);
   url.searchParams.set("sort", "desc");
   url.searchParams.set("limit", "20");

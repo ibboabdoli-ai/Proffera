@@ -7,11 +7,13 @@ on:
     paths:
       - "e2e/tests/marketplace-preview-lifecycle.e2e.mjs"
       - "e2e/playwright.config.mjs"
+      - "e2e/run-marketplace-preview-lifecycle.sh"
       - "e2e/package.json"
       - "e2e/package-lock.json"
       - "tests/preview-marketplace-*.test.ts"
       - "src/app/api/e2e/marketplace/**"
       - "src/lib/preview-marketplace-e2e.ts"
+      - "src/lib/preview-marketplace-e2e-constants.ts"
       - "src/features/quote-request/**"
       - "src/features/matching/**"
       - "src/features/email/marketplace-guest-invitation-email.ts"
@@ -28,9 +30,8 @@ on:
       - ".github/workflows/marketplace-preview-browser-e2e.yml"
 
 permissions:
-  contents: read
-  deployments: read
-  id-token: write
+  contents: read # Read the exact pull-request head; no repository writes.
+  deployments: read # Discover the exact-head Vercel Preview deployment.
 
 concurrency:
   group: marketplace-preview-browser-e2e-${{ github.event.pull_request.number }}
@@ -44,6 +45,10 @@ jobs:
       github.event.pull_request.head.ref == 'work/proffera-marketplace-browser-lifecycle-e2e'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    permissions:
+      contents: read # Checkout the exact pull-request head.
+      deployments: read # Poll deployment status for the exact head.
+      id-token: write # Mint short-lived GitHub OIDC only for this Preview E2E job.
 
     steps:
       - name: Checkout exact pull request head
@@ -72,19 +77,26 @@ jobs:
           preview_url=""
 
           for attempt in $(seq 1 60); do
-            deployments="$(curl --fail --silent --show-error \
+            if ! deployments="$(curl --fail --silent --show-error \
               -H "Authorization: Bearer ${GH_TOKEN}" \
               -H "Accept: application/vnd.github+json" \
               -H "X-GitHub-Api-Version: 2022-11-28" \
-              "${api}/deployments?sha=${HEAD_SHA}&per_page=20")"
+              "${api}/deployments?sha=${HEAD_SHA}&per_page=20")"; then
+              echo "Transient deployments API error on attempt ${attempt}/60; retrying." >&2
+              sleep 10
+              continue
+            fi
 
             while IFS= read -r deployment_id; do
               [ -n "${deployment_id}" ] || continue
-              statuses="$(curl --fail --silent --show-error \
+              if ! statuses="$(curl --fail --silent --show-error \
                 -H "Authorization: Bearer ${GH_TOKEN}" \
                 -H "Accept: application/vnd.github+json" \
                 -H "X-GitHub-Api-Version: 2022-11-28" \
-                "${api}/deployments/${deployment_id}/statuses?per_page=20")"
+                "${api}/deployments/${deployment_id}/statuses?per_page=20")"; then
+                echo "Transient deployment-status API error for ${deployment_id}; continuing." >&2
+                continue
+              fi
               candidate="$(jq -r '[.[] | select(.state == "success") | .environment_url // empty][0] // empty' <<<"${statuses}")"
               if [ -n "${candidate}" ]; then
                 host="$(node -e 'const u=new URL(process.argv[1]); process.stdout.write(u.hostname)' "${candidate}")"
@@ -126,13 +138,5 @@ jobs:
           E2E_BASE_URL: ${{ steps.preview.outputs.url }}
           E2E_ALLOW_REMOTE: "true"
           E2E_MARKETPLACE_PREVIEW_LIFECYCLE: "true"
-          OIDC_AUDIENCE: "proffera-marketplace-preview-e2e"
         shell: bash
-        run: |
-          set -euo pipefail
-          oidc_token="$(curl --fail --silent --show-error \
-            -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${OIDC_AUDIENCE}" \
-            | jq -er '.value | strings | select(length > 0)')"
-          PROFFERA_PREVIEW_E2E_OIDC_TOKEN="${oidc_token}" \
-            npx playwright test tests/marketplace-preview-lifecycle.e2e.mjs --project=chromium --reporter=line
+        run: ./run-marketplace-preview-lifecycle.sh

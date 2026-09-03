@@ -2,10 +2,13 @@ import "server-only";
 
 import { createHash } from "node:crypto";
 
+import { PREVIEW_MARKETPLACE_E2E_BRANCH } from "@/lib/preview-marketplace-e2e-constants";
+
+export { PREVIEW_MARKETPLACE_E2E_BRANCH } from "@/lib/preview-marketplace-e2e-constants";
+
 export const PREVIEW_MARKETPLACE_E2E_HEADER = "x-proffera-preview-e2e-run";
 export const PREVIEW_MARKETPLACE_E2E_AUTH_COOKIE = "__Secure-proffera-preview-e2e-auth";
 export const PREVIEW_MARKETPLACE_E2E_OIDC_AUDIENCE = "proffera-marketplace-preview-e2e";
-export const PREVIEW_MARKETPLACE_E2E_BRANCH = "work/proffera-marketplace-browser-lifecycle-e2e";
 
 const PREVIEW_MARKETPLACE_E2E_REPOSITORY = "ibboabdoli-ai/Proffera";
 const PREVIEW_MARKETPLACE_E2E_REPOSITORY_ID = "1267669271";

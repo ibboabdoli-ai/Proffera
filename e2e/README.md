@@ -75,7 +75,9 @@ The authenticated smoke verifies each test account sees its own Workspace name a
 
 `marketplace-preview-lifecycle.e2e.mjs` is a state-changing proof and is deliberately narrower than the general E2E suite. It is enabled only with `E2E_MARKETPLACE_PREVIEW_LIFECYCLE=true` and only against a non-Production remote URL accepted by the Playwright safety gate.
 
-The matching fixture and controlled email reader are also fail-closed in application code: they return 404 unless Vercel reports `VERCEL_ENV=preview` and the exact Git branch is `work/proffera-marketplace-browser-lifecycle-e2e`. Every test run additionally requires a random `x-proffera-preview-e2e-run` scope header.
+The matching fixture and controlled email reader are also fail-closed in application code: they return 404 unless Vercel reports `VERCEL_ENV=preview` and the exact Git branch is `work/proffera-marketplace-browser-lifecycle-e2e`. Every test run additionally carries a random `x-proffera-preview-e2e-run` header, but that value is synthetic scope only and grants no access by itself.
+
+GitHub Actions authorization is separate from run scope. For every process-level Playwright attempt, the hosted workflow mints a fresh short-lived GitHub Actions OIDC credential for the exact audience `proffera-marketplace-preview-e2e`. Playwright supplies that credential only through the secure, HTTP-only, path-scoped `__Secure-proffera-preview-e2e-auth` cookie for `/api/e2e/marketplace/`; the fixture and email routes verify the repository, repository ID, pull-request event, exact branch, workflow, workflow ref, issuer, hosted-runner environment, signature, and token lifetime before accepting the scoped run ID.
 
 The hosted workflow resolves the successful Vercel Preview deployment for the exact pull-request SHA before running Playwright. The journey uses only synthetic customer identities and an isolated synthetic provider. The provider is positioned at a synthetic coordinate far from Swedish Directory profiles so targeted matching cannot select a real company.
 

@@ -141,6 +141,7 @@ describe("Preview Marketplace E2E guard", () => {
   });
 
   it.each([
+    ["issuer", { iss: "https://issuer.example.invalid" }],
     ["audience", { aud: "not-proffera-marketplace-preview-e2e" }],
     ["repository", { repository: "attacker/Proffera" }],
     ["repository id", { repository_id: "999999" }],
@@ -148,6 +149,7 @@ describe("Preview Marketplace E2E guard", () => {
     ["head ref", { head_ref: "main" }],
     ["workflow", { workflow: "Other workflow" }],
     ["workflow ref", { workflow_ref: "ibboabdoli-ai/Proffera/.github/workflows/other.yml@refs/pull/813/merge" }],
+    ["runner environment", { runner_environment: "self-hosted" }],
   ])("rejects the wrong OIDC %s claim", async (_label, override) => {
     const fixture = signingFixture();
     const token = signedToken(fixture.privateKey, fixture.kid, baseClaims(override));
