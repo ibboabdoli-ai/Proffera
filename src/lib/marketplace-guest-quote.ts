@@ -541,26 +541,31 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
     console.error("Marketplace guest invitation was delivered but sent status update failed", { invitationId, error });
   }
 
-  try {
-    await sql`
-      insert into admin_audit_logs (
-        admin_user_id, action, reason, new_value
-      ) values (
-        ${input.adminUserId},
-        'marketplace.guest_quote_invited',
-        'Quote Admin sent a guest marketplace invitation to an unclaimed company profile',
-        ${JSON.stringify({
-          invitation_id: invitationId,
-          quote_request_id: input.quoteRequestId,
-          profile_id: input.profileId,
-          recipient_email: recipientEmail,
-          wave,
-          sent_status_recorded: sentStatusRecorded,
-        })}::jsonb
-      )
-    `;
-  } catch (error) {
-    console.error("Marketplace guest invitation was delivered but audit logging failed", { invitationId, error });
+  // admin_audit_logs is intentionally FK-scoped to real authenticated users.
+  // Automated Marketplace actors stay traceable on marketplace_quote_invitations.created_by_admin_user_id;
+  // never fabricate a user row or weaken the audit FK merely to log a system dispatch.
+  if (!input.adminUserId.trim().startsWith("system:")) {
+    try {
+      await sql`
+        insert into admin_audit_logs (
+          admin_user_id, action, reason, new_value
+        ) values (
+          ${input.adminUserId},
+          'marketplace.guest_quote_invited',
+          'Quote Admin sent a guest marketplace invitation to an unclaimed company profile',
+          ${JSON.stringify({
+            invitation_id: invitationId,
+            quote_request_id: input.quoteRequestId,
+            profile_id: input.profileId,
+            recipient_email: recipientEmail,
+            wave,
+            sent_status_recorded: sentStatusRecorded,
+          })}::jsonb
+        )
+      `;
+    } catch (error) {
+      console.error("Marketplace guest invitation was delivered but audit logging failed", { invitationId, error });
+    }
   }
 
   return { ok: true as const, invitationId };
