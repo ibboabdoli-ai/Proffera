@@ -16,12 +16,11 @@ import {
 
 export const dynamic = "force-dynamic";
 
-// The published synthetic Directory profile must satisfy the existing pilot
-// location contract, while its geocoded coordinates stay in the North Sea so
-// targeted Preview matching cannot accidentally include a real Swedish
-// Directory provider within 50 km.
-const TEST_LATITUDE = 60;
-const TEST_LONGITUDE = 0;
+// The published synthetic Directory profile satisfies the existing Stockholm
+// pilot-location contract, while its verified coordinates are deliberately far
+// outside Sweden so Preview matching cannot collide with real Directory data.
+const TEST_LATITUDE = -80;
+const TEST_LONGITUDE = 170;
 const TEST_CITY = "Stockholm";
 const TEST_MUNICIPALITY = "Stockholm";
 const TEST_POSTAL_CODE = "11100";
