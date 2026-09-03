@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { resolveDatabaseUrl } from "@/lib/db/database-url";
 import { getSql } from "@/lib/db/server";
 import { resolveBrevoApiKey, resolvePreviewEmailRecipient } from "@/lib/email-runtime-config";
+import { processMarketplaceAutoWorker } from "@/lib/marketplace-auto-worker";
 import {
   isPreviewMarketplaceE2eRuntime,
   previewMarketplaceE2eCustomerEmail,
@@ -15,8 +16,12 @@ import {
 
 export const dynamic = "force-dynamic";
 
-const TEST_LATITUDE = 59.1955;
-const TEST_LONGITUDE = 17.6253;
+// Keep the synthetic provider in the North Sea so the targeted Preview match
+// cannot accidentally include a real Swedish Directory profile within 50 km.
+const TEST_LATITUDE = 60;
+const TEST_LONGITUDE = 0;
+const TEST_CITY = "Preview E2E";
+const TEST_POSTAL_CODE = "00000";
 
 function unavailable() {
   return new NextResponse(null, { status: 404 });
@@ -29,6 +34,13 @@ function parseRunIds(value: string | null) {
     .filter(Boolean)
     .slice(0, 4);
   return [...new Set(values)].filter((runId) => Boolean(previewMarketplaceE2eCustomerEmail(runId)));
+}
+
+function parseBodyRunIds(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map((item) => String(item ?? "").trim().toLowerCase()))]
+    .filter((runId) => Boolean(previewMarketplaceE2eCustomerEmail(runId)))
+    .slice(0, 4);
 }
 
 async function deleteCustomerRun(runId: string) {
@@ -101,6 +113,38 @@ async function customerState(runId: string) {
   };
 }
 
+async function providerExists(suiteRunId: string) {
+  const sql = getSql();
+  const profileId = previewMarketplaceE2eUuid("provider", suiteRunId);
+  if (!sql || !profileId) return false;
+  const rows = await sql`
+    select exists(
+      select 1 from company_directory_profiles where id = ${profileId}::uuid
+    ) as exists
+  `;
+  return rows[0]?.exists === true;
+}
+
+async function quoteReferencesForRuns(runIds: string[]) {
+  const sql = getSql();
+  if (!sql) return [] as string[];
+  const references: string[] = [];
+  for (const runId of runIds) {
+    const email = previewMarketplaceE2eCustomerEmail(runId);
+    if (!email) continue;
+    const rows = await sql`
+      select reference_id
+      from quote_requests
+      where lower(btrim(contact_email)) = ${email}
+      order by created_at desc
+      limit 1
+    `;
+    const referenceId = String(rows[0]?.reference_id ?? "").trim();
+    if (referenceId) references.push(referenceId);
+  }
+  return references;
+}
+
 export async function POST(request: Request) {
   if (!isPreviewMarketplaceE2eRuntime()) return unavailable();
   const suiteRunId = resolvePreviewMarketplaceE2eRunId(request.headers);
@@ -118,11 +162,11 @@ export async function POST(request: Request) {
   const companyName = `Preview E2E Rör ${suiteRunId.slice(0, 8)} AB`;
   const workplaces = JSON.stringify([{
     cfarNumber: `E2E-${suiteRunId.slice(0, 12)}`,
-    municipality: "Södertälje",
+    municipality: TEST_CITY,
     visitingAddress: {
       addressLine: "Preview Testgatan 1",
-      postalCode: "15100",
-      city: "Södertälje",
+      postalCode: TEST_POSTAL_CODE,
+      city: TEST_CITY,
     },
   }]);
 
@@ -135,7 +179,7 @@ export async function POST(request: Request) {
           publication_status, quality_score, privacy_blocked, auto_public_eligible, published_at
         ) values (
           ${profileId}::uuid, ${organizationNumber}, 'juridical_person', ${companyName}, ${companyName},
-          true, 'vvs', 'Södertälje', 'Södertälje', ${slug},
+          true, 'vvs', ${TEST_CITY}, ${TEST_CITY}, ${slug},
           'published', 100, false, true, now()
         )
       `,
@@ -185,6 +229,7 @@ export async function POST(request: Request) {
   return NextResponse.json({
     ok: true,
     provider: { profileId, slug, companyName },
+    location: { latitude: TEST_LATITUDE, longitude: TEST_LONGITUDE, city: TEST_CITY, postalCode: TEST_POSTAL_CODE },
     isolation: {
       previewRuntime: true,
       databaseIsolated: Boolean(resolveDatabaseUrl()),
@@ -192,6 +237,34 @@ export async function POST(request: Request) {
       controlledRecipientConfigured: Boolean(previewRecipient),
     },
   });
+}
+
+export async function PUT(request: Request) {
+  if (!isPreviewMarketplaceE2eRuntime()) return unavailable();
+  const suiteRunId = resolvePreviewMarketplaceE2eRunId(request.headers);
+  if (!suiteRunId) return unavailable();
+
+  let body: { runIds?: unknown } = {};
+  try {
+    body = await request.json() as { runIds?: unknown };
+  } catch {
+    body = {};
+  }
+  const runIds = parseBodyRunIds(body.runIds);
+  if (runIds.length === 0) return NextResponse.json({ ok: false, error: "run_ids" }, { status: 400 });
+
+  const targetReferenceIds = await quoteReferencesForRuns(runIds);
+  if (targetReferenceIds.length !== runIds.length) {
+    return NextResponse.json({ ok: false, error: "quote_missing" }, { status: 409 });
+  }
+
+  const result = await processMarketplaceAutoWorker({
+    baseUrl: new URL(request.url).origin,
+    targetReferenceIds,
+    batchSize: runIds.length,
+    actorId: `system:preview-marketplace-e2e:${suiteRunId}`,
+  });
+  return NextResponse.json({ ok: result.ok, result });
 }
 
 export async function GET(request: Request) {
@@ -202,7 +275,7 @@ export async function GET(request: Request) {
   const runIds = parseRunIds(url.searchParams.get("runs"));
   const states = [];
   for (const runId of runIds) states.push({ runId, state: await customerState(runId) });
-  return NextResponse.json({ ok: true, states });
+  return NextResponse.json({ ok: true, providerExists: await providerExists(suiteRunId), states });
 }
 
 export async function DELETE(request: Request) {
@@ -212,22 +285,21 @@ export async function DELETE(request: Request) {
   const sql = getSql();
   if (!sql) return NextResponse.json({ ok: false, error: "database" }, { status: 503 });
 
-  let body: { runIds?: unknown } = {};
+  let body: { runIds?: unknown; deleteProvider?: unknown } = {};
   try {
-    body = await request.json() as { runIds?: unknown };
+    body = await request.json() as { runIds?: unknown; deleteProvider?: unknown };
   } catch {
     body = {};
   }
-  const runIds = Array.isArray(body.runIds)
-    ? [...new Set(body.runIds.map((value) => String(value ?? "").trim().toLowerCase()))]
-      .filter((runId) => Boolean(previewMarketplaceE2eCustomerEmail(runId)))
-      .slice(0, 4)
-    : [];
+  const runIds = parseBodyRunIds(body.runIds);
+  const deleteProvider = body.deleteProvider !== false;
 
   try {
     for (const runId of runIds) await deleteCustomerRun(runId);
-    const profileId = previewMarketplaceE2eUuid("provider", suiteRunId);
-    if (profileId) await sql`delete from company_directory_profiles where id = ${profileId}::uuid`;
+    if (deleteProvider) {
+      const profileId = previewMarketplaceE2eUuid("provider", suiteRunId);
+      if (profileId) await sql`delete from company_directory_profiles where id = ${profileId}::uuid`;
+    }
     return NextResponse.json({ ok: true });
   } catch (error) {
     console.error("Preview Marketplace E2E fixture cleanup failed", { error });
