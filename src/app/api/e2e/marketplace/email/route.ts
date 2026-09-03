@@ -242,7 +242,7 @@ export async function GET(request: Request) {
   for (const [index, item] of recent.entries()) {
     const uuid = String(item.uuid ?? "").trim();
     if (!uuid) continue;
-    if (index > 0 && lookupMode === "message_id_then_recipient") await delay(650);
+    if (index > 0 && lookupMode !== "message_id") await delay(650);
     detailCandidateCount += 1;
     const content = await emailContent(uuid, apiKey);
     if (!content) continue;
