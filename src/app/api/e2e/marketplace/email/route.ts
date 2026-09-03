@@ -131,7 +131,10 @@ async function markerFor(kind: EmailKind, suiteRunId: string, customerRunId: str
     return {
       value: `Preview E2E Rör ${suiteRunId.slice(0, 8)} AB`,
       notBeforeMs: null,
-      subjectMatch: true,
+      // Review invitations do not persist a Brevo message ID. Do not trust the
+      // list endpoint's subject metadata as a pre-filter; inspect a bounded set
+      // of safe-sink message bodies and match the synthetic marker there.
+      subjectMatch: false,
       providerMessageId: null,
     };
   }
