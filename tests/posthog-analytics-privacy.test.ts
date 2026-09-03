@@ -236,6 +236,13 @@ describe("PostHog privacy-safe analytics", () => {
     );
   });
 
+  it("preserves canonical public directory slugs without weakening token redaction elsewhere", () => {
+    const publicSlug = "example-elektriska-ab-115707";
+
+    expect(sanitizeAnalyticsPathname(`/foretag/${publicSlug}`)).toBe(`/foretag/${publicSlug}`);
+    expect(sanitizeAnalyticsPathname(`/review/${publicSlug}`)).toBe("/review/:redacted");
+  });
+
   it("never forwards a raw referrer or arbitrary event properties", () => {
     expect(analyticsSourceFromReferrer("https://www.google.com/search?q=private+search")).toBe("google");
     expect(analyticsSourceFromReferrer("https://unknown.example/private?token=secret")).toBe("external");
@@ -276,6 +283,15 @@ describe("PostHog privacy-safe analytics", () => {
     expect(sanitizePostHogEvent({ event: "$exception", properties: {} })).toBeNull();
     expect(sanitizePostHogEvent({ event: "booking_submitted", properties: {} })).toBeNull();
     expect(sanitizePostHogEvent({ event: "$pageview", properties: {} })?.event).toBe("$pageview");
+  });
+
+  it("allows retry after a transient PostHog SDK load failure", () => {
+    const client = source("src/components/analytics/posthog-analytics.tsx");
+    const catchStart = client.indexOf(".catch(() => {");
+    const reset = client.indexOf("postHogClientPromise = null;", catchStart);
+
+    expect(catchStart).toBeGreaterThan(-1);
+    expect(reset).toBeGreaterThan(catchStart);
   });
 
   it("keeps PostHog collection features disabled outside the intended pageview slice", () => {
