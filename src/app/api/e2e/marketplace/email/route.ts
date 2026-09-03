@@ -118,9 +118,8 @@ function controlledLink(body: string, kind: EmailKind) {
   return null;
 }
 
-async function markerFor(kind: EmailKind, suiteRunId: string, customerRunId: string | null) {
+async function markerFor(kind: EmailKind, suiteRunId: string, customerRunId: string) {
   if (kind === "review") return `Preview E2E Rör ${suiteRunId.slice(0, 8)} AB`;
-  if (!customerRunId) return null;
   const email = previewMarketplaceE2eCustomerEmail(customerRunId);
   const sql = getSql();
   if (!email || !sql) return null;
@@ -134,9 +133,9 @@ async function markerFor(kind: EmailKind, suiteRunId: string, customerRunId: str
   return String(rows[0]?.reference_id ?? "").trim() || null;
 }
 
-function originalRecipient(kind: EmailKind, suiteRunId: string, customerRunId: string | null) {
+function originalRecipient(kind: EmailKind, suiteRunId: string, customerRunId: string) {
   if (kind === "guest") return previewMarketplaceE2eProviderEmail(suiteRunId);
-  return customerRunId ? previewMarketplaceE2eCustomerEmail(customerRunId) : null;
+  return previewMarketplaceE2eCustomerEmail(customerRunId);
 }
 
 export async function GET(request: Request) {
@@ -146,12 +145,9 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url);
   const kind = emailKind(url.searchParams.get("kind"));
-  const customerRunId = String(url.searchParams.get("run") ?? "").trim().toLowerCase() || null;
+  const customerRunId = String(url.searchParams.get("run") ?? "").trim().toLowerCase();
   if (!kind) return NextResponse.json({ ok: false, error: "kind" }, { status: 400 });
-  if (kind !== "guest" && !customerRunId) {
-    return NextResponse.json({ ok: false, error: "run" }, { status: 400 });
-  }
-  if (customerRunId && !previewMarketplaceE2eCustomerEmail(customerRunId)) {
+  if (!customerRunId || !previewMarketplaceE2eCustomerEmail(customerRunId)) {
     return NextResponse.json({ ok: false, error: "run" }, { status: 400 });
   }
 
