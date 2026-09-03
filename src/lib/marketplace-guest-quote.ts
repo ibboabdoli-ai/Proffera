@@ -10,7 +10,10 @@ import {
   suppressMarketplaceGuestRecipientIdentity,
 } from "@/lib/marketplace-guest-opt-out-core";
 import { isQuoteRequestOpenForMatchingOrDelivery } from "@/lib/quote-request-lifecycle";
-import { sendMarketplaceGuestInvitationEmail } from "@/features/email/marketplace-guest-invitation-email";
+import {
+  marketplaceGuestInvitationEmailConfigured,
+  sendMarketplaceGuestInvitationEmail,
+} from "@/features/email/marketplace-guest-invitation-email";
 
 export { normalizeMarketplaceRecipientEmail } from "@/lib/marketplace-guest-opt-out-core";
 
@@ -371,7 +374,7 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
   // Missing provider configuration is a definite pre-provider failure. Record it
   // before crossing the durable sending -> pending provider-claim boundary so it
   // stays safely retryable after configuration is fixed.
-  if (!process.env.BREVO_API_KEY || !process.env.LEAD_FROM_EMAIL) {
+  if (!marketplaceGuestInvitationEmailConfigured()) {
     try {
       await sql`
         update marketplace_quote_invitations
