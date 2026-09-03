@@ -3,10 +3,7 @@ import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import {
-  ANALYTICS_CONSENT_STORAGE_KEY,
-  sanitizeAnalyticsPathname,
-} from "../src/lib/analytics/posthog-privacy";
+import { sanitizeAnalyticsPathname } from "../src/lib/analytics/posthog-privacy";
 
 function source(path: string) {
   return readFileSync(resolve(process.cwd(), path), "utf8");
@@ -26,10 +23,14 @@ describe("PostHog final review regressions", () => {
   });
 
   it("synchronizes analytics consent changes across open tabs", () => {
+    const privacy = source("src/lib/analytics/posthog-privacy.ts");
     const client = source("src/components/analytics/posthog-analytics.tsx");
     const control = source("src/components/analytics/analytics-consent-control.tsx");
 
-    expect(client).toContain(ANALYTICS_CONSENT_STORAGE_KEY);
+    expect(privacy).toContain(
+      'ANALYTICS_CONSENT_STORAGE_KEY = "proffera:analytics-consent:v1"',
+    );
+    expect(client).toContain("ANALYTICS_CONSENT_STORAGE_KEY,");
     expect(client).toContain("event.key !== ANALYTICS_CONSENT_STORAGE_KEY");
     expect(client).toContain('window.addEventListener("storage", handleStorageChange)');
     expect(client).toContain("posthog?.opt_out_capturing()");
