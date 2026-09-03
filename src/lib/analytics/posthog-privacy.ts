@@ -45,6 +45,7 @@ const EMAIL_LIKE = /^[^/@\s]+@[^/@\s]+\.[^/@\s]+$/;
 const DIRECTORY_PUBLIC_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*-[0-9a-z]{6,8}$/;
 const WORKSPACE_SERVICE_PUBLIC_SLUG = /^(?=.{2,120}$)[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const WORKSPACE_SERVICE_OPAQUE_TOKEN = /^[a-z0-9]{24,}$/;
+const WORKSPACE_BOOKING_PUBLIC_SLUG = /^(?=.{8,49}$)[a-z0-9]+(?:-[a-z0-9]+)*-[0-9a-f]{6}$/;
 const GOOGLE_REFERRER_HOST = /^(?:[^.]+\.)*google\.(?:[a-z]{2,3}|(?:co|com)\.[a-z]{2})$/;
 
 const allowedAnalyticsSources = new Set<AnalyticsSource>([
@@ -119,6 +120,25 @@ function isKnownPublicWorkspaceServiceSlug(segment: string, rawSegments: string[
     && !UUID.test(decoded)
     && !LONG_NUMERIC_ID.test(decoded)
     && !WORKSPACE_SERVICE_OPAQUE_TOKEN.test(decoded)
+  );
+}
+
+function isKnownPublicBookingSlug(segment: string, rawSegments: string[], index: number) {
+  const followsExactBookingRoute =
+    index === 2
+    && rawSegments[1] === "boka"
+    && rawSegments.slice(3).every((part) => part === "");
+  if (!followsExactBookingRoute) return false;
+
+  const decoded = decodePathSegment(segment);
+  return (
+    decoded !== null
+    && WORKSPACE_BOOKING_PUBLIC_SLUG.test(decoded)
+    && !PERSON_OR_ORGANIZATION_NUMBER.test(decoded)
+    && !UUID.test(decoded)
+    && !LONG_NUMERIC_ID.test(decoded)
+    && !EMAIL_LIKE.test(decoded)
+    && !DOT_DELIMITED_TOKEN.test(decoded)
   );
 }
 
@@ -227,6 +247,7 @@ export function sanitizeAnalyticsPathname(pathname: string) {
     if (
       isKnownPublicDirectorySlug(segment, rawSegments, index)
       || isKnownPublicWorkspaceServiceSlug(segment, rawSegments, index)
+      || isKnownPublicBookingSlug(segment, rawSegments, index)
     ) {
       return segment;
     }
