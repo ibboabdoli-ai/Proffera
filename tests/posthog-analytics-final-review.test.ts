@@ -78,6 +78,7 @@ describe("PostHog final review regressions", () => {
     const numericId = "5592643778";
     const email = "person@example.com";
     const bearerToken = "abcdefghijklmnopqrstuvwx";
+    const canonicalShapedBearerToken = "abcdefghijklmnopqrstuvwx-a1b2c3";
     const signedToken = "eyJhbGciOiJIUzI1NiJ9.abcdefghijklmnopqrstuvwxyz123456";
 
     expect(sanitizeAnalyticsPathname(`/boka/${bookingSlug}`)).toBe(`/boka/${bookingSlug}`);
@@ -90,6 +91,7 @@ describe("PostHog final review regressions", () => {
     expect(sanitizeAnalyticsPathname(`/boka/${numericId}`)).toBe("/boka/:redacted");
     expect(sanitizeAnalyticsPathname(`/boka/${email}`)).toBe("/boka/:redacted");
     expect(sanitizeAnalyticsPathname(`/boka/${bearerToken}`)).toBe("/boka/:redacted");
+    expect(sanitizeAnalyticsPathname(`/boka/${canonicalShapedBearerToken}`)).toBe("/boka/:redacted");
     expect(sanitizeAnalyticsPathname(`/boka/${signedToken}`)).toBe("/boka/:redacted");
   });
 
