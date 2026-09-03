@@ -6,6 +6,7 @@ import { resolveBrevoApiKey, resolvePreviewEmailRecipient } from "@/lib/email-ru
 import { processMarketplaceAutoWorker } from "@/lib/marketplace-auto-worker";
 import {
   isPreviewMarketplaceE2eRuntime,
+  previewMarketplaceE2eCoordinates,
   previewMarketplaceE2eCustomerEmail,
   previewMarketplaceE2eOrganizationNumber,
   previewMarketplaceE2eProviderEmail,
@@ -17,10 +18,9 @@ import {
 export const dynamic = "force-dynamic";
 
 // The published synthetic Directory profile satisfies the existing Stockholm
-// pilot-location contract, while its verified coordinates are deliberately far
-// outside Sweden so Preview matching cannot collide with real Directory data.
-const TEST_LATITUDE = -80;
-const TEST_LONGITUDE = 170;
+// pilot-location contract. Each E2E suite receives a deterministic coordinate
+// cell well outside Sweden, separated by more than the 50 km matching radius
+// from adjacent cells so stale synthetic providers from other runs cannot match.
 const TEST_CITY = "Stockholm";
 const TEST_MUNICIPALITY = "Stockholm";
 const TEST_POSTAL_CODE = "11100";
@@ -159,7 +159,8 @@ export async function POST(request: Request) {
   const slug = previewMarketplaceE2eProviderSlug(suiteRunId);
   const providerEmail = previewMarketplaceE2eProviderEmail(suiteRunId);
   const organizationNumber = previewMarketplaceE2eOrganizationNumber(suiteRunId);
-  if (!profileId || !serviceAreaId || !slug || !providerEmail || !organizationNumber) return unavailable();
+  const coordinates = previewMarketplaceE2eCoordinates(suiteRunId);
+  if (!profileId || !serviceAreaId || !slug || !providerEmail || !organizationNumber || !coordinates) return unavailable();
 
   const companyName = `Preview E2E Rör ${suiteRunId.slice(0, 8)} AB`;
   const workplaces = JSON.stringify([{
@@ -199,7 +200,7 @@ export async function POST(request: Request) {
           profile_id, latitude, longitude, geocode_source, geocode_precision,
           geocode_confidence, is_public, geocoded_at
         ) values (
-          ${profileId}::uuid, ${TEST_LATITUDE}, ${TEST_LONGITUDE},
+          ${profileId}::uuid, ${coordinates.latitude}, ${coordinates.longitude},
           'lantmateriet_belagenhetsadress_v4_2', 'address', 100, true, now()
         )
       `,
@@ -232,8 +233,8 @@ export async function POST(request: Request) {
     ok: true,
     provider: { profileId, slug, companyName },
     location: {
-      latitude: TEST_LATITUDE,
-      longitude: TEST_LONGITUDE,
+      latitude: coordinates.latitude,
+      longitude: coordinates.longitude,
       city: TEST_CITY,
       municipality: TEST_MUNICIPALITY,
       postalCode: TEST_POSTAL_CODE,
