@@ -205,9 +205,6 @@ function originalRecipient(kind: EmailKind, suiteRunId: string, customerRunId: s
 }
 
 function likelyMarkerCandidate(item: BrevoEmailListItem, marker: EmailMarker) {
-  if (marker.providerMessageId) {
-    return String(item.messageId ?? "").trim() === marker.providerMessageId;
-  }
   const subject = String(item.subject ?? "");
   if (marker.subjectMatch) return subject.includes(marker.value);
   if (marker.notBeforeMs === null) return true;
@@ -236,9 +233,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, error: "configuration" }, { status: 503 });
   }
 
-  // Guest/customer sends already persist the provider message ID. Poll that
-  // exact provider record instead of repeatedly scanning the sink inbox. Review
-  // delivery has no persisted provider ID, so it keeps the bounded sink lookup.
+  const lookupMode = marker.providerMessageId ? "message_id" : "recipient";
   const sinkList = marker.providerMessageId
     ? await listTransactionalEmailByMessageId(marker.providerMessageId, apiKey)
     : await listTransactionalEmails(sink, apiKey);
@@ -246,19 +241,31 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, error: "provider" }, { status: 502 });
   }
 
-  const recent = (sinkList.transactionalEmails ?? [])
-    .filter((item) => likelyMarkerCandidate(item, marker))
-    .slice(0, kind === "review" ? 3 : 1);
+  const candidates = sinkList.transactionalEmails ?? [];
+  // A message-id lookup is already exact at the provider API boundary. Do not
+  // reject that result again because Brevo may normalize the returned
+  // messageId string. The downstream quote marker, safe sink, controlled
+  // Preview origin and allowlisted lifecycle path still independently verify it.
+  const recent = marker.providerMessageId
+    ? candidates.slice(0, 1)
+    : candidates.filter((item) => likelyMarkerCandidate(item, marker)).slice(0, 3);
+
+  let detailCandidateCount = 0;
+  let markerMatchedCount = 0;
+  let controlledLinkMatchedCount = 0;
   for (const item of recent) {
     const uuid = String(item.uuid ?? "").trim();
     if (!uuid) continue;
+    detailCandidateCount += 1;
     const content = await emailContent(uuid, apiKey);
     if (!content) continue;
     const subject = String(content.subject ?? item.subject ?? "");
     const body = String(content.body ?? "");
     if (!subject.includes(marker.value) && !body.includes(marker.value)) continue;
+    markerMatchedCount += 1;
     const link = controlledLink(body, kind);
     if (!link) continue;
+    controlledLinkMatchedCount += 1;
 
     const originalList = await listTransactionalEmails(original, apiKey);
     if (!originalList) {
@@ -283,11 +290,23 @@ export async function GET(request: Request) {
     });
   }
 
+  const diagnostics = {
+    lookupMode,
+    providerMessageIdPresent: Boolean(marker.providerMessageId),
+    candidateCount: candidates.length,
+    selectedCandidateCount: recent.length,
+    detailCandidateCount,
+    markerMatchedCount,
+    controlledLinkMatchedCount,
+  };
+  console.info("Preview Marketplace E2E email lookup pending", { kind, ...diagnostics });
+
   return NextResponse.json({
     ok: true,
     found: false,
     kind,
     sinkRecipientMatched: false,
     originalRecipientObserved: null,
+    diagnostics,
   });
 }
