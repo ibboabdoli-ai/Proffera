@@ -127,6 +127,42 @@ describe("PostHog final review regressions", () => {
     );
   });
 
+  it("preserves public workspace slugs only on exact gallery routes", () => {
+    const ownerConfiguredSlug = "fonsterputsabonnemangpremium";
+    const generatedSlug = "very-long-company-derived-booking-slug-a1b2c3";
+    const personNumber = "198901011234";
+    const organizationNumber = "556123-4567";
+    const uuid = "550e8400-e29b-41d4-a716-446655440000";
+    const numericId = "5592643778";
+    const email = "person@example.com";
+    const longHexToken = "0123456789abcdef0123456789abcdef";
+    const bearerToken = "Bearer%20abcdefghijklmnopqrstuvwxyz123456";
+    const signedToken = "eyJhbGciOiJIUzI1NiJ9.abcdefghijklmnopqrstuvwxyz123456";
+
+    expect(sanitizeAnalyticsPathname(`/galleri/${ownerConfiguredSlug}`)).toBe(
+      `/galleri/${ownerConfiguredSlug}`,
+    );
+    expect(sanitizeAnalyticsPathname(`/gallery/${ownerConfiguredSlug}`)).toBe(
+      `/gallery/${ownerConfiguredSlug}`,
+    );
+    expect(sanitizeAnalyticsPathname(`/galleri/${generatedSlug}`)).toBe(`/galleri/${generatedSlug}`);
+    expect(sanitizeAnalyticsPathname(`/gallery/${generatedSlug}`)).toBe(`/gallery/${generatedSlug}`);
+
+    expect(sanitizeAnalyticsPathname(`/galleri/${personNumber}`)).toBe("/galleri/:redacted");
+    expect(sanitizeAnalyticsPathname(`/gallery/${organizationNumber}`)).toBe("/gallery/:redacted");
+    expect(sanitizeAnalyticsPathname(`/galleri/${uuid}`)).toBe("/galleri/:redacted");
+    expect(sanitizeAnalyticsPathname(`/gallery/${numericId}`)).toBe("/gallery/:redacted");
+    expect(sanitizeAnalyticsPathname(`/galleri/${email}`)).toBe("/galleri/:redacted");
+    expect(sanitizeAnalyticsPathname(`/gallery/${longHexToken}`)).toBe("/gallery/:redacted");
+    expect(sanitizeAnalyticsPathname(`/galleri/${bearerToken}`)).toBe("/galleri/:redacted");
+    expect(sanitizeAnalyticsPathname(`/gallery/${signedToken}`)).toBe("/gallery/:redacted");
+
+    expect(sanitizeAnalyticsPathname(`/galleri/${ownerConfiguredSlug}/extra`)).toBe(
+      "/galleri/:redacted/extra",
+    );
+    expect(sanitizeAnalyticsPathname(`/review/${ownerConfiguredSlug}`)).toBe("/review/:redacted");
+  });
+
   it("synchronizes analytics consent changes and storage clears across open tabs", () => {
     const privacy = source("src/lib/analytics/posthog-privacy.ts");
     const client = source("src/components/analytics/posthog-analytics.tsx");
