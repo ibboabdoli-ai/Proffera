@@ -1,0 +1,88 @@
+"use client";
+
+import { useEffect, useState } from "react";
+
+import {
+  ANALYTICS_CONSENT_CHANGED_EVENT,
+  persistAnalyticsConsent,
+  readAnalyticsConsent,
+  type AnalyticsConsentState,
+  type PersistedAnalyticsConsentState,
+} from "@/lib/analytics/posthog-privacy";
+
+const choiceButtonClass =
+  "min-h-11 flex-1 rounded-xl border border-[#cbd5ce] bg-white px-4 py-2.5 text-sm font-bold text-[#17201a] transition hover:bg-[#f5f7f5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#17452f] focus-visible:ring-offset-2";
+
+export function AnalyticsConsentControl() {
+  const [consent, setConsent] = useState<AnalyticsConsentState | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  useEffect(() => {
+    const syncConsent = () => setConsent(readAnalyticsConsent(window.localStorage));
+    syncConsent();
+    window.addEventListener(ANALYTICS_CONSENT_CHANGED_EVENT, syncConsent);
+    return () => window.removeEventListener(ANALYTICS_CONSENT_CHANGED_EVENT, syncConsent);
+  }, []);
+
+  function chooseConsent(nextConsent: PersistedAnalyticsConsentState) {
+    const stored = persistAnalyticsConsent(window.localStorage, nextConsent, () => {
+      window.dispatchEvent(new Event(ANALYTICS_CONSENT_CHANGED_EVENT));
+    });
+    if (!stored) return;
+
+    setConsent(nextConsent);
+    setSettingsOpen(false);
+  }
+
+  if (consent === null) return null;
+
+  const showChoice = consent === "unknown" || settingsOpen;
+
+  if (!showChoice) {
+    return (
+      <button
+        type="button"
+        onClick={() => setSettingsOpen(true)}
+        className="fixed bottom-4 left-4 z-[70] rounded-full border border-[#cbd5ce] bg-white/95 px-4 py-2 text-xs font-bold text-[#334139] shadow-sm backdrop-blur transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#17452f] focus-visible:ring-offset-2"
+        aria-label="Ändra inställningar för analys"
+      >
+        Analysinställningar
+      </button>
+    );
+  }
+
+  return (
+    <section
+      className="fixed inset-x-3 bottom-3 z-[80] mx-auto max-w-2xl rounded-2xl border border-[#d6ddd7] bg-white p-5 shadow-2xl sm:inset-x-6 sm:bottom-6"
+      aria-labelledby="analytics-consent-title"
+      aria-live="polite"
+    >
+      <p className="text-xs font-black uppercase tracking-[0.12em] text-[#526159]">Valfri analys</p>
+      <h2 id="analytics-consent-title" className="mt-1 text-lg font-black text-[#17201a]">
+        Vill du tillåta begränsad analys?
+      </h2>
+      <p className="mt-2 text-sm leading-6 text-[#526159]">
+        Proffera kan använda sidvisningar och anonyma sessionssignaler för att förstå hur tjänsten används.
+        Vi använder inte reklamspårning, formulärtext eller personuppgifter för denna analys. Inget skickas innan
+        du väljer att tillåta analys.
+      </p>
+      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+        <button type="button" className={choiceButtonClass} onClick={() => chooseConsent("denied")}>
+          Avvisa analys
+        </button>
+        <button type="button" className={choiceButtonClass} onClick={() => chooseConsent("granted")}>
+          Tillåt analys
+        </button>
+      </div>
+      {consent !== "unknown" && (
+        <button
+          type="button"
+          onClick={() => setSettingsOpen(false)}
+          className="mt-3 text-xs font-bold text-[#526159] underline decoration-[#aab5ad] underline-offset-4"
+        >
+          Behåll nuvarande val och stäng
+        </button>
+      )}
+    </section>
+  );
+}
