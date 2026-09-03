@@ -40,9 +40,8 @@ describe("PostHog final review regressions", () => {
     const layout = source("src/app/layout.tsx");
     const control = source("src/components/analytics/analytics-consent-control.tsx");
 
-    expect(layout).toContain(
-      '<AnalyticsConsentControl locale={isEnglishPublicSite ? "en" : "sv"} />',
-    );
+    expect(layout).toContain("{isPlatformSite && <AnalyticsConsentControl />}");
+    expect(control).toContain("document.documentElement.lang");
     expect(control).toContain("Analytics settings");
     expect(control).toContain("Reject analytics");
     expect(control).toContain("Allow analytics");
