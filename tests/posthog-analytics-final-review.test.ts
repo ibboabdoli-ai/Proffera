@@ -45,17 +45,29 @@ describe("PostHog final review regressions", () => {
     expect(sanitizeAnalyticsPathname(`/review/${soleTraderSlug}`)).toBe("/review/:redacted");
   });
 
-  it("preserves validated long public service slugs only on the public service route", () => {
+  it("preserves legitimate public service slugs while redacting sensitive service segments", () => {
     const workspaceSlug = "example-elektriska-ab-115707";
     const serviceSlug = "my-very-long-public-workspace-service";
+    const personNumber = "198901011234";
+    const organizationNumber = "556123-4567";
+    const bearerToken = "abcdefghijklmnopqrstuvwx";
 
     expect(sanitizeAnalyticsPathname(`/foretag/${workspaceSlug}/tjanster/${serviceSlug}`)).toBe(
       `/foretag/${workspaceSlug}/tjanster/${serviceSlug}`,
     );
-    expect(sanitizeAnalyticsPathname(`/review/${serviceSlug}`)).toBe("/review/:redacted");
     expect(sanitizeAnalyticsPathname(`/foretag/${workspaceSlug}/tjanster/short-service`)).toBe(
       `/foretag/${workspaceSlug}/tjanster/short-service`,
     );
+    expect(sanitizeAnalyticsPathname(`/foretag/${workspaceSlug}/tjanster/${personNumber}`)).toBe(
+      `/foretag/${workspaceSlug}/tjanster/:redacted`,
+    );
+    expect(sanitizeAnalyticsPathname(`/foretag/${workspaceSlug}/tjanster/${organizationNumber}`)).toBe(
+      `/foretag/${workspaceSlug}/tjanster/:redacted`,
+    );
+    expect(sanitizeAnalyticsPathname(`/foretag/${workspaceSlug}/tjanster/${bearerToken}`)).toBe(
+      `/foretag/${workspaceSlug}/tjanster/:redacted`,
+    );
+    expect(sanitizeAnalyticsPathname(`/review/${serviceSlug}`)).toBe("/review/:redacted");
   });
 
   it("synchronizes analytics consent changes and storage clears across open tabs", () => {
@@ -100,6 +112,17 @@ describe("PostHog final review regressions", () => {
     expect(control).toContain("Reject analytics");
     expect(control).toContain("Allow analytics");
     expect(control).toContain("Nothing is sent before you choose to allow analytics.");
+  });
+
+  it("exposes the resolved booking locale for English-default and Swedish booking pages", () => {
+    const booking = source("src/app/boka/[slug]/page.tsx");
+    const control = source("src/components/analytics/analytics-consent-control.tsx");
+
+    expect(booking).toContain(': experience.defaultLanguage;');
+    expect(booking).toContain('requestedLanguage === "en" && experience.englishEnabled ? "en"');
+    expect(booking).toContain('requestedLanguage === "sv" && experience.swedishEnabled ? "sv"');
+    expect(booking.match(/<main lang=\{locale\}/g)).toHaveLength(2);
+    expect(control).toContain('document.querySelector<HTMLElement>("main[lang]")');
   });
 
   it("classifies legitimate country-specific Google referrers without broad hostname matching", () => {
