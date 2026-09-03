@@ -56,10 +56,15 @@ function emailKind(value: string | null): EmailKind | null {
   return value === "guest" || value === "customer" || value === "review" ? value : null;
 }
 
-function previewOrigin() {
-  const host = process.env.VERCEL_URL?.trim().toLowerCase();
-  if (!host || !/^[a-z0-9.-]+\.vercel\.app$/.test(host)) return null;
-  return `https://${host}`;
+function previewOrigin(requestUrl: string) {
+  try {
+    const url = new URL(requestUrl);
+    const host = url.hostname.trim().toLowerCase();
+    if (url.protocol !== "https:" || !/^[a-z0-9.-]+\.vercel\.app$/.test(host)) return null;
+    return url.origin;
+  } catch {
+    return null;
+  }
 }
 
 function boundedRetryDelayMs(response: Response) {
@@ -140,9 +145,7 @@ function decodeHtmlUrl(value: string) {
     .replaceAll("&#39;", "'");
 }
 
-function controlledLink(body: string, kind: EmailKind) {
-  const origin = previewOrigin();
-  if (!origin) return null;
+function controlledLink(body: string, kind: EmailKind, origin: string) {
   const candidates = body.match(/https:\/\/[^\s"'<>]+/gu) ?? [];
   for (const candidate of candidates) {
     try {
@@ -221,9 +224,9 @@ export async function GET(request: Request) {
   const suiteRunId = resolvePreviewMarketplaceE2eRunId(request.headers);
   if (!suiteRunId) return unavailable();
 
-  const url = new URL(request.url);
-  const kind = emailKind(url.searchParams.get("kind"));
-  const customerRunId = String(url.searchParams.get("run") ?? "").trim().toLowerCase();
+  const requestUrl = new URL(request.url);
+  const kind = emailKind(requestUrl.searchParams.get("kind"));
+  const customerRunId = String(requestUrl.searchParams.get("run") ?? "").trim().toLowerCase();
   if (!kind) return NextResponse.json({ ok: false, error: "kind" }, { status: 400 });
   if (!customerRunId || !previewMarketplaceE2eCustomerEmail(customerRunId)) {
     return NextResponse.json({ ok: false, error: "run" }, { status: 400 });
@@ -233,7 +236,8 @@ export async function GET(request: Request) {
   const sink = resolvePreviewEmailRecipient();
   const marker = await markerFor(kind, suiteRunId, customerRunId);
   const original = originalRecipient(kind, suiteRunId, customerRunId);
-  if (!apiKey || !sink || !marker || !original || !previewOrigin()) {
+  const origin = previewOrigin(request.url);
+  if (!apiKey || !sink || !marker || !original || !origin) {
     return NextResponse.json({ ok: false, error: "configuration" }, { status: 503 });
   }
 
@@ -275,7 +279,7 @@ export async function GET(request: Request) {
     const body = String(content.body ?? "");
     if (!subject.includes(marker.value) && !body.includes(marker.value)) continue;
     markerMatchedCount += 1;
-    const link = controlledLink(body, kind);
+    const link = controlledLink(body, kind, origin);
     if (!link) continue;
     controlledLinkMatchedCount += 1;
 
