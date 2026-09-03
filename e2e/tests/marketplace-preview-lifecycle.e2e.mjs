@@ -130,8 +130,6 @@ async function submitQuote(page, context, customerRunId, location, ordinal) {
   await page.getByRole("button", { name: "Fortsätt" }).click();
 
   await expect(page.getByText("Steg 6 av 6")).toBeVisible();
-  // The public anti-bot contract requires at least 2.5 seconds between form
-  // mount and submission. Explicitly preserve that boundary in hosted Preview.
   await page.waitForTimeout(2_700);
   await page.getByRole("button", { name: "Skicka förfrågan" }).click();
   await expect(page.getByRole("heading", { name: "Förfrågan är skickad" })).toBeVisible({ timeout: 30_000 });
@@ -194,8 +192,8 @@ test.describe("isolated Marketplace Preview lifecycle", () => {
         city: "Stockholm",
         municipality: "Stockholm",
         postalCode: "11100",
-        latitude: 60,
-        longitude: 0,
+        latitude: -80,
+        longitude: 170,
       });
       fixtureCreated = true;
 
@@ -219,7 +217,17 @@ test.describe("isolated Marketplace Preview lifecycle", () => {
       const worker = await fixtureRequest(request, suiteRunId, "PUT", fixturePath, { runIds: customerRunIds });
       expect(worker.response.ok(), JSON.stringify(worker.body)).toBeTruthy();
       expect(worker.body?.ok, JSON.stringify(worker.body)).toBe(true);
-      expect(worker.body?.result?.sent, JSON.stringify(worker.body)).toBe(2);
+
+      const invitationsReady = await waitForState(
+        request,
+        suiteRunId,
+        customerRunIds,
+        (snapshot) => customerRunIds.every((id) => stateMap(snapshot).get(id)?.invitationCount === 1),
+        "each synthetic customer has exactly one isolated invitation",
+      );
+      for (const id of customerRunIds) {
+        expect(stateMap(invitationsReady).get(id)?.invitationCount).toBe(1);
+      }
 
       const guestA = await waitForEmail(request, suiteRunId, "guest", customerA);
       const guestB = await waitForEmail(request, suiteRunId, "guest", customerB);
