@@ -44,6 +44,7 @@ const LONG_NUMERIC_ID = /^\d{6,}$/;
 const EMAIL_LIKE = /^[^/@\s]+@[^/@\s]+\.[^/@\s]+$/;
 const DIRECTORY_PUBLIC_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*-[0-9a-z]{6,8}$/;
 const WORKSPACE_SERVICE_PUBLIC_SLUG = /^(?=.{2,120}$)[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const WORKSPACE_SERVICE_OPAQUE_TOKEN = /^[a-z0-9]{24,}$/;
 const GOOGLE_REFERRER_HOST = /^(?:[^.]+\.)*google\.(?:[a-z]{2,3}|(?:co|com)\.[a-z]{2})$/;
 
 const allowedAnalyticsSources = new Set<AnalyticsSource>([
@@ -111,7 +112,14 @@ function isKnownPublicWorkspaceServiceSlug(segment: string, rawSegments: string[
   if (!followsPublicServiceRoute) return false;
 
   const decoded = decodePathSegment(segment);
-  return decoded !== null && WORKSPACE_SERVICE_PUBLIC_SLUG.test(decoded) && !isSensitiveSegment(segment);
+  return (
+    decoded !== null
+    && WORKSPACE_SERVICE_PUBLIC_SLUG.test(decoded)
+    && !PERSON_OR_ORGANIZATION_NUMBER.test(decoded)
+    && !UUID.test(decoded)
+    && !LONG_NUMERIC_ID.test(decoded)
+    && !WORKSPACE_SERVICE_OPAQUE_TOKEN.test(decoded)
+  );
 }
 
 function isSensitiveSegment(segment: string) {
