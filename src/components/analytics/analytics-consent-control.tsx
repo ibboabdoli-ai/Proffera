@@ -47,10 +47,8 @@ function currentDocumentLocale(): AnalyticsConsentLocale {
 }
 
 export function AnalyticsConsentControl() {
-  const [locale, setLocale] = useState<AnalyticsConsentLocale>("sv");
   const [consent, setConsent] = useState<AnalyticsConsentState | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const labels = consentCopy[locale];
 
   useEffect(() => {
     const syncConsent = () => setConsent(readAnalyticsConsent(window.localStorage));
@@ -59,7 +57,6 @@ export function AnalyticsConsentControl() {
       syncConsent();
     };
 
-    setLocale(currentDocumentLocale());
     syncConsent();
     window.addEventListener(ANALYTICS_CONSENT_CHANGED_EVENT, syncConsent);
     window.addEventListener("storage", syncConsentFromStorage);
@@ -81,6 +78,7 @@ export function AnalyticsConsentControl() {
 
   if (consent === null) return null;
 
+  const labels = consentCopy[currentDocumentLocale()];
   const showChoice = consent === "unknown" || settingsOpen;
 
   if (!showChoice) {
