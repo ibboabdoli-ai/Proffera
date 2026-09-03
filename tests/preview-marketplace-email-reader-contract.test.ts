@@ -31,13 +31,24 @@ describe("Preview Marketplace email reader boundary", () => {
     expect(source).toContain("customer_access.provider_message_id as customer_provider_message_id");
     expect(source).toContain('url.searchParams.set("messageId", messageId)');
     expect(source).toContain("marker.providerMessageId\n    ? await listTransactionalEmailByMessageId(marker.providerMessageId, apiKey)");
-    expect(source).toContain("String(item.messageId ?? \"\").trim() === marker.providerMessageId");
-    expect(source).toContain('.slice(0, kind === "review" ? 3 : 1)');
+    expect(source).toContain("marker.providerMessageId\n    ? candidates.slice(0, 1)");
+    expect(source).not.toContain("String(item.messageId ?? \"\").trim() === marker.providerMessageId");
   });
 
   it("keeps only the review fallback as a bounded sink scan", () => {
     expect(source).toContain('url.searchParams.set("limit", "20")');
     expect(source).toContain(": await listTransactionalEmails(sink, apiKey)");
+    expect(source).toContain("candidates.filter((item) => likelyMarkerCandidate(item, marker)).slice(0, 3)");
+  });
+
+  it("emits only bounded non-secret pending diagnostics", () => {
+    expect(source).toContain('lookupMode = marker.providerMessageId ? "message_id" : "recipient"');
+    expect(source).toContain("providerMessageIdPresent: Boolean(marker.providerMessageId)");
+    expect(source).toContain("candidateCount: candidates.length");
+    expect(source).toContain("markerMatchedCount");
+    expect(source).toContain("controlledLinkMatchedCount");
+    expect(source).toContain("Preview Marketplace E2E email lookup pending");
+    expect(source).not.toContain("providerMessageId: marker.providerMessageId");
   });
 
   it("does not burst Brevo during polling and retries one provider-directed rate limit", () => {
