@@ -215,7 +215,7 @@ export default async function PrimeViewBookingPage({ searchParams }: PageProps) 
   const initialServiceId = /^[0-9a-f-]{36}$/i.test(requestedServiceId) && services.some((service) => String(service.id) === requestedServiceId) ? requestedServiceId : "";
 
   return (
-    <main className="min-h-screen bg-[#f5f8fc] text-[#0b2a4a]">
+    <main lang={locale} className="min-h-screen bg-[#f5f8fc] text-[#0b2a4a]">
       <div className="bg-[#071f37] px-4 py-2.5 text-center text-xs font-bold tracking-wide text-[#d6e9ff] sm:text-sm">{t.top} · <a href="tel:+447500338585" className="text-white underline decoration-white/30 underline-offset-4">07500 338 585</a></div>
 
       <header className="border-b border-[#dce7f2] bg-white">
@@ -242,7 +242,7 @@ export default async function PrimeViewBookingPage({ searchParams }: PageProps) 
           </div>
           <div className="rounded-[2rem] border border-white/10 bg-white/10 p-6 backdrop-blur-sm">
             <div className="flex items-center gap-3"><ShieldCheck className="h-7 w-7 text-[#8ec5ff]" /><div><p className="font-black">{t.verify}</p><p className="mt-1 text-xs leading-5 text-[#c8dced]">{t.secure}</p></div></div>
-            <div className="mt-5 grid gap-3 border-t border-white/10 pt-5 text-sm"><p className="flex items-center gap-2"><MapPin className="h-4 w-4 text-[#8ec5ff]" />{t.area}</p><p className="flex items-center gap-2"><Clock3 className="h-4 w-4 text-[#8ec5ff]" />{t.response}</p></div>
+            <div className="mt-5 grid gap-3 border-t border-white/10 pt-5 text-sm"><p className="flex items-center gap-2"><MapPin className="h-4 w-4 text-[#8ec5ff]" />{t.area}</p><p className="flex items-center gap-2"><Clock3 className="h-4 w-4 text-[#8ec5ff]" />{t.response}</p></div></div>
           </div>
         </div>
       </section>
