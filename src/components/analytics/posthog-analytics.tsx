@@ -6,15 +6,16 @@ import { usePathname } from "next/navigation";
 import {
   ANALYTICS_CONSENT_CHANGED_EVENT,
   ANALYTICS_CONSENT_STORAGE_KEY,
+  analyticsConsentFromStoredValue,
   analyticsSourceFromReferrer,
+  isAnalyticsConsentGranted,
   sanitizeAnalyticsPathname,
   sanitizePageUrl,
   sanitizePostHogEvent,
   shouldCapturePageview,
+  type AnalyticsConsentState,
   type PostHogPublicConfig,
 } from "@/lib/analytics/posthog-privacy";
-
-type ConsentState = "granted" | "denied" | "unknown";
 
 type PostHogClient = typeof import("posthog-js")["default"];
 
@@ -22,14 +23,12 @@ let postHogClientPromise: Promise<PostHogClient | null> | null = null;
 let initializedConfigKey: string | null = null;
 let lastCapturedPageKey: string | null = null;
 
-function readConsent(): ConsentState {
+function readConsent(): AnalyticsConsentState {
   try {
-    const value = window.localStorage.getItem(ANALYTICS_CONSENT_STORAGE_KEY);
-    if (value === "granted" || value === "denied") return value;
+    return analyticsConsentFromStoredValue(window.localStorage.getItem(ANALYTICS_CONSENT_STORAGE_KEY));
   } catch {
     return "unknown";
   }
-  return "unknown";
 }
 
 async function loadPostHog(config: PostHogPublicConfig) {
@@ -44,10 +43,13 @@ async function loadPostHog(config: PostHogPublicConfig) {
           autocapture: false,
           capture_pageview: false,
           capture_pageleave: false,
+          capture_performance: false,
           disable_session_recording: true,
           person_profiles: "never",
           persistence: "localStorage",
           ip: false,
+          advanced_disable_flags: true,
+          advanced_disable_toolbar_metrics: true,
           before_send: sanitizePostHogEvent,
         });
         initializedConfigKey = configKey;
@@ -61,7 +63,7 @@ async function loadPostHog(config: PostHogPublicConfig) {
 
 export function PostHogAnalytics({ config }: { config: PostHogPublicConfig }) {
   const pathname = usePathname();
-  const [consent, setConsent] = useState<ConsentState>("unknown");
+  const [consent, setConsent] = useState<AnalyticsConsentState>("unknown");
 
   useEffect(() => {
     setConsent(readConsent());
@@ -76,7 +78,7 @@ export function PostHogAnalytics({ config }: { config: PostHogPublicConfig }) {
       void postHogClientPromise?.then((posthog) => posthog?.opt_out_capturing()).catch(() => undefined);
       return;
     }
-    if (consent !== "granted") return;
+    if (!isAnalyticsConsentGranted(consent)) return;
 
     let cancelled = false;
     const sanitizedPathname = sanitizeAnalyticsPathname(pathname || "/");
