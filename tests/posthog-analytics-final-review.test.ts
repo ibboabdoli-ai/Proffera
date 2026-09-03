@@ -45,15 +45,22 @@ describe("PostHog final review regressions", () => {
     expect(sanitizeAnalyticsPathname(`/review/${soleTraderSlug}`)).toBe("/review/:redacted");
   });
 
-  it("preserves legitimate public service slugs while redacting sensitive service segments", () => {
+  it("preserves every canonical public service slug shape only in the service route", () => {
     const workspaceSlug = "example-elektriska-ab-115707";
     const serviceSlug = "my-very-long-public-workspace-service";
+    const singleWordServiceSlug = "fonsterputsabonnemangpremium";
     const personNumber = "198901011234";
     const organizationNumber = "556123-4567";
-    const bearerToken = "abcdefghijklmnopqrstuvwx";
+    const uuid = "550e8400-e29b-41d4-a716-446655440000";
+    const longHexToken = "0123456789abcdef0123456789abcdef";
+    const bearerToken = "Bearer%20abcdefghijklmnopqrstuvwxyz123456";
+    const signedToken = "eyJhbGciOiJIUzI1NiJ9.abcdefghijklmnopqrstuvwxyz123456";
 
     expect(sanitizeAnalyticsPathname(`/foretag/${workspaceSlug}/tjanster/${serviceSlug}`)).toBe(
       `/foretag/${workspaceSlug}/tjanster/${serviceSlug}`,
+    );
+    expect(sanitizeAnalyticsPathname(`/foretag/${workspaceSlug}/tjanster/${singleWordServiceSlug}`)).toBe(
+      `/foretag/${workspaceSlug}/tjanster/${singleWordServiceSlug}`,
     );
     expect(sanitizeAnalyticsPathname(`/foretag/${workspaceSlug}/tjanster/short-service`)).toBe(
       `/foretag/${workspaceSlug}/tjanster/short-service`,
@@ -64,34 +71,49 @@ describe("PostHog final review regressions", () => {
     expect(sanitizeAnalyticsPathname(`/foretag/${workspaceSlug}/tjanster/${organizationNumber}`)).toBe(
       `/foretag/${workspaceSlug}/tjanster/:redacted`,
     );
+    expect(sanitizeAnalyticsPathname(`/foretag/${workspaceSlug}/tjanster/${uuid}`)).toBe(
+      `/foretag/${workspaceSlug}/tjanster/:redacted`,
+    );
+    expect(sanitizeAnalyticsPathname(`/foretag/${workspaceSlug}/tjanster/${longHexToken}`)).toBe(
+      `/foretag/${workspaceSlug}/tjanster/:redacted`,
+    );
     expect(sanitizeAnalyticsPathname(`/foretag/${workspaceSlug}/tjanster/${bearerToken}`)).toBe(
       `/foretag/${workspaceSlug}/tjanster/:redacted`,
     );
+    expect(sanitizeAnalyticsPathname(`/foretag/${workspaceSlug}/tjanster/${signedToken}`)).toBe(
+      `/foretag/${workspaceSlug}/tjanster/:redacted`,
+    );
     expect(sanitizeAnalyticsPathname(`/review/${serviceSlug}`)).toBe("/review/:redacted");
+    expect(sanitizeAnalyticsPathname(`/review/${singleWordServiceSlug}`)).toBe("/review/:redacted");
   });
 
-  it("preserves canonical generated booking slugs only on the exact public booking route", () => {
+  it("preserves every createWorkspaceSlug booking shape only on the exact public booking route", () => {
     const bookingSlug = "very-long-company-derived-booking-slug-a1b2c3";
+    const singleWordBookingSlug = "fonsterputsbolaget-a1b2c3";
     const personNumber = "198901011234";
     const organizationNumber = "556123-4567";
     const uuid = "550e8400-e29b-41d4-a716-446655440000";
     const numericId = "5592643778";
     const email = "person@example.com";
-    const bearerToken = "abcdefghijklmnopqrstuvwx";
-    const canonicalShapedBearerToken = "abcdefghijklmnopqrstuvwx-a1b2c3";
+    const opaqueToken = "abcdefghijklmnopqrstuvwx";
+    const bearerToken = "Bearer%20abcdefghijklmnopqrstuvwxyz123456";
     const signedToken = "eyJhbGciOiJIUzI1NiJ9.abcdefghijklmnopqrstuvwxyz123456";
 
     expect(sanitizeAnalyticsPathname(`/boka/${bookingSlug}`)).toBe(`/boka/${bookingSlug}`);
+    expect(sanitizeAnalyticsPathname(`/boka/${singleWordBookingSlug}`)).toBe(
+      `/boka/${singleWordBookingSlug}`,
+    );
     expect(sanitizeAnalyticsPathname(`/boka/${bookingSlug}/extra`)).toBe("/boka/:redacted/extra");
     expect(sanitizeAnalyticsPathname(`/review/${bookingSlug}`)).toBe("/review/:redacted");
+    expect(sanitizeAnalyticsPathname(`/review/${singleWordBookingSlug}`)).toBe("/review/:redacted");
 
     expect(sanitizeAnalyticsPathname(`/boka/${personNumber}`)).toBe("/boka/:redacted");
     expect(sanitizeAnalyticsPathname(`/boka/${organizationNumber}`)).toBe("/boka/:redacted");
     expect(sanitizeAnalyticsPathname(`/boka/${uuid}`)).toBe("/boka/:redacted");
     expect(sanitizeAnalyticsPathname(`/boka/${numericId}`)).toBe("/boka/:redacted");
     expect(sanitizeAnalyticsPathname(`/boka/${email}`)).toBe("/boka/:redacted");
+    expect(sanitizeAnalyticsPathname(`/boka/${opaqueToken}`)).toBe("/boka/:redacted");
     expect(sanitizeAnalyticsPathname(`/boka/${bearerToken}`)).toBe("/boka/:redacted");
-    expect(sanitizeAnalyticsPathname(`/boka/${canonicalShapedBearerToken}`)).toBe("/boka/:redacted");
     expect(sanitizeAnalyticsPathname(`/boka/${signedToken}`)).toBe("/boka/:redacted");
   });
 
