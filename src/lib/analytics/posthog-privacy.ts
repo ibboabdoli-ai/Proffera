@@ -4,6 +4,7 @@ export const ANALYTICS_CONSENT_STORAGE_KEY = "proffera:analytics-consent:v1";
 export const ANALYTICS_CONSENT_CHANGED_EVENT = "proffera:analytics-consent-changed";
 
 export type AnalyticsConsentState = "granted" | "denied" | "unknown";
+export type PersistedAnalyticsConsentState = Exclude<AnalyticsConsentState, "unknown">;
 export type AnalyticsSource =
   | "direct"
   | "proffera"
@@ -30,9 +31,15 @@ type AnalyticsEvent = {
   properties?: Record<string, unknown>;
 };
 
+type AnalyticsConsentStorage = {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+};
+
 const PERSON_OR_ORGANIZATION_NUMBER = /^(?:\d{6}[-+]?\d{4}|\d{8}[-+]?\d{4}|\d{10}|\d{12})$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const LONG_HEX_OR_TOKEN = /^(?:[0-9a-f]{20,}|[A-Za-z0-9_-]{24,})$/;
+const DOT_DELIMITED_TOKEN = /^(?=.{24,}$)[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+$/;
 const LONG_NUMERIC_ID = /^\d{6,}$/;
 const EMAIL_LIKE = /^[^/@\s]+@[^/@\s]+\.[^/@\s]+$/;
 
@@ -70,6 +77,7 @@ function isSensitiveSegment(segment: string) {
     PERSON_OR_ORGANIZATION_NUMBER.test(decoded) ||
     UUID.test(decoded) ||
     LONG_HEX_OR_TOKEN.test(decoded) ||
+    DOT_DELIMITED_TOKEN.test(decoded) ||
     LONG_NUMERIC_ID.test(decoded) ||
     EMAIL_LIKE.test(decoded)
   );
@@ -93,6 +101,31 @@ function normalizePostHogHost(value: string | undefined) {
 export function analyticsConsentFromStoredValue(value: string | null | undefined): AnalyticsConsentState {
   if (value === "granted" || value === "denied") return value;
   return "unknown";
+}
+
+export function readAnalyticsConsent(
+  storage: Pick<AnalyticsConsentStorage, "getItem">,
+): AnalyticsConsentState {
+  try {
+    return analyticsConsentFromStoredValue(storage.getItem(ANALYTICS_CONSENT_STORAGE_KEY));
+  } catch {
+    return "unknown";
+  }
+}
+
+export function persistAnalyticsConsent(
+  storage: Pick<AnalyticsConsentStorage, "setItem">,
+  consent: PersistedAnalyticsConsentState,
+  notifyChange: () => void,
+) {
+  try {
+    storage.setItem(ANALYTICS_CONSENT_STORAGE_KEY, consent);
+  } catch {
+    return false;
+  }
+
+  notifyChange();
+  return true;
 }
 
 export function isAnalyticsConsentGranted(consent: AnalyticsConsentState) {
