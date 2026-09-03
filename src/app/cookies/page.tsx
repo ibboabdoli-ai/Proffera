@@ -15,16 +15,16 @@ const sections = [
     text: "Proffera kan använda nödvändiga cookies eller liknande teknik för säkerhet, adminåtkomst och teknisk drift. Dessa behövs för att tjänsten ska fungera korrekt.",
   },
   {
-    title: "3. Analys och marknadsföring",
-    text: "Om analysverktyg eller marknadsföringscookies införs i framtiden ska cookieinformationen uppdateras och samtycke hanteras där det krävs.",
+    title: "3. Valfri analys",
+    text: "När analyskonfiguration finns erbjuder Proffera valfri, begränsad produktanalys via PostHog. Analysen startar först efter att du uttryckligen har valt att tillåta den. Vi använder inte denna analys för reklam eller marknadsföringsspårning.",
   },
   {
-    title: "4. Hantera cookies",
-    text: "Du kan normalt ta bort eller blockera cookies i webbläsarens inställningar. Vissa funktioner kan fungera sämre om nödvändiga cookies blockeras.",
+    title: "4. Hantera cookies och analys",
+    text: "Du kan ändra ditt val för analys via Analysinställningar i Proffera. Du kan också normalt ta bort eller blockera cookies och lokal lagring i webbläsarens inställningar. Vissa funktioner kan fungera sämre om nödvändig lagring blockeras.",
   },
   {
     title: "5. Nuvarande status",
-    text: "Proffera använder för närvarande endast nödvändiga cookies eller liknande teknik för säkerhet, inloggning och drift. Om analys eller externa spårningsverktyg tas i bruk uppdateras denna sida och samtycke hanteras när det krävs.",
+    text: "Utöver nödvändig lagring kan Proffera, efter uttryckligt samtycke, använda lokal lagring för begränsad analys. Analysen är begränsad till sidvisningar, tekniska sessionsidentifierare, sanerade sidvägar och en grov hänvisningskälla. Frågesträngar, URL-fragment, formulärtext och personuppgifter ska inte skickas till analysen.",
   },
 ];
 
@@ -35,7 +35,7 @@ export default function CookiesPage() {
         <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Juridiskt</p>
         <h1 className="mt-3 text-4xl font-bold tracking-tight text-[#17201a] sm:text-5xl">Cookies</h1>
         <p className="mt-5 text-lg leading-8 text-[#5b665f]">
-          Den här sidan beskriver hur Proffera använder cookies och liknande teknik för drift och säkerhet.
+          Den här sidan beskriver hur Proffera använder cookies och liknande teknik för drift, säkerhet och valfri analys.
         </p>
       </section>
 
