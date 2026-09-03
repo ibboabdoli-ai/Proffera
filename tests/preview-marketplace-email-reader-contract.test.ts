@@ -25,24 +25,26 @@ describe("Preview Marketplace email reader boundary", () => {
     expect(source).not.toContain("previewRecipient:");
   });
 
-  it("uses persisted provider message IDs for exact guest/customer reads before loading message bodies", () => {
+  it("uses persisted provider message IDs first for guest/customer reads", () => {
     expect(source).toContain("previewMarketplaceE2eUuid(\"provider\", suiteRunId)");
     expect(source).toContain("invitation.provider_message_id as guest_provider_message_id");
     expect(source).toContain("customer_access.provider_message_id as customer_provider_message_id");
     expect(source).toContain('url.searchParams.set("messageId", messageId)');
     expect(source).toContain("marker.providerMessageId\n    ? await listTransactionalEmailByMessageId(marker.providerMessageId, apiKey)");
-    expect(source).toContain("marker.providerMessageId\n    ? candidates.slice(0, 1)");
-    expect(source).not.toContain("String(item.messageId ?? \"\").trim() === marker.providerMessageId");
+    expect(source).toContain('lookupMode === "message_id"\n    ? candidates.slice(0, 1)');
   });
 
-  it("keeps only the review fallback as a bounded sink scan", () => {
+  it("falls back only to a bounded safe-sink scan when Brevo has not indexed the provider message ID", () => {
+    expect(source).toContain('lookupMode = "message_id_then_recipient"');
+    expect(source).toContain("sinkList = await listTransactionalEmails(sink, apiKey)");
+    expect(source).toContain("candidates.filter((item) => likelyMarkerCandidate(item, marker)).slice(0, 6)");
+    expect(source).toContain('index > 0 && lookupMode === "message_id_then_recipient"');
+    expect(source).toContain("await delay(650)");
     expect(source).toContain('url.searchParams.set("limit", "20")');
-    expect(source).toContain(": await listTransactionalEmails(sink, apiKey)");
-    expect(source).toContain("candidates.filter((item) => likelyMarkerCandidate(item, marker)).slice(0, 3)");
   });
 
   it("emits only bounded non-secret pending diagnostics", () => {
-    expect(source).toContain('lookupMode = marker.providerMessageId ? "message_id" : "recipient"');
+    expect(source).toContain('let lookupMode = marker.providerMessageId ? "message_id" : "recipient"');
     expect(source).toContain("providerMessageIdPresent: Boolean(marker.providerMessageId)");
     expect(source).toContain("candidateCount: candidates.length");
     expect(source).toContain("markerMatchedCount");
