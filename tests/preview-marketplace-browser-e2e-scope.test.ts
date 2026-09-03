@@ -19,11 +19,15 @@ describe("Marketplace Preview browser E2E scope", () => {
     expect(source).toContain("jobCount).toBe(1)");
     expect(source).toContain("reviewCount).toBe(1)");
     expect(source).toContain("expect(latest?.originalRecipientObserved).toBe(false)");
+    expect(source).toContain("test.setTimeout(5 * 60_000)");
   });
 
-  it("uses the same full deterministic run identity as the Preview fixture", () => {
+  it("uses full per-run customer identities so Preview dedupe cannot collide across runs", () => {
     expect(source).toContain("`marketplace-e2e-${id}@customer.example.invalid`");
+    expect(source).toContain("function customerPhone(id)");
+    expect(source).toContain("customerPhone(customerRunId)");
     expect(source).not.toContain("id.slice(0, 24)");
+    expect(source).not.toContain("`07000000${ordinal}1`");
   });
 
   it("proves scoped cleanup and used/invalid token rejection", () => {
