@@ -34,6 +34,12 @@ type BrevoEmailContent = {
   events?: Array<{ name?: string; time?: string }>;
 };
 
+type EmailMarker = {
+  value: string;
+  notBeforeMs: number | null;
+  subjectMatch: boolean;
+};
+
 const pathByKind: Record<EmailKind, string> = {
   guest: "/offert/svara/",
   customer: "/offert/jamfor/",
@@ -57,6 +63,7 @@ function previewOrigin() {
 async function brevoJson<T>(url: URL, apiKey: string): Promise<T | null> {
   try {
     const response = await fetch(url, {
+      method: "GET",
       headers: { "api-key": apiKey, Accept: "application/json" },
       signal: AbortSignal.timeout(10_000),
       cache: "no-store",
@@ -85,6 +92,7 @@ async function listTransactionalEmails(email: string, apiKey: string) {
   url.searchParams.set("startDate", today);
   url.searchParams.set("endDate", today);
   url.searchParams.set("sort", "desc");
+  url.searchParams.set("limit", "20");
   return brevoJson<BrevoEmailList>(url, apiKey);
 }
 
@@ -118,24 +126,46 @@ function controlledLink(body: string, kind: EmailKind) {
   return null;
 }
 
-async function markerFor(kind: EmailKind, suiteRunId: string, customerRunId: string) {
-  if (kind === "review") return `Preview E2E Rör ${suiteRunId.slice(0, 8)} AB`;
+async function markerFor(kind: EmailKind, suiteRunId: string, customerRunId: string): Promise<EmailMarker | null> {
+  if (kind === "review") {
+    return {
+      value: `Preview E2E Rör ${suiteRunId.slice(0, 8)} AB`,
+      notBeforeMs: null,
+      subjectMatch: true,
+    };
+  }
+
   const email = previewMarketplaceE2eCustomerEmail(customerRunId);
   const sql = getSql();
   if (!email || !sql) return null;
   const rows = await sql`
-    select reference_id
+    select reference_id, created_at::text
     from quote_requests
     where lower(btrim(contact_email)) = ${email}
     order by created_at desc
     limit 1
   `;
-  return String(rows[0]?.reference_id ?? "").trim() || null;
+  const value = String(rows[0]?.reference_id ?? "").trim();
+  if (!value) return null;
+  const createdAtMs = Date.parse(String(rows[0]?.created_at ?? ""));
+  return {
+    value,
+    notBeforeMs: Number.isFinite(createdAtMs) ? createdAtMs - 60_000 : null,
+    subjectMatch: kind === "customer",
+  };
 }
 
 function originalRecipient(kind: EmailKind, suiteRunId: string, customerRunId: string) {
   if (kind === "guest") return previewMarketplaceE2eProviderEmail(suiteRunId);
   return previewMarketplaceE2eCustomerEmail(customerRunId);
+}
+
+function likelyMarkerCandidate(item: BrevoEmailListItem, marker: EmailMarker) {
+  const subject = String(item.subject ?? "");
+  if (marker.subjectMatch) return subject.includes(marker.value);
+  if (marker.notBeforeMs === null) return true;
+  const itemTime = Date.parse(String(item.date ?? ""));
+  return Number.isFinite(itemTime) && itemTime >= marker.notBeforeMs;
 }
 
 export async function GET(request: Request) {
@@ -168,7 +198,9 @@ export async function GET(request: Request) {
   }
 
   const originalRecipientObserved = Number(originalList.count ?? originalList.transactionalEmails?.length ?? 0) > 0;
-  const recent = (sinkList.transactionalEmails ?? []).slice(0, 30);
+  const recent = (sinkList.transactionalEmails ?? [])
+    .filter((item) => likelyMarkerCandidate(item, marker))
+    .slice(0, kind === "guest" ? 6 : 3);
   for (const item of recent) {
     const uuid = String(item.uuid ?? "").trim();
     if (!uuid) continue;
@@ -176,7 +208,7 @@ export async function GET(request: Request) {
     if (!content) continue;
     const subject = String(content.subject ?? item.subject ?? "");
     const body = String(content.body ?? "");
-    if (!subject.includes(marker) && !body.includes(marker)) continue;
+    if (!subject.includes(marker.value) && !body.includes(marker.value)) continue;
     const link = controlledLink(body, kind);
     if (!link) continue;
     const sinkRecipientMatched = String(content.email ?? item.email ?? "").trim().toLowerCase() === sink;
