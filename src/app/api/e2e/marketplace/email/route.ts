@@ -117,6 +117,12 @@ async function listTransactionalEmails(email: string, apiKey: string) {
   return brevoJson<BrevoEmailList>(url, apiKey);
 }
 
+async function listTransactionalEmailByMessageId(messageId: string, apiKey: string) {
+  const url = new URL("https://api.brevo.com/v3/smtp/emails");
+  url.searchParams.set("messageId", messageId);
+  return brevoJson<BrevoEmailList>(url, apiKey);
+}
+
 async function emailContent(uuid: string, apiKey: string) {
   const url = new URL(`https://api.brevo.com/v3/smtp/emails/${encodeURIComponent(uuid)}`);
   return brevoJson<BrevoEmailContent>(url, apiKey);
@@ -230,11 +236,12 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, error: "configuration" }, { status: 503 });
   }
 
-  // Poll only the controlled sink until the exact candidate exists. The
-  // synthetic original-recipient check is intentionally deferred until a
-  // matching message is found so repeated browser polling does not burst the
-  // provider API with two list calls plus a detail call every time.
-  const sinkList = await listTransactionalEmails(sink, apiKey);
+  // Guest/customer sends already persist the provider message ID. Poll that
+  // exact provider record instead of repeatedly scanning the sink inbox. Review
+  // delivery has no persisted provider ID, so it keeps the bounded sink lookup.
+  const sinkList = marker.providerMessageId
+    ? await listTransactionalEmailByMessageId(marker.providerMessageId, apiKey)
+    : await listTransactionalEmails(sink, apiKey);
   if (!sinkList) {
     return NextResponse.json({ ok: false, error: "provider" }, { status: 502 });
   }
