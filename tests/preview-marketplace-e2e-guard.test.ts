@@ -11,12 +11,13 @@ import {
 
 const runId = "a".repeat(48);
 
-function previewEnv(overrides: Record<string, string | undefined> = {}) {
+function previewEnv(overrides: Record<string, string | undefined> = {}): NodeJS.ProcessEnv {
   return {
     VERCEL_ENV: "preview",
     VERCEL_GIT_COMMIT_REF: PREVIEW_MARKETPLACE_E2E_BRANCH,
     ...overrides,
-  } as NodeJS.ProcessEnv;
+    NODE_ENV: "test",
+  };
 }
 
 describe("Preview Marketplace E2E guard", () => {
