@@ -32,9 +32,12 @@ describe("Marketplace Preview browser E2E scope", () => {
     expect(source).not.toContain("`07000000${ordinal}1`");
   });
 
-  it("keeps the browser quote at the same remote synthetic coordinates as the fixture", () => {
-    expect(source).toContain("latitude: -80");
-    expect(source).toContain("longitude: 170");
+  it("uses the exact per-run fixture coordinates for the browser quote instead of a shared hard-coded location", () => {
+    expect(source).toContain("context.setGeolocation({ latitude: location.latitude, longitude: location.longitude })");
+    expect(source).toContain("submitQuote(page, context, customerA, setup.body.location, 1)");
+    expect(source).toContain("submitQuote(page, context, customerB, setup.body.location, 2)");
+    expect(source).not.toContain("latitude: -80");
+    expect(source).not.toContain("longitude: 170");
   });
 
   it("proves scoped cleanup and used/invalid token rejection", () => {
