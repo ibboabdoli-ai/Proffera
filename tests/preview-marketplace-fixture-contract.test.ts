@@ -16,6 +16,16 @@ describe("Preview Marketplace lifecycle fixture boundary", () => {
     expect(source).toContain("processMarketplaceAutoWorker");
   });
 
+  it("keeps the published synthetic provider inside the pilot location contract but outside real matching range", () => {
+    expect(source).toContain('const TEST_CITY = "Stockholm";');
+    expect(source).toContain('const TEST_MUNICIPALITY = "Stockholm";');
+    expect(source).toContain("const TEST_LATITUDE = 60;");
+    expect(source).toContain("const TEST_LONGITUDE = 0;");
+    expect(source).toContain("${TEST_CITY}, ${TEST_MUNICIPALITY}, ${slug}");
+    expect(source).toContain("${profileId}::uuid, ${TEST_LATITUDE}, ${TEST_LONGITUDE}");
+    expect(source).not.toContain('const TEST_CITY = "Preview E2E";');
+  });
+
   it("keeps cleanup scoped to deterministic synthetic quote and provider identities", () => {
     expect(source).toContain("where lower(btrim(contact_email)) = ${email}");
     expect(source).toContain("delete from quote_requests where id = ${String(row.id)}::uuid");
