@@ -62,29 +62,48 @@ function previewOrigin() {
   return `https://${host}`;
 }
 
+function boundedRetryDelayMs(response: Response) {
+  const retryAfter = response.headers.get("retry-after")?.trim() ?? "";
+  if (/^\d+$/.test(retryAfter)) {
+    return Math.min(3_000, Math.max(250, Number(retryAfter) * 1_000));
+  }
+  const retryAt = Date.parse(retryAfter);
+  if (Number.isFinite(retryAt)) {
+    return Math.min(3_000, Math.max(250, retryAt - Date.now()));
+  }
+  return 1_000;
+}
+
 async function brevoJson<T>(url: URL, apiKey: string): Promise<T | null> {
-  try {
-    const response = await fetch(url, {
-      method: "GET",
-      headers: { "api-key": apiKey, Accept: "application/json" },
-      signal: AbortSignal.timeout(10_000),
-      cache: "no-store",
-    });
-    if (!response.ok) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const response = await fetch(url, {
+        method: "GET",
+        headers: { "api-key": apiKey, Accept: "application/json" },
+        signal: AbortSignal.timeout(10_000),
+        cache: "no-store",
+      });
+      if (response.status === 429 && attempt === 0) {
+        await new Promise((resolve) => setTimeout(resolve, boundedRetryDelayMs(response)));
+        continue;
+      }
+      if (!response.ok) {
+        console.error("Preview Marketplace E2E Brevo reader request failed", {
+          path: url.pathname,
+          status: response.status,
+        });
+        return null;
+      }
+      return await response.json() as T;
+    } catch (error) {
       console.error("Preview Marketplace E2E Brevo reader request failed", {
         path: url.pathname,
-        status: response.status,
+        error,
       });
       return null;
     }
-    return await response.json() as T;
-  } catch (error) {
-    console.error("Preview Marketplace E2E Brevo reader request failed", {
-      path: url.pathname,
-      error,
-    });
-    return null;
   }
+  return null;
 }
 
 async function listTransactionalEmails(email: string, apiKey: string) {
@@ -211,15 +230,15 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, error: "configuration" }, { status: 503 });
   }
 
-  const [sinkList, originalList] = await Promise.all([
-    listTransactionalEmails(sink, apiKey),
-    listTransactionalEmails(original, apiKey),
-  ]);
-  if (!sinkList || !originalList) {
+  // Poll only the controlled sink until the exact candidate exists. The
+  // synthetic original-recipient check is intentionally deferred until a
+  // matching message is found so repeated browser polling does not burst the
+  // provider API with two list calls plus a detail call every time.
+  const sinkList = await listTransactionalEmails(sink, apiKey);
+  if (!sinkList) {
     return NextResponse.json({ ok: false, error: "provider" }, { status: 502 });
   }
 
-  const originalRecipientObserved = Number(originalList.count ?? originalList.transactionalEmails?.length ?? 0) > 0;
   const recent = (sinkList.transactionalEmails ?? [])
     .filter((item) => likelyMarkerCandidate(item, marker))
     .slice(0, kind === "review" ? 3 : 1);
@@ -233,6 +252,14 @@ export async function GET(request: Request) {
     if (!subject.includes(marker.value) && !body.includes(marker.value)) continue;
     const link = controlledLink(body, kind);
     if (!link) continue;
+
+    const originalList = await listTransactionalEmails(original, apiKey);
+    if (!originalList) {
+      return NextResponse.json({ ok: false, error: "provider" }, { status: 502 });
+    }
+    const originalRecipientObserved = Number(
+      originalList.count ?? originalList.transactionalEmails?.length ?? 0,
+    ) > 0;
     const sinkRecipientMatched = String(content.email ?? item.email ?? "").trim().toLowerCase() === sink;
     const events = (content.events ?? []).map((event) => String(event.name ?? "")).filter(Boolean);
     return NextResponse.json({
@@ -254,6 +281,6 @@ export async function GET(request: Request) {
     found: false,
     kind,
     sinkRecipientMatched: false,
-    originalRecipientObserved,
+    originalRecipientObserved: null,
   });
 }
