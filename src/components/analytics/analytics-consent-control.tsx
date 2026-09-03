@@ -4,24 +4,60 @@ import { useEffect, useState } from "react";
 
 import {
   ANALYTICS_CONSENT_CHANGED_EVENT,
+  ANALYTICS_CONSENT_STORAGE_KEY,
   persistAnalyticsConsent,
   readAnalyticsConsent,
   type AnalyticsConsentState,
   type PersistedAnalyticsConsentState,
 } from "@/lib/analytics/posthog-privacy";
 
+type AnalyticsConsentLocale = "sv" | "en";
+
+const consentCopy = {
+  sv: {
+    settingsLabel: "Ändra inställningar för analys",
+    settingsButton: "Analysinställningar",
+    eyebrow: "Valfri analys",
+    title: "Vill du tillåta begränsad analys?",
+    body: "Proffera kan använda sidvisningar och anonyma sessionssignaler för att förstå hur tjänsten används. Vi använder inte reklamspårning, formulärtext eller personuppgifter för denna analys. Inget skickas innan du väljer att tillåta analys.",
+    reject: "Avvisa analys",
+    accept: "Tillåt analys",
+    close: "Behåll nuvarande val och stäng",
+  },
+  en: {
+    settingsLabel: "Change analytics settings",
+    settingsButton: "Analytics settings",
+    eyebrow: "Optional analytics",
+    title: "Allow limited analytics?",
+    body: "Proffera can use page views and anonymous session signals to understand how the service is used. We do not use advertising tracking, form text or personal data for this analytics. Nothing is sent before you choose to allow analytics.",
+    reject: "Reject analytics",
+    accept: "Allow analytics",
+    close: "Keep current choice and close",
+  },
+} as const;
+
 const choiceButtonClass =
   "min-h-11 flex-1 rounded-xl border border-[#cbd5ce] bg-white px-4 py-2.5 text-sm font-bold text-[#17201a] transition hover:bg-[#f5f7f5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#17452f] focus-visible:ring-offset-2";
 
-export function AnalyticsConsentControl() {
+export function AnalyticsConsentControl({ locale = "sv" }: { locale?: AnalyticsConsentLocale }) {
+  const labels = consentCopy[locale];
   const [consent, setConsent] = useState<AnalyticsConsentState | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     const syncConsent = () => setConsent(readAnalyticsConsent(window.localStorage));
+    const syncConsentFromStorage = (event: StorageEvent) => {
+      if (event.key !== ANALYTICS_CONSENT_STORAGE_KEY) return;
+      syncConsent();
+    };
+
     syncConsent();
     window.addEventListener(ANALYTICS_CONSENT_CHANGED_EVENT, syncConsent);
-    return () => window.removeEventListener(ANALYTICS_CONSENT_CHANGED_EVENT, syncConsent);
+    window.addEventListener("storage", syncConsentFromStorage);
+    return () => {
+      window.removeEventListener(ANALYTICS_CONSENT_CHANGED_EVENT, syncConsent);
+      window.removeEventListener("storage", syncConsentFromStorage);
+    };
   }, []);
 
   function chooseConsent(nextConsent: PersistedAnalyticsConsentState) {
@@ -44,9 +80,9 @@ export function AnalyticsConsentControl() {
         type="button"
         onClick={() => setSettingsOpen(true)}
         className="fixed bottom-4 left-4 z-[70] rounded-full border border-[#cbd5ce] bg-white/95 px-4 py-2 text-xs font-bold text-[#334139] shadow-sm backdrop-blur transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#17452f] focus-visible:ring-offset-2"
-        aria-label="Ändra inställningar för analys"
+        aria-label={labels.settingsLabel}
       >
-        Analysinställningar
+        {labels.settingsButton}
       </button>
     );
   }
@@ -57,21 +93,17 @@ export function AnalyticsConsentControl() {
       aria-labelledby="analytics-consent-title"
       aria-live="polite"
     >
-      <p className="text-xs font-black uppercase tracking-[0.12em] text-[#526159]">Valfri analys</p>
+      <p className="text-xs font-black uppercase tracking-[0.12em] text-[#526159]">{labels.eyebrow}</p>
       <h2 id="analytics-consent-title" className="mt-1 text-lg font-black text-[#17201a]">
-        Vill du tillåta begränsad analys?
+        {labels.title}
       </h2>
-      <p className="mt-2 text-sm leading-6 text-[#526159]">
-        Proffera kan använda sidvisningar och anonyma sessionssignaler för att förstå hur tjänsten används.
-        Vi använder inte reklamspårning, formulärtext eller personuppgifter för denna analys. Inget skickas innan
-        du väljer att tillåta analys.
-      </p>
+      <p className="mt-2 text-sm leading-6 text-[#526159]">{labels.body}</p>
       <div className="mt-4 flex flex-col gap-2 sm:flex-row">
         <button type="button" className={choiceButtonClass} onClick={() => chooseConsent("denied")}>
-          Avvisa analys
+          {labels.reject}
         </button>
         <button type="button" className={choiceButtonClass} onClick={() => chooseConsent("granted")}>
-          Tillåt analys
+          {labels.accept}
         </button>
       </div>
       {consent !== "unknown" && (
@@ -80,7 +112,7 @@ export function AnalyticsConsentControl() {
           onClick={() => setSettingsOpen(false)}
           className="mt-3 text-xs font-bold text-[#526159] underline decoration-[#aab5ad] underline-offset-4"
         >
-          Behåll nuvarande val och stäng
+          {labels.close}
         </button>
       )}
     </section>

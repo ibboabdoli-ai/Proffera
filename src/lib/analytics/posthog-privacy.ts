@@ -73,8 +73,17 @@ function decodePathSegment(segment: string) {
   }
 }
 
-function isKnownPublicDirectorySlug(segment: string, previousSegment: string | undefined) {
-  if (previousSegment !== "foretag") return false;
+function isKnownPublicDirectorySlug(segment: string, rawSegments: string[], index: number) {
+  const followsSwedishBusinessRoute = rawSegments[index - 1] === "foretag";
+  const followsSwedishDirectoryRoute =
+    rawSegments[index - 2] === "foretag" && rawSegments[index - 1] === "listad";
+  const followsEnglishDirectoryRoute =
+    rawSegments[index - 2] === "en" && rawSegments[index - 1] === "companies";
+
+  if (!followsSwedishBusinessRoute && !followsSwedishDirectoryRoute && !followsEnglishDirectoryRoute) {
+    return false;
+  }
+
   const decoded = decodePathSegment(segment);
   return decoded !== null && DIRECTORY_PUBLIC_SLUG.test(decoded);
 }
@@ -181,7 +190,7 @@ export function sanitizeAnalyticsPathname(pathname: string) {
   const rawSegments = rawPath.split("/");
   const segments = rawSegments.map((segment, index) => {
     if (!segment) return segment;
-    if (isKnownPublicDirectorySlug(segment, rawSegments[index - 1])) return segment;
+    if (isKnownPublicDirectorySlug(segment, rawSegments, index)) return segment;
     return isSensitiveSegment(segment) ? ":redacted" : segment;
   });
   const sanitized = segments.join("/");

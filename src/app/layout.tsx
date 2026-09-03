@@ -93,7 +93,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
         {isCustomerSite ? <main>{children}</main> : <AppShell>{children}</AppShell>}
         {!isCustomerSite && <PwaServiceWorker />}
         {!isCustomerSite && <ServiceAiChatWidget />}
-        {isPlatformSite && <AnalyticsConsentControl />}
+        {isPlatformSite && <AnalyticsConsentControl locale={isEnglishPublicSite ? "en" : "sv"} />}
         {shouldRenderAnalytics && <PostHogAnalytics config={postHogConfig} />}
         {isPlatformSite && <WebVitalsReporter />}
       </body>

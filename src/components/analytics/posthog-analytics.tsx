@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 
 import {
   ANALYTICS_CONSENT_CHANGED_EVENT,
+  ANALYTICS_CONSENT_STORAGE_KEY,
   analyticsSourceFromReferrer,
   isAnalyticsConsentGranted,
   readAnalyticsConsent,
@@ -67,8 +68,17 @@ export function PostHogAnalytics({ config }: { config: PostHogPublicConfig }) {
 
   useEffect(() => {
     const handleConsentChange = () => setConsent(readConsent());
+    const handleStorageChange = (event: StorageEvent) => {
+      if (event.key !== ANALYTICS_CONSENT_STORAGE_KEY) return;
+      handleConsentChange();
+    };
+
     window.addEventListener(ANALYTICS_CONSENT_CHANGED_EVENT, handleConsentChange);
-    return () => window.removeEventListener(ANALYTICS_CONSENT_CHANGED_EVENT, handleConsentChange);
+    window.addEventListener("storage", handleStorageChange);
+    return () => {
+      window.removeEventListener(ANALYTICS_CONSENT_CHANGED_EVENT, handleConsentChange);
+      window.removeEventListener("storage", handleStorageChange);
+    };
   }, []);
 
   useEffect(() => {
