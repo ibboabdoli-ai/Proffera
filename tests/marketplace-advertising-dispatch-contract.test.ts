@@ -2,12 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getSql: vi.fn(),
+  emailConfigured: vi.fn(),
   sendInvitationEmail: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/db/server", () => ({ getSql: mocks.getSql }));
 vi.mock("@/features/email/marketplace-guest-invitation-email", () => ({
+  marketplaceGuestInvitationEmailConfigured: mocks.emailConfigured,
   sendMarketplaceGuestInvitationEmail: mocks.sendInvitationEmail,
 }));
 
@@ -162,6 +164,7 @@ async function expectDispatchBlocked(options: FixtureOptions) {
 describe("Marketplace advertising dispatch contract", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.emailConfigured.mockReturnValue(true);
     process.env.BREVO_API_KEY = "test-api-key";
     process.env.LEAD_FROM_EMAIL = "Proffera <noreply@proffera.se>";
   });
