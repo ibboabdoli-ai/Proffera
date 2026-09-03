@@ -35,6 +35,20 @@ describe("Preview Marketplace email link resolution", () => {
     expect(candidates.every((candidate) => candidate.startsWith("https://"))).toBe(true);
   });
 
+  it("decodes provider HTML URL entities exactly once", () => {
+    const normal = previewMarketplaceEmailLinkCandidates(
+      `${PREVIEW_ORIGIN}/offert/svara/token?first=1&amp;second=2`,
+    );
+    expect(normal).toEqual([`${PREVIEW_ORIGIN}/offert/svara/token?first=1&second=2`]);
+
+    const doubleEncoded = previewMarketplaceEmailLinkCandidates(
+      `${PREVIEW_ORIGIN}/offert/svara/token?first=1&amp;#38;second=2`,
+    );
+    expect(doubleEncoded).toHaveLength(1);
+    expect(new URL(doubleEncoded[0]!).searchParams.has("second")).toBe(false);
+    expect(doubleEncoded[0]).toContain("#38;second=2");
+  });
+
   it("returns a direct exact-origin lifecycle link without outbound resolution", async () => {
     const fetchImpl = vi.fn();
     const link = `${PREVIEW_ORIGIN}/offert/svara/synthetic-token`;
