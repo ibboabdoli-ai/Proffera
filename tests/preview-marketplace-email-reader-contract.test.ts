@@ -25,11 +25,12 @@ describe("Preview Marketplace email reader boundary", () => {
     expect(source).not.toContain("previewRecipient:");
   });
 
-  it("bounds Brevo reads before loading message bodies", () => {
+  it("bounds Brevo reads to persisted provider message IDs before loading message bodies", () => {
     expect(source).toContain('url.searchParams.set("limit", "20")');
-    expect(source).toContain("likelyMarkerCandidate");
-    expect(source).toContain("subjectMatch: kind === \"customer\"");
-    expect(source).toContain("createdAtMs - 60_000");
-    expect(source).toContain('.slice(0, kind === "guest" ? 6 : 3)');
+    expect(source).toContain("previewMarketplaceE2eUuid(\"provider\", suiteRunId)");
+    expect(source).toContain("invitation.provider_message_id as guest_provider_message_id");
+    expect(source).toContain("customer_access.provider_message_id as customer_provider_message_id");
+    expect(source).toContain("String(item.messageId ?? \"\").trim() === marker.providerMessageId");
+    expect(source).toContain('.slice(0, kind === "review" ? 3 : 1)');
   });
 });
