@@ -11,7 +11,7 @@ import {
   previewMarketplaceE2eCustomerEmail,
   previewMarketplaceE2eProviderEmail,
   previewMarketplaceE2eUuid,
-  resolvePreviewMarketplaceE2eRunId,
+  resolveAuthorizedPreviewMarketplaceE2eRunId,
 } from "@/lib/preview-marketplace-e2e";
 
 export const dynamic = "force-dynamic";
@@ -185,7 +185,7 @@ function likelyMarkerCandidate(item: BrevoEmailListItem, marker: EmailMarker) {
 
 export async function GET(request: Request) {
   if (!isPreviewMarketplaceE2eRuntime()) return unavailable();
-  const suiteRunId = resolvePreviewMarketplaceE2eRunId(request.headers);
+  const suiteRunId = await resolveAuthorizedPreviewMarketplaceE2eRunId(request.headers);
   if (!suiteRunId) return unavailable();
 
   const requestUrl = new URL(request.url);
