@@ -17,6 +17,7 @@ import {
 export const dynamic = "force-dynamic";
 
 type EmailKind = "guest" | "customer" | "review";
+type ReviewDeliveryState = "pending" | "sent" | "failed";
 
 type BrevoEmailListItem = {
   date?: string;
@@ -44,6 +45,7 @@ type EmailMarker = {
   notBeforeMs: number | null;
   subjectMatch: boolean;
   providerMessageId: string | null;
+  reviewDeliveryState: ReviewDeliveryState | null;
 };
 
 function unavailable() {
@@ -126,23 +128,54 @@ async function emailContent(uuid: string, apiKey: string) {
   return brevoJson<BrevoEmailContent>(url, apiKey);
 }
 
+function reviewDeliveryState(reason: unknown): ReviewDeliveryState {
+  const value = String(reason ?? "");
+  if (value === "Verified review invitation email sent") return "sent";
+  if (value.startsWith("Verified review invitation email failed:")) return "failed";
+  return "pending";
+}
+
 async function markerFor(kind: EmailKind, suiteRunId: string, customerRunId: string): Promise<EmailMarker | null> {
+  const email = previewMarketplaceE2eCustomerEmail(customerRunId);
+  const profileId = previewMarketplaceE2eUuid("provider", suiteRunId);
+  const sql = getSql();
+  if (!email || !profileId || !sql) return null;
+
   if (kind === "review") {
+    const rows = await sql`
+      select
+        review_invitation.created_at::text as review_invitation_created_at,
+        coalesce((
+          select event.reason
+          from marketplace_service_job_events event
+          where event.service_job_id = job.id
+            and event.event_type = 'review_invited'
+          order by event.created_at desc, event.id desc
+          limit 1
+        ), '') as delivery_event_reason
+      from quote_requests request
+      join marketplace_service_jobs job on job.quote_request_id = request.id
+      join website_review_invitations review_invitation
+        on review_invitation.marketplace_service_job_id = job.id
+      where lower(btrim(request.contact_email)) = ${email}
+        and job.profile_id = ${profileId}::uuid
+      order by review_invitation.created_at desc
+      limit 1
+    `;
+    const createdAtMs = Date.parse(String(rows[0]?.review_invitation_created_at ?? ""));
+    if (!Number.isFinite(createdAtMs)) return null;
     return {
       value: `Preview E2E Rör ${suiteRunId.slice(0, 8)} AB`,
-      notBeforeMs: null,
+      notBeforeMs: createdAtMs - 60_000,
       // Review invitations do not persist a Brevo message ID. Do not trust the
       // list endpoint's subject metadata as a pre-filter; inspect a bounded set
       // of safe-sink message bodies and match the synthetic marker there.
       subjectMatch: false,
       providerMessageId: null,
+      reviewDeliveryState: reviewDeliveryState(rows[0]?.delivery_event_reason),
     };
   }
 
-  const email = previewMarketplaceE2eCustomerEmail(customerRunId);
-  const profileId = previewMarketplaceE2eUuid("provider", suiteRunId);
-  const sql = getSql();
-  if (!email || !profileId || !sql) return null;
   const rows = await sql`
     select
       request.reference_id,
@@ -172,6 +205,7 @@ async function markerFor(kind: EmailKind, suiteRunId: string, customerRunId: str
     notBeforeMs: Number.isFinite(createdAtMs) ? createdAtMs - 60_000 : null,
     subjectMatch: kind === "customer",
     providerMessageId,
+    reviewDeliveryState: null,
   };
 }
 
@@ -280,6 +314,7 @@ export async function GET(request: Request) {
   const diagnostics = {
     lookupMode,
     providerMessageIdPresent: Boolean(marker.providerMessageId),
+    reviewDeliveryState: marker.reviewDeliveryState,
     candidateCount: candidates.length,
     selectedCandidateCount: recent.length,
     detailCandidateCount,
