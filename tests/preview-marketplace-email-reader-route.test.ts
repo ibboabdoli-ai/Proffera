@@ -199,6 +199,45 @@ describe("Preview Marketplace email reader route", () => {
     expect(JSON.stringify(info.mock.calls)).not.toContain("preview-key");
   });
 
+  it("detects a review email from safe-sink content even when Brevo list subject metadata is not usable", async () => {
+    mocks.resolveEmailLink.mockResolvedValue("https://preview.example.vercel.app/review/marketplace/token");
+    const marker = `Preview E2E Rör ${suiteRunId.slice(0, 8)} AB`;
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({
+        count: 1,
+        transactionalEmails: [{
+          uuid: "review-mail-uuid",
+          email: sink,
+          subject: "opaque-list-subject",
+        }],
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        email: sink,
+        subject: `Hur gick det? – ${marker}`,
+        body: `Dela din upplevelse för ${marker}. https://preview.example.vercel.app/review/marketplace/token`,
+        events: [{ name: "sent" }, { name: "delivered" }],
+      }))
+      .mockResolvedValueOnce(jsonResponse({ count: 0, transactionalEmails: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await GET(emailRequest("review"));
+    const body = await response.json() as Record<string, unknown>;
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(body).toMatchObject({
+      ok: true,
+      found: true,
+      kind: "review",
+      sinkRecipientMatched: true,
+      originalRecipientObserved: false,
+      acceptedByProvider: true,
+      delivered: true,
+      link: "https://preview.example.vercel.app/review/marketplace/token",
+    });
+  });
+
   it("uses the previous and current UTC dates so a midnight rollover cannot hide a just-sent email", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-09-04T00:00:30.000Z"));
