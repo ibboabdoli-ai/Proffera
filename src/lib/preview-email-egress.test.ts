@@ -5,7 +5,7 @@ import { buildPreviewSafeBrevoRequestInit } from "@/lib/preview-email-egress";
 
 const BREVO_URL = "https://api.brevo.com/v3/smtp/email";
 const BREVO_SMS_URL = "https://api.brevo.com/v3/transactionalSMS/sms";
-const BREVO_LIST_URL = "https://api.brevo.com/v3/smtp/emails?email=preview-inbox%40example.com&startDate=2026-09-03&endDate=2026-09-03&sort=desc";
+const BREVO_LIST_URL = "https://api.brevo.com/v3/smtp/emails?email=preview-inbox%40example.com&startDate=2026-09-03&endDate=2026-09-03&sort=desc&limit=20";
 const BREVO_DETAIL_URL = "https://api.brevo.com/v3/smtp/emails/123e4567-e89b-12d3-a456-426614174000";
 const MARKETPLACE_E2E_BRANCH = "work/proffera-marketplace-browser-lifecycle-e2e";
 
@@ -117,10 +117,11 @@ describe("Preview Brevo egress safety", () => {
     }
   });
 
-  it("rejects arbitrary Brevo paths and non-allowlisted list query parameters", () => {
+  it("rejects arbitrary Brevo paths and non-allowlisted or broadened list query parameters", () => {
     const env = previewEnv({ VERCEL_GIT_COMMIT_REF: MARKETPLACE_E2E_BRANCH });
     expect(() => buildPreviewSafeBrevoRequestInit("https://api.brevo.com/v3/account", { method: "GET" }, env)).toThrow(/endpoint is not approved/);
-    expect(() => buildPreviewSafeBrevoRequestInit(`${BREVO_LIST_URL}&limit=100`, { method: "GET" }, env)).toThrow(/endpoint is not approved/);
+    expect(() => buildPreviewSafeBrevoRequestInit(BREVO_LIST_URL.replace("limit=20", "limit=100"), { method: "GET" }, env)).toThrow(/endpoint is not approved/);
+    expect(() => buildPreviewSafeBrevoRequestInit(`${BREVO_LIST_URL}&offset=1`, { method: "GET" }, env)).toThrow(/endpoint is not approved/);
     expect(() => buildPreviewSafeBrevoRequestInit("https://api.brevo.com/v3/smtp/emails/123e4567-e89b-12d3-a456-426614174000?extra=1", { method: "GET" }, env)).toThrow(/endpoint is not approved/);
     expect(() => buildPreviewSafeBrevoRequestInit("https://api.brevo.com/v3/smtp/emails/not%2Fa-valid-uuid", { method: "GET" }, env)).toThrow(/endpoint is not approved/);
   });
