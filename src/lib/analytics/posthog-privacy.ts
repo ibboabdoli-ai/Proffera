@@ -46,6 +46,7 @@ const DIRECTORY_PUBLIC_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*-[0-9a-z]{6,8}$/;
 const WORKSPACE_SERVICE_PUBLIC_SLUG = /^(?=.{2,120}$)[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const WORKSPACE_SERVICE_OPAQUE_TOKEN = /^[a-z0-9]{24,}$/;
 const WORKSPACE_BOOKING_PUBLIC_SLUG = /^(?=.{8,49}$)[a-z0-9]+(?:-[a-z0-9]+)*-[0-9a-f]{6}$/;
+const WORKSPACE_BOOKING_OPAQUE_TOKEN = /^[a-z0-9]{17,}-[0-9a-f]{6}$/;
 const GOOGLE_REFERRER_HOST = /^(?:[^.]+\.)*google\.(?:[a-z]{2,3}|(?:co|com)\.[a-z]{2})$/;
 
 const allowedAnalyticsSources = new Set<AnalyticsSource>([
@@ -139,6 +140,7 @@ function isKnownPublicBookingSlug(segment: string, rawSegments: string[], index:
     && !LONG_NUMERIC_ID.test(decoded)
     && !EMAIL_LIKE.test(decoded)
     && !DOT_DELIMITED_TOKEN.test(decoded)
+    && !WORKSPACE_BOOKING_OPAQUE_TOKEN.test(decoded)
   );
 }
 
