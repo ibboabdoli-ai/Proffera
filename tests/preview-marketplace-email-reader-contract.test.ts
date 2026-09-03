@@ -16,13 +16,9 @@ describe("Preview Marketplace email reader boundary", () => {
     expect(source).not.toContain("process.env.BREVO_API_KEY");
   });
 
-  it("returns only controlled links for the exact Preview request origin", () => {
-    expect(source).toContain("previewOrigin(request.url)");
-    expect(source).toContain('url.protocol !== "https:"');
-    expect(source).toContain("url.origin !== origin");
-    expect(source).toContain("/offert/svara/");
-    expect(source).toContain("/offert/jamfor/");
-    expect(source).toContain("/review/marketplace/");
+  it("delegates controlled link resolution to the fail-closed Preview helper", () => {
+    expect(source).toContain("previewMarketplaceEmailOrigin(request.url)");
+    expect(source).toContain("resolvePreviewMarketplaceEmailLink({ body, kind, origin })");
     expect(source).toContain("originalRecipientObserved");
     expect(source).not.toContain("process.env.VERCEL_URL");
     expect(source).not.toContain("previewRecipient:");
@@ -63,7 +59,7 @@ describe("Preview Marketplace email reader boundary", () => {
     expect(source).toContain("const originalList = await listTransactionalEmails(original, apiKey)");
     expect(source).not.toContain("Promise.all([\n    listTransactionalEmails(sink, apiKey)");
     expect(source.indexOf("const originalList = await listTransactionalEmails(original, apiKey)")).toBeGreaterThan(
-      source.indexOf("const link = controlledLink(body, kind, origin)"),
+      source.indexOf("const link = await resolvePreviewMarketplaceEmailLink({ body, kind, origin })"),
     );
   });
 });
