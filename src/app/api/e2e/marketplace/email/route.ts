@@ -3,6 +3,10 @@ import { NextResponse } from "next/server";
 import { getSql } from "@/lib/db/server";
 import { resolveBrevoApiKey, resolvePreviewEmailRecipient } from "@/lib/email-runtime-config";
 import {
+  previewMarketplaceEmailOrigin,
+  resolvePreviewMarketplaceEmailLink,
+} from "@/lib/preview-marketplace-email-link";
+import {
   isPreviewMarketplaceE2eRuntime,
   previewMarketplaceE2eCustomerEmail,
   previewMarketplaceE2eProviderEmail,
@@ -42,29 +46,12 @@ type EmailMarker = {
   providerMessageId: string | null;
 };
 
-const pathByKind: Record<EmailKind, string> = {
-  guest: "/offert/svara/",
-  customer: "/offert/jamfor/",
-  review: "/review/marketplace/",
-};
-
 function unavailable() {
   return new NextResponse(null, { status: 404 });
 }
 
 function emailKind(value: string | null): EmailKind | null {
   return value === "guest" || value === "customer" || value === "review" ? value : null;
-}
-
-function previewOrigin(requestUrl: string) {
-  try {
-    const url = new URL(requestUrl);
-    const host = url.hostname.trim().toLowerCase();
-    if (url.protocol !== "https:" || !/^[a-z0-9.-]+\.vercel\.app$/.test(host)) return null;
-    return url.origin;
-  } catch {
-    return null;
-  }
 }
 
 function boundedRetryDelayMs(response: Response) {
@@ -135,29 +122,6 @@ async function listTransactionalEmailByMessageId(messageId: string, apiKey: stri
 async function emailContent(uuid: string, apiKey: string) {
   const url = new URL(`https://api.brevo.com/v3/smtp/emails/${encodeURIComponent(uuid)}`);
   return brevoJson<BrevoEmailContent>(url, apiKey);
-}
-
-function decodeHtmlUrl(value: string) {
-  return value
-    .replaceAll("&amp;", "&")
-    .replaceAll("&#38;", "&")
-    .replaceAll("&quot;", '"')
-    .replaceAll("&#39;", "'");
-}
-
-function controlledLink(body: string, kind: EmailKind, origin: string) {
-  const candidates = body.match(/https:\/\/[^\s"'<>]+/gu) ?? [];
-  for (const candidate of candidates) {
-    try {
-      const url = new URL(decodeHtmlUrl(candidate));
-      if (url.origin !== origin) continue;
-      if (!url.pathname.startsWith(pathByKind[kind])) continue;
-      return url.toString();
-    } catch {
-      // Ignore malformed URLs in provider-rendered email HTML.
-    }
-  }
-  return null;
 }
 
 async function markerFor(kind: EmailKind, suiteRunId: string, customerRunId: string): Promise<EmailMarker | null> {
@@ -236,7 +200,7 @@ export async function GET(request: Request) {
   const sink = resolvePreviewEmailRecipient();
   const marker = await markerFor(kind, suiteRunId, customerRunId);
   const original = originalRecipient(kind, suiteRunId, customerRunId);
-  const origin = previewOrigin(request.url);
+  const origin = previewMarketplaceEmailOrigin(request.url);
   if (!apiKey || !sink || !marker || !original || !origin) {
     return NextResponse.json({ ok: false, error: "configuration" }, { status: 503 });
   }
@@ -281,7 +245,7 @@ export async function GET(request: Request) {
     const body = String(content.body ?? "");
     if (!subject.includes(marker.value) && !body.includes(marker.value)) continue;
     markerMatchedCount += 1;
-    const link = controlledLink(body, kind, origin);
+    const link = await resolvePreviewMarketplaceEmailLink({ body, kind, origin });
     if (!link) continue;
     controlledLinkMatchedCount += 1;
 
