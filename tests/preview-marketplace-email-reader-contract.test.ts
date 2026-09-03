@@ -24,4 +24,12 @@ describe("Preview Marketplace email reader boundary", () => {
     expect(source).toContain("originalRecipientObserved");
     expect(source).not.toContain("previewRecipient:");
   });
+
+  it("bounds Brevo reads before loading message bodies", () => {
+    expect(source).toContain('url.searchParams.set("limit", "20")');
+    expect(source).toContain("likelyMarkerCandidate");
+    expect(source).toContain("subjectMatch: kind === \"customer\"");
+    expect(source).toContain("createdAtMs - 60_000");
+    expect(source).toContain('.slice(0, kind === "guest" ? 6 : 3)');
+  });
 });
