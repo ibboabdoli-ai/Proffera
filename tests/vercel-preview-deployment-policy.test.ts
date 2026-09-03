@@ -23,15 +23,19 @@ describe("Vercel preview deployment policy", () => {
       "**": false,
       main: true,
       "work/proffera-preview-*": true,
+      "work/proffera-marketplace-browser-lifecycle-e2e": true,
     });
     expect(rules).toBeDefined();
     if (!rules) throw new Error("Vercel deployment rules are required");
 
-    // Vercel deploys when any matching rule is true. The preview exception
-    // stays inside the repository-required work/proffera-* branch convention.
+    // Vercel deploys when any matching rule is true. Preview exceptions stay
+    // explicitly allowlisted inside the repository-required work/proffera-*
+    // branch convention; every other branch remains disabled by default.
     expect(deploymentEnabledForBranch(rules, "main")).toBe(true);
     expect(deploymentEnabledForBranch(rules, "work/proffera-preview-qa")).toBe(true);
+    expect(deploymentEnabledForBranch(rules, "work/proffera-marketplace-browser-lifecycle-e2e")).toBe(true);
     expect(deploymentEnabledForBranch(rules, "work/proffera-qa")).toBe(false);
+    expect(deploymentEnabledForBranch(rules, "work/proffera-marketplace-browser-lifecycle-e2e-extra")).toBe(false);
     expect(deploymentEnabledForBranch(rules, "demo/qa")).toBe(false);
     expect(deploymentEnabledForBranch(rules, "fix/qa")).toBe(false);
   });
