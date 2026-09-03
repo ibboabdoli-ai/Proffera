@@ -35,6 +35,7 @@ import { GET } from "@/app/api/e2e/marketplace/email/route";
 const suiteRunId = "a".repeat(48);
 const customerRunId = "b".repeat(48);
 const sink = "preview-sink@example.com";
+const reviewCreatedAt = "2026-09-03T12:00:00.000Z";
 
 function emailRequest(kind: string, run = customerRunId) {
   const query = new URLSearchParams({ kind, run });
@@ -63,6 +64,10 @@ beforeEach(() => {
   mocks.previewRecipient.mockReturnValue(sink);
   mocks.emailOrigin.mockReturnValue("https://preview.example.vercel.app");
   mocks.resolveEmailLink.mockResolvedValue("https://preview.example.vercel.app/offert/svara/token");
+  mocks.getSql.mockReturnValue(vi.fn(async () => [{
+    review_invitation_created_at: reviewCreatedAt,
+    delivery_event_reason: "Verified review invitation email sent",
+  }]));
 });
 
 afterEach(() => {
@@ -128,6 +133,7 @@ describe("Preview Marketplace email reader route", () => {
       diagnostics: {
         lookupMode: "recipient",
         providerMessageIdPresent: false,
+        reviewDeliveryState: "sent",
         candidateCount: 0,
       },
     });
@@ -157,6 +163,7 @@ describe("Preview Marketplace email reader route", () => {
     expect(body.diagnostics).toMatchObject({
       lookupMode: "message_id_then_recipient",
       providerMessageIdPresent: true,
+      reviewDeliveryState: null,
       candidateCount: 0,
     });
   });
@@ -170,6 +177,7 @@ describe("Preview Marketplace email reader route", () => {
         transactionalEmails: [{
           uuid: "mail-uuid-1",
           email: sink,
+          date: reviewCreatedAt,
           subject: `Preview E2E Rör ${suiteRunId.slice(0, 8)} AB`,
         }],
       }))
@@ -186,6 +194,7 @@ describe("Preview Marketplace email reader route", () => {
 
     expect(response.status).toBe(200);
     expect(body.diagnostics).toMatchObject({
+      reviewDeliveryState: "sent",
       candidateCount: 1,
       selectedCandidateCount: 1,
       detailCandidateCount: 1,
@@ -194,9 +203,24 @@ describe("Preview Marketplace email reader route", () => {
     });
     expect(info).toHaveBeenCalledWith(
       "Preview Marketplace E2E email lookup pending",
-      expect.objectContaining({ kind: "review", providerMessageIdPresent: false }),
+      expect.objectContaining({ kind: "review", providerMessageIdPresent: false, reviewDeliveryState: "sent" }),
     );
     expect(JSON.stringify(info.mock.calls)).not.toContain("preview-key");
+  });
+
+  it("surfaces a pending review delivery state before the delivery event is persisted", async () => {
+    mocks.getSql.mockReturnValue(vi.fn(async () => [{
+      review_invitation_created_at: reviewCreatedAt,
+      delivery_event_reason: "",
+    }]));
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ count: 0, transactionalEmails: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await GET(emailRequest("review"));
+    const body = await response.json() as { diagnostics?: Record<string, unknown> };
+
+    expect(response.status).toBe(200);
+    expect(body.diagnostics).toMatchObject({ reviewDeliveryState: "pending" });
   });
 
   it("detects a review email from safe-sink content even when Brevo list subject metadata is not usable", async () => {
@@ -209,6 +233,7 @@ describe("Preview Marketplace email reader route", () => {
         transactionalEmails: [{
           uuid: "review-mail-uuid",
           email: sink,
+          date: reviewCreatedAt,
           subject: "opaque-list-subject",
         }],
       }))
@@ -241,6 +266,10 @@ describe("Preview Marketplace email reader route", () => {
   it("uses the previous and current UTC dates so a midnight rollover cannot hide a just-sent email", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-09-04T00:00:30.000Z"));
+    mocks.getSql.mockReturnValue(vi.fn(async () => [{
+      review_invitation_created_at: "2026-09-03T23:59:30.000Z",
+      delivery_event_reason: "Verified review invitation email sent",
+    }]));
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ count: 0, transactionalEmails: [] }));
     vi.stubGlobal("fetch", fetchMock);
 
