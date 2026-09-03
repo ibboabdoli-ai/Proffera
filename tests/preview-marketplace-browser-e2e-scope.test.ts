@@ -21,6 +21,11 @@ describe("Marketplace Preview browser E2E scope", () => {
     expect(source).toContain("expect(latest?.originalRecipientObserved).toBe(false)");
   });
 
+  it("uses the same full deterministic run identity as the Preview fixture", () => {
+    expect(source).toContain("`marketplace-e2e-${id}@customer.example.invalid`");
+    expect(source).not.toContain("id.slice(0, 24)");
+  });
+
   it("proves scoped cleanup and used/invalid token rejection", () => {
     expect(source).toContain("deleteProvider: false");
     expect(source).toContain("deleteProvider: true");
