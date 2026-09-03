@@ -3,7 +3,21 @@ import "server-only";
 import { createHash } from "node:crypto";
 
 export const PREVIEW_MARKETPLACE_E2E_HEADER = "x-proffera-preview-e2e-run";
+export const PREVIEW_MARKETPLACE_E2E_AUTH_COOKIE = "__Secure-proffera-preview-e2e-auth";
+export const PREVIEW_MARKETPLACE_E2E_OIDC_AUDIENCE = "proffera-marketplace-preview-e2e";
 export const PREVIEW_MARKETPLACE_E2E_BRANCH = "work/proffera-marketplace-browser-lifecycle-e2e";
+
+const PREVIEW_MARKETPLACE_E2E_REPOSITORY = "ibboabdoli-ai/Proffera";
+const PREVIEW_MARKETPLACE_E2E_REPOSITORY_ID = "1267669271";
+const PREVIEW_MARKETPLACE_E2E_WORKFLOW = "Marketplace Preview browser E2E";
+const PREVIEW_MARKETPLACE_E2E_WORKFLOW_REF_PREFIX = `${PREVIEW_MARKETPLACE_E2E_REPOSITORY}/.github/workflows/marketplace-preview-browser-e2e.yml@`;
+const GITHUB_OIDC_ISSUER = "https://token.actions.githubusercontent.com";
+const GITHUB_OIDC_JWKS_URL = "https://token.actions.githubusercontent.com/.well-known/jwks";
+const GITHUB_OIDC_SUBJECT = `repo:${PREVIEW_MARKETPLACE_E2E_REPOSITORY}:pull_request`;
+const GITHUB_OIDC_MAX_TOKEN_AGE_SECONDS = 15 * 60;
+const GITHUB_OIDC_CLOCK_SKEW_SECONDS = 30;
+const GITHUB_OIDC_JWKS_CACHE_MS = 5 * 60 * 1000;
+const GITHUB_OIDC_FETCH_TIMEOUT_MS = 5_000;
 
 const runIdPattern = /^[a-f0-9]{32,64}$/;
 const customerEmailPattern = /^marketplace-e2e-([a-f0-9]{32,64})@customer\.example\.invalid$/;
@@ -15,10 +29,149 @@ const PREVIEW_COORDINATE_LATITUDE_STEP = 0.5;
 const PREVIEW_COORDINATE_LONGITUDE_STEP = 1.5;
 
 type PreviewTokenKind = "guest" | "customer" | "review";
+type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+type JsonObject = Record<string, unknown>;
+type GithubOidcJwk = JsonWebKey & { kid?: string; alg?: string; use?: string };
+
+let githubOidcJwksCache: { expiresAtMs: number; keys: GithubOidcJwk[] } | null = null;
 
 function normalizedRunId(value: string | null | undefined) {
   const runId = String(value ?? "").trim().toLowerCase();
   return runIdPattern.test(runId) ? runId : null;
+}
+
+function jwtJson(value: string) {
+  if (!value || value.length > 12_000 || !/^[A-Za-z0-9_-]+$/u.test(value)) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as JsonObject : null;
+  } catch {
+    return null;
+  }
+}
+
+function oidcCookie(headers: Pick<Headers, "get">) {
+  const cookies = String(headers.get("cookie") ?? "").split(";");
+  for (const cookie of cookies) {
+    const separator = cookie.indexOf("=");
+    if (separator <= 0) continue;
+    if (cookie.slice(0, separator).trim() !== PREVIEW_MARKETPLACE_E2E_AUTH_COOKIE) continue;
+    const value = cookie.slice(separator + 1).trim();
+    return value || null;
+  }
+  return null;
+}
+
+function audienceMatches(value: unknown) {
+  if (typeof value === "string") return value === PREVIEW_MARKETPLACE_E2E_OIDC_AUDIENCE;
+  return Array.isArray(value)
+    && value.length > 0
+    && value.every((item) => typeof item === "string")
+    && value.includes(PREVIEW_MARKETPLACE_E2E_OIDC_AUDIENCE);
+}
+
+function finiteNumericClaim(value: unknown) {
+  const parsed = typeof value === "number" ? value : Number.NaN;
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function oidcClaimsMatch(claims: JsonObject, nowMs: number) {
+  const nowSeconds = Math.floor(nowMs / 1000);
+  const expiresAt = finiteNumericClaim(claims.exp);
+  const issuedAt = finiteNumericClaim(claims.iat);
+  const notBefore = claims.nbf === undefined ? null : finiteNumericClaim(claims.nbf);
+  if (expiresAt === null || issuedAt === null) return false;
+  if (expiresAt <= nowSeconds - GITHUB_OIDC_CLOCK_SKEW_SECONDS) return false;
+  if (expiresAt > nowSeconds + GITHUB_OIDC_MAX_TOKEN_AGE_SECONDS) return false;
+  if (issuedAt > nowSeconds + GITHUB_OIDC_CLOCK_SKEW_SECONDS) return false;
+  if (issuedAt < nowSeconds - GITHUB_OIDC_MAX_TOKEN_AGE_SECONDS) return false;
+  if (claims.nbf !== undefined && (notBefore === null || notBefore > nowSeconds + GITHUB_OIDC_CLOCK_SKEW_SECONDS)) {
+    return false;
+  }
+
+  return claims.iss === GITHUB_OIDC_ISSUER
+    && audienceMatches(claims.aud)
+    && claims.sub === GITHUB_OIDC_SUBJECT
+    && claims.repository === PREVIEW_MARKETPLACE_E2E_REPOSITORY
+    && claims.repository_id === PREVIEW_MARKETPLACE_E2E_REPOSITORY_ID
+    && claims.event_name === "pull_request"
+    && claims.head_ref === PREVIEW_MARKETPLACE_E2E_BRANCH
+    && claims.workflow === PREVIEW_MARKETPLACE_E2E_WORKFLOW
+    && typeof claims.workflow_ref === "string"
+    && claims.workflow_ref.startsWith(PREVIEW_MARKETPLACE_E2E_WORKFLOW_REF_PREFIX)
+    && claims.runner_environment === "github-hosted";
+}
+
+async function githubOidcKeys(fetchImpl: FetchLike, nowMs: number) {
+  const usesRuntimeFetch = fetchImpl === fetch;
+  if (usesRuntimeFetch && githubOidcJwksCache && githubOidcJwksCache.expiresAtMs > nowMs) {
+    return githubOidcJwksCache.keys;
+  }
+
+  try {
+    const response = await fetchImpl(GITHUB_OIDC_JWKS_URL, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+      signal: AbortSignal.timeout(GITHUB_OIDC_FETCH_TIMEOUT_MS),
+    });
+    if (!response.ok) return null;
+    const body = await response.json() as { keys?: unknown };
+    if (!Array.isArray(body.keys)) return null;
+    const keys = body.keys.filter((item): item is GithubOidcJwk => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) return false;
+      const candidate = item as GithubOidcJwk;
+      return candidate.kty === "RSA"
+        && typeof candidate.kid === "string"
+        && (!candidate.alg || candidate.alg === "RS256")
+        && (!candidate.use || candidate.use === "sig");
+    });
+    if (keys.length === 0) return null;
+    if (usesRuntimeFetch) {
+      githubOidcJwksCache = { expiresAtMs: nowMs + GITHUB_OIDC_JWKS_CACHE_MS, keys };
+    }
+    return keys;
+  } catch {
+    return null;
+  }
+}
+
+async function validGithubActionsOidcToken(
+  token: string,
+  options: { fetchImpl: FetchLike; nowMs: number },
+) {
+  if (!token || token.length > 16_000) return false;
+  const parts = token.split(".");
+  if (parts.length !== 3) return false;
+  const [encodedHeader, encodedClaims, encodedSignature] = parts;
+  if (!encodedHeader || !encodedClaims || !encodedSignature || !/^[A-Za-z0-9_-]+$/u.test(encodedSignature)) return false;
+
+  const header = jwtJson(encodedHeader);
+  const claims = jwtJson(encodedClaims);
+  if (!header || !claims || header.alg !== "RS256" || typeof header.kid !== "string") return false;
+  if (!oidcClaimsMatch(claims, options.nowMs)) return false;
+
+  const keys = await githubOidcKeys(options.fetchImpl, options.nowMs);
+  const jwk = keys?.find((candidate) => candidate.kid === header.kid);
+  if (!jwk) return false;
+
+  try {
+    const publicKey = await globalThis.crypto.subtle.importKey(
+      "jwk",
+      jwk,
+      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+      false,
+      ["verify"],
+    );
+    return await globalThis.crypto.subtle.verify(
+      "RSASSA-PKCS1-v1_5",
+      publicKey,
+      Buffer.from(encodedSignature, "base64url"),
+      new TextEncoder().encode(`${encodedHeader}.${encodedClaims}`),
+    );
+  } catch {
+    return false;
+  }
 }
 
 export function isPreviewMarketplaceE2eRuntime(env: NodeJS.ProcessEnv = process.env) {
@@ -32,6 +185,22 @@ export function resolvePreviewMarketplaceE2eRunId(
 ) {
   if (!isPreviewMarketplaceE2eRuntime(env)) return null;
   return normalizedRunId(headers.get(PREVIEW_MARKETPLACE_E2E_HEADER));
+}
+
+export async function resolveAuthorizedPreviewMarketplaceE2eRunId(
+  headers: Pick<Headers, "get">,
+  env: NodeJS.ProcessEnv = process.env,
+  options: { fetchImpl?: FetchLike; nowMs?: number } = {},
+) {
+  const runId = resolvePreviewMarketplaceE2eRunId(headers, env);
+  if (!runId) return null;
+  const token = oidcCookie(headers);
+  if (!token) return null;
+  const authorized = await validGithubActionsOidcToken(token, {
+    fetchImpl: options.fetchImpl ?? fetch,
+    nowMs: options.nowMs ?? Date.now(),
+  });
+  return authorized ? runId : null;
 }
 
 export function isPreviewMarketplaceE2eRunId(
