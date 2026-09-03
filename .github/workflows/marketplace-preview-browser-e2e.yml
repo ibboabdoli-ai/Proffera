@@ -9,6 +9,7 @@ on:
       - "e2e/playwright.config.mjs"
       - "e2e/package.json"
       - "e2e/package-lock.json"
+      - "tests/preview-marketplace-*.test.ts"
       - "src/app/api/e2e/marketplace/**"
       - "src/lib/preview-marketplace-e2e.ts"
       - "src/features/quote-request/**"
