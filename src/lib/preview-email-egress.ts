@@ -8,7 +8,7 @@ const BREVO_TRANSACTIONAL_EMAIL_URL = `${BREVO_API_ORIGIN}/v3/smtp/email`;
 const BREVO_TRANSACTIONAL_EMAIL_LIST_PATH = "/v3/smtp/emails";
 const MARKETPLACE_E2E_PREVIEW_BRANCH = "work/proffera-marketplace-browser-lifecycle-e2e";
 const BREVO_EMAIL_DETAIL_PATH = /^\/v3\/smtp\/emails\/([A-Za-z0-9_-]{8,128})$/;
-const BREVO_EMAIL_LIST_QUERY_KEYS = ["email", "startDate", "endDate", "sort"] as const;
+const BREVO_EMAIL_LIST_QUERY_KEYS = ["email", "startDate", "endDate", "sort", "limit"] as const;
 
 type BrevoPayload = Record<string, unknown> & {
   to?: unknown;
@@ -78,12 +78,14 @@ function validListReaderUrl(url: URL) {
   const startDate = url.searchParams.get("startDate") ?? "";
   const endDate = url.searchParams.get("endDate") ?? "";
   const sort = url.searchParams.get("sort") ?? "";
+  const limit = url.searchParams.get("limit") ?? "";
   return email.length > 3
     && email.length <= 254
     && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
     && /^\d{4}-\d{2}-\d{2}$/.test(startDate)
     && /^\d{4}-\d{2}-\d{2}$/.test(endDate)
-    && sort === "desc";
+    && sort === "desc"
+    && limit === "20";
 }
 
 function validDetailReaderUrl(url: URL) {
