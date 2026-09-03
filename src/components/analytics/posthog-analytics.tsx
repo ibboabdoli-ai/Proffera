@@ -63,11 +63,11 @@ async function loadPostHog(config: PostHogPublicConfig) {
 
 export function PostHogAnalytics({ config }: { config: PostHogPublicConfig }) {
   const pathname = usePathname();
-  const [consent, setConsent] = useState<AnalyticsConsentState>("unknown");
+  const [consent, setConsent] = useState<AnalyticsConsentState>(() =>
+    typeof window === "undefined" ? "unknown" : readConsent(),
+  );
 
   useEffect(() => {
-    setConsent(readConsent());
-
     const handleConsentChange = () => setConsent(readConsent());
     window.addEventListener(ANALYTICS_CONSENT_CHANGED_EVENT, handleConsentChange);
     return () => window.removeEventListener(ANALYTICS_CONSENT_CHANGED_EVENT, handleConsentChange);
