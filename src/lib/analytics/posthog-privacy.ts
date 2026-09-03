@@ -38,15 +38,15 @@ type AnalyticsConsentStorage = {
 
 const PERSON_OR_ORGANIZATION_NUMBER = /^(?:\d{6}[-+]?\d{4}|\d{8}[-+]?\d{4}|\d{10}|\d{12})$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const LONG_HEX_TOKEN = /^[0-9a-f]{20,}$/i;
 const LONG_HEX_OR_TOKEN = /^(?:[0-9a-f]{20,}|[A-Za-z0-9_-]{24,})$/;
 const DOT_DELIMITED_TOKEN = /^(?=.{24,}$)[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+$/;
+const BEARER_TOKEN = /^bearer\s+[A-Za-z0-9._~-]{12,}$/i;
 const LONG_NUMERIC_ID = /^\d{6,}$/;
 const EMAIL_LIKE = /^[^/@\s]+@[^/@\s]+\.[^/@\s]+$/;
 const DIRECTORY_PUBLIC_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*-[0-9a-z]{6,8}$/;
 const WORKSPACE_SERVICE_PUBLIC_SLUG = /^(?=.{2,120}$)[a-z0-9]+(?:-[a-z0-9]+)*$/;
-const WORKSPACE_SERVICE_OPAQUE_TOKEN = /^[a-z0-9]{24,}$/;
 const WORKSPACE_BOOKING_PUBLIC_SLUG = /^(?=.{8,49}$)[a-z0-9]+(?:-[a-z0-9]+)*-[0-9a-f]{6}$/;
-const WORKSPACE_BOOKING_OPAQUE_TOKEN = /^[a-z0-9]{17,}-[0-9a-f]{6}$/;
 const GOOGLE_REFERRER_HOST = /^(?:[^.]+\.)*google\.(?:[a-z]{2,3}|(?:co|com)\.[a-z]{2})$/;
 
 const allowedAnalyticsSources = new Set<AnalyticsSource>([
@@ -119,8 +119,11 @@ function isKnownPublicWorkspaceServiceSlug(segment: string, rawSegments: string[
     && WORKSPACE_SERVICE_PUBLIC_SLUG.test(decoded)
     && !PERSON_OR_ORGANIZATION_NUMBER.test(decoded)
     && !UUID.test(decoded)
+    && !LONG_HEX_TOKEN.test(decoded)
     && !LONG_NUMERIC_ID.test(decoded)
-    && !WORKSPACE_SERVICE_OPAQUE_TOKEN.test(decoded)
+    && !EMAIL_LIKE.test(decoded)
+    && !DOT_DELIMITED_TOKEN.test(decoded)
+    && !BEARER_TOKEN.test(decoded)
   );
 }
 
@@ -137,10 +140,11 @@ function isKnownPublicBookingSlug(segment: string, rawSegments: string[], index:
     && WORKSPACE_BOOKING_PUBLIC_SLUG.test(decoded)
     && !PERSON_OR_ORGANIZATION_NUMBER.test(decoded)
     && !UUID.test(decoded)
+    && !LONG_HEX_TOKEN.test(decoded)
     && !LONG_NUMERIC_ID.test(decoded)
     && !EMAIL_LIKE.test(decoded)
     && !DOT_DELIMITED_TOKEN.test(decoded)
-    && !WORKSPACE_BOOKING_OPAQUE_TOKEN.test(decoded)
+    && !BEARER_TOKEN.test(decoded)
   );
 }
 
@@ -156,6 +160,7 @@ function isSensitiveSegment(segment: string) {
     UUID.test(decoded) ||
     LONG_HEX_OR_TOKEN.test(decoded) ||
     DOT_DELIMITED_TOKEN.test(decoded) ||
+    BEARER_TOKEN.test(decoded) ||
     LONG_NUMERIC_ID.test(decoded) ||
     EMAIL_LIKE.test(decoded)
   );
