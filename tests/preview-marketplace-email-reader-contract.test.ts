@@ -33,4 +33,15 @@ describe("Preview Marketplace email reader boundary", () => {
     expect(source).toContain("String(item.messageId ?? \"\").trim() === marker.providerMessageId");
     expect(source).toContain('.slice(0, kind === "review" ? 3 : 1)');
   });
+
+  it("does not burst Brevo during polling and retries one provider-directed rate limit", () => {
+    expect(source).toContain("response.status === 429 && attempt === 0");
+    expect(source).toContain("boundedRetryDelayMs(response)");
+    expect(source).toContain("const sinkList = await listTransactionalEmails(sink, apiKey)");
+    expect(source).toContain("const originalList = await listTransactionalEmails(original, apiKey)");
+    expect(source).not.toContain("Promise.all([\n    listTransactionalEmails(sink, apiKey)");
+    expect(source.indexOf("const originalList = await listTransactionalEmails(original, apiKey)")).toBeGreaterThan(
+      source.indexOf("const link = controlledLink(body, kind)"),
+    );
+  });
 });
