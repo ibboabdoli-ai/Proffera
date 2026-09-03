@@ -70,14 +70,15 @@ describe("PostHog final review regressions", () => {
     const offer = source("src/app/offert/[token]/page.tsx");
 
     expect(layout).toContain("{isPlatformSite && <AnalyticsConsentControl />}");
-    expect(control).toContain('import { usePathname } from "next/navigation"');
+    expect(control).toContain('import { usePathname, useSearchParams } from "next/navigation"');
     expect(control).toContain("const pathname = usePathname()");
+    expect(control).toContain("const searchParams = useSearchParams()");
+    expect(control).toContain('const queryLanguage = searchParams.get("lang")');
     expect(control).toContain('pathname === "/en" || pathname?.startsWith("/en/")');
-    expect(control).toContain('new URLSearchParams(window.location.search).get("lang")');
     expect(control).toContain('document.querySelector<HTMLElement>("main[lang]")');
     expect(control).toContain("document.documentElement.lang");
     expect(control).toContain("new MutationObserver");
-    expect(control).toContain("}, [pathname]);");
+    expect(control).toContain("}, [pathname, queryLanguage]);");
     expect(guestQuote).toContain("<main lang={locale}");
     expect(booking).toContain("query?.lang");
     expect(offer).toContain("query?.lang");
