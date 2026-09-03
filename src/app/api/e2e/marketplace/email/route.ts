@@ -263,7 +263,9 @@ export async function GET(request: Request) {
   const candidates = sinkList.transactionalEmails ?? [];
   const recent = lookupMode === "message_id"
     ? candidates.slice(0, 1)
-    : candidates.filter((item) => likelyMarkerCandidate(item, marker)).slice(0, 6);
+    : lookupMode === "message_id_then_recipient"
+      ? candidates.slice(0, 6)
+      : candidates.filter((item) => likelyMarkerCandidate(item, marker)).slice(0, 6);
 
   let detailCandidateCount = 0;
   let markerMatchedCount = 0;
