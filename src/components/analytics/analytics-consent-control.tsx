@@ -55,6 +55,7 @@ function currentDocumentLocale(
   if (routeLanguage?.startsWith("en")) return "en";
   if (routeLanguage?.startsWith("sv")) return "sv";
 
+  if (pathname) return "sv";
   if (document.documentElement.lang.toLowerCase().startsWith("en")) return "en";
   return "sv";
 }
