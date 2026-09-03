@@ -39,7 +39,7 @@ describe("Preview Marketplace email reader boundary", () => {
     expect(source).toContain("sinkList = await listTransactionalEmails(sink, apiKey)");
     expect(source).toContain('lookupMode === "message_id_then_recipient"\n      ? candidates.slice(0, 6)');
     expect(source).toContain("candidates.filter((item) => likelyMarkerCandidate(item, marker)).slice(0, 6)");
-    expect(source).toContain('index > 0 && lookupMode === "message_id_then_recipient"');
+    expect(source).toContain('index > 0 && lookupMode !== "message_id"');
     expect(source).toContain("await delay(650)");
     expect(source).toContain('url.searchParams.set("limit", "20")');
   });
