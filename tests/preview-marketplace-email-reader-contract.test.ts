@@ -40,6 +40,7 @@ describe("Preview Marketplace email reader boundary", () => {
   it("falls back only to a bounded safe-sink scan when Brevo has not indexed the provider message ID", () => {
     expect(source).toContain('lookupMode = "message_id_then_recipient"');
     expect(source).toContain("sinkList = await listTransactionalEmails(sink, apiKey)");
+    expect(source).toContain('lookupMode === "message_id_then_recipient"\n      ? candidates.slice(0, 6)');
     expect(source).toContain("candidates.filter((item) => likelyMarkerCandidate(item, marker)).slice(0, 6)");
     expect(source).toContain('index > 0 && lookupMode === "message_id_then_recipient"');
     expect(source).toContain("await delay(650)");
