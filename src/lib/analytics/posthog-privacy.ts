@@ -43,6 +43,7 @@ const DOT_DELIMITED_TOKEN = /^(?=.{24,}$)[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+$/;
 const LONG_NUMERIC_ID = /^\d{6,}$/;
 const EMAIL_LIKE = /^[^/@\s]+@[^/@\s]+\.[^/@\s]+$/;
 const DIRECTORY_PUBLIC_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*-[0-9a-z]{6,8}$/;
+const WORKSPACE_SERVICE_PUBLIC_SLUG = /^(?=.{2,120}$)[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const GOOGLE_REFERRER_HOST = /^(?:[^.]+\.)*google\.(?:[a-z]{2,3}|(?:co|com)\.[a-z]{2})$/;
 
 const allowedAnalyticsSources = new Set<AnalyticsSource>([
@@ -99,6 +100,18 @@ function isKnownPublicDirectorySlug(segment: string, rawSegments: string[], inde
 
   const decoded = decodePathSegment(segment);
   return decoded !== null && DIRECTORY_PUBLIC_SLUG.test(decoded);
+}
+
+function isKnownPublicWorkspaceServiceSlug(segment: string, rawSegments: string[], index: number) {
+  const followsPublicServiceRoute =
+    index === 4
+    && rawSegments[1] === "foretag"
+    && Boolean(rawSegments[2])
+    && rawSegments[3] === "tjanster";
+  if (!followsPublicServiceRoute) return false;
+
+  const decoded = decodePathSegment(segment);
+  return decoded !== null && WORKSPACE_SERVICE_PUBLIC_SLUG.test(decoded);
 }
 
 function isSensitiveSegment(segment: string) {
@@ -203,7 +216,12 @@ export function sanitizeAnalyticsPathname(pathname: string) {
   const rawSegments = rawPath.split("/");
   const segments = rawSegments.map((segment, index) => {
     if (!segment) return segment;
-    if (isKnownPublicDirectorySlug(segment, rawSegments, index)) return segment;
+    if (
+      isKnownPublicDirectorySlug(segment, rawSegments, index)
+      || isKnownPublicWorkspaceServiceSlug(segment, rawSegments, index)
+    ) {
+      return segment;
+    }
     return isSensitiveSegment(segment) ? ":redacted" : segment;
   });
   const sanitized = segments.join("/");
