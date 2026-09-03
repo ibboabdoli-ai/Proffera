@@ -40,27 +40,43 @@ const choiceButtonClass =
   "min-h-11 flex-1 rounded-xl border border-[#cbd5ce] bg-white px-4 py-2.5 text-sm font-bold text-[#17201a] transition hover:bg-[#f5f7f5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#17452f] focus-visible:ring-offset-2";
 
 function currentDocumentLocale(): AnalyticsConsentLocale {
-  if (typeof document !== "undefined" && document.documentElement.lang.toLowerCase().startsWith("en")) {
-    return "en";
-  }
+  if (typeof document === "undefined") return "sv";
+
+  const routeLanguage = document.querySelector<HTMLElement>("main[lang]")?.getAttribute("lang")?.toLowerCase();
+  if (routeLanguage?.startsWith("en")) return "en";
+  if (routeLanguage?.startsWith("sv")) return "sv";
+
+  if (document.documentElement.lang.toLowerCase().startsWith("en")) return "en";
   return "sv";
 }
 
 export function AnalyticsConsentControl() {
+  const [locale, setLocale] = useState<AnalyticsConsentLocale>(() => currentDocumentLocale());
   const [consent, setConsent] = useState<AnalyticsConsentState | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const labels = consentCopy[locale];
 
   useEffect(() => {
     const syncConsent = () => setConsent(readAnalyticsConsent(window.localStorage));
     const syncConsentFromStorage = (event: StorageEvent) => {
-      if (event.key !== ANALYTICS_CONSENT_STORAGE_KEY) return;
+      if (event.key !== null && event.key !== ANALYTICS_CONSENT_STORAGE_KEY) return;
       syncConsent();
     };
+    const localeObserver = new MutationObserver(() => {
+      setLocale(currentDocumentLocale());
+    });
 
     syncConsent();
+    localeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["lang"],
+      childList: true,
+      subtree: true,
+    });
     window.addEventListener(ANALYTICS_CONSENT_CHANGED_EVENT, syncConsent);
     window.addEventListener("storage", syncConsentFromStorage);
     return () => {
+      localeObserver.disconnect();
       window.removeEventListener(ANALYTICS_CONSENT_CHANGED_EVENT, syncConsent);
       window.removeEventListener("storage", syncConsentFromStorage);
     };
@@ -78,7 +94,6 @@ export function AnalyticsConsentControl() {
 
   if (consent === null) return null;
 
-  const labels = consentCopy[currentDocumentLocale()];
   const showChoice = consent === "unknown" || settingsOpen;
 
   if (!showChoice) {

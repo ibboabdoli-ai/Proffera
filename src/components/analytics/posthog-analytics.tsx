@@ -60,6 +60,11 @@ async function loadPostHog(config: PostHogPublicConfig) {
   return postHogClientPromise;
 }
 
+function optOutLoadedPostHog() {
+  lastCapturedPageKey = null;
+  void postHogClientPromise?.then((posthog) => posthog?.opt_out_capturing()).catch(() => undefined);
+}
+
 export function PostHogAnalytics({ config }: { config: PostHogPublicConfig }) {
   const pathname = usePathname();
   const [consent, setConsent] = useState<AnalyticsConsentState>(() =>
@@ -69,7 +74,7 @@ export function PostHogAnalytics({ config }: { config: PostHogPublicConfig }) {
   useEffect(() => {
     const handleConsentChange = () => setConsent(readConsent());
     const handleStorageChange = (event: StorageEvent) => {
-      if (event.key !== ANALYTICS_CONSENT_STORAGE_KEY) return;
+      if (event.key !== null && event.key !== ANALYTICS_CONSENT_STORAGE_KEY) return;
       handleConsentChange();
     };
 
@@ -83,8 +88,11 @@ export function PostHogAnalytics({ config }: { config: PostHogPublicConfig }) {
 
   useEffect(() => {
     if (consent === "denied") {
-      lastCapturedPageKey = null;
-      void postHogClientPromise?.then((posthog) => posthog?.opt_out_capturing()).catch(() => undefined);
+      optOutLoadedPostHog();
+      return;
+    }
+    if (consent === "unknown") {
+      optOutLoadedPostHog();
       return;
     }
     if (!isAnalyticsConsentGranted(consent)) return;

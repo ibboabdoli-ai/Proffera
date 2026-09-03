@@ -42,7 +42,7 @@ const LONG_HEX_OR_TOKEN = /^(?:[0-9a-f]{20,}|[A-Za-z0-9_-]{24,})$/;
 const DOT_DELIMITED_TOKEN = /^(?=.{24,}$)[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+$/;
 const LONG_NUMERIC_ID = /^\d{6,}$/;
 const EMAIL_LIKE = /^[^/@\s]+@[^/@\s]+\.[^/@\s]+$/;
-const DIRECTORY_PUBLIC_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*-[0-9a-z]{6}$/;
+const DIRECTORY_PUBLIC_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*-[0-9a-z]{6,8}$/;
 
 const allowedAnalyticsSources = new Set<AnalyticsSource>([
   "direct",
