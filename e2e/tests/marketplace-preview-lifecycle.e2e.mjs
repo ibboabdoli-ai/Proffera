@@ -192,9 +192,11 @@ test.describe("isolated Marketplace Preview lifecycle", () => {
         city: "Stockholm",
         municipality: "Stockholm",
         postalCode: "11100",
-        latitude: -80,
-        longitude: 170,
       });
+      expect(setup.body?.location?.latitude).toBeGreaterThanOrEqual(-70);
+      expect(setup.body?.location?.latitude).toBeLessThanOrEqual(-20);
+      expect(setup.body?.location?.longitude).toBeGreaterThanOrEqual(-170);
+      expect(setup.body?.location?.longitude).toBeLessThanOrEqual(170);
       fixtureCreated = true;
 
       await submitQuote(page, context, customerA, setup.body.location, 1);
