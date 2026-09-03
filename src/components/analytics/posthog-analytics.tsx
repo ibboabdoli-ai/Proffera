@@ -5,10 +5,9 @@ import { usePathname } from "next/navigation";
 
 import {
   ANALYTICS_CONSENT_CHANGED_EVENT,
-  ANALYTICS_CONSENT_STORAGE_KEY,
-  analyticsConsentFromStoredValue,
   analyticsSourceFromReferrer,
   isAnalyticsConsentGranted,
+  readAnalyticsConsent,
   sanitizeAnalyticsPathname,
   sanitizePageUrl,
   sanitizePostHogEvent,
@@ -24,11 +23,7 @@ let initializedConfigKey: string | null = null;
 let lastCapturedPageKey: string | null = null;
 
 function readConsent(): AnalyticsConsentState {
-  try {
-    return analyticsConsentFromStoredValue(window.localStorage.getItem(ANALYTICS_CONSENT_STORAGE_KEY));
-  } catch {
-    return "unknown";
-  }
+  return readAnalyticsConsent(window.localStorage);
 }
 
 async function loadPostHog(config: PostHogPublicConfig) {
@@ -75,6 +70,7 @@ export function PostHogAnalytics({ config }: { config: PostHogPublicConfig }) {
 
   useEffect(() => {
     if (consent === "denied") {
+      lastCapturedPageKey = null;
       void postHogClientPromise?.then((posthog) => posthog?.opt_out_capturing()).catch(() => undefined);
       return;
     }
@@ -84,8 +80,6 @@ export function PostHogAnalytics({ config }: { config: PostHogPublicConfig }) {
     const sanitizedPathname = sanitizeAnalyticsPathname(pathname || "/");
     const pageUrl = sanitizePageUrl(window.location.origin, sanitizedPathname);
     const pageKey = `${config.environment}:${pageUrl}`;
-
-    if (!shouldCapturePageview(lastCapturedPageKey, pageKey)) return;
 
     void loadPostHog(config).then((posthog) => {
       if (!posthog || cancelled) return;
