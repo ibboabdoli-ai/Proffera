@@ -71,6 +71,22 @@ npm test
 
 The authenticated smoke verifies each test account sees its own Workspace name and does not render the other test Workspace name. The booking smoke only renders the published test booking page; it does not create a booking or send verification email.
 
+## Full Marketplace lifecycle in Vercel Preview
+
+`marketplace-preview-lifecycle.e2e.mjs` is a state-changing proof and is deliberately narrower than the general E2E suite. It is enabled only with `E2E_MARKETPLACE_PREVIEW_LIFECYCLE=true` and only against a non-Production remote URL accepted by the Playwright safety gate.
+
+The matching fixture and controlled email reader are also fail-closed in application code: they return 404 unless Vercel reports `VERCEL_ENV=preview` and the exact Git branch is `work/proffera-marketplace-browser-lifecycle-e2e`. Every test run additionally requires a random `x-proffera-preview-e2e-run` scope header.
+
+The hosted workflow resolves the successful Vercel Preview deployment for the exact pull-request SHA before running Playwright. The journey uses only synthetic customer identities and an isolated synthetic provider. The provider is positioned at a synthetic coordinate far from Swedish Directory profiles so targeted matching cannot select a real company.
+
+Preview email is not mocked in this proof. The application must use its canonical Preview Brevo key and controlled-recipient rewrite. A Preview-only reader queries the dedicated Preview Brevo account for the controlled sink, extracts only the expected Preview link, and verifies that the original synthetic `.invalid` recipient was not observed as an email recipient.
+
+The lifecycle assertion is:
+
+`Quote → Matching → Invitation → Provider Offer → Customer Selection → ServiceJob → Completed → Verified Review`
+
+It additionally proves two synthetic customers stay isolated, duplicate selection creates one ServiceJob, no review invitation exists before completion, a used/invalid review token fails, exactly one review is stored, and scoped cleanup deletes only the current run's synthetic Preview records.
+
 ## Activation gate for full critical-flow E2E
 
 Before enabling authenticated tests as a required CI gate, verify all of the following:
@@ -86,10 +102,9 @@ Until those conditions are proven, the authenticated tests remain opt-in and ski
 
 ## Still intentionally not automated as state-changing browser tests
 
-The following require a proven isolated Preview/Staging data and delivery setup before browser automation may submit mutations:
+The following still require separate isolated Preview/Staging contracts before browser automation may submit mutations:
 
 - complete Booking → email verification → confirmation;
-- Quote Request submission → Offer → Accept/Reject;
 - payment/Stripe lifecycle;
 - destructive Admin mutations.
 
