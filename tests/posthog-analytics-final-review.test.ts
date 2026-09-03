@@ -87,34 +87,44 @@ describe("PostHog final review regressions", () => {
     expect(sanitizeAnalyticsPathname(`/review/${singleWordServiceSlug}`)).toBe("/review/:redacted");
   });
 
-  it("preserves every createWorkspaceSlug booking shape only on the exact public booking route", () => {
-    const bookingSlug = "very-long-company-derived-booking-slug-a1b2c3";
-    const singleWordBookingSlug = "fonsterputsbolaget-a1b2c3";
+  it("preserves persisted public booking slugs only on the exact public booking route", () => {
+    const ownerConfiguredBookingSlug = "fonsterputsabonnemangpremium";
+    const generatedBookingSlug = "very-long-company-derived-booking-slug-a1b2c3";
+    const singleWordGeneratedBookingSlug = "fonsterputsbolaget-a1b2c3";
     const personNumber = "198901011234";
     const organizationNumber = "556123-4567";
     const uuid = "550e8400-e29b-41d4-a716-446655440000";
     const numericId = "5592643778";
     const email = "person@example.com";
-    const opaqueToken = "abcdefghijklmnopqrstuvwx";
+    const longHexToken = "0123456789abcdef0123456789abcdef";
     const bearerToken = "Bearer%20abcdefghijklmnopqrstuvwxyz123456";
     const signedToken = "eyJhbGciOiJIUzI1NiJ9.abcdefghijklmnopqrstuvwxyz123456";
 
-    expect(sanitizeAnalyticsPathname(`/boka/${bookingSlug}`)).toBe(`/boka/${bookingSlug}`);
-    expect(sanitizeAnalyticsPathname(`/boka/${singleWordBookingSlug}`)).toBe(
-      `/boka/${singleWordBookingSlug}`,
+    expect(sanitizeAnalyticsPathname(`/boka/${ownerConfiguredBookingSlug}`)).toBe(
+      `/boka/${ownerConfiguredBookingSlug}`,
     );
-    expect(sanitizeAnalyticsPathname(`/boka/${bookingSlug}/extra`)).toBe("/boka/:redacted/extra");
-    expect(sanitizeAnalyticsPathname(`/review/${bookingSlug}`)).toBe("/review/:redacted");
-    expect(sanitizeAnalyticsPathname(`/review/${singleWordBookingSlug}`)).toBe("/review/:redacted");
+    expect(sanitizeAnalyticsPathname(`/boka/${generatedBookingSlug}`)).toBe(
+      `/boka/${generatedBookingSlug}`,
+    );
+    expect(sanitizeAnalyticsPathname(`/boka/${singleWordGeneratedBookingSlug}`)).toBe(
+      `/boka/${singleWordGeneratedBookingSlug}`,
+    );
 
     expect(sanitizeAnalyticsPathname(`/boka/${personNumber}`)).toBe("/boka/:redacted");
     expect(sanitizeAnalyticsPathname(`/boka/${organizationNumber}`)).toBe("/boka/:redacted");
     expect(sanitizeAnalyticsPathname(`/boka/${uuid}`)).toBe("/boka/:redacted");
     expect(sanitizeAnalyticsPathname(`/boka/${numericId}`)).toBe("/boka/:redacted");
     expect(sanitizeAnalyticsPathname(`/boka/${email}`)).toBe("/boka/:redacted");
-    expect(sanitizeAnalyticsPathname(`/boka/${opaqueToken}`)).toBe("/boka/:redacted");
+    expect(sanitizeAnalyticsPathname(`/boka/${longHexToken}`)).toBe("/boka/:redacted");
     expect(sanitizeAnalyticsPathname(`/boka/${bearerToken}`)).toBe("/boka/:redacted");
     expect(sanitizeAnalyticsPathname(`/boka/${signedToken}`)).toBe("/boka/:redacted");
+
+    expect(sanitizeAnalyticsPathname(`/boka/${ownerConfiguredBookingSlug}/extra`)).toBe(
+      "/boka/:redacted/extra",
+    );
+    expect(sanitizeAnalyticsPathname(`/review/${ownerConfiguredBookingSlug}`)).toBe(
+      "/review/:redacted",
+    );
   });
 
   it("synchronizes analytics consent changes and storage clears across open tabs", () => {
