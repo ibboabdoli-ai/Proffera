@@ -11,7 +11,7 @@ function runId() {
 }
 
 function customerEmail(id) {
-  return `marketplace-e2e-${id.slice(0, 24)}@customer.example.invalid`;
+  return `marketplace-e2e-${id}@customer.example.invalid`;
 }
 
 async function fixtureRequest(request, suiteRunId, method, path = fixturePath, data) {
