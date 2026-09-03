@@ -111,7 +111,7 @@ function isKnownPublicWorkspaceServiceSlug(segment: string, rawSegments: string[
   if (!followsPublicServiceRoute) return false;
 
   const decoded = decodePathSegment(segment);
-  return decoded !== null && WORKSPACE_SERVICE_PUBLIC_SLUG.test(decoded);
+  return decoded !== null && WORKSPACE_SERVICE_PUBLIC_SLUG.test(decoded) && !isSensitiveSegment(segment);
 }
 
 function isSensitiveSegment(segment: string) {
