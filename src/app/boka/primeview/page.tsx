@@ -45,7 +45,7 @@ const text = {
     successTitle: "Bokningsförfrågan mottagen", successBody: "Din e-post är verifierad och PrimeView har fått bokningsförfrågan. Teamet granskar fastighetsinformationen och bekräftar jobbet.", another: "Gör en ny bokning",
     verify: "E-postverifiering skyddar din bokningsförfrågan", secure: "Dina uppgifter används endast för att hantera din PrimeView-förfrågan och bokning.", area: "West & North London", response: "Svarsmål: inom 24 timmar",
     errors: {
-      invalid: "Fyll i alla obligatoriska bokningsuppgifter.", postcode: "Ange ett giltigt brittiskt postnummer, till exempel W4 3ES.", unavailable: "Onlinebokningen är tillfälligt otillgänglig.", service: "Tjänsten är inte längre tillgänglig.", time: "Välj en giltig framtida bokningstid.", notice: "Tiden ligger för nära. Välj en senare tid.", advance: "Datumet ligger för långt fram.", hours: "Tiden ligger utanför PrimeViews bokningstider.", hours_missing: "Det finns inga bokningstider den dagen.", conflict: "Tiden har precis bokats eller reserverats. Välj en annan tid.", rate_limit: "För många försök. Vänta en stund och försök igen.", email: "Verifieringsmejlet kunde inte skickas. Kontrollera e-postadressen och försök igen.",
+      invalid: "Fyll i alla obligatoriska bokningsuppgifter.", postcode: "Ange ett giltigt brittiskt postnummer, till exempel W4 3ES.", unavailable: "Onlinebokningen är tillfälligt otillgänglig.", service: "Tjänsten är inte längre tillgänglig.", time: "Välj en giltig framtida bokningstid.", notice: "Tiden ligger för nära. Välj en senare tid.", advance: "Datumet ligger för långt fram.", hours: "Tiden ligger utanför PrimeViews bokningstiderna.", hours_missing: "Det finns inga bokningstider den dagen.", conflict: "Tiden har precis bokats eller reserverats. Välj en annan tid.", rate_limit: "För många försök. Vänta en stund och försök igen.", email: "Verifieringsmejlet kunde inte skickas. Kontrollera e-postadressen och försök igen.",
     },
   },
 } as const;
@@ -242,7 +242,7 @@ export default async function PrimeViewBookingPage({ searchParams }: PageProps) 
           </div>
           <div className="rounded-[2rem] border border-white/10 bg-white/10 p-6 backdrop-blur-sm">
             <div className="flex items-center gap-3"><ShieldCheck className="h-7 w-7 text-[#8ec5ff]" /><div><p className="font-black">{t.verify}</p><p className="mt-1 text-xs leading-5 text-[#c8dced]">{t.secure}</p></div></div>
-            <div className="mt-5 grid gap-3 border-t border-white/10 pt-5 text-sm"><p className="flex items-center gap-2"><MapPin className="h-4 w-4 text-[#8ec5ff]" />{t.area}</p><p className="flex items-center gap-2"><Clock3 className="h-4 w-4 text-[#8ec5ff]" />{t.response}</p></div></div>
+            <div className="mt-5 grid gap-3 border-t border-white/10 pt-5 text-sm"><p className="flex items-center gap-2"><MapPin className="h-4 w-4 text-[#8ec5ff]" />{t.area}</p><p className="flex items-center gap-2"><Clock3 className="h-4 w-4 text-[#8ec5ff]" />{t.response}</p></div>
           </div>
         </div>
       </section>
