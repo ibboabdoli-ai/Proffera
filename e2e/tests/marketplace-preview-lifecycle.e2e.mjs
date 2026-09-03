@@ -182,7 +182,13 @@ test.describe("isolated Marketplace Preview lifecycle", () => {
         previewEmailConfigured: true,
         controlledRecipientConfigured: true,
       });
-      expect(setup.body?.location).toMatchObject({ city: "Preview E2E", postalCode: "00000" });
+      expect(setup.body?.location).toMatchObject({
+        city: "Stockholm",
+        municipality: "Stockholm",
+        postalCode: "11100",
+        latitude: 60,
+        longitude: 0,
+      });
       fixtureCreated = true;
 
       await submitQuote(page, context, customerA, setup.body.location, 1);
