@@ -50,7 +50,10 @@ async function loadPostHog(config: PostHogPublicConfig) {
         initializedConfigKey = configKey;
         return posthog;
       })
-      .catch(() => null);
+      .catch(() => {
+        postHogClientPromise = null;
+        return null;
+      });
   }
 
   return postHogClientPromise;
