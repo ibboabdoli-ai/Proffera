@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 
 import {
   ANALYTICS_CONSENT_CHANGED_EVENT,
@@ -39,14 +40,15 @@ const consentCopy = {
 const choiceButtonClass =
   "min-h-11 flex-1 rounded-xl border border-[#cbd5ce] bg-white px-4 py-2.5 text-sm font-bold text-[#17201a] transition hover:bg-[#f5f7f5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#17452f] focus-visible:ring-offset-2";
 
-function currentDocumentLocale(): AnalyticsConsentLocale {
-  if (typeof document === "undefined") return "sv";
-
+function currentDocumentLocale(pathname: string | null): AnalyticsConsentLocale {
   if (typeof window !== "undefined") {
     const queryLanguage = new URLSearchParams(window.location.search).get("lang")?.toLowerCase();
     if (queryLanguage === "en") return "en";
     if (queryLanguage === "sv") return "sv";
   }
+
+  if (pathname === "/en" || pathname?.startsWith("/en/")) return "en";
+  if (typeof document === "undefined") return "sv";
 
   const routeLanguage = document.querySelector<HTMLElement>("main[lang]")?.getAttribute("lang")?.toLowerCase();
   if (routeLanguage?.startsWith("en")) return "en";
@@ -57,7 +59,8 @@ function currentDocumentLocale(): AnalyticsConsentLocale {
 }
 
 export function AnalyticsConsentControl() {
-  const [locale, setLocale] = useState<AnalyticsConsentLocale>(() => currentDocumentLocale());
+  const pathname = usePathname();
+  const [locale, setLocale] = useState<AnalyticsConsentLocale>(() => currentDocumentLocale(pathname));
   const [consent, setConsent] = useState<AnalyticsConsentState | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const labels = consentCopy[locale];
@@ -68,11 +71,11 @@ export function AnalyticsConsentControl() {
       if (event.key !== null && event.key !== ANALYTICS_CONSENT_STORAGE_KEY) return;
       syncConsent();
     };
-    const localeObserver = new MutationObserver(() => {
-      setLocale(currentDocumentLocale());
-    });
+    const syncLocale = () => setLocale(currentDocumentLocale(pathname));
+    const localeObserver = new MutationObserver(syncLocale);
 
     syncConsent();
+    syncLocale();
     localeObserver.observe(document.documentElement, {
       attributes: true,
       attributeFilter: ["lang"],
@@ -86,7 +89,7 @@ export function AnalyticsConsentControl() {
       window.removeEventListener(ANALYTICS_CONSENT_CHANGED_EVENT, syncConsent);
       window.removeEventListener("storage", syncConsentFromStorage);
     };
-  }, []);
+  }, [pathname]);
 
   function chooseConsent(nextConsent: PersistedAnalyticsConsentState) {
     const stored = persistAnalyticsConsent(window.localStorage, nextConsent, () => {

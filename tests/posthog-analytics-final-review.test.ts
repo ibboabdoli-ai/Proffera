@@ -3,7 +3,10 @@ import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { sanitizeAnalyticsPathname } from "../src/lib/analytics/posthog-privacy";
+import {
+  analyticsSourceFromReferrer,
+  sanitizeAnalyticsPathname,
+} from "../src/lib/analytics/posthog-privacy";
 
 function source(path: string) {
   return readFileSync(resolve(process.cwd(), path), "utf8");
@@ -59,7 +62,7 @@ describe("PostHog final review regressions", () => {
     expect(control).toContain('window.addEventListener("storage", syncConsentFromStorage)');
   });
 
-  it("localizes the neutral consent control for document, route-level and query-localized flows", () => {
+  it("localizes the neutral consent control for pathname, route-level and query-localized flows", () => {
     const layout = source("src/app/layout.tsx");
     const control = source("src/components/analytics/analytics-consent-control.tsx");
     const guestQuote = source("src/app/offert/svara/[token]/page.tsx");
@@ -67,10 +70,14 @@ describe("PostHog final review regressions", () => {
     const offer = source("src/app/offert/[token]/page.tsx");
 
     expect(layout).toContain("{isPlatformSite && <AnalyticsConsentControl />}");
+    expect(control).toContain('import { usePathname } from "next/navigation"');
+    expect(control).toContain("const pathname = usePathname()");
+    expect(control).toContain('pathname === "/en" || pathname?.startsWith("/en/")');
     expect(control).toContain('new URLSearchParams(window.location.search).get("lang")');
     expect(control).toContain('document.querySelector<HTMLElement>("main[lang]")');
     expect(control).toContain("document.documentElement.lang");
     expect(control).toContain("new MutationObserver");
+    expect(control).toContain("}, [pathname]);");
     expect(guestQuote).toContain("<main lang={locale}");
     expect(booking).toContain("query?.lang");
     expect(offer).toContain("query?.lang");
@@ -78,6 +85,13 @@ describe("PostHog final review regressions", () => {
     expect(control).toContain("Reject analytics");
     expect(control).toContain("Allow analytics");
     expect(control).toContain("Nothing is sent before you choose to allow analytics.");
+  });
+
+  it("classifies legitimate country-specific Google referrers without broad hostname matching", () => {
+    expect(analyticsSourceFromReferrer("https://www.google.se/search?q=proffera")).toBe("google");
+    expect(analyticsSourceFromReferrer("https://www.google.co.uk/search?q=proffera")).toBe("google");
+    expect(analyticsSourceFromReferrer("https://maps.google.com/maps?q=proffera")).toBe("google");
+    expect(analyticsSourceFromReferrer("https://google.example.com/search?q=proffera")).toBe("external");
   });
 
   it("documents optional consented PostHog analytics in both cookie policies", () => {

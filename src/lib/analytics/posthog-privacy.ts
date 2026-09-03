@@ -43,6 +43,7 @@ const DOT_DELIMITED_TOKEN = /^(?=.{24,}$)[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+$/;
 const LONG_NUMERIC_ID = /^\d{6,}$/;
 const EMAIL_LIKE = /^[^/@\s]+@[^/@\s]+\.[^/@\s]+$/;
 const DIRECTORY_PUBLIC_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*-[0-9a-z]{6,8}$/;
+const GOOGLE_REFERRER_HOST = /^(?:[^.]+\.)*google\.(?:[a-z]{2,3}|(?:co|com)\.[a-z]{2})$/;
 
 const allowedAnalyticsSources = new Set<AnalyticsSource>([
   "direct",
@@ -238,7 +239,7 @@ export function analyticsSourceFromReferrer(rawReferrer: string): AnalyticsSourc
     const hostname = new URL(rawReferrer).hostname.toLowerCase().replace(/^www\./, "");
     if (!hostname) return "external";
     if (hostname === "proffera.se" || hostname.endsWith(".proffera.se")) return "proffera";
-    if (hostname === "google.com" || hostname.endsWith(".google.com")) return "google";
+    if (GOOGLE_REFERRER_HOST.test(hostname)) return "google";
     if (hostname === "bing.com" || hostname.endsWith(".bing.com")) return "bing";
     if (hostname === "duckduckgo.com") return "duckduckgo";
     if (hostname === "yahoo.com" || hostname.endsWith(".yahoo.com")) return "yahoo";
