@@ -6,6 +6,7 @@ import {
   isPreviewMarketplaceE2eRuntime,
   previewMarketplaceE2eCustomerEmail,
   previewMarketplaceE2eProviderEmail,
+  previewMarketplaceE2eUuid,
   resolvePreviewMarketplaceE2eRunId,
 } from "@/lib/preview-marketplace-e2e";
 
@@ -38,6 +39,7 @@ type EmailMarker = {
   value: string;
   notBeforeMs: number | null;
   subjectMatch: boolean;
+  providerMessageId: string | null;
 };
 
 const pathByKind: Record<EmailKind, string> = {
@@ -132,26 +134,43 @@ async function markerFor(kind: EmailKind, suiteRunId: string, customerRunId: str
       value: `Preview E2E Rör ${suiteRunId.slice(0, 8)} AB`,
       notBeforeMs: null,
       subjectMatch: true,
+      providerMessageId: null,
     };
   }
 
   const email = previewMarketplaceE2eCustomerEmail(customerRunId);
+  const profileId = previewMarketplaceE2eUuid("provider", suiteRunId);
   const sql = getSql();
-  if (!email || !sql) return null;
+  if (!email || !profileId || !sql) return null;
   const rows = await sql`
-    select reference_id, created_at::text
-    from quote_requests
-    where lower(btrim(contact_email)) = ${email}
-    order by created_at desc
+    select
+      request.reference_id,
+      request.created_at::text,
+      invitation.provider_message_id as guest_provider_message_id,
+      customer_access.provider_message_id as customer_provider_message_id
+    from quote_requests request
+    left join marketplace_quote_invitations invitation
+      on invitation.quote_request_id = request.id
+     and invitation.profile_id = ${profileId}::uuid
+    left join marketplace_quote_customer_access customer_access
+      on customer_access.quote_request_id = request.id
+    where lower(btrim(request.contact_email)) = ${email}
+    order by request.created_at desc
     limit 1
   `;
   const value = String(rows[0]?.reference_id ?? "").trim();
   if (!value) return null;
   const createdAtMs = Date.parse(String(rows[0]?.created_at ?? ""));
+  const providerMessageId = String(
+    kind === "guest"
+      ? rows[0]?.guest_provider_message_id ?? ""
+      : rows[0]?.customer_provider_message_id ?? "",
+  ).trim() || null;
   return {
     value,
     notBeforeMs: Number.isFinite(createdAtMs) ? createdAtMs - 60_000 : null,
     subjectMatch: kind === "customer",
+    providerMessageId,
   };
 }
 
@@ -161,6 +180,9 @@ function originalRecipient(kind: EmailKind, suiteRunId: string, customerRunId: s
 }
 
 function likelyMarkerCandidate(item: BrevoEmailListItem, marker: EmailMarker) {
+  if (marker.providerMessageId) {
+    return String(item.messageId ?? "").trim() === marker.providerMessageId;
+  }
   const subject = String(item.subject ?? "");
   if (marker.subjectMatch) return subject.includes(marker.value);
   if (marker.notBeforeMs === null) return true;
@@ -200,7 +222,7 @@ export async function GET(request: Request) {
   const originalRecipientObserved = Number(originalList.count ?? originalList.transactionalEmails?.length ?? 0) > 0;
   const recent = (sinkList.transactionalEmails ?? [])
     .filter((item) => likelyMarkerCandidate(item, marker))
-    .slice(0, kind === "guest" ? 6 : 3);
+    .slice(0, kind === "review" ? 3 : 1);
   for (const item of recent) {
     const uuid = String(item.uuid ?? "").trim();
     if (!uuid) continue;
