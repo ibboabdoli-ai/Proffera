@@ -8,9 +8,10 @@ const source = readFileSync(
 );
 
 describe("Preview Marketplace lifecycle fixture boundary", () => {
-  it("is exact-Preview gated and targets only synthetic customer runs", () => {
+  it("requires the authorized Preview resolver and targets only synthetic customer runs", () => {
     expect(source).toContain("isPreviewMarketplaceE2eRuntime()");
-    expect(source).toContain("resolvePreviewMarketplaceE2eRunId(request.headers)");
+    expect(source).toContain("resolveAuthorizedPreviewMarketplaceE2eRunId(request.headers)");
+    expect(source).not.toContain("resolvePreviewMarketplaceE2eRunId(request.headers)");
     expect(source).toContain("previewMarketplaceE2eCustomerEmail(runId)");
     expect(source).toContain("targetReferenceIds");
     expect(source).toContain("processMarketplaceAutoWorker");

@@ -8,9 +8,10 @@ const source = readFileSync(
 );
 
 describe("Preview Marketplace email reader boundary", () => {
-  it("uses only canonical Preview email configuration and exact E2E runtime gating", () => {
+  it("uses only canonical Preview email configuration and the authorized E2E resolver", () => {
     expect(source).toContain("isPreviewMarketplaceE2eRuntime()");
-    expect(source).toContain("resolvePreviewMarketplaceE2eRunId(request.headers)");
+    expect(source).toContain("resolveAuthorizedPreviewMarketplaceE2eRunId(request.headers)");
+    expect(source).not.toContain("resolvePreviewMarketplaceE2eRunId(request.headers)");
     expect(source).toContain("resolveBrevoApiKey()");
     expect(source).toContain("resolvePreviewEmailRecipient()");
     expect(source).not.toContain("process.env.BREVO_API_KEY");

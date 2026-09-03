@@ -11,6 +11,10 @@ const parsedBaseUrl = new URL(baseURL);
 const localHosts = new Set(["127.0.0.1", "localhost", "[::1]"]);
 const productionHosts = new Set(["proffera.se", "www.proffera.se", "chat.proffera.se"]);
 const isLocal = localHosts.has(parsedBaseUrl.hostname);
+const marketplacePreviewLifecycle = process.env.E2E_MARKETPLACE_PREVIEW_LIFECYCLE === "true";
+const previewOidcToken = String(process.env.PROFFERA_PREVIEW_E2E_OIDC_TOKEN ?? "").trim();
+const previewOidcTokenPattern = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/u;
+const previewAuthCookieName = "__Secure-proffera-preview-e2e-auth";
 
 if (productionHosts.has(parsedBaseUrl.hostname)) {
   throw new Error("Playwright E2E is intentionally blocked from running against Proffera Production.");
@@ -30,6 +34,37 @@ if (!isLocal && process.env.E2E_ALLOW_REMOTE !== "true") {
   );
 }
 
+if (marketplacePreviewLifecycle && !isLocal) {
+  if (parsedBaseUrl.protocol !== "https:" || !parsedBaseUrl.hostname.endsWith(".vercel.app")) {
+    throw new Error("Marketplace Preview lifecycle requires an exact HTTPS Vercel Preview target.");
+  }
+  if (!previewOidcToken || previewOidcToken.length > 16_000 || !previewOidcTokenPattern.test(previewOidcToken)) {
+    throw new Error("Marketplace Preview lifecycle requires a valid GitHub Actions OIDC credential.");
+  }
+}
+
+if (previewOidcToken && (!marketplacePreviewLifecycle || isLocal)) {
+  throw new Error("Preview E2E OIDC credentials are accepted only for the remote Marketplace Preview lifecycle.");
+}
+
+const previewAuthStorageState = previewOidcToken
+  ? {
+      cookies: [
+        {
+          name: previewAuthCookieName,
+          value: previewOidcToken,
+          domain: parsedBaseUrl.hostname,
+          path: "/api/e2e/marketplace/",
+          expires: -1,
+          httpOnly: true,
+          secure: true,
+          sameSite: "Strict",
+        },
+      ],
+      origins: [],
+    }
+  : undefined;
+
 const localServerHost = parsedBaseUrl.hostname === "[::1]" ? "::1" : parsedBaseUrl.hostname;
 const localServerPort = parsedBaseUrl.port;
 const localServerUrl = parsedBaseUrl.origin;
@@ -44,7 +79,8 @@ export default defineConfig({
   reporter: process.env.CI ? [["line"], ["html", { open: "never" }]] : "list",
   use: {
     baseURL,
-    trace: "retain-on-failure",
+    ...(previewAuthStorageState ? { storageState: previewAuthStorageState } : {}),
+    trace: previewOidcToken ? "off" : "retain-on-failure",
     screenshot: "only-on-failure",
   },
   projects: [
