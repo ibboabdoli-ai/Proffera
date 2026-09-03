@@ -18,7 +18,7 @@ describe("Marketplace Preview browser E2E scope", () => {
     expect(source).toContain("Skicka verifierat omdöme");
     expect(source).toContain("jobCount).toBe(1)");
     expect(source).toContain("reviewCount).toBe(1)");
-    expect(source).toContain("originalRecipientObserved").toBe(false);
+    expect(source).toContain("expect(latest?.originalRecipientObserved).toBe(false)");
   });
 
   it("proves scoped cleanup and used/invalid token rejection", () => {
