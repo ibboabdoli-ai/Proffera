@@ -3,6 +3,20 @@ import type { AnalyticsEnvironment } from "../public-site-domains";
 export const ANALYTICS_CONSENT_STORAGE_KEY = "proffera:analytics-consent:v1";
 export const ANALYTICS_CONSENT_CHANGED_EVENT = "proffera:analytics-consent-changed";
 
+export type AnalyticsConsentState = "granted" | "denied" | "unknown";
+export type AnalyticsSource =
+  | "direct"
+  | "proffera"
+  | "google"
+  | "bing"
+  | "duckduckgo"
+  | "yahoo"
+  | "linkedin"
+  | "facebook"
+  | "instagram"
+  | "tiktok"
+  | "external";
+
 export type PostHogPublicConfig = {
   key: string;
   host: string;
@@ -21,6 +35,20 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const LONG_HEX_OR_TOKEN = /^(?:[0-9a-f]{20,}|[A-Za-z0-9_-]{24,})$/;
 const LONG_NUMERIC_ID = /^\d{6,}$/;
 const EMAIL_LIKE = /^[^/@\s]+@[^/@\s]+\.[^/@\s]+$/;
+
+const allowedAnalyticsSources = new Set<AnalyticsSource>([
+  "direct",
+  "proffera",
+  "google",
+  "bing",
+  "duckduckgo",
+  "yahoo",
+  "linkedin",
+  "facebook",
+  "instagram",
+  "tiktok",
+  "external",
+]);
 
 const allowedAnonymousIdentityProperties = [
   "distinct_id",
@@ -60,6 +88,15 @@ function normalizePostHogHost(value: string | undefined) {
   } catch {
     return null;
   }
+}
+
+export function analyticsConsentFromStoredValue(value: string | null | undefined): AnalyticsConsentState {
+  if (value === "granted" || value === "denied") return value;
+  return "unknown";
+}
+
+export function isAnalyticsConsentGranted(consent: AnalyticsConsentState) {
+  return consent === "granted";
 }
 
 export function getAnalyticsEnvironment(vercelEnvironment: string | undefined) {
@@ -113,7 +150,19 @@ export function sanitizePageUrl(origin: string, pathname: string) {
   }
 }
 
-export function analyticsSourceFromReferrer(rawReferrer: string) {
+function sanitizeCapturedUrl(value: unknown) {
+  if (typeof value !== "string" || !value) return undefined;
+
+  try {
+    const url = new URL(value);
+    if (!/^https?:$/.test(url.protocol)) return sanitizeAnalyticsPathname(url.pathname);
+    return sanitizePageUrl(url.origin, url.pathname);
+  } catch {
+    return sanitizeAnalyticsPathname(value);
+  }
+}
+
+export function analyticsSourceFromReferrer(rawReferrer: string): AnalyticsSource {
   if (!rawReferrer) return "direct";
 
   try {
@@ -142,14 +191,21 @@ export function sanitizePostHogEvent<T extends AnalyticsEvent>(event: T | null):
   if (!event || event.event !== "$pageview") return null;
 
   const source = event.properties ?? {};
+  const rawSource = typeof source.source === "string" ? source.source : undefined;
   const properties: Record<string, unknown> = {
-    $current_url: typeof source.$current_url === "string" ? source.$current_url : undefined,
-    $pathname: typeof source.$pathname === "string" ? source.$pathname : undefined,
+    $current_url: sanitizeCapturedUrl(source.$current_url),
+    $pathname:
+      typeof source.$pathname === "string" ? sanitizeAnalyticsPathname(source.$pathname) : undefined,
     proffera_environment:
       source.proffera_environment === "production" || source.proffera_environment === "preview"
         ? source.proffera_environment
         : undefined,
-    source: typeof source.source === "string" ? source.source : undefined,
+    source:
+      rawSource && allowedAnalyticsSources.has(rawSource as AnalyticsSource)
+        ? rawSource
+        : rawSource
+          ? "external"
+          : undefined,
     $process_person_profile: false,
   };
 
