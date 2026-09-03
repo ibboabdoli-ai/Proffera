@@ -79,8 +79,20 @@ function isKnownPublicDirectorySlug(segment: string, rawSegments: string[], inde
     rawSegments[index - 2] === "foretag" && rawSegments[index - 1] === "listad";
   const followsEnglishDirectoryRoute =
     rawSegments[index - 2] === "en" && rawSegments[index - 1] === "companies";
+  const followsSwedishClaimRoute =
+    rawSegments[index - 2] === "foretag" && rawSegments[index - 1] === "claim";
+  const followsEnglishClaimRoute =
+    rawSegments[index - 3] === "en"
+    && rawSegments[index - 2] === "companies"
+    && rawSegments[index - 1] === "claim";
 
-  if (!followsSwedishBusinessRoute && !followsSwedishDirectoryRoute && !followsEnglishDirectoryRoute) {
+  if (
+    !followsSwedishBusinessRoute
+    && !followsSwedishDirectoryRoute
+    && !followsEnglishDirectoryRoute
+    && !followsSwedishClaimRoute
+    && !followsEnglishClaimRoute
+  ) {
     return false;
   }
 

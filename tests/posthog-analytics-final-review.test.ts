@@ -10,7 +10,7 @@ function source(path: string) {
 }
 
 describe("PostHog final review regressions", () => {
-  it("preserves canonical public directory slugs on the actual Swedish and English routes", () => {
+  it("preserves canonical public directory slugs on profile and claim routes", () => {
     const publicSlug = "example-elektriska-ab-115707";
     const soleTraderSlug = "my-very-long-sole-trader-company-12345678";
 
@@ -20,11 +20,23 @@ describe("PostHog final review regressions", () => {
     expect(sanitizeAnalyticsPathname(`/en/companies/${publicSlug}`)).toBe(
       `/en/companies/${publicSlug}`,
     );
+    expect(sanitizeAnalyticsPathname(`/foretag/claim/${publicSlug}`)).toBe(
+      `/foretag/claim/${publicSlug}`,
+    );
+    expect(sanitizeAnalyticsPathname(`/en/companies/claim/${publicSlug}`)).toBe(
+      `/en/companies/claim/${publicSlug}`,
+    );
     expect(sanitizeAnalyticsPathname(`/foretag/listad/${soleTraderSlug}`)).toBe(
       `/foretag/listad/${soleTraderSlug}`,
     );
     expect(sanitizeAnalyticsPathname(`/en/companies/${soleTraderSlug}`)).toBe(
       `/en/companies/${soleTraderSlug}`,
+    );
+    expect(sanitizeAnalyticsPathname(`/foretag/claim/${soleTraderSlug}`)).toBe(
+      `/foretag/claim/${soleTraderSlug}`,
+    );
+    expect(sanitizeAnalyticsPathname(`/en/companies/claim/${soleTraderSlug}`)).toBe(
+      `/en/companies/claim/${soleTraderSlug}`,
     );
     expect(sanitizeAnalyticsPathname(`/review/${publicSlug}`)).toBe("/review/:redacted");
     expect(sanitizeAnalyticsPathname(`/review/${soleTraderSlug}`)).toBe("/review/:redacted");
@@ -47,16 +59,21 @@ describe("PostHog final review regressions", () => {
     expect(control).toContain('window.addEventListener("storage", syncConsentFromStorage)');
   });
 
-  it("localizes the neutral consent control for document and route-level English flows", () => {
+  it("localizes the neutral consent control for document, route-level and query-localized flows", () => {
     const layout = source("src/app/layout.tsx");
     const control = source("src/components/analytics/analytics-consent-control.tsx");
     const guestQuote = source("src/app/offert/svara/[token]/page.tsx");
+    const booking = source("src/app/boka/[slug]/page.tsx");
+    const offer = source("src/app/offert/[token]/page.tsx");
 
     expect(layout).toContain("{isPlatformSite && <AnalyticsConsentControl />}");
+    expect(control).toContain('new URLSearchParams(window.location.search).get("lang")');
     expect(control).toContain('document.querySelector<HTMLElement>("main[lang]")');
     expect(control).toContain("document.documentElement.lang");
     expect(control).toContain("new MutationObserver");
     expect(guestQuote).toContain("<main lang={locale}");
+    expect(booking).toContain("query?.lang");
+    expect(offer).toContain("query?.lang");
     expect(control).toContain("Analytics settings");
     expect(control).toContain("Reject analytics");
     expect(control).toContain("Allow analytics");

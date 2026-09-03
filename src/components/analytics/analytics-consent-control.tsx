@@ -42,6 +42,12 @@ const choiceButtonClass =
 function currentDocumentLocale(): AnalyticsConsentLocale {
   if (typeof document === "undefined") return "sv";
 
+  if (typeof window !== "undefined") {
+    const queryLanguage = new URLSearchParams(window.location.search).get("lang")?.toLowerCase();
+    if (queryLanguage === "en") return "en";
+    if (queryLanguage === "sv") return "sv";
+  }
+
   const routeLanguage = document.querySelector<HTMLElement>("main[lang]")?.getAttribute("lang")?.toLowerCase();
   if (routeLanguage?.startsWith("en")) return "en";
   if (routeLanguage?.startsWith("sv")) return "sv";
