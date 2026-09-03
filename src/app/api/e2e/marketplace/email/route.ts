@@ -74,6 +74,10 @@ function boundedRetryDelayMs(response: Response) {
   return 1_000;
 }
 
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function brevoJson<T>(url: URL, apiKey: string): Promise<T | null> {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
@@ -84,7 +88,7 @@ async function brevoJson<T>(url: URL, apiKey: string): Promise<T | null> {
         cache: "no-store",
       });
       if (response.status === 429 && attempt === 0) {
-        await new Promise((resolve) => setTimeout(resolve, boundedRetryDelayMs(response)));
+        await delay(boundedRetryDelayMs(response));
         continue;
       }
       if (!response.ok) {
@@ -233,29 +237,37 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, error: "configuration" }, { status: 503 });
   }
 
-  const lookupMode = marker.providerMessageId ? "message_id" : "recipient";
-  const sinkList = marker.providerMessageId
+  let lookupMode = marker.providerMessageId ? "message_id" : "recipient";
+  let sinkList = marker.providerMessageId
     ? await listTransactionalEmailByMessageId(marker.providerMessageId, apiKey)
     : await listTransactionalEmails(sink, apiKey);
   if (!sinkList) {
     return NextResponse.json({ ok: false, error: "provider" }, { status: 502 });
   }
 
+  // Brevo can accept a transactional send before its message-id lookup is
+  // visible in the reporting index. Fall back to one bounded scan of the safe
+  // Preview sink only; never scan the synthetic original recipient for content.
+  if (marker.providerMessageId && (sinkList.transactionalEmails ?? []).length === 0) {
+    lookupMode = "message_id_then_recipient";
+    sinkList = await listTransactionalEmails(sink, apiKey);
+    if (!sinkList) {
+      return NextResponse.json({ ok: false, error: "provider" }, { status: 502 });
+    }
+  }
+
   const candidates = sinkList.transactionalEmails ?? [];
-  // A message-id lookup is already exact at the provider API boundary. Do not
-  // reject that result again because Brevo may normalize the returned
-  // messageId string. The downstream quote marker, safe sink, controlled
-  // Preview origin and allowlisted lifecycle path still independently verify it.
-  const recent = marker.providerMessageId
+  const recent = lookupMode === "message_id"
     ? candidates.slice(0, 1)
-    : candidates.filter((item) => likelyMarkerCandidate(item, marker)).slice(0, 3);
+    : candidates.filter((item) => likelyMarkerCandidate(item, marker)).slice(0, 6);
 
   let detailCandidateCount = 0;
   let markerMatchedCount = 0;
   let controlledLinkMatchedCount = 0;
-  for (const item of recent) {
+  for (const [index, item] of recent.entries()) {
     const uuid = String(item.uuid ?? "").trim();
     if (!uuid) continue;
+    if (index > 0 && lookupMode === "message_id_then_recipient") await delay(650);
     detailCandidateCount += 1;
     const content = await emailContent(uuid, apiKey);
     if (!content) continue;
