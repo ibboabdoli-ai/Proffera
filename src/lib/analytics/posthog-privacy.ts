@@ -42,6 +42,7 @@ const LONG_HEX_OR_TOKEN = /^(?:[0-9a-f]{20,}|[A-Za-z0-9_-]{24,})$/;
 const DOT_DELIMITED_TOKEN = /^(?=.{24,}$)[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+$/;
 const LONG_NUMERIC_ID = /^\d{6,}$/;
 const EMAIL_LIKE = /^[^/@\s]+@[^/@\s]+\.[^/@\s]+$/;
+const DIRECTORY_PUBLIC_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*-[0-9a-z]{6}$/;
 
 const allowedAnalyticsSources = new Set<AnalyticsSource>([
   "direct",
@@ -64,11 +65,23 @@ const allowedAnonymousIdentityProperties = [
   "$window_id",
 ] as const;
 
-function isSensitiveSegment(segment: string) {
-  let decoded = segment;
+function decodePathSegment(segment: string) {
   try {
-    decoded = decodeURIComponent(segment);
+    return decodeURIComponent(segment);
   } catch {
+    return null;
+  }
+}
+
+function isKnownPublicDirectorySlug(segment: string, previousSegment: string | undefined) {
+  if (previousSegment !== "foretag") return false;
+  const decoded = decodePathSegment(segment);
+  return decoded !== null && DIRECTORY_PUBLIC_SLUG.test(decoded);
+}
+
+function isSensitiveSegment(segment: string) {
+  const decoded = decodePathSegment(segment);
+  if (decoded === null) {
     // Invalid encoding is safer to redact than to forward verbatim.
     return true;
   }
@@ -165,8 +178,10 @@ export function resolvePostHogConfig(
 
 export function sanitizeAnalyticsPathname(pathname: string) {
   const rawPath = pathname.split(/[?#]/, 1)[0] || "/";
-  const segments = rawPath.split("/").map((segment) => {
+  const rawSegments = rawPath.split("/");
+  const segments = rawSegments.map((segment, index) => {
     if (!segment) return segment;
+    if (isKnownPublicDirectorySlug(segment, rawSegments[index - 1])) return segment;
     return isSensitiveSegment(segment) ? ":redacted" : segment;
   });
   const sanitized = segments.join("/");
