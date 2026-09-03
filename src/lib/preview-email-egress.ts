@@ -8,7 +8,7 @@ const BREVO_TRANSACTIONAL_EMAIL_URL = `${BREVO_API_ORIGIN}/v3/smtp/email`;
 const BREVO_TRANSACTIONAL_EMAIL_LIST_PATH = "/v3/smtp/emails";
 const MARKETPLACE_E2E_PREVIEW_BRANCH = "work/proffera-marketplace-browser-lifecycle-e2e";
 const BREVO_EMAIL_DETAIL_PATH = /^\/v3\/smtp\/emails\/([A-Za-z0-9_-]{8,128})$/;
-const BREVO_EMAIL_LIST_QUERY_KEYS = ["email", "startDate", "endDate", "sort", "limit"] as const;
+const BREVO_EMAIL_RECIPIENT_LIST_QUERY_KEYS = ["email", "startDate", "endDate", "sort", "limit"] as const;
 
 type BrevoPayload = Record<string, unknown> & {
   to?: unknown;
@@ -64,15 +64,14 @@ function isExactMarketplaceE2ePreview(env: NodeJS.ProcessEnv) {
   return env.VERCEL_GIT_COMMIT_REF === MARKETPLACE_E2E_PREVIEW_BRANCH;
 }
 
-function validListReaderUrl(url: URL) {
-  if (url.pathname !== BREVO_TRANSACTIONAL_EMAIL_LIST_PATH) return false;
+function validRecipientListReaderUrl(url: URL) {
   const entries = [...url.searchParams.entries()];
-  if (entries.length !== BREVO_EMAIL_LIST_QUERY_KEYS.length) return false;
+  if (entries.length !== BREVO_EMAIL_RECIPIENT_LIST_QUERY_KEYS.length) return false;
 
-  for (const key of BREVO_EMAIL_LIST_QUERY_KEYS) {
+  for (const key of BREVO_EMAIL_RECIPIENT_LIST_QUERY_KEYS) {
     if (url.searchParams.getAll(key).length !== 1) return false;
   }
-  if (entries.some(([key]) => !(BREVO_EMAIL_LIST_QUERY_KEYS as readonly string[]).includes(key))) return false;
+  if (entries.some(([key]) => !(BREVO_EMAIL_RECIPIENT_LIST_QUERY_KEYS as readonly string[]).includes(key))) return false;
 
   const email = url.searchParams.get("email")?.trim() ?? "";
   const startDate = url.searchParams.get("startDate") ?? "";
@@ -86,6 +85,20 @@ function validListReaderUrl(url: URL) {
     && /^\d{4}-\d{2}-\d{2}$/.test(endDate)
     && sort === "desc"
     && limit === "20";
+}
+
+function validMessageIdListReaderUrl(url: URL) {
+  const entries = [...url.searchParams.entries()];
+  if (entries.length !== 1 || url.searchParams.getAll("messageId").length !== 1) return false;
+  const messageId = url.searchParams.get("messageId")?.trim() ?? "";
+  return messageId.length >= 8
+    && messageId.length <= 254
+    && /^<[^<>\s]{6,250}>$/.test(messageId);
+}
+
+function validListReaderUrl(url: URL) {
+  if (url.pathname !== BREVO_TRANSACTIONAL_EMAIL_LIST_PATH) return false;
+  return validRecipientListReaderUrl(url) || validMessageIdListReaderUrl(url);
 }
 
 function validDetailReaderUrl(url: URL) {
