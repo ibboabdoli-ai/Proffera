@@ -70,6 +70,29 @@ describe("PostHog final review regressions", () => {
     expect(sanitizeAnalyticsPathname(`/review/${serviceSlug}`)).toBe("/review/:redacted");
   });
 
+  it("preserves canonical generated booking slugs only on the exact public booking route", () => {
+    const bookingSlug = "very-long-company-derived-booking-slug-a1b2c3";
+    const personNumber = "198901011234";
+    const organizationNumber = "556123-4567";
+    const uuid = "550e8400-e29b-41d4-a716-446655440000";
+    const numericId = "5592643778";
+    const email = "person@example.com";
+    const bearerToken = "abcdefghijklmnopqrstuvwx";
+    const signedToken = "eyJhbGciOiJIUzI1NiJ9.abcdefghijklmnopqrstuvwxyz123456";
+
+    expect(sanitizeAnalyticsPathname(`/boka/${bookingSlug}`)).toBe(`/boka/${bookingSlug}`);
+    expect(sanitizeAnalyticsPathname(`/boka/${bookingSlug}/extra`)).toBe("/boka/:redacted/extra");
+    expect(sanitizeAnalyticsPathname(`/review/${bookingSlug}`)).toBe("/review/:redacted");
+
+    expect(sanitizeAnalyticsPathname(`/boka/${personNumber}`)).toBe("/boka/:redacted");
+    expect(sanitizeAnalyticsPathname(`/boka/${organizationNumber}`)).toBe("/boka/:redacted");
+    expect(sanitizeAnalyticsPathname(`/boka/${uuid}`)).toBe("/boka/:redacted");
+    expect(sanitizeAnalyticsPathname(`/boka/${numericId}`)).toBe("/boka/:redacted");
+    expect(sanitizeAnalyticsPathname(`/boka/${email}`)).toBe("/boka/:redacted");
+    expect(sanitizeAnalyticsPathname(`/boka/${bearerToken}`)).toBe("/boka/:redacted");
+    expect(sanitizeAnalyticsPathname(`/boka/${signedToken}`)).toBe("/boka/:redacted");
+  });
+
   it("synchronizes analytics consent changes and storage clears across open tabs", () => {
     const privacy = source("src/lib/analytics/posthog-privacy.ts");
     const client = source("src/components/analytics/posthog-analytics.tsx");
@@ -123,6 +146,22 @@ describe("PostHog final review regressions", () => {
     expect(booking).toContain('requestedLanguage === "sv" && experience.swedishEnabled ? "sv"');
     expect(booking.match(/<main lang=\{locale\}/g)).toHaveLength(2);
     expect(control).toContain('document.querySelector<HTMLElement>("main[lang]")');
+  });
+
+  it("exposes PrimeView's default and explicit booking locale on the route root", () => {
+    const primeView = source("src/app/boka/primeview/page.tsx");
+    const booking = source("src/app/boka/[slug]/page.tsx");
+
+    expect(primeView).toContain('const locale: Locale = first(query?.lang) === "sv" ? "sv" : "en";');
+    expect(primeView).toContain('<main lang={locale} className="min-h-screen');
+    expect(primeView).toContain('href="/boka/primeview?lang=en"');
+    expect(primeView).toContain('href="/boka/primeview?lang=sv"');
+
+    expect(booking).toContain('firstParam(query?.lang) === "en" ? "en"');
+    expect(booking).toContain('firstParam(query?.lang) === "sv" ? "sv"');
+    expect(booking).toContain(': experience.defaultLanguage;');
+    expect(booking).toContain('requestedLanguage === "sv" && experience.swedishEnabled ? "sv"');
+    expect(booking.match(/<main lang=\{locale\}/g)).toHaveLength(2);
   });
 
   it("classifies legitimate country-specific Google referrers without broad hostname matching", () => {
