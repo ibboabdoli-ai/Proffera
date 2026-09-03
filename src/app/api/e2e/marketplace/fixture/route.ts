@@ -12,7 +12,7 @@ import {
   previewMarketplaceE2eProviderEmail,
   previewMarketplaceE2eProviderSlug,
   previewMarketplaceE2eUuid,
-  resolvePreviewMarketplaceE2eRunId,
+  resolveAuthorizedPreviewMarketplaceE2eRunId,
 } from "@/lib/preview-marketplace-e2e";
 
 export const dynamic = "force-dynamic";
@@ -149,7 +149,7 @@ async function quoteReferencesForRuns(runIds: string[]) {
 
 export async function POST(request: Request) {
   if (!isPreviewMarketplaceE2eRuntime()) return unavailable();
-  const suiteRunId = resolvePreviewMarketplaceE2eRunId(request.headers);
+  const suiteRunId = await resolveAuthorizedPreviewMarketplaceE2eRunId(request.headers);
   if (!suiteRunId) return unavailable();
   const sql = getSql();
   if (!sql) return NextResponse.json({ ok: false, error: "database" }, { status: 503 });
@@ -250,7 +250,7 @@ export async function POST(request: Request) {
 
 export async function PUT(request: Request) {
   if (!isPreviewMarketplaceE2eRuntime()) return unavailable();
-  const suiteRunId = resolvePreviewMarketplaceE2eRunId(request.headers);
+  const suiteRunId = await resolveAuthorizedPreviewMarketplaceE2eRunId(request.headers);
   if (!suiteRunId) return unavailable();
 
   let body: { runIds?: unknown } = {};
@@ -278,7 +278,7 @@ export async function PUT(request: Request) {
 
 export async function GET(request: Request) {
   if (!isPreviewMarketplaceE2eRuntime()) return unavailable();
-  const suiteRunId = resolvePreviewMarketplaceE2eRunId(request.headers);
+  const suiteRunId = await resolveAuthorizedPreviewMarketplaceE2eRunId(request.headers);
   if (!suiteRunId) return unavailable();
   const url = new URL(request.url);
   const runIds = parseRunIds(url.searchParams.get("runs"));
@@ -289,7 +289,7 @@ export async function GET(request: Request) {
 
 export async function DELETE(request: Request) {
   if (!isPreviewMarketplaceE2eRuntime()) return unavailable();
-  const suiteRunId = resolvePreviewMarketplaceE2eRunId(request.headers);
+  const suiteRunId = await resolveAuthorizedPreviewMarketplaceE2eRunId(request.headers);
   if (!suiteRunId) return unavailable();
   const sql = getSql();
   if (!sql) return NextResponse.json({ ok: false, error: "database" }, { status: 503 });
