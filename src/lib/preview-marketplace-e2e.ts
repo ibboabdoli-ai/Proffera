@@ -7,6 +7,12 @@ export const PREVIEW_MARKETPLACE_E2E_BRANCH = "work/proffera-marketplace-browser
 
 const runIdPattern = /^[a-f0-9]{32,64}$/;
 const customerEmailPattern = /^marketplace-e2e-([a-f0-9]{32,64})@customer\.example\.invalid$/;
+const PREVIEW_COORDINATE_LATITUDE_SLOTS = 101;
+const PREVIEW_COORDINATE_LONGITUDE_SLOTS = 227;
+const PREVIEW_COORDINATE_MIN_LATITUDE = -70;
+const PREVIEW_COORDINATE_MIN_LONGITUDE = -170;
+const PREVIEW_COORDINATE_LATITUDE_STEP = 0.5;
+const PREVIEW_COORDINATE_LONGITUDE_STEP = 1.5;
 
 type PreviewTokenKind = "guest" | "customer" | "review";
 
@@ -88,6 +94,18 @@ export function previewMarketplaceE2eProviderSlug(runIdInput: string) {
 export function previewMarketplaceE2eProviderEmail(runIdInput: string) {
   const slug = previewMarketplaceE2eProviderSlug(runIdInput);
   return slug ? `offers@${slug}.example.invalid` : null;
+}
+
+export function previewMarketplaceE2eCoordinates(runIdInput: string) {
+  const runId = normalizedRunId(runIdInput);
+  if (!runId) return null;
+
+  const latitudeSlot = Number.parseInt(runId.slice(0, 8), 16) % PREVIEW_COORDINATE_LATITUDE_SLOTS;
+  const longitudeSlot = Number.parseInt(runId.slice(8, 16), 16) % PREVIEW_COORDINATE_LONGITUDE_SLOTS;
+  return {
+    latitude: PREVIEW_COORDINATE_MIN_LATITUDE + latitudeSlot * PREVIEW_COORDINATE_LATITUDE_STEP,
+    longitude: PREVIEW_COORDINATE_MIN_LONGITUDE + longitudeSlot * PREVIEW_COORDINATE_LONGITUDE_STEP,
+  };
 }
 
 export function previewMarketplaceE2eUuid(scope: string, runIdInput: string) {
