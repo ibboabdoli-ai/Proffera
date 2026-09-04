@@ -297,6 +297,16 @@ export async function GET(request: Request) {
     ) > 0;
     const sinkRecipientMatched = String(content.email ?? item.email ?? "").trim().toLowerCase() === sink;
     const events = (content.events ?? []).map((event) => String(event.name ?? "")).filter(Boolean);
+    const acceptedByProvider = events.some((event) => ["sent", "delivered", "opened", "click"].includes(event));
+    const delivered = events.includes("delivered") || events.includes("opened") || events.includes("click");
+    console.info("Preview Marketplace E2E email provider match", {
+      kind,
+      lookupMode,
+      providerMessageId: String(item.messageId ?? ""),
+      providerEvents: events,
+      acceptedByProvider,
+      delivered,
+    });
     return NextResponse.json({
       ok: true,
       found: true,
@@ -306,8 +316,8 @@ export async function GET(request: Request) {
       subject,
       sinkRecipientMatched,
       originalRecipientObserved,
-      acceptedByProvider: events.some((event) => ["sent", "delivered", "opened", "click"].includes(event)),
-      delivered: events.includes("delivered") || events.includes("opened") || events.includes("click"),
+      acceptedByProvider,
+      delivered,
     });
   }
 
