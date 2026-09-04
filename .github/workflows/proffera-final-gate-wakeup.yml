@@ -14,10 +14,6 @@ on:
 
 permissions: {}
 
-concurrency:
-  group: proffera-final-gate-wakeup-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr_number || github.run_id }}
-  cancel-in-progress: true
-
 jobs:
   wake-final-gate:
     name: Wake final gate
@@ -43,6 +39,9 @@ jobs:
           (github.actor == 'ibboabdoli-ai' &&
             contains(github.event.comment.body, 'proffera-codex-fallback-review-request:') &&
             contains(github.event.comment.body, '@codex review'))))
+    concurrency:
+      group: proffera-final-gate-wakeup-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr_number || github.run_id }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 3
     permissions:
