@@ -2,12 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getSql: vi.fn(),
+  emailConfigured: vi.fn(),
   sendInvitationEmail: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/db/server", () => ({ getSql: mocks.getSql }));
 vi.mock("@/features/email/marketplace-guest-invitation-email", () => ({
+  marketplaceGuestInvitationEmailConfigured: mocks.emailConfigured,
   sendMarketplaceGuestInvitationEmail: mocks.sendInvitationEmail,
 }));
 
@@ -162,6 +164,7 @@ async function expectDispatchBlocked(options: FixtureOptions) {
 describe("Marketplace advertising dispatch contract", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.emailConfigured.mockReturnValue(true);
     process.env.BREVO_API_KEY = "test-api-key";
     process.env.LEAD_FROM_EMAIL = "Proffera <noreply@proffera.se>";
   });
@@ -215,6 +218,27 @@ describe("Marketplace advertising dispatch contract", () => {
       (query) => query.includes("set status = 'delivery_failed'")
         && query.includes("company_directory_official_facts facts"),
     )).toBe(false);
+    expect(queries.some((query) => query.includes("insert into admin_audit_logs"))).toBe(true);
+  });
+
+  it("keeps system Marketplace dispatches out of the admin-user audit table", async () => {
+    const { sql, state } = createSql({ advertisingBlocked: false });
+    mocks.getSql.mockReturnValue(sql);
+    mocks.sendInvitationEmail.mockResolvedValue({ ok: true, providerMessageId: "provider-system" });
+
+    const result = await sendMarketplaceGuestQuoteInvitation({
+      ...invitationInput(),
+      adminUserId: "system:marketplace-auto-worker",
+    });
+
+    expect(result).toEqual({ ok: true, invitationId });
+    expect(state.status).toBe("sent");
+    const queries = sql.mock.calls.map((call) => queryText(call));
+    expect(queries.some((query) => query.includes("insert into admin_audit_logs"))).toBe(false);
+    expect(queries.some(
+      (query) => query.includes("insert into marketplace_quote_invitations")
+        && query.includes("created_by_admin_user_id"),
+    )).toBe(true);
   });
 
   it.each([

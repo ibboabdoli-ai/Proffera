@@ -8,6 +8,9 @@ on:
       - "tests/marketplace-full-loop-postgres.test.ts"
       - "tests/fixtures/marketplace-guest-production-baseline.sql"
       - "tests/fixtures/verified-review-production-prerequisites.sql"
+      - "e2e/tests/marketplace-preview-lifecycle.e2e.mjs"
+      - "src/app/api/e2e/marketplace/**"
+      - "src/lib/preview-marketplace-e2e.ts"
       - "src/features/quote-request/**"
       - "src/features/matching/**"
       - "src/lib/marketplace-*.ts"
@@ -30,12 +33,16 @@ on:
       - "db/migrations/20260822_0060_marketplace_customer_comparison.sql"
       - "db/migrations/20260822_0063_marketplace_service_jobs_verified_reviews.sql"
       - ".github/workflows/marketplace-full-loop-postgres.yml"
+      - ".github/workflows/marketplace-preview-browser-e2e.yml"
   push:
     branches: [main]
     paths:
       - "tests/marketplace-full-loop-postgres.test.ts"
       - "tests/fixtures/marketplace-guest-production-baseline.sql"
       - "tests/fixtures/verified-review-production-prerequisites.sql"
+      - "e2e/tests/marketplace-preview-lifecycle.e2e.mjs"
+      - "src/app/api/e2e/marketplace/**"
+      - "src/lib/preview-marketplace-e2e.ts"
       - "src/features/quote-request/**"
       - "src/features/matching/**"
       - "src/lib/marketplace-*.ts"
@@ -58,6 +65,7 @@ on:
       - "db/migrations/20260822_0060_marketplace_customer_comparison.sql"
       - "db/migrations/20260822_0063_marketplace_service_jobs_verified_reviews.sql"
       - ".github/workflows/marketplace-full-loop-postgres.yml"
+      - ".github/workflows/marketplace-preview-browser-e2e.yml"
   workflow_dispatch:
 
 permissions:

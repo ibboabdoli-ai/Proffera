@@ -1,0 +1,413 @@
+import { NextResponse } from "next/server";
+
+import { getSql } from "@/lib/db/server";
+import { resolveBrevoApiKey, resolvePreviewEmailRecipient } from "@/lib/email-runtime-config";
+import {
+  previewMarketplaceEmailOrigin,
+  resolvePreviewMarketplaceEmailLink,
+} from "@/lib/preview-marketplace-email-link";
+import {
+  isPreviewMarketplaceE2eRuntime,
+  previewMarketplaceE2eCustomerEmail,
+  previewMarketplaceE2eProviderEmail,
+  previewMarketplaceE2eUuid,
+  resolveAuthorizedPreviewMarketplaceE2eRunId,
+} from "@/lib/preview-marketplace-e2e";
+
+export const dynamic = "force-dynamic";
+
+type EmailKind = "guest" | "customer" | "review";
+type ReviewDeliveryState = "pending" | "sent" | "failed";
+type EmailLookupMode = "message_id" | "message_id_then_recipient" | "recipient" | "recipient_then_event_message_id";
+
+type BrevoEmailListItem = {
+  date?: string;
+  email?: string;
+  messageId?: string;
+  subject?: string;
+  uuid?: string;
+};
+
+type BrevoEmailList = {
+  count?: number;
+  transactionalEmails?: BrevoEmailListItem[];
+};
+
+type BrevoEmailContent = {
+  date?: string;
+  email?: string;
+  subject?: string;
+  body?: string;
+  events?: Array<{ name?: string; time?: string }>;
+};
+
+type BrevoEmailEvent = {
+  date?: string;
+  event?: string;
+  messageId?: string;
+};
+
+type BrevoEmailEventReport = {
+  events?: BrevoEmailEvent[];
+};
+
+type EmailMarker = {
+  value: string;
+  notBeforeMs: number | null;
+  subjectMatch: boolean;
+  providerMessageId: string | null;
+  reviewDeliveryState: ReviewDeliveryState | null;
+};
+
+function unavailable() {
+  return new NextResponse(null, { status: 404 });
+}
+
+function emailKind(value: string | null): EmailKind | null {
+  return value === "guest" || value === "customer" || value === "review" ? value : null;
+}
+
+function boundedRetryDelayMs(response: Response) {
+  const retryAfter = response.headers.get("retry-after")?.trim() ?? "";
+  if (/^\d+$/.test(retryAfter)) {
+    return Math.min(3_000, Math.max(250, Number(retryAfter) * 1_000));
+  }
+  const retryAt = Date.parse(retryAfter);
+  if (Number.isFinite(retryAt)) {
+    return Math.min(3_000, Math.max(250, retryAt - Date.now()));
+  }
+  return 1_000;
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function brevoJson<T>(url: URL, apiKey: string): Promise<T | null> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const response = await fetch(url, {
+        method: "GET",
+        headers: { "api-key": apiKey, Accept: "application/json" },
+        signal: AbortSignal.timeout(10_000),
+        cache: "no-store",
+      });
+      if (response.status === 429 && attempt === 0) {
+        await delay(boundedRetryDelayMs(response));
+        continue;
+      }
+      if (!response.ok) {
+        console.error("Preview Marketplace E2E Brevo reader request failed", {
+          path: url.pathname,
+          status: response.status,
+        });
+        return null;
+      }
+      return await response.json() as T;
+    } catch (error) {
+      console.error("Preview Marketplace E2E Brevo reader request failed", {
+        path: url.pathname,
+        error,
+      });
+      return null;
+    }
+  }
+  return null;
+}
+
+async function listTransactionalEmails(email: string, apiKey: string) {
+  const nowMs = Date.now();
+  const today = new Date(nowMs).toISOString().slice(0, 10);
+  const yesterday = new Date(nowMs - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const url = new URL("https://api.brevo.com/v3/smtp/emails");
+  url.searchParams.set("email", email);
+  url.searchParams.set("startDate", yesterday);
+  url.searchParams.set("endDate", today);
+  url.searchParams.set("sort", "desc");
+  url.searchParams.set("limit", "20");
+  return brevoJson<BrevoEmailList>(url, apiKey);
+}
+
+async function listTransactionalEmailByMessageId(messageId: string, apiKey: string) {
+  const url = new URL("https://api.brevo.com/v3/smtp/emails");
+  url.searchParams.set("messageId", messageId);
+  return brevoJson<BrevoEmailList>(url, apiKey);
+}
+
+async function listDeliveredTransactionalEvents(email: string, apiKey: string) {
+  const url = new URL("https://api.brevo.com/v3/smtp/statistics/events");
+  url.searchParams.set("email", email);
+  url.searchParams.set("event", "delivered");
+  url.searchParams.set("days", "1");
+  url.searchParams.set("sort", "desc");
+  url.searchParams.set("limit", "50");
+  return brevoJson<BrevoEmailEventReport>(url, apiKey);
+}
+
+async function emailContent(uuid: string, apiKey: string) {
+  const url = new URL(`https://api.brevo.com/v3/smtp/emails/${encodeURIComponent(uuid)}`);
+  return brevoJson<BrevoEmailContent>(url, apiKey);
+}
+
+function reviewDeliveryState(reason: unknown): ReviewDeliveryState {
+  const value = String(reason ?? "");
+  if (value === "Verified review invitation email sent") return "sent";
+  if (value.startsWith("Verified review invitation email failed:")) return "failed";
+  return "pending";
+}
+
+async function markerFor(kind: EmailKind, suiteRunId: string, customerRunId: string): Promise<EmailMarker | null> {
+  const email = previewMarketplaceE2eCustomerEmail(customerRunId);
+  const profileId = previewMarketplaceE2eUuid("provider", suiteRunId);
+  const sql = getSql();
+  if (!email || !profileId || !sql) return null;
+
+  if (kind === "review") {
+    const rows = await sql`
+      select
+        review_invitation.created_at::text as review_invitation_created_at,
+        coalesce((
+          select event.reason
+          from marketplace_service_job_events event
+          where event.service_job_id = job.id
+            and event.event_type = 'review_invited'
+          order by event.created_at desc, event.id desc
+          limit 1
+        ), '') as delivery_event_reason
+      from quote_requests request
+      join marketplace_service_jobs job on job.quote_request_id = request.id
+      join website_review_invitations review_invitation
+        on review_invitation.marketplace_service_job_id = job.id
+      where lower(btrim(request.contact_email)) = ${email}
+        and job.profile_id = ${profileId}::uuid
+      order by review_invitation.created_at desc
+      limit 1
+    `;
+    const createdAtMs = Date.parse(String(rows[0]?.review_invitation_created_at ?? ""));
+    if (!Number.isFinite(createdAtMs)) return null;
+    return {
+      value: `Preview E2E Rör ${suiteRunId.slice(0, 8)} AB`,
+      notBeforeMs: createdAtMs - 60_000,
+      // Review invitations do not persist a Brevo message ID. Do not trust the
+      // list endpoint's subject metadata as a pre-filter; inspect only bounded
+      // safe-sink candidates and verify the synthetic marker in message content.
+      subjectMatch: false,
+      providerMessageId: null,
+      reviewDeliveryState: reviewDeliveryState(rows[0]?.delivery_event_reason),
+    };
+  }
+
+  const rows = await sql`
+    select
+      request.reference_id,
+      request.created_at::text,
+      invitation.provider_message_id as guest_provider_message_id,
+      customer_access.provider_message_id as customer_provider_message_id
+    from quote_requests request
+    left join marketplace_quote_invitations invitation
+      on invitation.quote_request_id = request.id
+     and invitation.profile_id = ${profileId}::uuid
+    left join marketplace_quote_customer_access customer_access
+      on customer_access.quote_request_id = request.id
+    where lower(btrim(request.contact_email)) = ${email}
+    order by request.created_at desc
+    limit 1
+  `;
+  const value = String(rows[0]?.reference_id ?? "").trim();
+  if (!value) return null;
+  const createdAtMs = Date.parse(String(rows[0]?.created_at ?? ""));
+  const providerMessageId = String(
+    kind === "guest"
+      ? rows[0]?.guest_provider_message_id ?? ""
+      : rows[0]?.customer_provider_message_id ?? "",
+  ).trim() || null;
+  return {
+    value,
+    notBeforeMs: Number.isFinite(createdAtMs) ? createdAtMs - 60_000 : null,
+    subjectMatch: kind === "customer",
+    providerMessageId,
+    reviewDeliveryState: null,
+  };
+}
+
+function originalRecipient(kind: EmailKind, suiteRunId: string, customerRunId: string) {
+  if (kind === "guest") return previewMarketplaceE2eProviderEmail(suiteRunId);
+  return previewMarketplaceE2eCustomerEmail(customerRunId);
+}
+
+function likelyMarkerCandidate(item: BrevoEmailListItem, marker: EmailMarker) {
+  const subject = String(item.subject ?? "");
+  if (marker.subjectMatch) return subject.includes(marker.value);
+  if (marker.notBeforeMs === null) return true;
+  const itemTime = Date.parse(String(item.date ?? ""));
+  return Number.isFinite(itemTime) && itemTime >= marker.notBeforeMs;
+}
+
+function recentDeliveredMessageIds(report: BrevoEmailEventReport, marker: EmailMarker) {
+  const ids: string[] = [];
+  // The invitation timestamp is authoritative. Keep a small 15-second clock
+  // skew allowance while excluding older sink traffic from other E2E stages.
+  const eventNotBeforeMs = marker.notBeforeMs === null ? null : marker.notBeforeMs + 45_000;
+  for (const event of report.events ?? []) {
+    const messageId = String(event.messageId ?? "").trim();
+    if (!messageId || ids.includes(messageId)) continue;
+    if (eventNotBeforeMs !== null) {
+      const eventTime = Date.parse(String(event.date ?? ""));
+      if (!Number.isFinite(eventTime) || eventTime < eventNotBeforeMs) continue;
+    }
+    ids.push(messageId);
+    if (ids.length >= 6) break;
+  }
+  return ids;
+}
+
+export async function GET(request: Request) {
+  if (!isPreviewMarketplaceE2eRuntime()) return unavailable();
+  const suiteRunId = await resolveAuthorizedPreviewMarketplaceE2eRunId(request.headers);
+  if (!suiteRunId) return unavailable();
+
+  const requestUrl = new URL(request.url);
+  const kind = emailKind(requestUrl.searchParams.get("kind"));
+  const customerRunId = String(requestUrl.searchParams.get("run") ?? "").trim().toLowerCase();
+  if (!kind) return NextResponse.json({ ok: false, error: "kind" }, { status: 400 });
+  if (!customerRunId || !previewMarketplaceE2eCustomerEmail(customerRunId)) {
+    return NextResponse.json({ ok: false, error: "run" }, { status: 400 });
+  }
+
+  const apiKey = resolveBrevoApiKey();
+  const sink = resolvePreviewEmailRecipient();
+  const marker = await markerFor(kind, suiteRunId, customerRunId);
+  const original = originalRecipient(kind, suiteRunId, customerRunId);
+  const origin = previewMarketplaceEmailOrigin(request.url);
+  if (!apiKey || !sink || !marker || !original || !origin) {
+    return NextResponse.json({ ok: false, error: "configuration" }, { status: 503 });
+  }
+
+  let lookupMode: EmailLookupMode = marker.providerMessageId ? "message_id" : "recipient";
+  let sinkList = marker.providerMessageId
+    ? await listTransactionalEmailByMessageId(marker.providerMessageId, apiKey)
+    : await listTransactionalEmails(sink, apiKey);
+  if (!sinkList) {
+    return NextResponse.json({ ok: false, error: "provider" }, { status: 502 });
+  }
+
+  // Brevo can accept a transactional send before its message-id lookup is
+  // visible in the reporting index. Fall back to one bounded scan of the safe
+  // Preview sink only; never scan the synthetic original recipient for content.
+  if (marker.providerMessageId && (sinkList.transactionalEmails ?? []).length === 0) {
+    lookupMode = "message_id_then_recipient";
+    sinkList = await listTransactionalEmails(sink, apiKey);
+    if (!sinkList) {
+      return NextResponse.json({ ok: false, error: "provider" }, { status: 502 });
+    }
+  }
+
+  const candidates = sinkList.transactionalEmails ?? [];
+  let recent = lookupMode === "message_id"
+    ? candidates.slice(0, 1)
+    : lookupMode === "message_id_then_recipient"
+      ? candidates.slice(0, 6)
+      : candidates.filter((item) => likelyMarkerCandidate(item, marker)).slice(0, 6);
+  let eventMessageIdCount = 0;
+  let detailCandidateCount = 0;
+  let markerMatchedCount = 0;
+  let controlledLinkMatchedCount = 0;
+  let eventFallbackAttempted = false;
+
+  while (true) {
+    for (const [index, item] of recent.entries()) {
+      const uuid = String(item.uuid ?? "").trim();
+      if (!uuid) continue;
+      if (index > 0 && lookupMode !== "message_id") await delay(650);
+      detailCandidateCount += 1;
+      const content = await emailContent(uuid, apiKey);
+      if (!content) continue;
+      const subject = String(content.subject ?? item.subject ?? "");
+      const body = String(content.body ?? "");
+      if (!subject.includes(marker.value) && !body.includes(marker.value)) continue;
+      markerMatchedCount += 1;
+      const link = await resolvePreviewMarketplaceEmailLink({ body, kind, origin });
+      if (!link) continue;
+      controlledLinkMatchedCount += 1;
+
+      const originalList = await listTransactionalEmails(original, apiKey);
+      if (!originalList) {
+        return NextResponse.json({ ok: false, error: "provider" }, { status: 502 });
+      }
+      const originalRecipientObserved = Number(
+        originalList.count ?? originalList.transactionalEmails?.length ?? 0,
+      ) > 0;
+      const sinkRecipientMatched = String(content.email ?? item.email ?? "").trim().toLowerCase() === sink;
+      const events = (content.events ?? []).map((event) => String(event.name ?? "")).filter(Boolean);
+      const acceptedByProvider = events.some((event) => ["sent", "delivered", "opened", "click"].includes(event));
+      const delivered = events.includes("delivered") || events.includes("opened") || events.includes("click");
+      console.info("Preview Marketplace E2E email provider match", {
+        kind,
+        lookupMode,
+        providerMessageId: String(item.messageId ?? ""),
+        providerEvents: events,
+        acceptedByProvider,
+        delivered,
+      });
+      return NextResponse.json({
+        ok: true,
+        found: true,
+        kind,
+        link,
+        messageId: String(item.messageId ?? ""),
+        subject,
+        sinkRecipientMatched,
+        originalRecipientObserved,
+        acceptedByProvider,
+        delivered,
+      }, { headers: { "Cache-Control": "no-store" } });
+    }
+
+    // Review invitations do not persist the Brevo message ID. First exhaust the
+    // normal bounded safe-sink candidates; only then use delivered events to
+    // discover recent message IDs and inspect those exact transactions.
+    if (kind !== "review" || marker.reviewDeliveryState !== "sent" || eventFallbackAttempted) break;
+    eventFallbackAttempted = true;
+    const eventReport = await listDeliveredTransactionalEvents(sink, apiKey);
+    if (!eventReport) break;
+
+    const eventMessageIds = recentDeliveredMessageIds(eventReport, marker);
+    eventMessageIdCount = eventMessageIds.length;
+    const eventCandidates: BrevoEmailListItem[] = [];
+    for (const [index, messageId] of eventMessageIds.entries()) {
+      if (index > 0) await delay(650);
+      const exactList = await listTransactionalEmailByMessageId(messageId, apiKey);
+      if (!exactList) {
+        return NextResponse.json({ ok: false, error: "provider" }, { status: 502 });
+      }
+      const item = exactList.transactionalEmails?.[0];
+      if (item) eventCandidates.push(item);
+    }
+    if (eventCandidates.length === 0) break;
+
+    lookupMode = "recipient_then_event_message_id";
+    recent = eventCandidates;
+  }
+
+  const diagnostics = {
+    lookupMode,
+    providerMessageIdPresent: Boolean(marker.providerMessageId),
+    reviewDeliveryState: marker.reviewDeliveryState,
+    eventMessageIdCount,
+    candidateCount: candidates.length,
+    selectedCandidateCount: recent.length,
+    detailCandidateCount,
+    markerMatchedCount,
+    controlledLinkMatchedCount,
+  };
+  console.info("Preview Marketplace E2E email lookup pending", { kind, ...diagnostics });
+
+  return NextResponse.json({
+    ok: true,
+    found: false,
+    kind,
+    sinkRecipientMatched: false,
+    originalRecipientObserved: null,
+    diagnostics,
+  }, { headers: { "Cache-Control": "no-store" } });
+}
