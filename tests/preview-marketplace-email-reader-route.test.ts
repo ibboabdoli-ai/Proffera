@@ -126,6 +126,7 @@ describe("Preview Marketplace email reader route", () => {
     const body = await response.json() as Record<string, unknown>;
 
     expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(body).toMatchObject({
       ok: true,
@@ -187,6 +188,7 @@ describe("Preview Marketplace email reader route", () => {
     const body = await response.json() as Record<string, unknown>;
 
     expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
     expect(fetchMock).toHaveBeenCalledTimes(5);
     const eventUrl = new URL(String(fetchMock.mock.calls[1]?.[0]));
     expect(eventUrl.pathname).toBe("/v3/smtp/statistics/events");
@@ -217,6 +219,40 @@ describe("Preview Marketplace email reader route", () => {
     expect(JSON.stringify(info.mock.calls)).not.toContain("preview-key");
   });
 
+  it("stops after the first failed exact event-message lookup", async () => {
+    const firstMessageId = "<first-review@smtp-relay.mailin.fr>";
+    const secondMessageId = "<second-review@smtp-relay.mailin.fr>";
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({
+        count: 1,
+        transactionalEmails: [{
+          uuid: "older-sink-mail",
+          email: sink,
+          date: "2026-09-03T11:58:00.000Z",
+          subject: "older Preview mail",
+        }],
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        events: [
+          { date: "2026-09-03T12:00:10.000Z", event: "delivered", messageId: firstMessageId },
+          { date: "2026-09-03T12:00:11.000Z", event: "delivered", messageId: secondMessageId },
+        ],
+      }))
+      .mockResolvedValueOnce(new Response(null, { status: 500 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await GET(emailRequest("review"));
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toEqual({ ok: false, error: "provider" });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain(encodeURIComponent(firstMessageId));
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes(encodeURIComponent(secondMessageId)))).toBe(false);
+    expect(error).toHaveBeenCalledTimes(1);
+  });
+
   it("falls back from a not-yet-indexed provider message ID to the safe sink recipient scan", async () => {
     const sql = vi.fn(async () => [{
       reference_id: "PF-E2E-1",
@@ -235,6 +271,7 @@ describe("Preview Marketplace email reader route", () => {
     const body = await response.json() as { diagnostics?: Record<string, unknown> };
 
     expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("messageId=%3Cmessage123%40example.com%3E");
     expect(String(fetchMock.mock.calls[1]?.[0])).toContain(`email=${encodeURIComponent(sink)}`);
@@ -271,6 +308,7 @@ describe("Preview Marketplace email reader route", () => {
     const body = await response.json() as { diagnostics?: Record<string, unknown> };
 
     expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
     expect(body.diagnostics).toMatchObject({
       reviewDeliveryState: "sent",
       eventMessageIdCount: 0,
@@ -299,6 +337,7 @@ describe("Preview Marketplace email reader route", () => {
     const body = await response.json() as { diagnostics?: Record<string, unknown> };
 
     expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
     expect(body.diagnostics).toMatchObject({ reviewDeliveryState: "pending" });
   });
 
@@ -329,6 +368,7 @@ describe("Preview Marketplace email reader route", () => {
     const body = await response.json() as Record<string, unknown>;
 
     expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(body).toMatchObject({
       ok: true,
@@ -355,6 +395,7 @@ describe("Preview Marketplace email reader route", () => {
     const response = await GET(emailRequest("review"));
 
     expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
     const calledUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
     expect(calledUrl.searchParams.get("startDate")).toBe("2026-09-03");
     expect(calledUrl.searchParams.get("endDate")).toBe("2026-09-04");
