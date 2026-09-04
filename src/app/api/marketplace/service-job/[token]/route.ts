@@ -1,6 +1,7 @@
 import { after, NextResponse } from "next/server";
 
 import { hashMarketplaceGuestToken } from "@/lib/marketplace-guest-quote";
+import { inspectPreviewMarketplaceBrevoTransaction } from "@/lib/preview-marketplace-brevo-provider";
 import {
   transitionMarketplaceServiceJobByGuestToken,
   type MarketplaceServiceJobStatus,
@@ -75,6 +76,19 @@ export async function POST(request: Request, context: RouteContext) {
           serviceJobId: result.job.id,
           code: delivery.code,
         });
+        return;
+      }
+
+      if (delivery.providerId) {
+        const provider = await inspectPreviewMarketplaceBrevoTransaction(delivery.providerId);
+        if (provider) {
+          console.info("Preview Marketplace verified-review provider transaction", {
+            providerMessageId: delivery.providerId,
+            providerStatus: provider.status,
+            providerEvents: provider.events,
+            providerReason: provider.reason,
+          });
+        }
       }
     });
   }
