@@ -14,24 +14,34 @@ on:
 
 permissions: {}
 
-concurrency:
-  group: proffera-final-gate-wakeup-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr_number || github.run_id }}
-  cancel-in-progress: true
-
 jobs:
   wake-final-gate:
     name: Wake final gate
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request_review' &&
+        github.event.pull_request.draft == false &&
+        github.event.review.state != 'changes_requested' &&
+        (github.event.review.commit_id == null || github.event.review.commit_id == github.event.pull_request.head.sha) &&
         (github.actor == 'coderabbitai[bot]' || github.actor == 'chatgpt-codex-connector[bot]')) ||
       (github.event_name == 'issue_comment' &&
         github.event.issue.pull_request != null &&
-        (github.actor == 'coderabbitai[bot]' ||
-          github.actor == 'chatgpt-codex-connector[bot]' ||
+        ((github.actor == 'coderabbitai[bot]' &&
+          (contains(github.event.comment.body, 'recent_review_start') ||
+            contains(github.event.comment.body, 'Review limit reached') ||
+            contains(github.event.comment.body, 'Review rate limited') ||
+            contains(github.event.comment.body, 'Review skipped') ||
+            contains(github.event.comment.body, 'temporarily unavailable') ||
+            contains(github.event.comment.body, 'service unavailable'))) ||
+          (github.actor == 'chatgpt-codex-connector[bot]' &&
+            contains(github.event.comment.body, 'Codex Review: Didn') &&
+            contains(github.event.comment.body, 'Reviewed commit:')) ||
           (github.actor == 'ibboabdoli-ai' &&
             contains(github.event.comment.body, 'proffera-codex-fallback-review-request:') &&
             contains(github.event.comment.body, '@codex review'))))
+    concurrency:
+      group: proffera-final-gate-wakeup-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr_number || github.run_id }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 3
     permissions:
