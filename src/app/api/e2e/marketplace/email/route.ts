@@ -18,6 +18,7 @@ export const dynamic = "force-dynamic";
 
 type EmailKind = "guest" | "customer" | "review";
 type ReviewDeliveryState = "pending" | "sent" | "failed";
+type EmailLookupMode = "message_id" | "message_id_then_recipient" | "recipient" | "recipient_then_event_message_id";
 
 type BrevoEmailListItem = {
   date?: string;
@@ -38,6 +39,16 @@ type BrevoEmailContent = {
   subject?: string;
   body?: string;
   events?: Array<{ name?: string; time?: string }>;
+};
+
+type BrevoEmailEvent = {
+  date?: string;
+  event?: string;
+  messageId?: string;
+};
+
+type BrevoEmailEventReport = {
+  events?: BrevoEmailEvent[];
 };
 
 type EmailMarker = {
@@ -123,6 +134,16 @@ async function listTransactionalEmailByMessageId(messageId: string, apiKey: stri
   return brevoJson<BrevoEmailList>(url, apiKey);
 }
 
+async function listDeliveredTransactionalEvents(email: string, apiKey: string) {
+  const url = new URL("https://api.brevo.com/v3/smtp/statistics/events");
+  url.searchParams.set("email", email);
+  url.searchParams.set("event", "delivered");
+  url.searchParams.set("days", "1");
+  url.searchParams.set("sort", "desc");
+  url.searchParams.set("limit", "50");
+  return brevoJson<BrevoEmailEventReport>(url, apiKey);
+}
+
 async function emailContent(uuid: string, apiKey: string) {
   const url = new URL(`https://api.brevo.com/v3/smtp/emails/${encodeURIComponent(uuid)}`);
   return brevoJson<BrevoEmailContent>(url, apiKey);
@@ -168,8 +189,8 @@ async function markerFor(kind: EmailKind, suiteRunId: string, customerRunId: str
       value: `Preview E2E Rör ${suiteRunId.slice(0, 8)} AB`,
       notBeforeMs: createdAtMs - 60_000,
       // Review invitations do not persist a Brevo message ID. Do not trust the
-      // list endpoint's subject metadata as a pre-filter; inspect a bounded set
-      // of safe-sink message bodies and match the synthetic marker there.
+      // list endpoint's subject metadata as a pre-filter; inspect only bounded
+      // safe-sink candidates and verify the synthetic marker in message content.
       subjectMatch: false,
       providerMessageId: null,
       reviewDeliveryState: reviewDeliveryState(rows[0]?.delivery_event_reason),
@@ -222,6 +243,24 @@ function likelyMarkerCandidate(item: BrevoEmailListItem, marker: EmailMarker) {
   return Number.isFinite(itemTime) && itemTime >= marker.notBeforeMs;
 }
 
+function recentDeliveredMessageIds(report: BrevoEmailEventReport, marker: EmailMarker) {
+  const ids: string[] = [];
+  // The invitation timestamp is authoritative. Keep a small 15-second clock
+  // skew allowance while excluding older sink traffic from other E2E stages.
+  const eventNotBeforeMs = marker.notBeforeMs === null ? null : marker.notBeforeMs + 45_000;
+  for (const event of report.events ?? []) {
+    const messageId = String(event.messageId ?? "").trim();
+    if (!messageId || ids.includes(messageId)) continue;
+    if (eventNotBeforeMs !== null) {
+      const eventTime = Date.parse(String(event.date ?? ""));
+      if (!Number.isFinite(eventTime) || eventTime < eventNotBeforeMs) continue;
+    }
+    ids.push(messageId);
+    if (ids.length >= 6) break;
+  }
+  return ids;
+}
+
 export async function GET(request: Request) {
   if (!isPreviewMarketplaceE2eRuntime()) return unavailable();
   const suiteRunId = await resolveAuthorizedPreviewMarketplaceE2eRunId(request.headers);
@@ -244,7 +283,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, error: "configuration" }, { status: 503 });
   }
 
-  let lookupMode = marker.providerMessageId ? "message_id" : "recipient";
+  let lookupMode: EmailLookupMode = marker.providerMessageId ? "message_id" : "recipient";
   let sinkList = marker.providerMessageId
     ? await listTransactionalEmailByMessageId(marker.providerMessageId, apiKey)
     : await listTransactionalEmails(sink, apiKey);
@@ -264,11 +303,36 @@ export async function GET(request: Request) {
   }
 
   const candidates = sinkList.transactionalEmails ?? [];
-  const recent = lookupMode === "message_id"
+  let recent = lookupMode === "message_id"
     ? candidates.slice(0, 1)
     : lookupMode === "message_id_then_recipient"
       ? candidates.slice(0, 6)
       : candidates.filter((item) => likelyMarkerCandidate(item, marker)).slice(0, 6);
+  let eventMessageIdCount = 0;
+
+  // The review sender returns a Brevo message ID but the Verified Review schema
+  // intentionally does not persist provider delivery metadata. If the normal
+  // safe-sink transaction list has not indexed the just-delivered review yet,
+  // use Brevo's delivered-event report to discover only recent sink message IDs,
+  // then inspect those exact transactions with the same marker/link safeguards.
+  if (kind === "review" && marker.reviewDeliveryState === "sent" && recent.length === 0) {
+    const eventReport = await listDeliveredTransactionalEvents(sink, apiKey);
+    if (eventReport) {
+      const eventMessageIds = recentDeliveredMessageIds(eventReport, marker);
+      eventMessageIdCount = eventMessageIds.length;
+      const eventCandidates: BrevoEmailListItem[] = [];
+      for (const [index, messageId] of eventMessageIds.entries()) {
+        if (index > 0) await delay(650);
+        const exactList = await listTransactionalEmailByMessageId(messageId, apiKey);
+        const item = exactList?.transactionalEmails?.[0];
+        if (item) eventCandidates.push(item);
+      }
+      if (eventCandidates.length > 0) {
+        lookupMode = "recipient_then_event_message_id";
+        recent = eventCandidates;
+      }
+    }
+  }
 
   let detailCandidateCount = 0;
   let markerMatchedCount = 0;
@@ -325,6 +389,7 @@ export async function GET(request: Request) {
     lookupMode,
     providerMessageIdPresent: Boolean(marker.providerMessageId),
     reviewDeliveryState: marker.reviewDeliveryState,
+    eventMessageIdCount,
     candidateCount: candidates.length,
     selectedCandidateCount: recent.length,
     detailCandidateCount,
