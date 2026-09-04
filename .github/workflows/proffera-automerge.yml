@@ -2,7 +2,7 @@ name: Proffera gated automerge
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+    types: [synchronize, ready_for_review, labeled, unlabeled]
   pull_request_review:
     types: [submitted]
   issue_comment:
@@ -10,6 +10,7 @@ on:
   workflow_run:
     workflows: [CI]
     types: [completed]
+    branches: ['work/proffera-*']
   workflow_dispatch:
     inputs:
       pr_number:
@@ -31,6 +32,34 @@ concurrency:
 jobs:
   gated-automerge:
     name: Gated automerge
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.pull_requests[0].number != null) ||
+      (github.event_name == 'pull_request' &&
+        github.event.pull_request.draft == false &&
+        github.event.action == 'labeled' &&
+        github.event.label.name == 'ibbo-approved') ||
+      (github.event_name == 'pull_request_review' &&
+        github.event.pull_request.draft == false &&
+        github.event.review.state != 'changes_requested' &&
+        (github.event.review.commit_id == null || github.event.review.commit_id == github.event.pull_request.head.sha) &&
+        (github.actor == 'ibboabdoli-ai' ||
+          github.actor == 'coderabbitai[bot]' ||
+          github.actor == 'chatgpt-codex-connector[bot]')) ||
+      (github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request != null &&
+        ((github.actor == 'coderabbitai[bot]' &&
+          (contains(github.event.comment.body, 'recent_review_start') ||
+            contains(github.event.comment.body, 'Review limit reached') ||
+            contains(github.event.comment.body, 'Review rate limited') ||
+            contains(github.event.comment.body, 'Review skipped') ||
+            contains(github.event.comment.body, 'temporarily unavailable') ||
+            contains(github.event.comment.body, 'service unavailable'))) ||
+          (github.actor == 'chatgpt-codex-connector[bot]' &&
+            contains(github.event.comment.body, 'Codex Review: Didn') &&
+            contains(github.event.comment.body, 'Reviewed commit:'))))
     runs-on: ubuntu-latest
     steps:
       - name: Evaluate gated automerge
