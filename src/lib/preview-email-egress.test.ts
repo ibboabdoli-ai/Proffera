@@ -9,6 +9,7 @@ const BREVO_SMS_URL = "https://api.brevo.com/v3/transactionalSMS/sms";
 const BREVO_LIST_URL = "https://api.brevo.com/v3/smtp/emails?email=preview-inbox%40example.com&startDate=2026-09-03&endDate=2026-09-03&sort=desc&limit=20";
 const BREVO_MESSAGE_ID_LIST_URL = "https://api.brevo.com/v3/smtp/emails?messageId=%3C20260903.123456%40smtp-relay.mailin.fr%3E";
 const BREVO_EVENTS_URL = "https://api.brevo.com/v3/smtp/statistics/events?email=preview-inbox%40example.com&event=delivered&days=1&sort=desc&limit=50";
+const BREVO_MESSAGE_ID_EVENTS_URL = "https://api.brevo.com/v3/smtp/statistics/events?messageId=%3C20260903.123456%40smtp-relay.mailin.fr%3E&days=1&limit=50&sort=desc";
 const BREVO_DETAIL_URL = "https://api.brevo.com/v3/smtp/emails/123e4567-e89b-12d3-a456-426614174000";
 
 const originalVercelEnv = process.env.VERCEL_ENV;
@@ -88,7 +89,7 @@ describe("Preview Brevo egress safety", () => {
 
   it("unrelated Preview branches cannot use Brevo read endpoints", () => {
     const env = previewEnv({ VERCEL_GIT_COMMIT_REF: "work/proffera-preview-other" });
-    for (const url of [BREVO_LIST_URL, BREVO_MESSAGE_ID_LIST_URL, BREVO_EVENTS_URL, BREVO_DETAIL_URL]) {
+    for (const url of [BREVO_LIST_URL, BREVO_MESSAGE_ID_LIST_URL, BREVO_EVENTS_URL, BREVO_MESSAGE_ID_EVENTS_URL, BREVO_DETAIL_URL]) {
       expect(() => buildPreviewSafeBrevoRequestInit(url, { method: "GET" }, env)).toThrow(/limited to Marketplace E2E Preview/);
     }
   });
@@ -119,6 +120,17 @@ describe("Preview Brevo egress safety", () => {
     expect(new Headers(result?.headers).get("api-key")).toBe("preview-key");
   });
 
+  it("exact Marketplace E2E Preview can GET only the strict message-ID event query used by the provider inspector", () => {
+    const env = previewEnv({ VERCEL_GIT_COMMIT_REF: PREVIEW_MARKETPLACE_E2E_BRANCH });
+    const result = buildPreviewSafeBrevoRequestInit(BREVO_MESSAGE_ID_EVENTS_URL, {
+      method: "GET",
+      redirect: "error",
+    }, env);
+    expect(result?.method).toBe("GET");
+    expect(result?.redirect).toBe("error");
+    expect(new Headers(result?.headers).get("api-key")).toBe("preview-key");
+  });
+
   it("exact Marketplace E2E Preview can GET one validated Brevo email detail endpoint", () => {
     const env = previewEnv({ VERCEL_GIT_COMMIT_REF: PREVIEW_MARKETPLACE_E2E_BRANCH });
     const result = buildPreviewSafeBrevoRequestInit(BREVO_DETAIL_URL, { method: "GET" }, env);
@@ -129,7 +141,7 @@ describe("Preview Brevo egress safety", () => {
   it("rejects POST, DELETE and other methods to the Preview reader endpoints", () => {
     const env = previewEnv({ VERCEL_GIT_COMMIT_REF: PREVIEW_MARKETPLACE_E2E_BRANCH });
     for (const method of ["POST", "DELETE", "PUT", "PATCH", "HEAD"]) {
-      for (const url of [BREVO_LIST_URL, BREVO_MESSAGE_ID_LIST_URL, BREVO_EVENTS_URL, BREVO_DETAIL_URL]) {
+      for (const url of [BREVO_LIST_URL, BREVO_MESSAGE_ID_LIST_URL, BREVO_EVENTS_URL, BREVO_MESSAGE_ID_EVENTS_URL, BREVO_DETAIL_URL]) {
         expect(() => buildPreviewSafeBrevoRequestInit(url, { method }, env), `${method} ${url}`).toThrow(/method is not approved/);
       }
     }
@@ -146,6 +158,14 @@ describe("Preview Brevo egress safety", () => {
     expect(() => buildPreviewSafeBrevoRequestInit(BREVO_EVENTS_URL.replace("days=1", "days=30"), { method: "GET" }, env)).toThrow(/endpoint is not approved/);
     expect(() => buildPreviewSafeBrevoRequestInit(BREVO_EVENTS_URL.replace("limit=50", "limit=100"), { method: "GET" }, env)).toThrow(/endpoint is not approved/);
     expect(() => buildPreviewSafeBrevoRequestInit(`${BREVO_EVENTS_URL}&offset=1`, { method: "GET" }, env)).toThrow(/endpoint is not approved/);
+    expect(() => buildPreviewSafeBrevoRequestInit(`${BREVO_MESSAGE_ID_EVENTS_URL}&email=preview-inbox%40example.com`, { method: "GET" }, env)).toThrow(/endpoint is not approved/);
+    expect(() => buildPreviewSafeBrevoRequestInit(`${BREVO_MESSAGE_ID_EVENTS_URL}&event=delivered`, { method: "GET" }, env)).toThrow(/endpoint is not approved/);
+    expect(() => buildPreviewSafeBrevoRequestInit(BREVO_MESSAGE_ID_EVENTS_URL.replace("days=1", "days=30"), { method: "GET" }, env)).toThrow(/endpoint is not approved/);
+    expect(() => buildPreviewSafeBrevoRequestInit(BREVO_MESSAGE_ID_EVENTS_URL.replace("limit=50", "limit=100"), { method: "GET" }, env)).toThrow(/endpoint is not approved/);
+    expect(() => buildPreviewSafeBrevoRequestInit(BREVO_MESSAGE_ID_EVENTS_URL.replace("sort=desc", "sort=asc"), { method: "GET" }, env)).toThrow(/endpoint is not approved/);
+    expect(() => buildPreviewSafeBrevoRequestInit(`${BREVO_MESSAGE_ID_EVENTS_URL}&offset=1`, { method: "GET" }, env)).toThrow(/endpoint is not approved/);
+    expect(() => buildPreviewSafeBrevoRequestInit(`${BREVO_MESSAGE_ID_EVENTS_URL}&messageId=%3Cduplicate%40smtp-relay.mailin.fr%3E`, { method: "GET" }, env)).toThrow(/endpoint is not approved/);
+    expect(() => buildPreviewSafeBrevoRequestInit("https://api.brevo.com/v3/smtp/statistics/events?messageId=not-a-brevo-message-id&days=1&limit=50&sort=desc", { method: "GET" }, env)).toThrow(/endpoint is not approved/);
     expect(() => buildPreviewSafeBrevoRequestInit("https://api.brevo.com/v3/smtp/emails/123e4567-e89b-12d3-a456-426614174000?extra=1", { method: "GET" }, env)).toThrow(/endpoint is not approved/);
     expect(() => buildPreviewSafeBrevoRequestInit("https://api.brevo.com/v3/smtp/emails/not%2Fa-valid-uuid", { method: "GET" }, env)).toThrow(/endpoint is not approved/);
   });
@@ -163,6 +183,7 @@ describe("Preview Brevo egress safety", () => {
     expect(() => buildPreviewSafeBrevoRequestInit(BREVO_LIST_URL, { method: "GET" }, env)).toThrow(/dedicated Brevo key/);
     expect(() => buildPreviewSafeBrevoRequestInit(BREVO_MESSAGE_ID_LIST_URL, { method: "GET" }, env)).toThrow(/dedicated Brevo key/);
     expect(() => buildPreviewSafeBrevoRequestInit(BREVO_EVENTS_URL, { method: "GET" }, env)).toThrow(/dedicated Brevo key/);
+    expect(() => buildPreviewSafeBrevoRequestInit(BREVO_MESSAGE_ID_EVENTS_URL, { method: "GET" }, env)).toThrow(/dedicated Brevo key/);
   });
 
   it("blocks Preview Brevo delivery when dedicated safe configuration is missing", () => {
@@ -210,6 +231,32 @@ describe("Preview Brevo egress safety", () => {
     expect(body.to).toEqual([{ email: "preview-inbox@example.com", name: "Proffera Preview" }]);
     expect(body).not.toHaveProperty("cc");
     expect(body).not.toHaveProperty("bcc");
+  });
+
+  it("allows the strict message-ID event query through the registered Preview fetch guard", async () => {
+    process.env.VERCEL_ENV = "preview";
+    process.env.VERCEL_GIT_COMMIT_REF = PREVIEW_MARKETPLACE_E2E_BRANCH;
+    process.env.BREVO_API_KEY = "production-key";
+    process.env.PROFFERA_PREVIEW_BREVO_API_KEY = "preview-key";
+    process.env.PROFFERA_PREVIEW_EMAIL_RECIPIENT = "preview-inbox@example.com";
+
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({ events: [] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await register();
+    await globalThis.fetch(BREVO_MESSAGE_ID_EVENTS_URL, {
+      method: "GET",
+      headers: { "api-key": "wrong-key" },
+      redirect: "error",
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [forwardedInput, forwardedInit] = fetchMock.mock.calls[0];
+    expect(String(forwardedInput)).toBe(BREVO_MESSAGE_ID_EVENTS_URL);
+    expect(forwardedInit).toMatchObject({ method: "GET", redirect: "error" });
+    const headers = new Headers(forwardedInit?.headers);
+    expect(headers.get("api-key")).toBe("preview-key");
+    expect(headers.get("Accept")).toBe("application/json");
   });
 
   it("does not touch unrelated Preview network requests", () => {
