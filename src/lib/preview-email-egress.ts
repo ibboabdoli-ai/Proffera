@@ -7,8 +7,10 @@ import { PREVIEW_MARKETPLACE_E2E_BRANCH } from "@/lib/preview-marketplace-e2e-co
 const BREVO_API_ORIGIN = "https://api.brevo.com";
 const BREVO_TRANSACTIONAL_EMAIL_URL = `${BREVO_API_ORIGIN}/v3/smtp/email`;
 const BREVO_TRANSACTIONAL_EMAIL_LIST_PATH = "/v3/smtp/emails";
+const BREVO_TRANSACTIONAL_EMAIL_EVENTS_PATH = "/v3/smtp/statistics/events";
 const BREVO_EMAIL_DETAIL_PATH = /^\/v3\/smtp\/emails\/([A-Za-z0-9_-]{8,128})$/;
 const BREVO_EMAIL_RECIPIENT_LIST_QUERY_KEYS = ["email", "startDate", "endDate", "sort", "limit"] as const;
+const BREVO_EMAIL_EVENT_QUERY_KEYS = ["email", "event", "days", "sort", "limit"] as const;
 
 type BrevoPayload = Record<string, unknown> & {
   to?: unknown;
@@ -64,23 +66,30 @@ function isExactMarketplaceE2ePreview(env: NodeJS.ProcessEnv) {
   return env.VERCEL_GIT_COMMIT_REF === PREVIEW_MARKETPLACE_E2E_BRANCH;
 }
 
-function validRecipientListReaderUrl(url: URL) {
-  const entries = [...url.searchParams.entries()];
-  if (entries.length !== BREVO_EMAIL_RECIPIENT_LIST_QUERY_KEYS.length) return false;
+function validEmail(value: string) {
+  return value.length > 3
+    && value.length <= 254
+    && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
 
-  for (const key of BREVO_EMAIL_RECIPIENT_LIST_QUERY_KEYS) {
+function hasExactQueryKeys(url: URL, keys: readonly string[]) {
+  const entries = [...url.searchParams.entries()];
+  if (entries.length !== keys.length) return false;
+  for (const key of keys) {
     if (url.searchParams.getAll(key).length !== 1) return false;
   }
-  if (entries.some(([key]) => !(BREVO_EMAIL_RECIPIENT_LIST_QUERY_KEYS as readonly string[]).includes(key))) return false;
+  return !entries.some(([key]) => !keys.includes(key));
+}
+
+function validRecipientListReaderUrl(url: URL) {
+  if (!hasExactQueryKeys(url, BREVO_EMAIL_RECIPIENT_LIST_QUERY_KEYS)) return false;
 
   const email = url.searchParams.get("email")?.trim() ?? "";
   const startDate = url.searchParams.get("startDate") ?? "";
   const endDate = url.searchParams.get("endDate") ?? "";
   const sort = url.searchParams.get("sort") ?? "";
   const limit = url.searchParams.get("limit") ?? "";
-  return email.length > 3
-    && email.length <= 254
-    && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+  return validEmail(email)
     && /^\d{4}-\d{2}-\d{2}$/.test(startDate)
     && /^\d{4}-\d{2}-\d{2}$/.test(endDate)
     && sort === "desc"
@@ -99,6 +108,17 @@ function validMessageIdListReaderUrl(url: URL) {
 function validListReaderUrl(url: URL) {
   if (url.pathname !== BREVO_TRANSACTIONAL_EMAIL_LIST_PATH) return false;
   return validRecipientListReaderUrl(url) || validMessageIdListReaderUrl(url);
+}
+
+function validEventReaderUrl(url: URL) {
+  if (url.pathname !== BREVO_TRANSACTIONAL_EMAIL_EVENTS_PATH) return false;
+  if (!hasExactQueryKeys(url, BREVO_EMAIL_EVENT_QUERY_KEYS)) return false;
+  const email = url.searchParams.get("email")?.trim() ?? "";
+  return validEmail(email)
+    && url.searchParams.get("event") === "delivered"
+    && url.searchParams.get("days") === "1"
+    && url.searchParams.get("sort") === "desc"
+    && url.searchParams.get("limit") === "50";
 }
 
 function validDetailReaderUrl(url: URL) {
@@ -170,7 +190,7 @@ export function buildPreviewSafeBrevoRequestInit(
     };
   }
 
-  const approvedReaderPath = validListReaderUrl(url) || validDetailReaderUrl(url);
+  const approvedReaderPath = validListReaderUrl(url) || validEventReaderUrl(url) || validDetailReaderUrl(url);
   if (approvedReaderPath) {
     if (!isExactMarketplaceE2ePreview(env)) {
       throw new Error("Preview Brevo request blocked: reader endpoint is limited to Marketplace E2E Preview.");
