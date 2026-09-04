@@ -45,7 +45,7 @@ describe("Preview Marketplace email reader boundary", () => {
   });
 
   it("emits only bounded non-secret pending diagnostics", () => {
-    expect(source).toContain('let lookupMode = marker.providerMessageId ? "message_id" : "recipient"');
+    expect(source).toContain('let lookupMode: EmailLookupMode = marker.providerMessageId ? "message_id" : "recipient"');
     expect(source).toContain("providerMessageIdPresent: Boolean(marker.providerMessageId)");
     expect(source).toContain("candidateCount: candidates.length");
     expect(source).toContain("markerMatchedCount");
