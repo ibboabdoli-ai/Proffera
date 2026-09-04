@@ -142,7 +142,7 @@ describe("Preview Marketplace email reader route", () => {
     });
   });
 
-  it("uses delivered event message IDs when the review transaction list has not indexed the message", async () => {
+  it("uses delivered event message IDs after unrelated recent sink candidates do not match", async () => {
     mocks.resolveEmailLink.mockResolvedValue("https://preview.example.vercel.app/review/marketplace/token");
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
     const marker = `Preview E2E Rör ${suiteRunId.slice(0, 8)} AB`;
@@ -152,11 +152,17 @@ describe("Preview Marketplace email reader route", () => {
       .mockResolvedValueOnce(jsonResponse({
         count: 1,
         transactionalEmails: [{
-          uuid: "older-sink-mail",
+          uuid: "unrelated-recent-sink-mail",
           email: sink,
-          date: "2026-09-03T11:58:00.000Z",
-          subject: "older Preview mail",
+          date: "2026-09-03T12:00:05.000Z",
+          subject: "unrelated Preview mail",
         }],
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        email: sink,
+        subject: "unrelated Preview mail",
+        body: "another E2E message in the shared sink",
+        events: [{ name: "delivered" }],
       }))
       .mockResolvedValueOnce(jsonResponse({
         events: [{
@@ -189,12 +195,12 @@ describe("Preview Marketplace email reader route", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(fetchMock).toHaveBeenCalledTimes(5);
-    const eventUrl = new URL(String(fetchMock.mock.calls[1]?.[0]));
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+    const eventUrl = new URL(String(fetchMock.mock.calls[2]?.[0]));
     expect(eventUrl.pathname).toBe("/v3/smtp/statistics/events");
     expect(eventUrl.searchParams.get("email")).toBe(sink);
     expect(eventUrl.searchParams.get("event")).toBe("delivered");
-    const exactUrl = new URL(String(fetchMock.mock.calls[2]?.[0]));
+    const exactUrl = new URL(String(fetchMock.mock.calls[3]?.[0]));
     expect(exactUrl.searchParams.get("messageId")).toBe(messageId);
     expect(body).toMatchObject({
       ok: true,
@@ -301,7 +307,8 @@ describe("Preview Marketplace email reader route", () => {
         subject: "unrelated",
         body: "no matching marker here",
         events: [],
-      }));
+      }))
+      .mockResolvedValueOnce(jsonResponse({ events: [] }));
     vi.stubGlobal("fetch", fetchMock);
 
     const response = await GET(emailRequest("review"));

@@ -309,83 +309,84 @@ export async function GET(request: Request) {
       ? candidates.slice(0, 6)
       : candidates.filter((item) => likelyMarkerCandidate(item, marker)).slice(0, 6);
   let eventMessageIdCount = 0;
-
-  // The review sender returns a Brevo message ID but the Verified Review schema
-  // intentionally does not persist provider delivery metadata. If the normal
-  // safe-sink transaction list has not indexed the just-delivered review yet,
-  // use Brevo's delivered-event report to discover only recent sink message IDs,
-  // then inspect those exact transactions with the same marker/link safeguards.
-  if (kind === "review" && marker.reviewDeliveryState === "sent" && recent.length === 0) {
-    const eventReport = await listDeliveredTransactionalEvents(sink, apiKey);
-    if (eventReport) {
-      const eventMessageIds = recentDeliveredMessageIds(eventReport, marker);
-      eventMessageIdCount = eventMessageIds.length;
-      const eventCandidates: BrevoEmailListItem[] = [];
-      for (const [index, messageId] of eventMessageIds.entries()) {
-        if (index > 0) await delay(650);
-        const exactList = await listTransactionalEmailByMessageId(messageId, apiKey);
-        if (!exactList) {
-          return NextResponse.json({ ok: false, error: "provider" }, { status: 502 });
-        }
-        const item = exactList.transactionalEmails?.[0];
-        if (item) eventCandidates.push(item);
-      }
-      if (eventCandidates.length > 0) {
-        lookupMode = "recipient_then_event_message_id";
-        recent = eventCandidates;
-      }
-    }
-  }
-
   let detailCandidateCount = 0;
   let markerMatchedCount = 0;
   let controlledLinkMatchedCount = 0;
-  for (const [index, item] of recent.entries()) {
-    const uuid = String(item.uuid ?? "").trim();
-    if (!uuid) continue;
-    if (index > 0 && lookupMode !== "message_id") await delay(650);
-    detailCandidateCount += 1;
-    const content = await emailContent(uuid, apiKey);
-    if (!content) continue;
-    const subject = String(content.subject ?? item.subject ?? "");
-    const body = String(content.body ?? "");
-    if (!subject.includes(marker.value) && !body.includes(marker.value)) continue;
-    markerMatchedCount += 1;
-    const link = await resolvePreviewMarketplaceEmailLink({ body, kind, origin });
-    if (!link) continue;
-    controlledLinkMatchedCount += 1;
+  let eventFallbackAttempted = false;
 
-    const originalList = await listTransactionalEmails(original, apiKey);
-    if (!originalList) {
-      return NextResponse.json({ ok: false, error: "provider" }, { status: 502 });
+  while (true) {
+    for (const [index, item] of recent.entries()) {
+      const uuid = String(item.uuid ?? "").trim();
+      if (!uuid) continue;
+      if (index > 0 && lookupMode !== "message_id") await delay(650);
+      detailCandidateCount += 1;
+      const content = await emailContent(uuid, apiKey);
+      if (!content) continue;
+      const subject = String(content.subject ?? item.subject ?? "");
+      const body = String(content.body ?? "");
+      if (!subject.includes(marker.value) && !body.includes(marker.value)) continue;
+      markerMatchedCount += 1;
+      const link = await resolvePreviewMarketplaceEmailLink({ body, kind, origin });
+      if (!link) continue;
+      controlledLinkMatchedCount += 1;
+
+      const originalList = await listTransactionalEmails(original, apiKey);
+      if (!originalList) {
+        return NextResponse.json({ ok: false, error: "provider" }, { status: 502 });
+      }
+      const originalRecipientObserved = Number(
+        originalList.count ?? originalList.transactionalEmails?.length ?? 0,
+      ) > 0;
+      const sinkRecipientMatched = String(content.email ?? item.email ?? "").trim().toLowerCase() === sink;
+      const events = (content.events ?? []).map((event) => String(event.name ?? "")).filter(Boolean);
+      const acceptedByProvider = events.some((event) => ["sent", "delivered", "opened", "click"].includes(event));
+      const delivered = events.includes("delivered") || events.includes("opened") || events.includes("click");
+      console.info("Preview Marketplace E2E email provider match", {
+        kind,
+        lookupMode,
+        providerMessageId: String(item.messageId ?? ""),
+        providerEvents: events,
+        acceptedByProvider,
+        delivered,
+      });
+      return NextResponse.json({
+        ok: true,
+        found: true,
+        kind,
+        link,
+        messageId: String(item.messageId ?? ""),
+        subject,
+        sinkRecipientMatched,
+        originalRecipientObserved,
+        acceptedByProvider,
+        delivered,
+      }, { headers: { "Cache-Control": "no-store" } });
     }
-    const originalRecipientObserved = Number(
-      originalList.count ?? originalList.transactionalEmails?.length ?? 0,
-    ) > 0;
-    const sinkRecipientMatched = String(content.email ?? item.email ?? "").trim().toLowerCase() === sink;
-    const events = (content.events ?? []).map((event) => String(event.name ?? "")).filter(Boolean);
-    const acceptedByProvider = events.some((event) => ["sent", "delivered", "opened", "click"].includes(event));
-    const delivered = events.includes("delivered") || events.includes("opened") || events.includes("click");
-    console.info("Preview Marketplace E2E email provider match", {
-      kind,
-      lookupMode,
-      providerMessageId: String(item.messageId ?? ""),
-      providerEvents: events,
-      acceptedByProvider,
-      delivered,
-    });
-    return NextResponse.json({
-      ok: true,
-      found: true,
-      kind,
-      link,
-      messageId: String(item.messageId ?? ""),
-      subject,
-      sinkRecipientMatched,
-      originalRecipientObserved,
-      acceptedByProvider,
-      delivered,
-    }, { headers: { "Cache-Control": "no-store" } });
+
+    // Review invitations do not persist the Brevo message ID. First exhaust the
+    // normal bounded safe-sink candidates; only then use delivered events to
+    // discover recent message IDs and inspect those exact transactions.
+    if (kind !== "review" || marker.reviewDeliveryState !== "sent" || eventFallbackAttempted) break;
+    eventFallbackAttempted = true;
+    const eventReport = await listDeliveredTransactionalEvents(sink, apiKey);
+    if (!eventReport) break;
+
+    const eventMessageIds = recentDeliveredMessageIds(eventReport, marker);
+    eventMessageIdCount = eventMessageIds.length;
+    const eventCandidates: BrevoEmailListItem[] = [];
+    for (const [index, messageId] of eventMessageIds.entries()) {
+      if (index > 0) await delay(650);
+      const exactList = await listTransactionalEmailByMessageId(messageId, apiKey);
+      if (!exactList) {
+        return NextResponse.json({ ok: false, error: "provider" }, { status: 502 });
+      }
+      const item = exactList.transactionalEmails?.[0];
+      if (item) eventCandidates.push(item);
+    }
+    if (eventCandidates.length === 0) break;
+
+    lookupMode = "recipient_then_event_message_id";
+    recent = eventCandidates;
   }
 
   const diagnostics = {

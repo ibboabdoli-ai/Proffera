@@ -275,7 +275,15 @@ test.describe("isolated Marketplace Preview lifecycle", () => {
       const selectA2 = compareA2.getByRole("button", { name: "Välj denna offert" });
       await expect(selectA1).toBeVisible();
       await expect(selectA2).toBeVisible();
-      await Promise.allSettled([selectA1.click(), selectA2.click()]);
+      await Promise.all([selectA1.click(), selectA2.click()]);
+      await expect.poll(
+        () => new URL(compareA1.url()).searchParams.get("status"),
+        { message: "first concurrent selection reached the server action" },
+      ).toBe("selected");
+      await expect.poll(
+        () => new URL(compareA2.url()).searchParams.get("status"),
+        { message: "second concurrent selection reached the server action" },
+      ).toBe("selected");
 
       const selected = await waitForState(
         request,
