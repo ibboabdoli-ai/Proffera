@@ -10,7 +10,8 @@ const BREVO_TRANSACTIONAL_EMAIL_LIST_PATH = "/v3/smtp/emails";
 const BREVO_TRANSACTIONAL_EMAIL_EVENTS_PATH = "/v3/smtp/statistics/events";
 const BREVO_EMAIL_DETAIL_PATH = /^\/v3\/smtp\/emails\/([A-Za-z0-9_-]{8,128})$/;
 const BREVO_EMAIL_RECIPIENT_LIST_QUERY_KEYS = ["email", "startDate", "endDate", "sort", "limit"] as const;
-const BREVO_EMAIL_EVENT_QUERY_KEYS = ["email", "event", "days", "sort", "limit"] as const;
+const BREVO_EMAIL_RECIPIENT_EVENT_QUERY_KEYS = ["email", "event", "days", "sort", "limit"] as const;
+const BREVO_EMAIL_MESSAGE_ID_EVENT_QUERY_KEYS = ["messageId", "days", "limit", "sort"] as const;
 
 type BrevoPayload = Record<string, unknown> & {
   to?: unknown;
@@ -89,13 +90,17 @@ function validRecipientListReaderUrl(url: URL) {
     && limit === "20";
 }
 
-function validMessageIdListReaderUrl(url: URL) {
-  const entries = [...url.searchParams.entries()];
-  if (entries.length !== 1 || url.searchParams.getAll("messageId").length !== 1) return false;
-  const messageId = url.searchParams.get("messageId")?.trim() ?? "";
+function validBrevoMessageId(value: string | null) {
+  const messageId = value?.trim() ?? "";
   return messageId.length >= 8
     && messageId.length <= 254
     && /^<[^<>\s]{6,250}>$/.test(messageId);
+}
+
+function validMessageIdListReaderUrl(url: URL) {
+  const entries = [...url.searchParams.entries()];
+  if (entries.length !== 1 || url.searchParams.getAll("messageId").length !== 1) return false;
+  return validBrevoMessageId(url.searchParams.get("messageId"));
 }
 
 function validListReaderUrl(url: URL) {
@@ -103,15 +108,17 @@ function validListReaderUrl(url: URL) {
   return validRecipientListReaderUrl(url) || validMessageIdListReaderUrl(url);
 }
 
-function validEventReaderUrl(url: URL) {
-  if (url.pathname !== BREVO_TRANSACTIONAL_EMAIL_EVENTS_PATH) return false;
+function hasExactQueryKeys(url: URL, keys: readonly string[]) {
   const entries = [...url.searchParams.entries()];
-  if (entries.length !== BREVO_EMAIL_EVENT_QUERY_KEYS.length) return false;
-  for (const key of BREVO_EMAIL_EVENT_QUERY_KEYS) {
+  if (entries.length !== keys.length) return false;
+  for (const key of keys) {
     if (url.searchParams.getAll(key).length !== 1) return false;
   }
-  if (entries.some(([key]) => !(BREVO_EMAIL_EVENT_QUERY_KEYS as readonly string[]).includes(key))) return false;
+  return !entries.some(([key]) => !keys.includes(key));
+}
 
+function validRecipientEventReaderUrl(url: URL) {
+  if (!hasExactQueryKeys(url, BREVO_EMAIL_RECIPIENT_EVENT_QUERY_KEYS)) return false;
   const email = url.searchParams.get("email")?.trim() ?? "";
   return email.length > 3
     && email.length <= 254
@@ -120,6 +127,19 @@ function validEventReaderUrl(url: URL) {
     && url.searchParams.get("days") === "1"
     && url.searchParams.get("sort") === "desc"
     && url.searchParams.get("limit") === "50";
+}
+
+function validMessageIdEventReaderUrl(url: URL) {
+  if (!hasExactQueryKeys(url, BREVO_EMAIL_MESSAGE_ID_EVENT_QUERY_KEYS)) return false;
+  return validBrevoMessageId(url.searchParams.get("messageId"))
+    && url.searchParams.get("days") === "1"
+    && url.searchParams.get("sort") === "desc"
+    && url.searchParams.get("limit") === "50";
+}
+
+function validEventReaderUrl(url: URL) {
+  if (url.pathname !== BREVO_TRANSACTIONAL_EMAIL_EVENTS_PATH) return false;
+  return validRecipientEventReaderUrl(url) || validMessageIdEventReaderUrl(url);
 }
 
 function validDetailReaderUrl(url: URL) {
