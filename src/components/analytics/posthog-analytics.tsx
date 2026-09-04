@@ -11,11 +11,11 @@ import {
   readAnalyticsConsent,
   sanitizeAnalyticsPathname,
   sanitizePageUrl,
-  sanitizePostHogEvent,
   shouldCapturePageview,
   type AnalyticsConsentState,
   type PostHogPublicConfig,
 } from "@/lib/analytics/posthog-privacy";
+import { sanitizePostHogEvent } from "@/lib/analytics/posthog-send-boundary";
 
 type PostHogClient = typeof import("posthog-js")["default"];
 
