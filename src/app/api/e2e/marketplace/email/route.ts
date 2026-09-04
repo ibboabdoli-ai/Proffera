@@ -324,7 +324,10 @@ export async function GET(request: Request) {
       for (const [index, messageId] of eventMessageIds.entries()) {
         if (index > 0) await delay(650);
         const exactList = await listTransactionalEmailByMessageId(messageId, apiKey);
-        const item = exactList?.transactionalEmails?.[0];
+        if (!exactList) {
+          return NextResponse.json({ ok: false, error: "provider" }, { status: 502 });
+        }
+        const item = exactList.transactionalEmails?.[0];
         if (item) eventCandidates.push(item);
       }
       if (eventCandidates.length > 0) {
@@ -382,7 +385,7 @@ export async function GET(request: Request) {
       originalRecipientObserved,
       acceptedByProvider,
       delivered,
-    });
+    }, { headers: { "Cache-Control": "no-store" } });
   }
 
   const diagnostics = {
@@ -405,5 +408,5 @@ export async function GET(request: Request) {
     sinkRecipientMatched: false,
     originalRecipientObserved: null,
     diagnostics,
-  });
+  }, { headers: { "Cache-Control": "no-store" } });
 }
