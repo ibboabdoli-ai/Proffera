@@ -66,30 +66,23 @@ function isExactMarketplaceE2ePreview(env: NodeJS.ProcessEnv) {
   return env.VERCEL_GIT_COMMIT_REF === PREVIEW_MARKETPLACE_E2E_BRANCH;
 }
 
-function validEmail(value: string) {
-  return value.length > 3
-    && value.length <= 254
-    && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
-}
-
-function hasExactQueryKeys(url: URL, keys: readonly string[]) {
+function validRecipientListReaderUrl(url: URL) {
   const entries = [...url.searchParams.entries()];
-  if (entries.length !== keys.length) return false;
-  for (const key of keys) {
+  if (entries.length !== BREVO_EMAIL_RECIPIENT_LIST_QUERY_KEYS.length) return false;
+
+  for (const key of BREVO_EMAIL_RECIPIENT_LIST_QUERY_KEYS) {
     if (url.searchParams.getAll(key).length !== 1) return false;
   }
-  return !entries.some(([key]) => !keys.includes(key));
-}
-
-function validRecipientListReaderUrl(url: URL) {
-  if (!hasExactQueryKeys(url, BREVO_EMAIL_RECIPIENT_LIST_QUERY_KEYS)) return false;
+  if (entries.some(([key]) => !(BREVO_EMAIL_RECIPIENT_LIST_QUERY_KEYS as readonly string[]).includes(key))) return false;
 
   const email = url.searchParams.get("email")?.trim() ?? "";
   const startDate = url.searchParams.get("startDate") ?? "";
   const endDate = url.searchParams.get("endDate") ?? "";
   const sort = url.searchParams.get("sort") ?? "";
   const limit = url.searchParams.get("limit") ?? "";
-  return validEmail(email)
+  return email.length > 3
+    && email.length <= 254
+    && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
     && /^\d{4}-\d{2}-\d{2}$/.test(startDate)
     && /^\d{4}-\d{2}-\d{2}$/.test(endDate)
     && sort === "desc"
@@ -112,9 +105,17 @@ function validListReaderUrl(url: URL) {
 
 function validEventReaderUrl(url: URL) {
   if (url.pathname !== BREVO_TRANSACTIONAL_EMAIL_EVENTS_PATH) return false;
-  if (!hasExactQueryKeys(url, BREVO_EMAIL_EVENT_QUERY_KEYS)) return false;
+  const entries = [...url.searchParams.entries()];
+  if (entries.length !== BREVO_EMAIL_EVENT_QUERY_KEYS.length) return false;
+  for (const key of BREVO_EMAIL_EVENT_QUERY_KEYS) {
+    if (url.searchParams.getAll(key).length !== 1) return false;
+  }
+  if (entries.some(([key]) => !(BREVO_EMAIL_EVENT_QUERY_KEYS as readonly string[]).includes(key))) return false;
+
   const email = url.searchParams.get("email")?.trim() ?? "";
-  return validEmail(email)
+  return email.length > 3
+    && email.length <= 254
+    && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
     && url.searchParams.get("event") === "delivered"
     && url.searchParams.get("days") === "1"
     && url.searchParams.get("sort") === "desc"
