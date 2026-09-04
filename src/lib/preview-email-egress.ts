@@ -162,6 +162,7 @@ function buildPreviewBrevoReaderInit(
     ...init,
     method: "GET",
     headers,
+    redirect: "error",
   } satisfies RequestInit;
 }
 
