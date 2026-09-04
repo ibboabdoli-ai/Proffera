@@ -91,6 +91,7 @@ async function fetchEvents(messageId: string, apiKey: string): Promise<BrevoEven
       method: "GET",
       headers: { "api-key": apiKey, Accept: "application/json" },
       cache: "no-store",
+      redirect: "error",
       signal: AbortSignal.timeout(10_000),
     });
     if (!response.ok) return null;
