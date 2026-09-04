@@ -118,14 +118,15 @@ describe("Preview Marketplace email reader route", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(new Response(null, { status: 429, headers: { "retry-after": "0" } }))
-      .mockResolvedValueOnce(jsonResponse({ count: 0, transactionalEmails: [] }));
+      .mockResolvedValueOnce(jsonResponse({ count: 0, transactionalEmails: [] }))
+      .mockResolvedValueOnce(jsonResponse({ events: [] }));
     vi.stubGlobal("fetch", fetchMock);
 
     const response = await GET(emailRequest("review"));
     const body = await response.json() as Record<string, unknown>;
 
     expect(response.status).toBe(200);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(body).toMatchObject({
       ok: true,
       found: false,
@@ -134,9 +135,86 @@ describe("Preview Marketplace email reader route", () => {
         lookupMode: "recipient",
         providerMessageIdPresent: false,
         reviewDeliveryState: "sent",
+        eventMessageIdCount: 0,
         candidateCount: 0,
       },
     });
+  });
+
+  it("uses delivered event message IDs when the review transaction list has not indexed the message", async () => {
+    mocks.resolveEmailLink.mockResolvedValue("https://preview.example.vercel.app/review/marketplace/token");
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const marker = `Preview E2E Rör ${suiteRunId.slice(0, 8)} AB`;
+    const messageId = "<review-message@smtp-relay.mailin.fr>";
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({
+        count: 1,
+        transactionalEmails: [{
+          uuid: "older-sink-mail",
+          email: sink,
+          date: "2026-09-03T11:58:00.000Z",
+          subject: "older Preview mail",
+        }],
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        events: [{
+          date: "2026-09-03T12:00:10.000Z",
+          event: "delivered",
+          messageId,
+        }],
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        count: 1,
+        transactionalEmails: [{
+          uuid: "review-event-mail",
+          email: sink,
+          date: "2026-09-03T12:00:10.000Z",
+          messageId,
+          subject: "opaque-list-subject",
+        }],
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        email: sink,
+        subject: `Hur gick det? – ${marker}`,
+        body: `Dela din upplevelse för ${marker}. https://preview.example.vercel.app/review/marketplace/token`,
+        events: [{ name: "sent" }, { name: "delivered" }],
+      }))
+      .mockResolvedValueOnce(jsonResponse({ count: 0, transactionalEmails: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await GET(emailRequest("review"));
+    const body = await response.json() as Record<string, unknown>;
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    const eventUrl = new URL(String(fetchMock.mock.calls[1]?.[0]));
+    expect(eventUrl.pathname).toBe("/v3/smtp/statistics/events");
+    expect(eventUrl.searchParams.get("email")).toBe(sink);
+    expect(eventUrl.searchParams.get("event")).toBe("delivered");
+    const exactUrl = new URL(String(fetchMock.mock.calls[2]?.[0]));
+    expect(exactUrl.searchParams.get("messageId")).toBe(messageId);
+    expect(body).toMatchObject({
+      ok: true,
+      found: true,
+      kind: "review",
+      messageId,
+      sinkRecipientMatched: true,
+      originalRecipientObserved: false,
+      acceptedByProvider: true,
+      delivered: true,
+      link: "https://preview.example.vercel.app/review/marketplace/token",
+    });
+    expect(info).toHaveBeenCalledWith(
+      "Preview Marketplace E2E email provider match",
+      expect.objectContaining({
+        kind: "review",
+        lookupMode: "recipient_then_event_message_id",
+        providerMessageId: messageId,
+        delivered: true,
+      }),
+    );
+    expect(JSON.stringify(info.mock.calls)).not.toContain("preview-key");
   });
 
   it("falls back from a not-yet-indexed provider message ID to the safe sink recipient scan", async () => {
@@ -195,6 +273,7 @@ describe("Preview Marketplace email reader route", () => {
     expect(response.status).toBe(200);
     expect(body.diagnostics).toMatchObject({
       reviewDeliveryState: "sent",
+      eventMessageIdCount: 0,
       candidateCount: 1,
       selectedCandidateCount: 1,
       detailCandidateCount: 1,
