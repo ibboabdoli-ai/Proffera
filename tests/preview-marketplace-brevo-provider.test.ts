@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
+import { register } from "@/instrumentation";
 import { inspectPreviewMarketplaceBrevoTransaction } from "@/lib/preview-marketplace-brevo-provider";
 
 const branch = "work/proffera-marketplace-browser-lifecycle-e2e";
@@ -17,11 +18,12 @@ function previewEnv() {
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
 describe("Preview Marketplace Brevo provider transaction probe", () => {
-  it("reads exact message-id events and reports delivered without exposing recipient data", async () => {
+  it("reads exact message-id events through the registered Preview egress guard", async () => {
     previewEnv();
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       events: [
@@ -30,6 +32,7 @@ describe("Preview Marketplace Brevo provider transaction probe", () => {
       ],
     }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
+    await register();
 
     await expect(inspectPreviewMarketplaceBrevoTransaction(messageId)).resolves.toEqual({
       status: "delivered",
@@ -42,6 +45,39 @@ describe("Preview Marketplace Brevo provider transaction probe", () => {
     expect(url.pathname).toBe("/v3/smtp/statistics/events");
     expect(url.searchParams.get("messageId")).toBe(messageId);
     expect(url.searchParams.get("days")).toBe("1");
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
+    expect(init).toMatchObject({ method: "GET", cache: "no-store", redirect: "error" });
+    expect(new Headers(init?.headers).get("api-key")).toBe("preview-key");
+  });
+
+  it("retries a nonterminal observation and later reports delivered", async () => {
+    previewEnv();
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        events: [{ event: "sent", messageId }],
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        events: [{ event: "delivered", messageId }],
+      }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const inspection = inspectPreviewMarketplaceBrevoTransaction(messageId);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(749);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await expect(inspection).resolves.toEqual({
+      status: "delivered",
+      events: ["delivered"],
+      reason: null,
+    });
+    expect(JSON.stringify(await inspection)).not.toContain("@");
   });
 
   it("reports a blocked provider result and redacts email-like text from the reason", async () => {
