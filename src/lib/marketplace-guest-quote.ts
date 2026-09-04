@@ -10,7 +10,10 @@ import {
   suppressMarketplaceGuestRecipientIdentity,
 } from "@/lib/marketplace-guest-opt-out-core";
 import { isQuoteRequestOpenForMatchingOrDelivery } from "@/lib/quote-request-lifecycle";
-import { sendMarketplaceGuestInvitationEmail } from "@/features/email/marketplace-guest-invitation-email";
+import {
+  marketplaceGuestInvitationEmailConfigured,
+  sendMarketplaceGuestInvitationEmail,
+} from "@/features/email/marketplace-guest-invitation-email";
 
 export { normalizeMarketplaceRecipientEmail } from "@/lib/marketplace-guest-opt-out-core";
 
@@ -371,7 +374,7 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
   // Missing provider configuration is a definite pre-provider failure. Record it
   // before crossing the durable sending -> pending provider-claim boundary so it
   // stays safely retryable after configuration is fixed.
-  if (!process.env.BREVO_API_KEY || !process.env.LEAD_FROM_EMAIL) {
+  if (!marketplaceGuestInvitationEmailConfigured()) {
     try {
       await sql`
         update marketplace_quote_invitations
@@ -541,26 +544,31 @@ export async function sendMarketplaceGuestQuoteInvitation(input: {
     console.error("Marketplace guest invitation was delivered but sent status update failed", { invitationId, error });
   }
 
-  try {
-    await sql`
-      insert into admin_audit_logs (
-        admin_user_id, action, reason, new_value
-      ) values (
-        ${input.adminUserId},
-        'marketplace.guest_quote_invited',
-        'Quote Admin sent a guest marketplace invitation to an unclaimed company profile',
-        ${JSON.stringify({
-          invitation_id: invitationId,
-          quote_request_id: input.quoteRequestId,
-          profile_id: input.profileId,
-          recipient_email: recipientEmail,
-          wave,
-          sent_status_recorded: sentStatusRecorded,
-        })}::jsonb
-      )
-    `;
-  } catch (error) {
-    console.error("Marketplace guest invitation was delivered but audit logging failed", { invitationId, error });
+  // admin_audit_logs is intentionally FK-scoped to real authenticated users.
+  // Automated Marketplace actors stay traceable on marketplace_quote_invitations.created_by_admin_user_id;
+  // never fabricate a user row or weaken the audit FK merely to log a system dispatch.
+  if (!input.adminUserId.trim().startsWith("system:")) {
+    try {
+      await sql`
+        insert into admin_audit_logs (
+          admin_user_id, action, reason, new_value
+        ) values (
+          ${input.adminUserId},
+          'marketplace.guest_quote_invited',
+          'Quote Admin sent a guest marketplace invitation to an unclaimed company profile',
+          ${JSON.stringify({
+            invitation_id: invitationId,
+            quote_request_id: input.quoteRequestId,
+            profile_id: input.profileId,
+            recipient_email: recipientEmail,
+            wave,
+            sent_status_recorded: sentStatusRecorded,
+          })}::jsonb
+        )
+      `;
+    } catch (error) {
+      console.error("Marketplace guest invitation was delivered but audit logging failed", { invitationId, error });
+    }
   }
 
   return { ok: true as const, invitationId };

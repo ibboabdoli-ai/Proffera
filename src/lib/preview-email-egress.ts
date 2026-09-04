@@ -2,9 +2,16 @@ import {
   resolveBrevoApiKey,
   resolvePreviewEmailRecipient,
 } from "@/lib/email-runtime-config";
+import { PREVIEW_MARKETPLACE_E2E_BRANCH } from "@/lib/preview-marketplace-e2e-constants";
 
 const BREVO_API_ORIGIN = "https://api.brevo.com";
 const BREVO_TRANSACTIONAL_EMAIL_URL = `${BREVO_API_ORIGIN}/v3/smtp/email`;
+const BREVO_TRANSACTIONAL_EMAIL_LIST_PATH = "/v3/smtp/emails";
+const BREVO_TRANSACTIONAL_EMAIL_EVENTS_PATH = "/v3/smtp/statistics/events";
+const BREVO_EMAIL_DETAIL_PATH = /^\/v3\/smtp\/emails\/([A-Za-z0-9_-]{8,128})$/;
+const BREVO_EMAIL_RECIPIENT_LIST_QUERY_KEYS = ["email", "startDate", "endDate", "sort", "limit"] as const;
+const BREVO_EMAIL_RECIPIENT_EVENT_QUERY_KEYS = ["email", "event", "days", "sort", "limit"] as const;
+const BREVO_EMAIL_MESSAGE_ID_EVENT_QUERY_KEYS = ["messageId", "days", "limit", "sort"] as const;
 
 type BrevoPayload = Record<string, unknown> & {
   to?: unknown;
@@ -16,6 +23,17 @@ function requestUrl(input: RequestInfo | URL) {
   if (typeof input === "string") return input;
   if (input instanceof URL) return input.toString();
   return input.url;
+}
+
+function requestMethod(input: RequestInfo | URL, init: RequestInit | undefined) {
+  const method = init?.method ?? (typeof Request !== "undefined" && input instanceof Request ? input.method : "GET");
+  return String(method || "GET").trim().toUpperCase();
+}
+
+function requestHeaders(input: RequestInfo | URL, init: RequestInit | undefined) {
+  if (init?.headers !== undefined) return new Headers(init.headers);
+  if (typeof Request !== "undefined" && input instanceof Request) return new Headers(input.headers);
+  return new Headers();
 }
 
 function parseRequestUrl(input: RequestInfo | URL) {
@@ -45,6 +63,109 @@ function parseBrevoPayload(body: BodyInit | null | undefined): BrevoPayload {
   return payload as BrevoPayload;
 }
 
+function isExactMarketplaceE2ePreview(env: NodeJS.ProcessEnv) {
+  return env.VERCEL_GIT_COMMIT_REF === PREVIEW_MARKETPLACE_E2E_BRANCH;
+}
+
+function validRecipientListReaderUrl(url: URL) {
+  const entries = [...url.searchParams.entries()];
+  if (entries.length !== BREVO_EMAIL_RECIPIENT_LIST_QUERY_KEYS.length) return false;
+
+  for (const key of BREVO_EMAIL_RECIPIENT_LIST_QUERY_KEYS) {
+    if (url.searchParams.getAll(key).length !== 1) return false;
+  }
+  if (entries.some(([key]) => !(BREVO_EMAIL_RECIPIENT_LIST_QUERY_KEYS as readonly string[]).includes(key))) return false;
+
+  const email = url.searchParams.get("email")?.trim() ?? "";
+  const startDate = url.searchParams.get("startDate") ?? "";
+  const endDate = url.searchParams.get("endDate") ?? "";
+  const sort = url.searchParams.get("sort") ?? "";
+  const limit = url.searchParams.get("limit") ?? "";
+  return email.length > 3
+    && email.length <= 254
+    && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+    && /^\d{4}-\d{2}-\d{2}$/.test(startDate)
+    && /^\d{4}-\d{2}-\d{2}$/.test(endDate)
+    && sort === "desc"
+    && limit === "20";
+}
+
+function validBrevoMessageId(value: string | null) {
+  const messageId = value?.trim() ?? "";
+  return messageId.length >= 8
+    && messageId.length <= 254
+    && /^<[^<>\s]{6,250}>$/.test(messageId);
+}
+
+function validMessageIdListReaderUrl(url: URL) {
+  const entries = [...url.searchParams.entries()];
+  if (entries.length !== 1 || url.searchParams.getAll("messageId").length !== 1) return false;
+  return validBrevoMessageId(url.searchParams.get("messageId"));
+}
+
+function validListReaderUrl(url: URL) {
+  if (url.pathname !== BREVO_TRANSACTIONAL_EMAIL_LIST_PATH) return false;
+  return validRecipientListReaderUrl(url) || validMessageIdListReaderUrl(url);
+}
+
+function hasExactQueryKeys(url: URL, keys: readonly string[]) {
+  const entries = [...url.searchParams.entries()];
+  if (entries.length !== keys.length) return false;
+  for (const key of keys) {
+    if (url.searchParams.getAll(key).length !== 1) return false;
+  }
+  return !entries.some(([key]) => !keys.includes(key));
+}
+
+function validRecipientEventReaderUrl(url: URL) {
+  if (!hasExactQueryKeys(url, BREVO_EMAIL_RECIPIENT_EVENT_QUERY_KEYS)) return false;
+  const email = url.searchParams.get("email")?.trim() ?? "";
+  return email.length > 3
+    && email.length <= 254
+    && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+    && url.searchParams.get("event") === "delivered"
+    && url.searchParams.get("days") === "1"
+    && url.searchParams.get("sort") === "desc"
+    && url.searchParams.get("limit") === "50";
+}
+
+function validMessageIdEventReaderUrl(url: URL) {
+  if (!hasExactQueryKeys(url, BREVO_EMAIL_MESSAGE_ID_EVENT_QUERY_KEYS)) return false;
+  return validBrevoMessageId(url.searchParams.get("messageId"))
+    && url.searchParams.get("days") === "1"
+    && url.searchParams.get("sort") === "desc"
+    && url.searchParams.get("limit") === "50";
+}
+
+function validEventReaderUrl(url: URL) {
+  if (url.pathname !== BREVO_TRANSACTIONAL_EMAIL_EVENTS_PATH) return false;
+  return validRecipientEventReaderUrl(url) || validMessageIdEventReaderUrl(url);
+}
+
+function validDetailReaderUrl(url: URL) {
+  return !url.search && BREVO_EMAIL_DETAIL_PATH.test(url.pathname);
+}
+
+function buildPreviewBrevoReaderInit(
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+  env: NodeJS.ProcessEnv,
+) {
+  const apiKey = resolveBrevoApiKey(env);
+  if (!apiKey) {
+    throw new Error("Preview email blocked: dedicated Brevo key is required.");
+  }
+  const headers = requestHeaders(input, init);
+  headers.set("api-key", apiKey);
+  headers.set("Accept", "application/json");
+  return {
+    ...init,
+    method: "GET",
+    headers,
+    redirect: "error",
+  } satisfies RequestInit;
+}
+
 export function buildPreviewSafeBrevoRequestInit(
   input: RequestInfo | URL,
   init: RequestInit | undefined,
@@ -59,31 +180,48 @@ export function buildPreviewSafeBrevoRequestInit(
     return init;
   }
 
-  if (url.toString() !== BREVO_TRANSACTIONAL_EMAIL_URL) {
-    throw new Error("Preview Brevo request blocked: endpoint is not approved.");
+  const method = requestMethod(input, init);
+  if (url.toString() === BREVO_TRANSACTIONAL_EMAIL_URL) {
+    if (method !== "POST") {
+      throw new Error("Preview Brevo request blocked: method is not approved.");
+    }
+
+    const apiKey = resolveBrevoApiKey(env);
+    const safeRecipient = resolvePreviewEmailRecipient(env);
+    if (!apiKey || !safeRecipient) {
+      throw new Error("Preview email blocked: dedicated Brevo key and safe recipient are required.");
+    }
+
+    const payload = parseBrevoPayload(init?.body);
+    const headers = requestHeaders(input, init);
+    headers.set("api-key", apiKey);
+    headers.set("Content-Type", "application/json");
+
+    const safePayload: BrevoPayload = {
+      ...payload,
+      to: [{ email: safeRecipient, name: "Proffera Preview" }],
+    };
+    delete safePayload.cc;
+    delete safePayload.bcc;
+
+    return {
+      ...init,
+      method: "POST",
+      headers,
+      body: JSON.stringify(safePayload),
+    };
   }
 
-  const apiKey = resolveBrevoApiKey(env);
-  const safeRecipient = resolvePreviewEmailRecipient(env);
-  if (!apiKey || !safeRecipient) {
-    throw new Error("Preview email blocked: dedicated Brevo key and safe recipient are required.");
+  const approvedReaderPath = validListReaderUrl(url) || validEventReaderUrl(url) || validDetailReaderUrl(url);
+  if (approvedReaderPath) {
+    if (!isExactMarketplaceE2ePreview(env)) {
+      throw new Error("Preview Brevo request blocked: reader endpoint is limited to Marketplace E2E Preview.");
+    }
+    if (method !== "GET") {
+      throw new Error("Preview Brevo request blocked: method is not approved.");
+    }
+    return buildPreviewBrevoReaderInit(input, init, env);
   }
 
-  const payload = parseBrevoPayload(init?.body);
-  const headers = new Headers(init?.headers);
-  headers.set("api-key", apiKey);
-  headers.set("Content-Type", "application/json");
-
-  const safePayload: BrevoPayload = {
-    ...payload,
-    to: [{ email: safeRecipient, name: "Proffera Preview" }],
-  };
-  delete safePayload.cc;
-  delete safePayload.bcc;
-
-  return {
-    ...init,
-    headers,
-    body: JSON.stringify(safePayload),
-  };
+  throw new Error("Preview Brevo request blocked: endpoint is not approved.");
 }

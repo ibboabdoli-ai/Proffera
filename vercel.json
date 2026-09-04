@@ -4,7 +4,8 @@
     "deploymentEnabled": {
       "**": false,
       "main": true,
-      "work/proffera-preview-*": true
+      "work/proffera-preview-*": true,
+      "work/proffera-marketplace-browser-lifecycle-e2e": true
     }
   },
   "env": {
