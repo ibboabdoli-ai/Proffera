@@ -2,27 +2,32 @@ import { timingSafeEqual } from "node:crypto";
 
 import { NextResponse } from "next/server";
 
+import { GET as runBookingReminders } from "../booking-reminders/route";
+import { GET as runCompanyDirectoryOfficialFacts } from "../company-directory-official-facts/route";
+import { GET as runCompanyDirectorySync } from "../company-directory-sync/route";
+
 export const dynamic = "force-dynamic";
 export const maxDuration = 240;
 
 const PRODUCTION_ORIGIN = "https://www.proffera.se";
 const ALLOWED_REQUEST_HOSTS = new Set(["proffera.se", "www.proffera.se"]);
-const OPERATIONS_ENDPOINTS = [
+const OPERATIONS_JOBS = [
   {
     name: "booking_reminders",
     path: "/api/cron/booking-reminders",
+    run: runBookingReminders,
   },
   {
     name: "company_directory_official_facts",
     path: "/api/cron/company-directory-official-facts?limit=10",
+    run: runCompanyDirectoryOfficialFacts,
   },
   {
     name: "company_directory_sync",
     path: "/api/cron/company-directory-sync",
+    run: runCompanyDirectorySync,
   },
 ] as const;
-
-const CHILD_REQUEST_TIMEOUT_MS = 75_000;
 
 function bearerMatches(authorization: string | null, secret: string | undefined) {
   if (!secret) return false;
@@ -44,6 +49,16 @@ function canonicalProductionRequest(request: Request) {
     && ALLOWED_REQUEST_HOSTS.has(url.hostname.toLowerCase());
 }
 
+function childRequest(path: string, secret: string) {
+  return new Request(new URL(path, PRODUCTION_ORIGIN), {
+    method: "GET",
+    headers: {
+      authorization: `Bearer ${secret}`,
+      "user-agent": "proffera-qstash-operations-scheduler",
+    },
+  });
+}
+
 export async function GET(request: Request) {
   if (!authorizedSchedulerRequest(request)) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
@@ -62,33 +77,23 @@ export async function GET(request: Request) {
   }
 
   const results: Array<{
-    name: (typeof OPERATIONS_ENDPOINTS)[number]["name"];
+    name: (typeof OPERATIONS_JOBS)[number]["name"];
     ok: boolean;
     status: number;
   }> = [];
 
-  for (const endpoint of OPERATIONS_ENDPOINTS) {
+  for (const job of OPERATIONS_JOBS) {
     try {
-      const response = await fetch(new URL(endpoint.path, PRODUCTION_ORIGIN), {
-        method: "GET",
-        headers: {
-          authorization: `Bearer ${childSecret}`,
-          "user-agent": "proffera-qstash-operations-scheduler",
-        },
-        cache: "no-store",
-        redirect: "error",
-        signal: AbortSignal.timeout(CHILD_REQUEST_TIMEOUT_MS),
-      });
-
+      const response = await job.run(childRequest(job.path, childSecret));
       results.push({
-        name: endpoint.name,
+        name: job.name,
         ok: response.ok,
         status: response.status,
       });
     } catch (error) {
-      console.error(`Operations scheduler endpoint failed: ${endpoint.name}`, error);
+      console.error(`Operations scheduler job failed: ${job.name}`, error);
       results.push({
-        name: endpoint.name,
+        name: job.name,
         ok: false,
         status: 0,
       });
