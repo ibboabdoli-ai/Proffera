@@ -21,25 +21,32 @@ const GUEST_INVITATION_TTL_DAYS = 7;
 const ACTIVE_INVITATION_STATUSES = new Set(["pending", "sending", "sent", "viewed", "responded"]);
 const REDACTED_CONTACT = "[…]";
 const ADDRESS_DIACRITIC_EQUIVALENTS: Record<string, string> = {
-  a: "aàáâãäåāăąǎ",
-  c: "cçćĉċč",
-  d: "dďđ",
-  e: "eèéêëēĕėęě",
-  g: "gĝğġģ",
-  h: "hĥħ",
-  i: "iìíîïĩīĭįı",
-  j: "jĵ",
-  k: "kķ",
-  l: "lĺļľŀł",
-  n: "nñńņň",
-  o: "oòóôõöøōŏőǒ",
-  r: "rŕŗř",
-  s: "sśŝşš",
-  t: "tţťŧ",
-  u: "uùúûüũūŭůűųǔ",
-  w: "wŵ",
-  y: "yýÿŷ",
-  z: "zźżž",
+  a: "aàáâãäåāăąǎǟǡǻȁȃȧḁạảấầẩẫậắằẳẵặ",
+  b: "bḃḅḇ",
+  c: "cçćĉċčḉ",
+  d: "dďḋḍḏḑḓ",
+  e: "eèéêëēĕėęěȅȇȩḕḗḙḛḝẹẻẽếềểễệ",
+  f: "fḟ",
+  g: "gĝğġģǧǵḡ",
+  h: "hĥȟḣḥḧḩḫẖ",
+  i: "iìíîïĩīĭįǐȉȋḭḯỉị",
+  j: "jĵǰ",
+  k: "kķǩḱḳḵ",
+  l: "lĺļľḷḹḻḽ",
+  m: "mḿṁṃ",
+  n: "nñńņňǹṅṇṉṋ",
+  o: "oòóôõöōŏőơǒǫǭȍȏȫȭȯȱṍṏṑṓọỏốồổỗộớờởỡợ",
+  p: "pṕṗ",
+  q: "q",
+  r: "rŕŗřȑȓṙṛṝṟ",
+  s: "sśŝşšșṡṣṥṧṩ",
+  t: "tţťțṫṭṯṱẗ",
+  u: "uùúûüũūŭůűųưǔǖǘǚǜȕȗṳṵṷṹṻụủứừửữự",
+  v: "vṽṿ",
+  w: "wŵẁẃẅẇẉẘ",
+  x: "xẋẍ",
+  y: "yýÿŷȳẏẙỳỵỷỹ",
+  z: "zźżžẑẓẕ",
 };
 
 export type MarketplaceGuestQuoteView = {
@@ -117,7 +124,11 @@ function isSingleLetterHouseSuffix(chars: string[], index: number) {
 }
 
 function buildKnownStreetAddressPattern(addressLine1: string) {
-  const normalized = addressLine1.trim().replace(/\s+/g, " ");
+  const normalized = addressLine1
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .replace(/\s+/g, " ");
   if (!normalized) return "";
 
   const chars = Array.from(normalized);

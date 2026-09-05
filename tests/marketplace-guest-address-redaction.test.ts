@@ -113,6 +113,20 @@ describe("Marketplace guest description address privacy", () => {
     expect(view.description).toContain("[…]");
   });
 
+  it.each([
+    ["Șoseaua 7 A", "Șoseaua 7A"],
+    ["Soseaua 7 A", "Șoseaua 7A"],
+  ])("keeps precomposed Latin address matching symmetric: stored %j description %j", (storedAddress, descriptionAddress) => {
+    const view = buildMarketplaceGuestQuoteView({
+      ...baseInvitation,
+      customer_address_line1: storedAddress,
+      description: `Behöver hjälp på ${descriptionAddress} med läckande rör.`,
+    }, "2099-01-01T00:00:00.000Z", false);
+
+    expect(view.description).not.toContain(descriptionAddress);
+    expect(view.description).toContain("[…]");
+  });
+
   it("does not redact a street-name-only mention or allowed service-area context", () => {
     const description = "Segelbåtsvägen ligger nära Teststad och jobbet kan beskrivas utan husnummer.";
     const view = buildMarketplaceGuestQuoteView({
