@@ -1,6 +1,6 @@
 # Proffera Current Status
 
-Last updated: 2026-09-01
+Last updated: 2026-09-05
 
 This is the canonical factual status document for Proffera. For worker rules, live task state, current `main` SHA, and roadmap order, also read `AGENTS.md`, `WORKER_BOOTSTRAP.md`, GitHub issue #548, GitHub issue #276, and `docs/README.md`.
 
@@ -149,6 +149,8 @@ The architectural RLS blocker from that audit remains the safe assumption until 
 Vercel Production and Preview state are independently readable through the connected Vercel tooling.
 
 Automatic recurring Production scheduling for Operations, Marketplace Auto Worker, and periodic Production Health is owned by the external QStash scheduler. Operations and Marketplace run with cron `8,23,38,53 * * * *`; periodic Production Health runs with `8,38 * * * *`. Their GitHub workflows retain manual or event-driven recovery/release paths but no recurring `schedule:` trigger. Company Directory discovery remains GitHub-scheduled, while dedicated full Company Directory revalidation remains externally scheduled by QStash at minutes 14 and 44.
+
+Operations keeps its existing outer scheduler authorization and canonical Production-origin checks, but runs Booking Reminders, Company Directory Official Facts (limit 10), and Company Directory Sync in-process through their existing authenticated cron handlers instead of issuing HTTP requests back to Production. The child cron endpoints remain independently authenticated and callable; scheduler cadence and configuration are unchanged.
 
 Marketplace invitation automation has a bounded first-Production-rollout configuration. The external QStash scheduler calls the authenticated Production Marketplace worker every 15 minutes using the existing scheduler bearer credential; the server route still requires both general enablement and the separate Production authorization gate. Production additionally fails closed unless a valid rollout cutoff is configured. The initial cutoff is `2026-08-23T09:24:45.000Z`, so older Quote Request backlog is excluded without modifying or cancelling those rows, and the initial worker batch is limited to one Quote Request per run. Wave 2 retains the six-hour delay. A merged configuration is not by itself proof of live sending; the matching Production deployment and runtime worker result must be verified after release.
 
