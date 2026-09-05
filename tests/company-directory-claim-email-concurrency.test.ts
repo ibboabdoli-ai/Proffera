@@ -23,6 +23,7 @@ vi.mock("@/lib/workspace-access", () => ({
 
 import {
   createClaimEmailChallenge,
+  parseClaimEmailEvidence,
   serializeClaimEmailEvidence,
 } from "../src/lib/company-directory-claim-email";
 import { POST as resetOrSendClaimEmail } from "../src/app/api/public-directory/claim-email/send/route";
@@ -67,6 +68,18 @@ function challenge() {
     phone: "0700000000",
     accountEmail: ACCOUNT_EMAIL,
   });
+}
+
+function verificationRow(reference: string) {
+  return {
+    id: CLAIM_ID,
+    status: "pending",
+    verification_method: "email_domain",
+    verification_reference: reference,
+    claimed_workspace_id: null,
+    claim_reservation_id: null,
+    account_email: ACCOUNT_EMAIL,
+  };
 }
 
 function verifyRequest(code: string) {
@@ -120,15 +133,7 @@ describe("company directory claim email concurrency guards", () => {
     const { calls, sql } = recordingSql((query) => {
       if (query.startsWith("select claim.id::text")) {
         verificationReads += 1;
-        return [{
-          id: CLAIM_ID,
-          status: "pending",
-          verification_method: "email_domain",
-          verification_reference: reference,
-          claimed_workspace_id: null,
-          claim_reservation_id: null,
-          account_email: ACCOUNT_EMAIL,
-        }];
+        return [verificationRow(reference)];
       }
       if (query.startsWith("update company_directory_claims")) {
         casAttempts += 1;
@@ -152,6 +157,40 @@ describe("company directory claim email concurrency guards", () => {
     }
     const verificationReadCalls = calls.filter((call) => call.query.startsWith("select claim.id::text"));
     expect(verificationReadCalls[1]?.query).toContain("where claim.id = $1::uuid");
+  });
+
+  it("fails closed after the bounded stale-evidence retry limit without overwriting the latest evidence", async () => {
+    const seeded = challenge();
+    let currentReference = serializeClaimEmailEvidence(seeded.evidence);
+    let verificationReads = 0;
+    let casAttempts = 0;
+    const { sql } = recordingSql((query) => {
+      if (query.startsWith("select claim.id::text")) {
+        verificationReads += 1;
+        return [verificationRow(currentReference)];
+      }
+      if (query.startsWith("update company_directory_claims")) {
+        casAttempts += 1;
+        const latest = parseClaimEmailEvidence(currentReference);
+        if (!latest) throw new Error("Expected current claim email evidence");
+        currentReference = serializeClaimEmailEvidence({
+          ...latest,
+          providerId: `concurrent-writer-${casAttempts}`,
+        });
+        return [];
+      }
+      throw new Error(`Unexpected SQL in retry-limit concurrency test: ${query}`);
+    });
+    mocks.getSql.mockReturnValue(sql);
+
+    const response = await verifyClaimEmail(verifyRequest(wrongCodeFor(seeded.code)));
+
+    expect(responseStatus(response)).toBe("unavailable");
+    expect(casAttempts).toBe(6);
+    expect(verificationReads).toBe(6);
+    const latest = parseClaimEmailEvidence(currentReference);
+    expect(latest?.providerId).toBe("concurrent-writer-6");
+    expect(latest?.codeAttempts).toBe(0);
   });
 
   it("returns unavailable when a stale reset loses its evidence compare-and-swap", async () => {
