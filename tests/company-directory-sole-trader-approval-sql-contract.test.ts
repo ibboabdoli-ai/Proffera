@@ -53,6 +53,31 @@ describe("sole-trader approval SQL contract", () => {
     expect(capturedValues[parametersBeforeClaimId]).toBe(CLAIM_ID);
   });
 
+  it("keeps blocked sole-trader source text out of Workspace publication fields during ownership approval", async () => {
+    mocks.getPlatformAdmin.mockResolvedValue({ userId: "admin-1", role: "super_admin" });
+    let capturedSql = "";
+    const sql = vi.fn((strings: TemplateStringsArray) => {
+      capturedSql = strings.join("?");
+      return Promise.resolve([{ id: CLAIM_ID, workspace_id: WORKSPACE_ID }]);
+    });
+    mocks.getSql.mockReturnValue(sql);
+
+    await expect(approveSoleTraderDirectoryClaim({
+      claimId: CLAIM_ID,
+      reference: "Innehavarskap kontrollerat mot Bolagsverket",
+    })).resolves.toEqual({ claimId: CLAIM_ID, workspaceId: WORKSPACE_ID });
+
+    expect(capturedSql).toContain("profile.organization_kind = 'sole_trader'");
+    expect(capturedSql).toContain("profile.publication_status in ('blocked', 'review')");
+    expect(capturedSql).toContain("profile.privacy_blocked = true");
+    expect(capturedSql).toContain("profile.auto_public_eligible = false");
+    expect(capturedSql).toContain("set claimed_workspace_id = locked.workspace_id");
+    expect(capturedSql).toContain("set status = 'claimed'");
+    expect(capturedSql).not.toContain("workspace_experience_settings");
+    expect(capturedSql).not.toContain("business_intro");
+    expect(capturedSql).not.toContain("activity_description");
+  });
+
   it("keeps a supplementary source guard against the untyped audit parameter", () => {
     const approvalSource = source("src/lib/company-directory-sole-trader-owner.ts");
 
