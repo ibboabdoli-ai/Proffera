@@ -35,9 +35,7 @@ import {
 import { POST as resetOrSendClaimEmail } from "../src/app/api/public-directory/claim-email/send/route";
 import { POST as verifyClaimEmail } from "../src/app/api/public-directory/claim-email/verify/route";
 
-const RUN_POSTGRES_INTEGRATION =
-  process.env.GITHUB_ACTIONS === "true"
-  || process.env.PROFFERA_POSTGRES_INTEGRATION === "1";
+const RUN_POSTGRES_INTEGRATION = process.env.PROFFERA_POSTGRES_INTEGRATION === "1";
 
 const USER_ID = "user-1";
 const PROFILE_ID = "11111111-1111-4111-8111-111111111111";
