@@ -10,7 +10,7 @@ import { isPrimeViewHost } from "@/lib/public-site-domains";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Privacy Policy | PrimeView Window Care",
+  title: { absolute: "Privacy Policy | PrimeView Window Care" },
   description: "How PrimeView Window Care collects, uses and protects customer personal information.",
   alternates: { canonical: `${primeViewSite.origin}/privacy` },
   robots: { index: true, follow: true },
