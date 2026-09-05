@@ -28,6 +28,8 @@ jobs:
         github.event.issue.pull_request != null &&
         ((github.actor == 'coderabbitai[bot]' &&
           (contains(github.event.comment.body, 'recent_review_start') ||
+            (contains(github.event.comment.body, 'Final exact-head review is complete for') &&
+              contains(github.event.comment.body, 'I found no issues.')) ||
             contains(github.event.comment.body, 'Review limit reached') ||
             contains(github.event.comment.body, 'Review rate limited') ||
             contains(github.event.comment.body, 'Review skipped') ||
@@ -84,13 +86,31 @@ jobs:
             exit 0
           fi
 
+          if [ "$EVENT_NAME" = "issue_comment" ]; then
+            case "${EVENT_ACTOR:-}" in
+              "coderabbitai[bot]"|"chatgpt-codex-connector[bot]"|"$TRUSTED_CODEX_REQUESTER")
+                ;;
+              *)
+                echo "Untrusted issue-comment actor cannot wake the final gate."
+                exit 0
+                ;;
+            esac
+          fi
+
           if [ "$EVENT_NAME" = "pull_request_review" ] && [ "${EVENT_REVIEW_STATE:-}" = "changes_requested" ]; then
             echo "A blocking review does not need a final-gate rerun."
             exit 0
           fi
 
+          new_coderabbit_clean_event=false
           if [ "$EVENT_NAME" = "issue_comment" ] && [ "${EVENT_ACTOR:-}" = "coderabbitai[bot]" ]; then
-            if ! grep -Eqi 'recent_review_start|Review limit reached|Review rate limited|Action not completed: Review rate limited|Review skipped|temporarily unavailable|service unavailable' <<< "${EVENT_COMMENT_BODY:-}"; then
+            if grep -Fq 'Final exact-head review is complete for' <<< "${EVENT_COMMENT_BODY:-}" \
+              && grep -Eq '(^|[[:space:]])I found no issues\.[[:space:]]*($|[[:space:]])' <<< "${EVENT_COMMENT_BODY:-}"; then
+              new_coderabbit_clean_event=true
+            fi
+
+            if [ "$new_coderabbit_clean_event" != "true" ] \
+              && ! grep -Eqi 'recent_review_start|Review limit reached|Review rate limited|Action not completed: Review rate limited|Review skipped|temporarily unavailable|service unavailable' <<< "${EVENT_COMMENT_BODY:-}"; then
               echo "CodeRabbit comment does not carry final-review or availability evidence; ignoring it."
               exit 0
             fi
@@ -115,6 +135,54 @@ jobs:
             && [ "$EVENT_REVIEW_COMMIT" != "$head_sha" ]; then
             echo "Review targets stale commit $EVENT_REVIEW_COMMIT; current head is $head_sha."
             exit 0
+          fi
+
+          if [ "$new_coderabbit_clean_event" = "true" ]; then
+            if [ -z "${EVENT_COMMENT_CREATED_AT:-}" ]; then
+              echo "CodeRabbit clean comment has no creation timestamp; refusing to wake the final gate."
+              exit 0
+            fi
+
+            clean_comment_match="$(jq -rn --arg body "${EVENT_COMMENT_BODY:-}" --arg sha "$head_sha" '
+              (($body | test("Final exact-head review is complete for[[:space:]]+`?" + $sha + "`?\\."))
+                and ($body | test("(^|[\\r\\n])[[:space:]]*I found no issues\\.[[:space:]]*($|[\\r\\n])"))
+                and (($body | test("Review limit reached|Review rate limited|Action not completed|Review skipped|temporarily unavailable|service unavailable"; "i")) | not))
+            ')"
+            if [ "$clean_comment_match" != "true" ]; then
+              echo "CodeRabbit comment is not a completed clean exact-head decision for current head $head_sha; ignoring it."
+              exit 0
+            fi
+
+            comments_json="$(
+              gh api --paginate \
+                "repos/$REPOSITORY/issues/$pr_number/comments?per_page=100" \
+                --jq '.[]' \
+                | jq -s '.'
+            )"
+            coderabbit_marker="<!-- proffera-coderabbit-final-review-request:${head_sha} -->"
+            coderabbit_request_time="$(jq -r --arg marker "$coderabbit_marker" '
+              [
+                .[]
+                | select(.user.login == "github-actions[bot]")
+                | select((.body // "") | contains($marker))
+              ]
+              | sort_by(.created_at)
+              | last
+              | .created_at // empty
+            ' <<< "$comments_json")"
+            if [ -z "$coderabbit_request_time" ] || [[ "${EVENT_COMMENT_CREATED_AT}" < "$coderabbit_request_time" ]]; then
+              echo "CodeRabbit clean comment is not ordered after a trusted exact-head review request; refusing to wake the final gate."
+              exit 0
+            fi
+
+            reviews_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq '.[]' | jq -s '.')"
+            current_reviews="$(jq -c --arg sha "$head_sha" '[.[] | select(.user.login == "coderabbitai[bot]" and .commit_id == $sha)]' <<< "$reviews_json")"
+            latest_changes="$(jq -r '[.[] | select(.state == "CHANGES_REQUESTED") | .submitted_at] | max // empty' <<< "$current_reviews")"
+            latest_approval="$(jq -r '[.[] | select(.state == "APPROVED") | .submitted_at] | max // empty' <<< "$current_reviews")"
+            if [ -n "$latest_changes" ] && { [ -z "$latest_approval" ] || [[ ! "$latest_approval" > "$latest_changes" ]]; }; then
+              echo "CodeRabbit changes remain requested on the current head; clean comments cannot wake the final gate past them."
+              exit 0
+            fi
           fi
 
           if [ "$EVENT_NAME" = "issue_comment" ] \
@@ -256,6 +324,23 @@ jobs:
               exit 0
               ;;
           esac
+
+          guard_head_sha="$(gh api "repos/$REPOSITORY/pulls/$pr_number" --jq '.head.sha')"
+          if [ "$guard_head_sha" != "$head_sha" ]; then
+            echo "Review evidence became stale before final-gate wakeup; current head is $guard_head_sha, evaluated head is $head_sha."
+            exit 0
+          fi
+
+          if [ "$new_coderabbit_clean_event" = "true" ]; then
+            guard_reviews_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq '.[]' | jq -s '.')"
+            guard_current_reviews="$(jq -c --arg sha "$head_sha" '[.[] | select(.user.login == "coderabbitai[bot]" and .commit_id == $sha)]' <<< "$guard_reviews_json")"
+            guard_latest_changes="$(jq -r '[.[] | select(.state == "CHANGES_REQUESTED") | .submitted_at] | max // empty' <<< "$guard_current_reviews")"
+            guard_latest_approval="$(jq -r '[.[] | select(.state == "APPROVED") | .submitted_at] | max // empty' <<< "$guard_current_reviews")"
+            if [ -n "$guard_latest_changes" ] && { [ -z "$guard_latest_approval" ] || [[ ! "$guard_latest_approval" > "$guard_latest_changes" ]]; }; then
+              echo "CodeRabbit changes were recorded before final-gate wakeup; clean comments cannot clear them."
+              exit 0
+            fi
+          fi
 
           gh api --method POST "repos/$REPOSITORY/actions/jobs/$final_job_id/rerun" >/dev/null
 
