@@ -11,6 +11,8 @@ import { tryAutoProvisionMarketplaceCompanyClaim } from "@/lib/company-directory
 import { getSql } from "@/lib/db/server";
 import { allowPublicSubmission } from "@/lib/public-form-protection";
 
+const MAX_STALE_EVIDENCE_REEVALUATIONS = 5;
+
 function safeReturnPath(value: string) {
   return /^\/(?:foretag\/claim|en\/companies\/claim)\/[a-z0-9-]+$/.test(value) ? value : "/";
 }
@@ -23,6 +25,14 @@ function sameOrigin(request: Request) {
   } catch {
     return false;
   }
+}
+
+function failedCodeStatus(reason: "expired" | "locked" | "invalid") {
+  return reason === "expired"
+    ? "email_code_expired"
+    : reason === "locked"
+      ? "email_code_locked"
+      : "email_code_invalid";
 }
 
 export async function POST(request: Request) {
@@ -80,77 +90,116 @@ export async function POST(request: Request) {
     order by claim.requested_at desc
     limit 1
   `;
-  const row = rows[0];
+  let row = rows[0];
   if (!row?.id) return NextResponse.redirect(new URL(`${returnTo}?status=invalid_details`, request.url), 303);
-  if (row.claimed_workspace_id) return NextResponse.redirect(new URL(`${returnTo}?status=claimed`, request.url), 303);
-  if (row.claim_reservation_id) return NextResponse.redirect(new URL(`${returnTo}?status=unavailable`, request.url), 303);
+  const claimId = String(row.id);
 
-  const accountEmail = String(row.account_email ?? "").trim().toLowerCase();
-  if (!validBusinessEmail(accountEmail)) {
-    return NextResponse.redirect(new URL(`${returnTo}?status=account_email_unverified`, request.url), 303);
-  }
+  for (let staleReevaluation = 0; staleReevaluation <= MAX_STALE_EVIDENCE_REEVALUATIONS; staleReevaluation += 1) {
+    if (row.claimed_workspace_id) return NextResponse.redirect(new URL(`${returnTo}?status=claimed`, request.url), 303);
+    if (row.claim_reservation_id) return NextResponse.redirect(new URL(`${returnTo}?status=unavailable`, request.url), 303);
 
-  const evidence = parseClaimEmailEvidence(row.verification_reference);
-  if (!evidence || evidence.accountEmail !== accountEmail) {
-    return NextResponse.redirect(new URL(`${returnTo}?status=invalid_details`, request.url), 303);
-  }
-
-  if (evidence.stage === "business_email_verified") {
-    return NextResponse.redirect(new URL(`${returnTo}?status=sent`, request.url), 303);
-  }
-
-  const checked = checkClaimEmailCode(evidence, code);
-  const verificationReference = serializeClaimEmailEvidence(checked.evidence);
-
-  if (!checked.ok) {
-    await sql`
-      update company_directory_claims
-      set verification_reference = ${verificationReference}
-      where id = ${String(row.id)}::uuid
-        and claimant_user_id = ${userId}
-        and status = 'pending'
-        and verification_method = 'email_domain'
-    `;
-    const status = checked.reason === "expired"
-      ? "email_code_expired"
-      : checked.reason === "locked"
-        ? "email_code_locked"
-        : "email_code_invalid";
-    return NextResponse.redirect(new URL(`${returnTo}?status=${status}`, request.url), 303);
-  }
-
-  const verified = await sql`
-    update company_directory_claims
-    set verification_reference = ${verificationReference},
-        verification_method = 'email_domain',
-        requested_at = now()
-    where id = ${String(row.id)}::uuid
-      and claimant_user_id = ${userId}
-      and status = 'pending'
-      and verification_method = 'email_domain'
-    returning id::text
-  `;
-  if (!verified[0]?.id) {
-    return NextResponse.redirect(new URL(`${returnTo}?status=unavailable`, request.url), 303);
-  }
-
-  try {
-    const marketplaceClaim = await tryAutoProvisionMarketplaceCompanyClaim({
-      claimId: String(row.id),
-      claimantUserId: userId,
-    });
-    if (marketplaceClaim.status === "provisioned") {
-      const target = new URL("/dashboard/marknadsplats", request.url);
-      target.searchParams.set("status", "linked");
-      if (returnTo.startsWith("/en/")) target.searchParams.set("lang", "en");
-      return NextResponse.redirect(target, 303);
+    const accountEmail = String(row.account_email ?? "").trim().toLowerCase();
+    if (!validBusinessEmail(accountEmail)) {
+      return NextResponse.redirect(new URL(`${returnTo}?status=account_email_unverified`, request.url), 303);
     }
-  } catch (error) {
-    console.error("Marketplace company claim auto-provisioning failed", {
-      claimId: String(row.id),
-      error,
-    });
+
+    const originalVerificationReference = String(row.verification_reference ?? "");
+    const evidence = parseClaimEmailEvidence(originalVerificationReference);
+    if (!evidence || evidence.accountEmail !== accountEmail) {
+      return NextResponse.redirect(new URL(`${returnTo}?status=invalid_details`, request.url), 303);
+    }
+
+    if (evidence.stage === "business_email_verified") {
+      return NextResponse.redirect(new URL(`${returnTo}?status=sent`, request.url), 303);
+    }
+    if (evidence.stage === "business_email_locked") {
+      return NextResponse.redirect(new URL(`${returnTo}?status=email_code_locked`, request.url), 303);
+    }
+
+    const checked = checkClaimEmailCode(evidence, code);
+    if (!checked.ok && checked.reason === "expired") {
+      return NextResponse.redirect(new URL(`${returnTo}?status=email_code_expired`, request.url), 303);
+    }
+    const verificationReference = serializeClaimEmailEvidence(checked.evidence);
+
+    if (!checked.ok) {
+      const updated = await sql`
+        update company_directory_claims
+        set verification_reference = ${verificationReference}
+        where id = ${claimId}::uuid
+          and claimant_user_id = ${userId}
+          and status = 'pending'
+          and verification_method = 'email_domain'
+          and verification_reference = ${originalVerificationReference}
+        returning id::text
+      `;
+      if (updated[0]?.id) {
+        return NextResponse.redirect(new URL(`${returnTo}?status=${failedCodeStatus(checked.reason)}`, request.url), 303);
+      }
+    } else {
+      const verified = await sql`
+        update company_directory_claims
+        set verification_reference = ${verificationReference},
+            verification_method = 'email_domain',
+            requested_at = now()
+        where id = ${claimId}::uuid
+          and claimant_user_id = ${userId}
+          and status = 'pending'
+          and verification_method = 'email_domain'
+          and verification_reference = ${originalVerificationReference}
+        returning id::text
+      `;
+      if (verified[0]?.id) {
+        try {
+          const marketplaceClaim = await tryAutoProvisionMarketplaceCompanyClaim({
+            claimId,
+            claimantUserId: userId,
+          });
+          if (marketplaceClaim.status === "provisioned") {
+            const target = new URL("/dashboard/marknadsplats", request.url);
+            target.searchParams.set("status", "linked");
+            if (returnTo.startsWith("/en/")) target.searchParams.set("lang", "en");
+            return NextResponse.redirect(target, 303);
+          }
+        } catch (error) {
+          console.error("Marketplace company claim auto-provisioning failed", {
+            claimId,
+            error,
+          });
+        }
+
+        return NextResponse.redirect(new URL(`${returnTo}?status=sent`, request.url), 303);
+      }
+    }
+
+    if (staleReevaluation === MAX_STALE_EVIDENCE_REEVALUATIONS) {
+      return NextResponse.redirect(new URL(`${returnTo}?status=unavailable`, request.url), 303);
+    }
+
+    const refreshedRows = await sql`
+      select
+        claim.id::text,
+        claim.status,
+        claim.verification_method,
+        claim.verification_reference,
+        profile.claimed_workspace_id::text,
+        profile.claim_reservation_id::text,
+        u.email as account_email
+      from company_directory_claims claim
+      join company_directory_profiles profile on profile.id = claim.profile_id
+      join "user" u on u.id = claim.claimant_user_id
+      where claim.id = ${claimId}::uuid
+        and profile.public_slug = ${slug}
+        and claim.claimant_user_id = ${userId}
+        and claim.status = 'pending'
+        and claim.verification_method = 'email_domain'
+      limit 1
+    `;
+    row = refreshedRows[0];
+    if (!row?.id) {
+      return NextResponse.redirect(new URL(`${returnTo}?status=unavailable`, request.url), 303);
+    }
   }
 
-  return NextResponse.redirect(new URL(`${returnTo}?status=sent`, request.url), 303);
+  return NextResponse.redirect(new URL(`${returnTo}?status=unavailable`, request.url), 303);
 }
