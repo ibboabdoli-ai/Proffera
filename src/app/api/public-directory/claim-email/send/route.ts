@@ -122,13 +122,21 @@ export async function POST(request: Request) {
 
   if (action === "reset") {
     if (existing?.id && existing.status === "pending") {
-      await sql`
+      const originalVerificationReference = String(existing.verification_reference ?? "");
+      const resetRows = await sql`
         update company_directory_claims
         set status = 'cancelled', resolved_at = now()
         where id = ${String(existing.id)}::uuid
           and claimant_user_id = ${userId}
           and status = 'pending'
+          and verification_method = 'email_domain'
+          and verification_reference = ${originalVerificationReference}
+          and verification_reference not like '%"stage":"business_email_verified"%'
+        returning id::text
       `;
+      if (!resetRows[0]?.id) {
+        return NextResponse.redirect(new URL(`${returnTo}?status=unavailable`, request.url), 303);
+      }
     }
     return NextResponse.redirect(new URL(`${returnTo}?status=reset`, request.url), 303);
   }
