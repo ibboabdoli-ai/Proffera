@@ -35,7 +35,6 @@ function authorizationShellBlock() {
     .join("\n");
 }
 
-
 function aiReviewShellBlock() {
   const startMarker = '          file_count="$(grep -c . <<< "$changed_files" || true)"';
   const endMarker = '          checks_json=""';
@@ -421,6 +420,9 @@ describe("Proffera standing automerge authorization", () => {
     expect(workflow).toContain("coderabbitai[bot]");
     expect(workflow).toContain("commit_id == $sha");
     expect(workflow).toContain("CodeRabbit changes remain requested on the current PR head; Codex fallback can never clear them.");
+    expect(workflow).toContain("Final exact-head review is complete for");
+    expect(workflow).toContain("I found no issues.");
+    expect(workflow).toContain("clean exact-head completion comment");
     expect(workflow).toContain("--match-head-commit \"$head_sha\"");
     expect(workflow).not.toContain("head_commit_time");
     expect(workflow).not.toContain("approval_time");

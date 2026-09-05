@@ -752,6 +752,8 @@ jobs:
             terminal_count="$(jq -r '[.[] | select(.state == "APPROVED" or .state == "COMMENTED")] | length' <<< "$current_reviews")"
 
             comments_json="$(gh api --paginate "repos/${REPOSITORY}/issues/${PR_NUMBER}/comments?per_page=100" --jq '.[]' | jq -s '.')"
+            coderabbit_marker="<!-- proffera-coderabbit-final-review-request:${HEAD_SHA} -->"
+            coderabbit_request_time="$(jq -r --arg marker "$coderabbit_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker))) | .created_at] | max // empty' <<< "$comments_json")"
             clean_summary_count="$(jq -r --arg sha "$HEAD_SHA" '
               [
                 .[]
@@ -763,6 +765,21 @@ jobs:
                         + $sha
                         + "[\\s\\S]*<!-- recent_review_end -->"
                       )
+                  )
+              ]
+              | length
+            ' <<< "$comments_json")"
+            clean_final_comment_count="$(jq -r --arg sha "$HEAD_SHA" --arg request_time "$coderabbit_request_time" '
+              [
+                .[]
+                | select(.user.login == "coderabbitai[bot]")
+                | select($request_time != "")
+                | select((.updated_at // .created_at // "") >= $request_time)
+                | (.body // "") as $body
+                | select(
+                    ($body | test("Final exact-head review is complete for[[:space:]]+`?" + $sha + "`?\\."))
+                    and ($body | test("(^|[\\r\\n])[[:space:]]*I found no issues\\.[[:space:]]*($|[\\r\\n])"))
+                    and (($body | test("Review limit reached|Review rate limited|Action not completed|Review skipped|temporarily unavailable|service unavailable"; "i")) | not)
                   )
               ]
               | length
@@ -787,10 +804,28 @@ jobs:
               exit 0
             fi
 
-            if [ "$fallback_eligible" != "true" ]; then
-              coderabbit_marker="<!-- proffera-coderabbit-final-review-request:${HEAD_SHA} -->"
-              coderabbit_request_time="$(jq -r --arg marker "$coderabbit_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker))) | .created_at] | max // empty' <<< "$comments_json")"
+            if [ "$clean_final_comment_count" -gt 0 ]; then
+              guard_head_sha="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}" --jq '.head.sha')"
+              if [ "$guard_head_sha" != "$HEAD_SHA" ]; then
+                echo "Refused: clean CodeRabbit comment became stale; current PR head is $guard_head_sha, gate head is $HEAD_SHA."
+                exit 1
+              fi
 
+              guard_reviews_json="$(gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/reviews?per_page=100" --jq '.[]' | jq -s '.')"
+              guard_current_reviews="$(jq -c --arg sha "$HEAD_SHA" '[.[] | select(.user.login == "coderabbitai[bot]" and .commit_id == $sha)]' <<< "$guard_reviews_json")"
+              guard_latest_changes="$(jq -r '[.[] | select(.state == "CHANGES_REQUESTED") | .submitted_at] | max // empty' <<< "$guard_current_reviews")"
+              guard_latest_approval="$(jq -r '[.[] | select(.state == "APPROVED") | .submitted_at] | max // empty' <<< "$guard_current_reviews")"
+
+              if [ -n "$guard_latest_changes" ] && { [ -z "$guard_latest_approval" ] || [[ ! "$guard_latest_approval" > "$guard_latest_changes" ]]; }; then
+                echo "CodeRabbit changes were recorded before clean-comment acceptance; clean comments cannot clear them."
+                exit 1
+              fi
+
+              echo "CodeRabbit completed a clean exact-head PR comment for the current head."
+              exit 0
+            fi
+
+            if [ "$fallback_eligible" != "true" ]; then
               if [ -n "$coderabbit_request_time" ]; then
                 high_risk_unavailable_count="$(jq -r --arg request_time "$coderabbit_request_time" '
                   [
@@ -810,8 +845,6 @@ jobs:
             fi
 
             if [ "$fallback_eligible" = "true" ]; then
-              coderabbit_marker="<!-- proffera-coderabbit-final-review-request:${HEAD_SHA} -->"
-              coderabbit_request_time="$(jq -r --arg marker "$coderabbit_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker))) | .created_at] | max // empty' <<< "$comments_json")"
               coderabbit_unavailable=false
 
               if [ -n "$coderabbit_request_time" ]; then
