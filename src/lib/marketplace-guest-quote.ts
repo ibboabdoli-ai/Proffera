@@ -106,12 +106,15 @@ function redactPhoneCandidates(value: string) {
 
 export function redactMarketplaceGuestDescription(
   description: unknown,
-  contact: { name?: unknown; email?: unknown; phone?: unknown },
+  contact: { name?: unknown; email?: unknown; phone?: unknown; addressLine1?: unknown },
 ) {
   let redacted = String(description ?? "");
   const email = String(contact.email ?? "").trim();
   const phone = String(contact.phone ?? "").trim();
   const fullName = String(contact.name ?? "").trim();
+  const addressLine1 = String(contact.addressLine1 ?? "").trim();
+
+  if (addressLine1) redacted = redactLiteral(redacted, addressLine1);
 
   if (email) redacted = redactLiteral(redacted, email);
   redacted = redactEmailCandidates(redacted);
@@ -152,6 +155,7 @@ export function buildMarketplaceGuestQuoteView(
       name: row.contact_name,
       email: row.contact_email,
       phone: row.contact_phone,
+      addressLine1: row.customer_address_line1,
     }),
     preferredDate: String(row.preferred_date ?? ""),
     offer: hasOffer ? {
@@ -606,6 +610,7 @@ async function loadGuestQuoteView(
       q.service_type,
       q.city,
       q.postal_code,
+      q.customer_address_line1,
       q.description,
       q.contact_name,
       q.contact_email,
