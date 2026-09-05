@@ -29,6 +29,8 @@ const OPERATIONS_JOBS = [
   },
 ] as const;
 
+const CHILD_JOB_TIMEOUT_MS = 75_000;
+
 function bearerMatches(authorization: string | null, secret: string | undefined) {
   if (!secret) return false;
   const expected = Buffer.from(`Bearer ${secret}`);
@@ -49,14 +51,38 @@ function canonicalProductionRequest(request: Request) {
     && ALLOWED_REQUEST_HOSTS.has(url.hostname.toLowerCase());
 }
 
-function childRequest(path: string, secret: string) {
+function childRequest(path: string, secret: string, signal: AbortSignal) {
   return new Request(new URL(path, PRODUCTION_ORIGIN), {
     method: "GET",
     headers: {
       authorization: `Bearer ${secret}`,
       "user-agent": "proffera-qstash-operations-scheduler",
     },
+    signal,
   });
+}
+
+async function runChildJobWithTimeout(
+  job: (typeof OPERATIONS_JOBS)[number],
+  secret: string,
+) {
+  const controller = new AbortController();
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      controller.abort();
+      reject(new Error(`Operations scheduler job timed out after ${CHILD_JOB_TIMEOUT_MS}ms`));
+    }, CHILD_JOB_TIMEOUT_MS);
+  });
+
+  try {
+    return await Promise.race([
+      job.run(childRequest(job.path, secret, controller.signal)),
+      timeout,
+    ]);
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
+  }
 }
 
 export async function GET(request: Request) {
@@ -84,7 +110,7 @@ export async function GET(request: Request) {
 
   for (const job of OPERATIONS_JOBS) {
     try {
-      const response = await job.run(childRequest(job.path, childSecret));
+      const response = await runChildJobWithTimeout(job, childSecret);
       results.push({
         name: job.name,
         ok: response.ok,
