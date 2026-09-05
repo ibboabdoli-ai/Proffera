@@ -107,6 +107,7 @@ describe("Operations scheduler route", () => {
 
   afterEach(() => {
     process.env = { ...originalEnv };
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -248,6 +249,40 @@ describe("Operations scheduler route", () => {
     expect(mocks.syncCompanyDirectory).toHaveBeenCalledTimes(1);
   });
 
+  it("times out a slow in-process child after 75 seconds and still attempts later jobs", async () => {
+    vi.useFakeTimers();
+    mocks.processBookingReminders.mockReturnValueOnce(
+      new Promise<typeof EMPTY_BOOKING_RESULT>(() => undefined),
+    );
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const { GET } = await loadOperationsRoute();
+
+    try {
+      const responsePromise = GET(request("qstash-scheduler-secret"));
+
+      expect(mocks.processBookingReminders).toHaveBeenCalledTimes(1);
+      expect(mocks.enrichCompanyDirectoryOfficialFacts).not.toHaveBeenCalled();
+      expect(mocks.syncCompanyDirectory).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(75_000);
+      const response = await responsePromise;
+
+      expect(response.status).toBe(503);
+      expect(mocks.enrichCompanyDirectoryOfficialFacts).toHaveBeenCalledWith(10);
+      expect(mocks.syncCompanyDirectory).toHaveBeenCalledTimes(1);
+      await expect(response.json()).resolves.toEqual({
+        ok: false,
+        results: [
+          { name: "booking_reminders", ok: false, status: 0 },
+          { name: "company_directory_official_facts", ok: true, status: 200 },
+          { name: "company_directory_sync", ok: true, status: 200 },
+        ],
+      });
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
   it("records a child failure with the child route status and still runs the remaining job", async () => {
     mocks.enrichCompanyDirectoryOfficialFacts.mockRejectedValueOnce(new Error("official facts unavailable"));
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
@@ -331,7 +366,9 @@ describe("Operations scheduler route", () => {
     const recoveryWorkflow = source(".github/workflows/booking-reminders.yml");
 
     expect(operationsRoute).not.toMatch(/\bfetch\s*\(/);
-    expect(operationsRoute).not.toContain("AbortSignal.timeout");
+    expect(operationsRoute).toContain("const CHILD_JOB_TIMEOUT_MS = 75_000;");
+    expect(operationsRoute).toContain("runChildJobWithTimeout");
+    expect(operationsRoute).toContain("new AbortController()");
     expect(operationsRoute).toContain('GET as runBookingReminders');
     expect(operationsRoute).toContain('GET as runCompanyDirectoryOfficialFacts');
     expect(operationsRoute).toContain('GET as runCompanyDirectorySync');
