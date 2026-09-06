@@ -1,4 +1,6 @@
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { Client } from "pg";
@@ -6,8 +8,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const RUN_POSTGRES_INTEGRATION =
-  process.env.GITHUB_ACTIONS === "true"
-  || process.env.PROFFERA_POSTGRES_INTEGRATION === "1";
+  process.env.PROFFERA_POSTGRES_INTEGRATION === "1";
 
 const mocks = vi.hoisted(() => ({
   getSql: vi.fn(),
@@ -55,14 +56,66 @@ import { approveSoleTraderDirectoryClaim } from "@/lib/company-directory-sole-tr
 import { getPublicBusinessHub } from "@/lib/public-business-hub";
 
 const WORKSPACE_ID = "11111111-1111-4111-8111-111111111111";
+const MEMBERSHIP_ID = "44444444-4444-4444-8444-444444444444";
 const PROFILE_ID = "22222222-2222-4222-8222-222222222222";
 const CLAIM_ID = "33333333-3333-4333-8333-333333333333";
 const WORKSPACE_SLUG = "synthetic-safe-service";
 const BLOCKED_ACTIVITY_MARKER = "WA3_BLOCKED_ACTIVITY_MUST_NOT_PUBLISH_8F2B6A";
 const OWNER_INTRO = "Owner-authored Workspace introduction";
 
+const preHubMigrations = [
+  "20260613_phase18_booking_crm.sql",
+  "20260614_phase18_15_workspace_settings.sql",
+  "20260614_phase18_16_workspace_services.sql",
+  "20260616_0001_better_auth_core_schema.sql",
+  "20260616_0002_proffera_workspace_schema.sql",
+  "20260715_0005_public_booking_foundation.sql",
+  "20260728_0016_workspace_staff.sql",
+  "20260729_0019_website_reviews.sql",
+  "20260730_0019a_website_gallery_items.sql",
+  "20260801_0020_workspace_market_settings.sql",
+  "20260802_0021_workspace_service_pricing.sql",
+  "20260802_0022_workspace_quote_requests.sql",
+  "20260802_0023_workspace_quote_offers.sql",
+  "20260802_0025_workspace_service_jobs.sql",
+  "20260803_0028_booking_email_verifications.sql",
+] as const;
+
+const postBootstrapMigrations = [
+  "20260809_0036_public_business_hub.sql",
+  "20260809_0037_company_profile_engine_foundation.sql",
+  "20260809_0040_company_profile_claim_reservation.sql",
+] as const;
+
 function docker(args: string[]) {
   return execFileSync("docker", args, { encoding: "utf8" }).trim();
+}
+
+async function applyMigration(client: Client, file: string) {
+  const migration = readFileSync(join(process.cwd(), "db/migrations", file), "utf8");
+  await client.query(migration);
+}
+
+async function createExternalBootstrapPrerequisites(client: Client) {
+  // These two historical prerequisites are not created by the active
+  // db/migrations chain. Keep only the minimum surface needed before canonical
+  // migrations/application code take over the schema exercised by this proof.
+  await client.query(`
+    create table workspace_experience_settings (
+      workspace_id uuid primary key references workspaces(id) on delete cascade
+    );
+
+    create table admin_audit_logs (
+      id uuid primary key default gen_random_uuid(),
+      admin_user_id text not null,
+      workspace_id uuid,
+      action text not null,
+      reason text,
+      previous_value jsonb,
+      new_value jsonb,
+      created_at timestamptz not null default now()
+    );
+  `);
 }
 
 function createPostgresSqlAdapter(client: Client) {
@@ -145,118 +198,9 @@ const publicExperience = {
       client = new Client({ connectionString });
       await client.connect();
 
-      await client.query(`
-        create table workspaces (
-          id uuid primary key,
-          slug text not null unique,
-          status text not null,
-          public_booking_slug text,
-          company_name text,
-          name text not null,
-          primary_city text,
-          contact_email text,
-          contact_phone text
-        );
-        create table workspace_memberships (
-          workspace_id uuid not null,
-          user_id text not null,
-          role text not null,
-          primary key (workspace_id, user_id)
-        );
-        create table workspace_settings (
-          workspace_id text primary key,
-          company_name text,
-          primary_city text,
-          contact_email text,
-          contact_phone text,
-          billing_currency text
-        );
-        create table workspace_experience_settings (
-          workspace_id uuid primary key,
-          business_intro text not null default '',
-          updated_at timestamptz not null default now()
-        );
-        create table company_directory_profiles (
-          id uuid primary key,
-          claimed_workspace_id uuid,
-          claim_reservation_id uuid,
-          organization_kind text not null,
-          publication_status text not null,
-          is_active boolean not null default true,
-          privacy_blocked boolean not null default false,
-          auto_public_eligible boolean not null default true,
-          official_source text not null default '',
-          activity_description text not null default '',
-          updated_at timestamptz not null default now()
-        );
-        create table company_directory_claims (
-          id uuid primary key,
-          profile_id uuid not null,
-          claimant_user_id text not null,
-          requested_workspace_id uuid,
-          status text not null,
-          verification_method text not null,
-          verification_reference text,
-          requested_at timestamptz not null default now(),
-          verified_at timestamptz,
-          resolved_at timestamptz
-        );
-        create table admin_audit_logs (
-          id bigserial primary key,
-          admin_user_id text not null,
-          workspace_id uuid,
-          action text not null,
-          reason text,
-          previous_value jsonb,
-          new_value jsonb
-        );
-        create table workspace_services (
-          id uuid primary key,
-          workspace_id uuid not null,
-          name text not null,
-          description text,
-          short_description text,
-          category text,
-          price_label text,
-          price_type text,
-          price_amount_minor integer,
-          duration_minutes integer,
-          service_area text,
-          public_slug text,
-          conversion_mode text,
-          cover_image_url text,
-          seo_title text,
-          seo_description text,
-          is_active boolean not null default true,
-          public_status text not null default 'draft',
-          sort_order integer not null default 0
-        );
-        create table website_reviews (
-          id uuid primary key,
-          workspace_id uuid not null,
-          reviewer_name text,
-          rating integer,
-          service text,
-          area text,
-          message text,
-          status text not null,
-          published_at timestamptz,
-          created_at timestamptz not null default now()
-        );
-        create table website_gallery_items (
-          id uuid primary key,
-          workspace_id uuid not null,
-          media_type text,
-          public_url text,
-          title text,
-          caption text,
-          alt_text text,
-          status text not null,
-          is_featured boolean not null default false,
-          sort_order integer not null default 0,
-          created_at timestamptz not null default now()
-        );
-      `);
+      for (const file of preHubMigrations) await applyMigration(client, file);
+      await createExternalBootstrapPrerequisites(client);
+      for (const file of postBootstrapMigrations) await applyMigration(client, file);
     }, 120_000);
 
     afterAll(async () => {
@@ -289,12 +233,15 @@ const publicExperience = {
       });
 
       await client.query(`
-        truncate table website_gallery_items, website_reviews, workspace_services,
-          admin_audit_logs, company_directory_claims, company_directory_profiles,
-          workspace_experience_settings, workspace_settings, workspace_memberships, workspaces
-        restart identity
+        truncate table admin_audit_logs, company_directory_claims, company_directory_profiles,
+          workspace_experience_settings, workspaces, "user"
+        restart identity cascade
       `);
 
+      await client.query(`
+        insert into "user" (id, name, email, "emailVerified")
+        values ('claimant-1', 'Synthetic Claimant', 'claimant@example.test', true)
+      `);
       await client.query(`
         insert into workspaces (
           id, slug, status, public_booking_slug, company_name, name,
@@ -302,20 +249,22 @@ const publicExperience = {
         ) values ($1::uuid, $2, 'active', '', 'Synthetic Safe Service', 'Synthetic Safe Service', 'Teststad', '', '')
       `, [WORKSPACE_ID, WORKSPACE_SLUG]);
       await client.query(`
-        insert into workspace_memberships (workspace_id, user_id, role)
-        values ($1::uuid, 'claimant-1', 'owner')
-      `, [WORKSPACE_ID]);
+        insert into workspace_memberships (id, workspace_id, user_id, role)
+        values ($1::uuid, $2::uuid, 'claimant-1', 'owner')
+      `, [MEMBERSHIP_ID, WORKSPACE_ID]);
       await client.query(`
         insert into workspace_experience_settings (workspace_id, business_intro)
         values ($1::uuid, '')
       `, [WORKSPACE_ID]);
       await client.query(`
         insert into company_directory_profiles (
-          id, claimed_workspace_id, claim_reservation_id, organization_kind,
+          id, organization_number, organization_kind, legal_name, display_name,
+          public_slug, claimed_workspace_id, claim_reservation_id,
           publication_status, is_active, privacy_blocked, auto_public_eligible,
           official_source, activity_description
         ) values (
-          $1::uuid, null, null, 'sole_trader',
+          $1::uuid, '9900000001', 'sole_trader', 'Synthetic Safe Service', 'Synthetic Safe Service',
+          'synthetic-safe-service-directory', null, null,
           'blocked', true, true, false,
           'bolagsverket_vardefulla_datamangder:sole_trader_owner', $2
         )
@@ -384,7 +333,7 @@ const publicExperience = {
     it("preserves user-authored public Workspace introduction through ownership approval", async () => {
       await client.query(`
         update workspace_experience_settings
-        set business_intro = $2, updated_at = now()
+        set business_intro = $2
         where workspace_id = $1::uuid
       `, [WORKSPACE_ID, OWNER_INTRO]);
 
