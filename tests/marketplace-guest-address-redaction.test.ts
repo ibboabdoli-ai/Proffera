@@ -90,6 +90,7 @@ describe("Marketplace guest description address privacy", () => {
   it.each([
     "Segelbåtsvägen   7   A",
     "Segelbåtsvägen\n7 A",
+    "Segelbåtsvägen\t7\tA",
   ])("redacts equivalent address whitespace: %j", (descriptionAddress) => {
     const view = buildMarketplaceGuestQuoteView({
       ...baseInvitation,
@@ -113,6 +114,18 @@ describe("Marketplace guest description address privacy", () => {
     expect(view.description).toContain("[…]");
   });
 
+  it("redacts decomposed combining-mark address forms", () => {
+    const decomposedStreet = "Segelbåtsvägen".normalize("NFD");
+    const view = buildMarketplaceGuestQuoteView({
+      ...baseInvitation,
+      customer_address_line1: "Segelbåtsvägen 7 A",
+      description: `Behöver hjälp på ${decomposedStreet} 7A med läckande rör.`,
+    }, "2099-01-01T00:00:00.000Z", false);
+
+    expect(view.description).not.toContain(decomposedStreet);
+    expect(view.description).toContain("[…]");
+  });
+
   it.each([
     ["Șoseaua 7 A", "Șoseaua 7A"],
     ["Soseaua 7 A", "Șoseaua 7A"],
@@ -125,6 +138,30 @@ describe("Marketplace guest description address privacy", () => {
 
     expect(view.description).not.toContain(descriptionAddress);
     expect(view.description).toContain("[…]");
+  });
+
+  it.each([
+    "ÅSegelbåtsvägen 7A",
+    "Segelbåtsvägen 7AÖ",
+    "Segelbåtsvägen 7A9",
+  ])("does not redact the address when embedded in a larger Unicode letter/number token: %j", (description) => {
+    const view = buildMarketplaceGuestQuoteView({
+      ...baseInvitation,
+      customer_address_line1: "Segelbåtsvägen 7 A",
+      description,
+    }, "2099-01-01T00:00:00.000Z", false);
+
+    expect(view.description).toBe(description);
+  });
+
+  it("redacts the complete known address when separated by punctuation", () => {
+    const view = buildMarketplaceGuestQuoteView({
+      ...baseInvitation,
+      customer_address_line1: "Segelbåtsvägen 7 A",
+      description: "Jobbet gäller (Segelbåtsvägen 7A).",
+    }, "2099-01-01T00:00:00.000Z", false);
+
+    expect(view.description).toBe("Jobbet gäller ([…]).");
   });
 
   it("does not redact a street-name-only mention or allowed service-area context", () => {
