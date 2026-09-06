@@ -63,6 +63,132 @@ describe("Marketplace guest description address privacy", () => {
     expect(JSON.stringify(view)).not.toContain("Testgatan 12");
   });
 
+  it("redacts the reported Swedish house-letter spacing variant", () => {
+    const view = buildMarketplaceGuestQuoteView({
+      ...baseInvitation,
+      customer_address_line1: "Segelbåtsvägen 7 A",
+      description: "Behöver hjälp på Segelbåtsvägen 7A med läckande rör.",
+    }, "2099-01-01T00:00:00.000Z", false);
+
+    expect(view.description).not.toContain("Segelbåtsvägen 7A");
+    expect(view.description).toContain("Behöver hjälp");
+    expect(view.description).toContain("läckande rör");
+    expect(view.description).toContain("[…]");
+  });
+
+  it("redacts the reverse house-letter spacing variant", () => {
+    const view = buildMarketplaceGuestQuoteView({
+      ...baseInvitation,
+      customer_address_line1: "Segelbåtsvägen 7A",
+      description: "Behöver hjälp på Segelbåtsvägen 7 A med läckande rör.",
+    }, "2099-01-01T00:00:00.000Z", false);
+
+    expect(view.description).not.toContain("Segelbåtsvägen 7 A");
+    expect(view.description).toContain("[…]");
+  });
+
+  it.each([
+    "Segelbåtsvägen   7   A",
+    "Segelbåtsvägen\n7 A",
+    "Segelbåtsvägen\t7\tA",
+  ])("redacts equivalent address whitespace: %j", (descriptionAddress) => {
+    const view = buildMarketplaceGuestQuoteView({
+      ...baseInvitation,
+      customer_address_line1: "Segelbåtsvägen 7 A",
+      description: `Behöver hjälp på ${descriptionAddress} med läckande rör.`,
+    }, "2099-01-01T00:00:00.000Z", false);
+
+    expect(view.description).not.toContain("Segelbåtsvägen");
+    expect(view.description).toContain("[…]");
+    expect(view.description).toContain("läckande rör");
+  });
+
+  it("redacts diacritic-equivalent street spelling used by repository address normalization", () => {
+    const view = buildMarketplaceGuestQuoteView({
+      ...baseInvitation,
+      customer_address_line1: "Segelbåtsvägen 7 A",
+      description: "Behöver hjälp på Segelbatsvagen 7A med läckande rör.",
+    }, "2099-01-01T00:00:00.000Z", false);
+
+    expect(view.description).not.toContain("Segelbatsvagen 7A");
+    expect(view.description).toContain("[…]");
+  });
+
+  it("redacts decomposed combining-mark address forms", () => {
+    const decomposedStreet = "Segelbåtsvägen".normalize("NFD");
+    const view = buildMarketplaceGuestQuoteView({
+      ...baseInvitation,
+      customer_address_line1: "Segelbåtsvägen 7 A",
+      description: `Behöver hjälp på ${decomposedStreet} 7A med läckande rör.`,
+    }, "2099-01-01T00:00:00.000Z", false);
+
+    expect(view.description).not.toContain(decomposedStreet);
+    expect(view.description).toContain("[…]");
+  });
+
+  it("redacts a precomposed description for a decomposed stored address", () => {
+    const decomposedStreet = "Segelbåtsvägen".normalize("NFD");
+    const view = buildMarketplaceGuestQuoteView({
+      ...baseInvitation,
+      customer_address_line1: `${decomposedStreet} 7 A`,
+      description: "Behöver hjälp på Segelbåtsvägen 7A med läckande rör.",
+    }, "2099-01-01T00:00:00.000Z", false);
+
+    expect(view.description).not.toContain("Segelbåtsvägen 7A");
+    expect(view.description).toContain("[…]");
+  });
+
+  it.each([
+    ["Șoseaua 7 A", "Șoseaua 7A"],
+    ["Soseaua 7 A", "Șoseaua 7A"],
+  ])("keeps precomposed Latin address matching symmetric: stored %j description %j", (storedAddress, descriptionAddress) => {
+    const view = buildMarketplaceGuestQuoteView({
+      ...baseInvitation,
+      customer_address_line1: storedAddress,
+      description: `Behöver hjälp på ${descriptionAddress} med läckande rör.`,
+    }, "2099-01-01T00:00:00.000Z", false);
+
+    expect(view.description).not.toContain(descriptionAddress);
+    expect(view.description).toContain("[…]");
+  });
+
+  it.each([
+    "ÅSegelbåtsvägen 7A",
+    "Segelbåtsvägen 7AÖ",
+    "Segelbåtsvägen 7A9",
+  ])("does not redact the address when embedded in a larger Unicode letter/number token: %j", (description) => {
+    const view = buildMarketplaceGuestQuoteView({
+      ...baseInvitation,
+      customer_address_line1: "Segelbåtsvägen 7 A",
+      description,
+    }, "2099-01-01T00:00:00.000Z", false);
+
+    expect(view.description).toBe(description);
+  });
+
+  it("redacts the complete known address when separated by punctuation", () => {
+    const view = buildMarketplaceGuestQuoteView({
+      ...baseInvitation,
+      customer_address_line1: "Segelbåtsvägen 7 A",
+      description: "Jobbet gäller (Segelbåtsvägen 7A).",
+    }, "2099-01-01T00:00:00.000Z", false);
+
+    expect(view.description).toBe("Jobbet gäller ([…]).");
+  });
+
+  it("does not redact a street-name-only mention or allowed service-area context", () => {
+    const description = "Segelbåtsvägen ligger nära Teststad och jobbet kan beskrivas utan husnummer.";
+    const view = buildMarketplaceGuestQuoteView({
+      ...baseInvitation,
+      customer_address_line1: "Segelbåtsvägen 7 A",
+      description,
+    }, "2099-01-01T00:00:00.000Z", false);
+
+    expect(view.description).toBe(description);
+    expect(view.city).toBe("Teststad");
+    expect(view.postalCode).toBe("123 45");
+  });
+
   it("removes the exact street address from address plus postal-code text without over-redacting allowed area context", () => {
     const view = buildMarketplaceGuestQuoteView({
       ...baseInvitation,
