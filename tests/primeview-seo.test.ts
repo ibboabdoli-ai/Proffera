@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
+import { metadata as galleryMetadata } from "../src/app/gallery/page";
 import { primeViewServices, primeViewSite, primeViewStructuredData } from "../src/lib/primeview-seo";
 
 describe("PrimeView SEO source of truth", () => {
@@ -18,6 +19,27 @@ describe("PrimeView SEO source of truth", () => {
       { "@type": "AdministrativeArea", name: "West London" },
       { "@type": "AdministrativeArea", name: "North London" },
     ]);
+  });
+
+  it("publishes complete metadata from the public Gallery route", () => {
+    const galleryCanonical = `${primeViewSite.origin}/gallery`;
+    const galleryTitle = "Gallery | PrimeView Window Care";
+
+    expect(galleryMetadata.metadataBase).toEqual(new URL(primeViewSite.origin));
+    expect(galleryMetadata.title).toEqual({ absolute: galleryTitle });
+    expect(galleryMetadata.alternates).toEqual({ canonical: galleryCanonical });
+    expect(galleryMetadata.robots).toEqual({ index: true, follow: true });
+    expect(galleryMetadata.openGraph).toMatchObject({
+      title: galleryTitle,
+      url: galleryCanonical,
+      siteName: primeViewSite.name,
+      locale: "en_GB",
+      type: "website",
+    });
+    expect(galleryMetadata.twitter).toMatchObject({
+      card: "summary_large_image",
+      title: galleryTitle,
+    });
   });
 
   it("keeps customer-facing gallery, booking and privacy metadata on the PrimeView brand", () => {
