@@ -46,6 +46,9 @@ jobs:
         github.event.issue.pull_request != null &&
         ((github.actor == 'coderabbitai[bot]' &&
           (contains(github.event.comment.body, 'recent_review_start') ||
+            (contains(github.event.comment.body, '<!-- CodeRabbit review command invocation: v2:') &&
+              contains(github.event.comment.body, 'Final exact-head review is complete for') &&
+              contains(github.event.comment.body, 'I found no issues.')) ||
             contains(github.event.comment.body, 'Review limit reached') ||
             contains(github.event.comment.body, 'Review rate limited') ||
             contains(github.event.comment.body, 'Review skipped') ||
@@ -129,6 +132,9 @@ jobs:
           is_cross_repo="$(jq -r '.isCrossRepository' <<< "$pr_json")"
           head_repo_owner="$(jq -r '.headRepositoryOwner.login // ""' <<< "$pr_json")"
           has_label="$(jq -r '.labels[].name' <<< "$pr_json" | grep -Fxq 'ibbo-approved' && echo yes || echo no)"
+          if ! [[ "$head_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            refuse "Refused: PR head is not an exact lowercase 40-character SHA."
+          fi
           head_commit_json="$(gh api "repos/$REPOSITORY/commits/$head_sha")"
           head_message="$(jq -r '.commit.message // ""' <<< "$head_commit_json")"
           generated_autofix_head=no
@@ -162,15 +168,12 @@ jobs:
             refuse "Refused: PR is still a draft."
           fi
 
-          # Authorization has two safe modes:
-          # 1) an owner-applied ibbo-approved label plus an owner APPROVED review
-          #    anchored to the exact current head commit; or
-          # 2) a scoped standing authorization committed on main.
-          # The PR branch can never self-authorize because the standing policy is read from main.
-          # Machine-generated Codex autofix heads are intentionally excluded from standing auth;
-          # they require fresh exact-head owner authorization before merge.
+          # Actual merge authorization has exactly one mode: an owner-applied
+          # ibbo-approved label plus the owner's latest APPROVED review anchored
+          # to the exact current head. Standing policy is advisory routing/scope
+          # context only and can never independently authorize a merge.
           authorization_mode="none"
-          standing_authorized="no"
+          standing_scope_match="no"
           standing_json=""
 
           set +e
@@ -215,11 +218,10 @@ jobs:
               && [ "$standing_origin_match" = "yes" ] \
               && [ "$generated_autofix_head" = "no" ] \
               && [ "$expires_epoch" -gt "$now_epoch" ]; then
-              standing_authorized="yes"
-              authorization_mode="standing:${standing_scope}"
+              standing_scope_match="yes"
             fi
 
-            summary "### Standing authorization"
+            summary "### Standing authorization advisory"
             summary "- Policy source: main/$STANDING_AUTH_PATH"
             summary "- Enabled: $standing_enabled"
             summary "- Authorized by: ${standing_owner:-none}"
@@ -229,32 +231,42 @@ jobs:
             summary "- Trusted same-repository owner origin: $standing_origin_match"
             summary "- Generated autofix head excluded: $generated_autofix_head"
             summary "- Expires: ${standing_expires_at:-none}"
+            summary "- Advisory scope match: $standing_scope_match"
+            summary "- Merge authorization: never supplied by standing policy"
             summary ""
           else
-            summary "### Standing authorization"
+            summary "### Standing authorization advisory"
             summary "- No valid standing policy was available on main."
+            summary "- Merge authorization: fresh exact-head owner authorization is still required"
             summary ""
           fi
 
-          if [ "$standing_authorized" != "yes" ] && [ "$has_label" = "yes" ]; then
+          approval_actor=""
+          if [ "$has_label" = "yes" ]; then
             approval_json="$(gh api "repos/$REPOSITORY/issues/$pr_number/events?per_page=100")"
             approval_actor="$(jq -r '[.[] | select(.event == "labeled" and .label.name == "ibbo-approved")] | last | .actor.login // ""' <<< "$approval_json")"
-            reviews_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq '.[]' | jq -s '.')"
-            owner_head_approval_count="$(jq -r --arg owner "$HUMAN_APPROVER" --arg sha "$head_sha" '[.[] | select(.user.login == $owner and .state == "APPROVED" and .commit_id == $sha)] | length' <<< "$reviews_json")"
+          fi
 
-            summary "### Per-PR human authorization"
-            summary "- Label actor: ${approval_actor:-none}"
-            summary "- Exact-current-head owner approvals: $owner_head_approval_count"
-            summary ""
+          reviews_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq '.[]' | jq -s '.')"
+          owner_head_approval_count="$(jq -r --arg owner "$HUMAN_APPROVER" --arg sha "$head_sha" '[.[] | select(.user.login == $owner and .state == "APPROVED" and .commit_id == $sha)] | length' <<< "$reviews_json")"
+          owner_head_latest_state="$(jq -r --arg owner "$HUMAN_APPROVER" --arg sha "$head_sha" '[.[] | select(.user.login == $owner and .commit_id == $sha)] | sort_by(.submitted_at // "", .id // 0) | last | .state // ""' <<< "$reviews_json")"
 
-            if [ "$approval_actor" = "$HUMAN_APPROVER" ] \
-              && [ "$owner_head_approval_count" -gt 0 ]; then
-              authorization_mode="fresh-owner-label"
-            fi
+          summary "### Per-PR human authorization"
+          summary "- ibbo-approved present: $has_label"
+          summary "- Label actor: ${approval_actor:-none}"
+          summary "- Exact-current-head owner approvals: $owner_head_approval_count"
+          summary "- Latest exact-current-head owner review: ${owner_head_latest_state:-none}"
+          summary ""
+
+          if [ "$has_label" = "yes" ] \
+            && [ "$approval_actor" = "$HUMAN_APPROVER" ] \
+            && [ "$owner_head_approval_count" -gt 0 ] \
+            && [ "$owner_head_latest_state" = "APPROVED" ]; then
+            authorization_mode="fresh-exact-head-owner"
           fi
 
           if [ "$authorization_mode" = "none" ]; then
-            refuse "Refused: neither a valid scoped standing authorization from main nor an owner label plus exact-current-head owner APPROVED review authorizes this PR."
+            refuse "Refused: actual merge eligibility requires both an owner-controlled ibbo-approved label and the owner's latest APPROVED review on the exact current head; standing authorization is advisory only."
           fi
 
           summary "- Authorization mode: $authorization_mode"
@@ -271,8 +283,8 @@ jobs:
           fi
           summary ""
 
-          # Standing authorization must never auto-merge control-plane, infrastructure,
-          # secrets, auth, deployment, database/schema, package or other blocked paths.
+          # Gated automerge must never merge control-plane, infrastructure, secrets,
+          # auth, deployment, database/schema, package or other blocked paths.
           sensitive_match=""
           while IFS= read -r file; do
             case "$file" in
@@ -342,6 +354,17 @@ jobs:
             terminal_count="$(jq -r '[.[] | select(.state == "APPROVED" or .state == "COMMENTED")] | length' <<< "$current_reviews")"
 
             comments_json="$(gh api --paginate "repos/$REPOSITORY/issues/$pr_number/comments?per_page=100" --jq '.[]' | jq -s '.')"
+            coderabbit_marker="<!-- proffera-coderabbit-final-review-request:${head_sha} -->"
+            coderabbit_request_time="$(jq -r --arg marker "$coderabbit_marker" '
+              [
+                .[]
+                | select(.user.login == "github-actions[bot]")
+                | select((.body // "") == ($marker + "\n@coderabbitai review"))
+              ]
+              | sort_by(.created_at)
+              | last
+              | .created_at // empty
+            ' <<< "$comments_json")"
             clean_summary_count="$(jq -r --arg sha "$head_sha" '
               [
                 .[]
@@ -357,6 +380,22 @@ jobs:
               ]
               | length
             ' <<< "$comments_json")"
+            clean_final_comment_count="$(jq -r --arg sha "$head_sha" --arg request_time "$coderabbit_request_time" '
+              [
+                .[]
+                | select(.user.login == "coderabbitai[bot]")
+                | select($request_time != "")
+                | select((.created_at // "") >= $request_time)
+                | (.body // "") as $body
+                | select(
+                    ($body | test("(^|[\\r\\n])<!-- CodeRabbit review command invocation: v2:[0-9a-f]{64} -->($|[\\r\\n])"))
+                    and ($body | test("(^|[\\r\\n])[[:space:]]*(@[A-Za-z0-9-]+[[:space:]]+)?Final exact-head review is complete for[[:space:]]+`?" + $sha + "`?\\.[[:space:]]*($|[\\r\\n])"))
+                    and ($body | test("(^|[\\r\\n])[[:space:]]*I found no issues\\.[[:space:]]*($|[\\r\\n])"))
+                    and (($body | test("Review limit reached|Review rate[ -]?limited|rate[ -]?limit|Action not completed|Review skipped|temporarily unavailable|service unavailable|incomplete|did not complete"; "i")) | not)
+                  )
+              ]
+              | length
+            ' <<< "$comments_json")"
 
             if [ -n "$latest_changes" ]; then
               if [ -z "$latest_approval" ] || [[ ! "$latest_approval" > "$latest_changes" ]]; then
@@ -367,9 +406,22 @@ jobs:
               summary "- Current-head CodeRabbit decision: non-blocking review completed"
             elif [ "$clean_summary_count" -gt 0 ]; then
               summary "- Current-head CodeRabbit decision: clean review with no actionable comments"
+            elif [ "$clean_final_comment_count" -gt 0 ]; then
+              guard_head_sha="$(gh api "repos/$REPOSITORY/pulls/$pr_number" --jq '.head.sha')"
+              if [ "$guard_head_sha" != "$head_sha" ]; then
+                refuse "Refused: clean CodeRabbit comment became stale before automerge review acceptance; current head is $guard_head_sha, evaluated head is $head_sha."
+              fi
+
+              guard_reviews_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq '.[]' | jq -s '.')"
+              guard_current_reviews="$(jq -c --arg sha "$head_sha" '[.[] | select(.user.login == "coderabbitai[bot]" and .commit_id == $sha)]' <<< "$guard_reviews_json")"
+              guard_latest_changes="$(jq -r '[.[] | select(.state == "CHANGES_REQUESTED") | .submitted_at] | max // empty' <<< "$guard_current_reviews")"
+              guard_latest_approval="$(jq -r '[.[] | select(.state == "APPROVED") | .submitted_at] | max // empty' <<< "$guard_current_reviews")"
+              if [ -n "$guard_latest_changes" ] && { [ -z "$guard_latest_approval" ] || [[ ! "$guard_latest_approval" > "$guard_latest_changes" ]]; }; then
+                refuse "Refused: CodeRabbit changes were recorded before clean-comment automerge acceptance; clean comments cannot clear them."
+              fi
+
+              summary "- Current-head CodeRabbit decision: clean exact-head completion comment"
             else
-              coderabbit_marker="<!-- proffera-coderabbit-final-review-request:${head_sha} -->"
-              coderabbit_request_time="$(jq -r --arg marker "$coderabbit_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | sort_by(.created_at) | last | .created_at // empty' <<< "$comments_json")"
               fallback_active=false
 
               if [ -n "$coderabbit_request_time" ]; then
@@ -377,7 +429,7 @@ jobs:
                   [
                     .[]
                     | select(.user.login == "coderabbitai[bot]")
-                    | select((.updated_at // .created_at) >= $request_time)
+                    | select((.created_at // "") >= $request_time)
                     | select((.body // "") | test("Review limit reached|Review rate limited|Action not completed: Review rate limited|Review skipped|temporarily unavailable|service unavailable"; "i"))
                   ]
                   | length
@@ -473,6 +525,8 @@ jobs:
           failing_checks=""
           pending_checks=""
           unknown_checks=""
+          ci_validate_pass_count=0
+          final_gate_pass_count=0
 
           for attempt in $(seq 1 40); do
             checks_file="$(mktemp)"
@@ -501,6 +555,8 @@ jobs:
             failing_checks="$(jq -r --arg self_check "$SELF_CHECK_NAME" --arg self_workflow "$SELF_WORKFLOW_NAME" '.[] | select(.name != $self_check and .name != $self_workflow) | select(.bucket == "fail" or .bucket == "cancel") | .name' <<< "$checks_json")"
             pending_checks="$(jq -r --arg self_check "$SELF_CHECK_NAME" --arg self_workflow "$SELF_WORKFLOW_NAME" '.[] | select(.name != $self_check and .name != $self_workflow) | select(.bucket == "pending") | .name' <<< "$checks_json")"
             unknown_checks="$(jq -r --arg self_check "$SELF_CHECK_NAME" --arg self_workflow "$SELF_WORKFLOW_NAME" '.[] | select(.name != $self_check and .name != $self_workflow) | select(.bucket != "pass" and .bucket != "skipping" and .bucket != "pending" and .bucket != "fail" and .bucket != "cancel") | .name' <<< "$checks_json")"
+            ci_validate_pass_count="$(jq -r '[.[] | select(.name == "Validate" and .bucket == "pass")] | length' <<< "$checks_json")"
+            final_gate_pass_count="$(jq -r '[.[] | select(.name == "E2E public smoke" and .bucket == "pass")] | length' <<< "$checks_json")"
 
             if [ "$non_self_check_count" -eq 0 ]; then
               refuse "Refused: no non-self status checks were found for this PR."
@@ -519,6 +575,8 @@ jobs:
           summary ""
           summary "Self-check names ignored while gating pending/failing checks: $SELF_CHECK_NAME, $SELF_WORKFLOW_NAME"
           summary "Non-self status checks found: $non_self_check_count"
+          summary "Passing CI Validate checks: $ci_validate_pass_count"
+          summary "Passing Final Gate checks: $final_gate_pass_count"
           summary ""
 
           if [ -n "$pending_checks" ]; then
@@ -545,6 +603,14 @@ jobs:
             refuse "Refused: one or more checks returned an unrecognized bucket."
           fi
 
+          if [ "$ci_validate_pass_count" -eq 0 ]; then
+            refuse "Refused: the exact-head CI Validate check is missing or not successful."
+          fi
+
+          if [ "$final_gate_pass_count" -eq 0 ]; then
+            refuse "Refused: the exact-head E2E public smoke Final Gate is missing or not successful."
+          fi
+
           if [ "$needs_ai_review" = "true" ]; then
             final_reviews_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq '.[]' | jq -s '.')"
             final_current_reviews="$(jq -c --arg sha "$head_sha" '[.[] | select(.user.login == "coderabbitai[bot]" and .commit_id == $sha)]' <<< "$final_reviews_json")"
@@ -555,6 +621,31 @@ jobs:
               refuse "Refused: CodeRabbit changes were requested on the current PR head after the earlier review gate; merge is blocked."
             fi
           fi
+
+          # Revalidate the mandatory per-PR human authorization after all waits
+          # and immediately before the match-head merge operation.
+          final_pr_json="$(gh pr view "$pr_number" --repo "$REPOSITORY" --json headRefOid,labels)"
+          final_head_sha="$(jq -r '.headRefOid' <<< "$final_pr_json")"
+          final_has_label="$(jq -r '.labels[].name' <<< "$final_pr_json" | grep -Fxq 'ibbo-approved' && echo yes || echo no)"
+          if [ "$final_head_sha" != "$head_sha" ]; then
+            refuse "Refused: PR head moved after fresh owner authorization; current head is $final_head_sha, authorized head is $head_sha."
+          fi
+
+          final_approval_json="$(gh api "repos/$REPOSITORY/issues/$pr_number/events?per_page=100")"
+          final_approval_actor="$(jq -r '[.[] | select(.event == "labeled" and .label.name == "ibbo-approved")] | last | .actor.login // ""' <<< "$final_approval_json")"
+          final_owner_reviews_json="$(gh api --paginate "repos/$REPOSITORY/pulls/$pr_number/reviews?per_page=100" --jq '.[]' | jq -s '.')"
+          final_owner_head_approval_count="$(jq -r --arg owner "$HUMAN_APPROVER" --arg sha "$head_sha" '[.[] | select(.user.login == $owner and .state == "APPROVED" and .commit_id == $sha)] | length' <<< "$final_owner_reviews_json")"
+          final_owner_head_latest_state="$(jq -r --arg owner "$HUMAN_APPROVER" --arg sha "$head_sha" '[.[] | select(.user.login == $owner and .commit_id == $sha)] | sort_by(.submitted_at // "", .id // 0) | last | .state // ""' <<< "$final_owner_reviews_json")"
+
+          if [ "$final_has_label" != "yes" ] \
+            || [ "$final_approval_actor" != "$HUMAN_APPROVER" ] \
+            || [ "$final_owner_head_approval_count" -eq 0 ] \
+            || [ "$final_owner_head_latest_state" != "APPROVED" ]; then
+            refuse "Refused: fresh exact-head owner authorization was removed, dismissed, superseded, or otherwise invalid before merge."
+          fi
+
+          summary "- Fresh exact-head owner authorization revalidated immediately before merge"
+          summary ""
 
           merge_output="$(gh pr merge "$pr_number" --repo "$REPOSITORY" --squash --delete-branch --match-head-commit "$head_sha" 2>&1)"
 
