@@ -16,4 +16,8 @@ describe("PrimeView area indexing", () => {
     expect(metadata.robots).toEqual({ index: false, follow: true });
     expect(metadata.alternates?.canonical).toBe("https://www.primeviewwindowcare.co.uk/areas/hammersmith");
   });
+
+  it("returns empty metadata for an unknown area slug", async () => {
+    await expect(generateMetadata({ params: Promise.resolve({ slug: "not-a-real-area" }) })).resolves.toEqual({});
+  });
 });
