@@ -126,6 +126,18 @@ describe("Marketplace guest description address privacy", () => {
     expect(view.description).toContain("[…]");
   });
 
+  it("redacts a precomposed description for a decomposed stored address", () => {
+    const decomposedStreet = "Segelbåtsvägen".normalize("NFD");
+    const view = buildMarketplaceGuestQuoteView({
+      ...baseInvitation,
+      customer_address_line1: `${decomposedStreet} 7 A`,
+      description: "Behöver hjälp på Segelbåtsvägen 7A med läckande rör.",
+    }, "2099-01-01T00:00:00.000Z", false);
+
+    expect(view.description).not.toContain("Segelbåtsvägen 7A");
+    expect(view.description).toContain("[…]");
+  });
+
   it.each([
     ["Șoseaua 7 A", "Șoseaua 7A"],
     ["Soseaua 7 A", "Șoseaua 7A"],
