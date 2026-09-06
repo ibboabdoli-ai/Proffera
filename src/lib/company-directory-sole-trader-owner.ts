@@ -853,8 +853,7 @@ export async function approveSoleTraderDirectoryClaim(input: { claimId: string; 
       select
         claim.id as claim_id,
         claim.profile_id,
-        claim.requested_workspace_id as workspace_id,
-        profile.activity_description
+        claim.requested_workspace_id as workspace_id
       from company_directory_claims claim
       join company_directory_profiles profile on profile.id = claim.profile_id
       join workspaces workspace on workspace.id = claim.requested_workspace_id
@@ -887,7 +886,7 @@ export async function approveSoleTraderDirectoryClaim(input: { claimId: string; 
           updated_at = now()
       from locked
       where profile.id = locked.profile_id
-      returning profile.id, locked.workspace_id, locked.activity_description
+      returning profile.id, locked.workspace_id
     ), claimed_claim as (
       update company_directory_claims claim
       set status = 'claimed',
@@ -898,17 +897,7 @@ export async function approveSoleTraderDirectoryClaim(input: { claimId: string; 
       from locked, claimed_profile profile
       where claim.id = locked.claim_id
         and profile.id = locked.profile_id
-      returning claim.id, profile.workspace_id, profile.activity_description
-    ), experience as (
-      insert into workspace_experience_settings (workspace_id, business_intro)
-      select workspace_id, activity_description from claimed_claim
-      on conflict (workspace_id) do update set
-        business_intro = case
-          when coalesce(workspace_experience_settings.business_intro, '') = '' then excluded.business_intro
-          else workspace_experience_settings.business_intro
-        end,
-        updated_at = now()
-      returning workspace_id
+      returning claim.id, profile.workspace_id
     ), audit as (
       insert into admin_audit_logs (admin_user_id, workspace_id, action, reason, previous_value, new_value)
       select
@@ -926,7 +915,6 @@ export async function approveSoleTraderDirectoryClaim(input: { claimId: string; 
     )
     select claimed_claim.id::text, claimed_claim.workspace_id::text
     from claimed_claim
-    join experience on true
     join audit on true
   `;
 
