@@ -556,7 +556,7 @@ jobs:
 
           marker="<!-- proffera-coderabbit-final-review-request:${HEAD_SHA} -->"
           comments_json="$(gh api --paginate "repos/${REPOSITORY}/issues/${PR_NUMBER}/comments?per_page=100" --jq '.[]' | jq -s '.')"
-          request_count="$(jq -r --arg marker "$marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | length' <<< "$comments_json")"
+          request_count="$(jq -r --arg marker "$marker" '[.[] | select(.user.login == "github-actions[bot]" and (.body // "") == ($marker + "\n@coderabbitai review"))] | length' <<< "$comments_json")"
 
           if [ "$request_count" -eq 0 ]; then
             review_body="$(printf '%s\n%s\n' "$marker" '@coderabbitai review')"
@@ -650,6 +650,11 @@ jobs:
 
           if [ "$ROUTE_RESULT" != "success" ]; then
             echo "Refused: AI review routing did not succeed ($ROUTE_RESULT)."
+            exit 1
+          fi
+
+          if ! [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Refused: CI review head is not an exact lowercase 40-character SHA."
             exit 1
           fi
 
@@ -753,7 +758,16 @@ jobs:
 
             comments_json="$(gh api --paginate "repos/${REPOSITORY}/issues/${PR_NUMBER}/comments?per_page=100" --jq '.[]' | jq -s '.')"
             coderabbit_marker="<!-- proffera-coderabbit-final-review-request:${HEAD_SHA} -->"
-            coderabbit_request_time="$(jq -r --arg marker "$coderabbit_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker))) | .created_at] | max // empty' <<< "$comments_json")"
+            coderabbit_request_time="$(jq -r --arg marker "$coderabbit_marker" '
+              [
+                .[]
+                | select(.user.login == "github-actions[bot]")
+                | select((.body // "") == ($marker + "\n@coderabbitai review"))
+              ]
+              | sort_by(.created_at)
+              | last
+              | .created_at // empty
+            ' <<< "$comments_json")"
             clean_summary_count="$(jq -r --arg sha "$HEAD_SHA" '
               [
                 .[]
@@ -774,12 +788,13 @@ jobs:
                 .[]
                 | select(.user.login == "coderabbitai[bot]")
                 | select($request_time != "")
-                | select((.updated_at // .created_at // "") >= $request_time)
+                | select((.created_at // "") >= $request_time)
                 | (.body // "") as $body
                 | select(
-                    ($body | test("Final exact-head review is complete for[[:space:]]+`?" + $sha + "`?\\."))
+                    ($body | test("(^|[\\r\\n])<!-- CodeRabbit review command invocation: v2:[0-9a-f]{64} -->($|[\\r\\n])"))
+                    and ($body | test("(^|[\\r\\n])[[:space:]]*(@[A-Za-z0-9-]+[[:space:]]+)?Final exact-head review is complete for[[:space:]]+`?" + $sha + "`?\\.[[:space:]]*($|[\\r\\n])"))
                     and ($body | test("(^|[\\r\\n])[[:space:]]*I found no issues\\.[[:space:]]*($|[\\r\\n])"))
-                    and (($body | test("Review limit reached|Review rate limited|Action not completed|Review skipped|temporarily unavailable|service unavailable"; "i")) | not)
+                    and (($body | test("Review limit reached|Review rate[ -]?limited|rate[ -]?limit|Action not completed|Review skipped|temporarily unavailable|service unavailable|incomplete|did not complete"; "i")) | not)
                   )
               ]
               | length
@@ -831,7 +846,7 @@ jobs:
                   [
                     .[]
                     | select(.user.login == "coderabbitai[bot]")
-                    | select((.updated_at // .created_at) >= $request_time)
+                    | select((.created_at // "") >= $request_time)
                     | select((.body // "") | test("Review limit reached|Review rate limited|Action not completed: Review rate limited|temporarily unavailable|service unavailable"; "i"))
                   ]
                   | length
@@ -852,7 +867,7 @@ jobs:
                   [
                     .[]
                     | select(.user.login == "coderabbitai[bot]")
-                    | select((.updated_at // .created_at) >= $request_time)
+                    | select((.created_at // "") >= $request_time)
                     | select((.body // "") | test("Review limit reached|Review rate limited|Action not completed: Review rate limited|Review skipped|temporarily unavailable|service unavailable"; "i"))
                   ]
                   | length

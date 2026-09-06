@@ -28,7 +28,8 @@ jobs:
         github.event.issue.pull_request != null &&
         ((github.actor == 'coderabbitai[bot]' &&
           (contains(github.event.comment.body, 'recent_review_start') ||
-            (contains(github.event.comment.body, 'Final exact-head review is complete for') &&
+            (contains(github.event.comment.body, '<!-- CodeRabbit review command invocation: v2:') &&
+              contains(github.event.comment.body, 'Final exact-head review is complete for') &&
               contains(github.event.comment.body, 'I found no issues.')) ||
             contains(github.event.comment.body, 'Review limit reached') ||
             contains(github.event.comment.body, 'Review rate limited') ||
@@ -104,8 +105,10 @@ jobs:
 
           new_coderabbit_clean_event=false
           if [ "$EVENT_NAME" = "issue_comment" ] && [ "${EVENT_ACTOR:-}" = "coderabbitai[bot]" ]; then
-            if grep -Fq 'Final exact-head review is complete for' <<< "${EVENT_COMMENT_BODY:-}" \
-              && grep -Eq '(^|[[:space:]])I found no issues\.[[:space:]]*($|[[:space:]])' <<< "${EVENT_COMMENT_BODY:-}"; then
+            if grep -Eq '^<!-- CodeRabbit review command invocation: v2:[0-9a-f]{64} -->$' <<< "${EVENT_COMMENT_BODY:-}" \
+              && grep -Fq 'Final exact-head review is complete for' <<< "${EVENT_COMMENT_BODY:-}" \
+              && grep -Eq '(^|[[:space:]])I found no issues\.[[:space:]]*($|[[:space:]])' <<< "${EVENT_COMMENT_BODY:-}" \
+              && ! grep -Eqi 'Review limit reached|Review rate[ -]?limited|rate[ -]?limit|Action not completed|Review skipped|temporarily unavailable|service unavailable|incomplete|did not complete' <<< "${EVENT_COMMENT_BODY:-}"; then
               new_coderabbit_clean_event=true
             fi
 
@@ -144,9 +147,10 @@ jobs:
             fi
 
             clean_comment_match="$(jq -rn --arg body "${EVENT_COMMENT_BODY:-}" --arg sha "$head_sha" '
-              (($body | test("Final exact-head review is complete for[[:space:]]+`?" + $sha + "`?\\."))
+              (($body | test("(^|[\\r\\n])<!-- CodeRabbit review command invocation: v2:[0-9a-f]{64} -->($|[\\r\\n])"))
+                and ($body | test("(^|[\\r\\n])[[:space:]]*(@[A-Za-z0-9-]+[[:space:]]+)?Final exact-head review is complete for[[:space:]]+`?" + $sha + "`?\\.[[:space:]]*($|[\\r\\n])"))
                 and ($body | test("(^|[\\r\\n])[[:space:]]*I found no issues\\.[[:space:]]*($|[\\r\\n])"))
-                and (($body | test("Review limit reached|Review rate limited|Action not completed|Review skipped|temporarily unavailable|service unavailable"; "i")) | not))
+                and (($body | test("Review limit reached|Review rate[ -]?limited|rate[ -]?limit|Action not completed|Review skipped|temporarily unavailable|service unavailable|incomplete|did not complete"; "i")) | not))
             ')"
             if [ "$clean_comment_match" != "true" ]; then
               echo "CodeRabbit comment is not a completed clean exact-head decision for current head $head_sha; ignoring it."
@@ -164,7 +168,7 @@ jobs:
               [
                 .[]
                 | select(.user.login == "github-actions[bot]")
-                | select((.body // "") | contains($marker))
+                | select((.body // "") == ($marker + "\n@coderabbitai review"))
               ]
               | sort_by(.created_at)
               | last
@@ -223,7 +227,7 @@ jobs:
               [
                 .[]
                 | select(.user.login == "github-actions[bot]")
-                | select((.body // "") | contains($marker))
+                | select((.body // "") == ($marker + "\n@coderabbitai review"))
               ]
               | sort_by(.created_at)
               | last

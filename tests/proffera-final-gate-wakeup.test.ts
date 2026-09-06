@@ -11,6 +11,7 @@ function source(path: string) {
 
 const reviewHead = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const oldHead = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+const codeRabbitInvocationMarker = `<!-- CodeRabbit review command invocation: v2:${"c".repeat(64)} -->`;
 
 function wakeupShellBlock() {
   const wakeup = source(".github/workflows/proffera-final-gate-wakeup.yml");
@@ -232,13 +233,13 @@ function requestComment(createdAt = "2099-09-05T12:00:00Z") {
   return {
     id: 10,
     user: { login: "github-actions[bot]" },
-    body: `<!-- proffera-coderabbit-final-review-request:${reviewHead} -->`,
+    body: `<!-- proffera-coderabbit-final-review-request:${reviewHead} -->\n@coderabbitai review`,
     created_at: createdAt,
   };
 }
 
-function cleanBody(head = reviewHead) {
-  return `Final exact-head review is complete for ${head}.\n\nI found no issues.`;
+function cleanBody(head = reviewHead, marker = codeRabbitInvocationMarker) {
+  return `${marker}\n@ibboabdoli-ai Final exact-head review is complete for \`${head}\`.\n\nI found no issues.`;
 }
 
 function cleanIssueComment(overrides: Record<string, unknown> = {}) {
@@ -267,6 +268,8 @@ describe("event-driven final review gate", () => {
     expect(wakeup).toContain("issue_comment:");
     expect(wakeup).toContain("workflow_dispatch:");
     expect(wakeup).toContain("github.actor == 'coderabbitai[bot]'");
+    expect(wakeup).toContain("<!-- CodeRabbit review command invocation: v2:");
+    expect(wakeup).toContain("[0-9a-f]{64}");
     expect(wakeup).toContain("Final exact-head review is complete for");
     expect(wakeup).toContain("I found no issues.");
     expect(wakeup).toContain("Untrusted issue-comment actor cannot wake the final gate.");
@@ -293,6 +296,7 @@ describe("event-driven final review gate", () => {
 
     expect(automerge).toContain("Final exact-head review is complete for");
     expect(automerge).toContain("I found no issues.");
+    expect(automerge).toContain("<!-- CodeRabbit review command invocation: v2:");
     expect(automerge).toContain("clean exact-head completion comment");
     expect(automerge).toContain("clean comments cannot clear them");
   });
@@ -319,6 +323,33 @@ describe("event-driven final review gate", () => {
     });
     expect(wrongBot.rerun).toBe(false);
 
+    const proseWithoutProviderMarker = runWakeupFixture({
+      body: `Final exact-head review is complete for ${reviewHead}.\n\nI found no issues.`,
+      comments: [requestComment()],
+    });
+    expect(proseWithoutProviderMarker.rerun).toBe(false);
+
+    const malformedProviderMarker = runWakeupFixture({
+      body: cleanBody(reviewHead, `<!-- CodeRabbit review command invocation: v2:${"A".repeat(64)} -->`),
+      comments: [requestComment()],
+    });
+    expect(malformedProviderMarker.rerun).toBe(false);
+
+    const untrustedRequest = runWakeupFixture({
+      body: cleanBody(),
+      comments: [{ ...requestComment(), user: { login: "ibboabdoli-ai" } }],
+    });
+    expect(untrustedRequest.rerun).toBe(false);
+
+    const inexactRequest = runWakeupFixture({
+      body: cleanBody(),
+      comments: [{
+        ...requestComment(),
+        body: `<!-- proffera-coderabbit-final-review-request:${reviewHead} -->`,
+      }],
+    });
+    expect(inexactRequest.rerun).toBe(false);
+
     const stale = runWakeupFixture({
       body: cleanBody(oldHead),
       comments: [requestComment()],
@@ -331,6 +362,26 @@ describe("event-driven final review gate", () => {
       comments: [requestComment()],
     });
     expect(preRequest.rerun).toBe(false);
+
+    const editedPreRequest = runWakeupFixture({
+      body: cleanBody(),
+      createdAt: "2099-09-05T11:59:00Z",
+      comments: [requestComment()],
+    });
+    expect(editedPreRequest.rerun).toBe(false);
+    expect(`${editedPreRequest.result.stdout}${editedPreRequest.result.stderr}`).toContain("not ordered after a trusted exact-head review request");
+
+    const incomplete = runWakeupFixture({
+      body: `${cleanBody()}\n\nAction not completed: review incomplete`,
+      comments: [requestComment()],
+    });
+    expect(incomplete.rerun).toBe(false);
+
+    const inexactCompletionSentence = runWakeupFixture({
+      body: `${codeRabbitInvocationMarker}\nFinal exact-head review is complete for ${reviewHead}, but more work remains.\n\nI found no issues.`,
+      comments: [requestComment()],
+    });
+    expect(inexactCompletionSentence.rerun).toBe(false);
 
     const generic = runWakeupFixture({
       body: `Reviewed ${reviewHead}. Dependency scope looks focused.`,
@@ -381,6 +432,7 @@ describe("event-driven final review gate", () => {
 
     expect(cleanPredicate).toContain("Final exact-head review is complete for");
     expect(cleanPredicate).toContain("I found no issues");
+    expect(cleanPredicate).toContain("CodeRabbit review command invocation: v2:[0-9a-f]{64}");
     expect(cleanPredicate).toContain("Review limit reached");
     expect(cleanPredicate).toContain("Review skipped");
     expect(cleanPredicate).toContain("| not");
@@ -395,6 +447,25 @@ describe("event-driven final review gate", () => {
 
     const negatives = [
       runAutomergeFixture({
+        comments: [requestComment(), cleanIssueComment({
+          body: `Final exact-head review is complete for ${reviewHead}.\n\nI found no issues.`,
+        })],
+      }),
+      runAutomergeFixture({
+        comments: [requestComment(), cleanIssueComment({
+          body: cleanBody(reviewHead, `<!-- CodeRabbit review command invocation: v2:${"A".repeat(64)} -->`),
+        })],
+      }),
+      runAutomergeFixture({
+        comments: [{ ...requestComment(), user: { login: "ibboabdoli-ai" } }, cleanIssueComment()],
+      }),
+      runAutomergeFixture({
+        comments: [{
+          ...requestComment(),
+          body: `<!-- proffera-coderabbit-final-review-request:${reviewHead} -->`,
+        }, cleanIssueComment()],
+      }),
+      runAutomergeFixture({
         comments: [requestComment(), cleanIssueComment({ user: { login: "ibboabdoli-ai" } })],
       }),
       runAutomergeFixture({
@@ -405,6 +476,22 @@ describe("event-driven final review gate", () => {
       }),
       runAutomergeFixture({
         comments: [requestComment("2099-09-05T12:05:00Z"), cleanIssueComment()],
+      }),
+      runAutomergeFixture({
+        comments: [requestComment(), cleanIssueComment({
+          created_at: "2099-09-05T11:59:00Z",
+          updated_at: "2099-09-05T12:03:00Z",
+        })],
+      }),
+      runAutomergeFixture({
+        comments: [requestComment(), cleanIssueComment({
+          body: `${cleanBody()}\n\nAction not completed: review incomplete`,
+        })],
+      }),
+      runAutomergeFixture({
+        comments: [requestComment(), cleanIssueComment({
+          body: `${codeRabbitInvocationMarker}\nFinal exact-head review is complete for ${reviewHead}, but more work remains.\n\nI found no issues.`,
+        })],
       }),
       runAutomergeFixture({
         comments: [requestComment(), {

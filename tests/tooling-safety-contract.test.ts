@@ -29,6 +29,7 @@ function runSonarValidation(overrides: Record<string, string>) {
 
 
 const reviewHead = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const codeRabbitInvocationMarker = `<!-- CodeRabbit review command invocation: v2:${"a".repeat(64)} -->`;
 
 function ciReviewGateShellBlock() {
   const ci = source(".github/workflows/ci.yml");
@@ -170,17 +171,21 @@ function codeRabbitRequestComments() {
     {
       id: 10,
       user: { login: "github-actions[bot]" },
-      body: `<!-- proffera-coderabbit-final-review-request:${reviewHead} -->`,
+      body: `<!-- proffera-coderabbit-final-review-request:${reviewHead} -->\n@coderabbitai review`,
       created_at: "2026-08-31T10:00:00Z",
     },
   ];
+}
+
+function cleanCodeRabbitBody(head = reviewHead, marker = codeRabbitInvocationMarker) {
+  return `${marker}\n@ibboabdoli-ai Final exact-head review is complete for \`${head}\`.\n\nI found no issues.`;
 }
 
 function cleanCodeRabbitFinalComment(overrides: Record<string, unknown> = {}) {
   return {
     id: 12,
     user: { login: "coderabbitai[bot]" },
-    body: `@ibboabdoli-ai Final exact-head review is complete for \`${reviewHead}\`.\n\nI found no issues.`,
+    body: cleanCodeRabbitBody(),
     created_at: "2026-08-31T10:03:00Z",
     updated_at: "2026-08-31T10:03:00Z",
     ...overrides,
@@ -358,6 +363,11 @@ describe("tooling safety contract", () => {
   });
 
   it("accepts only trusted exact-head completed clean CodeRabbit comments", () => {
+    const gate = ciReviewGateShellBlock();
+    expect(gate).toContain("CodeRabbit review command invocation: v2:[0-9a-f]{64}");
+    expect(gate).toContain('select((.created_at // "") >= $request_time)');
+    expect(gate).not.toContain("updated_at");
+
     const accepted = runCiReviewFixture({
       changedFiles: ".github/workflows/ci.yml",
       comments: [...codeRabbitRequestComments(), cleanCodeRabbitFinalComment()],
@@ -369,7 +379,7 @@ describe("tooling safety contract", () => {
     const acceptedPlainSha = runCiReviewFixture({
       changedFiles: ".github/workflows/ci.yml",
       comments: [...codeRabbitRequestComments(), cleanCodeRabbitFinalComment({
-        body: `Final exact-head review is complete for ${reviewHead}.\n\nI found no issues.`,
+        body: `${codeRabbitInvocationMarker}\nFinal exact-head review is complete for ${reviewHead}.\n\nI found no issues.`,
       })],
       failOnPost: true,
     });
@@ -409,15 +419,66 @@ describe("tooling safety contract", () => {
     });
     expect(wrongBot.status).toBe(1);
 
+    const proseWithoutProviderMarker = runCiReviewFixture({
+      changedFiles: ".github/workflows/ci.yml",
+      comments: [...codeRabbitRequestComments(), cleanCodeRabbitFinalComment({
+        body: `Final exact-head review is complete for ${reviewHead}.\n\nI found no issues.`,
+      })],
+      failOnPost: true,
+    });
+    expect(proseWithoutProviderMarker.status).toBe(1);
+
+    const malformedProviderMarker = runCiReviewFixture({
+      changedFiles: ".github/workflows/ci.yml",
+      comments: [...codeRabbitRequestComments(), cleanCodeRabbitFinalComment({
+        body: cleanCodeRabbitBody(reviewHead, `<!-- CodeRabbit review command invocation: v2:${"A".repeat(64)} -->`),
+      })],
+      failOnPost: true,
+    });
+    expect(malformedProviderMarker.status).toBe(1);
+
+    const untrustedRequestMarker = runCiReviewFixture({
+      changedFiles: ".github/workflows/ci.yml",
+      comments: [
+        { ...codeRabbitRequestComments()[0], user: { login: "ibboabdoli-ai" } },
+        cleanCodeRabbitFinalComment(),
+      ],
+      failOnPost: true,
+    });
+    expect(untrustedRequestMarker.status).toBe(1);
+
+    const inexactRequestMarker = runCiReviewFixture({
+      changedFiles: ".github/workflows/ci.yml",
+      comments: [
+        {
+          ...codeRabbitRequestComments()[0],
+          body: `<!-- proffera-coderabbit-final-review-request:${reviewHead} -->`,
+        },
+        cleanCodeRabbitFinalComment(),
+      ],
+      failOnPost: true,
+    });
+    expect(inexactRequestMarker.status).toBe(1);
+
     const oldHead = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const staleComment = runCiReviewFixture({
       changedFiles: ".github/workflows/ci.yml",
       comments: [...codeRabbitRequestComments(), cleanCodeRabbitFinalComment({
-        body: `Final exact-head review is complete for ${oldHead}.\n\nI found no issues.`,
+        body: cleanCodeRabbitBody(oldHead),
       })],
       failOnPost: true,
     });
     expect(staleComment.status).toBe(1);
+
+    const editedPreRequestComment = runCiReviewFixture({
+      changedFiles: ".github/workflows/ci.yml",
+      comments: [...codeRabbitRequestComments(), cleanCodeRabbitFinalComment({
+        created_at: "2026-08-31T09:59:00Z",
+        updated_at: "2026-08-31T10:03:00Z",
+      })],
+      failOnPost: true,
+    });
+    expect(editedPreRequestComment.status).toBe(1);
 
     const rateLimit = runCiReviewFixture({
       changedFiles: ".github/workflows/ci.yml",
@@ -431,6 +492,33 @@ describe("tooling safety contract", () => {
       failOnPost: true,
     });
     expect(rateLimit.status).toBe(1);
+
+    const incompleteFinalResult = runCiReviewFixture({
+      changedFiles: ".github/workflows/ci.yml",
+      comments: [...codeRabbitRequestComments(), cleanCodeRabbitFinalComment({
+        body: `${cleanCodeRabbitBody()}\n\nAction not completed: review incomplete`,
+      })],
+      failOnPost: true,
+    });
+    expect(incompleteFinalResult.status).toBe(1);
+
+    const nonSeparateDecision = runCiReviewFixture({
+      changedFiles: ".github/workflows/ci.yml",
+      comments: [...codeRabbitRequestComments(), cleanCodeRabbitFinalComment({
+        body: `${codeRabbitInvocationMarker}\nFinal exact-head review is complete for ${reviewHead}. I found no issues.`,
+      })],
+      failOnPost: true,
+    });
+    expect(nonSeparateDecision.status).toBe(1);
+
+    const inexactCompletionSentence = runCiReviewFixture({
+      changedFiles: ".github/workflows/ci.yml",
+      comments: [...codeRabbitRequestComments(), cleanCodeRabbitFinalComment({
+        body: `${codeRabbitInvocationMarker}\nFinal exact-head review is complete for ${reviewHead}, but more work remains.\n\nI found no issues.`,
+      })],
+      failOnPost: true,
+    });
+    expect(inexactCompletionSentence.status).toBe(1);
 
     const genericSummary = runCiReviewFixture({
       changedFiles: ".github/workflows/ci.yml",
