@@ -3,15 +3,33 @@ import { headers } from "next/headers";
 import Link from "next/link";
 
 import { primeViewWorkspaceSlug } from "@/features/primeview/review";
+import { primeViewSite } from "@/lib/primeview-seo";
 import { isPrimeViewHost } from "@/lib/public-site-domains";
 import { getPublishedGalleryItems } from "@/lib/website-gallery-db";
 import { AutoplayVideo } from "./autoplay-video";
 
 export const dynamic = "force-dynamic";
 
+const galleryCanonical = `${primeViewSite.origin}/gallery`;
+const galleryTitle = "Gallery | PrimeView Window Care";
+const galleryDescription = "See recent window, gutter, exterior and pressure-cleaning work completed by PrimeView Window Care.";
+
 export const metadata: Metadata = {
-  title: "Gallery | PrimeView Window Care",
-  description: "See recent window, gutter, exterior and pressure-cleaning work completed by PrimeView Window Care.",
+  metadataBase: new URL(primeViewSite.origin),
+  title: { absolute: galleryTitle },
+  description: galleryDescription,
+  alternates: { canonical: galleryCanonical },
+  robots: { index: true, follow: true },
+  openGraph: {
+    title: galleryTitle,
+    description: galleryDescription,
+    url: galleryCanonical,
+    siteName: primeViewSite.name,
+    locale: "en_GB",
+    type: "website",
+    images: [primeViewSite.openGraphImageUrl],
+  },
+  twitter: { card: "summary_large_image", title: galleryTitle, description: galleryDescription, images: [primeViewSite.openGraphImageUrl] },
 };
 
 export default async function PrimeViewGalleryPage() {
