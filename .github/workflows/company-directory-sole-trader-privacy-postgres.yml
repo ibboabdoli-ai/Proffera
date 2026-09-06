@@ -1,0 +1,92 @@
+name: Company Directory sole-trader privacy PostgreSQL
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, ready_for_review]
+    paths:
+      - "src/lib/company-directory-sole-trader-owner.ts"
+      - "src/lib/public-business-hub.ts"
+      - "src/app/foretag/[workspace]/page.tsx"
+      - "tests/company-directory-sole-trader-approval-sql-contract.test.ts"
+      - "tests/company-directory-sole-trader-publication-privacy.test.ts"
+      - "db/migrations/20260613_phase18_booking_crm.sql"
+      - "db/migrations/20260614_phase18_15_workspace_settings.sql"
+      - "db/migrations/20260614_phase18_16_workspace_services.sql"
+      - "db/migrations/20260616_0001_better_auth_core_schema.sql"
+      - "db/migrations/20260616_0002_proffera_workspace_schema.sql"
+      - "db/migrations/20260715_0005_public_booking_foundation.sql"
+      - "db/migrations/20260728_0016_workspace_staff.sql"
+      - "db/migrations/20260729_0019_website_reviews.sql"
+      - "db/migrations/20260730_0019a_website_gallery_items.sql"
+      - "db/migrations/20260801_0020_workspace_market_settings.sql"
+      - "db/migrations/20260802_0021_workspace_service_pricing.sql"
+      - "db/migrations/20260802_0022_workspace_quote_requests.sql"
+      - "db/migrations/20260802_0023_workspace_quote_offers.sql"
+      - "db/migrations/20260802_0025_workspace_service_jobs.sql"
+      - "db/migrations/20260803_0028_booking_email_verifications.sql"
+      - "db/migrations/20260809_0036_public_business_hub.sql"
+      - "db/migrations/20260809_0037_company_profile_engine_foundation.sql"
+      - "db/migrations/20260809_0040_company_profile_claim_reservation.sql"
+      - ".github/workflows/company-directory-sole-trader-privacy-postgres.yml"
+  push:
+    branches: [main]
+    paths:
+      - "src/lib/company-directory-sole-trader-owner.ts"
+      - "src/lib/public-business-hub.ts"
+      - "src/app/foretag/[workspace]/page.tsx"
+      - "tests/company-directory-sole-trader-approval-sql-contract.test.ts"
+      - "tests/company-directory-sole-trader-publication-privacy.test.ts"
+      - "db/migrations/20260613_phase18_booking_crm.sql"
+      - "db/migrations/20260614_phase18_15_workspace_settings.sql"
+      - "db/migrations/20260614_phase18_16_workspace_services.sql"
+      - "db/migrations/20260616_0001_better_auth_core_schema.sql"
+      - "db/migrations/20260616_0002_proffera_workspace_schema.sql"
+      - "db/migrations/20260715_0005_public_booking_foundation.sql"
+      - "db/migrations/20260728_0016_workspace_staff.sql"
+      - "db/migrations/20260729_0019_website_reviews.sql"
+      - "db/migrations/20260730_0019a_website_gallery_items.sql"
+      - "db/migrations/20260801_0020_workspace_market_settings.sql"
+      - "db/migrations/20260802_0021_workspace_service_pricing.sql"
+      - "db/migrations/20260802_0022_workspace_quote_requests.sql"
+      - "db/migrations/20260802_0023_workspace_quote_offers.sql"
+      - "db/migrations/20260802_0025_workspace_service_jobs.sql"
+      - "db/migrations/20260803_0028_booking_email_verifications.sql"
+      - "db/migrations/20260809_0036_public_business_hub.sql"
+      - "db/migrations/20260809_0037_company_profile_engine_foundation.sql"
+      - "db/migrations/20260809_0040_company_profile_claim_reservation.sql"
+      - ".github/workflows/company-directory-sole-trader-privacy-postgres.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: company-directory-sole-trader-privacy-postgres-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integration:
+    name: Company Directory sole-trader privacy PostgreSQL
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Run sole-trader publication privacy PostgreSQL proof
+        env:
+          PROFFERA_POSTGRES_INTEGRATION: "1"
+        run: npx vitest run tests/company-directory-sole-trader-publication-privacy.test.ts --reporter=verbose
