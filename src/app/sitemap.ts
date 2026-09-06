@@ -7,7 +7,7 @@ import { listDirectorySeoLandings } from "@/lib/company-directory-landing-seo";
 import { listPublishedDirectorySitemapEntries } from "@/lib/company-directory-seo";
 import { marketingIndustrySlugs } from "@/lib/marketing-industry-pages";
 import { marketingServiceSlugs } from "@/lib/marketing-service-pages";
-import { primeViewAreaPages } from "@/lib/primeview-area-pages";
+import { primeViewIndexableAreaPages } from "@/lib/primeview-area-pages";
 import { primeViewSite } from "@/lib/primeview-seo";
 import { primeViewServicePages } from "@/lib/primeview-seo-pages";
 import { localizedPublicRoutes } from "@/lib/public-locale";
@@ -34,7 +34,7 @@ const primeViewRoutes = [
   "/gallery",
   "/privacy",
   ...primeViewServicePages.map(({ slug }) => `/services/${slug}`),
-  ...primeViewAreaPages.map(({ slug }) => `/areas/${slug}`),
+  ...primeViewIndexableAreaPages.map(({ slug }) => `/areas/${slug}`),
 ] as const;
 
 export const dynamic = "force-dynamic";
