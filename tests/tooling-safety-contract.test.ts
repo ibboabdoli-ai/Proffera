@@ -34,7 +34,7 @@ const codeRabbitInvocationMarker = `<!-- CodeRabbit review command invocation: v
 function ciReviewGateShellBlock() {
   const ci = source(".github/workflows/ci.yml");
   const gateStart = ci.indexOf("  e2e_public_smoke:\n");
-  const marker = "          changed_files=\"$(gh api --paginate \"repos/${REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100\" --jq '.[] | .filename, (.previous_filename // empty)')\"";
+  const marker = '          if ! [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then';
   const start = ci.indexOf(marker, gateStart);
   const refusalMarker = '          if [ "$fallback_eligible" = "true" ]; then\n            echo "Refused: no acceptable CodeRabbit or Codex fallback decision was recorded for the current head within the gate window."';
   const refusal = ci.indexOf(refusalMarker, start);
@@ -59,6 +59,7 @@ type CiReviewFixture = {
   comments?: Array<Record<string, unknown>>;
   reactions?: Array<Record<string, unknown>>;
   inlineComments?: Array<Record<string, unknown>>;
+  headSha?: string;
   headAfterLoopCheck?: string;
   failOnPost?: boolean;
 };
@@ -136,8 +137,7 @@ exit 91
 set -euo pipefail
 REPOSITORY=ibboabdoli-ai/Proffera
 PR_NUMBER=801
-HEAD_SHA=${reviewHead}
-pr_json="$(printf '{\"head\":{\"sha\":\"%s\"},\"changed_files\":%s,\"labels\":[{\"name\":\"needs-ai-review\"}]}' "$HEAD_SHA" "$FAKE_REPORTED_FILE_COUNT")"
+HEAD_SHA="$FAKE_INITIAL_HEAD_SHA"
 ${ciReviewGateShellBlock()}
 `, { mode: 0o755 });
 
@@ -154,6 +154,7 @@ ${ciReviewGateShellBlock()}
       FAKE_COMMENTS: toNdjson(fixture.comments),
       FAKE_REACTIONS: toNdjson(fixture.reactions),
       FAKE_INLINE_COMMENTS: toNdjson(fixture.inlineComments),
+      FAKE_INITIAL_HEAD_SHA: fixture.headSha ?? reviewHead,
       FAKE_HEAD_SHA: reviewHead,
       FAKE_HEAD_AFTER_LOOP: fixture.headAfterLoopCheck ?? "",
       FAKE_HEAD_STATE: headStateFile,
@@ -367,6 +368,22 @@ describe("tooling safety contract", () => {
     expect(gate).toContain("CodeRabbit review command invocation: v2:[0-9a-f]{64}");
     expect(gate).toContain('select((.created_at // "") >= $request_time)');
     expect(gate).not.toContain("updated_at");
+
+    const malformedHeadSha = runCiReviewFixture({
+      changedFiles: ".github/workflows/ci.yml",
+      headSha: reviewHead.slice(0, 39),
+      failOnPost: true,
+    });
+    expect(malformedHeadSha.status).toBe(1);
+    expect(`${malformedHeadSha.stdout}${malformedHeadSha.stderr}`).toContain("Refused: CI review head is not an exact lowercase 40-character SHA.");
+
+    const uppercaseHeadSha = runCiReviewFixture({
+      changedFiles: ".github/workflows/ci.yml",
+      headSha: "A".repeat(40),
+      failOnPost: true,
+    });
+    expect(uppercaseHeadSha.status).toBe(1);
+    expect(`${uppercaseHeadSha.stdout}${uppercaseHeadSha.stderr}`).toContain("Refused: CI review head is not an exact lowercase 40-character SHA.");
 
     const accepted = runCiReviewFixture({
       changedFiles: ".github/workflows/ci.yml",
