@@ -21,13 +21,14 @@ describe("PrimeView SEO source of truth", () => {
   });
 
   it("keeps customer-facing gallery, booking and privacy metadata on the PrimeView brand", () => {
-    const gallery = readFileSync("src/app/demo/primeview/gallery/page.tsx", "utf8");
+    const gallery = readFileSync("src/app/gallery/page.tsx", "utf8");
     const booking = readFileSync("src/app/primeview-booking/page.tsx", "utf8");
     const privacy = readFileSync("src/app/privacy/page.tsx", "utf8");
 
     expect(gallery).toContain("alternates: { canonical: galleryCanonical }");
     expect(gallery).toContain("robots: { index: true, follow: true }");
     expect(gallery).toContain("title: { absolute: galleryTitle }");
+    expect(gallery).toContain("url: galleryCanonical");
     expect(booking).toContain('title: { absolute: "Book Online | PrimeView Window Care" }');
     expect(privacy).toContain('title: { absolute: "Privacy Policy | PrimeView Window Care" }');
   });
