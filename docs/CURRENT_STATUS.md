@@ -98,6 +98,7 @@ Available CI lanes cover:
 - Playwright browser smoke.
 
 Playwright browser E2E is automated in CI. The actual browser job is `E2E public smoke run`; the required `E2E public smoke` check is the final browser-plus-review gate described above. For low-risk scope where browser execution is not selected, the browser job records an explicit targeted skip and the final required gate still runs. No required status name is removed by targeted CI.
+
 Committed non-destructive browser coverage includes:
 
 - public marketing/marketplace smoke coverage;
