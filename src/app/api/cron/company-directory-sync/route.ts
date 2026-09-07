@@ -1,3 +1,5 @@
+import { timingSafeEqual } from "node:crypto";
+
 import { NextResponse } from "next/server";
 
 import {
@@ -51,6 +53,19 @@ type AutomaticQueueRun = {
   errorSummary: string;
 };
 
+function bearerMatches(authorization: string | null, secret: string | undefined) {
+  if (!secret) return false;
+  const expected = Buffer.from(`Bearer ${secret}`);
+  const received = Buffer.from(authorization ?? "");
+  return expected.length === received.length && timingSafeEqual(expected, received);
+}
+
+function authorizedSchedulerRequest(request: Request) {
+  const authorization = request.headers.get("authorization");
+  return bearerMatches(authorization, process.env.CRON_SECRET)
+    || bearerMatches(authorization, process.env.PRODUCTION_SCHEDULER_SECRET);
+}
+
 function automaticQueueErrorSummary(...values: string[]) {
   return values.map((value) => value.trim()).filter(Boolean).join(" | ").slice(0, 4000);
 }
@@ -98,9 +113,7 @@ async function revalidatePublishedCompanyDirectorySafely(deadlineAt: number) {
 }
 
 export async function GET(request: Request) {
-  const secret = process.env.CRON_SECRET;
-  const authorization = request.headers.get("authorization");
-  if (!secret || authorization !== `Bearer ${secret}`) {
+  if (!authorizedSchedulerRequest(request)) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
