@@ -148,12 +148,12 @@ describe("booking reminder workspace join", () => {
       claimAttemptCounts.set(key, (claimAttemptCounts.get(key) ?? 0) + 1);
     }
     expect([...claimAttemptCounts.values()]).toEqual([2, 2, 2, 2]);
-
-    const claimedIdentities = [...state.claimedDeliveryKeys].map((key) => key.split("|"));
-    expect(new Set(claimedIdentities.map(([workspaceId]) => workspaceId)).size).toBe(2);
-    expect(new Set(claimedIdentities.map(([, bookingId]) => bookingId)).size).toBe(2);
-    expect(new Set(claimedIdentities.map(([, , channel]) => channel))).toEqual(new Set(["email", "sms"]));
-    expect(new Set(claimedIdentities.map(([, , , scheduledFor]) => scheduledFor)).size).toBe(2);
+    expect(new Set(claimAttemptCounts.keys())).toEqual(new Set([
+      "33333333-3333-4333-8333-333333333333|22222222-2222-4222-8222-222222222222|email|2026-09-06T12:00:00.000Z",
+      "33333333-3333-4333-8333-333333333333|22222222-2222-4222-8222-222222222222|sms|2026-09-06T12:00:00.000Z",
+      "66666666-6666-4666-8666-666666666666|55555555-5555-4555-8555-555555555555|email|2026-09-06T13:30:00.000Z",
+      "66666666-6666-4666-8666-666666666666|55555555-5555-4555-8555-555555555555|sms|2026-09-06T13:30:00.000Z",
+    ]));
 
     const claimQueries = state.queries.filter((query) => query.includes("insert into booking_reminder_deliveries"));
     expect(claimQueries).toHaveLength(8);
