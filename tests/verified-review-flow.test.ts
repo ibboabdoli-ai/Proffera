@@ -116,6 +116,9 @@ describe("central verified review flow", () => {
     expect(route).not.toContain("submitWebsiteReview");
     expect(publicReviews).toContain("Google Reviews");
     expect(publicReviews).toContain('const PRIMEVIEW_PLACE_ID = "ChIJe8Pc47e0PIkRB6qswksM_Uc"');
+    expect(publicReviews).toContain('const GOOGLE_READY_CALLBACK = "__primeViewGoogleMapsReady"');
+    expect(publicReviews).toContain("callback=${GOOGLE_READY_CALLBACK}");
+    expect(publicReviews).not.toContain("script.onload = () => resolve()");
     expect(publicReviews).toContain("new Place({");
     expect(publicReviews).toContain('requestedRegion: "uk"');
     expect(publicReviews).not.toContain('requestedRegion: "gb"');

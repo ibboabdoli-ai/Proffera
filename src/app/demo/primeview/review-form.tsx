@@ -51,9 +51,11 @@ type PrimeViewWindow = {
     };
   };
   __primeViewGoogleMapsPromise?: Promise<void>;
+  __primeViewGoogleMapsReady?: () => void;
 };
 
 const GOOGLE_SCRIPT_SELECTOR = 'script[data-primeview-google-maps="true"]';
+const GOOGLE_READY_CALLBACK = "__primeViewGoogleMapsReady";
 const PRIMEVIEW_PLACE_ID = "ChIJe8Pc47e0PIkRB6qswksM_Uc";
 const PRIMEVIEW_GOOGLE_MAPS_URL = `https://www.google.com/maps/search/?api=1&query=PrimeView%20Window%20Care&query_place_id=${PRIMEVIEW_PLACE_ID}`;
 const PRIMEVIEW_GOOGLE_REVIEW_URL = "https://g.page/r/CQeqrMJLDP1HEBM/review";
@@ -68,24 +70,56 @@ function loadGoogleMaps(apiKey: string) {
   if (target.__primeViewGoogleMapsPromise) return target.__primeViewGoogleMapsPromise;
 
   target.__primeViewGoogleMapsPromise = new Promise<void>((resolve, reject) => {
+    let settled = false;
+    let timeoutId = 0;
+
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeoutId);
+      target.__primeViewGoogleMapsReady = () => undefined;
+
+      if (error) {
+        target.__primeViewGoogleMapsPromise = undefined;
+        reject(error);
+        return;
+      }
+
+      resolve();
+    };
+
+    const markReady = () => {
+      if (primeViewWindow().google?.maps?.importLibrary) {
+        finish();
+        return;
+      }
+      finish(new Error("Google Maps callback fired before importLibrary was available."));
+    };
+
+    target.__primeViewGoogleMapsReady = markReady;
+    timeoutId = window.setTimeout(() => finish(new Error("Google Maps timed out while loading.")), 15000);
+
     const existing = document.querySelector<HTMLScriptElement>(GOOGLE_SCRIPT_SELECTOR);
     if (existing) {
       if (primeViewWindow().google?.maps?.importLibrary) {
-        resolve();
+        finish();
         return;
       }
-      existing.addEventListener("load", () => resolve(), { once: true });
-      existing.addEventListener("error", () => reject(new Error("Google Maps failed to load.")), { once: true });
-      return;
+
+      if (existing.src.includes(`callback=${GOOGLE_READY_CALLBACK}`)) {
+        existing.addEventListener("error", () => finish(new Error("Google Maps failed to load.")), { once: true });
+        return;
+      }
+
+      existing.remove();
     }
 
     const script = document.createElement("script");
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&v=weekly&libraries=places&loading=async`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&v=weekly&libraries=places&loading=async&callback=${GOOGLE_READY_CALLBACK}`;
     script.async = true;
     script.defer = true;
     script.setAttribute("data-primeview-google-maps", "true");
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error("Google Maps failed to load."));
+    script.onerror = () => finish(new Error("Google Maps failed to load."));
     document.head.appendChild(script);
   });
 
