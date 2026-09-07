@@ -117,6 +117,8 @@ describe("central verified review flow", () => {
     expect(publicReviews).toContain("Google Reviews");
     expect(publicReviews).toContain('const PRIMEVIEW_PLACE_ID = "ChIJe8Pc47e0PIkRB6qswksM_Uc"');
     expect(publicReviews).toContain("new Place({");
+    expect(publicReviews).toContain('requestedRegion: "uk"');
+    expect(publicReviews).not.toContain('requestedRegion: "gb"');
     expect(publicReviews).toContain(".fetchFields({");
     expect(publicReviews).not.toContain("Place.searchByText");
     expect(publicReviews).not.toContain("<form");

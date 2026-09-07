@@ -122,7 +122,7 @@ export function PrimeViewReviewForm({ serviceOptions }: PrimeViewReviewFormProps
         const result = await new Place({
           id: PRIMEVIEW_PLACE_ID,
           requestedLanguage: "en-GB",
-          requestedRegion: "gb",
+          requestedRegion: "uk",
         }).fetchFields({
           fields: ["id", "displayName", "rating", "userRatingCount", "reviews", "googleMapsURI"],
         });
