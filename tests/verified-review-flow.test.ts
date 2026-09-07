@@ -115,7 +115,10 @@ describe("central verified review flow", () => {
     expect(route).toContain("status: 410");
     expect(route).not.toContain("submitWebsiteReview");
     expect(publicReviews).toContain("Google Reviews");
-    expect(publicReviews).toContain("Place.searchByText");
+    expect(publicReviews).toContain('const PRIMEVIEW_PLACE_ID = "ChIJe8Pc47e0PIkRB6qswksM_Uc"');
+    expect(publicReviews).toContain("new Place({");
+    expect(publicReviews).toContain(".fetchFields({");
+    expect(publicReviews).not.toContain("Place.searchByText");
     expect(publicReviews).not.toContain("<form");
     expect(database).toContain("review.status = 'approved'");
     expect(database).toContain("review.is_verified = true");
