@@ -12,6 +12,24 @@ const bookingImageUrl = `${primeViewSite.origin}/primeview/services/window-clean
 export const metadata: Metadata = {
   metadataBase: new URL(primeViewSite.origin),
   applicationName: primeViewSite.name,
+  manifest: null,
+  keywords: [
+    "window cleaning West London",
+    "window cleaning North London",
+    "gutter cleaning London",
+    "pressure washing London",
+    "exterior cleaning London",
+    "PrimeView Window Care",
+  ],
+  icons: {
+    icon: primeViewSite.logoUrl,
+    apple: primeViewSite.logoUrl,
+  },
+  appleWebApp: {
+    capable: true,
+    title: primeViewSite.name,
+    statusBarStyle: "black-translucent",
+  },
   openGraph: {
     type: "website",
     locale: "en_GB",
