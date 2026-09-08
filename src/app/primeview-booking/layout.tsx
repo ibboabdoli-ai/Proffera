@@ -1,4 +1,38 @@
+import type { Metadata } from "next";
 import type { ReactNode } from "react";
+
+import { primeViewSite } from "@/lib/primeview-seo";
+
+const bookingUrl = `${primeViewSite.origin}/booking`;
+const bookingTitle = "Book Online | PrimeView Window Care";
+const bookingDescription =
+  "Book window, gutter, pressure washing and exterior cleaning with PrimeView Window Care in West & North London.";
+const bookingImageUrl = `${primeViewSite.origin}/primeview/services/window-cleaning.webp`;
+
+export const metadata: Metadata = {
+  metadataBase: new URL(primeViewSite.origin),
+  applicationName: primeViewSite.name,
+  openGraph: {
+    type: "website",
+    locale: "en_GB",
+    url: bookingUrl,
+    siteName: primeViewSite.name,
+    title: bookingTitle,
+    description: bookingDescription,
+    images: [
+      {
+        url: bookingImageUrl,
+        alt: "PrimeView Window Care professional window cleaning in London",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: bookingTitle,
+    description: bookingDescription,
+    images: [bookingImageUrl],
+  },
+};
 
 export default function PrimeViewBookingLayout({ children }: { children: ReactNode }) {
   return (
