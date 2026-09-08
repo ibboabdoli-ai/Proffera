@@ -217,7 +217,7 @@ describe("Neon cost-reset scheduler contract", () => {
     expect(cronMinutes("8,23,38,53 * * * *")).toEqual(new Set([8, 23, 38, 53]));
     expect(marketplaceSection).toContain("PROPOSED:\ncron: 8,23,38,53 * * * *");
     expect(marketplaceSection).not.toContain("cron: 8 * * * *");
-    expect(marketplaceSection).not.toMatch(/hourly at minute 8|60 minutes normally|70 minutes/i);
+    expect(marketplaceSection).not.toMatch(/hourly at minute 8|Up to 60 minutes normally|approximate worst-case recovery bound\s*of 70 minutes/i);
     expect(contract).toContain("Marketplace recovery:       8,23,38,53 * * * *");
     expect(contract).not.toContain("Marketplace recovery:       8 * * * *");
   });
