@@ -208,6 +208,20 @@ describe("Neon cost-reset scheduler contract", () => {
     expect(triggerProof).toContain("targetReferenceIds: [\"PRO-TEST-12345\"]");
   });
 
+  it("retains four Marketplace recovery opportunities per hour while Production batch size is one", () => {
+    const contract = read("docs/NEON_COST_RESET_CUTOVER.md");
+    const config = JSON.parse(read("vercel.json")) as { env?: Record<string, string> };
+    const marketplaceSection = contract.split("## 5. Marketplace Auto Worker")[1]?.split("## 6. Production Health periodic schedule")[0] ?? "";
+
+    expect(config.env?.MARKETPLACE_AUTO_WORKER_BATCH_SIZE).toBe("1");
+    expect(cronMinutes("8,23,38,53 * * * *")).toEqual(new Set([8, 23, 38, 53]));
+    expect(marketplaceSection).toContain("PROPOSED:\ncron: 8,23,38,53 * * * *");
+    expect(marketplaceSection).not.toContain("cron: 8 * * * *");
+    expect(marketplaceSection).not.toMatch(/hourly at minute 8|60 minutes normally|70 minutes/i);
+    expect(contract).toContain("Marketplace recovery:       8,23,38,53 * * * *");
+    expect(contract).not.toContain("Marketplace recovery:       8 * * * *");
+  });
+
   it("preserves exact-SHA deployment health and fail-closed DB-backed schema verification", () => {
     const workflow = read(".github/workflows/production-health.yml");
     const health = read("src/lib/production-schema-health.ts");
