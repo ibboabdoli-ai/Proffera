@@ -3,34 +3,118 @@ name: Worker supervisor sync
 on:
   pull_request_target:
     branches: [main]
-    types: [opened, reopened, ready_for_review, closed]
+    types: [opened, reopened, synchronize, ready_for_review, closed]
+  workflow_run:
+    workflows: [CI, CodeQL, Targeted CI shadow, Production base health]
+    types: [completed]
 
-permissions:
-  contents: read
-  issues: write
-  pull-requests: read
+permissions: {}
 
 jobs:
-  sync-supervisor:
-    if: startsWith(github.event.pull_request.head.ref, 'work/proffera-')
+  sync-pr-event:
+    name: Reconcile Worker PR lifecycle
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      startsWith(github.event.pull_request.head.ref, 'work/proffera-')
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
 
     steps:
-      - name: Record worker lifecycle event in Supervisor issue
+      - name: Checkout trusted default-branch task-state helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Record or update Worker lifecycle state in Supervisor issue
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           ACTION: ${{ github.event.action }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           MERGED: ${{ github.event.pull_request.merged }}
           ACTOR: ${{ github.actor }}
+          RUN_ID: ${{ github.run_id }}
         shell: bash
         run: |
           set -euo pipefail
+
+          helper="scripts/supervisor-worker-handoff.mjs"
+          task_marker='<!-- proffera-worker-task-packet:v1 -->'
+
+          # Task-aware lifecycle state is trusted only for a same-repository,
+          # owner-authored work/proffera-* PR carrying a valid bounded packet.
+          if [ "$PR_AUTHOR" = "ibboabdoli-ai" ] \
+            && [ "$HEAD_REPO" = "$REPOSITORY" ] \
+            && grep -Fq "$task_marker" <<< "$PR_BODY" \
+            && [ -f "$helper" ]; then
+            packet_file="$(mktemp)"
+            if printf '%s' "$PR_BODY" | node "$helper" parse > "$packet_file" 2>/dev/null \
+              && jq -e . "$packet_file" >/dev/null 2>&1; then
+              packet="$(cat "$packet_file")"
+              task_id="$(jq -r '.task_id' <<< "$packet")"
+              packet_branch="$(jq -r '.branch' <<< "$packet")"
+              packet_base="$(jq -r '.base_sha' <<< "$packet")"
+
+              if [ "$packet_branch" != "$HEAD_REF" ]; then
+                echo "Task-aware PR branch does not match its packet; refusing trusted reconciliation." >&2
+                exit 1
+              fi
+              if [ "$ACTION" = "opened" ] || [ "$ACTION" = "reopened" ]; then
+                state="WORKER_PR_OPENED"
+                reason="Worker PR is open; exact-head checks and review are pending."
+              elif [ "$ACTION" = "synchronize" ] || [ "$ACTION" = "ready_for_review" ]; then
+                state="CHECKS_PENDING"
+                reason="Worker PR head changed or became ready; prior exact-head evidence is stale and current-head checks/review are pending."
+              elif [ "$ACTION" = "closed" ] && [ "$MERGED" = "true" ]; then
+                state="MERGED"
+                reason="Worker PR merged through the repository merge path."
+              elif [ "$ACTION" = "closed" ]; then
+                state="CLOSED_UNMERGED"
+                reason="Worker PR closed without merge."
+              else
+                state="CHECKS_PENDING"
+                reason="Worker PR lifecycle changed; current-head checks remain authoritative."
+              fi
+
+              if [ "$ACTION" != "opened" ] && [ "$ACTION" != "reopened" ] && [ "$packet_base" != "$BASE_SHA" ]; then
+                # GitHub may advance the PR base object after main moves. The Task
+                # Packet remains the worker bootstrap baseline; do not rewrite it.
+                reason="${reason} Task Packet bootstrap remains ${packet_base}; current PR base event is ${BASE_SHA}."
+              fi
+
+              state_json="$(jq -n --argjson packet "$packet" --arg state "$state" --arg reason "$reason" --arg run_id "$RUN_ID" --argjson pr_number "$PR_NUMBER" --arg head_sha "$HEAD_SHA" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,pr_number:$pr_number,head_sha:$head_sha}')"
+              body="$(printf '%s' "$state_json" | node "$helper" state-body)"
+              marker="<!-- proffera-worker-task-state:${task_id} -->"
+              comments_json="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.')"
+              comment_id="$(jq -r --arg marker "$marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | last | .id // empty' <<< "$comments_json")"
+              if [ -n "$comment_id" ]; then
+                gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${comment_id}" -f body="$body" >/dev/null
+              else
+                gh api --method POST "repos/${REPOSITORY}/issues/548/comments" -f body="$body" >/dev/null
+              fi
+              echo "Reconciled task $task_id to $state."
+              exit 0
+            fi
+          fi
+
+          # Preserve the existing legacy lifecycle trail for Workers that predate
+          # Phase 1. Avoid new synchronize spam for those legacy PRs.
+          if [ "$ACTION" = "synchronize" ]; then
+            echo "Legacy Worker PR synchronize event: no new Supervisor comment."
+            exit 0
+          fi
 
           case "$ACTION" in
             opened) event_state="OPENED" ;;
@@ -46,7 +130,7 @@ jobs:
             *) event_state="${ACTION^^}" ;;
           esac
 
-          body="$(cat <<EOF
+          body="$(cat <<LEGACY
           <!-- proffera-worker-supervisor-event -->
           ### Worker event: ${event_state}
           - PR: #${PR_NUMBER}
@@ -55,7 +139,110 @@ jobs:
           - Base: \`${BASE_SHA}\`
           - Actor: \`${ACTOR}\`
           - URL: ${PR_URL}
-          EOF
+          LEGACY
           )"
-
           gh issue comment 548 --repo "$REPOSITORY" --body "$body"
+
+  sync-check-state:
+    name: Reconcile exact-head checks into task state
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.pull_requests[0].number != null
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+      pull-requests: read
+
+    steps:
+      - name: Checkout trusted default-branch task-state helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Reconcile required current-head workflow evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          EVENT_PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+          EVENT_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          helper="scripts/supervisor-worker-handoff.mjs"
+          pr_number="$EVENT_PR_NUMBER"
+          if ! [[ "$pr_number" =~ ^[1-9][0-9]*$ ]]; then
+            echo "No valid PR number; nothing to reconcile."
+            exit 0
+          fi
+
+          pr_json="$(gh api "repos/${REPOSITORY}/pulls/${pr_number}")"
+          pr_state="$(jq -r '.state' <<< "$pr_json")"
+          pr_author="$(jq -r '.user.login // ""' <<< "$pr_json")"
+          head_repo="$(jq -r '.head.repo.full_name // ""' <<< "$pr_json")"
+          head_ref="$(jq -r '.head.ref // ""' <<< "$pr_json")"
+          head_sha="$(jq -r '.head.sha // ""' <<< "$pr_json")"
+          pr_body="$(jq -r '.body // ""' <<< "$pr_json")"
+
+          if [ "$pr_state" != "open" ] \
+            || [ "$pr_author" != "ibboabdoli-ai" ] \
+            || [ "$head_repo" != "$REPOSITORY" ] \
+            || [[ "$head_ref" != work/proffera-* ]] \
+            || ! grep -Fq '<!-- proffera-worker-task-packet:v1 -->' <<< "$pr_body"; then
+            echo "PR #$pr_number is not a trusted Phase-1 Worker PR; nothing to reconcile."
+            exit 0
+          fi
+          if [ "$head_sha" != "$EVENT_HEAD_SHA" ]; then
+            echo "Workflow completion is stale for PR #$pr_number; current head is $head_sha."
+            exit 0
+          fi
+
+          packet_file="$(mktemp)"
+          if ! printf '%s' "$pr_body" | node "$helper" parse > "$packet_file" 2>/dev/null; then
+            echo "Trusted Phase-1 marker carries an invalid Task Packet; refusing reconciliation." >&2
+            exit 1
+          fi
+          packet="$(cat "$packet_file")"
+          task_id="$(jq -r '.task_id' <<< "$packet")"
+          packet_branch="$(jq -r '.branch' <<< "$packet")"
+          if [ "$packet_branch" != "$head_ref" ]; then
+            echo "Task Packet branch mismatch; refusing reconciliation." >&2
+            exit 1
+          fi
+
+          runs_json="$(gh api --paginate "repos/${REPOSITORY}/actions/runs?head_sha=${head_sha}&event=pull_request&per_page=100" --jq '.workflow_runs[]' | jq -s '.')"
+          required=("CI" "CodeQL" "Targeted CI shadow" "Production base health")
+          all_success=yes
+          evidence=""
+          for workflow_name in "${required[@]}"; do
+            conclusion="$(jq -r --arg name "$workflow_name" '[.[] | select(.name == $name)] | sort_by(.created_at // "", .id // 0) | last | .conclusion // "missing"' <<< "$runs_json")"
+            evidence="${evidence}${workflow_name}=${conclusion}; "
+            if [ "$conclusion" != "success" ]; then
+              all_success=no
+            fi
+          done
+
+          if [ "$all_success" = "yes" ]; then
+            state="READY_FOR_SUPERVISOR"
+            reason="All required exact-head workflow evidence is green. CI success includes the existing final browser/review gate; human merge approval remains external."
+          else
+            state="CHECKS_PENDING"
+            reason="Required exact-head workflow evidence is not fully green yet: ${evidence}"
+          fi
+
+          state_json="$(jq -n --argjson packet "$packet" --arg state "$state" --arg reason "$reason" --arg run_id "$RUN_ID" --argjson pr_number "$pr_number" --arg head_sha "$head_sha" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,pr_number:$pr_number,head_sha:$head_sha}')"
+          body="$(printf '%s' "$state_json" | node "$helper" state-body)"
+          marker="<!-- proffera-worker-task-state:${task_id} -->"
+          comments_json="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.')"
+          comment_id="$(jq -r --arg marker "$marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | last | .id // empty' <<< "$comments_json")"
+          if [ -n "$comment_id" ]; then
+            gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${comment_id}" -f body="$body" >/dev/null
+          else
+            gh api --method POST "repos/${REPOSITORY}/issues/548/comments" -f body="$body" >/dev/null
+          fi
+          echo "Reconciled task $task_id checks to $state."

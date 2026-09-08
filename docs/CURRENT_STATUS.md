@@ -1,6 +1,6 @@
 # Proffera Current Status
 
-Last updated: 2026-09-06
+Last updated: 2026-09-08
 
 This is the canonical factual status document for Proffera. For worker rules, live task state, current `main` SHA, and roadmap order, also read `AGENTS.md`, `WORKER_BOOTSTRAP.md`, GitHub issue #548, GitHub issue #276, and `docs/README.md`.
 
@@ -68,6 +68,8 @@ Current merge-safety rules include:
 Production release health is bound to the exact merged `main` commit rather than to a generic scheduled probe. GitHub-token merges do not reliably generate downstream `push` workflow runs, so gated automerge emits a `repository_dispatch` event only after a successful merge and includes the resolved merge commit SHA. The Production health workflow rejects a dispatch whose SHA is missing, malformed or no longer equals the default-branch head, waits for the matching Vercel deployment, and requires that deployed SHA plus schema health to pass. The trusted PR-base gate accepts successful exact-base health evidence from either a normal `push` run or this repository-dispatch handoff; scheduled health remains supplemental rather than proof for a specific PR base.
 
 A dedicated `Worker supervisor sync` GitHub Actions workflow records `work/proffera-*` PR lifecycle events to issue #548 when PRs are opened/reopened, marked ready for review, or closed/merged. This gives the Supervisor a durable automatic event trail independent of private chat memory.
+
+A bounded Phase-1 Supervisor-to-Worker handoff is repository-owned and disabled by default. An owner-authored Task Packet on issue #548 can dispatch at most one implementation Worker through the repository's existing pinned Codex action only when the `worker-dispatch-enabled` kill-switch label is present, the packet is bound to the exact current `main`, graph/file ownership is unambiguous, no active Worker or Dependabot scope overlaps, and required execution credentials already exist. The dispatcher hard-blocks workflow/control-plane authorization, environment/secret, migration/schema, package/lockfile and merge-authority paths; it validates the resulting diff before publication, never supplies merge/approval authority, and records one stable task-state comment keyed by task ID. `worker-supervisor-sync.yml` reconciles trusted Phase-1 Worker PR lifecycle and exact-head CI/CodeQL/Targeted-CI/Production-base-health evidence back into that stable #548 task state, while existing CI, CodeRabbit/Codex review policy, Final Gate and fresh human merge authorization remain authoritative. The detailed contract and recovery behavior are documented in `docs/SUPERVISOR_WORKER_HANDOFF.md`.
 
 CodeRabbit is opt-in rather than automatic on every PR. Review-label reset and post-Validate routing are serialized inside the required CI workflow under pull-request-scoped concurrency. Every fresh PR revision first removes stale `needs-ai-review`; after `Validate` succeeds, a metadata-only job reapplies it and requests one exact-head review whenever a non-draft PR still matches the sensitive/large risk predicate. Non-sensitive PRs do not consume an automatic CodeRabbit review.
 
