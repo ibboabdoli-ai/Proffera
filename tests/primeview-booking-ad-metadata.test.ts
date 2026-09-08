@@ -10,6 +10,18 @@ describe("PrimeView booking advertising metadata", () => {
 
     expect(metadata.metadataBase).toEqual(new URL(primeViewSite.origin));
     expect(metadata.applicationName).toBe(primeViewSite.name);
+    expect(metadata.manifest).toBeNull();
+    expect(metadata.icons).toEqual({
+      icon: primeViewSite.logoUrl,
+      apple: primeViewSite.logoUrl,
+    });
+    expect(metadata.appleWebApp).toEqual({
+      capable: true,
+      title: primeViewSite.name,
+      statusBarStyle: "black-translucent",
+    });
+    expect(metadata.keywords).toContain("PrimeView Window Care");
+    expect(metadata.keywords).not.toContain("SaaS Sverige");
     expect(metadata.openGraph).toMatchObject({
       type: "website",
       locale: "en_GB",
