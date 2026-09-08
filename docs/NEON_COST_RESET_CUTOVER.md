@@ -131,11 +131,16 @@ throughout the hour.
 New Quote Requests already use event-driven targeted processing. Deduplicated persistence does not create
 duplicate event work. The recurring worker is therefore primarily recovery fallback.
 
-Target fallback: hourly at minute 8. Maximum normal recovery latency becomes under 60 minutes; a stale
-rematch lease can add its existing 10-minute lease interval, for an approximate worst-case recovery bound
-of 70 minutes. Wave 2 remains subject to its existing six-hour minimum delay. Invitation idempotency,
-rollout cutoff, Production authorization, privacy/outreach eligibility, suppression, and matching gates
-remain unchanged.
+Target fallback: retain `8,23,38,53 * * * *`. Production currently configures
+`MARKETPLACE_AUTO_WORKER_BATCH_SIZE=1`, so reducing the recurring fallback to hourly would cut burst
+recovery capacity from up to four attempted Quote Requests/hour to one. The four recurring runs share the
+existing Directory Sync wake windows and therefore do not add separate nominal scheduler slots.
+
+The scheduler interval is not a per-request maximum-wait guarantee. With batch size one, multiple failed
+event-driven kicks, prioritized rematches, queue ordering, or an existing processing lease can require
+more than one recurring run before a particular request is attempted. Wave 2 remains subject to its
+existing six-hour minimum delay. Invitation idempotency, rollout cutoff, Production authorization,
+privacy/outreach eligibility, suppression, and matching gates remain unchanged.
 
 ### Booking reminders
 
@@ -309,18 +314,22 @@ GET /api/cron/marketplace-auto-worker
 cron: 8,23,38,53 * * * *
 
 PROPOSED:
-cron: 8 * * * *
+cron: 8,23,38,53 * * * *
 
 WHY:
-Genuinely new Quote Requests already trigger targeted event-driven work. The recurring poll is primarily
-recovery/rematch fallback.
+Genuinely new Quote Requests already trigger targeted event-driven work, so the recurring path remains a
+recovery/rematch fallback. Production batch size is one; keeping four runs/hour preserves the current
+burst-recovery capacity. The cadence shares the Directory Sync wake windows and adds no new nominal slots.
 
-RECOVERY LATENCY:
-Up to 60 minutes normally; approximately 70 minutes for a stale rematch processing lease including the
-existing 10-minute lease interval. Wave 2 remains no earlier than six hours.
+RECOVERY CAPACITY / WAITING TIME:
+The 15-minute cron interval provides up to four recurring recovery opportunities per hour. It is not a
+promise that every queued request will be recovered within 15, 60, or 70 minutes. Per-request waiting time
+depends on queue ordering, prior failed event-driven work, rematch priority/leases, and the batch-size-one
+limit. Wave 2 remains no earlier than six hours.
 
 ROLLBACK:
-Restore exactly 8,23,38,53 * * * *.
+No Marketplace cadence change is part of this cutover. Keep or restore exactly `8,23,38,53 * * * *` with
+its existing batch-size-one Production configuration.
 ```
 
 ## 6. Production Health periodic schedule
@@ -371,7 +380,7 @@ Restore the verified pre-cutover live schedule 13,43 * * * *.
 ```text
 Directory Sync:             8,23,38,53 * * * *
 Booking Reminders:          8,38 * * * *
-Marketplace recovery:       8 * * * *
+Marketplace recovery:       8,23,38,53 * * * *
 Directory Official Facts:   10 * * * *
 Full Directory revalidation:12,42 * * * *
 Periodic Production Health: 8 */6 * * *
@@ -388,7 +397,7 @@ Provider-heavy jobs assigned to the same minute: **NO**.
 3. Confirm the three direct child routes on the deployed exact SHA accept `PRODUCTION_SCHEDULER_SECRET` and still accept `CRON_SECRET` through regression/CI evidence; do not manually dispatch Production state-changing workers for proof.
 4. Prepare the three direct child schedules with the scoped `PRODUCTION_SCHEDULER_SECRET`.
 5. Disable/remove recurring Operations ownership and activate direct Directory Sync, Booking, and Official Facts in the smallest possible cutover interval so no duplicate recurring owner remains.
-6. Change Marketplace, periodic Production Health, and full Directory revalidation to the proposed crons.
+6. Keep Marketplace recovery unchanged at `8,23,38,53 * * * *`; change only periodic Production Health and full Directory revalidation to their proposed crons.
 7. Verify exactly one recurring owner for each job and no GitHub + QStash double scheduling.
 8. Verify the first natural runs passively. Do not manually invoke Production email/SMS/outreach workers merely to test cadence.
 
