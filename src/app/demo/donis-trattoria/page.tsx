@@ -8,7 +8,6 @@ import {
   Menu,
   Phone,
   Star,
-  Utensils,
   Waves,
 } from "lucide-react";
 
@@ -16,19 +15,24 @@ const assetBase = "https://www-static.restaurangkungsholmen.se/wp-content/upload
 const heroImage = `${assetBase}/2025/05/donis-pizzorny.jpg`;
 const pastaImage = `${assetBase}/2025/05/donis-pastaratter.jpg`;
 const mapsUrl = "https://www.google.com/maps/search/?api=1&query=Doni%27s+Trattoria+Hornsbergs+Strand+77+Stockholm";
-const mapEmbedUrl = "https://www.google.com/maps?q=Hornsbergs%20Strand%2077%20Stockholm&output=embed";
 
 export const metadata: Metadata = {
-  title: { absolute: "Doni’s Trattoria – classic restaurant concept by Proffera" },
+  title: { absolute: "Doni’s Trattoria – DalaNisse-inspired concept by Proffera" },
   description:
-    "Ett klassiskt och varmt restaurangkoncept för Doni’s Trattoria vid Hornsbergs Strand, inspirerat av den tydliga restaurangstrukturen på DalaNisse.",
+    "Ett varmt, klassiskt restaurangkoncept för Doni’s Trattoria vid Hornsbergs Strand, inspirerat av DalaNisses tydliga mobila restauranglayout.",
   robots: { index: false, follow: false },
   openGraph: {
     title: "Doni’s Trattoria – redesign concept by Proffera",
-    description: "Klassisk restaurangkänsla, tydlig meny och fokus på mat, miljö och kontakt.",
+    description: "Mat, meny, galleri och kontakt i en tydlig klassisk restauranglayout.",
     type: "website",
     url: "https://www.proffera.se/demo/donis-trattoria",
     images: [{ url: heroImage, width: 1200, height: 900, alt: "Doni’s Trattoria – redesign concept" }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Doni’s Trattoria – redesign concept by Proffera",
+    description: "Mat, meny, galleri och kontakt i en tydlig klassisk restauranglayout.",
+    images: [heroImage],
   },
 };
 
@@ -49,193 +53,233 @@ const hours = [
 ];
 
 const navItems = [
+  ["Hem", "#top"],
   ["Om oss", "#om"],
   ["Meny", "#meny"],
   ["Galleri", "#galleri"],
   ["Kontakt", "#kontakt"],
 ];
 
+const imageLinks = [
+  {
+    label: "Meny / Menu",
+    href: "#meny",
+    image: pastaImage,
+  },
+  {
+    label: "Galleri / Gallery",
+    href: "#galleri",
+    image: `${assetBase}/2025/06/donis-fettuccini-donis.jpg`,
+  },
+  {
+    label: "Kontakt / Contact",
+    href: "#kontakt",
+    image: `${assetBase}/2025/06/donis-diavola.jpg`,
+  },
+];
+
 export default function DonisTrattoriaDemoPage() {
   return (
-    <div className="min-h-screen bg-[#f5f1e8] text-[#1d211d] selection:bg-[#9e2f25] selection:text-white">
-      <div className="border-b border-black/10 bg-[#f5f1e8] px-4 py-2.5 text-[10px] font-bold uppercase tracking-[0.22em] text-black/45 sm:px-6">
-        <div className="mx-auto flex max-w-[1440px] items-center justify-between gap-3">
-          <span>Proffera · concept preview</span>
-          <span className="hidden sm:inline">Doni’s egna bilder · menyutkast</span>
-        </div>
+    <div className="min-h-screen bg-white text-[#171717] selection:bg-black selection:text-white">
+      <div className="bg-black px-4 py-2 text-center text-[9px] font-bold uppercase tracking-[0.22em] text-white/40">
+        Concept preview by Proffera
       </div>
 
       <main>
-        <section className="relative min-h-[760px] overflow-hidden bg-[#1a1e1b] text-white">
-          <img
-            src={heroImage}
-            alt="Pizza från Doni’s Trattoria"
-            loading="eager"
-            fetchPriority="high"
-            decoding="async"
-            className="absolute inset-0 h-full w-full object-cover"
-          />
-          <div className="absolute inset-0 bg-black/48" />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-black/45" />
-
-          <div className="relative mx-auto flex min-h-[760px] max-w-[1440px] flex-col px-4 pb-10 pt-5 sm:px-6 lg:px-8">
-            <header className="flex items-center justify-between border-b border-white/35 pb-4">
-              <a href="#top" className="flex items-center gap-3">
-                <span className="grid h-12 w-12 place-items-center rounded-full border border-white/60 font-serif text-2xl italic">D</span>
-                <div>
-                  <p className="font-serif text-2xl font-semibold leading-none sm:text-3xl">Doni’s Trattoria</p>
-                  <p className="mt-1 text-[9px] font-bold uppercase tracking-[0.24em] text-white/65">Hornsbergs Strand · Stockholm</p>
-                </div>
-              </a>
-
-              <nav className="hidden items-center gap-7 text-[12px] font-bold uppercase tracking-[0.14em] lg:flex">
-                {navItems.map(([label, href]) => (
-                  <a key={href} href={href} className="border-b border-transparent pb-1 transition hover:border-white">{label}</a>
-                ))}
-              </nav>
-
-              <details className="group relative lg:hidden">
-                <summary className="grid h-11 w-11 cursor-pointer list-none place-items-center border border-white/45 bg-black/10 [&::-webkit-details-marker]:hidden">
-                  <Menu className="h-5 w-5" />
+        <section id="top" className="bg-black text-white">
+          <div className="mx-auto max-w-[1400px] px-4 pb-7 pt-5 sm:px-6 lg:px-8">
+            <header className="grid grid-cols-[52px_1fr_52px] items-center gap-3">
+              <details className="group relative z-50">
+                <summary className="grid h-12 w-12 cursor-pointer list-none place-items-center text-white [&::-webkit-details-marker]:hidden">
+                  <Menu className="h-9 w-9" strokeWidth={2.6} />
                   <span className="sr-only">Öppna meny</span>
                 </summary>
-                <div className="absolute right-0 top-13 z-50 w-56 border border-white/20 bg-[#f5f1e8] p-2 text-[#1d211d] shadow-2xl">
+                <div className="absolute left-0 top-14 w-64 border border-white/10 bg-[#202020] p-2 shadow-2xl">
                   {navItems.map(([label, href]) => (
-                    <a key={href} href={href} className="block border-b border-black/8 px-3 py-3 text-sm font-bold last:border-0">{label}</a>
+                    <a
+                      key={href}
+                      href={href}
+                      className="block border-b border-white/10 px-4 py-3 text-sm font-semibold text-white last:border-0"
+                    >
+                      {label}
+                    </a>
                   ))}
                 </div>
               </details>
-            </header>
 
-            <div id="top" className="flex flex-1 items-end pb-8 sm:pb-12 lg:items-center lg:pb-0">
-              <div className="max-w-4xl">
-                <div className="mb-5 flex flex-wrap gap-2 text-[10px] font-bold uppercase tracking-[0.16em] text-white/85">
-                  <span className="inline-flex items-center gap-2 border border-white/35 bg-black/10 px-3 py-2"><Waves className="h-3.5 w-3.5" /> Vid vattnet</span>
-                  <a href={mapsUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 border border-white/35 bg-black/10 px-3 py-2"><Star className="h-3.5 w-3.5" /> 4,1 på Google</a>
-                </div>
-                <p className="text-xs font-bold uppercase tracking-[0.3em] text-[#f1dfb4]">Italiensk restaurang på Kungsholmen</p>
-                <h1 className="mt-5 max-w-4xl font-serif text-[58px] font-medium leading-[0.92] tracking-[-0.035em] sm:text-8xl lg:text-[108px]">
-                  Doni’s<br />Trattoria
-                </h1>
-                <p className="mt-6 max-w-2xl text-base leading-7 text-white/82 sm:text-lg sm:leading-8">
-                  Klassisk italiensk mat, varm stämning och Hornsbergs Strand precis utanför dörren.
+              <a href="#top" className="text-center">
+                <p className="text-[10px] font-bold uppercase tracking-[0.32em] text-white/70 sm:text-xs">Restaurang</p>
+                <p className="mt-1 font-serif text-[31px] font-semibold uppercase leading-none tracking-[-0.035em] sm:text-[42px]">
+                  Doni’s Trattoria
                 </p>
-                <div className="mt-8 flex flex-wrap gap-3">
-                  <a href="#meny" className="inline-flex items-center gap-2 bg-[#f5f1e8] px-6 py-3.5 text-sm font-bold text-[#1d211d] transition hover:bg-white">Se menyn <ArrowRight className="h-4 w-4" /></a>
-                  <a href="tel:+4686568400" className="inline-flex items-center gap-2 border border-white/55 px-6 py-3.5 text-sm font-bold transition hover:bg-white hover:text-[#1d211d]">Ring restaurangen <Phone className="h-4 w-4" /></a>
+              </a>
+
+              <div aria-hidden="true" />
+            </header>
+          </div>
+
+          <div className="relative aspect-[4/3] w-full overflow-hidden sm:aspect-[16/9] lg:max-h-[760px]">
+            <img
+              src={heroImage}
+              alt="Mat från Doni’s Trattoria"
+              loading="eager"
+              fetchPriority="high"
+              decoding="async"
+              className="h-full w-full object-cover"
+            />
+          </div>
+        </section>
+
+        <section id="om" className="bg-white px-5 py-16 text-center sm:px-8 sm:py-24">
+          <div className="mx-auto max-w-[880px]">
+            <h1 className="text-[42px] font-light uppercase leading-[1.04] tracking-[0.01em] text-[#6d6969] sm:text-6xl">
+              Restaurang<br />Doni’s Trattoria
+            </h1>
+            <div className="mx-auto mt-10 max-w-[760px] font-serif text-[20px] leading-[1.55] text-[#191919] sm:text-2xl sm:leading-[1.6]">
+              <p>Varmt välkommen till Doni’s Trattoria vid Hornsbergs Strand.</p>
+              <p className="mt-4">
+                Vi serverar klassisk italiensk mat med fokus på bra råvaror, pasta, pizza och en varm, avslappnad restaurangkänsla precis vid vattnet.
+              </p>
+              <p className="mt-5 text-[16px] leading-7 text-black/62 sm:text-lg">
+                Welcome to Doni’s Trattoria — an Italian restaurant by the water on Kungsholmen, focused on good ingredients, generous flavours and a relaxed atmosphere.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section className="bg-white">
+          {imageLinks.map((item) => (
+            <a key={item.href} href={item.href} className="group relative block border-t-[14px] border-white first:border-t-0">
+              <div className="relative aspect-[16/9] overflow-hidden sm:aspect-[2.1/1]">
+                <img
+                  src={item.image}
+                  alt={item.label}
+                  loading="lazy"
+                  decoding="async"
+                  className="h-full w-full object-cover transition duration-700 group-hover:scale-[1.025]"
+                />
+                <div className="absolute inset-0 bg-black/20" />
+                <div className="absolute inset-0 grid place-items-center px-6 text-center">
+                  <span className="text-4xl font-medium text-white drop-shadow-[0_2px_6px_rgba(0,0,0,.8)] sm:text-6xl">
+                    {item.label}
+                  </span>
                 </div>
               </div>
-            </div>
-          </div>
+            </a>
+          ))}
         </section>
 
-        <section id="om" className="border-b border-black/10 bg-[#f5f1e8] px-4 py-20 sm:px-6 lg:px-8 lg:py-28">
-          <div className="mx-auto grid max-w-[1280px] gap-12 lg:grid-cols-[.75fr_1.25fr] lg:items-start">
-            <div>
-              <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-[#8b2e25]">Om oss / About us</p>
-              <h2 className="mt-4 font-serif text-5xl leading-none sm:text-6xl">Välkommen till Doni’s.</h2>
-            </div>
-            <div className="grid gap-8 sm:grid-cols-2">
-              <p className="text-base leading-8 text-black/68">
-                Doni’s beskriver sitt kök som enkelt, varmt och italienskt. Fokus ligger på bra råvaror, pasta, pizza och en avslappnad restaurangupplevelse vid Hornsbergs Strand.
-              </p>
-              <p className="text-base leading-8 text-black/68">
-                Doni’s is a relaxed Italian trattoria by the water, focused on good ingredients, generous flavours and a welcoming atmosphere for lunch, dinner and evenings with friends.
+        <section id="meny" className="bg-[#f6f3ee] px-5 py-16 sm:px-8 sm:py-24">
+          <div className="mx-auto max-w-[1100px]">
+            <div className="text-center">
+              <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-black/45">Meny / Menu</p>
+              <h2 className="mt-3 font-serif text-5xl font-medium sm:text-6xl">Doni’s meny</h2>
+              <p className="mx-auto mt-5 max-w-2xl text-sm leading-6 text-black/50 sm:text-base">
+                Demo-utkast. Den slutliga menyn skrivs in på svenska och engelska när restaurangen skickar sin nya meny och aktuella priser.
               </p>
             </div>
-          </div>
-        </section>
 
-        <section id="meny" className="bg-[#fffdf8] px-4 py-20 sm:px-6 lg:px-8 lg:py-28">
-          <div className="mx-auto max-w-[1280px]">
-            <div className="flex flex-col gap-6 border-b border-black/15 pb-8 lg:flex-row lg:items-end lg:justify-between">
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-[#8b2e25]">Meny / Menu</p>
-                <h2 className="mt-4 font-serif text-5xl sm:text-7xl">Utvalda rätter</h2>
-              </div>
-              <div className="max-w-xl text-sm leading-7 text-black/55">
-                <p>Detta är ett menyutkast för demon. Den slutliga svenska och engelska menyn skrivs in när restaurangen skickar sin nya meny och aktuella priser.</p>
-              </div>
-            </div>
-
-            <div className="mt-10 grid gap-x-12 gap-y-0 lg:grid-cols-2">
+            <div className="mt-10 grid gap-x-10 lg:grid-cols-2">
               {dishes.map((dish) => (
-                <article key={dish.name} className="grid grid-cols-[90px_1fr] gap-4 border-b border-black/12 py-5 sm:grid-cols-[120px_1fr] sm:gap-6">
-                  <img src={dish.image} alt={`${dish.name} från Doni’s Trattoria`} loading="lazy" decoding="async" className="aspect-square h-full w-full object-cover" />
+                <article key={dish.name} className="grid grid-cols-[88px_1fr] gap-4 border-b border-black/15 py-5 sm:grid-cols-[108px_1fr] sm:gap-6">
+                  <img
+                    src={dish.image}
+                    alt={`${dish.name} från Doni’s Trattoria`}
+                    loading="lazy"
+                    decoding="async"
+                    className="aspect-square h-full w-full object-cover"
+                  />
                   <div className="flex min-w-0 flex-col justify-center">
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <p className="text-[10px] font-bold uppercase tracking-[0.17em] text-[#8b2e25]">{dish.type}</p>
-                        <h3 className="mt-1 font-serif text-2xl sm:text-3xl">{dish.name}</h3>
-                      </div>
-                      <Utensils className="mt-1 h-4 w-4 shrink-0 text-black/30" />
-                    </div>
-                    <p className="mt-2 text-xs leading-5 text-black/45">Ingredienser & pris uppdateras · Ingredients & price to be updated</p>
+                    <p className="text-[9px] font-bold uppercase tracking-[0.17em] text-black/45">{dish.type}</p>
+                    <h3 className="mt-1 font-serif text-2xl sm:text-3xl">{dish.name}</h3>
+                    <p className="mt-2 text-[11px] leading-5 text-black/48">
+                      Svenska: ingredienser och pris uppdateras<br />
+                      English: ingredients and price to be updated
+                    </p>
                   </div>
                 </article>
               ))}
             </div>
-
-            <div className="mt-10 flex flex-col items-start justify-between gap-5 border border-black/15 bg-[#f5f1e8] p-6 sm:flex-row sm:items-center sm:p-8">
-              <div><p className="font-serif text-2xl">Svenska + English</p><p className="mt-1 text-sm text-black/50">Den slutliga menyn byggs tvåspråkig direkt på webbplatsen.</p></div>
-              <span className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-[#8b2e25]">Menu setup included <ArrowRight className="h-4 w-4" /></span>
-            </div>
           </div>
         </section>
 
-        <section id="galleri" className="bg-[#1b201c] px-4 py-20 text-white sm:px-6 lg:px-8 lg:py-28">
-          <div className="mx-auto max-w-[1280px]">
-            <div className="mb-10 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-              <div><p className="text-[11px] font-bold uppercase tracking-[0.24em] text-[#d7b77a]">Galleri / Gallery</p><h2 className="mt-4 font-serif text-5xl sm:text-7xl">Smaker från Doni’s</h2></div>
-              <p className="max-w-md text-sm leading-6 text-white/52">När kunden skickar nya bilder och filmer byts detta galleri ut mot restaurangens senaste material.</p>
-            </div>
-
-            <div className="grid auto-rows-[230px] gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <figure className="relative overflow-hidden sm:row-span-2 lg:col-span-2"><img src={pastaImage} alt="Pastarätter från Doni’s" loading="lazy" className="h-full w-full object-cover" /><div className="absolute inset-0 bg-black/10" /></figure>
-              <figure className="overflow-hidden"><img src={`${assetBase}/2025/06/donis-diavola.jpg`} alt="Diavola från Doni’s" loading="lazy" className="h-full w-full object-cover" /></figure>
-              <figure className="overflow-hidden"><img src={`${assetBase}/2025/06/donis-mare-mare.jpg`} alt="Mare mare från Doni’s" loading="lazy" className="h-full w-full object-cover" /></figure>
-              <figure className="overflow-hidden"><img src={`${assetBase}/2025/06/donis-fettuccini-donis.jpg`} alt="Fettuccini Donis" loading="lazy" className="h-full w-full object-cover" /></figure>
-              <figure className="overflow-hidden"><img src={`${assetBase}/2025/06/donis-vegetariana.jpg`} alt="Vegetariana från Doni’s" loading="lazy" className="h-full w-full object-cover" /></figure>
-            </div>
+        <section id="galleri" className="bg-white px-0 py-0">
+          <div className="grid gap-[6px] sm:grid-cols-2 lg:grid-cols-4">
+            <figure className="relative min-h-[360px] sm:col-span-2 sm:min-h-[520px]">
+              <img src={pastaImage} alt="Pastarätter från Doni’s" loading="lazy" className="absolute inset-0 h-full w-full object-cover" />
+            </figure>
+            <figure className="relative min-h-[260px]"><img src={`${assetBase}/2025/06/donis-mare-mare.jpg`} alt="Mare mare" loading="lazy" className="absolute inset-0 h-full w-full object-cover" /></figure>
+            <figure className="relative min-h-[260px]"><img src={`${assetBase}/2025/06/donis-diavola.jpg`} alt="Diavola" loading="lazy" className="absolute inset-0 h-full w-full object-cover" /></figure>
+            <figure className="relative min-h-[260px]"><img src={`${assetBase}/2025/06/donis-fettuccini-donis.jpg`} alt="Fettuccini Donis" loading="lazy" className="absolute inset-0 h-full w-full object-cover" /></figure>
+            <figure className="relative min-h-[260px]"><img src={`${assetBase}/2025/06/donis-vegetariana.jpg`} alt="Vegetariana" loading="lazy" className="absolute inset-0 h-full w-full object-cover" /></figure>
           </div>
         </section>
 
-        <section id="kontakt" className="bg-[#f5f1e8] px-4 py-20 sm:px-6 lg:px-8 lg:py-28">
-          <div className="mx-auto grid max-w-[1280px] gap-10 lg:grid-cols-[.8fr_1.2fr]">
-            <div>
-              <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-[#8b2e25]">Kontakt / Contact</p>
-              <h2 className="mt-4 font-serif text-5xl leading-none sm:text-7xl">Hornsbergs Strand 77</h2>
-              <p className="mt-5 max-w-lg text-base leading-8 text-black/60">112 16 Stockholm · Kungsholmen</p>
+        <section id="kontakt" className="bg-[#202020] px-5 py-16 text-center text-white sm:px-8 sm:py-24">
+          <div className="mx-auto max-w-[760px]">
+            <p className="font-serif text-4xl sm:text-5xl">Doni’s Trattoria</p>
 
-              <div className="mt-8 divide-y divide-black/12 border-y border-black/12">
-                <a href="tel:+4686568400" className="flex items-center justify-between gap-5 py-4 text-sm font-bold"><span className="inline-flex items-center gap-3"><Phone className="h-4 w-4" />08-656 84 00</span><ArrowRight className="h-4 w-4" /></a>
-                <a href="mailto:donistrattoria@gmail.com" className="flex items-center justify-between gap-5 py-4 text-sm font-bold"><span className="inline-flex min-w-0 items-center gap-3"><Mail className="h-4 w-4 shrink-0" /><span className="truncate">donistrattoria@gmail.com</span></span><ArrowRight className="h-4 w-4 shrink-0" /></a>
-                <a href={mapsUrl} target="_blank" rel="noreferrer" className="flex items-center justify-between gap-5 py-4 text-sm font-bold"><span className="inline-flex items-center gap-3"><MapPin className="h-4 w-4" />Öppna i Google Maps</span><ExternalLink className="h-4 w-4" /></a>
+            <div className="mt-9 space-y-7 font-serif text-xl leading-8 sm:text-2xl">
+              <div>
+                <p className="text-white/62">Adress:</p>
+                <p>Hornsbergs Strand 77<br />112 16 Stockholm</p>
               </div>
 
-              <div className="mt-8">
-                <div className="flex items-center gap-2"><Clock3 className="h-4 w-4 text-[#8b2e25]" /><p className="text-xs font-bold uppercase tracking-[0.16em]">Öppettider i demon</p></div>
-                <div className="mt-3 divide-y divide-black/10 border-t border-black/10">
-                  {hours.map(([day, time]) => <div key={day} className="flex items-center justify-between gap-4 py-3 text-sm"><span className="text-black/55">{day}</span><span className="font-bold">{time}</span></div>)}
-                </div>
+              <div>
+                <p className="text-white/62">Telefon:</p>
+                <a href="tel:+4686568400" className="underline underline-offset-4">08-656 84 00</a>
+              </div>
+
+              <div>
+                <p className="text-white/62">E-post:</p>
+                <a href="mailto:donistrattoria@gmail.com" className="break-all underline underline-offset-4">donistrattoria@gmail.com</a>
+              </div>
+
+              <div>
+                <p className="text-white/62">Hemsida:</p>
+                <a href="#top" className="underline underline-offset-4">Doni’s Trattoria</a>
               </div>
             </div>
 
-            <div className="relative min-h-[560px] overflow-hidden border border-black/10 bg-[#ddd5c8]">
-              <iframe title="Doni’s Trattoria på Google Maps" src={mapEmbedUrl} loading="lazy" referrerPolicy="no-referrer-when-downgrade" className="absolute inset-0 h-full w-full border-0" />
+            <div className="mt-9 flex flex-wrap items-center justify-center gap-3 text-sm font-bold">
+              <a href="https://www.instagram.com/donistrattoriahornsbergsstrand/" target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-full border border-white/20 px-4 py-2.5">
+                Instagram <ExternalLink className="h-4 w-4" />
+              </a>
+              <a href={mapsUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-full border border-white/20 px-4 py-2.5">
+                Google Maps <MapPin className="h-4 w-4" />
+              </a>
+              <span className="inline-flex items-center gap-2 rounded-full border border-white/20 px-4 py-2.5">
+                <Star className="h-4 w-4" /> 4,1 Google
+              </span>
+            </div>
+
+            <div className="mx-auto mt-14 max-w-[560px] border-t border-white/15 pt-12">
+              <div className="flex items-center justify-center gap-2">
+                <Clock3 className="h-5 w-5 text-white/65" />
+                <h2 className="text-4xl font-medium">Öppettider</h2>
+              </div>
+              <div className="mt-8 divide-y divide-white/10 text-left font-serif text-lg sm:text-xl">
+                {hours.map(([day, time]) => (
+                  <div key={day} className="flex items-center justify-between gap-5 py-4">
+                    <span className="text-white/70">{day}</span>
+                    <span>{time}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-4 text-xs leading-5 text-white/35">Öppettiderna kontrolleras mot restaurangens aktuella information före slutlig publicering.</p>
+            </div>
+
+            <div className="mt-14 flex flex-wrap items-center justify-center gap-5 text-xs font-bold uppercase tracking-[0.18em] text-white/45">
+              <span className="inline-flex items-center gap-2"><Waves className="h-4 w-4" /> Hornsbergs Strand</span>
+              <span className="inline-flex items-center gap-2"><Phone className="h-4 w-4" /> Ring oss</span>
+              <span className="inline-flex items-center gap-2"><Mail className="h-4 w-4" /> Kontakt</span>
             </div>
           </div>
         </section>
       </main>
 
-      <footer className="border-t border-white/12 bg-[#171b18] px-4 py-10 text-white sm:px-6 lg:px-8">
-        <div className="mx-auto flex max-w-[1280px] flex-col gap-8 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <p className="font-serif text-3xl">Doni’s Trattoria</p>
-            <p className="mt-2 max-w-2xl text-xs leading-5 text-white/40">Designkoncept av Proffera. Inspirerat av DalaNisse-modellen med tydlig restauranginformation, meny, galleri och kontakt — utan onlinebokning eller onlinebeställning i denna version.</p>
-          </div>
-          <a href="https://www.proffera.se" className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-[#e0c58d]">proffera.se <ArrowRight className="h-4 w-4" /></a>
-        </div>
+      <footer className="bg-black px-5 py-6 text-center text-[10px] font-bold uppercase tracking-[0.18em] text-white/35">
+        Doni’s Trattoria · design concept by Proffera
       </footer>
     </div>
   );
