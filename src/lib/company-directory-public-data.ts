@@ -1,4 +1,5 @@
 import { cache } from "react";
+import { unstable_cache } from "next/cache";
 
 import {
   discloseDirectoryDirectContact,
@@ -31,6 +32,8 @@ type ClaimedOwnerPrimaryLocation = {
   confirmed: boolean;
   address: DirectoryPublicAddress;
 };
+
+const PUBLIC_DIRECTORY_REVALIDATE_SECONDS = 5 * 60;
 
 const EMPTY_PHYSICAL_ADDRESS: DirectoryPublicAddress = {
   addressLine1: "",
@@ -246,6 +249,38 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
   };
 }
 
+async function resolvePublishedDirectoryBusiness(slug: string): Promise<PublicDirectoryBusinessForRequest | null> {
+  const published = await getPublicDirectoryBusiness(slug);
+  if (!published) return null;
+  const publicContact = await getPublishedDirectoryContact(published);
+  return {
+    ...published,
+    addressLine1: publicContact.contact.addressLine1,
+    postalCode: publicContact.address.postalCode,
+    city: publicContact.address.city,
+    municipality: publicContact.address.municipality,
+    publicationStatus: "published",
+    organizationNumber: publicContact.organizationNumber,
+    primarySniCode: publicContact.primarySniCode,
+    contact: publicContact.contact,
+  };
+}
+
+/**
+ * Cross-request cache for genuinely public juridical-person Directory data.
+ * Sole traders are deliberately excluded because a bounded stale snapshot of
+ * person-linked data would weaken the fail-closed privacy contract. Claimed
+ * profiles and paid-contact decisions also never enter this cache.
+ */
+const readCachedPublishedJuridicalDirectoryBusiness = unstable_cache(
+  async (slug: string) => {
+    const published = await resolvePublishedDirectoryBusiness(slug);
+    return published?.organizationNumber ? published : null;
+  },
+  ["public-directory-published-juridical-v1"],
+  { revalidate: PUBLIC_DIRECTORY_REVALIDATE_SECONDS },
+);
+
 async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDirectoryBusinessForRequest | null> {
   const normalized = slug.trim().toLowerCase();
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(normalized)) return null;
@@ -349,31 +384,23 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
 }
 
 /**
- * Deduplicate the public directory business lookup across generateMetadata and
- * the Server Component tree for one render request. React invalidates this
- * memoization between server requests, so publication/privacy changes are not
- * persisted in an application-level cache here.
- *
- * A claimed profile may remain available as a read-only Directory fallback
- * when its previously published official data is still safe. Direct contact is
- * disclosed only when the claimed workspace has an active paid plan; Free and
- * Trial workspaces remain locked.
+ * React cache deduplicates metadata + Server Component work inside one render.
+ * The nested Next Data Cache absorbs cross-request traffic only for safe public
+ * juridical-person snapshots. Sole-trader, claimed and entitlement-dependent
+ * paths remain request-scoped and fail closed.
  */
 export const getPublicDirectoryBusinessForRequest = cache(async (slug: string): Promise<PublicDirectoryBusinessForRequest | null> => {
-  const published = await getPublicDirectoryBusiness(slug);
-  if (published) {
-    const publicContact = await getPublishedDirectoryContact(published);
-    return {
-      ...published,
-      addressLine1: publicContact.contact.addressLine1,
-      postalCode: publicContact.address.postalCode,
-      city: publicContact.address.city,
-      municipality: publicContact.address.municipality,
-      publicationStatus: "published",
-      organizationNumber: publicContact.organizationNumber,
-      primarySniCode: publicContact.primarySniCode,
-      contact: publicContact.contact,
-    };
-  }
-  return getSafeClaimedDirectoryFallback(slug);
+  const normalized = slug.trim().toLowerCase();
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(normalized)) return null;
+
+  const cachedPublished = await readCachedPublishedJuridicalDirectoryBusiness(normalized);
+  if (cachedPublished) return cachedPublished;
+
+  // A cache miss may be either a non-existent/claimed profile or a published
+  // sole trader. Re-resolve published data without persistent caching so
+  // person-linked publication/privacy changes are never held cross-request.
+  const published = await resolvePublishedDirectoryBusiness(normalized);
+  if (published) return published;
+
+  return getSafeClaimedDirectoryFallback(normalized);
 });
