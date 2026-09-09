@@ -15,6 +15,7 @@ import {
   type SeoBusinessProjection,
 } from "@/lib/business-profile-policy";
 import { getPublicDirectoryBusinessForRequest } from "@/lib/company-directory-public-data";
+import { PUBLIC_DIRECTORY_SHARED_CACHE_TAG } from "@/lib/company-directory-public-cache";
 import { getPublicDirectoryProfileExtras } from "@/lib/company-directory-public-profile-extras";
 import { getSql } from "@/lib/db/server";
 import { getWorkspaceDirectoryPublicAccessForWorkspaces } from "@/lib/workspace-feature-entitlement-db";
@@ -27,7 +28,10 @@ type PublicDirectoryBusiness = NonNullable<Awaited<ReturnType<typeof getPublicDi
 const readCachedPublicDirectoryProfileExtras = unstable_cache(
   async (profileId: string) => getPublicDirectoryProfileExtras(profileId),
   ["public-directory-profile-extras-v1"],
-  { revalidate: PUBLIC_PROFILE_EXTRAS_REVALIDATE_SECONDS },
+  {
+    revalidate: PUBLIC_PROFILE_EXTRAS_REVALIDATE_SECONDS,
+    tags: [PUBLIC_DIRECTORY_SHARED_CACHE_TAG],
+  },
 );
 
 function text(value: unknown) {
