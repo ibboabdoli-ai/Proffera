@@ -1,6 +1,7 @@
 import "server-only";
 
 import { assessCompanyDirectoryCategoryConfidence } from "@/lib/company-directory-category-confidence";
+import { invalidatePublicDirectoryPublicProjection } from "@/lib/company-directory-public-cache";
 import { enrichCompanyDirectoryScbForProfile } from "@/lib/company-directory-scb-enrichment";
 import { getSql } from "@/lib/db/server";
 
@@ -108,10 +109,6 @@ export async function publishCompanyDirectoryProfileIfSafe(
     return { ok: false, code: "not_ready" };
   }
 
-  // A fresh SCB snapshot is already bound to the exact profile and Official Facts
-  // versions above. Reuse it instead of forcing another upstream call before every
-  // publication attempt. Missing or stale SCB evidence is still refreshed live and
-  // remains fail-closed if the registry is unavailable or reports a conflict.
   if (!scbSnapshotFresh) {
     try {
       const scb = await enrichCompanyDirectoryScbForProfile(profileId);
@@ -176,7 +173,9 @@ export async function publishCompanyDirectoryProfileIfSafe(
   `;
   if (!updated[0]) return { ok: false, code: "not_ready" };
 
-  return { ok: true, code: "published", slug: text(updated[0].public_slug) };
+  const slug = text(updated[0].public_slug);
+  invalidatePublicDirectoryPublicProjection({ slug, profileId });
+  return { ok: true, code: "published", slug };
 }
 
 export async function autoPublishCompanyDirectoryProfileIfSafe(
