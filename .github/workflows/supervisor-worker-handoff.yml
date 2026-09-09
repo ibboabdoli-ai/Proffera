@@ -55,8 +55,8 @@ jobs:
           EVENT_COMMENT_ID: ${{ github.event.comment.id }}
           EVENT_COMMENT_BODY: ${{ github.event.comment.body }}
           RUN_ID: ${{ github.run_id }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          DISPATCH_PUSH_TOKEN: ${{ secrets.PROFFERA_AUTOFIX_PUSH_TOKEN }}
+          OPENAI_AVAILABLE: ${{ secrets.OPENAI_API_KEY != '' }}
+          PUSH_AVAILABLE: ${{ secrets.PROFFERA_AUTOFIX_PUSH_TOKEN != '' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -126,10 +126,8 @@ jobs:
             branch_exists=true
           fi
 
-          openai_available=false
-          push_available=false
-          [ -n "${OPENAI_API_KEY:-}" ] && openai_available=true
-          [ -n "${DISPATCH_PUSH_TOKEN:-}" ] && push_available=true
+          openai_available="${OPENAI_AVAILABLE:-false}"
+          push_available="${PUSH_AVAILABLE:-false}"
 
           context="$(jq -n \
             --arg repository "$REPOSITORY" \
@@ -269,13 +267,17 @@ jobs:
           sha256sum --check --status "$manifest"
           rm -f "$RUNNER_TEMP/proffera-task-packet.json"
           packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
-          changed_files="$(git ls-files --modified --deleted --others --exclude-standard)"
+          git add --all --intent-to-add
+          changed_files="$(git diff --name-only --no-renames HEAD)"
+          snapshot_file="$RUNNER_TEMP/proffera-worker-changed-files.txt"
+          printf '%s\n' "$changed_files" > "$snapshot_file"
           changed_json="$(printf '%s\n' "$changed_files" | jq -R -s 'split("\n") | map(select(length > 0))')"
           validation="$(jq -n --argjson packet "$packet" --argjson changed_files "$changed_json" '{packet:$packet,changed_files:$changed_files}' | node "$helper" validate-changes)"
           if [ "$(jq -r '.ok' <<< "$validation")" != "true" ]; then
             jq -r '.reason' <<< "$validation" >&2
             exit 1
           fi
+          git diff --check HEAD
           printf '%s\n' "$changed_files"
 
       - name: Run full pre-publish validation for sensitive dispatch path
@@ -286,7 +288,7 @@ jobs:
           npm run typecheck
           npm test
           npm run build
-          git diff --check
+          git diff --check HEAD
 
       - name: Reconcile live state again immediately before publication
         env:
@@ -340,6 +342,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          snapshot_file="$RUNNER_TEMP/proffera-worker-changed-files.txt"
+          test -s "$snapshot_file"
+          git add --all --intent-to-add
+          current_files="$(git diff --name-only --no-renames HEAD)"
+          current_snapshot="$(mktemp)"
+          printf '%s\n' "$current_files" > "$current_snapshot"
+          diff -u "$snapshot_file" "$current_snapshot"
+          git diff --check HEAD
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add --all

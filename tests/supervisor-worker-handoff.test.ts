@@ -1,4 +1,4 @@
-import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -44,6 +44,34 @@ function executableRunText(workflow: string) {
     }
   }
   return executable.join("\n");
+}
+
+function workflowRunStep(workflow: string, stepName: string) {
+  const lines = workflow.split("\n");
+  const stepIndex = lines.findIndex((line) => line.trim() === `- name: ${stepName}`);
+  expect(stepIndex).toBeGreaterThanOrEqual(0);
+  let runIndex = -1;
+  for (let index = stepIndex + 1; index < lines.length; index += 1) {
+    if (index > stepIndex + 1 && lines[index].trim().startsWith("- name:")) break;
+    if (lines[index].trim() === "run: |") {
+      runIndex = index;
+      break;
+    }
+  }
+  expect(runIndex).toBeGreaterThan(stepIndex);
+  const runIndent = lines[runIndex].match(/^\s*/)?.[0].length ?? 0;
+  const script: string[] = [];
+  for (let index = runIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (line.trim() === "") {
+      script.push("");
+      continue;
+    }
+    const indent = line.match(/^\s*/)?.[0].length ?? 0;
+    if (indent <= runIndent) break;
+    script.push(line.slice(Math.min(line.length, runIndent + 2)));
+  }
+  return script.join("\n");
 }
 
 function packet(overrides: Record<string, unknown> = {}) {
@@ -186,6 +214,30 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     expect(evaluate(baseContext({ comments: [trustedState("TASK_CREATED")] })).status).toBe("TASK_CREATED");
   });
 
+  it("ignores a spoofed task-state comment not authored by the trusted bot", () => {
+    const spoofed = { ...trustedState("WORKER_PR_OPENED", "1000"), user: { login: "attacker" } };
+    expect(evaluate(baseContext({ comments: [spoofed] })).status).toBe("TASK_CREATED");
+  });
+
+  it("fails closed on an untrusted Worker PR author", () => {
+    expect(evaluate(baseContext({ open_prs: [workerPr({ author: "attacker" })] })).code).toBe("untrusted_worker_pr");
+  });
+
+  it("fails closed on an untrusted Worker PR head repository", () => {
+    expect(evaluate(baseContext({ open_prs: [workerPr({ head_repo: "attacker/fork" })] })).code).toBe("untrusted_worker_pr");
+  });
+
+  it("fails closed when an open Dependabot PR overlaps the declared scope", () => {
+    const bot = workerPr({
+      number: 940,
+      head_ref: "dependabot/npm_and_yarn/example",
+      author: "dependabot[bot]",
+      body: "",
+      files: ["src/features/test/a.ts"],
+    });
+    expect(evaluate(baseContext({ open_prs: [bot] })).code).toBe("dependabot_overlap");
+  });
+
   it("rejects a stale base SHA", () => {
     expect(evaluate(baseContext({ live_main_sha: otherSha })).code).toBe("stale_base");
   });
@@ -276,6 +328,14 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     expect(evaluate(helperBlocked).code).toBe("malformed_packet");
   });
 
+  it("blocks the entire .github control-plane scope", () => {
+    for (const path of [".github/dependabot.yml", ".github/copilot-instructions.md", ".github/CODEOWNERS"]) {
+      const context = baseContext();
+      (context.event as Record<string, unknown>).comment_body = packetComment(packet({ allowed_paths: [path] }));
+      expect(evaluate(context).code).toBe("malformed_packet");
+    }
+  });
+
   it("merge and self-approval remain impossible through Task Packet flags and executable workflow paths", () => {
     const context = baseContext();
     (context.event as Record<string, unknown>).comment_body = packetComment(packet({ merge_allowed: true, auto_merge_allowed: true }));
@@ -288,6 +348,39 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     expect(executable).not.toMatch(/ibbo-approved/i);
     expect(executable).not.toMatch(/\bgh\s+pr\s+review\b[^\n]*--approve\b/i);
     expect(executable).not.toMatch(/\breviews?\b[^\n]*(?:APPROVE|APPROVED)/i);
+  });
+
+  it("preflight exposes secret availability booleans instead of secret values", () => {
+    const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+    const preflight = workflow.slice(0, workflow.indexOf("  dispatch:"));
+    expect(preflight).toContain("OPENAI_AVAILABLE: ${{ secrets.OPENAI_API_KEY != '' }}");
+    expect(preflight).toContain("PUSH_AVAILABLE: ${{ secrets.PROFFERA_AUTOFIX_PUSH_TOKEN != '' }}");
+    expect(preflight).not.toContain("OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}");
+    expect(preflight).not.toContain("DISPATCH_PUSH_TOKEN: ${{ secrets.PROFFERA_AUTOFIX_PUSH_TOKEN }}");
+  });
+
+  it("uses one complete HEAD-relative Worker snapshot for scope, whitespace, and publication eligibility", () => {
+    const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+    const verify = workflowRunStep(workflow, "Verify Worker diff is nonempty and packet-bounded with immutable helper");
+    const commit = workflowRunStep(workflow, "Commit bounded Worker result locally");
+    expect(verify).toContain("git add --all --intent-to-add");
+    expect(verify).toContain('changed_files="$(git diff --name-only --no-renames HEAD)"');
+    expect(verify).toContain('snapshot_file="$RUNNER_TEMP/proffera-worker-changed-files.txt"');
+    expect(verify).toContain("git diff --check HEAD");
+    expect(commit).toContain('snapshot_file="$RUNNER_TEMP/proffera-worker-changed-files.txt"');
+    expect(commit).toContain("diff -u");
+    expect(commit).toContain("git diff --check HEAD");
+  });
+
+  it("separates lifecycle and check reconciliation concurrency groups", () => {
+    const sync = source(".github/workflows/worker-supervisor-sync.yml");
+    expect(sync).toContain("proffera-worker-supervisor-sync-${{ github.event_name }}-");
+    expect(sync).toContain("cancel-in-progress: false");
+  });
+
+  it("fails closed on an invalid trusted Phase-1 lifecycle packet", () => {
+    const sync = source(".github/workflows/worker-supervisor-sync.yml");
+    expect(sync).toContain("Trusted Phase-1 marker carries an invalid Task Packet; refusing legacy fallback.");
   });
 
   it("materializes an immutable helper before Codex and never executes the Worker checkout helper afterward", () => {
@@ -323,6 +416,56 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     expect(trustedResult.status, trustedResult.stderr).toBe(0);
     expect(JSON.parse(trustedResult.stdout).code).toBe("out_of_scope_change");
     expect(JSON.parse(tamperedResult.stdout).code).toBe("bypassed");
+  });
+
+  it("executes the actual Verify Worker diff step with the immutable RUNNER_TEMP helper", () => {
+    const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+    const verifyScript = workflowRunStep(workflow, "Verify Worker diff is nonempty and packet-bounded with immutable helper");
+    const root = mkdtempSync(join(tmpdir(), "proffera-handoff-step-"));
+    const repo = join(root, "repo");
+    const runnerTemp = join(root, "runner");
+    const trustedDir = join(runnerTemp, "proffera-trusted-control");
+    const repoHelper = join(repo, "scripts", "supervisor-worker-handoff.mjs");
+    const trustedHelper = join(trustedDir, "supervisor-worker-handoff.mjs");
+    const manifest = join(trustedDir, "supervisor-worker-handoff.sha256");
+
+    mkdirSync(join(repo, "scripts"), { recursive: true });
+    mkdirSync(join(repo, "src"), { recursive: true });
+    mkdirSync(trustedDir, { recursive: true });
+    copyFileSync(helper, repoHelper);
+    copyFileSync(helper, trustedHelper);
+
+    const checksum = spawnSync("sha256sum", [trustedHelper], { encoding: "utf8" });
+    expect(checksum.status, checksum.stderr).toBe(0);
+    writeFileSync(manifest, checksum.stdout, "utf8");
+
+    for (const args of [
+      ["init"],
+      ["config", "user.name", "test"],
+      ["config", "user.email", "test@example.invalid"],
+      ["add", "--all"],
+      ["commit", "-m", "baseline"],
+    ]) {
+      const git = spawnSync("git", args, { cwd: repo, encoding: "utf8" });
+      expect(git.status, git.stderr).toBe(0);
+    }
+
+    writeFileSync(repoHelper, 'process.stdout.write(JSON.stringify({ok:true,status:"VALID",code:"bypassed"}));\n', "utf8");
+    writeFileSync(join(repo, "src", "unrelated.ts"), "export const outsideScope = true;\n", "utf8");
+
+    const result = spawnSync("bash", ["-lc", verifyScript], {
+      cwd: repo,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        RUNNER_TEMP: runnerTemp,
+        PACKET_B64: Buffer.from(JSON.stringify(packet())).toString("base64"),
+      },
+    });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("hard-blocked path 'scripts/supervisor-worker-handoff.mjs'");
+    expect(verifyScript).toContain('helper="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.mjs"');
+    expect(verifyScript).toContain("sha256sum --check --status");
   });
 
   it("does not expose OpenAI or push credentials to post-Worker reconciliation helper execution", () => {

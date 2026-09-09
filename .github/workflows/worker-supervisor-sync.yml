@@ -11,7 +11,7 @@ on:
 permissions: {}
 
 concurrency:
-  group: proffera-worker-supervisor-sync-${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number || github.run_id }}
+  group: proffera-worker-supervisor-sync-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number || github.run_id }}
   cancel-in-progress: false
 
 jobs:
@@ -166,6 +166,9 @@ jobs:
               echo "Reconciled task $task_id to $state on live head $live_head_sha."
               exit 0
             fi
+
+            echo "Trusted Phase-1 marker carries an invalid Task Packet; refusing legacy fallback." >&2
+            exit 1
           fi
 
           # Preserve the existing legacy lifecycle trail for Workers that predate

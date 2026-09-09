@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
 export const TASK_PACKET_MARKER = "<!-- proffera-worker-task-packet:v1 -->";
@@ -20,6 +19,7 @@ export const REQUIRED_CHECKS = Object.freeze([
 ]);
 
 export const HARD_BLOCKED_SCOPES = Object.freeze([
+  ".github/",
   ".github/workflows/",
   ".github/proffera-standing-merge-authorization.json",
   "AGENTS.md",
@@ -638,11 +638,6 @@ async function main() {
   }
   if (mode === "pr-body") {
     process.stdout.write(taskPrBody(parsed.packet ?? parsed, parsed.changed_files ?? []));
-    return;
-  }
-  if (mode === "read-file") {
-    const path = assertPlainString(parsed.path, "path", 500);
-    process.stdout.write(await readFile(path, "utf8"));
     return;
   }
   throw new Error(`unknown mode '${mode}'`);
