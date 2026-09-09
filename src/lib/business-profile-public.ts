@@ -1,6 +1,7 @@
 import "server-only";
 
 import { cache } from "react";
+import { unstable_cache } from "next/cache";
 
 import {
   projectBusinessProfilePublicProfile,
@@ -19,8 +20,15 @@ import { getSql } from "@/lib/db/server";
 import { getWorkspaceDirectoryPublicAccessForWorkspaces } from "@/lib/workspace-feature-entitlement-db";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const PUBLIC_PROFILE_EXTRAS_REVALIDATE_SECONDS = 5 * 60;
 
 type PublicDirectoryBusiness = NonNullable<Awaited<ReturnType<typeof getPublicDirectoryBusinessForRequest>>>;
+
+const readCachedPublicDirectoryProfileExtras = unstable_cache(
+  async (profileId: string) => getPublicDirectoryProfileExtras(profileId),
+  ["public-directory-profile-extras-v1"],
+  { revalidate: PUBLIC_PROFILE_EXTRAS_REVALIDATE_SECONDS },
+);
 
 function text(value: unknown) {
   return String(value ?? "").trim();
@@ -155,14 +163,29 @@ async function getProfileEntitlements(
 async function resolvePublicBusinessProfile(
   business: PublicDirectoryBusiness,
 ): Promise<ResolvedBusinessProfile> {
-  const [extras, ownerContext] = await Promise.all([
-    getPublicDirectoryProfileExtras(business.id),
-    getProfileOwnerContext(business.id),
-  ]);
-  const entitlements = await getProfileEntitlements(
-    ownerContext.claimedWorkspaceId,
-    business.contact.entitled,
-  );
+  // Published juridical-person Directory profiles contain no workspace or
+  // entitlement overlay. Keep their public extras in the shared bounded cache
+  // and skip owner/plan reads entirely. Claimed profiles remain request-scoped.
+  const isSharedPublicProfile = business.publicationStatus === "published" && Boolean(business.organizationNumber);
+
+  const extras = isSharedPublicProfile
+    ? await readCachedPublicDirectoryProfileExtras(business.id)
+    : await getPublicDirectoryProfileExtras(business.id);
+
+  const ownerContext = isSharedPublicProfile
+    ? {
+        legalName: business.companyName,
+        claimedWorkspaceId: null as string | null,
+        owner: null as BusinessProfileOwnerSource | null,
+      }
+    : await getProfileOwnerContext(business.id);
+
+  const entitlements = isSharedPublicProfile
+    ? null
+    : await getProfileEntitlements(
+        ownerContext.claimedWorkspaceId,
+        business.contact.entitled,
+      );
 
   return resolveBusinessProfilePolicy({
     official: {
