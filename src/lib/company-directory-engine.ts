@@ -3,6 +3,7 @@ import "server-only";
 import { createHash } from "node:crypto";
 
 import { getSql } from "@/lib/db/server";
+import { invalidatePublicDirectoryPublicProjection } from "@/lib/company-directory-public-cache";
 import {
   assessDirectoryCandidate,
   buildDirectoryPublicSlug,
@@ -280,6 +281,7 @@ export async function upsertCompanyDirectoryCandidate(candidate: NormalizedDirec
     `;
   }
 
+  invalidatePublicDirectoryPublicProjection({ slug: publicSlug, profileId });
   return {
     profileId,
     publicationStatus: String(rows[0]?.publication_status ?? desiredStatus),
