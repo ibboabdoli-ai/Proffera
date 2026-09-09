@@ -7,6 +7,7 @@ import {
 } from "@/lib/company-directory-contact-entitlement";
 import { getPublicDirectoryBusiness, type PublicDirectoryBusiness } from "@/lib/company-directory-engine";
 import { hasActivePaidDirectoryContactAccess } from "@/lib/company-directory-paid-contact-entitlement";
+import { PUBLIC_DIRECTORY_SHARED_CACHE_TAG } from "@/lib/company-directory-public-cache";
 import {
   resolveCompanyDirectoryCanonicalWorkplaceAddress,
   type DirectoryPublicAddress,
@@ -293,7 +294,10 @@ const readCachedPublishedJuridicalDirectoryBusiness = unstable_cache(
     return published?.sharedCacheSafe ? published.business : null;
   },
   ["public-directory-published-juridical-v1"],
-  { revalidate: PUBLIC_DIRECTORY_REVALIDATE_SECONDS },
+  {
+    revalidate: PUBLIC_DIRECTORY_REVALIDATE_SECONDS,
+    tags: [PUBLIC_DIRECTORY_SHARED_CACHE_TAG],
+  },
 );
 
 async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDirectoryBusinessForRequest | null> {
