@@ -14,6 +14,7 @@ import {
   type SeoBusinessProjection,
 } from "@/lib/business-profile-policy";
 import { getPublicDirectoryBusinessForRequest } from "@/lib/company-directory-public-data";
+import { readPublicDirectoryExtrasCache } from "@/lib/company-directory-public-cache";
 import { getPublicDirectoryProfileExtras } from "@/lib/company-directory-public-profile-extras";
 import { getSql } from "@/lib/db/server";
 import { getWorkspaceDirectoryPublicAccessForWorkspaces } from "@/lib/workspace-feature-entitlement-db";
@@ -155,21 +156,41 @@ async function getProfileEntitlements(
 async function resolvePublicBusinessProfile(
   business: PublicDirectoryBusiness,
 ): Promise<ResolvedBusinessProfile> {
-  const [extras, ownerContext] = await Promise.all([
-    getPublicDirectoryProfileExtras(business.id),
-    getProfileOwnerContext(business.id),
-  ]);
-  const entitlements = await getProfileEntitlements(
-    ownerContext.claimedWorkspaceId,
-    business.contact.entitled,
-  );
+  // Only a Directory resolution that explicitly proved it has no claim linkage
+  // may use shared extras and skip owner/entitlement reads. Claimed, sole-trader
+  // and claim-linked edge paths keep the previous request-scoped behavior.
+  const isSharedPublicProfile = business.sharedCacheSafe;
+
+  const extras = isSharedPublicProfile
+    ? await readPublicDirectoryExtrasCache(
+        business.id,
+        () => getPublicDirectoryProfileExtras(business.id),
+      )
+    : await getPublicDirectoryProfileExtras(business.id);
+
+  const ownerContext = isSharedPublicProfile
+    ? {
+        // legalName is an official fact carried by the Directory resolver. Never
+        // substitute the presentation/display name for this registered fact.
+        legalName: business.legalName,
+        claimedWorkspaceId: null as string | null,
+        owner: null as BusinessProfileOwnerSource | null,
+      }
+    : await getProfileOwnerContext(business.id);
+
+  const entitlements = isSharedPublicProfile
+    ? null
+    : await getProfileEntitlements(
+        ownerContext.claimedWorkspaceId,
+        business.contact.entitled,
+      );
 
   return resolveBusinessProfilePolicy({
     official: {
       profileId: business.id,
       directorySlug: business.slug,
       claimedWorkspaceId: ownerContext.claimedWorkspaceId,
-      legalName: ownerContext.legalName || business.companyName,
+      legalName: ownerContext.legalName,
       displayName: business.companyName,
       legalForm: business.legalForm,
       organizationStatus: business.organizationStatus,
