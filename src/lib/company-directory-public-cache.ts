@@ -56,9 +56,6 @@ const nextCacheAdapter: PublicDirectoryCacheAdapter = {
     }
   },
   invalidate(tag: string) {
-    // Safety changes require a blocking miss on the next read. SWR profiles such
-    // as "max" could still serve the stale public value once after a claim or
-    // privacy transition, so use immediate expiration for this boundary.
     revalidateTag(tag, { expire: 0 });
   },
 };
@@ -122,10 +119,23 @@ export async function readPublicDirectoryExtrasCache<T>(
   });
 }
 
+export function invalidateAllPublicDirectoryProfileCaches() {
+  activeAdapter().invalidate(PUBLIC_DIRECTORY_PROFILE_GLOBAL_TAG);
+}
+
+export function invalidateAllPublicDirectoryExtrasCaches() {
+  activeAdapter().invalidate(PUBLIC_DIRECTORY_EXTRAS_GLOBAL_TAG);
+}
+
+export function invalidateAllPublicDirectoryPublicCaches() {
+  invalidateAllPublicDirectoryProfileCaches();
+  invalidateAllPublicDirectoryExtrasCaches();
+}
+
 export function invalidatePublicDirectoryProfileCache(slug: string) {
   const normalized = tagToken(slug);
   if (!normalized) {
-    activeAdapter().invalidate(PUBLIC_DIRECTORY_PROFILE_GLOBAL_TAG);
+    invalidateAllPublicDirectoryProfileCaches();
     return;
   }
   activeAdapter().invalidate(publicDirectoryProfileCacheTag(normalized));
@@ -134,7 +144,7 @@ export function invalidatePublicDirectoryProfileCache(slug: string) {
 export function invalidatePublicDirectoryExtrasCache(profileId: string) {
   const normalized = tagToken(profileId);
   if (!normalized) {
-    activeAdapter().invalidate(PUBLIC_DIRECTORY_EXTRAS_GLOBAL_TAG);
+    invalidateAllPublicDirectoryExtrasCaches();
     return;
   }
   activeAdapter().invalidate(publicDirectoryExtrasCacheTag(normalized));
@@ -148,28 +158,18 @@ export function invalidatePublicDirectoryPublicProjection(input: {
   invalidatePublicDirectoryExtrasCache(input.profileId);
 }
 
-/**
- * Mutation-side invalidation for paths that naturally own only a profile id.
- * The extra lookup runs only after a successful mutation, never on public read
- * traffic. If the slug cannot be resolved, fail closed by expiring the global
- * public-profile tag rather than leaving a possibly unsafe cached page alive.
- */
 export async function invalidatePublicDirectoryPublicProjectionByProfileId(profileId: string) {
   const normalized = tagToken(profileId);
   if (!UUID_PATTERN.test(normalized)) {
-    activeAdapter().invalidate(PUBLIC_DIRECTORY_PROFILE_GLOBAL_TAG);
-    activeAdapter().invalidate(PUBLIC_DIRECTORY_EXTRAS_GLOBAL_TAG);
+    invalidateAllPublicDirectoryPublicCaches();
     return;
   }
 
-  // Existing unit tests that exercise business mutations do not run inside a
-  // Next incremental-cache runtime. They get a deliberate no-op by default;
-  // cache-specific tests install an explicit adapter and exercise invalidation.
   if (process.env.NODE_ENV === "test" && testAdapter === null) return;
 
   const sql = getSql();
   if (!sql) {
-    activeAdapter().invalidate(PUBLIC_DIRECTORY_PROFILE_GLOBAL_TAG);
+    invalidateAllPublicDirectoryProfileCaches();
     invalidatePublicDirectoryExtrasCache(normalized);
     return;
   }
@@ -184,11 +184,10 @@ export async function invalidatePublicDirectoryPublicProjectionByProfileId(profi
     `;
     slug = tagToken(rows[0]?.public_slug);
   } catch {
-    // The data mutation has already succeeded. Global expiration is the
-    // fail-closed fallback if the narrow tag cannot be resolved.
+    // Fail closed below with global profile invalidation.
   }
 
   if (slug) invalidatePublicDirectoryProfileCache(slug);
-  else activeAdapter().invalidate(PUBLIC_DIRECTORY_PROFILE_GLOBAL_TAG);
+  else invalidateAllPublicDirectoryProfileCaches();
   invalidatePublicDirectoryExtrasCache(normalized);
 }
