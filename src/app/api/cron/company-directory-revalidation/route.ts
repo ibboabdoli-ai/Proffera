@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { COMPANY_DIRECTORY_CATEGORY_CONFIDENCE_POLICY_VERSION } from "@/lib/company-directory-category-confidence";
 import { revalidateCompanyDirectoryCategoryPolicyBatch } from "@/lib/company-directory-category-policy-revalidation";
 import { revalidateAllCompanyDirectoryBatch } from "@/lib/company-directory-full-revalidation";
+import { invalidateAllPublicDirectoryPublicCaches } from "@/lib/company-directory-public-cache";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -61,6 +62,9 @@ export async function GET(request: Request) {
       REVALIDATION_BATCH_SIZE,
       { deadlineAt },
     );
+    if (policyEvaluation.movedToReview > 0) {
+      invalidateAllPublicDirectoryPublicCaches();
+    }
   } catch (error) {
     console.error("Company directory category policy revalidation failed", error);
     policyEvaluation = failedPolicyEvaluation(error);
@@ -91,6 +95,9 @@ export async function GET(request: Request) {
       REVALIDATION_BATCH_SIZE,
       { deadlineAt },
     );
+    if (result.movedToReview > 0) {
+      invalidateAllPublicDirectoryPublicCaches();
+    }
     return NextResponse.json({ ok: true, ...result, policyEvaluation });
   } catch (error) {
     console.error("Company directory dedicated revalidation failed", error);
