@@ -33,6 +33,11 @@ type ClaimedOwnerPrimaryLocation = {
   address: DirectoryPublicAddress;
 };
 
+type PublishedDirectoryResolution = {
+  business: PublicDirectoryBusinessForRequest;
+  sharedCacheSafe: boolean;
+};
+
 const PUBLIC_DIRECTORY_REVALIDATE_SECONDS = 5 * 60;
 
 const EMPTY_PHYSICAL_ADDRESS: DirectoryPublicAddress = {
@@ -200,6 +205,7 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
       primarySniCode: "",
       address: EMPTY_PHYSICAL_ADDRESS,
       contact: emptyContact(),
+      claimedWorkspaceId: "",
     };
   }
 
@@ -224,6 +230,7 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
       primarySniCode: "",
       address: EMPTY_PHYSICAL_ADDRESS,
       contact: emptyContact(),
+      claimedWorkspaceId: "",
     };
   }
 
@@ -246,36 +253,43 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
       email: scb?.email,
       website: row.website_url,
     }, false),
+    claimedWorkspaceId,
   };
 }
 
-async function resolvePublishedDirectoryBusiness(slug: string): Promise<PublicDirectoryBusinessForRequest | null> {
+async function resolvePublishedDirectoryBusiness(slug: string): Promise<PublishedDirectoryResolution | null> {
   const published = await getPublicDirectoryBusiness(slug);
   if (!published) return null;
   const publicContact = await getPublishedDirectoryContact(published);
   return {
-    ...published,
-    addressLine1: publicContact.contact.addressLine1,
-    postalCode: publicContact.address.postalCode,
-    city: publicContact.address.city,
-    municipality: publicContact.address.municipality,
-    publicationStatus: "published",
-    organizationNumber: publicContact.organizationNumber,
-    primarySniCode: publicContact.primarySniCode,
-    contact: publicContact.contact,
+    business: {
+      ...published,
+      addressLine1: publicContact.contact.addressLine1,
+      postalCode: publicContact.address.postalCode,
+      city: publicContact.address.city,
+      municipality: publicContact.address.municipality,
+      publicationStatus: "published",
+      organizationNumber: publicContact.organizationNumber,
+      primarySniCode: publicContact.primarySniCode,
+      contact: publicContact.contact,
+    },
+    sharedCacheSafe: !publicContact.claimedWorkspaceId,
   };
 }
 
 /**
- * Cross-request cache for genuinely public juridical-person Directory data.
- * Sole traders are deliberately excluded because a bounded stale snapshot of
- * person-linked data would weaken the fail-closed privacy contract. Claimed
- * profiles and paid-contact decisions also never enter this cache.
+ * Cross-request cache for genuinely public, unclaimed juridical-person
+ * Directory data. Sole traders are deliberately excluded because a bounded
+ * stale snapshot of person-linked data would weaken the fail-closed privacy
+ * contract. Claim-linked profiles and paid-contact decisions also never enter
+ * this cache.
  */
 const readCachedPublishedJuridicalDirectoryBusiness = unstable_cache(
   async (slug: string) => {
     const published = await resolvePublishedDirectoryBusiness(slug);
-    return published?.organizationNumber ? published : null;
+    return published?.sharedCacheSafe && published.business.organizationNumber
+      ? published.business
+      : null;
   },
   ["public-directory-published-juridical-v1"],
   { revalidate: PUBLIC_DIRECTORY_REVALIDATE_SECONDS },
@@ -386,8 +400,8 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
 /**
  * React cache deduplicates metadata + Server Component work inside one render.
  * The nested Next Data Cache absorbs cross-request traffic only for safe public
- * juridical-person snapshots. Sole-trader, claimed and entitlement-dependent
- * paths remain request-scoped and fail closed.
+ * unclaimed juridical-person snapshots. Sole-trader, claimed and entitlement-
+ * dependent paths remain request-scoped and fail closed.
  */
 export const getPublicDirectoryBusinessForRequest = cache(async (slug: string): Promise<PublicDirectoryBusinessForRequest | null> => {
   const normalized = slug.trim().toLowerCase();
@@ -396,11 +410,10 @@ export const getPublicDirectoryBusinessForRequest = cache(async (slug: string): 
   const cachedPublished = await readCachedPublishedJuridicalDirectoryBusiness(normalized);
   if (cachedPublished) return cachedPublished;
 
-  // A cache miss may be either a non-existent/claimed profile or a published
-  // sole trader. Re-resolve published data without persistent caching so
-  // person-linked publication/privacy changes are never held cross-request.
+  // A cache miss may be a non-existent/claimed profile, a sole trader, or a
+  // claim-linked published edge case. Re-resolve it outside persistent cache.
   const published = await resolvePublishedDirectoryBusiness(normalized);
-  if (published) return published;
+  if (published) return published.business;
 
   return getSafeClaimedDirectoryFallback(normalized);
 });
