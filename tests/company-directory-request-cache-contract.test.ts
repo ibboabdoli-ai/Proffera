@@ -58,7 +58,8 @@ describe("company directory shared-cache security and scale contract", () => {
     expect(helper).toContain('import { unstable_cache } from "next/cache"');
     expect(helper).toContain("PUBLIC_DIRECTORY_REVALIDATE_SECONDS = 5 * 60");
     expect(helper).toContain('"public-directory-published-juridical-v1"');
-    expect(helper).toContain("published?.organizationNumber ? published : null");
+    expect(helper).toContain("published?.sharedCacheSafe && published.business.organizationNumber");
+    expect(helper).toContain("sharedCacheSafe: !publicContact.claimedWorkspaceId");
     expect(helper).toContain("getSafeClaimedDirectoryFallback(normalized)");
     expect(helper).toContain("hasActivePaidDirectoryContactAccess(workspaceId)");
     expect(helper).toContain("const cachedPublished = await readCachedPublishedJuridicalDirectoryBusiness(normalized)");
@@ -100,16 +101,17 @@ describe("company directory shared-cache security and scale contract", () => {
     expect(sharedCacheClosure).not.toContain("hasActivePaidDirectoryContactAccess");
     expect(sharedCacheClosure).not.toContain("getSafeClaimedDirectoryFallback");
     expect(sharedCacheClosure).not.toContain("claimed_workspace_id");
-    expect(sharedCacheClosure).toContain("published?.organizationNumber ? published : null");
+    expect(sharedCacheClosure).toContain("published?.sharedCacheSafe && published.business.organizationNumber");
 
     const claimedPath = helper.slice(claimedStart, requestStart);
     expect(claimedPath).toContain("publication_status = 'claimed'");
     expect(claimedPath).toContain("hasActivePaidDirectoryContactAccess(workspaceId)");
 
     // A cached miss is deliberately re-resolved outside unstable_cache. That is
-    // the fail-closed path for published sole traders and claimed profiles.
+    // the fail-closed path for sole traders and claim-linked profiles.
     const requestPath = helper.slice(requestStart);
     expect(requestPath).toContain("const published = await resolvePublishedDirectoryBusiness(normalized)");
+    expect(requestPath).toContain("if (published) return published.business");
     expect(requestPath).toContain("return getSafeClaimedDirectoryFallback(normalized)");
   });
 });
