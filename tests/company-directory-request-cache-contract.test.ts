@@ -58,8 +58,9 @@ describe("company directory shared-cache security and scale contract", () => {
     expect(helper).toContain('import { unstable_cache } from "next/cache"');
     expect(helper).toContain("PUBLIC_DIRECTORY_REVALIDATE_SECONDS = 5 * 60");
     expect(helper).toContain('"public-directory-published-juridical-v1"');
-    expect(helper).toContain("published?.sharedCacheSafe && published.business.organizationNumber");
-    expect(helper).toContain("sharedCacheSafe: !publicContact.claimedWorkspaceId");
+    expect(helper).toContain("const sharedCacheSafe = Boolean(publicContact.organizationNumber) && !publicContact.claimedWorkspaceId");
+    expect(helper).toContain("return published?.sharedCacheSafe ? published.business : null");
+    expect(helper).toContain("sharedCacheSafe: false");
     expect(helper).toContain("getSafeClaimedDirectoryFallback(normalized)");
     expect(helper).toContain("hasActivePaidDirectoryContactAccess(workspaceId)");
     expect(helper).toContain("const cachedPublished = await readCachedPublishedJuridicalDirectoryBusiness(normalized)");
@@ -71,7 +72,7 @@ describe("company directory shared-cache security and scale contract", () => {
     expect(profileResolver).toContain('import { unstable_cache } from "next/cache"');
     expect(profileResolver).toContain("PUBLIC_PROFILE_EXTRAS_REVALIDATE_SECONDS = 5 * 60");
     expect(profileResolver).toContain('"public-directory-profile-extras-v1"');
-    expect(profileResolver).toContain('business.publicationStatus === "published" && Boolean(business.organizationNumber)');
+    expect(profileResolver).toContain("const isSharedPublicProfile = business.sharedCacheSafe");
     expect(profileResolver).toContain("? await readCachedPublicDirectoryProfileExtras(business.id)");
     expect(profileResolver).toContain(": await getProfileOwnerContext(business.id)");
     expect(profileResolver).toContain(": await getProfileEntitlements(");
@@ -101,11 +102,12 @@ describe("company directory shared-cache security and scale contract", () => {
     expect(sharedCacheClosure).not.toContain("hasActivePaidDirectoryContactAccess");
     expect(sharedCacheClosure).not.toContain("getSafeClaimedDirectoryFallback");
     expect(sharedCacheClosure).not.toContain("claimed_workspace_id");
-    expect(sharedCacheClosure).toContain("published?.sharedCacheSafe && published.business.organizationNumber");
+    expect(sharedCacheClosure).toContain("return published?.sharedCacheSafe ? published.business : null");
 
     const claimedPath = helper.slice(claimedStart, requestStart);
     expect(claimedPath).toContain("publication_status = 'claimed'");
     expect(claimedPath).toContain("hasActivePaidDirectoryContactAccess(workspaceId)");
+    expect(claimedPath).toContain("sharedCacheSafe: false");
 
     // A cached miss is deliberately re-resolved outside unstable_cache. That is
     // the fail-closed path for sole traders and claim-linked profiles.
@@ -187,6 +189,7 @@ describe("directory shared-cache behavior", async () => {
 
     expect(results).toHaveLength(50);
     expect(results.every((result) => result?.organizationNumber === "5560000000")).toBe(true);
+    expect(results.every((result) => result?.sharedCacheSafe === true)).toBe(true);
     expect(cacheBehaviorMocks.getPublicDirectoryBusiness).toHaveBeenCalledTimes(1);
     expect(cacheBehaviorMocks.hasActivePaidDirectoryContactAccess).not.toHaveBeenCalled();
   });
@@ -206,6 +209,7 @@ describe("directory shared-cache behavior", async () => {
 
     expect(seoProjection?.displayName).toBe("Test Company AB");
     expect(profileView?.business.companyName).toBe("Test Company AB");
+    expect(profileView?.business.sharedCacheSafe).toBe(true);
     expect(cacheBehaviorMocks.getPublicDirectoryBusiness).toHaveBeenCalledTimes(1);
     expect(cacheBehaviorMocks.getPublicDirectoryProfileExtras).toHaveBeenCalledTimes(1);
     expect(cacheBehaviorMocks.getWorkspaceDirectoryPublicAccessForWorkspaces).not.toHaveBeenCalled();
@@ -258,8 +262,10 @@ describe("directory shared-cache behavior", async () => {
     const second = await getPublicDirectoryBusinessForRequest(claimedSlug);
 
     expect(first?.publicationStatus).toBe("claimed");
+    expect(first?.sharedCacheSafe).toBe(false);
     expect(first?.contact.entitled).toBe(false);
     expect(second?.publicationStatus).toBe("claimed");
+    expect(second?.sharedCacheSafe).toBe(false);
     expect(second?.contact.entitled).toBe(true);
     expect(cacheBehaviorMocks.hasActivePaidDirectoryContactAccess).toHaveBeenCalledTimes(2);
   });
