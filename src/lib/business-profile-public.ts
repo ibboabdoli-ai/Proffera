@@ -163,10 +163,10 @@ async function getProfileEntitlements(
 async function resolvePublicBusinessProfile(
   business: PublicDirectoryBusiness,
 ): Promise<ResolvedBusinessProfile> {
-  // Published juridical-person Directory profiles contain no workspace or
-  // entitlement overlay. Keep their public extras in the shared bounded cache
-  // and skip owner/plan reads entirely. Claimed profiles remain request-scoped.
-  const isSharedPublicProfile = business.publicationStatus === "published" && Boolean(business.organizationNumber);
+  // Only a Directory resolution that explicitly proved it has no claim linkage
+  // may use shared extras and skip owner/entitlement reads. Claimed, sole-trader
+  // and claim-linked edge paths keep the previous request-scoped behavior.
+  const isSharedPublicProfile = business.sharedCacheSafe;
 
   const extras = isSharedPublicProfile
     ? await readCachedPublicDirectoryProfileExtras(business.id)
