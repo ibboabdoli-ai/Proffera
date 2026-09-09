@@ -2,6 +2,7 @@ import "server-only";
 
 import { assessCompanyDirectoryCategoryConfidence } from "@/lib/company-directory-category-confidence";
 import { enrichCompanyDirectoryOfficialFactsForProfile } from "@/lib/company-directory-official-facts";
+import { invalidatePublicDirectoryPublicProjectionByProfileId } from "@/lib/company-directory-public-cache";
 import { enrichCompanyDirectoryScbForProfile } from "@/lib/company-directory-scb-enrichment";
 import { createScbCompanyRegistryTransportFromEnv } from "@/lib/company-directory-scb-transport";
 import { getSql } from "@/lib/db/server";
@@ -452,6 +453,7 @@ export async function revalidatePublishedCompanyDirectoryBatch(
           continue;
         }
 
+        await invalidatePublicDirectoryPublicProjectionByProfileId(profileId);
         movedToReview += 1;
         if (reviewMessages.length < 5) {
           reviewMessages.push(
