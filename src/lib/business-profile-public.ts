@@ -1,7 +1,6 @@
 import "server-only";
 
 import { cache } from "react";
-import { unstable_cache } from "next/cache";
 
 import {
   projectBusinessProfilePublicProfile,
@@ -15,24 +14,14 @@ import {
   type SeoBusinessProjection,
 } from "@/lib/business-profile-policy";
 import { getPublicDirectoryBusinessForRequest } from "@/lib/company-directory-public-data";
-import { PUBLIC_DIRECTORY_SHARED_CACHE_TAG } from "@/lib/company-directory-public-cache";
+import { readPublicDirectoryExtrasCache } from "@/lib/company-directory-public-cache";
 import { getPublicDirectoryProfileExtras } from "@/lib/company-directory-public-profile-extras";
 import { getSql } from "@/lib/db/server";
 import { getWorkspaceDirectoryPublicAccessForWorkspaces } from "@/lib/workspace-feature-entitlement-db";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const PUBLIC_PROFILE_EXTRAS_REVALIDATE_SECONDS = 5 * 60;
 
 type PublicDirectoryBusiness = NonNullable<Awaited<ReturnType<typeof getPublicDirectoryBusinessForRequest>>>;
-
-const readCachedPublicDirectoryProfileExtras = unstable_cache(
-  async (profileId: string) => getPublicDirectoryProfileExtras(profileId),
-  ["public-directory-profile-extras-v1"],
-  {
-    revalidate: PUBLIC_PROFILE_EXTRAS_REVALIDATE_SECONDS,
-    tags: [PUBLIC_DIRECTORY_SHARED_CACHE_TAG],
-  },
-);
 
 function text(value: unknown) {
   return String(value ?? "").trim();
@@ -173,12 +162,17 @@ async function resolvePublicBusinessProfile(
   const isSharedPublicProfile = business.sharedCacheSafe;
 
   const extras = isSharedPublicProfile
-    ? await readCachedPublicDirectoryProfileExtras(business.id)
+    ? await readPublicDirectoryExtrasCache(
+        business.id,
+        () => getPublicDirectoryProfileExtras(business.id),
+      )
     : await getPublicDirectoryProfileExtras(business.id);
 
   const ownerContext = isSharedPublicProfile
     ? {
-        legalName: business.companyName,
+        // legalName is an official fact carried by the Directory resolver. Never
+        // substitute the presentation/display name for this registered fact.
+        legalName: business.legalName,
         claimedWorkspaceId: null as string | null,
         owner: null as BusinessProfileOwnerSource | null,
       }
@@ -196,7 +190,7 @@ async function resolvePublicBusinessProfile(
       profileId: business.id,
       directorySlug: business.slug,
       claimedWorkspaceId: ownerContext.claimedWorkspaceId,
-      legalName: ownerContext.legalName || business.companyName,
+      legalName: ownerContext.legalName,
       displayName: business.companyName,
       legalForm: business.legalForm,
       organizationStatus: business.organizationStatus,

@@ -1,5 +1,4 @@
 import { cache } from "react";
-import { unstable_cache } from "next/cache";
 
 import {
   discloseDirectoryDirectContact,
@@ -7,7 +6,7 @@ import {
 } from "@/lib/company-directory-contact-entitlement";
 import { getPublicDirectoryBusiness, type PublicDirectoryBusiness } from "@/lib/company-directory-engine";
 import { hasActivePaidDirectoryContactAccess } from "@/lib/company-directory-paid-contact-entitlement";
-import { PUBLIC_DIRECTORY_SHARED_CACHE_TAG } from "@/lib/company-directory-public-cache";
+import { readPublicDirectoryProfileCache } from "@/lib/company-directory-public-cache";
 import {
   resolveCompanyDirectoryCanonicalWorkplaceAddress,
   type DirectoryPublicAddress,
@@ -18,6 +17,7 @@ export type PublicDirectoryBusinessForRequest = PublicDirectoryBusiness & {
   publicationStatus: "published" | "claimed";
   organizationNumber: string;
   primarySniCode: string;
+  legalName: string;
   contact: DirectoryDirectContactDisclosure;
   sharedCacheSafe: boolean;
 };
@@ -39,8 +39,6 @@ type PublishedDirectoryResolution = {
   business: PublicDirectoryBusinessForRequest;
   sharedCacheSafe: boolean;
 };
-
-const PUBLIC_DIRECTORY_REVALIDATE_SECONDS = 5 * 60;
 
 const EMPTY_PHYSICAL_ADDRESS: DirectoryPublicAddress = {
   addressLine1: "",
@@ -205,6 +203,7 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
     return {
       organizationNumber: "",
       primarySniCode: "",
+      legalName: "",
       address: EMPTY_PHYSICAL_ADDRESS,
       contact: emptyContact(),
       claimedWorkspaceId: "",
@@ -215,6 +214,7 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
     select
       organization_number,
       organization_kind,
+      legal_name,
       primary_sni_code,
       website_url,
       claimed_workspace_id::text
@@ -230,6 +230,7 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
     return {
       organizationNumber: "",
       primarySniCode: "",
+      legalName: "",
       address: EMPTY_PHYSICAL_ADDRESS,
       contact: emptyContact(),
       claimedWorkspaceId: "",
@@ -248,6 +249,7 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
   return {
     organizationNumber: publicDirectoryOrganizationNumber(row.organization_kind, row.organization_number),
     primarySniCode: String(row.primary_sni_code ?? ""),
+    legalName: String(row.legal_name ?? ""),
     address,
     contact: discloseDirectoryDirectContact({
       addressLine1: address.addressLine1,
@@ -274,31 +276,13 @@ async function resolvePublishedDirectoryBusiness(slug: string): Promise<Publishe
       publicationStatus: "published",
       organizationNumber: publicContact.organizationNumber,
       primarySniCode: publicContact.primarySniCode,
+      legalName: publicContact.legalName,
       contact: publicContact.contact,
       sharedCacheSafe,
     },
     sharedCacheSafe,
   };
 }
-
-/**
- * Cross-request cache for genuinely public, unclaimed juridical-person
- * Directory data. Sole traders are deliberately excluded because a bounded
- * stale snapshot of person-linked data would weaken the fail-closed privacy
- * contract. Claim-linked profiles and paid-contact decisions also never enter
- * this cache.
- */
-const readCachedPublishedJuridicalDirectoryBusiness = unstable_cache(
-  async (slug: string) => {
-    const published = await resolvePublishedDirectoryBusiness(slug);
-    return published?.sharedCacheSafe ? published.business : null;
-  },
-  ["public-directory-published-juridical-v1"],
-  {
-    revalidate: PUBLIC_DIRECTORY_REVALIDATE_SECONDS,
-    tags: [PUBLIC_DIRECTORY_SHARED_CACHE_TAG],
-  },
-);
 
 async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDirectoryBusinessForRequest | null> {
   const normalized = slug.trim().toLowerCase();
@@ -312,6 +296,7 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
       profile.public_slug,
       profile.organization_number,
       profile.organization_kind,
+      profile.legal_name,
       profile.display_name,
       profile.legal_form,
       profile.organization_status,
@@ -375,6 +360,7 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
     id: String(row.id),
     slug: String(row.public_slug),
     companyName: String(row.display_name),
+    legalName: String(row.legal_name ?? ""),
     legalForm: String(row.legal_form ?? ""),
     organizationStatus: String(row.organization_status ?? ""),
     categorySlug: String(row.category_slug ?? ""),
@@ -405,21 +391,22 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
 
 /**
  * React cache deduplicates metadata + Server Component work inside one render.
- * The nested Next Data Cache absorbs cross-request traffic only for safe public
- * unclaimed juridical-person snapshots. Sole-trader, claimed and entitlement-
- * dependent paths remain request-scoped and fail closed.
+ * The nested public-cache boundary absorbs cross-request traffic only for safe
+ * published, unclaimed juridical-person snapshots. A non-cacheable result is
+ * returned to this request without being persisted, so claimed and sole-trader
+ * paths re-evaluate their DB/entitlement state on every request.
  */
 export const getPublicDirectoryBusinessForRequest = cache(async (slug: string): Promise<PublicDirectoryBusinessForRequest | null> => {
   const normalized = slug.trim().toLowerCase();
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(normalized)) return null;
 
-  const cachedPublished = await readCachedPublishedJuridicalDirectoryBusiness(normalized);
-  if (cachedPublished) return cachedPublished;
-
-  // A cache miss may be a non-existent/claimed profile, a sole trader, or a
-  // claim-linked published edge case. Re-resolve it outside persistent cache.
-  const published = await resolvePublishedDirectoryBusiness(normalized);
-  if (published) return published.business;
+  const published = await readPublicDirectoryProfileCache(normalized, async () => {
+    const resolved = await resolvePublishedDirectoryBusiness(normalized);
+    return resolved?.sharedCacheSafe
+      ? { cache: true, value: resolved.business }
+      : { cache: false, value: resolved?.business ?? null };
+  });
+  if (published) return published;
 
   return getSafeClaimedDirectoryFallback(normalized);
 });

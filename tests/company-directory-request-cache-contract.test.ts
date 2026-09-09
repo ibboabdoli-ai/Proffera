@@ -1,33 +1,17 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const cacheBehaviorMocks = vi.hoisted(() => {
-  const persistentStores: Array<Map<string, unknown>> = [];
-  return {
-    persistentStores,
-    unstableCache: vi.fn((fn: (...args: unknown[]) => unknown) => {
-      const store = new Map<string, unknown>();
-      persistentStores.push(store);
-      return async (...args: unknown[]) => {
-        const key = JSON.stringify(args);
-        if (store.has(key)) return store.get(key);
-        const value = await fn(...args);
-        store.set(key, value);
-        return value;
-      };
-    }),
-    getSql: vi.fn(),
-    getPublicDirectoryBusiness: vi.fn(),
-    hasActivePaidDirectoryContactAccess: vi.fn(),
-    getPublicDirectoryProfileExtras: vi.fn(),
-    getWorkspaceDirectoryPublicAccessForWorkspaces: vi.fn(),
-  };
-});
+const cacheBehaviorMocks = vi.hoisted(() => ({
+  getSql: vi.fn(),
+  getPublicDirectoryBusiness: vi.fn(),
+  hasActivePaidDirectoryContactAccess: vi.fn(),
+  getPublicDirectoryProfileExtras: vi.fn(),
+  getWorkspaceDirectoryPublicAccessForWorkspaces: vi.fn(),
+}));
 
 vi.mock("server-only", () => ({}));
 vi.mock("react", () => ({ cache: (fn: (...args: unknown[]) => unknown) => fn }));
-vi.mock("next/cache", () => ({ unstable_cache: cacheBehaviorMocks.unstableCache }));
 vi.mock("@/lib/db/server", () => ({ getSql: cacheBehaviorMocks.getSql }));
 vi.mock("@/lib/company-directory-engine", () => ({
   getPublicDirectoryBusiness: cacheBehaviorMocks.getPublicDirectoryBusiness,
@@ -42,40 +26,125 @@ vi.mock("@/lib/workspace-feature-entitlement-db", () => ({
   getWorkspaceDirectoryPublicAccessForWorkspaces: cacheBehaviorMocks.getWorkspaceDirectoryPublicAccessForWorkspaces,
 }));
 
+import {
+  PUBLIC_DIRECTORY_CACHE_TTL_SECONDS,
+  invalidatePublicDirectoryExtrasCache,
+  invalidatePublicDirectoryProfileCache,
+  publicDirectoryExtrasCacheTag,
+  publicDirectoryProfileCacheTag,
+  setPublicDirectoryCacheAdapterForTests,
+  type PublicDirectoryCacheAdapter,
+} from "@/lib/company-directory-public-cache";
+import { getPublicDirectoryBusinessForRequest } from "@/lib/company-directory-public-data";
+import { getPublicBusinessProfileViewForRequest, getSeoBusinessProjection } from "@/lib/business-profile-public";
+
 function source(path: string) {
   return readFileSync(resolve(process.cwd(), path), "utf8");
 }
 
-describe("company directory shared-cache security and scale contract", () => {
-  it("keeps dynamic routes while adding a bounded shared cache only for safe published juridical data", () => {
-    const helper = source("src/lib/company-directory-public-data.ts");
-    const profileResolver = source("src/lib/business-profile-public.ts");
+type MemoryEntry = { value: unknown; tags: string[] };
+const memoryEntries = new Map<string, MemoryEntry>();
+const cacheReads: Array<{ keyParts: string[]; tags: string[]; revalidate: number }> = [];
+const invalidatedTags: string[] = [];
+
+const memoryCacheAdapter: PublicDirectoryCacheAdapter = {
+  async read<T>(input): Promise<T> {
+    cacheReads.push({
+      keyParts: [...input.keyParts],
+      tags: [...input.tags],
+      revalidate: input.revalidate,
+    });
+    const key = JSON.stringify(input.keyParts);
+    const existing = memoryEntries.get(key);
+    if (existing) return existing.value as T;
+
+    const decision = await input.loader();
+    if (decision.cache) {
+      memoryEntries.set(key, { value: decision.value, tags: [...input.tags] });
+    }
+    return decision.value;
+  },
+  invalidate(tag: string) {
+    invalidatedTags.push(tag);
+    for (const [key, entry] of memoryEntries) {
+      if (entry.tags.includes(tag)) memoryEntries.delete(key);
+    }
+  },
+};
+
+const PROFILE_ID = "11111111-1111-4111-8111-111111111111";
+const WORKSPACE_ID = "22222222-2222-4222-8222-222222222222";
+
+function publicBusinessData(slug = "test-company-ab", companyName = "Test Brand AB") {
+  return {
+    id: PROFILE_ID,
+    slug,
+    companyName,
+    legalForm: "AB",
+    organizationStatus: "Aktivt",
+    categorySlug: "vvs",
+    primarySniLabel: "VVS-arbeten",
+    activityDescription: "Description",
+    addressLine1: "Storgatan 1",
+    postalCode: "151 00",
+    city: "Södertälje",
+    municipality: "Södertälje",
+    region: "Stockholm",
+    qualityScore: 95,
+    officialSource: "bolagsverket",
+    sourceUpdatedAt: "2026-08-23T00:00:00.000Z",
+    lastCheckedAt: "2026-08-23T00:00:00.000Z",
+    media: null,
+  };
+}
+
+function publishedSql(input: {
+  organizationKind?: string;
+  legalName?: string;
+  claimedWorkspaceId?: string | null;
+} = {}) {
+  return vi.fn(async (strings: TemplateStringsArray) => {
+    const query = strings.join(" ");
+    if (query.includes("from company_directory_profiles") && query.includes("organization_number")) {
+      return [{
+        organization_number: "5560000000",
+        organization_kind: input.organizationKind ?? "juridical_person",
+        legal_name: input.legalName ?? "Registered Legal AB",
+        primary_sni_code: "43.221",
+        website_url: "example.se",
+        claimed_workspace_id: input.claimedWorkspaceId ?? null,
+      }];
+    }
+    if (query.includes("company_directory_scb_enrichment")) {
+      return [{ phone: "070-123 45 67", email: "test@example.se", workplaces: [] }];
+    }
+    return [];
+  });
+}
+
+beforeEach(() => {
+  memoryEntries.clear();
+  cacheReads.length = 0;
+  invalidatedTags.length = 0;
+  setPublicDirectoryCacheAdapterForTests(memoryCacheAdapter);
+
+  cacheBehaviorMocks.getSql.mockReset();
+  cacheBehaviorMocks.getPublicDirectoryBusiness.mockReset();
+  cacheBehaviorMocks.hasActivePaidDirectoryContactAccess.mockReset();
+  cacheBehaviorMocks.getPublicDirectoryProfileExtras.mockReset();
+  cacheBehaviorMocks.getWorkspaceDirectoryPublicAccessForWorkspaces.mockReset();
+  vi.clearAllMocks();
+});
+
+afterEach(() => {
+  setPublicDirectoryCacheAdapterForTests(null);
+});
+
+describe("company directory shared-cache route contract", () => {
+  it("keeps both public profile routes dynamic and on the common resolver path", () => {
     const swedishRoute = source("src/app/foretag/listad/[slug]/page.tsx");
     const englishRoute = source("src/app/en/companies/[slug]/page.tsx");
     const profile = source("src/components/company-directory/public-directory-profile.tsx");
-
-    expect(helper).toContain('import { cache } from "react"');
-    expect(helper).toContain('import { unstable_cache } from "next/cache"');
-    expect(helper).toContain("PUBLIC_DIRECTORY_REVALIDATE_SECONDS = 5 * 60");
-    expect(helper).toContain('"public-directory-published-juridical-v1"');
-    expect(helper).toContain("const sharedCacheSafe = Boolean(publicContact.organizationNumber) && !publicContact.claimedWorkspaceId");
-    expect(helper).toContain("return published?.sharedCacheSafe ? published.business : null");
-    expect(helper).toContain("sharedCacheSafe: false");
-    expect(helper).toContain("getSafeClaimedDirectoryFallback(normalized)");
-    expect(helper).toContain("hasActivePaidDirectoryContactAccess(workspaceId)");
-    expect(helper).toContain("const cachedPublished = await readCachedPublishedJuridicalDirectoryBusiness(normalized)");
-    expect(helper).toContain("const published = await resolvePublishedDirectoryBusiness(normalized)");
-    expect(helper).toContain("getPublicDirectoryBusinessForRequest = cache(async");
-    expect(helper.match(/\bunstable_cache\(/g)?.length).toBe(1);
-    expect(helper.match(/\bcache\(/g)?.length).toBe(1);
-
-    expect(profileResolver).toContain('import { unstable_cache } from "next/cache"');
-    expect(profileResolver).toContain("PUBLIC_PROFILE_EXTRAS_REVALIDATE_SECONDS = 5 * 60");
-    expect(profileResolver).toContain('"public-directory-profile-extras-v1"');
-    expect(profileResolver).toContain("const isSharedPublicProfile = business.sharedCacheSafe");
-    expect(profileResolver).toContain("? await readCachedPublicDirectoryProfileExtras(business.id)");
-    expect(profileResolver).toContain(": await getProfileOwnerContext(business.id)");
-    expect(profileResolver).toContain(": await getProfileEntitlements(");
 
     expect(swedishRoute).toContain('export const dynamic = "force-dynamic"');
     expect(englishRoute).toContain('export const dynamic = "force-dynamic"');
@@ -87,99 +156,11 @@ describe("company directory shared-cache security and scale contract", () => {
       expect(consumer).not.toContain('from "@/lib/company-directory-engine"');
     }
   });
-
-  it("keeps claim, paid-contact and sole-trader paths outside the persistent cache closure", () => {
-    const helper = source("src/lib/company-directory-public-data.ts");
-    const cacheStart = helper.indexOf("const readCachedPublishedJuridicalDirectoryBusiness");
-    const claimedStart = helper.indexOf("async function getSafeClaimedDirectoryFallback");
-    const requestStart = helper.indexOf("export const getPublicDirectoryBusinessForRequest");
-
-    expect(cacheStart).toBeGreaterThan(-1);
-    expect(claimedStart).toBeGreaterThan(cacheStart);
-    expect(requestStart).toBeGreaterThan(claimedStart);
-
-    const sharedCacheClosure = helper.slice(cacheStart, claimedStart);
-    expect(sharedCacheClosure).not.toContain("hasActivePaidDirectoryContactAccess");
-    expect(sharedCacheClosure).not.toContain("getSafeClaimedDirectoryFallback");
-    expect(sharedCacheClosure).not.toContain("claimed_workspace_id");
-    expect(sharedCacheClosure).toContain("return published?.sharedCacheSafe ? published.business : null");
-
-    const claimedPath = helper.slice(claimedStart, requestStart);
-    expect(claimedPath).toContain("publication_status = 'claimed'");
-    expect(claimedPath).toContain("hasActivePaidDirectoryContactAccess(workspaceId)");
-    expect(claimedPath).toContain("sharedCacheSafe: false");
-
-    // A cached miss is deliberately re-resolved outside unstable_cache. That is
-    // the fail-closed path for sole traders and claim-linked profiles.
-    const requestPath = helper.slice(requestStart);
-    expect(requestPath).toContain("const published = await resolvePublishedDirectoryBusiness(normalized)");
-    expect(requestPath).toContain("if (published) return published.business");
-    expect(requestPath).toContain("return getSafeClaimedDirectoryFallback(normalized)");
-  });
 });
 
-describe("directory shared-cache behavior", async () => {
-  const { getPublicDirectoryBusinessForRequest } = await import("@/lib/company-directory-public-data");
-  const { getPublicBusinessProfileViewForRequest, getSeoBusinessProjection } = await import("@/lib/business-profile-public");
-
-  const PROFILE_ID = "11111111-1111-4111-8111-111111111111";
-  const WORKSPACE_ID = "22222222-2222-4222-8222-222222222222";
-
-  function publicBusinessData(slug = "test-company-ab") {
-    return {
-      id: PROFILE_ID,
-      slug,
-      companyName: "Test Company AB",
-      legalForm: "AB",
-      organizationStatus: "Aktivt",
-      categorySlug: "vvs",
-      primarySniLabel: "VVS-arbeten",
-      activityDescription: "Description",
-      addressLine1: "Storgatan 1",
-      postalCode: "151 00",
-      city: "Södertälje",
-      municipality: "Södertälje",
-      region: "Stockholm",
-      qualityScore: 95,
-      officialSource: "bolagsverket",
-      sourceUpdatedAt: "2026-08-23T00:00:00.000Z",
-      lastCheckedAt: "2026-08-23T00:00:00.000Z",
-      media: null,
-    };
-  }
-
-  function publishedSql() {
-    return vi.fn(async (strings: TemplateStringsArray) => {
-      const query = strings.join(" ");
-      if (query.includes("from company_directory_profiles") && query.includes("organization_number")) {
-        return [{
-          organization_number: "5560000000",
-          organization_kind: "juridical_person",
-          primary_sni_code: "43.221",
-          website_url: "example.se",
-          claimed_workspace_id: null,
-        }];
-      }
-      if (query.includes("company_directory_scb_enrichment")) {
-        return [{ phone: "070-123 45 67", email: "test@example.se", workplaces: [] }];
-      }
-      return [];
-    });
-  }
-
-  beforeEach(() => {
-    for (const store of cacheBehaviorMocks.persistentStores) store.clear();
-    cacheBehaviorMocks.getSql.mockReset();
-    cacheBehaviorMocks.getPublicDirectoryBusiness.mockReset();
-    cacheBehaviorMocks.hasActivePaidDirectoryContactAccess.mockReset();
-    cacheBehaviorMocks.getPublicDirectoryProfileExtras.mockReset();
-    cacheBehaviorMocks.getWorkspaceDirectoryPublicAccessForWorkspaces.mockReset();
-    vi.clearAllMocks();
-  });
-
-  it("turns a burst of repeated public juridical profile reads into one underlying published lookup", async () => {
-    const sql = publishedSql();
-    cacheBehaviorMocks.getSql.mockReturnValue(sql);
+describe("directory shared-cache behavior", () => {
+  it("turns 50 safe public juridical reads into one underlying published lookup", async () => {
+    cacheBehaviorMocks.getSql.mockReturnValue(publishedSql());
     cacheBehaviorMocks.getPublicDirectoryBusiness.mockResolvedValue(publicBusinessData());
 
     const results = [];
@@ -194,9 +175,26 @@ describe("directory shared-cache behavior", async () => {
     expect(cacheBehaviorMocks.hasActivePaidDirectoryContactAccess).not.toHaveBeenCalled();
   });
 
+  it("configures a five-minute TTL and profile-specific tags for shared profile and extras data", async () => {
+    cacheBehaviorMocks.getSql.mockReturnValue(publishedSql());
+    cacheBehaviorMocks.getPublicDirectoryBusiness.mockResolvedValue(publicBusinessData());
+    cacheBehaviorMocks.getPublicDirectoryProfileExtras.mockResolvedValue({
+      services: [],
+      serviceAreas: [],
+      reputation: null,
+    });
+
+    await getPublicBusinessProfileViewForRequest("test-company-ab");
+
+    expect(PUBLIC_DIRECTORY_CACHE_TTL_SECONDS).toBe(300);
+    expect(cacheReads.length).toBeGreaterThanOrEqual(2);
+    expect(cacheReads.every((read) => read.revalidate === 300)).toBe(true);
+    expect(cacheReads.some((read) => read.tags.includes(publicDirectoryProfileCacheTag("test-company-ab")))).toBe(true);
+    expect(cacheReads.some((read) => read.tags.includes(publicDirectoryExtrasCacheTag(PROFILE_ID)))).toBe(true);
+  });
+
   it("reuses the same safe caches for metadata and page data without loading workspace entitlements", async () => {
-    const sql = publishedSql();
-    cacheBehaviorMocks.getSql.mockReturnValue(sql);
+    cacheBehaviorMocks.getSql.mockReturnValue(publishedSql());
     cacheBehaviorMocks.getPublicDirectoryBusiness.mockResolvedValue(publicBusinessData());
     cacheBehaviorMocks.getPublicDirectoryProfileExtras.mockResolvedValue({
       services: [],
@@ -207,12 +205,60 @@ describe("directory shared-cache behavior", async () => {
     const seoProjection = await getSeoBusinessProjection("test-company-ab");
     const profileView = await getPublicBusinessProfileViewForRequest("test-company-ab");
 
-    expect(seoProjection?.displayName).toBe("Test Company AB");
-    expect(profileView?.business.companyName).toBe("Test Company AB");
+    expect(seoProjection?.displayName).toBe("Test Brand AB");
+    expect(profileView?.business.companyName).toBe("Test Brand AB");
     expect(profileView?.business.sharedCacheSafe).toBe(true);
     expect(cacheBehaviorMocks.getPublicDirectoryBusiness).toHaveBeenCalledTimes(1);
     expect(cacheBehaviorMocks.getPublicDirectoryProfileExtras).toHaveBeenCalledTimes(1);
     expect(cacheBehaviorMocks.getWorkspaceDirectoryPublicAccessForWorkspaces).not.toHaveBeenCalled();
+  });
+
+  it("keeps the registered legal name distinct from the display brand", async () => {
+    cacheBehaviorMocks.getSql.mockReturnValue(publishedSql({ legalName: "Registered Legal Company AB" }));
+    cacheBehaviorMocks.getPublicDirectoryBusiness.mockResolvedValue(
+      publicBusinessData("legal-name-company", "Customer Facing Brand"),
+    );
+    cacheBehaviorMocks.getPublicDirectoryProfileExtras.mockResolvedValue({
+      services: [],
+      serviceAreas: [],
+      reputation: null,
+    });
+
+    const view = await getPublicBusinessProfileViewForRequest("legal-name-company");
+
+    expect(view?.profile.legal.legalName).toBe("Registered Legal Company AB");
+    expect(view?.profile.presentation.displayName.value).toBe("Customer Facing Brand");
+  });
+
+  it("does not invent a legal name when the official legal_name is absent", async () => {
+    cacheBehaviorMocks.getSql.mockReturnValue(publishedSql({ legalName: "" }));
+    cacheBehaviorMocks.getPublicDirectoryBusiness.mockResolvedValue(
+      publicBusinessData("missing-legal-name", "Display Brand Only"),
+    );
+    cacheBehaviorMocks.getPublicDirectoryProfileExtras.mockResolvedValue({
+      services: [],
+      serviceAreas: [],
+      reputation: null,
+    });
+
+    const view = await getPublicBusinessProfileViewForRequest("missing-legal-name");
+
+    expect(view?.profile.legal.legalName).toBe("");
+    expect(view?.profile.presentation.displayName.value).toBe("Display Brand Only");
+  });
+
+  it("does not persist natural-person/sole-trader published data across requests", async () => {
+    cacheBehaviorMocks.getSql.mockReturnValue(publishedSql({ organizationKind: "natural_person" }));
+    cacheBehaviorMocks.getPublicDirectoryBusiness.mockResolvedValue(
+      publicBusinessData("natural-person-business", "Natural Person Business"),
+    );
+
+    const first = await getPublicDirectoryBusinessForRequest("natural-person-business");
+    const second = await getPublicDirectoryBusinessForRequest("natural-person-business");
+
+    expect(first?.sharedCacheSafe).toBe(false);
+    expect(second?.sharedCacheSafe).toBe(false);
+    expect(cacheBehaviorMocks.getPublicDirectoryBusiness).toHaveBeenCalledTimes(2);
   });
 
   it("does not persist claimed entitlement decisions across requests", async () => {
@@ -225,7 +271,8 @@ describe("directory shared-cache behavior", async () => {
           public_slug: claimedSlug,
           organization_number: "5560000000",
           organization_kind: "juridical_person",
-          display_name: "Claimed Company AB",
+          legal_name: "Claimed Legal AB",
+          display_name: "Claimed Brand",
           legal_form: "AB",
           organization_status: "Aktivt",
           category_slug: "vvs",
@@ -267,11 +314,44 @@ describe("directory shared-cache behavior", async () => {
     expect(second?.publicationStatus).toBe("claimed");
     expect(second?.sharedCacheSafe).toBe(false);
     expect(second?.contact.entitled).toBe(true);
+    expect(cacheBehaviorMocks.getPublicDirectoryBusiness).toHaveBeenCalledTimes(2);
     expect(cacheBehaviorMocks.hasActivePaidDirectoryContactAccess).toHaveBeenCalledTimes(2);
+  });
+
+  it("invalidates only the affected public profile cache entry", async () => {
+    cacheBehaviorMocks.getSql.mockReturnValue(publishedSql());
+    cacheBehaviorMocks.getPublicDirectoryBusiness
+      .mockResolvedValueOnce(publicBusinessData("test-company-ab", "Brand Before"))
+      .mockResolvedValueOnce(publicBusinessData("test-company-ab", "Brand After"));
+
+    const before = await getPublicDirectoryBusinessForRequest("test-company-ab");
+    invalidatePublicDirectoryProfileCache("test-company-ab");
+    const after = await getPublicDirectoryBusinessForRequest("test-company-ab");
+
+    expect(before?.companyName).toBe("Brand Before");
+    expect(after?.companyName).toBe("Brand After");
+    expect(cacheBehaviorMocks.getPublicDirectoryBusiness).toHaveBeenCalledTimes(2);
+    expect(invalidatedTags).toContain(publicDirectoryProfileCacheTag("test-company-ab"));
+  });
+
+  it("invalidates public extras independently for the affected profile", async () => {
+    cacheBehaviorMocks.getSql.mockReturnValue(publishedSql());
+    cacheBehaviorMocks.getPublicDirectoryBusiness.mockResolvedValue(publicBusinessData());
+    cacheBehaviorMocks.getPublicDirectoryProfileExtras
+      .mockResolvedValueOnce({ services: [], serviceAreas: [], reputation: null })
+      .mockResolvedValueOnce({ services: [], serviceAreas: [], reputation: null });
+
+    await getPublicBusinessProfileViewForRequest("test-company-ab");
+    invalidatePublicDirectoryExtrasCache(PROFILE_ID);
+    await getPublicBusinessProfileViewForRequest("test-company-ab");
+
+    expect(cacheBehaviorMocks.getPublicDirectoryProfileExtras).toHaveBeenCalledTimes(2);
+    expect(invalidatedTags).toContain(publicDirectoryExtrasCacheTag(PROFILE_ID));
   });
 
   it("fails malformed slugs before any database-backed public lookup", async () => {
     cacheBehaviorMocks.getSql.mockReturnValue(publishedSql());
+
     expect(await getPublicDirectoryBusinessForRequest("../../private")).toBeNull();
     expect(cacheBehaviorMocks.getPublicDirectoryBusiness).not.toHaveBeenCalled();
   });

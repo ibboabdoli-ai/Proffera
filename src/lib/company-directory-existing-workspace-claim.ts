@@ -1,6 +1,6 @@
 import "server-only";
 
-import { invalidatePublicDirectorySharedCache } from "@/lib/company-directory-public-cache";
+import { invalidatePublicDirectoryPublicProjectionByProfileId } from "@/lib/company-directory-public-cache";
 import { getSql } from "@/lib/db/server";
 
 export async function finalizeCompanyDirectoryClaimIntoExistingWorkspace(input: {
@@ -112,6 +112,6 @@ export async function finalizeCompanyDirectoryClaimIntoExistingWorkspace(input: 
     throw new Error("Existing workspace is not an eligible claim target or the claim changed before approval");
   }
 
-  invalidatePublicDirectorySharedCache();
+  await invalidatePublicDirectoryPublicProjectionByProfileId(input.profileId);
   return { claimId: input.claimId, workspaceId: input.workspaceId, trialEndsAt: null };
 }
