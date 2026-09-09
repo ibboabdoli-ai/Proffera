@@ -24,6 +24,7 @@ export const HARD_BLOCKED_SCOPES = Object.freeze([
   ".github/proffera-standing-merge-authorization.json",
   "AGENTS.md",
   "WORKER_BOOTSTRAP.md",
+  "scripts/supervisor-worker-handoff.mjs",
   ".env",
   ".env.",
   "vercel.json",
@@ -48,6 +49,14 @@ const ACTIVE_TASK_STATES = new Set([
   "CLOSED_UNMERGED",
   "MERGED",
 ]);
+
+const TERMINAL_TASK_STATES = new Set(["MERGED", "CLOSED_UNMERGED"]);
+const LIFECYCLE_RANK = Object.freeze({
+  WORKER_PR_OPENED: 10,
+  CHECKS_PENDING: 20,
+  REVIEW_PENDING: 30,
+  READY_FOR_SUPERVISOR: 40,
+});
 
 const SHA_RE = /^[0-9a-f]{40}$/;
 const TASK_ID_RE = /^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+){1,7}$/;
@@ -435,6 +444,80 @@ export function validateChangedFiles(packetInput, changedFilesInput) {
   return { ok: true, status: "VALID", code: "changes_bounded", reason: "all changed files remain inside the Task Packet scope", packet, changed_files: changedFiles };
 }
 
+export function parseTaskStateBody(body = "") {
+  const text = String(body ?? "");
+  const state = text.match(/^- State:\s*`([A-Z][A-Z0-9_]{2,39})`\s*$/mi)?.[1] ?? "";
+  const headSha = text.match(/^- Head:\s*`([0-9a-f]{40})`\s*$/mi)?.[1]?.toLowerCase() ?? "";
+  const prNumber = Number(text.match(/^- PR:\s*#([1-9][0-9]*)\s*$/mi)?.[1] ?? 0) || null;
+  return { state: STATE_RE.test(state) ? state : "", head_sha: SHA_RE.test(headSha) ? headSha : "", pr_number: prNumber };
+}
+
+function transitionResult(ok, apply, code, reason, current, requestedState, requestedHead, liveHead) {
+  return {
+    ok,
+    apply,
+    code,
+    reason,
+    current_state: current.state || "",
+    current_head: current.head_sha || "",
+    requested_state: requestedState,
+    requested_head: requestedHead,
+    live_head: liveHead,
+  };
+}
+
+export function evaluateTaskStateTransition(input) {
+  const source = assertPlainString(String(input?.source ?? ""), "source", 20).toLowerCase();
+  if (source !== "lifecycle" && source !== "checks") throw new Error("source must be lifecycle or checks");
+
+  const requestedState = assertPlainString(String(input?.requested_state ?? ""), "requested_state", 40).toUpperCase();
+  if (!STATE_RE.test(requestedState)) throw new Error("requested_state is malformed");
+
+  const requestedHead = assertPlainString(String(input?.requested_head ?? ""), "requested_head", 40).toLowerCase();
+  const liveHead = assertPlainString(String(input?.live_head ?? ""), "live_head", 40).toLowerCase();
+  if (!SHA_RE.test(requestedHead) || !SHA_RE.test(liveHead)) throw new Error("requested/live head SHA is malformed");
+
+  const livePrState = assertPlainString(String(input?.live_pr_state ?? ""), "live_pr_state", 10).toLowerCase();
+  if (livePrState !== "open" && livePrState !== "closed") throw new Error("live_pr_state must be open or closed");
+  const liveMerged = input?.live_merged === true;
+  const current = parseTaskStateBody(input?.current_body ?? "");
+
+  if (requestedHead !== liveHead) {
+    return transitionResult(false, false, "stale_event_head", "event/check head no longer matches the live PR head", current, requestedState, requestedHead, liveHead);
+  }
+
+  if (TERMINAL_TASK_STATES.has(current.state)) {
+    return transitionResult(true, false, "terminal_state_preserved", `terminal state ${current.state} cannot regress`, current, requestedState, requestedHead, liveHead);
+  }
+
+  if (livePrState === "closed") {
+    const canonicalTerminal = liveMerged ? "MERGED" : "CLOSED_UNMERGED";
+    if (requestedState !== canonicalTerminal) {
+      return transitionResult(false, false, "live_pr_terminal", `live PR is closed; only ${canonicalTerminal} may be recorded`, current, requestedState, requestedHead, liveHead);
+    }
+  } else if (TERMINAL_TASK_STATES.has(requestedState)) {
+    return transitionResult(false, false, "live_pr_open", "open live PR cannot be reconciled to a terminal task state", current, requestedState, requestedHead, liveHead);
+  }
+
+  if (livePrState === "open" && source === "lifecycle" && current.state === "READY_FOR_SUPERVISOR" && current.head_sha === liveHead && requestedState !== "READY_FOR_SUPERVISOR") {
+    return transitionResult(false, false, "ready_same_head_regression", "delayed lifecycle event cannot regress READY_FOR_SUPERVISOR for the same live head", current, requestedState, requestedHead, liveHead);
+  }
+
+  if (livePrState === "open" && source === "lifecycle" && current.head_sha === liveHead) {
+    const currentRank = LIFECYCLE_RANK[current.state] ?? 0;
+    const requestedRank = LIFECYCLE_RANK[requestedState] ?? 0;
+    if (currentRank > 0 && requestedRank > 0 && requestedRank < currentRank) {
+      return transitionResult(false, false, "lifecycle_regression", `lifecycle transition ${current.state} -> ${requestedState} is stale/regressive for the same head`, current, requestedState, requestedHead, liveHead);
+    }
+  }
+
+  if (current.state === requestedState && (!current.head_sha || current.head_sha === requestedHead)) {
+    return transitionResult(true, false, "duplicate_event", "requested state is already recorded for this head", current, requestedState, requestedHead, liveHead);
+  }
+
+  return transitionResult(true, true, "transition_allowed", "transition is current-head bound and non-regressive", current, requestedState, requestedHead, liveHead);
+}
+
 function cleanReason(reason) {
   const text = String(reason ?? "").replace(/[\r\n]+/g, " ").replace(/`/g, "'").trim();
   return text.slice(0, 500) || "not specified";
@@ -539,6 +622,10 @@ async function main() {
   }
   if (mode === "validate-changes") {
     process.stdout.write(`${JSON.stringify(validateChangedFiles(parsed.packet, parsed.changed_files))}\n`);
+    return;
+  }
+  if (mode === "transition") {
+    process.stdout.write(`${JSON.stringify(evaluateTaskStateTransition(parsed))}\n`);
     return;
   }
   if (mode === "state-body") {

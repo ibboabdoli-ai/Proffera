@@ -211,6 +211,23 @@ jobs:
       - name: Install repository dependencies
         run: npm ci --no-audit --no-fund
 
+      - name: Materialize immutable trusted handoff helper outside Worker workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_helper="scripts/supervisor-worker-handoff.mjs"
+          trusted_dir="$RUNNER_TEMP/proffera-trusted-control"
+          trusted_helper="$trusted_dir/supervisor-worker-handoff.mjs"
+          trusted_manifest="$trusted_dir/supervisor-worker-handoff.sha256"
+          test -f "$source_helper"
+          rm -rf "$trusted_dir"
+          mkdir -p "$trusted_dir"
+          cp -- "$source_helper" "$trusted_helper"
+          sha256sum "$trusted_helper" > "$trusted_manifest"
+          chmod 0444 "$trusted_helper" "$trusted_manifest"
+          chmod 0555 "$trusted_dir"
+          sha256sum --check --status "$trusted_manifest"
+
       - name: Materialize untrusted Task Packet outside repository
         env:
           PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
@@ -239,14 +256,17 @@ jobs:
 
             Do not commit, push, open/approve/merge a PR, enable auto-merge, apply ibbo-approved, deploy, mutate Production, access Production databases/providers, rotate/configure secrets, or perform outreach. Do not install new packages. You may inspect the checked-out repository and run already-installed targeted checks. If the task cannot be completed safely within its exact scope, leave the checkout unchanged and explain the blocker.
 
-      - name: Verify Worker diff is nonempty and packet-bounded
+      - name: Verify Worker diff is nonempty and packet-bounded with immutable helper
         id: verify_diff
         env:
           PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
         shell: bash
         run: |
           set -euo pipefail
-          helper="scripts/supervisor-worker-handoff.mjs"
+          helper="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.mjs"
+          manifest="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.sha256"
+          test -f "$helper" -a -f "$manifest"
+          sha256sum --check --status "$manifest"
           rm -f "$RUNNER_TEMP/proffera-task-packet.json"
           packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
           changed_files="$(git ls-files --modified --deleted --others --exclude-standard)"
@@ -277,12 +297,13 @@ jobs:
           EVENT_ACTOR: ${{ github.actor }}
           EVENT_ISSUE_NUMBER: ${{ github.event.issue.number }}
           RUN_ID: ${{ github.run_id }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          DISPATCH_PUSH_TOKEN: ${{ secrets.PROFFERA_AUTOFIX_PUSH_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
-          helper="scripts/supervisor-worker-handoff.mjs"
+          helper="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.mjs"
+          manifest="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.sha256"
+          test -f "$helper" -a -f "$manifest"
+          sha256sum --check --status "$manifest"
           packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
           branch="$(jq -r '.branch' <<< "$packet")"
           live_main_sha="$(gh api "repos/${REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
@@ -304,12 +325,8 @@ jobs:
           if gh api "repos/${REPOSITORY}/git/ref/heads/${branch}" >/dev/null 2>&1; then
             branch_exists=true
           fi
-          openai_available=false
-          push_available=false
-          [ -n "${OPENAI_API_KEY:-}" ] && openai_available=true
-          [ -n "${DISPATCH_PUSH_TOKEN:-}" ] && push_available=true
 
-          context="$(jq -n --arg repository "$REPOSITORY" --argjson issue_number "$EVENT_ISSUE_NUMBER" --arg actor "$EVENT_ACTOR" --arg comment_body "$EVENT_COMMENT_BODY" --arg live_main_sha "$live_main_sha" --arg run_id "$RUN_ID" --argjson supervisor_labels "$supervisor_labels" --argjson comments "$comments_json" --argjson open_prs "$enriched_prs" --argjson branch_exists "$branch_exists" --argjson openai "$openai_available" --argjson push "$push_available" '{event:{repository:$repository,issue_number:$issue_number,actor:$actor,is_fork:false,comment_body:$comment_body},supervisor_labels:$supervisor_labels,live_main_sha:$live_main_sha,comments:$comments,open_prs:$open_prs,branch:{exists:$branch_exists},secrets:{openai:$openai,push:$push},run_id:$run_id}')"
+          context="$(jq -n --arg repository "$REPOSITORY" --argjson issue_number "$EVENT_ISSUE_NUMBER" --arg actor "$EVENT_ACTOR" --arg comment_body "$EVENT_COMMENT_BODY" --arg live_main_sha "$live_main_sha" --arg run_id "$RUN_ID" --argjson supervisor_labels "$supervisor_labels" --argjson comments "$comments_json" --argjson open_prs "$enriched_prs" --argjson branch_exists "$branch_exists" '{event:{repository:$repository,issue_number:$issue_number,actor:$actor,is_fork:false,comment_body:$comment_body},supervisor_labels:$supervisor_labels,live_main_sha:$live_main_sha,comments:$comments,open_prs:$open_prs,branch:{exists:$branch_exists},secrets:{openai:true,push:true},run_id:$run_id}')"
           decision="$(printf '%s' "$context" | node "$helper" evaluate)"
           if [ "$(jq -r '.ok' <<< "$decision")" != "true" ]; then
             jq -r '.reason' <<< "$decision" >&2
@@ -328,24 +345,37 @@ jobs:
           git add --all
           git commit -m "[worker:${TASK_ID}] ${TASK_TITLE}"
 
+      - name: Prepare Worker PR body with immutable trusted helper
+        env:
+          PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
+          BASE_SHA: ${{ needs.preflight.outputs.base_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          helper="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.mjs"
+          manifest="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.sha256"
+          test -f "$helper" -a -f "$manifest"
+          sha256sum --check --status "$manifest"
+          packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
+          changed_files="$(git diff --name-only "$BASE_SHA...HEAD")"
+          changed_json="$(printf '%s\n' "$changed_files" | jq -R -s 'split("\n") | map(select(length > 0))')"
+          pr_body_file="$RUNNER_TEMP/proffera-worker-pr-body.md"
+          jq -n --argjson packet "$packet" --argjson changed_files "$changed_json" '{packet:$packet,changed_files:$changed_files}' | node "$helper" pr-body > "$pr_body_file"
+          test -s "$pr_body_file"
+
       - name: Publish branch atomically and open one PR
         id: publish
         env:
           REPOSITORY: ${{ github.repository }}
           BRANCH: ${{ needs.preflight.outputs.branch }}
           TASK_TITLE: ${{ needs.preflight.outputs.task_title }}
-          PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
-          BASE_SHA: ${{ needs.preflight.outputs.base_sha }}
           DISPATCH_PUSH_TOKEN: ${{ secrets.PROFFERA_AUTOFIX_PUSH_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
-          helper="scripts/supervisor-worker-handoff.mjs"
-          packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
-          changed_files="$(git diff --name-only "$BASE_SHA...HEAD")"
-          changed_json="$(printf '%s\n' "$changed_files" | jq -R -s 'split("\n") | map(select(length > 0))')"
           pr_body_file="$RUNNER_TEMP/proffera-worker-pr-body.md"
-          jq -n --argjson packet "$packet" --argjson changed_files "$changed_json" '{packet:$packet,changed_files:$changed_files}' | node "$helper" pr-body > "$pr_body_file"
+          test -s "$pr_body_file"
+          test -n "${DISPATCH_PUSH_TOKEN:-}"
 
           git config --local credential.helper '!f() { echo username=x-access-token; echo "password=$DISPATCH_PUSH_TOKEN"; }; f'
           git remote set-url origin "https://github.com/${REPOSITORY}.git"
@@ -373,7 +403,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          helper="scripts/supervisor-worker-handoff.mjs"
+          helper="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.mjs"
+          manifest="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.sha256"
+          test -f "$helper" -a -f "$manifest"
+          sha256sum --check --status "$manifest"
           packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
           state_json="$(jq -n --argjson packet "$packet" --arg state "WORKER_PR_OPENED" --arg reason "Bounded Worker implementation was published as one PR; downstream checks/review remain authoritative." --arg run_id "$RUN_ID" --argjson pr_number "$PR_NUMBER" --arg head_sha "$HEAD_SHA" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,pr_number:$pr_number,head_sha:$head_sha}')"
           state_body="$(printf '%s' "$state_json" | node "$helper" state-body)"
@@ -390,7 +423,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          helper="scripts/supervisor-worker-handoff.mjs"
+          helper="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.mjs"
+          manifest="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.sha256"
+          test -f "$helper" -a -f "$manifest"
+          sha256sum --check --status "$manifest"
           packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
           state_json="$(jq -n --argjson packet "$packet" --arg state "WORKER_BLOCKED" --arg reason "Dispatch stopped fail-closed before successful PR handoff. Inspect this workflow run; retries will not create a second Worker when a trusted active state or branch exists." --arg run_id "$RUN_ID" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id}')"
           state_body="$(printf '%s' "$state_json" | node "$helper" state-body)"

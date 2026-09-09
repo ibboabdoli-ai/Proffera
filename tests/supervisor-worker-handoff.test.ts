@@ -1,6 +1,7 @@
+import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -11,6 +12,38 @@ const taskMarker = "<!-- proffera-worker-task-packet:v1 -->";
 
 function source(path: string) {
   return readFileSync(resolve(process.cwd(), path), "utf8");
+}
+
+function executableRunText(workflow: string) {
+  const lines = workflow.split("\n");
+  const executable: string[] = [];
+  let runIndent: number | null = null;
+  for (const line of lines) {
+    const block = line.match(/^(\s*)run:\s*\|\s*$/);
+    if (block) {
+      runIndent = block[1].length;
+      continue;
+    }
+    const inline = line.match(/^\s*run:\s*(.+)$/);
+    if (inline) {
+      executable.push(inline[1]);
+      runIndent = null;
+      continue;
+    }
+    if (runIndent !== null) {
+      if (line.trim() === "") {
+        executable.push(line);
+        continue;
+      }
+      const indent = line.match(/^\s*/)?.[0].length ?? 0;
+      if (indent > runIndent) {
+        executable.push(line);
+        continue;
+      }
+      runIndent = null;
+    }
+  }
+  return executable.join("\n");
 }
 
 function packet(overrides: Record<string, unknown> = {}) {
@@ -96,7 +129,7 @@ function workerPr(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function trustedState(state: string, runId = "1001") {
+function trustedState(state: string, runId = "1001", headSha = "") {
   return {
     id: 99,
     created_at: "2026-09-08T12:00:00Z",
@@ -106,8 +139,32 @@ function trustedState(state: string, runId = "1001") {
       "### Supervisor task: SUP-TEST-1",
       `- State: \`${state}\``,
       `- Run ID: \`${runId}\``,
+      ...(headSha ? [`- Head: \`${headSha}\``] : []),
     ].join("\n"),
   };
+}
+
+function stateBody(state: string, headSha = sha) {
+  return [
+    "<!-- proffera-worker-task-state:SUP-TEST-1 -->",
+    "### Supervisor task: SUP-TEST-1",
+    `- State: \`${state}\``,
+    "- PR: #900",
+    `- Head: \`${headSha}\``,
+  ].join("\n");
+}
+
+function transition(overrides: Record<string, unknown> = {}) {
+  return run("transition", {
+    current_body: stateBody("CHECKS_PENDING"),
+    source: "lifecycle",
+    requested_state: "READY_FOR_SUPERVISOR",
+    requested_head: sha,
+    live_head: sha,
+    live_pr_state: "open",
+    live_merged: false,
+    ...overrides,
+  });
 }
 
 describe("Supervisor ↔ Worker Phase-1 handoff", () => {
@@ -201,6 +258,8 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     expect(sync).toContain("CLOSED_UNMERGED");
     expect(sync).toContain("MERGED");
     expect(sync).toContain('required=("CI" "CodeQL" "Targeted CI shadow" "Production base health")');
+    expect(sync).toContain("EVENT_HEAD_SHA");
+    expect(sync).toContain('node "$helper" transition');
   });
 
   it("sensitive or Production permission cannot be granted by a Task Packet", () => {
@@ -211,16 +270,75 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     const hardBlocked = baseContext();
     (hardBlocked.event as Record<string, unknown>).comment_body = packetComment(packet({ allowed_paths: [".github/workflows/ci.yml"] }));
     expect(evaluate(hardBlocked).code).toBe("malformed_packet");
+
+    const helperBlocked = baseContext();
+    (helperBlocked.event as Record<string, unknown>).comment_body = packetComment(packet({ allowed_paths: ["scripts/supervisor-worker-handoff.mjs"] }));
+    expect(evaluate(helperBlocked).code).toBe("malformed_packet");
   });
 
-  it("merge and self-approval remain impossible through Task Packet flags", () => {
+  it("merge and self-approval remain impossible through Task Packet flags and executable workflow paths", () => {
     const context = baseContext();
     (context.event as Record<string, unknown>).comment_body = packetComment(packet({ merge_allowed: true, auto_merge_allowed: true }));
     expect(evaluate(context).code).toBe("malformed_packet");
+
     const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
-    expect(workflow).not.toContain("gh pr merge");
-    expect(workflow).not.toContain("ibbo-approved");
-    expect(workflow).not.toContain("enable-auto-merge");
+    const executable = executableRunText(workflow);
+    expect(executable).not.toMatch(/\bgh\s+pr\s+merge\b/i);
+    expect(executable).not.toMatch(/enable[-_ ]?auto[-_ ]?merge|enablePullRequestAutoMerge/i);
+    expect(executable).not.toMatch(/ibbo-approved/i);
+    expect(executable).not.toMatch(/\bgh\s+pr\s+review\b[^\n]*--approve\b/i);
+    expect(executable).not.toMatch(/\breviews?\b[^\n]*(?:APPROVE|APPROVED)/i);
+  });
+
+  it("materializes an immutable helper before Codex and never executes the Worker checkout helper afterward", () => {
+    const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+    const materialize = workflow.indexOf("Materialize immutable trusted handoff helper outside Worker workspace");
+    const codex = workflow.indexOf("Run one bounded implementation Worker");
+    const postWorker = workflow.slice(workflow.indexOf("Verify Worker diff", codex));
+    expect(materialize).toBeGreaterThan(0);
+    expect(materialize).toBeLessThan(codex);
+    expect(workflow.slice(materialize, codex)).toContain("$RUNNER_TEMP/proffera-trusted-control");
+    expect(workflow.slice(materialize, codex)).toContain("sha256sum --check --status");
+    expect(postWorker).not.toContain('helper="scripts/supervisor-worker-handoff.mjs"');
+    expect(postWorker).toContain('helper="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.mjs"');
+    expect(postWorker).toContain("sha256sum --check --status");
+  });
+
+  it("Worker tampering with the repository helper cannot change trusted post-Worker validation", () => {
+    const dir = mkdtempSync(join(tmpdir(), "proffera-handoff-trust-"));
+    const trusted = join(dir, "trusted-helper.mjs");
+    const workerCopy = join(dir, "worker-helper.mjs");
+    copyFileSync(helper, trusted);
+    writeFileSync(workerCopy, 'process.stdout.write(JSON.stringify({ok:true,status:"VALID",code:"bypassed"}));\n', "utf8");
+
+    const input = { packet: packet(), changed_files: ["src/unrelated.ts"] };
+    const trustedResult = spawnSync(process.execPath, [trusted, "validate-changes"], {
+      input: JSON.stringify(input),
+      encoding: "utf8",
+    });
+    const tamperedResult = spawnSync(process.execPath, [workerCopy, "validate-changes"], {
+      input: JSON.stringify(input),
+      encoding: "utf8",
+    });
+    expect(trustedResult.status, trustedResult.stderr).toBe(0);
+    expect(JSON.parse(trustedResult.stdout).code).toBe("out_of_scope_change");
+    expect(JSON.parse(tamperedResult.stdout).code).toBe("bypassed");
+  });
+
+  it("does not expose OpenAI or push credentials to post-Worker reconciliation helper execution", () => {
+    const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+    const reconcileStart = workflow.indexOf("Reconcile live state again immediately before publication");
+    const reconcileEnd = workflow.indexOf("Commit bounded Worker result locally", reconcileStart);
+    const reconcile = workflow.slice(reconcileStart, reconcileEnd);
+    expect(reconcile).not.toContain("OPENAI_API_KEY");
+    expect(reconcile).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
+
+    const publishStart = workflow.indexOf("Publish branch atomically and open one PR");
+    const publishEnd = workflow.indexOf("Record dispatched Worker PR", publishStart);
+    const publish = workflow.slice(publishStart, publishEnd);
+    expect(publish).toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
+    expect(publish).not.toContain('node "$helper"');
+    expect(publish).not.toContain("scripts/supervisor-worker-handoff.mjs");
   });
 
   it("keeps an #830-style independent parallel Worker unaffected", () => {
@@ -276,10 +394,121 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     expect(evaluate(baseContext({ comments: [trustedState("CLOSED_UNMERGED", "9999")] })).status).toBe("ALREADY_DISPATCHED");
   });
 
-  it("new Worker commits invalidate readiness by routing synchronize to CHECKS_PENDING", () => {
+  it("terminal MERGED cannot regress", () => {
+    const result = transition({
+      current_body: stateBody("MERGED"),
+      source: "lifecycle",
+      requested_state: "CHECKS_PENDING",
+      live_pr_state: "closed",
+      live_merged: true,
+    });
+    expect(result.apply).toBe(false);
+    expect(result.code).toBe("terminal_state_preserved");
+  });
+
+  it("terminal CLOSED_UNMERGED cannot regress", () => {
+    const result = transition({
+      current_body: stateBody("CLOSED_UNMERGED"),
+      source: "lifecycle",
+      requested_state: "CHECKS_PENDING",
+      live_pr_state: "closed",
+      live_merged: false,
+    });
+    expect(result.apply).toBe(false);
+    expect(result.code).toBe("terminal_state_preserved");
+  });
+
+  it("delayed same-head lifecycle events cannot regress READY_FOR_SUPERVISOR", () => {
+    const result = transition({
+      current_body: stateBody("READY_FOR_SUPERVISOR"),
+      source: "lifecycle",
+      requested_state: "CHECKS_PENDING",
+    });
+    expect(result.apply).toBe(false);
+    expect(result.code).toBe("ready_same_head_regression");
+  });
+
+  it("old synchronize events for an old head are rejected", () => {
+    const result = transition({
+      current_body: stateBody("CHECKS_PENDING", otherSha),
+      source: "lifecycle",
+      requested_state: "CHECKS_PENDING",
+      requested_head: otherSha,
+      live_head: sha,
+    });
+    expect(result.apply).toBe(false);
+    expect(result.code).toBe("stale_event_head");
+  });
+
+  it("a genuinely new live head invalidates old READY state", () => {
+    const result = transition({
+      current_body: stateBody("READY_FOR_SUPERVISOR", otherSha),
+      source: "lifecycle",
+      requested_state: "CHECKS_PENDING",
+      requested_head: sha,
+      live_head: sha,
+    });
+    expect(result.apply).toBe(true);
+    expect(result.code).toBe("transition_allowed");
+  });
+
+  it("check evidence is exact-live-head bound and can advance current head to READY", () => {
+    const stale = transition({
+      source: "checks",
+      requested_state: "READY_FOR_SUPERVISOR",
+      requested_head: otherSha,
+      live_head: sha,
+    });
+    expect(stale.apply).toBe(false);
+    expect(stale.code).toBe("stale_event_head");
+
+    const current = transition({
+      source: "checks",
+      requested_state: "READY_FOR_SUPERVISOR",
+      requested_head: sha,
+      live_head: sha,
+    });
+    expect(current.apply).toBe(true);
+  });
+
+  it("duplicate lifecycle/check events are idempotent", () => {
+    const lifecycle = transition({
+      current_body: stateBody("CHECKS_PENDING"),
+      source: "lifecycle",
+      requested_state: "CHECKS_PENDING",
+    });
+    expect(lifecycle.apply).toBe(false);
+    expect(lifecycle.code).toBe("duplicate_event");
+
+    const checks = transition({
+      current_body: stateBody("READY_FOR_SUPERVISOR"),
+      source: "checks",
+      requested_state: "READY_FOR_SUPERVISOR",
+    });
+    expect(checks.apply).toBe(false);
+    expect(checks.code).toBe("duplicate_event");
+  });
+
+  it("delayed concurrent lifecycle execution converges on the newer READY state", () => {
+    const first = transition({
+      current_body: stateBody("CHECKS_PENDING"),
+      source: "checks",
+      requested_state: "READY_FOR_SUPERVISOR",
+    });
+    expect(first.apply).toBe(true);
+
+    const delayed = transition({
+      current_body: stateBody("READY_FOR_SUPERVISOR"),
+      source: "lifecycle",
+      requested_state: "CHECKS_PENDING",
+    });
+    expect(delayed.apply).toBe(false);
+    expect(delayed.code).toBe("ready_same_head_regression");
+
     const sync = source(".github/workflows/worker-supervisor-sync.yml");
-    expect(sync).toContain('elif [ "$ACTION" = "synchronize" ] || [ "$ACTION" = "ready_for_review" ]; then');
-    expect(sync).toContain('state="CHECKS_PENDING"');
+    expect(sync).toContain("concurrency:");
+    expect(sync).toContain("Re-fetch live PR and current state immediately before mutation");
+    expect(sync).toContain("Re-fetch both live PR and latest workflow evidence immediately before mutation");
   });
 
   it("CI/review provider availability remains governed by the existing final gate", () => {
@@ -291,10 +520,11 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     expect(wakeup).toContain("chatgpt-codex-connector[bot]");
   });
 
-  it("validates the actual Worker diff against allowed, forbidden, and hard-blocked paths", () => {
+  it("validates the actual Worker diff against allowed, forbidden, hard-blocked, and control helper paths", () => {
     expect(run("validate-changes", { packet: packet(), changed_files: ["src/features/test/a.ts", "tests/test-task.test.ts"] }).ok).toBe(true);
     expect(run("validate-changes", { packet: packet(), changed_files: ["src/features/other/a.ts"] }).code).toBe("forbidden_change");
     expect(run("validate-changes", { packet: packet(), changed_files: ["package.json"] }).code).toBe("hard_blocked_change");
+    expect(run("validate-changes", { packet: packet(), changed_files: ["scripts/supervisor-worker-handoff.mjs"] }).code).toBe("hard_blocked_change");
     expect(run("validate-changes", { packet: packet(), changed_files: ["src/unrelated.ts"] }).code).toBe("out_of_scope_change");
   });
 
