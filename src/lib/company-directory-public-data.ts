@@ -18,6 +18,7 @@ export type PublicDirectoryBusinessForRequest = PublicDirectoryBusiness & {
   organizationNumber: string;
   primarySniCode: string;
   contact: DirectoryDirectContactDisclosure;
+  sharedCacheSafe: boolean;
 };
 
 type ScbDirectContact = {
@@ -261,6 +262,7 @@ async function resolvePublishedDirectoryBusiness(slug: string): Promise<Publishe
   const published = await getPublicDirectoryBusiness(slug);
   if (!published) return null;
   const publicContact = await getPublishedDirectoryContact(published);
+  const sharedCacheSafe = Boolean(publicContact.organizationNumber) && !publicContact.claimedWorkspaceId;
   return {
     business: {
       ...published,
@@ -272,8 +274,9 @@ async function resolvePublishedDirectoryBusiness(slug: string): Promise<Publishe
       organizationNumber: publicContact.organizationNumber,
       primarySniCode: publicContact.primarySniCode,
       contact: publicContact.contact,
+      sharedCacheSafe,
     },
-    sharedCacheSafe: !publicContact.claimedWorkspaceId,
+    sharedCacheSafe,
   };
 }
 
@@ -287,9 +290,7 @@ async function resolvePublishedDirectoryBusiness(slug: string): Promise<Publishe
 const readCachedPublishedJuridicalDirectoryBusiness = unstable_cache(
   async (slug: string) => {
     const published = await resolvePublishedDirectoryBusiness(slug);
-    return published?.sharedCacheSafe && published.business.organizationNumber
-      ? published.business
-      : null;
+    return published?.sharedCacheSafe ? published.business : null;
   },
   ["public-directory-published-juridical-v1"],
   { revalidate: PUBLIC_DIRECTORY_REVALIDATE_SECONDS },
@@ -394,6 +395,7 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
     organizationNumber: publicDirectoryOrganizationNumber(row.organization_kind, row.organization_number),
     primarySniCode: String(row.primary_sni_code ?? ""),
     contact,
+    sharedCacheSafe: false,
   };
 }
 
