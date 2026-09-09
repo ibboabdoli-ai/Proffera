@@ -380,7 +380,69 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
 
   it("fails closed on an invalid trusted Phase-1 lifecycle packet", () => {
     const sync = source(".github/workflows/worker-supervisor-sync.yml");
-    expect(sync).toContain("Trusted Phase-1 marker carries an invalid Task Packet; refusing legacy fallback.");
+    const lifecycleScript = workflowRunStep(sync, "Record or update Worker lifecycle state in Supervisor issue");
+    const root = mkdtempSync(join(tmpdir(), "proffera-lifecycle-fail-closed-"));
+    const repo = join(root, "repo");
+    const bin = join(root, "bin");
+    const ghLog = join(root, "gh.log");
+    const prJsonFile = join(root, "pr.json");
+
+    mkdirSync(join(repo, "scripts"), { recursive: true });
+    mkdirSync(bin, { recursive: true });
+    copyFileSync(helper, join(repo, "scripts", "supervisor-worker-handoff.mjs"));
+    writeFileSync(ghLog, "", "utf8");
+    writeFileSync(
+      prJsonFile,
+      JSON.stringify({
+        state: "open",
+        merged: false,
+        user: { login: "ibboabdoli-ai" },
+        head: {
+          repo: { full_name: "ibboabdoli-ai/Proffera" },
+          ref: "work/proffera-test-task",
+          sha,
+        },
+        base: { sha: otherSha },
+        body: `${taskMarker}\n\`\`\`json\n{broken}\n\`\`\``,
+        html_url: "https://example.invalid/pr/900",
+      }),
+      "utf8",
+    );
+    writeFileSync(
+      join(bin, "gh"),
+      `#!/bin/sh
+if [ "$1" = "api" ] && [ "$2" = "repos/ibboabdoli-ai/Proffera/pulls/900" ]; then
+  cat "$PR_JSON_FILE"
+  exit 0
+fi
+printf '%s\n' "$*" >> "$GH_LOG"
+exit 0
+`,
+      { encoding: "utf8", mode: 0o755 },
+    );
+    writeFileSync(join(bin, "node"), "#!/bin/sh\nexit 42\n", { encoding: "utf8", mode: 0o755 });
+
+    const result = spawnSync("bash", ["-c", lifecycleScript], {
+      cwd: repo,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH ?? ""}`,
+        GH_LOG: ghLog,
+        PR_JSON_FILE: prJsonFile,
+        GH_TOKEN: "test-token",
+        REPOSITORY: "ibboabdoli-ai/Proffera",
+        ACTION: "opened",
+        PR_NUMBER: "900",
+        EVENT_HEAD_SHA: sha,
+        ACTOR: "ibboabdoli-ai",
+        RUN_ID: "1001",
+      },
+    });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("Trusted Phase-1 marker carries an invalid Task Packet; refusing legacy fallback.");
+    expect(readFileSync(ghLog, "utf8")).toBe("");
+    expect(readFileSync(ghLog, "utf8")).not.toContain("proffera-worker-supervisor-event");
   });
 
   it("materializes an immutable helper before Codex and never executes the Worker checkout helper afterward", () => {
