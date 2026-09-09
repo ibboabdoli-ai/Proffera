@@ -453,12 +453,19 @@ export async function revalidatePublishedCompanyDirectoryBatch(
           continue;
         }
 
-        await invalidatePublicDirectoryPublicProjectionByProfileId(profileId);
         movedToReview += 1;
         if (reviewMessages.length < 5) {
           reviewMessages.push(
             `${organizationNumber}: review (score ${confidence.score}, conflicts ${scbConflictCount}, unsafe ${unsafe ? "yes" : "no"})`,
           );
+        }
+        try {
+          await invalidatePublicDirectoryPublicProjectionByProfileId(profileId);
+        } catch (error) {
+          console.error("Failed to invalidate public Directory cache after committed published demotion", {
+            profileId,
+            error,
+          });
         }
       } catch (error) {
         errors += 1;

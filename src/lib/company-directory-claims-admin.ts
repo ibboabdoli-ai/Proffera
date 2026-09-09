@@ -349,6 +349,14 @@ export async function approveAndProvisionCompanyDirectoryClaim(input: { claimId:
     `,
   ]);
 
-  await invalidatePublicDirectoryPublicProjectionByProfileId(profileId);
+  try {
+    await invalidatePublicDirectoryPublicProjectionByProfileId(profileId);
+  } catch (error) {
+    console.error("Failed to invalidate public Directory cache after committed provisioned claim", {
+      claimId,
+      profileId,
+      error,
+    });
+  }
   return { claimId, workspaceId: provisioned.workspaceId, trialEndsAt: provisioned.trialEndsAt };
 }

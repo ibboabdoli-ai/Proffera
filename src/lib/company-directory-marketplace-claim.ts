@@ -443,6 +443,14 @@ export async function tryAutoProvisionMarketplaceCompanyClaim(input: {
     return { status: "manual_review", reason: "finalize_conflict" };
   }
 
-  await invalidatePublicDirectoryPublicProjectionByProfileId(profileId);
+  try {
+    await invalidatePublicDirectoryPublicProjectionByProfileId(profileId);
+  } catch (error) {
+    console.error("Failed to invalidate public Directory cache after committed Marketplace claim", {
+      claimId: input.claimId,
+      profileId,
+      error,
+    });
+  }
   return { status: "provisioned", workspaceId: input.claimId };
 }

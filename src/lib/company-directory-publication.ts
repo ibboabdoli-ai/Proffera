@@ -174,7 +174,15 @@ export async function publishCompanyDirectoryProfileIfSafe(
   if (!updated[0]) return { ok: false, code: "not_ready" };
 
   const slug = text(updated[0].public_slug);
-  invalidatePublicDirectoryPublicProjection({ slug, profileId });
+  try {
+    invalidatePublicDirectoryPublicProjection({ slug, profileId });
+  } catch (error) {
+    console.error("Failed to invalidate public Directory cache after committed publication", {
+      profileId,
+      slug,
+      error,
+    });
+  }
   return { ok: true, code: "published", slug };
 }
 

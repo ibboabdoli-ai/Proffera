@@ -27,6 +27,17 @@ function failedPolicyEvaluation(error: unknown) {
   };
 }
 
+function invalidatePublicDirectoryCachesBestEffort(context: string) {
+  try {
+    invalidateAllPublicDirectoryPublicCaches();
+  } catch (error) {
+    console.error("Public Directory cache invalidation failed after committed revalidation work", {
+      context,
+      error,
+    });
+  }
+}
+
 export async function GET(request: Request) {
   const cronSecret = process.env.CRON_SECRET;
   const schedulerSecret = process.env.COMPANY_DIRECTORY_REVALIDATION_SCHEDULER_SECRET;
@@ -63,10 +74,11 @@ export async function GET(request: Request) {
       { deadlineAt },
     );
     if (policyEvaluation.movedToReview > 0) {
-      invalidateAllPublicDirectoryPublicCaches();
+      invalidatePublicDirectoryCachesBestEffort("category_policy_batch_success");
     }
   } catch (error) {
     console.error("Company directory category policy revalidation failed", error);
+    invalidatePublicDirectoryCachesBestEffort("category_policy_batch_failure");
     policyEvaluation = failedPolicyEvaluation(error);
   }
 
@@ -96,11 +108,12 @@ export async function GET(request: Request) {
       { deadlineAt },
     );
     if (result.movedToReview > 0) {
-      invalidateAllPublicDirectoryPublicCaches();
+      invalidatePublicDirectoryCachesBestEffort("full_revalidation_batch_success");
     }
     return NextResponse.json({ ok: true, ...result, policyEvaluation });
   } catch (error) {
     console.error("Company directory dedicated revalidation failed", error);
+    invalidatePublicDirectoryCachesBestEffort("full_revalidation_batch_failure");
     return NextResponse.json(
       {
         ok: false,
