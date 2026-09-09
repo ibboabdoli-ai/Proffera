@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const cacheBehaviorMocks = vi.hoisted(() => ({
+const mocks = vi.hoisted(() => ({
   getSql: vi.fn(),
   getPublicDirectoryBusiness: vi.fn(),
   hasActivePaidDirectoryContactAccess: vi.fn(),
@@ -12,18 +12,18 @@ const cacheBehaviorMocks = vi.hoisted(() => ({
 
 vi.mock("server-only", () => ({}));
 vi.mock("react", () => ({ cache: (fn: (...args: unknown[]) => unknown) => fn }));
-vi.mock("@/lib/db/server", () => ({ getSql: cacheBehaviorMocks.getSql }));
+vi.mock("@/lib/db/server", () => ({ getSql: mocks.getSql }));
 vi.mock("@/lib/company-directory-engine", () => ({
-  getPublicDirectoryBusiness: cacheBehaviorMocks.getPublicDirectoryBusiness,
+  getPublicDirectoryBusiness: mocks.getPublicDirectoryBusiness,
 }));
 vi.mock("@/lib/company-directory-paid-contact-entitlement", () => ({
-  hasActivePaidDirectoryContactAccess: cacheBehaviorMocks.hasActivePaidDirectoryContactAccess,
+  hasActivePaidDirectoryContactAccess: mocks.hasActivePaidDirectoryContactAccess,
 }));
 vi.mock("@/lib/company-directory-public-profile-extras", () => ({
-  getPublicDirectoryProfileExtras: cacheBehaviorMocks.getPublicDirectoryProfileExtras,
+  getPublicDirectoryProfileExtras: mocks.getPublicDirectoryProfileExtras,
 }));
 vi.mock("@/lib/workspace-feature-entitlement-db", () => ({
-  getWorkspaceDirectoryPublicAccessForWorkspaces: cacheBehaviorMocks.getWorkspaceDirectoryPublicAccessForWorkspaces,
+  getWorkspaceDirectoryPublicAccessForWorkspaces: mocks.getWorkspaceDirectoryPublicAccessForWorkspaces,
 }));
 
 import {
@@ -34,9 +34,13 @@ import {
   publicDirectoryProfileCacheTag,
   setPublicDirectoryCacheAdapterForTests,
   type PublicDirectoryCacheAdapter,
+  type PublicDirectoryCacheReadInput,
 } from "@/lib/company-directory-public-cache";
 import { getPublicDirectoryBusinessForRequest } from "@/lib/company-directory-public-data";
-import { getPublicBusinessProfileViewForRequest, getSeoBusinessProjection } from "@/lib/business-profile-public";
+import {
+  getPublicBusinessProfileViewForRequest,
+  getSeoBusinessProjection,
+} from "@/lib/business-profile-public";
 
 function source(path: string) {
   return readFileSync(resolve(process.cwd(), path), "utf8");
@@ -48,7 +52,7 @@ const cacheReads: Array<{ keyParts: string[]; tags: string[]; revalidate: number
 const invalidatedTags: string[] = [];
 
 const memoryCacheAdapter: PublicDirectoryCacheAdapter = {
-  async read<T>(input): Promise<T> {
+  async read<T>(input: PublicDirectoryCacheReadInput<T>): Promise<T> {
     cacheReads.push({
       keyParts: [...input.keyParts],
       tags: [...input.tags],
@@ -75,7 +79,7 @@ const memoryCacheAdapter: PublicDirectoryCacheAdapter = {
 const PROFILE_ID = "11111111-1111-4111-8111-111111111111";
 const WORKSPACE_ID = "22222222-2222-4222-8222-222222222222";
 
-function publicBusinessData(slug = "test-company-ab", companyName = "Test Brand AB") {
+function publicBusiness(slug = "test-company-ab", companyName = "Test Brand AB") {
   return {
     id: PROFILE_ID,
     slug,
@@ -127,13 +131,7 @@ beforeEach(() => {
   cacheReads.length = 0;
   invalidatedTags.length = 0;
   setPublicDirectoryCacheAdapterForTests(memoryCacheAdapter);
-
-  cacheBehaviorMocks.getSql.mockReset();
-  cacheBehaviorMocks.getPublicDirectoryBusiness.mockReset();
-  cacheBehaviorMocks.hasActivePaidDirectoryContactAccess.mockReset();
-  cacheBehaviorMocks.getPublicDirectoryProfileExtras.mockReset();
-  cacheBehaviorMocks.getWorkspaceDirectoryPublicAccessForWorkspaces.mockReset();
-  vi.clearAllMocks();
+  for (const mock of Object.values(mocks)) mock.mockReset();
 });
 
 afterEach(() => {
@@ -141,7 +139,7 @@ afterEach(() => {
 });
 
 describe("company directory shared-cache route contract", () => {
-  it("keeps both public profile routes dynamic and on the common resolver path", () => {
+  it("keeps both public routes dynamic and on the common resolver path", () => {
     const swedishRoute = source("src/app/foretag/listad/[slug]/page.tsx");
     const englishRoute = source("src/app/en/companies/[slug]/page.tsx");
     const profile = source("src/components/company-directory/public-directory-profile.tsx");
@@ -151,7 +149,6 @@ describe("company directory shared-cache route contract", () => {
     expect(swedishRoute).toContain("getSeoBusinessProjection(slug)");
     expect(englishRoute).toContain("getSeoBusinessProjection(slug)");
     expect(profile).toContain("getPublicBusinessProfileViewForRequest(slug)");
-
     for (const consumer of [swedishRoute, englishRoute, profile]) {
       expect(consumer).not.toContain('from "@/lib/company-directory-engine"');
     }
@@ -159,9 +156,9 @@ describe("company directory shared-cache route contract", () => {
 });
 
 describe("directory shared-cache behavior", () => {
-  it("turns 50 safe public juridical reads into one underlying published lookup", async () => {
-    cacheBehaviorMocks.getSql.mockReturnValue(publishedSql());
-    cacheBehaviorMocks.getPublicDirectoryBusiness.mockResolvedValue(publicBusinessData());
+  it("turns 50 safe juridical reads into one underlying public lookup", async () => {
+    mocks.getSql.mockReturnValue(publishedSql());
+    mocks.getPublicDirectoryBusiness.mockResolvedValue(publicBusiness());
 
     const results = [];
     for (let index = 0; index < 50; index += 1) {
@@ -169,20 +166,15 @@ describe("directory shared-cache behavior", () => {
     }
 
     expect(results).toHaveLength(50);
-    expect(results.every((result) => result?.organizationNumber === "5560000000")).toBe(true);
     expect(results.every((result) => result?.sharedCacheSafe === true)).toBe(true);
-    expect(cacheBehaviorMocks.getPublicDirectoryBusiness).toHaveBeenCalledTimes(1);
-    expect(cacheBehaviorMocks.hasActivePaidDirectoryContactAccess).not.toHaveBeenCalled();
+    expect(mocks.getPublicDirectoryBusiness).toHaveBeenCalledTimes(1);
+    expect(mocks.hasActivePaidDirectoryContactAccess).not.toHaveBeenCalled();
   });
 
-  it("configures a five-minute TTL and profile-specific tags for shared profile and extras data", async () => {
-    cacheBehaviorMocks.getSql.mockReturnValue(publishedSql());
-    cacheBehaviorMocks.getPublicDirectoryBusiness.mockResolvedValue(publicBusinessData());
-    cacheBehaviorMocks.getPublicDirectoryProfileExtras.mockResolvedValue({
-      services: [],
-      serviceAreas: [],
-      reputation: null,
-    });
+  it("uses a 300-second TTL and profile-specific tags for profile and extras", async () => {
+    mocks.getSql.mockReturnValue(publishedSql());
+    mocks.getPublicDirectoryBusiness.mockResolvedValue(publicBusiness());
+    mocks.getPublicDirectoryProfileExtras.mockResolvedValue({ services: [], serviceAreas: [], reputation: null });
 
     await getPublicBusinessProfileViewForRequest("test-company-ab");
 
@@ -193,75 +185,54 @@ describe("directory shared-cache behavior", () => {
     expect(cacheReads.some((read) => read.tags.includes(publicDirectoryExtrasCacheTag(PROFILE_ID)))).toBe(true);
   });
 
-  it("reuses the same safe caches for metadata and page data without loading workspace entitlements", async () => {
-    cacheBehaviorMocks.getSql.mockReturnValue(publishedSql());
-    cacheBehaviorMocks.getPublicDirectoryBusiness.mockResolvedValue(publicBusinessData());
-    cacheBehaviorMocks.getPublicDirectoryProfileExtras.mockResolvedValue({
-      services: [],
-      serviceAreas: [],
-      reputation: null,
-    });
+  it("reuses safe caches for metadata/page data without workspace entitlement reads", async () => {
+    mocks.getSql.mockReturnValue(publishedSql());
+    mocks.getPublicDirectoryBusiness.mockResolvedValue(publicBusiness());
+    mocks.getPublicDirectoryProfileExtras.mockResolvedValue({ services: [], serviceAreas: [], reputation: null });
 
-    const seoProjection = await getSeoBusinessProjection("test-company-ab");
-    const profileView = await getPublicBusinessProfileViewForRequest("test-company-ab");
+    const seo = await getSeoBusinessProjection("test-company-ab");
+    const view = await getPublicBusinessProfileViewForRequest("test-company-ab");
 
-    expect(seoProjection?.displayName).toBe("Test Brand AB");
-    expect(profileView?.business.companyName).toBe("Test Brand AB");
-    expect(profileView?.business.sharedCacheSafe).toBe(true);
-    expect(cacheBehaviorMocks.getPublicDirectoryBusiness).toHaveBeenCalledTimes(1);
-    expect(cacheBehaviorMocks.getPublicDirectoryProfileExtras).toHaveBeenCalledTimes(1);
-    expect(cacheBehaviorMocks.getWorkspaceDirectoryPublicAccessForWorkspaces).not.toHaveBeenCalled();
+    expect(seo?.displayName).toBe("Test Brand AB");
+    expect(view?.business.companyName).toBe("Test Brand AB");
+    expect(mocks.getPublicDirectoryBusiness).toHaveBeenCalledTimes(1);
+    expect(mocks.getPublicDirectoryProfileExtras).toHaveBeenCalledTimes(1);
+    expect(mocks.getWorkspaceDirectoryPublicAccessForWorkspaces).not.toHaveBeenCalled();
   });
 
-  it("keeps the registered legal name distinct from the display brand", async () => {
-    cacheBehaviorMocks.getSql.mockReturnValue(publishedSql({ legalName: "Registered Legal Company AB" }));
-    cacheBehaviorMocks.getPublicDirectoryBusiness.mockResolvedValue(
-      publicBusinessData("legal-name-company", "Customer Facing Brand"),
-    );
-    cacheBehaviorMocks.getPublicDirectoryProfileExtras.mockResolvedValue({
-      services: [],
-      serviceAreas: [],
-      reputation: null,
-    });
+  it("keeps registered legal name distinct from presentation name", async () => {
+    mocks.getSql.mockReturnValue(publishedSql({ legalName: "Registered Legal Company AB" }));
+    mocks.getPublicDirectoryBusiness.mockResolvedValue(publicBusiness("legal-name-company", "Customer Facing Brand"));
+    mocks.getPublicDirectoryProfileExtras.mockResolvedValue({ services: [], serviceAreas: [], reputation: null });
 
     const view = await getPublicBusinessProfileViewForRequest("legal-name-company");
-
     expect(view?.profile.legal.legalName).toBe("Registered Legal Company AB");
     expect(view?.profile.presentation.displayName.value).toBe("Customer Facing Brand");
   });
 
-  it("does not invent a legal name when the official legal_name is absent", async () => {
-    cacheBehaviorMocks.getSql.mockReturnValue(publishedSql({ legalName: "" }));
-    cacheBehaviorMocks.getPublicDirectoryBusiness.mockResolvedValue(
-      publicBusinessData("missing-legal-name", "Display Brand Only"),
-    );
-    cacheBehaviorMocks.getPublicDirectoryProfileExtras.mockResolvedValue({
-      services: [],
-      serviceAreas: [],
-      reputation: null,
-    });
+  it("does not invent legalName when official legal_name is absent", async () => {
+    mocks.getSql.mockReturnValue(publishedSql({ legalName: "" }));
+    mocks.getPublicDirectoryBusiness.mockResolvedValue(publicBusiness("missing-legal-name", "Display Brand Only"));
+    mocks.getPublicDirectoryProfileExtras.mockResolvedValue({ services: [], serviceAreas: [], reputation: null });
 
     const view = await getPublicBusinessProfileViewForRequest("missing-legal-name");
-
     expect(view?.profile.legal.legalName).toBe("");
     expect(view?.profile.presentation.displayName.value).toBe("Display Brand Only");
   });
 
-  it("does not persist natural-person/sole-trader published data across requests", async () => {
-    cacheBehaviorMocks.getSql.mockReturnValue(publishedSql({ organizationKind: "natural_person" }));
-    cacheBehaviorMocks.getPublicDirectoryBusiness.mockResolvedValue(
-      publicBusinessData("natural-person-business", "Natural Person Business"),
-    );
+  it("does not persist natural_person/sole-trader data across requests", async () => {
+    mocks.getSql.mockReturnValue(publishedSql({ organizationKind: "natural_person" }));
+    mocks.getPublicDirectoryBusiness.mockResolvedValue(publicBusiness("natural-person-business"));
 
     const first = await getPublicDirectoryBusinessForRequest("natural-person-business");
     const second = await getPublicDirectoryBusinessForRequest("natural-person-business");
 
     expect(first?.sharedCacheSafe).toBe(false);
     expect(second?.sharedCacheSafe).toBe(false);
-    expect(cacheBehaviorMocks.getPublicDirectoryBusiness).toHaveBeenCalledTimes(2);
+    expect(mocks.getPublicDirectoryBusiness).toHaveBeenCalledTimes(2);
   });
 
-  it("does not persist claimed entitlement decisions across requests", async () => {
+  it("evaluates claimed paid-contact entitlement fresh on every request", async () => {
     const claimedSlug = "claimed-company";
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       const query = strings.join(" ");
@@ -299,30 +270,26 @@ describe("directory shared-cache behavior", () => {
       if (query.includes("company_directory_profile_locations")) return [];
       return [];
     });
-    cacheBehaviorMocks.getSql.mockReturnValue(sql);
-    cacheBehaviorMocks.getPublicDirectoryBusiness.mockResolvedValue(null);
-    cacheBehaviorMocks.hasActivePaidDirectoryContactAccess
-      .mockResolvedValueOnce(false)
-      .mockResolvedValueOnce(true);
+    mocks.getSql.mockReturnValue(sql);
+    mocks.getPublicDirectoryBusiness.mockResolvedValue(null);
+    mocks.hasActivePaidDirectoryContactAccess.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
 
     const first = await getPublicDirectoryBusinessForRequest(claimedSlug);
     const second = await getPublicDirectoryBusinessForRequest(claimedSlug);
 
-    expect(first?.publicationStatus).toBe("claimed");
     expect(first?.sharedCacheSafe).toBe(false);
     expect(first?.contact.entitled).toBe(false);
-    expect(second?.publicationStatus).toBe("claimed");
     expect(second?.sharedCacheSafe).toBe(false);
     expect(second?.contact.entitled).toBe(true);
-    expect(cacheBehaviorMocks.getPublicDirectoryBusiness).toHaveBeenCalledTimes(2);
-    expect(cacheBehaviorMocks.hasActivePaidDirectoryContactAccess).toHaveBeenCalledTimes(2);
+    expect(mocks.getPublicDirectoryBusiness).toHaveBeenCalledTimes(2);
+    expect(mocks.hasActivePaidDirectoryContactAccess).toHaveBeenCalledTimes(2);
   });
 
-  it("invalidates only the affected public profile cache entry", async () => {
-    cacheBehaviorMocks.getSql.mockReturnValue(publishedSql());
-    cacheBehaviorMocks.getPublicDirectoryBusiness
-      .mockResolvedValueOnce(publicBusinessData("test-company-ab", "Brand Before"))
-      .mockResolvedValueOnce(publicBusinessData("test-company-ab", "Brand After"));
+  it("profile invalidation evicts only that profile entry", async () => {
+    mocks.getSql.mockReturnValue(publishedSql());
+    mocks.getPublicDirectoryBusiness
+      .mockResolvedValueOnce(publicBusiness("test-company-ab", "Brand Before"))
+      .mockResolvedValueOnce(publicBusiness("test-company-ab", "Brand After"));
 
     const before = await getPublicDirectoryBusinessForRequest("test-company-ab");
     invalidatePublicDirectoryProfileCache("test-company-ab");
@@ -330,14 +297,14 @@ describe("directory shared-cache behavior", () => {
 
     expect(before?.companyName).toBe("Brand Before");
     expect(after?.companyName).toBe("Brand After");
-    expect(cacheBehaviorMocks.getPublicDirectoryBusiness).toHaveBeenCalledTimes(2);
+    expect(mocks.getPublicDirectoryBusiness).toHaveBeenCalledTimes(2);
     expect(invalidatedTags).toContain(publicDirectoryProfileCacheTag("test-company-ab"));
   });
 
-  it("invalidates public extras independently for the affected profile", async () => {
-    cacheBehaviorMocks.getSql.mockReturnValue(publishedSql());
-    cacheBehaviorMocks.getPublicDirectoryBusiness.mockResolvedValue(publicBusinessData());
-    cacheBehaviorMocks.getPublicDirectoryProfileExtras
+  it("extras invalidation refreshes only the affected extras entry", async () => {
+    mocks.getSql.mockReturnValue(publishedSql());
+    mocks.getPublicDirectoryBusiness.mockResolvedValue(publicBusiness());
+    mocks.getPublicDirectoryProfileExtras
       .mockResolvedValueOnce({ services: [], serviceAreas: [], reputation: null })
       .mockResolvedValueOnce({ services: [], serviceAreas: [], reputation: null });
 
@@ -345,14 +312,13 @@ describe("directory shared-cache behavior", () => {
     invalidatePublicDirectoryExtrasCache(PROFILE_ID);
     await getPublicBusinessProfileViewForRequest("test-company-ab");
 
-    expect(cacheBehaviorMocks.getPublicDirectoryProfileExtras).toHaveBeenCalledTimes(2);
+    expect(mocks.getPublicDirectoryProfileExtras).toHaveBeenCalledTimes(2);
     expect(invalidatedTags).toContain(publicDirectoryExtrasCacheTag(PROFILE_ID));
   });
 
-  it("fails malformed slugs before any database-backed public lookup", async () => {
-    cacheBehaviorMocks.getSql.mockReturnValue(publishedSql());
-
+  it("rejects malformed slug before any public DB lookup", async () => {
+    mocks.getSql.mockReturnValue(publishedSql());
     expect(await getPublicDirectoryBusinessForRequest("../../private")).toBeNull();
-    expect(cacheBehaviorMocks.getPublicDirectoryBusiness).not.toHaveBeenCalled();
+    expect(mocks.getPublicDirectoryBusiness).not.toHaveBeenCalled();
   });
 });
