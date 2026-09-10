@@ -9,7 +9,7 @@ const address = "Flat 2B, Cricket Pavilion, Staveley Road";
 const postcode = "W4 3ES";
 
 describe("PrimeView booking emails", () => {
-  it("sends the workspace owner an English notification with the exact address and postcode", () => {
+  it("sends the workspace owner an English notification with the exact canonical address and postcode", () => {
     const email = buildBookingOwnerNotificationEmail({
       ownerEmail: "owner@example.com",
       companyName: "PrimeView Window Care",
@@ -29,6 +29,7 @@ describe("PrimeView booking emails", () => {
     expect(email.subject).toBe("New booking request – Window Cleaning");
     expect(email.text).toContain("Hello PrimeView Window Care,");
     expect(email.text).toContain(`Address: ${address}`);
+    expect(email.text).toContain("Flat 2B");
     expect(email.text).toContain(`Postcode: ${postcode}`);
     expect(email.text).toMatch(/Tuesday.*1 September 2026.*11:00/);
     expect(email.text).not.toContain("Ny bokningsförfrågan");
@@ -36,7 +37,7 @@ describe("PrimeView booking emails", () => {
     expect(email.html).toContain(postcode);
   });
 
-  it("includes the exact address and postcode in the English customer confirmation", () => {
+  it("includes the exact canonical address and postcode in the English customer confirmation", () => {
     const email = buildUnifiedBookingConfirmationEmail({
       customerName: "Andrew Clark",
       customerEmail: "andy.clark@example.co.uk",
@@ -55,6 +56,7 @@ describe("PrimeView booking emails", () => {
 
     expect(email.subject).toBe("Booking request received – PrimeView Window Care");
     expect(email.text).toContain(`Address: ${address}`);
+    expect(email.text).toContain("Flat 2B");
     expect(email.text).toContain(`Postcode: ${postcode}`);
     expect(email.text).toContain("Area: London");
     expect(email.html).toContain('<td style="padding:6px 16px;font-weight:700;color:#183e63;">Address</td>');
