@@ -277,7 +277,12 @@ export async function verifyPublicBookingCode(id: string, code: string) {
           and id in (select id from existing_customer)
         returning id
       ), selected_customer as (
-        select id from existing_customer union all select id from inserted_customer limit 1
+        select id from existing_customer
+        union all
+        select id from inserted_customer
+        union all
+        select id from updated_existing_customer
+        limit 1
       ), booking as (
         insert into bookings (workspace_id, customer_id, staff_id, service_id, title, service, city, status, starts_at, ends_at, source, notes)
         select ${String(challenge.workspace_id)}, id, ${staffId}::uuid, ${serviceId}::uuid, ${String(challenge.service_name)}, ${String(challenge.service_name)}, ${challenge.city ? String(challenge.city) : null}, 'requested', ${startsAt}::timestamptz, ${endsAt}::timestamptz, 'public_booking', ${bookingNote || null}
