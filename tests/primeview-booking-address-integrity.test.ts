@@ -78,6 +78,14 @@ describe("PrimeView canonical service address validation", () => {
     })).toBe(true);
   });
 
+  it("accepts an explicit apartment prefix", () => {
+    expect(validatePrimeViewServiceAddress({
+      address: "Apartment 4, 10, High Street",
+      postcode: "W4 3ES",
+      bookingDetails: details("Flat / Apartment"),
+    })).toBe(true);
+  });
+
   it("rejects an invalid UK postcode", () => {
     expect(validatePrimeViewServiceAddress({
       address: "10, High Street",
