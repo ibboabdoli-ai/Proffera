@@ -236,6 +236,42 @@ jobs:
           printf '%s' "$PACKET_B64" | base64 --decode > "$packet_file"
           jq -e . "$packet_file" >/dev/null
 
+      - name: Refuse duplicate Worker dispatch on workflow rerun
+        if: ${{ github.run_attempt > 1 }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
+          STATE_COMMENT_ID: ${{ needs.preflight.outputs.state_comment_id }}
+          RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          helper="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.mjs"
+          manifest="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.sha256"
+          test -f "$helper" -a -f "$manifest"
+          sha256sum --check --status "$manifest"
+          test -n "$STATE_COMMENT_ID"
+          packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
+          task_id="$(jq -r '.task_id' <<< "$packet")"
+          rerun_marker="<!-- proffera-worker-task-state:${task_id} -->"
+          state_json="$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}")"
+          state_author="$(jq -r '.user.login // ""' <<< "$state_json")"
+          state_body="$(jq -r '.body // ""' <<< "$state_json")"
+
+          if [ "$state_author" != "github-actions[bot]" ] || [[ "$state_body" != *"$rerun_marker"* ]]; then
+            echo "Refused: rerun task state is not a trusted task-scoped Supervisor comment." >&2
+            exit 1
+          fi
+
+          if [[ "$state_body" == *"- State: \`TASK_CREATED\`"* ]] && [[ "$state_body" == *"- Run ID: \`${RUN_ID}\`"* ]]; then
+            blocked_json="$(jq -n --argjson packet "$packet" --arg state "WORKER_BLOCKED" --arg reason "Workflow rerun encountered retained TASK_CREATED from the original run. Duplicate Worker dispatch is refused fail-closed." --arg run_id "$RUN_ID" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id}')"
+            blocked_body="$(printf '%s' "$blocked_json" | node "$helper" state-body)"
+            gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" -f body="$blocked_body" >/dev/null || true
+            echo "Refused: retained TASK_CREATED belongs to this GitHub run; reruns cannot dispatch a second Worker." >&2
+            exit 1
+          fi
+
       - name: Run one bounded implementation Worker
         id: codex
         uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e
