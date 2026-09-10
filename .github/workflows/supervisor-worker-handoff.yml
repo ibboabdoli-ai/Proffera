@@ -101,11 +101,12 @@ jobs:
           branch="$(jq -r '.branch' <<< "$packet")"
           base_sha="$(jq -r '.base_sha' <<< "$packet")"
           task_title="$(jq -r '.task_title' <<< "$packet")"
+          state_marker="<!-- proffera-worker-task-state:${task_id} -->"
 
           supervisor_json="$(gh api "repos/${REPOSITORY}/issues/548")"
           supervisor_labels="$(jq -c '[.labels[].name]' <<< "$supervisor_json")"
           live_main_sha="$(gh api "repos/${REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
-          comments_json="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.')"
+          comments_json="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s --arg marker "$state_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]')"
 
           pulls_json="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&base=main&per_page=100" --jq '.[]' | jq -s '.')"
           enriched_prs='[]'
@@ -156,7 +157,6 @@ jobs:
 
           state_input="$(jq -n --argjson packet "$packet" --arg state "$state" --arg reason "$decision_reason" --arg run_id "$RUN_ID" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id}')"
           state_body="$(printf '%s' "$state_input" | node "$helper" state-body)"
-          state_marker="<!-- proffera-worker-task-state:${task_id} -->"
           state_comment_id="$(jq -r --arg marker "$state_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | last | .id // empty' <<< "$comments_json")"
           if [ -n "$state_comment_id" ]; then
             gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${state_comment_id}" -f body="$state_body" >/dev/null
@@ -236,6 +236,72 @@ jobs:
           printf '%s' "$PACKET_B64" | base64 --decode > "$packet_file"
           jq -e . "$packet_file" >/dev/null
 
+      - name: Refuse duplicate Worker dispatch on workflow rerun
+        if: ${{ github.run_attempt > 1 }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
+          STATE_COMMENT_ID: ${{ needs.preflight.outputs.state_comment_id }}
+          RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          helper="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.mjs"
+          manifest="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.sha256"
+          test -f "$helper" -a -f "$manifest"
+          sha256sum --check --status "$manifest"
+          test -n "$STATE_COMMENT_ID"
+          packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
+          task_id="$(jq -r '.task_id' <<< "$packet")"
+          dispatch_marker="<!-- proffera-worker-dispatch-start:${task_id}:${RUN_ID} -->"
+          dispatch_evidence="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s --arg marker "$dispatch_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | last // empty')"
+
+          if [ -n "$dispatch_evidence" ]; then
+            echo "Refused: trusted dispatch-start evidence already exists for this task and GitHub run." >&2
+            exit 1
+          fi
+
+          rerun_marker="<!-- proffera-worker-task-state:${task_id} -->"
+          state_json="$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}")"
+          state_author="$(jq -r '.user.login // ""' <<< "$state_json")"
+          state_body="$(jq -r '.body // ""' <<< "$state_json")"
+
+          if [ "$state_author" != "github-actions[bot]" ] || [[ "$state_body" != *"$rerun_marker"* ]]; then
+            echo "Refused: rerun task state is not a trusted task-scoped Supervisor comment." >&2
+            exit 1
+          fi
+
+          if [[ "$state_body" == *"- State: \`TASK_CREATED\`"* ]] && [[ "$state_body" == *"- Run ID: \`${RUN_ID}\`"* ]]; then
+            blocked_json="$(jq -n --argjson packet "$packet" --arg state "WORKER_BLOCKED" --arg reason "Workflow rerun encountered retained TASK_CREATED from the original run. Duplicate Worker dispatch is refused fail-closed." --arg run_id "$RUN_ID" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id}')"
+            blocked_body="$(printf '%s' "$blocked_json" | node "$helper" state-body)"
+            gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" -f body="$blocked_body" >/dev/null || true
+            echo "Refused: retained TASK_CREATED belongs to this GitHub run; reruns cannot dispatch a second Worker." >&2
+            exit 1
+          fi
+
+      - name: Persist trusted Worker dispatch-start evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
+          task_id="$(jq -r '.task_id' <<< "$packet")"
+          dispatch_body="$(cat <<EOF
+          <!-- proffera-worker-dispatch-start:${task_id}:${RUN_ID} -->
+          - Task ID: \`${task_id}\`
+          - GitHub Run ID: \`${RUN_ID}\`
+          - Run Attempt: \`${RUN_ATTEMPT}\`
+          - State: \`DISPATCH_STARTED\`
+          EOF
+          )"
+          gh api --method POST "repos/${REPOSITORY}/issues/548/comments" -f body="$dispatch_body" >/dev/null
+
       - name: Run one bounded implementation Worker
         id: codex
         uses: openai/codex-action@86365089eb2b84e0a8fb0717b304f8bdcb13b20e
@@ -307,11 +373,13 @@ jobs:
           test -f "$helper" -a -f "$manifest"
           sha256sum --check --status "$manifest"
           packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
+          task_id="$(jq -r '.task_id' <<< "$packet")"
           branch="$(jq -r '.branch' <<< "$packet")"
+          state_marker="<!-- proffera-worker-task-state:${task_id} -->"
           live_main_sha="$(gh api "repos/${REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
           supervisor_json="$(gh api "repos/${REPOSITORY}/issues/548")"
           supervisor_labels="$(jq -c '[.labels[].name]' <<< "$supervisor_json")"
-          comments_json="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.')"
+          comments_json="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s --arg marker "$state_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]')"
           pulls_json="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&base=main&per_page=100" --jq '.[]' | jq -s '.')"
           enriched_prs='[]'
           while IFS= read -r encoded; do
