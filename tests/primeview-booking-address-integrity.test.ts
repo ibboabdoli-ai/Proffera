@@ -56,6 +56,13 @@ describe("PrimeView canonical service address validation", () => {
     });
   });
 
+  it("preserves every commercial provider address line returned by autocomplete", () => {
+    expect(parsePrimeViewAutocompleteAddress("Unit 4, Enterprise House, High Street, London, W4 3ES", "W4 3ES", "Commercial (Shop/Office)")).toEqual({
+      houseBuilding: "Unit 4 Enterprise House",
+      street: "High Street",
+    });
+  });
+
   it("rejects a missing property type contract", () => {
     expect(validatePrimeViewServiceAddress({ address: "10, High Street", postcode: "W4 3ES", bookingDetails: "Address: 10, High Street\nPostcode: W4 3ES" })).toBe(false);
   });
