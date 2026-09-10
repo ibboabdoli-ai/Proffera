@@ -101,11 +101,12 @@ jobs:
           branch="$(jq -r '.branch' <<< "$packet")"
           base_sha="$(jq -r '.base_sha' <<< "$packet")"
           task_title="$(jq -r '.task_title' <<< "$packet")"
+          state_marker="<!-- proffera-worker-task-state:${task_id} -->"
 
           supervisor_json="$(gh api "repos/${REPOSITORY}/issues/548")"
           supervisor_labels="$(jq -c '[.labels[].name]' <<< "$supervisor_json")"
           live_main_sha="$(gh api "repos/${REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
-          comments_json="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.')"
+          comments_json="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s --arg marker "$state_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]')"
 
           pulls_json="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&base=main&per_page=100" --jq '.[]' | jq -s '.')"
           enriched_prs='[]'
@@ -156,7 +157,6 @@ jobs:
 
           state_input="$(jq -n --argjson packet "$packet" --arg state "$state" --arg reason "$decision_reason" --arg run_id "$RUN_ID" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id}')"
           state_body="$(printf '%s' "$state_input" | node "$helper" state-body)"
-          state_marker="<!-- proffera-worker-task-state:${task_id} -->"
           state_comment_id="$(jq -r --arg marker "$state_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | last | .id // empty' <<< "$comments_json")"
           if [ -n "$state_comment_id" ]; then
             gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${state_comment_id}" -f body="$state_body" >/dev/null
@@ -307,11 +307,13 @@ jobs:
           test -f "$helper" -a -f "$manifest"
           sha256sum --check --status "$manifest"
           packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
+          task_id="$(jq -r '.task_id' <<< "$packet")"
           branch="$(jq -r '.branch' <<< "$packet")"
+          state_marker="<!-- proffera-worker-task-state:${task_id} -->"
           live_main_sha="$(gh api "repos/${REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
           supervisor_json="$(gh api "repos/${REPOSITORY}/issues/548")"
           supervisor_labels="$(jq -c '[.labels[].name]' <<< "$supervisor_json")"
-          comments_json="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.')"
+          comments_json="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s --arg marker "$state_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]')"
           pulls_json="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&base=main&per_page=100" --jq '.[]' | jq -s '.')"
           enriched_prs='[]'
           while IFS= read -r encoded; do
