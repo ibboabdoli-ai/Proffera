@@ -38,6 +38,14 @@ describe("PrimeView canonical service address validation", () => {
     })).toBe(true);
   });
 
+  it("rejects a missing property type contract", () => {
+    expect(validatePrimeViewServiceAddress({
+      address: "10, High Street",
+      postcode: "W4 3ES",
+      bookingDetails: "Address: 10, High Street\nPostcode: W4 3ES",
+    })).toBe(false);
+  });
+
   it("rejects missing house/building", () => {
     expect(validatePrimeViewServiceAddress({
       address: "High Street",
