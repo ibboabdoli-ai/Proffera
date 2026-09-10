@@ -9,7 +9,9 @@ on:
       - "scripts/company-directory-discovery.py"
       - "src/app/api/cron/company-directory-discovery-ingest/route.ts"
   schedule:
-    - cron: "17 * * * *"
+    # Source freshness is maintenance work, not a 1-hour product SLA. Probe every
+    # six hours and nominally align with the shared Production DB wake window.
+    - cron: "8 */6 * * *"
     - cron: "31 3 * * *"
   workflow_dispatch:
 
@@ -57,7 +59,7 @@ jobs:
 
       - name: Probe official company source
         id: probe
-        if: github.event_name == 'schedule' && github.event.schedule == '17 * * * *'
+        if: github.event_name == 'schedule' && github.event.schedule == '8 */6 * * *'
         env:
           INGEST_URL: ${{ steps.endpoint.outputs.ingest_url }}
           CRON_SECRET: ${{ secrets.PROFFERA_REMINDER_CRON_SECRET }}

@@ -41,11 +41,13 @@ describe("public read cache contract", () => {
     expect(mocks.locationSuggestions).toHaveBeenLastCalledWith(24);
   });
 
-  it("routes only suggestion reads through the persistent cache boundary", () => {
+  it("keeps the generic suggestion cache separate while Directory profile caching stays behind its audited boundary", () => {
     const homepage = source("src/components/marketplace/marketplace-home.tsx");
     const directorySearchPage = source("src/components/company-directory/public-directory-search-page.tsx");
     const sitemap = source("src/app/sitemap.ts");
     const requestCache = source("src/lib/company-directory-public-data.ts");
+    const profileResolver = source("src/lib/business-profile-public.ts");
+    const directoryCacheBoundary = source("src/lib/company-directory-public-cache.ts");
 
     expect(homepage).toContain("getCachedPublishedDirectoryLocationSuggestions(24)");
     expect(directorySearchPage).toContain("getCachedPublishedDirectoryLocationSuggestions(60)");
@@ -53,7 +55,14 @@ describe("public read cache contract", () => {
     expect(sitemap).not.toContain("getCachedPlatformSitemapData");
     expect(sitemap).toContain("listPublicBusinessSitemapEntries()");
     expect(sitemap).toContain("listPublishedDirectorySitemapEntries()");
-    expect(requestCache).not.toContain("unstable_cache");
-    expect(requestCache).not.toContain("use cache");
+
+    // Persistent profile caching is now approved, but the framework primitive
+    // stays isolated behind one testable boundary rather than leaking into the
+    // business/public resolver modules.
+    expect(requestCache).not.toContain('from "next/cache"');
+    expect(profileResolver).not.toContain('from "next/cache"');
+    expect(requestCache).toContain("readPublicDirectoryProfileCache");
+    expect(profileResolver).toContain("readPublicDirectoryExtrasCache");
+    expect(directoryCacheBoundary).toContain('from "next/cache"');
   });
 });

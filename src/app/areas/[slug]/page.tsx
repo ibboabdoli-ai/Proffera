@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { primeViewAreaPages } from "@/lib/primeview-area-pages";
+import { isPrimeViewIndexableAreaSlug, primeViewAreaPages, primeViewIndexableAreaPages } from "@/lib/primeview-area-pages";
 import { primeViewServicePages } from "@/lib/primeview-seo-pages";
 import { primeViewSite } from "@/lib/primeview-seo";
 
@@ -22,12 +22,13 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
   const title = `Window Cleaning in ${area.name} | PrimeView Window Care`;
   const canonical = `${primeViewSite.origin}/areas/${area.slug}`;
+  const isIndexable = isPrimeViewIndexableAreaSlug(area.slug);
   return {
     metadataBase: new URL(primeViewSite.origin),
     title: { absolute: title },
     description: area.description,
     alternates: { canonical },
-    robots: { index: true, follow: true },
+    robots: { index: isIndexable, follow: true },
     openGraph: {
       title,
       description: area.description,
@@ -47,7 +48,7 @@ export default async function PrimeViewAreaPage({ params }: PageProps) {
   if (!area) notFound();
 
   const canonicalUrl = `${primeViewSite.origin}/areas/${area.slug}`;
-  const relatedAreas = primeViewAreaPages.filter((item) => item.slug !== area.slug).slice(0, 12);
+  const relatedAreas = primeViewIndexableAreaPages.filter((item) => item.slug !== area.slug).slice(0, 12);
   const jsonLd = JSON.stringify({
     "@context": "https://schema.org",
     "@graph": [

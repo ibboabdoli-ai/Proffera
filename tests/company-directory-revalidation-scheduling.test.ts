@@ -360,7 +360,7 @@ describe("dedicated Company Directory revalidation scheduling", () => {
     expect(productionHealthTriggers).not.toHaveProperty("schedule");
 
     expect(workflowCronExpressions(directoryAutomationWorkflow)).toEqual([
-      "17 * * * *",
+      "8 */6 * * *",
       "31 3 * * *",
     ]);
     expectNoRevalidationMinuteCollision(directoryAutomationWorkflow);

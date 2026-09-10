@@ -109,7 +109,7 @@ describe("automatic company directory discovery contract", () => {
     expect(worker).toContain("primary-supported-SNI + supported-form candidates");
   });
 
-  it("probes official discovery hourly, keeps a daily full scan, and leaves queue processing on the Operations runner", () => {
+  it("probes official discovery every six hours, keeps a daily full scan, and leaves queue processing on the Operations runner", () => {
     const discoveryWorkflow = source(".github/workflows/company-directory-automation.yml");
     const operationsWorkflow = source(".github/workflows/booking-reminders.yml");
     const discoveryTriggers = workflowTriggers(discoveryWorkflow);
@@ -117,7 +117,7 @@ describe("automatic company directory discovery contract", () => {
 
     expect(discoveryWorkflow).toContain("Discover official company candidates");
     expect(workflowCronExpressions(discoveryWorkflow)).toEqual([
-      "17 * * * *",
+      "8 */6 * * *",
       "31 3 * * *",
     ]);
     expect(discoveryWorkflow).toContain("PROFFERA_REMINDER_CRON_SECRET");

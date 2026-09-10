@@ -17,7 +17,7 @@ import { PrimeViewPrecisionBookingForm } from "./primeview-precision-booking-for
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Book Online | PrimeView Window Care",
+  title: { absolute: "Book Online | PrimeView Window Care" },
   description: "Book window, gutter, pressure washing and exterior cleaning with PrimeView Window Care in West & North London.",
   alternates: { canonical: "https://www.primeviewwindowcare.co.uk/booking" },
   robots: { index: true, follow: true },

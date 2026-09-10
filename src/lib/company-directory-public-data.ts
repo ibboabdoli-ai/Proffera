@@ -6,6 +6,7 @@ import {
 } from "@/lib/company-directory-contact-entitlement";
 import { getPublicDirectoryBusiness, type PublicDirectoryBusiness } from "@/lib/company-directory-engine";
 import { hasActivePaidDirectoryContactAccess } from "@/lib/company-directory-paid-contact-entitlement";
+import { readPublicDirectoryProfileCache } from "@/lib/company-directory-public-cache";
 import {
   resolveCompanyDirectoryCanonicalWorkplaceAddress,
   type DirectoryPublicAddress,
@@ -16,7 +17,9 @@ export type PublicDirectoryBusinessForRequest = PublicDirectoryBusiness & {
   publicationStatus: "published" | "claimed";
   organizationNumber: string;
   primarySniCode: string;
+  legalName: string;
   contact: DirectoryDirectContactDisclosure;
+  sharedCacheSafe: boolean;
 };
 
 type ScbDirectContact = {
@@ -30,6 +33,11 @@ type ClaimedOwnerPrimaryLocation = {
   isVisitable: boolean;
   confirmed: boolean;
   address: DirectoryPublicAddress;
+};
+
+type PublishedDirectoryResolution = {
+  business: PublicDirectoryBusinessForRequest;
+  sharedCacheSafe: boolean;
 };
 
 const EMPTY_PHYSICAL_ADDRESS: DirectoryPublicAddress = {
@@ -195,8 +203,10 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
     return {
       organizationNumber: "",
       primarySniCode: "",
+      legalName: "",
       address: EMPTY_PHYSICAL_ADDRESS,
       contact: emptyContact(),
+      claimedWorkspaceId: "",
     };
   }
 
@@ -204,6 +214,7 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
     select
       organization_number,
       organization_kind,
+      legal_name,
       primary_sni_code,
       website_url,
       claimed_workspace_id::text
@@ -219,8 +230,10 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
     return {
       organizationNumber: "",
       primarySniCode: "",
+      legalName: "",
       address: EMPTY_PHYSICAL_ADDRESS,
       contact: emptyContact(),
+      claimedWorkspaceId: "",
     };
   }
 
@@ -236,6 +249,7 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
   return {
     organizationNumber: publicDirectoryOrganizationNumber(row.organization_kind, row.organization_number),
     primarySniCode: String(row.primary_sni_code ?? ""),
+    legalName: String(row.legal_name ?? ""),
     address,
     contact: discloseDirectoryDirectContact({
       addressLine1: address.addressLine1,
@@ -243,6 +257,30 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
       email: scb?.email,
       website: row.website_url,
     }, false),
+    claimedWorkspaceId,
+  };
+}
+
+async function resolvePublishedDirectoryBusiness(slug: string): Promise<PublishedDirectoryResolution | null> {
+  const published = await getPublicDirectoryBusiness(slug);
+  if (!published) return null;
+  const publicContact = await getPublishedDirectoryContact(published);
+  const sharedCacheSafe = Boolean(publicContact.organizationNumber) && !publicContact.claimedWorkspaceId;
+  return {
+    business: {
+      ...published,
+      addressLine1: publicContact.contact.addressLine1,
+      postalCode: publicContact.address.postalCode,
+      city: publicContact.address.city,
+      municipality: publicContact.address.municipality,
+      publicationStatus: "published",
+      organizationNumber: publicContact.organizationNumber,
+      primarySniCode: publicContact.primarySniCode,
+      legalName: publicContact.legalName,
+      contact: publicContact.contact,
+      sharedCacheSafe,
+    },
+    sharedCacheSafe,
   };
 }
 
@@ -258,6 +296,7 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
       profile.public_slug,
       profile.organization_number,
       profile.organization_kind,
+      profile.legal_name,
       profile.display_name,
       profile.legal_form,
       profile.organization_status,
@@ -321,6 +360,7 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
     id: String(row.id),
     slug: String(row.public_slug),
     companyName: String(row.display_name),
+    legalName: String(row.legal_name ?? ""),
     legalForm: String(row.legal_form ?? ""),
     organizationStatus: String(row.organization_status ?? ""),
     categorySlug: String(row.category_slug ?? ""),
@@ -345,35 +385,28 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
     organizationNumber: publicDirectoryOrganizationNumber(row.organization_kind, row.organization_number),
     primarySniCode: String(row.primary_sni_code ?? ""),
     contact,
+    sharedCacheSafe: false,
   };
 }
 
 /**
- * Deduplicate the public directory business lookup across generateMetadata and
- * the Server Component tree for one render request. React invalidates this
- * memoization between server requests, so publication/privacy changes are not
- * persisted in an application-level cache here.
- *
- * A claimed profile may remain available as a read-only Directory fallback
- * when its previously published official data is still safe. Direct contact is
- * disclosed only when the claimed workspace has an active paid plan; Free and
- * Trial workspaces remain locked.
+ * React cache deduplicates metadata + Server Component work inside one render.
+ * The nested public-cache boundary absorbs cross-request traffic only for safe
+ * published, unclaimed juridical-person snapshots. A non-cacheable result is
+ * returned to this request without being persisted, so claimed and sole-trader
+ * paths re-evaluate their DB/entitlement state on every request.
  */
 export const getPublicDirectoryBusinessForRequest = cache(async (slug: string): Promise<PublicDirectoryBusinessForRequest | null> => {
-  const published = await getPublicDirectoryBusiness(slug);
-  if (published) {
-    const publicContact = await getPublishedDirectoryContact(published);
-    return {
-      ...published,
-      addressLine1: publicContact.contact.addressLine1,
-      postalCode: publicContact.address.postalCode,
-      city: publicContact.address.city,
-      municipality: publicContact.address.municipality,
-      publicationStatus: "published",
-      organizationNumber: publicContact.organizationNumber,
-      primarySniCode: publicContact.primarySniCode,
-      contact: publicContact.contact,
-    };
-  }
-  return getSafeClaimedDirectoryFallback(slug);
+  const normalized = slug.trim().toLowerCase();
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(normalized)) return null;
+
+  const published = await readPublicDirectoryProfileCache(normalized, async () => {
+    const resolved = await resolvePublishedDirectoryBusiness(normalized);
+    return resolved?.sharedCacheSafe
+      ? { cache: true, value: resolved.business }
+      : { cache: false, value: resolved?.business ?? null };
+  });
+  if (published) return published;
+
+  return getSafeClaimedDirectoryFallback(normalized);
 });
