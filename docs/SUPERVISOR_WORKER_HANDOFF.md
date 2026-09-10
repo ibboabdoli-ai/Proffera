@@ -61,6 +61,7 @@ Before dispatch and again immediately before publication, the workflow resolves 
 - another Worker owns the same graph path;
 - declared or observed file scope overlaps an active Worker;
 - a legacy Worker lacks enough graph/scope metadata to prove independence;
+- two writable Workers are already active globally; Worker #2 is admitted only when its graph path and both declared and observed touch scopes are proven disjoint, while Worker #3 fails closed;
 - an open Dependabot PR overlaps the requested file scope;
 - live `main` moves between packet creation and publication;
 - the Worker changes a forbidden, hard-blocked, or undeclared file.
@@ -102,6 +103,8 @@ Automation updates that comment in place instead of appending duplicate task-sta
 
 The handoff workflow uses one non-cancelling Supervisor concurrency group, so identical or graph-conflicting deliveries are serialized. A second run sees the first trusted task state and returns an already-dispatched result rather than creating another branch or PR. `TASK_BLOCKED` may be re-evaluated because no Worker was started; once a Worker-active/terminal state exists, the same task ID is not dispatched again.
 
+Repairs remain on the existing Worker branch and PR: repair → test → commit → push to the same branch. Recovery never creates a competing repair branch or PR.
+
 Malformed packets that do not provide a usable task ID receive one rejection record keyed by the source comment ID.
 
 ## Worker → Supervisor reconciliation
@@ -115,7 +118,9 @@ A new commit routes the task back to `CHECKS_PENDING`, invalidating earlier head
 - Targeted CI shadow;
 - Production base health.
 
-Only when all four current-head workflow runs are successful does the task become `READY_FOR_SUPERVISOR`. CI success still includes the repository's existing final browser/review gate, so this reconciliation does not create a parallel review system.
+Only when all four current-head workflow runs are successful does the task become `READY_FOR_SUPERVISOR`. The stable state then carries an exact `<task_id>@<head_sha>` readiness checkpoint. A new head invalidates that checkpoint. CI success still includes the repository's existing final browser/review gate, so this reconciliation does not create a parallel review system.
+
+Canonical CI scope planning may reduce execution only for genuinely isolated low-risk paths. Workflow/control-plane, authentication, security, data/database, provider, configuration, migration, package/lockfile, secret/environment, and Production-sensitive changes remain on FULL gates. Readiness also requires zero material unresolved current-head review findings.
 
 ## Human approval boundary
 
@@ -130,8 +135,10 @@ The automation prefers refusing duplicate work over guessing:
 - kill switch off → enable the label deliberately, then edit/repost the intended packet;
 - Worker produced no safe diff → task becomes blocked;
 - branch exists without a trustworthy PR binding → manual Supervisor review is required;
-- publication/authentication fails after local implementation → task becomes `WORKER_BLOCKED`; a retry cannot silently create a second Worker;
+- publication/authentication fails after local implementation → task becomes `WORKER_BLOCKED`; recovery repairs, tests, commits, and pushes the same branch and cannot silently create a second Worker;
 - PR closes unmerged → `CLOSED_UNMERGED`; a new attempt requires a new Supervisor-selected task identity;
 - main moves before publish → Worker output is not published; Supervisor creates a fresh-baseline task.
 
 No separate database, queue, SaaS orchestrator, Production service, or provider mutation is required for Phase 1.
+
+A publication artifact is a last-resort transport, never permission to reconstruct missing work. The repository helper accepts it only when `source_head` exactly equals the independently resolved current source head, `artifact_set_complete` is exactly `YES`, and it contains a complete newline-terminated unified diff plus complete full-file replacements (or explicitly numbered contiguous chunks). The declared path set, diff sections, replacements, and manifest must match exactly. UTF-8 byte counts, line counts, SHA-256 values, and Git blob SHAs are recomputed from every replacement. Stale heads, truncated hunks, missing or discontinuous chunks, path drift, count mismatches, and digest mismatches fail closed. A valid artifact is still published only to the existing branch and PR and grants no merge authority.

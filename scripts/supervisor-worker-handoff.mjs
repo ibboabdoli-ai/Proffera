@@ -59,6 +59,7 @@ const LIFECYCLE_RANK = Object.freeze({
 });
 
 const SHA_RE = /^[0-9a-f]{40}$/;
+const SHA256_RE = /^[0-9a-f]{64}$/;
 const TASK_ID_RE = /^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+){1,7}$/;
 const BRANCH_RE = /^work\/proffera-[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/;
 const GRAPH_RE = /^[a-z0-9][a-z0-9._/-]{0,159}$/;
@@ -130,6 +131,10 @@ function scopesIntersect(left, right) {
   if (left.endsWith("/")) return right.startsWith(left);
   if (right.endsWith("/")) return left.startsWith(right);
   return left === right;
+}
+
+function graphPathsIntersect(left, right) {
+  return left === right || left.startsWith(`${right}/`) || right.startsWith(`${left}/`);
 }
 
 function normalizeChecks(value) {
@@ -361,6 +366,7 @@ export function evaluateDispatchContext(context) {
     return blocked(`branch ${packet.branch} already exists without a trusted matching task PR`, packet, "branch_exists");
   }
 
+  let activeWorkerCount = 0;
   for (const rawPr of prs) {
     const pr = normalizePr(rawPr);
     if (!Number.isInteger(pr.number) || pr.number <= 0 || pr.base_ref !== "main") continue;
@@ -377,6 +383,7 @@ export function evaluateDispatchContext(context) {
     const isDependabot = pr.author === "dependabot[bot]" || pr.head_ref.startsWith("dependabot/");
 
     if (isWorkerPr) {
+      activeWorkerCount += 1;
       if (pr.head_repo !== EXPECTED_REPOSITORY || pr.author !== TRUSTED_SUPERVISOR_ACTOR) {
         return blocked(`open Worker PR #${pr.number} is not a trusted same-repository owner branch`, packet, "untrusted_worker_pr");
       }
@@ -384,7 +391,7 @@ export function evaluateDispatchContext(context) {
       if (!metadata.graphPath || !GRAPH_RE.test(metadata.graphPath) || metadata.graphPath.split("/").some((part) => part === "." || part === "..")) {
         return blocked(`graph-path ownership is ambiguous for open Worker PR #${pr.number}`, packet, "ambiguous_graph_owner");
       }
-      if (metadata.graphPath === packet.graph_path) {
+      if (graphPathsIntersect(metadata.graphPath, packet.graph_path)) {
         return blocked(`graph path ${packet.graph_path} is already owned by PR #${pr.number}`, packet, "graph_collision");
       }
       if (!Array.isArray(metadata.allowedPaths)) {
@@ -407,6 +414,10 @@ export function evaluateDispatchContext(context) {
         return blocked(`file scope '${overlap}' overlaps open PR #${pr.number}`, packet, isDependabot ? "dependabot_overlap" : "file_overlap");
       }
     }
+  }
+
+  if (activeWorkerCount >= 2) {
+    return blocked("global writable Worker limit is already two; refusing a third Worker", packet, "writable_worker_limit");
   }
 
   return {
@@ -442,6 +453,216 @@ export function validateChangedFiles(packetInput, changedFilesInput) {
   }
 
   return { ok: true, status: "VALID", code: "changes_bounded", reason: "all changed files remain inside the Task Packet scope", packet, changed_files: changedFiles };
+}
+
+function publicationInvalid(code, reason) {
+  return { ok: false, status: "INVALID", code, reason };
+}
+
+function publicationFailure(code, reason) {
+  const error = new Error(reason);
+  error.code = code;
+  throw error;
+}
+
+function normalizePublicationPaths(value, field) {
+  const paths = normalizeScopeArray(value, field);
+  for (const path of paths) {
+    if (path.endsWith("/")) publicationFailure("path_set_mismatch", `${field} must contain file paths, not directory scopes`);
+  }
+  return paths;
+}
+
+function samePathSet(left, right) {
+  if (left.length !== right.length) return false;
+  const expected = [...left].sort();
+  const actual = [...right].sort();
+  return expected.every((path, index) => path === actual[index]);
+}
+
+function parseUnifiedDiffPaths(value) {
+  if (typeof value !== "string" || !value.startsWith("diff --git ") || !value.endsWith("\n")) {
+    publicationFailure("diff_incomplete", "unified_diff must be a complete newline-terminated git diff");
+  }
+  const text = value.replaceAll("\r\n", "\n");
+  if (text.includes("GIT binary patch") || text.includes("Binary files ")) {
+    publicationFailure("diff_incomplete", "binary diffs are not valid full-replacement publication artifacts");
+  }
+  const lines = text.split("\n");
+  lines.pop();
+  const starts = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    if (lines[index].startsWith("diff --git ")) starts.push(index);
+  }
+  if (starts.length === 0 || starts[0] !== 0) publicationFailure("diff_incomplete", "unified_diff has no complete file section");
+
+  const paths = [];
+  for (let sectionIndex = 0; sectionIndex < starts.length; sectionIndex += 1) {
+    const section = lines.slice(starts[sectionIndex], starts[sectionIndex + 1] ?? lines.length);
+    const header = section[0].match(/^diff --git a\/(\S+) b\/(\S+)$/);
+    if (!header || header[1] !== header[2]) publicationFailure("diff_incomplete", "each diff section must identify one unambiguous repository path");
+    let path;
+    try {
+      path = assertSafeScope(header[1], "unified diff path");
+    } catch (error) {
+      publicationFailure("diff_incomplete", error instanceof Error ? error.message : "unified diff path is malformed");
+    }
+    if (path.endsWith("/") || paths.includes(path)) publicationFailure("diff_incomplete", `unified diff path '${path}' is duplicated or not a file`);
+
+    const firstHunk = section.findIndex((line) => line.startsWith("@@ "));
+    if (firstHunk < 0) publicationFailure("diff_incomplete", `unified diff section '${path}' has no complete text hunk`);
+    const preamble = section.slice(1, firstHunk);
+    const oldHeaders = preamble.filter((line) => line.startsWith("--- "));
+    const newHeaders = preamble.filter((line) => line.startsWith("+++ "));
+    if (oldHeaders.length !== 1 || newHeaders.length !== 1) {
+      publicationFailure("diff_incomplete", `unified diff section '${path}' must contain its own old and new file headers`);
+    }
+    const oldHeader = oldHeaders[0];
+    const newHeader = newHeaders[0];
+    if (oldHeader !== `--- a/${path}` && oldHeader !== "--- /dev/null") {
+      publicationFailure("diff_incomplete", `unified diff old-file header does not match '${path}'`);
+    }
+    if (newHeader !== `+++ b/${path}` && newHeader !== "+++ /dev/null") {
+      publicationFailure("diff_incomplete", `unified diff new-file header does not match '${path}'`);
+    }
+    if (oldHeader === "--- /dev/null" && newHeader === "+++ /dev/null") {
+      publicationFailure("diff_incomplete", `unified diff section '${path}' has no source or destination file`);
+    }
+    const indexHeaders = preamble.filter((line) => line.startsWith("index "));
+    const indexHeader = indexHeaders.length === 1
+      ? indexHeaders[0].match(/^index ([0-9a-f]{40})\.\.([0-9a-f]{40})(?: [0-7]{6})?$/)
+      : null;
+    if (!indexHeader || /^0{40}$/.test(indexHeader[2])) {
+      publicationFailure("diff_incomplete", `unified diff section '${path}' must contain one full non-deletion Git blob index`);
+    }
+    if (newHeader === "+++ /dev/null" || (oldHeader === "--- /dev/null") !== /^0{40}$/.test(indexHeader[1])) {
+      publicationFailure("diff_incomplete", `unified diff section '${path}' has inconsistent file and Git blob headers`);
+    }
+
+    let cursor = firstHunk;
+    while (cursor < section.length) {
+      const hunk = section[cursor].match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(?: .*)?$/);
+      if (!hunk) publicationFailure("diff_incomplete", `unified diff section '${path}' has malformed or trailing hunk data`);
+      const expectedOld = hunk[2] === undefined ? 1 : Number(hunk[2]);
+      const expectedNew = hunk[4] === undefined ? 1 : Number(hunk[4]);
+      let oldLines = 0;
+      let newLines = 0;
+      cursor += 1;
+      while (cursor < section.length && !section[cursor].startsWith("@@ ")) {
+        const line = section[cursor];
+        if (line === "\\ No newline at end of file") {
+          cursor += 1;
+          continue;
+        }
+        if (line.startsWith(" ")) {
+          oldLines += 1;
+          newLines += 1;
+        } else if (line.startsWith("-")) {
+          oldLines += 1;
+        } else if (line.startsWith("+")) {
+          newLines += 1;
+        } else {
+          publicationFailure("diff_incomplete", `unified diff section '${path}' contains truncated hunk data`);
+        }
+        cursor += 1;
+      }
+      if (oldLines !== expectedOld || newLines !== expectedNew) {
+        publicationFailure("diff_incomplete", `unified diff section '${path}' hunk line counts do not match its header`);
+      }
+    }
+    paths.push({ path, new_blob_sha: indexHeader[2] });
+  }
+  return paths;
+}
+
+function replacementContent(entry) {
+  const hasContent = Object.prototype.hasOwnProperty.call(entry, "content");
+  const hasChunks = Object.prototype.hasOwnProperty.call(entry, "chunks");
+  if (hasContent === hasChunks) publicationFailure("replacement_incomplete", "each replacement must provide exactly one of content or chunks");
+  if (hasContent) {
+    if (typeof entry.content !== "string") publicationFailure("replacement_incomplete", "replacement content must be a string");
+    return entry.content;
+  }
+  if (!Array.isArray(entry.chunks) || entry.chunks.length === 0) publicationFailure("missing_chunk", "replacement chunks must not be empty");
+  const total = entry.chunks[0]?.total;
+  if (!Number.isInteger(total) || total <= 0 || total !== entry.chunks.length) {
+    publicationFailure("missing_chunk", "replacement chunk total does not match the supplied chunk count");
+  }
+  return entry.chunks.map((chunk, index) => {
+    if (!chunk || typeof chunk !== "object" || Array.isArray(chunk)) publicationFailure("missing_chunk", "replacement chunk is malformed");
+    if (chunk.number !== index + 1 || chunk.total !== total) publicationFailure("missing_chunk", "replacement chunks must be numbered contiguously from one");
+    if (typeof chunk.content !== "string") publicationFailure("missing_chunk", "replacement chunk content must be a string");
+    return chunk.content;
+  }).join("");
+}
+
+function replacementLineCount(content) {
+  if (content.length === 0) return 0;
+  return content.split("\n").length - (content.endsWith("\n") ? 1 : 0);
+}
+
+export function validatePublicationArtifact(input) {
+  try {
+    if (!input || typeof input !== "object" || Array.isArray(input)) publicationFailure("artifact_malformed", "publication validation input must be an object");
+    const currentSourceHead = assertPlainString(input.current_source_head, "current_source_head", 40).toLowerCase();
+    if (!SHA_RE.test(currentSourceHead)) publicationFailure("artifact_malformed", "current_source_head must be a 40-character commit SHA");
+    const artifact = input.artifact;
+    if (!artifact || typeof artifact !== "object" || Array.isArray(artifact)) publicationFailure("artifact_malformed", "artifact must be an object");
+    const sourceHead = assertPlainString(artifact.source_head, "artifact.source_head", 40).toLowerCase();
+    if (!SHA_RE.test(sourceHead)) publicationFailure("artifact_malformed", "artifact.source_head must be a 40-character commit SHA");
+    if (sourceHead !== currentSourceHead) publicationFailure("stale_source_head", `publication artifact source ${sourceHead} is stale; current source is ${currentSourceHead}`);
+    if (artifact.artifact_set_complete !== "YES") publicationFailure("artifact_incomplete", "ARTIFACT_SET_COMPLETE must be exactly YES");
+
+    const paths = normalizePublicationPaths(artifact.paths, "artifact.paths");
+    const diffEntries = parseUnifiedDiffPaths(artifact.unified_diff);
+    const diffPaths = diffEntries.map((entry) => entry.path);
+    if (!samePathSet(paths, diffPaths)) publicationFailure("path_set_mismatch", "unified diff path set does not exactly match artifact.paths");
+    if (!Array.isArray(artifact.replacements) || !Array.isArray(artifact.manifest)) {
+      publicationFailure("artifact_malformed", "artifact replacements and manifest must be arrays");
+    }
+    const replacementPaths = artifact.replacements.map((entry) => String(entry?.path ?? ""));
+    const manifestPaths = artifact.manifest.map((entry) => String(entry?.path ?? ""));
+    if (!samePathSet(paths, replacementPaths) || !samePathSet(paths, manifestPaths) || new Set(replacementPaths).size !== replacementPaths.length || new Set(manifestPaths).size !== manifestPaths.length) {
+      publicationFailure("path_set_mismatch", "replacement and manifest path sets must exactly match artifact.paths without duplicates");
+    }
+
+    const manifestByPath = new Map(artifact.manifest.map((entry) => [entry.path, entry]));
+    const diffBlobByPath = new Map(diffEntries.map((entry) => [entry.path, entry.new_blob_sha]));
+    for (const entry of artifact.replacements) {
+      const path = assertSafeScope(entry.path, "replacement path");
+      const content = replacementContent(entry);
+      const bytes = Buffer.from(content, "utf8");
+      if (bytes.toString("utf8") !== content) publicationFailure("replacement_incomplete", `replacement '${path}' is not lossless UTF-8 text`);
+      const manifest = manifestByPath.get(path);
+      if (!manifest || !Number.isInteger(manifest.bytes) || manifest.bytes < 0 || manifest.bytes !== bytes.length) {
+        publicationFailure("byte_count_mismatch", `replacement '${path}' byte count does not match its manifest`);
+      }
+      const lines = replacementLineCount(content);
+      if (!Number.isInteger(manifest.lines) || manifest.lines < 0 || manifest.lines !== lines) {
+        publicationFailure("line_count_mismatch", `replacement '${path}' line count does not match its manifest`);
+      }
+      const sha256 = String(manifest.sha256 ?? "").toLowerCase();
+      const gitBlobSha = String(manifest.git_blob_sha ?? "").toLowerCase();
+      if (!SHA256_RE.test(sha256) || createHash("sha256").update(bytes).digest("hex") !== sha256) {
+        publicationFailure("digest_mismatch", `replacement '${path}' SHA-256 does not match its manifest`);
+      }
+      const computedBlob = createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
+      if (!SHA_RE.test(gitBlobSha) || computedBlob !== gitBlobSha || diffBlobByPath.get(path) !== gitBlobSha) {
+        publicationFailure("digest_mismatch", `replacement '${path}' Git blob SHA does not match its manifest and unified diff`);
+      }
+    }
+
+    return {
+      ok: true,
+      status: "VALID",
+      code: "publication_artifact_valid",
+      reason: "publication artifact is complete, exact-source bound, path-consistent, and digest-verified",
+      source_head: sourceHead,
+      paths,
+    };
+  } catch (error) {
+    return publicationInvalid(error?.code ?? "artifact_malformed", error instanceof Error ? error.message : "publication artifact is malformed");
+  }
 }
 
 export function parseTaskStateBody(body = "") {
@@ -532,6 +753,9 @@ export function taskStateBody({ packet: packetInput, state, reason, run_id = "",
   const headSha = String(head_sha ?? "").toLowerCase();
   if (headSha && !SHA_RE.test(headSha)) throw new Error("head_sha is malformed");
   if (pr_number !== null && (!Number.isInteger(Number(pr_number)) || Number(pr_number) <= 0)) throw new Error("pr_number is malformed");
+  if (normalizedState === "READY_FOR_SUPERVISOR" && (!headSha || pr_number === null)) {
+    throw new Error("READY_FOR_SUPERVISOR requires an exact head_sha and pr_number");
+  }
 
   const lines = [
     `${TASK_STATE_MARKER_PREFIX}${packet.task_id} -->`,
@@ -545,6 +769,7 @@ export function taskStateBody({ packet: packetInput, state, reason, run_id = "",
   if (runId) lines.push(`- Run ID: \`${runId}\``);
   if (pr_number !== null) lines.push(`- PR: #${Number(pr_number)}`);
   if (headSha) lines.push(`- Head: \`${headSha}\``);
+  if (normalizedState === "READY_FOR_SUPERVISOR") lines.push(`- Ready checkpoint: \`${packet.task_id}@${headSha}\``);
   lines.push(`- Reason: ${cleanReason(reason)}`);
   lines.push("- Production mutation: `false`");
   lines.push("- Merge allowed: `false`");
@@ -622,6 +847,10 @@ async function main() {
   }
   if (mode === "validate-changes") {
     process.stdout.write(`${JSON.stringify(validateChangedFiles(parsed.packet, parsed.changed_files))}\n`);
+    return;
+  }
+  if (mode === "validate-publication") {
+    process.stdout.write(`${JSON.stringify(validatePublicationArtifact(parsed))}\n`);
     return;
   }
   if (mode === "transition") {

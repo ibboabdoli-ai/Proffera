@@ -1,17 +1,19 @@
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { delimiter, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 
 import { describe, expect, it } from "vitest";
 
 const helper = resolve(process.cwd(), "scripts/supervisor-worker-handoff.mjs");
+const ciScopeHelper = resolve(process.cwd(), "scripts/ci-scope-plan.mjs");
 const sha = "a".repeat(40);
 const otherSha = "b".repeat(40);
 const taskMarker = "<!-- proffera-worker-task-packet:v1 -->";
 
 function source(path: string) {
-  return readFileSync(resolve(process.cwd(), path), "utf8");
+  return readFileSync(resolve(process.cwd(), path), "utf8").replaceAll("\r\n", "\n");
 }
 
 function executableRunText(workflow: string) {
@@ -133,6 +135,58 @@ function run(mode: string, input: unknown) {
   });
   expect(result.status, result.stderr).toBe(0);
   return JSON.parse(result.stdout) as Record<string, unknown>;
+}
+
+function runText(mode: string, input: unknown) {
+  const result = spawnSync(process.execPath, [helper, mode], {
+    input: typeof input === "string" ? input : JSON.stringify(input),
+    encoding: "utf8",
+  });
+  expect(result.status, result.stderr).toBe(0);
+  return result.stdout;
+}
+
+function ciPlan(paths: string[]) {
+  const result = spawnSync(process.execPath, [ciScopeHelper], {
+    input: `${paths.join("\n")}\n`,
+    encoding: "utf8",
+  });
+  expect(result.status, result.stderr).toBe(0);
+  return JSON.parse(result.stdout) as Record<string, unknown>;
+}
+
+function publicationInput(overrides: Record<string, unknown> = {}, currentSourceHead = sha) {
+  const path = "docs/example.md";
+  const content = "new\n";
+  const bytes = Buffer.from(content, "utf8");
+  const gitBlobSha = createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
+  return {
+    current_source_head: currentSourceHead,
+    artifact: {
+      source_head: sha,
+      artifact_set_complete: "YES",
+      paths: [path],
+      unified_diff: [
+        `diff --git a/${path} b/${path}`,
+        `index ${"1".repeat(40)}..${gitBlobSha} 100644`,
+        `--- a/${path}`,
+        `+++ b/${path}`,
+        "@@ -1 +1 @@",
+        "-old",
+        "+new",
+        "",
+      ].join("\n"),
+      replacements: [{ path, content }],
+      manifest: [{
+        path,
+        bytes: bytes.length,
+        lines: 1,
+        sha256: createHash("sha256").update(bytes).digest("hex"),
+        git_blob_sha: gitBlobSha,
+      }],
+      ...overrides,
+    },
+  };
 }
 
 function evaluate(context: Record<string, unknown>) {
@@ -262,8 +316,25 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     expect(evaluate(baseContext({ open_prs: [workerPr({ files: ["src/features/test/live.ts"] })] })).code).toBe("file_overlap");
   });
 
-  it("accepts an independent graph path with disjoint declared scope", () => {
+  it("allows a disjoint second writable Worker", () => {
     expect(evaluate(baseContext({ open_prs: [workerPr()] })).status).toBe("TASK_CREATED");
+  });
+
+  it("rejects hierarchical graph overlap for a second writable Worker", () => {
+    const existing = workerPr({
+      body: 'Task ID: OTHER-1\nGraph path: feature/test/subpath\nAllowed paths: ["src/features/other/"]',
+    });
+    expect(evaluate(baseContext({ open_prs: [existing] })).code).toBe("graph_collision");
+  });
+
+  it("fails closed when dispatch would create a third writable Worker", () => {
+    const second = workerPr({
+      number: 901,
+      head_ref: "work/proffera-second",
+      body: 'Task ID: OTHER-2\nGraph path: feature/second\nAllowed paths: ["src/features/second/"]',
+      files: ["src/features/second/a.ts"],
+    });
+    expect(evaluate(baseContext({ open_prs: [workerPr(), second] })).code).toBe("writable_worker_limit");
   });
 
   it("fails closed when a legacy Worker has ambiguous graph ownership", () => {
@@ -427,7 +498,7 @@ exit 0
       encoding: "utf8",
       env: {
         ...process.env,
-        PATH: `${bin}:${process.env.PATH ?? ""}`,
+        PATH: `${bin}${delimiter}${process.env.Path ?? process.env.PATH ?? ""}`,
         GH_LOG: ghLog,
         PR_JSON_FILE: prJsonFile,
         GH_TOKEN: "test-token",
@@ -676,6 +747,26 @@ exit 0
     expect(current.apply).toBe(true);
   });
 
+  it("writes a durable exact-task/exact-head READY checkpoint without merge authority", () => {
+    const body = runText("state-body", {
+      packet: packet(),
+      state: "READY_FOR_SUPERVISOR",
+      reason: "All required exact-head evidence is green.",
+      run_id: "1001",
+      pr_number: 900,
+      head_sha: sha,
+    });
+    expect(body).toContain(`- Ready checkpoint: \`SUP-TEST-1@${sha}\``);
+    expect(body).toContain("- Merge allowed: `false`");
+    expect(body).toContain("- Auto-merge allowed: `false`");
+
+    const missingHead = spawnSync(process.execPath, [helper, "state-body"], {
+      input: JSON.stringify({ packet: packet(), state: "READY_FOR_SUPERVISOR", reason: "unsafe", pr_number: 900 }),
+      encoding: "utf8",
+    });
+    expect(missingHead.status).not.toBe(0);
+  });
+
   it("duplicate lifecycle/check events are idempotent", () => {
     const lifecycle = transition({
       current_body: stateBody("CHECKS_PENDING"),
@@ -731,6 +822,83 @@ exit 0
     expect(run("validate-changes", { packet: packet(), changed_files: ["package.json"] }).code).toBe("hard_blocked_change");
     expect(run("validate-changes", { packet: packet(), changed_files: ["scripts/supervisor-worker-handoff.mjs"] }).code).toBe("hard_blocked_change");
     expect(run("validate-changes", { packet: packet(), changed_files: ["src/unrelated.ts"] }).code).toBe("out_of_scope_change");
+  });
+
+  it("accepts only a complete exact-source publication artifact", () => {
+    const result = run("validate-publication", publicationInput());
+    expect(result.ok).toBe(true);
+    expect(result.code).toBe("publication_artifact_valid");
+  });
+
+  it("rejects stale-head and incomplete publication artifacts", () => {
+    expect(run("validate-publication", publicationInput({}, otherSha)).code).toBe("stale_source_head");
+    expect(run("validate-publication", publicationInput({ artifact_set_complete: "NO" })).code).toBe("artifact_incomplete");
+  });
+
+  it("rejects missing or discontinuous publication chunks", () => {
+    const replacements = [{
+      path: "docs/example.md",
+      chunks: [{ number: 1, total: 2, content: "new\n" }],
+    }];
+    expect(run("validate-publication", publicationInput({ replacements })).code).toBe("missing_chunk");
+
+    const discontinuous = [{
+      path: "docs/example.md",
+      chunks: [
+        { number: 1, total: 2, content: "ne" },
+        { number: 3, total: 2, content: "w\n" },
+      ],
+    }];
+    expect(run("validate-publication", publicationInput({ replacements: discontinuous })).code).toBe("missing_chunk");
+  });
+
+  it("rejects publication path-set and digest mismatches", () => {
+    expect(run("validate-publication", publicationInput({ paths: ["docs/other.md"] })).code).toBe("path_set_mismatch");
+    const input = publicationInput();
+    const artifact = input.artifact as Record<string, unknown>;
+    const manifest = structuredClone(artifact.manifest) as Array<Record<string, unknown>>;
+    manifest[0].sha256 = "0".repeat(64);
+    expect(run("validate-publication", { ...input, artifact: { ...artifact, manifest } }).code).toBe("digest_mismatch");
+
+    const wrongDiffDigest = String(artifact.unified_diff).replace(String((artifact.manifest as Array<Record<string, unknown>>)[0].git_blob_sha), "2".repeat(40));
+    expect(run("validate-publication", { ...input, artifact: { ...artifact, unified_diff: wrongDiffDigest } }).code).toBe("digest_mismatch");
+  });
+
+  it("rejects replacement byte and line count mismatches", () => {
+    const input = publicationInput();
+    const artifact = input.artifact as Record<string, unknown>;
+    const byteManifest = structuredClone(artifact.manifest) as Array<Record<string, unknown>>;
+    byteManifest[0].bytes = 3;
+    expect(run("validate-publication", { ...input, artifact: { ...artifact, manifest: byteManifest } }).code).toBe("byte_count_mismatch");
+
+    const lineManifest = structuredClone(artifact.manifest) as Array<Record<string, unknown>>;
+    lineManifest[0].lines = 2;
+    expect(run("validate-publication", { ...input, artifact: { ...artifact, manifest: lineManifest } }).code).toBe("line_count_mismatch");
+  });
+
+  it("rejects a truncated unified-diff hunk", () => {
+    const input = publicationInput();
+    const artifact = input.artifact as Record<string, unknown>;
+    const truncated = String(artifact.unified_diff).replace("@@ -1 +1 @@", "@@ -1 +1,2 @@");
+    expect(run("validate-publication", { ...input, artifact: { ...artifact, unified_diff: truncated } }).code).toBe("diff_incomplete");
+
+    const falseDeletion = String(artifact.unified_diff).replace("+++ b/docs/example.md", "+++ /dev/null");
+    expect(run("validate-publication", { ...input, artifact: { ...artifact, unified_diff: falseDeletion } }).code).toBe("diff_incomplete");
+  });
+
+  it("keeps sensitive work on FULL gates and permits canonical low-risk routing", () => {
+    const sensitive = ciPlan([".github/workflows/worker-supervisor-sync.yml"]);
+    expect(sensitive.classification).toBe("restricted-full");
+    expect(sensitive.fullCiStillRequired).toBe(true);
+    expect(sensitive.proposedLanes).toEqual(["governance", "whitespace", "lint", "typecheck", "unit", "build", "e2e", "discovery-worker"]);
+
+    const docs = ciPlan(["docs/example.md"]);
+    expect(docs.classification).toBe("low-docs");
+    expect(docs.fullCiStillRequired).toBe(false);
+
+    const isolatedTest = ciPlan(["tests/example.test.ts"]);
+    expect(isolatedTest.classification).toBe("low-mapped");
+    expect(isolatedTest.fullCiStillRequired).toBe(false);
   });
 
   it("uses the existing pinned Codex action but never exposes the push credential to that action", () => {

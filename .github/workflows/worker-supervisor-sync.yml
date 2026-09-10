@@ -358,6 +358,10 @@ jobs:
 
           state_json="$(jq -n --argjson packet "$packet" --arg state "$state" --arg reason "$reason" --arg run_id "$RUN_ID" --argjson pr_number "$pr_number" --arg head_sha "$head_sha" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,pr_number:$pr_number,head_sha:$head_sha}')"
           body="$(printf '%s' "$state_json" | node "$helper" state-body)"
+          if [ "$state" = "READY_FOR_SUPERVISOR" ]; then
+            ready_checkpoint="- Ready checkpoint: \`${task_id}@${head_sha}\`"
+            grep -Fqx -- "$ready_checkpoint" <<< "$body"
+          fi
           if [ -n "$comment_id" ]; then
             gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${comment_id}" -f body="$body" >/dev/null
           else
