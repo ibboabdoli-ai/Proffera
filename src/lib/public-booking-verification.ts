@@ -45,7 +45,8 @@ export function validatePrimeViewServiceAddress(input: { address?: string; postc
 
   if (propertyType === "Flat / Apartment") {
     if (parts.length !== 3) return false;
-    if (!/^(?:flat|apartment|unit)\s+\S/i.test(parts[0])) return false;
+    const unitIdentifier = parts[0].match(/^(?:flat|apartment|unit)\s+(.+)$/i)?.[1]?.trim() ?? "";
+    if (!unitIdentifier || /^(?:flat|apartment|unit)$/i.test(unitIdentifier)) return false;
     return Boolean(parts[1] && parts[2]);
   }
 
