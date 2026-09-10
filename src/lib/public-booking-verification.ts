@@ -12,6 +12,41 @@ import type { WorkspaceTimeZone } from "@/lib/workspace-market";
 
 const EXPIRY_MINUTES = 10;
 const DAY_SECONDS = 60 * 60 * 24;
+const UK_POSTCODE = /^[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}$/i;
+
+function cleanAddressPart(value: string) {
+  return value.trim().replace(/\s+/g, " ");
+}
+
+function bookingDetailValue(bookingDetails: string, label: string) {
+  const prefix = `${label.toLowerCase()}:`;
+  const line = bookingDetails
+    .split(/\r?\n/)
+    .map((value) => value.trim())
+    .find((value) => value.toLowerCase().startsWith(prefix));
+  return line ? cleanAddressPart(line.slice(prefix.length)) : "";
+}
+
+export function validatePrimeViewServiceAddress(input: { address?: string; postcode?: string; bookingDetails?: string }) {
+  const postcode = cleanAddressPart(input.postcode ?? "").toUpperCase();
+  if (!UK_POSTCODE.test(postcode)) return false;
+
+  const propertyType = bookingDetailValue(input.bookingDetails ?? "", "Property type");
+  if (!propertyType) return false;
+
+  const parts = (input.address ?? "")
+    .split(",")
+    .map(cleanAddressPart)
+    .filter(Boolean);
+
+  if (propertyType === "Flat / Apartment") {
+    if (parts.length !== 3) return false;
+    if (!/^(?:flat|apartment|unit)\s+\S/i.test(parts[0])) return false;
+    return Boolean(parts[1] && parts[2]);
+  }
+
+  return parts.length === 2 && Boolean(parts[0] && parts[1]);
+}
 
 function hashCode(id: string, code: string) {
   const secret = process.env.BETTER_AUTH_SECRET ?? process.env.AUTH_SECRET ?? "proffera-booking-verification";
@@ -67,6 +102,10 @@ export type BeginBookingVerificationInput = {
 };
 
 export async function beginBookingEmailVerification(input: BeginBookingVerificationInput) {
+  if (input.slug === "primeview" && !validatePrimeViewServiceAddress(input)) {
+    return { ok: false as const, error: "address" };
+  }
+
   const sql = getSql();
   if (!sql) return { ok: false as const, error: "database" };
   if (!/^[0-9a-f-]{36}$/i.test(input.serviceId)) return { ok: false as const, error: "service" };
@@ -214,6 +253,7 @@ export async function verifyPublicBookingCode(id: string, code: string) {
   if (conflict[0]) return { ok: false as const, error: "conflict" };
 
   const customerLockKey = `${String(challenge.workspace_id)}:${String(challenge.customer_email).toLowerCase()}`;
+  const appendExistingCustomerNote = String(challenge.public_booking_slug) === "primeview" && Boolean(bookingNote);
   const [, booked] = await sql.transaction([
     sql`select pg_advisory_xact_lock(hashtextextended(${customerLockKey}::text, 0))`,
     sql`
@@ -225,6 +265,16 @@ export async function verifyPublicBookingCode(id: string, code: string) {
         insert into customers (workspace_id, name, email, phone, city, status, source, notes)
         select ${String(challenge.workspace_id)}, ${String(challenge.customer_name)}, ${String(challenge.customer_email)}, ${challenge.customer_phone ? String(challenge.customer_phone) : null}, ${challenge.city ? String(challenge.city) : null}, 'prospect', 'public_booking', ${bookingNote || null}
         where not exists (select 1 from existing_customer)
+        returning id
+      ), updated_existing_customer as (
+        update customers
+        set notes = case
+          when coalesce(trim(notes), '') = '' then ${bookingNote || null}
+          when position(${bookingNote} in coalesce(notes, '')) > 0 then notes
+          else rtrim(notes) || E'\n\n' || ${bookingNote}
+        end
+        where ${appendExistingCustomerNote} = true
+          and id in (select id from existing_customer)
         returning id
       ), selected_customer as (
         select id from existing_customer union all select id from inserted_customer limit 1
