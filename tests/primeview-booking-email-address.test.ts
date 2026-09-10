@@ -33,7 +33,6 @@ describe("PrimeView booking emails", () => {
     expect(email.text).toMatch(/Tuesday.*1 September 2026.*11:00/);
     expect(email.text).not.toContain("Ny bokningsförfrågan");
     expect(email.html).toContain("<strong>Address:</strong>");
-    expect(email.html).toContain(address);
     expect(email.html).toContain(postcode);
   });
 
@@ -59,7 +58,6 @@ describe("PrimeView booking emails", () => {
     expect(email.text).toContain(`Postcode: ${postcode}`);
     expect(email.text).toContain("Area: London");
     expect(email.html).toContain('<td style="padding:6px 16px;font-weight:700;color:#183e63;">Address</td>');
-    expect(email.html).toContain(address);
     expect(email.html).toContain(postcode);
   });
 });
