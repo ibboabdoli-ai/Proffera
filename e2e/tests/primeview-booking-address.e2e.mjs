@@ -41,6 +41,7 @@ async function exerciseAddressValidation(page) {
 
   await page.locator('[data-address-field="unit"]').fill("2B");
   await expect(page.locator('input[name="address"]')).toHaveValue("Flat 2B, 10, High Street");
+  await expect(page.getByText("Enter the flat, apartment or unit number.")).toHaveCount(0);
 }
 
 test("PrimeView complete-address validation works on desktop without submitting a booking", async ({ page }) => {
