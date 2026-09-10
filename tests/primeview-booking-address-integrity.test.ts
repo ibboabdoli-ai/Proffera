@@ -72,6 +72,10 @@ describe("PrimeView canonical service address validation", () => {
     expect(validatePrimeViewServiceAddress({ address: "10, High Street", postcode: "W4 3ES", bookingDetails: details("Flat / Apartment") })).toBe(false);
   });
 
+  it("rejects a bare unit-type label as the flat identifier", () => {
+    expect(validatePrimeViewServiceAddress({ address: "Flat Flat, 10, High Street", postcode: "W4 3ES", bookingDetails: details("Flat / Apartment") })).toBe(false);
+  });
+
   it("accepts a complete flat address", () => {
     expect(validatePrimeViewServiceAddress({ address: "Flat 2B, 10, High Street", postcode: "W4 3ES", bookingDetails: details("Flat / Apartment") })).toBe(true);
   });
