@@ -53,11 +53,13 @@ function cleanUnit(value: string) { return cleanAddressPart(value).replace(/^(?:
 function buildCanonicalAddress(houseBuilding: string, street: string, unit: string, isFlat: boolean) {
   return [isFlat && cleanUnit(unit) ? `Flat ${cleanUnit(unit)}` : "", cleanAddressPart(houseBuilding), cleanAddressPart(street)].filter(Boolean).join(", ");
 }
-function parseAutocompleteAddress(address: string, postcode: string) {
+export function parsePrimeViewAutocompleteAddress(address: string, postcode: string, propertyType: string) {
   const compactPostcode = postcode.toUpperCase().replace(/\s+/g, "");
   const parts = address.split(",").map((value) => value.trim()).filter(Boolean).filter((value) => value.toUpperCase().replace(/\s+/g, "") !== compactPostcode);
   if (parts.length >= 3) parts.pop();
-  while (parts.length && /^(?:flat|apartment|unit|room|suite)\b/i.test(parts[0])) parts.shift();
+  if (propertyType === "Flat / Apartment") {
+    while (parts.length && /^(?:flat|apartment|unit|room|suite)\b/i.test(parts[0])) parts.shift();
+  }
   if (!parts.length) return { houseBuilding: "", street: "" };
   const numbered = parts[0].match(/^(\d+[A-Za-z]?(?:[-/]\d+[A-Za-z]?)?)\s+(.+)$/);
   if (numbered) return { houseBuilding: numbered[1], street: cleanAddressPart(numbered[2]) };
@@ -132,6 +134,7 @@ export function PrimeViewPrecisionBookingForm({ action, services, bookingHours, 
   }
 
   function handleAddressSubmit(event: FormEvent<HTMLFormElement>) {
+    const form = event.currentTarget;
     const nextErrors: AddressErrors = {};
     if (!postcode.trim()) nextErrors.postcode = "Enter your UK postcode.";
     else if (!UK_POSTCODE.test(postcode.trim())) nextErrors.postcode = "Enter a valid UK postcode, for example W4 3ES.";
@@ -143,7 +146,7 @@ export function PrimeViewPrecisionBookingForm({ action, services, bookingHours, 
     if (!firstInvalid) return;
     event.preventDefault();
     requestAnimationFrame(() => {
-      const element = event.currentTarget.querySelector<HTMLElement>(`[data-address-field="${firstInvalid}"]`);
+      const element = form.querySelector<HTMLElement>(`[data-address-field="${firstInvalid}"]`);
       element?.scrollIntoView({ behavior: "smooth", block: "center" });
       element?.focus({ preventScroll: true });
     });
@@ -170,7 +173,7 @@ export function PrimeViewPrecisionBookingForm({ action, services, bookingHours, 
             <Field label="Parking"><select name="parking" required value={parking} onChange={(e) => setParking(e.target.value)} className={fieldClass}><option>Parking directly outside</option><option>Parking nearby</option><option>Difficult / paid parking</option></select></Field>
             <Field label="Pets at property"><select name="pets" required value={pets} onChange={(e) => setPets(e.target.value)} className={fieldClass}><option>No</option><option>Yes</option></select></Field>
             <Field label="UK postcode"><input name="postcode" data-address-field="postcode" autoComplete="postal-code" placeholder="W4 3ES" value={postcode} aria-invalid={Boolean(addressErrors.postcode)} aria-describedby={addressErrors.postcode ? "postcode-error" : undefined} onChange={(e) => { setPostcode(e.target.value.toUpperCase()); setAddressErrors((current) => ({ ...current, postcode: undefined })); }} className={fieldClass} />{addressError(addressErrors, "postcode")}</Field>
-            <div className="sm:col-span-2 rounded-2xl border border-[#d9e4ef] bg-[#f9fbfe] p-4"><div className="flex items-center gap-2 text-sm font-black text-[#183e63]"><MapPin className="h-4 w-4 text-[#1769c2]" />Find your address</div><PrimeViewGoogleAddressAutocomplete onSelect={({ address: nextAddress, postcode: nextPostcode }) => { const effectivePostcode = nextPostcode || postcode; const parsed = parseAutocompleteAddress(nextAddress, effectivePostcode); if (parsed.houseBuilding) setHouseBuilding(parsed.houseBuilding); if (parsed.street) setStreet(parsed.street); setUnit(""); if (nextPostcode) setPostcode(nextPostcode); setAddressErrors((current) => ({ ...current, postcode: undefined, houseBuilding: parsed.houseBuilding ? undefined : current.houseBuilding, street: parsed.street ? undefined : current.street, unit: propertyType === "Flat / Apartment" ? current.unit : undefined })); }} /></div>
+            <div className="sm:col-span-2 rounded-2xl border border-[#d9e4ef] bg-[#f9fbfe] p-4"><div className="flex items-center gap-2 text-sm font-black text-[#183e63]"><MapPin className="h-4 w-4 text-[#1769c2]" />Find your address</div><PrimeViewGoogleAddressAutocomplete onSelect={({ address: nextAddress, postcode: nextPostcode }) => { const effectivePostcode = nextPostcode || postcode; const parsed = parsePrimeViewAutocompleteAddress(nextAddress, effectivePostcode, propertyType); if (parsed.houseBuilding) setHouseBuilding(parsed.houseBuilding); if (parsed.street) setStreet(parsed.street); setUnit(""); if (nextPostcode) setPostcode(nextPostcode); setAddressErrors((current) => ({ ...current, postcode: undefined, houseBuilding: parsed.houseBuilding ? undefined : current.houseBuilding, street: parsed.street ? undefined : current.street, unit: propertyType === "Flat / Apartment" ? current.unit : undefined })); }} /></div>
             <Field label="House number or building name"><input name="address_house_building" data-address-field="houseBuilding" autoComplete="address-line1" placeholder="e.g. 10 or Cricket Pavilion" value={houseBuilding} aria-invalid={Boolean(addressErrors.houseBuilding)} aria-describedby={addressErrors.houseBuilding ? "houseBuilding-error" : undefined} onChange={(e) => { setHouseBuilding(e.target.value); setAddressErrors((current) => ({ ...current, houseBuilding: undefined })); }} className={fieldClass} />{addressError(addressErrors, "houseBuilding")}</Field>
             <Field label="Street address"><input name="address_street" data-address-field="street" autoComplete="address-line2" placeholder="e.g. Staveley Road" value={street} aria-invalid={Boolean(addressErrors.street)} aria-describedby={addressErrors.street ? "street-error" : undefined} onChange={(e) => { setStreet(e.target.value); setAddressErrors((current) => ({ ...current, street: undefined })); }} className={fieldClass} />{addressError(addressErrors, "street")}</Field>
             {propertyType === "Flat / Apartment" ? <Field label="Flat / apartment / unit number" wide><input name="address_unit" data-address-field="unit" autoComplete="address-line3" placeholder="e.g. 2B" value={unit} aria-invalid={Boolean(addressErrors.unit)} aria-describedby={addressErrors.unit ? "unit-error" : undefined} onChange={(e) => { setUnit(e.target.value); setAddressErrors((current) => ({ ...current, unit: undefined })); }} className={fieldClass} />{addressError(addressErrors, "unit")}</Field> : null}
