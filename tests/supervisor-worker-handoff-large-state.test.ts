@@ -14,6 +14,19 @@ function occurrences(text: string, needle: string) {
   return text.split(needle).length - 1;
 }
 
+function workerDispatchAllowed(input: {
+  runAttempt: number;
+  persistedState: string;
+  persistedRunId: string;
+  currentRunId: string;
+}) {
+  return !(
+    input.runAttempt > 1 &&
+    input.persistedState === "TASK_CREATED" &&
+    input.persistedRunId === input.currentRunId
+  );
+}
+
 describe("Supervisor Worker handoff large-state safety", () => {
   it("filters Supervisor comments to the current task marker before jq argv construction", () => {
     const workflow = workflowSource();
@@ -41,5 +54,51 @@ describe("Supervisor Worker handoff large-state safety", () => {
     const reconcileContext = reconcile.indexOf('--argjson comments "$comments_json"');
     expect(reconcileFilter).toBeGreaterThanOrEqual(0);
     expect(reconcileContext).toBeGreaterThan(reconcileFilter);
+  });
+
+  it("blocks a second Worker when a rerun retains TASK_CREATED for the same GitHub run", () => {
+    expect(
+      workerDispatchAllowed({
+        runAttempt: 1,
+        persistedState: "TASK_CREATED",
+        persistedRunId: "12345",
+        currentRunId: "12345",
+      }),
+    ).toBe(true);
+
+    expect(
+      workerDispatchAllowed({
+        runAttempt: 2,
+        persistedState: "TASK_CREATED",
+        persistedRunId: "12345",
+        currentRunId: "12345",
+      }),
+    ).toBe(false);
+
+    expect(
+      workerDispatchAllowed({
+        runAttempt: 2,
+        persistedState: "WORKER_BLOCKED",
+        persistedRunId: "12345",
+        currentRunId: "12345",
+      }),
+    ).toBe(true);
+
+    const workflow = workflowSource();
+    const guardName = "Refuse duplicate Worker dispatch on workflow rerun";
+    const workerName = "Run one bounded implementation Worker";
+    const guardStart = workflow.indexOf(guardName);
+    const workerStart = workflow.indexOf(workerName);
+    const guard = workflow.slice(guardStart, workerStart);
+
+    expect(guardStart).toBeGreaterThanOrEqual(0);
+    expect(workerStart).toBeGreaterThan(guardStart);
+    expect(guard).toContain("github.run_attempt > 1");
+    expect(guard).toContain('state_author" != "github-actions[bot]"');
+    expect(guard).toContain("TASK_CREATED");
+    expect(guard).toContain("Run ID");
+    expect(guard).toContain("WORKER_BLOCKED");
+    expect(guard).toContain("exit 1");
+    expect(guard).toContain("|| true");
   });
 });
