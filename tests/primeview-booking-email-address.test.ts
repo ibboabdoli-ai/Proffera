@@ -5,7 +5,7 @@ vi.mock("server-only", () => ({}));
 import { buildBookingOwnerNotificationEmail } from "../src/features/email/lead-email";
 import { buildUnifiedBookingConfirmationEmail } from "../src/features/email/unified-booking-confirmation-email";
 
-const address = "Flat, Cricket Pavilion, Staveley Road, London";
+const address = "Flat 2B, Cricket Pavilion, Staveley Road";
 const postcode = "W4 3ES";
 
 describe("PrimeView booking emails", () => {
