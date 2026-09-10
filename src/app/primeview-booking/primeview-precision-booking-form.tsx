@@ -49,7 +49,7 @@ function formatPrice(value: number) { return Number.isInteger(value) ? value.toF
 function scopeRate(scope: CleaningScope) { return scope === "Inside only" ? 5 : scope === "Inside & outside" ? 8 : 3; }
 function scopeDisplay(scope: CleaningScope) { return scope === "Inside & outside" ? "Inside & Outside" : scope; }
 function cleanAddressPart(value: string) { return value.trim().replace(/,/g, " ").replace(/\s+/g, " "); }
-function cleanUnit(value: string) { return cleanAddressPart(value).replace(/^(?:flat|apartment|unit)(?:\s+|$)/i, ""); }
+function cleanUnit(value: string) { return cleanAddressPart(value).replace(/^(?:(?:flat|apartment|unit)(?:\s+|$))+/i, ""); }
 function buildCanonicalAddress(houseBuilding: string, street: string, unit: string, isFlat: boolean) {
   return [isFlat && cleanUnit(unit) ? `Flat ${cleanUnit(unit)}` : "", cleanAddressPart(houseBuilding), cleanAddressPart(street)].filter(Boolean).join(", ");
 }
@@ -160,12 +160,8 @@ export function PrimeViewPrecisionBookingForm({ action, services, bookingHours, 
     if (!validateAddress(event.currentTarget)) event.preventDefault();
   }
 
-  function handleNativeInvalid(event: FormEvent<HTMLFormElement>) {
-    if (!validateAddress(event.currentTarget)) event.preventDefault();
-  }
-
   return (
-    <form action={action} onSubmit={handleAddressSubmit} onInvalidCapture={handleNativeInvalid} className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_350px]">
+    <form action={action} onSubmit={handleAddressSubmit} className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_350px]">
       <input type="hidden" name="service_id" value={serviceId} /><input type="hidden" name="starts_at" value={date && time ? `${date}T${time}` : ""} /><input type="hidden" name="form_started_at" value={formStartedAt} /><input type="hidden" name="address" value={canonicalAddress} />
       {(serviceKey === "window" || serviceKey === "gutter" || serviceKey === "fascia_gutter") ? <input type="hidden" name="property_size" value={inferredPropertySize ?? ""} /> : null}
       <label className="absolute left-[-10000px]" aria-hidden="true">Website<input name="website" tabIndex={-1} /></label>
