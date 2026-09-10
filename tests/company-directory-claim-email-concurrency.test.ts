@@ -128,12 +128,16 @@ describe("company directory claim email concurrency guards", () => {
   it("re-reads and retries verification after a stale evidence compare-and-swap", async () => {
     const seeded = challenge();
     const reference = serializeClaimEmailEvidence(seeded.evidence);
+    const replacementReference = serializeClaimEmailEvidence({
+      ...seeded.evidence,
+      providerId: "concurrent-writer",
+    });
     let verificationReads = 0;
     let casAttempts = 0;
     const { calls, sql } = recordingSql((query) => {
       if (query.startsWith("select claim.id::text")) {
         verificationReads += 1;
-        return [verificationRow(reference)];
+        return [verificationRow(verificationReads === 1 ? reference : replacementReference)];
       }
       if (query.startsWith("update company_directory_claims")) {
         casAttempts += 1;
@@ -153,8 +157,9 @@ describe("company directory claim email concurrency guards", () => {
     for (const call of casCalls) {
       expect(call.query).toContain("and verification_reference = $");
       expect(call.query).toContain("returning id::text");
-      expect(call.values.at(-1)).toBe(reference);
     }
+    expect(casCalls[0]?.values.at(-1)).toBe(reference);
+    expect(casCalls[1]?.values.at(-1)).toBe(replacementReference);
     const verificationReadCalls = calls.filter((call) => call.query.startsWith("select claim.id::text"));
     expect(verificationReadCalls[1]?.query).toContain("where claim.id = $1::uuid");
   });
