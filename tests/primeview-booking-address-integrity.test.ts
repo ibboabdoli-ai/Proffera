@@ -30,6 +30,14 @@ describe("PrimeView canonical service address validation", () => {
     })).toBe(true);
   });
 
+  it("accepts normalized whitespace in complete address parts", () => {
+    expect(validatePrimeViewServiceAddress({
+      address: "  Cricket   Pavilion ,  Staveley   Road  ",
+      postcode: "W4 3ES",
+      bookingDetails: details("Detached"),
+    })).toBe(true);
+  });
+
   it("rejects missing house/building", () => {
     expect(validatePrimeViewServiceAddress({
       address: "High Street",
