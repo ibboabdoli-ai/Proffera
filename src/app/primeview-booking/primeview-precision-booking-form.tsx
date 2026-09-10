@@ -63,7 +63,12 @@ export function parsePrimeViewAutocompleteAddress(address: string, postcode: str
   if (!parts.length) return { houseBuilding: "", street: "" };
   const numbered = parts[0].match(/^(\d+[A-Za-z]?(?:[-/]\d+[A-Za-z]?)?)\s+(.+)$/);
   if (numbered) return { houseBuilding: numbered[1], street: cleanAddressPart(numbered[2]) };
-  if (parts.length >= 2) return { houseBuilding: cleanAddressPart(parts[0]), street: cleanAddressPart(parts[1]) };
+  if (parts.length >= 2) {
+    return {
+      houseBuilding: cleanAddressPart(parts.slice(0, -1).join(" ")),
+      street: cleanAddressPart(parts.at(-1) ?? ""),
+    };
+  }
   return { houseBuilding: "", street: "" };
 }
 function addressError(errors: AddressErrors, field: AddressField) {
