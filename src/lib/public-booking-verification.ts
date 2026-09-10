@@ -13,6 +13,7 @@ import type { WorkspaceTimeZone } from "@/lib/workspace-market";
 const EXPIRY_MINUTES = 10;
 const DAY_SECONDS = 60 * 60 * 24;
 const UK_POSTCODE = /^[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}$/i;
+const LEGACY_PRIMEVIEW_PROPERTY_TYPES = new Set(["House", "Flat", "Commercial"]);
 
 function cleanAddressPart(value: string) {
   return value.trim().replace(/\s+/g, " ");
@@ -28,13 +29,16 @@ function bookingDetailValue(bookingDetails: string, label: string) {
 }
 
 export function validatePrimeViewServiceAddress(input: { address?: string; postcode?: string; bookingDetails?: string }) {
-  const postcode = cleanAddressPart(input.postcode ?? "").toUpperCase();
-  if (!UK_POSTCODE.test(postcode)) return false;
-
   const propertyType = bookingDetailValue(input.bookingDetails ?? "", "Property type");
   if (!propertyType) return false;
 
-  const parts = (input.address ?? "")
+  const address = cleanAddressPart(input.address ?? "");
+  if (LEGACY_PRIMEVIEW_PROPERTY_TYPES.has(propertyType)) return Boolean(address);
+
+  const postcode = cleanAddressPart(input.postcode ?? "").toUpperCase();
+  if (!UK_POSTCODE.test(postcode)) return false;
+
+  const parts = address
     .split(",")
     .map(cleanAddressPart)
     .filter(Boolean);
