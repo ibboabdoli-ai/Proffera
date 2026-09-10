@@ -1,4 +1,13 @@
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -14,17 +23,137 @@ function occurrences(text: string, needle: string) {
   return text.split(needle).length - 1;
 }
 
-function workerDispatchAllowed(input: {
-  runAttempt: number;
-  persistedState: string;
-  persistedRunId: string;
-  currentRunId: string;
-}) {
-  return !(
-    input.runAttempt > 1 &&
-    input.persistedState === "TASK_CREATED" &&
-    input.persistedRunId === input.currentRunId
+function workflowStepScript(name: string) {
+  const workflow = workflowSource();
+  const stepStart = workflow.indexOf(`      - name: ${name}`);
+  expect(stepStart).toBeGreaterThanOrEqual(0);
+  const runStart = workflow.indexOf("        run: |\n", stepStart);
+  const nextStep = workflow.indexOf("\n      - name:", runStart + 1);
+  expect(runStart).toBeGreaterThan(stepStart);
+  expect(nextStep).toBeGreaterThan(runStart);
+
+  return workflow
+    .slice(runStart + "        run: |\n".length, nextStep)
+    .split("\n")
+    .map((line) => line.replace(/^ {10}/, ""))
+    .join("\n");
+}
+
+function taskState(state: "TASK_CREATED" | "WORKER_BLOCKED", runId = "12345") {
+  return {
+    user: { login: "github-actions[bot]" },
+    body: [
+      "<!-- proffera-worker-task-state:TASK-1 -->",
+      `- State: \`${state}\``,
+      `- Run ID: \`${runId}\``,
+    ].join("\n"),
+  };
+}
+
+function dispatchEvidence(
+  taskId = "TASK-1",
+  runId = "12345",
+  author = "github-actions[bot]",
+) {
+  return {
+    user: { login: author },
+    body: `<!-- proffera-worker-dispatch-start:${taskId}:${runId} -->`,
+  };
+}
+
+function runWorkflowStep(
+  name: string,
+  options: { comments?: unknown[]; state?: unknown; failPost?: boolean } = {},
+) {
+  const directory = mkdtempSync(resolve(tmpdir(), "proffera-handoff-"));
+  const calls = resolve(directory, "calls");
+  const commentsFile = resolve(directory, "comments.jsonl");
+  const stateFile = resolve(directory, "state.json");
+  const gh = resolve(directory, "gh");
+  const node = resolve(directory, "node");
+  const trustedDirectory = resolve(directory, "proffera-trusted-control");
+  const trustedHelper = resolve(
+    trustedDirectory,
+    "supervisor-worker-handoff.mjs",
   );
+  const trustedManifest = resolve(
+    trustedDirectory,
+    "supervisor-worker-handoff.sha256",
+  );
+
+  mkdirSync(trustedDirectory);
+  copyFileSync(
+    resolve(process.cwd(), "scripts/supervisor-worker-handoff.mjs"),
+    trustedHelper,
+  );
+  const helperDigest = createHash("sha256")
+    .update(readFileSync(trustedHelper))
+    .digest("hex");
+  writeFileSync(trustedManifest, `${helperDigest}  ${trustedHelper}\n`);
+  writeFileSync(calls, "");
+  writeFileSync(
+    commentsFile,
+    (options.comments ?? []).map((value) => JSON.stringify(value)).join("\n") +
+      ((options.comments ?? []).length > 0 ? "\n" : ""),
+  );
+  writeFileSync(
+    stateFile,
+    JSON.stringify(options.state ?? taskState("WORKER_BLOCKED")),
+  );
+  writeFileSync(
+    node,
+    `#!/bin/bash
+if [ "\${!#}" = "state-body" ]; then
+  cat >/dev/null
+  printf 'blocked state body\\n'
+else
+  exec "${process.execPath}" "$@"
+fi
+`,
+    { mode: 0o755 },
+  );
+  writeFileSync(
+    gh,
+    `#!/bin/bash
+set -euo pipefail
+printf '%s\\n' "$*" >> "${calls}"
+if [[ "$*" == *"issues/548/comments?per_page=100"* ]]; then
+  cat "${commentsFile}"
+elif [[ "$*" == *"issues/comments/77"* ]]; then
+  cat "${stateFile}"
+elif [[ "$*" == *"--method POST"* ]] && [ "${options.failPost ? "yes" : "no"}" = yes ]; then
+  exit 1
+else
+  printf '{}\\n'
+fi
+`,
+    { mode: 0o755 },
+  );
+
+  const packetB64 = Buffer.from(
+    JSON.stringify({ task_id: "TASK-1" }),
+    "utf8",
+  ).toString("base64");
+  const result = spawnSync("bash", ["-c", workflowStepScript(name)], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PATH: `${directory}:${process.env.PATH ?? ""}`,
+      RUNNER_TEMP: directory,
+      GH_TOKEN: "test-token",
+      REPOSITORY: "ibboabdoli-ai/Proffera",
+      PACKET_B64: packetB64,
+      STATE_COMMENT_ID: "77",
+      RUN_ID: "12345",
+      RUN_ATTEMPT: "2",
+    },
+  });
+
+  return {
+    ...result,
+    calls: readFileSync(calls, "utf8"),
+  };
 }
 
 describe("Supervisor Worker handoff large-state safety", () => {
@@ -56,49 +185,70 @@ describe("Supervisor Worker handoff large-state safety", () => {
     expect(reconcileContext).toBeGreaterThan(reconcileFilter);
   });
 
-  it("blocks a second Worker when a rerun retains TASK_CREATED for the same GitHub run", () => {
-    expect(
-      workerDispatchAllowed({
-        runAttempt: 1,
-        persistedState: "TASK_CREATED",
-        persistedRunId: "12345",
-        currentRunId: "12345",
-      }),
-    ).toBe(true);
+  it("blocks a rerun from the actual guard when trusted dispatch-start evidence exists", () => {
+    const result = runWorkflowStep("Refuse duplicate Worker dispatch on workflow rerun", {
+      comments: [dispatchEvidence()],
+      state: taskState("WORKER_BLOCKED"),
+    });
 
-    expect(
-      workerDispatchAllowed({
-        runAttempt: 2,
-        persistedState: "TASK_CREATED",
-        persistedRunId: "12345",
-        currentRunId: "12345",
-      }),
-    ).toBe(false);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("trusted dispatch-start evidence already exists");
+    expect(result.calls).toContain("issues/548/comments?per_page=100");
+    expect(result.calls).not.toContain("issues/comments/77");
+  });
 
-    expect(
-      workerDispatchAllowed({
-        runAttempt: 2,
-        persistedState: "WORKER_BLOCKED",
-        persistedRunId: "12345",
-        currentRunId: "12345",
-      }),
-    ).toBe(true);
+  it("keeps retained TASK_CREATED fail-closed through the actual workflow guard", () => {
+    const result = runWorkflowStep("Refuse duplicate Worker dispatch on workflow rerun", {
+      comments: [],
+      state: taskState("TASK_CREATED"),
+    });
 
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("retained TASK_CREATED");
+    expect(result.calls).toContain("issues/comments/77");
+  });
+
+  it("does not block a different task or run on unrelated dispatch evidence", () => {
+    const differentRun = runWorkflowStep(
+      "Refuse duplicate Worker dispatch on workflow rerun",
+      {
+        comments: [dispatchEvidence("TASK-1", "99999")],
+        state: taskState("WORKER_BLOCKED"),
+      },
+    );
+    const untrustedEvidence = runWorkflowStep(
+      "Refuse duplicate Worker dispatch on workflow rerun",
+      {
+        comments: [dispatchEvidence("TASK-1", "12345", "someone-else")],
+        state: taskState("WORKER_BLOCKED"),
+      },
+    );
+
+    expect(differentRun.status).toBe(0);
+    expect(untrustedEvidence.status).toBe(0);
+  });
+
+  it("persists dispatch-start evidence fail-closed before Worker execution", () => {
+    const success = runWorkflowStep("Persist trusted Worker dispatch-start evidence");
+    const failedPost = runWorkflowStep("Persist trusted Worker dispatch-start evidence", {
+      failPost: true,
+    });
+
+    expect(success.status).toBe(0);
+    expect(success.calls).toContain("--method POST");
+    expect(success.calls).toContain("issues/548/comments");
+    expect(failedPost.status).not.toBe(0);
+  });
+
+  it("orders the real rerun guard and dispatch evidence before the Worker action", () => {
     const workflow = workflowSource();
-    const guardName = "Refuse duplicate Worker dispatch on workflow rerun";
-    const workerName = "Run one bounded implementation Worker";
-    const guardStart = workflow.indexOf(guardName);
-    const workerStart = workflow.indexOf(workerName);
-    const guard = workflow.slice(guardStart, workerStart);
+    const guard = workflow.indexOf("Refuse duplicate Worker dispatch on workflow rerun");
+    const evidence = workflow.indexOf("Persist trusted Worker dispatch-start evidence");
+    const worker = workflow.indexOf("Run one bounded implementation Worker");
 
-    expect(guardStart).toBeGreaterThanOrEqual(0);
-    expect(workerStart).toBeGreaterThan(guardStart);
-    expect(guard).toContain("github.run_attempt > 1");
-    expect(guard).toContain('state_author" != "github-actions[bot]"');
-    expect(guard).toContain("TASK_CREATED");
-    expect(guard).toContain("Run ID");
-    expect(guard).toContain("WORKER_BLOCKED");
-    expect(guard).toContain("exit 1");
-    expect(guard).toContain("|| true");
+    expect(guard).toBeGreaterThanOrEqual(0);
+    expect(evidence).toBeGreaterThan(guard);
+    expect(worker).toBeGreaterThan(evidence);
+    expect(workflow.slice(guard, worker)).toContain("github.run_attempt > 1");
   });
 });
