@@ -220,7 +220,10 @@ async function requestPrimeViewBooking(formData: FormData) {
     city: String(workspace.primary_city ?? "London"), address, postcode, bookingDetails: detailLines.join("\n"),
     startsAt: start.toISOString(), endsAt: end.toISOString(), timeZone, language: "en", verificationSms: true,
   });
-  if (!result.ok) redirect(bookingUrl(`error=${result.error === "email" ? "email" : result.error === "service" ? "service" : "conflict"}`));
+  if (!result.ok) {
+    const errorCode = result.error === "email" ? "email" : result.error === "service" ? "service" : result.error === "address" ? "address" : "conflict";
+    redirect(bookingUrl(`error=${errorCode}`));
+  }
   redirect(`/boka/verifiera/${result.verificationId}?lang=en&channel=${encodeURIComponent(result.delivery)}`);
 }
 
@@ -228,6 +231,7 @@ type PageProps = { searchParams?: Promise<{ error?: string | string[]; booked?: 
 
 const errors: Record<string, string> = {
   invalid: "Please complete all required booking and pricing fields.",
+  address: "Please complete the full service address before continuing.",
   postcode: "Enter a valid UK postcode, for example W4 3ES.",
   unavailable: "Online booking is temporarily unavailable.",
   service: "That service is no longer available.",
