@@ -607,7 +607,16 @@ exit 0
     expect(publish).toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
     expect(publish).toContain('node "$helper" validate-publication');
     expect(publish).toContain("proffera-publication-recovery-complete");
-    expect(publish).not.toContain("force-with-lease");
+    expect(publish).toContain('git push --force-with-lease="refs/heads/${BRANCH}:"');
+    expect(publish).not.toContain("--force ");
+    expect(publish).toContain('echo "recovery_digest=$digest"');
+    expect(publish).toContain('echo "recovery_chunks=$total"');
+
+    const recoveryState = workflowRunStep(workflow, "Record persisted recovery artifact in stable Supervisor task state");
+    expect(recoveryState).toContain('--arg state "WORKER_BLOCKED"');
+    expect(recoveryState).toContain("sha256=${RECOVERY_DIGEST}");
+    expect(recoveryState).toContain("chunks=${RECOVERY_CHUNKS}");
+    expect(recoveryState).toContain("target_head=${HEAD_SHA}");
   });
 
   it("wires bounded idempotent recovery and an actionable readiness diagnostic", () => {
@@ -903,6 +912,79 @@ exit 0
 
     const falseDeletion = String(artifact.unified_diff).replace("+++ b/docs/SUPERVISOR_WORKER_HANDOFF.md", "+++ /dev/null");
     expect(run("validate-publication", { ...input, artifact: { ...artifact, unified_diff: falseDeletion } }).code).toBe("diff_incomplete");
+  });
+
+  it("preserves deletion, rename, and missing-final-newline artifact semantics", () => {
+    const repo = mkdtempSync(join(tmpdir(), "proffera-publication-"));
+    const git = (...args: string[]) => {
+      const result = spawnSync("git", args, { cwd: repo, encoding: "utf8" });
+      expect(result.status, result.stderr).toBe(0);
+      return result.stdout.trim();
+    };
+    git("init");
+    git("config", "user.name", "test");
+    git("config", "user.email", "test@example.invalid");
+    writeFileSync(join(repo, "delete.txt"), "first\nsecond\n", "utf8");
+    writeFileSync(join(repo, "rename.txt"), "renamed\n", "utf8");
+    writeFileSync(join(repo, "newline.txt"), "before\n", "utf8");
+    git("add", "--all");
+    git("commit", "-m", "source");
+    const sourceHead = git("rev-parse", "HEAD");
+    git("rm", "delete.txt");
+    git("mv", "rename.txt", "renamed.txt");
+    writeFileSync(join(repo, "newline.txt"), "after", "utf8");
+    git("commit", "-am", "target");
+    const targetHead = git("rev-parse", "HEAD");
+    const scopedPacket = packet({ base_sha: sourceHead, allowed_paths: ["delete.txt", "rename.txt", "renamed.txt", "newline.txt"] });
+    const built = spawnSync(process.execPath, [helper, "build-publication"], {
+      cwd: repo,
+      input: JSON.stringify({ packet: scopedPacket, source_head: sourceHead, target_head: targetHead }),
+      encoding: "utf8",
+    });
+    expect(built.status, built.stderr).toBe(0);
+    const artifact = JSON.parse(built.stdout) as Record<string, unknown>;
+    const replacements = artifact.replacements as Array<Record<string, unknown>>;
+    const manifest = artifact.manifest as Array<Record<string, unknown>>;
+    expect(replacements.find((entry) => entry.path === "delete.txt")).toEqual({ path: "delete.txt", deleted: true });
+    expect(replacements.find((entry) => entry.path === "rename.txt")).toEqual({ path: "rename.txt", deleted: true });
+    expect(manifest.find((entry) => entry.path === "delete.txt")).toMatchObject({ deleted: true, bytes: 0, lines: 0, git_blob_sha: "0".repeat(40) });
+    expect(String(artifact.unified_diff)).toContain("\\ No newline at end of file");
+    const validate = (candidate: Record<string, unknown>) => {
+      const result = spawnSync(process.execPath, [helper, "validate-publication"], {
+        cwd: repo,
+        input: JSON.stringify({ packet: scopedPacket, current_source_head: sourceHead, artifact: candidate }),
+        encoding: "utf8",
+      });
+      expect(result.status, result.stderr).toBe(0);
+      return JSON.parse(result.stdout) as Record<string, unknown>;
+    };
+    expect(validate(artifact).ok).toBe(true);
+
+    const deleteSection = String(artifact.unified_diff).match(/diff --git a\/delete\.txt[\s\S]*?(?=diff --git |$)/)?.[0] ?? "";
+    const partialSection = deleteSection.replace("@@ -1,2 +0,0 @@\n-first\n-second\n", "@@ -1 +0,0 @@\n-first\n");
+    for (const section of [
+      partialSection,
+      deleteSection.replace("@@ -1,2 +0,0 @@\n-first\n-second\n", "@@ -1,2 +1 @@\n first\n-second\n"),
+    ]) {
+      const invalid = structuredClone(artifact) as Record<string, unknown>;
+      invalid.unified_diff = String(artifact.unified_diff).replace(deleteSection, section);
+      expect(validate(invalid).code).toBe("diff_source_mismatch");
+    }
+
+    writeFileSync(join(repo, "delete.txt"), "single", "utf8");
+    git("add", "delete.txt");
+    git("commit", "-m", "newline-less source");
+    const noNewlineSource = git("rev-parse", "HEAD");
+    git("rm", "delete.txt");
+    git("commit", "-m", "delete newline-less source");
+    const noNewlineTarget = git("rev-parse", "HEAD");
+    const noNewlinePacket = packet({ base_sha: noNewlineSource, allowed_paths: ["delete.txt"] });
+    const noNewlineBuild = spawnSync(process.execPath, [helper, "build-publication"], {
+      cwd: repo,
+      input: JSON.stringify({ packet: noNewlinePacket, source_head: noNewlineSource, target_head: noNewlineTarget }),
+      encoding: "utf8",
+    });
+    expect(noNewlineBuild.status, noNewlineBuild.stderr).toBe(0);
   });
 
   it("keeps sensitive work on FULL gates and permits canonical low-risk routing", () => {

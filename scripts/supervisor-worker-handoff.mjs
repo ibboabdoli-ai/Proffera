@@ -534,10 +534,12 @@ function parseUnifiedDiffPaths(value) {
     const indexHeader = indexHeaders.length === 1
       ? indexHeaders[0].match(/^index ([0-9a-f]{40})\.\.([0-9a-f]{40})(?: [0-7]{6})?$/)
       : null;
-    if (!indexHeader || /^0{40}$/.test(indexHeader[2])) {
-      publicationFailure("diff_incomplete", `unified diff section '${path}' must contain one full non-deletion Git blob index`);
+    if (!indexHeader) {
+      publicationFailure("diff_incomplete", `unified diff section '${path}' must contain one full Git blob index`);
     }
-    if (newHeader === "+++ /dev/null" || (oldHeader === "--- /dev/null") !== /^0{40}$/.test(indexHeader[1])) {
+    const added = oldHeader === "--- /dev/null";
+    const deleted = newHeader === "+++ /dev/null";
+    if (added !== /^0{40}$/.test(indexHeader[1]) || deleted !== /^0{40}$/.test(indexHeader[2])) {
       publicationFailure("diff_incomplete", `unified diff section '${path}' has inconsistent file and Git blob headers`);
     }
 
@@ -572,7 +574,7 @@ function parseUnifiedDiffPaths(value) {
         publicationFailure("diff_incomplete", `unified diff section '${path}' hunk line counts do not match its header`);
       }
     }
-    paths.push({ path, old_blob_sha: indexHeader[1], new_blob_sha: indexHeader[2], section });
+    paths.push({ path, old_blob_sha: indexHeader[1], new_blob_sha: indexHeader[2], added, deleted, section });
   }
   return paths;
 }
@@ -585,6 +587,15 @@ function gitOutput(args, options = {}) {
   }
 }
 
+function gitObjectExists(spec) {
+  try {
+    execFileSync("git", ["cat-file", "-e", spec], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function applyUnifiedDiffSection(source, entry) {
   const sourceEndsNewline = source.endsWith("\n");
   const sourceLines = source.length ? source.split("\n") : [];
@@ -592,6 +603,8 @@ function applyUnifiedDiffSection(source, entry) {
   const firstHunk = entry.section.findIndex((line) => line.startsWith("@@ "));
   const result = [];
   let sourceIndex = 0;
+  let targetEndsNewline = sourceEndsNewline;
+  let previousPrefix = "";
   let cursor = firstHunk;
   while (cursor < entry.section.length) {
     const match = entry.section[cursor].match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(?: .*)?$/);
@@ -603,21 +616,46 @@ function applyUnifiedDiffSection(source, entry) {
     cursor += 1;
     while (cursor < entry.section.length && !entry.section[cursor].startsWith("@@ ")) {
       const line = entry.section[cursor];
-      if (line === "\\ No newline at end of file") { cursor += 1; continue; }
+      if (line === "\\ No newline at end of file") {
+        if (!previousPrefix) publicationFailure("diff_incomplete", `unified diff section '${entry.path}' has a misplaced final-newline marker`);
+        if ((previousPrefix === "-" || previousPrefix === " ") && sourceEndsNewline) {
+          publicationFailure("diff_source_mismatch", `unified diff final-newline marker does not match exact source bytes for '${entry.path}'`);
+        }
+        if (previousPrefix === "+" || previousPrefix === " ") targetEndsNewline = false;
+        previousPrefix = "";
+        cursor += 1;
+        continue;
+      }
       const value = line.slice(1);
       if (line.startsWith(" ") || line.startsWith("-")) {
         if (sourceLines[sourceIndex] !== value) publicationFailure("diff_source_mismatch", `unified diff does not match exact source bytes for '${entry.path}'`);
         sourceIndex += 1;
       }
-      if (line.startsWith(" ") || line.startsWith("+")) result.push(value);
+      if (line.startsWith(" ") || line.startsWith("+")) {
+        result.push(value);
+        targetEndsNewline = true;
+      }
+      previousPrefix = line[0];
       cursor += 1;
     }
   }
   result.push(...sourceLines.slice(sourceIndex));
-  return `${result.join("\n")}\n`;
+  if (entry.deleted) {
+    if (result.length !== 0 || sourceIndex !== sourceLines.length) {
+      publicationFailure("diff_source_mismatch", `deletion diff must consume the complete exact source and leave no target lines for '${entry.path}'`);
+    }
+    return "";
+  }
+  return `${result.join("\n")}${targetEndsNewline ? "\n" : ""}`;
 }
 
 function replacementContent(entry) {
+  if (entry?.deleted === true) {
+    if (Object.prototype.hasOwnProperty.call(entry, "content") || Object.prototype.hasOwnProperty.call(entry, "chunks")) {
+      publicationFailure("replacement_incomplete", "deleted replacements must not fabricate target content");
+    }
+    return "";
+  }
   const hasContent = Object.prototype.hasOwnProperty.call(entry, "content");
   const hasChunks = Object.prototype.hasOwnProperty.call(entry, "chunks");
   if (hasContent === hasChunks) publicationFailure("replacement_incomplete", "each replacement must provide exactly one of content or chunks");
@@ -678,12 +716,15 @@ export function validatePublicationArtifact(input) {
       aggregateBytes += bytes.length;
       if (aggregateBytes > MAX_PUBLICATION_BYTES || bytes.toString("utf8") !== content) publicationFailure("replacement_incomplete", `replacement '${path}' is oversized or not lossless UTF-8 text`);
       const manifest = manifests.get(path);
+      const diff = diffs.get(path);
+      const deleted = replacement.deleted === true;
+      if (deleted !== (diff.deleted === true) || (manifest?.deleted === true) !== deleted) publicationFailure("replacement_incomplete", `deletion state does not match for '${path}'`);
       if (!manifest || manifest.bytes !== bytes.length) publicationFailure("byte_count_mismatch", `replacement '${path}' byte count does not match its manifest`);
       if (manifest.lines !== replacementLineCount(content)) publicationFailure("line_count_mismatch", `replacement '${path}' line count does not match its manifest`);
       const sha256 = createHash("sha256").update(bytes).digest("hex");
       const blob = createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
-      const diff = diffs.get(path);
-      if (manifest.sha256 !== sha256 || manifest.git_blob_sha !== blob || diff.new_blob_sha !== blob) publicationFailure("digest_mismatch", `replacement '${path}' digest does not match its manifest and unified diff`);
+      const expectedBlob = deleted ? "0".repeat(40) : blob;
+      if (manifest.sha256 !== sha256 || manifest.git_blob_sha !== expectedBlob || diff.new_blob_sha !== expectedBlob) publicationFailure("digest_mismatch", `replacement '${path}' digest does not match its manifest and unified diff`);
       let source = "";
       if (!/^0{40}$/.test(diff.old_blob_sha)) source = gitOutput(["show", `${sourceHead}:${path}`]);
       const sourceBytes = Buffer.from(source, "utf8");
@@ -706,8 +747,14 @@ export function buildPublicationArtifact({ packet: packetInput, source_head, tar
   const paths = gitOutput(["diff", "--name-only", "--no-renames", `${sourceHead}..${targetHead}`]).trim().split("\n").filter(Boolean);
   const bounded = validateChangedFiles(packet, paths);
   if (!bounded.ok) throw new Error(bounded.reason);
-  const replacements = paths.map((path) => ({ path, content: gitOutput(["show", `${targetHead}:${path}`]) }));
-  const manifest = replacements.map(({ path, content }) => { const bytes = Buffer.from(content); return { path, bytes: bytes.length, lines: replacementLineCount(content), sha256: createHash("sha256").update(bytes).digest("hex"), git_blob_sha: createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex") }; });
+  const replacements = paths.map((path) => gitObjectExists(`${targetHead}:${path}`)
+    ? { path, content: gitOutput(["show", `${targetHead}:${path}`]) }
+    : { path, deleted: true });
+  const manifest = replacements.map((replacement) => {
+    const content = replacement.deleted ? "" : replacement.content;
+    const bytes = Buffer.from(content);
+    return { path: replacement.path, ...(replacement.deleted ? { deleted: true } : {}), bytes: bytes.length, lines: replacementLineCount(content), sha256: createHash("sha256").update(bytes).digest("hex"), git_blob_sha: replacement.deleted ? "0".repeat(40) : createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex") };
+  });
   const artifact = { source_head: sourceHead, artifact_set_complete: "YES", paths, unified_diff: unifiedDiff, replacements, manifest };
   const validation = validatePublicationArtifact({ packet, current_source_head: sourceHead, artifact });
   if (!validation.ok) throw new Error(validation.reason);

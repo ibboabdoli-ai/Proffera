@@ -491,7 +491,7 @@ jobs:
           if [ -n "${DISPATCH_PUSH_TOKEN:-}" ]; then
             git config --local credential.helper '!f() { echo username=x-access-token; echo "password=$DISPATCH_PUSH_TOKEN"; }; f'
             git remote set-url origin "https://github.com/${REPOSITORY}.git"
-            if GIT_TERMINAL_PROMPT=0 git push origin "HEAD:refs/heads/${BRANCH}"; then pushed=true; fi
+            if GIT_TERMINAL_PROMPT=0 git push --force-with-lease="refs/heads/${BRANCH}:" origin "HEAD:refs/heads/${BRANCH}"; then pushed=true; fi
             git config --local --unset credential.helper || true
           fi
           if [ "$pushed" = "true" ]; then
@@ -520,6 +520,8 @@ jobs:
             comments="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s --arg marker "$complete_marker" '[.[] | select((.body // "") | contains($marker))]')"
             if [ "$(jq 'length' <<< "$comments")" -eq 0 ]; then gh api --method POST "repos/${REPOSITORY}/issues/548/comments" -f body="$complete_body" >/dev/null; fi
             echo "recovery_artifact=yes" >> "$GITHUB_OUTPUT"
+            echo "recovery_digest=$digest" >> "$GITHUB_OUTPUT"
+            echo "recovery_chunks=$total" >> "$GITHUB_OUTPUT"
           fi
           echo "head_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
@@ -542,6 +544,30 @@ jobs:
           sha256sum --check --status "$manifest"
           packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
           state_json="$(jq -n --argjson packet "$packet" --arg state "WORKER_PR_OPENED" --arg reason "Bounded Worker implementation was published as one PR; downstream checks/review remain authoritative." --arg run_id "$RUN_ID" --argjson pr_number "$PR_NUMBER" --arg head_sha "$HEAD_SHA" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,pr_number:$pr_number,head_sha:$head_sha}')"
+          state_body="$(printf '%s' "$state_json" | node "$helper" state-body)"
+          gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" -f body="$state_body" >/dev/null
+
+      - name: Record persisted recovery artifact in stable Supervisor task state
+        if: steps.publish.outputs.recovery_artifact == 'yes'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
+          STATE_COMMENT_ID: ${{ needs.preflight.outputs.state_comment_id }}
+          HEAD_SHA: ${{ steps.publish.outputs.head_sha }}
+          RECOVERY_DIGEST: ${{ steps.publish.outputs.recovery_digest }}
+          RECOVERY_CHUNKS: ${{ steps.publish.outputs.recovery_chunks }}
+          RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          helper="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.mjs"
+          manifest="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.sha256"
+          test -f "$helper" -a -f "$manifest"
+          sha256sum --check --status "$manifest"
+          packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
+          reason="Validated recovery artifact persisted: sha256=${RECOVERY_DIGEST}; chunks=${RECOVERY_CHUNKS}; target_head=${HEAD_SHA}. Connected same-branch publication is required; no merge authority is granted."
+          state_json="$(jq -n --argjson packet "$packet" --arg state "WORKER_BLOCKED" --arg reason "$reason" --arg run_id "$RUN_ID" --arg head_sha "$HEAD_SHA" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,head_sha:$head_sha}')"
           state_body="$(printf '%s' "$state_json" | node "$helper" state-body)"
           gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" -f body="$state_body" >/dev/null
 
