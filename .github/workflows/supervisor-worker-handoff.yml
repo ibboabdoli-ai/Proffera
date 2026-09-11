@@ -423,29 +423,6 @@ jobs:
           git add --all
           git commit -m "[worker:${TASK_ID}] ${TASK_TITLE}"
 
-      - name: Build and validate deterministic publication artifact
-        env:
-          PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
-          BASE_SHA: ${{ needs.preflight.outputs.base_sha }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          helper="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.mjs"
-          trusted_manifest="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.sha256"
-          artifact="$RUNNER_TEMP/proffera-publication-artifact.json"
-          test -f "$helper" -a -f "$trusted_manifest"
-          sha256sum --check --status "$trusted_manifest"
-          packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
-          target_head="$(git rev-parse HEAD)"
-          jq -n --argjson packet "$packet" --arg source_head "$BASE_SHA" --arg target_head "$target_head" \
-            '{packet:$packet,source_head:$source_head,target_head:$target_head}' \
-            | node "$helper" build-publication > "$artifact"
-          validation="$(jq -n --argjson packet "$packet" --arg current_source_head "$BASE_SHA" --slurpfile artifact "$artifact" \
-            '{packet:$packet,current_source_head:$current_source_head,artifact:$artifact[0]}' \
-            | node "$helper" validate-publication)"
-          test "$(jq -r '.ok' <<< "$validation")" = "true"
-          test -s "$artifact"
-
       - name: Prepare Worker PR body with immutable trusted helper
         env:
           PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
@@ -482,10 +459,9 @@ jobs:
           artifact="$RUNNER_TEMP/proffera-publication-artifact.json"
           pr_body_file="$RUNNER_TEMP/proffera-worker-pr-body.md"
           packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
-          test -s "$artifact" -a -s "$pr_body_file"
+          test -s "$pr_body_file"
           live_source="$(gh api "repos/${REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
-          validation="$(jq -n --argjson packet "$packet" --arg current_source_head "$live_source" --slurpfile artifact "$artifact" '{packet:$packet,current_source_head:$current_source_head,artifact:$artifact[0]}' | node "$helper" validate-publication)"
-          test "$(jq -r '.ok' <<< "$validation")" = "true"
+          test "$live_source" = "$BASE_SHA"
 
           pushed=false
           if [ -n "${DISPATCH_PUSH_TOKEN:-}" ]; then
@@ -499,6 +475,15 @@ jobs:
             pr_number="$(GH_TOKEN="$DISPATCH_PUSH_TOKEN" gh pr view "$BRANCH" --repo "$REPOSITORY" --json number --jq '.number')"
             echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
           else
+            # Build and validate deterministic publication artifact only after normal publication fails.
+            target_head="$(git rev-parse HEAD)"
+            jq -n --argjson packet "$packet" --arg source_head "$BASE_SHA" --arg target_head "$target_head" \
+              '{packet:$packet,source_head:$source_head,target_head:$target_head}' \
+              | node "$helper" build-publication > "$artifact"
+            live_source="$(gh api "repos/${REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+            validation="$(jq -n --argjson packet "$packet" --arg current_source_head "$live_source" --slurpfile artifact "$artifact" '{packet:$packet,current_source_head:$current_source_head,artifact:$artifact[0]}' | node "$helper" validate-publication)"
+            test "$(jq -r '.ok' <<< "$validation")" = "true"
+            test -s "$artifact"
             # The complete validated artifact is the canonical recovery payload. Persist bounded,
             # task/source-specific chunks; issue-scoped workflow concurrency makes retries idempotent.
             payload="$(gzip -9 -n -c "$artifact" | base64 -w0)"

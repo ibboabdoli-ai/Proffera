@@ -532,7 +532,7 @@ function parseUnifiedDiffPaths(value) {
     }
     const indexHeaders = preamble.filter((line) => line.startsWith("index "));
     const indexHeader = indexHeaders.length === 1
-      ? indexHeaders[0].match(/^index ([0-9a-f]{40})\.\.([0-9a-f]{40})(?: [0-7]{6})?$/)
+      ? indexHeaders[0].match(/^index ([0-9a-f]{40})\.\.([0-9a-f]{40})(?: ([0-7]{6}))?$/)
       : null;
     if (!indexHeader) {
       publicationFailure("diff_incomplete", `unified diff section '${path}' must contain one full Git blob index`);
@@ -541,6 +541,14 @@ function parseUnifiedDiffPaths(value) {
     const deleted = newHeader === "+++ /dev/null";
     if (added !== /^0{40}$/.test(indexHeader[1]) || deleted !== /^0{40}$/.test(indexHeader[2])) {
       publicationFailure("diff_incomplete", `unified diff section '${path}' has inconsistent file and Git blob headers`);
+    }
+    const modeLines = preamble.filter((line) => /^(?:old mode|new mode|new file mode|deleted file mode) /.test(line));
+    const expectedModeLine = added ? "new file mode 100644" : deleted ? "deleted file mode 100644" : null;
+    const supportedMode = expectedModeLine
+      ? modeLines.length === 1 && modeLines[0] === expectedModeLine && indexHeader[3] === undefined
+      : modeLines.length === 0 && indexHeader[3] === "100644";
+    if (!supportedMode) {
+      publicationFailure("unsupported_mode", `deterministic fallback does not support Git mode semantics for '${path}'`);
     }
 
     let cursor = firstHunk;
