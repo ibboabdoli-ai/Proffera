@@ -615,7 +615,7 @@ exit 0
     const recoveryState = workflowRunStep(workflow, "Record persisted recovery artifact in stable Supervisor task state");
     expect(recoveryState).toContain('--arg state "WORKER_BLOCKED"');
     expect(recoveryState).toContain("sha256=${RECOVERY_DIGEST}");
-    expect(recoveryState).toContain("chunks=${RECOVERY_CHUNKS}");
+    expect(recoveryState).toContain("chunks=${RECOVERY_CHUNKS:-0}");
     expect(recoveryState).toContain("target_head=${HEAD_SHA}");
   });
 
