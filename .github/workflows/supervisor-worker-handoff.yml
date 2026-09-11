@@ -396,7 +396,7 @@ jobs:
             branch_exists=true
           fi
 
-          context="$(jq -n --arg repository "$REPOSITORY" --argjson issue_number "$EVENT_ISSUE_NUMBER" --arg actor "$EVENT_ACTOR" --arg comment_body "$EVENT_COMMENT_BODY" --arg live_main_sha "$live_main_sha" --arg run_id "$RUN_ID" --argjson supervisor_labels "$supervisor_labels" --argjson comments "$comments_json" --argjson open_prs "$enriched_prs" --argjson branch_exists "$branch_exists" '{event:{repository:$repository,issue_number:$issue_number,actor:$actor,is_fork:false,comment_body:$comment_body},supervisor_labels:$supervisor_labels,live_main_sha:$live_main_sha,comments:$comments,open_prs:$open_prs,branch:{exists:$branch_exists},secrets:{openai:true,push:true},run_id:$run_id}')"
+          context="$(jq -n --arg repository "$REPOSITORY" --argjson issue_number "$EVENT_ISSUE_NUMBER" --arg actor "$EVENT_ACTOR" --arg comment_body "$EVENT_COMMENT_BODY" --arg live_main_sha "$live_main_sha" --arg run_id "$RUN_ID" --argjson supervisor_labels "$supervisor_labels" --argjson comments "$comments_json" --argjson open_prs "$enriched_prs" --argjson branch_exists "$branch_exists" '{event:{repository:$repository,issue_number:$issue_number,actor:$actor,is_fork:false,comment_body:$comment_body},supervisor_labels:$supervisor_labels,live_main_sha:$live_main_sha,comments:$comments,open_prs:$enriched_prs,branch:{exists:$branch_exists},secrets:{openai:true,push:true},run_id:$run_id}')"
           decision="$(printf '%s' "$context" | node "$helper" evaluate)"
           if [ "$(jq -r '.ok' <<< "$decision")" != "true" ]; then
             jq -r '.reason' <<< "$decision" >&2
@@ -484,31 +484,102 @@ jobs:
             validation="$(jq -n --argjson packet "$packet" --arg current_source_head "$live_source" --slurpfile artifact "$artifact" '{packet:$packet,current_source_head:$current_source_head,artifact:$artifact[0]}' | node "$helper" validate-publication)"
             test "$(jq -r '.ok' <<< "$validation")" = "true"
             test -s "$artifact"
-            # The complete validated artifact is the canonical recovery payload. Persist bounded,
-            # task/source-specific chunks; issue-scoped workflow concurrency makes retries idempotent.
-            payload="$(gzip -9 -n -c "$artifact" | base64 -w0)"
-            chunk_size=45000
-            total=$(( (${#payload} + chunk_size - 1) / chunk_size ))
-            if [ "$total" -lt 1 ] || [ "$total" -gt 50 ]; then echo "Recovery artifact chunk count is outside the bounded limit." >&2; exit 1; fi
             digest="$(sha256sum "$artifact" | cut -d' ' -f1)"
-            for number in $(seq 1 "$total"); do
-              chunk="${payload:$(( (number - 1) * chunk_size )):$chunk_size}"
-              marker="<!-- proffera-publication-recovery:${TASK_ID}:${BASE_SHA}:${digest}:${number}/${total} -->"
-              printf -v body '%s\nTask: %s\nSource: %s\nArtifact SHA-256: %s\nChunk: %s/%s\n```BASE64_GZIP_JSON\n%s\n```' \
-                "$marker" "$TASK_ID" "$BASE_SHA" "$digest" "$number" "$total" "$chunk"
-              comments="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s --arg marker "$marker" '[.[] | select((.body // "") | contains($marker))]')"
-              if [ "$(jq 'length' <<< "$comments")" -eq 0 ]; then gh api --method POST "repos/${REPOSITORY}/issues/548/comments" -f body="$body" >/dev/null; fi
-            done
-            complete_marker="<!-- proffera-publication-recovery-complete:${TASK_ID}:${BASE_SHA}:${digest} -->"
-            printf -v complete_body '%s\nValidated deterministic same-branch recovery artifact persisted in %s contiguous chunk(s). No merge authority is granted.' \
-              "$complete_marker" "$total"
-            comments="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s --arg marker "$complete_marker" '[.[] | select((.body // "") | contains($marker))]')"
-            if [ "$(jq 'length' <<< "$comments")" -eq 0 ]; then gh api --method POST "repos/${REPOSITORY}/issues/548/comments" -f body="$complete_body" >/dev/null; fi
             echo "recovery_artifact=yes" >> "$GITHUB_OUTPUT"
             echo "recovery_digest=$digest" >> "$GITHUB_OUTPUT"
-            echo "recovery_chunks=$total" >> "$GITHUB_OUTPUT"
           fi
           echo "head_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Persist validated recovery artifact atomically
+        if: steps.publish.outputs.recovery_artifact == 'yes'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: proffera-publication-recovery-${{ needs.preflight.outputs.task_id }}-${{ steps.publish.outputs.recovery_digest }}
+          path: ${{ runner.temp }}/proffera-publication-artifact.json
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 9
+          overwrite: false
+
+      - name: Mirror validated recovery artifact to Supervisor comments
+        id: recovery_mirror
+        if: steps.publish.outputs.recovery_artifact == 'yes'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          TASK_ID: ${{ needs.preflight.outputs.task_id }}
+          BASE_SHA: ${{ needs.preflight.outputs.base_sha }}
+          RECOVERY_DIGEST: ${{ steps.publish.outputs.recovery_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifact="$RUNNER_TEMP/proffera-publication-artifact.json"
+          mirror_complete=yes
+          if [ ! -s "$artifact" ]; then
+            echo "::warning::Canonical recovery artifact was uploaded, but the local mirror source is unavailable."
+            echo "recovery_chunks=0" >> "$GITHUB_OUTPUT"
+            echo "recovery_mirror_complete=no" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          digest="$(sha256sum "$artifact" | cut -d' ' -f1)"
+          if [ "$digest" != "$RECOVERY_DIGEST" ]; then
+            echo "::warning::Local recovery artifact digest no longer matches the canonical uploaded artifact."
+            echo "recovery_chunks=0" >> "$GITHUB_OUTPUT"
+            echo "recovery_mirror_complete=no" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          payload="$(gzip -9 -n -c "$artifact" | base64 -w0)"
+          chunk_size=45000
+          total=$(( (${#payload} + chunk_size - 1) / chunk_size ))
+          if [ "$total" -lt 1 ] || [ "$total" -gt 50 ]; then
+            echo "::warning::Recovery comment mirror chunk count is outside the bounded limit; canonical workflow artifact remains durable."
+            echo "recovery_chunks=0" >> "$GITHUB_OUTPUT"
+            echo "recovery_mirror_complete=no" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "recovery_chunks=$total" >> "$GITHUB_OUTPUT"
+
+          for number in $(seq 1 "$total"); do
+            chunk="${payload:$(( (number - 1) * chunk_size )):$chunk_size}"
+            marker="<!-- proffera-publication-recovery:${TASK_ID}:${BASE_SHA}:${digest}:${number}/${total} -->"
+            printf -v body '%s\nTask: %s\nSource: %s\nArtifact SHA-256: %s\nChunk: %s/%s\n```BASE64_GZIP_JSON\n%s\n```' \
+              "$marker" "$TASK_ID" "$BASE_SHA" "$digest" "$number" "$total" "$chunk"
+            comments_file="$(mktemp)"
+            if ! gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' > "$comments_file"; then
+              echo "::warning::Could not inspect existing recovery comments for chunk ${number}/${total}; canonical workflow artifact remains durable."
+              mirror_complete=no
+              break
+            fi
+            comments="$(jq -s --arg marker "$marker" '[.[] | select((.body // "") | contains($marker))]' < "$comments_file")"
+            if [ "$(jq 'length' <<< "$comments")" -eq 0 ]; then
+              if ! gh api --method POST "repos/${REPOSITORY}/issues/548/comments" -f body="$body" >/dev/null; then
+                echo "::warning::Failed to mirror recovery chunk ${number}/${total}; canonical workflow artifact remains durable."
+                mirror_complete=no
+              fi
+            fi
+          done
+
+          if [ "$mirror_complete" = yes ]; then
+            complete_marker="<!-- proffera-publication-recovery-complete:${TASK_ID}:${BASE_SHA}:${digest} -->"
+            printf -v complete_body '%s\nValidated deterministic same-branch recovery artifact persisted in %s contiguous chunk(s). Canonical payload is also stored atomically as a GitHub Actions artifact. No merge authority is granted.' \
+              "$complete_marker" "$total"
+            comments_file="$(mktemp)"
+            if ! gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' > "$comments_file"; then
+              echo "::warning::Could not inspect recovery completion markers; canonical workflow artifact remains durable."
+              mirror_complete=no
+            else
+              comments="$(jq -s --arg marker "$complete_marker" '[.[] | select((.body // "") | contains($marker))]' < "$comments_file")"
+              if [ "$(jq 'length' <<< "$comments")" -eq 0 ]; then
+                if ! gh api --method POST "repos/${REPOSITORY}/issues/548/comments" -f body="$complete_body" >/dev/null; then
+                  echo "::warning::Failed to mirror the recovery completion marker; canonical workflow artifact remains durable."
+                  mirror_complete=no
+                fi
+              fi
+            fi
+          fi
+          echo "recovery_mirror_complete=$mirror_complete" >> "$GITHUB_OUTPUT"
 
       - name: Record dispatched Worker PR in stable Supervisor task state
         if: steps.publish.outputs.pr_number != ''
@@ -541,7 +612,9 @@ jobs:
           STATE_COMMENT_ID: ${{ needs.preflight.outputs.state_comment_id }}
           HEAD_SHA: ${{ steps.publish.outputs.head_sha }}
           RECOVERY_DIGEST: ${{ steps.publish.outputs.recovery_digest }}
-          RECOVERY_CHUNKS: ${{ steps.publish.outputs.recovery_chunks }}
+          RECOVERY_CHUNKS: ${{ steps.recovery_mirror.outputs.recovery_chunks }}
+          RECOVERY_MIRROR_COMPLETE: ${{ steps.recovery_mirror.outputs.recovery_mirror_complete }}
+          RECOVERY_ARTIFACT_NAME: proffera-publication-recovery-${{ needs.preflight.outputs.task_id }}-${{ steps.publish.outputs.recovery_digest }}
           RUN_ID: ${{ github.run_id }}
         shell: bash
         run: |
@@ -551,7 +624,7 @@ jobs:
           test -f "$helper" -a -f "$manifest"
           sha256sum --check --status "$manifest"
           packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
-          reason="Validated recovery artifact persisted: sha256=${RECOVERY_DIGEST}; chunks=${RECOVERY_CHUNKS}; target_head=${HEAD_SHA}. Connected same-branch publication is required; no merge authority is granted."
+          reason="Validated recovery artifact durably persisted as GitHub Actions artifact ${RECOVERY_ARTIFACT_NAME}: sha256=${RECOVERY_DIGEST}; chunks=${RECOVERY_CHUNKS:-0}; mirror_complete=${RECOVERY_MIRROR_COMPLETE:-no}; target_head=${HEAD_SHA}. Connected same-branch publication can recover from the durable artifact; no merge authority is granted."
           state_json="$(jq -n --argjson packet "$packet" --arg state "WORKER_BLOCKED" --arg reason "$reason" --arg run_id "$RUN_ID" --arg head_sha "$HEAD_SHA" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,head_sha:$head_sha}')"
           state_body="$(printf '%s' "$state_json" | node "$helper" state-body)"
           gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" -f body="$state_body" >/dev/null

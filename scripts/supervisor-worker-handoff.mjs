@@ -733,11 +733,19 @@ export function validatePublicationArtifact(input) {
       const blob = createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
       const expectedBlob = deleted ? "0".repeat(40) : blob;
       if (manifest.sha256 !== sha256 || manifest.git_blob_sha !== expectedBlob || diff.new_blob_sha !== expectedBlob) publicationFailure("digest_mismatch", `replacement '${path}' digest does not match its manifest and unified diff`);
+      const sourceIsAdded = /^0{40}$/.test(diff.old_blob_sha);
       let source = "";
-      if (!/^0{40}$/.test(diff.old_blob_sha)) source = gitOutput(["show", `${sourceHead}:${path}`]);
+      if (sourceIsAdded) {
+        const existingSourceEntry = gitOutput(["ls-tree", sourceHead, "--", path]).trim();
+        if (existingSourceEntry) {
+          publicationFailure("diff_source_mismatch", `unified diff marks existing source path as added for '${path}'`);
+        }
+      } else {
+        source = gitOutput(["show", `${sourceHead}:${path}`]);
+      }
       const sourceBytes = Buffer.from(source, "utf8");
       const sourceBlob = createHash("sha1").update(`blob ${sourceBytes.length}\0`).update(sourceBytes).digest("hex");
-      if (sourceBytes.length + aggregateBytes > MAX_PUBLICATION_BYTES || (!/^0{40}$/.test(diff.old_blob_sha) && sourceBlob !== diff.old_blob_sha)) publicationFailure("diff_source_mismatch", `unified diff old blob does not match exact source for '${path}'`);
+      if (sourceBytes.length + aggregateBytes > MAX_PUBLICATION_BYTES || (!sourceIsAdded && sourceBlob !== diff.old_blob_sha)) publicationFailure("diff_source_mismatch", `unified diff old blob does not match exact source for '${path}'`);
       if (applyUnifiedDiffSection(source, diff) !== content) publicationFailure("diff_replacement_mismatch", `unified diff result diverges from replacement '${path}'`);
     }
     return { ok: true, status: "VALID", code: "publication_artifact_valid", reason: "publication artifact is Task Packet scoped and exact-source/diff/replacement verified", source_head: sourceHead, paths };
