@@ -5,7 +5,7 @@ on:
     types: [created, edited]
   pull_request_target:
     branches: [main]
-    types: [opened, reopened]
+    types: [opened, reopened, closed]
 
 permissions: {}
 
@@ -38,6 +38,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          EVENT_ACTION: ${{ github.event.action }}
           EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           EVENT_HEAD_REF: ${{ github.event.pull_request.head.ref }}
         shell: bash
@@ -46,6 +47,8 @@ jobs:
           helper="scripts/supervisor-worker-handoff.mjs"
           task_marker='<!-- proffera-worker-task-packet:v1 -->'
           pr_json="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")"
+          live_state="$(jq -r '.state // ""' <<< "$pr_json")"
+          live_merged="$(jq -r '.merged == true' <<< "$pr_json")"
           live_head="$(jq -r '.head.sha // ""' <<< "$pr_json")"
           live_ref="$(jq -r '.head.ref // ""' <<< "$pr_json")"
           body="$(jq -r '.body // ""' <<< "$pr_json")"
@@ -63,10 +66,18 @@ jobs:
             exit 0
           fi
           if ! grep -Fq "$task_marker" <<< "$body"; then
+            if [ "$EVENT_ACTION" = "closed" ]; then
+              echo "Closed legacy Worker PR has no bounded Task Packet; no durable reservation exists to release."
+              exit 0
+            fi
             close_unreserved "missing bounded Task Packet"
           fi
           packet_file="$(mktemp)"
           if ! printf '%s' "$body" | node "$helper" parse > "$packet_file" 2>/dev/null || ! jq -e . "$packet_file" >/dev/null 2>&1; then
+            if [ "$EVENT_ACTION" = "closed" ]; then
+              echo "Closed Worker PR has an invalid Task Packet; refusing to mutate any reservation." >&2
+              exit 0
+            fi
             close_unreserved "invalid bounded Task Packet"
           fi
           packet="$(cat "$packet_file")"
@@ -75,10 +86,75 @@ jobs:
           packet_graph="$(jq -r '.graph_path' <<< "$packet")"
           packet_allowed="$(jq -c '.allowed_paths' <<< "$packet")"
           if [ "$packet_branch" != "$live_ref" ]; then
+            if [ "$EVENT_ACTION" = "closed" ]; then
+              echo "Closed Worker PR Task Packet branch mismatch; refusing reservation mutation." >&2
+              exit 0
+            fi
             close_unreserved "Task Packet branch does not match PR head"
           fi
 
           marker="<!-- proffera-worker-slot-reservation:${task_id} -->"
+
+          if [ "$EVENT_ACTION" = "closed" ]; then
+            if [ "$live_state" != "closed" ]; then
+              echo "Close event is stale; live PR is not closed."
+              exit 0
+            fi
+            comments="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s --arg marker "$marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]')"
+            reservation_count="$(jq 'length' <<< "$comments")"
+            if [ "$reservation_count" -eq 0 ]; then
+              echo "Closed Worker PR #${PR_NUMBER} has no durable reservation record to release."
+              exit 0
+            fi
+            if [ "$reservation_count" -ne 1 ]; then
+              echo "Refused: closed Worker PR has ambiguous duplicate reservation records." >&2
+              exit 1
+            fi
+            reservation_id="$(jq -r '.[0].id' <<< "$comments")"
+            reservation_body="$(jq -r '.[0].body // ""' <<< "$comments")"
+            payload_b64="$(sed -n 's/^- Reservation payload: `\([^`]*\)`$/\1/p' <<< "$reservation_body")"
+            payload="$(printf '%s' "$payload_b64" | base64 --decode 2>/dev/null || true)"
+            if ! jq -e . >/dev/null 2>&1 <<< "$payload"; then
+              echo "Refused: closed Worker PR reservation payload is malformed." >&2
+              exit 1
+            fi
+            state="$(jq -r '.state // ""' <<< "$payload")"
+            reserved_task="$(jq -r '.task_id // ""' <<< "$payload")"
+            reserved_branch="$(jq -r '.branch // ""' <<< "$payload")"
+            reserved_pr="$(jq -r '.pr_number // empty' <<< "$payload")"
+            if [ "$reserved_task" != "$task_id" ] || [ "$reserved_branch" != "$live_ref" ]; then
+              echo "Refused: closed Worker PR does not match durable reservation ownership." >&2
+              exit 1
+            fi
+            if [ -n "$reserved_pr" ] && [ "$reserved_pr" != "$PR_NUMBER" ]; then
+              echo "Refused: reservation belongs to PR #${reserved_pr}, not closed PR #${PR_NUMBER}." >&2
+              exit 1
+            fi
+            if [ "$state" = "RELEASED" ]; then
+              echo "Reservation ${task_id} was already released idempotently."
+              exit 0
+            fi
+            case "$state" in
+              RESERVED|PUBLISHED|RECOVERABLE) ;;
+              *)
+                echo "Reservation ${task_id} is already terminal/non-active (${state}); no slot release needed."
+                exit 0
+                ;;
+            esac
+            payload="$(jq -c --arg state RELEASED --argjson pr_number "$PR_NUMBER" --argjson merged "$live_merged" '.state=$state | .pr_number=$pr_number | .recovery={kind:"closed_pr",merged:$merged}' <<< "$payload")"
+            payload_b64="$(printf '%s' "$payload" | base64 -w0)"
+            new_body="$(cat <<EOF
+          <!-- proffera-worker-slot-reservation:${task_id} -->
+          ### Worker slot reservation: ${task_id}
+          - State: \`RELEASED\`
+          - Reservation payload: \`${payload_b64}\`
+          EOF
+          )"
+            gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${reservation_id}" -f body="$new_body" >/dev/null
+            echo "Released writable Worker slot reservation ${task_id} after PR #${PR_NUMBER} closed (merged=${live_merged})."
+            exit 0
+          fi
+
           for attempt in $(seq 1 10); do
             comments="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s --arg marker "$marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]')"
             if [ "$(jq 'length' <<< "$comments")" -eq 1 ]; then
@@ -289,6 +365,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
+      actions: read
       contents: read
       issues: write
       pull-requests: read
@@ -570,7 +647,10 @@ jobs:
           changed_files="$(git diff --name-only "$BASE_SHA...HEAD")"
           changed_json="$(printf '%s\n' "$changed_files" | jq -R -s 'split("\n") | map(select(length > 0))')"
           mutex_label="proffera-worker-slot-reservation-mutex-v1"
-          mutex_desc="run=${RUN_ID};task=${task_id}"
+          mutex_lease_seconds=300
+          mutex_now="$(date -u +%s)"
+          mutex_expires=$((mutex_now + mutex_lease_seconds))
+          mutex_desc="run=${RUN_ID};expires=${mutex_expires}"
           mutex_owned=no
 
           release_mutex() {
@@ -583,6 +663,38 @@ jobs:
             gh api --method DELETE "repos/${REPOSITORY}/labels/${mutex_label}" >/dev/null
             mutex_owned=no
           }
+
+          reclaim_stale_mutex() {
+            local observed_desc owner_run owner_expiry owner_status now_epoch confirm_desc stale
+            observed_desc="$(gh api "repos/${REPOSITORY}/labels/${mutex_label}" --jq '.description // ""' 2>/dev/null || true)"
+            if [ -z "$observed_desc" ]; then
+              return 0
+            fi
+            owner_run="$(sed -n 's/^run=\([0-9][0-9]*\);.*$/\1/p' <<< "$observed_desc")"
+            owner_expiry="$(sed -n 's/^.*;expires=\([0-9][0-9]*\)$/\1/p' <<< "$observed_desc")"
+            owner_status=""
+            if [[ "$owner_run" =~ ^[0-9]+$ ]]; then
+              owner_status="$(gh api "repos/${REPOSITORY}/actions/runs/${owner_run}" --jq '.status // ""' 2>/dev/null || true)"
+            fi
+            now_epoch="$(date -u +%s)"
+            stale=no
+            if [ "$owner_run" = "$RUN_ID" ]; then stale=yes; fi
+            if [ "$owner_status" = "completed" ]; then stale=yes; fi
+            if [[ "$owner_expiry" =~ ^[0-9]+$ ]] && [ "$now_epoch" -ge "$owner_expiry" ]; then stale=yes; fi
+            if [ "$stale" != yes ]; then
+              return 1
+            fi
+            confirm_desc="$(gh api "repos/${REPOSITORY}/labels/${mutex_label}" --jq '.description // ""' 2>/dev/null || true)"
+            if [ "$confirm_desc" != "$observed_desc" ]; then
+              return 1
+            fi
+            if gh api --method DELETE "repos/${REPOSITORY}/labels/${mutex_label}" >/dev/null 2>&1; then
+              echo "Reclaimed stale Worker-slot reservation mutex owned by run ${owner_run:-unknown}."
+              return 0
+            fi
+            return 1
+          }
+
           trap 'release_mutex || true' EXIT
 
           for attempt in $(seq 1 40); do
@@ -590,6 +702,10 @@ jobs:
               -f name="$mutex_label" -f color="B60205" -f description="$mutex_desc" >/dev/null 2>&1; then
               mutex_owned=yes
               break
+            fi
+            if reclaim_stale_mutex; then
+              echo "Worker-slot reservation mutex was stale or disappeared; retrying acquisition immediately."
+              continue
             fi
             echo "Worker-slot reservation mutex busy; waiting (${attempt}/40)."
             sleep 3
@@ -778,8 +894,8 @@ jobs:
             set -e
             pr_number="$(GH_TOKEN="$DISPATCH_PUSH_TOKEN" gh pr view "$BRANCH" --repo "$REPOSITORY" --json number --jq '.number' 2>/dev/null || true)"
             if [ -z "$pr_number" ]; then
-              echo "Refused: branch publication succeeded but no Worker PR can be proven; reservation remains recoverable." >&2
-              exit "$create_status"
+              echo "Refused: branch publication succeeded but no Worker PR can be proven (gh pr create status=${create_status}); forcing recovery." >&2
+              exit 1
             fi
             echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
           else
