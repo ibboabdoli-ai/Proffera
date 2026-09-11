@@ -486,7 +486,7 @@ function parseUnifiedDiffPaths(value) {
   if (typeof value !== "string" || !value.startsWith("diff --git ") || !value.endsWith("\n")) {
     publicationFailure("diff_incomplete", "unified_diff must be a complete newline-terminated git diff");
   }
-  const text = value.replaceAll("\r\n", "\n");
+  const text = value;
   if (text.includes("GIT binary patch") || text.includes("Binary files ")) {
     publicationFailure("diff_incomplete", "binary diffs are not valid full-replacement publication artifacts");
   }
@@ -617,9 +617,17 @@ function applyUnifiedDiffSection(source, entry) {
   while (cursor < entry.section.length) {
     const match = entry.section[cursor].match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(?: .*)?$/);
     if (!match) publicationFailure("diff_incomplete", `unified diff section '${entry.path}' has malformed hunks`);
-    const hunkStart = Math.max(0, Number(match[1]) - 1);
+    const oldStart = Number(match[1]);
+    const oldCount = match[2] === undefined ? 1 : Number(match[2]);
+    const newStart = Number(match[3]);
+    const newCount = match[4] === undefined ? 1 : Number(match[4]);
+    const hunkStart = oldCount === 0 ? oldStart : Math.max(0, oldStart - 1);
+    const targetHunkStart = newCount === 0 ? newStart : Math.max(0, newStart - 1);
     if (hunkStart < sourceIndex) publicationFailure("diff_source_mismatch", `unified diff hunks overlap for '${entry.path}'`);
     result.push(...sourceLines.slice(sourceIndex, hunkStart));
+    if (result.length !== targetHunkStart) {
+      publicationFailure("diff_source_mismatch", `unified diff target hunk coordinates do not match reconstructed target for '${entry.path}'`);
+    }
     sourceIndex = hunkStart;
     cursor += 1;
     while (cursor < entry.section.length && !entry.section[cursor].startsWith("@@ ")) {
