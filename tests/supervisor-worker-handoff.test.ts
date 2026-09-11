@@ -155,35 +155,27 @@ function ciPlan(paths: string[]) {
   return JSON.parse(result.stdout) as Record<string, unknown>;
 }
 
-function publicationInput(overrides: Record<string, unknown> = {}, currentSourceHead = sha) {
-  const path = "docs/example.md";
-  const content = "new\n";
+function publicationInput(overrides: Record<string, unknown> = {}, currentSourceHead?: string) {
+  const path = "docs/SUPERVISOR_WORKER_HANDOFF.md";
+  const sourceHead = spawnSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).stdout.trim();
+  const sourceContent = spawnSync("git", ["show", `${sourceHead}:${path}`], { encoding: "utf8" }).stdout;
+  const [oldLine, ...rest] = sourceContent.split("\n");
+  const newLine = `${oldLine} (publication test)`;
+  const content = [newLine, ...rest].join("\n");
+  const oldBytes = Buffer.from(sourceContent, "utf8");
   const bytes = Buffer.from(content, "utf8");
+  const oldBlobSha = createHash("sha1").update(`blob ${oldBytes.length}\0`).update(oldBytes).digest("hex");
   const gitBlobSha = createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
   return {
-    current_source_head: currentSourceHead,
+    packet: packet({ base_sha: sourceHead, allowed_paths: [path], forbidden_paths: ["src/features/other/"] }),
+    current_source_head: currentSourceHead ?? sourceHead,
     artifact: {
-      source_head: sha,
+      source_head: sourceHead,
       artifact_set_complete: "YES",
       paths: [path],
-      unified_diff: [
-        `diff --git a/${path} b/${path}`,
-        `index ${"1".repeat(40)}..${gitBlobSha} 100644`,
-        `--- a/${path}`,
-        `+++ b/${path}`,
-        "@@ -1 +1 @@",
-        "-old",
-        "+new",
-        "",
-      ].join("\n"),
+      unified_diff: [`diff --git a/${path} b/${path}`, `index ${oldBlobSha}..${gitBlobSha} 100644`, `--- a/${path}`, `+++ b/${path}`, "@@ -1 +1 @@", `-${oldLine}`, `+${newLine}`, ""].join("\n"),
       replacements: [{ path, content }],
-      manifest: [{
-        path,
-        bytes: bytes.length,
-        lines: 1,
-        sha256: createHash("sha256").update(bytes).digest("hex"),
-        git_blob_sha: gitBlobSha,
-      }],
+      manifest: [{ path, bytes: bytes.length, lines: content.split("\n").length - 1, sha256: createHash("sha256").update(bytes).digest("hex"), git_blob_sha: gitBlobSha }],
       ...overrides,
     },
   };
@@ -609,12 +601,23 @@ exit 0
     expect(reconcile).not.toContain("OPENAI_API_KEY");
     expect(reconcile).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
 
-    const publishStart = workflow.indexOf("Publish branch atomically and open one PR");
+    const publishStart = workflow.indexOf("Publish branch normally or persist validated recovery artifact");
     const publishEnd = workflow.indexOf("Record dispatched Worker PR", publishStart);
     const publish = workflow.slice(publishStart, publishEnd);
     expect(publish).toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
-    expect(publish).not.toContain('node "$helper"');
-    expect(publish).not.toContain("scripts/supervisor-worker-handoff.mjs");
+    expect(publish).toContain('node "$helper" validate-publication');
+    expect(publish).toContain("proffera-publication-recovery-complete");
+    expect(publish).not.toContain("force-with-lease");
+  });
+
+  it("wires bounded idempotent recovery and an actionable readiness diagnostic", () => {
+    const handoff = source(".github/workflows/supervisor-worker-handoff.yml");
+    expect(handoff).toContain("Build and validate deterministic publication artifact");
+    expect(handoff).toContain("BASE64_GZIP_JSON");
+    expect(handoff).toContain("current_source_head:$current_source_head");
+    const sync = source(".github/workflows/worker-supervisor-sync.yml");
+    expect(sync).toContain("State body is missing the exact readiness checkpoint");
+    expect(sync).toContain("exit 1");
   });
 
   it("keeps an #830-style independent parallel Worker unaffected", () => {
@@ -830,6 +833,22 @@ exit 0
     expect(result.code).toBe("publication_artifact_valid");
   });
 
+  it("requires the normalized Task Packet and canonical scope boundary", () => {
+    const input = publicationInput();
+    expect(run("validate-publication", { current_source_head: input.current_source_head, artifact: input.artifact }).code).toBe("packet_invalid");
+    const forbidden = { ...input, packet: packet({ base_sha: input.current_source_head, allowed_paths: ["docs/SUPERVISOR_WORKER_HANDOFF.md"], forbidden_paths: ["docs/"] }) };
+    expect(run("validate-publication", forbidden).code).toBe("packet_invalid");
+    const hardBlocked = publicationInput({ paths: ["package.json"] });
+    expect(run("validate-publication", hardBlocked).ok).toBe(false);
+  });
+
+  it("rejects a unified diff whose result diverges from replacement bytes", () => {
+    const input = publicationInput();
+    const artifact = input.artifact as Record<string, unknown>;
+    const divergent = String(artifact.unified_diff).replace("(publication test)", "(different diff)");
+    expect(run("validate-publication", { ...input, artifact: { ...artifact, unified_diff: divergent } }).code).toBe("diff_replacement_mismatch");
+  });
+
   it("rejects stale-head and incomplete publication artifacts", () => {
     expect(run("validate-publication", publicationInput({}, otherSha)).code).toBe("stale_source_head");
     expect(run("validate-publication", publicationInput({ artifact_set_complete: "NO" })).code).toBe("artifact_incomplete");
@@ -837,13 +856,13 @@ exit 0
 
   it("rejects missing or discontinuous publication chunks", () => {
     const replacements = [{
-      path: "docs/example.md",
+      path: "docs/SUPERVISOR_WORKER_HANDOFF.md",
       chunks: [{ number: 1, total: 2, content: "new\n" }],
     }];
     expect(run("validate-publication", publicationInput({ replacements })).code).toBe("missing_chunk");
 
     const discontinuous = [{
-      path: "docs/example.md",
+      path: "docs/SUPERVISOR_WORKER_HANDOFF.md",
       chunks: [
         { number: 1, total: 2, content: "ne" },
         { number: 3, total: 2, content: "w\n" },
@@ -853,7 +872,7 @@ exit 0
   });
 
   it("rejects publication path-set and digest mismatches", () => {
-    expect(run("validate-publication", publicationInput({ paths: ["docs/other.md"] })).code).toBe("path_set_mismatch");
+    expect(run("validate-publication", publicationInput({ paths: ["docs/other.md"] })).code).toBe("out_of_scope_change");
     const input = publicationInput();
     const artifact = input.artifact as Record<string, unknown>;
     const manifest = structuredClone(artifact.manifest) as Array<Record<string, unknown>>;
@@ -882,7 +901,7 @@ exit 0
     const truncated = String(artifact.unified_diff).replace("@@ -1 +1 @@", "@@ -1 +1,2 @@");
     expect(run("validate-publication", { ...input, artifact: { ...artifact, unified_diff: truncated } }).code).toBe("diff_incomplete");
 
-    const falseDeletion = String(artifact.unified_diff).replace("+++ b/docs/example.md", "+++ /dev/null");
+    const falseDeletion = String(artifact.unified_diff).replace("+++ b/docs/SUPERVISOR_WORKER_HANDOFF.md", "+++ /dev/null");
     expect(run("validate-publication", { ...input, artifact: { ...artifact, unified_diff: falseDeletion } }).code).toBe("diff_incomplete");
   });
 

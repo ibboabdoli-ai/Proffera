@@ -423,6 +423,29 @@ jobs:
           git add --all
           git commit -m "[worker:${TASK_ID}] ${TASK_TITLE}"
 
+      - name: Build and validate deterministic publication artifact
+        env:
+          PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
+          BASE_SHA: ${{ needs.preflight.outputs.base_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          helper="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.mjs"
+          trusted_manifest="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.sha256"
+          artifact="$RUNNER_TEMP/proffera-publication-artifact.json"
+          test -f "$helper" -a -f "$trusted_manifest"
+          sha256sum --check --status "$trusted_manifest"
+          packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
+          target_head="$(git rev-parse HEAD)"
+          jq -n --argjson packet "$packet" --arg source_head "$BASE_SHA" --arg target_head "$target_head" \
+            '{packet:$packet,source_head:$source_head,target_head:$target_head}' \
+            | node "$helper" build-publication > "$artifact"
+          validation="$(jq -n --argjson packet "$packet" --arg current_source_head "$BASE_SHA" --slurpfile artifact "$artifact" \
+            '{packet:$packet,current_source_head:$current_source_head,artifact:$artifact[0]}' \
+            | node "$helper" validate-publication)"
+          test "$(jq -r '.ok' <<< "$validation")" = "true"
+          test -s "$artifact"
+
       - name: Prepare Worker PR body with immutable trusted helper
         env:
           PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
@@ -441,32 +464,64 @@ jobs:
           jq -n --argjson packet "$packet" --argjson changed_files "$changed_json" '{packet:$packet,changed_files:$changed_files}' | node "$helper" pr-body > "$pr_body_file"
           test -s "$pr_body_file"
 
-      - name: Publish branch atomically and open one PR
+      - name: Publish branch normally or persist validated recovery artifact
         id: publish
         env:
+          GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           BRANCH: ${{ needs.preflight.outputs.branch }}
+          TASK_ID: ${{ needs.preflight.outputs.task_id }}
           TASK_TITLE: ${{ needs.preflight.outputs.task_title }}
+          BASE_SHA: ${{ needs.preflight.outputs.base_sha }}
+          PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
           DISPATCH_PUSH_TOKEN: ${{ secrets.PROFFERA_AUTOFIX_PUSH_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
+          helper="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.mjs"
+          artifact="$RUNNER_TEMP/proffera-publication-artifact.json"
           pr_body_file="$RUNNER_TEMP/proffera-worker-pr-body.md"
-          test -s "$pr_body_file"
-          test -n "${DISPATCH_PUSH_TOKEN:-}"
+          packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
+          test -s "$artifact" -a -s "$pr_body_file"
+          live_source="$(gh api "repos/${REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          validation="$(jq -n --argjson packet "$packet" --arg current_source_head "$live_source" --slurpfile artifact "$artifact" '{packet:$packet,current_source_head:$current_source_head,artifact:$artifact[0]}' | node "$helper" validate-publication)"
+          test "$(jq -r '.ok' <<< "$validation")" = "true"
 
-          git config --local credential.helper '!f() { echo username=x-access-token; echo "password=$DISPATCH_PUSH_TOKEN"; }; f'
-          git remote set-url origin "https://github.com/${REPOSITORY}.git"
-          GIT_TERMINAL_PROMPT=0 git push origin --force-with-lease="refs/heads/${BRANCH}:" "HEAD:refs/heads/${BRANCH}"
-          git config --local --unset credential.helper || true
-
-          GH_TOKEN="$DISPATCH_PUSH_TOKEN" gh pr create --repo "$REPOSITORY" --base main --head "$BRANCH" --title "$TASK_TITLE" --body-file "$pr_body_file" >/dev/null
-          pr_number="$(GH_TOKEN="$DISPATCH_PUSH_TOKEN" gh pr view "$BRANCH" --repo "$REPOSITORY" --json number --jq '.number')"
-          head_sha="$(git rev-parse HEAD)"
-          {
-            echo "pr_number=$pr_number"
-            echo "head_sha=$head_sha"
-          } >> "$GITHUB_OUTPUT"
+          pushed=false
+          if [ -n "${DISPATCH_PUSH_TOKEN:-}" ]; then
+            git config --local credential.helper '!f() { echo username=x-access-token; echo "password=$DISPATCH_PUSH_TOKEN"; }; f'
+            git remote set-url origin "https://github.com/${REPOSITORY}.git"
+            if GIT_TERMINAL_PROMPT=0 git push origin "HEAD:refs/heads/${BRANCH}"; then pushed=true; fi
+            git config --local --unset credential.helper || true
+          fi
+          if [ "$pushed" = "true" ]; then
+            GH_TOKEN="$DISPATCH_PUSH_TOKEN" gh pr create --repo "$REPOSITORY" --base main --head "$BRANCH" --title "$TASK_TITLE" --body-file "$pr_body_file" >/dev/null
+            pr_number="$(GH_TOKEN="$DISPATCH_PUSH_TOKEN" gh pr view "$BRANCH" --repo "$REPOSITORY" --json number --jq '.number')"
+            echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
+          else
+            # The complete validated artifact is the canonical recovery payload. Persist bounded,
+            # task/source-specific chunks; issue-scoped workflow concurrency makes retries idempotent.
+            payload="$(gzip -9 -n -c "$artifact" | base64 -w0)"
+            chunk_size=45000
+            total=$(( (${#payload} + chunk_size - 1) / chunk_size ))
+            if [ "$total" -lt 1 ] || [ "$total" -gt 50 ]; then echo "Recovery artifact chunk count is outside the bounded limit." >&2; exit 1; fi
+            digest="$(sha256sum "$artifact" | cut -d' ' -f1)"
+            for number in $(seq 1 "$total"); do
+              chunk="${payload:$(( (number - 1) * chunk_size )):$chunk_size}"
+              marker="<!-- proffera-publication-recovery:${TASK_ID}:${BASE_SHA}:${digest}:${number}/${total} -->"
+              printf -v body '%s\nTask: %s\nSource: %s\nArtifact SHA-256: %s\nChunk: %s/%s\n```BASE64_GZIP_JSON\n%s\n```' \
+                "$marker" "$TASK_ID" "$BASE_SHA" "$digest" "$number" "$total" "$chunk"
+              comments="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s --arg marker "$marker" '[.[] | select((.body // "") | contains($marker))]')"
+              if [ "$(jq 'length' <<< "$comments")" -eq 0 ]; then gh api --method POST "repos/${REPOSITORY}/issues/548/comments" -f body="$body" >/dev/null; fi
+            done
+            complete_marker="<!-- proffera-publication-recovery-complete:${TASK_ID}:${BASE_SHA}:${digest} -->"
+            printf -v complete_body '%s\nValidated deterministic same-branch recovery artifact persisted in %s contiguous chunk(s). No merge authority is granted.' \
+              "$complete_marker" "$total"
+            comments="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s --arg marker "$complete_marker" '[.[] | select((.body // "") | contains($marker))]')"
+            if [ "$(jq 'length' <<< "$comments")" -eq 0 ]; then gh api --method POST "repos/${REPOSITORY}/issues/548/comments" -f body="$complete_body" >/dev/null; fi
+            echo "recovery_artifact=yes" >> "$GITHUB_OUTPUT"
+          fi
+          echo "head_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Record dispatched Worker PR in stable Supervisor task state
         if: steps.publish.outputs.pr_number != ''

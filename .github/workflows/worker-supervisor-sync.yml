@@ -360,7 +360,10 @@ jobs:
           body="$(printf '%s' "$state_json" | node "$helper" state-body)"
           if [ "$state" = "READY_FOR_SUPERVISOR" ]; then
             ready_checkpoint="- Ready checkpoint: \`${task_id}@${head_sha}\`"
-            grep -Fqx -- "$ready_checkpoint" <<< "$body"
+            if ! grep -Fqx -- "$ready_checkpoint" <<< "$body"; then
+              echo "State body is missing the exact readiness checkpoint for $task_id@$head_sha; refusing mutation." >&2
+              exit 1
+            fi
           fi
           if [ -n "$comment_id" ]; then
             gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${comment_id}" -f body="$body" >/dev/null

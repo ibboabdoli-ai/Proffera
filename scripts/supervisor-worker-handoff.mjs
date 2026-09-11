@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
 export const TASK_PACKET_MARKER = "<!-- proffera-worker-task-packet:v1 -->";
@@ -65,6 +66,7 @@ const BRANCH_RE = /^work\/proffera-[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/;
 const GRAPH_RE = /^[a-z0-9][a-z0-9._/-]{0,159}$/;
 const PATH_RE = /^[A-Za-z0-9._/-]+$/;
 const STATE_RE = /^[A-Z][A-Z0-9_]{2,39}$/;
+const MAX_PUBLICATION_BYTES = 10 * 1024 * 1024;
 
 function countOccurrences(text, needle) {
   if (!needle) return 0;
@@ -570,9 +572,49 @@ function parseUnifiedDiffPaths(value) {
         publicationFailure("diff_incomplete", `unified diff section '${path}' hunk line counts do not match its header`);
       }
     }
-    paths.push({ path, new_blob_sha: indexHeader[2] });
+    paths.push({ path, old_blob_sha: indexHeader[1], new_blob_sha: indexHeader[2], section });
   }
   return paths;
+}
+
+function gitOutput(args, options = {}) {
+  try {
+    return execFileSync("git", args, { encoding: "utf8", maxBuffer: MAX_PUBLICATION_BYTES, ...options });
+  } catch {
+    publicationFailure("source_unavailable", "exact publication source bytes are unavailable from Git");
+  }
+}
+
+function applyUnifiedDiffSection(source, entry) {
+  const sourceEndsNewline = source.endsWith("\n");
+  const sourceLines = source.length ? source.split("\n") : [];
+  if (sourceEndsNewline) sourceLines.pop();
+  const firstHunk = entry.section.findIndex((line) => line.startsWith("@@ "));
+  const result = [];
+  let sourceIndex = 0;
+  let cursor = firstHunk;
+  while (cursor < entry.section.length) {
+    const match = entry.section[cursor].match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(?: .*)?$/);
+    if (!match) publicationFailure("diff_incomplete", `unified diff section '${entry.path}' has malformed hunks`);
+    const hunkStart = Math.max(0, Number(match[1]) - 1);
+    if (hunkStart < sourceIndex) publicationFailure("diff_source_mismatch", `unified diff hunks overlap for '${entry.path}'`);
+    result.push(...sourceLines.slice(sourceIndex, hunkStart));
+    sourceIndex = hunkStart;
+    cursor += 1;
+    while (cursor < entry.section.length && !entry.section[cursor].startsWith("@@ ")) {
+      const line = entry.section[cursor];
+      if (line === "\\ No newline at end of file") { cursor += 1; continue; }
+      const value = line.slice(1);
+      if (line.startsWith(" ") || line.startsWith("-")) {
+        if (sourceLines[sourceIndex] !== value) publicationFailure("diff_source_mismatch", `unified diff does not match exact source bytes for '${entry.path}'`);
+        sourceIndex += 1;
+      }
+      if (line.startsWith(" ") || line.startsWith("+")) result.push(value);
+      cursor += 1;
+    }
+  }
+  result.push(...sourceLines.slice(sourceIndex));
+  return `${result.join("\n")}\n`;
 }
 
 function replacementContent(entry) {
@@ -606,63 +648,70 @@ export function validatePublicationArtifact(input) {
     if (!input || typeof input !== "object" || Array.isArray(input)) publicationFailure("artifact_malformed", "publication validation input must be an object");
     const currentSourceHead = assertPlainString(input.current_source_head, "current_source_head", 40).toLowerCase();
     if (!SHA_RE.test(currentSourceHead)) publicationFailure("artifact_malformed", "current_source_head must be a 40-character commit SHA");
+    let packet;
+    try { packet = normalizeTaskPacket(input.packet); } catch (error) { publicationFailure("packet_invalid", error instanceof Error ? error.message : "Task Packet is invalid"); }
     const artifact = input.artifact;
     if (!artifact || typeof artifact !== "object" || Array.isArray(artifact)) publicationFailure("artifact_malformed", "artifact must be an object");
     const sourceHead = assertPlainString(artifact.source_head, "artifact.source_head", 40).toLowerCase();
     if (!SHA_RE.test(sourceHead)) publicationFailure("artifact_malformed", "artifact.source_head must be a 40-character commit SHA");
-    if (sourceHead !== currentSourceHead) publicationFailure("stale_source_head", `publication artifact source ${sourceHead} is stale; current source is ${currentSourceHead}`);
+    if (sourceHead !== currentSourceHead || packet.base_sha !== sourceHead) publicationFailure("stale_source_head", "publication source must equal the live head and Task Packet baseline");
     if (artifact.artifact_set_complete !== "YES") publicationFailure("artifact_incomplete", "ARTIFACT_SET_COMPLETE must be exactly YES");
+    if (Buffer.byteLength(String(artifact.unified_diff ?? ""), "utf8") > MAX_PUBLICATION_BYTES) publicationFailure("artifact_oversized", "unified diff exceeds the publication limit");
 
     const paths = normalizePublicationPaths(artifact.paths, "artifact.paths");
+    const scope = validateChangedFiles(packet, paths);
+    if (!scope.ok) publicationFailure(scope.code, scope.reason);
     const diffEntries = parseUnifiedDiffPaths(artifact.unified_diff);
-    const diffPaths = diffEntries.map((entry) => entry.path);
-    if (!samePathSet(paths, diffPaths)) publicationFailure("path_set_mismatch", "unified diff path set does not exactly match artifact.paths");
-    if (!Array.isArray(artifact.replacements) || !Array.isArray(artifact.manifest)) {
-      publicationFailure("artifact_malformed", "artifact replacements and manifest must be arrays");
-    }
+    if (!samePathSet(paths, diffEntries.map((entry) => entry.path))) publicationFailure("path_set_mismatch", "unified diff path set does not exactly match artifact.paths");
+    if (!Array.isArray(artifact.replacements) || !Array.isArray(artifact.manifest)) publicationFailure("artifact_malformed", "artifact replacements and manifest must be arrays");
     const replacementPaths = artifact.replacements.map((entry) => String(entry?.path ?? ""));
     const manifestPaths = artifact.manifest.map((entry) => String(entry?.path ?? ""));
-    if (!samePathSet(paths, replacementPaths) || !samePathSet(paths, manifestPaths) || new Set(replacementPaths).size !== replacementPaths.length || new Set(manifestPaths).size !== manifestPaths.length) {
-      publicationFailure("path_set_mismatch", "replacement and manifest path sets must exactly match artifact.paths without duplicates");
-    }
+    if (!samePathSet(paths, replacementPaths) || !samePathSet(paths, manifestPaths) || new Set(replacementPaths).size !== replacementPaths.length || new Set(manifestPaths).size !== manifestPaths.length) publicationFailure("path_set_mismatch", "replacement and manifest path sets must exactly match artifact.paths without duplicates");
 
-    const manifestByPath = new Map(artifact.manifest.map((entry) => [entry.path, entry]));
-    const diffBlobByPath = new Map(diffEntries.map((entry) => [entry.path, entry.new_blob_sha]));
-    for (const entry of artifact.replacements) {
-      const path = assertSafeScope(entry.path, "replacement path");
-      const content = replacementContent(entry);
+    const manifests = new Map(artifact.manifest.map((entry) => [entry.path, entry]));
+    const diffs = new Map(diffEntries.map((entry) => [entry.path, entry]));
+    let aggregateBytes = 0;
+    for (const replacement of artifact.replacements) {
+      const path = assertSafeScope(replacement.path, "replacement path");
+      const content = replacementContent(replacement);
       const bytes = Buffer.from(content, "utf8");
-      if (bytes.toString("utf8") !== content) publicationFailure("replacement_incomplete", `replacement '${path}' is not lossless UTF-8 text`);
-      const manifest = manifestByPath.get(path);
-      if (!manifest || !Number.isInteger(manifest.bytes) || manifest.bytes < 0 || manifest.bytes !== bytes.length) {
-        publicationFailure("byte_count_mismatch", `replacement '${path}' byte count does not match its manifest`);
-      }
-      const lines = replacementLineCount(content);
-      if (!Number.isInteger(manifest.lines) || manifest.lines < 0 || manifest.lines !== lines) {
-        publicationFailure("line_count_mismatch", `replacement '${path}' line count does not match its manifest`);
-      }
-      const sha256 = String(manifest.sha256 ?? "").toLowerCase();
-      const gitBlobSha = String(manifest.git_blob_sha ?? "").toLowerCase();
-      if (!SHA256_RE.test(sha256) || createHash("sha256").update(bytes).digest("hex") !== sha256) {
-        publicationFailure("digest_mismatch", `replacement '${path}' SHA-256 does not match its manifest`);
-      }
-      const computedBlob = createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
-      if (!SHA_RE.test(gitBlobSha) || computedBlob !== gitBlobSha || diffBlobByPath.get(path) !== gitBlobSha) {
-        publicationFailure("digest_mismatch", `replacement '${path}' Git blob SHA does not match its manifest and unified diff`);
-      }
+      aggregateBytes += bytes.length;
+      if (aggregateBytes > MAX_PUBLICATION_BYTES || bytes.toString("utf8") !== content) publicationFailure("replacement_incomplete", `replacement '${path}' is oversized or not lossless UTF-8 text`);
+      const manifest = manifests.get(path);
+      if (!manifest || manifest.bytes !== bytes.length) publicationFailure("byte_count_mismatch", `replacement '${path}' byte count does not match its manifest`);
+      if (manifest.lines !== replacementLineCount(content)) publicationFailure("line_count_mismatch", `replacement '${path}' line count does not match its manifest`);
+      const sha256 = createHash("sha256").update(bytes).digest("hex");
+      const blob = createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
+      const diff = diffs.get(path);
+      if (manifest.sha256 !== sha256 || manifest.git_blob_sha !== blob || diff.new_blob_sha !== blob) publicationFailure("digest_mismatch", `replacement '${path}' digest does not match its manifest and unified diff`);
+      let source = "";
+      if (!/^0{40}$/.test(diff.old_blob_sha)) source = gitOutput(["show", `${sourceHead}:${path}`]);
+      const sourceBytes = Buffer.from(source, "utf8");
+      const sourceBlob = createHash("sha1").update(`blob ${sourceBytes.length}\0`).update(sourceBytes).digest("hex");
+      if (sourceBytes.length + aggregateBytes > MAX_PUBLICATION_BYTES || (!/^0{40}$/.test(diff.old_blob_sha) && sourceBlob !== diff.old_blob_sha)) publicationFailure("diff_source_mismatch", `unified diff old blob does not match exact source for '${path}'`);
+      if (applyUnifiedDiffSection(source, diff) !== content) publicationFailure("diff_replacement_mismatch", `unified diff result diverges from replacement '${path}'`);
     }
-
-    return {
-      ok: true,
-      status: "VALID",
-      code: "publication_artifact_valid",
-      reason: "publication artifact is complete, exact-source bound, path-consistent, and digest-verified",
-      source_head: sourceHead,
-      paths,
-    };
+    return { ok: true, status: "VALID", code: "publication_artifact_valid", reason: "publication artifact is Task Packet scoped and exact-source/diff/replacement verified", source_head: sourceHead, paths };
   } catch (error) {
     return publicationInvalid(error?.code ?? "artifact_malformed", error instanceof Error ? error.message : "publication artifact is malformed");
   }
+}
+
+export function buildPublicationArtifact({ packet: packetInput, source_head, target_head }) {
+  const packet = normalizeTaskPacket(packetInput);
+  const sourceHead = assertPlainString(source_head, "source_head", 40).toLowerCase();
+  const targetHead = assertPlainString(target_head, "target_head", 40).toLowerCase();
+  if (!SHA_RE.test(sourceHead) || !SHA_RE.test(targetHead) || packet.base_sha !== sourceHead) throw new Error("publication heads are malformed or do not match Task Packet baseline");
+  const unifiedDiff = gitOutput(["diff", "--full-index", "--no-renames", "--no-ext-diff", `${sourceHead}..${targetHead}`]);
+  const paths = gitOutput(["diff", "--name-only", "--no-renames", `${sourceHead}..${targetHead}`]).trim().split("\n").filter(Boolean);
+  const bounded = validateChangedFiles(packet, paths);
+  if (!bounded.ok) throw new Error(bounded.reason);
+  const replacements = paths.map((path) => ({ path, content: gitOutput(["show", `${targetHead}:${path}`]) }));
+  const manifest = replacements.map(({ path, content }) => { const bytes = Buffer.from(content); return { path, bytes: bytes.length, lines: replacementLineCount(content), sha256: createHash("sha256").update(bytes).digest("hex"), git_blob_sha: createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex") }; });
+  const artifact = { source_head: sourceHead, artifact_set_complete: "YES", paths, unified_diff: unifiedDiff, replacements, manifest };
+  const validation = validatePublicationArtifact({ packet, current_source_head: sourceHead, artifact });
+  if (!validation.ok) throw new Error(validation.reason);
+  return artifact;
 }
 
 export function parseTaskStateBody(body = "") {
@@ -847,6 +896,10 @@ async function main() {
   }
   if (mode === "validate-changes") {
     process.stdout.write(`${JSON.stringify(validateChangedFiles(parsed.packet, parsed.changed_files))}\n`);
+    return;
+  }
+  if (mode === "build-publication") {
+    process.stdout.write(`${JSON.stringify(buildPublicationArtifact(parsed))}\n`);
     return;
   }
   if (mode === "validate-publication") {
