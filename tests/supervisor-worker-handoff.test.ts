@@ -1639,11 +1639,15 @@ exit 0
       `${taskMarker}\n\`\`\`json\n{broken}\n\`\`\``,
       packetComment(packet({ branch: "work/proffera-other-task" })),
     ];
-    for (const reconcile of [runLifecycleReconciliation, runSyncCheckReconciliation]) {
+    const replacementWriters = [
+      (options: SyncCheckOptions) => runLifecycleReconciliation({ ...options, action: "synchronize" }),
+      (options: SyncCheckOptions) => runLifecycleReconciliation({ ...options, action: "ready_for_review" }),
+      runSyncCheckReconciliation,
+    ];
+    for (const reconcile of replacementWriters) {
       for (const body of malformedBodies) {
         const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
         const result = reconcile({
-          action: "synchronize",
           body,
           comments: [
             ...evidence.comments,
