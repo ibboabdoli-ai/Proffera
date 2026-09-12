@@ -1014,6 +1014,9 @@ export function terminalTaskStateBodyFromExisting({
   if (exactStateBodyField(currentBody, /^- Packet SHA-256: `([0-9a-f]{64})`$/gmu, "packet digest").toLowerCase() !== packetDigest) {
     throw new Error("trusted task state packet digest does not match reservation");
   }
+  if (exactStateBodyField(currentBody, /^- Run ID: `([0-9]+)`$/gmu, "run ID") !== runId) {
+    throw new Error("trusted task state run ID does not match reservation");
+  }
   const currentPrNumber = optionalStateBodyField(currentBody, /^- PR: #([1-9][0-9]*)$/gmu, "PR");
   if (currentPrNumber && Number(currentPrNumber) !== prNumber) {
     throw new Error("trusted task state PR does not match reservation");
@@ -1158,6 +1161,23 @@ export function planInvalidWorkerPrClose(input) {
     } catch {
       // Missing or malformed packets are handled by reservation-derived reconciliation.
     }
+    const taskMarker = `${TASK_STATE_MARKER_PREFIX}${reservation.taskId} -->`;
+    const taskMatches = comments.filter((comment) => comment?.user?.login === "github-actions[bot]"
+      && countOccurrences(String(comment?.body ?? ""), taskMarker) === 1);
+    if (taskMatches.length === 1) {
+      try {
+        const taskRunId = exactStateBodyField(
+          String(taskMatches[0].body ?? ""),
+          /^- Run ID: `([0-9]+)`$/gmu,
+          "run ID",
+        );
+        if (taskRunId !== reservation.reservedRun) {
+          return invalidCloseResult(false, "task_run_mismatch", "trusted task state run ID does not match the exact reservation");
+        }
+      } catch {
+        return invalidCloseResult(false, "invalid_task_run", "trusted task state run ID is missing or ambiguous");
+      }
+    }
     let nextReservationBody = reservation.body;
     let applyReservation = false;
     if (reservation.payload.state !== "RELEASED") {
@@ -1187,9 +1207,6 @@ export function planInvalidWorkerPrClose(input) {
     const terminalReason = merged
       ? "Worker PR is live-verified as merged after its bounded Task Packet became invalid."
       : "Worker PR is live-verified as closed without merge after its bounded Task Packet became invalid.";
-    const taskMarker = `${TASK_STATE_MARKER_PREFIX}${reservation.taskId} -->`;
-    const taskMatches = comments.filter((comment) => comment?.user?.login === "github-actions[bot]"
-      && countOccurrences(String(comment?.body ?? ""), taskMarker) === 1);
     let task = null;
     if (taskMatches.length === 1) {
       try {
@@ -1203,7 +1220,7 @@ export function planInvalidWorkerPrClose(input) {
           packet_digest: reservation.packetDigest,
           state: terminalState,
           reason: terminalReason,
-          run_id: runId,
+          run_id: reservation.reservedRun,
           pr_number: prNumber,
           head_sha: headSha,
           reservation_head_sha: reservation.taskHead,

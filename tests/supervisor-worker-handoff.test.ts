@@ -1898,6 +1898,41 @@ exit 0
     }
   });
 
+  it("preserves exact dispatch run provenance during malformed-close reconciliation", () => {
+    const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+    const currentBody = durableStateBody("CHECKS_PENDING");
+    const reconciled = runSyncCheckReconciliation({
+      body: "missing packet",
+      comments: [
+        ...evidence.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: currentBody },
+      ],
+    });
+    expect(reconciled.status, reconciled.stderr).toBe(0);
+    expect(commentPatchCalls(reconciled.calls, 101)).toHaveLength(1);
+    expect(commentPatchCalls(reconciled.calls, 103)).toHaveLength(1);
+    const terminalBody = String(reconciled.comments.find((comment) => comment.id === 103)?.body);
+    expect(terminalBody).toContain("- Run ID: `9001`");
+    expect(terminalBody).not.toContain("- Run ID: `9003`");
+
+    const invalidRunBodies = [
+      currentBody.replace(/^- Run ID: `9001`\n/mu, ""),
+      `${currentBody}- Run ID: \`9001\`\n`,
+      currentBody.replace("- Run ID: `9001`", "- Run ID: `8001`"),
+    ];
+    for (const body of invalidRunBodies) {
+      const rejected = runSyncCheckReconciliation({
+        body: "missing packet",
+        comments: [
+          ...evidence.comments,
+          { id: 103, user: { login: "github-actions[bot]" }, body },
+        ],
+      });
+      expect(rejected.status, rejected.stderr).toBe(0);
+      expect(rejected.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+    }
+  });
+
   it("rejects every untrusted malformed-close replacement identity or binding without mutation", () => {
     for (const reconcile of [runLifecycleReconciliation, runSyncCheckReconciliation]) {
       const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
@@ -1941,6 +1976,7 @@ exit 0
     expect(taskAlreadyTerminal.status, taskAlreadyTerminal.stderr).toBe(0);
     expect(commentPatchCalls(taskAlreadyTerminal.calls, 101)).toHaveLength(1);
     expect(commentPatchCalls(taskAlreadyTerminal.calls, 103)).toHaveLength(0);
+    expect(String(taskAlreadyTerminal.comments.find((comment) => comment.id === 103)?.body)).toContain("- Run ID: `9001`");
 
     const released = exactReservationEvidence(sha, {
       state: "RELEASED",
@@ -1957,6 +1993,8 @@ exit 0
     expect(reservationAlreadyReleased.status, reservationAlreadyReleased.stderr).toBe(0);
     expect(commentPatchCalls(reservationAlreadyReleased.calls, 101)).toHaveLength(0);
     expect(commentPatchCalls(reservationAlreadyReleased.calls, 103)).toHaveLength(1);
+    expect(String(reservationAlreadyReleased.comments.find((comment) => comment.id === 103)?.body)).toContain("- Run ID: `9001`");
+    expect(String(reservationAlreadyReleased.comments.find((comment) => comment.id === 103)?.body)).not.toContain("- Run ID: `9003`");
 
     const conflictingTerminal = runSyncCheckReconciliation({
       body: "missing packet",
