@@ -225,6 +225,84 @@ function prPatchCalls(calls: string[][]) {
   });
 }
 
+function runWorkerPrStateRecord(currentBody: string) {
+  const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+  const script = workflowRunStep(workflow, "Record dispatched Worker PR in stable Supervisor task state");
+  const root = mkdtempSync(join(tmpdir(), "proffera-worker-pr-state-"));
+  const bin = join(root, "bin");
+  const trusted = join(root, "proffera-trusted-control");
+  const trustedHelper = join(trusted, "supervisor-worker-handoff.mjs");
+  const manifest = join(trusted, "supervisor-worker-handoff.sha256");
+  const log = join(root, "gh-calls.jsonl");
+  mkdirSync(bin, { recursive: true });
+  mkdirSync(trusted, { recursive: true });
+  copyFileSync(helper, trustedHelper);
+  const helperDigest = createHash("sha256").update(readFileSync(trustedHelper)).digest("hex");
+  writeFileSync(manifest, `${helperDigest}  ${trustedHelper}\n`);
+  writeFileSync(
+    join(bin, "gh"),
+    `#!/usr/bin/env node
+const { appendFileSync } = require("node:fs");
+const args = process.argv.slice(2);
+appendFileSync(process.env.GH_STUB_LOG, JSON.stringify(args) + "\\n");
+const methodIndex = args.indexOf("--method");
+const method = methodIndex >= 0 ? args[methodIndex + 1] : "GET";
+const endpoint = args.find((arg) => arg.startsWith("repos/")) || "";
+if (args[0] !== "api" || !endpoint) process.exit(2);
+if (method === "PATCH" && endpoint === "repos/ibboabdoli-ai/Proffera/issues/comments/99") {
+  process.stdout.write("{}\\n");
+  process.exit(0);
+}
+if (method !== "GET") process.exit(2);
+if (endpoint === "repos/ibboabdoli-ai/Proffera/pulls/900") {
+  process.stdout.write(JSON.stringify({ state: "open", merged: false, head: { sha: process.env.GH_STUB_HEAD } }) + "\\n");
+  process.exit(0);
+}
+if (endpoint === "repos/ibboabdoli-ai/Proffera/issues/comments/99") {
+  process.stdout.write(process.env.GH_STUB_STATE_BODY + "\\n");
+  process.exit(0);
+}
+process.exit(2);
+`,
+    { encoding: "utf8", mode: 0o755 },
+  );
+
+  const result = spawnSync("bash", ["-c", script], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+      RUNNER_TEMP: root,
+      GH_TOKEN: "test-token",
+      GH_STUB_LOG: log,
+      GH_STUB_HEAD: sha,
+      GH_STUB_STATE_BODY: currentBody,
+      REPOSITORY: "ibboabdoli-ai/Proffera",
+      PACKET_B64: Buffer.from(JSON.stringify(packet())).toString("base64"),
+      STATE_COMMENT_ID: "99",
+      PR_NUMBER: "900",
+      HEAD_SHA: sha,
+      RUN_ID: "9001",
+    },
+  });
+  const calls = readFileSync(log, "utf8")
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as string[]);
+  return { ...result, calls };
+}
+
+function taskStatePatchCalls(calls: string[][]) {
+  return calls.filter((args) => {
+    const methodIndex = args.indexOf("--method");
+    return methodIndex >= 0
+      && args[methodIndex + 1] === "PATCH"
+      && args.includes("repos/ibboabdoli-ai/Proffera/issues/comments/99");
+  });
+}
+
 function packet(overrides: Record<string, unknown> = {}) {
   return {
     task_id: "SUP-TEST-1",
@@ -878,12 +956,18 @@ exit 0
     expect(workflow).toContain("retention-days: 7");
   });
 
-  it("guards WORKER_PR_OPENED against terminal task-state races", () => {
-    const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
-    const record = workflowRunStep(workflow, "Record dispatched Worker PR in stable Supervisor task state");
-    expect(record).toContain('requested_state WORKER_PR_OPENED');
-    expect(record).toContain('node "$helper" transition');
-    expect(record).toContain('current_body:$current_body');
+  it("applies the helper-approved WORKER_PR_OPENED task-state transition", () => {
+    const result = runWorkerPrStateRecord(stateBody("TASK_CREATED"));
+    expect(result.status, result.stderr).toBe(0);
+    const patches = taskStatePatchCalls(result.calls);
+    expect(patches).toHaveLength(1);
+    expect(patches[0].join("\n")).toContain("- State: `WORKER_PR_OPENED`");
+  });
+
+  it("does not write a WORKER_PR_OPENED state when the helper refuses the transition", () => {
+    const result = runWorkerPrStateRecord(stateBody("MERGED"));
+    expect(result.status, result.stderr).toBe(0);
+    expect(taskStatePatchCalls(result.calls)).toHaveLength(0);
   });
 
   it("keeps an #830-style independent parallel Worker unaffected", () => {
@@ -895,8 +979,9 @@ exit 0
     expect(evaluate(baseContext({ open_prs: [parallel] })).status).toBe("TASK_CREATED");
   });
 
-  it("serializes identical concurrent task deliveries and refuses the second run", () => {
+  it("serializes dispatch publication with PR lifecycle reservation mutations", () => {
     const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+    expect(workflow).toContain("group: proffera-supervisor-worker-handoff-${{ github.event.issue.number || 548 }}");
     expect(workflow).toContain("cancel-in-progress: false");
     expect(evaluate(baseContext({ comments: [trustedState("TASK_CREATED", "9999")], run_id: "1001" })).status).toBe("ALREADY_DISPATCHED");
   });

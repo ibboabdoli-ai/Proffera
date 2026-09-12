@@ -10,7 +10,8 @@ on:
 permissions: {}
 
 concurrency:
-  group: proffera-supervisor-worker-handoff-${{ github.event.issue.number || github.run_id }}
+  # PR lifecycle runs share the Supervisor issue lane so close/publication mutations cannot overlap.
+  group: proffera-supervisor-worker-handoff-${{ github.event.issue.number || 548 }}
   cancel-in-progress: false
 
 jobs:
@@ -1191,7 +1192,7 @@ jobs:
           pr="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")"
           current_body="$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" --jq '.body // ""')"
           transition="$(jq -n --arg source lifecycle --arg requested_state WORKER_PR_OPENED --arg requested_head "$HEAD_SHA" --arg live_head "$(jq -r '.head.sha' <<< "$pr")" --arg live_pr_state "$(jq -r '.state' <<< "$pr")" --argjson live_merged "$(jq '.merged == true' <<< "$pr")" --arg current_body "$current_body" '{source:$source,requested_state:$requested_state,requested_head:$requested_head,live_head:$live_head,live_pr_state:$live_pr_state,live_merged:$live_merged,current_body:$current_body}' | node "$helper" transition)"
-          if [ "$(jq -r '.update' <<< "$transition")" = "true" ]; then
+          if [ "$(jq -r '.apply' <<< "$transition")" = "true" ]; then
             state_json="$(jq -n --argjson packet "$packet" --arg state "WORKER_PR_OPENED" --arg reason "Bounded Worker implementation was published as one PR; downstream checks/review remain authoritative." --arg run_id "$RUN_ID" --argjson pr_number "$PR_NUMBER" --arg head_sha "$HEAD_SHA" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,pr_number:$pr_number,head_sha:$head_sha}')"
             state_body="$(printf '%s' "$state_json" | node "$helper" state-body)"
             test "$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" --jq '.body // ""')" = "$current_body"
