@@ -76,6 +76,22 @@ The handoff workflow calls the same immutable `openai/codex-action` revision wit
 
 After the Worker returns, repository code validates the actual changed-file set against the packet and then runs lint, typecheck, tests, build, and `git diff --check`. The workflow then repeats freshness/overlap/kill-switch checks. Only after all of those checks pass is a local commit created and published using the repository's existing `PROFFERA_AUTOFIX_PUSH_TOKEN`, followed by one PR creation. Missing or insufficient existing authentication fails closed and is recorded as `WORKER_BLOCKED`; no successful-dispatch claim is fabricated.
 
+## Publication boundary — Worker ≠ Publisher
+
+This separation is an architectural invariant for both normal implementation and review-driven repair:
+
+- A Worker is never a GitHub publisher. It must not receive a GitHub write credential and must not be instructed to `git push`, create a PR, merge, or mutate a remote ref.
+- The **Trusted Publisher** is the only component allowed to perform GitHub writes after independent validation. It may use the repository-scoped publication credential already held outside Worker code, or an authenticated connected GitHub App with equivalent narrow repository write capability.
+- When the Worker runs inside the trusted GitHub Actions checkout, it returns workspace edits only; trusted post-Worker steps validate, commit, and publish them.
+- When a repair Worker runs in a separate Codex/cloud connector sandbox with no writable `origin`, no authenticated `gh`, or blocked direct HTTPS access, it must return a complete deterministic repair artifact instead of retrying direct push.
+- A repair artifact must be bound to the exact source head, exact authorized path set, complete target bytes, byte/line counts, SHA-256 values, and Git blob SHAs. The Trusted Publisher verifies all of those values before one normal non-force update of the already-authorized branch.
+- The Trusted Publisher may update only the existing authorized `work/proffera-*` branch for that task. It never gains merge authority, never writes directly to `main`, and never widens the Task Packet scope.
+- A `403`, missing `origin`, unauthenticated `gh`, or blocked Worker network path is a publication-boundary signal, not a reason to give the Worker broader credentials. The Supervisor must switch to verified artifact transport and Trusted Publisher recovery instead of repeating direct Worker push attempts.
+
+Therefore Supervisor instructions must never tell a credentialless Worker to push. The canonical repair path is:
+
+`same-branch repair Worker → tests → complete verified artifact/workspace diff → Trusted Publisher → same existing branch/PR → fresh exact-head gates`.
+
 ## Kill switch
 
 Dispatch is **disabled by default**. Supervisor issue #548 must carry the label:
@@ -105,7 +121,7 @@ Automation updates that comment in place instead of appending duplicate task-sta
 
 The handoff workflow uses one non-cancelling Supervisor concurrency group, so identical or graph-conflicting deliveries are serialized. A second run sees the first trusted task state and returns an already-dispatched result rather than creating another branch or PR. `TASK_BLOCKED` may be re-evaluated because no Worker was started; once a Worker-active/terminal state exists, the same task ID is not dispatched again.
 
-Repairs remain on the existing Worker branch and PR: repair → test → commit → push to the same branch. Recovery never creates a competing repair branch or PR.
+Repairs remain on the existing Worker branch and PR. The repair Worker verifies and tests the fix, then returns a complete trusted-publisher input (workspace diff when inside the trusted runner, or deterministic artifact when outside it). Only the Trusted Publisher commits/publishes the same branch. Recovery never creates a competing repair branch or PR.
 
 Malformed packets that do not provide a usable task ID receive one rejection record keyed by the source comment ID.
 
@@ -137,7 +153,7 @@ The automation prefers refusing duplicate work over guessing:
 - kill switch off → enable the label deliberately, then edit/repost the intended packet;
 - Worker produced no safe diff → task becomes blocked;
 - branch exists without a trustworthy PR binding → manual Supervisor review is required;
-- publication/authentication fails after local implementation → task becomes `WORKER_BLOCKED`; recovery repairs, tests, commits, and pushes the same branch and cannot silently create a second Worker;
+- publication/authentication fails after implementation → the Worker does not retry direct push and does not receive broader GitHub credentials; it returns a complete verified artifact and the Trusted Publisher applies it only to the same authorized branch/PR;
 - PR closes unmerged → `CLOSED_UNMERGED`; a new attempt requires a new Supervisor-selected task identity;
 - main moves before publish → Worker output is not published; Supervisor creates a fresh-baseline task.
 
