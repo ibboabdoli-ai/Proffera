@@ -127,9 +127,12 @@ jobs:
           release_trusted_reservation_after_invalid_close() {
             local reason="$1" result
             result="$(jq -cn --arg repository "$REPOSITORY" --argjson pr_number "$PR_NUMBER" --arg run_id "$RUN_ID" '{repository:$repository,pr_number:$pr_number,run_id:$run_id}' | node "$helper" invalid-close-reconcile)"
+            if [ "$(jq -r '.code // ""' <<< "$result")" = "valid_task_packet" ]; then
+              return 1
+            fi
             if [ "$(jq -r '.ok == true' <<< "$result")" != "true" ]; then
               echo "Closed malformed Worker PR was not mutation-safe: $(jq -r '.reason' <<< "$result")" >&2
-              return 1
+              return 2
             fi
             if [ "$(jq -r '.reservation_mutated == true' <<< "$result")" = "true" ]; then
               echo "Released trusted Worker slot reservation $(jq -r '.task_id' <<< "$result") after malformed PR #${PR_NUMBER} closed (${reason})."
@@ -149,6 +152,17 @@ jobs:
           if ! has_trusted_dispatch_provenance; then
             echo "PR #${PR_NUMBER} has no exact trusted Supervisor dispatch provenance; leaving it unchanged."
             exit 0
+          fi
+          if [ "$live_state" = "closed" ]; then
+            if release_trusted_reservation_after_invalid_close "missing or reservation-mismatched bounded Task Packet"; then
+              echo "Closed trusted Worker PR had no exact reservation-bound Task Packet; its durable state was reconciled."
+              exit 0
+            else
+              reconcile_status=$?
+              if [ "$reconcile_status" -ne 1 ]; then
+                exit "$reconcile_status"
+              fi
+            fi
           fi
           if ! grep -Fq "$task_marker" <<< "$body"; then
             if [ "$live_state" = "closed" ]; then

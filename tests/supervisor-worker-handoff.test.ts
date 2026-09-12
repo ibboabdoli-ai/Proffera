@@ -1674,6 +1674,132 @@ exit 0
     }
   }, 20_000);
 
+  it("binds a syntactically valid edited packet to the original reservation in every replacement writer", () => {
+    const editedBodies = [
+      packetComment(packet({ task_id: "SUP-TAMPERED-1" })),
+      packetComment(packet({ task_title: "Syntactically valid digest-only edit" })),
+      packetComment(packet({ graph_path: "feature/edited-graph" })),
+      packetComment(packet({ allowed_paths: ["tests/edited-worker/"] })),
+      packetComment(packet({ base_sha: otherSha })),
+    ];
+    const replacementWriters = [
+      (options: SyncCheckOptions) => runReservationEnforcement({ ...options, eventAction: "closed" }),
+      (options: SyncCheckOptions) => runLifecycleReconciliation({ ...options, action: "synchronize" }),
+      runSyncCheckReconciliation,
+    ];
+    for (const reconcile of replacementWriters) {
+      for (const editedBody of editedBodies) {
+        const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+        const result = reconcile({
+          body: editedBody,
+          comments: [
+            ...evidence.comments,
+            { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING") },
+          ],
+          liveState: "closed",
+        });
+        expect(result.status, result.stderr).toBe(0);
+        expect(prPatchCalls(result.calls)).toHaveLength(0);
+        expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+        expect(commentPatchCalls(result.calls, 103)).toHaveLength(1);
+        const reservation = result.comments.find((comment) => comment.id === 101);
+        const payloadBase64 = String(reservation?.body ?? "").match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+        expect(JSON.parse(Buffer.from(payloadBase64, "base64").toString("utf8"))).toMatchObject({
+          state: "RELEASED",
+          task_id: "SUP-TEST-1",
+          recovery: { kind: "closed_pr_invalid_packet", merged: false, reservation_head_sha: sha },
+        });
+        expect(String(result.comments.find((comment) => comment.id === 103)?.body)).toContain("- State: `CLOSED_UNMERGED`");
+      }
+    }
+
+    const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+    for (const comments of [
+      [...evidence.comments, { ...evidence.comments[0], id: 104 }],
+      [...evidence.comments, { ...evidence.comments[1], id: 105 }],
+    ]) {
+      const ambiguous = runSyncCheckReconciliation({ body: editedBodies[0], comments });
+      expect(ambiguous.status, ambiguous.stderr).toBe(0);
+      expect(ambiguous.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+    }
+  }, 40_000);
+
+  it("advances an exact prior-reservation task head during malformed-close convergence", () => {
+    const replacementWriters = [
+      (options: SyncCheckOptions) => runReservationEnforcement({ ...options, eventAction: "closed" }),
+      (options: SyncCheckOptions) => runLifecycleReconciliation({ ...options, action: "synchronize" }),
+      runSyncCheckReconciliation,
+    ];
+    for (const reconcile of replacementWriters) {
+      for (const liveMerged of [false, true]) {
+        const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+        const result = reconcile({
+          body: "bounded Task Packet removed after a repair push",
+          comments: [
+            ...evidence.comments,
+            { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING", sha) },
+          ],
+          eventHead: sha,
+          liveHead: otherSha,
+          liveMerged,
+          liveState: "closed",
+        });
+        expect(result.status, result.stderr).toBe(0);
+        expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+        expect(commentPatchCalls(result.calls, 103)).toHaveLength(1);
+        const terminalBody = String(result.comments.find((comment) => comment.id === 103)?.body);
+        expect(terminalBody).toContain(liveMerged ? "- State: `MERGED`" : "- State: `CLOSED_UNMERGED`");
+        expect(terminalBody).toContain(`- Head: \`${otherSha}\``);
+      }
+    }
+
+    const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+    const unrelatedTaskHead = runSyncCheckReconciliation({
+      body: "bounded Task Packet removed after a repair push",
+      comments: [
+        ...evidence.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING", "c".repeat(40)) },
+      ],
+      liveHead: otherSha,
+      liveState: "closed",
+    });
+    expect(unrelatedTaskHead.status, unrelatedTaskHead.stderr).toBe(0);
+    expect(commentPatchCalls(unrelatedTaskHead.calls, 101)).toHaveLength(1);
+    expect(commentPatchCalls(unrelatedTaskHead.calls, 103)).toHaveLength(0);
+  }, 30_000);
+
+  it("converges both partial malformed-close outcomes across an unrecorded repair head", () => {
+    const released = exactReservationEvidence(otherSha, {
+      state: "RELEASED",
+      pr_number: 849,
+      recovery: { kind: "closed_pr_invalid_packet", merged: false, reservation_head_sha: sha },
+    });
+    const reservationAlreadyReleased = runSyncCheckReconciliation({
+      body: "missing packet",
+      comments: [
+        ...released.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING", sha) },
+      ],
+      liveHead: otherSha,
+    });
+    expect(reservationAlreadyReleased.status, reservationAlreadyReleased.stderr).toBe(0);
+    expect(commentPatchCalls(reservationAlreadyReleased.calls, 101)).toHaveLength(0);
+    expect(commentPatchCalls(reservationAlreadyReleased.calls, 103)).toHaveLength(1);
+
+    const published = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+    const taskAlreadyTerminal = runSyncCheckReconciliation({
+      body: "missing packet",
+      comments: [
+        ...published.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CLOSED_UNMERGED", otherSha) },
+      ],
+      liveHead: otherSha,
+    });
+    expect(taskAlreadyTerminal.status, taskAlreadyTerminal.stderr).toBe(0);
+    expect(commentPatchCalls(taskAlreadyTerminal.calls, 101)).toHaveLength(1);
+    expect(commentPatchCalls(taskAlreadyTerminal.calls, 103)).toHaveLength(0);
+  });
+
   it("keeps malformed-close convergence idempotent in every replacement writer", () => {
     for (const reconcile of [runLifecycleReconciliation, runSyncCheckReconciliation]) {
       const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
@@ -2783,6 +2909,80 @@ process.stdout.write(JSON.stringify({
     });
     expect(result.apply).toBe(false);
     expect(result.code).toBe("terminal_state_preserved");
+  });
+
+  it("reactivates only CLOSED_UNMERGED from live reopen and upgrades it to a live merge", () => {
+    const reopened = runLifecycleReconciliation({
+      action: "reopened",
+      comments: [
+        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CLOSED_UNMERGED") },
+      ],
+      liveState: "open",
+    });
+    expect(reopened.status, reopened.stderr).toBe(0);
+    expect(commentPatchCalls(reopened.calls, 103)).toHaveLength(1);
+    expect(String(reopened.comments.find((comment) => comment.id === 103)?.body)).toContain("- State: `WORKER_PR_OPENED`");
+
+    const staleReopen = runLifecycleReconciliation({
+      action: "reopened",
+      comments: [
+        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CLOSED_UNMERGED", otherSha) },
+      ],
+      eventHead: otherSha,
+      liveHead: sha,
+      liveState: "open",
+    });
+    expect(staleReopen.status, staleReopen.stderr).toBe(0);
+    expect(commentPatchCalls(staleReopen.calls, 103)).toHaveLength(0);
+
+    const checksPending = transition({
+      current_body: stateBody("WORKER_PR_OPENED"),
+      source: "lifecycle",
+      requested_state: "CHECKS_PENDING",
+      live_pr_state: "open",
+    });
+    expect(checksPending.apply).toBe(true);
+    const ready = transition({
+      current_body: stateBody("CHECKS_PENDING"),
+      source: "checks",
+      requested_state: "READY_FOR_SUPERVISOR",
+      live_pr_state: "open",
+    });
+    expect(ready.apply).toBe(true);
+
+    const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+    const merged = runLifecycleReconciliation({
+      action: "closed",
+      comments: [
+        ...evidence.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CLOSED_UNMERGED") },
+      ],
+      liveMerged: true,
+      liveState: "closed",
+    });
+    expect(merged.status, merged.stderr).toBe(0);
+    expect(commentPatchCalls(merged.calls, 103)).toHaveLength(1);
+    expect(String(merged.comments.find((comment) => comment.id === 103)?.body)).toContain("- State: `MERGED`");
+
+    const closedAgain = transition({
+      current_body: stateBody("CLOSED_UNMERGED"),
+      source: "lifecycle",
+      requested_state: "CLOSED_UNMERGED",
+      live_pr_state: "closed",
+      live_merged: false,
+    });
+    expect(closedAgain.apply).toBe(false);
+    expect(closedAgain.code).toBe("terminal_state_preserved");
+
+    const mergedCannotReopen = transition({
+      current_body: stateBody("MERGED"),
+      source: "lifecycle",
+      requested_state: "WORKER_PR_OPENED",
+      live_pr_state: "open",
+      live_merged: false,
+    });
+    expect(mergedCannotReopen.apply).toBe(false);
+    expect(mergedCannotReopen.code).toBe("terminal_state_preserved");
   });
 
   it("delayed same-head lifecycle events cannot regress READY_FOR_SUPERVISOR", () => {

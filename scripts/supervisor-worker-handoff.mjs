@@ -873,7 +873,17 @@ export function evaluateTaskStateTransition(input) {
     return transitionResult(false, false, "stale_event_head", "event/check head no longer matches the live PR head", current, requestedState, requestedHead, liveHead);
   }
 
-  if (TERMINAL_TASK_STATES.has(current.state)) {
+  const reactivatesClosedUnmerged = current.state === "CLOSED_UNMERGED"
+    && livePrState === "open"
+    && source === "lifecycle"
+    && requestedState === "WORKER_PR_OPENED";
+  const upgradesClosedUnmergedToMerged = current.state === "CLOSED_UNMERGED"
+    && livePrState === "closed"
+    && liveMerged
+    && requestedState === "MERGED";
+  if (TERMINAL_TASK_STATES.has(current.state)
+    && !reactivatesClosedUnmerged
+    && !upgradesClosedUnmergedToMerged) {
     return transitionResult(true, false, "terminal_state_preserved", `terminal state ${current.state} cannot regress`, current, requestedState, requestedHead, liveHead);
   }
 
@@ -960,6 +970,7 @@ export function terminalTaskStateBodyFromExisting({
   run_id,
   pr_number,
   head_sha,
+  reservation_head_sha,
 }) {
   const currentBody = String(current_body ?? "");
   const taskId = assertPlainString(task_id, "task_id", 80).toUpperCase();
@@ -970,13 +981,14 @@ export function terminalTaskStateBodyFromExisting({
   const runId = assertPlainString(String(run_id ?? ""), "run_id", 30);
   const prNumber = Number(pr_number);
   const headSha = assertPlainString(head_sha, "head_sha", 40).toLowerCase();
+  const reservationHeadSha = assertPlainString(reservation_head_sha, "reservation_head_sha", 40).toLowerCase();
   if (!TASK_ID_RE.test(taskId)) throw new Error("task_id is malformed");
   if (!BRANCH_RE.test(workerBranch)) throw new Error("branch is malformed");
   if (!SHA256_RE.test(packetDigest)) throw new Error("packet_digest is malformed");
   if (!TERMINAL_TASK_STATES.has(terminalState)) throw new Error("state must be terminal");
   if (!/^[0-9]+$/.test(runId)) throw new Error("run_id is malformed");
   if (!Number.isInteger(prNumber) || prNumber <= 0) throw new Error("pr_number is malformed");
-  if (!SHA_RE.test(headSha)) throw new Error("head_sha is malformed");
+  if (!SHA_RE.test(headSha) || !SHA_RE.test(reservationHeadSha)) throw new Error("head_sha is malformed");
 
   const marker = `${TASK_STATE_MARKER_PREFIX}${taskId} -->`;
   if (countOccurrences(currentBody, marker) !== 1) throw new Error("trusted task state marker is missing or ambiguous");
@@ -999,8 +1011,9 @@ export function terminalTaskStateBodyFromExisting({
   if (Number(exactStateBodyField(currentBody, /^- PR: #([1-9][0-9]*)$/gmu, "PR")) !== prNumber) {
     throw new Error("trusted task state PR does not match reservation");
   }
-  if (exactStateBodyField(currentBody, /^- Head: `([0-9a-f]{40})`$/gmu, "head").toLowerCase() !== headSha) {
-    throw new Error("trusted task state head does not match live PR");
+  const currentHeadSha = exactStateBodyField(currentBody, /^- Head: `([0-9a-f]{40})`$/gmu, "head").toLowerCase();
+  if (currentHeadSha !== headSha && currentHeadSha !== reservationHeadSha) {
+    throw new Error("trusted task state head matches neither the live PR nor its exact reservation");
   }
   for (const invariant of [
     "- Production mutation: `false`",
@@ -1077,7 +1090,10 @@ export function planInvalidWorkerPrClose(input) {
       const reservedRun = String(payload?.run_id ?? "");
       const reservedBranch = String(payload?.branch ?? "");
       const reservedHead = String(payload?.head_sha ?? "").toLowerCase();
+      const recoveryReservationHead = String(payload?.recovery?.reservation_head_sha ?? "").toLowerCase();
       const reservedPr = Number(payload?.pr_number);
+      const mayBeUnbound = (reservationState === "RESERVED" || reservationState === "RECOVERABLE")
+        && (payload?.pr_number === null || payload?.pr_number === undefined);
       let graphPath;
       try {
         graphPath = assertSafeGraphPath(payload?.graph_path);
@@ -1087,17 +1103,28 @@ export function planInvalidWorkerPrClose(input) {
       const packetDigest = String(payload?.packet_digest ?? "").toLowerCase();
       const commentId = Number(comment?.id);
       const marker = `<!-- proffera-worker-slot-reservation:${taskId} -->`;
-      if ((reservationState !== "PUBLISHED" && reservationState !== "RELEASED")
+      if (!new Set(["RESERVED", "PUBLISHED", "RECOVERABLE", "RELEASED"]).has(reservationState)
         || !TASK_ID_RE.test(taskId)
         || !/^[0-9]+$/.test(reservedRun)
         || reservedBranch !== branch
         || !SHA_RE.test(reservedHead)
-        || reservedPr !== prNumber
+        || (recoveryReservationHead && !SHA_RE.test(recoveryReservationHead))
+        || (!mayBeUnbound && reservedPr !== prNumber)
         || !SHA256_RE.test(packetDigest)
         || !Number.isInteger(commentId)
         || commentId <= 0
         || countOccurrences(body, marker) !== 1) continue;
-      reservations.push({ comment: { ...comment, id: commentId }, body, payload, taskId, reservedRun, graphPath, packetDigest });
+      reservations.push({
+        comment: { ...comment, id: commentId },
+        body,
+        payload,
+        taskId,
+        reservedRun,
+        reservedHead,
+        taskHead: recoveryReservationHead || reservedHead,
+        graphPath,
+        packetDigest,
+      });
     }
     if (reservations.length !== 1) {
       return invalidCloseResult(false, "ambiguous_reservation", "closed malformed Worker PR has missing or ambiguous exact reservation provenance");
@@ -1111,6 +1138,21 @@ export function planInvalidWorkerPrClose(input) {
       return invalidCloseResult(false, "ambiguous_dispatch", "closed malformed Worker PR has missing or ambiguous exact dispatch provenance");
     }
 
+    try {
+      const livePacket = parseTaskPacketComment(String(pr.body ?? ""));
+      if (livePacket.task_id === reservation.taskId
+        && livePacket.branch === branch
+        && livePacket.graph_path === reservation.graphPath
+        && packetDigest(livePacket) === reservation.packetDigest) {
+        return invalidCloseResult(false, "valid_task_packet", "live Task Packet still matches the exact durable reservation");
+      }
+    } catch {
+      // Missing or malformed packets are handled by reservation-derived reconciliation.
+    }
+    if (reservation.payload.state !== "PUBLISHED" && reservation.payload.state !== "RELEASED") {
+      return invalidCloseResult(false, "reservation_not_published", "reservation-derived invalid close requires published provenance");
+    }
+
     let nextReservationBody = reservation.body;
     let applyReservation = false;
     if (reservation.payload.state === "PUBLISHED") {
@@ -1119,7 +1161,11 @@ export function planInvalidWorkerPrClose(input) {
         state: "RELEASED",
         pr_number: prNumber,
         head_sha: headSha,
-        recovery: { kind: "closed_pr_invalid_packet", merged },
+        recovery: {
+          kind: "closed_pr_invalid_packet",
+          merged,
+          reservation_head_sha: reservation.reservedHead,
+        },
       };
       const encoded = Buffer.from(JSON.stringify(nextPayload), "utf8").toString("base64");
       nextReservationBody = [
@@ -1155,8 +1201,11 @@ export function planInvalidWorkerPrClose(input) {
           run_id: runId,
           pr_number: prNumber,
           head_sha: headSha,
+          reservation_head_sha: reservation.taskHead,
         });
-        if (TERMINAL_TASK_STATES.has(currentTaskState.state) && currentTaskState.state !== terminalState) {
+        if (TERMINAL_TASK_STATES.has(currentTaskState.state)
+          && currentTaskState.state !== terminalState
+          && !(currentTaskState.state === "CLOSED_UNMERGED" && terminalState === "MERGED")) {
           return invalidCloseResult(false, "terminal_conflict", "trusted task state conflicts with the live canonical terminal state");
         }
         const transition = evaluateTaskStateTransition({
