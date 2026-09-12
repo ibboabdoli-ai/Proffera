@@ -629,6 +629,19 @@ exit 0
     expect(sync).toContain("exit 1");
   });
 
+  it("authenticates reservation release and reclaims only verified expired reservations", () => {
+    const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+    const closeStep = workflowRunStep(workflow, "Require exact durable reservation before accepting Worker PR");
+    expect(closeStep).toContain("EVENT_AUTHOR");
+    expect(closeStep).toContain("EVENT_HEAD_REPOSITORY");
+    expect(closeStep).toContain('reserved_digest" != "$packet_digest');
+    expect(closeStep).toContain('reserved_head" != "$live_head');
+    expect(workflow).toContain("lease_expires_at");
+    expect(workflow).toContain('run_status" = "completed"');
+    expect(workflow).toContain('open_pr_count" -eq 0');
+    expect(workflow).toContain("reservation changed during stale-run reclamation");
+  });
+
   it("keeps an #830-style independent parallel Worker unaffected", () => {
     const parallel = workerPr({
       number: 830,

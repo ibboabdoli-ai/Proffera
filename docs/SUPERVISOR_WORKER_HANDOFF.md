@@ -66,6 +66,8 @@ Before dispatch and again immediately before publication, the workflow resolves 
 - live `main` moves between packet creation and publication;
 - the Worker changes a forbidden, hard-blocked, or undeclared file.
 
+Each durable `RESERVED` slot has a one-hour lease. An expired reservation is released only after GitHub reports its owning run completed, no bound or open Worker PR and no owning branch remains, and a final read proves the reservation record is unchanged; missing or ambiguous evidence remains fail-closed. PR-close release likewise requires the trusted repository owner, same head repository, normalized Task Packet digest and exact reservation binding (including the reserved head before a PR number is bound).
+
 ## Actual Worker execution
 
 Phase 1 reuses the repository-supported Codex GitHub Action already used by Proffera CI repair. It does not introduce a second orchestrator or external queue.

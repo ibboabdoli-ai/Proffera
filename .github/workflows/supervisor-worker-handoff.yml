@@ -41,6 +41,8 @@ jobs:
           EVENT_ACTION: ${{ github.event.action }}
           EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           EVENT_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          EVENT_AUTHOR: ${{ github.event.pull_request.user.login }}
+          EVENT_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
         shell: bash
         run: |
           set -euo pipefail
@@ -85,6 +87,7 @@ jobs:
           packet_branch="$(jq -r '.branch' <<< "$packet")"
           packet_graph="$(jq -r '.graph_path' <<< "$packet")"
           packet_allowed="$(jq -c '.allowed_paths' <<< "$packet")"
+          packet_digest="$(printf '%s' "$packet" | sha256sum | cut -d' ' -f1)"
           if [ "$packet_branch" != "$live_ref" ]; then
             if [ "$EVENT_ACTION" = "closed" ]; then
               echo "Closed Worker PR Task Packet branch mismatch; refusing reservation mutation." >&2
@@ -96,6 +99,11 @@ jobs:
           marker="<!-- proffera-worker-slot-reservation:${task_id} -->"
 
           if [ "$EVENT_ACTION" = "closed" ]; then
+            repository_owner="${REPOSITORY%%/*}"
+            if [ "$EVENT_AUTHOR" != "$repository_owner" ] || [ "$EVENT_HEAD_REPOSITORY" != "$REPOSITORY" ]; then
+              echo "Refused: closed Worker PR is not owned by the trusted same-repository owner." >&2
+              exit 1
+            fi
             if [ "$live_state" != "closed" ]; then
               echo "Close event is stale; live PR is not closed."
               exit 0
@@ -122,12 +130,24 @@ jobs:
             reserved_task="$(jq -r '.task_id // ""' <<< "$payload")"
             reserved_branch="$(jq -r '.branch // ""' <<< "$payload")"
             reserved_pr="$(jq -r '.pr_number // empty' <<< "$payload")"
-            if [ "$reserved_task" != "$task_id" ] || [ "$reserved_branch" != "$live_ref" ]; then
+            reserved_graph="$(jq -r '.graph_path // ""' <<< "$payload")"
+            reserved_allowed="$(jq -c '.allowed_paths // []' <<< "$payload")"
+            reserved_digest="$(jq -r '.packet_digest // ""' <<< "$payload")"
+            reserved_head="$(jq -r '.head_sha // ""' <<< "$payload")"
+            if [ "$reserved_task" != "$task_id" ] \
+              || [ "$reserved_branch" != "$live_ref" ] \
+              || [ "$reserved_graph" != "$packet_graph" ] \
+              || [ "$reserved_allowed" != "$packet_allowed" ] \
+              || [ "$reserved_digest" != "$packet_digest" ]; then
               echo "Refused: closed Worker PR does not match durable reservation ownership." >&2
               exit 1
             fi
             if [ -n "$reserved_pr" ] && [ "$reserved_pr" != "$PR_NUMBER" ]; then
               echo "Refused: reservation belongs to PR #${reserved_pr}, not closed PR #${PR_NUMBER}." >&2
+              exit 1
+            fi
+            if [ -z "$reserved_pr" ] && [ "$reserved_head" != "$live_head" ]; then
+              echo "Refused: unbound reservation head does not match the closed Worker PR." >&2
               exit 1
             fi
             if [ "$state" = "RELEASED" ]; then
@@ -788,6 +808,7 @@ jobs:
 
           active_units="$(jq '[.[] | select(.base.ref == "main" and (.head.ref | startswith("work/proffera-")))] | length' <<< "$pulls_json")"
           open_worker_branches="$(jq -c '[.[] | select(.base.ref == "main" and (.head.ref | startswith("work/proffera-"))) | .head.ref]' <<< "$pulls_json")"
+          now_epoch="$(date -u +%s)"
 
           while IFS= read -r encoded; do
             [ -z "$encoded" ] && continue
@@ -808,6 +829,31 @@ jobs:
             other_branch="$(jq -r '.branch // ""' <<< "$payload")"
             other_allowed="$(jq -c '.allowed_paths // []' <<< "$payload")"
             other_changed="$(jq -c '.changed_files // []' <<< "$payload")"
+            if [ "$state" = "RESERVED" ]; then
+              lease_expires_at="$(jq -r '.lease_expires_at // ""' <<< "$payload")"
+              owner_run_id="$(jq -r '.run_id // ""' <<< "$payload")"
+              reserved_pr="$(jq -r '.pr_number // empty' <<< "$payload")"
+              lease_epoch="$(date -u -d "$lease_expires_at" +%s 2>/dev/null || true)"
+              if [ -n "$lease_epoch" ] && [ "$lease_epoch" -le "$now_epoch" ] && [ -z "$reserved_pr" ]; then
+                run_status="$(gh api "repos/${REPOSITORY}/actions/runs/${owner_run_id}" --jq '.status // ""' 2>/dev/null || true)"
+                branch_exists="$(gh api "repos/${REPOSITORY}/git/ref/heads/${other_branch}" --jq '.ref // ""' 2>/dev/null || true)"
+                open_pr_count="$(jq --arg branch "$other_branch" '[.[] | select(.head.ref == $branch)] | length' <<< "$pulls_json")"
+                if [ "$run_status" = "completed" ] && [ -z "$branch_exists" ] && [ "$open_pr_count" -eq 0 ]; then
+                  comment_id="$(jq -r '.id' <<< "$comment")"
+                  current_body="$(gh api "repos/${REPOSITORY}/issues/comments/${comment_id}" --jq '.body // ""')"
+                  if [ "$current_body" != "$body" ]; then
+                    echo "Refused: reservation changed during stale-run reclamation." >&2
+                    exit 1
+                  fi
+                  payload="$(jq -c '.state="RELEASED" | .recovery={kind:"expired_reservation",verified_run_status:"completed"}' <<< "$payload")"
+                  payload_b64="$(printf '%s' "$payload" | base64 -w0)"
+                  new_body="$(printf '%s\n' "<!-- proffera-worker-slot-reservation:${marker_task} -->" "### Worker slot reservation: ${marker_task}" '- State: `RELEASED`' "- Reservation payload: \`${payload_b64}\`")"
+                  gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${comment_id}" -f body="$new_body" >/dev/null
+                  echo "Released expired reservation ${marker_task} after verifying its owning run completed and no branch or PR remains."
+                  continue
+                fi
+              fi
+            fi
             if [ -z "$other_graph" ] || ! jq -e 'type == "array"' >/dev/null <<< "$other_allowed" || ! jq -e 'type == "array"' >/dev/null <<< "$other_changed"; then
               echo "Refused: active reservation ownership is malformed." >&2
               exit 1
@@ -842,7 +888,8 @@ jobs:
             exit 1
           fi
 
-          reservation="$(jq -cn --arg state "RESERVED" --arg task_id "$task_id" --arg run_id "$RUN_ID" --arg branch "$branch" --arg graph_path "$graph_path" --arg packet_digest "$packet_digest" --arg head_sha "$head_sha" --argjson allowed_paths "$allowed_paths" --argjson changed_files "$changed_json" '{version:1,state:$state,task_id:$task_id,run_id:$run_id,branch:$branch,graph_path:$graph_path,packet_digest:$packet_digest,head_sha:$head_sha,allowed_paths:$allowed_paths,changed_files:$changed_files,pr_number:null,recovery:null}')"
+          lease_expires_at="$(date -u -d '+1 hour' +%Y-%m-%dT%H:%M:%SZ)"
+          reservation="$(jq -cn --arg state "RESERVED" --arg task_id "$task_id" --arg run_id "$RUN_ID" --arg branch "$branch" --arg graph_path "$graph_path" --arg packet_digest "$packet_digest" --arg head_sha "$head_sha" --arg lease_expires_at "$lease_expires_at" --argjson allowed_paths "$allowed_paths" --argjson changed_files "$changed_json" '{version:1,state:$state,task_id:$task_id,run_id:$run_id,branch:$branch,graph_path:$graph_path,packet_digest:$packet_digest,head_sha:$head_sha,lease_expires_at:$lease_expires_at,allowed_paths:$allowed_paths,changed_files:$changed_files,pr_number:null,recovery:null}')"
           reservation_b64="$(printf '%s' "$reservation" | base64 -w0)"
           reservation_body="$(cat <<EOF
           ${current_marker}
