@@ -89,6 +89,142 @@ function expectShellAndJqSyntax(script: string) {
   }
 }
 
+type ReservationEnforcementOptions = {
+  body?: string;
+  comments?: Array<Record<string, unknown>>;
+  eventHead?: string;
+  liveHead?: string;
+};
+
+function exactReservationEvidence(head = sha) {
+  const body = packetComment();
+  const parsed = spawnSync("node", [helper, "parse"], { input: body, encoding: "utf8" });
+  expect(parsed.status, parsed.stderr).toBe(0);
+  const normalizedPacket = parsed.stdout.replace(/\n+$/, "");
+  const parsedPacket = JSON.parse(normalizedPacket);
+  const payload = {
+    state: "RESERVED",
+    task_id: parsedPacket.task_id,
+    run_id: "9001",
+    branch: parsedPacket.branch,
+    head_sha: head,
+    graph_path: parsedPacket.graph_path,
+    allowed_paths: parsedPacket.allowed_paths,
+    packet_digest: createHash("sha256").update(normalizedPacket).digest("hex"),
+  };
+  const payloadBase64 = Buffer.from(JSON.stringify(payload)).toString("base64");
+  return {
+    body,
+    comments: [
+      {
+        id: 101,
+        user: { login: "github-actions[bot]" },
+        body: "<!-- proffera-worker-slot-reservation:" + payload.task_id + " -->\n"
+          + "### Worker slot reservation: " + payload.task_id + "\n"
+          + "- State: `RESERVED`\n"
+          + "- Reservation payload: `" + payloadBase64 + "`",
+      },
+      {
+        id: 102,
+        user: { login: "github-actions[bot]" },
+        body: "<!-- proffera-worker-dispatch-start:" + payload.task_id + ":" + payload.run_id + " -->",
+      },
+    ],
+  };
+}
+
+function runReservationEnforcement({
+  body = packetComment(),
+  comments = [],
+  liveHead = sha,
+  eventHead = liveHead,
+}: ReservationEnforcementOptions = {}) {
+  const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+  const script = workflowRunStep(workflow, "Require exact durable reservation before accepting Worker PR");
+  const root = mkdtempSync(join(tmpdir(), "proffera-reservation-enforcement-"));
+  const bin = join(root, "bin");
+  const log = join(root, "gh-calls.jsonl");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(
+    join(bin, "gh"),
+    `#!/usr/bin/env node
+const { appendFileSync } = require("node:fs");
+const args = process.argv.slice(2);
+appendFileSync(process.env.GH_STUB_LOG, JSON.stringify(args) + "\\n");
+const methodIndex = args.indexOf("--method");
+const method = methodIndex >= 0 ? args[methodIndex + 1] : "GET";
+const endpoint = args.find((arg) => arg.startsWith("repos/")) || "";
+if (args[0] !== "api" || !endpoint) {
+  process.stderr.write("unexpected gh call: " + JSON.stringify(args) + "\\n");
+  process.exit(2);
+}
+if (method !== "GET") {
+  process.stdout.write("{}\\n");
+  process.exit(0);
+}
+if (endpoint === "repos/ibboabdoli-ai/Proffera/pulls/849") {
+  process.stdout.write(process.env.GH_STUB_PR_JSON + "\\n");
+  process.exit(0);
+}
+if (endpoint === "repos/ibboabdoli-ai/Proffera/issues/548/comments?per_page=100") {
+  for (const comment of JSON.parse(process.env.GH_STUB_COMMENTS_JSON)) {
+    process.stdout.write(JSON.stringify(comment) + "\\n");
+  }
+  process.exit(0);
+}
+process.stderr.write("unhandled gh endpoint: " + endpoint + "\\n");
+process.exit(2);
+`,
+    { encoding: "utf8", mode: 0o755 },
+  );
+
+  const livePr = {
+    state: "open",
+    merged: false,
+    head: {
+      sha: liveHead,
+      ref: "work/proffera-test-task",
+      repo: { full_name: "ibboabdoli-ai/Proffera" },
+    },
+    user: { login: "ibboabdoli-ai" },
+    body,
+  };
+  const result = spawnSync("bash", ["-c", script], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+      GH_TOKEN: "test-token",
+      GH_STUB_LOG: log,
+      GH_STUB_PR_JSON: JSON.stringify(livePr),
+      GH_STUB_COMMENTS_JSON: JSON.stringify(comments),
+      REPOSITORY: "ibboabdoli-ai/Proffera",
+      PR_NUMBER: "849",
+      EVENT_ACTION: "synchronize",
+      EVENT_HEAD_SHA: eventHead,
+      EVENT_HEAD_REF: "work/proffera-test-task",
+      EVENT_AUTHOR: "ibboabdoli-ai",
+      EVENT_HEAD_REPOSITORY: "ibboabdoli-ai/Proffera",
+    },
+  });
+  const calls = readFileSync(log, "utf8")
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as string[]);
+  return { ...result, calls };
+}
+
+function prPatchCalls(calls: string[][]) {
+  return calls.filter((args) => {
+    const methodIndex = args.indexOf("--method");
+    return methodIndex >= 0
+      && args[methodIndex + 1] === "PATCH"
+      && args.includes("repos/ibboabdoli-ai/Proffera/pulls/849");
+  });
+}
+
 function packet(overrides: Record<string, unknown> = {}) {
   return {
     task_id: "SUP-TEST-1",
@@ -649,16 +785,7 @@ exit 0
   it("authenticates reservation release and reclaims only verified expired reservations", () => {
     const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
     const closeStep = workflowRunStep(workflow, "Require exact durable reservation before accepting Worker PR");
-    expect(closeStep).toContain("EVENT_AUTHOR");
-    expect(closeStep).toContain("EVENT_HEAD_REPOSITORY");
     expect(closeStep).toContain("has_trusted_dispatch_provenance");
-    expect(closeStep).toContain('live_author" = "${REPOSITORY%%/*}');
-    expect(closeStep).toContain('live_head_repository" = "$REPOSITORY');
-    expect(closeStep).toContain("proffera-worker-dispatch-start:${reserved_task}:${reserved_run}");
-    expect(closeStep).toContain('dispatch_matches" -eq 1');
-    expect(closeStep).toContain('reservation_matches" -eq 1');
-    expect(closeStep).toContain('trusted_matches" -eq 1');
-    expect(closeStep).toContain("leaving it unchanged");
     expect(closeStep.indexOf('if [ "$EVENT_ACTION" != "closed" ] && ! has_trusted_dispatch_provenance')).toBeLessThan(
       closeStep.indexOf('close_unreserved "missing bounded Task Packet"'),
     );
@@ -670,24 +797,59 @@ exit 0
     expect(workflow).toContain("reservation changed during stale-run reclamation");
   });
 
-  it("leaves a non-dispatch work branch unchanged before closure-capable enforcement", () => {
+  it("re-evaluates Worker reservation enforcement after head and body updates", () => {
     const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
-    const enforcement = workflowRunStep(workflow, "Require exact durable reservation before accepting Worker PR");
-    const provenanceGate = enforcement.indexOf('if [ "$EVENT_ACTION" != "closed" ] && ! has_trusted_dispatch_provenance');
-    expect(provenanceGate).toBeGreaterThanOrEqual(0);
-    expect(provenanceGate).toBeLessThan(enforcement.indexOf('close_unreserved "missing bounded Task Packet"'));
-    expect(enforcement).toContain("has no exact trusted Supervisor dispatch provenance; leaving it unchanged");
+    expect(workflow).toContain("types: [opened, reopened, synchronize, edited, closed]");
   });
 
-  it("requires one exact reservation and one bot-authored task/run dispatch record", () => {
-    const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
-    const enforcement = workflowRunStep(workflow, "Require exact durable reservation before accepting Worker PR");
-    expect(enforcement).toContain('[ "$live_author" = "${REPOSITORY%%/*}" ]');
-    expect(enforcement).toContain('[ "$live_head_repository" = "$REPOSITORY" ]');
-    expect(enforcement).toContain('[ "$reserved_branch" = "$live_ref" ] && [ "$reserved_head" = "$live_head" ]');
-    expect(enforcement).toContain('.user.login == "github-actions[bot]"');
-    expect(enforcement).toContain('[ "$dispatch_matches" -eq 1 ]');
-    expect(enforcement).toContain('[ "$reservation_matches" -eq 1 ] && [ "$trusted_matches" -eq 1 ]');
+  it("leaves a PR unchanged when trusted dispatch provenance is missing", () => {
+    const result = runReservationEnforcement();
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("has no exact trusted Supervisor dispatch provenance; leaving it unchanged");
+    expect(prPatchCalls(result.calls)).toHaveLength(0);
+  });
+
+  it("accepts one exact reservation and matching bot-authored dispatch record", () => {
+    const evidence = exactReservationEvidence();
+    const result = runReservationEnforcement(evidence);
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("is bound to durable reservation SUP-TEST-1@");
+    expect(result.stdout).not.toContain("leaving it unchanged");
+    expect(prPatchCalls(result.calls)).toHaveLength(0);
+  });
+
+  it("rejects duplicate or mismatched reservation and dispatch evidence", () => {
+    const evidence = exactReservationEvidence();
+    const duplicateReservation = { ...evidence.comments[0], id: 103 };
+    const mismatchedDispatch = {
+      ...evidence.comments[1],
+      body: String(evidence.comments[1].body).replace(":9001 -->", ":different-run -->"),
+    };
+    for (const comments of [
+      [...evidence.comments, duplicateReservation],
+      [evidence.comments[0], mismatchedDispatch],
+    ]) {
+      const result = runReservationEnforcement({ body: evidence.body, comments });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain("has no exact trusted Supervisor dispatch provenance; leaving it unchanged");
+      expect(result.stdout).not.toContain("is bound to durable reservation");
+      expect(prPatchCalls(result.calls)).toHaveLength(0);
+    }
+  });
+
+  it("does not reuse reservation evidence after the live PR head changes", () => {
+    const evidence = exactReservationEvidence();
+    const result = runReservationEnforcement({
+      body: evidence.body,
+      comments: evidence.comments,
+      liveHead: otherSha,
+      eventHead: sha,
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("PR changed before reservation enforcement; newer event will reconcile it.");
+    expect(result.stdout).not.toContain("is bound to durable reservation");
+    expect(result.calls.filter((args) => args.some((arg) => arg.includes("/issues/548/comments")))).toHaveLength(0);
+    expect(prPatchCalls(result.calls)).toHaveLength(0);
   });
 
   it("binds reservation publication and recovery to trusted live PR identity", () => {
