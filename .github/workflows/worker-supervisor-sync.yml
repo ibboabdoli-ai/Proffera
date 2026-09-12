@@ -330,11 +330,6 @@ jobs:
             echo "PR #$pr_number is not a trusted Phase-1 Worker PR; nothing to reconcile."
             exit 0
           fi
-          if [ "$head_sha" != "$EVENT_HEAD_SHA" ]; then
-            echo "Workflow completion is stale for PR #$pr_number; current head is $head_sha."
-            exit 0
-          fi
-
           packet_file="$(mktemp)"
           if ! printf '%s' "$pr_body" | node "$helper" parse > "$packet_file" 2>/dev/null; then
             echo "Trusted Phase-1 marker carries an invalid Task Packet; refusing reconciliation." >&2
@@ -487,6 +482,10 @@ jobs:
 
           if [ "$pr_state" = "closed" ]; then
             reconcile_closed_pr
+            exit 0
+          fi
+          if [ "$head_sha" != "$EVENT_HEAD_SHA" ]; then
+            echo "Workflow completion is stale for open PR #$pr_number; current head is $head_sha."
             exit 0
           fi
           if [ "$pr_state" != "open" ]; then

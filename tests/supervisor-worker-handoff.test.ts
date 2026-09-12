@@ -1265,6 +1265,35 @@ exit 0
     expect(String(result.comments.find((comment) => comment.id === 103)?.body)).toContain("- State: `MERGED`");
   });
 
+  it("converges a live closed PR before rejecting stale workflow-run evidence", () => {
+    const liveHead = otherSha;
+    const evidence = exactReservationEvidence(liveHead);
+    const result = runSyncCheckReconciliation({
+      comments: [
+        ...evidence.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING", liveHead) },
+      ],
+      eventHead: sha,
+      liveHead,
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Converged closed Worker PR #849 to reservation RELEASED and task CLOSED_UNMERGED.");
+    expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+    expect(commentPatchCalls(result.calls, 103)).toHaveLength(1);
+  });
+
+  it("does not reuse stale workflow-run evidence for an open PR", () => {
+    const result = runSyncCheckReconciliation({
+      comments: [{ id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING", otherSha) }],
+      eventHead: sha,
+      liveHead: otherSha,
+      liveState: "open",
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Workflow completion is stale for open PR #849");
+    expect(result.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+  });
+
   it("preserves the normal exact-head check-evidence path for an open PR", () => {
     const result = runSyncCheckReconciliation({
       comments: [{ id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING") }],
