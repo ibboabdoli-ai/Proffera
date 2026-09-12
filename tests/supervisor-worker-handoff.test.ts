@@ -1019,6 +1019,15 @@ function transition(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Supervisor ↔ Worker Phase-1 handoff", () => {
+  it("keeps the trusted handoff helper directly executable", () => {
+    const result = spawnSync(helper, ["parse"], {
+      input: packetComment(),
+      encoding: "utf8",
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({ task_id: "SUP-TEST-1" });
+  });
+
   it("accepts a valid bounded task", () => {
     expect(evaluate(baseContext()).status).toBe("TASK_CREATED");
   });
