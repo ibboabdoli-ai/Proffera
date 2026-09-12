@@ -61,9 +61,12 @@ Before dispatch and again immediately before publication, the workflow resolves 
 - another Worker owns the same graph path;
 - declared or observed file scope overlaps an active Worker;
 - a legacy Worker lacks enough graph/scope metadata to prove independence;
+- two writable Workers are already active globally; Worker #2 is admitted only when its graph path and both declared and observed touch scopes are proven disjoint, while Worker #3 fails closed;
 - an open Dependabot PR overlaps the requested file scope;
 - live `main` moves between packet creation and publication;
 - the Worker changes a forbidden, hard-blocked, or undeclared file.
+
+Each durable `RESERVED` slot has a one-hour lease. An expired reservation is released only after GitHub reports its owning run completed, no bound or open Worker PR and no owning branch remains, and a final read proves the reservation record is unchanged; missing or ambiguous evidence remains fail-closed. PR-close release likewise requires the trusted repository owner, same head repository, normalized Task Packet digest and exact reservation binding (including the reserved head before a PR number is bound).
 
 ## Actual Worker execution
 
@@ -72,6 +75,22 @@ Phase 1 reuses the repository-supported Codex GitHub Action already used by Prof
 The handoff workflow calls the same immutable `openai/codex-action` revision with the existing `OPENAI_API_KEY`. The action receives no branch-push credential. It works in the checked-out workspace, treats the Task Packet and repository text as untrusted input, and is instructed not to commit, push, deploy, merge, approve, mutate Production, or install packages.
 
 After the Worker returns, repository code validates the actual changed-file set against the packet and then runs lint, typecheck, tests, build, and `git diff --check`. The workflow then repeats freshness/overlap/kill-switch checks. Only after all of those checks pass is a local commit created and published using the repository's existing `PROFFERA_AUTOFIX_PUSH_TOKEN`, followed by one PR creation. Missing or insufficient existing authentication fails closed and is recorded as `WORKER_BLOCKED`; no successful-dispatch claim is fabricated.
+
+## Publication boundary — Worker ≠ Publisher
+
+This separation is an architectural invariant for both normal implementation and review-driven repair:
+
+- A Worker is never a GitHub publisher. It must not receive a GitHub write credential and must not be instructed to `git push`, create a PR, merge, or mutate a remote ref.
+- The **Trusted Publisher** is the only component allowed to perform GitHub writes after independent validation. It may use the repository-scoped publication credential already held outside Worker code, or an authenticated connected GitHub App with equivalent narrow repository write capability.
+- When the Worker runs inside the trusted GitHub Actions checkout, it returns workspace edits only; trusted post-Worker steps validate, commit, and publish them.
+- When a repair Worker runs in a separate Codex/cloud connector sandbox with no writable `origin`, no authenticated `gh`, or blocked direct HTTPS access, it must return a complete deterministic repair artifact instead of retrying direct push.
+- A repair artifact must be bound to the exact source head, exact authorized path set, complete target bytes, byte/line counts, SHA-256 values, and Git blob SHAs. The Trusted Publisher verifies all of those values before one normal non-force update of the already-authorized branch.
+- The Trusted Publisher may update only the existing authorized `work/proffera-*` branch for that task. It never gains merge authority, never writes directly to `main`, and never widens the Task Packet scope.
+- A `403`, missing `origin`, unauthenticated `gh`, or blocked Worker network path is a publication-boundary signal, not a reason to give the Worker broader credentials. The Supervisor must switch to verified artifact transport and Trusted Publisher recovery instead of repeating direct Worker push attempts.
+
+Therefore Supervisor instructions must never tell a credentialless Worker to push. The canonical repair path is:
+
+`same-branch repair Worker → tests → complete verified artifact/workspace diff → Trusted Publisher → same existing branch/PR → fresh exact-head gates`.
 
 ## Kill switch
 
@@ -102,6 +121,8 @@ Automation updates that comment in place instead of appending duplicate task-sta
 
 The handoff workflow uses one non-cancelling Supervisor concurrency group, so identical or graph-conflicting deliveries are serialized. A second run sees the first trusted task state and returns an already-dispatched result rather than creating another branch or PR. `TASK_BLOCKED` may be re-evaluated because no Worker was started; once a Worker-active/terminal state exists, the same task ID is not dispatched again.
 
+Repairs remain on the existing Worker branch and PR. The repair Worker verifies and tests the fix, then returns a complete trusted-publisher input (workspace diff when inside the trusted runner, or deterministic artifact when outside it). Only the Trusted Publisher commits/publishes the same branch. Recovery never creates a competing repair branch or PR.
+
 Malformed packets that do not provide a usable task ID receive one rejection record keyed by the source comment ID.
 
 ## Worker → Supervisor reconciliation
@@ -115,7 +136,9 @@ A new commit routes the task back to `CHECKS_PENDING`, invalidating earlier head
 - Targeted CI shadow;
 - Production base health.
 
-Only when all four current-head workflow runs are successful does the task become `READY_FOR_SUPERVISOR`. CI success still includes the repository's existing final browser/review gate, so this reconciliation does not create a parallel review system.
+Only when all four current-head workflow runs are successful does the task become `READY_FOR_SUPERVISOR`. The stable state then carries an exact `<task_id>@<head_sha>` readiness checkpoint. A new head invalidates that checkpoint. CI success still includes the repository's existing final browser/review gate, so this reconciliation does not create a parallel review system.
+
+Canonical CI scope planning may reduce execution only for genuinely isolated low-risk paths. Workflow/control-plane, authentication, security, data/database, provider, configuration, migration, package/lockfile, secret/environment, and Production-sensitive changes remain on FULL gates. Readiness also requires zero material unresolved current-head review findings.
 
 ## Human approval boundary
 
@@ -130,8 +153,10 @@ The automation prefers refusing duplicate work over guessing:
 - kill switch off → enable the label deliberately, then edit/repost the intended packet;
 - Worker produced no safe diff → task becomes blocked;
 - branch exists without a trustworthy PR binding → manual Supervisor review is required;
-- publication/authentication fails after local implementation → task becomes `WORKER_BLOCKED`; a retry cannot silently create a second Worker;
+- publication/authentication fails after implementation → the Worker does not retry direct push and does not receive broader GitHub credentials; it returns a complete verified artifact and the Trusted Publisher applies it only to the same authorized branch/PR;
 - PR closes unmerged → `CLOSED_UNMERGED`; a new attempt requires a new Supervisor-selected task identity;
 - main moves before publish → Worker output is not published; Supervisor creates a fresh-baseline task.
 
 No separate database, queue, SaaS orchestrator, Production service, or provider mutation is required for Phase 1.
+
+A publication artifact is a last-resort transport, never permission to reconstruct missing work. The repository helper accepts it only when `source_head` exactly equals the independently resolved current source head, `artifact_set_complete` is exactly `YES`, and it contains a complete newline-terminated unified diff plus complete full-file replacements (or explicitly numbered contiguous chunks). The declared path set, diff sections, replacements, and manifest must match exactly. UTF-8 byte counts, line counts, SHA-256 values, and Git blob SHAs are recomputed from every replacement. Stale heads, truncated hunks, missing or discontinuous chunks, path drift, count mismatches, and digest mismatches fail closed. A valid artifact is still published only to the existing branch and PR and grants no merge authority. The validator requires the normalized originating Task Packet and reuses the canonical changed-file boundary before acceptance. It reads each original blob from the exact source commit, applies the diff hunks, and requires the result to equal the replacement and manifest bytes. Deletions use full-index zero-target-blob and `/dev/null` headers, an explicit `deleted: true`, zero target counts/digest, and no fabricated content; rename detection is disabled so renames travel as delete/add. Exact header-only zero-byte additions and deletions are supported without weakening non-empty hunk validation. Deletion replay must consume the complete exact source and retain no target lines, and missing-final-newline markers are preserved byte-for-byte. Trusted PR identity and compare-and-set checks prevent fork binding and terminal-state resurrection. If artifact upload succeeds, recoverability is preserved even when the following reservation update fails; the six-day recoverable lease is reclaimed into a retryable state before the seven-day artifact retention expires. The real handoff workflow persists bounded, task/source/digest-specific recovery data idempotently and records `WORKER_BLOCKED` for connected same-branch recovery.

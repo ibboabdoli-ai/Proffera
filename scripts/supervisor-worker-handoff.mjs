@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
 export const TASK_PACKET_MARKER = "<!-- proffera-worker-task-packet:v1 -->";
@@ -59,11 +60,14 @@ const LIFECYCLE_RANK = Object.freeze({
 });
 
 const SHA_RE = /^[0-9a-f]{40}$/;
+const SHA256_RE = /^[0-9a-f]{64}$/;
 const TASK_ID_RE = /^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+){1,7}$/;
 const BRANCH_RE = /^work\/proffera-[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/;
 const GRAPH_RE = /^[a-z0-9][a-z0-9._/-]{0,159}$/;
 const PATH_RE = /^[A-Za-z0-9._/-]+$/;
 const STATE_RE = /^[A-Z][A-Z0-9_]{2,39}$/;
+const MAX_PUBLICATION_BYTES = 10 * 1024 * 1024;
+const EMPTY_GIT_BLOB_SHA = "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391";
 
 function countOccurrences(text, needle) {
   if (!needle) return 0;
@@ -130,6 +134,10 @@ function scopesIntersect(left, right) {
   if (left.endsWith("/")) return right.startsWith(left);
   if (right.endsWith("/")) return left.startsWith(right);
   return left === right;
+}
+
+function graphPathsIntersect(left, right) {
+  return left === right || left.startsWith(`${right}/`) || right.startsWith(`${left}/`);
 }
 
 function normalizeChecks(value) {
@@ -267,11 +275,26 @@ function parseTrustedTaskState(comments, taskId) {
       const state = comment.body.match(/^- State:\s*`([A-Z][A-Z0-9_]{2,39})`\s*$/mi)?.[1] ?? "";
       const runId = comment.body.match(/^- Run ID:\s*`([0-9]+)`\s*$/mi)?.[1] ?? "";
       const prNumber = Number(comment.body.match(/^- PR:\s*#([1-9][0-9]*)\s*$/mi)?.[1] ?? 0) || null;
-      return { id: Number(comment.id) || 0, created_at: String(comment.created_at ?? ""), state, run_id: runId, pr_number: prNumber };
-    })
-    .filter((entry) => STATE_RE.test(entry.state))
-    .sort((a, b) => (a.created_at || "").localeCompare(b.created_at || "") || a.id - b.id);
-  return candidates.at(-1) ?? null;
+      return {
+        id: Number(comment.id) || 0,
+        state,
+        run_id: runId,
+        pr_number: prNumber,
+        marker_count: countOccurrences(comment.body, marker),
+      };
+    });
+  if (candidates.length === 0) return null;
+  if (candidates.length !== 1) return { ambiguous: true };
+  const candidate = candidates[0];
+  if (candidate.marker_count !== 1
+    || !Number.isInteger(candidate.id)
+    || candidate.id <= 0
+    || !STATE_RE.test(candidate.state)
+    || !/^[0-9]+$/.test(candidate.run_id)
+    || (candidate.state !== "TASK_BLOCKED" && !ACTIVE_TASK_STATES.has(candidate.state))) {
+    return { ambiguous: true };
+  }
+  return candidate;
 }
 
 function normalizePr(pr) {
@@ -319,6 +342,9 @@ export function evaluateDispatchContext(context) {
 
   const currentRunId = String(context.run_id ?? "");
   const taskState = parseTrustedTaskState(context.comments, packet.task_id);
+  if (taskState?.ambiguous) {
+    return blocked(`task ${packet.task_id} has missing, duplicate, or malformed trusted state evidence`, packet, "task_state_ambiguous");
+  }
   if (taskState && taskState.state !== "TASK_BLOCKED") {
     const sameRunTaskCreated = taskState.state === "TASK_CREATED" && currentRunId && taskState.run_id === currentRunId;
     if (!sameRunTaskCreated && ACTIVE_TASK_STATES.has(taskState.state)) {
@@ -361,6 +387,7 @@ export function evaluateDispatchContext(context) {
     return blocked(`branch ${packet.branch} already exists without a trusted matching task PR`, packet, "branch_exists");
   }
 
+  let activeWorkerCount = 0;
   for (const rawPr of prs) {
     const pr = normalizePr(rawPr);
     if (!Number.isInteger(pr.number) || pr.number <= 0 || pr.base_ref !== "main") continue;
@@ -377,6 +404,7 @@ export function evaluateDispatchContext(context) {
     const isDependabot = pr.author === "dependabot[bot]" || pr.head_ref.startsWith("dependabot/");
 
     if (isWorkerPr) {
+      activeWorkerCount += 1;
       if (pr.head_repo !== EXPECTED_REPOSITORY || pr.author !== TRUSTED_SUPERVISOR_ACTOR) {
         return blocked(`open Worker PR #${pr.number} is not a trusted same-repository owner branch`, packet, "untrusted_worker_pr");
       }
@@ -384,7 +412,7 @@ export function evaluateDispatchContext(context) {
       if (!metadata.graphPath || !GRAPH_RE.test(metadata.graphPath) || metadata.graphPath.split("/").some((part) => part === "." || part === "..")) {
         return blocked(`graph-path ownership is ambiguous for open Worker PR #${pr.number}`, packet, "ambiguous_graph_owner");
       }
-      if (metadata.graphPath === packet.graph_path) {
+      if (graphPathsIntersect(metadata.graphPath, packet.graph_path)) {
         return blocked(`graph path ${packet.graph_path} is already owned by PR #${pr.number}`, packet, "graph_collision");
       }
       if (!Array.isArray(metadata.allowedPaths)) {
@@ -407,6 +435,10 @@ export function evaluateDispatchContext(context) {
         return blocked(`file scope '${overlap}' overlaps open PR #${pr.number}`, packet, isDependabot ? "dependabot_overlap" : "file_overlap");
       }
     }
+  }
+
+  if (activeWorkerCount >= 2) {
+    return blocked("global writable Worker limit is already two; refusing a third Worker", packet, "writable_worker_limit");
   }
 
   return {
@@ -442,6 +474,379 @@ export function validateChangedFiles(packetInput, changedFilesInput) {
   }
 
   return { ok: true, status: "VALID", code: "changes_bounded", reason: "all changed files remain inside the Task Packet scope", packet, changed_files: changedFiles };
+}
+
+function publicationInvalid(code, reason) {
+  return { ok: false, status: "INVALID", code, reason };
+}
+
+function publicationFailure(code, reason) {
+  const error = new Error(reason);
+  error.code = code;
+  throw error;
+}
+
+function normalizePublicationPaths(value, field) {
+  const paths = normalizeScopeArray(value, field);
+  for (const path of paths) {
+    if (path.endsWith("/")) publicationFailure("path_set_mismatch", `${field} must contain file paths, not directory scopes`);
+  }
+  return paths;
+}
+
+function samePathSet(left, right) {
+  if (left.length !== right.length) return false;
+  const expected = [...left].sort();
+  const actual = [...right].sort();
+  return expected.every((path, index) => path === actual[index]);
+}
+
+function parseUnifiedDiffPaths(value) {
+  if (typeof value !== "string" || !value.startsWith("diff --git ") || !value.endsWith("\n")) {
+    publicationFailure("diff_incomplete", "unified_diff must be a complete newline-terminated git diff");
+  }
+  const text = value;
+  if (text.includes("GIT binary patch") || text.includes("Binary files ")) {
+    publicationFailure("diff_incomplete", "binary diffs are not valid full-replacement publication artifacts");
+  }
+  const lines = text.split("\n");
+  lines.pop();
+  const starts = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    if (lines[index].startsWith("diff --git ")) starts.push(index);
+  }
+  if (starts.length === 0 || starts[0] !== 0) publicationFailure("diff_incomplete", "unified_diff has no complete file section");
+
+  const paths = [];
+  for (let sectionIndex = 0; sectionIndex < starts.length; sectionIndex += 1) {
+    const section = lines.slice(starts[sectionIndex], starts[sectionIndex + 1] ?? lines.length);
+    const header = section[0].match(/^diff --git a\/(\S+) b\/(\S+)$/);
+    if (!header || header[1] !== header[2]) publicationFailure("diff_incomplete", "each diff section must identify one unambiguous repository path");
+    let path;
+    try {
+      path = assertSafeScope(header[1], "unified diff path");
+    } catch (error) {
+      publicationFailure("diff_incomplete", error instanceof Error ? error.message : "unified diff path is malformed");
+    }
+    if (path.endsWith("/") || paths.includes(path)) publicationFailure("diff_incomplete", `unified diff path '${path}' is duplicated or not a file`);
+
+    const firstHunk = section.findIndex((line) => line.startsWith("@@ "));
+    const preamble = section.slice(1, firstHunk < 0 ? section.length : firstHunk);
+    const oldHeaders = preamble.filter((line) => line.startsWith("--- "));
+    const newHeaders = preamble.filter((line) => line.startsWith("+++ "));
+    const modeLines = preamble.filter((line) => /^(?:old mode|new mode|new file mode|deleted file mode) /.test(line));
+    const headerOnlyAdded = firstHunk < 0 && modeLines.includes("new file mode 100644");
+    const headerOnlyDeleted = firstHunk < 0 && modeLines.includes("deleted file mode 100644");
+    if ((!headerOnlyAdded && !headerOnlyDeleted) && (oldHeaders.length !== 1 || newHeaders.length !== 1)) {
+      publicationFailure("diff_incomplete", `unified diff section '${path}' must contain its own old and new file headers`);
+    }
+    if ((headerOnlyAdded || headerOnlyDeleted) && (oldHeaders.length !== 0 || newHeaders.length !== 0)) {
+      publicationFailure("diff_incomplete", `header-only empty-file diff '${path}' must omit old and new file headers`);
+    }
+    const oldHeader = oldHeaders[0] ?? (headerOnlyAdded ? "--- /dev/null" : `--- a/${path}`);
+    const newHeader = newHeaders[0] ?? (headerOnlyDeleted ? "+++ /dev/null" : `+++ b/${path}`);
+    if (oldHeader !== `--- a/${path}` && oldHeader !== "--- /dev/null") {
+      publicationFailure("diff_incomplete", `unified diff old-file header does not match '${path}'`);
+    }
+    if (newHeader !== `+++ b/${path}` && newHeader !== "+++ /dev/null") {
+      publicationFailure("diff_incomplete", `unified diff new-file header does not match '${path}'`);
+    }
+    if (oldHeader === "--- /dev/null" && newHeader === "+++ /dev/null") {
+      publicationFailure("diff_incomplete", `unified diff section '${path}' has no source or destination file`);
+    }
+    const indexHeaders = preamble.filter((line) => line.startsWith("index "));
+    const indexHeader = indexHeaders.length === 1
+      ? indexHeaders[0].match(/^index ([0-9a-f]{40})\.\.([0-9a-f]{40})(?: ([0-7]{6}))?$/)
+      : null;
+    if (!indexHeader) {
+      publicationFailure("diff_incomplete", `unified diff section '${path}' must contain one full Git blob index`);
+    }
+    const added = oldHeader === "--- /dev/null";
+    const deleted = newHeader === "+++ /dev/null";
+    if (added !== /^0{40}$/.test(indexHeader[1]) || deleted !== /^0{40}$/.test(indexHeader[2])) {
+      publicationFailure("diff_incomplete", `unified diff section '${path}' has inconsistent file and Git blob headers`);
+    }
+    const expectedModeLine = added ? "new file mode 100644" : deleted ? "deleted file mode 100644" : null;
+    const supportedMode = expectedModeLine
+      ? modeLines.length === 1 && modeLines[0] === expectedModeLine && indexHeader[3] === undefined
+      : modeLines.length === 0 && indexHeader[3] === "100644";
+    if (!supportedMode) {
+      publicationFailure("unsupported_mode", `deterministic fallback does not support Git mode semantics for '${path}'`);
+    }
+    const headerOnlyEmpty = firstHunk < 0 && (added || deleted)
+      && indexHeader[1] === (added ? "0".repeat(40) : EMPTY_GIT_BLOB_SHA)
+      && indexHeader[2] === (deleted ? "0".repeat(40) : EMPTY_GIT_BLOB_SHA)
+      && section.length === preamble.length + 1;
+    if (firstHunk < 0 && !headerOnlyEmpty) publicationFailure("diff_incomplete", `unified diff section '${path}' has no complete text hunk`);
+    const expectedPreamble = headerOnlyEmpty
+      ? [expectedModeLine, indexHeaders[0]]
+      : [...(expectedModeLine ? [expectedModeLine] : []), indexHeaders[0], oldHeader, newHeader];
+    if (preamble.length !== expectedPreamble.length
+      || preamble.some((line, index) => line !== expectedPreamble[index])) {
+      publicationFailure("diff_incomplete", `unified diff section '${path}' contains unsupported or misordered preamble directives`);
+    }
+
+    let cursor = firstHunk < 0 ? section.length : firstHunk;
+    while (cursor < section.length) {
+      const hunk = section[cursor].match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(?: .*)?$/);
+      if (!hunk) publicationFailure("diff_incomplete", `unified diff section '${path}' has malformed or trailing hunk data`);
+      const expectedOld = hunk[2] === undefined ? 1 : Number(hunk[2]);
+      const expectedNew = hunk[4] === undefined ? 1 : Number(hunk[4]);
+      let oldLines = 0;
+      let newLines = 0;
+      cursor += 1;
+      while (cursor < section.length && !section[cursor].startsWith("@@ ")) {
+        const line = section[cursor];
+        if (line === "\\ No newline at end of file") {
+          cursor += 1;
+          continue;
+        }
+        if (line.startsWith(" ")) {
+          oldLines += 1;
+          newLines += 1;
+        } else if (line.startsWith("-")) {
+          oldLines += 1;
+        } else if (line.startsWith("+")) {
+          newLines += 1;
+        } else {
+          publicationFailure("diff_incomplete", `unified diff section '${path}' contains truncated hunk data`);
+        }
+        cursor += 1;
+      }
+      if (oldLines !== expectedOld || newLines !== expectedNew) {
+        publicationFailure("diff_incomplete", `unified diff section '${path}' hunk line counts do not match its header`);
+      }
+    }
+    paths.push({ path, old_blob_sha: indexHeader[1], new_blob_sha: indexHeader[2], added, deleted, header_only_empty: headerOnlyEmpty, section });
+  }
+  return paths;
+}
+
+function gitOutput(args, options = {}) {
+  try {
+    return execFileSync("git", args, { encoding: "utf8", maxBuffer: MAX_PUBLICATION_BYTES, ...options });
+  } catch {
+    publicationFailure("source_unavailable", "exact publication source bytes are unavailable from Git");
+  }
+}
+
+function gitObjectExists(spec) {
+  try {
+    execFileSync("git", ["cat-file", "-e", spec], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function applyUnifiedDiffSection(source, entry) {
+  if (entry.header_only_empty) return "";
+  const sourceEndsNewline = source.endsWith("\n");
+  const sourceLines = source.length ? source.split("\n") : [];
+  if (sourceEndsNewline) sourceLines.pop();
+  const firstHunk = entry.section.findIndex((line) => line.startsWith("@@ "));
+  const result = [];
+  let sourceIndex = 0;
+  let targetEndsNewline = sourceEndsNewline;
+  let sourceFinalLineInHunk = false;
+  let sourceNoNewlineMarkerSeen = false;
+  let targetNoNewlineMarkerSeen = false;
+  let targetNoNewlineMarkerPosition = -1;
+  let lastTargetHunkLinePosition = -1;
+  let previousPrefix = "";
+  let cursor = firstHunk;
+  while (cursor < entry.section.length) {
+    const match = entry.section[cursor].match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(?: .*)?$/);
+    if (!match) publicationFailure("diff_incomplete", `unified diff section '${entry.path}' has malformed hunks`);
+    const oldStart = Number(match[1]);
+    const oldCount = match[2] === undefined ? 1 : Number(match[2]);
+    const newStart = Number(match[3]);
+    const newCount = match[4] === undefined ? 1 : Number(match[4]);
+    const hunkStart = oldCount === 0 ? oldStart : Math.max(0, oldStart - 1);
+    const targetHunkStart = newCount === 0 ? newStart : Math.max(0, newStart - 1);
+    if (hunkStart < sourceIndex) publicationFailure("diff_source_mismatch", `unified diff hunks overlap for '${entry.path}'`);
+    result.push(...sourceLines.slice(sourceIndex, hunkStart));
+    if (result.length !== targetHunkStart) {
+      publicationFailure("diff_source_mismatch", `unified diff target hunk coordinates do not match reconstructed target for '${entry.path}'`);
+    }
+    sourceIndex = hunkStart;
+    cursor += 1;
+    while (cursor < entry.section.length && !entry.section[cursor].startsWith("@@ ")) {
+      const line = entry.section[cursor];
+      if (line === "\\ No newline at end of file") {
+        if (!previousPrefix) publicationFailure("diff_incomplete", `unified diff section '${entry.path}' has a misplaced final-newline marker`);
+        if (previousPrefix === "-" || previousPrefix === " ") {
+          if (sourceEndsNewline || sourceIndex !== sourceLines.length || sourceNoNewlineMarkerSeen) {
+            publicationFailure("diff_source_mismatch", `unified diff source final-newline marker is misplaced for '${entry.path}'`);
+          }
+          sourceNoNewlineMarkerSeen = true;
+        }
+        if (previousPrefix === "+" || previousPrefix === " ") {
+          if (targetNoNewlineMarkerSeen) {
+            publicationFailure("diff_source_mismatch", `unified diff target final-newline marker is duplicated for '${entry.path}'`);
+          }
+          targetNoNewlineMarkerSeen = true;
+          targetNoNewlineMarkerPosition = result.length;
+          targetEndsNewline = false;
+        }
+        previousPrefix = "";
+        cursor += 1;
+        continue;
+      }
+      const value = line.slice(1);
+      if (line.startsWith(" ") || line.startsWith("-")) {
+        if (sourceLines[sourceIndex] !== value) publicationFailure("diff_source_mismatch", `unified diff does not match exact source bytes for '${entry.path}'`);
+        sourceIndex += 1;
+        if (sourceIndex === sourceLines.length) sourceFinalLineInHunk = true;
+      }
+      if (line.startsWith(" ") || line.startsWith("+")) {
+        result.push(value);
+        lastTargetHunkLinePosition = result.length;
+        targetEndsNewline = true;
+      }
+      previousPrefix = line[0];
+      cursor += 1;
+    }
+  }
+  const untouchedSuffix = sourceLines.slice(sourceIndex);
+  result.push(...untouchedSuffix);
+  if (untouchedSuffix.length > 0) targetEndsNewline = sourceEndsNewline;
+  if (!sourceEndsNewline && sourceFinalLineInHunk && !sourceNoNewlineMarkerSeen) {
+    publicationFailure("diff_source_mismatch", `unified diff omits the source final-newline marker for '${entry.path}'`);
+  }
+  if (targetNoNewlineMarkerSeen && targetNoNewlineMarkerPosition !== result.length) {
+    publicationFailure("diff_source_mismatch", `unified diff target final-newline marker is misplaced for '${entry.path}'`);
+  }
+  if (!targetEndsNewline && result.length > 0 && lastTargetHunkLinePosition === result.length && !targetNoNewlineMarkerSeen) {
+    publicationFailure("diff_source_mismatch", `unified diff omits the target final-newline marker for '${entry.path}'`);
+  }
+  if (entry.deleted) {
+    if (result.length !== 0 || sourceIndex !== sourceLines.length) {
+      publicationFailure("diff_source_mismatch", `deletion diff must consume the complete exact source and leave no target lines for '${entry.path}'`);
+    }
+    return "";
+  }
+  return `${result.join("\n")}${targetEndsNewline ? "\n" : ""}`;
+}
+
+function replacementContent(entry) {
+  if (entry?.deleted === true) {
+    if (Object.prototype.hasOwnProperty.call(entry, "content") || Object.prototype.hasOwnProperty.call(entry, "chunks")) {
+      publicationFailure("replacement_incomplete", "deleted replacements must not fabricate target content");
+    }
+    return "";
+  }
+  const hasContent = Object.prototype.hasOwnProperty.call(entry, "content");
+  const hasChunks = Object.prototype.hasOwnProperty.call(entry, "chunks");
+  if (hasContent === hasChunks) publicationFailure("replacement_incomplete", "each replacement must provide exactly one of content or chunks");
+  if (hasContent) {
+    if (typeof entry.content !== "string") publicationFailure("replacement_incomplete", "replacement content must be a string");
+    return entry.content;
+  }
+  if (!Array.isArray(entry.chunks) || entry.chunks.length === 0) publicationFailure("missing_chunk", "replacement chunks must not be empty");
+  const total = entry.chunks[0]?.total;
+  if (!Number.isInteger(total) || total <= 0 || total !== entry.chunks.length) {
+    publicationFailure("missing_chunk", "replacement chunk total does not match the supplied chunk count");
+  }
+  return entry.chunks.map((chunk, index) => {
+    if (!chunk || typeof chunk !== "object" || Array.isArray(chunk)) publicationFailure("missing_chunk", "replacement chunk is malformed");
+    if (chunk.number !== index + 1 || chunk.total !== total) publicationFailure("missing_chunk", "replacement chunks must be numbered contiguously from one");
+    if (typeof chunk.content !== "string") publicationFailure("missing_chunk", "replacement chunk content must be a string");
+    return chunk.content;
+  }).join("");
+}
+
+function replacementLineCount(content) {
+  if (content.length === 0) return 0;
+  return content.split("\n").length - (content.endsWith("\n") ? 1 : 0);
+}
+
+export function validatePublicationArtifact(input) {
+  try {
+    if (!input || typeof input !== "object" || Array.isArray(input)) publicationFailure("artifact_malformed", "publication validation input must be an object");
+    const currentSourceHead = assertPlainString(input.current_source_head, "current_source_head", 40).toLowerCase();
+    if (!SHA_RE.test(currentSourceHead)) publicationFailure("artifact_malformed", "current_source_head must be a 40-character commit SHA");
+    let packet;
+    try { packet = normalizeTaskPacket(input.packet); } catch (error) { publicationFailure("packet_invalid", error instanceof Error ? error.message : "Task Packet is invalid"); }
+    const artifact = input.artifact;
+    if (!artifact || typeof artifact !== "object" || Array.isArray(artifact)) publicationFailure("artifact_malformed", "artifact must be an object");
+    const sourceHead = assertPlainString(artifact.source_head, "artifact.source_head", 40).toLowerCase();
+    if (!SHA_RE.test(sourceHead)) publicationFailure("artifact_malformed", "artifact.source_head must be a 40-character commit SHA");
+    if (sourceHead !== currentSourceHead || packet.base_sha !== sourceHead) publicationFailure("stale_source_head", "publication source must equal the live head and Task Packet baseline");
+    if (artifact.artifact_set_complete !== "YES") publicationFailure("artifact_incomplete", "ARTIFACT_SET_COMPLETE must be exactly YES");
+    if (Buffer.byteLength(String(artifact.unified_diff ?? ""), "utf8") > MAX_PUBLICATION_BYTES) publicationFailure("artifact_oversized", "unified diff exceeds the publication limit");
+
+    const paths = normalizePublicationPaths(artifact.paths, "artifact.paths");
+    const scope = validateChangedFiles(packet, paths);
+    if (!scope.ok) publicationFailure(scope.code, scope.reason);
+    const diffEntries = parseUnifiedDiffPaths(artifact.unified_diff);
+    if (!samePathSet(paths, diffEntries.map((entry) => entry.path))) publicationFailure("path_set_mismatch", "unified diff path set does not exactly match artifact.paths");
+    if (!Array.isArray(artifact.replacements) || !Array.isArray(artifact.manifest)) publicationFailure("artifact_malformed", "artifact replacements and manifest must be arrays");
+    const replacementPaths = artifact.replacements.map((entry) => String(entry?.path ?? ""));
+    const manifestPaths = artifact.manifest.map((entry) => String(entry?.path ?? ""));
+    if (!samePathSet(paths, replacementPaths) || !samePathSet(paths, manifestPaths) || new Set(replacementPaths).size !== replacementPaths.length || new Set(manifestPaths).size !== manifestPaths.length) publicationFailure("path_set_mismatch", "replacement and manifest path sets must exactly match artifact.paths without duplicates");
+
+    const manifests = new Map(artifact.manifest.map((entry) => [entry.path, entry]));
+    const diffs = new Map(diffEntries.map((entry) => [entry.path, entry]));
+    let aggregateBytes = 0;
+    for (const replacement of artifact.replacements) {
+      const path = assertSafeScope(replacement.path, "replacement path");
+      const content = replacementContent(replacement);
+      const bytes = Buffer.from(content, "utf8");
+      aggregateBytes += bytes.length;
+      if (aggregateBytes > MAX_PUBLICATION_BYTES || bytes.toString("utf8") !== content) publicationFailure("replacement_incomplete", `replacement '${path}' is oversized or not lossless UTF-8 text`);
+      const manifest = manifests.get(path);
+      const diff = diffs.get(path);
+      const deleted = replacement.deleted === true;
+      if (deleted !== (diff.deleted === true) || (manifest?.deleted === true) !== deleted) publicationFailure("replacement_incomplete", `deletion state does not match for '${path}'`);
+      if (!manifest || manifest.bytes !== bytes.length) publicationFailure("byte_count_mismatch", `replacement '${path}' byte count does not match its manifest`);
+      if (manifest.lines !== replacementLineCount(content)) publicationFailure("line_count_mismatch", `replacement '${path}' line count does not match its manifest`);
+      const sha256 = createHash("sha256").update(bytes).digest("hex");
+      const blob = createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
+      const expectedBlob = deleted ? "0".repeat(40) : blob;
+      if (manifest.sha256 !== sha256 || manifest.git_blob_sha !== expectedBlob || diff.new_blob_sha !== expectedBlob) publicationFailure("digest_mismatch", `replacement '${path}' digest does not match its manifest and unified diff`);
+      const sourceIsAdded = /^0{40}$/.test(diff.old_blob_sha);
+      let source = "";
+      if (sourceIsAdded) {
+        const existingSourceEntry = gitOutput(["ls-tree", sourceHead, "--", path]).trim();
+        if (existingSourceEntry) {
+          publicationFailure("diff_source_mismatch", `unified diff marks existing source path as added for '${path}'`);
+        }
+      } else {
+        source = gitOutput(["show", `${sourceHead}:${path}`]);
+      }
+      const sourceBytes = Buffer.from(source, "utf8");
+      const sourceBlob = createHash("sha1").update(`blob ${sourceBytes.length}\0`).update(sourceBytes).digest("hex");
+      if (sourceBytes.length + aggregateBytes > MAX_PUBLICATION_BYTES || (!sourceIsAdded && sourceBlob !== diff.old_blob_sha)) publicationFailure("diff_source_mismatch", `unified diff old blob does not match exact source for '${path}'`);
+      if (applyUnifiedDiffSection(source, diff) !== content) publicationFailure("diff_replacement_mismatch", `unified diff result diverges from replacement '${path}'`);
+    }
+    return { ok: true, status: "VALID", code: "publication_artifact_valid", reason: "publication artifact is Task Packet scoped and exact-source/diff/replacement verified", source_head: sourceHead, paths };
+  } catch (error) {
+    return publicationInvalid(error?.code ?? "artifact_malformed", error instanceof Error ? error.message : "publication artifact is malformed");
+  }
+}
+
+export function buildPublicationArtifact({ packet: packetInput, source_head, target_head }) {
+  const packet = normalizeTaskPacket(packetInput);
+  const sourceHead = assertPlainString(source_head, "source_head", 40).toLowerCase();
+  const targetHead = assertPlainString(target_head, "target_head", 40).toLowerCase();
+  if (!SHA_RE.test(sourceHead) || !SHA_RE.test(targetHead) || packet.base_sha !== sourceHead) throw new Error("publication heads are malformed or do not match Task Packet baseline");
+  const unifiedDiff = gitOutput(["diff", "--full-index", "--no-renames", "--no-ext-diff", `${sourceHead}..${targetHead}`]);
+  const paths = gitOutput(["diff", "--name-only", "--no-renames", `${sourceHead}..${targetHead}`]).trim().split("\n").filter(Boolean);
+  const bounded = validateChangedFiles(packet, paths);
+  if (!bounded.ok) throw new Error(bounded.reason);
+  const replacements = paths.map((path) => gitObjectExists(`${targetHead}:${path}`)
+    ? { path, content: gitOutput(["show", `${targetHead}:${path}`]) }
+    : { path, deleted: true });
+  const manifest = replacements.map((replacement) => {
+    const content = replacement.deleted ? "" : replacement.content;
+    const bytes = Buffer.from(content);
+    return { path: replacement.path, ...(replacement.deleted ? { deleted: true } : {}), bytes: bytes.length, lines: replacementLineCount(content), sha256: createHash("sha256").update(bytes).digest("hex"), git_blob_sha: replacement.deleted ? "0".repeat(40) : createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex") };
+  });
+  const artifact = { source_head: sourceHead, artifact_set_complete: "YES", paths, unified_diff: unifiedDiff, replacements, manifest };
+  const validation = validatePublicationArtifact({ packet, current_source_head: sourceHead, artifact });
+  if (!validation.ok) throw new Error(validation.reason);
+  return artifact;
 }
 
 export function parseTaskStateBody(body = "") {
@@ -486,7 +891,17 @@ export function evaluateTaskStateTransition(input) {
     return transitionResult(false, false, "stale_event_head", "event/check head no longer matches the live PR head", current, requestedState, requestedHead, liveHead);
   }
 
-  if (TERMINAL_TASK_STATES.has(current.state)) {
+  const reactivatesClosedUnmerged = current.state === "CLOSED_UNMERGED"
+    && livePrState === "open"
+    && source === "lifecycle"
+    && requestedState === "WORKER_PR_OPENED";
+  const upgradesClosedUnmergedToMerged = current.state === "CLOSED_UNMERGED"
+    && livePrState === "closed"
+    && liveMerged
+    && requestedState === "MERGED";
+  if (TERMINAL_TASK_STATES.has(current.state)
+    && !reactivatesClosedUnmerged
+    && !upgradesClosedUnmergedToMerged) {
     return transitionResult(true, false, "terminal_state_preserved", `terminal state ${current.state} cannot regress`, current, requestedState, requestedHead, liveHead);
   }
 
@@ -532,6 +947,9 @@ export function taskStateBody({ packet: packetInput, state, reason, run_id = "",
   const headSha = String(head_sha ?? "").toLowerCase();
   if (headSha && !SHA_RE.test(headSha)) throw new Error("head_sha is malformed");
   if (pr_number !== null && (!Number.isInteger(Number(pr_number)) || Number(pr_number) <= 0)) throw new Error("pr_number is malformed");
+  if (normalizedState === "READY_FOR_SUPERVISOR" && (!headSha || pr_number === null)) {
+    throw new Error("READY_FOR_SUPERVISOR requires an exact head_sha and pr_number");
+  }
 
   const lines = [
     `${TASK_STATE_MARKER_PREFIX}${packet.task_id} -->`,
@@ -545,11 +963,535 @@ export function taskStateBody({ packet: packetInput, state, reason, run_id = "",
   if (runId) lines.push(`- Run ID: \`${runId}\``);
   if (pr_number !== null) lines.push(`- PR: #${Number(pr_number)}`);
   if (headSha) lines.push(`- Head: \`${headSha}\``);
+  if (normalizedState === "READY_FOR_SUPERVISOR") lines.push(`- Ready checkpoint: \`${packet.task_id}@${headSha}\``);
   lines.push(`- Reason: ${cleanReason(reason)}`);
   lines.push("- Production mutation: `false`");
   lines.push("- Merge allowed: `false`");
   lines.push("- Auto-merge allowed: `false`");
   return `${lines.join("\n")}\n`;
+}
+
+export function expiredReservationRetryTaskBody({ current_body, reservation, packet: packetInput }) {
+  if (!reservation || typeof reservation !== "object" || Array.isArray(reservation)) {
+    throw new Error("expired reservation is malformed");
+  }
+  const packet = normalizeTaskPacket(packetInput);
+  const taskId = assertPlainString(reservation.task_id, "reservation.task_id", 80).toUpperCase();
+  const runId = String(reservation.run_id ?? "");
+  const branch = assertPlainString(reservation.branch, "reservation.branch", 120);
+  const graphPath = assertSafeGraphPath(reservation.graph_path);
+  const digest = String(reservation.packet_digest ?? "").toLowerCase();
+  const reservationHead = String(reservation.head_sha ?? "").toLowerCase();
+  if (!TASK_ID_RE.test(taskId)
+    || !/^[0-9]+$/.test(runId)
+    || !BRANCH_RE.test(branch)
+    || !SHA256_RE.test(digest)
+    || !SHA_RE.test(reservationHead)
+    || !new Set(["RESERVED", "RECOVERABLE"]).has(String(reservation.state ?? ""))) {
+    throw new Error("expired reservation identity is malformed");
+  }
+  if (taskId !== packet.task_id
+    || branch !== packet.branch
+    || graphPath !== packet.graph_path
+    || digest !== packetDigest(packet)
+    || JSON.stringify(reservation.allowed_paths) !== JSON.stringify(packet.allowed_paths)) {
+    throw new Error("expired reservation does not match the exact resubmitted Task Packet");
+  }
+
+  const body = String(current_body ?? "");
+  const marker = `${TASK_STATE_MARKER_PREFIX}${taskId} -->`;
+  if (countOccurrences(body, marker) !== 1) throw new Error("retryable task marker is missing or ambiguous");
+  if (exactStateBodyField(body, /^### Supervisor task: ([A-Z][A-Z0-9-]*)$/gmu, "heading") !== taskId) {
+    throw new Error("expired reservation task heading does not match its identity");
+  }
+  const currentState = exactStateBodyField(body, /^- State: `([A-Z_]+)`$/gmu, "state");
+  if (currentState !== "WORKER_BLOCKED" && currentState !== "TASK_BLOCKED") {
+    throw new Error("expired reservation task is not retryable from its current state");
+  }
+  if (exactStateBodyField(body, /^- Graph path: `([^`]+)`$/gmu, "graph path") !== graphPath
+    || exactStateBodyField(body, /^- Branch: `([^`]+)`$/gmu, "branch") !== branch
+    || exactStateBodyField(body, /^- Packet SHA-256: `([0-9a-f]{64})`$/gmu, "packet digest") !== digest
+    || exactStateBodyField(body, /^- Run ID: `([0-9]+)`$/gmu, "run ID") !== runId) {
+    throw new Error("expired reservation does not match its durable task state");
+  }
+  const taskHead = optionalStateBodyField(body, /^- Head: `([0-9a-f]{40})`$/gmu, "head").toLowerCase();
+  if (taskHead && taskHead !== reservationHead) throw new Error("expired reservation head does not match its durable task state");
+  if (optionalStateBodyField(body, /^- PR: #([1-9][0-9]*)$/gmu, "PR")) {
+    throw new Error("unbound expired reservation task unexpectedly has a PR binding");
+  }
+  for (const invariant of [
+    "- Production mutation: `false`",
+    "- Merge allowed: `false`",
+    "- Auto-merge allowed: `false`",
+  ]) {
+    if (countOccurrences(body, invariant) !== 1) throw new Error("retryable task safety invariant is missing or ambiguous");
+  }
+  exactStateBodyField(body, /^- Reason: (.+)$/gmu, "reason");
+  if (currentState === "TASK_BLOCKED") return body;
+  return body
+    .replace(/^- State: `WORKER_BLOCKED`$/mu, "- State: `TASK_BLOCKED`")
+    .replace(/^- Reason: .+$/mu, "- Reason: Expired Worker reservation was released after its owning run completed and no branch or PR remained; the same task may be resubmitted safely.");
+}
+
+function exactStateBodyField(body, pattern, field) {
+  const matches = [...body.matchAll(pattern)];
+  if (matches.length !== 1) throw new Error(`trusted task state ${field} is missing or ambiguous`);
+  return matches[0][1];
+}
+
+function optionalStateBodyField(body, pattern, field) {
+  const matches = [...body.matchAll(pattern)];
+  if (matches.length > 1) throw new Error(`trusted task state ${field} is ambiguous`);
+  return matches[0]?.[1] ?? "";
+}
+
+export function terminalTaskStateBodyFromExisting({
+  current_body,
+  task_id,
+  graph_path,
+  branch,
+  packet_digest,
+  state,
+  reason,
+  run_id,
+  pr_number,
+  head_sha,
+  reservation_head_sha,
+}) {
+  const currentBody = String(current_body ?? "");
+  const taskId = assertPlainString(task_id, "task_id", 80).toUpperCase();
+  const graphPath = assertSafeGraphPath(graph_path);
+  const workerBranch = assertPlainString(branch, "branch", 90).toLowerCase();
+  const packetDigest = assertPlainString(packet_digest, "packet_digest", 64).toLowerCase();
+  const terminalState = assertPlainString(state, "state", 40).toUpperCase();
+  const runId = assertPlainString(String(run_id ?? ""), "run_id", 30);
+  const prNumber = Number(pr_number);
+  const headSha = assertPlainString(head_sha, "head_sha", 40).toLowerCase();
+  const reservationHeadSha = assertPlainString(reservation_head_sha, "reservation_head_sha", 40).toLowerCase();
+  if (!TASK_ID_RE.test(taskId)) throw new Error("task_id is malformed");
+  if (!BRANCH_RE.test(workerBranch)) throw new Error("branch is malformed");
+  if (!SHA256_RE.test(packetDigest)) throw new Error("packet_digest is malformed");
+  if (!TERMINAL_TASK_STATES.has(terminalState)) throw new Error("state must be terminal");
+  if (!/^[0-9]+$/.test(runId)) throw new Error("run_id is malformed");
+  if (!Number.isInteger(prNumber) || prNumber <= 0) throw new Error("pr_number is malformed");
+  if (!SHA_RE.test(headSha) || !SHA_RE.test(reservationHeadSha)) throw new Error("head_sha is malformed");
+
+  const marker = `${TASK_STATE_MARKER_PREFIX}${taskId} -->`;
+  if (countOccurrences(currentBody, marker) !== 1) throw new Error("trusted task state marker is missing or ambiguous");
+  if (exactStateBodyField(currentBody, /^### Supervisor task: ([A-Z][A-Z0-9-]*)$/gmu, "heading") !== taskId) {
+    throw new Error("trusted task state heading does not match reservation");
+  }
+  const currentState = exactStateBodyField(currentBody, /^- State: `([A-Z][A-Z0-9_]{2,39})`$/gmu, "state");
+  if (!STATE_RE.test(currentState)) throw new Error("trusted task state is malformed");
+  if (exactStateBodyField(currentBody, /^- Graph path: `([^`]+)`$/gmu, "graph path") !== graphPath) {
+    throw new Error("trusted task state graph path does not match reservation");
+  }
+  if (exactStateBodyField(currentBody, /^- Branch: `([^`]+)`$/gmu, "branch") !== workerBranch) {
+    throw new Error("trusted task state branch does not match reservation");
+  }
+  const baseSha = exactStateBodyField(currentBody, /^- Base: `([0-9a-f]{40})`$/gmu, "base").toLowerCase();
+  if (!SHA_RE.test(baseSha)) throw new Error("trusted task state base is malformed");
+  if (exactStateBodyField(currentBody, /^- Packet SHA-256: `([0-9a-f]{64})`$/gmu, "packet digest").toLowerCase() !== packetDigest) {
+    throw new Error("trusted task state packet digest does not match reservation");
+  }
+  if (exactStateBodyField(currentBody, /^- Run ID: `([0-9]+)`$/gmu, "run ID") !== runId) {
+    throw new Error("trusted task state run ID does not match reservation");
+  }
+  const currentPrNumber = optionalStateBodyField(currentBody, /^- PR: #([1-9][0-9]*)$/gmu, "PR");
+  if (currentPrNumber && Number(currentPrNumber) !== prNumber) {
+    throw new Error("trusted task state PR does not match reservation");
+  }
+  const currentHeadSha = optionalStateBodyField(currentBody, /^- Head: `([0-9a-f]{40})`$/gmu, "head").toLowerCase();
+  if (currentHeadSha && currentHeadSha !== headSha && currentHeadSha !== reservationHeadSha) {
+    throw new Error("trusted task state head matches neither the live PR nor its exact reservation");
+  }
+  for (const invariant of [
+    "- Production mutation: `false`",
+    "- Merge allowed: `false`",
+    "- Auto-merge allowed: `false`",
+  ]) {
+    if (countOccurrences(currentBody, invariant) !== 1) throw new Error("trusted task state safety invariant is missing or ambiguous");
+  }
+
+  return [
+    marker,
+    `### Supervisor task: ${taskId}`,
+    `- State: \`${terminalState}\``,
+    `- Graph path: \`${graphPath}\``,
+    `- Branch: \`${workerBranch}\``,
+    `- Base: \`${baseSha}\``,
+    `- Packet SHA-256: \`${packetDigest}\``,
+    `- Run ID: \`${runId}\``,
+    `- PR: #${prNumber}`,
+    `- Head: \`${headSha}\``,
+    `- Reason: ${cleanReason(reason)}`,
+    "- Production mutation: `false`",
+    "- Merge allowed: `false`",
+    "- Auto-merge allowed: `false`",
+    "",
+  ].join("\n");
+}
+
+function invalidCloseResult(ok, code, reason, extra = {}) {
+  return { ok, code, reason, ...extra };
+}
+
+export function planInvalidWorkerPrClose(input) {
+  try {
+    if (input?.repository !== EXPECTED_REPOSITORY) return invalidCloseResult(false, "wrong_repository", "repository is not trusted");
+    const prNumber = Number(input?.pr_number);
+    const runId = String(input?.run_id ?? "");
+    const pr = input?.live_pr ?? {};
+    const state = String(pr.state ?? "");
+    const merged = pr.merged === true;
+    const author = String(pr.user?.login ?? "");
+    const headRepository = String(pr.head?.repo?.full_name ?? "");
+    const branch = String(pr.head?.ref ?? "");
+    const headSha = String(pr.head?.sha ?? "").toLowerCase();
+    if (!Number.isInteger(prNumber) || prNumber <= 0 || !/^[0-9]+$/.test(runId)) {
+      return invalidCloseResult(false, "invalid_identity", "PR or run identity is malformed");
+    }
+    if (state !== "closed" || author !== TRUSTED_SUPERVISOR_ACTOR || headRepository !== EXPECTED_REPOSITORY) {
+      return invalidCloseResult(false, "untrusted_pr", "live PR is not a closed trusted same-repository owner PR");
+    }
+    if (!BRANCH_RE.test(branch) || !SHA_RE.test(headSha)) {
+      return invalidCloseResult(false, "invalid_head", "live Worker branch or head is malformed");
+    }
+
+    const comments = Array.isArray(input?.comments) ? input.comments : [];
+    const reservations = [];
+    for (const comment of comments) {
+      if (comment?.user?.login !== "github-actions[bot]") continue;
+      const body = String(comment?.body ?? "");
+      const payloadMatches = [...body.matchAll(/^- Reservation payload: `([A-Za-z0-9+/]+={0,2})`$/gmu)];
+      if (payloadMatches.length !== 1) continue;
+      const encoded = payloadMatches[0][1];
+      if (encoded.length % 4 !== 0) continue;
+      const decoded = Buffer.from(encoded, "base64");
+      if (decoded.toString("base64") !== encoded) continue;
+      let payload;
+      try {
+        payload = JSON.parse(decoded.toString("utf8"));
+      } catch {
+        continue;
+      }
+      const reservationState = String(payload?.state ?? "");
+      const taskId = String(payload?.task_id ?? "");
+      const reservedRun = String(payload?.run_id ?? "");
+      const reservedBranch = String(payload?.branch ?? "");
+      const reservedHead = String(payload?.head_sha ?? "").toLowerCase();
+      const recoveryReservationHead = String(payload?.recovery?.reservation_head_sha ?? "").toLowerCase();
+      const reservedPr = Number(payload?.pr_number);
+      const mayBeUnbound = (reservationState === "RESERVED" || reservationState === "RECOVERABLE")
+        && (payload?.pr_number === null || payload?.pr_number === undefined);
+      const hasExactPrBinding = reservedPr === prNumber;
+      const hasExactUnboundHeadBinding = mayBeUnbound && reservedHead === headSha;
+      let graphPath;
+      try {
+        graphPath = assertSafeGraphPath(payload?.graph_path);
+      } catch {
+        continue;
+      }
+      const packetDigest = String(payload?.packet_digest ?? "").toLowerCase();
+      const commentId = Number(comment?.id);
+      const marker = `<!-- proffera-worker-slot-reservation:${taskId} -->`;
+      if (!new Set(["RESERVED", "PUBLISHED", "RECOVERABLE", "RELEASED"]).has(reservationState)
+        || !TASK_ID_RE.test(taskId)
+        || !/^[0-9]+$/.test(reservedRun)
+        || reservedBranch !== branch
+        || !SHA_RE.test(reservedHead)
+        || (recoveryReservationHead && !SHA_RE.test(recoveryReservationHead))
+        || (!hasExactPrBinding && !hasExactUnboundHeadBinding)
+        || !SHA256_RE.test(packetDigest)
+        || !Number.isInteger(commentId)
+        || commentId <= 0
+        || countOccurrences(body, marker) !== 1) continue;
+      reservations.push({
+        comment: { ...comment, id: commentId },
+        body,
+        payload,
+        taskId,
+        reservedRun,
+        reservedHead,
+        taskHead: recoveryReservationHead || reservedHead,
+        graphPath,
+        packetDigest,
+      });
+    }
+    if (reservations.length !== 1) {
+      return invalidCloseResult(false, "ambiguous_reservation", "closed malformed Worker PR has missing or ambiguous exact reservation provenance");
+    }
+
+    const reservation = reservations[0];
+    const dispatchMarker = `<!-- proffera-worker-dispatch-start:${reservation.taskId}:${reservation.reservedRun} -->`;
+    const dispatchMatches = comments.filter((comment) => comment?.user?.login === "github-actions[bot]"
+      && countOccurrences(String(comment?.body ?? ""), dispatchMarker) === 1);
+    if (dispatchMatches.length !== 1) {
+      return invalidCloseResult(false, "ambiguous_dispatch", "closed malformed Worker PR has missing or ambiguous exact dispatch provenance");
+    }
+
+    try {
+      const livePacket = parseTaskPacketComment(String(pr.body ?? ""));
+      if (livePacket.task_id === reservation.taskId
+        && livePacket.branch === branch
+        && livePacket.graph_path === reservation.graphPath
+        && packetDigest(livePacket) === reservation.packetDigest) {
+        return invalidCloseResult(false, "valid_task_packet", "live Task Packet still matches the exact durable reservation");
+      }
+    } catch {
+      // Missing or malformed packets are handled by reservation-derived reconciliation.
+    }
+    const taskMarker = `${TASK_STATE_MARKER_PREFIX}${reservation.taskId} -->`;
+    const taskMatches = comments.filter((comment) => comment?.user?.login === "github-actions[bot]"
+      && countOccurrences(String(comment?.body ?? ""), taskMarker) === 1);
+    if (taskMatches.length > 1) {
+      return invalidCloseResult(false, "ambiguous_task_state", "closed malformed Worker PR has ambiguous trusted task-state evidence");
+    }
+    if (taskMatches.length === 1) {
+      try {
+        const taskRunId = exactStateBodyField(
+          String(taskMatches[0].body ?? ""),
+          /^- Run ID: `([0-9]+)`$/gmu,
+          "run ID",
+        );
+        if (taskRunId !== reservation.reservedRun) {
+          return invalidCloseResult(false, "task_run_mismatch", "trusted task state run ID does not match the exact reservation");
+        }
+      } catch {
+        return invalidCloseResult(false, "invalid_task_run", "trusted task state run ID is missing or ambiguous");
+      }
+    }
+    let nextReservationBody = reservation.body;
+    let applyReservation = false;
+    if (reservation.payload.state !== "RELEASED") {
+      const nextPayload = {
+        ...reservation.payload,
+        state: "RELEASED",
+        pr_number: prNumber,
+        head_sha: headSha,
+        recovery: {
+          kind: "closed_pr_invalid_packet",
+          merged,
+          reservation_head_sha: reservation.reservedHead,
+        },
+      };
+      const encoded = Buffer.from(JSON.stringify(nextPayload), "utf8").toString("base64");
+      nextReservationBody = [
+        `<!-- proffera-worker-slot-reservation:${reservation.taskId} -->`,
+        `### Worker slot reservation: ${reservation.taskId}`,
+        "- State: `RELEASED`",
+        `- Reservation payload: \`${encoded}\``,
+        "",
+      ].join("\n");
+      applyReservation = true;
+    }
+
+    const terminalState = merged ? "MERGED" : "CLOSED_UNMERGED";
+    const terminalReason = merged
+      ? "Worker PR is live-verified as merged after its bounded Task Packet became invalid."
+      : "Worker PR is live-verified as closed without merge after its bounded Task Packet became invalid.";
+    let task = null;
+    if (taskMatches.length === 1) {
+      try {
+        const currentBody = String(taskMatches[0].body ?? "");
+        const currentTaskState = parseTaskStateBody(currentBody);
+        const validatedTerminalBody = terminalTaskStateBodyFromExisting({
+          current_body: currentBody,
+          task_id: reservation.taskId,
+          graph_path: reservation.graphPath,
+          branch,
+          packet_digest: reservation.packetDigest,
+          state: terminalState,
+          reason: terminalReason,
+          run_id: reservation.reservedRun,
+          pr_number: prNumber,
+          head_sha: headSha,
+          reservation_head_sha: reservation.taskHead,
+        });
+        if (TERMINAL_TASK_STATES.has(currentTaskState.state)
+          && currentTaskState.state !== terminalState
+          && !(currentTaskState.state === "CLOSED_UNMERGED" && terminalState === "MERGED")) {
+          return invalidCloseResult(false, "terminal_conflict", "trusted task state conflicts with the live canonical terminal state");
+        }
+        const transition = evaluateTaskStateTransition({
+          current_body: currentBody,
+          source: "lifecycle",
+          requested_state: terminalState,
+          requested_head: headSha,
+          live_head: headSha,
+          live_pr_state: "closed",
+          live_merged: merged,
+        });
+        const nextBody = transition.apply ? validatedTerminalBody : currentBody;
+        task = {
+          id: Number(taskMatches[0].id),
+          expected_body: currentBody,
+          body: nextBody,
+          apply: transition.apply,
+          transition_code: transition.code,
+        };
+      } catch {
+        return invalidCloseResult(
+          false,
+          "invalid_task_state",
+          "trusted task-state evidence is malformed or does not match the exact reservation",
+        );
+      }
+    }
+
+    return invalidCloseResult(true, "trusted_invalid_close", "exact malformed-close provenance is trusted", {
+      task_id: reservation.taskId,
+      reservation: {
+        id: Number(reservation.comment.id),
+        expected_body: reservation.body,
+        body: nextReservationBody,
+        apply: applyReservation,
+      },
+      task,
+    });
+  } catch (error) {
+    return invalidCloseResult(false, "invalid_evidence", error instanceof Error ? error.message : "invalid malformed-close evidence");
+  }
+}
+
+const GITHUB_READ_ATTEMPTS = 3;
+const GITHUB_COMMENT_PAGE_LIMIT = 50;
+
+function githubApiJson(args) {
+  return JSON.parse(execFileSync("gh", ["api", ...args], { encoding: "utf8", maxBuffer: 8 * 1024 * 1024 }));
+}
+
+function retryGitHubRead(read) {
+  let lastError;
+  for (let attempt = 0; attempt < GITHUB_READ_ATTEMPTS; attempt += 1) {
+    try {
+      return read();
+    } catch (error) {
+      lastError = error;
+      if (attempt + 1 < GITHUB_READ_ATTEMPTS) {
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000 * (2 ** attempt));
+      }
+    }
+  }
+  throw lastError;
+}
+
+function githubIssueComments(repository) {
+  const evidence = [];
+  for (let page = 1; page <= GITHUB_COMMENT_PAGE_LIMIT; page += 1) {
+    const comments = retryGitHubRead(() => githubApiJson([
+      `repos/${repository}/issues/548/comments?per_page=100&page=${page}`,
+    ]));
+    if (!Array.isArray(comments)) throw new Error("GitHub issue comments response is malformed");
+    for (const comment of comments) {
+      const body = String(comment?.body ?? "");
+      if (body.includes("<!-- proffera-worker-slot-reservation:")
+        || body.includes("<!-- proffera-worker-dispatch-start:")
+        || body.includes(TASK_STATE_MARKER_PREFIX)) evidence.push(comment);
+    }
+    if (comments.length < 100) return evidence;
+  }
+  throw new Error("GitHub issue comment evidence exceeds the bounded page limit");
+}
+
+function invalidClosePlanInput(repository, prNumber, runId, livePr, comments) {
+  return { repository, pr_number: prNumber, run_id: runId, live_pr: livePr, comments };
+}
+
+export function reconcileInvalidWorkerPrClose({ repository, pr_number, run_id }) {
+  const prNumber = Number(pr_number);
+  const runId = String(run_id ?? "");
+  if (repository !== EXPECTED_REPOSITORY || !Number.isInteger(prNumber) || prNumber <= 0 || !/^[0-9]+$/.test(runId)) {
+    return invalidCloseResult(false, "invalid_identity", "repository, PR, or run identity is malformed");
+  }
+
+  let livePr;
+  let comments;
+  try {
+    livePr = retryGitHubRead(() => githubApiJson([`repos/${repository}/pulls/${prNumber}`]));
+    comments = githubIssueComments(repository);
+  } catch {
+    return invalidCloseResult(false, "evidence_unavailable", "GitHub close evidence was unavailable after bounded retries");
+  }
+  const plan = planInvalidWorkerPrClose(invalidClosePlanInput(repository, prNumber, runId, livePr, comments));
+  if (!plan.ok) return plan;
+
+  let confirmPr;
+  let confirmComments;
+  try {
+    confirmPr = retryGitHubRead(() => githubApiJson([`repos/${repository}/pulls/${prNumber}`]));
+    confirmComments = githubIssueComments(repository);
+  } catch {
+    return invalidCloseResult(false, "evidence_unavailable", "GitHub close evidence was unavailable after bounded retries");
+  }
+  const confirmPlan = planInvalidWorkerPrClose(invalidClosePlanInput(repository, prNumber, runId, confirmPr, confirmComments));
+  if (JSON.stringify(confirmPlan) !== JSON.stringify(plan)) {
+    return invalidCloseResult(false, "evidence_changed", "malformed-close evidence changed before mutation");
+  }
+
+  let reservation_mutated = false;
+  let task_mutated = false;
+  if (plan.reservation.apply) {
+    execFileSync("gh", [
+      "api",
+      "--method",
+      "PATCH",
+      `repos/${repository}/issues/comments/${plan.reservation.id}`,
+      "-f",
+      `body=${plan.reservation.body}`,
+    ], { stdio: ["ignore", "ignore", "pipe"] });
+    reservation_mutated = true;
+  }
+
+  const desiredTaskBody = String(plan.task?.body ?? "");
+  if (desiredTaskBody) {
+    let afterPr;
+    let afterComments;
+    try {
+      afterPr = retryGitHubRead(() => githubApiJson([`repos/${repository}/pulls/${prNumber}`]));
+      afterComments = githubIssueComments(repository);
+    } catch {
+      return invalidCloseResult(false, "evidence_unavailable", "GitHub close evidence was unavailable after bounded retries", {
+        reservation_mutated,
+        task_mutated,
+      });
+    }
+    const afterPlan = planInvalidWorkerPrClose(invalidClosePlanInput(repository, prNumber, runId, afterPr, afterComments));
+    if (!afterPlan.ok || afterPlan.reservation.apply) {
+      return invalidCloseResult(false, "release_not_converged", "malformed-close evidence did not converge after reservation release", {
+        reservation_mutated,
+        task_mutated,
+      });
+    }
+    const currentTaskBody = String(afterPlan.task?.expected_body ?? "");
+    if (currentTaskBody !== desiredTaskBody) {
+      if (!afterPlan.task?.apply
+        || currentTaskBody !== String(plan.task?.expected_body ?? "")
+        || String(afterPlan.task?.body ?? "") !== desiredTaskBody
+        || !Number.isInteger(afterPlan.task?.id)
+        || afterPlan.task.id <= 0) {
+        return invalidCloseResult(false, "task_evidence_changed", "malformed-close task evidence changed before terminal reconciliation", {
+          reservation_mutated,
+          task_mutated,
+        });
+      }
+      execFileSync("gh", [
+        "api",
+        "--method",
+        "PATCH",
+        `repos/${repository}/issues/comments/${afterPlan.task.id}`,
+        "-f",
+        `body=${desiredTaskBody}`,
+      ], { stdio: ["ignore", "ignore", "pipe"] });
+      task_mutated = true;
+    }
+  }
+
+  return invalidCloseResult(true, "reconciled", "malformed closed Worker PR converged", {
+    task_id: plan.task_id,
+    reservation_mutated,
+    task_mutated,
+  });
 }
 
 export function taskRejectionBody({ comment_id, reason }) {
@@ -624,12 +1566,32 @@ async function main() {
     process.stdout.write(`${JSON.stringify(validateChangedFiles(parsed.packet, parsed.changed_files))}\n`);
     return;
   }
+  if (mode === "build-publication") {
+    process.stdout.write(`${JSON.stringify(buildPublicationArtifact(parsed))}\n`);
+    return;
+  }
+  if (mode === "validate-publication") {
+    process.stdout.write(`${JSON.stringify(validatePublicationArtifact(parsed))}\n`);
+    return;
+  }
   if (mode === "transition") {
     process.stdout.write(`${JSON.stringify(evaluateTaskStateTransition(parsed))}\n`);
     return;
   }
   if (mode === "state-body") {
     process.stdout.write(taskStateBody(parsed));
+    return;
+  }
+  if (mode === "expired-reservation-retry-body") {
+    process.stdout.write(expiredReservationRetryTaskBody(parsed));
+    return;
+  }
+  if (mode === "invalid-close-plan") {
+    process.stdout.write(`${JSON.stringify(planInvalidWorkerPrClose(parsed))}\n`);
+    return;
+  }
+  if (mode === "invalid-close-reconcile") {
+    process.stdout.write(`${JSON.stringify(reconcileInvalidWorkerPrClose(parsed))}\n`);
     return;
   }
   if (mode === "rejection-body") {

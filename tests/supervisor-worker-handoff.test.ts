@@ -1,17 +1,19 @@
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { delimiter, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 
 import { describe, expect, it } from "vitest";
 
 const helper = resolve(process.cwd(), "scripts/supervisor-worker-handoff.mjs");
+const ciScopeHelper = resolve(process.cwd(), "scripts/ci-scope-plan.mjs");
 const sha = "a".repeat(40);
 const otherSha = "b".repeat(40);
 const taskMarker = "<!-- proffera-worker-task-packet:v1 -->";
 
 function source(path: string) {
-  return readFileSync(resolve(process.cwd(), path), "utf8");
+  return readFileSync(resolve(process.cwd(), path), "utf8").replaceAll("\r\n", "\n");
 }
 
 function executableRunText(workflow: string) {
@@ -72,6 +74,1180 @@ function workflowRunStep(workflow: string, stepName: string) {
     script.push(line.slice(Math.min(line.length, runIndent + 2)));
   }
   return script.join("\n");
+}
+
+function expectShellAndJqSyntax(script: string) {
+  const shell = spawnSync("bash", ["-n"], { input: script, encoding: "utf8" });
+  expect(shell.status, shell.stderr).toBe(0);
+  const invocations = [...script.matchAll(/\bjq\b([^\n]*?)'([^']+)'/g)];
+  expect(invocations.length).toBeGreaterThan(0);
+  for (const invocation of invocations) {
+    const options = invocation[1];
+    const filter = invocation[2];
+    const variables = [...new Set([...options.matchAll(/--arg(?:json)?\s+([A-Za-z_][A-Za-z0-9_]*)/g)].map((match) => match[1]))];
+    const args = ["-n", ...variables.flatMap((variable) => ["--argjson", variable, "null"]), `def __syntax_check: (${filter}); null`];
+    const compiled = spawnSync("jq", args, { encoding: "utf8" });
+    expect(compiled.status, `${compiled.stderr}\nFilter: ${filter}`).toBe(0);
+  }
+}
+
+type ReservationEnforcementOptions = {
+  body?: string;
+  comments?: Array<Record<string, unknown>>;
+  eventAction?: string;
+  eventActor?: string;
+  eventHead?: string;
+  failPagedCommentReads?: number;
+  liveHead?: string;
+  liveAuthor?: string;
+  liveHeadRepository?: string;
+  liveMerged?: boolean;
+  liveState?: string;
+};
+
+function exactReservationEvidence(head = sha, overrides: Record<string, unknown> = {}) {
+  const body = packetComment();
+  const parsed = spawnSync("node", [helper, "parse"], { input: body, encoding: "utf8" });
+  expect(parsed.status, parsed.stderr).toBe(0);
+  const normalizedPacket = parsed.stdout.replace(/\n+$/, "");
+  const parsedPacket = JSON.parse(normalizedPacket);
+  const payload = {
+    state: "RESERVED",
+    task_id: parsedPacket.task_id,
+    run_id: "9001",
+    branch: parsedPacket.branch,
+    head_sha: head,
+    graph_path: parsedPacket.graph_path,
+    allowed_paths: parsedPacket.allowed_paths,
+    packet_digest: createHash("sha256").update(normalizedPacket).digest("hex"),
+    ...overrides,
+  };
+  const payloadBase64 = Buffer.from(JSON.stringify(payload)).toString("base64");
+  return {
+    body,
+    comments: [
+      {
+        id: 101,
+        user: { login: "github-actions[bot]" },
+        body: "<!-- proffera-worker-slot-reservation:" + payload.task_id + " -->\n"
+          + "### Worker slot reservation: " + payload.task_id + "\n"
+          + "- State: `RESERVED`\n"
+          + "- Reservation payload: `" + payloadBase64 + "`",
+      },
+      {
+        id: 102,
+        user: { login: "github-actions[bot]" },
+        body: "<!-- proffera-worker-dispatch-start:" + payload.task_id + ":" + payload.run_id + " -->",
+      },
+    ],
+  };
+}
+
+function expiredSameTaskEvidence(
+  reservationState: "RESERVED" | "RECOVERABLE",
+  overrides: Record<string, unknown> = {},
+) {
+  const normalizedPacket = packet();
+  const runId = "9001";
+  const payload = {
+    version: 1,
+    state: reservationState,
+    task_id: normalizedPacket.task_id,
+    run_id: runId,
+    branch: normalizedPacket.branch,
+    head_sha: sha,
+    graph_path: normalizedPacket.graph_path,
+    packet_digest: createHash("sha256").update(JSON.stringify(normalizedPacket)).digest("hex"),
+    ...(reservationState === "RESERVED" ? { lease_expires_at: "2000-01-01T00:00:00Z" } : {}),
+    allowed_paths: normalizedPacket.allowed_paths,
+    changed_files: [],
+    snapshot_finalized: false,
+    pr_number: null,
+    recovery: reservationState === "RECOVERABLE"
+      ? { kind: "branch", expires_at: "2000-01-01T00:00:00Z" }
+      : null,
+    ...overrides,
+  };
+  return {
+    packet: normalizedPacket,
+    payload,
+    comments: [
+      reservationComment(payload, 201),
+      {
+        id: 202,
+        user: { login: "github-actions[bot]" },
+        body: `<!-- proffera-worker-dispatch-start:${normalizedPacket.task_id}:${runId} -->`,
+      },
+      {
+        id: 203,
+        user: { login: "github-actions[bot]" },
+        body: runText("state-body", {
+          packet: normalizedPacket,
+          state: "WORKER_BLOCKED",
+          reason: "Prior exact Worker reservation remains blocked.",
+          run_id: runId,
+          head_sha: sha,
+        }),
+      },
+    ],
+  };
+}
+
+function runReservationEnforcement({
+  body = packetComment(),
+  comments = [],
+  eventAction = "synchronize",
+  eventActor = "ibboabdoli-ai",
+  liveHead = sha,
+  liveAuthor = "ibboabdoli-ai",
+  liveHeadRepository = "ibboabdoli-ai/Proffera",
+  eventHead = liveHead,
+  failPagedCommentReads = 0,
+  liveMerged = false,
+  liveState = "open",
+}: ReservationEnforcementOptions = {}) {
+  const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+  const script = workflowRunStep(workflow, "Require exact durable reservation before accepting Worker PR");
+  const root = mkdtempSync(join(tmpdir(), "proffera-reservation-enforcement-"));
+  const bin = join(root, "bin");
+  const log = join(root, "gh-calls.jsonl");
+  const stateFile = join(root, "gh-state.json");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(log, "");
+  const livePr = {
+    state: liveState,
+    merged: liveMerged,
+    head: {
+      sha: liveHead,
+      ref: "work/proffera-test-task",
+      repo: { full_name: liveHeadRepository },
+    },
+    user: { login: liveAuthor },
+    body,
+  };
+  writeFileSync(stateFile, JSON.stringify({ comments, failPagedCommentReads, pagedCommentFailures: 0, pr: livePr }));
+  writeFileSync(
+    join(bin, "gh"),
+    `#!/usr/bin/env node
+const { appendFileSync, readFileSync, writeFileSync } = require("node:fs");
+const args = process.argv.slice(2);
+appendFileSync(process.env.GH_STUB_LOG, JSON.stringify(args) + "\\n");
+const methodIndex = args.indexOf("--method");
+const method = methodIndex >= 0 ? args[methodIndex + 1] : "GET";
+const endpoint = args.find((arg) => arg.startsWith("repos/")) || "";
+const state = JSON.parse(readFileSync(process.env.GH_STUB_STATE_FILE, "utf8"));
+if (args[0] !== "api" || !endpoint) {
+  process.stderr.write("unexpected gh call: " + JSON.stringify(args) + "\\n");
+  process.exit(2);
+}
+if (method !== "GET") {
+  const bodyArg = args.find((arg) => arg.startsWith("body="));
+  const commentMatch = endpoint.match(/issues\\/comments\\/(\\d+)$/);
+  if (method === "PATCH" && endpoint === "repos/ibboabdoli-ai/Proffera/pulls/849" && args.includes("state=closed")) {
+    state.pr.state = "closed";
+    writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
+  } else if (method === "PATCH" && bodyArg && commentMatch) {
+    const comment = state.comments.find((entry) => String(entry.id) === commentMatch[1]);
+    if (!comment) process.exit(3);
+    comment.body = bodyArg.slice("body=".length);
+    writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
+  } else if (method === "POST" && bodyArg && endpoint === "repos/ibboabdoli-ai/Proffera/issues/548/comments") {
+    state.comments.push({ id: 999, user: { login: "github-actions[bot]" }, body: bodyArg.slice("body=".length) });
+    writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
+  }
+  process.stdout.write("{}\\n");
+  process.exit(0);
+}
+if (endpoint === "repos/ibboabdoli-ai/Proffera/pulls/849") {
+  process.stdout.write(JSON.stringify(state.pr) + "\\n");
+  process.exit(0);
+}
+const pagedComments = endpoint.match(/repos\\/ibboabdoli-ai\\/Proffera\\/issues\\/548\\/comments\\?per_page=100&page=(\\d+)$/);
+if (pagedComments) {
+  if (state.pagedCommentFailures < state.failPagedCommentReads) {
+    state.pagedCommentFailures += 1;
+    writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
+    process.exit(75);
+  }
+  const page = Number(pagedComments[1]);
+  process.stdout.write(JSON.stringify(state.comments.slice((page - 1) * 100, page * 100)) + "\\n");
+  process.exit(0);
+}
+if (endpoint === "repos/ibboabdoli-ai/Proffera/issues/548/comments?per_page=100") {
+  for (const comment of state.comments) {
+    process.stdout.write(JSON.stringify(comment) + "\\n");
+  }
+  process.exit(0);
+}
+const directComment = endpoint.match(/repos\\/ibboabdoli-ai\\/Proffera\\/issues\\/comments\\/(\\d+)$/);
+if (directComment) {
+  const comment = state.comments.find((entry) => String(entry.id) === directComment[1]);
+  if (!comment) process.exit(3);
+  if (args.includes("--jq")) process.stdout.write(String(comment.body ?? "") + "\\n");
+  else process.stdout.write(JSON.stringify(comment) + "\\n");
+  process.exit(0);
+}
+process.stderr.write("unhandled gh endpoint: " + endpoint + "\\n");
+process.exit(2);
+`,
+    { encoding: "utf8", mode: 0o755 },
+  );
+
+  const result = spawnSync("bash", ["-c", script], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+      GH_TOKEN: "test-token",
+      GH_STUB_LOG: log,
+      GH_STUB_STATE_FILE: stateFile,
+      REPOSITORY: "ibboabdoli-ai/Proffera",
+      PR_NUMBER: "849",
+      EVENT_ACTION: eventAction,
+      EVENT_ACTOR: eventActor,
+      EVENT_HEAD_SHA: eventHead,
+      EVENT_HEAD_REF: "work/proffera-test-task",
+      EVENT_AUTHOR: "ibboabdoli-ai",
+      EVENT_HEAD_REPOSITORY: "ibboabdoli-ai/Proffera",
+      RUN_ID: "9002",
+    },
+  });
+  const calls = readFileSync(log, "utf8")
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as string[]);
+  const finalState = JSON.parse(readFileSync(stateFile, "utf8")) as { comments: Array<Record<string, unknown>>; pr: Record<string, unknown> };
+  return { ...result, calls, comments: finalState.comments, pr: finalState.pr };
+}
+
+function runReservationRecovery({ branchExists = true }: { branchExists?: boolean } = {}) {
+  const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+  const script = workflowRunStep(workflow, "Release or recover reservation on dispatch failure");
+  const root = mkdtempSync(join(tmpdir(), "proffera-reservation-recovery-"));
+  const bin = join(root, "bin");
+  const runnerTemp = join(root, "runner");
+  const trusted = join(runnerTemp, "proffera-trusted-control");
+  const log = join(root, "gh-calls.jsonl");
+  const stateFile = join(root, "gh-state.json");
+  mkdirSync(bin, { recursive: true });
+  mkdirSync(trusted, { recursive: true });
+  copyFileSync(helper, join(trusted, "supervisor-worker-handoff.mjs"));
+  const parsed = spawnSync(process.execPath, [helper, "parse"], { input: packetComment(), encoding: "utf8" });
+  expect(parsed.status, parsed.stderr).toBe(0);
+  const normalizedPacket = parsed.stdout.replace(/\n+$/, "");
+  const evidence = exactReservationEvidence();
+  writeFileSync(log, "");
+  writeFileSync(stateFile, JSON.stringify({ branchExists, comments: [evidence.comments[0]], pulls: [] }));
+  writeFileSync(
+    join(bin, "gh"),
+    `#!/usr/bin/env node
+const { appendFileSync, readFileSync, writeFileSync } = require("node:fs");
+const args = process.argv.slice(2);
+appendFileSync(process.env.GH_STUB_LOG, JSON.stringify(args) + "\\n");
+const methodIndex = args.indexOf("--method");
+const method = methodIndex >= 0 ? args[methodIndex + 1] : "GET";
+const endpoint = args.find((arg) => arg.startsWith("repos/")) || "";
+const state = JSON.parse(readFileSync(process.env.GH_STUB_STATE_FILE, "utf8"));
+const commentMatch = endpoint.match(/issues\\/comments\\/(\\d+)$/);
+if (method === "PATCH" && commentMatch) {
+  const bodyArg = args.find((arg) => arg.startsWith("body="));
+  const comment = state.comments.find((entry) => String(entry.id) === commentMatch[1]);
+  if (!bodyArg || !comment) process.exit(3);
+  comment.body = bodyArg.slice("body=".length);
+  writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
+  process.stdout.write("{}\\n");
+  process.exit(0);
+}
+if (method !== "GET") process.exit(2);
+if (commentMatch) {
+  const comment = state.comments.find((entry) => String(entry.id) === commentMatch[1]);
+  if (!comment) process.exit(3);
+  process.stdout.write(JSON.stringify(comment) + "\\n");
+  process.exit(0);
+}
+if (endpoint === "repos/ibboabdoli-ai/Proffera/pulls?state=open&base=main&per_page=100") {
+  for (const pull of state.pulls) process.stdout.write(JSON.stringify(pull) + "\\n");
+  process.exit(0);
+}
+if (endpoint === "repos/ibboabdoli-ai/Proffera/git/ref/heads/work/proffera-test-task") {
+  if (!state.branchExists) process.exit(1);
+  process.stdout.write('{"ref":"refs/heads/work/proffera-test-task"}\\n');
+  process.exit(0);
+}
+process.stderr.write("unhandled gh endpoint: " + endpoint + "\\n");
+process.exit(2);
+`,
+    { encoding: "utf8", mode: 0o755 },
+  );
+  const result = spawnSync("bash", ["-c", script], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+      GH_TOKEN: "test-token",
+      GH_STUB_LOG: log,
+      GH_STUB_STATE_FILE: stateFile,
+      RUNNER_TEMP: runnerTemp,
+      REPOSITORY: "ibboabdoli-ai/Proffera",
+      RESERVATION_COMMENT_ID: "101",
+      TASK_ID: "SUP-TEST-1",
+      BRANCH: "work/proffera-test-task",
+      RUN_ID: "9001",
+      PACKET_B64: Buffer.from(normalizedPacket).toString("base64"),
+      ARTIFACT_UPLOADED: "false",
+      RECOVERY_DIGEST: "",
+      HEAD_SHA: sha,
+    },
+  });
+  const calls = readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as string[]);
+  const finalState = JSON.parse(readFileSync(stateFile, "utf8")) as { comments: Array<Record<string, unknown>> };
+  return { ...result, calls, comments: finalState.comments };
+}
+
+type SlotReservationOptions = {
+  reservation?: Record<string, unknown>;
+  extraComments?: Array<Record<string, unknown>>;
+  pulls?: Array<Record<string, unknown>>;
+  branches?: string[];
+  runStatus?: string;
+  changedReservationBody?: boolean;
+};
+
+function reservationComment(payload: Record<string, unknown>, id = 201) {
+  const payloadBase64 = Buffer.from(JSON.stringify(payload)).toString("base64");
+  return {
+    id,
+    user: { login: "github-actions[bot]" },
+    body: `<!-- proffera-worker-slot-reservation:${payload.task_id} -->\n`
+      + `### Worker slot reservation: ${payload.task_id}\n`
+      + `- State: \`${payload.state}\`\n`
+      + `- Reservation payload: \`${payloadBase64}\``,
+  };
+}
+
+type PreflightMutation = {
+  duplicateReservationOnCommentRead?: number;
+  duplicateTaskOnCommentRead?: number;
+  mutateReservationOnCommentRead?: number;
+  mutateTaskOnCommentRead?: number;
+};
+
+function createPreflightHarness({
+  branches = [],
+  comments = [],
+  pulls = [],
+  runStatus = "completed",
+}: {
+  branches?: string[];
+  comments?: Array<Record<string, unknown>>;
+  pulls?: Array<Record<string, unknown>>;
+  runStatus?: string;
+} = {}) {
+  const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+  const script = workflowRunStep(workflow, "Validate trust, freshness, idempotency, graph ownership, and scope");
+  const root = mkdtempSync(join(tmpdir(), "proffera-task-preflight-"));
+  const bin = join(root, "bin");
+  const log = join(root, "gh-calls.jsonl");
+  const stateFile = join(root, "gh-state.json");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(log, "");
+  writeFileSync(stateFile, JSON.stringify({
+    branches,
+    commentReads: 0,
+    comments,
+    mutation: {},
+    nextCommentId: 900,
+    pulls,
+    refReads: 0,
+    runStatus,
+  }));
+  writeFileSync(
+    join(bin, "gh"),
+    `#!/usr/bin/env node
+const { appendFileSync, readFileSync, writeFileSync } = require("node:fs");
+const args = process.argv.slice(2);
+appendFileSync(process.env.GH_STUB_LOG, JSON.stringify(args) + "\\n");
+const methodIndex = args.indexOf("--method");
+const method = methodIndex >= 0 ? args[methodIndex + 1] : "GET";
+const endpoint = args.find((arg) => arg.startsWith("repos/")) || "";
+const state = JSON.parse(readFileSync(process.env.GH_STUB_STATE_FILE, "utf8"));
+const save = () => writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
+const field = (name) => args.find((arg) => arg.startsWith(name + "="))?.slice(name.length + 1) ?? "";
+const commentMatch = endpoint.match(/issues\\/comments\\/(\\d+)$/);
+if (method === "PATCH" && commentMatch) {
+  const comment = state.comments.find((entry) => String(entry.id) === commentMatch[1]);
+  if (!comment || !args.some((arg) => arg.startsWith("body="))) process.exit(3);
+  comment.body = field("body");
+  save();
+  process.stdout.write("{}\\n");
+  process.exit(0);
+}
+if (method === "POST" && endpoint.endsWith("/issues/548/comments")) {
+  const id = state.nextCommentId++;
+  state.comments.push({ id, user: { login: "github-actions[bot]" }, body: field("body") });
+  save();
+  process.stdout.write(args.includes("--jq") ? String(id) + "\\n" : JSON.stringify({ id }) + "\\n");
+  process.exit(0);
+}
+if (method !== "GET") {
+  process.stderr.write("unexpected mutation: " + JSON.stringify(args) + "\\n");
+  process.exit(2);
+}
+if (endpoint.endsWith("/issues/548")) {
+  process.stdout.write('{"labels":[{"name":"worker-dispatch-enabled"}]}\\n');
+  process.exit(0);
+}
+if (endpoint.endsWith("/git/ref/heads/main")) {
+  process.stdout.write(process.env.GH_STUB_MAIN_SHA + "\\n");
+  process.exit(0);
+}
+if (endpoint.endsWith("/issues/548/comments?per_page=100")) {
+  state.commentReads += 1;
+  const mutation = state.mutation || {};
+  const mutate = (needle) => {
+    const found = state.comments.find((entry) => String(entry.body || "").includes(needle));
+    if (found) found.body = String(found.body) + "\\nchanged";
+  };
+  const duplicate = (needle) => {
+    const found = state.comments.find((entry) => String(entry.body || "").includes(needle));
+    if (found) state.comments.push({ ...found, id: state.nextCommentId++ });
+  };
+  if (state.commentReads === mutation.mutateReservationOnCommentRead) mutate("proffera-worker-slot-reservation:");
+  if (state.commentReads === mutation.mutateTaskOnCommentRead) mutate("proffera-worker-task-state:");
+  if (state.commentReads === mutation.duplicateReservationOnCommentRead) duplicate("proffera-worker-slot-reservation:");
+  if (state.commentReads === mutation.duplicateTaskOnCommentRead) duplicate("proffera-worker-task-state:");
+  save();
+  for (const comment of state.comments) process.stdout.write(JSON.stringify(comment) + "\\n");
+  process.exit(0);
+}
+if (endpoint.endsWith("/pulls?state=open&base=main&per_page=100")) {
+  for (const pull of state.pulls) process.stdout.write(JSON.stringify(pull) + "\\n");
+  process.exit(0);
+}
+const filesMatch = endpoint.match(/pulls\\/(\\d+)\\/files/);
+if (filesMatch) {
+  const pull = state.pulls.find((entry) => String(entry.number) === filesMatch[1]);
+  for (const path of pull?.files || []) process.stdout.write(String(path) + "\\n");
+  process.exit(0);
+}
+const refsPrefix = "repos/ibboabdoli-ai/Proffera/git/matching-refs/heads/";
+if (endpoint.startsWith(refsPrefix)) {
+  state.refReads += 1;
+  save();
+  const branch = endpoint.slice(refsPrefix.length);
+  const refs = state.branches.filter((candidate) => candidate === branch).map((candidate) => ({ ref: "refs/heads/" + candidate }));
+  process.stdout.write(JSON.stringify(refs) + "\\n");
+  process.exit(0);
+}
+const runMatch = endpoint.match(/actions\\/runs\\/(\\d+)$/);
+if (runMatch) {
+  process.stdout.write(String(state.runStatus) + "\\n");
+  process.exit(0);
+}
+if (commentMatch) {
+  const comment = state.comments.find((entry) => String(entry.id) === commentMatch[1]);
+  if (!comment) process.exit(3);
+  process.stdout.write(args.includes("--jq") ? String(comment.body || "") + "\\n" : JSON.stringify(comment) + "\\n");
+  process.exit(0);
+}
+process.stderr.write("unhandled gh endpoint: " + endpoint + " " + JSON.stringify(args) + "\\n");
+process.exit(2);
+`,
+    { encoding: "utf8", mode: 0o755 },
+  );
+
+  return {
+    run({
+      commentId = "501",
+      mutation = {},
+      runId = "1001",
+      taskPacket = packet(),
+      taskLane = `task-${String(taskPacket.task_id)}`,
+    }: {
+      commentId?: string;
+      mutation?: PreflightMutation;
+      runId?: string;
+      taskPacket?: ReturnType<typeof packet>;
+      taskLane?: string;
+    } = {}) {
+      const state = JSON.parse(readFileSync(stateFile, "utf8"));
+      state.commentReads = 0;
+      state.mutation = mutation;
+      state.refReads = 0;
+      writeFileSync(stateFile, JSON.stringify(state));
+      writeFileSync(log, "");
+      const output = join(root, `github-output-${runId}-${commentId}`);
+      writeFileSync(output, "");
+      const result = spawnSync("bash", ["-c", script], {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+          EVENT_ACTOR: "ibboabdoli-ai",
+          EVENT_COMMENT_BODY: packetComment(taskPacket),
+          EVENT_COMMENT_ID: commentId,
+          EVENT_ISSUE_NUMBER: "548",
+          GH_STUB_LOG: log,
+          GH_STUB_MAIN_SHA: String(taskPacket.base_sha),
+          GH_STUB_STATE_FILE: stateFile,
+          GH_TOKEN: "test-token",
+          GITHUB_OUTPUT: output,
+          OPENAI_AVAILABLE: "true",
+          PUSH_AVAILABLE: "true",
+          REPOSITORY: "ibboabdoli-ai/Proffera",
+          RUN_ID: runId,
+          TASK_LANE: taskLane,
+        },
+      });
+      const calls = readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as string[]);
+      const outputs = Object.fromEntries(readFileSync(output, "utf8").trim().split("\n").filter(Boolean).map((line) => {
+        const separator = line.indexOf("=");
+        return [line.slice(0, separator), line.slice(separator + 1)];
+      }));
+      const finalState = JSON.parse(readFileSync(stateFile, "utf8")) as {
+        comments: Array<Record<string, unknown>>;
+      };
+      return { ...result, calls, comments: finalState.comments, outputs };
+    },
+  };
+}
+
+function runTaskLane(taskPacket: ReturnType<typeof packet>, commentId = "501") {
+  const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+  const script = workflowRunStep(workflow, "Resolve same-task serialization key");
+  const root = mkdtempSync(join(tmpdir(), "proffera-task-lane-"));
+  const output = join(root, "github-output");
+  writeFileSync(output, "");
+  const result = spawnSync("bash", ["-c", script], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      EVENT_COMMENT_BODY: packetComment(taskPacket),
+      EVENT_COMMENT_ID: commentId,
+      GITHUB_OUTPUT: output,
+    },
+  });
+  expect(result.status, result.stderr).toBe(0);
+  return Object.fromEntries(readFileSync(output, "utf8").trim().split("\n").map((line) => {
+    const separator = line.indexOf("=");
+    return [line.slice(0, separator), line.slice(separator + 1)];
+  }));
+}
+
+function runSlotReservation({
+  reservation,
+  extraComments = [],
+  pulls = [],
+  branches = [],
+  runStatus = "completed",
+  changedReservationBody = false,
+}: SlotReservationOptions = {}) {
+  const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+  const script = workflowRunStep(workflow, "Atomically reserve writable Worker slot");
+  const root = mkdtempSync(join(tmpdir(), "proffera-slot-reservation-"));
+  const bin = join(root, "bin");
+  const runnerTemp = join(root, "runner");
+  const trusted = join(runnerTemp, "proffera-trusted-control");
+  const trustedHelper = join(trusted, "supervisor-worker-handoff.mjs");
+  const manifest = join(trusted, "supervisor-worker-handoff.sha256");
+  const output = join(root, "github-output");
+  const log = join(root, "gh-calls.jsonl");
+  const stateFile = join(root, "gh-state.json");
+  mkdirSync(bin, { recursive: true });
+  mkdirSync(trusted, { recursive: true });
+  copyFileSync(helper, trustedHelper);
+  const helperDigest = createHash("sha256").update(readFileSync(trustedHelper)).digest("hex");
+  writeFileSync(manifest, `${helperDigest}  ${trustedHelper}\n`);
+  writeFileSync(output, "");
+  writeFileSync(log, "");
+  const localHeadResult = spawnSync("git", ["rev-parse", "HEAD"], { cwd: process.cwd(), encoding: "utf8" });
+  expect(localHeadResult.status, localHeadResult.stderr).toBe(0);
+  const localHead = localHeadResult.stdout.trim();
+  const newPacket = packet({
+    task_id: "SUP-NEW-SLOT-1",
+    task_title: "Disjoint slot behavior test",
+    graph_path: "feature/new-slot",
+    base_sha: localHead,
+    branch: "work/proffera-new-slot",
+    allowed_paths: ["tests/new-slot/"],
+  });
+  const comments = [...(reservation ? [reservationComment(reservation)] : []), ...extraComments];
+  writeFileSync(stateFile, JSON.stringify({ branches, changedReservationBody, comments, mutex: "", pulls, runStatus }));
+  writeFileSync(
+    join(bin, "gh"),
+    `#!/usr/bin/env node
+const { appendFileSync, readFileSync, writeFileSync } = require("node:fs");
+const args = process.argv.slice(2);
+appendFileSync(process.env.GH_STUB_LOG, JSON.stringify(args) + "\\n");
+const methodIndex = args.indexOf("--method");
+const method = methodIndex >= 0 ? args[methodIndex + 1] : "GET";
+const endpoint = args.find((arg) => arg.startsWith("repos/")) || "";
+const state = JSON.parse(readFileSync(process.env.GH_STUB_STATE_FILE, "utf8"));
+const save = () => writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
+const field = (name) => args.find((arg) => arg.startsWith(name + "="))?.slice(name.length + 1) ?? "";
+const commentMatch = endpoint.match(/issues\\/comments\\/(\\d+)$/);
+if (method === "POST" && endpoint.endsWith("/labels")) {
+  state.mutex = field("description");
+  save();
+  process.stdout.write("{}\\n");
+  process.exit(0);
+}
+if (method === "DELETE" && endpoint.includes("/labels/")) {
+  state.mutex = "";
+  save();
+  process.stdout.write("{}\\n");
+  process.exit(0);
+}
+if (method === "PATCH" && commentMatch) {
+  const comment = state.comments.find((entry) => String(entry.id) === commentMatch[1]);
+  if (!comment) process.exit(3);
+  comment.body = field("body");
+  save();
+  process.stdout.write("{}\\n");
+  process.exit(0);
+}
+if (method === "POST" && endpoint.endsWith("/issues/548/comments")) {
+  state.comments.push({ id: 999, user: { login: "github-actions[bot]" }, body: field("body") });
+  save();
+  process.stdout.write("999\\n");
+  process.exit(0);
+}
+if (method !== "GET") process.exit(2);
+if (endpoint.includes("/labels/proffera-worker-slot-reservation-mutex-v1")) {
+  if (!state.mutex) process.exit(1);
+  process.stdout.write(state.mutex + "\\n");
+  process.exit(0);
+}
+if (endpoint.endsWith("/git/ref/heads/main")) {
+  process.stdout.write(process.env.GH_STUB_MAIN_SHA + "\\n");
+  process.exit(0);
+}
+if (endpoint.endsWith("/issues/548")) {
+  process.stdout.write('{"labels":[{"name":"worker-dispatch-enabled"}]}\\n');
+  process.exit(0);
+}
+if (endpoint.endsWith("/issues/548/comments?per_page=100")) {
+  for (const comment of state.comments) process.stdout.write(JSON.stringify(comment) + "\\n");
+  process.exit(0);
+}
+if (endpoint.endsWith("/pulls?state=open&base=main&per_page=100")) {
+  for (const pull of state.pulls) process.stdout.write(JSON.stringify(pull) + "\\n");
+  process.exit(0);
+}
+const pullMatch = endpoint.match(/pulls\\/(\\d+)$/);
+if (pullMatch) {
+  const pull = state.pulls.find((entry) => String(entry.number) === pullMatch[1]);
+  if (!pull) process.exit(3);
+  process.stdout.write(JSON.stringify({ ...pull, state: pull.state ?? "open" }) + "\\n");
+  process.exit(0);
+}
+const filesMatch = endpoint.match(/pulls\\/(\\d+)\\/files/);
+if (filesMatch) {
+  const pull = state.pulls.find((entry) => String(entry.number) === filesMatch[1]);
+  for (const path of pull?.files ?? []) process.stdout.write(path + "\\n");
+  process.exit(0);
+}
+const runMatch = endpoint.match(/actions\\/runs\\/(\\d+)$/);
+if (runMatch) {
+  process.stdout.write(state.runStatus + "\\n");
+  process.exit(0);
+}
+const branchPrefix = "repos/ibboabdoli-ai/Proffera/git/ref/heads/";
+if (endpoint.startsWith(branchPrefix)) {
+  const branch = endpoint.slice(branchPrefix.length);
+  if (!state.branches.includes(branch)) process.exit(1);
+  process.stdout.write("refs/heads/" + branch + "\\n");
+  process.exit(0);
+}
+if (commentMatch) {
+  const comment = state.comments.find((entry) => String(entry.id) === commentMatch[1]);
+  if (!comment) process.exit(3);
+  const body = state.changedReservationBody ? String(comment.body) + "\\nchanged" : String(comment.body);
+  process.stdout.write(body + "\\n");
+  process.exit(0);
+}
+process.stderr.write("unhandled gh endpoint: " + endpoint + "\\n");
+process.exit(2);
+`,
+    { encoding: "utf8", mode: 0o755 },
+  );
+  const result = spawnSync("bash", ["-c", script], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+      GH_TOKEN: "test-token",
+      GH_STUB_LOG: log,
+      GH_STUB_MAIN_SHA: localHead,
+      GH_STUB_STATE_FILE: stateFile,
+      GITHUB_OUTPUT: output,
+      RUNNER_TEMP: runnerTemp,
+      REPOSITORY: "ibboabdoli-ai/Proffera",
+      PACKET_B64: Buffer.from(JSON.stringify(newPacket)).toString("base64"),
+      EVENT_COMMENT_BODY: packetComment(newPacket),
+      EVENT_ACTOR: "ibboabdoli-ai",
+      EVENT_ISSUE_NUMBER: "548",
+      BASE_SHA: localHead,
+      RUN_ID: "1001",
+    },
+  });
+  const calls = readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as string[]);
+  const finalState = JSON.parse(readFileSync(stateFile, "utf8")) as { comments: Array<Record<string, unknown>> };
+  const outputs = Object.fromEntries(readFileSync(output, "utf8")
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      const separator = line.indexOf("=");
+      return [line.slice(0, separator), line.slice(separator + 1)];
+    }));
+  return { ...result, calls, comments: finalState.comments, outputs };
+}
+
+function runReservationFinalization({ changedReservationBody = false } = {}) {
+  const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+  const script = workflowRunStep(workflow, "Finalize reserved Worker snapshot before publication");
+  const root = mkdtempSync(join(tmpdir(), "proffera-reservation-finalize-"));
+  const repo = join(root, "repo");
+  const bin = join(root, "bin");
+  const trusted = join(root, "proffera-trusted-control");
+  const log = join(root, "gh-calls.jsonl");
+  const stateFile = join(root, "gh-state.json");
+  mkdirSync(join(repo, "src"), { recursive: true });
+  mkdirSync(bin, { recursive: true });
+  mkdirSync(trusted, { recursive: true });
+  const git = (...args: string[]) => {
+    const result = spawnSync("git", args, { cwd: repo, encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    return result.stdout.trim();
+  };
+  git("init");
+  git("config", "user.name", "test");
+  git("config", "user.email", "test@example.invalid");
+  writeFileSync(join(repo, "src/change.txt"), "before\n", "utf8");
+  git("add", "src/change.txt");
+  git("commit", "-m", "source");
+  const sourceHead = git("rev-parse", "HEAD");
+  writeFileSync(join(repo, "src/change.txt"), "after\n", "utf8");
+  git("commit", "-am", "target");
+  const targetHead = git("rev-parse", "HEAD");
+  const finalizationPacket = packet({ base_sha: sourceHead, allowed_paths: ["src/change.txt"] });
+  const normalizedPacket = JSON.stringify(finalizationPacket);
+  const reservation = {
+    version: 1,
+    state: "RESERVED",
+    task_id: finalizationPacket.task_id,
+    run_id: "9001",
+    branch: finalizationPacket.branch,
+    graph_path: finalizationPacket.graph_path,
+    packet_digest: createHash("sha256").update(normalizedPacket).digest("hex"),
+    head_sha: sourceHead,
+    lease_expires_at: "2099-01-01T00:00:00Z",
+    allowed_paths: finalizationPacket.allowed_paths,
+    changed_files: [],
+    snapshot_finalized: false,
+    pr_number: null,
+    recovery: null,
+  };
+  copyFileSync(helper, join(trusted, "supervisor-worker-handoff.mjs"));
+  const helperDigest = createHash("sha256").update(readFileSync(join(trusted, "supervisor-worker-handoff.mjs"))).digest("hex");
+  writeFileSync(join(trusted, "supervisor-worker-handoff.sha256"), `${helperDigest}  ${join(trusted, "supervisor-worker-handoff.mjs")}\n`);
+  writeFileSync(join(root, "proffera-worker-changed-files.txt"), "src/change.txt\n");
+  writeFileSync(log, "");
+  writeFileSync(stateFile, JSON.stringify({ changedReservationBody, comments: [reservationComment(reservation, 101)] }));
+  writeFileSync(
+    join(bin, "gh"),
+    `#!/usr/bin/env node
+const { appendFileSync, readFileSync, writeFileSync } = require("node:fs");
+const args = process.argv.slice(2);
+appendFileSync(process.env.GH_STUB_LOG, JSON.stringify(args) + "\\n");
+const methodIndex = args.indexOf("--method");
+const method = methodIndex >= 0 ? args[methodIndex + 1] : "GET";
+const endpoint = args.find((arg) => arg.startsWith("repos/")) || "";
+const state = JSON.parse(readFileSync(process.env.GH_STUB_STATE_FILE, "utf8"));
+const field = (name) => args.find((arg) => arg.startsWith(name + "="))?.slice(name.length + 1) ?? "";
+if (method === "PATCH" && endpoint.endsWith("/issues/comments/101")) {
+  state.comments[0].body = field("body");
+  writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
+  process.stdout.write("{}\\n");
+  process.exit(0);
+}
+if (method !== "GET") process.exit(2);
+if (endpoint.endsWith("/git/ref/heads/main")) {
+  process.stdout.write(process.env.GH_STUB_MAIN_SHA + "\\n");
+  process.exit(0);
+}
+if (endpoint.endsWith("/issues/comments/101")) {
+  const comment = state.comments[0];
+  if (args.includes("--jq")) {
+    const body = state.changedReservationBody ? String(comment.body) + "\\nchanged" : String(comment.body);
+    process.stdout.write(body + "\\n");
+  } else {
+    process.stdout.write(JSON.stringify(comment) + "\\n");
+  }
+  process.exit(0);
+}
+process.stderr.write("unhandled gh endpoint: " + endpoint + "\\n");
+process.exit(2);
+`,
+    { encoding: "utf8", mode: 0o755 },
+  );
+  const result = spawnSync("bash", ["-c", script], {
+    cwd: repo,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+      GH_TOKEN: "test-token",
+      GH_STUB_LOG: log,
+      GH_STUB_MAIN_SHA: sourceHead,
+      GH_STUB_STATE_FILE: stateFile,
+      RUNNER_TEMP: root,
+      REPOSITORY: "ibboabdoli-ai/Proffera",
+      RESERVATION_COMMENT_ID: "101",
+      PACKET_B64: Buffer.from(normalizedPacket).toString("base64"),
+      BASE_SHA: sourceHead,
+      RUN_ID: "9001",
+    },
+  });
+  const calls = readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as string[]);
+  const finalState = JSON.parse(readFileSync(stateFile, "utf8")) as { comments: Array<Record<string, unknown>> };
+  return { ...result, calls, comments: finalState.comments, sourceHead, targetHead };
+}
+
+function prPatchCalls(calls: string[][]) {
+  return calls.filter((args) => {
+    const methodIndex = args.indexOf("--method");
+    return methodIndex >= 0
+      && args[methodIndex + 1] === "PATCH"
+      && args.includes("repos/ibboabdoli-ai/Proffera/pulls/849");
+  });
+}
+
+function commentPatchCalls(calls: string[][], commentId: number) {
+  return calls.filter((args) => {
+    const methodIndex = args.indexOf("--method");
+    return methodIndex >= 0
+      && args[methodIndex + 1] === "PATCH"
+      && args.includes(`repos/ibboabdoli-ai/Proffera/issues/comments/${commentId}`);
+  });
+}
+
+type SyncCheckOptions = {
+  action?: string;
+  body?: string;
+  comments: Array<Record<string, unknown>>;
+  eventHead?: string;
+  liveAuthor?: string;
+  liveHead?: string;
+  liveHeadRepository?: string;
+  liveMerged?: boolean;
+  liveRef?: string;
+  liveState?: string;
+  failPagedCommentReads?: number;
+  mutateHeadOnPrFetch?: number;
+  mutateReservationOnCommentFetch?: number;
+  mutateTaskOnCommentFetch?: number;
+  stepName?: string;
+};
+
+function runSyncCheckReconciliation({
+  action = "synchronize",
+  body = packetComment(),
+  comments,
+  eventHead = sha,
+  liveAuthor = "ibboabdoli-ai",
+  liveHead = sha,
+  liveHeadRepository = "ibboabdoli-ai/Proffera",
+  liveMerged = false,
+  liveRef = "work/proffera-test-task",
+  liveState = "closed",
+  failPagedCommentReads = 0,
+  mutateHeadOnPrFetch = 0,
+  mutateReservationOnCommentFetch = 0,
+  mutateTaskOnCommentFetch = 0,
+  stepName = "Reconcile required current-head workflow evidence",
+}: SyncCheckOptions) {
+  const workflow = source(".github/workflows/worker-supervisor-sync.yml");
+  const script = workflowRunStep(workflow, stepName);
+  const root = mkdtempSync(join(tmpdir(), "proffera-sync-check-reconciliation-"));
+  const repo = join(root, "repo");
+  const bin = join(root, "bin");
+  const log = join(root, "gh-calls.jsonl");
+  const stateFile = join(root, "gh-state.json");
+  mkdirSync(join(repo, "scripts"), { recursive: true });
+  mkdirSync(bin, { recursive: true });
+  copyFileSync(helper, join(repo, "scripts", "supervisor-worker-handoff.mjs"));
+  writeFileSync(stateFile, JSON.stringify({
+    commentFetches: 0,
+    comments,
+    failPagedCommentReads,
+    mutateHeadOnPrFetch,
+    mutateReservationOnCommentFetch,
+    mutateTaskOnCommentFetch,
+    pagedCommentFailures: 0,
+    prFetches: 0,
+  }));
+  writeFileSync(
+    join(bin, "gh"),
+    `#!/usr/bin/env node
+const { appendFileSync, readFileSync, writeFileSync } = require("node:fs");
+const args = process.argv.slice(2);
+appendFileSync(process.env.GH_STUB_LOG, JSON.stringify(args) + "\\n");
+const methodIndex = args.indexOf("--method");
+const method = methodIndex >= 0 ? args[methodIndex + 1] : "GET";
+const endpoint = args.find((arg) => arg.startsWith("repos/")) || "";
+const state = JSON.parse(readFileSync(process.env.GH_STUB_STATE_FILE, "utf8"));
+if (args[0] !== "api" || !endpoint) process.exit(2);
+if (method !== "GET") {
+  const bodyArg = args.find((arg) => arg.startsWith("body="));
+  const commentMatch = endpoint.match(/issues\\/comments\\/(\\d+)$/);
+  if (method === "PATCH" && bodyArg && commentMatch) {
+    const comment = state.comments.find((entry) => String(entry.id) === commentMatch[1]);
+    if (!comment) process.exit(3);
+    comment.body = bodyArg.slice("body=".length);
+    writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
+  } else if (method === "POST" && bodyArg && endpoint === "repos/ibboabdoli-ai/Proffera/issues/548/comments") {
+    state.comments.push({ id: 999, user: { login: "github-actions[bot]" }, body: bodyArg.slice("body=".length) });
+    writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
+  }
+  process.stdout.write("{}\\n");
+  process.exit(0);
+}
+if (endpoint === "repos/ibboabdoli-ai/Proffera/pulls/849") {
+  state.prFetches += 1;
+  const pr = JSON.parse(process.env.GH_STUB_PR_JSON);
+  if (state.prFetches >= state.mutateHeadOnPrFetch && state.mutateHeadOnPrFetch > 0) pr.head.sha = "${otherSha}";
+  writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
+  process.stdout.write(JSON.stringify(pr) + "\\n");
+  process.exit(0);
+}
+const pagedComments = endpoint.match(/repos\\/ibboabdoli-ai\\/Proffera\\/issues\\/548\\/comments\\?per_page=100&page=(\\d+)$/);
+if (pagedComments) {
+  if (state.pagedCommentFailures < state.failPagedCommentReads) {
+    state.pagedCommentFailures += 1;
+    writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
+    process.exit(75);
+  }
+  state.commentFetches += 1;
+  if (state.commentFetches === state.mutateReservationOnCommentFetch) {
+    const reservation = state.comments.find((entry) => String(entry.body ?? "").includes("proffera-worker-slot-reservation:"));
+    if (reservation) reservation.body = String(reservation.body) + "\\nchanged";
+  }
+  if (state.commentFetches === state.mutateTaskOnCommentFetch) {
+    const task = state.comments.find((entry) => String(entry.body ?? "").includes("proffera-worker-task-state:"));
+    if (task) task.body = String(task.body) + "\\nchanged";
+  }
+  writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
+  const page = Number(pagedComments[1]);
+  process.stdout.write(JSON.stringify(state.comments.slice((page - 1) * 100, page * 100)) + "\\n");
+  process.exit(0);
+}
+if (endpoint === "repos/ibboabdoli-ai/Proffera/issues/548/comments?per_page=100") {
+  state.commentFetches += 1;
+  if (state.commentFetches === state.mutateReservationOnCommentFetch) {
+    const reservation = state.comments.find((entry) => String(entry.body ?? "").includes("proffera-worker-slot-reservation:"));
+    if (reservation) reservation.body = String(reservation.body) + "\\nchanged";
+  }
+  if (state.commentFetches === state.mutateTaskOnCommentFetch) {
+    const task = state.comments.find((entry) => String(entry.body ?? "").includes("proffera-worker-task-state:"));
+    if (task) task.body = String(task.body) + "\\nchanged";
+  }
+  writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
+  for (const comment of state.comments) process.stdout.write(JSON.stringify(comment) + "\\n");
+  process.exit(0);
+}
+if (endpoint.startsWith("repos/ibboabdoli-ai/Proffera/actions/runs?")) {
+  for (const name of ["CI", "CodeQL", "Targeted CI shadow", "Production base health"]) {
+    process.stdout.write(JSON.stringify({ name, conclusion: "success", created_at: "2026-09-12T00:00:00Z", id: 1 }) + "\\n");
+  }
+  process.exit(0);
+}
+process.stderr.write("unhandled gh endpoint: " + endpoint + "\\n");
+process.exit(2);
+`,
+    { encoding: "utf8", mode: 0o755 },
+  );
+
+  const pr = {
+    state: liveState,
+    merged: liveMerged,
+    user: { login: liveAuthor },
+    head: { repo: { full_name: liveHeadRepository }, ref: liveRef, sha: liveHead },
+    body,
+  };
+  const result = spawnSync("bash", ["-c", script], {
+    cwd: repo,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+      GH_TOKEN: "test-token",
+      GH_STUB_LOG: log,
+      GH_STUB_STATE_FILE: stateFile,
+      GH_STUB_PR_JSON: JSON.stringify(pr),
+      REPOSITORY: "ibboabdoli-ai/Proffera",
+      ACTION: action,
+      ACTOR: "ibboabdoli-ai",
+      PR_NUMBER: "849",
+      EVENT_PR_NUMBER: "849",
+      EVENT_HEAD_SHA: eventHead,
+      RUN_ID: "9003",
+    },
+  });
+  const calls = readFileSync(log, "utf8")
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as string[]);
+  const finalState = JSON.parse(readFileSync(stateFile, "utf8")) as { comments: Array<Record<string, unknown>> };
+  return { ...result, calls, comments: finalState.comments };
+}
+
+function runLifecycleReconciliation(options: Omit<SyncCheckOptions, "stepName">) {
+  return runSyncCheckReconciliation({
+    ...options,
+    stepName: "Record or update Worker lifecycle state in Supervisor issue",
+  });
+}
+
+function runWorkerPrStateRecord(currentBody: string) {
+  const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+  const script = workflowRunStep(workflow, "Record dispatched Worker PR in stable Supervisor task state");
+  const root = mkdtempSync(join(tmpdir(), "proffera-worker-pr-state-"));
+  const bin = join(root, "bin");
+  const trusted = join(root, "proffera-trusted-control");
+  const trustedHelper = join(trusted, "supervisor-worker-handoff.mjs");
+  const manifest = join(trusted, "supervisor-worker-handoff.sha256");
+  const log = join(root, "gh-calls.jsonl");
+  mkdirSync(bin, { recursive: true });
+  mkdirSync(trusted, { recursive: true });
+  copyFileSync(helper, trustedHelper);
+  const helperDigest = createHash("sha256").update(readFileSync(trustedHelper)).digest("hex");
+  writeFileSync(manifest, `${helperDigest}  ${trustedHelper}\n`);
+  writeFileSync(
+    join(bin, "gh"),
+    `#!/usr/bin/env node
+const { appendFileSync } = require("node:fs");
+const args = process.argv.slice(2);
+appendFileSync(process.env.GH_STUB_LOG, JSON.stringify(args) + "\\n");
+const methodIndex = args.indexOf("--method");
+const method = methodIndex >= 0 ? args[methodIndex + 1] : "GET";
+const endpoint = args.find((arg) => arg.startsWith("repos/")) || "";
+if (args[0] !== "api" || !endpoint) process.exit(2);
+if (method === "PATCH" && endpoint === "repos/ibboabdoli-ai/Proffera/issues/comments/99") {
+  process.stdout.write("{}\\n");
+  process.exit(0);
+}
+if (method !== "GET") process.exit(2);
+if (endpoint === "repos/ibboabdoli-ai/Proffera/pulls/900") {
+  process.stdout.write(JSON.stringify({ state: "open", merged: false, head: { sha: process.env.GH_STUB_HEAD } }) + "\\n");
+  process.exit(0);
+}
+if (endpoint === "repos/ibboabdoli-ai/Proffera/issues/comments/99") {
+  process.stdout.write(process.env.GH_STUB_STATE_BODY + "\\n");
+  process.exit(0);
+}
+process.exit(2);
+`,
+    { encoding: "utf8", mode: 0o755 },
+  );
+
+  const result = spawnSync("bash", ["-c", script], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+      RUNNER_TEMP: root,
+      GH_TOKEN: "test-token",
+      GH_STUB_LOG: log,
+      GH_STUB_HEAD: sha,
+      GH_STUB_STATE_BODY: currentBody,
+      REPOSITORY: "ibboabdoli-ai/Proffera",
+      PACKET_B64: Buffer.from(JSON.stringify(packet())).toString("base64"),
+      STATE_COMMENT_ID: "99",
+      PR_NUMBER: "900",
+      HEAD_SHA: sha,
+      RUN_ID: "9001",
+    },
+  });
+  const calls = readFileSync(log, "utf8")
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as string[]);
+  return { ...result, calls };
+}
+
+function taskStatePatchCalls(calls: string[][]) {
+  return calls.filter((args) => {
+    const methodIndex = args.indexOf("--method");
+    return methodIndex >= 0
+      && args[methodIndex + 1] === "PATCH"
+      && args.includes("repos/ibboabdoli-ai/Proffera/issues/comments/99");
+  });
+}
+
+function runDispatchFailureState({
+  capacityBlocked = false,
+  reservationCommentId = "",
+}: {
+  capacityBlocked?: boolean;
+  reservationCommentId?: string;
+} = {}) {
+  const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+  const script = workflowRunStep(workflow, "Fail closed into WORKER_BLOCKED on dispatch failure");
+  const root = mkdtempSync(join(tmpdir(), "proffera-dispatch-failure-state-"));
+  const bin = join(root, "bin");
+  const trusted = join(root, "proffera-trusted-control");
+  const output = join(root, "patched-body");
+  mkdirSync(bin, { recursive: true });
+  mkdirSync(trusted, { recursive: true });
+  copyFileSync(helper, join(trusted, "supervisor-worker-handoff.mjs"));
+  const helperDigest = createHash("sha256").update(readFileSync(helper)).digest("hex");
+  writeFileSync(join(trusted, "supervisor-worker-handoff.sha256"), `${helperDigest}  ${join(trusted, "supervisor-worker-handoff.mjs")}\n`);
+  writeFileSync(
+    join(bin, "gh"),
+    `#!/usr/bin/env node
+const { writeFileSync } = require("node:fs");
+const args = process.argv.slice(2);
+const methodIndex = args.indexOf("--method");
+const body = args.find((arg) => arg.startsWith("body="));
+if (args[0] !== "api"
+  || methodIndex < 0
+  || args[methodIndex + 1] !== "PATCH"
+  || !args.includes("repos/ibboabdoli-ai/Proffera/issues/comments/99")
+  || !body) process.exit(2);
+writeFileSync(process.env.GH_STUB_OUTPUT, body.slice("body=".length));
+process.stdout.write("{}\\n");
+`,
+    { encoding: "utf8", mode: 0o755 },
+  );
+  const result = spawnSync("bash", ["-c", script], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+      RUNNER_TEMP: root,
+      GH_TOKEN: "test-token",
+      GH_STUB_OUTPUT: output,
+      REPOSITORY: "ibboabdoli-ai/Proffera",
+      PACKET_B64: Buffer.from(JSON.stringify(packet())).toString("base64"),
+      STATE_COMMENT_ID: "99",
+      RUN_ID: "9001",
+      CAPACITY_BLOCKED: capacityBlocked ? "true" : "false",
+      RESERVATION_COMMENT_ID: reservationCommentId,
+    },
+  });
+  return { ...result, body: existsSync(output) ? readFileSync(output, "utf8") : "" };
 }
 
 function packet(overrides: Record<string, unknown> = {}) {
@@ -135,6 +1311,50 @@ function run(mode: string, input: unknown) {
   return JSON.parse(result.stdout) as Record<string, unknown>;
 }
 
+function runText(mode: string, input: unknown) {
+  const result = spawnSync(process.execPath, [helper, mode], {
+    input: typeof input === "string" ? input : JSON.stringify(input),
+    encoding: "utf8",
+  });
+  expect(result.status, result.stderr).toBe(0);
+  return result.stdout;
+}
+
+function ciPlan(paths: string[]) {
+  const result = spawnSync(process.execPath, [ciScopeHelper], {
+    input: `${paths.join("\n")}\n`,
+    encoding: "utf8",
+  });
+  expect(result.status, result.stderr).toBe(0);
+  return JSON.parse(result.stdout) as Record<string, unknown>;
+}
+
+function publicationInput(overrides: Record<string, unknown> = {}, currentSourceHead?: string) {
+  const path = "docs/SUPERVISOR_WORKER_HANDOFF.md";
+  const sourceHead = spawnSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).stdout.trim();
+  const sourceContent = spawnSync("git", ["show", `${sourceHead}:${path}`], { encoding: "utf8" }).stdout;
+  const [oldLine, ...rest] = sourceContent.split("\n");
+  const newLine = `${oldLine} (publication test)`;
+  const content = [newLine, ...rest].join("\n");
+  const oldBytes = Buffer.from(sourceContent, "utf8");
+  const bytes = Buffer.from(content, "utf8");
+  const oldBlobSha = createHash("sha1").update(`blob ${oldBytes.length}\0`).update(oldBytes).digest("hex");
+  const gitBlobSha = createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
+  return {
+    packet: packet({ base_sha: sourceHead, allowed_paths: [path], forbidden_paths: ["src/features/other/"] }),
+    current_source_head: currentSourceHead ?? sourceHead,
+    artifact: {
+      source_head: sourceHead,
+      artifact_set_complete: "YES",
+      paths: [path],
+      unified_diff: [`diff --git a/${path} b/${path}`, `index ${oldBlobSha}..${gitBlobSha} 100644`, `--- a/${path}`, `+++ b/${path}`, "@@ -1 +1 @@", `-${oldLine}`, `+${newLine}`, ""].join("\n"),
+      replacements: [{ path, content }],
+      manifest: [{ path, bytes: bytes.length, lines: content.split("\n").length - 1, sha256: createHash("sha256").update(bytes).digest("hex"), git_blob_sha: gitBlobSha }],
+      ...overrides,
+    },
+  };
+}
+
 function evaluate(context: Record<string, unknown>) {
   return run("evaluate", context);
 }
@@ -177,9 +1397,21 @@ function stateBody(state: string, headSha = sha) {
     "<!-- proffera-worker-task-state:SUP-TEST-1 -->",
     "### Supervisor task: SUP-TEST-1",
     `- State: \`${state}\``,
+    "- Run ID: `9001`",
     "- PR: #900",
     `- Head: \`${headSha}\``,
   ].join("\n");
+}
+
+function durableStateBody(state: string, headSha = sha) {
+  return runText("state-body", {
+    packet: packet(),
+    state,
+    reason: "Behavior-test durable state.",
+    run_id: "9001",
+    pr_number: 849,
+    head_sha: headSha,
+  });
 }
 
 function transition(overrides: Record<string, unknown> = {}) {
@@ -196,6 +1428,15 @@ function transition(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Supervisor ↔ Worker Phase-1 handoff", () => {
+  it("keeps the trusted handoff helper directly executable", () => {
+    const result = spawnSync(helper, ["parse"], {
+      input: packetComment(),
+      encoding: "utf8",
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({ task_id: "SUP-TEST-1" });
+  });
+
   it("accepts a valid bounded task", () => {
     expect(evaluate(baseContext()).status).toBe("TASK_CREATED");
   });
@@ -214,6 +1455,189 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     expect(evaluate(baseContext({ comments: [trustedState("TASK_CREATED")] })).status).toBe("TASK_CREATED");
   });
 
+  it("serializes created, edited, duplicate, and retry deliveries only by canonical task identity", () => {
+    const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+    expect(workflow).toContain("needs: resolve_task_lane");
+    expect(workflow).toContain("group: proffera-worker-preflight-${{ needs.resolve_task_lane.outputs.task_lane }}");
+    expect(workflow).toContain("cancel-in-progress: false");
+    const firstPacket = packet();
+    const sameTaskEdited = packet({ task_title: "Edited title on the same task" });
+    const disjointPacket = packet({
+      task_id: "SUP-OTHER-2",
+      task_title: "Independent disjoint task",
+      task_goal: "Prove independent task lanes remain parallel.",
+      graph_path: "feature/other",
+      branch: "work/proffera-independent",
+      allowed_paths: ["src/features/other/"],
+      forbidden_paths: ["src/features/test/"],
+    });
+    expect(runTaskLane(firstPacket, "501").task_lane).toBe("task-SUP-TEST-1");
+    expect(runTaskLane(sameTaskEdited, "501").task_lane).toBe("task-SUP-TEST-1");
+    expect(runTaskLane(disjointPacket, "502").task_lane).toBe("task-SUP-OTHER-2");
+  });
+
+  it("converges same-task created, edited, duplicate-delivery, and same-event retry preflights to one state record", () => {
+    const harness = createPreflightHarness();
+    const created = harness.run({ runId: "1001", commentId: "501" });
+    expect(created.status, created.stderr).toBe(0);
+    expect(created.outputs.proceed).toBe("yes");
+
+    const edited = harness.run({
+      runId: "1002",
+      commentId: "501",
+      taskPacket: packet({ task_title: "Edited duplicate delivery" }),
+    });
+    expect(edited.status, edited.stderr).toBe(0);
+    expect(edited.outputs.proceed).toBe("no");
+    expect(edited.stdout).toContain("Preserved existing canonical task state TASK_CREATED");
+
+    const duplicate = harness.run({ runId: "1002", commentId: "501" });
+    expect(duplicate.status, duplicate.stderr).toBe(0);
+    expect(duplicate.outputs.proceed).toBe("no");
+
+    const retry = harness.run({ runId: "1001", commentId: "501" });
+    expect(retry.status, retry.stderr).toBe(0);
+    expect(retry.outputs.proceed).toBe("yes");
+    const taskStates = retry.comments.filter((comment) => String(comment.body ?? "").includes("proffera-worker-task-state:SUP-TEST-1"));
+    expect(taskStates).toHaveLength(1);
+    expect(String(taskStates[0].body)).toContain("- State: `TASK_CREATED`");
+    expect(created.calls.filter((args) => args.includes("--method") && args.includes("POST"))).toHaveLength(1);
+    expect(edited.calls.filter((args) => args.includes("--method") && args.includes("POST"))).toHaveLength(0);
+    expect(duplicate.calls.filter((args) => args.includes("--method") && args.includes("POST"))).toHaveLength(0);
+  });
+
+  it("keeps two different disjoint task preflights independently dispatchable", () => {
+    const harness = createPreflightHarness();
+    const first = harness.run({ runId: "1001", commentId: "501" });
+    const secondPacket = packet({
+      task_id: "SUP-OTHER-2",
+      task_title: "Independent disjoint task",
+      task_goal: "Exercise an independent task lane.",
+      graph_path: "feature/other",
+      branch: "work/proffera-independent",
+      allowed_paths: ["src/features/other/"],
+      forbidden_paths: ["src/features/test/"],
+    });
+    const second = harness.run({ runId: "1002", commentId: "502", taskPacket: secondPacket });
+    expect(first.status, first.stderr).toBe(0);
+    expect(second.status, second.stderr).toBe(0);
+    expect(first.outputs.proceed).toBe("yes");
+    expect(second.outputs.proceed).toBe("yes");
+    const taskStates = second.comments.filter((comment) => String(comment.body ?? "").includes("proffera-worker-task-state:"));
+    expect(taskStates).toHaveLength(2);
+    expect(new Set(taskStates.map((comment) => String(comment.body).match(/task-state:([^ ]+)/)?.[1]))).toEqual(
+      new Set(["SUP-TEST-1", "SUP-OTHER-2"]),
+    );
+  });
+
+  it.each(["RESERVED", "RECOVERABLE"] as const)(
+    "reclaims the exact expired unbound %s reservation before canonical preflight rejection",
+    (reservationState) => {
+      const evidence = expiredSameTaskEvidence(reservationState);
+      const result = createPreflightHarness({ comments: evidence.comments }).run({ taskPacket: evidence.packet, runId: "1002" });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.outputs.proceed).toBe("yes");
+      expect(result.stdout).toContain(`Released the exact expired ${reservationState} reservation`);
+      const reservation = result.comments.find((comment) => comment.id === 201);
+      const reservationPayload = JSON.parse(Buffer.from(
+        String(reservation?.body ?? "").match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "",
+        "base64",
+      ).toString("utf8"));
+      expect(reservationPayload).toMatchObject({
+        state: "RELEASED",
+        task_id: "SUP-TEST-1",
+        recovery: { kind: "expired_reservation", verified_run_status: "completed", retryable: true },
+      });
+      const taskStates = result.comments.filter((comment) => String(comment.body ?? "").includes("proffera-worker-task-state:SUP-TEST-1"));
+      expect(taskStates).toHaveLength(1);
+      expect(String(taskStates[0].body)).toContain("- State: `TASK_CREATED`");
+      expect(String(taskStates[0].body)).toContain("- Run ID: `1002`");
+    },
+  );
+
+  it("retains a same-task reservation when it is live, branched, or represented by an open PR", () => {
+    const future = expiredSameTaskEvidence("RESERVED", { lease_expires_at: "2099-01-01T00:00:00Z" });
+    const branch = expiredSameTaskEvidence("RESERVED");
+    const openPr = {
+      number: 830,
+      base: { ref: "main" },
+      head: { ref: "work/proffera-test-task", sha, repo: { full_name: "ibboabdoli-ai/Proffera" } },
+      user: { login: "ibboabdoli-ai" },
+      body: packetComment(),
+      files: [],
+    };
+    for (const result of [
+      createPreflightHarness({ comments: future.comments }).run({ runId: "1002" }),
+      createPreflightHarness({ comments: branch.comments, branches: ["work/proffera-test-task"] }).run({ runId: "1002" }),
+      createPreflightHarness({ comments: branch.comments, pulls: [openPr] }).run({ runId: "1002" }),
+      createPreflightHarness({ comments: branch.comments, runStatus: "in_progress" }).run({ runId: "1002" }),
+    ]) {
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.outputs.proceed).toBe("no");
+      expect(commentPatchCalls(result.calls, 201)).toHaveLength(0);
+      expect(String(result.comments.find((comment) => comment.id === 203)?.body)).toContain("- State: `WORKER_BLOCKED`");
+    }
+  });
+
+  it("fails closed when same-task expiry evidence changes or becomes duplicate during reconciliation", () => {
+    const evidence = expiredSameTaskEvidence("RECOVERABLE");
+    for (const mutation of [
+      { mutateReservationOnCommentRead: 2 },
+      { mutateTaskOnCommentRead: 2 },
+      { duplicateReservationOnCommentRead: 2 },
+      { duplicateTaskOnCommentRead: 2 },
+    ]) {
+      const result = createPreflightHarness({ comments: evidence.comments }).run({ runId: "1002", mutation });
+      expect(result.status).toBe(1);
+      expect(commentPatchCalls(result.calls, 201)).toHaveLength(0);
+      expect(commentPatchCalls(result.calls, 203)).toHaveLength(0);
+    }
+  });
+
+  it("fails closed on initial duplicate task-state or reservation evidence and never reclaims another task", () => {
+    const evidence = expiredSameTaskEvidence("RESERVED");
+    for (const comments of [
+      [...evidence.comments, { ...evidence.comments[0], id: 204 }],
+      [...evidence.comments, { ...evidence.comments[2], id: 204 }],
+    ]) {
+      const result = createPreflightHarness({ comments }).run({ runId: "1002" });
+      expect(result.status).toBe(1);
+      expect(result.calls.filter((args) => args.includes("--method") && args.includes("PATCH"))).toHaveLength(0);
+    }
+
+    const unrelated = expiredSameTaskEvidence("RESERVED");
+    const newTask = packet({
+      task_id: "SUP-OTHER-2",
+      task_title: "Unrelated task",
+      task_goal: "Must not reclaim another task reservation.",
+      graph_path: "feature/other",
+      branch: "work/proffera-independent",
+      allowed_paths: ["src/features/other/"],
+      forbidden_paths: ["src/features/test/"],
+    });
+    const result = createPreflightHarness({ comments: unrelated.comments }).run({ taskPacket: newTask, runId: "1002" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.outputs.proceed).toBe("yes");
+    expect(commentPatchCalls(result.calls, 201)).toHaveLength(0);
+    expect(String(result.comments.find((comment) => comment.id === 201)?.body)).toContain("- State: `RESERVED`");
+  });
+
+  it("fails closed on missing, duplicate, or mismatched same-task dispatch and reservation provenance", () => {
+    const evidence = expiredSameTaskEvidence("RESERVED");
+    const duplicateDispatch = { ...evidence.comments[1], id: 204 };
+    const mismatched = expiredSameTaskEvidence("RESERVED", { packet_digest: "f".repeat(64) });
+    for (const comments of [
+      [evidence.comments[0], evidence.comments[2]],
+      [evidence.comments[0], evidence.comments[1]],
+      [...evidence.comments, duplicateDispatch],
+      mismatched.comments,
+    ]) {
+      const result = createPreflightHarness({ comments }).run({ runId: "1002" });
+      expect(result.status).toBe(1);
+      expect(result.calls.filter((args) => args.includes("--method") && args.includes("PATCH"))).toHaveLength(0);
+    }
+  });
+
   it("ignores a spoofed task-state comment not authored by the trusted bot", () => {
     const spoofed = { ...trustedState("WORKER_PR_OPENED", "1000"), user: { login: "attacker" } };
     expect(evaluate(baseContext({ comments: [spoofed] })).status).toBe("TASK_CREATED");
@@ -225,6 +1649,35 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
 
   it("fails closed on an untrusted Worker PR head repository", () => {
     expect(evaluate(baseContext({ open_prs: [workerPr({ head_repo: "attacker/fork" })] })).code).toBe("untrusted_worker_pr");
+  });
+
+  it("filters foreign Worker-prefix PRs before writable-slot accounting", () => {
+    const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+    const filters = [...workflow.matchAll(/pulls_json=.*jq -s --arg repository "\$REPOSITORY" '([^']+)'/g)]
+      .map((match) => match[1]);
+    expect(filters).toHaveLength(3);
+    const openPulls = [
+      {
+        number: 900,
+        base: { ref: "main" },
+        head: { ref: "work/proffera-trusted", repo: { full_name: "ibboabdoli-ai/Proffera" } },
+        user: { login: "ibboabdoli-ai" },
+      },
+      {
+        number: 901,
+        base: { ref: "main" },
+        head: { ref: "work/proffera-prefix-impostor", repo: { full_name: "attacker/fork" } },
+        user: { login: "attacker" },
+      },
+    ];
+    for (const filter of filters) {
+      const result = spawnSync("jq", ["--arg", "repository", "ibboabdoli-ai/Proffera", filter], {
+        input: JSON.stringify(openPulls),
+        encoding: "utf8",
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(JSON.parse(result.stdout).map((pr: { number: number }) => pr.number)).toEqual([900]);
+    }
   });
 
   it("fails closed when an open Dependabot PR overlaps the declared scope", () => {
@@ -262,8 +1715,25 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     expect(evaluate(baseContext({ open_prs: [workerPr({ files: ["src/features/test/live.ts"] })] })).code).toBe("file_overlap");
   });
 
-  it("accepts an independent graph path with disjoint declared scope", () => {
+  it("allows a disjoint second writable Worker", () => {
     expect(evaluate(baseContext({ open_prs: [workerPr()] })).status).toBe("TASK_CREATED");
+  });
+
+  it("rejects hierarchical graph overlap for a second writable Worker", () => {
+    const existing = workerPr({
+      body: 'Task ID: OTHER-1\nGraph path: feature/test/subpath\nAllowed paths: ["src/features/other/"]',
+    });
+    expect(evaluate(baseContext({ open_prs: [existing] })).code).toBe("graph_collision");
+  });
+
+  it("fails closed when dispatch would create a third writable Worker", () => {
+    const second = workerPr({
+      number: 901,
+      head_ref: "work/proffera-second",
+      body: 'Task ID: OTHER-2\nGraph path: feature/second\nAllowed paths: ["src/features/second/"]',
+      files: ["src/features/second/a.ts"],
+    });
+    expect(evaluate(baseContext({ open_prs: [workerPr(), second] })).code).toBe("writable_worker_limit");
   });
 
   it("fails closed when a legacy Worker has ambiguous graph ownership", () => {
@@ -372,9 +1842,10 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     expect(commit).toContain("git diff --check HEAD");
   });
 
-  it("separates lifecycle and check reconciliation concurrency groups", () => {
+  it("keeps event ingress lanes separate while task-state writers share one branch lane", () => {
     const sync = source(".github/workflows/worker-supervisor-sync.yml");
     expect(sync).toContain("proffera-worker-supervisor-sync-${{ github.event_name }}-");
+    expect(sync.match(/group: proffera-worker-task-state-\$\{\{ needs\.resolve_worker_mutation_lane\.outputs\.branch \}\}/g)).toHaveLength(2);
     expect(sync).toContain("cancel-in-progress: false");
   });
 
@@ -427,7 +1898,7 @@ exit 0
       encoding: "utf8",
       env: {
         ...process.env,
-        PATH: `${bin}:${process.env.PATH ?? ""}`,
+        PATH: `${bin}${delimiter}${process.env.Path ?? process.env.PATH ?? ""}`,
         GH_LOG: ghLog,
         PR_JSON_FILE: prJsonFile,
         GH_TOKEN: "test-token",
@@ -532,18 +2003,1511 @@ exit 0
 
   it("does not expose OpenAI or push credentials to post-Worker reconciliation helper execution", () => {
     const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+    const reconcileScript = workflowRunStep(workflow, "Reconcile live state again immediately before publication");
+    const publishScript = workflowRunStep(workflow, "Publish branch normally or persist validated recovery artifact");
+    expectShellAndJqSyntax(reconcileScript);
+    expectShellAndJqSyntax(publishScript);
     const reconcileStart = workflow.indexOf("Reconcile live state again immediately before publication");
     const reconcileEnd = workflow.indexOf("Commit bounded Worker result locally", reconcileStart);
     const reconcile = workflow.slice(reconcileStart, reconcileEnd);
     expect(reconcile).not.toContain("OPENAI_API_KEY");
     expect(reconcile).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
 
-    const publishStart = workflow.indexOf("Publish branch atomically and open one PR");
+    const publishStart = workflow.indexOf("Publish branch normally or persist validated recovery artifact");
     const publishEnd = workflow.indexOf("Record dispatched Worker PR", publishStart);
     const publish = workflow.slice(publishStart, publishEnd);
     expect(publish).toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
-    expect(publish).not.toContain('node "$helper"');
-    expect(publish).not.toContain("scripts/supervisor-worker-handoff.mjs");
+    expect(publish).toContain('node "$helper" validate-publication');
+    expect(publish).toContain("proffera-publication-recovery-complete");
+    expect(publish).toContain('git push --force-with-lease="refs/heads/${BRANCH}:"');
+    expect(publish).not.toContain("--force ");
+    expect(publish).toContain('echo "recovery_digest=$digest"');
+    expect(publish).toContain('echo "recovery_chunks=$total"');
+
+    const recoveryState = workflowRunStep(workflow, "Record persisted recovery artifact in stable Supervisor task state");
+    expect(recoveryState).toContain('--arg state "WORKER_BLOCKED"');
+    expect(recoveryState).toContain("sha256=${RECOVERY_DIGEST}");
+    expect(recoveryState).toContain("chunks=${RECOVERY_CHUNKS:-0}");
+    expect(recoveryState).toContain("target_head=${HEAD_SHA}");
+  });
+
+  it("wires bounded idempotent recovery and an actionable readiness diagnostic", () => {
+    const handoff = source(".github/workflows/supervisor-worker-handoff.yml");
+    expect(handoff).toContain("Build and validate deterministic publication artifact");
+    expect(handoff).toContain("BASE64_GZIP_JSON");
+    expect(handoff).toContain("current_source_head:$current_source_head");
+    const sync = source(".github/workflows/worker-supervisor-sync.yml");
+    expect(sync).toContain("State body is missing the exact readiness checkpoint");
+    expect(sync).toContain("exit 1");
+  });
+
+  it("authenticates reservation release and reclaims only the exact resubmitted task before evaluation", () => {
+    const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+    const closeStep = workflowRunStep(workflow, "Require exact durable reservation before accepting Worker PR");
+    const preflightStep = workflowRunStep(workflow, "Validate trust, freshness, idempotency, graph ownership, and scope");
+    expectShellAndJqSyntax(closeStep);
+    expectShellAndJqSyntax(preflightStep);
+    expectShellAndJqSyntax(workflowRunStep(workflow, "Atomically reserve writable Worker slot"));
+    expectShellAndJqSyntax(workflowRunStep(workflow, "Finalize reserved Worker snapshot before publication"));
+    const recoverySyntax = spawnSync("bash", ["-n"], {
+      input: workflowRunStep(workflow, "Release or recover reservation on dispatch failure"),
+      encoding: "utf8",
+    });
+    expect(recoverySyntax.status, recoverySyntax.stderr).toBe(0);
+    expect(closeStep).toContain("has_trusted_dispatch_provenance");
+    expect(closeStep.indexOf("if ! has_trusted_dispatch_provenance")).toBeLessThan(
+      closeStep.indexOf('close_unreserved "missing bounded Task Packet"'),
+    );
+    expect(closeStep).toContain('reserved_digest" != "$packet_digest');
+    expect(closeStep).toContain('reserved_head" != "$live_head');
+    expect(closeStep).toContain('terminal_state="MERGED"');
+    expect(closeStep).toContain('terminal_state="CLOSED_UNMERGED"');
+    expect(closeStep).toContain("in the same close writer");
+    expect(workflow).toContain("lease_expires_at");
+    expect(preflightStep).toContain('owner_status" != "completed"');
+    expect(preflightStep).toContain('open_pr_count" -ne 0');
+    expect(preflightStep).toContain("reservation changed during same-task expiry reconciliation");
+    expect(preflightStep).toContain("trusted dispatch provenance");
+    expect(preflightStep.indexOf("reconcile_expired_same_task_reservation")).toBeLessThan(
+      preflightStep.indexOf('node "$helper" evaluate'),
+    );
+    expect(workflowRunStep(workflow, "Atomically reserve writable Worker slot")).not.toContain("expired_reservation");
+  });
+
+  it("re-evaluates Worker reservation enforcement after head and body updates", () => {
+    const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+    expect(workflow).toContain("types: [opened, reopened, synchronize, edited, closed]");
+  });
+
+  it("leaves a PR unchanged when trusted dispatch provenance is missing", () => {
+    const result = runReservationEnforcement();
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("has no exact trusted Supervisor dispatch provenance; leaving it unchanged");
+    expect(prPatchCalls(result.calls)).toHaveLength(0);
+  });
+
+  it("accepts one exact reservation and matching bot-authored dispatch record", () => {
+    const evidence = exactReservationEvidence();
+    const result = runReservationEnforcement(evidence);
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("is bound to durable reservation SUP-TEST-1@");
+    expect(result.stdout).not.toContain("leaving it unchanged");
+    expect(prPatchCalls(result.calls)).toHaveLength(0);
+  });
+
+  it("closes a malformed trusted Worker PR and releases its exact published reservation on the closed event", () => {
+    const evidence = exactReservationEvidence(sha, {
+      state: "PUBLISHED",
+      pr_number: 849,
+      recovery: null,
+    });
+    const malformedBody = "Worker result with its bounded Task Packet removed";
+    const taskState = {
+      id: 103,
+      user: { login: "github-actions[bot]" },
+      body: durableStateBody("CHECKS_PENDING"),
+    };
+    const result = runReservationEnforcement({
+      body: malformedBody,
+      comments: [...evidence.comments, taskState],
+      eventAction: "edited",
+    });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("missing bounded Task Packet");
+    expect(prPatchCalls(result.calls)).toHaveLength(1);
+    expect(commentPatchCalls(result.calls, 101)).toHaveLength(0);
+    expect(result.pr).toMatchObject({ state: "closed" });
+    const closed = runReservationEnforcement({
+      body: malformedBody,
+      comments: result.comments,
+      eventAction: "closed",
+      liveState: "closed",
+    });
+    expect(closed.status, closed.stderr).toBe(0);
+    expect(closed.stdout).toContain("Released trusted Worker slot reservation SUP-TEST-1");
+    expect(prPatchCalls(closed.calls)).toHaveLength(0);
+    expect(commentPatchCalls(closed.calls, 101)).toHaveLength(1);
+    expect(commentPatchCalls(closed.calls, 103)).toHaveLength(1);
+    const reservation = closed.comments.find((comment) => comment.id === 101);
+    const payloadBase64 = String(reservation?.body ?? "").match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+    expect(JSON.parse(Buffer.from(payloadBase64, "base64").toString("utf8"))).toMatchObject({
+      state: "RELEASED",
+      pr_number: 849,
+      head_sha: sha,
+      recovery: { kind: "closed_pr_invalid_packet", merged: false },
+    });
+    expect(String(closed.comments.find((comment) => comment.id === 103)?.body)).toContain("- State: `CLOSED_UNMERGED`");
+
+    const existing = {
+      state: "RESERVED",
+      task_id: "SUP-OTHER-SLOT-1",
+      run_id: "7001",
+      branch: "work/proffera-other-slot",
+      head_sha: otherSha,
+      graph_path: "feature/other-slot",
+      packet_digest: "c".repeat(64),
+      lease_expires_at: "2099-01-01T00:00:00Z",
+      allowed_paths: ["src/features/other-slot/"],
+      changed_files: [],
+      pr_number: null,
+      recovery: null,
+    };
+    const freedCapacity = runSlotReservation({ reservation: existing, extraComments: closed.comments });
+    expect(freedCapacity.status, freedCapacity.stderr).toBe(0);
+    expect(freedCapacity.comments.some((comment) => comment.id === 999)).toBe(true);
+
+    const replay = runReservationEnforcement({
+      body: malformedBody,
+      comments: closed.comments,
+      eventAction: "closed",
+      liveState: "closed",
+    });
+    expect(replay.status, replay.stderr).toBe(0);
+    expect(replay.stdout).toContain("already released idempotently");
+    expect(prPatchCalls(replay.calls)).toHaveLength(0);
+    expect(commentPatchCalls(replay.calls, 101)).toHaveLength(0);
+  });
+
+  it("retries transient malformed-close evidence reads before releasing the exact reservation", () => {
+    const evidence = exactReservationEvidence(sha, {
+      state: "PUBLISHED",
+      pr_number: 849,
+      recovery: null,
+    });
+    const result = runReservationEnforcement({
+      body: "Worker result with its bounded Task Packet removed",
+      comments: [
+        ...evidence.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING") },
+      ],
+      eventAction: "closed",
+      failPagedCommentReads: 3,
+      liveState: "closed",
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).toContain("Transient malformed-close reconciliation failure; retrying (1/5).");
+    expect(result.calls.filter((args) => args.some((arg) => arg.includes("comments?per_page=100&page=1"))).length).toBeGreaterThanOrEqual(6);
+    expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+    expect(commentPatchCalls(result.calls, 103)).toHaveLength(1);
+  }, 20_000);
+
+  it("does not close or release a malformed prefixed PR without exact trusted provenance", () => {
+    const result = runReservationEnforcement({
+      body: "Worker result with no Task Packet",
+      comments: [],
+      eventAction: "edited",
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("has no exact trusted Supervisor dispatch provenance; leaving it unchanged");
+    expect(prPatchCalls(result.calls)).toHaveLength(0);
+    expect(result.calls.filter((args) => args.includes("repos/ibboabdoli-ai/Proffera/issues/comments/101"))).toHaveLength(0);
+  });
+
+  it("routes closed pull_request_target events through lifecycle reconciliation", () => {
+    const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+    const result = runLifecycleReconciliation({
+      action: "closed",
+      body: "Worker result with no Task Packet",
+      comments: [
+        ...evidence.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING") },
+      ],
+      liveState: "closed",
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+    expect(commentPatchCalls(result.calls, 103)).toHaveLength(1);
+  });
+
+  it("makes every same-lane replacement writer converge a malformed trusted close", () => {
+    const malformedBodies = [
+      "Worker result with its bounded Task Packet removed",
+      `${taskMarker}\n\`\`\`json\n{broken}\n\`\`\``,
+      packetComment(packet({ branch: "work/proffera-other-task" })),
+    ];
+    const replacementWriters = [
+      (options: SyncCheckOptions) => runLifecycleReconciliation({ ...options, action: "synchronize" }),
+      (options: SyncCheckOptions) => runLifecycleReconciliation({ ...options, action: "ready_for_review" }),
+      runSyncCheckReconciliation,
+    ];
+    for (const reconcile of replacementWriters) {
+      for (const body of malformedBodies) {
+        const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+        const result = reconcile({
+          body,
+          comments: [
+            ...evidence.comments,
+            { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING", otherSha) },
+          ],
+          eventHead: sha,
+          liveHead: otherSha,
+          liveState: "closed",
+        });
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.stdout).toContain("Converged malformed closed Worker PR #849");
+        expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+        expect(commentPatchCalls(result.calls, 103)).toHaveLength(1);
+        const reservation = result.comments.find((comment) => comment.id === 101);
+        const payloadBase64 = String(reservation?.body ?? "").match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+        expect(JSON.parse(Buffer.from(payloadBase64, "base64").toString("utf8"))).toMatchObject({
+          state: "RELEASED",
+          pr_number: 849,
+          head_sha: otherSha,
+          recovery: { kind: "closed_pr_invalid_packet", merged: false },
+        });
+        expect(String(result.comments.find((comment) => comment.id === 103)?.body)).toContain("- State: `CLOSED_UNMERGED`");
+      }
+    }
+  }, 20_000);
+
+  it("binds a syntactically valid edited packet to the original reservation in every replacement writer", () => {
+    const editedBodies = [
+      packetComment(packet({ task_id: "SUP-TAMPERED-1" })),
+      packetComment(packet({ task_title: "Syntactically valid digest-only edit" })),
+      packetComment(packet({ graph_path: "feature/edited-graph" })),
+      packetComment(packet({ allowed_paths: ["tests/edited-worker/"] })),
+      packetComment(packet({ base_sha: otherSha })),
+    ];
+    const replacementWriters = [
+      (options: SyncCheckOptions) => runReservationEnforcement({ ...options, eventAction: "closed" }),
+      (options: SyncCheckOptions) => runLifecycleReconciliation({ ...options, action: "synchronize" }),
+      runSyncCheckReconciliation,
+    ];
+    for (const reconcile of replacementWriters) {
+      for (const editedBody of editedBodies) {
+        const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+        const result = reconcile({
+          body: editedBody,
+          comments: [
+            ...evidence.comments,
+            { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING") },
+          ],
+          liveState: "closed",
+        });
+        expect(result.status, result.stderr).toBe(0);
+        expect(prPatchCalls(result.calls)).toHaveLength(0);
+        expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+        expect(commentPatchCalls(result.calls, 103)).toHaveLength(1);
+        const reservation = result.comments.find((comment) => comment.id === 101);
+        const payloadBase64 = String(reservation?.body ?? "").match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+        expect(JSON.parse(Buffer.from(payloadBase64, "base64").toString("utf8"))).toMatchObject({
+          state: "RELEASED",
+          task_id: "SUP-TEST-1",
+          recovery: { kind: "closed_pr_invalid_packet", merged: false, reservation_head_sha: sha },
+        });
+        expect(String(result.comments.find((comment) => comment.id === 103)?.body)).toContain("- State: `CLOSED_UNMERGED`");
+      }
+    }
+
+    const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+    for (const comments of [
+      [...evidence.comments, { ...evidence.comments[0], id: 104 }],
+      [...evidence.comments, { ...evidence.comments[1], id: 105 }],
+    ]) {
+      const ambiguous = runSyncCheckReconciliation({ body: editedBodies[0], comments });
+      expect(ambiguous.status, ambiguous.stderr).toBe(0);
+      expect(ambiguous.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+    }
+  }, 40_000);
+
+  it("advances an exact prior-reservation task head during malformed-close convergence", () => {
+    const replacementWriters = [
+      (options: SyncCheckOptions) => runReservationEnforcement({ ...options, eventAction: "closed" }),
+      (options: SyncCheckOptions) => runLifecycleReconciliation({ ...options, action: "synchronize" }),
+      runSyncCheckReconciliation,
+    ];
+    for (const reconcile of replacementWriters) {
+      for (const liveMerged of [false, true]) {
+        const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+        const result = reconcile({
+          body: "bounded Task Packet removed after a repair push",
+          comments: [
+            ...evidence.comments,
+            { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING", sha) },
+          ],
+          eventHead: sha,
+          liveHead: otherSha,
+          liveMerged,
+          liveState: "closed",
+        });
+        expect(result.status, result.stderr).toBe(0);
+        expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+        expect(commentPatchCalls(result.calls, 103)).toHaveLength(1);
+        const terminalBody = String(result.comments.find((comment) => comment.id === 103)?.body);
+        expect(terminalBody).toContain(liveMerged ? "- State: `MERGED`" : "- State: `CLOSED_UNMERGED`");
+        expect(terminalBody).toContain(`- Head: \`${otherSha}\``);
+      }
+    }
+
+    const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+    const unrelatedTaskHead = runSyncCheckReconciliation({
+      body: "bounded Task Packet removed after a repair push",
+      comments: [
+        ...evidence.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING", "c".repeat(40)) },
+      ],
+      liveHead: otherSha,
+      liveState: "closed",
+    });
+    expect(unrelatedTaskHead.status, unrelatedTaskHead.stderr).toBe(0);
+    expect(unrelatedTaskHead.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+  }, 30_000);
+
+  it("converges both partial malformed-close outcomes across an unrecorded repair head", () => {
+    const released = exactReservationEvidence(otherSha, {
+      state: "RELEASED",
+      pr_number: 849,
+      recovery: { kind: "closed_pr_invalid_packet", merged: false, reservation_head_sha: sha },
+    });
+    const reservationAlreadyReleased = runSyncCheckReconciliation({
+      body: "missing packet",
+      comments: [
+        ...released.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING", sha) },
+      ],
+      liveHead: otherSha,
+    });
+    expect(reservationAlreadyReleased.status, reservationAlreadyReleased.stderr).toBe(0);
+    expect(commentPatchCalls(reservationAlreadyReleased.calls, 101)).toHaveLength(0);
+    expect(commentPatchCalls(reservationAlreadyReleased.calls, 103)).toHaveLength(1);
+
+    const published = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+    const taskAlreadyTerminal = runSyncCheckReconciliation({
+      body: "missing packet",
+      comments: [
+        ...published.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CLOSED_UNMERGED", otherSha) },
+      ],
+      liveHead: otherSha,
+    });
+    expect(taskAlreadyTerminal.status, taskAlreadyTerminal.stderr).toBe(0);
+    expect(commentPatchCalls(taskAlreadyTerminal.calls, 101)).toHaveLength(1);
+    expect(commentPatchCalls(taskAlreadyTerminal.calls, 103)).toHaveLength(0);
+  });
+
+  it("keeps malformed-close convergence idempotent in every replacement writer", () => {
+    for (const reconcile of [runLifecycleReconciliation, runSyncCheckReconciliation]) {
+      const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+      const first = reconcile({
+        body: "missing packet",
+        comments: [
+          ...evidence.comments,
+          { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING") },
+        ],
+      });
+      expect(first.status, first.stderr).toBe(0);
+      const replay = reconcile({ body: "missing packet", comments: first.comments });
+      expect(replay.status, replay.stderr).toBe(0);
+      expect(commentPatchCalls(replay.calls, 101)).toHaveLength(0);
+      expect(commentPatchCalls(replay.calls, 103)).toHaveLength(0);
+    }
+  });
+
+  it("does not let malformed-close replacement writers accept ambiguous provenance", () => {
+    for (const reconcile of [runLifecycleReconciliation, runSyncCheckReconciliation]) {
+      const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+      const duplicateReservation = { ...evidence.comments[0], id: 104 };
+      const duplicateDispatch = { ...evidence.comments[1], id: 105 };
+      for (const comments of [
+        [evidence.comments[0]],
+        [...evidence.comments, duplicateReservation],
+        [...evidence.comments, duplicateDispatch],
+      ]) {
+        const result = reconcile({ body: "missing packet", comments });
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+      }
+    }
+  });
+
+  it("reconciles exact unbound RESERVED and RECOVERABLE closes without fabricating prior PR/head evidence", () => {
+    const taskStateWithoutPrOrHead = runText("state-body", {
+      packet: packet(),
+      state: "WORKER_BLOCKED",
+      reason: "Publication did not complete before the trusted Worker PR closed.",
+      run_id: "9001",
+    });
+    for (const reservationState of ["RESERVED", "RECOVERABLE"]) {
+      const evidence = exactReservationEvidence(sha, {
+        state: reservationState,
+        pr_number: null,
+        recovery: reservationState === "RECOVERABLE" ? { kind: "branch", expires_at: "2099-01-01T00:00:00Z" } : null,
+      });
+      const result = runSyncCheckReconciliation({
+        body: "missing packet",
+        comments: [
+          ...evidence.comments,
+          { id: 103, user: { login: "github-actions[bot]" }, body: taskStateWithoutPrOrHead },
+        ],
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+      expect(commentPatchCalls(result.calls, 103)).toHaveLength(1);
+      const terminalBody = String(result.comments.find((comment) => comment.id === 103)?.body);
+      expect(terminalBody).toContain("- State: `CLOSED_UNMERGED`");
+      expect(terminalBody).toContain("- PR: #849");
+      expect(terminalBody).toContain(`- Head: \`${sha}\``);
+    }
+  });
+
+  it("preserves exact dispatch run provenance during malformed-close reconciliation", () => {
+    const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+    const currentBody = durableStateBody("CHECKS_PENDING");
+    const reconciled = runSyncCheckReconciliation({
+      body: "missing packet",
+      comments: [
+        ...evidence.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: currentBody },
+      ],
+    });
+    expect(reconciled.status, reconciled.stderr).toBe(0);
+    expect(commentPatchCalls(reconciled.calls, 101)).toHaveLength(1);
+    expect(commentPatchCalls(reconciled.calls, 103)).toHaveLength(1);
+    const terminalBody = String(reconciled.comments.find((comment) => comment.id === 103)?.body);
+    expect(terminalBody).toContain("- Run ID: `9001`");
+    expect(terminalBody).not.toContain("- Run ID: `9003`");
+
+    const invalidRunBodies = [
+      currentBody.replace(/^- Run ID: `9001`\n/mu, ""),
+      `${currentBody}- Run ID: \`9001\`\n`,
+      currentBody.replace("- Run ID: `9001`", "- Run ID: `8001`"),
+      currentBody.replace("- Graph path: `feature/test`", "- Graph path: `feature/other`"),
+      currentBody.replace("- Branch: `work/proffera-test-task`", "- Branch: `work/proffera-other-task`"),
+      currentBody.replace(/^- Packet SHA-256: `[0-9a-f]{64}`$/mu, `- Packet SHA-256: \`${"c".repeat(64)}\``),
+      currentBody.replace("- PR: #849", "- PR: #850"),
+      currentBody.replace(`- Head: \`${sha}\``, `- Head: \`${"c".repeat(40)}\``),
+      currentBody.replace("- Production mutation: `false`\n", ""),
+      `${currentBody}- Production mutation: \`false\`\n`,
+    ];
+    for (const body of invalidRunBodies) {
+      const rejected = runSyncCheckReconciliation({
+        body: "missing packet",
+        comments: [
+          ...evidence.comments,
+          { id: 103, user: { login: "github-actions[bot]" }, body },
+        ],
+      });
+      expect(rejected.status, rejected.stderr).toBe(0);
+      expect(rejected.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+    }
+
+    const duplicateTaskState = runSyncCheckReconciliation({
+      body: "missing packet",
+      comments: [
+        ...evidence.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: currentBody },
+        { id: 104, user: { login: "github-actions[bot]" }, body: currentBody },
+      ],
+    });
+    expect(duplicateTaskState.status, duplicateTaskState.stderr).toBe(0);
+    expect(duplicateTaskState.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+  });
+
+  it("rejects every untrusted malformed-close replacement identity or binding without mutation", () => {
+    for (const reconcile of [runLifecycleReconciliation, runSyncCheckReconciliation]) {
+      const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+      const encoded = String(evidence.comments[0].body).match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+      const payload = JSON.parse(Buffer.from(encoded, "base64").toString("utf8"));
+      const cases: SyncCheckOptions[] = [
+        { body: "missing packet", comments: [reservationComment({ ...payload, state: "RESERVED", pr_number: null, head_sha: otherSha }, 101), evidence.comments[1]] },
+        { body: "missing packet", comments: [reservationComment({ ...payload, pr_number: 850 }, 101), evidence.comments[1]] },
+        { body: "missing packet", comments: [reservationComment({ ...payload, branch: "work/proffera-other-task" }, 101), evidence.comments[1]] },
+        { body: "missing packet", comments: [{ ...evidence.comments[0], body: "malformed reservation" }, evidence.comments[1]] },
+        { body: "missing packet", comments: evidence.comments, liveAuthor: "other-owner" },
+        { body: "missing packet", comments: evidence.comments, liveHeadRepository: "other-owner/Proffera" },
+        { body: "missing packet", comments: evidence.comments, liveRef: "feature/not-a-worker" },
+      ];
+      for (const current of cases) {
+        const result = reconcile(current);
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+      }
+    }
+  });
+
+  it("does not use terminal malformed-close reconciliation while the live PR is open", () => {
+    const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+    for (const reconcile of [runLifecycleReconciliation, runSyncCheckReconciliation]) {
+      const result = reconcile({ body: "missing packet", comments: evidence.comments, liveState: "open" });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+    }
+  });
+
+  it("converges either partial malformed-close outcome and preserves terminal monotonicity", () => {
+    const published = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+    const taskAlreadyTerminal = runSyncCheckReconciliation({
+      body: "missing packet",
+      comments: [
+        ...published.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CLOSED_UNMERGED") },
+      ],
+    });
+    expect(taskAlreadyTerminal.status, taskAlreadyTerminal.stderr).toBe(0);
+    expect(commentPatchCalls(taskAlreadyTerminal.calls, 101)).toHaveLength(1);
+    expect(commentPatchCalls(taskAlreadyTerminal.calls, 103)).toHaveLength(0);
+    expect(String(taskAlreadyTerminal.comments.find((comment) => comment.id === 103)?.body)).toContain("- Run ID: `9001`");
+
+    const released = exactReservationEvidence(sha, {
+      state: "RELEASED",
+      pr_number: 849,
+      recovery: { kind: "closed_pr_invalid_packet", merged: false },
+    });
+    const reservationAlreadyReleased = runSyncCheckReconciliation({
+      body: "missing packet",
+      comments: [
+        ...released.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING") },
+      ],
+    });
+    expect(reservationAlreadyReleased.status, reservationAlreadyReleased.stderr).toBe(0);
+    expect(commentPatchCalls(reservationAlreadyReleased.calls, 101)).toHaveLength(0);
+    expect(commentPatchCalls(reservationAlreadyReleased.calls, 103)).toHaveLength(1);
+    expect(String(reservationAlreadyReleased.comments.find((comment) => comment.id === 103)?.body)).toContain("- Run ID: `9001`");
+    expect(String(reservationAlreadyReleased.comments.find((comment) => comment.id === 103)?.body)).not.toContain("- Run ID: `9003`");
+
+    const conflictingTerminal = runSyncCheckReconciliation({
+      body: "missing packet",
+      comments: [
+        ...published.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("MERGED") },
+      ],
+    });
+    expect(conflictingTerminal.status, conflictingTerminal.stderr).toBe(0);
+    expect(conflictingTerminal.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+  });
+
+  it("uses the live merged bit as the only malformed-close terminal selector", () => {
+    const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+    const result = runReservationEnforcement({
+      body: "missing packet",
+      comments: [
+        ...evidence.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING") },
+      ],
+      eventAction: "closed",
+      liveState: "closed",
+      liveMerged: true,
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(String(result.comments.find((comment) => comment.id === 103)?.body)).toContain("- State: `MERGED`");
+  });
+
+  it("re-fetches live PR and comment evidence before each malformed-close mutation", () => {
+    const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+    const comments = [
+      ...evidence.comments,
+      { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING") },
+    ];
+    for (const current of [
+      { mutateHeadOnPrFetch: 3 },
+      { mutateReservationOnCommentFetch: 2 },
+    ]) {
+      const result = runSyncCheckReconciliation({ body: "missing packet", comments, ...current });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+    }
+
+    const changedTask = runSyncCheckReconciliation({
+      body: "missing packet",
+      comments,
+      mutateTaskOnCommentFetch: 3,
+    });
+    expect(changedTask.status, changedTask.stderr).toBe(0);
+    expect(commentPatchCalls(changedTask.calls, 101)).toHaveLength(1);
+    expect(commentPatchCalls(changedTask.calls, 103)).toHaveLength(0);
+  });
+
+  it("retries bounded evidence reads, emits structured failure, and scans comment pages incrementally", () => {
+    const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+    const taskState = { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING") };
+    const retried = runSyncCheckReconciliation({
+      body: "missing packet",
+      comments: [...evidence.comments, taskState],
+      failPagedCommentReads: 2,
+    });
+    expect(retried.status, retried.stderr).toBe(0);
+    expect(retried.calls.filter((args) => args.some((arg) => arg.includes("comments?per_page=100&page=1"))).length).toBeGreaterThanOrEqual(5);
+    expect(commentPatchCalls(retried.calls, 101)).toHaveLength(1);
+    expect(commentPatchCalls(retried.calls, 103)).toHaveLength(1);
+
+    const unavailable = runSyncCheckReconciliation({
+      body: "missing packet",
+      comments: [...evidence.comments, taskState],
+      failPagedCommentReads: 3,
+    });
+    expect(unavailable.status, unavailable.stderr).toBe(0);
+    expect(unavailable.stdout).toContain("unavailable after bounded retries");
+    expect(unavailable.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+
+    const recoveryNoise = Array.from({ length: 100 }, (_, index) => ({
+      id: 1000 + index,
+      user: { login: "github-actions[bot]" },
+      body: `<!-- proffera-publication-recovery-chunk:${index} -->`,
+    }));
+    const paged = runSyncCheckReconciliation({
+      body: "missing packet",
+      comments: [...recoveryNoise, ...evidence.comments, taskState],
+    });
+    expect(paged.status, paged.stderr).toBe(0);
+    expect(paged.calls.some((args) => args.some((arg) => arg.includes("comments?per_page=100&page=2")))).toBe(true);
+    expect(commentPatchCalls(paged.calls, 101)).toHaveLength(1);
+    expect(commentPatchCalls(paged.calls, 103)).toHaveLength(1);
+  }, 20_000);
+
+  it("releases exact malformed-close capacity without fabricating a missing task record", () => {
+    const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+    const result = runSyncCheckReconciliation({ body: "missing packet", comments: evidence.comments });
+    expect(result.status, result.stderr).toBe(0);
+    expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+    expect(result.calls.filter((args) => args.includes("--method") && args.includes("POST"))).toHaveLength(0);
+  });
+
+  it("refuses malformed closed-PR release for ambiguous or mismatched provenance", () => {
+    const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+    const payloadBase64 = String(evidence.comments[0].body).match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+    const payload = JSON.parse(Buffer.from(payloadBase64, "base64").toString("utf8"));
+    const exactDispatch = evidence.comments[1];
+    const variants = [
+      { comments: [evidence.comments[0]] },
+      { comments: [...evidence.comments, { ...exactDispatch, id: 104 }] },
+      { comments: [...evidence.comments, { ...evidence.comments[0], id: 104 }] },
+      { comments: [reservationComment({ ...payload, pr_number: 850 }, 101), exactDispatch] },
+      { comments: [reservationComment({ ...payload, branch: "work/proffera-other" }, 101), exactDispatch] },
+      { comments: [reservationComment({ ...payload, state: "RESERVED", pr_number: null, head_sha: otherSha }, 101), exactDispatch] },
+      {
+        comments: [
+          { ...evidence.comments[0], body: "<!-- proffera-worker-slot-reservation:SUP-TEST-1 -->\n- Reservation payload: `not-base64`" },
+          exactDispatch,
+        ],
+      },
+      { comments: evidence.comments, liveAuthor: "other-owner" },
+      { comments: evidence.comments, liveHeadRepository: "other-owner/Proffera" },
+    ];
+    for (const variant of variants) {
+      const result = runReservationEnforcement({
+        body: "Worker result with no Task Packet",
+        eventAction: "closed",
+        liveState: "closed",
+        ...variant,
+      });
+      expect(prPatchCalls(result.calls)).toHaveLength(0);
+      expect(commentPatchCalls(result.calls, 101)).toHaveLength(0);
+    }
+  });
+
+  it("promotes an exact recoverable reservation when its trusted PR appears", () => {
+    const evidence = exactReservationEvidence(sha, {
+      state: "RECOVERABLE",
+      pr_number: null,
+      recovery: { kind: "branch", expires_at: "2099-01-01T00:00:00Z" },
+    });
+    const result = runReservationEnforcement(evidence);
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Promoted exact recoverable reservation SUP-TEST-1@");
+    expect(prPatchCalls(result.calls)).toHaveLength(0);
+    expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+    const reservation = result.comments.find((comment) => comment.id === 101);
+    const payloadBase64 = String(reservation?.body ?? "").match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+    expect(JSON.parse(Buffer.from(payloadBase64, "base64").toString("utf8"))).toMatchObject({
+      state: "PUBLISHED",
+      pr_number: 849,
+      recovery: null,
+    });
+  });
+
+  it("advances a published reservation to the exact trusted same-PR repair head", () => {
+    const evidence = exactReservationEvidence(sha, {
+      state: "PUBLISHED",
+      pr_number: 849,
+      recovery: null,
+    });
+    const result = runReservationEnforcement({
+      body: evidence.body,
+      comments: evidence.comments,
+      eventHead: otherSha,
+      liveHead: otherSha,
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain(`Advanced published reservation SUP-TEST-1 to trusted repair head ${otherSha}`);
+    expect(prPatchCalls(result.calls)).toHaveLength(0);
+    expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+    const reservation = result.comments.find((comment) => comment.id === 101);
+    const payloadBase64 = String(reservation?.body ?? "").match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+    expect(JSON.parse(Buffer.from(payloadBase64, "base64").toString("utf8"))).toMatchObject({
+      state: "PUBLISHED",
+      pr_number: 849,
+      head_sha: otherSha,
+      recovery: null,
+    });
+  });
+
+  it("does not advance a published reservation for an unbound or non-owner repair event", () => {
+    for (const overrides of [
+      { pr_number: null },
+      { pr_number: 850 },
+    ]) {
+      const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", recovery: null, ...overrides });
+      const result = runReservationEnforcement({
+        body: evidence.body,
+        comments: evidence.comments,
+        eventHead: otherSha,
+        liveHead: otherSha,
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain("has no exact trusted Supervisor dispatch provenance; leaving it unchanged");
+      expect(commentPatchCalls(result.calls, 101)).toHaveLength(0);
+      expect(prPatchCalls(result.calls)).toHaveLength(0);
+    }
+
+    const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+    const untrustedActor = runReservationEnforcement({
+      body: evidence.body,
+      comments: evidence.comments,
+      eventActor: "untrusted-collaborator",
+      eventHead: otherSha,
+      liveHead: otherSha,
+    });
+    expect(untrustedActor.status, untrustedActor.stderr).toBe(0);
+    expect(untrustedActor.stdout).toContain("has no exact trusted Supervisor dispatch provenance; leaving it unchanged");
+    expect(commentPatchCalls(untrustedActor.calls, 101)).toHaveLength(0);
+    expect(prPatchCalls(untrustedActor.calls)).toHaveLength(0);
+  });
+
+  it("rejects duplicate or mismatched reservation and dispatch evidence", () => {
+    const evidence = exactReservationEvidence();
+    const duplicateReservation = { ...evidence.comments[0], id: 103 };
+    const mismatchedDispatch = {
+      ...evidence.comments[1],
+      body: String(evidence.comments[1].body).replace(":9001 -->", ":different-run -->"),
+    };
+    for (const comments of [
+      [...evidence.comments, duplicateReservation],
+      [evidence.comments[0], mismatchedDispatch],
+    ]) {
+      const result = runReservationEnforcement({ body: evidence.body, comments });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain("has no exact trusted Supervisor dispatch provenance; leaving it unchanged");
+      expect(result.stdout).not.toContain("is bound to durable reservation");
+      expect(prPatchCalls(result.calls)).toHaveLength(0);
+    }
+  });
+
+  it("does not reuse reservation evidence after the live PR head changes", () => {
+    const evidence = exactReservationEvidence();
+    const result = runReservationEnforcement({
+      body: evidence.body,
+      comments: evidence.comments,
+      liveHead: otherSha,
+      eventHead: sha,
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("PR changed before reservation enforcement; newer event will reconcile it.");
+    expect(result.stdout).not.toContain("is bound to durable reservation");
+    expect(result.calls.filter((args) => args.some((arg) => arg.includes("/issues/548/comments")))).toHaveLength(0);
+    expect(prPatchCalls(result.calls)).toHaveLength(0);
+  });
+
+  it("releases the reservation and records the terminal task state in one trusted close writer", () => {
+    for (const liveMerged of [false, true]) {
+      const evidence = exactReservationEvidence();
+      const taskState = {
+        id: 103,
+        user: { login: "github-actions[bot]" },
+        body: stateBody("CHECKS_PENDING"),
+      };
+      const result = runReservationEnforcement({
+        body: evidence.body,
+        comments: [...evidence.comments, taskState],
+        eventAction: "closed",
+        liveState: "closed",
+        liveMerged,
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+      expect(commentPatchCalls(result.calls, 103)).toHaveLength(1);
+      const reservation = result.comments.find((comment) => comment.id === 101);
+      const payloadBase64 = String(reservation?.body ?? "").match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+      expect(JSON.parse(Buffer.from(payloadBase64, "base64").toString("utf8"))).toMatchObject({
+        state: "RELEASED",
+        pr_number: 849,
+        recovery: { kind: "closed_pr", merged: liveMerged },
+      });
+      const terminal = result.comments.find((comment) => comment.id === 103);
+      const terminalBody = String(terminal?.body);
+      expect(terminalBody).toContain(liveMerged ? "- State: `MERGED`" : "- State: `CLOSED_UNMERGED`");
+      expect(terminalBody).toContain("- Run ID: `9001`");
+      expect(terminalBody).not.toContain("- Run ID: `9002`");
+    }
+  });
+
+  it("makes repeated trusted close delivery idempotent", () => {
+    const evidence = exactReservationEvidence();
+    const first = runReservationEnforcement({
+      body: evidence.body,
+      comments: [
+        ...evidence.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING") },
+      ],
+      eventAction: "closed",
+      liveState: "closed",
+    });
+    expect(first.status, first.stderr).toBe(0);
+    const second = runReservationEnforcement({
+      body: evidence.body,
+      comments: first.comments,
+      eventAction: "closed",
+      liveState: "closed",
+    });
+    expect(second.status, second.stderr).toBe(0);
+    expect(second.stdout).toContain("already released idempotently");
+    expect(second.stdout).toContain("already reconciled idempotently");
+    expect(commentPatchCalls(second.calls, 101)).toHaveLength(0);
+    expect(commentPatchCalls(second.calls, 103)).toHaveLength(0);
+  });
+
+  it("makes a stale non-close enforcement job converge the live closed PR", () => {
+    const liveHead = otherSha;
+    const evidence = exactReservationEvidence(liveHead);
+    const result = runReservationEnforcement({
+      body: evidence.body,
+      comments: [
+        ...evidence.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING", liveHead) },
+      ],
+      eventAction: "synchronize",
+      eventHead: sha,
+      liveHead,
+      liveState: "closed",
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+    expect(commentPatchCalls(result.calls, 103)).toHaveLength(1);
+    expect(String(result.comments.find((comment) => comment.id === 103)?.body)).toContain("- State: `CLOSED_UNMERGED`");
+  });
+
+  it("releases a published reservation when a trusted repair closes before head rebinding", () => {
+    const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+    const result = runReservationEnforcement({
+      body: evidence.body,
+      comments: [
+        ...evidence.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING", otherSha) },
+      ],
+      eventAction: "closed",
+      eventHead: otherSha,
+      liveHead: otherSha,
+      liveState: "closed",
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+    const reservation = result.comments.find((comment) => comment.id === 101);
+    const payloadBase64 = String(reservation?.body ?? "").match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+    expect(JSON.parse(Buffer.from(payloadBase64, "base64").toString("utf8"))).toMatchObject({
+      state: "RELEASED",
+      pr_number: 849,
+      head_sha: otherSha,
+      recovery: { kind: "closed_pr", merged: false },
+    });
+  });
+
+  it("does not regress a terminal task state during close reconciliation", () => {
+    const evidence = exactReservationEvidence();
+    const result = runReservationEnforcement({
+      body: evidence.body,
+      comments: [
+        ...evidence.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: stateBody("MERGED") },
+      ],
+      eventAction: "closed",
+      liveState: "closed",
+      liveMerged: false,
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+    expect(commentPatchCalls(result.calls, 103)).toHaveLength(0);
+    expect(String(result.comments.find((comment) => comment.id === 103)?.body)).toContain("- State: `MERGED`");
+  });
+
+  it("performs no close mutation for missing, duplicate, mismatched, or stale provenance", () => {
+    const evidence = exactReservationEvidence();
+    const taskState = { id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING") };
+    const duplicateReservation = { ...evidence.comments[0], id: 104 };
+    const mismatchedDispatch = {
+      ...evidence.comments[1],
+      body: String(evidence.comments[1].body).replace(":9001 -->", ":different-run -->"),
+    };
+    const cases = [
+      { comments: [taskState] },
+      { comments: [...evidence.comments, duplicateReservation, taskState] },
+      { comments: [evidence.comments[0], mismatchedDispatch, taskState] },
+      { comments: [...evidence.comments, taskState], liveHead: otherSha, eventHead: sha },
+    ];
+    for (const current of cases) {
+      const result = runReservationEnforcement({
+        body: evidence.body,
+        eventAction: "closed",
+        liveState: "closed",
+        ...current,
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+    }
+  });
+
+  it("makes a replacing check job converge a trusted closed PR", () => {
+    const evidence = exactReservationEvidence();
+    const result = runSyncCheckReconciliation({
+      comments: [
+        ...evidence.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING") },
+      ],
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Converged closed Worker PR #849 to reservation RELEASED and task CLOSED_UNMERGED.");
+    expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+    expect(commentPatchCalls(result.calls, 103)).toHaveLength(1);
+    const reservation = result.comments.find((comment) => comment.id === 101);
+    const payloadBase64 = String(reservation?.body ?? "").match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+    expect(JSON.parse(Buffer.from(payloadBase64, "base64").toString("utf8"))).toMatchObject({ state: "RELEASED" });
+    expect(String(result.comments.find((comment) => comment.id === 103)?.body)).toContain("- State: `CLOSED_UNMERGED`");
+  });
+
+  it("makes repeated check-job close reconciliation idempotent", () => {
+    const evidence = exactReservationEvidence();
+    const first = runSyncCheckReconciliation({
+      comments: [
+        ...evidence.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING") },
+      ],
+    });
+    expect(first.status, first.stderr).toBe(0);
+    const second = runSyncCheckReconciliation({ comments: first.comments });
+    expect(second.status, second.stderr).toBe(0);
+    expect(commentPatchCalls(second.calls, 101)).toHaveLength(0);
+    expect(commentPatchCalls(second.calls, 103)).toHaveLength(0);
+  });
+
+  it("makes a check replacement reject invalid or stale close provenance without mutation", () => {
+    const evidence = exactReservationEvidence();
+    const taskState = { id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING") };
+    const duplicateReservation = { ...evidence.comments[0], id: 104 };
+    const mismatchedDispatch = {
+      ...evidence.comments[1],
+      body: String(evidence.comments[1].body).replace(":9001 -->", ":different-run -->"),
+    };
+    for (const current of [
+      { comments: [taskState] },
+      { comments: [...evidence.comments, duplicateReservation, taskState] },
+      { comments: [evidence.comments[0], mismatchedDispatch, taskState] },
+      { comments: [...evidence.comments, taskState], liveHead: otherSha },
+    ]) {
+      const result = runSyncCheckReconciliation(current);
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+    }
+  }, 20_000);
+
+  it("keeps terminal task state monotonic in convergent check close reconciliation", () => {
+    const evidence = exactReservationEvidence();
+    const result = runSyncCheckReconciliation({
+      comments: [
+        ...evidence.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: stateBody("MERGED") },
+      ],
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+    expect(commentPatchCalls(result.calls, 103)).toHaveLength(0);
+    expect(String(result.comments.find((comment) => comment.id === 103)?.body)).toContain("- State: `MERGED`");
+  });
+
+  it("converges a live closed PR before rejecting stale workflow-run evidence", () => {
+    const liveHead = otherSha;
+    const evidence = exactReservationEvidence(liveHead);
+    const result = runSyncCheckReconciliation({
+      comments: [
+        ...evidence.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING", liveHead) },
+      ],
+      eventHead: sha,
+      liveHead,
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Converged closed Worker PR #849 to reservation RELEASED and task CLOSED_UNMERGED.");
+    expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+    expect(commentPatchCalls(result.calls, 103)).toHaveLength(1);
+  });
+
+  it("does not reuse stale workflow-run evidence for an open PR", () => {
+    const result = runSyncCheckReconciliation({
+      comments: [{ id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING", otherSha) }],
+      eventHead: sha,
+      liveHead: otherSha,
+      liveState: "open",
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Workflow completion is stale for open PR #849");
+    expect(result.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+  });
+
+  it("converges live-closed synchronize and ready-for-review lifecycle replacements", () => {
+    for (const action of ["synchronize", "ready_for_review"]) {
+      const liveHead = otherSha;
+      const evidence = exactReservationEvidence(liveHead);
+      const result = runLifecycleReconciliation({
+        action,
+        comments: [
+          ...evidence.comments,
+          { id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING", liveHead) },
+        ],
+        eventHead: sha,
+        liveHead,
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain(
+        "Converged live-closed lifecycle event for PR #849 to reservation RELEASED and task CLOSED_UNMERGED.",
+      );
+      expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+      expect(commentPatchCalls(result.calls, 103)).toHaveLength(1);
+    }
+  });
+
+  it("lets both alternate close writers release a published reservation after an unrecorded repair head", () => {
+    for (const reconcile of [runLifecycleReconciliation, runSyncCheckReconciliation]) {
+      const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+      const result = reconcile({
+        action: "synchronize",
+        comments: [
+          ...evidence.comments,
+          { id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING", otherSha) },
+        ],
+        eventHead: sha,
+        liveHead: otherSha,
+        liveState: "closed",
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+      const reservation = result.comments.find((comment) => comment.id === 101);
+      const payloadBase64 = String(reservation?.body ?? "").match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+      expect(JSON.parse(Buffer.from(payloadBase64, "base64").toString("utf8"))).toMatchObject({
+        state: "RELEASED",
+        pr_number: 849,
+        head_sha: otherSha,
+        recovery: { kind: "closed_pr", merged: false },
+      });
+    }
+  });
+
+  it("makes repeated live-closed lifecycle replacement idempotent", () => {
+    const evidence = exactReservationEvidence();
+    const first = runLifecycleReconciliation({
+      action: "synchronize",
+      comments: [
+        ...evidence.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING") },
+      ],
+    });
+    expect(first.status, first.stderr).toBe(0);
+    const second = runLifecycleReconciliation({
+      action: "ready_for_review",
+      comments: first.comments,
+    });
+    expect(second.status, second.stderr).toBe(0);
+    expect(commentPatchCalls(second.calls, 101)).toHaveLength(0);
+    expect(commentPatchCalls(second.calls, 103)).toHaveLength(0);
+  });
+
+  it("rejects invalid lifecycle close provenance without mutation", () => {
+    const evidence = exactReservationEvidence();
+    const taskState = { id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING") };
+    const duplicateReservation = { ...evidence.comments[0], id: 104 };
+    const mismatchedDispatch = {
+      ...evidence.comments[1],
+      body: String(evidence.comments[1].body).replace(":9001 -->", ":different-run -->"),
+    };
+    for (const comments of [
+      [taskState],
+      [...evidence.comments, duplicateReservation, taskState],
+      [evidence.comments[0], mismatchedDispatch, taskState],
+    ]) {
+      const result = runLifecycleReconciliation({ action: "synchronize", comments });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+    }
+  });
+
+  it("preserves exact event-head enforcement for the open lifecycle path", () => {
+    const stale = runLifecycleReconciliation({
+      action: "synchronize",
+      comments: [{ id: 103, user: { login: "github-actions[bot]" }, body: stateBody("WORKER_PR_OPENED", otherSha) }],
+      eventHead: sha,
+      liveHead: otherSha,
+      liveState: "open",
+    });
+    expect(stale.status, stale.stderr).toBe(0);
+    expect(stale.stdout).toContain("Ignoring stale open lifecycle event");
+    expect(stale.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+
+    const current = runLifecycleReconciliation({
+      action: "synchronize",
+      comments: [{ id: 103, user: { login: "github-actions[bot]" }, body: stateBody("WORKER_PR_OPENED") }],
+      liveState: "open",
+    });
+    expect(current.status, current.stderr).toBe(0);
+    expect(commentPatchCalls(current.calls, 103)).toHaveLength(1);
+    const currentBody = String(current.comments.find((comment) => comment.id === 103)?.body);
+    expect(currentBody).toContain("- State: `CHECKS_PENDING`");
+    expect(currentBody).toContain("- Run ID: `9001`");
+    expect(currentBody).not.toContain("- Run ID: `9003`");
+  });
+
+  it("preserves the normal exact-head check-evidence path for an open PR", () => {
+    const result = runSyncCheckReconciliation({
+      comments: [{ id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING") }],
+      liveState: "open",
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(commentPatchCalls(result.calls, 103)).toHaveLength(1);
+    const currentBody = String(result.comments.find((comment) => comment.id === 103)?.body);
+    expect(currentBody).toContain("- State: `READY_FOR_SUPERVISOR`");
+    expect(currentBody).toContain("- Run ID: `9001`");
+    expect(currentBody).not.toContain("- Run ID: `9003`");
+  });
+
+  it("binds reservation publication and recovery to trusted live PR identity", () => {
+    const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+    const enforcement = workflowRunStep(workflow, "Require exact durable reservation before accepting Worker PR");
+    const publish = workflowRunStep(workflow, "Mark reservation published");
+    const recovery = workflowRunStep(workflow, "Release or recover reservation on dispatch failure");
+    expect(enforcement).toContain('live_author" = "${REPOSITORY%%/*}');
+    expect(enforcement).toContain('live_head_repository" = "$REPOSITORY');
+    expect(enforcement).toContain('state" != "PUBLISHED" ] || [ "$reserved_pr" = "$PR_NUMBER');
+    expect(publish).toContain('test "$(jq -r \'.state\' <<< "$payload")" = "RESERVED"');
+    expect(publish).toContain('test "$(jq -r \'.state\' <<< "$pr")" = "open"');
+    expect(recovery).toContain('.head.sha == $head');
+    expect(recovery).toContain('.head.repo.full_name == $repo');
+    expect(recovery).toContain('.user.login == $owner');
+  });
+
+  it("keeps uploaded fallback evidence recoverable and expires it before artifact deletion", () => {
+    const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+    const recovery = workflowRunStep(workflow, "Release or recover reservation on dispatch failure");
+    expect(workflow).toContain("id: recovery_upload");
+    expect(recovery).toContain('ARTIFACT_UPLOADED" = "true"');
+    expect(recovery).toContain("date -u -d '+6 days'");
+    expect(workflow).toContain('.recovery.expires_at // ""');
+    expect(workflow).toContain("retryable:true");
+    expect(workflow).toContain("retention-days: 7");
+  });
+
+  it("gives branch-backed recovery a bounded durable lease", () => {
+    const result = runReservationRecovery();
+    expect(result.status, result.stderr).toBe(0);
+    expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+    const reservation = result.comments.find((comment) => comment.id === 101);
+    const payloadBase64 = String(reservation?.body ?? "").match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+    const payload = JSON.parse(Buffer.from(payloadBase64, "base64").toString("utf8"));
+    expect(payload).toMatchObject({ state: "RECOVERABLE", recovery: { kind: "branch" } });
+    expect(Date.parse(payload.recovery.expires_at)).toBeGreaterThan(Date.now() + 5 * 24 * 60 * 60 * 1000);
+  });
+
+  it("reserves durable capacity before dispatching the Worker", () => {
+    const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+    const reserveIndex = workflow.indexOf("Atomically reserve writable Worker slot");
+    const dispatchEvidenceIndex = workflow.indexOf("Persist trusted Worker dispatch-start evidence");
+    const workerIndex = workflow.indexOf("Run one bounded implementation Worker");
+    expect(reserveIndex).toBeGreaterThanOrEqual(0);
+    expect(reserveIndex).toBeLessThan(dispatchEvidenceIndex);
+    expect(dispatchEvidenceIndex).toBeLessThan(workerIndex);
+
+    const result = runSlotReservation();
+    expect(result.status, result.stderr).toBe(0);
+    const reservation = result.comments.find((comment) => comment.id === 999);
+    const payloadBase64 = String(reservation?.body ?? "").match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+    expect(JSON.parse(Buffer.from(payloadBase64, "base64").toString("utf8"))).toMatchObject({
+      state: "RESERVED",
+      changed_files: [],
+      snapshot_finalized: false,
+      pr_number: null,
+    });
+  });
+
+  it("reuses the one canonical RELEASED reservation record when the same task becomes dispatchable", () => {
+    const localHead = spawnSync("git", ["rev-parse", "HEAD"], { cwd: process.cwd(), encoding: "utf8" }).stdout.trim();
+    const retryPacket = packet({
+      task_id: "SUP-NEW-SLOT-1",
+      task_title: "Disjoint slot behavior test",
+      graph_path: "feature/new-slot",
+      base_sha: localHead,
+      branch: "work/proffera-new-slot",
+      allowed_paths: ["tests/new-slot/"],
+    });
+    const released = {
+      version: 1,
+      state: "RELEASED",
+      task_id: retryPacket.task_id,
+      run_id: "9001",
+      branch: retryPacket.branch,
+      head_sha: otherSha,
+      graph_path: retryPacket.graph_path,
+      packet_digest: createHash("sha256").update(JSON.stringify(retryPacket)).digest("hex"),
+      allowed_paths: retryPacket.allowed_paths,
+      changed_files: [],
+      snapshot_finalized: false,
+      pr_number: null,
+      recovery: { kind: "expired_reservation", verified_run_status: "completed", retryable: true },
+    };
+    const result = runSlotReservation({ reservation: released });
+    expect(result.status, result.stderr).toBe(0);
+    expect(commentPatchCalls(result.calls, 201)).toHaveLength(1);
+    expect(result.comments.filter((comment) => String(comment.body ?? "").includes("proffera-worker-slot-reservation:SUP-NEW-SLOT-1"))).toHaveLength(1);
+    expect(result.comments.some((comment) => comment.id === 999)).toBe(false);
+    const body = String(result.comments.find((comment) => comment.id === 201)?.body ?? "");
+    const payload = JSON.parse(Buffer.from(body.match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "", "base64").toString("utf8"));
+    expect(payload).toMatchObject({ state: "RESERVED", task_id: "SUP-NEW-SLOT-1", run_id: "1001" });
+  });
+
+  it("rejects a third durable unit before Worker execution and keeps the task retryable", () => {
+    const activeReservation = (id: number) => ({
+      state: "RESERVED",
+      task_id: `SUP-OLD-SLOT-${id}`,
+      run_id: String(7000 + id),
+      branch: `work/proffera-old-slot-${id}`,
+      head_sha: otherSha,
+      graph_path: `feature/old-slot-${id}`,
+      packet_digest: String(id).repeat(64),
+      lease_expires_at: "2099-01-01T00:00:00Z",
+      allowed_paths: [`src/features/old-slot-${id}/`],
+      changed_files: [],
+      pr_number: null,
+      recovery: null,
+    });
+    const result = runSlotReservation({
+      reservation: activeReservation(1),
+      extraComments: [reservationComment(activeReservation(2), 202)],
+    });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("both writable Worker slots are already occupied or durably reserved");
+    expect(result.outputs.capacity_blocked).toBe("true");
+    expect(result.comments.some((comment) => comment.id === 999)).toBe(false);
+
+    const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+    const failure = workflowRunStep(workflow, "Fail closed into WORKER_BLOCKED on dispatch failure");
+    expect(failure).toContain('state="TASK_BLOCKED"');
+    expect(failure).toContain("No reservation was acquired and no Worker was invoked");
+  });
+
+  it("keeps every failure before reservation acquisition retryable", () => {
+    for (const capacityBlocked of [false, true]) {
+      const result = runDispatchFailureState({ capacityBlocked });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.body).toContain("- State: `TASK_BLOCKED`");
+      expect(result.body).toMatch(/no Worker was invoked/iu);
+      expect(result.body).toContain("same task may be resubmitted");
+    }
+
+    const postReservation = runDispatchFailureState({ reservationCommentId: "101" });
+    expect(postReservation.status, postReservation.stderr).toBe(0);
+    expect(postReservation.body).toContain("- State: `WORKER_BLOCKED`");
+  });
+
+  it("admits a disjoint second reservation and rejects declared overlap before Worker execution", () => {
+    const existing = {
+      state: "RESERVED",
+      task_id: "SUP-OLD-SLOT-1",
+      run_id: "7001",
+      branch: "work/proffera-old-slot",
+      head_sha: otherSha,
+      graph_path: "feature/old-slot",
+      packet_digest: "c".repeat(64),
+      lease_expires_at: "2099-01-01T00:00:00Z",
+      allowed_paths: ["src/features/old-slot/"],
+      changed_files: [],
+      pr_number: null,
+      recovery: null,
+    };
+    const disjoint = runSlotReservation({ reservation: existing });
+    expect(disjoint.status, disjoint.stderr).toBe(0);
+    expect(disjoint.comments.some((comment) => comment.id === 999)).toBe(true);
+
+    for (const overlapping of [
+      { ...existing, graph_path: "feature/new-slot/subpath" },
+      { ...existing, allowed_paths: ["tests/new-slot/collision.ts"] },
+    ]) {
+      const rejected = runSlotReservation({ reservation: overlapping });
+      expect(rejected.status).toBe(1);
+      expect(rejected.comments.some((comment) => comment.id === 999)).toBe(false);
+    }
+  });
+
+  it("finalizes the exact observed Worker snapshot before publication", () => {
+    const result = runReservationFinalization();
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain(`Finalized reserved Worker snapshot SUP-TEST-1@${result.targetHead}`);
+    expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+    const reservation = result.comments.find((comment) => comment.id === 101);
+    const payloadBase64 = String(reservation?.body ?? "").match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+    expect(JSON.parse(Buffer.from(payloadBase64, "base64").toString("utf8"))).toMatchObject({
+      state: "RESERVED",
+      head_sha: result.targetHead,
+      changed_files: ["src/change.txt"],
+      snapshot_finalized: true,
+      pr_number: null,
+    });
+
+    const changed = runReservationFinalization({ changedReservationBody: true });
+    expect(changed.status).toBe(1);
+    expect(commentPatchCalls(changed.calls, 101)).toHaveLength(0);
+  });
+
+  it("never reclaims another task's expired reservation during global slot accounting", () => {
+    const oldReservation = {
+      state: "RECOVERABLE",
+      task_id: "SUP-OLD-SLOT-1",
+      run_id: "7001",
+      branch: "work/proffera-old-slot",
+      head_sha: otherSha,
+      graph_path: "feature/old-slot",
+      packet_digest: "c".repeat(64),
+      allowed_paths: ["src/features/old-slot/"],
+      changed_files: [],
+      pr_number: null,
+      recovery: { kind: "branch", expires_at: "2000-01-01T00:00:00Z" },
+    };
+    const result = runSlotReservation({ reservation: oldReservation });
+    expect(result.status, result.stderr).toBe(0);
+    expect(commentPatchCalls(result.calls, 201)).toHaveLength(0);
+    expect(String(result.comments.find((comment) => comment.id === 201)?.body)).toContain("- State: `RECOVERABLE`");
+  });
+
+  it("counts a promoted recovery PR and its published reservation as one slot", () => {
+    const reservation = {
+      state: "PUBLISHED",
+      task_id: "SUP-OLD-SLOT-1",
+      run_id: "7001",
+      branch: "work/proffera-old-slot",
+      head_sha: otherSha,
+      graph_path: "feature/old-slot",
+      packet_digest: "c".repeat(64),
+      allowed_paths: ["src/features/old-slot/"],
+      changed_files: [],
+      pr_number: 830,
+      recovery: null,
+    };
+    const openPull = {
+      number: 830,
+      base: { ref: "main" },
+      head: { ref: "work/proffera-old-slot", sha: otherSha, repo: { full_name: "ibboabdoli-ai/Proffera" } },
+      user: { login: "ibboabdoli-ai" },
+      body: [
+        "Task ID: SUP-OLD-SLOT-1",
+        "Graph path: feature/old-slot",
+        'Allowed paths: ["src/features/old-slot/"]',
+      ].join("\n"),
+      files: [],
+    };
+    const result = runSlotReservation({ reservation, pulls: [openPull] });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.comments.some((comment) => comment.id === 999)).toBe(true);
+  });
+
+  it("counts an exact trusted recoverable PR as one slot during the promotion gap", () => {
+    const recoveryPacket = packet({
+      task_id: "SUP-OLD-SLOT-1",
+      task_title: "Existing recovery Worker",
+      graph_path: "feature/old-slot",
+      branch: "work/proffera-old-slot",
+      allowed_paths: ["src/features/old-slot/"],
+    });
+    const recoveryPrBody = runText("pr-body", { packet: recoveryPacket, changed_files: [] });
+    const parsed = spawnSync(process.execPath, [helper, "parse"], {
+      input: recoveryPrBody,
+      encoding: "utf8",
+    });
+    expect(parsed.status, parsed.stderr).toBe(0);
+    const normalizedPacket = parsed.stdout.replace(/\n+$/, "");
+    const reservation = {
+      state: "RECOVERABLE",
+      task_id: "SUP-OLD-SLOT-1",
+      run_id: "7001",
+      branch: "work/proffera-old-slot",
+      head_sha: otherSha,
+      graph_path: "feature/old-slot",
+      packet_digest: createHash("sha256").update(normalizedPacket).digest("hex"),
+      allowed_paths: ["src/features/old-slot/"],
+      changed_files: [],
+      pr_number: null,
+      recovery: { kind: "branch", expires_at: "2099-01-01T00:00:00Z" },
+    };
+    const openPull = {
+      number: 830,
+      state: "open",
+      base: { ref: "main" },
+      head: { ref: "work/proffera-old-slot", sha: otherSha, repo: { full_name: "ibboabdoli-ai/Proffera" } },
+      user: { login: "ibboabdoli-ai" },
+      body: recoveryPrBody,
+      files: [],
+    };
+    const dispatch = {
+      id: 202,
+      user: { login: "github-actions[bot]" },
+      body: "<!-- proffera-worker-dispatch-start:SUP-OLD-SLOT-1:7001 -->",
+    };
+    const exact = runSlotReservation({ reservation, pulls: [openPull], extraComments: [dispatch] });
+    expect(exact.status, exact.stderr).toBe(0);
+    expect(exact.stdout).toContain("Exact trusted recovery PR #830 represents recoverable reservation");
+    expect(exact.comments.some((comment) => comment.id === 999)).toBe(true);
+
+    for (const extraComments of [
+      [],
+      [dispatch, { ...dispatch, id: 203 }],
+    ]) {
+      const ambiguous = runSlotReservation({ reservation, pulls: [openPull], extraComments });
+      expect(ambiguous.status, ambiguous.stderr).toBe(1);
+      expect(ambiguous.comments.some((comment) => comment.id === 999)).toBe(false);
+      expect(commentPatchCalls(ambiguous.calls, 201)).toHaveLength(0);
+    }
+
+    for (const mismatchedReservation of [
+      { ...reservation, branch: "work/proffera-other-slot" },
+      { ...reservation, packet_digest: "d".repeat(64) },
+      { ...reservation, graph_path: "feature/different-slot" },
+      { ...reservation, allowed_paths: ["src/features/different-slot/"] },
+      { ...reservation, pr_number: 831 },
+    ]) {
+      const mismatched = runSlotReservation({ reservation: mismatchedReservation, pulls: [openPull], extraComments: [dispatch] });
+      expect(mismatched.status, mismatched.stderr).toBe(1);
+      expect(mismatched.comments.some((comment) => comment.id === 999)).toBe(false);
+    }
+
+    const staleHeadPull = structuredClone(openPull);
+    staleHeadPull.head.sha = "d".repeat(40);
+    const mismatched = runSlotReservation({ reservation, pulls: [staleHeadPull], extraComments: [dispatch] });
+    expect(mismatched.status, mismatched.stderr).toBe(1);
+    expect(mismatched.comments.some((comment) => comment.id === 999)).toBe(false);
+
+    const foreignPull = structuredClone(openPull);
+    foreignPull.head.repo.full_name = "attacker/fork";
+    foreignPull.user.login = "attacker";
+    const foreign = runSlotReservation({ reservation, pulls: [foreignPull], extraComments: [dispatch] });
+    expect(foreign.status, foreign.stderr).toBe(0);
+    expect(foreign.stdout).not.toContain("represents recoverable reservation");
+    expect(foreign.calls.some((args) => args.includes("--method") && args.includes("PATCH"))).toBe(false);
+  }, 20_000);
+
+  it("applies the helper-approved WORKER_PR_OPENED task-state transition", () => {
+    const result = runWorkerPrStateRecord(stateBody("TASK_CREATED"));
+    expect(result.status, result.stderr).toBe(0);
+    const patches = taskStatePatchCalls(result.calls);
+    expect(patches).toHaveLength(1);
+    expect(patches[0].join("\n")).toContain("- State: `WORKER_PR_OPENED`");
+  });
+
+  it("does not write a WORKER_PR_OPENED state when the helper refuses the transition", () => {
+    const result = runWorkerPrStateRecord(stateBody("MERGED"));
+    expect(result.status, result.stderr).toBe(0);
+    expect(taskStatePatchCalls(result.calls)).toHaveLength(0);
   });
 
   it("keeps an #830-style independent parallel Worker unaffected", () => {
@@ -555,9 +3519,71 @@ exit 0
     expect(evaluate(baseContext({ open_prs: [parallel] })).status).toBe("TASK_CREATED");
   });
 
-  it("serializes identical concurrent task deliveries and refuses the second run", () => {
+  it("serializes dispatch publication with PR lifecycle reservation mutations", () => {
     const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+    const sync = source(".github/workflows/worker-supervisor-sync.yml");
+    const workflowHeader = workflow.slice(0, workflow.indexOf("jobs:"));
+    expect(workflowHeader).not.toContain("concurrency:");
     expect(workflow).toContain("cancel-in-progress: false");
+    expect(workflow).toContain("github.event.pull_request.head.repo.full_name == github.repository");
+    expect(workflow).toContain("format('untrusted-pr-{0}', github.event.pull_request.number)");
+    expect(workflow).toContain("group: proffera-worker-task-state-${{ needs.preflight.outputs.branch }}");
+    expect(sync.match(/group: proffera-worker-task-state-\$\{\{ needs\.resolve_worker_mutation_lane\.outputs\.branch \}\}/g)).toHaveLength(2);
+    const syncPrHeader = sync.slice(sync.indexOf("  sync-pr-event:"), sync.indexOf("    runs-on:", sync.indexOf("  sync-pr-event:")));
+    expect(syncPrHeader).not.toContain("github.event.action != 'closed'");
+    expectShellAndJqSyntax(workflowRunStep(sync, "Record or update Worker lifecycle state in Supervisor issue"));
+    expectShellAndJqSyntax(workflowRunStep(sync, "Reconcile required current-head workflow evidence"));
+    expect(workflowRunStep(workflow, "Require exact durable reservation before accepting Worker PR")).toContain(
+      "Reconciled task ${task_id} to ${terminal_state} in the same close writer.",
+    );
+    const resolveLane = workflowRunStep(sync, "Resolve exact Worker branch");
+    const shell = spawnSync("bash", ["-n"], { input: resolveLane, encoding: "utf8" });
+    expect(shell.status, shell.stderr).toBe(0);
+    for (const event of [
+      { name: "pull_request_target", prHead: "work/proffera-pr-event", runHead: "", branch: "work/proffera-pr-event", headRepo: "ibboabdoli-ai/Proffera", author: "ibboabdoli-ai", trusted: true },
+      { name: "workflow_run", prHead: "", runHead: "work/proffera-check-event", branch: "work/proffera-check-event", headRepo: "ibboabdoli-ai/Proffera", author: "ibboabdoli-ai", trusted: true },
+      { name: "pull_request_target", prHead: "work/proffera-prefix-impostor", runHead: "", branch: "work/proffera-prefix-impostor", headRepo: "attacker/fork", author: "attacker", trusted: false },
+    ]) {
+      const root = mkdtempSync(join(tmpdir(), "proffera-worker-mutation-lane-"));
+      const bin = join(root, "bin");
+      const output = join(root, "github-output");
+      mkdirSync(bin, { recursive: true });
+      writeFileSync(output, "");
+      writeFileSync(
+        join(bin, "gh"),
+        `#!/usr/bin/env node
+const args = process.argv.slice(2);
+const endpoint = args.find((arg) => arg.startsWith("repos/")) || "";
+if (args[0] !== "api" || endpoint !== "repos/ibboabdoli-ai/Proffera/pulls/900") process.exit(2);
+process.stdout.write(JSON.stringify({
+  head: { ref: process.env.GH_STUB_BRANCH, repo: { full_name: process.env.GH_STUB_HEAD_REPO } },
+  user: { login: process.env.GH_STUB_AUTHOR },
+}) + "\\n");
+`,
+        { encoding: "utf8", mode: 0o755 },
+      );
+      const result = spawnSync("bash", ["-c", resolveLane], {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+          GH_TOKEN: "test-token",
+          REPOSITORY: "ibboabdoli-ai/Proffera",
+          PR_NUMBER: "900",
+          EVENT_NAME: event.name,
+          PR_HEAD_REF: event.prHead,
+          RUN_HEAD_BRANCH: event.runHead,
+          GH_STUB_BRANCH: event.branch,
+          GH_STUB_HEAD_REPO: event.headRepo,
+          GH_STUB_AUTHOR: event.author,
+          GITHUB_OUTPUT: output,
+        },
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(readFileSync(output, "utf8")).toBe(event.trusted
+        ? `branch=${event.branch}\ntrusted=true\n`
+        : "trusted=false\n");
+    }
     expect(evaluate(baseContext({ comments: [trustedState("TASK_CREATED", "9999")], run_id: "1001" })).status).toBe("ALREADY_DISPATCHED");
   });
 
@@ -623,6 +3649,80 @@ exit 0
     expect(result.code).toBe("terminal_state_preserved");
   });
 
+  it("reactivates only CLOSED_UNMERGED from live reopen and upgrades it to a live merge", () => {
+    const reopened = runLifecycleReconciliation({
+      action: "reopened",
+      comments: [
+        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CLOSED_UNMERGED") },
+      ],
+      liveState: "open",
+    });
+    expect(reopened.status, reopened.stderr).toBe(0);
+    expect(commentPatchCalls(reopened.calls, 103)).toHaveLength(1);
+    expect(String(reopened.comments.find((comment) => comment.id === 103)?.body)).toContain("- State: `WORKER_PR_OPENED`");
+
+    const staleReopen = runLifecycleReconciliation({
+      action: "reopened",
+      comments: [
+        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CLOSED_UNMERGED", otherSha) },
+      ],
+      eventHead: otherSha,
+      liveHead: sha,
+      liveState: "open",
+    });
+    expect(staleReopen.status, staleReopen.stderr).toBe(0);
+    expect(commentPatchCalls(staleReopen.calls, 103)).toHaveLength(0);
+
+    const checksPending = transition({
+      current_body: stateBody("WORKER_PR_OPENED"),
+      source: "lifecycle",
+      requested_state: "CHECKS_PENDING",
+      live_pr_state: "open",
+    });
+    expect(checksPending.apply).toBe(true);
+    const ready = transition({
+      current_body: stateBody("CHECKS_PENDING"),
+      source: "checks",
+      requested_state: "READY_FOR_SUPERVISOR",
+      live_pr_state: "open",
+    });
+    expect(ready.apply).toBe(true);
+
+    const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+    const merged = runLifecycleReconciliation({
+      action: "closed",
+      comments: [
+        ...evidence.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CLOSED_UNMERGED") },
+      ],
+      liveMerged: true,
+      liveState: "closed",
+    });
+    expect(merged.status, merged.stderr).toBe(0);
+    expect(commentPatchCalls(merged.calls, 103)).toHaveLength(1);
+    expect(String(merged.comments.find((comment) => comment.id === 103)?.body)).toContain("- State: `MERGED`");
+
+    const closedAgain = transition({
+      current_body: stateBody("CLOSED_UNMERGED"),
+      source: "lifecycle",
+      requested_state: "CLOSED_UNMERGED",
+      live_pr_state: "closed",
+      live_merged: false,
+    });
+    expect(closedAgain.apply).toBe(false);
+    expect(closedAgain.code).toBe("terminal_state_preserved");
+
+    const mergedCannotReopen = transition({
+      current_body: stateBody("MERGED"),
+      source: "lifecycle",
+      requested_state: "WORKER_PR_OPENED",
+      live_pr_state: "open",
+      live_merged: false,
+    });
+    expect(mergedCannotReopen.apply).toBe(false);
+    expect(mergedCannotReopen.code).toBe("terminal_state_preserved");
+  });
+
   it("delayed same-head lifecycle events cannot regress READY_FOR_SUPERVISOR", () => {
     const result = transition({
       current_body: stateBody("READY_FOR_SUPERVISOR"),
@@ -674,6 +3774,26 @@ exit 0
       live_head: sha,
     });
     expect(current.apply).toBe(true);
+  });
+
+  it("writes a durable exact-task/exact-head READY checkpoint without merge authority", () => {
+    const body = runText("state-body", {
+      packet: packet(),
+      state: "READY_FOR_SUPERVISOR",
+      reason: "All required exact-head evidence is green.",
+      run_id: "1001",
+      pr_number: 900,
+      head_sha: sha,
+    });
+    expect(body).toContain(`- Ready checkpoint: \`SUP-TEST-1@${sha}\``);
+    expect(body).toContain("- Merge allowed: `false`");
+    expect(body).toContain("- Auto-merge allowed: `false`");
+
+    const missingHead = spawnSync(process.execPath, [helper, "state-body"], {
+      input: JSON.stringify({ packet: packet(), state: "READY_FOR_SUPERVISOR", reason: "unsafe", pr_number: 900 }),
+      encoding: "utf8",
+    });
+    expect(missingHead.status).not.toBe(0);
   });
 
   it("duplicate lifecycle/check events are idempotent", () => {
@@ -731,6 +3851,353 @@ exit 0
     expect(run("validate-changes", { packet: packet(), changed_files: ["package.json"] }).code).toBe("hard_blocked_change");
     expect(run("validate-changes", { packet: packet(), changed_files: ["scripts/supervisor-worker-handoff.mjs"] }).code).toBe("hard_blocked_change");
     expect(run("validate-changes", { packet: packet(), changed_files: ["src/unrelated.ts"] }).code).toBe("out_of_scope_change");
+  });
+
+  it("accepts only a complete exact-source publication artifact", () => {
+    const result = run("validate-publication", publicationInput());
+    expect(result.ok).toBe(true);
+    expect(result.code).toBe("publication_artifact_valid");
+  });
+
+  it("requires the normalized Task Packet and canonical scope boundary", () => {
+    const input = publicationInput();
+    expect(run("validate-publication", { current_source_head: input.current_source_head, artifact: input.artifact }).code).toBe("packet_invalid");
+    const forbidden = { ...input, packet: packet({ base_sha: input.current_source_head, allowed_paths: ["docs/SUPERVISOR_WORKER_HANDOFF.md"], forbidden_paths: ["docs/"] }) };
+    expect(run("validate-publication", forbidden).code).toBe("packet_invalid");
+    const hardBlocked = publicationInput({ paths: ["package.json"] });
+    expect(run("validate-publication", hardBlocked).ok).toBe(false);
+  });
+
+  it("rejects a unified diff whose result diverges from replacement bytes", () => {
+    const input = publicationInput();
+    const artifact = input.artifact as Record<string, unknown>;
+    const divergent = String(artifact.unified_diff).replace("(publication test)", "(different diff)");
+    expect(run("validate-publication", { ...input, artifact: { ...artifact, unified_diff: divergent } }).code).toBe("diff_replacement_mismatch");
+  });
+
+  it("rejects stale-head and incomplete publication artifacts", () => {
+    expect(run("validate-publication", publicationInput({}, otherSha)).code).toBe("stale_source_head");
+    expect(run("validate-publication", publicationInput({ artifact_set_complete: "NO" })).code).toBe("artifact_incomplete");
+  });
+
+  it("rejects missing or discontinuous publication chunks", () => {
+    const replacements = [{
+      path: "docs/SUPERVISOR_WORKER_HANDOFF.md",
+      chunks: [{ number: 1, total: 2, content: "new\n" }],
+    }];
+    expect(run("validate-publication", publicationInput({ replacements })).code).toBe("missing_chunk");
+
+    const discontinuous = [{
+      path: "docs/SUPERVISOR_WORKER_HANDOFF.md",
+      chunks: [
+        { number: 1, total: 2, content: "ne" },
+        { number: 3, total: 2, content: "w\n" },
+      ],
+    }];
+    expect(run("validate-publication", publicationInput({ replacements: discontinuous })).code).toBe("missing_chunk");
+  });
+
+  it("rejects publication path-set and digest mismatches", () => {
+    expect(run("validate-publication", publicationInput({ paths: ["docs/other.md"] })).code).toBe("out_of_scope_change");
+    const input = publicationInput();
+    const artifact = input.artifact as Record<string, unknown>;
+    const manifest = structuredClone(artifact.manifest) as Array<Record<string, unknown>>;
+    manifest[0].sha256 = "0".repeat(64);
+    expect(run("validate-publication", { ...input, artifact: { ...artifact, manifest } }).code).toBe("digest_mismatch");
+
+    const wrongDiffDigest = String(artifact.unified_diff).replace(String((artifact.manifest as Array<Record<string, unknown>>)[0].git_blob_sha), "2".repeat(40));
+    expect(run("validate-publication", { ...input, artifact: { ...artifact, unified_diff: wrongDiffDigest } }).code).toBe("digest_mismatch");
+  });
+
+  it("rejects replacement byte and line count mismatches", () => {
+    const input = publicationInput();
+    const artifact = input.artifact as Record<string, unknown>;
+    const byteManifest = structuredClone(artifact.manifest) as Array<Record<string, unknown>>;
+    byteManifest[0].bytes = 3;
+    expect(run("validate-publication", { ...input, artifact: { ...artifact, manifest: byteManifest } }).code).toBe("byte_count_mismatch");
+
+    const lineManifest = structuredClone(artifact.manifest) as Array<Record<string, unknown>>;
+    lineManifest[0].lines = 2;
+    expect(run("validate-publication", { ...input, artifact: { ...artifact, manifest: lineManifest } }).code).toBe("line_count_mismatch");
+  });
+
+  it("rejects a truncated unified-diff hunk", () => {
+    const input = publicationInput();
+    const artifact = input.artifact as Record<string, unknown>;
+    const truncated = String(artifact.unified_diff).replace("@@ -1 +1 @@", "@@ -1 +1,2 @@");
+    expect(run("validate-publication", { ...input, artifact: { ...artifact, unified_diff: truncated } }).code).toBe("diff_incomplete");
+
+    const falseDeletion = String(artifact.unified_diff).replace("+++ b/docs/SUPERVISOR_WORKER_HANDOFF.md", "+++ /dev/null");
+    expect(run("validate-publication", { ...input, artifact: { ...artifact, unified_diff: falseDeletion } }).code).toBe("diff_incomplete");
+  });
+
+  it("rejects every unsupported or misordered unified-diff preamble directive", () => {
+    const input = publicationInput();
+    const artifact = input.artifact as Record<string, unknown>;
+    const unifiedDiff = String(artifact.unified_diff);
+    for (const directive of [
+      "rename from z.txt",
+      "rename from z.txt\nrename to docs/SUPERVISOR_WORKER_HANDOFF.md",
+      "similarity index 100%",
+      "dissimilarity index 80%",
+      "old mode 100644\nnew mode 100755",
+      "copy from z.txt\ncopy to docs/SUPERVISOR_WORKER_HANDOFF.md",
+      "unsupported publication directive",
+    ]) {
+      const tampered = unifiedDiff.replace("\nindex ", `\n${directive}\nindex `);
+      expect(tampered).not.toBe(unifiedDiff);
+      expect(run("validate-publication", { ...input, artifact: { ...artifact, unified_diff: tampered } }).ok).toBe(false);
+    }
+
+    const misordered = unifiedDiff.replace(/\n(index [^\n]+)\n(--- [^\n]+)\n(\+\+\+ [^\n]+)/, "\n$2\n$1\n$3");
+    expect(misordered).not.toBe(unifiedDiff);
+    expect(run("validate-publication", { ...input, artifact: { ...artifact, unified_diff: misordered } }).code).toBe("diff_incomplete");
+  });
+
+  it("preserves deletion, rename, and missing-final-newline artifact semantics", () => {
+    const repo = mkdtempSync(join(tmpdir(), "proffera-publication-"));
+    const git = (...args: string[]) => {
+      const result = spawnSync("git", args, { cwd: repo, encoding: "utf8" });
+      expect(result.status, result.stderr).toBe(0);
+      return result.stdout.trim();
+    };
+    git("init");
+    git("config", "user.name", "test");
+    git("config", "user.email", "test@example.invalid");
+    writeFileSync(join(repo, "delete.txt"), "first\nsecond\n", "utf8");
+    writeFileSync(join(repo, "rename.txt"), "renamed\n", "utf8");
+    writeFileSync(join(repo, "newline.txt"), "before\n", "utf8");
+    git("add", "--all");
+    git("commit", "-m", "source");
+    const sourceHead = git("rev-parse", "HEAD");
+    git("rm", "delete.txt");
+    git("mv", "rename.txt", "renamed.txt");
+    writeFileSync(join(repo, "newline.txt"), "after", "utf8");
+    git("commit", "-am", "target");
+    const targetHead = git("rev-parse", "HEAD");
+    const scopedPacket = packet({ base_sha: sourceHead, allowed_paths: ["delete.txt", "rename.txt", "renamed.txt", "newline.txt"] });
+    const built = spawnSync(process.execPath, [helper, "build-publication"], {
+      cwd: repo,
+      input: JSON.stringify({ packet: scopedPacket, source_head: sourceHead, target_head: targetHead }),
+      encoding: "utf8",
+    });
+    expect(built.status, built.stderr).toBe(0);
+    const artifact = JSON.parse(built.stdout) as Record<string, unknown>;
+    const replacements = artifact.replacements as Array<Record<string, unknown>>;
+    const manifest = artifact.manifest as Array<Record<string, unknown>>;
+    expect(replacements.find((entry) => entry.path === "delete.txt")).toEqual({ path: "delete.txt", deleted: true });
+    expect(replacements.find((entry) => entry.path === "rename.txt")).toEqual({ path: "rename.txt", deleted: true });
+    expect(manifest.find((entry) => entry.path === "delete.txt")).toMatchObject({ deleted: true, bytes: 0, lines: 0, git_blob_sha: "0".repeat(40) });
+    expect(String(artifact.unified_diff)).toContain("\\ No newline at end of file");
+    const validate = (candidate: Record<string, unknown>) => {
+      const result = spawnSync(process.execPath, [helper, "validate-publication"], {
+        cwd: repo,
+        input: JSON.stringify({ packet: scopedPacket, current_source_head: sourceHead, artifact: candidate }),
+        encoding: "utf8",
+      });
+      expect(result.status, result.stderr).toBe(0);
+      return JSON.parse(result.stdout) as Record<string, unknown>;
+    };
+    expect(validate(artifact).ok).toBe(true);
+
+    const deleteSection = String(artifact.unified_diff).match(/diff --git a\/delete\.txt[\s\S]*?(?=diff --git |$)/)?.[0] ?? "";
+    const partialSection = deleteSection.replace("@@ -1,2 +0,0 @@\n-first\n-second\n", "@@ -1 +0,0 @@\n-first\n");
+    for (const section of [
+      partialSection,
+      deleteSection.replace("@@ -1,2 +0,0 @@\n-first\n-second\n", "@@ -1,2 +1 @@\n first\n-second\n"),
+    ]) {
+      const invalid = structuredClone(artifact) as Record<string, unknown>;
+      invalid.unified_diff = String(artifact.unified_diff).replace(deleteSection, section);
+      expect(validate(invalid).code).toBe("diff_source_mismatch");
+    }
+
+    writeFileSync(join(repo, "delete.txt"), "single", "utf8");
+    git("add", "delete.txt");
+    git("commit", "-m", "newline-less source");
+    const noNewlineSource = git("rev-parse", "HEAD");
+    git("rm", "delete.txt");
+    git("commit", "-m", "delete newline-less source");
+    const noNewlineTarget = git("rev-parse", "HEAD");
+    const noNewlinePacket = packet({ base_sha: noNewlineSource, allowed_paths: ["delete.txt"] });
+    const noNewlineBuild = spawnSync(process.execPath, [helper, "build-publication"], {
+      cwd: repo,
+      input: JSON.stringify({ packet: noNewlinePacket, source_head: noNewlineSource, target_head: noNewlineTarget }),
+      encoding: "utf8",
+    });
+    expect(noNewlineBuild.status, noNewlineBuild.stderr).toBe(0);
+  });
+
+  it("rejects misplaced and duplicate final-newline markers", () => {
+    const repo = mkdtempSync(join(tmpdir(), "proffera-newline-markers-"));
+    const git = (...args: string[]) => {
+      const result = spawnSync("git", args, { cwd: repo, encoding: "utf8" });
+      expect(result.status, result.stderr).toBe(0);
+      return result.stdout.trim();
+    };
+    git("init");
+    git("config", "user.name", "test");
+    git("config", "user.email", "test@example.invalid");
+    writeFileSync(join(repo, "source-marker.txt"), "first\nsecond", "utf8");
+    writeFileSync(join(repo, "target-marker.txt"), "first\nsecond\n", "utf8");
+    writeFileSync(join(repo, "context-marker.txt"), "first\nmiddle\nlast", "utf8");
+    git("add", "--all");
+    git("commit", "-m", "source");
+    const sourceHead = git("rev-parse", "HEAD");
+    writeFileSync(join(repo, "source-marker.txt"), "changed\nsecond\n", "utf8");
+    writeFileSync(join(repo, "target-marker.txt"), "changed\nsecond", "utf8");
+    writeFileSync(join(repo, "context-marker.txt"), "changed\nmiddle\nlast", "utf8");
+    git("commit", "-am", "target");
+    const targetHead = git("rev-parse", "HEAD");
+    const allowedPaths = ["context-marker.txt", "source-marker.txt", "target-marker.txt"];
+    const scopedPacket = packet({ base_sha: sourceHead, allowed_paths: allowedPaths });
+    const built = spawnSync(process.execPath, [helper, "build-publication"], {
+      cwd: repo,
+      input: JSON.stringify({ packet: scopedPacket, source_head: sourceHead, target_head: targetHead }),
+      encoding: "utf8",
+    });
+    expect(built.status, built.stderr).toBe(0);
+    const artifact = JSON.parse(built.stdout) as Record<string, unknown>;
+    const unifiedDiff = String(artifact.unified_diff);
+    const section = (path: string) => unifiedDiff.match(new RegExp(`diff --git a/${path}[\\s\\S]*?(?=diff --git |$)`))?.[0] ?? "";
+    const validate = (candidateDiff: string) => {
+      const result = spawnSync(process.execPath, [helper, "validate-publication"], {
+        cwd: repo,
+        input: JSON.stringify({
+          packet: scopedPacket,
+          current_source_head: sourceHead,
+          artifact: { ...artifact, unified_diff: candidateDiff },
+        }),
+        encoding: "utf8",
+      });
+      expect(result.status, result.stderr).toBe(0);
+      return JSON.parse(result.stdout) as Record<string, unknown>;
+    };
+    expect(validate(unifiedDiff).ok).toBe(true);
+
+    const sourceSection = section("source-marker.txt");
+    const sourceMarker = "\\ No newline at end of file";
+    expect(sourceSection).toContain(`-first\n-second\n${sourceMarker}\n+changed\n+second\n`);
+    const misplacedSource = sourceSection.replace(
+      `-first\n-second\n${sourceMarker}\n`,
+      `-first\n${sourceMarker}\n-second\n`,
+    );
+
+    const targetSection = section("target-marker.txt");
+    expect(targetSection).toContain(`-first\n-second\n+changed\n+second\n${sourceMarker}\n`);
+    const misplacedTarget = targetSection.replace(
+      `+changed\n+second\n${sourceMarker}\n`,
+      `+changed\n${sourceMarker}\n+second\n`,
+    );
+
+    const contextSection = section("context-marker.txt");
+    expect(contextSection).toContain(` middle\n last\n${sourceMarker}\n`);
+    const misplacedContext = contextSection.replace(
+      ` middle\n last\n${sourceMarker}\n`,
+      ` middle\n${sourceMarker}\n last\n`,
+    );
+    const duplicateMarker = contextSection.replace(`${sourceMarker}\n`, `${sourceMarker}\n${sourceMarker}\n`);
+    const boundaryMarker = contextSection.replace(/(@@[^\n]*\n)/, `$1${sourceMarker}\n`);
+
+    for (const [original, tampered] of [
+      [sourceSection, misplacedSource],
+      [targetSection, misplacedTarget],
+      [contextSection, misplacedContext],
+      [contextSection, duplicateMarker],
+      [contextSection, boundaryMarker],
+    ]) {
+      expect(tampered).not.toBe(original);
+      expect(validate(unifiedDiff.replace(original, tampered)).ok).toBe(false);
+    }
+  });
+
+  it("preserves an untouched newline-less suffix after an earlier hunk", () => {
+    const repo = mkdtempSync(join(tmpdir(), "proffera-newline-suffix-"));
+    const git = (...args: string[]) => {
+      const result = spawnSync("git", args, { cwd: repo, encoding: "utf8" });
+      expect(result.status, result.stderr).toBe(0);
+      return result.stdout.trim();
+    };
+    const sourceText = Array.from({ length: 10 }, (_, index) => `line-${index + 1}`).join("\n");
+    const targetText = Array.from({ length: 9 }, (_, index) => `line-${index + 2}`).join("\n");
+    git("init");
+    git("config", "user.name", "test");
+    git("config", "user.email", "test@example.invalid");
+    writeFileSync(join(repo, "suffix.txt"), sourceText, "utf8");
+    git("add", "suffix.txt");
+    git("commit", "-m", "source");
+    const sourceHead = git("rev-parse", "HEAD");
+    writeFileSync(join(repo, "suffix.txt"), targetText, "utf8");
+    git("commit", "-am", "target");
+    const targetHead = git("rev-parse", "HEAD");
+    const scopedPacket = packet({ base_sha: sourceHead, allowed_paths: ["suffix.txt"] });
+    const built = spawnSync(process.execPath, [helper, "build-publication"], {
+      cwd: repo,
+      input: JSON.stringify({ packet: scopedPacket, source_head: sourceHead, target_head: targetHead }),
+      encoding: "utf8",
+    });
+    expect(built.status, built.stderr).toBe(0);
+    const artifact = JSON.parse(built.stdout) as Record<string, unknown>;
+    const replacement = (artifact.replacements as Array<Record<string, unknown>>)[0];
+    expect(replacement.content).toBe(targetText);
+    const validated = spawnSync(process.execPath, [helper, "validate-publication"], {
+      cwd: repo,
+      input: JSON.stringify({ packet: scopedPacket, current_source_head: sourceHead, artifact }),
+      encoding: "utf8",
+    });
+    expect(validated.status, validated.stderr).toBe(0);
+    expect(JSON.parse(validated.stdout).ok).toBe(true);
+  });
+
+  it("accepts exact header-only empty-file additions and deletions", () => {
+    const repo = mkdtempSync(join(tmpdir(), "proffera-empty-publication-"));
+    const git = (...args: string[]) => {
+      const result = spawnSync("git", args, { cwd: repo, encoding: "utf8" });
+      expect(result.status, result.stderr).toBe(0);
+      return result.stdout.trim();
+    };
+    git("init");
+    git("config", "user.name", "test");
+    git("config", "user.email", "test@example.invalid");
+    writeFileSync(join(repo, "delete-empty.txt"), "", "utf8");
+    git("add", "delete-empty.txt");
+    git("commit", "-m", "source");
+    const sourceHead = git("rev-parse", "HEAD");
+    git("rm", "delete-empty.txt");
+    writeFileSync(join(repo, "add-empty.txt"), "", "utf8");
+    git("add", "add-empty.txt");
+    git("commit", "-m", "target");
+    const targetHead = git("rev-parse", "HEAD");
+    const scopedPacket = packet({ base_sha: sourceHead, allowed_paths: ["add-empty.txt", "delete-empty.txt"] });
+    const built = spawnSync(process.execPath, [helper, "build-publication"], {
+      cwd: repo,
+      input: JSON.stringify({ packet: scopedPacket, source_head: sourceHead, target_head: targetHead }),
+      encoding: "utf8",
+    });
+    expect(built.status, built.stderr).toBe(0);
+    const artifact = JSON.parse(built.stdout) as Record<string, unknown>;
+    expect(String(artifact.unified_diff)).not.toContain("@@ ");
+    const validated = spawnSync(process.execPath, [helper, "validate-publication"], {
+      cwd: repo,
+      input: JSON.stringify({ packet: scopedPacket, current_source_head: sourceHead, artifact }),
+      encoding: "utf8",
+    });
+    expect(validated.status, validated.stderr).toBe(0);
+    expect(JSON.parse(validated.stdout).ok).toBe(true);
+  });
+
+  it("keeps sensitive work on FULL gates and permits canonical low-risk routing", () => {
+    const sensitive = ciPlan([".github/workflows/worker-supervisor-sync.yml"]);
+    expect(sensitive.classification).toBe("restricted-full");
+    expect(sensitive.fullCiStillRequired).toBe(true);
+    expect(sensitive.proposedLanes).toEqual(["governance", "whitespace", "lint", "typecheck", "unit", "build", "e2e", "discovery-worker"]);
+
+    const docs = ciPlan(["docs/example.md"]);
+    expect(docs.classification).toBe("low-docs");
+    expect(docs.fullCiStillRequired).toBe(false);
+
+    const isolatedTest = ciPlan(["tests/example.test.ts"]);
+    expect(isolatedTest.classification).toBe("low-mapped");
+    expect(isolatedTest.fullCiStillRequired).toBe(false);
   });
 
   it("uses the existing pinned Codex action but never exposes the push credential to that action", () => {
