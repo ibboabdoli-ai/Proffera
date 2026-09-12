@@ -59,6 +59,9 @@ jobs:
           live_author="$(jq -r '.user.login // ""' <<< "$pr_json")"
           live_head_repository="$(jq -r '.head.repo.full_name // ""' <<< "$pr_json")"
           body="$(jq -r '.body // ""' <<< "$pr_json")"
+          trusted_reservation_id=""
+          trusted_reservation_body=""
+          trusted_reservation_payload=""
 
           close_unreserved() {
             local reason="$1"
@@ -69,12 +72,18 @@ jobs:
           }
 
           has_trusted_dispatch_provenance() {
-            local comments reservation_matches=0 trusted_matches=0 reservation_body payload_b64 payload state reserved_task reserved_run reserved_branch reserved_head reserved_pr head_matches dispatch_marker dispatch_matches
+            local comments reservation_matches=0 trusted_matches=0 encoded reservation_json reservation_id reservation_body payload_b64 payload state reserved_task reserved_run reserved_branch reserved_head reserved_pr head_matches dispatch_marker dispatch_matches
+            trusted_reservation_id=""
+            trusted_reservation_body=""
+            trusted_reservation_payload=""
             [ "$live_author" = "${REPOSITORY%%/*}" ] && [ "$live_head_repository" = "$REPOSITORY" ] || return 1
             if ! comments="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.')"; then
               return 1
             fi
-            while IFS= read -r reservation_body; do
+            while IFS= read -r encoded; do
+              reservation_json="$(printf '%s' "$encoded" | base64 --decode 2>/dev/null || true)"
+              reservation_id="$(jq -r '.id // empty' <<< "$reservation_json")"
+              reservation_body="$(jq -r '.body // ""' <<< "$reservation_json")"
               payload_b64="$(sed -n 's/^- Reservation payload: `\([^`]*\)`$/\1/p' <<< "$reservation_body")"
               payload="$(printf '%s' "$payload_b64" | base64 --decode 2>/dev/null || true)"
               jq -e . >/dev/null 2>&1 <<< "$payload" || continue
@@ -89,7 +98,8 @@ jobs:
                 RELEASED) [ "$live_state" = "closed" ] || continue ;;
                 *) continue ;;
               esac
-              [ -n "$reserved_task" ] && [ -n "$reserved_run" ] || continue
+              [ -n "$reserved_task" ] && [ -n "$reserved_run" ] && [ -n "$reserved_head" ] || continue
+              [ -z "$reserved_pr" ] || [ "$reserved_pr" = "$PR_NUMBER" ] || continue
               head_matches=false
               if [ "$reserved_head" = "$live_head" ] \
                 || { [ "$reserved_pr" = "$PR_NUMBER" ] \
@@ -106,9 +116,67 @@ jobs:
               dispatch_matches="$(jq --arg marker "$dispatch_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | length' <<< "$comments")"
               if [ "$dispatch_matches" -eq 1 ]; then
                 trusted_matches=$((trusted_matches + 1))
+                trusted_reservation_id="$reservation_id"
+                trusted_reservation_body="$reservation_body"
+                trusted_reservation_payload="$payload"
               fi
-            done < <(jq -r '.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains("<!-- proffera-worker-slot-reservation:"))) | .body // ""' <<< "$comments")
+            done < <(jq -r '.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains("<!-- proffera-worker-slot-reservation:"))) | @base64' <<< "$comments")
             [ "$reservation_matches" -eq 1 ] && [ "$trusted_matches" -eq 1 ]
+          }
+
+          release_trusted_reservation_after_invalid_close() {
+            local reason="$1" prior_id="$trusted_reservation_id" prior_body="$trusted_reservation_body" prior_payload="$trusted_reservation_payload"
+            local confirm_pr confirm_comment confirm_body guard_pr payload state task_id live_merged_now payload_b64 new_body
+            test -n "$prior_id" -a -n "$prior_body" -a -n "$prior_payload"
+            confirm_pr="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")"
+            if [ "$(jq -r '.state // ""' <<< "$confirm_pr")" != "closed" ] \
+              || [ "$(jq -r '.head.sha // ""' <<< "$confirm_pr")" != "$live_head" ] \
+              || [ "$(jq -r '.head.ref // ""' <<< "$confirm_pr")" != "$live_ref" ] \
+              || [ "$(jq -r '.user.login // ""' <<< "$confirm_pr")" != "${REPOSITORY%%/*}" ] \
+              || [ "$(jq -r '.head.repo.full_name // ""' <<< "$confirm_pr")" != "$REPOSITORY" ]; then
+              echo "Closed malformed Worker PR changed before reservation release; leaving reservation unchanged." >&2
+              return 1
+            fi
+            live_merged_now="$(jq -r '.merged == true' <<< "$confirm_pr")"
+            live_state="closed"
+            live_merged="$live_merged_now"
+            if ! has_trusted_dispatch_provenance \
+              || [ "$trusted_reservation_id" != "$prior_id" ] \
+              || [ "$trusted_reservation_body" != "$prior_body" ] \
+              || [ "$trusted_reservation_payload" != "$prior_payload" ]; then
+              echo "Closed malformed Worker PR provenance changed before reservation release; leaving reservation unchanged." >&2
+              return 1
+            fi
+            confirm_comment="$(gh api "repos/${REPOSITORY}/issues/comments/${prior_id}")"
+            test "$(jq -r '.user.login // ""' <<< "$confirm_comment")" = "github-actions[bot]"
+            confirm_body="$(jq -r '.body // ""' <<< "$confirm_comment")"
+            test "$confirm_body" = "$prior_body"
+            guard_pr="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")"
+            if [ "$(jq -r '.state // ""' <<< "$guard_pr")" != "closed" ] \
+              || [ "$(jq -r '.merged == true' <<< "$guard_pr")" != "$live_merged_now" ] \
+              || [ "$(jq -r '.head.sha // ""' <<< "$guard_pr")" != "$live_head" ] \
+              || [ "$(jq -r '.head.ref // ""' <<< "$guard_pr")" != "$live_ref" ] \
+              || [ "$(jq -r '.user.login // ""' <<< "$guard_pr")" != "${REPOSITORY%%/*}" ] \
+              || [ "$(jq -r '.head.repo.full_name // ""' <<< "$guard_pr")" != "$REPOSITORY" ]; then
+              echo "Closed malformed Worker PR changed during final reservation guard; leaving reservation unchanged." >&2
+              return 1
+            fi
+            payload="$prior_payload"
+            state="$(jq -r '.state // ""' <<< "$payload")"
+            task_id="$(jq -r '.task_id // ""' <<< "$payload")"
+            if [ "$state" = "RELEASED" ]; then
+              echo "Malformed closed Worker PR reservation ${task_id} was already released idempotently."
+              return 0
+            fi
+            if [ "$state" != "PUBLISHED" ] || [ "$(jq -r '.pr_number // empty' <<< "$payload")" != "$PR_NUMBER" ]; then
+              echo "Refused: malformed closed Worker PR requires its exact PUBLISHED reservation." >&2
+              return 1
+            fi
+            payload="$(jq -c --arg state RELEASED --argjson pr_number "$PR_NUMBER" --arg head "$live_head" --argjson merged "$live_merged_now" '.state=$state | .pr_number=$pr_number | .head_sha=$head | .recovery={kind:"closed_pr_invalid_packet",merged:$merged}' <<< "$payload")"
+            payload_b64="$(printf '%s' "$payload" | base64 -w0)"
+            new_body="$(printf '%s\n' "<!-- proffera-worker-slot-reservation:${task_id} -->" "### Worker slot reservation: ${task_id}" '- State: \`RELEASED\`' "- Reservation payload: \`${payload_b64}\`")"
+            gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${prior_id}" -f body="$new_body" >/dev/null
+            echo "Released trusted Worker slot reservation ${task_id} after malformed PR #${PR_NUMBER} closed (${reason})."
           }
 
           if [ "$live_state" != "closed" ] \
@@ -122,7 +190,8 @@ jobs:
           fi
           if ! grep -Fq "$task_marker" <<< "$body"; then
             if [ "$live_state" = "closed" ]; then
-              echo "Closed legacy Worker PR has no bounded Task Packet; no durable reservation exists to release."
+              release_trusted_reservation_after_invalid_close "missing bounded Task Packet"
+              echo "Closed trusted Worker PR had no bounded Task Packet; its durable reservation was reconciled."
               exit 0
             fi
             close_unreserved "missing bounded Task Packet"
@@ -130,7 +199,8 @@ jobs:
           packet_file="$(mktemp)"
           if ! printf '%s' "$body" | node "$helper" parse > "$packet_file" 2>/dev/null || ! jq -e . "$packet_file" >/dev/null 2>&1; then
             if [ "$live_state" = "closed" ]; then
-              echo "Closed Worker PR has an invalid Task Packet; refusing to mutate any reservation." >&2
+              release_trusted_reservation_after_invalid_close "invalid bounded Task Packet"
+              echo "Closed trusted Worker PR had an invalid Task Packet; its durable reservation was reconciled."
               exit 0
             fi
             close_unreserved "invalid bounded Task Packet"
@@ -143,7 +213,8 @@ jobs:
           packet_digest="$(printf '%s' "$packet" | sha256sum | cut -d' ' -f1)"
           if [ "$packet_branch" != "$live_ref" ]; then
             if [ "$live_state" = "closed" ]; then
-              echo "Closed Worker PR Task Packet branch mismatch; refusing reservation mutation." >&2
+              release_trusted_reservation_after_invalid_close "Task Packet branch does not match PR head"
+              echo "Closed trusted Worker PR had a Task Packet branch mismatch; its durable reservation was reconciled."
               exit 0
             fi
             close_unreserved "Task Packet branch does not match PR head"

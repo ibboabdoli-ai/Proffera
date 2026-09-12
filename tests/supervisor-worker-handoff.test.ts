@@ -96,6 +96,8 @@ type ReservationEnforcementOptions = {
   eventActor?: string;
   eventHead?: string;
   liveHead?: string;
+  liveAuthor?: string;
+  liveHeadRepository?: string;
   liveMerged?: boolean;
   liveState?: string;
 };
@@ -144,6 +146,8 @@ function runReservationEnforcement({
   eventAction = "synchronize",
   eventActor = "ibboabdoli-ai",
   liveHead = sha,
+  liveAuthor = "ibboabdoli-ai",
+  liveHeadRepository = "ibboabdoli-ai/Proffera",
   eventHead = liveHead,
   liveMerged = false,
   liveState = "open",
@@ -156,7 +160,18 @@ function runReservationEnforcement({
   const stateFile = join(root, "gh-state.json");
   mkdirSync(bin, { recursive: true });
   writeFileSync(log, "");
-  writeFileSync(stateFile, JSON.stringify({ comments }));
+  const livePr = {
+    state: liveState,
+    merged: liveMerged,
+    head: {
+      sha: liveHead,
+      ref: "work/proffera-test-task",
+      repo: { full_name: liveHeadRepository },
+    },
+    user: { login: liveAuthor },
+    body,
+  };
+  writeFileSync(stateFile, JSON.stringify({ comments, pr: livePr }));
   writeFileSync(
     join(bin, "gh"),
     `#!/usr/bin/env node
@@ -174,7 +189,10 @@ if (args[0] !== "api" || !endpoint) {
 if (method !== "GET") {
   const bodyArg = args.find((arg) => arg.startsWith("body="));
   const commentMatch = endpoint.match(/issues\\/comments\\/(\\d+)$/);
-  if (method === "PATCH" && bodyArg && commentMatch) {
+  if (method === "PATCH" && endpoint === "repos/ibboabdoli-ai/Proffera/pulls/849" && args.includes("state=closed")) {
+    state.pr.state = "closed";
+    writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
+  } else if (method === "PATCH" && bodyArg && commentMatch) {
     const comment = state.comments.find((entry) => String(entry.id) === commentMatch[1]);
     if (!comment) process.exit(3);
     comment.body = bodyArg.slice("body=".length);
@@ -187,7 +205,7 @@ if (method !== "GET") {
   process.exit(0);
 }
 if (endpoint === "repos/ibboabdoli-ai/Proffera/pulls/849") {
-  process.stdout.write(process.env.GH_STUB_PR_JSON + "\\n");
+  process.stdout.write(JSON.stringify(state.pr) + "\\n");
   process.exit(0);
 }
 if (endpoint === "repos/ibboabdoli-ai/Proffera/issues/548/comments?per_page=100") {
@@ -210,17 +228,6 @@ process.exit(2);
     { encoding: "utf8", mode: 0o755 },
   );
 
-  const livePr = {
-    state: liveState,
-    merged: liveMerged,
-    head: {
-      sha: liveHead,
-      ref: "work/proffera-test-task",
-      repo: { full_name: "ibboabdoli-ai/Proffera" },
-    },
-    user: { login: "ibboabdoli-ai" },
-    body,
-  };
   const result = spawnSync("bash", ["-c", script], {
     cwd: process.cwd(),
     encoding: "utf8",
@@ -230,7 +237,6 @@ process.exit(2);
       GH_TOKEN: "test-token",
       GH_STUB_LOG: log,
       GH_STUB_STATE_FILE: stateFile,
-      GH_STUB_PR_JSON: JSON.stringify(livePr),
       REPOSITORY: "ibboabdoli-ai/Proffera",
       PR_NUMBER: "849",
       EVENT_ACTION: eventAction,
@@ -247,8 +253,8 @@ process.exit(2);
     .split("\n")
     .filter(Boolean)
     .map((line) => JSON.parse(line) as string[]);
-  const finalState = JSON.parse(readFileSync(stateFile, "utf8")) as { comments: Array<Record<string, unknown>> };
-  return { ...result, calls, comments: finalState.comments };
+  const finalState = JSON.parse(readFileSync(stateFile, "utf8")) as { comments: Array<Record<string, unknown>>; pr: Record<string, unknown> };
+  return { ...result, calls, comments: finalState.comments, pr: finalState.pr };
 }
 
 function runReservationRecovery({ branchExists = true }: { branchExists?: boolean } = {}) {
@@ -1494,6 +1500,117 @@ exit 0
     expect(result.stdout).toContain("is bound to durable reservation SUP-TEST-1@");
     expect(result.stdout).not.toContain("leaving it unchanged");
     expect(prPatchCalls(result.calls)).toHaveLength(0);
+  });
+
+  it("closes a malformed trusted Worker PR and releases its exact published reservation on the closed event", () => {
+    const evidence = exactReservationEvidence(sha, {
+      state: "PUBLISHED",
+      pr_number: 849,
+      recovery: null,
+    });
+    const malformedBody = "Worker result with its bounded Task Packet removed";
+    const result = runReservationEnforcement({
+      body: malformedBody,
+      comments: evidence.comments,
+      eventAction: "edited",
+    });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("missing bounded Task Packet");
+    expect(prPatchCalls(result.calls)).toHaveLength(1);
+    expect(commentPatchCalls(result.calls, 101)).toHaveLength(0);
+    expect(result.pr).toMatchObject({ state: "closed" });
+    const closed = runReservationEnforcement({
+      body: malformedBody,
+      comments: result.comments,
+      eventAction: "closed",
+      liveState: "closed",
+    });
+    expect(closed.status, closed.stderr).toBe(0);
+    expect(closed.stdout).toContain("Released trusted Worker slot reservation SUP-TEST-1");
+    expect(prPatchCalls(closed.calls)).toHaveLength(0);
+    expect(commentPatchCalls(closed.calls, 101)).toHaveLength(1);
+    const reservation = closed.comments.find((comment) => comment.id === 101);
+    const payloadBase64 = String(reservation?.body ?? "").match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+    expect(JSON.parse(Buffer.from(payloadBase64, "base64").toString("utf8"))).toMatchObject({
+      state: "RELEASED",
+      pr_number: 849,
+      head_sha: sha,
+      recovery: { kind: "closed_pr_invalid_packet", merged: false },
+    });
+
+    const existing = {
+      state: "RESERVED",
+      task_id: "SUP-OTHER-SLOT-1",
+      run_id: "7001",
+      branch: "work/proffera-other-slot",
+      head_sha: otherSha,
+      graph_path: "feature/other-slot",
+      packet_digest: "c".repeat(64),
+      lease_expires_at: "2099-01-01T00:00:00Z",
+      allowed_paths: ["src/features/other-slot/"],
+      changed_files: [],
+      pr_number: null,
+      recovery: null,
+    };
+    const freedCapacity = runSlotReservation({ reservation: existing, extraComments: closed.comments });
+    expect(freedCapacity.status, freedCapacity.stderr).toBe(0);
+    expect(freedCapacity.comments.some((comment) => comment.id === 999)).toBe(true);
+
+    const replay = runReservationEnforcement({
+      body: malformedBody,
+      comments: closed.comments,
+      eventAction: "closed",
+      liveState: "closed",
+    });
+    expect(replay.status, replay.stderr).toBe(0);
+    expect(replay.stdout).toContain("already released idempotently");
+    expect(prPatchCalls(replay.calls)).toHaveLength(0);
+    expect(commentPatchCalls(replay.calls, 101)).toHaveLength(0);
+  });
+
+  it("does not close or release a malformed prefixed PR without exact trusted provenance", () => {
+    const result = runReservationEnforcement({
+      body: "Worker result with no Task Packet",
+      comments: [],
+      eventAction: "edited",
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("has no exact trusted Supervisor dispatch provenance; leaving it unchanged");
+    expect(prPatchCalls(result.calls)).toHaveLength(0);
+    expect(result.calls.filter((args) => args.includes("repos/ibboabdoli-ai/Proffera/issues/comments/101"))).toHaveLength(0);
+  });
+
+  it("refuses malformed closed-PR release for ambiguous or mismatched provenance", () => {
+    const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+    const payloadBase64 = String(evidence.comments[0].body).match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+    const payload = JSON.parse(Buffer.from(payloadBase64, "base64").toString("utf8"));
+    const exactDispatch = evidence.comments[1];
+    const variants = [
+      { comments: [evidence.comments[0]] },
+      { comments: [...evidence.comments, { ...exactDispatch, id: 104 }] },
+      { comments: [...evidence.comments, { ...evidence.comments[0], id: 104 }] },
+      { comments: [reservationComment({ ...payload, pr_number: 850 }, 101), exactDispatch] },
+      { comments: [reservationComment({ ...payload, branch: "work/proffera-other" }, 101), exactDispatch] },
+      { comments: [reservationComment({ ...payload, state: "RESERVED" }, 101), exactDispatch] },
+      {
+        comments: [
+          { ...evidence.comments[0], body: "<!-- proffera-worker-slot-reservation:SUP-TEST-1 -->\n- Reservation payload: `not-base64`" },
+          exactDispatch,
+        ],
+      },
+      { comments: evidence.comments, liveAuthor: "other-owner" },
+      { comments: evidence.comments, liveHeadRepository: "other-owner/Proffera" },
+    ];
+    for (const variant of variants) {
+      const result = runReservationEnforcement({
+        body: "Worker result with no Task Packet",
+        eventAction: "closed",
+        liveState: "closed",
+        ...variant,
+      });
+      expect(prPatchCalls(result.calls)).toHaveLength(0);
+      expect(commentPatchCalls(result.calls, 101)).toHaveLength(0);
+    }
   });
 
   it("promotes an exact recoverable reservation when its trusted PR appears", () => {
