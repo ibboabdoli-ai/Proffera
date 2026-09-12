@@ -283,6 +283,7 @@ jobs:
                   reserved_allowed="$(jq -c '.allowed_paths // []' <<< "$payload")"
                   reserved_head="$(jq -r '.head_sha // ""' <<< "$payload")"
                   reserved_pr="$(jq -r '.pr_number // empty' <<< "$payload")"
+                  reserved_run="$(jq -r '.run_id // ""' <<< "$payload")"
                   if [ "$reserved_task" = "$task_id" ] \
                     && [ "$reserved_branch" = "$live_ref" ] \
                     && [ "$reserved_graph" = "$packet_graph" ] \
@@ -292,7 +293,37 @@ jobs:
                     && [ "$live_author" = "${REPOSITORY%%/*}" ] \
                     && [ "$live_head_repository" = "$REPOSITORY" ] \
                     && { [ "$state" != "PUBLISHED" ] || [ "$reserved_pr" = "$PR_NUMBER" ]; } \
+                    && { [ "$state" != "RECOVERABLE" ] || [ -z "$reserved_pr" ] || [ "$reserved_pr" = "$PR_NUMBER" ]; } \
                     && { [ "$state" = "RESERVED" ] || [ "$state" = "PUBLISHED" ] || [ "$state" = "RECOVERABLE" ]; }; then
+                    if [ "$state" = "RECOVERABLE" ]; then
+                      reservation_id="$(jq -r '.[0].id' <<< "$comments")"
+                      dispatch_marker="<!-- proffera-worker-dispatch-start:${reserved_task}:${reserved_run} -->"
+                      confirm_pr="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")"
+                      confirm_comments="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.')"
+                      confirm_reservations="$(jq -c --arg marker "$marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]' <<< "$confirm_comments")"
+                      confirm_dispatches="$(jq --arg marker "$dispatch_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | length' <<< "$confirm_comments")"
+                      confirm_reservation_body="$(gh api "repos/${REPOSITORY}/issues/comments/${reservation_id}" --jq '.body // ""')"
+                      if [ "$(jq -r '.state // ""' <<< "$confirm_pr")" != "open" ] \
+                        || [ "$(jq -r '.merged == true' <<< "$confirm_pr")" != "false" ] \
+                        || [ "$(jq -r '.head.sha // ""' <<< "$confirm_pr")" != "$live_head" ] \
+                        || [ "$(jq -r '.head.ref // ""' <<< "$confirm_pr")" != "$live_ref" ] \
+                        || [ "$(jq -r '.user.login // ""' <<< "$confirm_pr")" != "${REPOSITORY%%/*}" ] \
+                        || [ "$(jq -r '.head.repo.full_name // ""' <<< "$confirm_pr")" != "$REPOSITORY" ] \
+                        || [ "$(jq -r '.body // ""' <<< "$confirm_pr")" != "$body" ] \
+                        || [ "$(jq 'length' <<< "$confirm_reservations")" -ne 1 ] \
+                        || [ "$(jq -r '.[0].id' <<< "$confirm_reservations")" != "$reservation_id" ] \
+                        || [ "$(jq -r '.[0].body // ""' <<< "$confirm_reservations")" != "$reservation_body" ] \
+                        || [ "$confirm_reservation_body" != "$reservation_body" ] \
+                        || [ "$confirm_dispatches" -ne 1 ]; then
+                        echo "Refused: recoverable reservation or trusted PR provenance changed before publication binding." >&2
+                        exit 1
+                      fi
+                      payload="$(jq -c --arg state PUBLISHED --argjson pr_number "$PR_NUMBER" '.state=$state | .pr_number=$pr_number | .recovery=null' <<< "$payload")"
+                      payload_b64="$(printf '%s' "$payload" | base64 -w0)"
+                      new_body="$(printf '%s\n' "$marker" "### Worker slot reservation: ${task_id}" '- State: `PUBLISHED`' "- Reservation payload: \`${payload_b64}\`")"
+                      gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${reservation_id}" -f body="$new_body" >/dev/null
+                      echo "Promoted exact recoverable reservation ${task_id}@${live_head} to PUBLISHED for Worker PR #${PR_NUMBER}."
+                    fi
                     echo "Worker PR #${PR_NUMBER} is bound to durable reservation ${task_id}@${live_head}."
                     exit 0
                   fi
@@ -1353,7 +1384,8 @@ jobs:
             payload="$(jq -c --arg state RECOVERABLE --arg digest "$RECOVERY_DIGEST" --arg head "$HEAD_SHA" --arg expires "$recovery_expires_at" '.state=$state | .head_sha=$head | .recovery={kind:"artifact",digest:$digest,expires_at:$expires}' <<< "$payload")"
             label=RECOVERABLE
           elif gh api "repos/${REPOSITORY}/git/ref/heads/${BRANCH}" >/dev/null 2>&1; then
-            payload="$(jq -c --arg state RECOVERABLE '.state=$state | .recovery={kind:"branch"}' <<< "$payload")"
+            recovery_expires_at="$(date -u -d '+6 days' +%Y-%m-%dT%H:%M:%SZ)"
+            payload="$(jq -c --arg state RECOVERABLE --arg expires "$recovery_expires_at" '.state=$state | .recovery={kind:"branch",expires_at:$expires}' <<< "$payload")"
             label=RECOVERABLE
           else
             payload="$(jq -c --arg state RELEASED '.state=$state | .recovery=null' <<< "$payload")"

@@ -623,6 +623,11 @@ function applyUnifiedDiffSection(source, entry) {
   const result = [];
   let sourceIndex = 0;
   let targetEndsNewline = sourceEndsNewline;
+  let sourceFinalLineInHunk = false;
+  let sourceNoNewlineMarkerSeen = false;
+  let targetNoNewlineMarkerSeen = false;
+  let targetNoNewlineMarkerPosition = -1;
+  let lastTargetHunkLinePosition = -1;
   let previousPrefix = "";
   let cursor = firstHunk;
   while (cursor < entry.section.length) {
@@ -645,10 +650,20 @@ function applyUnifiedDiffSection(source, entry) {
       const line = entry.section[cursor];
       if (line === "\\ No newline at end of file") {
         if (!previousPrefix) publicationFailure("diff_incomplete", `unified diff section '${entry.path}' has a misplaced final-newline marker`);
-        if ((previousPrefix === "-" || previousPrefix === " ") && sourceEndsNewline) {
-          publicationFailure("diff_source_mismatch", `unified diff final-newline marker does not match exact source bytes for '${entry.path}'`);
+        if (previousPrefix === "-" || previousPrefix === " ") {
+          if (sourceEndsNewline || sourceIndex !== sourceLines.length || sourceNoNewlineMarkerSeen) {
+            publicationFailure("diff_source_mismatch", `unified diff source final-newline marker is misplaced for '${entry.path}'`);
+          }
+          sourceNoNewlineMarkerSeen = true;
         }
-        if (previousPrefix === "+" || previousPrefix === " ") targetEndsNewline = false;
+        if (previousPrefix === "+" || previousPrefix === " ") {
+          if (targetNoNewlineMarkerSeen) {
+            publicationFailure("diff_source_mismatch", `unified diff target final-newline marker is duplicated for '${entry.path}'`);
+          }
+          targetNoNewlineMarkerSeen = true;
+          targetNoNewlineMarkerPosition = result.length;
+          targetEndsNewline = false;
+        }
         previousPrefix = "";
         cursor += 1;
         continue;
@@ -657,9 +672,11 @@ function applyUnifiedDiffSection(source, entry) {
       if (line.startsWith(" ") || line.startsWith("-")) {
         if (sourceLines[sourceIndex] !== value) publicationFailure("diff_source_mismatch", `unified diff does not match exact source bytes for '${entry.path}'`);
         sourceIndex += 1;
+        if (sourceIndex === sourceLines.length) sourceFinalLineInHunk = true;
       }
       if (line.startsWith(" ") || line.startsWith("+")) {
         result.push(value);
+        lastTargetHunkLinePosition = result.length;
         targetEndsNewline = true;
       }
       previousPrefix = line[0];
@@ -667,6 +684,15 @@ function applyUnifiedDiffSection(source, entry) {
     }
   }
   result.push(...sourceLines.slice(sourceIndex));
+  if (!sourceEndsNewline && sourceFinalLineInHunk && !sourceNoNewlineMarkerSeen) {
+    publicationFailure("diff_source_mismatch", `unified diff omits the source final-newline marker for '${entry.path}'`);
+  }
+  if (targetNoNewlineMarkerSeen && targetNoNewlineMarkerPosition !== result.length) {
+    publicationFailure("diff_source_mismatch", `unified diff target final-newline marker is misplaced for '${entry.path}'`);
+  }
+  if (!targetEndsNewline && result.length > 0 && lastTargetHunkLinePosition === result.length && !targetNoNewlineMarkerSeen) {
+    publicationFailure("diff_source_mismatch", `unified diff omits the target final-newline marker for '${entry.path}'`);
+  }
   if (entry.deleted) {
     if (result.length !== 0 || sourceIndex !== sourceLines.length) {
       publicationFailure("diff_source_mismatch", `deletion diff must consume the complete exact source and leave no target lines for '${entry.path}'`);

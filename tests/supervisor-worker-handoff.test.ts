@@ -99,7 +99,7 @@ type ReservationEnforcementOptions = {
   liveState?: string;
 };
 
-function exactReservationEvidence(head = sha) {
+function exactReservationEvidence(head = sha, overrides: Record<string, unknown> = {}) {
   const body = packetComment();
   const parsed = spawnSync("node", [helper, "parse"], { input: body, encoding: "utf8" });
   expect(parsed.status, parsed.stderr).toBe(0);
@@ -114,6 +114,7 @@ function exactReservationEvidence(head = sha) {
     graph_path: parsedPacket.graph_path,
     allowed_paths: parsedPacket.allowed_paths,
     packet_digest: createHash("sha256").update(normalizedPacket).digest("hex"),
+    ...overrides,
   };
   const payloadBase64 = Buffer.from(JSON.stringify(payload)).toString("base64");
   return {
@@ -152,6 +153,7 @@ function runReservationEnforcement({
   const log = join(root, "gh-calls.jsonl");
   const stateFile = join(root, "gh-state.json");
   mkdirSync(bin, { recursive: true });
+  writeFileSync(log, "");
   writeFileSync(stateFile, JSON.stringify({ comments }));
   writeFileSync(
     join(bin, "gh"),
@@ -190,6 +192,14 @@ if (endpoint === "repos/ibboabdoli-ai/Proffera/issues/548/comments?per_page=100"
   for (const comment of state.comments) {
     process.stdout.write(JSON.stringify(comment) + "\\n");
   }
+  process.exit(0);
+}
+const directComment = endpoint.match(/repos\\/ibboabdoli-ai\\/Proffera\\/issues\\/comments\\/(\\d+)$/);
+if (directComment) {
+  const comment = state.comments.find((entry) => String(entry.id) === directComment[1]);
+  if (!comment) process.exit(3);
+  if (args.includes("--jq")) process.stdout.write(String(comment.body ?? "") + "\\n");
+  else process.stdout.write(JSON.stringify(comment) + "\\n");
   process.exit(0);
 }
 process.stderr.write("unhandled gh endpoint: " + endpoint + "\\n");
@@ -234,6 +244,266 @@ process.exit(2);
     .split("\n")
     .filter(Boolean)
     .map((line) => JSON.parse(line) as string[]);
+  const finalState = JSON.parse(readFileSync(stateFile, "utf8")) as { comments: Array<Record<string, unknown>> };
+  return { ...result, calls, comments: finalState.comments };
+}
+
+function runReservationRecovery({ branchExists = true }: { branchExists?: boolean } = {}) {
+  const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+  const script = workflowRunStep(workflow, "Release or recover reservation on dispatch failure");
+  const root = mkdtempSync(join(tmpdir(), "proffera-reservation-recovery-"));
+  const bin = join(root, "bin");
+  const runnerTemp = join(root, "runner");
+  const trusted = join(runnerTemp, "proffera-trusted-control");
+  const log = join(root, "gh-calls.jsonl");
+  const stateFile = join(root, "gh-state.json");
+  mkdirSync(bin, { recursive: true });
+  mkdirSync(trusted, { recursive: true });
+  copyFileSync(helper, join(trusted, "supervisor-worker-handoff.mjs"));
+  const parsed = spawnSync(process.execPath, [helper, "parse"], { input: packetComment(), encoding: "utf8" });
+  expect(parsed.status, parsed.stderr).toBe(0);
+  const normalizedPacket = parsed.stdout.replace(/\n+$/, "");
+  const evidence = exactReservationEvidence();
+  writeFileSync(log, "");
+  writeFileSync(stateFile, JSON.stringify({ branchExists, comments: [evidence.comments[0]], pulls: [] }));
+  writeFileSync(
+    join(bin, "gh"),
+    `#!/usr/bin/env node
+const { appendFileSync, readFileSync, writeFileSync } = require("node:fs");
+const args = process.argv.slice(2);
+appendFileSync(process.env.GH_STUB_LOG, JSON.stringify(args) + "\\n");
+const methodIndex = args.indexOf("--method");
+const method = methodIndex >= 0 ? args[methodIndex + 1] : "GET";
+const endpoint = args.find((arg) => arg.startsWith("repos/")) || "";
+const state = JSON.parse(readFileSync(process.env.GH_STUB_STATE_FILE, "utf8"));
+const commentMatch = endpoint.match(/issues\\/comments\\/(\\d+)$/);
+if (method === "PATCH" && commentMatch) {
+  const bodyArg = args.find((arg) => arg.startsWith("body="));
+  const comment = state.comments.find((entry) => String(entry.id) === commentMatch[1]);
+  if (!bodyArg || !comment) process.exit(3);
+  comment.body = bodyArg.slice("body=".length);
+  writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
+  process.stdout.write("{}\\n");
+  process.exit(0);
+}
+if (method !== "GET") process.exit(2);
+if (commentMatch) {
+  const comment = state.comments.find((entry) => String(entry.id) === commentMatch[1]);
+  if (!comment) process.exit(3);
+  process.stdout.write(JSON.stringify(comment) + "\\n");
+  process.exit(0);
+}
+if (endpoint === "repos/ibboabdoli-ai/Proffera/pulls?state=open&base=main&per_page=100") {
+  for (const pull of state.pulls) process.stdout.write(JSON.stringify(pull) + "\\n");
+  process.exit(0);
+}
+if (endpoint === "repos/ibboabdoli-ai/Proffera/git/ref/heads/work/proffera-test-task") {
+  if (!state.branchExists) process.exit(1);
+  process.stdout.write('{"ref":"refs/heads/work/proffera-test-task"}\\n');
+  process.exit(0);
+}
+process.stderr.write("unhandled gh endpoint: " + endpoint + "\\n");
+process.exit(2);
+`,
+    { encoding: "utf8", mode: 0o755 },
+  );
+  const result = spawnSync("bash", ["-c", script], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+      GH_TOKEN: "test-token",
+      GH_STUB_LOG: log,
+      GH_STUB_STATE_FILE: stateFile,
+      RUNNER_TEMP: runnerTemp,
+      REPOSITORY: "ibboabdoli-ai/Proffera",
+      RESERVATION_COMMENT_ID: "101",
+      TASK_ID: "SUP-TEST-1",
+      BRANCH: "work/proffera-test-task",
+      RUN_ID: "9001",
+      PACKET_B64: Buffer.from(normalizedPacket).toString("base64"),
+      ARTIFACT_UPLOADED: "false",
+      RECOVERY_DIGEST: "",
+      HEAD_SHA: sha,
+    },
+  });
+  const calls = readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as string[]);
+  const finalState = JSON.parse(readFileSync(stateFile, "utf8")) as { comments: Array<Record<string, unknown>> };
+  return { ...result, calls, comments: finalState.comments };
+}
+
+type SlotReservationOptions = {
+  reservation?: Record<string, unknown>;
+  pulls?: Array<Record<string, unknown>>;
+  branches?: string[];
+  runStatus?: string;
+  changedReservationBody?: boolean;
+};
+
+function reservationComment(payload: Record<string, unknown>, id = 201) {
+  const payloadBase64 = Buffer.from(JSON.stringify(payload)).toString("base64");
+  return {
+    id,
+    user: { login: "github-actions[bot]" },
+    body: `<!-- proffera-worker-slot-reservation:${payload.task_id} -->\n`
+      + `### Worker slot reservation: ${payload.task_id}\n`
+      + `- State: \`${payload.state}\`\n`
+      + `- Reservation payload: \`${payloadBase64}\``,
+  };
+}
+
+function runSlotReservation({
+  reservation,
+  pulls = [],
+  branches = [],
+  runStatus = "completed",
+  changedReservationBody = false,
+}: SlotReservationOptions = {}) {
+  const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+  const script = workflowRunStep(workflow, "Atomically reserve writable Worker slot");
+  const root = mkdtempSync(join(tmpdir(), "proffera-slot-reservation-"));
+  const bin = join(root, "bin");
+  const runnerTemp = join(root, "runner");
+  const trusted = join(runnerTemp, "proffera-trusted-control");
+  const trustedHelper = join(trusted, "supervisor-worker-handoff.mjs");
+  const manifest = join(trusted, "supervisor-worker-handoff.sha256");
+  const output = join(root, "github-output");
+  const log = join(root, "gh-calls.jsonl");
+  const stateFile = join(root, "gh-state.json");
+  mkdirSync(bin, { recursive: true });
+  mkdirSync(trusted, { recursive: true });
+  copyFileSync(helper, trustedHelper);
+  const helperDigest = createHash("sha256").update(readFileSync(trustedHelper)).digest("hex");
+  writeFileSync(manifest, `${helperDigest}  ${trustedHelper}\n`);
+  writeFileSync(output, "");
+  writeFileSync(log, "");
+  const localHeadResult = spawnSync("git", ["rev-parse", "HEAD"], { cwd: process.cwd(), encoding: "utf8" });
+  expect(localHeadResult.status, localHeadResult.stderr).toBe(0);
+  const localHead = localHeadResult.stdout.trim();
+  const newPacket = packet({
+    task_id: "SUP-NEW-SLOT-1",
+    task_title: "Disjoint slot behavior test",
+    graph_path: "feature/new-slot",
+    base_sha: localHead,
+    branch: "work/proffera-new-slot",
+    allowed_paths: ["tests/new-slot/"],
+  });
+  const comments = reservation ? [reservationComment(reservation)] : [];
+  writeFileSync(stateFile, JSON.stringify({ branches, changedReservationBody, comments, mutex: "", pulls, runStatus }));
+  writeFileSync(
+    join(bin, "gh"),
+    `#!/usr/bin/env node
+const { appendFileSync, readFileSync, writeFileSync } = require("node:fs");
+const args = process.argv.slice(2);
+appendFileSync(process.env.GH_STUB_LOG, JSON.stringify(args) + "\\n");
+const methodIndex = args.indexOf("--method");
+const method = methodIndex >= 0 ? args[methodIndex + 1] : "GET";
+const endpoint = args.find((arg) => arg.startsWith("repos/")) || "";
+const state = JSON.parse(readFileSync(process.env.GH_STUB_STATE_FILE, "utf8"));
+const save = () => writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
+const field = (name) => args.find((arg) => arg.startsWith(name + "="))?.slice(name.length + 1) ?? "";
+const commentMatch = endpoint.match(/issues\\/comments\\/(\\d+)$/);
+if (method === "POST" && endpoint.endsWith("/labels")) {
+  state.mutex = field("description");
+  save();
+  process.stdout.write("{}\\n");
+  process.exit(0);
+}
+if (method === "DELETE" && endpoint.includes("/labels/")) {
+  state.mutex = "";
+  save();
+  process.stdout.write("{}\\n");
+  process.exit(0);
+}
+if (method === "PATCH" && commentMatch) {
+  const comment = state.comments.find((entry) => String(entry.id) === commentMatch[1]);
+  if (!comment) process.exit(3);
+  comment.body = field("body");
+  save();
+  process.stdout.write("{}\\n");
+  process.exit(0);
+}
+if (method === "POST" && endpoint.endsWith("/issues/548/comments")) {
+  state.comments.push({ id: 999, user: { login: "github-actions[bot]" }, body: field("body") });
+  save();
+  process.stdout.write("999\\n");
+  process.exit(0);
+}
+if (method !== "GET") process.exit(2);
+if (endpoint.includes("/labels/proffera-worker-slot-reservation-mutex-v1")) {
+  if (!state.mutex) process.exit(1);
+  process.stdout.write(state.mutex + "\\n");
+  process.exit(0);
+}
+if (endpoint.endsWith("/git/ref/heads/main")) {
+  process.stdout.write(process.env.GH_STUB_MAIN_SHA + "\\n");
+  process.exit(0);
+}
+if (endpoint.endsWith("/issues/548")) {
+  process.stdout.write('{"labels":[{"name":"worker-dispatch-enabled"}]}\\n');
+  process.exit(0);
+}
+if (endpoint.endsWith("/issues/548/comments?per_page=100")) {
+  for (const comment of state.comments) process.stdout.write(JSON.stringify(comment) + "\\n");
+  process.exit(0);
+}
+if (endpoint.endsWith("/pulls?state=open&base=main&per_page=100")) {
+  for (const pull of state.pulls) process.stdout.write(JSON.stringify(pull) + "\\n");
+  process.exit(0);
+}
+const filesMatch = endpoint.match(/pulls\\/(\\d+)\\/files/);
+if (filesMatch) {
+  const pull = state.pulls.find((entry) => String(entry.number) === filesMatch[1]);
+  for (const path of pull?.files ?? []) process.stdout.write(path + "\\n");
+  process.exit(0);
+}
+const runMatch = endpoint.match(/actions\\/runs\\/(\\d+)$/);
+if (runMatch) {
+  process.stdout.write(state.runStatus + "\\n");
+  process.exit(0);
+}
+const branchPrefix = "repos/ibboabdoli-ai/Proffera/git/ref/heads/";
+if (endpoint.startsWith(branchPrefix)) {
+  const branch = endpoint.slice(branchPrefix.length);
+  if (!state.branches.includes(branch)) process.exit(1);
+  process.stdout.write("refs/heads/" + branch + "\\n");
+  process.exit(0);
+}
+if (commentMatch) {
+  const comment = state.comments.find((entry) => String(entry.id) === commentMatch[1]);
+  if (!comment) process.exit(3);
+  const body = state.changedReservationBody ? String(comment.body) + "\\nchanged" : String(comment.body);
+  process.stdout.write(body + "\\n");
+  process.exit(0);
+}
+process.stderr.write("unhandled gh endpoint: " + endpoint + "\\n");
+process.exit(2);
+`,
+    { encoding: "utf8", mode: 0o755 },
+  );
+  const result = spawnSync("bash", ["-c", script], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+      GH_TOKEN: "test-token",
+      GH_STUB_LOG: log,
+      GH_STUB_MAIN_SHA: localHead,
+      GH_STUB_STATE_FILE: stateFile,
+      GITHUB_OUTPUT: output,
+      RUNNER_TEMP: runnerTemp,
+      REPOSITORY: "ibboabdoli-ai/Proffera",
+      PACKET_B64: Buffer.from(JSON.stringify(newPacket)).toString("base64"),
+      EVENT_COMMENT_BODY: packetComment(newPacket),
+      EVENT_ACTOR: "ibboabdoli-ai",
+      EVENT_ISSUE_NUMBER: "548",
+      BASE_SHA: localHead,
+      RUN_ID: "1001",
+    },
+  });
+  const calls = readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as string[]);
   const finalState = JSON.parse(readFileSync(stateFile, "utf8")) as { comments: Array<Record<string, unknown>> };
   return { ...result, calls, comments: finalState.comments };
 }
@@ -1043,6 +1313,12 @@ exit 0
     const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
     const closeStep = workflowRunStep(workflow, "Require exact durable reservation before accepting Worker PR");
     expectShellAndJqSyntax(closeStep);
+    expectShellAndJqSyntax(workflowRunStep(workflow, "Atomically reserve writable Worker slot"));
+    const recoverySyntax = spawnSync("bash", ["-n"], {
+      input: workflowRunStep(workflow, "Release or recover reservation on dispatch failure"),
+      encoding: "utf8",
+    });
+    expect(recoverySyntax.status, recoverySyntax.stderr).toBe(0);
     expect(closeStep).toContain("has_trusted_dispatch_provenance");
     expect(closeStep.indexOf("if ! has_trusted_dispatch_provenance")).toBeLessThan(
       closeStep.indexOf('close_unreserved "missing bounded Task Packet"'),
@@ -1077,6 +1353,26 @@ exit 0
     expect(result.stdout).toContain("is bound to durable reservation SUP-TEST-1@");
     expect(result.stdout).not.toContain("leaving it unchanged");
     expect(prPatchCalls(result.calls)).toHaveLength(0);
+  });
+
+  it("promotes an exact recoverable reservation when its trusted PR appears", () => {
+    const evidence = exactReservationEvidence(sha, {
+      state: "RECOVERABLE",
+      pr_number: null,
+      recovery: { kind: "branch", expires_at: "2099-01-01T00:00:00Z" },
+    });
+    const result = runReservationEnforcement(evidence);
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Promoted exact recoverable reservation SUP-TEST-1@");
+    expect(prPatchCalls(result.calls)).toHaveLength(0);
+    expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+    const reservation = result.comments.find((comment) => comment.id === 101);
+    const payloadBase64 = String(reservation?.body ?? "").match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+    expect(JSON.parse(Buffer.from(payloadBase64, "base64").toString("utf8"))).toMatchObject({
+      state: "PUBLISHED",
+      pr_number: 849,
+      recovery: null,
+    });
   });
 
   it("rejects duplicate or mismatched reservation and dispatch evidence", () => {
@@ -1444,6 +1740,97 @@ exit 0
     expect(workflow).toContain('.recovery.expires_at // ""');
     expect(workflow).toContain("retryable:true");
     expect(workflow).toContain("retention-days: 7");
+  });
+
+  it("gives branch-backed recovery a bounded durable lease", () => {
+    const result = runReservationRecovery();
+    expect(result.status, result.stderr).toBe(0);
+    expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+    const reservation = result.comments.find((comment) => comment.id === 101);
+    const payloadBase64 = String(reservation?.body ?? "").match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+    const payload = JSON.parse(Buffer.from(payloadBase64, "base64").toString("utf8"));
+    expect(payload).toMatchObject({ state: "RECOVERABLE", recovery: { kind: "branch" } });
+    expect(Date.parse(payload.recovery.expires_at)).toBeGreaterThan(Date.now() + 5 * 24 * 60 * 60 * 1000);
+  });
+
+  it("reclaims an expired branch recovery only after live absence checks", () => {
+    const recoverable = (expiresAt: string) => ({
+      state: "RECOVERABLE",
+      task_id: "SUP-OLD-SLOT-1",
+      run_id: "7001",
+      branch: "work/proffera-old-slot",
+      head_sha: otherSha,
+      graph_path: "feature/old-slot",
+      packet_digest: "c".repeat(64),
+      allowed_paths: ["src/features/old-slot/"],
+      changed_files: [],
+      pr_number: null,
+      recovery: { kind: "branch", expires_at: expiresAt },
+    });
+    const expired = recoverable("2000-01-01T00:00:00Z");
+    const released = runSlotReservation({ reservation: expired });
+    expect(released.status, released.stderr).toBe(0);
+    expect(commentPatchCalls(released.calls, 201)).toHaveLength(1);
+    const releasedPayloadBase64 = String(released.comments.find((comment) => comment.id === 201)?.body ?? "")
+      .match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+    expect(JSON.parse(Buffer.from(releasedPayloadBase64, "base64").toString("utf8"))).toMatchObject({
+      state: "RELEASED",
+      recovery: { kind: "expired_reservation", verified_run_status: "completed", retryable: true },
+    });
+
+    const openPull = {
+      number: 830,
+      base: { ref: "main" },
+      head: { ref: "work/proffera-old-slot", sha: otherSha, repo: { full_name: "ibboabdoli-ai/Proffera" } },
+      user: { login: "ibboabdoli-ai" },
+      body: [
+        "Task ID: SUP-OLD-SLOT-1",
+        "Graph path: feature/old-slot",
+        'Allowed paths: ["src/features/old-slot/"]',
+      ].join("\n"),
+      files: [],
+    };
+    for (const { expectedStatus, ...options } of [
+      { reservation: recoverable("2099-01-01T00:00:00Z"), expectedStatus: 0 },
+      { reservation: expired, branches: ["work/proffera-old-slot"], expectedStatus: 0 },
+      { reservation: expired, pulls: [openPull], expectedStatus: 1 },
+      { reservation: expired, changedReservationBody: true, expectedStatus: 1 },
+    ]) {
+      const retained = runSlotReservation(options);
+      expect(retained.status, retained.stderr).toBe(expectedStatus);
+      expect(commentPatchCalls(retained.calls, 201)).toHaveLength(0);
+    }
+  });
+
+  it("counts a promoted recovery PR and its published reservation as one slot", () => {
+    const reservation = {
+      state: "PUBLISHED",
+      task_id: "SUP-OLD-SLOT-1",
+      run_id: "7001",
+      branch: "work/proffera-old-slot",
+      head_sha: otherSha,
+      graph_path: "feature/old-slot",
+      packet_digest: "c".repeat(64),
+      allowed_paths: ["src/features/old-slot/"],
+      changed_files: [],
+      pr_number: 830,
+      recovery: null,
+    };
+    const openPull = {
+      number: 830,
+      base: { ref: "main" },
+      head: { ref: "work/proffera-old-slot", sha: otherSha, repo: { full_name: "ibboabdoli-ai/Proffera" } },
+      user: { login: "ibboabdoli-ai" },
+      body: [
+        "Task ID: SUP-OLD-SLOT-1",
+        "Graph path: feature/old-slot",
+        'Allowed paths: ["src/features/old-slot/"]',
+      ].join("\n"),
+      files: [],
+    };
+    const result = runSlotReservation({ reservation, pulls: [openPull] });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.comments.some((comment) => comment.id === 999)).toBe(true);
   });
 
   it("applies the helper-approved WORKER_PR_OPENED task-state transition", () => {
@@ -1877,6 +2264,89 @@ process.stdout.write(JSON.stringify({
       encoding: "utf8",
     });
     expect(noNewlineBuild.status, noNewlineBuild.stderr).toBe(0);
+  });
+
+  it("rejects misplaced and duplicate final-newline markers", () => {
+    const repo = mkdtempSync(join(tmpdir(), "proffera-newline-markers-"));
+    const git = (...args: string[]) => {
+      const result = spawnSync("git", args, { cwd: repo, encoding: "utf8" });
+      expect(result.status, result.stderr).toBe(0);
+      return result.stdout.trim();
+    };
+    git("init");
+    git("config", "user.name", "test");
+    git("config", "user.email", "test@example.invalid");
+    writeFileSync(join(repo, "source-marker.txt"), "first\nsecond", "utf8");
+    writeFileSync(join(repo, "target-marker.txt"), "first\nsecond\n", "utf8");
+    writeFileSync(join(repo, "context-marker.txt"), "first\nmiddle\nlast", "utf8");
+    git("add", "--all");
+    git("commit", "-m", "source");
+    const sourceHead = git("rev-parse", "HEAD");
+    writeFileSync(join(repo, "source-marker.txt"), "changed\nsecond\n", "utf8");
+    writeFileSync(join(repo, "target-marker.txt"), "changed\nsecond", "utf8");
+    writeFileSync(join(repo, "context-marker.txt"), "changed\nmiddle\nlast", "utf8");
+    git("commit", "-am", "target");
+    const targetHead = git("rev-parse", "HEAD");
+    const allowedPaths = ["context-marker.txt", "source-marker.txt", "target-marker.txt"];
+    const scopedPacket = packet({ base_sha: sourceHead, allowed_paths: allowedPaths });
+    const built = spawnSync(process.execPath, [helper, "build-publication"], {
+      cwd: repo,
+      input: JSON.stringify({ packet: scopedPacket, source_head: sourceHead, target_head: targetHead }),
+      encoding: "utf8",
+    });
+    expect(built.status, built.stderr).toBe(0);
+    const artifact = JSON.parse(built.stdout) as Record<string, unknown>;
+    const unifiedDiff = String(artifact.unified_diff);
+    const section = (path: string) => unifiedDiff.match(new RegExp(`diff --git a/${path}[\\s\\S]*?(?=diff --git |$)`))?.[0] ?? "";
+    const validate = (candidateDiff: string) => {
+      const result = spawnSync(process.execPath, [helper, "validate-publication"], {
+        cwd: repo,
+        input: JSON.stringify({
+          packet: scopedPacket,
+          current_source_head: sourceHead,
+          artifact: { ...artifact, unified_diff: candidateDiff },
+        }),
+        encoding: "utf8",
+      });
+      expect(result.status, result.stderr).toBe(0);
+      return JSON.parse(result.stdout) as Record<string, unknown>;
+    };
+    expect(validate(unifiedDiff).ok).toBe(true);
+
+    const sourceSection = section("source-marker.txt");
+    const sourceMarker = "\\ No newline at end of file";
+    expect(sourceSection).toContain(`-first\n-second\n${sourceMarker}\n+changed\n+second\n`);
+    const misplacedSource = sourceSection.replace(
+      `-first\n-second\n${sourceMarker}\n`,
+      `-first\n${sourceMarker}\n-second\n`,
+    );
+
+    const targetSection = section("target-marker.txt");
+    expect(targetSection).toContain(`-first\n-second\n+changed\n+second\n${sourceMarker}\n`);
+    const misplacedTarget = targetSection.replace(
+      `+changed\n+second\n${sourceMarker}\n`,
+      `+changed\n${sourceMarker}\n+second\n`,
+    );
+
+    const contextSection = section("context-marker.txt");
+    expect(contextSection).toContain(` middle\n last\n${sourceMarker}\n`);
+    const misplacedContext = contextSection.replace(
+      ` middle\n last\n${sourceMarker}\n`,
+      ` middle\n${sourceMarker}\n last\n`,
+    );
+    const duplicateMarker = contextSection.replace(`${sourceMarker}\n`, `${sourceMarker}\n${sourceMarker}\n`);
+    const boundaryMarker = contextSection.replace(/(@@[^\n]*\n)/, `$1${sourceMarker}\n`);
+
+    for (const [original, tampered] of [
+      [sourceSection, misplacedSource],
+      [targetSection, misplacedTarget],
+      [contextSection, misplacedContext],
+      [contextSection, duplicateMarker],
+      [contextSection, boundaryMarker],
+    ]) {
+      expect(tampered).not.toBe(original);
+      expect(validate(unifiedDiff.replace(original, tampered)).ok).toBe(false);
+    }
   });
 
   it("accepts exact header-only empty-file additions and deletions", () => {
