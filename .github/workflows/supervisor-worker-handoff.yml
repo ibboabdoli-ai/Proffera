@@ -65,8 +65,40 @@ jobs:
             exit 1
           }
 
+          has_trusted_dispatch_provenance() {
+            local comments reservation_matches=0 trusted_matches=0 reservation_body payload_b64 payload state reserved_task reserved_run reserved_branch reserved_head dispatch_marker dispatch_matches
+            [ "$live_author" = "${REPOSITORY%%/*}" ] && [ "$live_head_repository" = "$REPOSITORY" ] || return 1
+            if ! comments="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.')"; then
+              return 1
+            fi
+            while IFS= read -r reservation_body; do
+              payload_b64="$(sed -n 's/^- Reservation payload: `\([^`]*\)`$/\1/p' <<< "$reservation_body")"
+              payload="$(printf '%s' "$payload_b64" | base64 --decode 2>/dev/null || true)"
+              jq -e . >/dev/null 2>&1 <<< "$payload" || continue
+              state="$(jq -r '.state // ""' <<< "$payload")"
+              reserved_task="$(jq -r '.task_id // ""' <<< "$payload")"
+              reserved_run="$(jq -r '.run_id // ""' <<< "$payload")"
+              reserved_branch="$(jq -r '.branch // ""' <<< "$payload")"
+              reserved_head="$(jq -r '.head_sha // ""' <<< "$payload")"
+              case "$state" in RESERVED|PUBLISHED|RECOVERABLE) ;; *) continue ;; esac
+              [ -n "$reserved_task" ] && [ -n "$reserved_run" ] || continue
+              [ "$reserved_branch" = "$live_ref" ] && [ "$reserved_head" = "$live_head" ] || continue
+              reservation_matches=$((reservation_matches + 1))
+              dispatch_marker="<!-- proffera-worker-dispatch-start:${reserved_task}:${reserved_run} -->"
+              dispatch_matches="$(jq --arg marker "$dispatch_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | length' <<< "$comments")"
+              if [ "$dispatch_matches" -eq 1 ]; then
+                trusted_matches=$((trusted_matches + 1))
+              fi
+            done < <(jq -r '.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains("<!-- proffera-worker-slot-reservation:"))) | .body // ""' <<< "$comments")
+            [ "$reservation_matches" -eq 1 ] && [ "$trusted_matches" -eq 1 ]
+          }
+
           if [ "$live_head" != "$EVENT_HEAD_SHA" ] || [ "$live_ref" != "$EVENT_HEAD_REF" ]; then
             echo "PR changed before reservation enforcement; newer event will reconcile it."
+            exit 0
+          fi
+          if [ "$EVENT_ACTION" != "closed" ] && ! has_trusted_dispatch_provenance; then
+            echo "PR #${PR_NUMBER} has no exact trusted Supervisor dispatch provenance; leaving it unchanged."
             exit 0
           fi
           if ! grep -Fq "$task_marker" <<< "$body"; then

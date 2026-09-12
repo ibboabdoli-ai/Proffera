@@ -76,6 +76,19 @@ function workflowRunStep(workflow: string, stepName: string) {
   return script.join("\n");
 }
 
+function expectShellAndJqSyntax(script: string) {
+  const shell = spawnSync("bash", ["-n"], { input: script, encoding: "utf8" });
+  expect(shell.status, shell.stderr).toBe(0);
+  const filters = [...script.matchAll(/\bjq\b[^\n]*?'([^']+)'/g)].map((match) => match[1]);
+  expect(filters.length).toBeGreaterThan(0);
+  for (const filter of filters) {
+    const variables = [...new Set([...filter.matchAll(/\$([A-Za-z_][A-Za-z0-9_]*)/g)].map((match) => match[1]))];
+    const args = ["-n", ...variables.flatMap((variable) => ["--argjson", variable, "null"]), `def __syntax_check: (${filter}); null`];
+    const compiled = spawnSync("jq", args, { encoding: "utf8" });
+    expect(compiled.status, `${compiled.stderr}\nFilter: ${filter}`).toBe(0);
+  }
+}
+
 function packet(overrides: Record<string, unknown> = {}) {
   return {
     task_id: "SUP-TEST-1",
@@ -595,15 +608,13 @@ exit 0
 
   it("does not expose OpenAI or push credentials to post-Worker reconciliation helper execution", () => {
     const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
-    const reconcileStart = workflow.indexOf("Reconcile live state again immediately before publication");
-    const reconcileEnd = workflow.indexOf("Commit bounded Worker result locally", reconcileStart);
-    const reconcile = workflow.slice(reconcileStart, reconcileEnd);
+    const reconcile = workflowRunStep(workflow, "Reconcile live state again immediately before publication");
+    const publish = workflowRunStep(workflow, "Publish branch normally or persist validated recovery artifact");
+    expectShellAndJqSyntax(reconcile);
+    expectShellAndJqSyntax(publish);
     expect(reconcile).not.toContain("OPENAI_API_KEY");
     expect(reconcile).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
 
-    const publishStart = workflow.indexOf("Publish branch normally or persist validated recovery artifact");
-    const publishEnd = workflow.indexOf("Record dispatched Worker PR", publishStart);
-    const publish = workflow.slice(publishStart, publishEnd);
     expect(publish).toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
     expect(publish).toContain('node "$helper" validate-publication');
     expect(publish).toContain("proffera-publication-recovery-complete");
@@ -634,12 +645,43 @@ exit 0
     const closeStep = workflowRunStep(workflow, "Require exact durable reservation before accepting Worker PR");
     expect(closeStep).toContain("EVENT_AUTHOR");
     expect(closeStep).toContain("EVENT_HEAD_REPOSITORY");
+    expect(closeStep).toContain("has_trusted_dispatch_provenance");
+    expect(closeStep).toContain('live_author" = "${REPOSITORY%%/*}');
+    expect(closeStep).toContain('live_head_repository" = "$REPOSITORY');
+    expect(closeStep).toContain("proffera-worker-dispatch-start:${reserved_task}:${reserved_run}");
+    expect(closeStep).toContain('dispatch_matches" -eq 1');
+    expect(closeStep).toContain('reservation_matches" -eq 1');
+    expect(closeStep).toContain('trusted_matches" -eq 1');
+    expect(closeStep).toContain("leaving it unchanged");
+    expect(closeStep.indexOf('if [ "$EVENT_ACTION" != "closed" ] && ! has_trusted_dispatch_provenance')).toBeLessThan(
+      closeStep.indexOf('close_unreserved "missing bounded Task Packet"'),
+    );
     expect(closeStep).toContain('reserved_digest" != "$packet_digest');
     expect(closeStep).toContain('reserved_head" != "$live_head');
     expect(workflow).toContain("lease_expires_at");
     expect(workflow).toContain('run_status" = "completed"');
     expect(workflow).toContain('open_pr_count" -eq 0');
     expect(workflow).toContain("reservation changed during stale-run reclamation");
+  });
+
+  it("leaves a non-dispatch work branch unchanged before closure-capable enforcement", () => {
+    const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+    const enforcement = workflowRunStep(workflow, "Require exact durable reservation before accepting Worker PR");
+    const provenanceGate = enforcement.indexOf('if [ "$EVENT_ACTION" != "closed" ] && ! has_trusted_dispatch_provenance');
+    expect(provenanceGate).toBeGreaterThanOrEqual(0);
+    expect(provenanceGate).toBeLessThan(enforcement.indexOf('close_unreserved "missing bounded Task Packet"'));
+    expect(enforcement).toContain("has no exact trusted Supervisor dispatch provenance; leaving it unchanged");
+  });
+
+  it("requires one exact reservation and one bot-authored task/run dispatch record", () => {
+    const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+    const enforcement = workflowRunStep(workflow, "Require exact durable reservation before accepting Worker PR");
+    expect(enforcement).toContain('[ "$live_author" = "${REPOSITORY%%/*}" ]');
+    expect(enforcement).toContain('[ "$live_head_repository" = "$REPOSITORY" ]');
+    expect(enforcement).toContain('[ "$reserved_branch" = "$live_ref" ] && [ "$reserved_head" = "$live_head" ]');
+    expect(enforcement).toContain('.user.login == "github-actions[bot]"');
+    expect(enforcement).toContain('[ "$dispatch_matches" -eq 1 ]');
+    expect(enforcement).toContain('[ "$reservation_matches" -eq 1 ] && [ "$trusted_matches" -eq 1 ]');
   });
 
   it("binds reservation publication and recovery to trusted live PR identity", () => {
