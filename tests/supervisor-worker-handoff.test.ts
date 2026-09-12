@@ -256,6 +256,110 @@ function commentPatchCalls(calls: string[][], commentId: number) {
   });
 }
 
+type SyncCheckOptions = {
+  comments: Array<Record<string, unknown>>;
+  eventHead?: string;
+  liveHead?: string;
+  liveMerged?: boolean;
+  liveState?: string;
+};
+
+function runSyncCheckReconciliation({
+  comments,
+  eventHead = sha,
+  liveHead = sha,
+  liveMerged = false,
+  liveState = "closed",
+}: SyncCheckOptions) {
+  const workflow = source(".github/workflows/worker-supervisor-sync.yml");
+  const script = workflowRunStep(workflow, "Reconcile required current-head workflow evidence");
+  const root = mkdtempSync(join(tmpdir(), "proffera-sync-check-reconciliation-"));
+  const repo = join(root, "repo");
+  const bin = join(root, "bin");
+  const log = join(root, "gh-calls.jsonl");
+  const stateFile = join(root, "gh-state.json");
+  mkdirSync(join(repo, "scripts"), { recursive: true });
+  mkdirSync(bin, { recursive: true });
+  copyFileSync(helper, join(repo, "scripts", "supervisor-worker-handoff.mjs"));
+  writeFileSync(stateFile, JSON.stringify({ comments }));
+  writeFileSync(
+    join(bin, "gh"),
+    `#!/usr/bin/env node
+const { appendFileSync, readFileSync, writeFileSync } = require("node:fs");
+const args = process.argv.slice(2);
+appendFileSync(process.env.GH_STUB_LOG, JSON.stringify(args) + "\\n");
+const methodIndex = args.indexOf("--method");
+const method = methodIndex >= 0 ? args[methodIndex + 1] : "GET";
+const endpoint = args.find((arg) => arg.startsWith("repos/")) || "";
+const state = JSON.parse(readFileSync(process.env.GH_STUB_STATE_FILE, "utf8"));
+if (args[0] !== "api" || !endpoint) process.exit(2);
+if (method !== "GET") {
+  const bodyArg = args.find((arg) => arg.startsWith("body="));
+  const commentMatch = endpoint.match(/issues\\/comments\\/(\\d+)$/);
+  if (method === "PATCH" && bodyArg && commentMatch) {
+    const comment = state.comments.find((entry) => String(entry.id) === commentMatch[1]);
+    if (!comment) process.exit(3);
+    comment.body = bodyArg.slice("body=".length);
+    writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
+  } else if (method === "POST" && bodyArg && endpoint === "repos/ibboabdoli-ai/Proffera/issues/548/comments") {
+    state.comments.push({ id: 999, user: { login: "github-actions[bot]" }, body: bodyArg.slice("body=".length) });
+    writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
+  }
+  process.stdout.write("{}\\n");
+  process.exit(0);
+}
+if (endpoint === "repos/ibboabdoli-ai/Proffera/pulls/849") {
+  process.stdout.write(process.env.GH_STUB_PR_JSON + "\\n");
+  process.exit(0);
+}
+if (endpoint === "repos/ibboabdoli-ai/Proffera/issues/548/comments?per_page=100") {
+  for (const comment of state.comments) process.stdout.write(JSON.stringify(comment) + "\\n");
+  process.exit(0);
+}
+if (endpoint.startsWith("repos/ibboabdoli-ai/Proffera/actions/runs?")) {
+  for (const name of ["CI", "CodeQL", "Targeted CI shadow", "Production base health"]) {
+    process.stdout.write(JSON.stringify({ name, conclusion: "success", created_at: "2026-09-12T00:00:00Z", id: 1 }) + "\\n");
+  }
+  process.exit(0);
+}
+process.stderr.write("unhandled gh endpoint: " + endpoint + "\\n");
+process.exit(2);
+`,
+    { encoding: "utf8", mode: 0o755 },
+  );
+
+  const pr = {
+    state: liveState,
+    merged: liveMerged,
+    user: { login: "ibboabdoli-ai" },
+    head: { repo: { full_name: "ibboabdoli-ai/Proffera" }, ref: "work/proffera-test-task", sha: liveHead },
+    body: packetComment(),
+  };
+  const result = spawnSync("bash", ["-c", script], {
+    cwd: repo,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+      GH_TOKEN: "test-token",
+      GH_STUB_LOG: log,
+      GH_STUB_STATE_FILE: stateFile,
+      GH_STUB_PR_JSON: JSON.stringify(pr),
+      REPOSITORY: "ibboabdoli-ai/Proffera",
+      EVENT_PR_NUMBER: "849",
+      EVENT_HEAD_SHA: eventHead,
+      RUN_ID: "9003",
+    },
+  });
+  const calls = readFileSync(log, "utf8")
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as string[]);
+  const finalState = JSON.parse(readFileSync(stateFile, "utf8")) as { comments: Array<Record<string, unknown>> };
+  return { ...result, calls, comments: finalState.comments };
+}
+
 function runWorkerPrStateRecord(currentBody: string) {
   const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
   const script = workflowRunStep(workflow, "Record dispatched Worker PR in stable Supervisor task state");
@@ -1094,6 +1198,83 @@ exit 0
     }
   });
 
+  it("makes a replacing check job converge a trusted closed PR", () => {
+    const evidence = exactReservationEvidence();
+    const result = runSyncCheckReconciliation({
+      comments: [
+        ...evidence.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING") },
+      ],
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Converged closed Worker PR #849 to reservation RELEASED and task CLOSED_UNMERGED.");
+    expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+    expect(commentPatchCalls(result.calls, 103)).toHaveLength(1);
+    const reservation = result.comments.find((comment) => comment.id === 101);
+    const payloadBase64 = String(reservation?.body ?? "").match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+    expect(JSON.parse(Buffer.from(payloadBase64, "base64").toString("utf8"))).toMatchObject({ state: "RELEASED" });
+    expect(String(result.comments.find((comment) => comment.id === 103)?.body)).toContain("- State: `CLOSED_UNMERGED`");
+  });
+
+  it("makes repeated check-job close reconciliation idempotent", () => {
+    const evidence = exactReservationEvidence();
+    const first = runSyncCheckReconciliation({
+      comments: [
+        ...evidence.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING") },
+      ],
+    });
+    expect(first.status, first.stderr).toBe(0);
+    const second = runSyncCheckReconciliation({ comments: first.comments });
+    expect(second.status, second.stderr).toBe(0);
+    expect(commentPatchCalls(second.calls, 101)).toHaveLength(0);
+    expect(commentPatchCalls(second.calls, 103)).toHaveLength(0);
+  });
+
+  it("makes a check replacement reject invalid or stale close provenance without mutation", () => {
+    const evidence = exactReservationEvidence();
+    const taskState = { id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING") };
+    const duplicateReservation = { ...evidence.comments[0], id: 104 };
+    const mismatchedDispatch = {
+      ...evidence.comments[1],
+      body: String(evidence.comments[1].body).replace(":9001 -->", ":different-run -->"),
+    };
+    for (const current of [
+      { comments: [taskState] },
+      { comments: [...evidence.comments, duplicateReservation, taskState] },
+      { comments: [evidence.comments[0], mismatchedDispatch, taskState] },
+      { comments: [...evidence.comments, taskState], liveHead: otherSha },
+    ]) {
+      const result = runSyncCheckReconciliation(current);
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+    }
+  });
+
+  it("keeps terminal task state monotonic in convergent check close reconciliation", () => {
+    const evidence = exactReservationEvidence();
+    const result = runSyncCheckReconciliation({
+      comments: [
+        ...evidence.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: stateBody("MERGED") },
+      ],
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+    expect(commentPatchCalls(result.calls, 103)).toHaveLength(0);
+    expect(String(result.comments.find((comment) => comment.id === 103)?.body)).toContain("- State: `MERGED`");
+  });
+
+  it("preserves the normal exact-head check-evidence path for an open PR", () => {
+    const result = runSyncCheckReconciliation({
+      comments: [{ id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING") }],
+      liveState: "open",
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(commentPatchCalls(result.calls, 103)).toHaveLength(1);
+    expect(String(result.comments.find((comment) => comment.id === 103)?.body)).toContain("- State: `READY_FOR_SUPERVISOR`");
+  });
+
   it("binds reservation publication and recovery to trusted live PR identity", () => {
     const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
     const enforcement = workflowRunStep(workflow, "Require exact durable reservation before accepting Worker PR");
@@ -1154,6 +1335,7 @@ exit 0
     expect(sync.match(/group: proffera-worker-task-state-\$\{\{ needs\.resolve_worker_mutation_lane\.outputs\.branch \}\}/g)).toHaveLength(2);
     const syncPrHeader = sync.slice(sync.indexOf("  sync-pr-event:"), sync.indexOf("    runs-on:", sync.indexOf("  sync-pr-event:")));
     expect(syncPrHeader).toContain("github.event.action != 'closed'");
+    expectShellAndJqSyntax(workflowRunStep(sync, "Reconcile required current-head workflow evidence"));
     expect(workflowRunStep(workflow, "Require exact durable reservation before accepting Worker PR")).toContain(
       "Reconciled task ${task_id} to ${terminal_state} in the same close writer.",
     );
