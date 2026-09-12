@@ -46,6 +46,7 @@ jobs:
           EVENT_HEAD_REF: ${{ github.event.pull_request.head.ref }}
           EVENT_AUTHOR: ${{ github.event.pull_request.user.login }}
           EVENT_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+          RUN_ID: ${{ github.run_id }}
         shell: bash
         run: |
           set -euo pipefail
@@ -83,7 +84,11 @@ jobs:
               reserved_run="$(jq -r '.run_id // ""' <<< "$payload")"
               reserved_branch="$(jq -r '.branch // ""' <<< "$payload")"
               reserved_head="$(jq -r '.head_sha // ""' <<< "$payload")"
-              case "$state" in RESERVED|PUBLISHED|RECOVERABLE) ;; *) continue ;; esac
+              case "$state" in
+                RESERVED|PUBLISHED|RECOVERABLE) ;;
+                RELEASED) [ "$EVENT_ACTION" = "closed" ] || continue ;;
+                *) continue ;;
+              esac
               [ -n "$reserved_task" ] && [ -n "$reserved_run" ] || continue
               [ "$reserved_branch" = "$live_ref" ] && [ "$reserved_head" = "$live_head" ] || continue
               reservation_matches=$((reservation_matches + 1))
@@ -100,7 +105,7 @@ jobs:
             echo "PR changed before reservation enforcement; newer event will reconcile it."
             exit 0
           fi
-          if [ "$EVENT_ACTION" != "closed" ] && ! has_trusted_dispatch_provenance; then
+          if ! has_trusted_dispatch_provenance; then
             echo "PR #${PR_NUMBER} has no exact trusted Supervisor dispatch provenance; leaving it unchanged."
             exit 0
           fi
@@ -187,28 +192,81 @@ jobs:
               echo "Refused: unbound reservation head does not match the closed Worker PR." >&2
               exit 1
             fi
+            release_reservation=yes
             if [ "$state" = "RELEASED" ]; then
-              echo "Reservation ${task_id} was already released idempotently."
+              release_reservation=no
+            else
+              case "$state" in
+                RESERVED|PUBLISHED|RECOVERABLE) ;;
+                *)
+                  echo "Reservation ${task_id} is already terminal/non-active (${state}); no slot release needed."
+                  exit 0
+                  ;;
+              esac
+            fi
+
+            if [ "$live_merged" = "true" ]; then
+              terminal_state="MERGED"
+              terminal_reason="Worker PR is live-verified as merged through the repository merge path."
+            else
+              terminal_state="CLOSED_UNMERGED"
+              terminal_reason="Worker PR is live-verified as closed without merge."
+            fi
+            terminal_task_marker="<!-- proffera-worker-task-state:${task_id} -->"
+            task_comments="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s --arg marker "$terminal_task_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]')"
+            task_state_comment_id="$(jq -r 'last | .id // empty' <<< "$task_comments")"
+            current_task_body="$(jq -r 'last | .body // ""' <<< "$task_comments")"
+            transition="$(jq -n \
+              --arg current_body "$current_task_body" \
+              --arg source lifecycle \
+              --arg requested_state "$terminal_state" \
+              --arg requested_head "$live_head" \
+              --arg live_head "$live_head" \
+              --arg live_pr_state "$live_state" \
+              --argjson live_merged "$live_merged" \
+              '{current_body:$current_body,source:$source,requested_state:$requested_state,requested_head:$requested_head,live_head:$live_head,live_pr_state:$live_pr_state,live_merged:$live_merged}' \
+              | node "$helper" transition)"
+            transition_apply="$(jq -r '.apply == true' <<< "$transition")"
+
+            confirm_pr="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")"
+            if [ "$(jq -r '.state // ""' <<< "$confirm_pr")" != "closed" ] \
+              || [ "$(jq -r '.merged == true' <<< "$confirm_pr")" != "$live_merged" ] \
+              || [ "$(jq -r '.head.sha // ""' <<< "$confirm_pr")" != "$live_head" ] \
+              || [ "$(jq -r '.head.ref // ""' <<< "$confirm_pr")" != "$live_ref" ] \
+              || [ "$(jq -r '.user.login // ""' <<< "$confirm_pr")" != "${REPOSITORY%%/*}" ] \
+              || [ "$(jq -r '.head.repo.full_name // ""' <<< "$confirm_pr")" != "$REPOSITORY" ]; then
+              echo "Closed Worker PR changed before terminal reconciliation; leaving reservation and task state unchanged."
               exit 0
             fi
-            case "$state" in
-              RESERVED|PUBLISHED|RECOVERABLE) ;;
-              *)
-                echo "Reservation ${task_id} is already terminal/non-active (${state}); no slot release needed."
-                exit 0
-                ;;
-            esac
-            payload="$(jq -c --arg state RELEASED --argjson pr_number "$PR_NUMBER" --argjson merged "$live_merged" '.state=$state | .pr_number=$pr_number | .recovery={kind:"closed_pr",merged:$merged}' <<< "$payload")"
-            payload_b64="$(printf '%s' "$payload" | base64 -w0)"
-            new_body="$(cat <<EOF
+
+            if [ "$release_reservation" = "yes" ]; then
+              payload="$(jq -c --arg state RELEASED --argjson pr_number "$PR_NUMBER" --argjson merged "$live_merged" '.state=$state | .pr_number=$pr_number | .recovery={kind:"closed_pr",merged:$merged}' <<< "$payload")"
+              payload_b64="$(printf '%s' "$payload" | base64 -w0)"
+              new_body="$(cat <<EOF
           <!-- proffera-worker-slot-reservation:${task_id} -->
           ### Worker slot reservation: ${task_id}
           - State: \`RELEASED\`
           - Reservation payload: \`${payload_b64}\`
           EOF
-          )"
-            gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${reservation_id}" -f body="$new_body" >/dev/null
-            echo "Released writable Worker slot reservation ${task_id} after PR #${PR_NUMBER} closed (merged=${live_merged})."
+              )"
+              gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${reservation_id}" -f body="$new_body" >/dev/null
+              echo "Released writable Worker slot reservation ${task_id} after PR #${PR_NUMBER} closed (merged=${live_merged})."
+            else
+              echo "Reservation ${task_id} was already released idempotently."
+            fi
+
+            if [ "$transition_apply" = "true" ]; then
+              task_state_json="$(jq -n --argjson packet "$packet" --arg state "$terminal_state" --arg reason "$terminal_reason" --arg run_id "$RUN_ID" --argjson pr_number "$PR_NUMBER" --arg head_sha "$live_head" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,pr_number:$pr_number,head_sha:$head_sha}')"
+              task_state_body="$(printf '%s' "$task_state_json" | node "$helper" state-body)"
+              if [ -n "$task_state_comment_id" ]; then
+                gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${task_state_comment_id}" -f body="$task_state_body" >/dev/null
+              else
+                gh api --method POST "repos/${REPOSITORY}/issues/548/comments" -f body="$task_state_body" >/dev/null
+              fi
+              echo "Reconciled task ${task_id} to ${terminal_state} in the same close writer."
+            else
+              echo "Terminal task state was already reconciled idempotently."
+            fi
             exit 0
           fi
 

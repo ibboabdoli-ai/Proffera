@@ -92,8 +92,11 @@ function expectShellAndJqSyntax(script: string) {
 type ReservationEnforcementOptions = {
   body?: string;
   comments?: Array<Record<string, unknown>>;
+  eventAction?: string;
   eventHead?: string;
   liveHead?: string;
+  liveMerged?: boolean;
+  liveState?: string;
 };
 
 function exactReservationEvidence(head = sha) {
@@ -136,29 +139,46 @@ function exactReservationEvidence(head = sha) {
 function runReservationEnforcement({
   body = packetComment(),
   comments = [],
+  eventAction = "synchronize",
   liveHead = sha,
   eventHead = liveHead,
+  liveMerged = false,
+  liveState = "open",
 }: ReservationEnforcementOptions = {}) {
   const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
   const script = workflowRunStep(workflow, "Require exact durable reservation before accepting Worker PR");
   const root = mkdtempSync(join(tmpdir(), "proffera-reservation-enforcement-"));
   const bin = join(root, "bin");
   const log = join(root, "gh-calls.jsonl");
+  const stateFile = join(root, "gh-state.json");
   mkdirSync(bin, { recursive: true });
+  writeFileSync(stateFile, JSON.stringify({ comments }));
   writeFileSync(
     join(bin, "gh"),
     `#!/usr/bin/env node
-const { appendFileSync } = require("node:fs");
+const { appendFileSync, readFileSync, writeFileSync } = require("node:fs");
 const args = process.argv.slice(2);
 appendFileSync(process.env.GH_STUB_LOG, JSON.stringify(args) + "\\n");
 const methodIndex = args.indexOf("--method");
 const method = methodIndex >= 0 ? args[methodIndex + 1] : "GET";
 const endpoint = args.find((arg) => arg.startsWith("repos/")) || "";
+const state = JSON.parse(readFileSync(process.env.GH_STUB_STATE_FILE, "utf8"));
 if (args[0] !== "api" || !endpoint) {
   process.stderr.write("unexpected gh call: " + JSON.stringify(args) + "\\n");
   process.exit(2);
 }
 if (method !== "GET") {
+  const bodyArg = args.find((arg) => arg.startsWith("body="));
+  const commentMatch = endpoint.match(/issues\\/comments\\/(\\d+)$/);
+  if (method === "PATCH" && bodyArg && commentMatch) {
+    const comment = state.comments.find((entry) => String(entry.id) === commentMatch[1]);
+    if (!comment) process.exit(3);
+    comment.body = bodyArg.slice("body=".length);
+    writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
+  } else if (method === "POST" && bodyArg && endpoint === "repos/ibboabdoli-ai/Proffera/issues/548/comments") {
+    state.comments.push({ id: 999, user: { login: "github-actions[bot]" }, body: bodyArg.slice("body=".length) });
+    writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
+  }
   process.stdout.write("{}\\n");
   process.exit(0);
 }
@@ -167,7 +187,7 @@ if (endpoint === "repos/ibboabdoli-ai/Proffera/pulls/849") {
   process.exit(0);
 }
 if (endpoint === "repos/ibboabdoli-ai/Proffera/issues/548/comments?per_page=100") {
-  for (const comment of JSON.parse(process.env.GH_STUB_COMMENTS_JSON)) {
+  for (const comment of state.comments) {
     process.stdout.write(JSON.stringify(comment) + "\\n");
   }
   process.exit(0);
@@ -179,8 +199,8 @@ process.exit(2);
   );
 
   const livePr = {
-    state: "open",
-    merged: false,
+    state: liveState,
+    merged: liveMerged,
     head: {
       sha: liveHead,
       ref: "work/proffera-test-task",
@@ -197,15 +217,16 @@ process.exit(2);
       PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
       GH_TOKEN: "test-token",
       GH_STUB_LOG: log,
+      GH_STUB_STATE_FILE: stateFile,
       GH_STUB_PR_JSON: JSON.stringify(livePr),
-      GH_STUB_COMMENTS_JSON: JSON.stringify(comments),
       REPOSITORY: "ibboabdoli-ai/Proffera",
       PR_NUMBER: "849",
-      EVENT_ACTION: "synchronize",
+      EVENT_ACTION: eventAction,
       EVENT_HEAD_SHA: eventHead,
       EVENT_HEAD_REF: "work/proffera-test-task",
       EVENT_AUTHOR: "ibboabdoli-ai",
       EVENT_HEAD_REPOSITORY: "ibboabdoli-ai/Proffera",
+      RUN_ID: "9002",
     },
   });
   const calls = readFileSync(log, "utf8")
@@ -213,7 +234,8 @@ process.exit(2);
     .split("\n")
     .filter(Boolean)
     .map((line) => JSON.parse(line) as string[]);
-  return { ...result, calls };
+  const finalState = JSON.parse(readFileSync(stateFile, "utf8")) as { comments: Array<Record<string, unknown>> };
+  return { ...result, calls, comments: finalState.comments };
 }
 
 function prPatchCalls(calls: string[][]) {
@@ -222,6 +244,15 @@ function prPatchCalls(calls: string[][]) {
     return methodIndex >= 0
       && args[methodIndex + 1] === "PATCH"
       && args.includes("repos/ibboabdoli-ai/Proffera/pulls/849");
+  });
+}
+
+function commentPatchCalls(calls: string[][], commentId: number) {
+  return calls.filter((args) => {
+    const methodIndex = args.indexOf("--method");
+    return methodIndex >= 0
+      && args[methodIndex + 1] === "PATCH"
+      && args.includes(`repos/ibboabdoli-ai/Proffera/issues/comments/${commentId}`);
   });
 }
 
@@ -893,12 +924,16 @@ exit 0
   it("authenticates reservation release and reclaims only verified expired reservations", () => {
     const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
     const closeStep = workflowRunStep(workflow, "Require exact durable reservation before accepting Worker PR");
+    expectShellAndJqSyntax(closeStep);
     expect(closeStep).toContain("has_trusted_dispatch_provenance");
-    expect(closeStep.indexOf('if [ "$EVENT_ACTION" != "closed" ] && ! has_trusted_dispatch_provenance')).toBeLessThan(
+    expect(closeStep.indexOf("if ! has_trusted_dispatch_provenance")).toBeLessThan(
       closeStep.indexOf('close_unreserved "missing bounded Task Packet"'),
     );
     expect(closeStep).toContain('reserved_digest" != "$packet_digest');
     expect(closeStep).toContain('reserved_head" != "$live_head');
+    expect(closeStep).toContain('terminal_state="MERGED"');
+    expect(closeStep).toContain('terminal_state="CLOSED_UNMERGED"');
+    expect(closeStep).toContain("in the same close writer");
     expect(workflow).toContain("lease_expires_at");
     expect(workflow).toContain('run_status" = "completed"');
     expect(workflow).toContain('open_pr_count" -eq 0');
@@ -960,6 +995,105 @@ exit 0
     expect(prPatchCalls(result.calls)).toHaveLength(0);
   });
 
+  it("releases the reservation and records the terminal task state in one trusted close writer", () => {
+    for (const liveMerged of [false, true]) {
+      const evidence = exactReservationEvidence();
+      const taskState = {
+        id: 103,
+        user: { login: "github-actions[bot]" },
+        body: stateBody("CHECKS_PENDING"),
+      };
+      const result = runReservationEnforcement({
+        body: evidence.body,
+        comments: [...evidence.comments, taskState],
+        eventAction: "closed",
+        liveState: "closed",
+        liveMerged,
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+      expect(commentPatchCalls(result.calls, 103)).toHaveLength(1);
+      const reservation = result.comments.find((comment) => comment.id === 101);
+      const payloadBase64 = String(reservation?.body ?? "").match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+      expect(JSON.parse(Buffer.from(payloadBase64, "base64").toString("utf8"))).toMatchObject({
+        state: "RELEASED",
+        pr_number: 849,
+        recovery: { kind: "closed_pr", merged: liveMerged },
+      });
+      const terminal = result.comments.find((comment) => comment.id === 103);
+      expect(String(terminal?.body)).toContain(liveMerged ? "- State: `MERGED`" : "- State: `CLOSED_UNMERGED`");
+    }
+  });
+
+  it("makes repeated trusted close delivery idempotent", () => {
+    const evidence = exactReservationEvidence();
+    const first = runReservationEnforcement({
+      body: evidence.body,
+      comments: [
+        ...evidence.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING") },
+      ],
+      eventAction: "closed",
+      liveState: "closed",
+    });
+    expect(first.status, first.stderr).toBe(0);
+    const second = runReservationEnforcement({
+      body: evidence.body,
+      comments: first.comments,
+      eventAction: "closed",
+      liveState: "closed",
+    });
+    expect(second.status, second.stderr).toBe(0);
+    expect(second.stdout).toContain("already released idempotently");
+    expect(second.stdout).toContain("already reconciled idempotently");
+    expect(commentPatchCalls(second.calls, 101)).toHaveLength(0);
+    expect(commentPatchCalls(second.calls, 103)).toHaveLength(0);
+  });
+
+  it("does not regress a terminal task state during close reconciliation", () => {
+    const evidence = exactReservationEvidence();
+    const result = runReservationEnforcement({
+      body: evidence.body,
+      comments: [
+        ...evidence.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: stateBody("MERGED") },
+      ],
+      eventAction: "closed",
+      liveState: "closed",
+      liveMerged: false,
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+    expect(commentPatchCalls(result.calls, 103)).toHaveLength(0);
+    expect(String(result.comments.find((comment) => comment.id === 103)?.body)).toContain("- State: `MERGED`");
+  });
+
+  it("performs no close mutation for missing, duplicate, mismatched, or stale provenance", () => {
+    const evidence = exactReservationEvidence();
+    const taskState = { id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING") };
+    const duplicateReservation = { ...evidence.comments[0], id: 104 };
+    const mismatchedDispatch = {
+      ...evidence.comments[1],
+      body: String(evidence.comments[1].body).replace(":9001 -->", ":different-run -->"),
+    };
+    const cases = [
+      { comments: [taskState] },
+      { comments: [...evidence.comments, duplicateReservation, taskState] },
+      { comments: [evidence.comments[0], mismatchedDispatch, taskState] },
+      { comments: [...evidence.comments, taskState], liveHead: otherSha, eventHead: sha },
+    ];
+    for (const current of cases) {
+      const result = runReservationEnforcement({
+        body: evidence.body,
+        eventAction: "closed",
+        liveState: "closed",
+        ...current,
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+    }
+  });
+
   it("binds reservation publication and recovery to trusted live PR identity", () => {
     const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
     const enforcement = workflowRunStep(workflow, "Require exact durable reservation before accepting Worker PR");
@@ -1018,6 +1152,11 @@ exit 0
     expect(workflow).toContain("format('untrusted-pr-{0}', github.event.pull_request.number)");
     expect(workflow).toContain("group: proffera-worker-task-state-${{ needs.preflight.outputs.branch }}");
     expect(sync.match(/group: proffera-worker-task-state-\$\{\{ needs\.resolve_worker_mutation_lane\.outputs\.branch \}\}/g)).toHaveLength(2);
+    const syncPrHeader = sync.slice(sync.indexOf("  sync-pr-event:"), sync.indexOf("    runs-on:", sync.indexOf("  sync-pr-event:")));
+    expect(syncPrHeader).toContain("github.event.action != 'closed'");
+    expect(workflowRunStep(workflow, "Require exact durable reservation before accepting Worker PR")).toContain(
+      "Reconciled task ${task_id} to ${terminal_state} in the same close writer.",
+    );
     const resolveLane = workflowRunStep(sync, "Resolve exact Worker branch");
     const shell = spawnSync("bash", ["-n"], { input: resolveLane, encoding: "utf8" });
     expect(shell.status, shell.stderr).toBe(0);

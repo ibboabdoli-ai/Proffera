@@ -78,6 +78,7 @@ jobs:
     if: >-
       needs.resolve_worker_mutation_lane.outputs.trusted == 'true' &&
       github.event_name == 'pull_request_target' &&
+      github.event.action != 'closed' &&
       startsWith(github.event.pull_request.head.ref, 'work/proffera-')
     concurrency:
       group: proffera-worker-task-state-${{ needs.resolve_worker_mutation_lane.outputs.branch }}
