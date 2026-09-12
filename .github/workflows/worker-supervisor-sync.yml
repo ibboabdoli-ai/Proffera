@@ -127,6 +127,37 @@ jobs:
           }
           read_live_pr
 
+          reconcile_invalid_closed_pr() {
+            local current_pr_number="$1" reason="$2" result
+            result="$(jq -cn --arg repository "$REPOSITORY" --argjson pr_number "$current_pr_number" --arg run_id "$RUN_ID" '{repository:$repository,pr_number:$pr_number,run_id:$run_id}' | node "$helper" invalid-close-reconcile)"
+            if [ "$(jq -r '.ok == true' <<< "$result")" != "true" ]; then
+              echo "Malformed closed Worker PR has no mutation-safe exact provenance: $(jq -r '.reason' <<< "$result")"
+              return 0
+            fi
+            echo "Converged malformed closed Worker PR #${current_pr_number} to reservation RELEASED and its live terminal task state (${reason})."
+          }
+
+          if [ "$pr_author" = "ibboabdoli-ai" ] \
+            && [ "$head_repo" = "$REPOSITORY" ] \
+            && [[ "$head_ref" == work/proffera-* ]] \
+            && [ "$live_pr_state" = "closed" ] \
+            && [ -f "$helper" ]; then
+            invalid_close_reason=""
+            packet_probe="$(mktemp)"
+            if ! grep -Fq "$task_marker" <<< "$pr_body"; then
+              invalid_close_reason="missing bounded Task Packet"
+            elif ! printf '%s' "$pr_body" | node "$helper" parse > "$packet_probe" 2>/dev/null \
+              || ! jq -e . "$packet_probe" >/dev/null 2>&1; then
+              invalid_close_reason="invalid bounded Task Packet"
+            elif [ "$(jq -r '.branch' "$packet_probe")" != "$head_ref" ]; then
+              invalid_close_reason="Task Packet branch does not match PR head"
+            fi
+            if [ -n "$invalid_close_reason" ]; then
+              reconcile_invalid_closed_pr "$PR_NUMBER" "$invalid_close_reason"
+              exit 0
+            fi
+          fi
+
           # Task-aware lifecycle state is trusted only for a same-repository,
           # owner-authored work/proffera-* PR carrying a valid bounded packet.
           if [ "$pr_author" = "ibboabdoli-ai" ] \
@@ -463,6 +494,36 @@ jobs:
           }
 
           read_live_pr
+          reconcile_invalid_closed_pr() {
+            local current_pr_number="$1" reason="$2" result
+            result="$(jq -cn --arg repository "$REPOSITORY" --argjson pr_number "$current_pr_number" --arg run_id "$RUN_ID" '{repository:$repository,pr_number:$pr_number,run_id:$run_id}' | node "$helper" invalid-close-reconcile)"
+            if [ "$(jq -r '.ok == true' <<< "$result")" != "true" ]; then
+              echo "Malformed closed Worker PR has no mutation-safe exact provenance: $(jq -r '.reason' <<< "$result")"
+              return 0
+            fi
+            echo "Converged malformed closed Worker PR #${current_pr_number} to reservation RELEASED and its live terminal task state (${reason})."
+          }
+
+          if [ "$pr_author" = "ibboabdoli-ai" ] \
+            && [ "$head_repo" = "$REPOSITORY" ] \
+            && [[ "$head_ref" == work/proffera-* ]] \
+            && [ "$pr_state" = "closed" ]; then
+            invalid_close_reason=""
+            packet_probe="$(mktemp)"
+            if ! grep -Fq '<!-- proffera-worker-task-packet:v1 -->' <<< "$pr_body"; then
+              invalid_close_reason="missing bounded Task Packet"
+            elif ! printf '%s' "$pr_body" | node "$helper" parse > "$packet_probe" 2>/dev/null \
+              || ! jq -e . "$packet_probe" >/dev/null 2>&1; then
+              invalid_close_reason="invalid bounded Task Packet"
+            elif [ "$(jq -r '.branch' "$packet_probe")" != "$head_ref" ]; then
+              invalid_close_reason="Task Packet branch does not match PR head"
+            fi
+            if [ -n "$invalid_close_reason" ]; then
+              reconcile_invalid_closed_pr "$pr_number" "$invalid_close_reason"
+              exit 0
+            fi
+          fi
+
           if [ "$pr_author" != "ibboabdoli-ai" ] \
             || [ "$head_repo" != "$REPOSITORY" ] \
             || [[ "$head_ref" != work/proffera-* ]] \

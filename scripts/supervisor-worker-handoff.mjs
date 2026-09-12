@@ -943,6 +943,353 @@ export function taskStateBody({ packet: packetInput, state, reason, run_id = "",
   return `${lines.join("\n")}\n`;
 }
 
+function exactStateBodyField(body, pattern, field) {
+  const matches = [...body.matchAll(pattern)];
+  if (matches.length !== 1) throw new Error(`trusted task state ${field} is missing or ambiguous`);
+  return matches[0][1];
+}
+
+export function terminalTaskStateBodyFromExisting({
+  current_body,
+  task_id,
+  graph_path,
+  branch,
+  packet_digest,
+  state,
+  reason,
+  run_id,
+  pr_number,
+  head_sha,
+}) {
+  const currentBody = String(current_body ?? "");
+  const taskId = assertPlainString(task_id, "task_id", 80).toUpperCase();
+  const graphPath = assertSafeGraphPath(graph_path);
+  const workerBranch = assertPlainString(branch, "branch", 90).toLowerCase();
+  const packetDigest = assertPlainString(packet_digest, "packet_digest", 64).toLowerCase();
+  const terminalState = assertPlainString(state, "state", 40).toUpperCase();
+  const runId = assertPlainString(String(run_id ?? ""), "run_id", 30);
+  const prNumber = Number(pr_number);
+  const headSha = assertPlainString(head_sha, "head_sha", 40).toLowerCase();
+  if (!TASK_ID_RE.test(taskId)) throw new Error("task_id is malformed");
+  if (!BRANCH_RE.test(workerBranch)) throw new Error("branch is malformed");
+  if (!SHA256_RE.test(packetDigest)) throw new Error("packet_digest is malformed");
+  if (!TERMINAL_TASK_STATES.has(terminalState)) throw new Error("state must be terminal");
+  if (!/^[0-9]+$/.test(runId)) throw new Error("run_id is malformed");
+  if (!Number.isInteger(prNumber) || prNumber <= 0) throw new Error("pr_number is malformed");
+  if (!SHA_RE.test(headSha)) throw new Error("head_sha is malformed");
+
+  const marker = `${TASK_STATE_MARKER_PREFIX}${taskId} -->`;
+  if (countOccurrences(currentBody, marker) !== 1) throw new Error("trusted task state marker is missing or ambiguous");
+  if (exactStateBodyField(currentBody, /^### Supervisor task: ([A-Z][A-Z0-9-]*)$/gmu, "heading") !== taskId) {
+    throw new Error("trusted task state heading does not match reservation");
+  }
+  const currentState = exactStateBodyField(currentBody, /^- State: `([A-Z][A-Z0-9_]{2,39})`$/gmu, "state");
+  if (!STATE_RE.test(currentState)) throw new Error("trusted task state is malformed");
+  if (exactStateBodyField(currentBody, /^- Graph path: `([^`]+)`$/gmu, "graph path") !== graphPath) {
+    throw new Error("trusted task state graph path does not match reservation");
+  }
+  if (exactStateBodyField(currentBody, /^- Branch: `([^`]+)`$/gmu, "branch") !== workerBranch) {
+    throw new Error("trusted task state branch does not match reservation");
+  }
+  const baseSha = exactStateBodyField(currentBody, /^- Base: `([0-9a-f]{40})`$/gmu, "base").toLowerCase();
+  if (!SHA_RE.test(baseSha)) throw new Error("trusted task state base is malformed");
+  if (exactStateBodyField(currentBody, /^- Packet SHA-256: `([0-9a-f]{64})`$/gmu, "packet digest").toLowerCase() !== packetDigest) {
+    throw new Error("trusted task state packet digest does not match reservation");
+  }
+  if (Number(exactStateBodyField(currentBody, /^- PR: #([1-9][0-9]*)$/gmu, "PR")) !== prNumber) {
+    throw new Error("trusted task state PR does not match reservation");
+  }
+  if (exactStateBodyField(currentBody, /^- Head: `([0-9a-f]{40})`$/gmu, "head").toLowerCase() !== headSha) {
+    throw new Error("trusted task state head does not match live PR");
+  }
+  for (const invariant of [
+    "- Production mutation: `false`",
+    "- Merge allowed: `false`",
+    "- Auto-merge allowed: `false`",
+  ]) {
+    if (countOccurrences(currentBody, invariant) !== 1) throw new Error("trusted task state safety invariant is missing or ambiguous");
+  }
+
+  return [
+    marker,
+    `### Supervisor task: ${taskId}`,
+    `- State: \`${terminalState}\``,
+    `- Graph path: \`${graphPath}\``,
+    `- Branch: \`${workerBranch}\``,
+    `- Base: \`${baseSha}\``,
+    `- Packet SHA-256: \`${packetDigest}\``,
+    `- Run ID: \`${runId}\``,
+    `- PR: #${prNumber}`,
+    `- Head: \`${headSha}\``,
+    `- Reason: ${cleanReason(reason)}`,
+    "- Production mutation: `false`",
+    "- Merge allowed: `false`",
+    "- Auto-merge allowed: `false`",
+    "",
+  ].join("\n");
+}
+
+function invalidCloseResult(ok, code, reason, extra = {}) {
+  return { ok, code, reason, ...extra };
+}
+
+export function planInvalidWorkerPrClose(input) {
+  try {
+    if (input?.repository !== EXPECTED_REPOSITORY) return invalidCloseResult(false, "wrong_repository", "repository is not trusted");
+    const prNumber = Number(input?.pr_number);
+    const runId = String(input?.run_id ?? "");
+    const pr = input?.live_pr ?? {};
+    const state = String(pr.state ?? "");
+    const merged = pr.merged === true;
+    const author = String(pr.user?.login ?? "");
+    const headRepository = String(pr.head?.repo?.full_name ?? "");
+    const branch = String(pr.head?.ref ?? "");
+    const headSha = String(pr.head?.sha ?? "").toLowerCase();
+    if (!Number.isInteger(prNumber) || prNumber <= 0 || !/^[0-9]+$/.test(runId)) {
+      return invalidCloseResult(false, "invalid_identity", "PR or run identity is malformed");
+    }
+    if (state !== "closed" || author !== TRUSTED_SUPERVISOR_ACTOR || headRepository !== EXPECTED_REPOSITORY) {
+      return invalidCloseResult(false, "untrusted_pr", "live PR is not a closed trusted same-repository owner PR");
+    }
+    if (!BRANCH_RE.test(branch) || !SHA_RE.test(headSha)) {
+      return invalidCloseResult(false, "invalid_head", "live Worker branch or head is malformed");
+    }
+
+    const comments = Array.isArray(input?.comments) ? input.comments : [];
+    const reservations = [];
+    for (const comment of comments) {
+      if (comment?.user?.login !== "github-actions[bot]") continue;
+      const body = String(comment?.body ?? "");
+      const payloadMatches = [...body.matchAll(/^- Reservation payload: `([A-Za-z0-9+/]+={0,2})`$/gmu)];
+      if (payloadMatches.length !== 1) continue;
+      const encoded = payloadMatches[0][1];
+      if (encoded.length % 4 !== 0) continue;
+      const decoded = Buffer.from(encoded, "base64");
+      if (decoded.toString("base64") !== encoded) continue;
+      let payload;
+      try {
+        payload = JSON.parse(decoded.toString("utf8"));
+      } catch {
+        continue;
+      }
+      const reservationState = String(payload?.state ?? "");
+      const taskId = String(payload?.task_id ?? "");
+      const reservedRun = String(payload?.run_id ?? "");
+      const reservedBranch = String(payload?.branch ?? "");
+      const reservedHead = String(payload?.head_sha ?? "").toLowerCase();
+      const reservedPr = Number(payload?.pr_number);
+      let graphPath;
+      try {
+        graphPath = assertSafeGraphPath(payload?.graph_path);
+      } catch {
+        continue;
+      }
+      const packetDigest = String(payload?.packet_digest ?? "").toLowerCase();
+      const commentId = Number(comment?.id);
+      const marker = `<!-- proffera-worker-slot-reservation:${taskId} -->`;
+      if ((reservationState !== "PUBLISHED" && reservationState !== "RELEASED")
+        || !TASK_ID_RE.test(taskId)
+        || !/^[0-9]+$/.test(reservedRun)
+        || reservedBranch !== branch
+        || !SHA_RE.test(reservedHead)
+        || reservedPr !== prNumber
+        || !SHA256_RE.test(packetDigest)
+        || !Number.isInteger(commentId)
+        || commentId <= 0
+        || countOccurrences(body, marker) !== 1) continue;
+      reservations.push({ comment: { ...comment, id: commentId }, body, payload, taskId, reservedRun, graphPath, packetDigest });
+    }
+    if (reservations.length !== 1) {
+      return invalidCloseResult(false, "ambiguous_reservation", "closed malformed Worker PR has missing or ambiguous exact reservation provenance");
+    }
+
+    const reservation = reservations[0];
+    const dispatchMarker = `<!-- proffera-worker-dispatch-start:${reservation.taskId}:${reservation.reservedRun} -->`;
+    const dispatchMatches = comments.filter((comment) => comment?.user?.login === "github-actions[bot]"
+      && countOccurrences(String(comment?.body ?? ""), dispatchMarker) === 1);
+    if (dispatchMatches.length !== 1) {
+      return invalidCloseResult(false, "ambiguous_dispatch", "closed malformed Worker PR has missing or ambiguous exact dispatch provenance");
+    }
+
+    let nextReservationBody = reservation.body;
+    let applyReservation = false;
+    if (reservation.payload.state === "PUBLISHED") {
+      const nextPayload = {
+        ...reservation.payload,
+        state: "RELEASED",
+        pr_number: prNumber,
+        head_sha: headSha,
+        recovery: { kind: "closed_pr_invalid_packet", merged },
+      };
+      const encoded = Buffer.from(JSON.stringify(nextPayload), "utf8").toString("base64");
+      nextReservationBody = [
+        `<!-- proffera-worker-slot-reservation:${reservation.taskId} -->`,
+        `### Worker slot reservation: ${reservation.taskId}`,
+        "- State: `RELEASED`",
+        `- Reservation payload: \`${encoded}\``,
+        "",
+      ].join("\n");
+      applyReservation = true;
+    }
+
+    const terminalState = merged ? "MERGED" : "CLOSED_UNMERGED";
+    const terminalReason = merged
+      ? "Worker PR is live-verified as merged after its bounded Task Packet became invalid."
+      : "Worker PR is live-verified as closed without merge after its bounded Task Packet became invalid.";
+    const taskMarker = `${TASK_STATE_MARKER_PREFIX}${reservation.taskId} -->`;
+    const taskMatches = comments.filter((comment) => comment?.user?.login === "github-actions[bot]"
+      && countOccurrences(String(comment?.body ?? ""), taskMarker) === 1);
+    let task = null;
+    if (taskMatches.length === 1) {
+      try {
+        const currentBody = String(taskMatches[0].body ?? "");
+        const currentTaskState = parseTaskStateBody(currentBody);
+        const validatedTerminalBody = terminalTaskStateBodyFromExisting({
+          current_body: currentBody,
+          task_id: reservation.taskId,
+          graph_path: reservation.graphPath,
+          branch,
+          packet_digest: reservation.packetDigest,
+          state: terminalState,
+          reason: terminalReason,
+          run_id: runId,
+          pr_number: prNumber,
+          head_sha: headSha,
+        });
+        if (TERMINAL_TASK_STATES.has(currentTaskState.state) && currentTaskState.state !== terminalState) {
+          return invalidCloseResult(false, "terminal_conflict", "trusted task state conflicts with the live canonical terminal state");
+        }
+        const transition = evaluateTaskStateTransition({
+          current_body: currentBody,
+          source: "lifecycle",
+          requested_state: terminalState,
+          requested_head: headSha,
+          live_head: headSha,
+          live_pr_state: "closed",
+          live_merged: merged,
+        });
+        const nextBody = transition.apply ? validatedTerminalBody : currentBody;
+        task = {
+          id: Number(taskMatches[0].id),
+          expected_body: currentBody,
+          body: nextBody,
+          apply: transition.apply,
+          transition_code: transition.code,
+        };
+      } catch {
+        task = null;
+      }
+    }
+
+    return invalidCloseResult(true, "trusted_invalid_close", "exact malformed-close provenance is trusted", {
+      task_id: reservation.taskId,
+      reservation: {
+        id: Number(reservation.comment.id),
+        expected_body: reservation.body,
+        body: nextReservationBody,
+        apply: applyReservation,
+      },
+      task,
+    });
+  } catch (error) {
+    return invalidCloseResult(false, "invalid_evidence", error instanceof Error ? error.message : "invalid malformed-close evidence");
+  }
+}
+
+function githubApiJson(args) {
+  return JSON.parse(execFileSync("gh", ["api", ...args], { encoding: "utf8", maxBuffer: 8 * 1024 * 1024 }));
+}
+
+function githubIssueComments(repository) {
+  const output = execFileSync("gh", [
+    "api",
+    "--paginate",
+    `repos/${repository}/issues/548/comments?per_page=100`,
+    "--jq",
+    ".[]",
+  ], { encoding: "utf8", maxBuffer: 8 * 1024 * 1024 });
+  return output.split("\n").filter(Boolean).map((line) => JSON.parse(line));
+}
+
+function invalidClosePlanInput(repository, prNumber, runId, livePr, comments) {
+  return { repository, pr_number: prNumber, run_id: runId, live_pr: livePr, comments };
+}
+
+export function reconcileInvalidWorkerPrClose({ repository, pr_number, run_id }) {
+  const prNumber = Number(pr_number);
+  const runId = String(run_id ?? "");
+  if (repository !== EXPECTED_REPOSITORY || !Number.isInteger(prNumber) || prNumber <= 0 || !/^[0-9]+$/.test(runId)) {
+    return invalidCloseResult(false, "invalid_identity", "repository, PR, or run identity is malformed");
+  }
+
+  const livePr = githubApiJson([`repos/${repository}/pulls/${prNumber}`]);
+  const comments = githubIssueComments(repository);
+  const plan = planInvalidWorkerPrClose(invalidClosePlanInput(repository, prNumber, runId, livePr, comments));
+  if (!plan.ok) return plan;
+
+  const confirmPr = githubApiJson([`repos/${repository}/pulls/${prNumber}`]);
+  const confirmComments = githubIssueComments(repository);
+  const confirmPlan = planInvalidWorkerPrClose(invalidClosePlanInput(repository, prNumber, runId, confirmPr, confirmComments));
+  if (JSON.stringify(confirmPlan) !== JSON.stringify(plan)) {
+    return invalidCloseResult(false, "evidence_changed", "malformed-close evidence changed before mutation");
+  }
+
+  let reservation_mutated = false;
+  let task_mutated = false;
+  if (plan.reservation.apply) {
+    execFileSync("gh", [
+      "api",
+      "--method",
+      "PATCH",
+      `repos/${repository}/issues/comments/${plan.reservation.id}`,
+      "-f",
+      `body=${plan.reservation.body}`,
+    ], { stdio: ["ignore", "ignore", "pipe"] });
+    reservation_mutated = true;
+  }
+
+  const desiredTaskBody = String(plan.task?.body ?? "");
+  if (desiredTaskBody) {
+    const afterPr = githubApiJson([`repos/${repository}/pulls/${prNumber}`]);
+    const afterComments = githubIssueComments(repository);
+    const afterPlan = planInvalidWorkerPrClose(invalidClosePlanInput(repository, prNumber, runId, afterPr, afterComments));
+    if (!afterPlan.ok || afterPlan.reservation.apply) {
+      return invalidCloseResult(false, "release_not_converged", "malformed-close evidence did not converge after reservation release", {
+        reservation_mutated,
+        task_mutated,
+      });
+    }
+    const currentTaskBody = String(afterPlan.task?.expected_body ?? "");
+    if (currentTaskBody !== desiredTaskBody) {
+      if (!afterPlan.task?.apply
+        || currentTaskBody !== String(plan.task?.expected_body ?? "")
+        || String(afterPlan.task?.body ?? "") !== desiredTaskBody
+        || !Number.isInteger(afterPlan.task?.id)
+        || afterPlan.task.id <= 0) {
+        return invalidCloseResult(false, "task_evidence_changed", "malformed-close task evidence changed before terminal reconciliation", {
+          reservation_mutated,
+          task_mutated,
+        });
+      }
+      execFileSync("gh", [
+        "api",
+        "--method",
+        "PATCH",
+        `repos/${repository}/issues/comments/${afterPlan.task.id}`,
+        "-f",
+        `body=${desiredTaskBody}`,
+      ], { stdio: ["ignore", "ignore", "pipe"] });
+      task_mutated = true;
+    }
+  }
+
+  return invalidCloseResult(true, "reconciled", "malformed closed Worker PR converged", {
+    task_id: plan.task_id,
+    reservation_mutated,
+    task_mutated,
+  });
+}
+
 export function taskRejectionBody({ comment_id, reason }) {
   const commentId = Number(comment_id);
   if (!Number.isInteger(commentId) || commentId <= 0) throw new Error("comment_id is malformed");
@@ -1029,6 +1376,14 @@ async function main() {
   }
   if (mode === "state-body") {
     process.stdout.write(taskStateBody(parsed));
+    return;
+  }
+  if (mode === "invalid-close-plan") {
+    process.stdout.write(`${JSON.stringify(planInvalidWorkerPrClose(parsed))}\n`);
+    return;
+  }
+  if (mode === "invalid-close-reconcile") {
+    process.stdout.write(`${JSON.stringify(reconcileInvalidWorkerPrClose(parsed))}\n`);
     return;
   }
   if (mode === "rejection-body") {

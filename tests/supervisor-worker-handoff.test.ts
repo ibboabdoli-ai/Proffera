@@ -665,21 +665,35 @@ function commentPatchCalls(calls: string[][], commentId: number) {
 
 type SyncCheckOptions = {
   action?: string;
+  body?: string;
   comments: Array<Record<string, unknown>>;
   eventHead?: string;
+  liveAuthor?: string;
   liveHead?: string;
+  liveHeadRepository?: string;
   liveMerged?: boolean;
+  liveRef?: string;
   liveState?: string;
+  mutateHeadOnPrFetch?: number;
+  mutateReservationOnCommentFetch?: number;
+  mutateTaskOnCommentFetch?: number;
   stepName?: string;
 };
 
 function runSyncCheckReconciliation({
   action = "synchronize",
+  body = packetComment(),
   comments,
   eventHead = sha,
+  liveAuthor = "ibboabdoli-ai",
   liveHead = sha,
+  liveHeadRepository = "ibboabdoli-ai/Proffera",
   liveMerged = false,
+  liveRef = "work/proffera-test-task",
   liveState = "closed",
+  mutateHeadOnPrFetch = 0,
+  mutateReservationOnCommentFetch = 0,
+  mutateTaskOnCommentFetch = 0,
   stepName = "Reconcile required current-head workflow evidence",
 }: SyncCheckOptions) {
   const workflow = source(".github/workflows/worker-supervisor-sync.yml");
@@ -692,7 +706,14 @@ function runSyncCheckReconciliation({
   mkdirSync(join(repo, "scripts"), { recursive: true });
   mkdirSync(bin, { recursive: true });
   copyFileSync(helper, join(repo, "scripts", "supervisor-worker-handoff.mjs"));
-  writeFileSync(stateFile, JSON.stringify({ comments }));
+  writeFileSync(stateFile, JSON.stringify({
+    commentFetches: 0,
+    comments,
+    mutateHeadOnPrFetch,
+    mutateReservationOnCommentFetch,
+    mutateTaskOnCommentFetch,
+    prFetches: 0,
+  }));
   writeFileSync(
     join(bin, "gh"),
     `#!/usr/bin/env node
@@ -720,10 +741,24 @@ if (method !== "GET") {
   process.exit(0);
 }
 if (endpoint === "repos/ibboabdoli-ai/Proffera/pulls/849") {
-  process.stdout.write(process.env.GH_STUB_PR_JSON + "\\n");
+  state.prFetches += 1;
+  const pr = JSON.parse(process.env.GH_STUB_PR_JSON);
+  if (state.prFetches >= state.mutateHeadOnPrFetch && state.mutateHeadOnPrFetch > 0) pr.head.sha = "${otherSha}";
+  writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
+  process.stdout.write(JSON.stringify(pr) + "\\n");
   process.exit(0);
 }
 if (endpoint === "repos/ibboabdoli-ai/Proffera/issues/548/comments?per_page=100") {
+  state.commentFetches += 1;
+  if (state.commentFetches === state.mutateReservationOnCommentFetch) {
+    const reservation = state.comments.find((entry) => String(entry.body ?? "").includes("proffera-worker-slot-reservation:"));
+    if (reservation) reservation.body = String(reservation.body) + "\\nchanged";
+  }
+  if (state.commentFetches === state.mutateTaskOnCommentFetch) {
+    const task = state.comments.find((entry) => String(entry.body ?? "").includes("proffera-worker-task-state:"));
+    if (task) task.body = String(task.body) + "\\nchanged";
+  }
+  writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
   for (const comment of state.comments) process.stdout.write(JSON.stringify(comment) + "\\n");
   process.exit(0);
 }
@@ -742,9 +777,9 @@ process.exit(2);
   const pr = {
     state: liveState,
     merged: liveMerged,
-    user: { login: "ibboabdoli-ai" },
-    head: { repo: { full_name: "ibboabdoli-ai/Proffera" }, ref: "work/proffera-test-task", sha: liveHead },
-    body: packetComment(),
+    user: { login: liveAuthor },
+    head: { repo: { full_name: liveHeadRepository }, ref: liveRef, sha: liveHead },
+    body,
   };
   const result = spawnSync("bash", ["-c", script], {
     cwd: repo,
@@ -1009,6 +1044,17 @@ function stateBody(state: string, headSha = sha) {
     "- PR: #900",
     `- Head: \`${headSha}\``,
   ].join("\n");
+}
+
+function durableStateBody(state: string, headSha = sha) {
+  return runText("state-body", {
+    packet: packet(),
+    state,
+    reason: "Behavior-test durable state.",
+    run_id: "9001",
+    pr_number: 849,
+    head_sha: headSha,
+  });
 }
 
 function transition(overrides: Record<string, unknown> = {}) {
@@ -1509,9 +1555,14 @@ exit 0
       recovery: null,
     });
     const malformedBody = "Worker result with its bounded Task Packet removed";
+    const taskState = {
+      id: 103,
+      user: { login: "github-actions[bot]" },
+      body: durableStateBody("CHECKS_PENDING"),
+    };
     const result = runReservationEnforcement({
       body: malformedBody,
-      comments: evidence.comments,
+      comments: [...evidence.comments, taskState],
       eventAction: "edited",
     });
     expect(result.status).toBe(1);
@@ -1529,6 +1580,7 @@ exit 0
     expect(closed.stdout).toContain("Released trusted Worker slot reservation SUP-TEST-1");
     expect(prPatchCalls(closed.calls)).toHaveLength(0);
     expect(commentPatchCalls(closed.calls, 101)).toHaveLength(1);
+    expect(commentPatchCalls(closed.calls, 103)).toHaveLength(1);
     const reservation = closed.comments.find((comment) => comment.id === 101);
     const payloadBase64 = String(reservation?.body ?? "").match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
     expect(JSON.parse(Buffer.from(payloadBase64, "base64").toString("utf8"))).toMatchObject({
@@ -1537,6 +1589,7 @@ exit 0
       head_sha: sha,
       recovery: { kind: "closed_pr_invalid_packet", merged: false },
     });
+    expect(String(closed.comments.find((comment) => comment.id === 103)?.body)).toContain("- State: `CLOSED_UNMERGED`");
 
     const existing = {
       state: "RESERVED",
@@ -1578,6 +1631,198 @@ exit 0
     expect(result.stdout).toContain("has no exact trusted Supervisor dispatch provenance; leaving it unchanged");
     expect(prPatchCalls(result.calls)).toHaveLength(0);
     expect(result.calls.filter((args) => args.includes("repos/ibboabdoli-ai/Proffera/issues/comments/101"))).toHaveLength(0);
+  });
+
+  it("makes every same-lane replacement writer converge a malformed trusted close", () => {
+    const malformedBodies = [
+      "Worker result with its bounded Task Packet removed",
+      `${taskMarker}\n\`\`\`json\n{broken}\n\`\`\``,
+      packetComment(packet({ branch: "work/proffera-other-task" })),
+    ];
+    for (const reconcile of [runLifecycleReconciliation, runSyncCheckReconciliation]) {
+      for (const body of malformedBodies) {
+        const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+        const result = reconcile({
+          action: "synchronize",
+          body,
+          comments: [
+            ...evidence.comments,
+            { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING", otherSha) },
+          ],
+          eventHead: sha,
+          liveHead: otherSha,
+          liveState: "closed",
+        });
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.stdout).toContain("Converged malformed closed Worker PR #849");
+        expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+        expect(commentPatchCalls(result.calls, 103)).toHaveLength(1);
+        const reservation = result.comments.find((comment) => comment.id === 101);
+        const payloadBase64 = String(reservation?.body ?? "").match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+        expect(JSON.parse(Buffer.from(payloadBase64, "base64").toString("utf8"))).toMatchObject({
+          state: "RELEASED",
+          pr_number: 849,
+          head_sha: otherSha,
+          recovery: { kind: "closed_pr_invalid_packet", merged: false },
+        });
+        expect(String(result.comments.find((comment) => comment.id === 103)?.body)).toContain("- State: `CLOSED_UNMERGED`");
+      }
+    }
+  }, 20_000);
+
+  it("keeps malformed-close convergence idempotent in every replacement writer", () => {
+    for (const reconcile of [runLifecycleReconciliation, runSyncCheckReconciliation]) {
+      const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+      const first = reconcile({
+        body: "missing packet",
+        comments: [
+          ...evidence.comments,
+          { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING") },
+        ],
+      });
+      expect(first.status, first.stderr).toBe(0);
+      const replay = reconcile({ body: "missing packet", comments: first.comments });
+      expect(replay.status, replay.stderr).toBe(0);
+      expect(commentPatchCalls(replay.calls, 101)).toHaveLength(0);
+      expect(commentPatchCalls(replay.calls, 103)).toHaveLength(0);
+    }
+  });
+
+  it("does not let malformed-close replacement writers accept ambiguous provenance", () => {
+    for (const reconcile of [runLifecycleReconciliation, runSyncCheckReconciliation]) {
+      const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+      const duplicateReservation = { ...evidence.comments[0], id: 104 };
+      const duplicateDispatch = { ...evidence.comments[1], id: 105 };
+      for (const comments of [
+        [evidence.comments[0]],
+        [...evidence.comments, duplicateReservation],
+        [...evidence.comments, duplicateDispatch],
+      ]) {
+        const result = reconcile({ body: "missing packet", comments });
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+      }
+    }
+  });
+
+  it("rejects every untrusted malformed-close replacement identity or binding without mutation", () => {
+    for (const reconcile of [runLifecycleReconciliation, runSyncCheckReconciliation]) {
+      const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+      const encoded = String(evidence.comments[0].body).match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+      const payload = JSON.parse(Buffer.from(encoded, "base64").toString("utf8"));
+      const cases: SyncCheckOptions[] = [
+        { body: "missing packet", comments: [reservationComment({ ...payload, state: "RESERVED" }, 101), evidence.comments[1]] },
+        { body: "missing packet", comments: [reservationComment({ ...payload, pr_number: 850 }, 101), evidence.comments[1]] },
+        { body: "missing packet", comments: [reservationComment({ ...payload, branch: "work/proffera-other-task" }, 101), evidence.comments[1]] },
+        { body: "missing packet", comments: [{ ...evidence.comments[0], body: "malformed reservation" }, evidence.comments[1]] },
+        { body: "missing packet", comments: evidence.comments, liveAuthor: "other-owner" },
+        { body: "missing packet", comments: evidence.comments, liveHeadRepository: "other-owner/Proffera" },
+        { body: "missing packet", comments: evidence.comments, liveRef: "feature/not-a-worker" },
+      ];
+      for (const current of cases) {
+        const result = reconcile(current);
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+      }
+    }
+  });
+
+  it("does not use terminal malformed-close reconciliation while the live PR is open", () => {
+    const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+    for (const reconcile of [runLifecycleReconciliation, runSyncCheckReconciliation]) {
+      const result = reconcile({ body: "missing packet", comments: evidence.comments, liveState: "open" });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+    }
+  });
+
+  it("converges either partial malformed-close outcome and preserves terminal monotonicity", () => {
+    const published = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+    const taskAlreadyTerminal = runSyncCheckReconciliation({
+      body: "missing packet",
+      comments: [
+        ...published.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CLOSED_UNMERGED") },
+      ],
+    });
+    expect(taskAlreadyTerminal.status, taskAlreadyTerminal.stderr).toBe(0);
+    expect(commentPatchCalls(taskAlreadyTerminal.calls, 101)).toHaveLength(1);
+    expect(commentPatchCalls(taskAlreadyTerminal.calls, 103)).toHaveLength(0);
+
+    const released = exactReservationEvidence(sha, {
+      state: "RELEASED",
+      pr_number: 849,
+      recovery: { kind: "closed_pr_invalid_packet", merged: false },
+    });
+    const reservationAlreadyReleased = runSyncCheckReconciliation({
+      body: "missing packet",
+      comments: [
+        ...released.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING") },
+      ],
+    });
+    expect(reservationAlreadyReleased.status, reservationAlreadyReleased.stderr).toBe(0);
+    expect(commentPatchCalls(reservationAlreadyReleased.calls, 101)).toHaveLength(0);
+    expect(commentPatchCalls(reservationAlreadyReleased.calls, 103)).toHaveLength(1);
+
+    const conflictingTerminal = runSyncCheckReconciliation({
+      body: "missing packet",
+      comments: [
+        ...published.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("MERGED") },
+      ],
+    });
+    expect(conflictingTerminal.status, conflictingTerminal.stderr).toBe(0);
+    expect(conflictingTerminal.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+  });
+
+  it("uses the live merged bit as the only malformed-close terminal selector", () => {
+    const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+    const result = runReservationEnforcement({
+      body: "missing packet",
+      comments: [
+        ...evidence.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING") },
+      ],
+      eventAction: "closed",
+      liveState: "closed",
+      liveMerged: true,
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(String(result.comments.find((comment) => comment.id === 103)?.body)).toContain("- State: `MERGED`");
+  });
+
+  it("re-fetches live PR and comment evidence before each malformed-close mutation", () => {
+    const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+    const comments = [
+      ...evidence.comments,
+      { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING") },
+    ];
+    for (const current of [
+      { mutateHeadOnPrFetch: 3 },
+      { mutateReservationOnCommentFetch: 2 },
+    ]) {
+      const result = runSyncCheckReconciliation({ body: "missing packet", comments, ...current });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+    }
+
+    const changedTask = runSyncCheckReconciliation({
+      body: "missing packet",
+      comments,
+      mutateTaskOnCommentFetch: 3,
+    });
+    expect(changedTask.status, changedTask.stderr).toBe(0);
+    expect(commentPatchCalls(changedTask.calls, 101)).toHaveLength(1);
+    expect(commentPatchCalls(changedTask.calls, 103)).toHaveLength(0);
+  });
+
+  it("releases exact malformed-close capacity without fabricating a missing task record", () => {
+    const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+    const result = runSyncCheckReconciliation({ body: "missing packet", comments: evidence.comments });
+    expect(result.status, result.stderr).toBe(0);
+    expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+    expect(result.calls.filter((args) => args.includes("--method") && args.includes("POST"))).toHaveLength(0);
   });
 
   it("refuses malformed closed-PR release for ambiguous or mismatched provenance", () => {
@@ -1920,7 +2165,7 @@ exit 0
       expect(result.status, result.stderr).toBe(0);
       expect(result.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
     }
-  });
+  }, 20_000);
 
   it("keeps terminal task state monotonic in convergent check close reconciliation", () => {
     const evidence = exactReservationEvidence();

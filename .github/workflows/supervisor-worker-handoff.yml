@@ -125,58 +125,20 @@ jobs:
           }
 
           release_trusted_reservation_after_invalid_close() {
-            local reason="$1" prior_id="$trusted_reservation_id" prior_body="$trusted_reservation_body" prior_payload="$trusted_reservation_payload"
-            local confirm_pr confirm_comment confirm_body guard_pr payload state task_id live_merged_now payload_b64 new_body
-            test -n "$prior_id" -a -n "$prior_body" -a -n "$prior_payload"
-            confirm_pr="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")"
-            if [ "$(jq -r '.state // ""' <<< "$confirm_pr")" != "closed" ] \
-              || [ "$(jq -r '.head.sha // ""' <<< "$confirm_pr")" != "$live_head" ] \
-              || [ "$(jq -r '.head.ref // ""' <<< "$confirm_pr")" != "$live_ref" ] \
-              || [ "$(jq -r '.user.login // ""' <<< "$confirm_pr")" != "${REPOSITORY%%/*}" ] \
-              || [ "$(jq -r '.head.repo.full_name // ""' <<< "$confirm_pr")" != "$REPOSITORY" ]; then
-              echo "Closed malformed Worker PR changed before reservation release; leaving reservation unchanged." >&2
+            local reason="$1" result
+            result="$(jq -cn --arg repository "$REPOSITORY" --argjson pr_number "$PR_NUMBER" --arg run_id "$RUN_ID" '{repository:$repository,pr_number:$pr_number,run_id:$run_id}' | node "$helper" invalid-close-reconcile)"
+            if [ "$(jq -r '.ok == true' <<< "$result")" != "true" ]; then
+              echo "Closed malformed Worker PR was not mutation-safe: $(jq -r '.reason' <<< "$result")" >&2
               return 1
             fi
-            live_merged_now="$(jq -r '.merged == true' <<< "$confirm_pr")"
-            live_state="closed"
-            live_merged="$live_merged_now"
-            if ! has_trusted_dispatch_provenance \
-              || [ "$trusted_reservation_id" != "$prior_id" ] \
-              || [ "$trusted_reservation_body" != "$prior_body" ] \
-              || [ "$trusted_reservation_payload" != "$prior_payload" ]; then
-              echo "Closed malformed Worker PR provenance changed before reservation release; leaving reservation unchanged." >&2
-              return 1
+            if [ "$(jq -r '.reservation_mutated == true' <<< "$result")" = "true" ]; then
+              echo "Released trusted Worker slot reservation $(jq -r '.task_id' <<< "$result") after malformed PR #${PR_NUMBER} closed (${reason})."
+            else
+              echo "Malformed closed Worker PR reservation $(jq -r '.task_id' <<< "$result") was already released idempotently."
             fi
-            confirm_comment="$(gh api "repos/${REPOSITORY}/issues/comments/${prior_id}")"
-            test "$(jq -r '.user.login // ""' <<< "$confirm_comment")" = "github-actions[bot]"
-            confirm_body="$(jq -r '.body // ""' <<< "$confirm_comment")"
-            test "$confirm_body" = "$prior_body"
-            guard_pr="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")"
-            if [ "$(jq -r '.state // ""' <<< "$guard_pr")" != "closed" ] \
-              || [ "$(jq -r '.merged == true' <<< "$guard_pr")" != "$live_merged_now" ] \
-              || [ "$(jq -r '.head.sha // ""' <<< "$guard_pr")" != "$live_head" ] \
-              || [ "$(jq -r '.head.ref // ""' <<< "$guard_pr")" != "$live_ref" ] \
-              || [ "$(jq -r '.user.login // ""' <<< "$guard_pr")" != "${REPOSITORY%%/*}" ] \
-              || [ "$(jq -r '.head.repo.full_name // ""' <<< "$guard_pr")" != "$REPOSITORY" ]; then
-              echo "Closed malformed Worker PR changed during final reservation guard; leaving reservation unchanged." >&2
-              return 1
+            if [ "$(jq -r '.task_mutated == true' <<< "$result")" = "true" ]; then
+              echo "Reconciled malformed closed Worker PR task $(jq -r '.task_id' <<< "$result") to its live terminal state."
             fi
-            payload="$prior_payload"
-            state="$(jq -r '.state // ""' <<< "$payload")"
-            task_id="$(jq -r '.task_id // ""' <<< "$payload")"
-            if [ "$state" = "RELEASED" ]; then
-              echo "Malformed closed Worker PR reservation ${task_id} was already released idempotently."
-              return 0
-            fi
-            if [ "$state" != "PUBLISHED" ] || [ "$(jq -r '.pr_number // empty' <<< "$payload")" != "$PR_NUMBER" ]; then
-              echo "Refused: malformed closed Worker PR requires its exact PUBLISHED reservation." >&2
-              return 1
-            fi
-            payload="$(jq -c --arg state RELEASED --argjson pr_number "$PR_NUMBER" --arg head "$live_head" --argjson merged "$live_merged_now" '.state=$state | .pr_number=$pr_number | .head_sha=$head | .recovery={kind:"closed_pr_invalid_packet",merged:$merged}' <<< "$payload")"
-            payload_b64="$(printf '%s' "$payload" | base64 -w0)"
-            new_body="$(printf '%s\n' "<!-- proffera-worker-slot-reservation:${task_id} -->" "### Worker slot reservation: ${task_id}" '- State: \`RELEASED\`' "- Reservation payload: \`${payload_b64}\`")"
-            gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${prior_id}" -f body="$new_body" >/dev/null
-            echo "Released trusted Worker slot reservation ${task_id} after malformed PR #${PR_NUMBER} closed (${reason})."
           }
 
           if [ "$live_state" != "closed" ] \
