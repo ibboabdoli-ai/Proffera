@@ -190,7 +190,9 @@ jobs:
                 if [ -z "$reserved_run" ] \
                   || [ "$reserved_task" != "$task_id" ] \
                   || [ "$reserved_branch" != "$head_ref" ] \
-                  || [ "$reserved_head" != "$live_head_sha" ] \
+                  || { [ "$reserved_head" != "$live_head_sha" ] \
+                    && { [ "$reserved_pr" != "$PR_NUMBER" ] \
+                      || { [ "$state" != "PUBLISHED" ] && [ "$state" != "RELEASED" ]; }; }; } \
                   || [ "$reserved_graph" != "$packet_graph" ] \
                   || [ "$reserved_allowed" != "$packet_allowed" ] \
                   || [ "$reserved_digest" != "$packet_digest" ] \
@@ -260,7 +262,7 @@ jobs:
                   release_reservation=no
                 fi
                 if [ "$release_reservation" = "yes" ]; then
-                  payload="$(jq -c --arg state RELEASED --argjson pr_number "$PR_NUMBER" --argjson merged "$live_merged" '.state=$state | .pr_number=$pr_number | .recovery={kind:"closed_pr",merged:$merged}' <<< "$payload")"
+                  payload="$(jq -c --arg state RELEASED --argjson pr_number "$PR_NUMBER" --arg head "$live_head_sha" --argjson merged "$live_merged" '.state=$state | .pr_number=$pr_number | .head_sha=$head | .recovery={kind:"closed_pr",merged:$merged}' <<< "$payload")"
                   payload_b64="$(printf '%s' "$payload" | base64 -w0)"
                   new_body="$(cat <<EOF
           <!-- proffera-worker-slot-reservation:${task_id} -->
@@ -524,7 +526,9 @@ jobs:
             if [ -z "$reserved_run" ] \
               || [ "$reserved_task" != "$task_id" ] \
               || [ "$reserved_branch" != "$head_ref" ] \
-              || [ "$reserved_head" != "$head_sha" ] \
+              || { [ "$reserved_head" != "$head_sha" ] \
+                && { [ "$reserved_pr" != "$pr_number" ] \
+                  || { [ "$state" != "PUBLISHED" ] && [ "$state" != "RELEASED" ]; }; }; } \
               || [ "$reserved_graph" != "$packet_graph" ] \
               || [ "$reserved_allowed" != "$packet_allowed" ] \
               || [ "$reserved_digest" != "$packet_digest" ] \
@@ -594,7 +598,7 @@ jobs:
               release_reservation=no
             fi
             if [ "$release_reservation" = "yes" ]; then
-              payload="$(jq -c --arg state RELEASED --argjson pr_number "$pr_number" --argjson merged "$pr_merged" '.state=$state | .pr_number=$pr_number | .recovery={kind:"closed_pr",merged:$merged}' <<< "$payload")"
+              payload="$(jq -c --arg state RELEASED --argjson pr_number "$pr_number" --arg head "$head_sha" --argjson merged "$pr_merged" '.state=$state | .pr_number=$pr_number | .head_sha=$head | .recovery={kind:"closed_pr",merged:$merged}' <<< "$payload")"
               payload_b64="$(printf '%s' "$payload" | base64 -w0)"
               new_body="$(cat <<EOF
           <!-- proffera-worker-slot-reservation:${task_id} -->

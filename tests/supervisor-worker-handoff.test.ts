@@ -93,6 +93,7 @@ type ReservationEnforcementOptions = {
   body?: string;
   comments?: Array<Record<string, unknown>>;
   eventAction?: string;
+  eventActor?: string;
   eventHead?: string;
   liveHead?: string;
   liveMerged?: boolean;
@@ -141,6 +142,7 @@ function runReservationEnforcement({
   body = packetComment(),
   comments = [],
   eventAction = "synchronize",
+  eventActor = "ibboabdoli-ai",
   liveHead = sha,
   eventHead = liveHead,
   liveMerged = false,
@@ -232,6 +234,7 @@ process.exit(2);
       REPOSITORY: "ibboabdoli-ai/Proffera",
       PR_NUMBER: "849",
       EVENT_ACTION: eventAction,
+      EVENT_ACTOR: eventActor,
       EVENT_HEAD_SHA: eventHead,
       EVENT_HEAD_REF: "work/proffera-test-task",
       EVENT_AUTHOR: "ibboabdoli-ai",
@@ -1384,6 +1387,64 @@ exit 0
     });
   });
 
+  it("advances a published reservation to the exact trusted same-PR repair head", () => {
+    const evidence = exactReservationEvidence(sha, {
+      state: "PUBLISHED",
+      pr_number: 849,
+      recovery: null,
+    });
+    const result = runReservationEnforcement({
+      body: evidence.body,
+      comments: evidence.comments,
+      eventHead: otherSha,
+      liveHead: otherSha,
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain(`Advanced published reservation SUP-TEST-1 to trusted repair head ${otherSha}`);
+    expect(prPatchCalls(result.calls)).toHaveLength(0);
+    expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+    const reservation = result.comments.find((comment) => comment.id === 101);
+    const payloadBase64 = String(reservation?.body ?? "").match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+    expect(JSON.parse(Buffer.from(payloadBase64, "base64").toString("utf8"))).toMatchObject({
+      state: "PUBLISHED",
+      pr_number: 849,
+      head_sha: otherSha,
+      recovery: null,
+    });
+  });
+
+  it("does not advance a published reservation for an unbound or non-owner repair event", () => {
+    for (const overrides of [
+      { pr_number: null },
+      { pr_number: 850 },
+    ]) {
+      const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", recovery: null, ...overrides });
+      const result = runReservationEnforcement({
+        body: evidence.body,
+        comments: evidence.comments,
+        eventHead: otherSha,
+        liveHead: otherSha,
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain("has no exact trusted Supervisor dispatch provenance; leaving it unchanged");
+      expect(commentPatchCalls(result.calls, 101)).toHaveLength(0);
+      expect(prPatchCalls(result.calls)).toHaveLength(0);
+    }
+
+    const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+    const untrustedActor = runReservationEnforcement({
+      body: evidence.body,
+      comments: evidence.comments,
+      eventActor: "untrusted-collaborator",
+      eventHead: otherSha,
+      liveHead: otherSha,
+    });
+    expect(untrustedActor.status, untrustedActor.stderr).toBe(0);
+    expect(untrustedActor.stdout).toContain("has no exact trusted Supervisor dispatch provenance; leaving it unchanged");
+    expect(commentPatchCalls(untrustedActor.calls, 101)).toHaveLength(0);
+    expect(prPatchCalls(untrustedActor.calls)).toHaveLength(0);
+  });
+
   it("rejects duplicate or mismatched reservation and dispatch evidence", () => {
     const evidence = exactReservationEvidence();
     const duplicateReservation = { ...evidence.comments[0], id: 103 };
@@ -1491,6 +1552,31 @@ exit 0
     expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
     expect(commentPatchCalls(result.calls, 103)).toHaveLength(1);
     expect(String(result.comments.find((comment) => comment.id === 103)?.body)).toContain("- State: `CLOSED_UNMERGED`");
+  });
+
+  it("releases a published reservation when a trusted repair closes before head rebinding", () => {
+    const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+    const result = runReservationEnforcement({
+      body: evidence.body,
+      comments: [
+        ...evidence.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING", otherSha) },
+      ],
+      eventAction: "closed",
+      eventHead: otherSha,
+      liveHead: otherSha,
+      liveState: "closed",
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+    const reservation = result.comments.find((comment) => comment.id === 101);
+    const payloadBase64 = String(reservation?.body ?? "").match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+    expect(JSON.parse(Buffer.from(payloadBase64, "base64").toString("utf8"))).toMatchObject({
+      state: "RELEASED",
+      pr_number: 849,
+      head_sha: otherSha,
+      recovery: { kind: "closed_pr", merged: false },
+    });
   });
 
   it("does not regress a terminal task state during close reconciliation", () => {
@@ -1652,6 +1738,32 @@ exit 0
       );
       expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
       expect(commentPatchCalls(result.calls, 103)).toHaveLength(1);
+    }
+  });
+
+  it("lets both alternate close writers release a published reservation after an unrecorded repair head", () => {
+    for (const reconcile of [runLifecycleReconciliation, runSyncCheckReconciliation]) {
+      const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+      const result = reconcile({
+        action: "synchronize",
+        comments: [
+          ...evidence.comments,
+          { id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING", otherSha) },
+        ],
+        eventHead: sha,
+        liveHead: otherSha,
+        liveState: "closed",
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+      const reservation = result.comments.find((comment) => comment.id === 101);
+      const payloadBase64 = String(reservation?.body ?? "").match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+      expect(JSON.parse(Buffer.from(payloadBase64, "base64").toString("utf8"))).toMatchObject({
+        state: "RELEASED",
+        pr_number: 849,
+        head_sha: otherSha,
+        recovery: { kind: "closed_pr", merged: false },
+      });
     }
   });
 
