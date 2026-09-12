@@ -953,6 +953,57 @@ export function taskStateBody({ packet: packetInput, state, reason, run_id = "",
   return `${lines.join("\n")}\n`;
 }
 
+export function expiredReservationRetryTaskBody({ current_body, reservation }) {
+  if (!reservation || typeof reservation !== "object" || Array.isArray(reservation)) {
+    throw new Error("expired reservation is malformed");
+  }
+  const taskId = assertPlainString(reservation.task_id, "reservation.task_id", 80).toUpperCase();
+  const runId = String(reservation.run_id ?? "");
+  const branch = assertPlainString(reservation.branch, "reservation.branch", 120);
+  const graphPath = assertSafeGraphPath(reservation.graph_path);
+  const digest = String(reservation.packet_digest ?? "").toLowerCase();
+  const reservationHead = String(reservation.head_sha ?? "").toLowerCase();
+  if (!TASK_ID_RE.test(taskId)
+    || !/^[0-9]+$/.test(runId)
+    || !BRANCH_RE.test(branch)
+    || !SHA256_RE.test(digest)
+    || !SHA_RE.test(reservationHead)
+    || !new Set(["RESERVED", "RECOVERABLE"]).has(String(reservation.state ?? ""))) {
+    throw new Error("expired reservation identity is malformed");
+  }
+
+  const body = String(current_body ?? "");
+  const marker = `${TASK_STATE_MARKER_PREFIX}${taskId} -->`;
+  if (countOccurrences(body, marker) !== 1) throw new Error("retryable task marker is missing or ambiguous");
+  const currentState = exactStateBodyField(body, /^- State: `([A-Z_]+)`$/gmu, "state");
+  if (currentState !== "WORKER_BLOCKED" && currentState !== "TASK_BLOCKED") {
+    throw new Error("expired reservation task is not retryable from its current state");
+  }
+  if (exactStateBodyField(body, /^- Graph path: `([^`]+)`$/gmu, "graph path") !== graphPath
+    || exactStateBodyField(body, /^- Branch: `([^`]+)`$/gmu, "branch") !== branch
+    || exactStateBodyField(body, /^- Packet SHA-256: `([0-9a-f]{64})`$/gmu, "packet digest") !== digest
+    || exactStateBodyField(body, /^- Run ID: `([0-9]+)`$/gmu, "run ID") !== runId) {
+    throw new Error("expired reservation does not match its durable task state");
+  }
+  const taskHead = optionalStateBodyField(body, /^- Head: `([0-9a-f]{40})`$/gmu, "head").toLowerCase();
+  if (taskHead && taskHead !== reservationHead) throw new Error("expired reservation head does not match its durable task state");
+  if (optionalStateBodyField(body, /^- PR: #([1-9][0-9]*)$/gmu, "PR")) {
+    throw new Error("unbound expired reservation task unexpectedly has a PR binding");
+  }
+  for (const invariant of [
+    "- Production mutation: `false`",
+    "- Merge allowed: `false`",
+    "- Auto-merge allowed: `false`",
+  ]) {
+    if (countOccurrences(body, invariant) !== 1) throw new Error("retryable task safety invariant is missing or ambiguous");
+  }
+  exactStateBodyField(body, /^- Reason: (.+)$/gmu, "reason");
+  if (currentState === "TASK_BLOCKED") return body;
+  return body
+    .replace(/^- State: `WORKER_BLOCKED`$/mu, "- State: `TASK_BLOCKED`")
+    .replace(/^- Reason: .+$/mu, "- Reason: Expired Worker reservation was released after its owning run completed and no branch or PR remained; the same task may be resubmitted safely.");
+}
+
 function exactStateBodyField(body, pattern, field) {
   const matches = [...body.matchAll(pattern)];
   if (matches.length !== 1) throw new Error(`trusted task state ${field} is missing or ambiguous`);
@@ -1500,6 +1551,10 @@ async function main() {
   }
   if (mode === "state-body") {
     process.stdout.write(taskStateBody(parsed));
+    return;
+  }
+  if (mode === "expired-reservation-retry-body") {
+    process.stdout.write(expiredReservationRetryTaskBody(parsed));
     return;
   }
   if (mode === "invalid-close-plan") {

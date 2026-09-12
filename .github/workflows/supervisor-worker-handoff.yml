@@ -9,10 +9,6 @@ on:
 
 permissions: {}
 
-concurrency:
-  group: proffera-supervisor-worker-handoff-${{ github.event.issue.number || github.run_id }}
-  cancel-in-progress: false
-
 jobs:
   enforce-reserved-worker-pr:
     name: Enforce durable Worker slot reservation
@@ -248,13 +244,15 @@ jobs:
             fi
             state="$(jq -r '.state // ""' <<< "$payload")"
             reserved_task="$(jq -r '.task_id // ""' <<< "$payload")"
+            reserved_run="$(jq -r '.run_id // ""' <<< "$payload")"
             reserved_branch="$(jq -r '.branch // ""' <<< "$payload")"
             reserved_pr="$(jq -r '.pr_number // empty' <<< "$payload")"
             reserved_graph="$(jq -r '.graph_path // ""' <<< "$payload")"
             reserved_allowed="$(jq -c '.allowed_paths // []' <<< "$payload")"
             reserved_digest="$(jq -r '.packet_digest // ""' <<< "$payload")"
             reserved_head="$(jq -r '.head_sha // ""' <<< "$payload")"
-            if [ "$reserved_task" != "$task_id" ] \
+            if ! [[ "$reserved_run" =~ ^[0-9]+$ ]] \
+              || [ "$reserved_task" != "$task_id" ] \
               || [ "$reserved_branch" != "$live_ref" ] \
               || [ "$reserved_graph" != "$packet_graph" ] \
               || [ "$reserved_allowed" != "$packet_allowed" ] \
@@ -334,7 +332,7 @@ jobs:
             fi
 
             if [ "$transition_apply" = "true" ]; then
-              task_state_json="$(jq -n --argjson packet "$packet" --arg state "$terminal_state" --arg reason "$terminal_reason" --arg run_id "$RUN_ID" --argjson pr_number "$PR_NUMBER" --arg head_sha "$live_head" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,pr_number:$pr_number,head_sha:$head_sha}')"
+              task_state_json="$(jq -n --argjson packet "$packet" --arg state "$terminal_state" --arg reason "$terminal_reason" --arg run_id "$reserved_run" --argjson pr_number "$PR_NUMBER" --arg head_sha "$live_head" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,pr_number:$pr_number,head_sha:$head_sha}')"
               task_state_body="$(printf '%s' "$task_state_json" | node "$helper" state-body)"
               if [ -n "$task_state_comment_id" ]; then
                 gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${task_state_comment_id}" -f body="$task_state_body" >/dev/null
@@ -907,16 +905,33 @@ jobs:
                 open_pr_count="$(jq --arg branch "$other_branch" '[.[] | select(.head.ref == $branch)] | length' <<< "$pulls_json")"
                 if [ "$run_status" = "completed" ] && [ -z "$branch_exists" ] && [ "$open_pr_count" -eq 0 ]; then
                   comment_id="$(jq -r '.id' <<< "$comment")"
+                  retry_task_marker="<!-- proffera-worker-task-state:${marker_task} -->"
+                  retry_task_matches="$(jq --arg marker "$retry_task_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]' <<< "$comments_json")"
+                  if [ "$(jq 'length' <<< "$retry_task_matches")" -ne 1 ]; then
+                    echo "Refused: expired reservation has missing or ambiguous durable task-state evidence." >&2
+                    exit 1
+                  fi
+                  retry_task_comment_id="$(jq -r '.[0].id' <<< "$retry_task_matches")"
+                  retry_task_current_body="$(jq -r '.[0].body // ""' <<< "$retry_task_matches")"
+                  retry_task_body="$(jq -cn --arg current_body "$retry_task_current_body" --argjson reservation "$payload" '{current_body:$current_body,reservation:$reservation}' | node "$helper" expired-reservation-retry-body)"
                   current_body="$(gh api "repos/${REPOSITORY}/issues/comments/${comment_id}" --jq '.body // ""')"
                   if [ "$current_body" != "$body" ]; then
                     echo "Refused: reservation changed during stale-run reclamation." >&2
                     exit 1
                   fi
+                  confirmed_task_body="$(gh api "repos/${REPOSITORY}/issues/comments/${retry_task_comment_id}" --jq '.body // ""')"
+                  if [ "$confirmed_task_body" != "$retry_task_current_body" ]; then
+                    echo "Refused: task state changed during stale-run reclamation." >&2
+                    exit 1
+                  fi
                   payload="$(jq -c '.state="RELEASED" | .recovery={kind:"expired_reservation",verified_run_status:"completed",retryable:true}' <<< "$payload")"
                   payload_b64="$(printf '%s' "$payload" | base64 -w0)"
                   new_body="$(printf '%s\n' "<!-- proffera-worker-slot-reservation:${marker_task} -->" "### Worker slot reservation: ${marker_task}" '- State: `RELEASED`' "- Reservation payload: \`${payload_b64}\`")"
+                  if [ "$retry_task_body" != "$retry_task_current_body" ]; then
+                    gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${retry_task_comment_id}" -f body="$retry_task_body" >/dev/null
+                  fi
                   gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${comment_id}" -f body="$new_body" >/dev/null
-                  echo "Released expired ${state} reservation ${marker_task} into a retryable state after verifying its owning run completed and no branch or PR remains."
+                  echo "Released expired ${state} reservation ${marker_task} and made its exact durable task retryable after verifying its owning run completed and no branch or PR remains."
                   continue
                 fi
               fi

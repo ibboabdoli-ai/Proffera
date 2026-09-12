@@ -2383,7 +2383,10 @@ exit 0
         recovery: { kind: "closed_pr", merged: liveMerged },
       });
       const terminal = result.comments.find((comment) => comment.id === 103);
-      expect(String(terminal?.body)).toContain(liveMerged ? "- State: `MERGED`" : "- State: `CLOSED_UNMERGED`");
+      const terminalBody = String(terminal?.body);
+      expect(terminalBody).toContain(liveMerged ? "- State: `MERGED`" : "- State: `CLOSED_UNMERGED`");
+      expect(terminalBody).toContain("- Run ID: `9001`");
+      expect(terminalBody).not.toContain("- Run ID: `9002`");
     }
   });
 
@@ -2873,6 +2876,14 @@ exit 0
   });
 
   it("reclaims an expired branch recovery only after live absence checks", () => {
+    const oldPacket = packet({
+      task_id: "SUP-OLD-SLOT-1",
+      task_title: "Expired recovery slot",
+      graph_path: "feature/old-slot",
+      branch: "work/proffera-old-slot",
+      allowed_paths: ["src/features/old-slot/"],
+    });
+    const oldPacketDigest = createHash("sha256").update(JSON.stringify(oldPacket)).digest("hex");
     const recoverable = (expiresAt: string) => ({
       state: "RECOVERABLE",
       task_id: "SUP-OLD-SLOT-1",
@@ -2880,22 +2891,39 @@ exit 0
       branch: "work/proffera-old-slot",
       head_sha: otherSha,
       graph_path: "feature/old-slot",
-      packet_digest: "c".repeat(64),
+      packet_digest: oldPacketDigest,
       allowed_paths: ["src/features/old-slot/"],
       changed_files: [],
       pr_number: null,
       recovery: { kind: "branch", expires_at: expiresAt },
     });
     const expired = recoverable("2000-01-01T00:00:00Z");
-    const released = runSlotReservation({ reservation: expired });
+    const retryableTask = {
+      id: 203,
+      user: { login: "github-actions[bot]" },
+      body: runText("state-body", {
+        packet: oldPacket,
+        state: "WORKER_BLOCKED",
+        reason: "Publication recovery remains active.",
+        run_id: "7001",
+        head_sha: otherSha,
+      }),
+    };
+    const released = runSlotReservation({ reservation: expired, extraComments: [retryableTask] });
     expect(released.status, released.stderr).toBe(0);
     expect(commentPatchCalls(released.calls, 201)).toHaveLength(1);
+    expect(commentPatchCalls(released.calls, 203)).toHaveLength(1);
+    expect(String(released.comments.find((comment) => comment.id === 203)?.body)).toContain("- State: `TASK_BLOCKED`");
     const releasedPayloadBase64 = String(released.comments.find((comment) => comment.id === 201)?.body ?? "")
       .match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
     expect(JSON.parse(Buffer.from(releasedPayloadBase64, "base64").toString("utf8"))).toMatchObject({
       state: "RELEASED",
       recovery: { kind: "expired_reservation", verified_run_status: "completed", retryable: true },
     });
+
+    const missingTask = runSlotReservation({ reservation: expired });
+    expect(missingTask.status).toBe(1);
+    expect(commentPatchCalls(missingTask.calls, 201)).toHaveLength(0);
 
     const openPull = {
       number: 830,
@@ -2910,10 +2938,10 @@ exit 0
       files: [],
     };
     for (const { expectedStatus, ...options } of [
-      { reservation: recoverable("2099-01-01T00:00:00Z"), expectedStatus: 0 },
-      { reservation: expired, branches: ["work/proffera-old-slot"], expectedStatus: 0 },
-      { reservation: expired, pulls: [openPull], expectedStatus: 1 },
-      { reservation: expired, changedReservationBody: true, expectedStatus: 1 },
+      { reservation: recoverable("2099-01-01T00:00:00Z"), extraComments: [retryableTask], expectedStatus: 0 },
+      { reservation: expired, branches: ["work/proffera-old-slot"], extraComments: [retryableTask], expectedStatus: 0 },
+      { reservation: expired, pulls: [openPull], extraComments: [retryableTask], expectedStatus: 1 },
+      { reservation: expired, changedReservationBody: true, extraComments: [retryableTask], expectedStatus: 1 },
     ]) {
       const retained = runSlotReservation(options);
       expect(retained.status, retained.stderr).toBe(expectedStatus);
@@ -3062,7 +3090,8 @@ exit 0
   it("serializes dispatch publication with PR lifecycle reservation mutations", () => {
     const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
     const sync = source(".github/workflows/worker-supervisor-sync.yml");
-    expect(workflow).toContain("group: proffera-supervisor-worker-handoff-${{ github.event.issue.number || github.run_id }}");
+    const workflowHeader = workflow.slice(0, workflow.indexOf("jobs:"));
+    expect(workflowHeader).not.toContain("concurrency:");
     expect(workflow).toContain("cancel-in-progress: false");
     expect(workflow).toContain("github.event.pull_request.head.repo.full_name == github.repository");
     expect(workflow).toContain("format('untrusted-pr-{0}', github.event.pull_request.number)");
