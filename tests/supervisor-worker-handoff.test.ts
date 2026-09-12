@@ -608,13 +608,19 @@ exit 0
 
   it("does not expose OpenAI or push credentials to post-Worker reconciliation helper execution", () => {
     const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
-    const reconcile = workflowRunStep(workflow, "Reconcile live state again immediately before publication");
-    const publish = workflowRunStep(workflow, "Publish branch normally or persist validated recovery artifact");
-    expectShellAndJqSyntax(reconcile);
-    expectShellAndJqSyntax(publish);
+    const reconcileScript = workflowRunStep(workflow, "Reconcile live state again immediately before publication");
+    const publishScript = workflowRunStep(workflow, "Publish branch normally or persist validated recovery artifact");
+    expectShellAndJqSyntax(reconcileScript);
+    expectShellAndJqSyntax(publishScript);
+    const reconcileStart = workflow.indexOf("Reconcile live state again immediately before publication");
+    const reconcileEnd = workflow.indexOf("Commit bounded Worker result locally", reconcileStart);
+    const reconcile = workflow.slice(reconcileStart, reconcileEnd);
     expect(reconcile).not.toContain("OPENAI_API_KEY");
     expect(reconcile).not.toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
 
+    const publishStart = workflow.indexOf("Publish branch normally or persist validated recovery artifact");
+    const publishEnd = workflow.indexOf("Record dispatched Worker PR", publishStart);
+    const publish = workflow.slice(publishStart, publishEnd);
     expect(publish).toContain("PROFFERA_AUTOFIX_PUSH_TOKEN");
     expect(publish).toContain('node "$helper" validate-publication');
     expect(publish).toContain("proffera-publication-recovery-complete");
