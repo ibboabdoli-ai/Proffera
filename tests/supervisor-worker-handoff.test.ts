@@ -642,6 +642,40 @@ exit 0
     expect(workflow).toContain("reservation changed during stale-run reclamation");
   });
 
+  it("binds reservation publication and recovery to trusted live PR identity", () => {
+    const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+    const enforcement = workflowRunStep(workflow, "Require exact durable reservation before accepting Worker PR");
+    const publish = workflowRunStep(workflow, "Mark reservation published");
+    const recovery = workflowRunStep(workflow, "Release or recover reservation on dispatch failure");
+    expect(enforcement).toContain('live_author" = "${REPOSITORY%%/*}');
+    expect(enforcement).toContain('live_head_repository" = "$REPOSITORY');
+    expect(enforcement).toContain('state" != "PUBLISHED" ] || [ "$reserved_pr" = "$PR_NUMBER');
+    expect(publish).toContain('test "$(jq -r \'.state\' <<< "$payload")" = "RESERVED"');
+    expect(publish).toContain('test "$(jq -r \'.state\' <<< "$pr")" = "open"');
+    expect(recovery).toContain('.head.sha == $head');
+    expect(recovery).toContain('.head.repo.full_name == $repo');
+    expect(recovery).toContain('.user.login == $owner');
+  });
+
+  it("keeps uploaded fallback evidence recoverable and expires it before artifact deletion", () => {
+    const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+    const recovery = workflowRunStep(workflow, "Release or recover reservation on dispatch failure");
+    expect(workflow).toContain("id: recovery_upload");
+    expect(recovery).toContain('ARTIFACT_UPLOADED" = "true"');
+    expect(recovery).toContain("date -u -d '+6 days'");
+    expect(workflow).toContain('.recovery.expires_at // ""');
+    expect(workflow).toContain("retryable:true");
+    expect(workflow).toContain("retention-days: 7");
+  });
+
+  it("guards WORKER_PR_OPENED against terminal task-state races", () => {
+    const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+    const record = workflowRunStep(workflow, "Record dispatched Worker PR in stable Supervisor task state");
+    expect(record).toContain('requested_state WORKER_PR_OPENED');
+    expect(record).toContain('node "$helper" transition');
+    expect(record).toContain('current_body:$current_body');
+  });
+
   it("keeps an #830-style independent parallel Worker unaffected", () => {
     const parallel = workerPr({
       number: 830,
@@ -998,6 +1032,43 @@ exit 0
       encoding: "utf8",
     });
     expect(noNewlineBuild.status, noNewlineBuild.stderr).toBe(0);
+  });
+
+  it("accepts exact header-only empty-file additions and deletions", () => {
+    const repo = mkdtempSync(join(tmpdir(), "proffera-empty-publication-"));
+    const git = (...args: string[]) => {
+      const result = spawnSync("git", args, { cwd: repo, encoding: "utf8" });
+      expect(result.status, result.stderr).toBe(0);
+      return result.stdout.trim();
+    };
+    git("init");
+    git("config", "user.name", "test");
+    git("config", "user.email", "test@example.invalid");
+    writeFileSync(join(repo, "delete-empty.txt"), "", "utf8");
+    git("add", "delete-empty.txt");
+    git("commit", "-m", "source");
+    const sourceHead = git("rev-parse", "HEAD");
+    git("rm", "delete-empty.txt");
+    writeFileSync(join(repo, "add-empty.txt"), "", "utf8");
+    git("add", "add-empty.txt");
+    git("commit", "-m", "target");
+    const targetHead = git("rev-parse", "HEAD");
+    const scopedPacket = packet({ base_sha: sourceHead, allowed_paths: ["add-empty.txt", "delete-empty.txt"] });
+    const built = spawnSync(process.execPath, [helper, "build-publication"], {
+      cwd: repo,
+      input: JSON.stringify({ packet: scopedPacket, source_head: sourceHead, target_head: targetHead }),
+      encoding: "utf8",
+    });
+    expect(built.status, built.stderr).toBe(0);
+    const artifact = JSON.parse(built.stdout) as Record<string, unknown>;
+    expect(String(artifact.unified_diff)).not.toContain("@@ ");
+    const validated = spawnSync(process.execPath, [helper, "validate-publication"], {
+      cwd: repo,
+      input: JSON.stringify({ packet: scopedPacket, current_source_head: sourceHead, artifact }),
+      encoding: "utf8",
+    });
+    expect(validated.status, validated.stderr).toBe(0);
+    expect(JSON.parse(validated.stdout).ok).toBe(true);
   });
 
   it("keeps sensitive work on FULL gates and permits canonical low-risk routing", () => {

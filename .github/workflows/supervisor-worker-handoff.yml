@@ -53,6 +53,8 @@ jobs:
           live_merged="$(jq -r '.merged == true' <<< "$pr_json")"
           live_head="$(jq -r '.head.sha // ""' <<< "$pr_json")"
           live_ref="$(jq -r '.head.ref // ""' <<< "$pr_json")"
+          live_author="$(jq -r '.user.login // ""' <<< "$pr_json")"
+          live_head_repository="$(jq -r '.head.repo.full_name // ""' <<< "$pr_json")"
           body="$(jq -r '.body // ""' <<< "$pr_json")"
 
           close_unreserved() {
@@ -189,11 +191,16 @@ jobs:
                   reserved_graph="$(jq -r '.graph_path // ""' <<< "$payload")"
                   reserved_allowed="$(jq -c '.allowed_paths // []' <<< "$payload")"
                   reserved_head="$(jq -r '.head_sha // ""' <<< "$payload")"
+                  reserved_pr="$(jq -r '.pr_number // empty' <<< "$payload")"
                   if [ "$reserved_task" = "$task_id" ] \
                     && [ "$reserved_branch" = "$live_ref" ] \
                     && [ "$reserved_graph" = "$packet_graph" ] \
                     && [ "$reserved_allowed" = "$packet_allowed" ] \
+                    && [ "$(jq -r '.packet_digest // ""' <<< "$payload")" = "$packet_digest" ] \
                     && [ "$reserved_head" = "$live_head" ] \
+                    && [ "$live_author" = "${REPOSITORY%%/*}" ] \
+                    && [ "$live_head_repository" = "$REPOSITORY" ] \
+                    && { [ "$state" != "PUBLISHED" ] || [ "$reserved_pr" = "$PR_NUMBER" ]; } \
                     && { [ "$state" = "RESERVED" ] || [ "$state" = "PUBLISHED" ] || [ "$state" = "RECOVERABLE" ]; }; then
                     echo "Worker PR #${PR_NUMBER} is bound to durable reservation ${task_id}@${live_head}."
                     exit 0
@@ -829,8 +836,12 @@ jobs:
             other_branch="$(jq -r '.branch // ""' <<< "$payload")"
             other_allowed="$(jq -c '.allowed_paths // []' <<< "$payload")"
             other_changed="$(jq -c '.changed_files // []' <<< "$payload")"
-            if [ "$state" = "RESERVED" ]; then
-              lease_expires_at="$(jq -r '.lease_expires_at // ""' <<< "$payload")"
+            if [ "$state" = "RESERVED" ] || [ "$state" = "RECOVERABLE" ]; then
+              if [ "$state" = "RECOVERABLE" ]; then
+                lease_expires_at="$(jq -r '.recovery.expires_at // ""' <<< "$payload")"
+              else
+                lease_expires_at="$(jq -r '.lease_expires_at // ""' <<< "$payload")"
+              fi
               owner_run_id="$(jq -r '.run_id // ""' <<< "$payload")"
               reserved_pr="$(jq -r '.pr_number // empty' <<< "$payload")"
               lease_epoch="$(date -u -d "$lease_expires_at" +%s 2>/dev/null || true)"
@@ -845,11 +856,11 @@ jobs:
                     echo "Refused: reservation changed during stale-run reclamation." >&2
                     exit 1
                   fi
-                  payload="$(jq -c '.state="RELEASED" | .recovery={kind:"expired_reservation",verified_run_status:"completed"}' <<< "$payload")"
+                  payload="$(jq -c '.state="RELEASED" | .recovery={kind:"expired_reservation",verified_run_status:"completed",retryable:true}' <<< "$payload")"
                   payload_b64="$(printf '%s' "$payload" | base64 -w0)"
                   new_body="$(printf '%s\n' "<!-- proffera-worker-slot-reservation:${marker_task} -->" "### Worker slot reservation: ${marker_task}" '- State: `RELEASED`' "- Reservation payload: \`${payload_b64}\`")"
                   gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${comment_id}" -f body="$new_body" >/dev/null
-                  echo "Released expired reservation ${marker_task} after verifying its owning run completed and no branch or PR remains."
+                  echo "Released expired ${state} reservation ${marker_task} into a retryable state after verifying its owning run completed and no branch or PR remains."
                   continue
                 fi
               fi
@@ -981,6 +992,12 @@ jobs:
           test "$(jq -r '.task_id' <<< "$payload")" = "$TASK_ID"
           test "$(jq -r '.run_id' <<< "$payload")" = "$RUN_ID"
           test "$(jq -r '.head_sha' <<< "$payload")" = "$HEAD_SHA"
+          test "$(jq -r '.state' <<< "$payload")" = "RESERVED"
+          pr="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")"
+          test "$(jq -r '.state' <<< "$pr")" = "open"
+          test "$(jq -r '.head.sha' <<< "$pr")" = "$HEAD_SHA"
+          test "$(jq -r '.head.repo.full_name' <<< "$pr")" = "$REPOSITORY"
+          test "$(jq -r '.user.login' <<< "$pr")" = "${REPOSITORY%%/*}"
           payload="$(jq -c --arg state PUBLISHED --argjson pr_number "$PR_NUMBER" '.state=$state | .pr_number=$pr_number | .recovery=null' <<< "$payload")"
           payload_b64="$(printf '%s' "$payload" | base64 -w0)"
           new_body="$(cat <<EOF
@@ -990,9 +1007,15 @@ jobs:
           - Reservation payload: \`${payload_b64}\`
           EOF
           )"
+          test "$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')" = "$body"
           gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" -f body="$new_body" >/dev/null
+          if [ "$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}" --jq '.state')" != "open" ]; then
+            echo "Worker PR closed while its reservation was being published; refusing to resurrect the reservation." >&2
+            exit 1
+          fi
 
       - name: Persist validated recovery artifact atomically
+        id: recovery_upload
         if: steps.publish.outputs.recovery_artifact == 'yes'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -1023,7 +1046,8 @@ jobs:
           test "$(jq -r '.task_id' <<< "$payload")" = "$TASK_ID"
           test "$(jq -r '.run_id' <<< "$payload")" = "$RUN_ID"
           test "$(jq -r '.head_sha' <<< "$payload")" = "$HEAD_SHA"
-          payload="$(jq -c --arg state RECOVERABLE --arg digest "$RECOVERY_DIGEST" '.state=$state | .recovery={kind:"artifact",digest:$digest}' <<< "$payload")"
+          recovery_expires_at="$(date -u -d '+6 days' +%Y-%m-%dT%H:%M:%SZ)"
+          payload="$(jq -c --arg state RECOVERABLE --arg digest "$RECOVERY_DIGEST" --arg expires "$recovery_expires_at" '.state=$state | .recovery={kind:"artifact",digest:$digest,expires_at:$expires}' <<< "$payload")"
           payload_b64="$(printf '%s' "$payload" | base64 -w0)"
           new_body="$(cat <<EOF
           <!-- proffera-worker-slot-reservation:${TASK_ID} -->
@@ -1132,9 +1156,15 @@ jobs:
           test -f "$helper" -a -f "$manifest"
           sha256sum --check --status "$manifest"
           packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
-          state_json="$(jq -n --argjson packet "$packet" --arg state "WORKER_PR_OPENED" --arg reason "Bounded Worker implementation was published as one PR; downstream checks/review remain authoritative." --arg run_id "$RUN_ID" --argjson pr_number "$PR_NUMBER" --arg head_sha "$HEAD_SHA" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,pr_number:$pr_number,head_sha:$head_sha}')"
-          state_body="$(printf '%s' "$state_json" | node "$helper" state-body)"
-          gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" -f body="$state_body" >/dev/null
+          pr="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")"
+          current_body="$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" --jq '.body // ""')"
+          transition="$(jq -n --arg source lifecycle --arg requested_state WORKER_PR_OPENED --arg requested_head "$HEAD_SHA" --arg live_head "$(jq -r '.head.sha' <<< "$pr")" --arg live_pr_state "$(jq -r '.state' <<< "$pr")" --argjson live_merged "$(jq '.merged == true' <<< "$pr")" --arg current_body "$current_body" '{source:$source,requested_state:$requested_state,requested_head:$requested_head,live_head:$live_head,live_pr_state:$live_pr_state,live_merged:$live_merged,current_body:$current_body}' | node "$helper" transition)"
+          if [ "$(jq -r '.update' <<< "$transition")" = "true" ]; then
+            state_json="$(jq -n --argjson packet "$packet" --arg state "WORKER_PR_OPENED" --arg reason "Bounded Worker implementation was published as one PR; downstream checks/review remain authoritative." --arg run_id "$RUN_ID" --argjson pr_number "$PR_NUMBER" --arg head_sha "$HEAD_SHA" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,pr_number:$pr_number,head_sha:$head_sha}')"
+            state_body="$(printf '%s' "$state_json" | node "$helper" state-body)"
+            test "$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" --jq '.body // ""')" = "$current_body"
+            gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" -f body="$state_body" >/dev/null
+          fi
 
       - name: Record persisted recovery artifact in stable Supervisor task state
         if: steps.publish.outputs.recovery_artifact == 'yes'
@@ -1191,9 +1221,14 @@ jobs:
           TASK_ID: ${{ needs.preflight.outputs.task_id }}
           BRANCH: ${{ needs.preflight.outputs.branch }}
           RUN_ID: ${{ github.run_id }}
+          PACKET_B64: ${{ needs.preflight.outputs.packet_b64 }}
+          ARTIFACT_UPLOADED: ${{ steps.recovery_upload.outcome == 'success' }}
+          RECOVERY_DIGEST: ${{ steps.publish.outputs.recovery_digest }}
+          HEAD_SHA: ${{ steps.publish.outputs.head_sha }}
         shell: bash
         run: |
           set -euo pipefail
+          helper="$RUNNER_TEMP/proffera-trusted-control/supervisor-worker-handoff.mjs"
           comment="$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" 2>/dev/null || true)"
           [ -z "$comment" ] && exit 0
           body="$(jq -r '.body // ""' <<< "$comment")"
@@ -1204,10 +1239,25 @@ jobs:
           state="$(jq -r '.state // ""' <<< "$payload")"
           if [ "$state" = "PUBLISHED" ] || [ "$state" = "RECOVERABLE" ]; then exit 0; fi
           head_sha="$(jq -r '.head_sha // ""' <<< "$payload")"
-          pr_number="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&base=main&per_page=100" --jq ".[] | select(.head.ref == \"${BRANCH}\") | .number" | head -n1 || true)"
+          packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
+          packet_digest="$(printf '%s' "$packet" | sha256sum | cut -d' ' -f1)"
+          repository_owner="${REPOSITORY%%/*}"
+          prs="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&base=main&per_page=100" --jq '.[]' | jq -s --arg branch "$BRANCH" --arg head "$head_sha" --arg repo "$REPOSITORY" --arg owner "$repository_owner" '[.[] | select(.head.ref == $branch and .head.sha == $head and .head.repo.full_name == $repo and .user.login == $owner)]')"
+          pr_number=""
+          if [ "$(jq 'length' <<< "$prs")" -eq 1 ]; then
+            candidate_body="$(jq -r '.[0].body // ""' <<< "$prs")"
+            candidate_packet="$(printf '%s' "$candidate_body" | node "$helper" parse 2>/dev/null || true)"
+            if jq -e . >/dev/null 2>&1 <<< "$candidate_packet" && [ "$(printf '%s' "$candidate_packet" | sha256sum | cut -d' ' -f1)" = "$packet_digest" ]; then
+              pr_number="$(jq -r '.[0].number' <<< "$prs")"
+            fi
+          fi
           if [ -n "$pr_number" ]; then
             payload="$(jq -c --arg state PUBLISHED --argjson pr_number "$pr_number" '.state=$state | .pr_number=$pr_number | .recovery=null' <<< "$payload")"
             label=PUBLISHED
+          elif [ "$ARTIFACT_UPLOADED" = "true" ]; then
+            recovery_expires_at="$(date -u -d '+6 days' +%Y-%m-%dT%H:%M:%SZ)"
+            payload="$(jq -c --arg state RECOVERABLE --arg digest "$RECOVERY_DIGEST" --arg head "$HEAD_SHA" --arg expires "$recovery_expires_at" '.state=$state | .head_sha=$head | .recovery={kind:"artifact",digest:$digest,expires_at:$expires}' <<< "$payload")"
+            label=RECOVERABLE
           elif gh api "repos/${REPOSITORY}/git/ref/heads/${BRANCH}" >/dev/null 2>&1; then
             payload="$(jq -c --arg state RECOVERABLE '.state=$state | .recovery={kind:"branch"}' <<< "$payload")"
             label=RECOVERABLE

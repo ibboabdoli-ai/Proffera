@@ -67,6 +67,7 @@ const GRAPH_RE = /^[a-z0-9][a-z0-9._/-]{0,159}$/;
 const PATH_RE = /^[A-Za-z0-9._/-]+$/;
 const STATE_RE = /^[A-Z][A-Z0-9_]{2,39}$/;
 const MAX_PUBLICATION_BYTES = 10 * 1024 * 1024;
+const EMPTY_GIT_BLOB_SHA = "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391";
 
 function countOccurrences(text, needle) {
   if (!needle) return 0;
@@ -512,15 +513,20 @@ function parseUnifiedDiffPaths(value) {
     if (path.endsWith("/") || paths.includes(path)) publicationFailure("diff_incomplete", `unified diff path '${path}' is duplicated or not a file`);
 
     const firstHunk = section.findIndex((line) => line.startsWith("@@ "));
-    if (firstHunk < 0) publicationFailure("diff_incomplete", `unified diff section '${path}' has no complete text hunk`);
-    const preamble = section.slice(1, firstHunk);
+    const preamble = section.slice(1, firstHunk < 0 ? section.length : firstHunk);
     const oldHeaders = preamble.filter((line) => line.startsWith("--- "));
     const newHeaders = preamble.filter((line) => line.startsWith("+++ "));
-    if (oldHeaders.length !== 1 || newHeaders.length !== 1) {
+    const modeLines = preamble.filter((line) => /^(?:old mode|new mode|new file mode|deleted file mode) /.test(line));
+    const headerOnlyAdded = firstHunk < 0 && modeLines.includes("new file mode 100644");
+    const headerOnlyDeleted = firstHunk < 0 && modeLines.includes("deleted file mode 100644");
+    if ((!headerOnlyAdded && !headerOnlyDeleted) && (oldHeaders.length !== 1 || newHeaders.length !== 1)) {
       publicationFailure("diff_incomplete", `unified diff section '${path}' must contain its own old and new file headers`);
     }
-    const oldHeader = oldHeaders[0];
-    const newHeader = newHeaders[0];
+    if ((headerOnlyAdded || headerOnlyDeleted) && (oldHeaders.length !== 0 || newHeaders.length !== 0)) {
+      publicationFailure("diff_incomplete", `header-only empty-file diff '${path}' must omit old and new file headers`);
+    }
+    const oldHeader = oldHeaders[0] ?? (headerOnlyAdded ? "--- /dev/null" : `--- a/${path}`);
+    const newHeader = newHeaders[0] ?? (headerOnlyDeleted ? "+++ /dev/null" : `+++ b/${path}`);
     if (oldHeader !== `--- a/${path}` && oldHeader !== "--- /dev/null") {
       publicationFailure("diff_incomplete", `unified diff old-file header does not match '${path}'`);
     }
@@ -542,7 +548,6 @@ function parseUnifiedDiffPaths(value) {
     if (added !== /^0{40}$/.test(indexHeader[1]) || deleted !== /^0{40}$/.test(indexHeader[2])) {
       publicationFailure("diff_incomplete", `unified diff section '${path}' has inconsistent file and Git blob headers`);
     }
-    const modeLines = preamble.filter((line) => /^(?:old mode|new mode|new file mode|deleted file mode) /.test(line));
     const expectedModeLine = added ? "new file mode 100644" : deleted ? "deleted file mode 100644" : null;
     const supportedMode = expectedModeLine
       ? modeLines.length === 1 && modeLines[0] === expectedModeLine && indexHeader[3] === undefined
@@ -550,8 +555,13 @@ function parseUnifiedDiffPaths(value) {
     if (!supportedMode) {
       publicationFailure("unsupported_mode", `deterministic fallback does not support Git mode semantics for '${path}'`);
     }
+    const headerOnlyEmpty = firstHunk < 0 && (added || deleted)
+      && indexHeader[1] === (added ? "0".repeat(40) : EMPTY_GIT_BLOB_SHA)
+      && indexHeader[2] === (deleted ? "0".repeat(40) : EMPTY_GIT_BLOB_SHA)
+      && section.length === preamble.length + 1;
+    if (firstHunk < 0 && !headerOnlyEmpty) publicationFailure("diff_incomplete", `unified diff section '${path}' has no complete text hunk`);
 
-    let cursor = firstHunk;
+    let cursor = firstHunk < 0 ? section.length : firstHunk;
     while (cursor < section.length) {
       const hunk = section[cursor].match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(?: .*)?$/);
       if (!hunk) publicationFailure("diff_incomplete", `unified diff section '${path}' has malformed or trailing hunk data`);
@@ -582,7 +592,7 @@ function parseUnifiedDiffPaths(value) {
         publicationFailure("diff_incomplete", `unified diff section '${path}' hunk line counts do not match its header`);
       }
     }
-    paths.push({ path, old_blob_sha: indexHeader[1], new_blob_sha: indexHeader[2], added, deleted, section });
+    paths.push({ path, old_blob_sha: indexHeader[1], new_blob_sha: indexHeader[2], added, deleted, header_only_empty: headerOnlyEmpty, section });
   }
   return paths;
 }
@@ -605,6 +615,7 @@ function gitObjectExists(spec) {
 }
 
 function applyUnifiedDiffSection(source, entry) {
+  if (entry.header_only_empty) return "";
   const sourceEndsNewline = source.endsWith("\n");
   const sourceLines = source.length ? source.split("\n") : [];
   if (sourceEndsNewline) sourceLines.pop();
