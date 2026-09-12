@@ -10,8 +10,7 @@ on:
 permissions: {}
 
 concurrency:
-  # PR lifecycle runs share the Supervisor issue lane so close/publication mutations cannot overlap.
-  group: proffera-supervisor-worker-handoff-${{ github.event.issue.number || 548 }}
+  group: proffera-supervisor-worker-handoff-${{ github.event.issue.number || github.run_id }}
   cancel-in-progress: false
 
 jobs:
@@ -20,6 +19,9 @@ jobs:
     if: >-
       github.event_name == 'pull_request_target' &&
       startsWith(github.event.pull_request.head.ref, 'work/proffera-')
+    concurrency:
+      group: proffera-worker-task-state-${{ github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login == github.repository_owner && github.event.pull_request.head.ref || format('untrusted-pr-{0}', github.event.pull_request.number) }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -345,7 +347,7 @@ jobs:
           live_main_sha="$(gh api "repos/${REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
           comments_json="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s --arg marker "$state_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]')"
 
-          pulls_json="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&base=main&per_page=100" --jq '.[]' | jq -s '.')"
+          pulls_json="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&base=main&per_page=100" --jq '.[]' | jq -s --arg repository "$REPOSITORY" '[.[] | select((.head.repo.full_name // "") == $repository)]')"
           enriched_prs='[]'
           while IFS= read -r encoded; do
             [ -z "$encoded" ] && continue
@@ -422,6 +424,9 @@ jobs:
     name: Run bounded Codex Worker
     needs: preflight
     if: needs.preflight.outputs.proceed == 'yes'
+    concurrency:
+      group: proffera-worker-task-state-${{ needs.preflight.outputs.branch }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -618,7 +623,7 @@ jobs:
           supervisor_json="$(gh api "repos/${REPOSITORY}/issues/548")"
           supervisor_labels="$(jq -c '[.labels[].name]' <<< "$supervisor_json")"
           comments_json="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s --arg marker "$state_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]')"
-          pulls_json="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&base=main&per_page=100" --jq '.[]' | jq -s '.')"
+          pulls_json="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&base=main&per_page=100" --jq '.[]' | jq -s --arg repository "$REPOSITORY" '[.[] | select((.head.repo.full_name // "") == $repository)]')"
           enriched_prs='[]'
           while IFS= read -r encoded; do
             [ -z "$encoded" ] && continue
@@ -783,7 +788,7 @@ jobs:
           supervisor_json="$(gh api "repos/${REPOSITORY}/issues/548")"
           supervisor_labels="$(jq -c '[.labels[].name]' <<< "$supervisor_json")"
           comments_json="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.')"
-          pulls_json="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&base=main&per_page=100" --jq '.[]' | jq -s '.')"
+          pulls_json="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&base=main&per_page=100" --jq '.[]' | jq -s --arg repository "$REPOSITORY" '[.[] | select((.head.repo.full_name // "") == $repository)]')"
           enriched_prs='[]'
           while IFS= read -r encoded; do
             [ -z "$encoded" ] && continue

@@ -500,6 +500,35 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     expect(evaluate(baseContext({ open_prs: [workerPr({ head_repo: "attacker/fork" })] })).code).toBe("untrusted_worker_pr");
   });
 
+  it("filters foreign Worker-prefix PRs before writable-slot accounting", () => {
+    const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+    const filters = [...workflow.matchAll(/pulls_json=.*jq -s --arg repository "\$REPOSITORY" '([^']+)'/g)]
+      .map((match) => match[1]);
+    expect(filters).toHaveLength(3);
+    const openPulls = [
+      {
+        number: 900,
+        base: { ref: "main" },
+        head: { ref: "work/proffera-trusted", repo: { full_name: "ibboabdoli-ai/Proffera" } },
+        user: { login: "ibboabdoli-ai" },
+      },
+      {
+        number: 901,
+        base: { ref: "main" },
+        head: { ref: "work/proffera-prefix-impostor", repo: { full_name: "attacker/fork" } },
+        user: { login: "attacker" },
+      },
+    ];
+    for (const filter of filters) {
+      const result = spawnSync("jq", ["--arg", "repository", "ibboabdoli-ai/Proffera", filter], {
+        input: JSON.stringify(openPulls),
+        encoding: "utf8",
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(JSON.parse(result.stdout).map((pr: { number: number }) => pr.number)).toEqual([900]);
+    }
+  });
+
   it("fails closed when an open Dependabot PR overlaps the declared scope", () => {
     const bot = workerPr({
       number: 940,
@@ -662,9 +691,10 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     expect(commit).toContain("git diff --check HEAD");
   });
 
-  it("separates lifecycle and check reconciliation concurrency groups", () => {
+  it("keeps event ingress lanes separate while task-state writers share one branch lane", () => {
     const sync = source(".github/workflows/worker-supervisor-sync.yml");
     expect(sync).toContain("proffera-worker-supervisor-sync-${{ github.event_name }}-");
+    expect(sync.match(/group: proffera-worker-task-state-\$\{\{ needs\.resolve_worker_mutation_lane\.outputs\.branch \}\}/g)).toHaveLength(2);
     expect(sync).toContain("cancel-in-progress: false");
   });
 
@@ -981,8 +1011,61 @@ exit 0
 
   it("serializes dispatch publication with PR lifecycle reservation mutations", () => {
     const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
-    expect(workflow).toContain("group: proffera-supervisor-worker-handoff-${{ github.event.issue.number || 548 }}");
+    const sync = source(".github/workflows/worker-supervisor-sync.yml");
+    expect(workflow).toContain("group: proffera-supervisor-worker-handoff-${{ github.event.issue.number || github.run_id }}");
     expect(workflow).toContain("cancel-in-progress: false");
+    expect(workflow).toContain("github.event.pull_request.head.repo.full_name == github.repository");
+    expect(workflow).toContain("format('untrusted-pr-{0}', github.event.pull_request.number)");
+    expect(workflow).toContain("group: proffera-worker-task-state-${{ needs.preflight.outputs.branch }}");
+    expect(sync.match(/group: proffera-worker-task-state-\$\{\{ needs\.resolve_worker_mutation_lane\.outputs\.branch \}\}/g)).toHaveLength(2);
+    const resolveLane = workflowRunStep(sync, "Resolve exact Worker branch");
+    const shell = spawnSync("bash", ["-n"], { input: resolveLane, encoding: "utf8" });
+    expect(shell.status, shell.stderr).toBe(0);
+    for (const event of [
+      { name: "pull_request_target", prHead: "work/proffera-pr-event", runHead: "", branch: "work/proffera-pr-event", headRepo: "ibboabdoli-ai/Proffera", author: "ibboabdoli-ai", trusted: true },
+      { name: "workflow_run", prHead: "", runHead: "work/proffera-check-event", branch: "work/proffera-check-event", headRepo: "ibboabdoli-ai/Proffera", author: "ibboabdoli-ai", trusted: true },
+      { name: "pull_request_target", prHead: "work/proffera-prefix-impostor", runHead: "", branch: "work/proffera-prefix-impostor", headRepo: "attacker/fork", author: "attacker", trusted: false },
+    ]) {
+      const root = mkdtempSync(join(tmpdir(), "proffera-worker-mutation-lane-"));
+      const bin = join(root, "bin");
+      const output = join(root, "github-output");
+      mkdirSync(bin, { recursive: true });
+      writeFileSync(output, "");
+      writeFileSync(
+        join(bin, "gh"),
+        `#!/usr/bin/env node
+const args = process.argv.slice(2);
+const endpoint = args.find((arg) => arg.startsWith("repos/")) || "";
+if (args[0] !== "api" || endpoint !== "repos/ibboabdoli-ai/Proffera/pulls/900") process.exit(2);
+process.stdout.write(JSON.stringify({
+  head: { ref: process.env.GH_STUB_BRANCH, repo: { full_name: process.env.GH_STUB_HEAD_REPO } },
+  user: { login: process.env.GH_STUB_AUTHOR },
+}) + "\\n");
+`,
+        { encoding: "utf8", mode: 0o755 },
+      );
+      const result = spawnSync("bash", ["-c", resolveLane], {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+          GH_TOKEN: "test-token",
+          REPOSITORY: "ibboabdoli-ai/Proffera",
+          PR_NUMBER: "900",
+          EVENT_NAME: event.name,
+          PR_HEAD_REF: event.prHead,
+          RUN_HEAD_BRANCH: event.runHead,
+          GH_STUB_BRANCH: event.branch,
+          GH_STUB_HEAD_REPO: event.headRepo,
+          GH_STUB_AUTHOR: event.author,
+          GITHUB_OUTPUT: output,
+        },
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(readFileSync(output, "utf8")).toBe(event.trusted
+        ? `branch=${event.branch}\ntrusted=true\n`
+        : "trusted=false\n");
+    }
     expect(evaluate(baseContext({ comments: [trustedState("TASK_CREATED", "9999")], run_id: "1001" })).status).toBe("ALREADY_DISPATCHED");
   });
 

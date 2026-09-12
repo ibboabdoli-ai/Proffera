@@ -15,11 +15,73 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  resolve_worker_mutation_lane:
+    name: Resolve trusted Worker branch mutation lane
+    if: >-
+      (github.event_name == 'pull_request_target' &&
+        startsWith(github.event.pull_request.head.ref, 'work/proffera-')) ||
+      (github.event_name == 'workflow_run' &&
+        github.event.workflow_run.event == 'pull_request' &&
+        github.event.workflow_run.pull_requests[0].number != null &&
+        startsWith(github.event.workflow_run.head_branch, 'work/proffera-'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      pull-requests: read
+    outputs:
+      branch: ${{ steps.resolve.outputs.branch }}
+      trusted: ${{ steps.resolve.outputs.trusted }}
+
+    steps:
+      - name: Resolve exact Worker branch
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          RUN_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Refused: Worker mutation lane has no valid PR number." >&2
+            exit 1
+          fi
+          if [ "$EVENT_NAME" = "pull_request_target" ]; then
+            event_branch="$PR_HEAD_REF"
+          elif [ "$EVENT_NAME" = "workflow_run" ]; then
+            event_branch="$RUN_HEAD_BRANCH"
+          else
+            echo "Unsupported event for Worker mutation lane." >&2
+            exit 1
+          fi
+          pr_json="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")"
+          branch="$(jq -r '.head.ref // ""' <<< "$pr_json")"
+          head_repository="$(jq -r '.head.repo.full_name // ""' <<< "$pr_json")"
+          author="$(jq -r '.user.login // ""' <<< "$pr_json")"
+          if [ "$event_branch" != "$branch" ] \
+            || [[ "$branch" != work/proffera-* ]] \
+            || [ "$head_repository" != "$REPOSITORY" ] \
+            || [ "$author" != "${REPOSITORY%%/*}" ]; then
+            echo "trusted=false" >> "$GITHUB_OUTPUT"
+            echo "PR #${PR_NUMBER} is not a trusted same-repository Worker mutation lane; leaving it unchanged."
+            exit 0
+          fi
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "trusted=true" >> "$GITHUB_OUTPUT"
+
   sync-pr-event:
     name: Reconcile Worker PR lifecycle
+    needs: resolve_worker_mutation_lane
     if: >-
+      needs.resolve_worker_mutation_lane.outputs.trusted == 'true' &&
       github.event_name == 'pull_request_target' &&
       startsWith(github.event.pull_request.head.ref, 'work/proffera-')
+    concurrency:
+      group: proffera-worker-task-state-${{ needs.resolve_worker_mutation_lane.outputs.branch }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -207,10 +269,15 @@ jobs:
 
   sync-check-state:
     name: Reconcile exact-head checks into task state
+    needs: resolve_worker_mutation_lane
     if: >-
+      needs.resolve_worker_mutation_lane.outputs.trusted == 'true' &&
       github.event_name == 'workflow_run' &&
       github.event.workflow_run.event == 'pull_request' &&
       github.event.workflow_run.pull_requests[0].number != null
+    concurrency:
+      group: proffera-worker-task-state-${{ needs.resolve_worker_mutation_lane.outputs.branch }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
