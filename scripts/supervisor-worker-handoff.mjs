@@ -1164,6 +1164,9 @@ export function planInvalidWorkerPrClose(input) {
     const taskMarker = `${TASK_STATE_MARKER_PREFIX}${reservation.taskId} -->`;
     const taskMatches = comments.filter((comment) => comment?.user?.login === "github-actions[bot]"
       && countOccurrences(String(comment?.body ?? ""), taskMarker) === 1);
+    if (taskMatches.length > 1) {
+      return invalidCloseResult(false, "ambiguous_task_state", "closed malformed Worker PR has ambiguous trusted task-state evidence");
+    }
     if (taskMatches.length === 1) {
       try {
         const taskRunId = exactStateBodyField(

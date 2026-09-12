@@ -1931,6 +1931,17 @@ exit 0
       expect(rejected.status, rejected.stderr).toBe(0);
       expect(rejected.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
     }
+
+    const duplicateTaskState = runSyncCheckReconciliation({
+      body: "missing packet",
+      comments: [
+        ...evidence.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: currentBody },
+        { id: 104, user: { login: "github-actions[bot]" }, body: currentBody },
+      ],
+    });
+    expect(duplicateTaskState.status, duplicateTaskState.stderr).toBe(0);
+    expect(duplicateTaskState.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
   });
 
   it("rejects every untrusted malformed-close replacement identity or binding without mutation", () => {
