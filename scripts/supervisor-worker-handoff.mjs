@@ -1251,7 +1251,11 @@ export function planInvalidWorkerPrClose(input) {
           transition_code: transition.code,
         };
       } catch {
-        task = null;
+        return invalidCloseResult(
+          false,
+          "invalid_task_state",
+          "trusted task-state evidence is malformed or does not match the exact reservation",
+        );
       }
     }
 

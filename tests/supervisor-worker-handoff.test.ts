@@ -1797,8 +1797,7 @@ exit 0
       liveState: "closed",
     });
     expect(unrelatedTaskHead.status, unrelatedTaskHead.stderr).toBe(0);
-    expect(commentPatchCalls(unrelatedTaskHead.calls, 101)).toHaveLength(1);
-    expect(commentPatchCalls(unrelatedTaskHead.calls, 103)).toHaveLength(0);
+    expect(unrelatedTaskHead.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
   }, 30_000);
 
   it("converges both partial malformed-close outcomes across an unrecorded repair head", () => {
@@ -1919,6 +1918,13 @@ exit 0
       currentBody.replace(/^- Run ID: `9001`\n/mu, ""),
       `${currentBody}- Run ID: \`9001\`\n`,
       currentBody.replace("- Run ID: `9001`", "- Run ID: `8001`"),
+      currentBody.replace("- Graph path: `feature/test`", "- Graph path: `feature/other`"),
+      currentBody.replace("- Branch: `work/proffera-test-task`", "- Branch: `work/proffera-other-task`"),
+      currentBody.replace(/^- Packet SHA-256: `[0-9a-f]{64}`$/mu, `- Packet SHA-256: \`${"c".repeat(64)}\``),
+      currentBody.replace("- PR: #849", "- PR: #850"),
+      currentBody.replace(`- Head: \`${sha}\``, `- Head: \`${"c".repeat(40)}\``),
+      currentBody.replace("- Production mutation: `false`\n", ""),
+      `${currentBody}- Production mutation: \`false\`\n`,
     ];
     for (const body of invalidRunBodies) {
       const rejected = runSyncCheckReconciliation({
