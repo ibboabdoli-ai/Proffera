@@ -335,6 +335,7 @@ process.exit(2);
 
 type SlotReservationOptions = {
   reservation?: Record<string, unknown>;
+  extraComments?: Array<Record<string, unknown>>;
   pulls?: Array<Record<string, unknown>>;
   branches?: string[];
   runStatus?: string;
@@ -355,6 +356,7 @@ function reservationComment(payload: Record<string, unknown>, id = 201) {
 
 function runSlotReservation({
   reservation,
+  extraComments = [],
   pulls = [],
   branches = [],
   runStatus = "completed",
@@ -389,7 +391,7 @@ function runSlotReservation({
     branch: "work/proffera-new-slot",
     allowed_paths: ["tests/new-slot/"],
   });
-  const comments = reservation ? [reservationComment(reservation)] : [];
+  const comments = [...(reservation ? [reservationComment(reservation)] : []), ...extraComments];
   writeFileSync(stateFile, JSON.stringify({ branches, changedReservationBody, comments, mutex: "", pulls, runStatus }));
   writeFileSync(
     join(bin, "gh"),
@@ -450,6 +452,13 @@ if (endpoint.endsWith("/issues/548/comments?per_page=100")) {
 }
 if (endpoint.endsWith("/pulls?state=open&base=main&per_page=100")) {
   for (const pull of state.pulls) process.stdout.write(JSON.stringify(pull) + "\\n");
+  process.exit(0);
+}
+const pullMatch = endpoint.match(/pulls\\/(\\d+)$/);
+if (pullMatch) {
+  const pull = state.pulls.find((entry) => String(entry.number) === pullMatch[1]);
+  if (!pull) process.exit(3);
+  process.stdout.write(JSON.stringify({ ...pull, state: pull.state ?? "open" }) + "\\n");
   process.exit(0);
 }
 const filesMatch = endpoint.match(/pulls\\/(\\d+)\\/files/);
@@ -1833,6 +1842,90 @@ exit 0
     expect(result.comments.some((comment) => comment.id === 999)).toBe(true);
   });
 
+  it("counts an exact trusted recoverable PR as one slot during the promotion gap", () => {
+    const recoveryPacket = packet({
+      task_id: "SUP-OLD-SLOT-1",
+      task_title: "Existing recovery Worker",
+      graph_path: "feature/old-slot",
+      branch: "work/proffera-old-slot",
+      allowed_paths: ["src/features/old-slot/"],
+    });
+    const recoveryPrBody = runText("pr-body", { packet: recoveryPacket, changed_files: [] });
+    const parsed = spawnSync(process.execPath, [helper, "parse"], {
+      input: recoveryPrBody,
+      encoding: "utf8",
+    });
+    expect(parsed.status, parsed.stderr).toBe(0);
+    const normalizedPacket = parsed.stdout.replace(/\n+$/, "");
+    const reservation = {
+      state: "RECOVERABLE",
+      task_id: "SUP-OLD-SLOT-1",
+      run_id: "7001",
+      branch: "work/proffera-old-slot",
+      head_sha: otherSha,
+      graph_path: "feature/old-slot",
+      packet_digest: createHash("sha256").update(normalizedPacket).digest("hex"),
+      allowed_paths: ["src/features/old-slot/"],
+      changed_files: [],
+      pr_number: null,
+      recovery: { kind: "branch", expires_at: "2099-01-01T00:00:00Z" },
+    };
+    const openPull = {
+      number: 830,
+      state: "open",
+      base: { ref: "main" },
+      head: { ref: "work/proffera-old-slot", sha: otherSha, repo: { full_name: "ibboabdoli-ai/Proffera" } },
+      user: { login: "ibboabdoli-ai" },
+      body: recoveryPrBody,
+      files: [],
+    };
+    const dispatch = {
+      id: 202,
+      user: { login: "github-actions[bot]" },
+      body: "<!-- proffera-worker-dispatch-start:SUP-OLD-SLOT-1:7001 -->",
+    };
+    const exact = runSlotReservation({ reservation, pulls: [openPull], extraComments: [dispatch] });
+    expect(exact.status, exact.stderr).toBe(0);
+    expect(exact.stdout).toContain("Exact trusted recovery PR #830 represents recoverable reservation");
+    expect(exact.comments.some((comment) => comment.id === 999)).toBe(true);
+
+    for (const extraComments of [
+      [],
+      [dispatch, { ...dispatch, id: 203 }],
+    ]) {
+      const ambiguous = runSlotReservation({ reservation, pulls: [openPull], extraComments });
+      expect(ambiguous.status, ambiguous.stderr).toBe(1);
+      expect(ambiguous.comments.some((comment) => comment.id === 999)).toBe(false);
+      expect(commentPatchCalls(ambiguous.calls, 201)).toHaveLength(0);
+    }
+
+    for (const mismatchedReservation of [
+      { ...reservation, branch: "work/proffera-other-slot" },
+      { ...reservation, packet_digest: "d".repeat(64) },
+      { ...reservation, graph_path: "feature/different-slot" },
+      { ...reservation, allowed_paths: ["src/features/different-slot/"] },
+      { ...reservation, pr_number: 831 },
+    ]) {
+      const mismatched = runSlotReservation({ reservation: mismatchedReservation, pulls: [openPull], extraComments: [dispatch] });
+      expect(mismatched.status, mismatched.stderr).toBe(1);
+      expect(mismatched.comments.some((comment) => comment.id === 999)).toBe(false);
+    }
+
+    const staleHeadPull = structuredClone(openPull);
+    staleHeadPull.head.sha = "d".repeat(40);
+    const mismatched = runSlotReservation({ reservation, pulls: [staleHeadPull], extraComments: [dispatch] });
+    expect(mismatched.status, mismatched.stderr).toBe(1);
+    expect(mismatched.comments.some((comment) => comment.id === 999)).toBe(false);
+
+    const foreignPull = structuredClone(openPull);
+    foreignPull.head.repo.full_name = "attacker/fork";
+    foreignPull.user.login = "attacker";
+    const foreign = runSlotReservation({ reservation, pulls: [foreignPull], extraComments: [dispatch] });
+    expect(foreign.status, foreign.stderr).toBe(0);
+    expect(foreign.stdout).not.toContain("represents recoverable reservation");
+    expect(foreign.calls.some((args) => args.includes("--method") && args.includes("PATCH"))).toBe(false);
+  }, 20_000);
+
   it("applies the helper-approved WORKER_PR_OPENED task-state transition", () => {
     const result = runWorkerPrStateRecord(stateBody("TASK_CREATED"));
     expect(result.status, result.stderr).toBe(0);
@@ -2347,6 +2440,44 @@ process.stdout.write(JSON.stringify({
       expect(tampered).not.toBe(original);
       expect(validate(unifiedDiff.replace(original, tampered)).ok).toBe(false);
     }
+  });
+
+  it("preserves an untouched newline-less suffix after an earlier hunk", () => {
+    const repo = mkdtempSync(join(tmpdir(), "proffera-newline-suffix-"));
+    const git = (...args: string[]) => {
+      const result = spawnSync("git", args, { cwd: repo, encoding: "utf8" });
+      expect(result.status, result.stderr).toBe(0);
+      return result.stdout.trim();
+    };
+    const sourceText = Array.from({ length: 10 }, (_, index) => `line-${index + 1}`).join("\n");
+    const targetText = Array.from({ length: 9 }, (_, index) => `line-${index + 2}`).join("\n");
+    git("init");
+    git("config", "user.name", "test");
+    git("config", "user.email", "test@example.invalid");
+    writeFileSync(join(repo, "suffix.txt"), sourceText, "utf8");
+    git("add", "suffix.txt");
+    git("commit", "-m", "source");
+    const sourceHead = git("rev-parse", "HEAD");
+    writeFileSync(join(repo, "suffix.txt"), targetText, "utf8");
+    git("commit", "-am", "target");
+    const targetHead = git("rev-parse", "HEAD");
+    const scopedPacket = packet({ base_sha: sourceHead, allowed_paths: ["suffix.txt"] });
+    const built = spawnSync(process.execPath, [helper, "build-publication"], {
+      cwd: repo,
+      input: JSON.stringify({ packet: scopedPacket, source_head: sourceHead, target_head: targetHead }),
+      encoding: "utf8",
+    });
+    expect(built.status, built.stderr).toBe(0);
+    const artifact = JSON.parse(built.stdout) as Record<string, unknown>;
+    const replacement = (artifact.replacements as Array<Record<string, unknown>>)[0];
+    expect(replacement.content).toBe(targetText);
+    const validated = spawnSync(process.execPath, [helper, "validate-publication"], {
+      cwd: repo,
+      input: JSON.stringify({ packet: scopedPacket, current_source_head: sourceHead, artifact }),
+      encoding: "utf8",
+    });
+    expect(validated.status, validated.stderr).toBe(0);
+    expect(JSON.parse(validated.stdout).ok).toBe(true);
   });
 
   it("accepts exact header-only empty-file additions and deletions", () => {

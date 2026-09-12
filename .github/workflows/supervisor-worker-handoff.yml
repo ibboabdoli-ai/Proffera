@@ -959,6 +959,10 @@ jobs:
             case "$state" in RESERVED|PUBLISHED|RECOVERABLE) ;; *) continue ;; esac
             other_graph="$(jq -r '.graph_path // ""' <<< "$payload")"
             other_branch="$(jq -r '.branch // ""' <<< "$payload")"
+            other_head="$(jq -r '.head_sha // ""' <<< "$payload")"
+            other_run="$(jq -r '.run_id // ""' <<< "$payload")"
+            other_digest="$(jq -r '.packet_digest // ""' <<< "$payload")"
+            reserved_pr="$(jq -r '.pr_number // empty' <<< "$payload")"
             other_allowed="$(jq -c '.allowed_paths // []' <<< "$payload")"
             other_changed="$(jq -c '.changed_files // []' <<< "$payload")"
             if [ "$state" = "RESERVED" ] || [ "$state" = "RECOVERABLE" ]; then
@@ -967,8 +971,7 @@ jobs:
               else
                 lease_expires_at="$(jq -r '.lease_expires_at // ""' <<< "$payload")"
               fi
-              owner_run_id="$(jq -r '.run_id // ""' <<< "$payload")"
-              reserved_pr="$(jq -r '.pr_number // empty' <<< "$payload")"
+              owner_run_id="$other_run"
               lease_epoch="$(date -u -d "$lease_expires_at" +%s 2>/dev/null || true)"
               if [ -n "$lease_epoch" ] && [ "$lease_epoch" -le "$now_epoch" ] && [ -z "$reserved_pr" ]; then
                 run_status="$(gh api "repos/${REPOSITORY}/actions/runs/${owner_run_id}" --jq '.status // ""' 2>/dev/null || true)"
@@ -1016,6 +1019,35 @@ jobs:
             done < <(jq -r '.[]' <<< "$changed_json")
             represented=false
             if [ "$state" = "PUBLISHED" ] && jq -e --arg branch "$other_branch" 'index($branch) != null' >/dev/null <<< "$open_worker_branches"; then represented=true; fi
+            if [ "$state" = "RECOVERABLE" ]; then
+              recovery_prs="$(jq -c --arg branch "$other_branch" --arg head "$other_head" --arg repository "$REPOSITORY" --arg owner "${REPOSITORY%%/*}" '[.[] | select(.state == "open" and .base.ref == "main" and .head.ref == $branch and .head.sha == $head and (.head.repo.full_name // "") == $repository and (.user.login // "") == $owner)]' <<< "$pulls_json")"
+              if [ "$(jq 'length' <<< "$recovery_prs")" -eq 1 ]; then
+                recovery_pr_number="$(jq -r '.[0].number' <<< "$recovery_prs")"
+                recovery_live_pr="$(gh api "repos/${REPOSITORY}/pulls/${recovery_pr_number}")"
+                recovery_body="$(jq -r '.body // ""' <<< "$recovery_live_pr")"
+                recovery_packet="$(printf '%s' "$recovery_body" | node "$helper" parse 2>/dev/null || true)"
+                dispatch_marker="<!-- proffera-worker-dispatch-start:${marker_task}:${other_run} -->"
+                dispatch_count="$(jq --arg marker "$dispatch_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | length' <<< "$comments_json")"
+                if [ "$(jq -r '.state // ""' <<< "$recovery_live_pr")" = "open" ] \
+                  && [ "$(jq -r '.base.ref // ""' <<< "$recovery_live_pr")" = "main" ] \
+                  && [ "$(jq -r '.head.ref // ""' <<< "$recovery_live_pr")" = "$other_branch" ] \
+                  && [ "$(jq -r '.head.sha // ""' <<< "$recovery_live_pr")" = "$other_head" ] \
+                  && [ "$(jq -r '.head.repo.full_name // ""' <<< "$recovery_live_pr")" = "$REPOSITORY" ] \
+                  && [ "$(jq -r '.user.login // ""' <<< "$recovery_live_pr")" = "${REPOSITORY%%/*}" ] \
+                  && { [ -z "$reserved_pr" ] || [ "$reserved_pr" = "$recovery_pr_number" ]; } \
+                  && jq -e . >/dev/null 2>&1 <<< "$recovery_packet" \
+                  && [ "$(jq -r '.repository // ""' <<< "$recovery_packet")" = "$REPOSITORY" ] \
+                  && [ "$(jq -r '.task_id // ""' <<< "$recovery_packet")" = "$marker_task" ] \
+                  && [ "$(jq -r '.branch // ""' <<< "$recovery_packet")" = "$other_branch" ] \
+                  && [ "$(jq -r '.graph_path // ""' <<< "$recovery_packet")" = "$other_graph" ] \
+                  && [ "$(jq -c '.allowed_paths // []' <<< "$recovery_packet")" = "$other_allowed" ] \
+                  && [ "$(printf '%s' "$recovery_packet" | sha256sum | cut -d' ' -f1)" = "$other_digest" ] \
+                  && [ "$dispatch_count" -eq 1 ]; then
+                  represented=true
+                  echo "Exact trusted recovery PR #${recovery_pr_number} represents recoverable reservation ${marker_task}@${other_head}."
+                fi
+              fi
+            fi
             if [ "$represented" = false ]; then active_units=$((active_units + 1)); fi
           done < <(jq -r '.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains("<!-- proffera-worker-slot-reservation:"))) | @base64' <<< "$comments_json")
 

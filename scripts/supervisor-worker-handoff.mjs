@@ -683,7 +683,9 @@ function applyUnifiedDiffSection(source, entry) {
       cursor += 1;
     }
   }
-  result.push(...sourceLines.slice(sourceIndex));
+  const untouchedSuffix = sourceLines.slice(sourceIndex);
+  result.push(...untouchedSuffix);
+  if (untouchedSuffix.length > 0) targetEndsNewline = sourceEndsNewline;
   if (!sourceEndsNewline && sourceFinalLineInHunk && !sourceNoNewlineMarkerSeen) {
     publicationFailure("diff_source_mismatch", `unified diff omits the source final-newline marker for '${entry.path}'`);
   }
