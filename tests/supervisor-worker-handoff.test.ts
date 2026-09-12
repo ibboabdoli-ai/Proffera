@@ -257,22 +257,26 @@ function commentPatchCalls(calls: string[][], commentId: number) {
 }
 
 type SyncCheckOptions = {
+  action?: string;
   comments: Array<Record<string, unknown>>;
   eventHead?: string;
   liveHead?: string;
   liveMerged?: boolean;
   liveState?: string;
+  stepName?: string;
 };
 
 function runSyncCheckReconciliation({
+  action = "synchronize",
   comments,
   eventHead = sha,
   liveHead = sha,
   liveMerged = false,
   liveState = "closed",
+  stepName = "Reconcile required current-head workflow evidence",
 }: SyncCheckOptions) {
   const workflow = source(".github/workflows/worker-supervisor-sync.yml");
-  const script = workflowRunStep(workflow, "Reconcile required current-head workflow evidence");
+  const script = workflowRunStep(workflow, stepName);
   const root = mkdtempSync(join(tmpdir(), "proffera-sync-check-reconciliation-"));
   const repo = join(root, "repo");
   const bin = join(root, "bin");
@@ -346,6 +350,9 @@ process.exit(2);
       GH_STUB_STATE_FILE: stateFile,
       GH_STUB_PR_JSON: JSON.stringify(pr),
       REPOSITORY: "ibboabdoli-ai/Proffera",
+      ACTION: action,
+      ACTOR: "ibboabdoli-ai",
+      PR_NUMBER: "849",
       EVENT_PR_NUMBER: "849",
       EVENT_HEAD_SHA: eventHead,
       RUN_ID: "9003",
@@ -358,6 +365,13 @@ process.exit(2);
     .map((line) => JSON.parse(line) as string[]);
   const finalState = JSON.parse(readFileSync(stateFile, "utf8")) as { comments: Array<Record<string, unknown>> };
   return { ...result, calls, comments: finalState.comments };
+}
+
+function runLifecycleReconciliation(options: Omit<SyncCheckOptions, "stepName">) {
+  return runSyncCheckReconciliation({
+    ...options,
+    stepName: "Record or update Worker lifecycle state in Supervisor issue",
+  });
 }
 
 function runWorkerPrStateRecord(currentBody: string) {
@@ -1154,6 +1168,26 @@ exit 0
     expect(commentPatchCalls(second.calls, 103)).toHaveLength(0);
   });
 
+  it("makes a stale non-close enforcement job converge the live closed PR", () => {
+    const liveHead = otherSha;
+    const evidence = exactReservationEvidence(liveHead);
+    const result = runReservationEnforcement({
+      body: evidence.body,
+      comments: [
+        ...evidence.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING", liveHead) },
+      ],
+      eventAction: "synchronize",
+      eventHead: sha,
+      liveHead,
+      liveState: "closed",
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+    expect(commentPatchCalls(result.calls, 103)).toHaveLength(1);
+    expect(String(result.comments.find((comment) => comment.id === 103)?.body)).toContain("- State: `CLOSED_UNMERGED`");
+  });
+
   it("does not regress a terminal task state during close reconciliation", () => {
     const evidence = exactReservationEvidence();
     const result = runReservationEnforcement({
@@ -1294,6 +1328,88 @@ exit 0
     expect(result.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
   });
 
+  it("converges live-closed synchronize and ready-for-review lifecycle replacements", () => {
+    for (const action of ["synchronize", "ready_for_review"]) {
+      const liveHead = otherSha;
+      const evidence = exactReservationEvidence(liveHead);
+      const result = runLifecycleReconciliation({
+        action,
+        comments: [
+          ...evidence.comments,
+          { id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING", liveHead) },
+        ],
+        eventHead: sha,
+        liveHead,
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain(
+        "Converged live-closed lifecycle event for PR #849 to reservation RELEASED and task CLOSED_UNMERGED.",
+      );
+      expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+      expect(commentPatchCalls(result.calls, 103)).toHaveLength(1);
+    }
+  });
+
+  it("makes repeated live-closed lifecycle replacement idempotent", () => {
+    const evidence = exactReservationEvidence();
+    const first = runLifecycleReconciliation({
+      action: "synchronize",
+      comments: [
+        ...evidence.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING") },
+      ],
+    });
+    expect(first.status, first.stderr).toBe(0);
+    const second = runLifecycleReconciliation({
+      action: "ready_for_review",
+      comments: first.comments,
+    });
+    expect(second.status, second.stderr).toBe(0);
+    expect(commentPatchCalls(second.calls, 101)).toHaveLength(0);
+    expect(commentPatchCalls(second.calls, 103)).toHaveLength(0);
+  });
+
+  it("rejects invalid lifecycle close provenance without mutation", () => {
+    const evidence = exactReservationEvidence();
+    const taskState = { id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING") };
+    const duplicateReservation = { ...evidence.comments[0], id: 104 };
+    const mismatchedDispatch = {
+      ...evidence.comments[1],
+      body: String(evidence.comments[1].body).replace(":9001 -->", ":different-run -->"),
+    };
+    for (const comments of [
+      [taskState],
+      [...evidence.comments, duplicateReservation, taskState],
+      [evidence.comments[0], mismatchedDispatch, taskState],
+    ]) {
+      const result = runLifecycleReconciliation({ action: "synchronize", comments });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+    }
+  });
+
+  it("preserves exact event-head enforcement for the open lifecycle path", () => {
+    const stale = runLifecycleReconciliation({
+      action: "synchronize",
+      comments: [{ id: 103, user: { login: "github-actions[bot]" }, body: stateBody("WORKER_PR_OPENED", otherSha) }],
+      eventHead: sha,
+      liveHead: otherSha,
+      liveState: "open",
+    });
+    expect(stale.status, stale.stderr).toBe(0);
+    expect(stale.stdout).toContain("Ignoring stale open lifecycle event");
+    expect(stale.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+
+    const current = runLifecycleReconciliation({
+      action: "synchronize",
+      comments: [{ id: 103, user: { login: "github-actions[bot]" }, body: stateBody("WORKER_PR_OPENED") }],
+      liveState: "open",
+    });
+    expect(current.status, current.stderr).toBe(0);
+    expect(commentPatchCalls(current.calls, 103)).toHaveLength(1);
+    expect(String(current.comments.find((comment) => comment.id === 103)?.body)).toContain("- State: `CHECKS_PENDING`");
+  });
+
   it("preserves the normal exact-head check-evidence path for an open PR", () => {
     const result = runSyncCheckReconciliation({
       comments: [{ id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING") }],
@@ -1364,6 +1480,7 @@ exit 0
     expect(sync.match(/group: proffera-worker-task-state-\$\{\{ needs\.resolve_worker_mutation_lane\.outputs\.branch \}\}/g)).toHaveLength(2);
     const syncPrHeader = sync.slice(sync.indexOf("  sync-pr-event:"), sync.indexOf("    runs-on:", sync.indexOf("  sync-pr-event:")));
     expect(syncPrHeader).toContain("github.event.action != 'closed'");
+    expectShellAndJqSyntax(workflowRunStep(sync, "Record or update Worker lifecycle state in Supervisor issue"));
     expectShellAndJqSyntax(workflowRunStep(sync, "Reconcile required current-head workflow evidence"));
     expect(workflowRunStep(workflow, "Require exact durable reservation before accepting Worker PR")).toContain(
       "Reconciled task ${task_id} to ${terminal_state} in the same close writer.",

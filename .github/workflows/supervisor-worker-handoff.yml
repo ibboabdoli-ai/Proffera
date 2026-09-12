@@ -41,11 +41,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          EVENT_ACTION: ${{ github.event.action }}
           EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           EVENT_HEAD_REF: ${{ github.event.pull_request.head.ref }}
-          EVENT_AUTHOR: ${{ github.event.pull_request.user.login }}
-          EVENT_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
           RUN_ID: ${{ github.run_id }}
         shell: bash
         run: |
@@ -86,7 +83,7 @@ jobs:
               reserved_head="$(jq -r '.head_sha // ""' <<< "$payload")"
               case "$state" in
                 RESERVED|PUBLISHED|RECOVERABLE) ;;
-                RELEASED) [ "$EVENT_ACTION" = "closed" ] || continue ;;
+                RELEASED) [ "$live_state" = "closed" ] || continue ;;
                 *) continue ;;
               esac
               [ -n "$reserved_task" ] && [ -n "$reserved_run" ] || continue
@@ -101,7 +98,8 @@ jobs:
             [ "$reservation_matches" -eq 1 ] && [ "$trusted_matches" -eq 1 ]
           }
 
-          if [ "$live_head" != "$EVENT_HEAD_SHA" ] || [ "$live_ref" != "$EVENT_HEAD_REF" ]; then
+          if [ "$live_state" != "closed" ] \
+            && { [ "$live_head" != "$EVENT_HEAD_SHA" ] || [ "$live_ref" != "$EVENT_HEAD_REF" ]; }; then
             echo "PR changed before reservation enforcement; newer event will reconcile it."
             exit 0
           fi
@@ -110,7 +108,7 @@ jobs:
             exit 0
           fi
           if ! grep -Fq "$task_marker" <<< "$body"; then
-            if [ "$EVENT_ACTION" = "closed" ]; then
+            if [ "$live_state" = "closed" ]; then
               echo "Closed legacy Worker PR has no bounded Task Packet; no durable reservation exists to release."
               exit 0
             fi
@@ -118,7 +116,7 @@ jobs:
           fi
           packet_file="$(mktemp)"
           if ! printf '%s' "$body" | node "$helper" parse > "$packet_file" 2>/dev/null || ! jq -e . "$packet_file" >/dev/null 2>&1; then
-            if [ "$EVENT_ACTION" = "closed" ]; then
+            if [ "$live_state" = "closed" ]; then
               echo "Closed Worker PR has an invalid Task Packet; refusing to mutate any reservation." >&2
               exit 0
             fi
@@ -131,7 +129,7 @@ jobs:
           packet_allowed="$(jq -c '.allowed_paths' <<< "$packet")"
           packet_digest="$(printf '%s' "$packet" | sha256sum | cut -d' ' -f1)"
           if [ "$packet_branch" != "$live_ref" ]; then
-            if [ "$EVENT_ACTION" = "closed" ]; then
+            if [ "$live_state" = "closed" ]; then
               echo "Closed Worker PR Task Packet branch mismatch; refusing reservation mutation." >&2
               exit 0
             fi
@@ -140,9 +138,9 @@ jobs:
 
           marker="<!-- proffera-worker-slot-reservation:${task_id} -->"
 
-          if [ "$EVENT_ACTION" = "closed" ]; then
+          if [ "$live_state" = "closed" ]; then
             repository_owner="${REPOSITORY%%/*}"
-            if [ "$EVENT_AUTHOR" != "$repository_owner" ] || [ "$EVENT_HEAD_REPOSITORY" != "$REPOSITORY" ]; then
+            if [ "$live_author" != "$repository_owner" ] || [ "$live_head_repository" != "$REPOSITORY" ]; then
               echo "Refused: closed Worker PR is not owned by the trusted same-repository owner." >&2
               exit 1
             fi
