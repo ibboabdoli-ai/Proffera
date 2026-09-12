@@ -517,7 +517,126 @@ process.exit(2);
   });
   const calls = readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as string[]);
   const finalState = JSON.parse(readFileSync(stateFile, "utf8")) as { comments: Array<Record<string, unknown>> };
-  return { ...result, calls, comments: finalState.comments };
+  const outputs = Object.fromEntries(readFileSync(output, "utf8")
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      const separator = line.indexOf("=");
+      return [line.slice(0, separator), line.slice(separator + 1)];
+    }));
+  return { ...result, calls, comments: finalState.comments, outputs };
+}
+
+function runReservationFinalization({ changedReservationBody = false } = {}) {
+  const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+  const script = workflowRunStep(workflow, "Finalize reserved Worker snapshot before publication");
+  const root = mkdtempSync(join(tmpdir(), "proffera-reservation-finalize-"));
+  const repo = join(root, "repo");
+  const bin = join(root, "bin");
+  const trusted = join(root, "proffera-trusted-control");
+  const log = join(root, "gh-calls.jsonl");
+  const stateFile = join(root, "gh-state.json");
+  mkdirSync(join(repo, "src"), { recursive: true });
+  mkdirSync(bin, { recursive: true });
+  mkdirSync(trusted, { recursive: true });
+  const git = (...args: string[]) => {
+    const result = spawnSync("git", args, { cwd: repo, encoding: "utf8" });
+    expect(result.status, result.stderr).toBe(0);
+    return result.stdout.trim();
+  };
+  git("init");
+  git("config", "user.name", "test");
+  git("config", "user.email", "test@example.invalid");
+  writeFileSync(join(repo, "src/change.txt"), "before\n", "utf8");
+  git("add", "src/change.txt");
+  git("commit", "-m", "source");
+  const sourceHead = git("rev-parse", "HEAD");
+  writeFileSync(join(repo, "src/change.txt"), "after\n", "utf8");
+  git("commit", "-am", "target");
+  const targetHead = git("rev-parse", "HEAD");
+  const finalizationPacket = packet({ base_sha: sourceHead, allowed_paths: ["src/change.txt"] });
+  const normalizedPacket = JSON.stringify(finalizationPacket);
+  const reservation = {
+    version: 1,
+    state: "RESERVED",
+    task_id: finalizationPacket.task_id,
+    run_id: "9001",
+    branch: finalizationPacket.branch,
+    graph_path: finalizationPacket.graph_path,
+    packet_digest: createHash("sha256").update(normalizedPacket).digest("hex"),
+    head_sha: sourceHead,
+    lease_expires_at: "2099-01-01T00:00:00Z",
+    allowed_paths: finalizationPacket.allowed_paths,
+    changed_files: [],
+    snapshot_finalized: false,
+    pr_number: null,
+    recovery: null,
+  };
+  copyFileSync(helper, join(trusted, "supervisor-worker-handoff.mjs"));
+  const helperDigest = createHash("sha256").update(readFileSync(join(trusted, "supervisor-worker-handoff.mjs"))).digest("hex");
+  writeFileSync(join(trusted, "supervisor-worker-handoff.sha256"), `${helperDigest}  ${join(trusted, "supervisor-worker-handoff.mjs")}\n`);
+  writeFileSync(join(root, "proffera-worker-changed-files.txt"), "src/change.txt\n");
+  writeFileSync(log, "");
+  writeFileSync(stateFile, JSON.stringify({ changedReservationBody, comments: [reservationComment(reservation, 101)] }));
+  writeFileSync(
+    join(bin, "gh"),
+    `#!/usr/bin/env node
+const { appendFileSync, readFileSync, writeFileSync } = require("node:fs");
+const args = process.argv.slice(2);
+appendFileSync(process.env.GH_STUB_LOG, JSON.stringify(args) + "\\n");
+const methodIndex = args.indexOf("--method");
+const method = methodIndex >= 0 ? args[methodIndex + 1] : "GET";
+const endpoint = args.find((arg) => arg.startsWith("repos/")) || "";
+const state = JSON.parse(readFileSync(process.env.GH_STUB_STATE_FILE, "utf8"));
+const field = (name) => args.find((arg) => arg.startsWith(name + "="))?.slice(name.length + 1) ?? "";
+if (method === "PATCH" && endpoint.endsWith("/issues/comments/101")) {
+  state.comments[0].body = field("body");
+  writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
+  process.stdout.write("{}\\n");
+  process.exit(0);
+}
+if (method !== "GET") process.exit(2);
+if (endpoint.endsWith("/git/ref/heads/main")) {
+  process.stdout.write(process.env.GH_STUB_MAIN_SHA + "\\n");
+  process.exit(0);
+}
+if (endpoint.endsWith("/issues/comments/101")) {
+  const comment = state.comments[0];
+  if (args.includes("--jq")) {
+    const body = state.changedReservationBody ? String(comment.body) + "\\nchanged" : String(comment.body);
+    process.stdout.write(body + "\\n");
+  } else {
+    process.stdout.write(JSON.stringify(comment) + "\\n");
+  }
+  process.exit(0);
+}
+process.stderr.write("unhandled gh endpoint: " + endpoint + "\\n");
+process.exit(2);
+`,
+    { encoding: "utf8", mode: 0o755 },
+  );
+  const result = spawnSync("bash", ["-c", script], {
+    cwd: repo,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+      GH_TOKEN: "test-token",
+      GH_STUB_LOG: log,
+      GH_STUB_MAIN_SHA: sourceHead,
+      GH_STUB_STATE_FILE: stateFile,
+      RUNNER_TEMP: root,
+      REPOSITORY: "ibboabdoli-ai/Proffera",
+      RESERVATION_COMMENT_ID: "101",
+      PACKET_B64: Buffer.from(normalizedPacket).toString("base64"),
+      BASE_SHA: sourceHead,
+      RUN_ID: "9001",
+    },
+  });
+  const calls = readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as string[]);
+  const finalState = JSON.parse(readFileSync(stateFile, "utf8")) as { comments: Array<Record<string, unknown>> };
+  return { ...result, calls, comments: finalState.comments, sourceHead, targetHead };
 }
 
 function prPatchCalls(calls: string[][]) {
@@ -1326,6 +1445,7 @@ exit 0
     const closeStep = workflowRunStep(workflow, "Require exact durable reservation before accepting Worker PR");
     expectShellAndJqSyntax(closeStep);
     expectShellAndJqSyntax(workflowRunStep(workflow, "Atomically reserve writable Worker slot"));
+    expectShellAndJqSyntax(workflowRunStep(workflow, "Finalize reserved Worker snapshot before publication"));
     const recoverySyntax = spawnSync("bash", ["-n"], {
       input: workflowRunStep(workflow, "Release or recover reservation on dispatch failure"),
       encoding: "utf8",
@@ -1874,6 +1994,106 @@ exit 0
     expect(Date.parse(payload.recovery.expires_at)).toBeGreaterThan(Date.now() + 5 * 24 * 60 * 60 * 1000);
   });
 
+  it("reserves durable capacity before dispatching the Worker", () => {
+    const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+    const reserveIndex = workflow.indexOf("Atomically reserve writable Worker slot");
+    const dispatchEvidenceIndex = workflow.indexOf("Persist trusted Worker dispatch-start evidence");
+    const workerIndex = workflow.indexOf("Run one bounded implementation Worker");
+    expect(reserveIndex).toBeGreaterThanOrEqual(0);
+    expect(reserveIndex).toBeLessThan(dispatchEvidenceIndex);
+    expect(dispatchEvidenceIndex).toBeLessThan(workerIndex);
+
+    const result = runSlotReservation();
+    expect(result.status, result.stderr).toBe(0);
+    const reservation = result.comments.find((comment) => comment.id === 999);
+    const payloadBase64 = String(reservation?.body ?? "").match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+    expect(JSON.parse(Buffer.from(payloadBase64, "base64").toString("utf8"))).toMatchObject({
+      state: "RESERVED",
+      changed_files: [],
+      snapshot_finalized: false,
+      pr_number: null,
+    });
+  });
+
+  it("rejects a third durable unit before Worker execution and keeps the task retryable", () => {
+    const activeReservation = (id: number) => ({
+      state: "RESERVED",
+      task_id: `SUP-OLD-SLOT-${id}`,
+      run_id: String(7000 + id),
+      branch: `work/proffera-old-slot-${id}`,
+      head_sha: otherSha,
+      graph_path: `feature/old-slot-${id}`,
+      packet_digest: String(id).repeat(64),
+      lease_expires_at: "2099-01-01T00:00:00Z",
+      allowed_paths: [`src/features/old-slot-${id}/`],
+      changed_files: [],
+      pr_number: null,
+      recovery: null,
+    });
+    const result = runSlotReservation({
+      reservation: activeReservation(1),
+      extraComments: [reservationComment(activeReservation(2), 202)],
+    });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("both writable Worker slots are already occupied or durably reserved");
+    expect(result.outputs.capacity_blocked).toBe("true");
+    expect(result.comments.some((comment) => comment.id === 999)).toBe(false);
+
+    const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+    const failure = workflowRunStep(workflow, "Fail closed into WORKER_BLOCKED on dispatch failure");
+    expect(failure).toContain('state="TASK_BLOCKED"');
+    expect(failure).toContain("No reservation was acquired and no Worker was invoked");
+  });
+
+  it("admits a disjoint second reservation and rejects declared overlap before Worker execution", () => {
+    const existing = {
+      state: "RESERVED",
+      task_id: "SUP-OLD-SLOT-1",
+      run_id: "7001",
+      branch: "work/proffera-old-slot",
+      head_sha: otherSha,
+      graph_path: "feature/old-slot",
+      packet_digest: "c".repeat(64),
+      lease_expires_at: "2099-01-01T00:00:00Z",
+      allowed_paths: ["src/features/old-slot/"],
+      changed_files: [],
+      pr_number: null,
+      recovery: null,
+    };
+    const disjoint = runSlotReservation({ reservation: existing });
+    expect(disjoint.status, disjoint.stderr).toBe(0);
+    expect(disjoint.comments.some((comment) => comment.id === 999)).toBe(true);
+
+    for (const overlapping of [
+      { ...existing, graph_path: "feature/new-slot/subpath" },
+      { ...existing, allowed_paths: ["tests/new-slot/collision.ts"] },
+    ]) {
+      const rejected = runSlotReservation({ reservation: overlapping });
+      expect(rejected.status).toBe(1);
+      expect(rejected.comments.some((comment) => comment.id === 999)).toBe(false);
+    }
+  });
+
+  it("finalizes the exact observed Worker snapshot before publication", () => {
+    const result = runReservationFinalization();
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain(`Finalized reserved Worker snapshot SUP-TEST-1@${result.targetHead}`);
+    expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+    const reservation = result.comments.find((comment) => comment.id === 101);
+    const payloadBase64 = String(reservation?.body ?? "").match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
+    expect(JSON.parse(Buffer.from(payloadBase64, "base64").toString("utf8"))).toMatchObject({
+      state: "RESERVED",
+      head_sha: result.targetHead,
+      changed_files: ["src/change.txt"],
+      snapshot_finalized: true,
+      pr_number: null,
+    });
+
+    const changed = runReservationFinalization({ changedReservationBody: true });
+    expect(changed.status).toBe(1);
+    expect(commentPatchCalls(changed.calls, 101)).toHaveLength(0);
+  });
+
   it("reclaims an expired branch recovery only after live absence checks", () => {
     const recoverable = (expiresAt: string) => ({
       state: "RECOVERABLE",
@@ -2396,6 +2616,29 @@ process.stdout.write(JSON.stringify({
 
     const falseDeletion = String(artifact.unified_diff).replace("+++ b/docs/SUPERVISOR_WORKER_HANDOFF.md", "+++ /dev/null");
     expect(run("validate-publication", { ...input, artifact: { ...artifact, unified_diff: falseDeletion } }).code).toBe("diff_incomplete");
+  });
+
+  it("rejects every unsupported or misordered unified-diff preamble directive", () => {
+    const input = publicationInput();
+    const artifact = input.artifact as Record<string, unknown>;
+    const unifiedDiff = String(artifact.unified_diff);
+    for (const directive of [
+      "rename from z.txt",
+      "rename from z.txt\nrename to docs/SUPERVISOR_WORKER_HANDOFF.md",
+      "similarity index 100%",
+      "dissimilarity index 80%",
+      "old mode 100644\nnew mode 100755",
+      "copy from z.txt\ncopy to docs/SUPERVISOR_WORKER_HANDOFF.md",
+      "unsupported publication directive",
+    ]) {
+      const tampered = unifiedDiff.replace("\nindex ", `\n${directive}\nindex `);
+      expect(tampered).not.toBe(unifiedDiff);
+      expect(run("validate-publication", { ...input, artifact: { ...artifact, unified_diff: tampered } }).ok).toBe(false);
+    }
+
+    const misordered = unifiedDiff.replace(/\n(index [^\n]+)\n(--- [^\n]+)\n(\+\+\+ [^\n]+)/, "\n$2\n$1\n$3");
+    expect(misordered).not.toBe(unifiedDiff);
+    expect(run("validate-publication", { ...input, artifact: { ...artifact, unified_diff: misordered } }).code).toBe("diff_incomplete");
   });
 
   it("preserves deletion, rename, and missing-final-newline artifact semantics", () => {

@@ -560,6 +560,13 @@ function parseUnifiedDiffPaths(value) {
       && indexHeader[2] === (deleted ? "0".repeat(40) : EMPTY_GIT_BLOB_SHA)
       && section.length === preamble.length + 1;
     if (firstHunk < 0 && !headerOnlyEmpty) publicationFailure("diff_incomplete", `unified diff section '${path}' has no complete text hunk`);
+    const expectedPreamble = headerOnlyEmpty
+      ? [expectedModeLine, indexHeaders[0]]
+      : [...(expectedModeLine ? [expectedModeLine] : []), indexHeaders[0], oldHeader, newHeader];
+    if (preamble.length !== expectedPreamble.length
+      || preamble.some((line, index) => line !== expectedPreamble[index])) {
+      publicationFailure("diff_incomplete", `unified diff section '${path}' contains unsupported or misordered preamble directives`);
+    }
 
     let cursor = firstHunk < 0 ? section.length : firstHunk;
     while (cursor < section.length) {
