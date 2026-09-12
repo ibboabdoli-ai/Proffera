@@ -97,6 +97,7 @@ type ReservationEnforcementOptions = {
   eventAction?: string;
   eventActor?: string;
   eventHead?: string;
+  failPagedCommentReads?: number;
   liveHead?: string;
   liveAuthor?: string;
   liveHeadRepository?: string;
@@ -151,6 +152,7 @@ function runReservationEnforcement({
   liveAuthor = "ibboabdoli-ai",
   liveHeadRepository = "ibboabdoli-ai/Proffera",
   eventHead = liveHead,
+  failPagedCommentReads = 0,
   liveMerged = false,
   liveState = "open",
 }: ReservationEnforcementOptions = {}) {
@@ -173,7 +175,7 @@ function runReservationEnforcement({
     user: { login: liveAuthor },
     body,
   };
-  writeFileSync(stateFile, JSON.stringify({ comments, pr: livePr }));
+  writeFileSync(stateFile, JSON.stringify({ comments, failPagedCommentReads, pagedCommentFailures: 0, pr: livePr }));
   writeFileSync(
     join(bin, "gh"),
     `#!/usr/bin/env node
@@ -212,6 +214,11 @@ if (endpoint === "repos/ibboabdoli-ai/Proffera/pulls/849") {
 }
 const pagedComments = endpoint.match(/repos\\/ibboabdoli-ai\\/Proffera\\/issues\\/548\\/comments\\?per_page=100&page=(\\d+)$/);
 if (pagedComments) {
+  if (state.pagedCommentFailures < state.failPagedCommentReads) {
+    state.pagedCommentFailures += 1;
+    writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
+    process.exit(75);
+  }
   const page = Number(pagedComments[1]);
   process.stdout.write(JSON.stringify(state.comments.slice((page - 1) * 100, page * 100)) + "\\n");
   process.exit(0);
@@ -1654,6 +1661,29 @@ exit 0
     expect(commentPatchCalls(replay.calls, 101)).toHaveLength(0);
   });
 
+  it("retries transient malformed-close evidence reads before releasing the exact reservation", () => {
+    const evidence = exactReservationEvidence(sha, {
+      state: "PUBLISHED",
+      pr_number: 849,
+      recovery: null,
+    });
+    const result = runReservationEnforcement({
+      body: "Worker result with its bounded Task Packet removed",
+      comments: [
+        ...evidence.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING") },
+      ],
+      eventAction: "closed",
+      failPagedCommentReads: 3,
+      liveState: "closed",
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stderr).toContain("Transient malformed-close reconciliation failure; retrying (1/5).");
+    expect(result.calls.filter((args) => args.some((arg) => arg.includes("comments?per_page=100&page=1"))).length).toBeGreaterThanOrEqual(6);
+    expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+    expect(commentPatchCalls(result.calls, 103)).toHaveLength(1);
+  }, 20_000);
+
   it("does not close or release a malformed prefixed PR without exact trusted provenance", () => {
     const result = runReservationEnforcement({
       body: "Worker result with no Task Packet",
@@ -1664,6 +1694,22 @@ exit 0
     expect(result.stdout).toContain("has no exact trusted Supervisor dispatch provenance; leaving it unchanged");
     expect(prPatchCalls(result.calls)).toHaveLength(0);
     expect(result.calls.filter((args) => args.includes("repos/ibboabdoli-ai/Proffera/issues/comments/101"))).toHaveLength(0);
+  });
+
+  it("routes closed pull_request_target events through lifecycle reconciliation", () => {
+    const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+    const result = runLifecycleReconciliation({
+      action: "closed",
+      body: "Worker result with no Task Packet",
+      comments: [
+        ...evidence.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING") },
+      ],
+      liveState: "closed",
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+    expect(commentPatchCalls(result.calls, 103)).toHaveLength(1);
   });
 
   it("makes every same-lane replacement writer converge a malformed trusted close", () => {
@@ -2947,7 +2993,7 @@ exit 0
     expect(workflow).toContain("group: proffera-worker-task-state-${{ needs.preflight.outputs.branch }}");
     expect(sync.match(/group: proffera-worker-task-state-\$\{\{ needs\.resolve_worker_mutation_lane\.outputs\.branch \}\}/g)).toHaveLength(2);
     const syncPrHeader = sync.slice(sync.indexOf("  sync-pr-event:"), sync.indexOf("    runs-on:", sync.indexOf("  sync-pr-event:")));
-    expect(syncPrHeader).toContain("github.event.action != 'closed'");
+    expect(syncPrHeader).not.toContain("github.event.action != 'closed'");
     expectShellAndJqSyntax(workflowRunStep(sync, "Record or update Worker lifecycle state in Supervisor issue"));
     expectShellAndJqSyntax(workflowRunStep(sync, "Reconcile required current-head workflow evidence"));
     expect(workflowRunStep(workflow, "Require exact durable reservation before accepting Worker PR")).toContain(

@@ -1288,6 +1288,9 @@ function retryGitHubRead(read) {
       return read();
     } catch (error) {
       lastError = error;
+      if (attempt + 1 < GITHUB_READ_ATTEMPTS) {
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000 * (2 ** attempt));
+      }
     }
   }
   throw lastError;

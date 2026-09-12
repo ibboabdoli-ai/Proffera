@@ -132,7 +132,14 @@ jobs:
             fi
             if [ "$(jq -r '.ok == true' <<< "$result")" != "true" ]; then
               echo "Closed malformed Worker PR was not mutation-safe: $(jq -r '.reason' <<< "$result")" >&2
-              return 2
+              case "$(jq -r '.code // ""' <<< "$result")" in
+                evidence_unavailable|evidence_changed|task_evidence_changed|release_not_converged)
+                  return 3
+                  ;;
+                *)
+                  return 2
+                  ;;
+              esac
             fi
             if [ "$(jq -r '.reservation_mutated == true' <<< "$result")" = "true" ]; then
               echo "Released trusted Worker slot reservation $(jq -r '.task_id' <<< "$result") after malformed PR #${PR_NUMBER} closed (${reason})."
@@ -154,14 +161,27 @@ jobs:
             exit 0
           fi
           if [ "$live_state" = "closed" ]; then
-            if release_trusted_reservation_after_invalid_close "missing or reservation-mismatched bounded Task Packet"; then
-              echo "Closed trusted Worker PR had no exact reservation-bound Task Packet; its durable state was reconciled."
-              exit 0
-            else
-              reconcile_status=$?
-              if [ "$reconcile_status" -ne 1 ]; then
+            reconcile_status=1
+            for reconcile_attempt in $(seq 1 5); do
+              if release_trusted_reservation_after_invalid_close "missing or reservation-mismatched bounded Task Packet"; then
+                echo "Closed trusted Worker PR had no exact reservation-bound Task Packet; its durable state was reconciled."
+                exit 0
+              else
+                reconcile_status=$?
+              fi
+              if [ "$reconcile_status" -eq 1 ]; then
+                break
+              fi
+              if [ "$reconcile_status" -ne 3 ]; then
                 exit "$reconcile_status"
               fi
+              if [ "$reconcile_attempt" -lt 5 ]; then
+                echo "Transient malformed-close reconciliation failure; retrying (${reconcile_attempt}/5)." >&2
+                sleep 5
+              fi
+            done
+            if [ "$reconcile_status" -ne 1 ]; then
+              exit "$reconcile_status"
             fi
           fi
           if ! grep -Fq "$task_marker" <<< "$body"; then
