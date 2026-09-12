@@ -1529,9 +1529,13 @@ jobs:
           packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
           state="WORKER_BLOCKED"
           reason="Dispatch stopped fail-closed before successful PR handoff. Inspect this workflow run; retries will not create a second Worker when a trusted active state or branch exists."
-          if [ "${CAPACITY_BLOCKED:-false}" = "true" ] && [ -z "${RESERVATION_COMMENT_ID:-}" ]; then
+          if [ -z "${RESERVATION_COMMENT_ID:-}" ]; then
             state="TASK_BLOCKED"
-            reason="Both writable Worker slots are durably occupied. No reservation was acquired and no Worker was invoked; the same task may be resubmitted after capacity is released."
+            if [ "${CAPACITY_BLOCKED:-false}" = "true" ]; then
+              reason="Both writable Worker slots are durably occupied. No reservation was acquired and no Worker was invoked; the same task may be resubmitted after capacity is released."
+            else
+              reason="Dispatch failed before a durable Worker reservation was acquired. No Worker was invoked; the same task may be resubmitted safely."
+            fi
           fi
           state_json="$(jq -n --argjson packet "$packet" --arg state "$state" --arg reason "$reason" --arg run_id "$RUN_ID" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id}')"
           state_body="$(printf '%s' "$state_json" | node "$helper" state-body)"

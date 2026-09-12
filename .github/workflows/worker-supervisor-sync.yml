@@ -297,7 +297,7 @@ jobs:
                 fi
 
                 if [ "$transition_apply" = "true" ]; then
-                  terminal_state_json="$(jq -n --argjson packet "$packet" --arg state "$terminal_state" --arg reason "$terminal_reason" --arg run_id "$RUN_ID" --argjson pr_number "$PR_NUMBER" --arg head_sha "$live_head_sha" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,pr_number:$pr_number,head_sha:$head_sha}')"
+                  terminal_state_json="$(jq -n --argjson packet "$packet" --arg state "$terminal_state" --arg reason "$terminal_reason" --arg run_id "$reserved_run" --argjson pr_number "$PR_NUMBER" --arg head_sha "$live_head_sha" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,pr_number:$pr_number,head_sha:$head_sha}')"
                   terminal_body="$(printf '%s' "$terminal_state_json" | node "$helper" state-body)"
                   if [ -n "$comment_id" ]; then
                     gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${comment_id}" -f body="$terminal_body" >/dev/null
@@ -337,8 +337,18 @@ jobs:
                 marker="<!-- proffera-worker-task-state:${task_id} -->"
                 comment_id="$(jq -r --arg marker "$marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | last | .id // empty' <<< "$comments_json")"
                 current_body=""
+                task_run_id=""
                 if [ -n "$comment_id" ]; then
                   current_body="$(jq -r --argjson id "$comment_id" '[.[] | select(.id == $id)] | last | .body // ""' <<< "$comments_json")"
+                  run_line_count="$(awk '/^- Run ID: `[0-9]+`$/ {count++} END {print count+0}' <<< "$current_body")"
+                  task_run_id="$(sed -n 's/^- Run ID: `\([0-9][0-9]*\)`$/\1/p' <<< "$current_body")"
+                  if [ "$run_line_count" -ne 1 ] || ! [[ "$task_run_id" =~ ^[0-9]+$ ]]; then
+                    echo "Trusted task state has missing or ambiguous dispatch run provenance; refusing lifecycle mutation." >&2
+                    exit 1
+                  fi
+                else
+                  echo "Trusted Phase-1 Worker PR has no durable task-state record; leaving it unchanged."
+                  exit 0
                 fi
               }
 
@@ -381,7 +391,7 @@ jobs:
                 exit 0
               fi
 
-              state_json="$(jq -n --argjson packet "$packet" --arg state "$state" --arg reason "$reason" --arg run_id "$RUN_ID" --argjson pr_number "$PR_NUMBER" --arg head_sha "$live_head_sha" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,pr_number:$pr_number,head_sha:$head_sha}')"
+              state_json="$(jq -n --argjson packet "$packet" --arg state "$state" --arg reason "$reason" --arg run_id "$task_run_id" --argjson pr_number "$PR_NUMBER" --arg head_sha "$live_head_sha" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,pr_number:$pr_number,head_sha:$head_sha}')"
               body="$(printf '%s' "$state_json" | node "$helper" state-body)"
               if [ -n "$comment_id" ]; then
                 gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${comment_id}" -f body="$body" >/dev/null
@@ -655,7 +665,7 @@ jobs:
             fi
 
             if [ "$transition_apply" = "true" ]; then
-              state_json="$(jq -n --argjson packet "$packet" --arg state "$terminal_state" --arg reason "$terminal_reason" --arg run_id "$RUN_ID" --argjson pr_number "$pr_number" --arg head_sha "$head_sha" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,pr_number:$pr_number,head_sha:$head_sha}')"
+              state_json="$(jq -n --argjson packet "$packet" --arg state "$terminal_state" --arg reason "$terminal_reason" --arg run_id "$reserved_run" --argjson pr_number "$pr_number" --arg head_sha "$head_sha" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,pr_number:$pr_number,head_sha:$head_sha}')"
               body="$(printf '%s' "$state_json" | node "$helper" state-body)"
               if [ -n "$comment_id" ]; then
                 gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${comment_id}" -f body="$body" >/dev/null
@@ -705,8 +715,18 @@ jobs:
             marker="<!-- proffera-worker-task-state:${task_id} -->"
             comment_id="$(jq -r --arg marker "$marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | last | .id // empty' <<< "$comments_json")"
             current_body=""
+            task_run_id=""
             if [ -n "$comment_id" ]; then
               current_body="$(jq -r --argjson id "$comment_id" '[.[] | select(.id == $id)] | last | .body // ""' <<< "$comments_json")"
+              run_line_count="$(awk '/^- Run ID: `[0-9]+`$/ {count++} END {print count+0}' <<< "$current_body")"
+              task_run_id="$(sed -n 's/^- Run ID: `\([0-9][0-9]*\)`$/\1/p' <<< "$current_body")"
+              if [ "$run_line_count" -ne 1 ] || ! [[ "$task_run_id" =~ ^[0-9]+$ ]]; then
+                echo "Trusted task state has missing or ambiguous dispatch run provenance; refusing check mutation." >&2
+                exit 1
+              fi
+            else
+              echo "Trusted Phase-1 Worker PR has no durable task-state record; leaving it unchanged."
+              exit 0
             fi
           }
 
@@ -754,7 +774,7 @@ jobs:
             exit 0
           fi
 
-          state_json="$(jq -n --argjson packet "$packet" --arg state "$state" --arg reason "$reason" --arg run_id "$RUN_ID" --argjson pr_number "$pr_number" --arg head_sha "$head_sha" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,pr_number:$pr_number,head_sha:$head_sha}')"
+          state_json="$(jq -n --argjson packet "$packet" --arg state "$state" --arg reason "$reason" --arg run_id "$task_run_id" --argjson pr_number "$pr_number" --arg head_sha "$head_sha" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,pr_number:$pr_number,head_sha:$head_sha}')"
           body="$(printf '%s' "$state_json" | node "$helper" state-body)"
           if [ "$state" = "READY_FOR_SUPERVISOR" ]; then
             ready_checkpoint="- Ready checkpoint: \`${task_id}@${head_sha}\`"

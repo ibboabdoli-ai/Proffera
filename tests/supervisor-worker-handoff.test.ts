@@ -1,4 +1,4 @@
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -934,6 +934,61 @@ function taskStatePatchCalls(calls: string[][]) {
   });
 }
 
+function runDispatchFailureState({
+  capacityBlocked = false,
+  reservationCommentId = "",
+}: {
+  capacityBlocked?: boolean;
+  reservationCommentId?: string;
+} = {}) {
+  const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+  const script = workflowRunStep(workflow, "Fail closed into WORKER_BLOCKED on dispatch failure");
+  const root = mkdtempSync(join(tmpdir(), "proffera-dispatch-failure-state-"));
+  const bin = join(root, "bin");
+  const trusted = join(root, "proffera-trusted-control");
+  const output = join(root, "patched-body");
+  mkdirSync(bin, { recursive: true });
+  mkdirSync(trusted, { recursive: true });
+  copyFileSync(helper, join(trusted, "supervisor-worker-handoff.mjs"));
+  const helperDigest = createHash("sha256").update(readFileSync(helper)).digest("hex");
+  writeFileSync(join(trusted, "supervisor-worker-handoff.sha256"), `${helperDigest}  ${join(trusted, "supervisor-worker-handoff.mjs")}\n`);
+  writeFileSync(
+    join(bin, "gh"),
+    `#!/usr/bin/env node
+const { writeFileSync } = require("node:fs");
+const args = process.argv.slice(2);
+const methodIndex = args.indexOf("--method");
+const body = args.find((arg) => arg.startsWith("body="));
+if (args[0] !== "api"
+  || methodIndex < 0
+  || args[methodIndex + 1] !== "PATCH"
+  || !args.includes("repos/ibboabdoli-ai/Proffera/issues/comments/99")
+  || !body) process.exit(2);
+writeFileSync(process.env.GH_STUB_OUTPUT, body.slice("body=".length));
+process.stdout.write("{}\\n");
+`,
+    { encoding: "utf8", mode: 0o755 },
+  );
+  const result = spawnSync("bash", ["-c", script], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+      RUNNER_TEMP: root,
+      GH_TOKEN: "test-token",
+      GH_STUB_OUTPUT: output,
+      REPOSITORY: "ibboabdoli-ai/Proffera",
+      PACKET_B64: Buffer.from(JSON.stringify(packet())).toString("base64"),
+      STATE_COMMENT_ID: "99",
+      RUN_ID: "9001",
+      CAPACITY_BLOCKED: capacityBlocked ? "true" : "false",
+      RESERVATION_COMMENT_ID: reservationCommentId,
+    },
+  });
+  return { ...result, body: existsSync(output) ? readFileSync(output, "utf8") : "" };
+}
+
 function packet(overrides: Record<string, unknown> = {}) {
   return {
     task_id: "SUP-TEST-1",
@@ -1081,6 +1136,7 @@ function stateBody(state: string, headSha = sha) {
     "<!-- proffera-worker-task-state:SUP-TEST-1 -->",
     "### Supervisor task: SUP-TEST-1",
     `- State: \`${state}\``,
+    "- Run ID: `9001`",
     "- PR: #900",
     `- Head: \`${headSha}\``,
   ].join("\n");
@@ -2646,7 +2702,10 @@ exit 0
     });
     expect(current.status, current.stderr).toBe(0);
     expect(commentPatchCalls(current.calls, 103)).toHaveLength(1);
-    expect(String(current.comments.find((comment) => comment.id === 103)?.body)).toContain("- State: `CHECKS_PENDING`");
+    const currentBody = String(current.comments.find((comment) => comment.id === 103)?.body);
+    expect(currentBody).toContain("- State: `CHECKS_PENDING`");
+    expect(currentBody).toContain("- Run ID: `9001`");
+    expect(currentBody).not.toContain("- Run ID: `9003`");
   });
 
   it("preserves the normal exact-head check-evidence path for an open PR", () => {
@@ -2656,7 +2715,10 @@ exit 0
     });
     expect(result.status, result.stderr).toBe(0);
     expect(commentPatchCalls(result.calls, 103)).toHaveLength(1);
-    expect(String(result.comments.find((comment) => comment.id === 103)?.body)).toContain("- State: `READY_FOR_SUPERVISOR`");
+    const currentBody = String(result.comments.find((comment) => comment.id === 103)?.body);
+    expect(currentBody).toContain("- State: `READY_FOR_SUPERVISOR`");
+    expect(currentBody).toContain("- Run ID: `9001`");
+    expect(currentBody).not.toContain("- Run ID: `9003`");
   });
 
   it("binds reservation publication and recovery to trusted live PR identity", () => {
@@ -2745,6 +2807,20 @@ exit 0
     const failure = workflowRunStep(workflow, "Fail closed into WORKER_BLOCKED on dispatch failure");
     expect(failure).toContain('state="TASK_BLOCKED"');
     expect(failure).toContain("No reservation was acquired and no Worker was invoked");
+  });
+
+  it("keeps every failure before reservation acquisition retryable", () => {
+    for (const capacityBlocked of [false, true]) {
+      const result = runDispatchFailureState({ capacityBlocked });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.body).toContain("- State: `TASK_BLOCKED`");
+      expect(result.body).toMatch(/no Worker was invoked/iu);
+      expect(result.body).toContain("same task may be resubmitted");
+    }
+
+    const postReservation = runDispatchFailureState({ reservationCommentId: "101" });
+    expect(postReservation.status, postReservation.stderr).toBe(0);
+    expect(postReservation.body).toContain("- State: `WORKER_BLOCKED`");
   });
 
   it("admits a disjoint second reservation and rejects declared overlap before Worker execution", () => {
