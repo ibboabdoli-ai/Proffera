@@ -79,10 +79,12 @@ function workflowRunStep(workflow: string, stepName: string) {
 function expectShellAndJqSyntax(script: string) {
   const shell = spawnSync("bash", ["-n"], { input: script, encoding: "utf8" });
   expect(shell.status, shell.stderr).toBe(0);
-  const filters = [...script.matchAll(/\bjq\b[^\n]*?'([^']+)'/g)].map((match) => match[1]);
-  expect(filters.length).toBeGreaterThan(0);
-  for (const filter of filters) {
-    const variables = [...new Set([...filter.matchAll(/\$([A-Za-z_][A-Za-z0-9_]*)/g)].map((match) => match[1]))];
+  const invocations = [...script.matchAll(/\bjq\b([^\n]*?)'([^']+)'/g)];
+  expect(invocations.length).toBeGreaterThan(0);
+  for (const invocation of invocations) {
+    const options = invocation[1];
+    const filter = invocation[2];
+    const variables = [...new Set([...options.matchAll(/--arg(?:json)?\s+([A-Za-z_][A-Za-z0-9_]*)/g)].map((match) => match[1]))];
     const args = ["-n", ...variables.flatMap((variable) => ["--argjson", variable, "null"]), `def __syntax_check: (${filter}); null`];
     const compiled = spawnSync("jq", args, { encoding: "utf8" });
     expect(compiled.status, `${compiled.stderr}\nFilter: ${filter}`).toBe(0);
@@ -206,6 +208,12 @@ if (method !== "GET") {
 }
 if (endpoint === "repos/ibboabdoli-ai/Proffera/pulls/849") {
   process.stdout.write(JSON.stringify(state.pr) + "\\n");
+  process.exit(0);
+}
+const pagedComments = endpoint.match(/repos\\/ibboabdoli-ai\\/Proffera\\/issues\\/548\\/comments\\?per_page=100&page=(\\d+)$/);
+if (pagedComments) {
+  const page = Number(pagedComments[1]);
+  process.stdout.write(JSON.stringify(state.comments.slice((page - 1) * 100, page * 100)) + "\\n");
   process.exit(0);
 }
 if (endpoint === "repos/ibboabdoli-ai/Proffera/issues/548/comments?per_page=100") {
@@ -674,6 +682,7 @@ type SyncCheckOptions = {
   liveMerged?: boolean;
   liveRef?: string;
   liveState?: string;
+  failPagedCommentReads?: number;
   mutateHeadOnPrFetch?: number;
   mutateReservationOnCommentFetch?: number;
   mutateTaskOnCommentFetch?: number;
@@ -691,6 +700,7 @@ function runSyncCheckReconciliation({
   liveMerged = false,
   liveRef = "work/proffera-test-task",
   liveState = "closed",
+  failPagedCommentReads = 0,
   mutateHeadOnPrFetch = 0,
   mutateReservationOnCommentFetch = 0,
   mutateTaskOnCommentFetch = 0,
@@ -709,9 +719,11 @@ function runSyncCheckReconciliation({
   writeFileSync(stateFile, JSON.stringify({
     commentFetches: 0,
     comments,
+    failPagedCommentReads,
     mutateHeadOnPrFetch,
     mutateReservationOnCommentFetch,
     mutateTaskOnCommentFetch,
+    pagedCommentFailures: 0,
     prFetches: 0,
   }));
   writeFileSync(
@@ -746,6 +758,27 @@ if (endpoint === "repos/ibboabdoli-ai/Proffera/pulls/849") {
   if (state.prFetches >= state.mutateHeadOnPrFetch && state.mutateHeadOnPrFetch > 0) pr.head.sha = "${otherSha}";
   writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
   process.stdout.write(JSON.stringify(pr) + "\\n");
+  process.exit(0);
+}
+const pagedComments = endpoint.match(/repos\\/ibboabdoli-ai\\/Proffera\\/issues\\/548\\/comments\\?per_page=100&page=(\\d+)$/);
+if (pagedComments) {
+  if (state.pagedCommentFailures < state.failPagedCommentReads) {
+    state.pagedCommentFailures += 1;
+    writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
+    process.exit(75);
+  }
+  state.commentFetches += 1;
+  if (state.commentFetches === state.mutateReservationOnCommentFetch) {
+    const reservation = state.comments.find((entry) => String(entry.body ?? "").includes("proffera-worker-slot-reservation:"));
+    if (reservation) reservation.body = String(reservation.body) + "\\nchanged";
+  }
+  if (state.commentFetches === state.mutateTaskOnCommentFetch) {
+    const task = state.comments.find((entry) => String(entry.body ?? "").includes("proffera-worker-task-state:"));
+    if (task) task.body = String(task.body) + "\\nchanged";
+  }
+  writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
+  const page = Number(pagedComments[1]);
+  process.stdout.write(JSON.stringify(state.comments.slice((page - 1) * 100, page * 100)) + "\\n");
   process.exit(0);
 }
 if (endpoint === "repos/ibboabdoli-ai/Proffera/issues/548/comments?per_page=100") {
@@ -1835,13 +1868,43 @@ exit 0
     }
   });
 
+  it("reconciles exact unbound RESERVED and RECOVERABLE closes without fabricating prior PR/head evidence", () => {
+    const taskStateWithoutPrOrHead = runText("state-body", {
+      packet: packet(),
+      state: "WORKER_BLOCKED",
+      reason: "Publication did not complete before the trusted Worker PR closed.",
+      run_id: "9001",
+    });
+    for (const reservationState of ["RESERVED", "RECOVERABLE"]) {
+      const evidence = exactReservationEvidence(sha, {
+        state: reservationState,
+        pr_number: null,
+        recovery: reservationState === "RECOVERABLE" ? { kind: "branch", expires_at: "2099-01-01T00:00:00Z" } : null,
+      });
+      const result = runSyncCheckReconciliation({
+        body: "missing packet",
+        comments: [
+          ...evidence.comments,
+          { id: 103, user: { login: "github-actions[bot]" }, body: taskStateWithoutPrOrHead },
+        ],
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+      expect(commentPatchCalls(result.calls, 103)).toHaveLength(1);
+      const terminalBody = String(result.comments.find((comment) => comment.id === 103)?.body);
+      expect(terminalBody).toContain("- State: `CLOSED_UNMERGED`");
+      expect(terminalBody).toContain("- PR: #849");
+      expect(terminalBody).toContain(`- Head: \`${sha}\``);
+    }
+  });
+
   it("rejects every untrusted malformed-close replacement identity or binding without mutation", () => {
     for (const reconcile of [runLifecycleReconciliation, runSyncCheckReconciliation]) {
       const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
       const encoded = String(evidence.comments[0].body).match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
       const payload = JSON.parse(Buffer.from(encoded, "base64").toString("utf8"));
       const cases: SyncCheckOptions[] = [
-        { body: "missing packet", comments: [reservationComment({ ...payload, state: "RESERVED" }, 101), evidence.comments[1]] },
+        { body: "missing packet", comments: [reservationComment({ ...payload, state: "RESERVED", pr_number: null, head_sha: otherSha }, 101), evidence.comments[1]] },
         { body: "missing packet", comments: [reservationComment({ ...payload, pr_number: 850 }, 101), evidence.comments[1]] },
         { body: "missing packet", comments: [reservationComment({ ...payload, branch: "work/proffera-other-task" }, 101), evidence.comments[1]] },
         { body: "missing packet", comments: [{ ...evidence.comments[0], body: "malformed reservation" }, evidence.comments[1]] },
@@ -1947,6 +2010,43 @@ exit 0
     expect(commentPatchCalls(changedTask.calls, 103)).toHaveLength(0);
   });
 
+  it("retries bounded evidence reads, emits structured failure, and scans comment pages incrementally", () => {
+    const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
+    const taskState = { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING") };
+    const retried = runSyncCheckReconciliation({
+      body: "missing packet",
+      comments: [...evidence.comments, taskState],
+      failPagedCommentReads: 2,
+    });
+    expect(retried.status, retried.stderr).toBe(0);
+    expect(retried.calls.filter((args) => args.some((arg) => arg.includes("comments?per_page=100&page=1"))).length).toBeGreaterThanOrEqual(5);
+    expect(commentPatchCalls(retried.calls, 101)).toHaveLength(1);
+    expect(commentPatchCalls(retried.calls, 103)).toHaveLength(1);
+
+    const unavailable = runSyncCheckReconciliation({
+      body: "missing packet",
+      comments: [...evidence.comments, taskState],
+      failPagedCommentReads: 3,
+    });
+    expect(unavailable.status, unavailable.stderr).toBe(0);
+    expect(unavailable.stdout).toContain("unavailable after bounded retries");
+    expect(unavailable.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+
+    const recoveryNoise = Array.from({ length: 100 }, (_, index) => ({
+      id: 1000 + index,
+      user: { login: "github-actions[bot]" },
+      body: `<!-- proffera-publication-recovery-chunk:${index} -->`,
+    }));
+    const paged = runSyncCheckReconciliation({
+      body: "missing packet",
+      comments: [...recoveryNoise, ...evidence.comments, taskState],
+    });
+    expect(paged.status, paged.stderr).toBe(0);
+    expect(paged.calls.some((args) => args.some((arg) => arg.includes("comments?per_page=100&page=2")))).toBe(true);
+    expect(commentPatchCalls(paged.calls, 101)).toHaveLength(1);
+    expect(commentPatchCalls(paged.calls, 103)).toHaveLength(1);
+  }, 20_000);
+
   it("releases exact malformed-close capacity without fabricating a missing task record", () => {
     const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
     const result = runSyncCheckReconciliation({ body: "missing packet", comments: evidence.comments });
@@ -1966,7 +2066,7 @@ exit 0
       { comments: [...evidence.comments, { ...evidence.comments[0], id: 104 }] },
       { comments: [reservationComment({ ...payload, pr_number: 850 }, 101), exactDispatch] },
       { comments: [reservationComment({ ...payload, branch: "work/proffera-other" }, 101), exactDispatch] },
-      { comments: [reservationComment({ ...payload, state: "RESERVED" }, 101), exactDispatch] },
+      { comments: [reservationComment({ ...payload, state: "RESERVED", pr_number: null, head_sha: otherSha }, 101), exactDispatch] },
       {
         comments: [
           { ...evidence.comments[0], body: "<!-- proffera-worker-slot-reservation:SUP-TEST-1 -->\n- Reservation payload: `not-base64`" },

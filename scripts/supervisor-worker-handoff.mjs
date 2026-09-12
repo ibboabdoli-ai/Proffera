@@ -959,6 +959,12 @@ function exactStateBodyField(body, pattern, field) {
   return matches[0][1];
 }
 
+function optionalStateBodyField(body, pattern, field) {
+  const matches = [...body.matchAll(pattern)];
+  if (matches.length > 1) throw new Error(`trusted task state ${field} is ambiguous`);
+  return matches[0]?.[1] ?? "";
+}
+
 export function terminalTaskStateBodyFromExisting({
   current_body,
   task_id,
@@ -1008,11 +1014,12 @@ export function terminalTaskStateBodyFromExisting({
   if (exactStateBodyField(currentBody, /^- Packet SHA-256: `([0-9a-f]{64})`$/gmu, "packet digest").toLowerCase() !== packetDigest) {
     throw new Error("trusted task state packet digest does not match reservation");
   }
-  if (Number(exactStateBodyField(currentBody, /^- PR: #([1-9][0-9]*)$/gmu, "PR")) !== prNumber) {
+  const currentPrNumber = optionalStateBodyField(currentBody, /^- PR: #([1-9][0-9]*)$/gmu, "PR");
+  if (currentPrNumber && Number(currentPrNumber) !== prNumber) {
     throw new Error("trusted task state PR does not match reservation");
   }
-  const currentHeadSha = exactStateBodyField(currentBody, /^- Head: `([0-9a-f]{40})`$/gmu, "head").toLowerCase();
-  if (currentHeadSha !== headSha && currentHeadSha !== reservationHeadSha) {
+  const currentHeadSha = optionalStateBodyField(currentBody, /^- Head: `([0-9a-f]{40})`$/gmu, "head").toLowerCase();
+  if (currentHeadSha && currentHeadSha !== headSha && currentHeadSha !== reservationHeadSha) {
     throw new Error("trusted task state head matches neither the live PR nor its exact reservation");
   }
   for (const invariant of [
@@ -1094,6 +1101,8 @@ export function planInvalidWorkerPrClose(input) {
       const reservedPr = Number(payload?.pr_number);
       const mayBeUnbound = (reservationState === "RESERVED" || reservationState === "RECOVERABLE")
         && (payload?.pr_number === null || payload?.pr_number === undefined);
+      const hasExactPrBinding = reservedPr === prNumber;
+      const hasExactUnboundHeadBinding = mayBeUnbound && reservedHead === headSha;
       let graphPath;
       try {
         graphPath = assertSafeGraphPath(payload?.graph_path);
@@ -1109,7 +1118,7 @@ export function planInvalidWorkerPrClose(input) {
         || reservedBranch !== branch
         || !SHA_RE.test(reservedHead)
         || (recoveryReservationHead && !SHA_RE.test(recoveryReservationHead))
-        || (!mayBeUnbound && reservedPr !== prNumber)
+        || (!hasExactPrBinding && !hasExactUnboundHeadBinding)
         || !SHA256_RE.test(packetDigest)
         || !Number.isInteger(commentId)
         || commentId <= 0
@@ -1149,13 +1158,9 @@ export function planInvalidWorkerPrClose(input) {
     } catch {
       // Missing or malformed packets are handled by reservation-derived reconciliation.
     }
-    if (reservation.payload.state !== "PUBLISHED" && reservation.payload.state !== "RELEASED") {
-      return invalidCloseResult(false, "reservation_not_published", "reservation-derived invalid close requires published provenance");
-    }
-
     let nextReservationBody = reservation.body;
     let applyReservation = false;
-    if (reservation.payload.state === "PUBLISHED") {
+    if (reservation.payload.state !== "RELEASED") {
       const nextPayload = {
         ...reservation.payload,
         state: "RELEASED",
@@ -1245,19 +1250,41 @@ export function planInvalidWorkerPrClose(input) {
   }
 }
 
+const GITHUB_READ_ATTEMPTS = 3;
+const GITHUB_COMMENT_PAGE_LIMIT = 50;
+
 function githubApiJson(args) {
   return JSON.parse(execFileSync("gh", ["api", ...args], { encoding: "utf8", maxBuffer: 8 * 1024 * 1024 }));
 }
 
+function retryGitHubRead(read) {
+  let lastError;
+  for (let attempt = 0; attempt < GITHUB_READ_ATTEMPTS; attempt += 1) {
+    try {
+      return read();
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError;
+}
+
 function githubIssueComments(repository) {
-  const output = execFileSync("gh", [
-    "api",
-    "--paginate",
-    `repos/${repository}/issues/548/comments?per_page=100`,
-    "--jq",
-    ".[]",
-  ], { encoding: "utf8", maxBuffer: 8 * 1024 * 1024 });
-  return output.split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  const evidence = [];
+  for (let page = 1; page <= GITHUB_COMMENT_PAGE_LIMIT; page += 1) {
+    const comments = retryGitHubRead(() => githubApiJson([
+      `repos/${repository}/issues/548/comments?per_page=100&page=${page}`,
+    ]));
+    if (!Array.isArray(comments)) throw new Error("GitHub issue comments response is malformed");
+    for (const comment of comments) {
+      const body = String(comment?.body ?? "");
+      if (body.includes("<!-- proffera-worker-slot-reservation:")
+        || body.includes("<!-- proffera-worker-dispatch-start:")
+        || body.includes(TASK_STATE_MARKER_PREFIX)) evidence.push(comment);
+    }
+    if (comments.length < 100) return evidence;
+  }
+  throw new Error("GitHub issue comment evidence exceeds the bounded page limit");
 }
 
 function invalidClosePlanInput(repository, prNumber, runId, livePr, comments) {
@@ -1271,13 +1298,25 @@ export function reconcileInvalidWorkerPrClose({ repository, pr_number, run_id })
     return invalidCloseResult(false, "invalid_identity", "repository, PR, or run identity is malformed");
   }
 
-  const livePr = githubApiJson([`repos/${repository}/pulls/${prNumber}`]);
-  const comments = githubIssueComments(repository);
+  let livePr;
+  let comments;
+  try {
+    livePr = retryGitHubRead(() => githubApiJson([`repos/${repository}/pulls/${prNumber}`]));
+    comments = githubIssueComments(repository);
+  } catch {
+    return invalidCloseResult(false, "evidence_unavailable", "GitHub close evidence was unavailable after bounded retries");
+  }
   const plan = planInvalidWorkerPrClose(invalidClosePlanInput(repository, prNumber, runId, livePr, comments));
   if (!plan.ok) return plan;
 
-  const confirmPr = githubApiJson([`repos/${repository}/pulls/${prNumber}`]);
-  const confirmComments = githubIssueComments(repository);
+  let confirmPr;
+  let confirmComments;
+  try {
+    confirmPr = retryGitHubRead(() => githubApiJson([`repos/${repository}/pulls/${prNumber}`]));
+    confirmComments = githubIssueComments(repository);
+  } catch {
+    return invalidCloseResult(false, "evidence_unavailable", "GitHub close evidence was unavailable after bounded retries");
+  }
   const confirmPlan = planInvalidWorkerPrClose(invalidClosePlanInput(repository, prNumber, runId, confirmPr, confirmComments));
   if (JSON.stringify(confirmPlan) !== JSON.stringify(plan)) {
     return invalidCloseResult(false, "evidence_changed", "malformed-close evidence changed before mutation");
@@ -1299,8 +1338,17 @@ export function reconcileInvalidWorkerPrClose({ repository, pr_number, run_id })
 
   const desiredTaskBody = String(plan.task?.body ?? "");
   if (desiredTaskBody) {
-    const afterPr = githubApiJson([`repos/${repository}/pulls/${prNumber}`]);
-    const afterComments = githubIssueComments(repository);
+    let afterPr;
+    let afterComments;
+    try {
+      afterPr = retryGitHubRead(() => githubApiJson([`repos/${repository}/pulls/${prNumber}`]));
+      afterComments = githubIssueComments(repository);
+    } catch {
+      return invalidCloseResult(false, "evidence_unavailable", "GitHub close evidence was unavailable after bounded retries", {
+        reservation_mutated,
+        task_mutated,
+      });
+    }
     const afterPlan = planInvalidWorkerPrClose(invalidClosePlanInput(repository, prNumber, runId, afterPr, afterComments));
     if (!afterPlan.ok || afterPlan.reservation.apply) {
       return invalidCloseResult(false, "release_not_converged", "malformed-close evidence did not converge after reservation release", {

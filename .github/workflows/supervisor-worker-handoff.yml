@@ -1098,7 +1098,7 @@ jobs:
             branch_exists=true
           fi
 
-          context="$(jq -n --arg repository "$REPOSITORY" --argjson issue_number "$EVENT_ISSUE_NUMBER" --arg actor "$EVENT_ACTOR" --arg comment_body "$EVENT_COMMENT_BODY" --arg live_main_sha "$live_main_sha" --arg run_id "$RUN_ID" --argjson supervisor_labels "$supervisor_labels" --argjson comments "$comments_json" --argjson open_prs "$enriched_prs" --argjson branch_exists "$branch_exists" '{event:{repository:$repository,issue_number:$issue_number,actor:$actor,is_fork:false,comment_body:$comment_body},supervisor_labels:$supervisor_labels,live_main_sha:$live_main_sha,comments:$comments,open_prs:$enriched_prs,branch:{exists:$branch_exists},secrets:{openai:true,push:true},run_id:$run_id}')"
+          context="$(jq -n --arg repository "$REPOSITORY" --argjson issue_number "$EVENT_ISSUE_NUMBER" --arg actor "$EVENT_ACTOR" --arg comment_body "$EVENT_COMMENT_BODY" --arg live_main_sha "$live_main_sha" --arg run_id "$RUN_ID" --argjson supervisor_labels "$supervisor_labels" --argjson comments "$comments_json" --argjson open_prs "$enriched_prs" --argjson branch_exists "$branch_exists" '{event:{repository:$repository,issue_number:$issue_number,actor:$actor,is_fork:false,comment_body:$comment_body},supervisor_labels:$supervisor_labels,live_main_sha:$live_main_sha,comments:$comments,open_prs:$open_prs,branch:{exists:$branch_exists},secrets:{openai:true,push:true},run_id:$run_id}')"
           decision="$(printf '%s' "$context" | node "$helper" evaluate)"
           if [ "$(jq -r '.ok' <<< "$decision")" != "true" ]; then
             jq -r '.reason' <<< "$decision" >&2
