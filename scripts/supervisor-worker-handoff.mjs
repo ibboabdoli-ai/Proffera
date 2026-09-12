@@ -275,11 +275,26 @@ function parseTrustedTaskState(comments, taskId) {
       const state = comment.body.match(/^- State:\s*`([A-Z][A-Z0-9_]{2,39})`\s*$/mi)?.[1] ?? "";
       const runId = comment.body.match(/^- Run ID:\s*`([0-9]+)`\s*$/mi)?.[1] ?? "";
       const prNumber = Number(comment.body.match(/^- PR:\s*#([1-9][0-9]*)\s*$/mi)?.[1] ?? 0) || null;
-      return { id: Number(comment.id) || 0, created_at: String(comment.created_at ?? ""), state, run_id: runId, pr_number: prNumber };
-    })
-    .filter((entry) => STATE_RE.test(entry.state))
-    .sort((a, b) => (a.created_at || "").localeCompare(b.created_at || "") || a.id - b.id);
-  return candidates.at(-1) ?? null;
+      return {
+        id: Number(comment.id) || 0,
+        state,
+        run_id: runId,
+        pr_number: prNumber,
+        marker_count: countOccurrences(comment.body, marker),
+      };
+    });
+  if (candidates.length === 0) return null;
+  if (candidates.length !== 1) return { ambiguous: true };
+  const candidate = candidates[0];
+  if (candidate.marker_count !== 1
+    || !Number.isInteger(candidate.id)
+    || candidate.id <= 0
+    || !STATE_RE.test(candidate.state)
+    || !/^[0-9]+$/.test(candidate.run_id)
+    || (candidate.state !== "TASK_BLOCKED" && !ACTIVE_TASK_STATES.has(candidate.state))) {
+    return { ambiguous: true };
+  }
+  return candidate;
 }
 
 function normalizePr(pr) {
@@ -327,6 +342,9 @@ export function evaluateDispatchContext(context) {
 
   const currentRunId = String(context.run_id ?? "");
   const taskState = parseTrustedTaskState(context.comments, packet.task_id);
+  if (taskState?.ambiguous) {
+    return blocked(`task ${packet.task_id} has missing, duplicate, or malformed trusted state evidence`, packet, "task_state_ambiguous");
+  }
   if (taskState && taskState.state !== "TASK_BLOCKED") {
     const sameRunTaskCreated = taskState.state === "TASK_CREATED" && currentRunId && taskState.run_id === currentRunId;
     if (!sameRunTaskCreated && ACTIVE_TASK_STATES.has(taskState.state)) {
@@ -953,10 +971,11 @@ export function taskStateBody({ packet: packetInput, state, reason, run_id = "",
   return `${lines.join("\n")}\n`;
 }
 
-export function expiredReservationRetryTaskBody({ current_body, reservation }) {
+export function expiredReservationRetryTaskBody({ current_body, reservation, packet: packetInput }) {
   if (!reservation || typeof reservation !== "object" || Array.isArray(reservation)) {
     throw new Error("expired reservation is malformed");
   }
+  const packet = normalizeTaskPacket(packetInput);
   const taskId = assertPlainString(reservation.task_id, "reservation.task_id", 80).toUpperCase();
   const runId = String(reservation.run_id ?? "");
   const branch = assertPlainString(reservation.branch, "reservation.branch", 120);
@@ -971,10 +990,20 @@ export function expiredReservationRetryTaskBody({ current_body, reservation }) {
     || !new Set(["RESERVED", "RECOVERABLE"]).has(String(reservation.state ?? ""))) {
     throw new Error("expired reservation identity is malformed");
   }
+  if (taskId !== packet.task_id
+    || branch !== packet.branch
+    || graphPath !== packet.graph_path
+    || digest !== packetDigest(packet)
+    || JSON.stringify(reservation.allowed_paths) !== JSON.stringify(packet.allowed_paths)) {
+    throw new Error("expired reservation does not match the exact resubmitted Task Packet");
+  }
 
   const body = String(current_body ?? "");
   const marker = `${TASK_STATE_MARKER_PREFIX}${taskId} -->`;
   if (countOccurrences(body, marker) !== 1) throw new Error("retryable task marker is missing or ambiguous");
+  if (exactStateBodyField(body, /^### Supervisor task: ([A-Z][A-Z0-9-]*)$/gmu, "heading") !== taskId) {
+    throw new Error("expired reservation task heading does not match its identity");
+  }
   const currentState = exactStateBodyField(body, /^- State: `([A-Z_]+)`$/gmu, "state");
   if (currentState !== "WORKER_BLOCKED" && currentState !== "TASK_BLOCKED") {
     throw new Error("expired reservation task is not retryable from its current state");

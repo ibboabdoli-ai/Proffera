@@ -143,6 +143,56 @@ function exactReservationEvidence(head = sha, overrides: Record<string, unknown>
   };
 }
 
+function expiredSameTaskEvidence(
+  reservationState: "RESERVED" | "RECOVERABLE",
+  overrides: Record<string, unknown> = {},
+) {
+  const normalizedPacket = packet();
+  const runId = "9001";
+  const payload = {
+    version: 1,
+    state: reservationState,
+    task_id: normalizedPacket.task_id,
+    run_id: runId,
+    branch: normalizedPacket.branch,
+    head_sha: sha,
+    graph_path: normalizedPacket.graph_path,
+    packet_digest: createHash("sha256").update(JSON.stringify(normalizedPacket)).digest("hex"),
+    ...(reservationState === "RESERVED" ? { lease_expires_at: "2000-01-01T00:00:00Z" } : {}),
+    allowed_paths: normalizedPacket.allowed_paths,
+    changed_files: [],
+    snapshot_finalized: false,
+    pr_number: null,
+    recovery: reservationState === "RECOVERABLE"
+      ? { kind: "branch", expires_at: "2000-01-01T00:00:00Z" }
+      : null,
+    ...overrides,
+  };
+  return {
+    packet: normalizedPacket,
+    payload,
+    comments: [
+      reservationComment(payload, 201),
+      {
+        id: 202,
+        user: { login: "github-actions[bot]" },
+        body: `<!-- proffera-worker-dispatch-start:${normalizedPacket.task_id}:${runId} -->`,
+      },
+      {
+        id: 203,
+        user: { login: "github-actions[bot]" },
+        body: runText("state-body", {
+          packet: normalizedPacket,
+          state: "WORKER_BLOCKED",
+          reason: "Prior exact Worker reservation remains blocked.",
+          run_id: runId,
+          head_sha: sha,
+        }),
+      },
+    ],
+  };
+}
+
 function runReservationEnforcement({
   body = packetComment(),
   comments = [],
@@ -376,6 +426,217 @@ function reservationComment(payload: Record<string, unknown>, id = 201) {
       + `- State: \`${payload.state}\`\n`
       + `- Reservation payload: \`${payloadBase64}\``,
   };
+}
+
+type PreflightMutation = {
+  duplicateReservationOnCommentRead?: number;
+  duplicateTaskOnCommentRead?: number;
+  mutateReservationOnCommentRead?: number;
+  mutateTaskOnCommentRead?: number;
+};
+
+function createPreflightHarness({
+  branches = [],
+  comments = [],
+  pulls = [],
+  runStatus = "completed",
+}: {
+  branches?: string[];
+  comments?: Array<Record<string, unknown>>;
+  pulls?: Array<Record<string, unknown>>;
+  runStatus?: string;
+} = {}) {
+  const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+  const script = workflowRunStep(workflow, "Validate trust, freshness, idempotency, graph ownership, and scope");
+  const root = mkdtempSync(join(tmpdir(), "proffera-task-preflight-"));
+  const bin = join(root, "bin");
+  const log = join(root, "gh-calls.jsonl");
+  const stateFile = join(root, "gh-state.json");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(log, "");
+  writeFileSync(stateFile, JSON.stringify({
+    branches,
+    commentReads: 0,
+    comments,
+    mutation: {},
+    nextCommentId: 900,
+    pulls,
+    refReads: 0,
+    runStatus,
+  }));
+  writeFileSync(
+    join(bin, "gh"),
+    `#!/usr/bin/env node
+const { appendFileSync, readFileSync, writeFileSync } = require("node:fs");
+const args = process.argv.slice(2);
+appendFileSync(process.env.GH_STUB_LOG, JSON.stringify(args) + "\\n");
+const methodIndex = args.indexOf("--method");
+const method = methodIndex >= 0 ? args[methodIndex + 1] : "GET";
+const endpoint = args.find((arg) => arg.startsWith("repos/")) || "";
+const state = JSON.parse(readFileSync(process.env.GH_STUB_STATE_FILE, "utf8"));
+const save = () => writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
+const field = (name) => args.find((arg) => arg.startsWith(name + "="))?.slice(name.length + 1) ?? "";
+const commentMatch = endpoint.match(/issues\\/comments\\/(\\d+)$/);
+if (method === "PATCH" && commentMatch) {
+  const comment = state.comments.find((entry) => String(entry.id) === commentMatch[1]);
+  if (!comment || !args.some((arg) => arg.startsWith("body="))) process.exit(3);
+  comment.body = field("body");
+  save();
+  process.stdout.write("{}\\n");
+  process.exit(0);
+}
+if (method === "POST" && endpoint.endsWith("/issues/548/comments")) {
+  const id = state.nextCommentId++;
+  state.comments.push({ id, user: { login: "github-actions[bot]" }, body: field("body") });
+  save();
+  process.stdout.write(args.includes("--jq") ? String(id) + "\\n" : JSON.stringify({ id }) + "\\n");
+  process.exit(0);
+}
+if (method !== "GET") {
+  process.stderr.write("unexpected mutation: " + JSON.stringify(args) + "\\n");
+  process.exit(2);
+}
+if (endpoint.endsWith("/issues/548")) {
+  process.stdout.write('{"labels":[{"name":"worker-dispatch-enabled"}]}\\n');
+  process.exit(0);
+}
+if (endpoint.endsWith("/git/ref/heads/main")) {
+  process.stdout.write(process.env.GH_STUB_MAIN_SHA + "\\n");
+  process.exit(0);
+}
+if (endpoint.endsWith("/issues/548/comments?per_page=100")) {
+  state.commentReads += 1;
+  const mutation = state.mutation || {};
+  const mutate = (needle) => {
+    const found = state.comments.find((entry) => String(entry.body || "").includes(needle));
+    if (found) found.body = String(found.body) + "\\nchanged";
+  };
+  const duplicate = (needle) => {
+    const found = state.comments.find((entry) => String(entry.body || "").includes(needle));
+    if (found) state.comments.push({ ...found, id: state.nextCommentId++ });
+  };
+  if (state.commentReads === mutation.mutateReservationOnCommentRead) mutate("proffera-worker-slot-reservation:");
+  if (state.commentReads === mutation.mutateTaskOnCommentRead) mutate("proffera-worker-task-state:");
+  if (state.commentReads === mutation.duplicateReservationOnCommentRead) duplicate("proffera-worker-slot-reservation:");
+  if (state.commentReads === mutation.duplicateTaskOnCommentRead) duplicate("proffera-worker-task-state:");
+  save();
+  for (const comment of state.comments) process.stdout.write(JSON.stringify(comment) + "\\n");
+  process.exit(0);
+}
+if (endpoint.endsWith("/pulls?state=open&base=main&per_page=100")) {
+  for (const pull of state.pulls) process.stdout.write(JSON.stringify(pull) + "\\n");
+  process.exit(0);
+}
+const filesMatch = endpoint.match(/pulls\\/(\\d+)\\/files/);
+if (filesMatch) {
+  const pull = state.pulls.find((entry) => String(entry.number) === filesMatch[1]);
+  for (const path of pull?.files || []) process.stdout.write(String(path) + "\\n");
+  process.exit(0);
+}
+const refsPrefix = "repos/ibboabdoli-ai/Proffera/git/matching-refs/heads/";
+if (endpoint.startsWith(refsPrefix)) {
+  state.refReads += 1;
+  save();
+  const branch = endpoint.slice(refsPrefix.length);
+  const refs = state.branches.filter((candidate) => candidate === branch).map((candidate) => ({ ref: "refs/heads/" + candidate }));
+  process.stdout.write(JSON.stringify(refs) + "\\n");
+  process.exit(0);
+}
+const runMatch = endpoint.match(/actions\\/runs\\/(\\d+)$/);
+if (runMatch) {
+  process.stdout.write(String(state.runStatus) + "\\n");
+  process.exit(0);
+}
+if (commentMatch) {
+  const comment = state.comments.find((entry) => String(entry.id) === commentMatch[1]);
+  if (!comment) process.exit(3);
+  process.stdout.write(args.includes("--jq") ? String(comment.body || "") + "\\n" : JSON.stringify(comment) + "\\n");
+  process.exit(0);
+}
+process.stderr.write("unhandled gh endpoint: " + endpoint + " " + JSON.stringify(args) + "\\n");
+process.exit(2);
+`,
+    { encoding: "utf8", mode: 0o755 },
+  );
+
+  return {
+    run({
+      commentId = "501",
+      mutation = {},
+      runId = "1001",
+      taskPacket = packet(),
+      taskLane = `task-${String(taskPacket.task_id)}`,
+    }: {
+      commentId?: string;
+      mutation?: PreflightMutation;
+      runId?: string;
+      taskPacket?: ReturnType<typeof packet>;
+      taskLane?: string;
+    } = {}) {
+      const state = JSON.parse(readFileSync(stateFile, "utf8"));
+      state.commentReads = 0;
+      state.mutation = mutation;
+      state.refReads = 0;
+      writeFileSync(stateFile, JSON.stringify(state));
+      writeFileSync(log, "");
+      const output = join(root, `github-output-${runId}-${commentId}`);
+      writeFileSync(output, "");
+      const result = spawnSync("bash", ["-c", script], {
+        cwd: process.cwd(),
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
+          EVENT_ACTOR: "ibboabdoli-ai",
+          EVENT_COMMENT_BODY: packetComment(taskPacket),
+          EVENT_COMMENT_ID: commentId,
+          EVENT_ISSUE_NUMBER: "548",
+          GH_STUB_LOG: log,
+          GH_STUB_MAIN_SHA: String(taskPacket.base_sha),
+          GH_STUB_STATE_FILE: stateFile,
+          GH_TOKEN: "test-token",
+          GITHUB_OUTPUT: output,
+          OPENAI_AVAILABLE: "true",
+          PUSH_AVAILABLE: "true",
+          REPOSITORY: "ibboabdoli-ai/Proffera",
+          RUN_ID: runId,
+          TASK_LANE: taskLane,
+        },
+      });
+      const calls = readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as string[]);
+      const outputs = Object.fromEntries(readFileSync(output, "utf8").trim().split("\n").filter(Boolean).map((line) => {
+        const separator = line.indexOf("=");
+        return [line.slice(0, separator), line.slice(separator + 1)];
+      }));
+      const finalState = JSON.parse(readFileSync(stateFile, "utf8")) as {
+        comments: Array<Record<string, unknown>>;
+      };
+      return { ...result, calls, comments: finalState.comments, outputs };
+    },
+  };
+}
+
+function runTaskLane(taskPacket: ReturnType<typeof packet>, commentId = "501") {
+  const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+  const script = workflowRunStep(workflow, "Resolve same-task serialization key");
+  const root = mkdtempSync(join(tmpdir(), "proffera-task-lane-"));
+  const output = join(root, "github-output");
+  writeFileSync(output, "");
+  const result = spawnSync("bash", ["-c", script], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      EVENT_COMMENT_BODY: packetComment(taskPacket),
+      EVENT_COMMENT_ID: commentId,
+      GITHUB_OUTPUT: output,
+    },
+  });
+  expect(result.status, result.stderr).toBe(0);
+  return Object.fromEntries(readFileSync(output, "utf8").trim().split("\n").map((line) => {
+    const separator = line.indexOf("=");
+    return [line.slice(0, separator), line.slice(separator + 1)];
+  }));
 }
 
 function runSlotReservation({
@@ -1194,6 +1455,189 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     expect(evaluate(baseContext({ comments: [trustedState("TASK_CREATED")] })).status).toBe("TASK_CREATED");
   });
 
+  it("serializes created, edited, duplicate, and retry deliveries only by canonical task identity", () => {
+    const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
+    expect(workflow).toContain("needs: resolve_task_lane");
+    expect(workflow).toContain("group: proffera-worker-preflight-${{ needs.resolve_task_lane.outputs.task_lane }}");
+    expect(workflow).toContain("cancel-in-progress: false");
+    const firstPacket = packet();
+    const sameTaskEdited = packet({ task_title: "Edited title on the same task" });
+    const disjointPacket = packet({
+      task_id: "SUP-OTHER-2",
+      task_title: "Independent disjoint task",
+      task_goal: "Prove independent task lanes remain parallel.",
+      graph_path: "feature/other",
+      branch: "work/proffera-independent",
+      allowed_paths: ["src/features/other/"],
+      forbidden_paths: ["src/features/test/"],
+    });
+    expect(runTaskLane(firstPacket, "501").task_lane).toBe("task-SUP-TEST-1");
+    expect(runTaskLane(sameTaskEdited, "501").task_lane).toBe("task-SUP-TEST-1");
+    expect(runTaskLane(disjointPacket, "502").task_lane).toBe("task-SUP-OTHER-2");
+  });
+
+  it("converges same-task created, edited, duplicate-delivery, and same-event retry preflights to one state record", () => {
+    const harness = createPreflightHarness();
+    const created = harness.run({ runId: "1001", commentId: "501" });
+    expect(created.status, created.stderr).toBe(0);
+    expect(created.outputs.proceed).toBe("yes");
+
+    const edited = harness.run({
+      runId: "1002",
+      commentId: "501",
+      taskPacket: packet({ task_title: "Edited duplicate delivery" }),
+    });
+    expect(edited.status, edited.stderr).toBe(0);
+    expect(edited.outputs.proceed).toBe("no");
+    expect(edited.stdout).toContain("Preserved existing canonical task state TASK_CREATED");
+
+    const duplicate = harness.run({ runId: "1002", commentId: "501" });
+    expect(duplicate.status, duplicate.stderr).toBe(0);
+    expect(duplicate.outputs.proceed).toBe("no");
+
+    const retry = harness.run({ runId: "1001", commentId: "501" });
+    expect(retry.status, retry.stderr).toBe(0);
+    expect(retry.outputs.proceed).toBe("yes");
+    const taskStates = retry.comments.filter((comment) => String(comment.body ?? "").includes("proffera-worker-task-state:SUP-TEST-1"));
+    expect(taskStates).toHaveLength(1);
+    expect(String(taskStates[0].body)).toContain("- State: `TASK_CREATED`");
+    expect(created.calls.filter((args) => args.includes("--method") && args.includes("POST"))).toHaveLength(1);
+    expect(edited.calls.filter((args) => args.includes("--method") && args.includes("POST"))).toHaveLength(0);
+    expect(duplicate.calls.filter((args) => args.includes("--method") && args.includes("POST"))).toHaveLength(0);
+  });
+
+  it("keeps two different disjoint task preflights independently dispatchable", () => {
+    const harness = createPreflightHarness();
+    const first = harness.run({ runId: "1001", commentId: "501" });
+    const secondPacket = packet({
+      task_id: "SUP-OTHER-2",
+      task_title: "Independent disjoint task",
+      task_goal: "Exercise an independent task lane.",
+      graph_path: "feature/other",
+      branch: "work/proffera-independent",
+      allowed_paths: ["src/features/other/"],
+      forbidden_paths: ["src/features/test/"],
+    });
+    const second = harness.run({ runId: "1002", commentId: "502", taskPacket: secondPacket });
+    expect(first.status, first.stderr).toBe(0);
+    expect(second.status, second.stderr).toBe(0);
+    expect(first.outputs.proceed).toBe("yes");
+    expect(second.outputs.proceed).toBe("yes");
+    const taskStates = second.comments.filter((comment) => String(comment.body ?? "").includes("proffera-worker-task-state:"));
+    expect(taskStates).toHaveLength(2);
+    expect(new Set(taskStates.map((comment) => String(comment.body).match(/task-state:([^ ]+)/)?.[1]))).toEqual(
+      new Set(["SUP-TEST-1", "SUP-OTHER-2"]),
+    );
+  });
+
+  it.each(["RESERVED", "RECOVERABLE"] as const)(
+    "reclaims the exact expired unbound %s reservation before canonical preflight rejection",
+    (reservationState) => {
+      const evidence = expiredSameTaskEvidence(reservationState);
+      const result = createPreflightHarness({ comments: evidence.comments }).run({ taskPacket: evidence.packet, runId: "1002" });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.outputs.proceed).toBe("yes");
+      expect(result.stdout).toContain(`Released the exact expired ${reservationState} reservation`);
+      const reservation = result.comments.find((comment) => comment.id === 201);
+      const reservationPayload = JSON.parse(Buffer.from(
+        String(reservation?.body ?? "").match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "",
+        "base64",
+      ).toString("utf8"));
+      expect(reservationPayload).toMatchObject({
+        state: "RELEASED",
+        task_id: "SUP-TEST-1",
+        recovery: { kind: "expired_reservation", verified_run_status: "completed", retryable: true },
+      });
+      const taskStates = result.comments.filter((comment) => String(comment.body ?? "").includes("proffera-worker-task-state:SUP-TEST-1"));
+      expect(taskStates).toHaveLength(1);
+      expect(String(taskStates[0].body)).toContain("- State: `TASK_CREATED`");
+      expect(String(taskStates[0].body)).toContain("- Run ID: `1002`");
+    },
+  );
+
+  it("retains a same-task reservation when it is live, branched, or represented by an open PR", () => {
+    const future = expiredSameTaskEvidence("RESERVED", { lease_expires_at: "2099-01-01T00:00:00Z" });
+    const branch = expiredSameTaskEvidence("RESERVED");
+    const openPr = {
+      number: 830,
+      base: { ref: "main" },
+      head: { ref: "work/proffera-test-task", sha, repo: { full_name: "ibboabdoli-ai/Proffera" } },
+      user: { login: "ibboabdoli-ai" },
+      body: packetComment(),
+      files: [],
+    };
+    for (const result of [
+      createPreflightHarness({ comments: future.comments }).run({ runId: "1002" }),
+      createPreflightHarness({ comments: branch.comments, branches: ["work/proffera-test-task"] }).run({ runId: "1002" }),
+      createPreflightHarness({ comments: branch.comments, pulls: [openPr] }).run({ runId: "1002" }),
+      createPreflightHarness({ comments: branch.comments, runStatus: "in_progress" }).run({ runId: "1002" }),
+    ]) {
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.outputs.proceed).toBe("no");
+      expect(commentPatchCalls(result.calls, 201)).toHaveLength(0);
+      expect(String(result.comments.find((comment) => comment.id === 203)?.body)).toContain("- State: `WORKER_BLOCKED`");
+    }
+  });
+
+  it("fails closed when same-task expiry evidence changes or becomes duplicate during reconciliation", () => {
+    const evidence = expiredSameTaskEvidence("RECOVERABLE");
+    for (const mutation of [
+      { mutateReservationOnCommentRead: 2 },
+      { mutateTaskOnCommentRead: 2 },
+      { duplicateReservationOnCommentRead: 2 },
+      { duplicateTaskOnCommentRead: 2 },
+    ]) {
+      const result = createPreflightHarness({ comments: evidence.comments }).run({ runId: "1002", mutation });
+      expect(result.status).toBe(1);
+      expect(commentPatchCalls(result.calls, 201)).toHaveLength(0);
+      expect(commentPatchCalls(result.calls, 203)).toHaveLength(0);
+    }
+  });
+
+  it("fails closed on initial duplicate task-state or reservation evidence and never reclaims another task", () => {
+    const evidence = expiredSameTaskEvidence("RESERVED");
+    for (const comments of [
+      [...evidence.comments, { ...evidence.comments[0], id: 204 }],
+      [...evidence.comments, { ...evidence.comments[2], id: 204 }],
+    ]) {
+      const result = createPreflightHarness({ comments }).run({ runId: "1002" });
+      expect(result.status).toBe(1);
+      expect(result.calls.filter((args) => args.includes("--method") && args.includes("PATCH"))).toHaveLength(0);
+    }
+
+    const unrelated = expiredSameTaskEvidence("RESERVED");
+    const newTask = packet({
+      task_id: "SUP-OTHER-2",
+      task_title: "Unrelated task",
+      task_goal: "Must not reclaim another task reservation.",
+      graph_path: "feature/other",
+      branch: "work/proffera-independent",
+      allowed_paths: ["src/features/other/"],
+      forbidden_paths: ["src/features/test/"],
+    });
+    const result = createPreflightHarness({ comments: unrelated.comments }).run({ taskPacket: newTask, runId: "1002" });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.outputs.proceed).toBe("yes");
+    expect(commentPatchCalls(result.calls, 201)).toHaveLength(0);
+    expect(String(result.comments.find((comment) => comment.id === 201)?.body)).toContain("- State: `RESERVED`");
+  });
+
+  it("fails closed on missing, duplicate, or mismatched same-task dispatch and reservation provenance", () => {
+    const evidence = expiredSameTaskEvidence("RESERVED");
+    const duplicateDispatch = { ...evidence.comments[1], id: 204 };
+    const mismatched = expiredSameTaskEvidence("RESERVED", { packet_digest: "f".repeat(64) });
+    for (const comments of [
+      [evidence.comments[0], evidence.comments[2]],
+      [evidence.comments[0], evidence.comments[1]],
+      [...evidence.comments, duplicateDispatch],
+      mismatched.comments,
+    ]) {
+      const result = createPreflightHarness({ comments }).run({ runId: "1002" });
+      expect(result.status).toBe(1);
+      expect(result.calls.filter((args) => args.includes("--method") && args.includes("PATCH"))).toHaveLength(0);
+    }
+  });
+
   it("ignores a spoofed task-state comment not authored by the trusted bot", () => {
     const spoofed = { ...trustedState("WORKER_PR_OPENED", "1000"), user: { login: "attacker" } };
     expect(evaluate(baseContext({ comments: [spoofed] })).status).toBe("TASK_CREATED");
@@ -1597,10 +2041,12 @@ exit 0
     expect(sync).toContain("exit 1");
   });
 
-  it("authenticates reservation release and reclaims only verified expired reservations", () => {
+  it("authenticates reservation release and reclaims only the exact resubmitted task before evaluation", () => {
     const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
     const closeStep = workflowRunStep(workflow, "Require exact durable reservation before accepting Worker PR");
+    const preflightStep = workflowRunStep(workflow, "Validate trust, freshness, idempotency, graph ownership, and scope");
     expectShellAndJqSyntax(closeStep);
+    expectShellAndJqSyntax(preflightStep);
     expectShellAndJqSyntax(workflowRunStep(workflow, "Atomically reserve writable Worker slot"));
     expectShellAndJqSyntax(workflowRunStep(workflow, "Finalize reserved Worker snapshot before publication"));
     const recoverySyntax = spawnSync("bash", ["-n"], {
@@ -1618,9 +2064,14 @@ exit 0
     expect(closeStep).toContain('terminal_state="CLOSED_UNMERGED"');
     expect(closeStep).toContain("in the same close writer");
     expect(workflow).toContain("lease_expires_at");
-    expect(workflow).toContain('run_status" = "completed"');
-    expect(workflow).toContain('open_pr_count" -eq 0');
-    expect(workflow).toContain("reservation changed during stale-run reclamation");
+    expect(preflightStep).toContain('owner_status" != "completed"');
+    expect(preflightStep).toContain('open_pr_count" -ne 0');
+    expect(preflightStep).toContain("reservation changed during same-task expiry reconciliation");
+    expect(preflightStep).toContain("trusted dispatch provenance");
+    expect(preflightStep.indexOf("reconcile_expired_same_task_reservation")).toBeLessThan(
+      preflightStep.indexOf('node "$helper" evaluate'),
+    );
+    expect(workflowRunStep(workflow, "Atomically reserve writable Worker slot")).not.toContain("expired_reservation");
   });
 
   it("re-evaluates Worker reservation enforcement after head and body updates", () => {
@@ -2782,6 +3233,41 @@ exit 0
     });
   });
 
+  it("reuses the one canonical RELEASED reservation record when the same task becomes dispatchable", () => {
+    const localHead = spawnSync("git", ["rev-parse", "HEAD"], { cwd: process.cwd(), encoding: "utf8" }).stdout.trim();
+    const retryPacket = packet({
+      task_id: "SUP-NEW-SLOT-1",
+      task_title: "Disjoint slot behavior test",
+      graph_path: "feature/new-slot",
+      base_sha: localHead,
+      branch: "work/proffera-new-slot",
+      allowed_paths: ["tests/new-slot/"],
+    });
+    const released = {
+      version: 1,
+      state: "RELEASED",
+      task_id: retryPacket.task_id,
+      run_id: "9001",
+      branch: retryPacket.branch,
+      head_sha: otherSha,
+      graph_path: retryPacket.graph_path,
+      packet_digest: createHash("sha256").update(JSON.stringify(retryPacket)).digest("hex"),
+      allowed_paths: retryPacket.allowed_paths,
+      changed_files: [],
+      snapshot_finalized: false,
+      pr_number: null,
+      recovery: { kind: "expired_reservation", verified_run_status: "completed", retryable: true },
+    };
+    const result = runSlotReservation({ reservation: released });
+    expect(result.status, result.stderr).toBe(0);
+    expect(commentPatchCalls(result.calls, 201)).toHaveLength(1);
+    expect(result.comments.filter((comment) => String(comment.body ?? "").includes("proffera-worker-slot-reservation:SUP-NEW-SLOT-1"))).toHaveLength(1);
+    expect(result.comments.some((comment) => comment.id === 999)).toBe(false);
+    const body = String(result.comments.find((comment) => comment.id === 201)?.body ?? "");
+    const payload = JSON.parse(Buffer.from(body.match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "", "base64").toString("utf8"));
+    expect(payload).toMatchObject({ state: "RESERVED", task_id: "SUP-NEW-SLOT-1", run_id: "1001" });
+  });
+
   it("rejects a third durable unit before Worker execution and keeps the task retryable", () => {
     const activeReservation = (id: number) => ({
       state: "RESERVED",
@@ -2875,78 +3361,24 @@ exit 0
     expect(commentPatchCalls(changed.calls, 101)).toHaveLength(0);
   });
 
-  it("reclaims an expired branch recovery only after live absence checks", () => {
-    const oldPacket = packet({
-      task_id: "SUP-OLD-SLOT-1",
-      task_title: "Expired recovery slot",
-      graph_path: "feature/old-slot",
-      branch: "work/proffera-old-slot",
-      allowed_paths: ["src/features/old-slot/"],
-    });
-    const oldPacketDigest = createHash("sha256").update(JSON.stringify(oldPacket)).digest("hex");
-    const recoverable = (expiresAt: string) => ({
+  it("never reclaims another task's expired reservation during global slot accounting", () => {
+    const oldReservation = {
       state: "RECOVERABLE",
       task_id: "SUP-OLD-SLOT-1",
       run_id: "7001",
       branch: "work/proffera-old-slot",
       head_sha: otherSha,
       graph_path: "feature/old-slot",
-      packet_digest: oldPacketDigest,
+      packet_digest: "c".repeat(64),
       allowed_paths: ["src/features/old-slot/"],
       changed_files: [],
       pr_number: null,
-      recovery: { kind: "branch", expires_at: expiresAt },
-    });
-    const expired = recoverable("2000-01-01T00:00:00Z");
-    const retryableTask = {
-      id: 203,
-      user: { login: "github-actions[bot]" },
-      body: runText("state-body", {
-        packet: oldPacket,
-        state: "WORKER_BLOCKED",
-        reason: "Publication recovery remains active.",
-        run_id: "7001",
-        head_sha: otherSha,
-      }),
+      recovery: { kind: "branch", expires_at: "2000-01-01T00:00:00Z" },
     };
-    const released = runSlotReservation({ reservation: expired, extraComments: [retryableTask] });
-    expect(released.status, released.stderr).toBe(0);
-    expect(commentPatchCalls(released.calls, 201)).toHaveLength(1);
-    expect(commentPatchCalls(released.calls, 203)).toHaveLength(1);
-    expect(String(released.comments.find((comment) => comment.id === 203)?.body)).toContain("- State: `TASK_BLOCKED`");
-    const releasedPayloadBase64 = String(released.comments.find((comment) => comment.id === 201)?.body ?? "")
-      .match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
-    expect(JSON.parse(Buffer.from(releasedPayloadBase64, "base64").toString("utf8"))).toMatchObject({
-      state: "RELEASED",
-      recovery: { kind: "expired_reservation", verified_run_status: "completed", retryable: true },
-    });
-
-    const missingTask = runSlotReservation({ reservation: expired });
-    expect(missingTask.status).toBe(1);
-    expect(commentPatchCalls(missingTask.calls, 201)).toHaveLength(0);
-
-    const openPull = {
-      number: 830,
-      base: { ref: "main" },
-      head: { ref: "work/proffera-old-slot", sha: otherSha, repo: { full_name: "ibboabdoli-ai/Proffera" } },
-      user: { login: "ibboabdoli-ai" },
-      body: [
-        "Task ID: SUP-OLD-SLOT-1",
-        "Graph path: feature/old-slot",
-        'Allowed paths: ["src/features/old-slot/"]',
-      ].join("\n"),
-      files: [],
-    };
-    for (const { expectedStatus, ...options } of [
-      { reservation: recoverable("2099-01-01T00:00:00Z"), extraComments: [retryableTask], expectedStatus: 0 },
-      { reservation: expired, branches: ["work/proffera-old-slot"], extraComments: [retryableTask], expectedStatus: 0 },
-      { reservation: expired, pulls: [openPull], extraComments: [retryableTask], expectedStatus: 1 },
-      { reservation: expired, changedReservationBody: true, extraComments: [retryableTask], expectedStatus: 1 },
-    ]) {
-      const retained = runSlotReservation(options);
-      expect(retained.status, retained.stderr).toBe(expectedStatus);
-      expect(commentPatchCalls(retained.calls, 201)).toHaveLength(0);
-    }
+    const result = runSlotReservation({ reservation: oldReservation });
+    expect(result.status, result.stderr).toBe(0);
+    expect(commentPatchCalls(result.calls, 201)).toHaveLength(0);
+    expect(String(result.comments.find((comment) => comment.id === 201)?.body)).toContain("- State: `RECOVERABLE`");
   });
 
   it("counts a promoted recovery PR and its published reservation as one slot", () => {
