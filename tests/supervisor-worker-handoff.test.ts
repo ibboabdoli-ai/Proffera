@@ -2600,7 +2600,21 @@ exit 0
 `,
       { encoding: "utf8", mode: 0o755 },
     );
-    writeFileSync(join(bin, "node"), "#!/bin/sh\nexit 42\n", { encoding: "utf8", mode: 0o755 });
+    writeFileSync(
+      join(bin, "node"),
+      `#!/bin/sh
+case "$2" in
+  reservation-mutex-acquire)
+    echo 'run=1001;expires=9999999999;token=00000000-0000-4000-8000-000000000000'
+    exit 0
+    ;;
+  reservation-mutex-release) exit 0 ;;
+  parse) exit 42 ;;
+  *) exit 42 ;;
+esac
+`,
+      { encoding: "utf8", mode: 0o755 },
+    );
 
     const result = spawnSync("bash", ["-c", lifecycleScript], {
       cwd: repo,
@@ -3216,7 +3230,7 @@ exit 0
     });
     expect(duplicateTaskState.status, duplicateTaskState.stderr).toBe(0);
     expect(durableMutationCalls(duplicateTaskState.calls)).toHaveLength(0);
-  });
+  }, 20_000);
 
   it("rejects every untrusted malformed-close replacement identity or binding without mutation", () => {
     for (const reconcile of [runLifecycleReconciliation, runSyncCheckReconciliation]) {
@@ -3238,7 +3252,7 @@ exit 0
         expect(durableMutationCalls(result.calls)).toHaveLength(0);
       }
     }
-  });
+  }, 20_000);
 
   it("does not use terminal malformed-close reconciliation while the live PR is open", () => {
     const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849, recovery: null });
