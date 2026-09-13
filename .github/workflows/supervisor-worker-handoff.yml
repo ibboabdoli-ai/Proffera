@@ -570,189 +570,24 @@ jobs:
             exit 1
           fi
 
+          control_input="$(jq -cn --arg repository "$REPOSITORY" --arg run_id "$RUN_ID" '{repository:$repository,run_id:$run_id}')"
+          mutex="$(printf '%s' "$control_input" | node "$helper" reservation-mutex-acquire)"
+          control_input="$(jq -c --arg mutex "$mutex" '. + {mutex:$mutex}' <<< "$control_input")"
+          release_mutex() {
+            printf '%s' "$control_input" | node "$helper" reservation-mutex-release
+          }
+          trap 'release_mutex || true' EXIT
+
           supervisor_json="$(gh api "repos/${REPOSITORY}/issues/548")"
           supervisor_labels="$(jq -c '[.labels[].name]' <<< "$supervisor_json")"
           live_main_sha="$(gh api "repos/${REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
-          comments_file="$(mktemp)"
-          gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' > "$comments_file"
-          all_comments_json="$(jq -s '.' < "$comments_file")"
-          comments_json="$(jq -s --arg marker "$state_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]' < "$comments_file")"
           pulls_json="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&base=main&per_page=100" --jq '.[]' | jq -s --arg repository "$REPOSITORY" '[.[] | select((.head.repo.full_name // "") == $repository)]')"
           branch_refs_json="$(gh api "repos/${REPOSITORY}/git/matching-refs/heads/${branch}")"
 
-          reconcile_expired_same_task_reservation() {
-            local reservation_marker reservation_matches reservation_count reservation_id reservation_body
-            local reservation_marker_count payload_line_count payload_b64 payload canonical_b64 reservation_state
-            local expires_at expires_epoch now_epoch task_matches task_id_count task_comment_id task_current_body
-            local dispatch_marker dispatch_matches dispatch_id dispatch_body dispatch_marker_count retry_task_body
-            local branch_count open_pr_count owner_run owner_status confirmed_comments confirmed_reservations
-            local confirmed_tasks confirmed_dispatches confirmed_reservation_body confirmed_task_body
-            local confirmed_branch_refs confirmed_branch_count confirmed_pulls confirmed_open_pr_count confirmed_owner_status
-            local released_payload released_b64 released_body observed_task_body current_reservation_body observed_reservation_body
-
-            reservation_marker="<!-- proffera-worker-slot-reservation:${task_id} -->"
-            reservation_matches="$(jq -c --arg marker "$reservation_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]' <<< "$all_comments_json")"
-            reservation_count="$(jq 'length' <<< "$reservation_matches")"
-            if [ "$reservation_count" -gt 1 ]; then
-              echo "Refused: duplicate durable reservation evidence exists for task ${task_id}." >&2
-              exit 1
-            fi
-            [ "$reservation_count" -eq 1 ] || return 0
-
-            reservation_id="$(jq -r '.[0].id // empty' <<< "$reservation_matches")"
-            reservation_body="$(jq -r '.[0].body // ""' <<< "$reservation_matches")"
-            reservation_marker_count="$(jq -r --arg marker "$reservation_marker" '.[0].body as $body | [$body | indices($marker)] | length' <<< "$reservation_matches")"
-            payload_line_count="$(grep -Ec '^- Reservation payload: `[A-Za-z0-9+/]+={0,2}`$' <<< "$reservation_body" || true)"
-            if ! [[ "$reservation_id" =~ ^[1-9][0-9]*$ ]] \
-              || [ "$reservation_marker_count" -ne 1 ] \
-              || [ "$(grep -Fxc -- "### Worker slot reservation: ${task_id}" <<< "$reservation_body" || true)" -ne 1 ] \
-              || [ "$payload_line_count" -ne 1 ]; then
-              echo "Refused: same-task reservation marker or payload evidence is malformed or ambiguous." >&2
-              exit 1
-            fi
-            payload_b64="$(sed -n 's/^- Reservation payload: `\([^`]*\)`$/\1/p' <<< "$reservation_body")"
-            payload="$(printf '%s' "$payload_b64" | base64 --decode 2>/dev/null || true)"
-            canonical_b64="$(printf '%s' "$payload" | base64 -w0)"
-            if ! jq -e 'type == "object" and .version == 1 and .pr_number == null' >/dev/null 2>&1 <<< "$payload" || [ "$canonical_b64" != "$payload_b64" ]; then
-              echo "Refused: same-task reservation payload is malformed, non-canonical, or already bound." >&2
-              exit 1
-            fi
-            reservation_state="$(jq -r '.state // ""' <<< "$payload")"
-            case "$reservation_state" in
-              RESERVED)
-                if ! jq -e '.recovery == null' >/dev/null <<< "$payload"; then
-                  echo "Refused: RESERVED same-task evidence carries invalid recovery metadata." >&2
-                  exit 1
-                fi
-                expires_at="$(jq -r '.lease_expires_at // ""' <<< "$payload")"
-                ;;
-              RECOVERABLE)
-                if ! jq -e '.recovery.kind == "branch" or .recovery.kind == "artifact"' >/dev/null <<< "$payload"; then
-                  echo "Refused: RECOVERABLE same-task evidence carries invalid recovery metadata." >&2
-                  exit 1
-                fi
-                expires_at="$(jq -r '.recovery.expires_at // ""' <<< "$payload")"
-                ;;
-              *) return 0 ;;
-            esac
-            if [ "$(grep -Fxc -- "- State: \`${reservation_state}\`" <<< "$reservation_body" || true)" -ne 1 ]; then
-              echo "Refused: same-task reservation state label does not match its payload." >&2
-              exit 1
-            fi
-            expires_epoch="$(date -u -d "$expires_at" +%s 2>/dev/null || true)"
-            now_epoch="$(date -u +%s)"
-            if ! [[ "$expires_epoch" =~ ^[0-9]+$ ]]; then
-              echo "Refused: same-task reservation expiry evidence is malformed." >&2
-              exit 1
-            fi
-            [ "$expires_epoch" -le "$now_epoch" ] || return 0
-
-            task_matches="$(jq -c --arg marker "$state_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]' <<< "$all_comments_json")"
-            task_id_count="$(jq 'length' <<< "$task_matches")"
-            if [ "$task_id_count" -ne 1 ]; then
-              echo "Refused: expired same-task reservation has missing or ambiguous durable task-state evidence." >&2
-              exit 1
-            fi
-            task_comment_id="$(jq -r '.[0].id // empty' <<< "$task_matches")"
-            task_current_body="$(jq -r '.[0].body // ""' <<< "$task_matches")"
-            if ! [[ "$task_comment_id" =~ ^[1-9][0-9]*$ ]]; then
-              echo "Refused: expired same-task reservation has malformed task-state identity." >&2
-              exit 1
-            fi
-            retry_task_body="$(jq -cn --arg current_body "$task_current_body" --argjson reservation "$payload" --argjson packet "$packet" '{current_body:$current_body,reservation:$reservation,packet:$packet}' | node "$helper" expired-reservation-retry-body)"
-
-            owner_run="$(jq -r '.run_id // ""' <<< "$payload")"
-            dispatch_marker="<!-- proffera-worker-dispatch-start:${task_id}:${owner_run} -->"
-            dispatch_matches="$(jq -c --arg marker "$dispatch_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]' <<< "$all_comments_json")"
-            if [ "$(jq 'length' <<< "$dispatch_matches")" -ne 1 ]; then
-              echo "Refused: expired same-task reservation has missing or ambiguous trusted dispatch provenance." >&2
-              exit 1
-            fi
-            dispatch_id="$(jq -r '.[0].id // empty' <<< "$dispatch_matches")"
-            dispatch_body="$(jq -r '.[0].body // ""' <<< "$dispatch_matches")"
-            dispatch_marker_count="$(jq -r --arg marker "$dispatch_marker" '.[0].body as $body | [$body | indices($marker)] | length' <<< "$dispatch_matches")"
-            if ! [[ "$owner_run" =~ ^[0-9]+$ ]] || ! [[ "$dispatch_id" =~ ^[1-9][0-9]*$ ]] || [ "$dispatch_marker_count" -ne 1 ]; then
-              echo "Refused: expired same-task reservation dispatch identity is malformed or ambiguous." >&2
-              exit 1
-            fi
-
-            branch_count="$(jq --arg ref "refs/heads/${branch}" '[.[] | select(.ref == $ref)] | length' <<< "$branch_refs_json")"
-            open_pr_count="$(jq --arg branch "$branch" '[.[] | select(.head.ref == $branch)] | length' <<< "$pulls_json")"
-            owner_status="$(gh api "repos/${REPOSITORY}/actions/runs/${owner_run}" --jq '.status // ""')"
-            if [ "$owner_status" != "completed" ] || [ "$branch_count" -ne 0 ] || [ "$open_pr_count" -ne 0 ]; then
-              return 0
-            fi
-
-            confirmed_comments="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.')"
-            confirmed_reservations="$(jq -c --arg marker "$reservation_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]' <<< "$confirmed_comments")"
-            confirmed_tasks="$(jq -c --arg marker "$state_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]' <<< "$confirmed_comments")"
-            confirmed_dispatches="$(jq -c --arg marker "$dispatch_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]' <<< "$confirmed_comments")"
-            if [ "$(jq 'length' <<< "$confirmed_reservations")" -ne 1 ] \
-              || [ "$(jq 'length' <<< "$confirmed_tasks")" -ne 1 ] \
-              || [ "$(jq 'length' <<< "$confirmed_dispatches")" -ne 1 ]; then
-              echo "Refused: same-task reservation, task-state, or dispatch evidence became ambiguous during reconciliation." >&2
-              exit 1
-            fi
-            confirmed_reservation_body="$(jq -r --argjson id "$reservation_id" 'if .[0].id == $id then .[0].body // "" else "" end' <<< "$confirmed_reservations")"
-            confirmed_task_body="$(jq -r --argjson id "$task_comment_id" 'if .[0].id == $id then .[0].body // "" else "" end' <<< "$confirmed_tasks")"
-            if [ "$confirmed_reservation_body" != "$reservation_body" ]; then
-              echo "Refused: reservation changed during same-task expiry reconciliation." >&2
-              exit 1
-            fi
-            if [ "$confirmed_task_body" != "$task_current_body" ]; then
-              echo "Refused: task state changed during same-task expiry reconciliation." >&2
-              exit 1
-            fi
-            if [ "$(jq -r --argjson id "$dispatch_id" 'if .[0].id == $id then .[0].body // "" else "" end' <<< "$confirmed_dispatches")" != "$dispatch_body" ]; then
-              echo "Refused: trusted dispatch evidence changed during same-task expiry reconciliation." >&2
-              exit 1
-            fi
-
-            confirmed_branch_refs="$(gh api "repos/${REPOSITORY}/git/matching-refs/heads/${branch}")"
-            confirmed_branch_count="$(jq --arg ref "refs/heads/${branch}" '[.[] | select(.ref == $ref)] | length' <<< "$confirmed_branch_refs")"
-            confirmed_pulls="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&base=main&per_page=100" --jq '.[]' | jq -s --arg repository "$REPOSITORY" '[.[] | select((.head.repo.full_name // "") == $repository)]')"
-            confirmed_open_pr_count="$(jq --arg branch "$branch" '[.[] | select(.head.ref == $branch)] | length' <<< "$confirmed_pulls")"
-            confirmed_owner_status="$(gh api "repos/${REPOSITORY}/actions/runs/${owner_run}" --jq '.status // ""')"
-            if [ "$confirmed_owner_status" != "completed" ] || [ "$confirmed_branch_count" -ne 0 ] || [ "$confirmed_open_pr_count" -ne 0 ]; then
-              echo "Refused: live run, branch, or PR evidence changed during same-task expiry reconciliation." >&2
-              exit 1
-            fi
-
-            released_payload="$(jq -c '.state="RELEASED" | .recovery={kind:"expired_reservation",verified_run_status:"completed",retryable:true}' <<< "$payload")"
-            released_b64="$(printf '%s' "$released_payload" | base64 -w0)"
-            printf -v released_body '%s\n%s\n%s\n%s' \
-              "$reservation_marker" \
-              "### Worker slot reservation: ${task_id}" \
-              '- State: `RELEASED`' \
-              "- Reservation payload: \`${released_b64}\`"
-            if [ "$retry_task_body" != "$task_current_body" ]; then
-              gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${task_comment_id}" -f body="$retry_task_body" >/dev/null
-              observed_task_body="$(gh api "repos/${REPOSITORY}/issues/comments/${task_comment_id}" --jq '.body // ""')"
-              if [ "$observed_task_body" != "$retry_task_body" ]; then
-                echo "Refused: retryable task-state transition did not persist exactly." >&2
-                exit 1
-              fi
-            fi
-            current_reservation_body="$(gh api "repos/${REPOSITORY}/issues/comments/${reservation_id}" --jq '.body // ""')"
-            if [ "$current_reservation_body" != "$reservation_body" ]; then
-              echo "Refused: reservation changed immediately before same-task release." >&2
-              exit 1
-            fi
-            gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${reservation_id}" -f body="$released_body" >/dev/null
-            observed_reservation_body="$(gh api "repos/${REPOSITORY}/issues/comments/${reservation_id}" --jq '.body // ""')"
-            if [ "$observed_reservation_body" != "$released_body" ]; then
-              echo "Refused: expired reservation release did not persist exactly." >&2
-              exit 1
-            fi
-
-            all_comments_json="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.')"
-            pulls_json="$confirmed_pulls"
-            branch_refs_json="$confirmed_branch_refs"
-            echo "Released the exact expired ${reservation_state} reservation for ${task_id}; canonical preflight evaluation will continue."
-          }
-
-          reconcile_expired_same_task_reservation
-          comments_json="$(jq -c --arg marker "$state_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]' <<< "$all_comments_json")"
+          reconcile_input="$(jq -c --argjson packet "$packet" '. + {packet:$packet}' <<< "$control_input")"
+          printf '%s' "$reconcile_input" | node "$helper" reconcile-unbound-tasks
+          all_comments_json="$(printf '%s' "$control_input" | node "$helper" task-comments)"
+          comments_json="$(jq -c '.[]' <<< "$all_comments_json" | jq -s --arg marker "$state_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]')"
 
           enriched_prs='[]'
           while IFS= read -r encoded; do
@@ -803,6 +638,7 @@ jobs:
             state=TASK_CREATED
           fi
 
+          printf '%s' "$control_input" | node "$helper" reservation-mutex-check
           state_input="$(jq -n --argjson packet "$packet" --arg state "$state" --arg reason "$decision_reason" --arg run_id "$RUN_ID" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id}')"
           state_body="$(printf '%s' "$state_input" | node "$helper" state-body)"
           state_matches="$(jq -c --arg marker "$state_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]' <<< "$all_comments_json")"
@@ -842,7 +678,7 @@ jobs:
             state_comment_id="$(gh api --method POST "repos/${REPOSITORY}/issues/548/comments" -f body="$state_body" --jq '.id')"
             expected_state_body="$state_body"
           fi
-          persisted_comments_json="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.')"
+          persisted_comments_json="$(printf '%s' "$control_input" | node "$helper" task-comments)"
           persisted_state_matches="$(jq -c --arg marker "$state_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))]' <<< "$persisted_comments_json")"
           if [ "$(jq 'length' <<< "$persisted_state_matches")" -ne 1 ] \
             || [ "$(jq -r --argjson id "$state_comment_id" 'if .[0].id == $id then .[0].body // "" else "" end' <<< "$persisted_state_matches")" != "$expected_state_body" ]; then
@@ -997,74 +833,13 @@ jobs:
           head_sha="$(git rev-parse HEAD)"
           test "$head_sha" = "$BASE_SHA"
           changed_json='[]'
-          mutex_label="proffera-worker-slot-reservation-mutex-v1"
-          mutex_lease_seconds=300
-          mutex_now="$(date -u +%s)"
-          mutex_expires=$((mutex_now + mutex_lease_seconds))
-          mutex_desc="run=${RUN_ID};expires=${mutex_expires}"
-          mutex_owned=no
-
+          control_input="$(jq -cn --arg repository "$REPOSITORY" --arg run_id "$RUN_ID" '{repository:$repository,run_id:$run_id}')"
+          mutex="$(printf '%s' "$control_input" | node "$helper" reservation-mutex-acquire)"
+          control_input="$(jq -c --arg mutex "$mutex" '. + {mutex:$mutex}' <<< "$control_input")"
           release_mutex() {
-            if [ "$mutex_owned" != yes ]; then return 0; fi
-            current_desc="$(gh api "repos/${REPOSITORY}/labels/${mutex_label}" --jq '.description // ""' 2>/dev/null || true)"
-            if [ "$current_desc" != "$mutex_desc" ]; then
-              echo "Refused: reservation mutex ownership changed unexpectedly." >&2
-              return 1
-            fi
-            gh api --method DELETE "repos/${REPOSITORY}/labels/${mutex_label}" >/dev/null
-            mutex_owned=no
+            printf '%s' "$control_input" | node "$helper" reservation-mutex-release
           }
-
-          reclaim_stale_mutex() {
-            local observed_desc owner_run owner_expiry owner_status now_epoch confirm_desc stale
-            observed_desc="$(gh api "repos/${REPOSITORY}/labels/${mutex_label}" --jq '.description // ""' 2>/dev/null || true)"
-            if [ -z "$observed_desc" ]; then
-              return 0
-            fi
-            owner_run="$(sed -n 's/^run=\([0-9][0-9]*\);.*$/\1/p' <<< "$observed_desc")"
-            owner_expiry="$(sed -n 's/^.*;expires=\([0-9][0-9]*\)$/\1/p' <<< "$observed_desc")"
-            owner_status=""
-            if [[ "$owner_run" =~ ^[0-9]+$ ]]; then
-              owner_status="$(gh api "repos/${REPOSITORY}/actions/runs/${owner_run}" --jq '.status // ""' 2>/dev/null || true)"
-            fi
-            now_epoch="$(date -u +%s)"
-            stale=no
-            if [ "$owner_run" = "$RUN_ID" ]; then stale=yes; fi
-            if [ "$owner_status" = "completed" ]; then stale=yes; fi
-            if [[ "$owner_expiry" =~ ^[0-9]+$ ]] && [ "$now_epoch" -ge "$owner_expiry" ]; then stale=yes; fi
-            if [ "$stale" != yes ]; then
-              return 1
-            fi
-            confirm_desc="$(gh api "repos/${REPOSITORY}/labels/${mutex_label}" --jq '.description // ""' 2>/dev/null || true)"
-            if [ "$confirm_desc" != "$observed_desc" ]; then
-              return 1
-            fi
-            if gh api --method DELETE "repos/${REPOSITORY}/labels/${mutex_label}" >/dev/null 2>&1; then
-              echo "Reclaimed stale Worker-slot reservation mutex owned by run ${owner_run:-unknown}."
-              return 0
-            fi
-            return 1
-          }
-
           trap 'release_mutex || true' EXIT
-
-          for attempt in $(seq 1 40); do
-            if gh api --method POST "repos/${REPOSITORY}/labels" \
-              -f name="$mutex_label" -f color="B60205" -f description="$mutex_desc" >/dev/null 2>&1; then
-              mutex_owned=yes
-              break
-            fi
-            if reclaim_stale_mutex; then
-              echo "Worker-slot reservation mutex was stale or disappeared; retrying acquisition immediately."
-              continue
-            fi
-            echo "Worker-slot reservation mutex busy; waiting (${attempt}/40)."
-            sleep 3
-          done
-          if [ "$mutex_owned" != yes ]; then
-            echo "Refused: could not acquire global Worker-slot reservation mutex; no branch will be published." >&2
-            exit 1
-          fi
 
           live_main_sha="$(gh api "repos/${REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
           if [ "$live_main_sha" != "$BASE_SHA" ]; then
@@ -1073,6 +848,8 @@ jobs:
           fi
           supervisor_json="$(gh api "repos/${REPOSITORY}/issues/548")"
           supervisor_labels="$(jq -c '[.labels[].name]' <<< "$supervisor_json")"
+          reconcile_input="$(jq -c '. + {all:true}' <<< "$control_input")"
+          printf '%s' "$reconcile_input" | node "$helper" reconcile-unbound-tasks
           comments_json="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.')"
           pulls_json="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&base=main&per_page=100" --jq '.[]' | jq -s --arg repository "$REPOSITORY" '[.[] | select((.head.repo.full_name // "") == $repository)]')"
           enriched_prs='[]'
@@ -1258,6 +1035,7 @@ jobs:
             exit 1
           fi
 
+          printf '%s' "$control_input" | node "$helper" reservation-mutex-check
           lease_expires_at="$(date -u -d '+1 hour' +%Y-%m-%dT%H:%M:%SZ)"
           reservation="$(jq -cn --arg state "RESERVED" --arg task_id "$task_id" --arg run_id "$RUN_ID" --arg branch "$branch" --arg graph_path "$graph_path" --arg packet_digest "$packet_digest" --arg head_sha "$head_sha" --arg lease_expires_at "$lease_expires_at" --argjson allowed_paths "$allowed_paths" --argjson changed_files "$changed_json" '{version:1,state:$state,task_id:$task_id,run_id:$run_id,branch:$branch,graph_path:$graph_path,packet_digest:$packet_digest,head_sha:$head_sha,lease_expires_at:$lease_expires_at,allowed_paths:$allowed_paths,changed_files:$changed_files,snapshot_finalized:false,pr_number:null,recovery:null}')"
           reservation_b64="$(printf '%s' "$reservation" | base64 -w0)"

@@ -146,9 +146,9 @@ function exactReservationEvidence(head = sha, overrides: Record<string, unknown>
 function expiredSameTaskEvidence(
   reservationState: "RESERVED" | "RECOVERABLE",
   overrides: Record<string, unknown> = {},
+  normalizedPacket = packet(),
 ) {
-  const normalizedPacket = packet();
-  const runId = "9001";
+  const runId = String(overrides.run_id ?? "9001");
   const payload = {
     version: 1,
     state: reservationState,
@@ -465,6 +465,7 @@ type SlotReservationOptions = {
   branches?: string[];
   runStatus?: string;
   changedReservationBody?: boolean;
+  mutation?: PreflightMutation;
 };
 
 function reservationComment(payload: Record<string, unknown>, id = 201) {
@@ -479,11 +480,26 @@ function reservationComment(payload: Record<string, unknown>, id = 201) {
   };
 }
 
+function globalExpiryEvidence(index: number, state: "RESERVED" | "RECOVERABLE" = "RESERVED") {
+  const taskPacket = packet({ task_id: `SUP-ABANDONED-${index}`, branch: `work/proffera-abandoned-${index}`,
+    graph_path: `feature/abandoned-${index}`, allowed_paths: [`src/abandoned-${index}/`] });
+  const evidence = expiredSameTaskEvidence(state, { run_id: String(9000 + index) }, taskPacket);
+  const comments = evidence.comments.map((comment, offset) => ({ ...comment, id: index * 10 + offset + 200 }));
+  comments.push({ id: index * 10 + 203, user: { login: "ibboabdoli-ai" }, body: packetComment(taskPacket) });
+  return { ...evidence, comments };
+}
+
 type PreflightMutation = {
   duplicateReservationOnCommentRead?: number;
   duplicateTaskOnCommentRead?: number;
   mutateReservationOnCommentRead?: number;
   mutateTaskOnCommentRead?: number;
+  failVerificationReads?: number;
+  failReservationRelease?: boolean;
+  branchAfterTaskPatch?: string;
+  dispatchOnCommentRead?: number;
+  aliasReservationOnCommentRead?: number;
+  loseMutexResponse?: boolean;
 };
 
 function createPreflightHarness({
@@ -528,16 +544,39 @@ const state = JSON.parse(readFileSync(process.env.GH_STUB_STATE_FILE, "utf8"));
 const save = () => writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
 const field = (name) => args.find((arg) => arg.startsWith(name + "="))?.slice(name.length + 1) ?? "";
 const commentMatch = endpoint.match(/issues\\/comments\\/(\\d+)$/);
+if (method === "POST" && endpoint.endsWith("/labels")) {
+  if (state.mutex) process.exit(1);
+  state.mutex = field("description");
+  save();
+  if (state.mutation?.loseMutexResponse) process.exit(5);
+  process.stdout.write("{}\\n");
+  process.exit(0);
+}
+if (method === "DELETE" && endpoint.includes("/labels/")) {
+  state.mutex = "";
+  save();
+  process.stdout.write("{}\\n");
+  process.exit(0);
+}
+if (endpoint.includes("/labels/proffera-worker-slot-reservation-mutex-v1")) {
+  if (!state.mutex) process.exit(1);
+  process.stdout.write(JSON.stringify({ description: state.mutex }) + "\\n");
+  process.exit(0);
+}
 if (method === "PATCH" && commentMatch) {
   const comment = state.comments.find((entry) => String(entry.id) === commentMatch[1]);
   if (!comment || !args.some((arg) => arg.startsWith("body="))) process.exit(3);
+  if (state.mutation?.failReservationRelease && field("body").includes('- State: \`RELEASED\`')) process.exit(4);
   comment.body = field("body");
+  if (field("body").includes("proffera-worker-task-state:") && state.mutation?.branchAfterTaskPatch) state.branches.push(state.mutation.branchAfterTaskPatch);
+  if (field("body").includes("TASK_CREATED")) state.failReadsRemaining = state.mutation?.failVerificationReads || 0;
   save();
   process.stdout.write("{}\\n");
   process.exit(0);
 }
 if (method === "POST" && endpoint.endsWith("/issues/548/comments")) {
   const id = state.nextCommentId++;
+  if (field("body").includes("TASK_CREATED")) state.failReadsRemaining = state.mutation?.failVerificationReads || 0;
   state.comments.push({ id, user: { login: "github-actions[bot]" }, body: field("body") });
   save();
   process.stdout.write(args.includes("--jq") ? String(id) + "\\n" : JSON.stringify({ id }) + "\\n");
@@ -555,7 +594,13 @@ if (endpoint.endsWith("/git/ref/heads/main")) {
   process.stdout.write(process.env.GH_STUB_MAIN_SHA + "\\n");
   process.exit(0);
 }
-if (endpoint.endsWith("/issues/548/comments?per_page=100")) {
+if (endpoint.includes("/issues/548/comments?per_page=100")) {
+  if (state.failReadsRemaining > 0) {
+    state.failReadsRemaining -= 1;
+    save();
+    process.stderr.write("transient comments read failure\\n");
+    process.exit(5);
+  }
   state.commentReads += 1;
   const mutation = state.mutation || {};
   const mutate = (needle) => {
@@ -570,8 +615,22 @@ if (endpoint.endsWith("/issues/548/comments?per_page=100")) {
   if (state.commentReads === mutation.mutateTaskOnCommentRead) mutate("proffera-worker-task-state:");
   if (state.commentReads === mutation.duplicateReservationOnCommentRead) duplicate("proffera-worker-slot-reservation:");
   if (state.commentReads === mutation.duplicateTaskOnCommentRead) duplicate("proffera-worker-task-state:");
+  if (state.commentReads === mutation.dispatchOnCommentRead) {
+    state.comments.push({ id: state.nextCommentId++, user: { login: "github-actions[bot]" }, body: "<!-- proffera-worker-dispatch-start:SUP-TEST-1:9001 -->" });
+  }
+  if (state.commentReads === mutation.aliasReservationOnCommentRead) {
+    const task = state.comments.find((entry) => String(entry.body).includes("proffera-worker-task-state:"));
+    const branch = String(task?.body).match(/^- Branch: \`([^\`]+)\`$/m)?.[1];
+    const payload = Buffer.from(JSON.stringify({ task_id: "SUP-TEST-1", branch })).toString("base64");
+    state.comments.push({ id: state.nextCommentId++, user: { login: "github-actions[bot]" }, body: "<!-- proffera-worker-slot-reservation:SUP-ALIAS-1 -->\\n- Reservation payload: \`" + payload + "\`" });
+  }
   save();
-  for (const comment of state.comments) process.stdout.write(JSON.stringify(comment) + "\\n");
+  if (endpoint.includes("&page=")) process.stdout.write(JSON.stringify(state.comments) + "\\n");
+  else for (const comment of state.comments) process.stdout.write(JSON.stringify(comment) + "\\n");
+  process.exit(0);
+}
+if (endpoint.includes("/pulls?state=open&per_page=100&page=")) {
+  process.stdout.write(JSON.stringify(state.pulls) + "\\n");
   process.exit(0);
 }
 if (endpoint.endsWith("/pulls?state=open&base=main&per_page=100")) {
@@ -595,7 +654,7 @@ if (endpoint.startsWith(refsPrefix)) {
 }
 const runMatch = endpoint.match(/actions\\/runs\\/(\\d+)$/);
 if (runMatch) {
-  process.stdout.write(String(state.runStatus) + "\\n");
+  process.stdout.write(args.includes("--jq") ? String(state.runStatus) + "\\n" : JSON.stringify({ status: state.runStatus }) + "\\n");
   process.exit(0);
 }
 if (commentMatch) {
@@ -626,6 +685,7 @@ process.exit(2);
     } = {}) {
       const state = JSON.parse(readFileSync(stateFile, "utf8"));
       state.commentReads = 0;
+      state.failReadsRemaining = 0;
       state.mutation = mutation;
       state.refReads = 0;
       writeFileSync(stateFile, JSON.stringify(state));
@@ -697,6 +757,7 @@ function runSlotReservation({
   branches = [],
   runStatus = "completed",
   changedReservationBody = false,
+  mutation = {},
 }: SlotReservationOptions = {}) {
   const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
   const script = workflowRunStep(workflow, "Atomically reserve writable Worker slot");
@@ -728,7 +789,7 @@ function runSlotReservation({
     allowed_paths: ["tests/new-slot/"],
   });
   const comments = [...(reservation ? [reservationComment(reservation)] : []), ...extraComments];
-  writeFileSync(stateFile, JSON.stringify({ branches, changedReservationBody, comments, mutex: "", pulls, runStatus }));
+  writeFileSync(stateFile, JSON.stringify({ branches, changedReservationBody, comments, mutex: "", pulls, runStatus, mutation, commentReads: 0 }));
   writeFileSync(
     join(bin, "gh"),
     `#!/usr/bin/env node
@@ -757,7 +818,9 @@ if (method === "DELETE" && endpoint.includes("/labels/")) {
 if (method === "PATCH" && commentMatch) {
   const comment = state.comments.find((entry) => String(entry.id) === commentMatch[1]);
   if (!comment) process.exit(3);
+  if (state.mutation?.failReservationRelease && field("body").includes('- State: \`RELEASED\`')) process.exit(4);
   comment.body = field("body");
+  if (field("body").includes("proffera-worker-task-state:") && state.mutation?.branchAfterTaskPatch) state.branches.push(state.mutation.branchAfterTaskPatch);
   save();
   process.stdout.write("{}\\n");
   process.exit(0);
@@ -771,7 +834,7 @@ if (method === "POST" && endpoint.endsWith("/issues/548/comments")) {
 if (method !== "GET") process.exit(2);
 if (endpoint.includes("/labels/proffera-worker-slot-reservation-mutex-v1")) {
   if (!state.mutex) process.exit(1);
-  process.stdout.write(state.mutex + "\\n");
+  process.stdout.write(args.includes("--jq") ? state.mutex + "\\n" : JSON.stringify({ description: state.mutex }) + "\\n");
   process.exit(0);
 }
 if (endpoint.endsWith("/git/ref/heads/main")) {
@@ -782,8 +845,29 @@ if (endpoint.endsWith("/issues/548")) {
   process.stdout.write('{"labels":[{"name":"worker-dispatch-enabled"}]}\\n');
   process.exit(0);
 }
-if (endpoint.endsWith("/issues/548/comments?per_page=100")) {
-  for (const comment of state.comments) process.stdout.write(JSON.stringify(comment) + "\\n");
+if (endpoint.includes("/issues/548/comments?per_page=100")) {
+  state.commentReads += 1;
+  const mutation = state.mutation || {};
+  const mutate = (needle) => {
+    const found = state.comments.find((entry) => String(entry.body || "").includes(needle));
+    if (found) found.body = String(found.body) + "\\nchanged";
+  };
+  const duplicate = (needle) => {
+    const found = state.comments.find((entry) => String(entry.body || "").includes(needle));
+    if (found) state.comments.push({ ...found, id: state.nextCommentId++ });
+  };
+  if (state.commentReads === mutation.mutateReservationOnCommentRead) mutate("proffera-worker-slot-reservation:");
+  if (state.commentReads === mutation.mutateTaskOnCommentRead) mutate("proffera-worker-task-state:");
+  if (state.commentReads === mutation.duplicateReservationOnCommentRead) duplicate("proffera-worker-slot-reservation:");
+  if (state.commentReads === mutation.duplicateTaskOnCommentRead) duplicate("proffera-worker-task-state:");
+  save();
+
+  if (endpoint.includes("&page=")) process.stdout.write(JSON.stringify(state.comments) + "\\n");
+  else for (const comment of state.comments) process.stdout.write(JSON.stringify(comment) + "\\n");
+  process.exit(0);
+}
+if (endpoint.includes("/pulls?state=open&per_page=100&page=")) {
+  process.stdout.write(JSON.stringify(state.pulls) + "\\n");
   process.exit(0);
 }
 if (endpoint.endsWith("/pulls?state=open&base=main&per_page=100")) {
@@ -805,7 +889,13 @@ if (filesMatch) {
 }
 const runMatch = endpoint.match(/actions\\/runs\\/(\\d+)$/);
 if (runMatch) {
-  process.stdout.write(state.runStatus + "\\n");
+  process.stdout.write(args.includes("--jq") ? state.runStatus + "\\n" : JSON.stringify({ status: state.runStatus }) + "\\n");
+  process.exit(0);
+}
+const matchingPrefix = "repos/ibboabdoli-ai/Proffera/git/matching-refs/heads/";
+if (endpoint.startsWith(matchingPrefix)) {
+  const branch = endpoint.slice(matchingPrefix.length);
+  process.stdout.write(JSON.stringify(state.branches.filter((entry) => entry === branch).map((entry) => ({ ref: "refs/heads/" + entry }))) + "\\n");
   process.exit(0);
 }
 const branchPrefix = "repos/ibboabdoli-ai/Proffera/git/ref/heads/";
@@ -1528,7 +1618,7 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
   });
 
   it("converges same-task created, edited, duplicate-delivery, and same-event retry preflights to one state record", () => {
-    const harness = createPreflightHarness();
+    const harness = createPreflightHarness({ runStatus: "in_progress" });
     const created = harness.run({ runId: "1001", commentId: "501" });
     expect(created.status, created.stderr).toBe(0);
     expect(created.outputs.proceed).toBe("yes");
@@ -1552,9 +1642,9 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     const taskStates = retry.comments.filter((comment) => String(comment.body ?? "").includes("proffera-worker-task-state:SUP-TEST-1"));
     expect(taskStates).toHaveLength(1);
     expect(String(taskStates[0].body)).toContain("- State: `TASK_CREATED`");
-    expect(created.calls.filter((args) => args.includes("--method") && args.includes("POST"))).toHaveLength(1);
-    expect(edited.calls.filter((args) => args.includes("--method") && args.includes("POST"))).toHaveLength(0);
-    expect(duplicate.calls.filter((args) => args.includes("--method") && args.includes("POST"))).toHaveLength(0);
+    expect(created.calls.filter((args) => args.includes("--method") && args.includes("POST") && args.some((arg) => arg.endsWith("/issues/548/comments")))).toHaveLength(1);
+    expect(edited.calls.filter((args) => args.includes("--method") && args.includes("POST") && args.some((arg) => arg.endsWith("/issues/548/comments")))).toHaveLength(0);
+    expect(duplicate.calls.filter((args) => args.includes("--method") && args.includes("POST") && args.some((arg) => arg.endsWith("/issues/548/comments")))).toHaveLength(0);
   });
 
   it("keeps two different disjoint task preflights independently dispatchable", () => {
@@ -1588,7 +1678,7 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
       const result = createPreflightHarness({ comments: evidence.comments }).run({ taskPacket: evidence.packet, runId: "1002" });
       expect(result.status, result.stderr).toBe(0);
       expect(result.outputs.proceed).toBe("yes");
-      expect(result.stdout).toContain(`Released the exact expired ${reservationState} reservation`);
+      expect(result.stdout).toContain('"reclaimed":["SUP-TEST-1"]');
       const reservation = result.comments.find((comment) => comment.id === 201);
       const reservationPayload = JSON.parse(Buffer.from(
         String(reservation?.body ?? "").match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "",
@@ -1605,6 +1695,84 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
       expect(String(taskStates[0].body)).toContain("- Run ID: `1002`");
     },
   );
+
+  it.each([1, 2])("recovers TASK_CREATED after %i transient verification reads without another state record", (failVerificationReads) => {
+    const blocked = { id: 701, user: { login: "github-actions[bot]" }, body: runText("state-body", {
+      packet: packet(), state: "TASK_BLOCKED", run_id: "9001", reason: "No capacity before dispatch",
+    }) };
+    for (const comments of [[], [blocked]]) {
+      const result = createPreflightHarness({ comments }).run({ mutation: { failVerificationReads } });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.outputs.proceed).toBe("yes");
+      expect(result.comments).toHaveLength(1);
+      expect(result.calls.filter((args) => args.includes("POST") && args.some((arg) => arg.endsWith("/issues/548/comments")))).toHaveLength(comments.length ? 0 : 1);
+      if (comments.length) expect(commentPatchCalls(result.calls, 701)).toHaveLength(1);
+    }
+  });
+
+  it("converges a completed orphan after verification retries are exhausted through the same retryable transition", () => {
+    const harness = createPreflightHarness();
+    const interrupted = harness.run({ mutation: { failVerificationReads: 3 } });
+    expect(interrupted.status).toBe(1);
+    expect(interrupted.outputs.proceed).toBeUndefined();
+    expect(interrupted.comments).toHaveLength(1);
+    expect(String(interrupted.comments[0].body)).toContain("- State: `TASK_CREATED`");
+    const retry = harness.run({ runId: "1002" });
+    expect(retry.status, retry.stderr).toBe(0);
+    expect(retry.outputs.proceed).toBe("yes");
+    expect(retry.comments).toHaveLength(1);
+    expect(retry.comments[0].id).toBe(interrupted.comments[0].id);
+    expect(String(retry.comments[0].body)).toContain("- Run ID: `1002`");
+    expect(commentPatchCalls(retry.calls, Number(retry.comments[0].id)).map((args) => args.find((arg) => arg.startsWith("body="))))
+      .toEqual([expect.stringContaining("- State: `TASK_BLOCKED`"), expect.stringContaining("- State: `TASK_CREATED`")]);
+  });
+
+  it("keeps genuinely dispatched and reserved, branched, or PR-backed TASK_CREATED tasks non-dispatchable", () => {
+    const task = { id: 701, user: { login: "github-actions[bot]" }, body: runText("state-body", {
+      packet: packet(), state: "TASK_CREATED", run_id: "9001", reason: "Prior preflight",
+    }) };
+    const evidence = expiredSameTaskEvidence("RESERVED", { lease_expires_at: "2099-01-01T00:00:00Z" });
+    const openPr = { number: 830, base: { ref: "other-base" }, head: { ref: packet().branch, repo: { full_name: "ibboabdoli-ai/Proffera" } }, user: { login: "ibboabdoli-ai" }, body: "", files: [] };
+    for (const options of [
+      { comments: [task], runStatus: "in_progress" },
+      { comments: [task, evidence.comments[0]] },
+      { comments: [task, evidence.comments[1]] },
+      { comments: [task], branches: [String(packet().branch)] },
+      { comments: [task], pulls: [openPr] },
+      { comments: [{ ...task, body: String(task.body).replace("TASK_CREATED", "WORKER_PR_OPENED") }] },
+    ]) {
+      const result = createPreflightHarness(options).run({ runId: "1002" });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.outputs.proceed).toBe("no");
+      expect(commentPatchCalls(result.calls, 701)).toHaveLength(0);
+      expect(result.calls.filter((args) => args.includes("PATCH"))).toHaveLength(0);
+    }
+  });
+
+  it("does not redispatch an orphan when Worker or aliased reservation evidence appears after the retryable write", () => {
+    const task = { id: 701, user: { login: "github-actions[bot]" }, body: runText("state-body", {
+      packet: packet(), state: "TASK_CREATED", run_id: "9001", reason: "Prior preflight",
+    }) };
+    for (const mutation of [{ dispatchOnCommentRead: 3 }, { aliasReservationOnCommentRead: 3 }]) {
+      const harness = createPreflightHarness({ comments: [task] });
+      const changed = harness.run({ runId: "1002", mutation });
+      expect(changed.status).toBe(1);
+      expect(changed.outputs.proceed).toBeUndefined();
+      expect(String(changed.comments.find((comment) => comment.id === 701)?.body)).toContain("TASK_BLOCKED");
+      const retry = harness.run({ runId: "1003" });
+      expect(retry.status).toBe(1);
+      expect(retry.outputs.proceed).toBeUndefined();
+      expect(commentPatchCalls(retry.calls, 701)).toHaveLength(0);
+    }
+  });
+
+  it("recovers a lost mutex POST response only by its exact new descriptor", () => {
+    const result = createPreflightHarness().run({ mutation: { loseMutexResponse: true } });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.outputs.proceed).toBe("yes");
+    expect(result.calls.filter((args) => args.includes("POST") && args.some((arg) => arg.endsWith("/labels")))).toHaveLength(1);
+    expect(result.calls.filter((args) => args.includes("DELETE"))).toHaveLength(1);
+  });
 
   it("retains a same-task reservation when it is live, branched, or represented by an open PR", () => {
     const future = expiredSameTaskEvidence("RESERVED", { lease_expires_at: "2099-01-01T00:00:00Z" });
@@ -2092,7 +2260,7 @@ exit 0
     expect(sync).toContain("exit 1");
   });
 
-  it("authenticates reservation release and reclaims only the exact resubmitted task before evaluation", () => {
+  it("shares authenticated reclamation between preflight and global reservation accounting", () => {
     const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
     const closeStep = workflowRunStep(workflow, "Require exact durable reservation before accepting Worker PR");
     const preflightStep = workflowRunStep(workflow, "Validate trust, freshness, idempotency, graph ownership, and scope");
@@ -2115,14 +2283,14 @@ exit 0
     expect(closeStep).toContain('terminal_state="CLOSED_UNMERGED"');
     expect(closeStep).toContain("in the same close writer");
     expect(workflow).toContain("lease_expires_at");
-    expect(preflightStep).toContain('owner_status" != "completed"');
-    expect(preflightStep).toContain('open_pr_count" -ne 0');
-    expect(preflightStep).toContain("reservation changed during same-task expiry reconciliation");
-    expect(preflightStep).toContain("trusted dispatch provenance");
-    expect(preflightStep.indexOf("reconcile_expired_same_task_reservation")).toBeLessThan(
-      preflightStep.indexOf('node "$helper" evaluate'),
-    );
-    expect(workflowRunStep(workflow, "Atomically reserve writable Worker slot")).not.toContain("expired_reservation");
+    const reserveStep = workflowRunStep(workflow, "Atomically reserve writable Worker slot");
+    for (const step of [preflightStep, reserveStep]) {
+      expect(step).toContain('node "$helper" reservation-mutex-acquire');
+      expect(step).toContain('node "$helper" reconcile-unbound-tasks');
+      expect(step.indexOf('node "$helper" reconcile-unbound-tasks')).toBeLessThan(step.indexOf('node "$helper" evaluate'));
+    }
+    expect(reserveStep).toContain('. + {all:true}');
+    expect(preflightStep).toContain('node "$helper" task-comments');
   });
 
   it("re-evaluates Worker reservation enforcement after head and body updates", () => {
@@ -2711,7 +2879,7 @@ exit 0
     const result = runSyncCheckReconciliation({ body: "missing packet", comments: evidence.comments });
     expect(result.status, result.stderr).toBe(0);
     expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
-    expect(result.calls.filter((args) => args.includes("--method") && args.includes("POST"))).toHaveLength(0);
+    expect(result.calls.filter((args) => args.includes("--method") && args.includes("POST") && args.some((arg) => arg.endsWith("/issues/548/comments")))).toHaveLength(0);
   });
 
   it("refuses malformed closed-PR release for ambiguous or mismatched provenance", () => {
@@ -3247,8 +3415,8 @@ exit 0
     expect(workflow).toContain("id: recovery_upload");
     expect(recovery).toContain('ARTIFACT_UPLOADED" = "true"');
     expect(recovery).toContain("date -u -d '+6 days'");
-    expect(workflow).toContain('.recovery.expires_at // ""');
-    expect(workflow).toContain("retryable:true");
+    expect(source("scripts/supervisor-worker-handoff.mjs")).toContain("payload.recovery?.expires_at");
+    expect(source("scripts/supervisor-worker-handoff.mjs")).toContain("retryable: true");
     expect(workflow).toContain("retention-days: 7");
   });
 
@@ -3460,7 +3628,94 @@ exit 0
     expect(commentPatchCalls(changed.calls, 101)).toHaveLength(0);
   });
 
-  it("never reclaims another task's expired reservation during global slot accounting", () => {
+  it.each(["RESERVED", "RECOVERABLE"] as const)("reclaims task A's expired %s reservation when task B requests global capacity", (state) => {
+    const old = globalExpiryEvidence(1, state);
+    const result = runSlotReservation({ extraComments: old.comments });
+    expect(result.status, result.stderr).toBe(0);
+    expect(String(result.comments.find((comment) => comment.id === 210)?.body)).toContain("- State: `RELEASED`");
+    expect(String(result.comments.find((comment) => comment.id === 212)?.body)).toContain("- State: `TASK_BLOCKED`");
+    expect(result.outputs.reservation_comment_id).toBe("999");
+    const taskWrite = result.calls.findIndex((args) => args.includes("PATCH") && args.some((arg) => arg.endsWith("/212")));
+    const release = result.calls.findIndex((args) => args.includes("PATCH") && args.some((arg) => arg.endsWith("/210")));
+    expect(taskWrite).toBeGreaterThanOrEqual(0);
+    expect(release).toBeGreaterThan(taskWrite);
+  });
+
+  it("reclaims two abandoned reservations before counting capacity and admits task B", () => {
+    const result = runSlotReservation({ extraComments: [...globalExpiryEvidence(1).comments, ...globalExpiryEvidence(2, "RECOVERABLE").comments] });
+    expect(result.status, result.stderr).toBe(0);
+    for (const id of [210, 220]) expect(String(result.comments.find((comment) => comment.id === id)?.body)).toContain("- State: `RELEASED`");
+    expect(result.outputs.reservation_comment_id).toBe("999");
+  });
+
+  it("retains global reservations with an unexpired lease, active run, branch, or open PR on any base", () => {
+    const old = globalExpiryEvidence(1);
+    const future = [...old.comments];
+    future[0] = reservationComment({ ...old.payload, lease_expires_at: "2099-01-01T00:00:00Z" }, 210);
+    const pull = { number: 830, base: { ref: "another-base" }, head: { ref: old.packet.branch, repo: { full_name: "ibboabdoli-ai/Proffera" } }, user: { login: "ibboabdoli-ai" }, body: "", files: [] };
+    for (const options of [
+      { extraComments: future },
+      { extraComments: old.comments, runStatus: "in_progress" },
+      { extraComments: old.comments, branches: [String(old.packet.branch)] },
+      { extraComments: old.comments, pulls: [pull] },
+    ]) {
+      const result = runSlotReservation(options);
+      expect(result.status, result.stderr).toBe(0);
+      expect(commentPatchCalls(result.calls, 210)).toHaveLength(0);
+      expect(String(result.comments.find((comment) => comment.id === 210)?.body)).toContain("- State: `RESERVED`");
+    }
+  });
+
+  it("fails closed on missing, duplicate, or mismatched global task, reservation, dispatch, and packet evidence", () => {
+    const old = globalExpiryEvidence(1);
+    for (const comments of [
+      old.comments.filter((comment) => comment.id !== 212),
+      old.comments.filter((comment) => comment.id !== 211),
+      old.comments.filter((comment) => comment.id !== 213),
+      [...old.comments, { ...old.comments[0], id: 300 }],
+      [...old.comments, { ...old.comments[1], id: 300 }],
+      [...old.comments, { ...old.comments[2], id: 300 }],
+      [reservationComment({ ...old.payload, packet_digest: "f".repeat(64) }, 210), ...old.comments.slice(1)],
+      old.comments.map((comment) => comment.id === 212 ? { ...comment, body: comment.body.replace("9001", "9002") } : comment),
+      old.comments.map((comment) => comment.id === 212 ? { ...comment, body: comment.body + "\n<!-- proffera-worker-task-state:SUP-FOREIGN-1 -->" } : comment),
+      [...old.comments, { id: 300, user: { login: "ibboabdoli-ai" }, body: packetComment({ ...old.packet, task_title: "Conflicting packet identity" }) }],
+    ]) {
+      const result = runSlotReservation({ extraComments: comments });
+      expect(result.status).toBe(1);
+      expect(result.calls.filter((args) => args.includes("PATCH"))).toHaveLength(0);
+      expect(result.outputs.reservation_comment_id).toBeUndefined();
+    }
+  });
+
+  it("fails closed when global reclamation evidence changes before either mutation", () => {
+    const old = globalExpiryEvidence(1);
+    for (const mutation of [
+      { mutateReservationOnCommentRead: 2 }, { mutateTaskOnCommentRead: 2 },
+      { duplicateReservationOnCommentRead: 2 }, { duplicateTaskOnCommentRead: 2 },
+      { mutateReservationOnCommentRead: 3 }, { mutateTaskOnCommentRead: 3 },
+      { branchAfterTaskPatch: String(old.packet.branch) },
+    ]) {
+      const result = runSlotReservation({ extraComments: old.comments, mutation });
+      expect(result.status).toBe(1);
+      expect(commentPatchCalls(result.calls, 210)).toHaveLength(0);
+      expect(result.outputs.reservation_comment_id).toBeUndefined();
+    }
+  });
+
+  it("retries a partial task-first reclamation without creating another task or reservation identity", () => {
+    const old = globalExpiryEvidence(1);
+    const failed = runSlotReservation({ extraComments: old.comments, mutation: { failReservationRelease: true } });
+    expect(failed.status).toBe(1);
+    expect(String(failed.comments.find((comment) => comment.id === 212)?.body)).toContain("TASK_BLOCKED");
+    expect(String(failed.comments.find((comment) => comment.id === 210)?.body)).toContain("RESERVED");
+    const retry = runSlotReservation({ extraComments: failed.comments });
+    expect(retry.status, retry.stderr).toBe(0);
+    expect(commentPatchCalls(retry.calls, 212)).toHaveLength(0);
+    expect(commentPatchCalls(retry.calls, 210)).toHaveLength(1);
+    expect(retry.outputs.reservation_comment_id).toBe("999");
+  });
+
+  it("fails closed on an expired global reservation with missing task and packet provenance", () => {
     const oldReservation = {
       state: "RECOVERABLE",
       task_id: "SUP-OLD-SLOT-1",
@@ -3475,7 +3730,7 @@ exit 0
       recovery: { kind: "branch", expires_at: "2000-01-01T00:00:00Z" },
     };
     const result = runSlotReservation({ reservation: oldReservation });
-    expect(result.status, result.stderr).toBe(0);
+    expect(result.status).toBe(1);
     expect(commentPatchCalls(result.calls, 201)).toHaveLength(0);
     expect(String(result.comments.find((comment) => comment.id === 201)?.body)).toContain("- State: `RECOVERABLE`");
   });
@@ -3593,7 +3848,7 @@ exit 0
     expect(foreign.status, foreign.stderr).toBe(0);
     expect(foreign.stdout).not.toContain("represents recoverable reservation");
     expect(foreign.calls.some((args) => args.includes("--method") && args.includes("PATCH"))).toBe(false);
-  }, 20_000);
+  }, process.platform === "win32" ? 120_000 : 20_000);
 
   it("applies the helper-approved WORKER_PR_OPENED task-state transition", () => {
     const result = runWorkerPrStateRecord(stateBody("TASK_CREATED"));
@@ -4124,6 +4379,56 @@ process.stdout.write(JSON.stringify({
       encoding: "utf8",
     });
     expect(noNewlineBuild.status, noNewlineBuild.stderr).toBe(0);
+  });
+
+  it("builds exact retained zero-byte targets and preserves CRLF and a real blank line", () => {
+    const repo = mkdtempSync(join(tmpdir(), "proffera-empty-target-"));
+    const git = (...args: string[]) => {
+      const result = spawnSync("git", args, { cwd: repo, encoding: "utf8" });
+      expect(result.status, result.stderr).toBe(0);
+      return result.stdout;
+    };
+    git("init");
+    git("config", "core.autocrlf", "false");
+    git("config", "user.name", "test");
+    git("config", "user.email", "test@example.invalid");
+    const sources = { "lf.txt": "before\n", "crlf.txt": "before\r\n", "nonewline.txt": "before", "blank.txt": "\n",
+      "crlf-edit.txt": "before\r\nsuffix\r\n", "one-blank-line.txt": "before\n" };
+    for (const [path, content] of Object.entries(sources)) writeFileSync(join(repo, path), content);
+    git("add", "--all");
+    git("commit", "-m", "source");
+    const sourceHead = git("rev-parse", "HEAD").trim();
+    for (const path of Object.keys(sources)) writeFileSync(join(repo, path), "");
+    writeFileSync(join(repo, "crlf-edit.txt"), "after\r\nsuffix\r\n");
+    writeFileSync(join(repo, "one-blank-line.txt"), "\n");
+    git("commit", "-am", "target");
+    const targetHead = git("rev-parse", "HEAD").trim();
+    const scopedPacket = packet({ base_sha: sourceHead, allowed_paths: Object.keys(sources) });
+    const built = spawnSync(process.execPath, [helper, "build-publication"], { cwd: repo, encoding: "utf8",
+      input: JSON.stringify({ packet: scopedPacket, source_head: sourceHead, target_head: targetHead }) });
+    expect(built.status, built.stderr).toBe(0);
+    const artifact = JSON.parse(built.stdout);
+    expect(artifact.unified_diff).toBe(git("diff", "--full-index", "--no-renames", "--no-ext-diff", sourceHead, targetHead, "--"));
+    for (const path of ["lf.txt", "crlf.txt", "nonewline.txt", "blank.txt"]) {
+      expect(existsSync(join(repo, path))).toBe(true);
+      expect(readFileSync(join(repo, path))).toHaveLength(0);
+      expect(artifact.replacements.find((entry: { path: string }) => entry.path === path)).toEqual({ path, content: "" });
+      expect(artifact.manifest.find((entry: { path: string }) => entry.path === path)).toMatchObject({
+        bytes: 0, lines: 0, git_blob_sha: "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+      });
+    }
+    expect(artifact.replacements.find((entry: { path: string }) => entry.path === "crlf-edit.txt").content).toBe("after\r\nsuffix\r\n");
+    expect(artifact.replacements.find((entry: { path: string }) => entry.path === "one-blank-line.txt").content).toBe("\n");
+    const validate = (candidate: unknown) => {
+      const result = spawnSync(process.execPath, [helper, "validate-publication"], { cwd: repo, encoding: "utf8",
+        input: JSON.stringify({ packet: scopedPacket, current_source_head: sourceHead, artifact: candidate }) });
+      expect(result.status, result.stderr).toBe(0);
+      return JSON.parse(result.stdout);
+    };
+    expect(validate(artifact).ok).toBe(true);
+    const counterfeit = structuredClone(artifact);
+    counterfeit.replacements.find((entry: { path: string }) => entry.path === "lf.txt").content = "\n";
+    expect(validate(counterfeit).ok).toBe(false);
   });
 
   it("rejects misplaced and duplicate final-newline markers", () => {
