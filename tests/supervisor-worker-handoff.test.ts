@@ -519,8 +519,25 @@ function createPreflightHarness({
   const bin = join(root, "bin");
   const log = join(root, "gh-calls.jsonl");
   const stateFile = join(root, "gh-state.json");
+  const waitLog = join(root, "waits.jsonl");
+  const waitPreload = join(root, "record-backoff.cjs");
   mkdirSync(bin, { recursive: true });
   writeFileSync(log, "");
+  writeFileSync(waitPreload, `
+const { appendFileSync } = require("node:fs");
+const { resolve } = require("node:path");
+if (resolve(process.argv[1] || "") === resolve(process.env.GH_STUB_HELPER)) {
+  // Exercise the actual retry loop and record its policy without wall-clock sleep.
+  Atomics.wait = (array, index, value, milliseconds) => {
+    appendFileSync(process.env.GH_STUB_WAIT_LOG, JSON.stringify({ mode: process.argv[2], milliseconds }) + "\\n");
+    if (!(array instanceof Int32Array) || !(array.buffer instanceof SharedArrayBuffer)
+      || index !== 0 || value !== 0 || ![1000, 2000].includes(milliseconds)) {
+      throw new Error("Unexpected preflight fixture wait");
+    }
+    return "timed-out";
+  };
+}
+`);
   writeFileSync(stateFile, JSON.stringify({
     branches,
     commentReads: 0,
@@ -690,6 +707,7 @@ process.exit(2);
       state.refReads = 0;
       writeFileSync(stateFile, JSON.stringify(state));
       writeFileSync(log, "");
+      writeFileSync(waitLog, "");
       const output = join(root, `github-output-${runId}-${commentId}`);
       writeFileSync(output, "");
       const result = spawnSync("bash", ["-c", script], {
@@ -697,6 +715,7 @@ process.exit(2);
         encoding: "utf8",
         env: {
           ...process.env,
+          NODE_OPTIONS: [process.env.NODE_OPTIONS, `--require ${JSON.stringify(waitPreload.replaceAll("\\", "/"))}`].filter(Boolean).join(" "),
           PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
           EVENT_ACTOR: "ibboabdoli-ai",
           EVENT_COMMENT_BODY: packetComment(taskPacket),
@@ -705,6 +724,8 @@ process.exit(2);
           GH_STUB_LOG: log,
           GH_STUB_MAIN_SHA: String(taskPacket.base_sha),
           GH_STUB_STATE_FILE: stateFile,
+          GH_STUB_HELPER: helper,
+          GH_STUB_WAIT_LOG: waitLog,
           GH_TOKEN: "test-token",
           GITHUB_OUTPUT: output,
           OPENAI_AVAILABLE: "true",
@@ -715,6 +736,8 @@ process.exit(2);
         },
       });
       const calls = readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as string[]);
+      const waits = readFileSync(waitLog, "utf8").trim().split("\n").filter(Boolean)
+        .map((line) => JSON.parse(line) as { mode: string; milliseconds: number });
       const outputs = Object.fromEntries(readFileSync(output, "utf8").trim().split("\n").filter(Boolean).map((line) => {
         const separator = line.indexOf("=");
         return [line.slice(0, separator), line.slice(separator + 1)];
@@ -722,9 +745,15 @@ process.exit(2);
       const finalState = JSON.parse(readFileSync(stateFile, "utf8")) as {
         comments: Array<Record<string, unknown>>;
       };
-      return { ...result, calls, comments: finalState.comments, outputs };
+      return { ...result, calls, comments: finalState.comments, outputs, waits };
     },
   };
+}
+
+function verificationReadCalls(calls: string[][]) {
+  const created = calls.findIndex((args) => args.some((arg) => arg.startsWith("body=") && arg.includes("- State: `TASK_CREATED`")));
+  expect(created).toBeGreaterThanOrEqual(0);
+  return calls.slice(created + 1).filter((args) => args.some((arg) => arg.includes("/issues/548/comments?per_page=100")));
 }
 
 function runTaskLane(taskPacket: ReturnType<typeof packet>, commentId = "501") {
@@ -1705,6 +1734,9 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
       expect(result.status, result.stderr).toBe(0);
       expect(result.outputs.proceed).toBe("yes");
       expect(result.comments).toHaveLength(1);
+      expect(result.waits).toEqual([1000, 2000].slice(0, failVerificationReads)
+        .map((milliseconds) => ({ mode: "task-comments", milliseconds })));
+      expect(verificationReadCalls(result.calls)).toHaveLength(failVerificationReads + 1);
       expect(result.calls.filter((args) => args.includes("POST") && args.some((arg) => arg.endsWith("/issues/548/comments")))).toHaveLength(comments.length ? 0 : 1);
       if (comments.length) expect(commentPatchCalls(result.calls, 701)).toHaveLength(1);
     }
@@ -1717,37 +1749,44 @@ describe("Supervisor ↔ Worker Phase-1 handoff", () => {
     expect(interrupted.outputs.proceed).toBeUndefined();
     expect(interrupted.comments).toHaveLength(1);
     expect(String(interrupted.comments[0].body)).toContain("- State: `TASK_CREATED`");
+    expect(interrupted.waits).toEqual([1000, 2000].map((milliseconds) => ({ mode: "task-comments", milliseconds })));
+    expect(verificationReadCalls(interrupted.calls)).toHaveLength(3);
     const retry = harness.run({ runId: "1002" });
     expect(retry.status, retry.stderr).toBe(0);
     expect(retry.outputs.proceed).toBe("yes");
     expect(retry.comments).toHaveLength(1);
     expect(retry.comments[0].id).toBe(interrupted.comments[0].id);
     expect(String(retry.comments[0].body)).toContain("- Run ID: `1002`");
+    expect(retry.waits).toEqual([]);
+    expect(verificationReadCalls(retry.calls)).toHaveLength(1);
     expect(commentPatchCalls(retry.calls, Number(retry.comments[0].id)).map((args) => args.find((arg) => arg.startsWith("body="))))
       .toEqual([expect.stringContaining("- State: `TASK_BLOCKED`"), expect.stringContaining("- State: `TASK_CREATED`")]);
   });
 
-  it("keeps genuinely dispatched and reserved, branched, or PR-backed TASK_CREATED tasks non-dispatchable", () => {
-    const task = { id: 701, user: { login: "github-actions[bot]" }, body: runText("state-body", {
-      packet: packet(), state: "TASK_CREATED", run_id: "9001", reason: "Prior preflight",
-    }) };
-    const evidence = expiredSameTaskEvidence("RESERVED", { lease_expires_at: "2099-01-01T00:00:00Z" });
-    const openPr = { number: 830, base: { ref: "other-base" }, head: { ref: packet().branch, repo: { full_name: "ibboabdoli-ai/Proffera" } }, user: { login: "ibboabdoli-ai" }, body: "", files: [] };
-    for (const options of [
-      { comments: [task], runStatus: "in_progress" },
-      { comments: [task, evidence.comments[0]] },
-      { comments: [task, evidence.comments[1]] },
-      { comments: [task], branches: [String(packet().branch)] },
-      { comments: [task], pulls: [openPr] },
-      { comments: [{ ...task, body: String(task.body).replace("TASK_CREATED", "WORKER_PR_OPENED") }] },
-    ]) {
-      const result = createPreflightHarness(options).run({ runId: "1002" });
+  it.each(["active run", "reservation", "dispatch marker", "branch", "PR on another base", "advanced task state"] as const)(
+    "keeps genuinely dispatched and reserved, branched, or PR-backed TASK_CREATED tasks non-dispatchable (%s)",
+    (binding) => {
+      const task = { id: 701, user: { login: "github-actions[bot]" }, body: runText("state-body", {
+        packet: packet(), state: "TASK_CREATED", run_id: "9001", reason: "Prior preflight",
+      }) };
+      const evidence = expiredSameTaskEvidence("RESERVED", { lease_expires_at: "2099-01-01T00:00:00Z" });
+      const openPr = { number: 830, base: { ref: "other-base" }, head: { ref: packet().branch, repo: { full_name: "ibboabdoli-ai/Proffera" } }, user: { login: "ibboabdoli-ai" }, body: "", files: [] };
+      const cases = {
+        "active run": { comments: [task], runStatus: "in_progress" },
+        "reservation": { comments: [task, evidence.comments[0]] },
+        "dispatch marker": { comments: [task, evidence.comments[1]] },
+        "branch": { comments: [task], branches: [String(packet().branch)] },
+        "PR on another base": { comments: [task], pulls: [openPr] },
+        "advanced task state": { comments: [{ ...task, body: String(task.body).replace("TASK_CREATED", "WORKER_PR_OPENED") }] },
+      };
+      const result = createPreflightHarness(cases[binding]).run({ runId: "1002" });
       expect(result.status, result.stderr).toBe(0);
       expect(result.outputs.proceed).toBe("no");
       expect(commentPatchCalls(result.calls, 701)).toHaveLength(0);
       expect(result.calls.filter((args) => args.includes("PATCH"))).toHaveLength(0);
-    }
-  });
+      expect(result.waits).toEqual([]);
+    },
+  );
 
   it("does not redispatch an orphan when Worker or aliased reservation evidence appears after the retryable write", () => {
     const task = { id: 701, user: { login: "github-actions[bot]" }, body: runText("state-body", {
