@@ -1836,6 +1836,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           RESERVATION_COMMENT_ID: ${{ steps.reserve.outputs.reservation_comment_id }}
+          STATE_COMMENT_ID: ${{ needs.preflight.outputs.state_comment_id }}
           TASK_ID: ${{ needs.preflight.outputs.task_id }}
           BRANCH: ${{ needs.preflight.outputs.branch }}
           RUN_ID: ${{ github.run_id }}
@@ -1856,6 +1857,7 @@ jobs:
           if [ "$(jq -r '.task_id // ""' <<< "$payload")" != "$TASK_ID" ] || [ "$(jq -r '.run_id // ""' <<< "$payload")" != "$RUN_ID" ]; then exit 0; fi
           state="$(jq -r '.state // ""' <<< "$payload")"
           if [ "$state" = "PUBLISHED" ] || [ "$state" = "RECOVERABLE" ]; then exit 0; fi
+          reservation_before="$payload"
           head_sha="$(jq -r '.head_sha // ""' <<< "$payload")"
           packet="$(printf '%s' "$PACKET_B64" | base64 --decode)"
           packet_digest="$(printf '%s' "$packet" | sha256sum | cut -d' ' -f1)"
@@ -1884,6 +1886,58 @@ jobs:
             payload="$(jq -c --arg state RELEASED '.state=$state | .recovery=null' <<< "$payload")"
             label=RELEASED
           fi
+          retryable_state_body=""
+          if [ "$label" = "RELEASED" ]; then
+            verify_no_live_publication() {
+              local refs live_pulls
+              refs="$(gh api "repos/${REPOSITORY}/git/matching-refs/heads/${BRANCH}")" || return 1
+              if [ "$(jq -r --arg ref "refs/heads/${BRANCH}" '[.[] | select(.ref == $ref)] | length' <<< "$refs")" -ne 0 ]; then return 1; fi
+              live_pulls="$(gh api --paginate "repos/${REPOSITORY}/pulls?state=open&base=main&per_page=100" --jq '.[]' | jq -s --arg branch "$BRANCH" --arg repo "$REPOSITORY" '[.[] | select(.head.ref == $branch and (.head.repo.full_name // "") == $repo)]')" || return 1
+              [ "$(jq 'length' <<< "$live_pulls")" -eq 0 ]
+            }
+            if ! [[ "$STATE_COMMENT_ID" =~ ^[1-9][0-9]*$ ]]; then
+              echo "Refused: released reservation has no exact durable task-state identity." >&2
+              exit 1
+            fi
+            task_comment="$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}")"
+            task_author="$(jq -r '.user.login // ""' <<< "$task_comment")"
+            task_body="$(jq -r '.body // ""' <<< "$task_comment")"
+            if [ "$task_author" != "github-actions[bot]" ]; then
+              echo "Refused: released reservation task state is not bot-authored." >&2
+              exit 1
+            fi
+            retryable_input="$(jq -n --arg current_body "$task_body" --argjson reservation "$reservation_before" --argjson packet "$packet" '{current_body:$current_body,reservation:$reservation,packet:$packet}')"
+            retryable_state_body="$(printf '%s' "$retryable_input" | node "$helper" released-reservation-retry-body)"
+
+            confirmed_reservation_body="$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')"
+            confirmed_task_comment="$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}")"
+            if [ "$confirmed_reservation_body" != "$body" ] \
+              || [ "$(jq -r '.user.login // ""' <<< "$confirmed_task_comment")" != "github-actions[bot]" ] \
+              || [ "$(jq -r '.body // ""' <<< "$confirmed_task_comment")" != "$task_body" ]; then
+              echo "Refused: reservation or task-state evidence changed before coupled release." >&2
+              exit 1
+            fi
+            if ! verify_no_live_publication; then
+              echo "Refused: branch or open PR evidence appeared before coupled release." >&2
+              exit 1
+            fi
+
+            gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" -f body="$retryable_state_body" >/dev/null
+            persisted_task_comment="$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}")"
+            if [ "$(jq -r '.user.login // ""' <<< "$persisted_task_comment")" != "github-actions[bot]" ] \
+              || [ "$(jq -r '.body // ""' <<< "$persisted_task_comment")" != "$retryable_state_body" ]; then
+              echo "Refused: retryable task state did not persist before reservation release." >&2
+              exit 1
+            fi
+            if [ "$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')" != "$body" ]; then
+              echo "Refused: reservation changed while persisting retryable task state." >&2
+              exit 1
+            fi
+            if ! verify_no_live_publication; then
+              echo "Refused: branch or open PR evidence appeared while persisting retryable task state." >&2
+              exit 1
+            fi
+          fi
           payload_b64="$(printf '%s' "$payload" | base64 -w0)"
           new_body="$(cat <<EOF
           <!-- proffera-worker-slot-reservation:${TASK_ID} -->
@@ -1892,5 +1946,15 @@ jobs:
           - Reservation payload: \`${payload_b64}\`
           EOF
           )"
-          gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" -f body="$new_body" >/dev/null || true
+          if [ "$label" = "RELEASED" ]; then
+            gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" -f body="$new_body" >/dev/null
+            persisted_reservation_body="$(gh api "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" --jq '.body // ""')"
+            persisted_task_body="$(gh api "repos/${REPOSITORY}/issues/comments/${STATE_COMMENT_ID}" --jq '.body // ""')"
+            if [ "$persisted_reservation_body" != "$new_body" ] || [ "$persisted_task_body" != "$retryable_state_body" ]; then
+              echo "Refused: coupled RELEASED/TASK_BLOCKED transition did not persist exactly." >&2
+              exit 1
+            fi
+          else
+            gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${RESERVATION_COMMENT_ID}" -f body="$new_body" >/dev/null || true
+          fi
           echo "Reservation ${TASK_ID}@${head_sha} moved to ${label} after dispatch failure."

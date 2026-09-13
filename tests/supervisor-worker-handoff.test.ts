@@ -322,7 +322,19 @@ process.exit(2);
   return { ...result, calls, comments: finalState.comments, pr: finalState.pr };
 }
 
-function runReservationRecovery({ branchExists = true }: { branchExists?: boolean } = {}) {
+function runReservationRecovery({
+  artifactUploaded = false,
+  branchAppearsOnSecondVerification = false,
+  branchExists = true,
+  reservationState = "RESERVED",
+  taskState = "WORKER_BLOCKED",
+}: {
+  artifactUploaded?: boolean;
+  branchAppearsOnSecondVerification?: boolean;
+  branchExists?: boolean;
+  reservationState?: "RESERVED" | "RELEASED";
+  taskState?: string;
+} = {}) {
   const workflow = source(".github/workflows/supervisor-worker-handoff.yml");
   const script = workflowRunStep(workflow, "Release or recover reservation on dispatch failure");
   const root = mkdtempSync(join(tmpdir(), "proffera-reservation-recovery-"));
@@ -337,9 +349,40 @@ function runReservationRecovery({ branchExists = true }: { branchExists?: boolea
   const parsed = spawnSync(process.execPath, [helper, "parse"], { input: packetComment(), encoding: "utf8" });
   expect(parsed.status, parsed.stderr).toBe(0);
   const normalizedPacket = parsed.stdout.replace(/\n+$/, "");
-  const evidence = exactReservationEvidence();
+  const normalizedPacketJson = JSON.parse(normalizedPacket);
+  const reservation = reservationComment({
+    version: 1,
+    state: reservationState,
+    task_id: normalizedPacketJson.task_id,
+    run_id: "9001",
+    branch: normalizedPacketJson.branch,
+    head_sha: sha,
+    graph_path: normalizedPacketJson.graph_path,
+    packet_digest: createHash("sha256").update(normalizedPacket).digest("hex"),
+    lease_expires_at: "2099-01-01T00:00:00Z",
+    allowed_paths: normalizedPacketJson.allowed_paths,
+    changed_files: [],
+    snapshot_finalized: false,
+    pr_number: null,
+    recovery: null,
+  }, 101);
+  const taskStateBody = runText("state-body", {
+    packet: normalizedPacketJson,
+    state: taskState,
+    reason: "Dispatch stopped before successful PR handoff.",
+    run_id: "9001",
+  });
   writeFileSync(log, "");
-  writeFileSync(stateFile, JSON.stringify({ branchExists, comments: [evidence.comments[0]], pulls: [] }));
+  writeFileSync(stateFile, JSON.stringify({
+    branchAppearsOnSecondVerification,
+    branchExists,
+    comments: [
+      reservation,
+      { id: 99, user: { login: "github-actions[bot]" }, body: taskStateBody },
+    ],
+    matchingRefReads: 0,
+    pulls: [],
+  }));
   writeFileSync(
     join(bin, "gh"),
     `#!/usr/bin/env node
@@ -364,7 +407,7 @@ if (method !== "GET") process.exit(2);
 if (commentMatch) {
   const comment = state.comments.find((entry) => String(entry.id) === commentMatch[1]);
   if (!comment) process.exit(3);
-  process.stdout.write(JSON.stringify(comment) + "\\n");
+  process.stdout.write(args.includes("--jq") ? String(comment.body || "") + "\\n" : JSON.stringify(comment) + "\\n");
   process.exit(0);
 }
 if (endpoint === "repos/ibboabdoli-ai/Proffera/pulls?state=open&base=main&per_page=100") {
@@ -374,6 +417,13 @@ if (endpoint === "repos/ibboabdoli-ai/Proffera/pulls?state=open&base=main&per_pa
 if (endpoint === "repos/ibboabdoli-ai/Proffera/git/ref/heads/work/proffera-test-task") {
   if (!state.branchExists) process.exit(1);
   process.stdout.write('{"ref":"refs/heads/work/proffera-test-task"}\\n');
+  process.exit(0);
+}
+if (endpoint === "repos/ibboabdoli-ai/Proffera/git/matching-refs/heads/work/proffera-test-task") {
+  state.matchingRefReads += 1;
+  const exists = state.branchExists || (state.branchAppearsOnSecondVerification && state.matchingRefReads >= 2);
+  writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
+  process.stdout.write(JSON.stringify(exists ? [{ ref: "refs/heads/work/proffera-test-task" }] : []) + "\\n");
   process.exit(0);
 }
 process.stderr.write("unhandled gh endpoint: " + endpoint + "\\n");
@@ -393,11 +443,12 @@ process.exit(2);
       RUNNER_TEMP: runnerTemp,
       REPOSITORY: "ibboabdoli-ai/Proffera",
       RESERVATION_COMMENT_ID: "101",
+      STATE_COMMENT_ID: "99",
       TASK_ID: "SUP-TEST-1",
       BRANCH: "work/proffera-test-task",
       RUN_ID: "9001",
       PACKET_B64: Buffer.from(normalizedPacket).toString("base64"),
-      ARTIFACT_UPLOADED: "false",
+      ARTIFACT_UPLOADED: artifactUploaded ? "true" : "false",
       RECOVERY_DIGEST: "",
       HEAD_SHA: sha,
     },
@@ -3199,6 +3250,54 @@ exit 0
     expect(workflow).toContain('.recovery.expires_at // ""');
     expect(workflow).toContain("retryable:true");
     expect(workflow).toContain("retention-days: 7");
+  });
+
+  it("couples an empty dispatch cleanup to RELEASED plus retryable TASK_BLOCKED", () => {
+    const released = runReservationRecovery({ branchExists: false });
+    expect(released.status, released.stderr).toBe(0);
+    expect(commentPatchCalls(released.calls, 99)).toHaveLength(1);
+    expect(commentPatchCalls(released.calls, 101)).toHaveLength(1);
+    expect(String(released.comments.find((comment) => comment.id === 99)?.body)).toContain("- State: `TASK_BLOCKED`");
+    expect(String(released.comments.find((comment) => comment.id === 99)?.body)).toContain("same task may be resubmitted safely");
+    const reservationBody = String(released.comments.find((comment) => comment.id === 101)?.body ?? "");
+    expect(reservationBody).toContain("- State: `RELEASED`");
+
+    const retry = createPreflightHarness({ comments: released.comments }).run({ runId: "9002" });
+    expect(retry.status, retry.stderr).toBe(0);
+    expect(retry.outputs.proceed).toBe("yes");
+    expect(retry.comments.filter((comment) => String(comment.body ?? "").includes("proffera-worker-task-state:SUP-TEST-1"))).toHaveLength(1);
+    expect(String(retry.comments.find((comment) => comment.id === 99)?.body)).toContain("- State: `TASK_CREATED`");
+  }, 15_000);
+
+  it("repairs an already RELEASED reservation whose exact task remained WORKER_BLOCKED", () => {
+    const repaired = runReservationRecovery({ branchExists: false, reservationState: "RELEASED" });
+    expect(repaired.status, repaired.stderr).toBe(0);
+    expect(commentPatchCalls(repaired.calls, 99)).toHaveLength(1);
+    expect(commentPatchCalls(repaired.calls, 101)).toHaveLength(1);
+    expect(String(repaired.comments.find((comment) => comment.id === 99)?.body)).toContain("- State: `TASK_BLOCKED`");
+    expect(String(repaired.comments.find((comment) => comment.id === 101)?.body)).toContain("- State: `RELEASED`");
+  });
+
+  it("keeps the reservation unreleased when its exact task state cannot become retryable", () => {
+    const changed = runReservationRecovery({ branchExists: false, taskState: "CHECKS_PENDING" });
+    expect(changed.status).not.toBe(0);
+    expect(changed.stderr).toContain("released reservation task is not retryable from its current state");
+    expect(commentPatchCalls(changed.calls, 99)).toHaveLength(0);
+    expect(commentPatchCalls(changed.calls, 101)).toHaveLength(0);
+    expect(String(changed.comments.find((comment) => comment.id === 101)?.body)).toContain("- State: `RESERVED`");
+  });
+
+  it("does not release when branch evidence appears during the coupled transition", () => {
+    const changed = runReservationRecovery({
+      branchAppearsOnSecondVerification: true,
+      branchExists: false,
+    });
+    expect(changed.status).not.toBe(0);
+    expect(changed.stderr).toContain("branch or open PR evidence appeared while persisting retryable task state");
+    expect(commentPatchCalls(changed.calls, 99)).toHaveLength(1);
+    expect(commentPatchCalls(changed.calls, 101)).toHaveLength(0);
+    expect(String(changed.comments.find((comment) => comment.id === 99)?.body)).toContain("- State: `TASK_BLOCKED`");
+    expect(String(changed.comments.find((comment) => comment.id === 101)?.body)).toContain("- State: `RESERVED`");
   });
 
   it("gives branch-backed recovery a bounded durable lease", () => {

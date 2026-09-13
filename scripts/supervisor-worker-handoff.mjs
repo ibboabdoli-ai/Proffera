@@ -1045,6 +1045,68 @@ function optionalStateBodyField(body, pattern, field) {
   return matches[0]?.[1] ?? "";
 }
 
+export function releasedReservationRetryTaskBody({ current_body, reservation, packet: packetInput }) {
+  if (!reservation || typeof reservation !== "object" || Array.isArray(reservation)) {
+    throw new Error("released reservation is malformed");
+  }
+  const packet = normalizeTaskPacket(packetInput);
+  const taskId = assertPlainString(reservation.task_id, "reservation.task_id", 80).toUpperCase();
+  const runId = String(reservation.run_id ?? "");
+  const branch = assertPlainString(reservation.branch, "reservation.branch", 120);
+  const graphPath = assertSafeGraphPath(reservation.graph_path);
+  const digest = String(reservation.packet_digest ?? "").toLowerCase();
+  if (reservation.version !== 1
+    || !TASK_ID_RE.test(taskId)
+    || !/^[0-9]+$/.test(runId)
+    || !BRANCH_RE.test(branch)
+    || !SHA256_RE.test(digest)
+    || !new Set(["RESERVED", "RELEASED"]).has(String(reservation.state ?? ""))) {
+    throw new Error("released reservation identity is malformed");
+  }
+  if (taskId !== packet.task_id
+    || branch !== packet.branch
+    || graphPath !== packet.graph_path
+    || digest !== packetDigest(packet)
+    || JSON.stringify(reservation.allowed_paths) !== JSON.stringify(packet.allowed_paths)
+    || reservation.pr_number != null
+    || reservation.recovery != null) {
+    throw new Error("released reservation does not match the exact Task Packet");
+  }
+
+  const body = String(current_body ?? "");
+  const marker = `${TASK_STATE_MARKER_PREFIX}${taskId} -->`;
+  if (countOccurrences(body, marker) !== 1) throw new Error("released reservation task marker is missing or ambiguous");
+  if (exactStateBodyField(body, /^### Supervisor task: ([A-Z][A-Z0-9-]*)$/gmu, "heading") !== taskId) {
+    throw new Error("released reservation task heading does not match its identity");
+  }
+  const currentState = exactStateBodyField(body, /^- State: `([A-Z_]+)`$/gmu, "state");
+  if (!new Set(["TASK_CREATED", "WORKER_BLOCKED", "TASK_BLOCKED"]).has(currentState)) {
+    throw new Error("released reservation task is not retryable from its current state");
+  }
+  if (exactStateBodyField(body, /^- Graph path: `([^`]+)`$/gmu, "graph path") !== graphPath
+    || exactStateBodyField(body, /^- Branch: `([^`]+)`$/gmu, "branch") !== branch
+    || exactStateBodyField(body, /^- Base: `([0-9a-f]{40})`$/gmu, "base") !== packet.base_sha
+    || exactStateBodyField(body, /^- Packet SHA-256: `([0-9a-f]{64})`$/gmu, "packet digest") !== digest
+    || exactStateBodyField(body, /^- Run ID: `([0-9]+)`$/gmu, "run ID") !== runId) {
+    throw new Error("released reservation does not match its durable task state");
+  }
+  if (optionalStateBodyField(body, /^- PR: #([1-9][0-9]*)$/gmu, "PR")) {
+    throw new Error("released reservation task unexpectedly has a PR binding");
+  }
+  for (const invariant of [
+    "- Production mutation: `false`",
+    "- Merge allowed: `false`",
+    "- Auto-merge allowed: `false`",
+  ]) {
+    if (countOccurrences(body, invariant) !== 1) throw new Error("released reservation task safety evidence is missing or ambiguous");
+  }
+  exactStateBodyField(body, /^- Reason: (.+)$/gmu, "reason");
+  if (currentState === "TASK_BLOCKED") return body;
+  return body
+    .replace(/^- State: `(TASK_CREATED|WORKER_BLOCKED)`$/mu, "- State: `TASK_BLOCKED`")
+    .replace(/^- Reason: .+$/mu, "- Reason: The exact reservation was safely released without a branch, pull request, or recovery artifact. No Worker publication remains active; the same task may be resubmitted safely.");
+}
+
 export function terminalTaskStateBodyFromExisting({
   current_body,
   task_id,
@@ -1584,6 +1646,10 @@ async function main() {
   }
   if (mode === "expired-reservation-retry-body") {
     process.stdout.write(expiredReservationRetryTaskBody(parsed));
+    return;
+  }
+  if (mode === "released-reservation-retry-body") {
+    process.stdout.write(releasedReservationRetryTaskBody(parsed));
     return;
   }
   if (mode === "invalid-close-plan") {
