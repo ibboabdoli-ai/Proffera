@@ -55,7 +55,7 @@ export type DashboardLead = {
 
 export async function getDashboardLeads(): Promise<DashboardLead[]> {
   const sql = getSqlClient();
-  if (!sql) return [];
+  if (!sql) throw new Error("Missing database connection for dashboard leads");
 
   const workspaceId = await getActiveWorkspaceId();
   try {
@@ -63,19 +63,16 @@ export async function getDashboardLeads(): Promise<DashboardLead[]> {
       ...workspaceTenantContextQueries(sql, workspaceId),
       sql`
         select
-          customer.id,
-          customer.name,
-          customer.city,
-          customer.source,
-          coalesce(service.name, customer.primary_service_slug) as primary_service_slug,
-          customer.created_at
-        from customers customer
-        left join workspace_services service
-          on service.workspace_id = customer.workspace_id
-         and service.public_slug = customer.primary_service_slug
-        where customer.workspace_id = ${workspaceId}
-          and customer.status = 'prospect'
-        order by customer.created_at desc
+          id,
+          name,
+          city,
+          source,
+          primary_service_slug,
+          created_at
+        from customers
+        where workspace_id = ${workspaceId}
+          and status = 'prospect'
+        order by created_at desc
         limit 50
       `,
     ]);
@@ -98,6 +95,6 @@ export async function getDashboardLeads(): Promise<DashboardLead[]> {
     });
   } catch (error) {
     console.error("Failed to read dashboard leads", error);
-    return [];
+    throw error;
   }
 }
