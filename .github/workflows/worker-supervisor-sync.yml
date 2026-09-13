@@ -85,9 +85,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
+      actions: read
       contents: read
       issues: write
-      pull-requests: read
+      pull-requests: write
 
     steps:
       - name: Checkout trusted default-branch task-state helper
@@ -125,6 +126,13 @@ jobs:
             pr_url="$(jq -r '.html_url // ""' <<< "$pr_json")"
           }
           read_live_pr
+          control_input="$(jq -cn --arg repository "$REPOSITORY" --arg run_id "$RUN_ID" '{repository:$repository,run_id:$run_id}')"
+          mutex="$(printf '%s' "$control_input" | node "$helper" reservation-mutex-acquire)"
+          control_input="$(jq -c --arg mutex "$mutex" '. + {mutex:$mutex}' <<< "$control_input")"
+          release_mutex() {
+            printf '%s' "$control_input" | node "$helper" reservation-mutex-release
+          }
+          trap 'release_mutex || true' EXIT
 
           reconcile_invalid_closed_pr() {
             local current_pr_number="$1" reason="$2" result
@@ -284,7 +292,8 @@ jobs:
                   release_reservation=no
                 fi
                 if [ "$release_reservation" = "yes" ]; then
-                  payload="$(jq -c --arg state RELEASED --argjson pr_number "$PR_NUMBER" --arg head "$live_head_sha" --argjson merged "$live_merged" '.state=$state | .pr_number=$pr_number | .head_sha=$head | .recovery={kind:"closed_pr",merged:$merged}' <<< "$payload")"
+                  task_body_digest="$(jq -j --arg marker "$terminal_task_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | last | .body // ""' <<< "$comments_json" | sha256sum | cut -d' ' -f1)"
+                  payload="$(jq -c --arg state RELEASED --argjson pr_number "$PR_NUMBER" --arg head "$live_head_sha" --argjson merged "$live_merged" --arg task_body_digest "$task_body_digest" '.state=$state | .pr_number=$pr_number | .head_sha=$head | .activation_task_sha256=$task_body_digest | .recovery={kind:"closed_pr",merged:$merged}' <<< "$payload")"
                   payload_b64="$(printf '%s' "$payload" | base64 -w0)"
                   new_body="$(cat <<EOF
           <!-- proffera-worker-slot-reservation:${task_id} -->
@@ -317,6 +326,7 @@ jobs:
                 exit 0
               fi
 
+
               if [ "$ACTION" = "opened" ] || [ "$ACTION" = "reopened" ]; then
                 state="WORKER_PR_OPENED"
                 reason="Worker PR is live-verified open; exact-head checks and review are pending."
@@ -332,71 +342,12 @@ jobs:
                 reason="${reason} Task Packet bootstrap remains ${packet_base}; current PR base is ${base_sha}."
               fi
 
-              load_current_state() {
-                comments_json="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.')"
-                marker="<!-- proffera-worker-task-state:${task_id} -->"
-                comment_id="$(jq -r --arg marker "$marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | last | .id // empty' <<< "$comments_json")"
-                current_body=""
-                task_run_id=""
-                if [ -n "$comment_id" ]; then
-                  current_body="$(jq -r --argjson id "$comment_id" '[.[] | select(.id == $id)] | last | .body // ""' <<< "$comments_json")"
-                  run_line_count="$(awk '/^- Run ID: `[0-9]+`$/ {count++} END {print count+0}' <<< "$current_body")"
-                  task_run_id="$(sed -n 's/^- Run ID: `\([0-9][0-9]*\)`$/\1/p' <<< "$current_body")"
-                  if [ "$run_line_count" -ne 1 ] || ! [[ "$task_run_id" =~ ^[0-9]+$ ]]; then
-                    echo "Trusted task state has missing or ambiguous dispatch run provenance; refusing lifecycle mutation." >&2
-                    exit 1
-                  fi
-                else
-                  echo "Trusted Phase-1 Worker PR has no durable task-state record; leaving it unchanged."
-                  exit 0
-                fi
-              }
-
-              guard_transition() {
-                transition_json="$(jq -n \
-                  --arg current_body "$current_body" \
-                  --arg source "lifecycle" \
-                  --arg requested_state "$state" \
-                  --arg requested_head "$live_head_sha" \
-                  --arg live_head "$live_head_sha" \
-                  --arg live_pr_state "$live_pr_state" \
-                  --argjson live_merged "$live_merged" \
-                  '{current_body:$current_body,source:$source,requested_state:$requested_state,requested_head:$requested_head,live_head:$live_head,live_pr_state:$live_pr_state,live_merged:$live_merged}' \
-                  | node "$helper" transition)"
-                transition_apply="$(jq -r '.apply == true' <<< "$transition_json")"
-                transition_reason="$(jq -r '.reason' <<< "$transition_json")"
-              }
-
-              load_current_state
-              guard_transition
-              if [ "$transition_apply" != "true" ]; then
-                echo "Lifecycle state not mutated: $transition_reason"
-                exit 0
-              fi
-
-              # Re-fetch live PR and current state immediately before mutation.
-              confirm_pr="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")"
-              confirm_head="$(jq -r '.head.sha // ""' <<< "$confirm_pr")"
-              confirm_state="$(jq -r '.state' <<< "$confirm_pr")"
-              confirm_merged="$(jq -r '.merged == true' <<< "$confirm_pr")"
-              if [ "$confirm_head" != "$live_head_sha" ] || [ "$confirm_state" != "$live_pr_state" ] || [ "$confirm_merged" != "$live_merged" ]; then
-                echo "Live PR changed during reconciliation; refusing stale lifecycle mutation."
-                exit 0
-              fi
-
-              load_current_state
-              guard_transition
-              if [ "$transition_apply" != "true" ]; then
-                echo "Lifecycle state converged before mutation: $transition_reason"
-                exit 0
-              fi
-
-              state_json="$(jq -n --argjson packet "$packet" --arg state "$state" --arg reason "$reason" --arg run_id "$task_run_id" --argjson pr_number "$PR_NUMBER" --arg head_sha "$live_head_sha" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,pr_number:$pr_number,head_sha:$head_sha}')"
-              body="$(printf '%s' "$state_json" | node "$helper" state-body)"
-              if [ -n "$comment_id" ]; then
-                gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${comment_id}" -f body="$body" >/dev/null
-              else
-                gh api --method POST "repos/${REPOSITORY}/issues/548/comments" -f body="$body" >/dev/null
+              admission_input="$(jq -c --argjson pr_number "$PR_NUMBER" --arg event_head "$EVENT_HEAD_SHA" --arg actor "$ACTOR" --arg source "lifecycle" --arg requested_state "$state" --arg reason "$reason" '. + {pr_number:$pr_number,event_head:$event_head,actor:$actor,source:$source,requested_state:$requested_state,reason:$reason}' <<< "$control_input")"
+              admission="$(printf '%s' "$admission_input" | node "$helper" worker-pr-admit)"
+              if [ "$(jq -r '.ok == true' <<< "$admission")" != "true" ]; then
+                jq -r '.reason' <<< "$admission" >&2
+                echo "Reopen the same unchanged PR after a Worker slot is available; do not submit another Task Packet or dispatch another Worker." >&2
+                exit 1
               fi
               echo "Reconciled task $task_id to $state on live head $live_head_sha."
               exit 0
@@ -457,7 +408,7 @@ jobs:
       actions: read
       contents: read
       issues: write
-      pull-requests: read
+      pull-requests: write
 
     steps:
       - name: Checkout trusted default-branch task-state helper
@@ -472,6 +423,7 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           EVENT_PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
           EVENT_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          ACTOR: ${{ github.actor }}
           RUN_ID: ${{ github.run_id }}
         shell: bash
         run: |
@@ -495,6 +447,13 @@ jobs:
           }
 
           read_live_pr
+          control_input="$(jq -cn --arg repository "$REPOSITORY" --arg run_id "$RUN_ID" '{repository:$repository,run_id:$run_id}')"
+          mutex="$(printf '%s' "$control_input" | node "$helper" reservation-mutex-acquire)"
+          control_input="$(jq -c --arg mutex "$mutex" '. + {mutex:$mutex}' <<< "$control_input")"
+          release_mutex() {
+            printf '%s' "$control_input" | node "$helper" reservation-mutex-release
+          }
+          trap 'release_mutex || true' EXIT
           reconcile_invalid_closed_pr() {
             local current_pr_number="$1" reason="$2" result
             result="$(jq -cn --arg repository "$REPOSITORY" --argjson pr_number "$current_pr_number" --arg run_id "$RUN_ID" '{repository:$repository,pr_number:$pr_number,run_id:$run_id}' | node "$helper" invalid-close-reconcile)"
@@ -652,7 +611,8 @@ jobs:
               release_reservation=no
             fi
             if [ "$release_reservation" = "yes" ]; then
-              payload="$(jq -c --arg state RELEASED --argjson pr_number "$pr_number" --arg head "$head_sha" --argjson merged "$pr_merged" '.state=$state | .pr_number=$pr_number | .head_sha=$head | .recovery={kind:"closed_pr",merged:$merged}' <<< "$payload")"
+              task_body_digest="$(jq -j --arg marker "$task_marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | last | .body // ""' <<< "$comments_json" | sha256sum | cut -d' ' -f1)"
+              payload="$(jq -c --arg state RELEASED --argjson pr_number "$pr_number" --arg head "$head_sha" --argjson merged "$pr_merged" --arg task_body_digest "$task_body_digest" '.state=$state | .pr_number=$pr_number | .head_sha=$head | .activation_task_sha256=$task_body_digest | .recovery={kind:"closed_pr",merged:$merged}' <<< "$payload")"
               payload_b64="$(printf '%s' "$payload" | base64 -w0)"
               new_body="$(cat <<EOF
           <!-- proffera-worker-slot-reservation:${task_id} -->
@@ -689,6 +649,7 @@ jobs:
             exit 0
           fi
 
+
           compute_evidence() {
             runs_json="$(gh api --paginate "repos/${REPOSITORY}/actions/runs?head_sha=${head_sha}&event=pull_request&per_page=100" --jq '.workflow_runs[]' | jq -s '.')"
             required=("CI" "CodeQL" "Targeted CI shadow" "Production base health")
@@ -710,82 +671,24 @@ jobs:
             fi
           }
 
-          load_current_state() {
-            comments_json="$(gh api --paginate "repos/${REPOSITORY}/issues/548/comments?per_page=100" --jq '.[]' | jq -s '.')"
-            marker="<!-- proffera-worker-task-state:${task_id} -->"
-            comment_id="$(jq -r --arg marker "$marker" '[.[] | select(.user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))] | last | .id // empty' <<< "$comments_json")"
-            current_body=""
-            task_run_id=""
-            if [ -n "$comment_id" ]; then
-              current_body="$(jq -r --argjson id "$comment_id" '[.[] | select(.id == $id)] | last | .body // ""' <<< "$comments_json")"
-              run_line_count="$(awk '/^- Run ID: `[0-9]+`$/ {count++} END {print count+0}' <<< "$current_body")"
-              task_run_id="$(sed -n 's/^- Run ID: `\([0-9][0-9]*\)`$/\1/p' <<< "$current_body")"
-              if [ "$run_line_count" -ne 1 ] || ! [[ "$task_run_id" =~ ^[0-9]+$ ]]; then
-                echo "Trusted task state has missing or ambiguous dispatch run provenance; refusing check mutation." >&2
-                exit 1
-              fi
-            else
-              echo "Trusted Phase-1 Worker PR has no durable task-state record; leaving it unchanged."
-              exit 0
-            fi
-          }
-
-          guard_transition() {
-            transition_json="$(jq -n \
-              --arg current_body "$current_body" \
-              --arg source "checks" \
-              --arg requested_state "$state" \
-              --arg requested_head "$head_sha" \
-              --arg live_head "$head_sha" \
-              --arg live_pr_state "$pr_state" \
-              --argjson live_merged "$pr_merged" \
-              '{current_body:$current_body,source:$source,requested_state:$requested_state,requested_head:$requested_head,live_head:$live_head,live_pr_state:$live_pr_state,live_merged:$live_merged}' \
-              | node "$helper" transition)"
-            transition_apply="$(jq -r '.apply == true' <<< "$transition_json")"
-            transition_reason="$(jq -r '.reason' <<< "$transition_json")"
-          }
-
-          # Bind decision to a freshly fetched live head and the latest exact-head evidence.
+          # Compute exact-head workflow evidence again just before canonical admission.
           read_live_pr
           if [ "$pr_state" != "open" ] || [ "$head_sha" != "$EVENT_HEAD_SHA" ]; then
             echo "PR/head changed before check reconciliation; refusing stale mutation."
             exit 0
           fi
           compute_evidence
-          load_current_state
-          guard_transition
-          if [ "$transition_apply" != "true" ]; then
-            echo "Check state not mutated: $transition_reason"
-            exit 0
-          fi
-
-          # Re-fetch both live PR and latest workflow evidence immediately before mutation.
-          expected_head="$head_sha"
           read_live_pr
-          if [ "$pr_state" != "open" ] || [ "$head_sha" != "$expected_head" ] || [ "$head_sha" != "$EVENT_HEAD_SHA" ]; then
-            echo "Live PR/head changed during check reconciliation; refusing stale mutation."
+          if [ "$pr_state" != "open" ] || [ "$head_sha" != "$EVENT_HEAD_SHA" ]; then
+            echo "PR/head changed during check reconciliation; refusing stale mutation."
             exit 0
           fi
           compute_evidence
-          load_current_state
-          guard_transition
-          if [ "$transition_apply" != "true" ]; then
-            echo "Check state converged before mutation: $transition_reason"
-            exit 0
-          fi
-
-          state_json="$(jq -n --argjson packet "$packet" --arg state "$state" --arg reason "$reason" --arg run_id "$task_run_id" --argjson pr_number "$pr_number" --arg head_sha "$head_sha" '{packet:$packet,state:$state,reason:$reason,run_id:$run_id,pr_number:$pr_number,head_sha:$head_sha}')"
-          body="$(printf '%s' "$state_json" | node "$helper" state-body)"
-          if [ "$state" = "READY_FOR_SUPERVISOR" ]; then
-            ready_checkpoint="- Ready checkpoint: \`${task_id}@${head_sha}\`"
-            if ! grep -Fqx -- "$ready_checkpoint" <<< "$body"; then
-              echo "State body is missing the exact readiness checkpoint for $task_id@$head_sha; refusing mutation." >&2
-              exit 1
-            fi
-          fi
-          if [ -n "$comment_id" ]; then
-            gh api --method PATCH "repos/${REPOSITORY}/issues/comments/${comment_id}" -f body="$body" >/dev/null
-          else
-            gh api --method POST "repos/${REPOSITORY}/issues/548/comments" -f body="$body" >/dev/null
+          admission_input="$(jq -c --argjson pr_number "$pr_number" --arg event_head "$EVENT_HEAD_SHA" --arg actor "$ACTOR" --arg source "checks" --arg requested_state "$state" --arg reason "$reason" '. + {pr_number:$pr_number,event_head:$event_head,actor:$actor,source:$source,requested_state:$requested_state,reason:$reason}' <<< "$control_input")"
+          admission="$(printf '%s' "$admission_input" | node "$helper" worker-pr-admit)"
+          if [ "$(jq -r '.ok == true' <<< "$admission")" != "true" ]; then
+            jq -r '.reason' <<< "$admission" >&2
+            echo "Reopen the same unchanged PR after a Worker slot is available; do not submit another Task Packet or dispatch another Worker." >&2
+            exit 1
           fi
           echo "Reconciled task $task_id checks to $state on exact live head $head_sha."

@@ -894,8 +894,8 @@ export function evaluateTaskStateTransition(input) {
 
   const reactivatesClosedUnmerged = current.state === "CLOSED_UNMERGED"
     && livePrState === "open"
-    && source === "lifecycle"
-    && requestedState === "WORKER_PR_OPENED";
+    && LIFECYCLE_RANK[requestedState] > 0
+    && input.reservation_verified === true;
   const upgradesClosedUnmergedToMerged = current.state === "CLOSED_UNMERGED"
     && livePrState === "closed"
     && liveMerged
@@ -1534,6 +1534,424 @@ function trustedRecord(comments, marker, required = true) {
   return { id: matches[0].id, body: matches[0].body };
 }
 
+const ACTIVE_RESERVATION_STATES = new Set(["RESERVED", "PUBLISHED", "RECOVERABLE"]);
+
+function reservationBody(payload) {
+  return [`<!-- proffera-worker-slot-reservation:${payload.task_id} -->`,
+    `### Worker slot reservation: ${payload.task_id}`, `- State: \`${payload.state}\``,
+    `- Reservation payload: \`${Buffer.from(JSON.stringify(payload)).toString("base64")}\``].join("\n");
+}
+
+function reservationFileList(value, field) {
+  if (!Array.isArray(value)) throw new Error(`${field} must be an array`);
+  const normalized = value.map((path) => assertSafeScope(path, field));
+  if (normalized.some((path, index) => path !== value[index] || path.endsWith("/"))
+    || new Set(normalized).size !== normalized.length) throw new Error(`${field} is not a canonical file list`);
+  return normalized;
+}
+
+function reservationRecords(comments) {
+  const tasks = new Set();
+  const branches = new Set();
+  return comments.filter((comment) => comment?.user?.login === "github-actions[bot]"
+    && String(comment.body ?? "").includes("<!-- proffera-worker-slot-reservation:")).map((comment) => {
+    const body = String(comment.body);
+    const taskId = exactStateBodyField(body, /^<!-- proffera-worker-slot-reservation:([^ ]+) -->$/gmu, "reservation marker");
+    const record = trustedRecord(comments, `<!-- proffera-worker-slot-reservation:${taskId} -->`);
+    const encoded = exactStateBodyField(body, /^- Reservation payload: `([A-Za-z0-9+/]+={0,2})`$/gmu, "reservation payload");
+    const bytes = Buffer.from(encoded, "base64");
+    if (bytes.toString("base64") !== encoded) throw new Error("reservation payload is not canonical base64");
+    const payload = JSON.parse(bytes.toString("utf8"));
+    if (!payload || Array.isArray(payload) || payload.version !== 1 || !TASK_ID_RE.test(taskId)
+      || payload.task_id !== taskId || typeof payload.branch !== "string" || !BRANCH_RE.test(payload.branch)
+      || (typeof payload.run_id !== "string" && !Number.isSafeInteger(payload.run_id))
+      || !/^[0-9]+$/.test(String(payload.run_id ?? ""))
+      || typeof payload.head_sha !== "string" || !SHA_RE.test(payload.head_sha)
+      || typeof payload.packet_digest !== "string" || !SHA256_RE.test(payload.packet_digest)
+      || ![...ACTIVE_RESERVATION_STATES, "RELEASED"].includes(payload.state)
+      || countOccurrences(body, "<!-- proffera-worker-slot-reservation:") !== 1
+      || body.split("\n").filter((line) => line.startsWith("- Reservation payload:")).length !== 1
+      || body.split("\n").filter((line) => line.startsWith("- State:")).length !== 1
+      || exactStateBodyField(body, /^### Worker slot reservation: (.+)$/gmu, "reservation heading") !== taskId
+      || exactStateBodyField(body, /^- State: `([A-Z_]+)`$/gmu, "reservation state") !== payload.state
+      || assertSafeGraphPath(payload.graph_path) !== payload.graph_path
+      || typeof payload.snapshot_finalized !== "boolean"
+      || typeof payload.lease_expires_at !== "string" || !Number.isFinite(Date.parse(payload.lease_expires_at))
+      || (payload.pr_number != null && (!Number.isSafeInteger(payload.pr_number) || payload.pr_number <= 0))) {
+      throw new Error("reservation ownership is malformed or ambiguous");
+    }
+    const scopes = normalizeScopeArray(payload.allowed_paths, "reservation.allowed_paths");
+    if (JSON.stringify(scopes) !== JSON.stringify(payload.allowed_paths)) throw new Error("reservation scope is not canonical");
+    reservationFileList(payload.changed_files, "reservation.changed_files");
+    if ((payload.state === "RESERVED" && (payload.pr_number != null || payload.recovery != null))
+      || (payload.state === "PUBLISHED" && (payload.pr_number == null || payload.recovery != null))
+      || (payload.state === "RECOVERABLE" && (!["branch", "artifact"].includes(payload.recovery?.kind)
+        || typeof payload.recovery.expires_at !== "string" || !Number.isFinite(Date.parse(payload.recovery.expires_at))))) {
+      throw new Error("reservation publication/recovery ownership is malformed");
+    }
+    if (payload.activation_task_sha256 != null && (typeof payload.activation_task_sha256 !== "string" || !SHA256_RE.test(payload.activation_task_sha256))) {
+      throw new Error("reservation activation provenance is malformed");
+    }
+    if (tasks.has(taskId)) throw new Error("duplicate durable task reservation");
+    tasks.add(taskId);
+    if (ACTIVE_RESERVATION_STATES.has(payload.state)) {
+      if (branches.has(payload.branch)) throw new Error("duplicate active reservation branch ownership");
+      branches.add(payload.branch);
+    }
+    return { ...record, payload };
+  });
+}
+
+function sameReservationPacket(payload, packet) {
+  return payload.task_id === packet.task_id && payload.branch === packet.branch
+    && payload.graph_path === packet.graph_path && payload.packet_digest === packetDigest(packet)
+    && JSON.stringify(payload.allowed_paths) === JSON.stringify(packet.allowed_paths);
+}
+
+function ownershipRefusal(code, reason) {
+  return { ok: false, code, reason };
+}
+
+// Both new dispatch and existing-PR reactivation use this admission policy.
+// A PR is only deduplicated against a reservation with exact durable provenance.
+export function planWorkerReservation(input) {
+  try {
+    const packet = normalizeTaskPacket(input.packet);
+    const records = reservationRecords(input.comments);
+    const own = records.find((record) => record.payload.task_id === packet.task_id) ?? null;
+    const runId = String(input.task_run_id ?? "");
+    if (!/^[0-9]+$/.test(runId) || !SHA_RE.test(input.head_sha ?? "")) throw new Error("requested reservation run/head is malformed");
+    const candidatePr = input.pr_number ?? null;
+    const changed = reservationFileList(input.changed_files ?? [], "requested changed_files");
+    if (own && !sameReservationPacket(own.payload, packet)) throw new Error("task reservation does not match the exact packet/branch ownership");
+    const ownActive = own && ACTIVE_RESERVATION_STATES.has(own.payload.state);
+    const rebind = input.rebind === true && own?.payload.state === "PUBLISHED" && own.payload.pr_number === candidatePr;
+    if (ownActive && (String(own.payload.run_id) !== runId || (own.payload.head_sha !== input.head_sha && !rebind)
+      || (candidatePr !== null && own.payload.pr_number != null && own.payload.pr_number !== candidatePr))) {
+      throw new Error("active task reservation has non-idempotent run/head/PR ownership");
+    }
+    if (candidatePr === null && own?.payload.state === "RELEASED" && own.payload.pr_number != null) {
+      throw new Error("released PR reservation cannot be reused for a new dispatch");
+    }
+    let units = 0;
+    const represented = new Set();
+    const branches = new Set();
+    for (const pr of input.open_prs) {
+      if (pr.head?.repo?.full_name !== EXPECTED_REPOSITORY) continue;
+      if (!Number.isSafeInteger(pr.number) || !pr.head?.ref || !pr.base?.ref || !Array.isArray(pr.files)) {
+        throw new Error("open PR ownership/files evidence is malformed");
+      }
+      if (pr.number === candidatePr) {
+        if (pr.head.ref !== packet.branch || pr.head.sha !== input.head_sha) throw new Error("candidate PR ownership changed");
+        continue;
+      }
+      if (pr.head.ref === packet.branch) throw new Error("requested branch belongs to another open PR");
+      if (pr.base.ref !== "main") continue;
+      const worker = pr.head.ref.startsWith("work/proffera-");
+      if (worker) {
+        if (branches.has(pr.head.ref)) throw new Error("duplicate open Worker branch ownership");
+        branches.add(pr.head.ref);
+        if (pr.user?.login !== TRUSTED_SUPERVISOR_ACTOR) throw new Error("open Worker PR owner is untrusted");
+        const metadata = parseTaskMetadata(pr.body ?? "");
+        const graph = assertSafeGraphPath(metadata.graphPath);
+        const scopes = normalizeScopeArray(metadata.allowedPaths, "open Worker allowed paths");
+        if (graphPathsIntersect(graph, packet.graph_path)) throw new Error("graph path conflicts with open Worker ownership");
+        if (packet.allowed_paths.some((left) => scopes.some((right) => scopesIntersect(left, right)))) {
+          throw new Error("declared scope conflicts with open Worker ownership");
+        }
+        units += 1;
+        const matches = records.filter(({ payload }) => ACTIVE_RESERVATION_STATES.has(payload.state)
+          && payload.branch === pr.head.ref && payload.head_sha === pr.head.sha
+          && (payload.pr_number == null || payload.pr_number === pr.number));
+        if (matches.length === 1 && ["PUBLISHED", "RECOVERABLE"].includes(matches[0].payload.state)) {
+          const payload = matches[0].payload;
+          const otherPacket = parseTaskPacketComment(pr.body);
+          trustedRecord(input.comments, `<!-- proffera-worker-dispatch-start:${payload.task_id}:${payload.run_id} -->`);
+          if (!sameReservationPacket(payload, otherPacket)) throw new Error("open Worker reservation packet binding is mismatched");
+          represented.add(payload.task_id);
+        }
+      }
+      if (worker || pr.user?.login === "dependabot[bot]" || pr.head.ref.startsWith("dependabot/")) {
+        const files = reservationFileList(pr.files, "open PR changed files");
+        if (files.some((file) => packet.allowed_paths.some((scope) => scopesIntersect(scope, file)))) {
+          throw new Error("actual touch set conflicts with open PR ownership");
+        }
+      }
+    }
+    for (const record of records) {
+      const other = record.payload;
+      if (!ACTIVE_RESERVATION_STATES.has(other.state) || record === own) continue;
+      if (other.branch === packet.branch) throw new Error("requested branch already has an active reservation owner");
+      if (graphPathsIntersect(other.graph_path, packet.graph_path)) throw new Error("graph path conflicts with active reservation");
+      if (packet.allowed_paths.some((left) => other.allowed_paths.some((right) => scopesIntersect(left, right)))) {
+        throw new Error("declared scope conflicts with active reservation");
+      }
+      if (changed.some((left) => other.changed_files.some((right) => scopesIntersect(left, right)))) {
+        throw new Error("actual touch set conflicts with active reservation");
+      }
+      if (!represented.has(other.task_id)) units += 1;
+    }
+    if (units >= 2) return ownershipRefusal("capacity_blocked", "both writable Worker slots are already occupied or durably reserved");
+    const payload = candidatePr === null
+      ? ownActive ? own.payload : {
+        version: 1, state: "RESERVED", task_id: packet.task_id, run_id: runId, branch: packet.branch,
+        graph_path: packet.graph_path, packet_digest: packetDigest(packet), head_sha: input.head_sha,
+        lease_expires_at: new Date(input.now + 3600000).toISOString(), allowed_paths: packet.allowed_paths,
+        changed_files: changed, snapshot_finalized: false, pr_number: null, recovery: null,
+      }
+      : { ...own.payload, state: "PUBLISHED", head_sha: input.head_sha, pr_number: candidatePr, recovery: null,
+        changed_files: changed, snapshot_finalized: true,
+        ...(own.payload.state === "RELEASED" || own.payload.head_sha !== input.head_sha
+          ? { activation_task_sha256: input.task_body_sha256 } : {}) };
+    return { ok: true, own, payload, body: ownActive && candidatePr === null ? own.body : reservationBody(payload), units: units + 1 };
+  } catch (error) {
+    return ownershipRefusal("invalid_ownership", error instanceof Error ? error.message : "invalid reservation ownership");
+  }
+}
+
+function workerReservationIO(input) {
+  const repository = input.repository;
+  return {
+    assertOwner: () => assertReservationMutex(input),
+    comments: () => githubIssueComments(repository),
+    pr: (number) => retryGitHubRead(() => githubApiJson([`repos/${repository}/pulls/${number}`])),
+    openPrs: () => {
+      const prs = [];
+      for (let page = 1; page <= GITHUB_COMMENT_PAGE_LIMIT; page += 1) {
+        const batch = retryGitHubRead(() => githubApiJson([`repos/${repository}/pulls?state=open&per_page=100&page=${page}`]));
+        if (!Array.isArray(batch)) throw new Error("open PR evidence is malformed");
+        for (const pr of batch) {
+          if (pr.head?.repo?.full_name !== repository) continue;
+          const files = [];
+          for (let filePage = 1; filePage <= 30; filePage += 1) {
+            const entries = retryGitHubRead(() => githubApiJson([`repos/${repository}/pulls/${pr.number}/files?per_page=100&page=${filePage}`]));
+            if (!Array.isArray(entries)) throw new Error("PR file evidence is malformed");
+            files.push(...entries.map((entry) => entry.filename));
+            if (entries.length < 100) break;
+            if (filePage === 30) throw new Error("PR file evidence exceeds bounded limit");
+          }
+          prs.push({ ...pr, files });
+        }
+        if (batch.length < 100) return prs;
+      }
+      throw new Error("open PR evidence exceeds bounded limit");
+    },
+    patch: (id, body) => patchControlRecord(input, id, body),
+    post: (body) => {
+      assertReservationMutex(input);
+      return githubApiJson(["--method", "POST", `repos/${repository}/issues/548/comments`, "-f", `body=${body}`]).id;
+    },
+    close: (number) => {
+      assertReservationMutex(input);
+      githubApiJson(["--method", "PATCH", `repos/${repository}/pulls/${number}`, "-f", "state=closed"]);
+    },
+  };
+}
+
+function assertWorkerTask(record, packet, payload, prNumber) {
+  const body = record.body;
+  if (countOccurrences(body, TASK_STATE_MARKER_PREFIX) !== 1
+    || exactStateBodyField(body, /^### Supervisor task: (.+)$/gmu, "task heading") !== packet.task_id
+    || exactStateBodyField(body, /^- Branch: `([^`]+)`$/gmu, "task branch") !== packet.branch
+    || exactStateBodyField(body, /^- Graph path: `([^`]+)`$/gmu, "task graph") !== packet.graph_path
+    || exactStateBodyField(body, /^- Base: `([0-9a-f]{40})`$/gmu, "task base") !== packet.base_sha
+    || exactStateBodyField(body, /^- Packet SHA-256: `([0-9a-f]{64})`$/gmu, "task digest") !== packetDigest(packet)
+    || exactStateBodyField(body, /^- Run ID: `([0-9]+)`$/gmu, "task run") !== String(payload.run_id)) {
+    throw new Error("canonical task does not match reservation packet/run/branch ownership");
+  }
+  const state = exactStateBodyField(body, /^- State: `([A-Z_]+)`$/gmu, "task state");
+  if (!ACTIVE_TASK_STATES.has(state) || state === "MERGED") throw new Error("task state cannot activate a Worker");
+  const boundPrs = [...body.matchAll(/^- PR: #([1-9][0-9]*)$/gmu)];
+  const heads = [...body.matchAll(/^- Head: `([0-9a-f]{40})`$/gmu)];
+  if (boundPrs.length > 1 || heads.length > 1 || (boundPrs.length && Number(boundPrs[0][1]) !== prNumber)
+    || body.split("\n").filter((line) => line.startsWith("- PR:")).length !== boundPrs.length
+    || body.split("\n").filter((line) => line.startsWith("- Head:")).length !== heads.length) {
+    throw new Error("canonical task PR/head binding is ambiguous or mismatched");
+  }
+  const priorTask = payload.activation_task_sha256 === createHash("sha256").update(body).digest("hex");
+  if ((LIFECYCLE_RANK[state] > 0 || boundPrs.length > 0) && (boundPrs.length !== 1 || heads.length !== 1
+    || (heads[0][1] !== payload.head_sha && !priorTask))) {
+    throw new Error("active task does not match the prior reserved head or exact interrupted activation");
+  }
+  if (boundPrs.length === 0 && heads.length && heads[0][1] !== payload.head_sha && heads[0][1] !== packet.base_sha) {
+    throw new Error("unbound task head does not match reservation or bootstrap provenance");
+  }
+  if (state === "CLOSED_UNMERGED" && (boundPrs.length !== 1 || heads.length !== 1 || (heads[0][1] !== payload.head_sha && !priorTask))) {
+    throw new Error("closed task does not match its exact released PR/head");
+  }
+  return state;
+}
+
+function workerPrIdentity(pr) {
+  return { number: pr.number, state: pr.state, merged: pr.merged === true, body: pr.body,
+    head: { ref: pr.head?.ref, sha: pr.head?.sha, repo: { full_name: pr.head?.repo?.full_name } },
+    base: { ref: pr.base?.ref, sha: pr.base?.sha }, user: { login: pr.user?.login } };
+}
+
+// Injection is confined to the GitHub transport boundary. Tests exercise these
+// same decisions and write ordering without subprocess sleeps or live mutations.
+export function createWorkerReservationAuthority(io) {
+  const equal = (left, right) => JSON.stringify(left) === JSON.stringify(right);
+  const readPr = (number) => workerPrIdentity(io.pr(number));
+  const snapshot = () => ({ comments: io.comments(), open_prs: io.openPrs().map((pr) => ({ ...workerPrIdentity(pr), files: pr.files })) });
+  const requirePlan = (plan) => {
+    if (!plan.ok) throw new Error(plan.reason);
+    return plan;
+  };
+  const persist = (plan) => {
+    io.assertOwner();
+    if (plan.own?.body === plan.body) return plan.own.id;
+    if (plan.own) {
+      io.patch(plan.own.id, plan.body);
+      return plan.own.id;
+    }
+    const id = io.post(plan.body);
+    if (!Number.isSafeInteger(id) || id <= 0) throw new Error("reservation creation returned an invalid identity");
+    return id;
+  };
+  return {
+    acquire(input) {
+      io.assertOwner();
+      const request = { ...input, task_run_id: input.run_id, now: Date.now(), pr_number: null };
+      const observed = snapshot();
+      const plan = planWorkerReservation({ ...request, ...observed });
+      if (!plan.ok) return plan;
+      const confirmed = snapshot();
+      if (!equal(observed, confirmed)) throw new Error("reservation ownership changed before acquisition");
+      const id = persist(plan);
+      const final = snapshot();
+      const persisted = trustedRecord(final.comments, `<!-- proffera-worker-slot-reservation:${plan.payload.task_id} -->`);
+      if (persisted.id !== id || persisted.body !== plan.body) throw new Error("canonical reservation upsert did not converge to exactly one exact record");
+      requirePlan(planWorkerReservation({ ...request, ...final }));
+      io.assertOwner();
+      return { ok: true, reservation_comment_id: id, head_sha: input.head_sha, reused: plan.own?.body === plan.body };
+    },
+    admitPr(input) {
+      io.assertOwner();
+      const requestedState = input.requested_state ?? "WORKER_PR_OPENED";
+      const source = input.source ?? "lifecycle";
+      if (!(LIFECYCLE_RANK[requestedState] > 0) || !["lifecycle", "checks"].includes(source)) {
+        throw new Error("Worker admission requires a canonical active PR state and source");
+      }
+      const prNumber = Number(input.pr_number);
+      if (!Number.isSafeInteger(prNumber) || prNumber <= 0 || !SHA_RE.test(input.event_head ?? "")) {
+        throw new Error("Worker PR admission identity is malformed");
+      }
+      const pr = readPr(prNumber);
+      if (pr.state !== "open" || pr.merged === true || pr.number !== prNumber
+        || pr.base?.ref !== "main" || pr.head?.repo?.full_name !== EXPECTED_REPOSITORY
+        || pr.user?.login !== TRUSTED_SUPERVISOR_ACTOR || pr.head?.sha !== input.event_head) {
+        throw new Error("stale or untrusted live Worker PR/head");
+      }
+      const packet = parseTaskPacketComment(pr.body);
+      if (packet.branch !== pr.head.ref) throw new Error("Task Packet branch does not match the live PR");
+      const observed = snapshot();
+      const own = reservationRecords(observed.comments).find((record) => record.payload.task_id === packet.task_id);
+      if (!own || !sameReservationPacket(own.payload, packet)) throw new Error("Worker PR has no exact original reservation ownership");
+      const payload = own.payload;
+      const task = trustedRecord(observed.comments, `${TASK_STATE_MARKER_PREFIX}${packet.task_id} -->`);
+      const taskState = assertWorkerTask(task, packet, payload, prNumber);
+      const dispatchMarker = `<!-- proffera-worker-dispatch-start:${packet.task_id}:${payload.run_id} -->`;
+      const dispatch = trustedRecord(observed.comments, dispatchMarker);
+      if (payload.pr_number != null && payload.pr_number !== prNumber) throw new Error("reservation belongs to another PR");
+      const released = payload.state === "RELEASED";
+      if (released && (payload.pr_number !== prNumber || payload.head_sha !== pr.head.sha
+        || payload.recovery?.kind !== "closed_pr" || payload.recovery?.merged !== false)) {
+        throw new Error("released reservation has no exact closed-unmerged reopen provenance");
+      }
+      // A verified release is authoritative even if the close's task PATCH was
+      // interrupted. Reopening must not preserve a pre-close Ready checkpoint.
+      const interrupted = payload.activation_task_sha256 === createHash("sha256").update(task.body).digest("hex");
+      const priorBody = released || interrupted ? taskStateBody({ packet, state: "CLOSED_UNMERGED", run_id: payload.run_id,
+        pr_number: prNumber, head_sha: pr.head.sha, reason: "Verified closed-unmerged reservation release." }) : task.body;
+      const transition = evaluateTaskStateTransition({ current_body: priorBody, source,
+        requested_state: requestedState, requested_head: pr.head.sha, live_head: pr.head.sha,
+        live_pr_state: "open", live_merged: false, reservation_verified: true });
+      const rebind = payload.state === "PUBLISHED" && payload.pr_number === prNumber
+        && input.actor === TRUSTED_SUPERVISOR_ACTOR && taskState !== "CLOSED_UNMERGED";
+      const candidate = observed.open_prs.filter((entry) => entry.number === prNumber);
+      if (candidate.length !== 1 || !equal({ ...candidate[0], files: undefined }, { ...pr, files: undefined })) {
+        throw new Error("candidate PR list/live identity is missing or changed");
+      }
+      const bounded = validateChangedFiles(packet, candidate[0].files);
+      if (!bounded.ok) throw new Error(bounded.reason);
+      const request = { packet, task_run_id: payload.run_id, head_sha: pr.head.sha,
+        pr_number: prNumber, changed_files: candidate[0].files, rebind, now: Date.now(),
+        task_body_sha256: createHash("sha256").update(task.body).digest("hex") };
+      const plan = planWorkerReservation({ ...request, ...observed });
+      if (!equal(pr, readPr(prNumber)) || !equal(observed, snapshot())) {
+        throw new Error("Worker PR or reservation evidence changed before admission");
+      }
+      if (!plan.ok) {
+        // Every denied, exactly-owned reopen must remain non-active, including
+        // branch/graph/scope conflicts. A partially persisted close may still
+        // carry a pre-close Ready checkpoint even though its slot was released.
+        if (released) {
+          io.assertOwner();
+          io.close(prNumber);
+          const closed = readPr(prNumber);
+          if (!equal({ ...closed, state: "open" }, pr) || closed.state !== "closed") {
+            throw new Error("admission-blocked PR close did not preserve exact provenance");
+          }
+          const current = trustedRecord(io.comments(), `${TASK_STATE_MARKER_PREFIX}${packet.task_id} -->`);
+          if (!equal(current, task)) throw new Error("task changed during rejected reopen");
+          if (taskState !== "CLOSED_UNMERGED") {
+            io.assertOwner();
+            io.patch(task.id, taskStateBody({ packet, state: "CLOSED_UNMERGED", run_id: payload.run_id,
+              pr_number: prNumber, head_sha: pr.head.sha,
+              reason: `Reopen refused: ${plan.reason}. Reopen this same unchanged PR after the admission blocker is resolved; no new Worker dispatch is required.` }));
+          }
+          return { ...plan, retryable: true, pr_closed: true };
+        }
+        return plan;
+      }
+      const id = persist(plan);
+      const confirmedPr = readPr(prNumber);
+      const confirmed = snapshot();
+      const persisted = trustedRecord(confirmed.comments, `<!-- proffera-worker-slot-reservation:${packet.task_id} -->`);
+      if (!equal(pr, confirmedPr) || persisted.id !== id || persisted.body !== plan.body
+        || !equal(trustedRecord(confirmed.comments, `${TASK_STATE_MARKER_PREFIX}${packet.task_id} -->`), task)) {
+        throw new Error("Worker reservation or PR/task evidence changed before activation");
+      }
+      requirePlan(planWorkerReservation({ ...request, ...confirmed }));
+      if (!equal(trustedRecord(confirmed.comments, dispatchMarker), dispatch)) throw new Error("dispatch evidence changed before activation");
+      let expectedTask = task.body;
+      if (transition.apply) {
+        expectedTask = taskStateBody({ packet, state: requestedState, run_id: payload.run_id,
+          pr_number: prNumber, head_sha: pr.head.sha, reason: input.reason ?? "Exact Worker PR owns one verified durable reservation; current-head checks and review remain required." });
+        if (expectedTask !== task.body) {
+          io.assertOwner();
+          io.patch(task.id, expectedTask);
+        }
+      }
+      let expectedReservation = persisted;
+      const verifyActivation = () => {
+        const final = snapshot();
+        if (!equal(pr, readPr(prNumber))
+          || !equal(trustedRecord(final.comments, `<!-- proffera-worker-slot-reservation:${packet.task_id} -->`), expectedReservation)
+          || !equal(trustedRecord(final.comments, dispatchMarker), dispatch)
+          || !equal(trustedRecord(final.comments, `${TASK_STATE_MARKER_PREFIX}${packet.task_id} -->`), { id: task.id, body: expectedTask })) {
+          throw new Error("Worker reservation/task activation did not converge");
+        }
+        requirePlan(planWorkerReservation({ ...request, ...final }));
+        io.assertOwner();
+      };
+      verifyActivation();
+      // Consume interruption proof only after the active task is durable. A
+      // later legitimate Ready body can equal a pre-close body byte for byte.
+      if (plan.payload.activation_task_sha256 != null) {
+        const completed = { ...plan.payload };
+        delete completed.activation_task_sha256;
+        expectedReservation = { id, body: reservationBody(completed) };
+        io.patch(id, expectedReservation.body);
+        verifyActivation();
+      }
+      return { ok: true, reservation_comment_id: id, task_id: packet.task_id, task_run_id: payload.run_id,
+        head_sha: pr.head.sha, reactivated: released || taskState === "CLOSED_UNMERGED", reservation_changed: expectedReservation.body !== own.body };
+    },
+  };
+}
+
 function originalReservationPacket(comments, reservation, suppliedPacket) {
   if (suppliedPacket?.task_id === reservation.task_id) return normalizeTaskPacket(suppliedPacket);
   const packets = comments.flatMap((comment) => {
@@ -1551,13 +1969,8 @@ function originalReservationPacket(comments, reservation, suppliedPacket) {
 }
 
 function assertUnboundBinding(comments, taskId, branch, reservation, dispatch) {
-  const aliases = comments.filter((comment) => comment?.user?.login === "github-actions[bot]"
-    && String(comment.body ?? "").includes("<!-- proffera-worker-slot-reservation:"))
-    .filter((comment) => {
-      const encoded = exactStateBodyField(comment.body, /^- Reservation payload: `([A-Za-z0-9+/]+={0,2})`$/gmu, "reservation payload");
-      const payload = JSON.parse(Buffer.from(encoded, "base64").toString("utf8"));
-      return payload.task_id === taskId || payload.branch === branch;
-    });
+  const aliases = reservationRecords(comments).filter(({ payload }) => payload.task_id === taskId
+    || (ACTIVE_RESERVATION_STATES.has(payload.state) && payload.branch === branch));
   if (reservation ? aliases.length !== 1 || aliases[0].id !== reservation.id || aliases[0].body !== reservation.body : aliases.length !== 0) {
     throw new Error("reservation identity has missing, duplicate, or mismatched task/branch evidence");
   }
@@ -1871,6 +2284,13 @@ async function main() {
   }
   if (mode === "reconcile-unbound-tasks") {
     process.stdout.write(`${JSON.stringify(reconcileUnboundTasks(parsed))}\n`);
+    return;
+  }
+  if (mode === "reservation-acquire" || mode === "worker-pr-admit") {
+    assertControlIdentity(parsed);
+    const authority = createWorkerReservationAuthority(workerReservationIO(parsed));
+    const result = mode === "reservation-acquire" ? authority.acquire(parsed) : authority.admitPr(parsed);
+    process.stdout.write(`${JSON.stringify(result)}\n`);
     return;
   }
   if (mode === "task-comments") {

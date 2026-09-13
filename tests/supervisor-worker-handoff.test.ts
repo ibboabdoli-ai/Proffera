@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { delimiter, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { pathToFileURL } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
@@ -112,6 +113,7 @@ function exactReservationEvidence(head = sha, overrides: Record<string, unknown>
   const normalizedPacket = parsed.stdout.replace(/\n+$/, "");
   const parsedPacket = JSON.parse(normalizedPacket);
   const payload = {
+    version: 1,
     state: "RESERVED",
     task_id: parsedPacket.task_id,
     run_id: "9001",
@@ -120,6 +122,11 @@ function exactReservationEvidence(head = sha, overrides: Record<string, unknown>
     graph_path: parsedPacket.graph_path,
     allowed_paths: parsedPacket.allowed_paths,
     packet_digest: createHash("sha256").update(normalizedPacket).digest("hex"),
+    changed_files: ["src/features/test/worker.ts"],
+    snapshot_finalized: true,
+    lease_expires_at: "2099-01-01T00:00:00Z",
+    pr_number: null,
+    recovery: null,
     ...overrides,
   };
   const payloadBase64 = Buffer.from(JSON.stringify(payload)).toString("base64");
@@ -131,7 +138,7 @@ function exactReservationEvidence(head = sha, overrides: Record<string, unknown>
         user: { login: "github-actions[bot]" },
         body: "<!-- proffera-worker-slot-reservation:" + payload.task_id + " -->\n"
           + "### Worker slot reservation: " + payload.task_id + "\n"
-          + "- State: `RESERVED`\n"
+          + "- State: `" + payload.state + "`\n"
           + "- Reservation payload: `" + payloadBase64 + "`",
       },
       {
@@ -158,7 +165,7 @@ function expiredSameTaskEvidence(
     head_sha: sha,
     graph_path: normalizedPacket.graph_path,
     packet_digest: createHash("sha256").update(JSON.stringify(normalizedPacket)).digest("hex"),
-    ...(reservationState === "RESERVED" ? { lease_expires_at: "2000-01-01T00:00:00Z" } : {}),
+    lease_expires_at: "2000-01-01T00:00:00Z",
     allowed_paths: normalizedPacket.allowed_paths,
     changed_files: [],
     snapshot_finalized: false,
@@ -193,6 +200,54 @@ function expiredSameTaskEvidence(
   };
 }
 
+// Model only the GitHub transport shared by the executable workflow fixtures.
+// Admission, ownership decisions, and state writes still run in the real helper.
+function reservationControlApiStub() {
+  return String.raw`
+const controlField = (name) => args.find((arg) => arg.startsWith(name + "="))?.slice(name.length + 1) ?? "";
+const controlSave = () => writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
+if (method === "POST" && endpoint.endsWith("/labels")) {
+  if (state.mutex) process.exit(1);
+  state.mutex = controlField("description");
+  controlSave();
+  process.stdout.write("{}\n");
+  process.exit(0);
+}
+if (endpoint.includes("/labels/proffera-worker-slot-reservation-mutex-v1")) {
+  if (!state.mutex) process.exit(1);
+  if (method === "DELETE") {
+    state.mutex = "";
+    controlSave();
+    process.stdout.write("{}\n");
+  } else if (method === "GET") {
+    process.stdout.write(JSON.stringify({ description: state.mutex }) + "\n");
+  } else process.exit(2);
+  process.exit(0);
+}
+if (method === "GET" && /\/pulls\?state=open&per_page=100&page=\d+$/.test(endpoint)) {
+  const page = Number(endpoint.match(/&page=(\d+)$/)[1]);
+  const pulls = (state.pulls ?? [state.pr]).filter((pr) => pr && pr.state === "open");
+  process.stdout.write(JSON.stringify(pulls.slice((page - 1) * 100, page * 100)) + "\n");
+  process.exit(0);
+}
+const controlFiles = endpoint.match(/\/pulls\/(\d+)\/files\?per_page=100&page=(\d+)$/);
+if (method === "GET" && controlFiles) {
+  const pr = (state.pulls ?? [state.pr]).find((item) => String(item?.number) === controlFiles[1]);
+  if (!pr) process.exit(3);
+  const page = Number(controlFiles[2]);
+  process.stdout.write(JSON.stringify((pr.files ?? []).slice((page - 1) * 100, page * 100).map((filename) => ({ filename }))) + "\n");
+  process.exit(0);
+}
+const controlComment = endpoint.match(/\/issues\/comments\/(\d+)$/);
+if (method === "GET" && controlComment) {
+  const comment = state.comments.find((item) => String(item.id) === controlComment[1]);
+  if (!comment) process.exit(3);
+  process.stdout.write((args.includes("--jq") ? comment.body : JSON.stringify(comment)) + "\n");
+  process.exit(0);
+}
+`;
+}
+
 function runReservationEnforcement({
   body = packetComment(),
   comments = [],
@@ -215,8 +270,10 @@ function runReservationEnforcement({
   mkdirSync(bin, { recursive: true });
   writeFileSync(log, "");
   const livePr = {
+    number: 849,
     state: liveState,
     merged: liveMerged,
+    base: { ref: "main", sha },
     head: {
       sha: liveHead,
       ref: "work/proffera-test-task",
@@ -224,6 +281,7 @@ function runReservationEnforcement({
     },
     user: { login: liveAuthor },
     body,
+    files: ["src/features/test/worker.ts"],
   };
   writeFileSync(stateFile, JSON.stringify({ comments, failPagedCommentReads, pagedCommentFailures: 0, pr: livePr }));
   writeFileSync(
@@ -236,6 +294,7 @@ const methodIndex = args.indexOf("--method");
 const method = methodIndex >= 0 ? args[methodIndex + 1] : "GET";
 const endpoint = args.find((arg) => arg.startsWith("repos/")) || "";
 const state = JSON.parse(readFileSync(process.env.GH_STUB_STATE_FILE, "utf8"));
+${reservationControlApiStub()}
 if (args[0] !== "api" || !endpoint) {
   process.stderr.write("unexpected gh call: " + JSON.stringify(args) + "\\n");
   process.exit(2);
@@ -818,7 +877,7 @@ function runSlotReservation({
     allowed_paths: ["tests/new-slot/"],
   });
   const comments = [...(reservation ? [reservationComment(reservation)] : []), ...extraComments];
-  writeFileSync(stateFile, JSON.stringify({ branches, changedReservationBody, comments, mutex: "", pulls, runStatus, mutation, commentReads: 0 }));
+  writeFileSync(stateFile, JSON.stringify({ branches, changedReservationBody, comments, mutex: "", pulls, runStatus, mutation, commentReads: 0, nextCommentId: 1000 }));
   writeFileSync(
     join(bin, "gh"),
     `#!/usr/bin/env node
@@ -833,6 +892,7 @@ const save = () => writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(
 const field = (name) => args.find((arg) => arg.startsWith(name + "="))?.slice(name.length + 1) ?? "";
 const commentMatch = endpoint.match(/issues\\/comments\\/(\\d+)$/);
 if (method === "POST" && endpoint.endsWith("/labels")) {
+  if (state.mutex) process.exit(1);
   state.mutex = field("description");
   save();
   process.stdout.write("{}\\n");
@@ -857,7 +917,7 @@ if (method === "PATCH" && commentMatch) {
 if (method === "POST" && endpoint.endsWith("/issues/548/comments")) {
   state.comments.push({ id: 999, user: { login: "github-actions[bot]" }, body: field("body") });
   save();
-  process.stdout.write("999\\n");
+  process.stdout.write(args.includes("--jq") ? "999\\n" : JSON.stringify({ id: 999 }) + "\\n");
   process.exit(0);
 }
 if (method !== "GET") process.exit(2);
@@ -913,7 +973,8 @@ if (pullMatch) {
 const filesMatch = endpoint.match(/pulls\\/(\\d+)\\/files/);
 if (filesMatch) {
   const pull = state.pulls.find((entry) => String(entry.number) === filesMatch[1]);
-  for (const path of pull?.files ?? []) process.stdout.write(path + "\\n");
+  if (endpoint.includes("&page=")) process.stdout.write(JSON.stringify((pull?.files ?? []).map((filename) => ({ filename }))) + "\\n");
+  else for (const path of pull?.files ?? []) process.stdout.write(path + "\\n");
   process.exit(0);
 }
 const runMatch = endpoint.match(/actions\\/runs\\/(\\d+)$/);
@@ -1091,6 +1152,12 @@ process.exit(2);
   return { ...result, calls, comments: finalState.comments, sourceHead, targetHead };
 }
 
+function durableMutationCalls(calls: string[][]) {
+  return calls.filter((args) => args.includes("--method") && !args.some((arg) =>
+    arg === "name=proffera-worker-slot-reservation-mutex-v1"
+      || arg.endsWith("/labels/proffera-worker-slot-reservation-mutex-v1")));
+}
+
 function prPatchCalls(calls: string[][]) {
   return calls.filter((args) => {
     const methodIndex = args.indexOf("--method");
@@ -1154,6 +1221,16 @@ function runSyncCheckReconciliation({
   mkdirSync(join(repo, "scripts"), { recursive: true });
   mkdirSync(bin, { recursive: true });
   copyFileSync(helper, join(repo, "scripts", "supervisor-worker-handoff.mjs"));
+  const pr = {
+    number: 849,
+    state: liveState,
+    merged: liveMerged,
+    base: { ref: "main", sha },
+    user: { login: liveAuthor },
+    head: { repo: { full_name: liveHeadRepository }, ref: liveRef, sha: liveHead },
+    body,
+    files: ["src/features/test/worker.ts"],
+  };
   writeFileSync(stateFile, JSON.stringify({
     commentFetches: 0,
     comments,
@@ -1163,6 +1240,7 @@ function runSyncCheckReconciliation({
     mutateTaskOnCommentFetch,
     pagedCommentFailures: 0,
     prFetches: 0,
+    pr,
   }));
   writeFileSync(
     join(bin, "gh"),
@@ -1174,11 +1252,15 @@ const methodIndex = args.indexOf("--method");
 const method = methodIndex >= 0 ? args[methodIndex + 1] : "GET";
 const endpoint = args.find((arg) => arg.startsWith("repos/")) || "";
 const state = JSON.parse(readFileSync(process.env.GH_STUB_STATE_FILE, "utf8"));
+${reservationControlApiStub()}
 if (args[0] !== "api" || !endpoint) process.exit(2);
 if (method !== "GET") {
   const bodyArg = args.find((arg) => arg.startsWith("body="));
   const commentMatch = endpoint.match(/issues\\/comments\\/(\\d+)$/);
-  if (method === "PATCH" && bodyArg && commentMatch) {
+  if (method === "PATCH" && endpoint === "repos/ibboabdoli-ai/Proffera/pulls/849" && args.includes("state=closed")) {
+    state.pr.state = "closed";
+    writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
+  } else if (method === "PATCH" && bodyArg && commentMatch) {
     const comment = state.comments.find((entry) => String(entry.id) === commentMatch[1]);
     if (!comment) process.exit(3);
     comment.body = bodyArg.slice("body=".length);
@@ -1192,7 +1274,7 @@ if (method !== "GET") {
 }
 if (endpoint === "repos/ibboabdoli-ai/Proffera/pulls/849") {
   state.prFetches += 1;
-  const pr = JSON.parse(process.env.GH_STUB_PR_JSON);
+  const pr = state.pr;
   if (state.prFetches >= state.mutateHeadOnPrFetch && state.mutateHeadOnPrFetch > 0) pr.head.sha = "${otherSha}";
   writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
   process.stdout.write(JSON.stringify(pr) + "\\n");
@@ -1245,13 +1327,6 @@ process.exit(2);
     { encoding: "utf8", mode: 0o755 },
   );
 
-  const pr = {
-    state: liveState,
-    merged: liveMerged,
-    user: { login: liveAuthor },
-    head: { repo: { full_name: liveHeadRepository }, ref: liveRef, sha: liveHead },
-    body,
-  };
   const result = spawnSync("bash", ["-c", script], {
     cwd: repo,
     encoding: "utf8",
@@ -1296,32 +1371,50 @@ function runWorkerPrStateRecord(currentBody: string) {
   const trustedHelper = join(trusted, "supervisor-worker-handoff.mjs");
   const manifest = join(trusted, "supervisor-worker-handoff.sha256");
   const log = join(root, "gh-calls.jsonl");
+  const stateFile = join(root, "gh-state.json");
   mkdirSync(bin, { recursive: true });
   mkdirSync(trusted, { recursive: true });
   copyFileSync(helper, trustedHelper);
   const helperDigest = createHash("sha256").update(readFileSync(trustedHelper)).digest("hex");
   writeFileSync(manifest, `${helperDigest}  ${trustedHelper}\n`);
+  writeFileSync(log, "");
+  const evidence = exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 900 });
+  writeFileSync(stateFile, JSON.stringify({
+    comments: [...evidence.comments, { id: 99, user: { login: "github-actions[bot]" }, body: currentBody }],
+    pr: {
+      number: 900, state: "open", merged: false, base: { ref: "main", sha },
+      head: { sha, ref: packet().branch, repo: { full_name: packet().repository } },
+      user: { login: "ibboabdoli-ai" }, body: evidence.body, files: ["src/features/test/worker.ts"],
+    },
+  }));
   writeFileSync(
     join(bin, "gh"),
     `#!/usr/bin/env node
-const { appendFileSync } = require("node:fs");
+const { appendFileSync, readFileSync, writeFileSync } = require("node:fs");
 const args = process.argv.slice(2);
 appendFileSync(process.env.GH_STUB_LOG, JSON.stringify(args) + "\\n");
 const methodIndex = args.indexOf("--method");
 const method = methodIndex >= 0 ? args[methodIndex + 1] : "GET";
 const endpoint = args.find((arg) => arg.startsWith("repos/")) || "";
+const state = JSON.parse(readFileSync(process.env.GH_STUB_STATE_FILE, "utf8"));
+${reservationControlApiStub()}
 if (args[0] !== "api" || !endpoint) process.exit(2);
-if (method === "PATCH" && endpoint === "repos/ibboabdoli-ai/Proffera/issues/comments/99") {
+const commentMatch = endpoint.match(/issues\\/comments\\/(\\d+)$/);
+if (method === "PATCH" && commentMatch) {
+  const comment = state.comments.find((entry) => String(entry.id) === commentMatch[1]);
+  if (!comment) process.exit(3);
+  comment.body = args.find((arg) => arg.startsWith("body="))?.slice(5);
+  writeFileSync(process.env.GH_STUB_STATE_FILE, JSON.stringify(state));
   process.stdout.write("{}\\n");
   process.exit(0);
 }
 if (method !== "GET") process.exit(2);
 if (endpoint === "repos/ibboabdoli-ai/Proffera/pulls/900") {
-  process.stdout.write(JSON.stringify({ state: "open", merged: false, head: { sha: process.env.GH_STUB_HEAD } }) + "\\n");
+  process.stdout.write(JSON.stringify(state.pr) + "\\n");
   process.exit(0);
 }
-if (endpoint === "repos/ibboabdoli-ai/Proffera/issues/comments/99") {
-  process.stdout.write(process.env.GH_STUB_STATE_BODY + "\\n");
+if (endpoint.includes("/issues/548/comments?per_page=100&page=")) {
+  process.stdout.write(JSON.stringify(state.comments) + "\\n");
   process.exit(0);
 }
 process.exit(2);
@@ -1338,8 +1431,7 @@ process.exit(2);
       RUNNER_TEMP: root,
       GH_TOKEN: "test-token",
       GH_STUB_LOG: log,
-      GH_STUB_HEAD: sha,
-      GH_STUB_STATE_BODY: currentBody,
+      GH_STUB_STATE_FILE: stateFile,
       REPOSITORY: "ibboabdoli-ai/Proffera",
       PACKET_B64: Buffer.from(JSON.stringify(packet())).toString("base64"),
       STATE_COMMENT_ID: "99",
@@ -1567,6 +1659,10 @@ function stateBody(state: string, headSha = sha) {
     "<!-- proffera-worker-task-state:SUP-TEST-1 -->",
     "### Supervisor task: SUP-TEST-1",
     `- State: \`${state}\``,
+    "- Graph path: `feature/test`",
+    "- Branch: `work/proffera-test-task`",
+    `- Base: \`${sha}\``,
+    `- Packet SHA-256: \`${createHash("sha256").update(JSON.stringify(packet())).digest("hex")}\``,
     "- Run ID: `9001`",
     "- PR: #900",
     `- Head: \`${headSha}\``,
@@ -1596,6 +1692,361 @@ function transition(overrides: Record<string, unknown> = {}) {
     ...overrides,
   });
 }
+
+async function ownershipHarness() {
+  const control = await import(/* @vite-ignore */ pathToFileURL(helper).href);
+  const taskPacket = control.normalizeTaskPacket(packet());
+  const payload = {
+    version: 1, state: "RELEASED", task_id: taskPacket.task_id, run_id: "9001",
+    branch: taskPacket.branch, head_sha: sha, graph_path: taskPacket.graph_path,
+    packet_digest: control.packetDigest(taskPacket), allowed_paths: taskPacket.allowed_paths,
+    changed_files: ["src/features/test/worker.ts"], snapshot_finalized: true,
+    lease_expires_at: "2099-01-01T00:00:00Z", pr_number: 849,
+    recovery: { kind: "closed_pr", merged: false },
+  };
+  const pr = { number: 849, state: "open", merged: false, base: { ref: "main", sha },
+    head: { ref: taskPacket.branch, sha, repo: { full_name: "ibboabdoli-ai/Proffera" } },
+    user: { login: "ibboabdoli-ai" }, body: control.taskPrBody(taskPacket, payload.changed_files), files: payload.changed_files };
+  const state = {
+    owner: "1001", failTaskPatch: false, hook: (_step: string) => { void _step; },
+    comments: [reservationComment(payload, 101),
+      { id: 102, user: { login: "github-actions[bot]" }, body: `<!-- proffera-worker-dispatch-start:${taskPacket.task_id}:9001 -->` },
+      { id: 103, user: { login: "github-actions[bot]" }, body: control.taskStateBody({ packet: taskPacket,
+        state: "CLOSED_UNMERGED", run_id: "9001", pr_number: 849, head_sha: sha, reason: "Previously closed without merge." }) }],
+    prs: [pr], writes: [] as Array<{ id: number; body: string }>, closes: [] as number[], posts: 0,
+  };
+  const io = (owner = "1001") => ({
+    assertOwner: () => { if (state.owner !== owner) throw new Error("reservation mutex ownership changed"); },
+    comments: () => { state.hook("comments"); return structuredClone(state.comments); },
+    openPrs: () => { state.hook("open-prs"); return structuredClone(state.prs.filter((entry) => entry.state === "open")); },
+    pr: (number: number) => {
+      state.hook("pr");
+      const found = state.prs.find((entry) => entry.number === number);
+      if (!found) throw new Error("missing PR");
+      return structuredClone(found);
+    },
+    patch: (id: number, body: string) => {
+      state.hook(`before-patch:${id}`);
+      if (id === 103 && state.failTaskPatch) throw new Error("task persistence interrupted");
+      const record = state.comments.find((entry) => entry.id === id);
+      if (!record) throw new Error("missing comment");
+      record.body = body;
+      state.writes.push({ id, body });
+      state.hook(`patch:${id}`);
+    },
+    post: (body: string) => {
+      const id = 1000 + state.posts++;
+      state.comments.push({ id, user: { login: "github-actions[bot]" }, body });
+      state.writes.push({ id, body });
+      state.hook(`post:${id}`);
+      return id;
+    },
+    close: (number: number) => {
+      const found = state.prs.find((entry) => entry.number === number);
+      if (!found) throw new Error("missing PR");
+      found.state = "closed";
+      state.closes.push(number);
+      state.hook("close");
+    },
+  });
+  const other = (index: number, reservationState = "RESERVED", branch = `work/proffera-owner-${index}`) => {
+    const otherPacket = control.normalizeTaskPacket(packet({ task_id: `SUP-OWNER-${index}`, branch,
+      graph_path: `feature/owner-${index}`, allowed_paths: [`src/owner-${index}/`] }));
+    return reservationComment({ ...payload, state: reservationState, task_id: otherPacket.task_id,
+      branch, graph_path: otherPacket.graph_path, allowed_paths: otherPacket.allowed_paths,
+      changed_files: [], packet_digest: control.packetDigest(otherPacket),
+      pr_number: reservationState === "PUBLISHED" ? 800 + index : null,
+      recovery: reservationState === "RECOVERABLE" ? { kind: "branch", expires_at: "2099-01-01T00:00:00Z" } : null,
+    }, 200 + index);
+  };
+  const request = { repository: "ibboabdoli-ai/Proffera", run_id: "1001", pr_number: 849,
+    event_head: sha, actor: "ibboabdoli-ai" };
+  return { control, taskPacket, payload, pr, state, io, other, request,
+    authority: control.createWorkerReservationAuthority(io()) };
+}
+
+describe("Canonical Worker reservation ownership", () => {
+  const acquisition = (fixture: Awaited<ReturnType<typeof ownershipHarness>>) => ({
+    packet: fixture.taskPacket, run_id: "1001", head_sha: sha, changed_files: [],
+  });
+
+  it("reacquires one released slot before reopening and makes duplicate delivery idempotent", async () => {
+    const fixture = await ownershipHarness();
+    expect(fixture.authority.admitPr(fixture.request)).toMatchObject({ ok: true, reactivated: true, reservation_comment_id: 101 });
+    expect(fixture.state.writes.map((write) => write.id)).toEqual([101, 103, 101]);
+    expect(fixture.state.writes[0].body).toContain("- State: `PUBLISHED`");
+    expect(fixture.state.writes[1].body).toContain("- State: `WORKER_PR_OPENED`");
+    expect(fixture.authority.admitPr(fixture.request)).toMatchObject({ ok: true, reactivated: false });
+    expect(fixture.state.writes).toHaveLength(3);
+    expect(fixture.state.posts).toBe(0);
+    expect(fixture.state.comments.filter((record) => record.body.includes("proffera-worker-dispatch-start:"))).toHaveLength(1);
+  });
+
+  it("rejects reopening a third Worker and recovers once capacity frees without redispatch", async () => {
+    const fixture = await ownershipHarness();
+    fixture.state.comments.push(fixture.other(1), fixture.other(2));
+    expect(fixture.authority.admitPr(fixture.request)).toMatchObject({ ok: false, code: "capacity_blocked", retryable: true, pr_closed: true });
+    expect(fixture.state.writes).toEqual([]);
+    expect(fixture.state.closes).toEqual([849]);
+    expect(fixture.state.comments[0].body).toContain("- State: `RELEASED`");
+    expect(fixture.state.comments[2].body).toContain("- State: `CLOSED_UNMERGED`");
+    fixture.state.comments[3] = fixture.other(1, "RELEASED");
+    fixture.pr.state = "open"; // Supported retry: owner reopens the same unchanged PR.
+    expect(fixture.authority.admitPr(fixture.request)).toMatchObject({ ok: true, reservation_comment_id: 101 });
+    expect(fixture.state.writes.map((write) => write.id)).toEqual([101, 103, 101]);
+    expect(fixture.state.posts).toBe(0);
+    expect(fixture.authority.admitPr(fixture.request)).toMatchObject({ ok: true });
+    expect(fixture.state.writes).toHaveLength(3);
+  });
+
+  it.each(["RESERVED", "PUBLISHED", "RECOVERABLE"])("rejects another %s branch owner even without a live branch or PR", async (state) => {
+    const fixture = await ownershipHarness();
+    fixture.state.prs = [];
+    fixture.state.comments = [fixture.other(1, state, fixture.taskPacket.branch)];
+    expect(fixture.authority.acquire(acquisition(fixture))).toMatchObject({ ok: false, code: "invalid_ownership", reason: expect.stringContaining("branch") });
+    expect(fixture.state.writes).toEqual([]);
+    expect(fixture.state.posts).toBe(0);
+  });
+
+  it.each(["RELEASED", "RECOVERABLE"])("permits legitimate disjoint reuse beside %s evidence and remains idempotent", async (state) => {
+    const fixture = await ownershipHarness();
+    fixture.state.prs = [];
+    fixture.state.comments = [fixture.other(1, state, state === "RELEASED" ? fixture.taskPacket.branch : undefined)];
+    expect(fixture.authority.acquire(acquisition(fixture))).toMatchObject({ ok: true, reused: false });
+    expect(fixture.authority.acquire(acquisition(fixture))).toMatchObject({ ok: true, reused: true });
+    expect(fixture.state.posts).toBe(1);
+    expect(fixture.state.writes).toHaveLength(1);
+  });
+
+  it.each(["duplicate-task", "duplicate-branch", "array-branch", "array-head", "array-digest", "whitespace-scope", "whitespace-touch", "malformed-payload", "duplicate-payload", "duplicate-state"])("fails closed on %s reservation evidence before any mutation", async (kind) => {
+    const fixture = await ownershipHarness();
+    const other = fixture.other(1, "RECOVERABLE");
+    if (kind === "duplicate-task") fixture.state.comments.push({ ...fixture.state.comments[0], id: 999 });
+    else if (kind === "duplicate-branch") fixture.state.comments.push(fixture.other(1, "RESERVED", fixture.taskPacket.branch));
+    else if (kind === "duplicate-payload") fixture.state.comments[0].body += "\n- Reservation payload: `!`";
+    else if (kind === "duplicate-state") fixture.state.comments[0].body += "\n- State: malformed";
+    else {
+      const payload = JSON.parse(Buffer.from(other.body.match(/Reservation payload: `([^`]+)`/)![1], "base64").toString());
+      if (kind === "array-branch") payload.branch = [fixture.taskPacket.branch];
+      if (kind === "array-head") payload.head_sha = [sha];
+      if (kind === "array-digest") payload.packet_digest = [payload.packet_digest];
+      if (kind === "whitespace-scope") payload.allowed_paths = [" src/owner-1/"];
+      if (kind === "whitespace-touch") payload.changed_files = ["src/owner-1/file.ts "];
+      fixture.state.comments.push(kind === "malformed-payload" ? { ...other, body: other.body.replace(/Reservation payload: `[^`]+`/, "Reservation payload: `!`") } : reservationComment(payload, other.id));
+    }
+    if (kind === "duplicate-branch") {
+      // RELEASED historical owners do not alias; the new active owner still blocks reacquisition.
+      expect(fixture.authority.admitPr(fixture.request)).toMatchObject({ ok: false, code: "invalid_ownership" });
+    } else expect(() => fixture.authority.admitPr(fixture.request)).toThrow();
+    expect(fixture.state.writes).toEqual([]);
+  });
+
+  it.each(["stale-event", "changed-packet", "wrong-pr", "wrong-task-head", "unreserved", "invalid-source"])("rejects %s reopening without activation", async (kind) => {
+    const fixture = await ownershipHarness();
+    if (kind === "stale-event") fixture.request.event_head = "b".repeat(40);
+    if (kind === "changed-packet") fixture.pr.body = packetComment({ ...fixture.taskPacket, graph_path: "feature/changed" });
+    if (kind === "wrong-pr") fixture.state.comments[0] = reservationComment({ ...fixture.payload, pr_number: 850 }, 101);
+    if (kind === "wrong-task-head") fixture.state.comments[2].body = fixture.state.comments[2].body.replace(`- Head: \`${sha}\``, `- Head: \`${"b".repeat(40)}\``);
+    if (kind === "unreserved") fixture.state.comments.shift();
+    expect(() => fixture.authority.admitPr({ ...fixture.request, ...(kind === "invalid-source" ? { source: "dispatch" } : {}) })).toThrow();
+    expect(fixture.state.writes).toEqual([]);
+  });
+
+  it.each(["graph", "scope", "touch"])("preserves %s exclusion during reacquisition", async (kind) => {
+    const fixture = await ownershipHarness();
+    const other = fixture.other(1);
+    const payload = JSON.parse(Buffer.from(other.body.match(/Reservation payload: `([^`]+)`/)![1], "base64").toString());
+    if (kind === "graph") payload.graph_path = fixture.taskPacket.graph_path;
+    if (kind === "scope") payload.allowed_paths = fixture.taskPacket.allowed_paths;
+    if (kind === "touch") payload.changed_files = fixture.payload.changed_files;
+    fixture.state.comments.push(reservationComment(payload, other.id));
+    expect(fixture.authority.admitPr(fixture.request)).toMatchObject({ ok: false, code: "invalid_ownership" });
+    expect(fixture.state.writes).toEqual([]);
+  });
+
+  it.each(["lifecycle", "checks"])("allows a %s reconciliation to arrive first after reopening", async (source) => {
+    const fixture = await ownershipHarness();
+    expect(fixture.authority.admitPr({ ...fixture.request, source, requested_state: "CHECKS_PENDING" })).toMatchObject({ ok: true, reactivated: true });
+    expect(fixture.state.comments[2].body).toContain("- State: `CHECKS_PENDING`");
+    expect(fixture.state.writes.map((write) => write.id)).toEqual([101, 103, 101]);
+  });
+
+  it.each(["reopen", "rebind"])("resumes an interrupted %s task write with the same reservation and no redispatch", async (kind) => {
+    const fixture = await ownershipHarness();
+    if (kind === "rebind") {
+      fixture.authority.admitPr(fixture.request);
+      fixture.state.writes = [];
+      fixture.pr.head.sha = "b".repeat(40);
+      fixture.request.event_head = fixture.pr.head.sha;
+    }
+    fixture.state.failTaskPatch = true;
+    expect(() => fixture.authority.admitPr(fixture.request)).toThrow("task persistence interrupted");
+    expect(fixture.state.writes.map((write) => write.id)).toEqual([101]);
+    fixture.state.failTaskPatch = false;
+    expect(fixture.authority.admitPr(fixture.request)).toMatchObject({ ok: true, reservation_comment_id: 101 });
+    expect(fixture.state.writes.map((write) => write.id)).toEqual([101, 103, 101]);
+    expect(fixture.authority.admitPr(fixture.request)).toMatchObject({ ok: true });
+    expect(fixture.state.writes).toHaveLength(3);
+    expect(fixture.state.posts).toBe(0);
+    expect(fixture.state.comments.filter((record) => record.body.includes("proffera-worker-dispatch-start:"))).toHaveLength(1);
+  });
+
+  it.each(["close-before", "close-after-reservation", "reservation-before", "reservation-after", "dispatch-after", "mutex-after"])("prevents partial task activation when %s races admission", async (kind) => {
+    const fixture = await ownershipHarness();
+    let reads = 0;
+    fixture.state.hook = (step) => {
+      if (step === "comments") reads += 1;
+      const before = (kind === "close-before" || kind === "reservation-before") && step === "comments" && reads === 2;
+      const after = kind.endsWith("after") || kind === "close-after-reservation";
+      if (!before && !(after && step === "patch:101")) return;
+      fixture.state.hook = () => {};
+      if (kind.startsWith("close")) fixture.pr.state = "closed";
+      if (kind.startsWith("reservation")) fixture.state.comments.push(fixture.other(1), fixture.other(2));
+      if (kind === "dispatch-after") fixture.state.comments[1].body += "\nchanged";
+      if (kind === "mutex-after") fixture.state.owner = "2002";
+    };
+    expect(() => fixture.authority.admitPr(fixture.request)).toThrow();
+    expect(fixture.state.writes.some((write) => write.id === 103)).toBe(false);
+    expect(fixture.state.comments[2].body).toContain("- State: `CLOSED_UNMERGED`");
+  });
+
+  it("serializes a competing reservation behind the same global mutex and counts the reopened owner", async () => {
+    const fixture = await ownershipHarness();
+    fixture.state.comments.push(fixture.other(1));
+    const competingPacket = fixture.control.normalizeTaskPacket(packet({ task_id: "SUP-OWNER-2", branch: "work/proffera-owner-2", graph_path: "feature/owner-2", allowed_paths: ["src/owner-2/"] }));
+    const competing = fixture.control.createWorkerReservationAuthority(fixture.io("2002"));
+    const request = { ...acquisition(fixture), packet: competingPacket, run_id: "2002" };
+    expect(() => competing.acquire(request)).toThrow("mutex ownership");
+    expect(fixture.authority.admitPr(fixture.request)).toMatchObject({ ok: true });
+    fixture.state.owner = "2002";
+    expect(competing.acquire(request)).toMatchObject({ ok: false, code: "capacity_blocked" });
+    expect(fixture.state.posts).toBe(0);
+  });
+
+  it("rejects duplicate active owners even on same-task idempotent acquisition", async () => {
+    const fixture = await ownershipHarness();
+    fixture.state.prs = [];
+    fixture.state.comments = [];
+    fixture.authority.acquire(acquisition(fixture));
+    fixture.state.comments.push(fixture.other(1, "RECOVERABLE", fixture.taskPacket.branch));
+    expect(fixture.authority.acquire(acquisition(fixture))).toMatchObject({ ok: false, code: "invalid_ownership" });
+    expect(fixture.state.posts).toBe(1);
+  });
+
+  it("retains all changed-file evidence beyond fifty files", async () => {
+    const fixture = await ownershipHarness();
+    fixture.pr.files = Array.from({ length: 75 }, (_, index) => `src/features/test/file-${index}.ts`);
+    expect(fixture.authority.admitPr(fixture.request)).toMatchObject({ ok: true });
+    const stored = JSON.parse(Buffer.from(fixture.state.comments[0].body.match(/Reservation payload: `([^`]+)`/)![1], "base64").toString());
+    expect(stored.changed_files).toEqual(fixture.pr.files);
+  });
+
+  it.each(["RESERVED", "RECOVERABLE"])("publishes an original %s owner and preserves later readiness for the same head", async (state) => {
+    const fixture = await ownershipHarness();
+    fixture.state.comments[0] = reservationComment({ ...fixture.payload, state, pr_number: null,
+      recovery: state === "RECOVERABLE" ? { kind: "artifact", expires_at: "2099-01-01T00:00:00Z" } : null }, 101);
+    fixture.state.comments[2].body = fixture.control.taskStateBody({ packet: fixture.taskPacket, state: "TASK_CREATED", run_id: "9001", head_sha: sha });
+    expect(fixture.authority.admitPr(fixture.request)).toMatchObject({ ok: true });
+    expect(fixture.authority.admitPr({ ...fixture.request, source: "checks", requested_state: "READY_FOR_SUPERVISOR" })).toMatchObject({ ok: true });
+    const writes = fixture.state.writes.length;
+    expect(fixture.authority.admitPr(fixture.request)).toMatchObject({ ok: true });
+    expect(fixture.state.writes).toHaveLength(writes);
+    expect(fixture.state.comments[2].body).toContain(`- Ready checkpoint: \`${fixture.taskPacket.task_id}@${sha}\``);
+  });
+
+  it("rejects an unrelated third task head during an interrupted published-head rebind", async () => {
+    const fixture = await ownershipHarness();
+    fixture.authority.admitPr(fixture.request);
+    fixture.pr.head.sha = "b".repeat(40);
+    fixture.request.event_head = fixture.pr.head.sha;
+    fixture.state.failTaskPatch = true;
+    expect(() => fixture.authority.admitPr(fixture.request)).toThrow("task persistence interrupted");
+    fixture.state.failTaskPatch = false;
+    fixture.state.comments[2].body = fixture.state.comments[2].body.replace(`- Head: \`${sha}\``, `- Head: \`${"c".repeat(40)}\``);
+    const writes = fixture.state.writes.length;
+    expect(() => fixture.authority.admitPr(fixture.request)).toThrow("prior reserved head");
+    expect(fixture.state.writes).toHaveLength(writes);
+  });
+
+  it("fails acquisition verification if duplicate branch evidence appears during persistence", async () => {
+    const fixture = await ownershipHarness();
+    fixture.state.prs = [];
+    fixture.state.comments = [];
+    fixture.state.hook = (step) => {
+      if (step.startsWith("post:")) fixture.state.comments.push(fixture.other(1, "RECOVERABLE", fixture.taskPacket.branch));
+    };
+    expect(() => fixture.authority.acquire(acquisition(fixture))).toThrow("duplicate active reservation branch");
+    expect(fixture.state.posts).toBe(1);
+    expect(fixture.state.writes.every((write) => write.body.includes("slot-reservation"))).toBe(true);
+  });
+
+  it("invalidates a pre-close Ready checkpoint when the terminal close task write was interrupted", async () => {
+    const fixture = await ownershipHarness();
+    fixture.state.comments[2].body = fixture.control.taskStateBody({ packet: fixture.taskPacket,
+      state: "READY_FOR_SUPERVISOR", run_id: "9001", pr_number: 849, head_sha: sha });
+    fixture.state.failTaskPatch = true;
+    expect(() => fixture.authority.admitPr(fixture.request)).toThrow("task persistence interrupted");
+    fixture.state.failTaskPatch = false;
+    expect(fixture.authority.admitPr(fixture.request)).toMatchObject({ ok: true });
+    expect(fixture.state.writes.map((write) => write.id)).toEqual([101, 103, 101]);
+    expect(fixture.state.comments[2].body).toContain("- State: `WORKER_PR_OPENED`");
+    expect(fixture.state.comments[2].body).not.toContain("Ready checkpoint:");
+    expect(fixture.authority.admitPr(fixture.request)).toMatchObject({ ok: true });
+    expect(fixture.state.writes).toHaveLength(3);
+  });
+
+  it.each(["READY_FOR_SUPERVISOR", "CLOSED_UNMERGED"])("recovers an interrupted close at a newer head with exact prior %s task proof", async (state) => {
+    const fixture = await ownershipHarness();
+    fixture.state.comments[2].body = fixture.control.taskStateBody({ packet: fixture.taskPacket,
+      state, run_id: "9001", pr_number: 849, head_sha: sha });
+    const prior = fixture.state.comments[2].body;
+    fixture.pr.head.sha = "b".repeat(40);
+    fixture.request.event_head = fixture.pr.head.sha;
+    fixture.state.comments[0] = reservationComment({ ...fixture.payload, head_sha: fixture.pr.head.sha,
+      activation_task_sha256: createHash("sha256").update(prior).digest("hex") }, 101);
+    fixture.state.failTaskPatch = true;
+    expect(() => fixture.authority.admitPr(fixture.request)).toThrow("task persistence interrupted");
+    fixture.state.failTaskPatch = false;
+    expect(fixture.authority.admitPr(fixture.request)).toMatchObject({ ok: true, head_sha: fixture.pr.head.sha });
+    expect(fixture.state.writes.map((write) => write.id)).toEqual([101, 103, 101]);
+    expect(fixture.state.comments[2].body).toContain(`- Head: \`${fixture.pr.head.sha}\``);
+    expect(fixture.state.comments[2].body).not.toContain("Ready checkpoint:");
+    expect(fixture.authority.admitPr(fixture.request)).toMatchObject({ ok: true });
+    expect(fixture.state.writes).toHaveLength(3);
+  });
+
+  it("consumes activation proof so restored identical Ready evidence remains monotonic", async () => {
+    const fixture = await ownershipHarness();
+    const reason = "All required workflows currently pass for the exact head.";
+    const ready = fixture.control.taskStateBody({ packet: fixture.taskPacket,
+      state: "READY_FOR_SUPERVISOR", run_id: "9001", pr_number: 849, head_sha: sha, reason });
+    fixture.state.comments[2].body = ready;
+    expect(fixture.authority.admitPr(fixture.request)).toMatchObject({ ok: true });
+    expect(fixture.authority.admitPr({ ...fixture.request, source: "checks", requested_state: "READY_FOR_SUPERVISOR", reason })).toMatchObject({ ok: true });
+    expect(fixture.state.comments[2].body).toBe(ready);
+    const writes = fixture.state.writes.length;
+    expect(fixture.authority.admitPr(fixture.request)).toMatchObject({ ok: true });
+    expect(fixture.state.writes).toHaveLength(writes);
+    expect(fixture.state.comments[2].body).toBe(ready);
+    const payload = JSON.parse(Buffer.from(fixture.state.comments[0].body.match(/Reservation payload: `([^`]+)`/)![1], "base64").toString());
+    expect(payload.activation_task_sha256).toBeUndefined();
+  });
+
+  it.each(["before-patch:101", "patch:101"])("finishes proof cleanup after failure at %s without duplicate activation", async (step) => {
+    const fixture = await ownershipHarness();
+    let patches = 0;
+    fixture.state.hook = (current) => {
+      if (current === step && ++patches === 2) throw new Error("cleanup transport failure");
+    };
+    expect(() => fixture.authority.admitPr(fixture.request)).toThrow("cleanup transport failure");
+    fixture.state.hook = () => {};
+    expect(fixture.authority.admitPr(fixture.request)).toMatchObject({ ok: true });
+    expect(fixture.state.writes.map((write) => write.id)).toEqual([101, 103, 101]);
+    expect(fixture.state.posts).toBe(0);
+    expect(fixture.authority.admitPr(fixture.request)).toMatchObject({ ok: true });
+    expect(fixture.state.writes).toHaveLength(3);
+  });
+});
 
 describe("Supervisor ↔ Worker Phase-1 handoff", () => {
   it("keeps the trusted handoff helper directly executable", () => {
@@ -2295,7 +2746,8 @@ exit 0
     expect(handoff).toContain("BASE64_GZIP_JSON");
     expect(handoff).toContain("current_source_head:$current_source_head");
     const sync = source(".github/workflows/worker-supervisor-sync.yml");
-    expect(sync).toContain("State body is missing the exact readiness checkpoint");
+    expect(sync).toContain('node "$helper" worker-pr-admit');
+    expect(source("scripts/supervisor-worker-handoff.mjs")).toContain("READY_FOR_SUPERVISOR requires an exact head_sha and pr_number");
     expect(sync).toContain("exit 1");
   });
 
@@ -2321,7 +2773,7 @@ exit 0
     expect(closeStep).toContain('terminal_state="MERGED"');
     expect(closeStep).toContain('terminal_state="CLOSED_UNMERGED"');
     expect(closeStep).toContain("in the same close writer");
-    expect(workflow).toContain("lease_expires_at");
+    expect(source("scripts/supervisor-worker-handoff.mjs")).toContain("lease_expires_at");
     const reserveStep = workflowRunStep(workflow, "Atomically reserve writable Worker slot");
     for (const step of [preflightStep, reserveStep]) {
       expect(step).toContain('node "$helper" reservation-mutex-acquire');
@@ -2346,7 +2798,10 @@ exit 0
 
   it("accepts one exact reservation and matching bot-authored dispatch record", () => {
     const evidence = exactReservationEvidence();
-    const result = runReservationEnforcement(evidence);
+    const result = runReservationEnforcement({ ...evidence, comments: [
+      ...evidence.comments,
+      { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("TASK_CREATED") },
+    ] });
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain("is bound to durable reservation SUP-TEST-1@");
     expect(result.stdout).not.toContain("leaving it unchanged");
@@ -2397,6 +2852,7 @@ exit 0
     expect(String(closed.comments.find((comment) => comment.id === 103)?.body)).toContain("- State: `CLOSED_UNMERGED`");
 
     const existing = {
+      version: 1,
       state: "RESERVED",
       task_id: "SUP-OTHER-SLOT-1",
       run_id: "7001",
@@ -2407,6 +2863,7 @@ exit 0
       lease_expires_at: "2099-01-01T00:00:00Z",
       allowed_paths: ["src/features/other-slot/"],
       changed_files: [],
+      snapshot_finalized: false,
       pr_number: null,
       recovery: null,
     };
@@ -2564,7 +3021,7 @@ exit 0
     ]) {
       const ambiguous = runSyncCheckReconciliation({ body: editedBodies[0], comments });
       expect(ambiguous.status, ambiguous.stderr).toBe(0);
-      expect(ambiguous.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+      expect(durableMutationCalls(ambiguous.calls)).toHaveLength(0);
     }
   }, 40_000);
 
@@ -2608,7 +3065,7 @@ exit 0
       liveState: "closed",
     });
     expect(unrelatedTaskHead.status, unrelatedTaskHead.stderr).toBe(0);
-    expect(unrelatedTaskHead.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+    expect(durableMutationCalls(unrelatedTaskHead.calls)).toHaveLength(0);
   }, 30_000);
 
   it("converges both partial malformed-close outcomes across an unrecorded repair head", () => {
@@ -2673,7 +3130,7 @@ exit 0
       ]) {
         const result = reconcile({ body: "missing packet", comments });
         expect(result.status, result.stderr).toBe(0);
-        expect(result.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+        expect(durableMutationCalls(result.calls)).toHaveLength(0);
       }
     }
   });
@@ -2746,7 +3203,7 @@ exit 0
         ],
       });
       expect(rejected.status, rejected.stderr).toBe(0);
-      expect(rejected.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+      expect(durableMutationCalls(rejected.calls)).toHaveLength(0);
     }
 
     const duplicateTaskState = runSyncCheckReconciliation({
@@ -2758,7 +3215,7 @@ exit 0
       ],
     });
     expect(duplicateTaskState.status, duplicateTaskState.stderr).toBe(0);
-    expect(duplicateTaskState.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+    expect(durableMutationCalls(duplicateTaskState.calls)).toHaveLength(0);
   });
 
   it("rejects every untrusted malformed-close replacement identity or binding without mutation", () => {
@@ -2778,7 +3235,7 @@ exit 0
       for (const current of cases) {
         const result = reconcile(current);
         expect(result.status, result.stderr).toBe(0);
-        expect(result.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+        expect(durableMutationCalls(result.calls)).toHaveLength(0);
       }
     }
   });
@@ -2788,7 +3245,7 @@ exit 0
     for (const reconcile of [runLifecycleReconciliation, runSyncCheckReconciliation]) {
       const result = reconcile({ body: "missing packet", comments: evidence.comments, liveState: "open" });
       expect(result.status, result.stderr).toBe(0);
-      expect(result.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+      expect(durableMutationCalls(result.calls)).toHaveLength(0);
     }
   });
 
@@ -2832,7 +3289,7 @@ exit 0
       ],
     });
     expect(conflictingTerminal.status, conflictingTerminal.stderr).toBe(0);
-    expect(conflictingTerminal.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+    expect(durableMutationCalls(conflictingTerminal.calls)).toHaveLength(0);
   });
 
   it("uses the live merged bit as the only malformed-close terminal selector", () => {
@@ -2863,7 +3320,7 @@ exit 0
     ]) {
       const result = runSyncCheckReconciliation({ body: "missing packet", comments, ...current });
       expect(result.status, result.stderr).toBe(0);
-      expect(result.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+      expect(durableMutationCalls(result.calls)).toHaveLength(0);
     }
 
     const changedTask = runSyncCheckReconciliation({
@@ -2896,7 +3353,7 @@ exit 0
     });
     expect(unavailable.status, unavailable.stderr).toBe(0);
     expect(unavailable.stdout).toContain("unavailable after bounded retries");
-    expect(unavailable.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+    expect(durableMutationCalls(unavailable.calls)).toHaveLength(0);
 
     const recoveryNoise = Array.from({ length: 100 }, (_, index) => ({
       id: 1000 + index,
@@ -2960,9 +3417,12 @@ exit 0
       pr_number: null,
       recovery: { kind: "branch", expires_at: "2099-01-01T00:00:00Z" },
     });
-    const result = runReservationEnforcement(evidence);
+    const result = runReservationEnforcement({ ...evidence, comments: [
+      ...evidence.comments,
+      { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("WORKER_BLOCKED") },
+    ] });
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toContain("Promoted exact recoverable reservation SUP-TEST-1@");
+    expect(result.stdout).toContain("is bound to durable reservation SUP-TEST-1@");
     expect(prPatchCalls(result.calls)).toHaveLength(0);
     expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
     const reservation = result.comments.find((comment) => comment.id === 101);
@@ -2982,14 +3442,18 @@ exit 0
     });
     const result = runReservationEnforcement({
       body: evidence.body,
-      comments: evidence.comments,
+      comments: [
+        ...evidence.comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING") },
+      ],
       eventHead: otherSha,
       liveHead: otherSha,
     });
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toContain(`Advanced published reservation SUP-TEST-1 to trusted repair head ${otherSha}`);
+    expect(result.stdout).toContain(`is bound to durable reservation SUP-TEST-1@${otherSha}`);
     expect(prPatchCalls(result.calls)).toHaveLength(0);
-    expect(commentPatchCalls(result.calls, 101)).toHaveLength(1);
+    expect(commentPatchCalls(result.calls, 101)).toHaveLength(2);
+    expect(result.comments.filter((comment) => String(comment.body ?? "").includes("proffera-worker-slot-reservation:SUP-TEST-1"))).toHaveLength(1);
     const reservation = result.comments.find((comment) => comment.id === 101);
     const payloadBase64 = String(reservation?.body ?? "").match(/^- Reservation payload: `([^`]*)`$/m)?.[1] ?? "";
     expect(JSON.parse(Buffer.from(payloadBase64, "base64").toString("utf8"))).toMatchObject({
@@ -2998,6 +3462,7 @@ exit 0
       head_sha: otherSha,
       recovery: null,
     });
+    expect(JSON.parse(Buffer.from(payloadBase64, "base64").toString("utf8"))).not.toHaveProperty("activation_task_sha256");
   });
 
   it("does not advance a published reservation for an unbound or non-owner repair event", () => {
@@ -3090,6 +3555,7 @@ exit 0
         state: "RELEASED",
         pr_number: 849,
         recovery: { kind: "closed_pr", merged: liveMerged },
+        activation_task_sha256: createHash("sha256").update(taskState.body).digest("hex"),
       });
       const terminal = result.comments.find((comment) => comment.id === 103);
       const terminalBody = String(terminal?.body);
@@ -3209,7 +3675,7 @@ exit 0
         ...current,
       });
       expect(result.status, result.stderr).toBe(0);
-      expect(result.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+      expect(durableMutationCalls(result.calls)).toHaveLength(0);
     }
   });
 
@@ -3262,7 +3728,7 @@ exit 0
     ]) {
       const result = runSyncCheckReconciliation(current);
       expect(result.status, result.stderr).toBe(0);
-      expect(result.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+      expect(durableMutationCalls(result.calls)).toHaveLength(0);
     }
   }, 20_000);
 
@@ -3306,7 +3772,7 @@ exit 0
     });
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain("Workflow completion is stale for open PR #849");
-    expect(result.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+    expect(durableMutationCalls(result.calls)).toHaveLength(0);
   });
 
   it("converges live-closed synchronize and ready-for-review lifecycle replacements", () => {
@@ -3353,6 +3819,7 @@ exit 0
         pr_number: 849,
         head_sha: otherSha,
         recovery: { kind: "closed_pr", merged: false },
+        activation_task_sha256: createHash("sha256").update(stateBody("CHECKS_PENDING", otherSha)).digest("hex"),
       });
     }
   });
@@ -3391,7 +3858,7 @@ exit 0
     ]) {
       const result = runLifecycleReconciliation({ action: "synchronize", comments });
       expect(result.status, result.stderr).toBe(0);
-      expect(result.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+      expect(durableMutationCalls(result.calls)).toHaveLength(0);
     }
   });
 
@@ -3405,11 +3872,14 @@ exit 0
     });
     expect(stale.status, stale.stderr).toBe(0);
     expect(stale.stdout).toContain("Ignoring stale open lifecycle event");
-    expect(stale.calls.filter((args) => args.includes("--method"))).toHaveLength(0);
+    expect(durableMutationCalls(stale.calls)).toHaveLength(0);
 
     const current = runLifecycleReconciliation({
       action: "synchronize",
-      comments: [{ id: 103, user: { login: "github-actions[bot]" }, body: stateBody("WORKER_PR_OPENED") }],
+      comments: [
+        ...exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849 }).comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("WORKER_PR_OPENED") },
+      ],
       liveState: "open",
     });
     expect(current.status, current.stderr).toBe(0);
@@ -3422,7 +3892,10 @@ exit 0
 
   it("preserves the normal exact-head check-evidence path for an open PR", () => {
     const result = runSyncCheckReconciliation({
-      comments: [{ id: 103, user: { login: "github-actions[bot]" }, body: stateBody("CHECKS_PENDING") }],
+      comments: [
+        ...exactReservationEvidence(sha, { state: "PUBLISHED", pr_number: 849 }).comments,
+        { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CHECKS_PENDING") },
+      ],
       liveState: "open",
     });
     expect(result.status, result.stderr).toBe(0);
@@ -3440,7 +3913,8 @@ exit 0
     const recovery = workflowRunStep(workflow, "Release or recover reservation on dispatch failure");
     expect(enforcement).toContain('live_author" = "${REPOSITORY%%/*}');
     expect(enforcement).toContain('live_head_repository" = "$REPOSITORY');
-    expect(enforcement).toContain('state" != "PUBLISHED" ] || [ "$reserved_pr" = "$PR_NUMBER');
+    expect(enforcement).toContain('node "$helper" worker-pr-admit');
+    expect(source("scripts/supervisor-worker-handoff.mjs")).toContain("reservation belongs to another PR");
     expect(publish).toContain('test "$(jq -r \'.state\' <<< "$payload")" = "RESERVED"');
     expect(publish).toContain('test "$(jq -r \'.state\' <<< "$pr")" = "open"');
     expect(recovery).toContain('.head.sha == $head');
@@ -3563,6 +4037,7 @@ exit 0
       snapshot_finalized: false,
       pr_number: null,
       recovery: { kind: "expired_reservation", verified_run_status: "completed", retryable: true },
+      lease_expires_at: "2000-01-01T00:00:00Z",
     };
     const result = runSlotReservation({ reservation: released });
     expect(result.status, result.stderr).toBe(0);
@@ -3576,6 +4051,7 @@ exit 0
 
   it("rejects a third durable unit before Worker execution and keeps the task retryable", () => {
     const activeReservation = (id: number) => ({
+      version: 1,
       state: "RESERVED",
       task_id: `SUP-OLD-SLOT-${id}`,
       run_id: String(7000 + id),
@@ -3586,6 +4062,7 @@ exit 0
       lease_expires_at: "2099-01-01T00:00:00Z",
       allowed_paths: [`src/features/old-slot-${id}/`],
       changed_files: [],
+      snapshot_finalized: false,
       pr_number: null,
       recovery: null,
     });
@@ -3620,6 +4097,7 @@ exit 0
 
   it("admits a disjoint second reservation and rejects declared overlap before Worker execution", () => {
     const existing = {
+      version: 1,
       state: "RESERVED",
       task_id: "SUP-OLD-SLOT-1",
       run_id: "7001",
@@ -3630,6 +4108,7 @@ exit 0
       lease_expires_at: "2099-01-01T00:00:00Z",
       allowed_paths: ["src/features/old-slot/"],
       changed_files: [],
+      snapshot_finalized: false,
       pr_number: null,
       recovery: null,
     };
@@ -3756,6 +4235,7 @@ exit 0
 
   it("fails closed on an expired global reservation with missing task and packet provenance", () => {
     const oldReservation = {
+      version: 1,
       state: "RECOVERABLE",
       task_id: "SUP-OLD-SLOT-1",
       run_id: "7001",
@@ -3763,6 +4243,8 @@ exit 0
       head_sha: otherSha,
       graph_path: "feature/old-slot",
       packet_digest: "c".repeat(64),
+      lease_expires_at: "2000-01-01T00:00:00Z",
+      snapshot_finalized: true,
       allowed_paths: ["src/features/old-slot/"],
       changed_files: [],
       pr_number: null,
@@ -3775,14 +4257,19 @@ exit 0
   });
 
   it("counts a promoted recovery PR and its published reservation as one slot", () => {
+    const existingPacket = packet({ task_id: "SUP-OLD-SLOT-1", branch: "work/proffera-old-slot",
+      graph_path: "feature/old-slot", allowed_paths: ["src/features/old-slot/"] });
     const reservation = {
+      version: 1,
       state: "PUBLISHED",
       task_id: "SUP-OLD-SLOT-1",
       run_id: "7001",
       branch: "work/proffera-old-slot",
       head_sha: otherSha,
       graph_path: "feature/old-slot",
-      packet_digest: "c".repeat(64),
+      packet_digest: createHash("sha256").update(JSON.stringify(existingPacket)).digest("hex"),
+      lease_expires_at: "2099-01-01T00:00:00Z",
+      snapshot_finalized: true,
       allowed_paths: ["src/features/old-slot/"],
       changed_files: [],
       pr_number: 830,
@@ -3793,14 +4280,12 @@ exit 0
       base: { ref: "main" },
       head: { ref: "work/proffera-old-slot", sha: otherSha, repo: { full_name: "ibboabdoli-ai/Proffera" } },
       user: { login: "ibboabdoli-ai" },
-      body: [
-        "Task ID: SUP-OLD-SLOT-1",
-        "Graph path: feature/old-slot",
-        'Allowed paths: ["src/features/old-slot/"]',
-      ].join("\n"),
+      body: runText("pr-body", { packet: existingPacket, changed_files: [] }),
       files: [],
     };
-    const result = runSlotReservation({ reservation, pulls: [openPull] });
+    const result = runSlotReservation({ reservation, pulls: [openPull], extraComments: [
+      { id: 202, user: { login: "github-actions[bot]" }, body: "<!-- proffera-worker-dispatch-start:SUP-OLD-SLOT-1:7001 -->" },
+    ] });
     expect(result.status, result.stderr).toBe(0);
     expect(result.comments.some((comment) => comment.id === 999)).toBe(true);
   });
@@ -3821,6 +4306,7 @@ exit 0
     expect(parsed.status, parsed.stderr).toBe(0);
     const normalizedPacket = parsed.stdout.replace(/\n+$/, "");
     const reservation = {
+      version: 1,
       state: "RECOVERABLE",
       task_id: "SUP-OLD-SLOT-1",
       run_id: "7001",
@@ -3828,6 +4314,8 @@ exit 0
       head_sha: otherSha,
       graph_path: "feature/old-slot",
       packet_digest: createHash("sha256").update(normalizedPacket).digest("hex"),
+      lease_expires_at: "2099-01-01T00:00:00Z",
+      snapshot_finalized: true,
       allowed_paths: ["src/features/old-slot/"],
       changed_files: [],
       pr_number: null,
@@ -3849,7 +4337,7 @@ exit 0
     };
     const exact = runSlotReservation({ reservation, pulls: [openPull], extraComments: [dispatch] });
     expect(exact.status, exact.stderr).toBe(0);
-    expect(exact.stdout).toContain("Exact trusted recovery PR #830 represents recoverable reservation");
+    expect(exact.outputs.reservation_comment_id).toBe("999");
     expect(exact.comments.some((comment) => comment.id === 999)).toBe(true);
 
     for (const extraComments of [
@@ -3899,7 +4387,8 @@ exit 0
 
   it("does not write a WORKER_PR_OPENED state when the helper refuses the transition", () => {
     const result = runWorkerPrStateRecord(stateBody("MERGED"));
-    expect(result.status, result.stderr).toBe(0);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("task state cannot activate a Worker");
     expect(taskStatePatchCalls(result.calls)).toHaveLength(0);
   });
 
@@ -4046,6 +4535,7 @@ process.stdout.write(JSON.stringify({
     const reopened = runLifecycleReconciliation({
       action: "reopened",
       comments: [
+        ...exactReservationEvidence(sha, { state: "RELEASED", pr_number: 849, recovery: { kind: "closed_pr", merged: false } }).comments,
         { id: 103, user: { login: "github-actions[bot]" }, body: durableStateBody("CLOSED_UNMERGED") },
       ],
       liveState: "open",
@@ -4225,8 +4715,9 @@ process.stdout.write(JSON.stringify({
 
     const sync = source(".github/workflows/worker-supervisor-sync.yml");
     expect(sync).toContain("concurrency:");
-    expect(sync).toContain("Re-fetch live PR and current state immediately before mutation");
-    expect(sync).toContain("Re-fetch both live PR and latest workflow evidence immediately before mutation");
+    expect(sync).toContain("# Compute exact-head workflow evidence again just before canonical admission.");
+    expect((sync.match(/read_live_pr/g) ?? []).length).toBeGreaterThanOrEqual(6);
+    expect((sync.match(/compute_evidence/g) ?? []).length).toBeGreaterThanOrEqual(3);
   });
 
   it("CI/review provider availability remains governed by the existing final gate", () => {
