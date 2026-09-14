@@ -105,7 +105,7 @@ describe("marketplace 3+2 wave planner", () => {
     expect(plan.candidates).toHaveLength(1);
   });
 
-  it("never auto-selects inferred, locality, unknown, or confirmed_outside candidates", () => {
+  it("never auto-selects inferred, locality, unknown, confirmed_outside, or missing coverage states", () => {
     const plan = planMarketplaceGuestWave({
       requestedWave: 1,
       candidates: [
@@ -113,6 +113,7 @@ describe("marketplace 3+2 wave planner", () => {
         candidate(2, { coverageState: "locality_fallback", serviceAreaConfirmed: false, distanceKm: null }),
         candidate(3, { coverageState: "unknown", serviceAreaConfirmed: false }),
         candidate(4, { coverageState: "confirmed_outside", serviceAreaConfirmed: false }),
+        candidate(5, { coverageState: undefined, serviceAreaConfirmed: true }),
       ],
       invitationSummary: summary(),
       submittedOfferCount: 0,
