@@ -13,6 +13,7 @@ const DEFAULT_LANTMATERIET_LOOKUP_BASE_URL =
   "https://api.lantmateriet.se/distribution/produkter/uppslag/adress/v3";
 const GEOCODE_SOURCE = "lantmateriet_belagenhetsadress_v4_2";
 const NO_MATCH_SOURCE = "lantmateriet_no_match_v4_2";
+const TRANSIENT_ERROR_SOURCE = "lantmateriet_transient_error_v4_2";
 const SCB_WORKPLACE_NO_MATCH_SOURCE_PREFIX = `${NO_MATCH_SOURCE}:scb_workplace:`;
 const LEGACY_REGISTER_UNIT_NO_MATCH_SOURCE_PREFIX = `${NO_MATCH_SOURCE}:registerenhet_v1:scb_workplace:`;
 const REGISTER_UNIT_NO_MATCH_SOURCE_PREFIX = `${NO_MATCH_SOURCE}:registerenhet_v2:scb_workplace:`;
@@ -887,45 +888,13 @@ function rowNeedsGeocodingAttempt(row: Record<string, unknown>) {
   return shouldRetryDirectoryNoMatchAfterRegisterUnitFix(source);
 }
 
-async function providerCounts(deadline?: number) {
-  if (deadline) assertBeforeDeadline(deadline);
-  const sql = getSql();
-  if (!sql) {
-    return { total: 0, geocoded: 0, remaining: 0, needsReview: 0, unavailable: 0 };
-  }
-  const rows = await sql`
-    select
-      profile.organization_number,
-      profile.address_line1,
-      profile.postal_code,
-      profile.city,
-      profile.municipality,
-      location.latitude::float8 as latitude,
-      location.longitude::float8 as longitude,
-      location.geocode_source,
-      scb.workplaces as scb_workplaces,
-      scb.conflicts as scb_conflicts
-    from company_directory_profiles profile
-    left join company_directory_business_locations location on location.profile_id = profile.id
-    left join company_directory_scb_enrichment scb on scb.profile_id = profile.id
-    where profile.publication_status = 'published'
-      and profile.is_active = true
-      and profile.privacy_blocked = false
-      and profile.organization_kind = 'juridical_person'
-      and exists (
-        select 1
-        from company_directory_profile_services relation
-        where relation.profile_id = profile.id
-          and relation.is_active = true
-          and relation.public_visible = true
-      )
-  `;
-
+/** Preserves legacy injected-row semantics while Production uses one aggregate result row. */
+function providerCountsFromRows(rows: Record<string, unknown>[]) {
   let geocoded = 0;
   let remaining = 0;
   let needsReview = 0;
   let unavailable = 0;
-  for (const row of rows as Record<string, unknown>[]) {
+  for (const row of rows) {
     const hasCoordinates = row.latitude !== null
       && row.latitude !== undefined
       && row.longitude !== null
@@ -944,13 +913,108 @@ async function providerCounts(deadline?: number) {
     }
     unavailable += 1;
   }
-  return {
-    total: rows.length,
-    geocoded,
-    remaining,
-    needsReview,
-    unavailable,
-  };
+  return { total: rows.length, geocoded, remaining, needsReview, unavailable };
+}
+
+/** Returns scalar provider geocoding status without materializing provider/SCB payloads in Node. */
+async function providerCounts(deadline?: number) {
+  if (deadline) assertBeforeDeadline(deadline);
+  const sql = getSql();
+  if (!sql) {
+    return { total: 0, geocoded: 0, remaining: 0, needsReview: 0, unavailable: 0 };
+  }
+  const terminalNoMatchPattern = `${REGISTER_UNIT_NO_MATCH_SOURCE_PREFIX}%`;
+  const anyNoMatchPattern = `${NO_MATCH_SOURCE}:%`;
+  const rows = await sql`
+    with provider_state as (
+      select
+        profile.organization_number,
+        location.latitude::float8 as latitude,
+        location.longitude::float8 as longitude,
+        location.geocode_source,
+        scb.workplaces as scb_workplaces,
+        scb.conflicts as scb_conflicts,
+        case
+          when jsonb_typeof(scb.workplaces) is distinct from 'array' then false
+          when jsonb_array_length(scb.workplaces) <> 1 then false
+          when nullif(btrim(scb.workplaces -> 0 -> 'visitingAddress' ->> 'addressLine'), '') is null then false
+          when nullif(btrim(scb.workplaces -> 0 -> 'visitingAddress' ->> 'postalCode'), '') is null then false
+          when nullif(btrim(scb.workplaces -> 0 -> 'visitingAddress' ->> 'city'), '') is null then false
+          when nullif(btrim(scb.workplaces -> 0 ->> 'municipality'), '') is null then false
+          when scb.conflicts is null then true
+          when jsonb_typeof(scb.conflicts) is distinct from 'array' then false
+          else jsonb_array_length(scb.conflicts) = 0
+        end as has_safe_workplace
+      from company_directory_profiles profile
+      left join company_directory_business_locations location on location.profile_id = profile.id
+      left join company_directory_scb_enrichment scb on scb.profile_id = profile.id
+      where profile.publication_status = 'published'
+        and profile.is_active = true
+        and profile.privacy_blocked = false
+        and profile.organization_kind = 'juridical_person'
+        and exists (
+          select 1
+          from company_directory_profile_services relation
+          where relation.profile_id = profile.id
+            and relation.is_active = true
+            and relation.public_visible = true
+        )
+    )
+    select
+      count(*)::int as total,
+      count(*) filter (
+        where latitude is not null and longitude is not null
+      )::int as geocoded,
+      count(*) filter (
+        where (latitude is null or longitude is null)
+          and has_safe_workplace
+          and coalesce(geocode_source, '') not like ${terminalNoMatchPattern}
+      )::int as remaining,
+      count(*) filter (
+        where (latitude is null or longitude is null)
+          and not (
+            has_safe_workplace
+            and coalesce(geocode_source, '') not like ${terminalNoMatchPattern}
+          )
+          and (
+            coalesce(geocode_source, '') = ${NO_MATCH_SOURCE}
+            or coalesce(geocode_source, '') like ${anyNoMatchPattern}
+          )
+      )::int as needs_review,
+      count(*) filter (
+        where (latitude is null or longitude is null)
+          and not (
+            has_safe_workplace
+            and coalesce(geocode_source, '') not like ${terminalNoMatchPattern}
+          )
+          and not (
+            coalesce(geocode_source, '') = ${NO_MATCH_SOURCE}
+            or coalesce(geocode_source, '') like ${anyNoMatchPattern}
+          )
+      )::int as unavailable
+    from provider_state
+  `;
+
+  const aggregate = rows[0] as Record<string, unknown> | undefined;
+  if (
+    aggregate
+    && aggregate.total !== undefined
+    && aggregate.geocoded !== undefined
+    && aggregate.remaining !== undefined
+    && aggregate.needs_review !== undefined
+    && aggregate.unavailable !== undefined
+  ) {
+    return {
+      total: Number(aggregate.total) || 0,
+      geocoded: Number(aggregate.geocoded) || 0,
+      remaining: Number(aggregate.remaining) || 0,
+      needsReview: Number(aggregate.needs_review) || 0,
+      unavailable: Number(aggregate.unavailable) || 0,
+    };
+  }
+
+  // Compatibility for existing injected SQL test doubles; real DB execution returns the aggregate row above.
+  return providerCountsFromRows(rows as Record<string, unknown>[]);
 }
 
 export async function getDirectoryGeocodingStatus(): Promise<DirectoryGeocodingStatus> {
@@ -998,6 +1062,29 @@ async function markNoMatch(
   `;
 }
 
+/** Marks a failed upstream attempt so later fresh providers rotate ahead without overwriting coordinates. */
+async function markTransientError(profileId: string, deadline?: number) {
+  if (deadline) assertBeforeDeadline(deadline);
+  const sql = getSql();
+  if (!sql) return;
+  await sql`
+    insert into company_directory_business_locations (
+      profile_id, geocode_source, geocode_precision, geocode_confidence,
+      is_public, updated_at
+    ) values (
+      ${profileId}::uuid, ${TRANSIENT_ERROR_SOURCE}, 'unknown', 0, false, now()
+    )
+    on conflict (profile_id) do update set
+      geocode_source = excluded.geocode_source,
+      geocode_precision = excluded.geocode_precision,
+      geocode_confidence = excluded.geocode_confidence,
+      is_public = false,
+      updated_at = now()
+    where company_directory_business_locations.latitude is null
+       or company_directory_business_locations.longitude is null
+  `;
+}
+
 export async function geocodeDirectoryProviderPointsFromAdmin(
   limit = DIRECTORY_PROVIDER_GEOCODING_MAX_BATCH,
 ): Promise<DirectoryGeocodingBatchResult> {
@@ -1018,38 +1105,79 @@ export async function geocodeDirectoryProviderPointsFromAdmin(
     1,
     Math.min(DIRECTORY_PROVIDER_GEOCODING_MAX_BATCH, Math.floor(Number(limit) || DIRECTORY_PROVIDER_GEOCODING_MAX_BATCH)),
   );
+  const terminalNoMatchPattern = `${REGISTER_UNIT_NO_MATCH_SOURCE_PREFIX}%`;
   const rows = await sql`
+    with runnable_provider as (
+      select
+        profile.id::text,
+        profile.organization_number,
+        profile.display_name,
+        profile.category_slug,
+        profile.address_line1,
+        profile.postal_code,
+        profile.city,
+        profile.municipality,
+        location.latitude::float8 as latitude,
+        location.longitude::float8 as longitude,
+        location.geocode_source,
+        location.updated_at as location_updated_at,
+        scb.workplaces as scb_workplaces,
+        scb.conflicts as scb_conflicts,
+        case
+          when jsonb_typeof(scb.workplaces) is distinct from 'array' then false
+          when jsonb_array_length(scb.workplaces) <> 1 then false
+          when nullif(btrim(scb.workplaces -> 0 -> 'visitingAddress' ->> 'addressLine'), '') is null then false
+          when nullif(btrim(scb.workplaces -> 0 -> 'visitingAddress' ->> 'postalCode'), '') is null then false
+          when nullif(btrim(scb.workplaces -> 0 -> 'visitingAddress' ->> 'city'), '') is null then false
+          when nullif(btrim(scb.workplaces -> 0 ->> 'municipality'), '') is null then false
+          when scb.conflicts is null then true
+          when jsonb_typeof(scb.conflicts) is distinct from 'array' then false
+          else jsonb_array_length(scb.conflicts) = 0
+        end as has_safe_workplace
+      from company_directory_profiles profile
+      left join company_directory_business_locations location on location.profile_id = profile.id
+      left join company_directory_scb_enrichment scb on scb.profile_id = profile.id
+      where profile.publication_status = 'published'
+        and profile.is_active = true
+        and profile.privacy_blocked = false
+        and profile.organization_kind = 'juridical_person'
+        and exists (
+          select 1
+          from company_directory_profile_services relation
+          where relation.profile_id = profile.id
+            and relation.is_active = true
+            and relation.public_visible = true
+        )
+        and (location.latitude is null or location.longitude is null)
+    )
     select
-      profile.id::text,
-      profile.organization_number,
-      profile.display_name,
-      profile.address_line1,
-      profile.postal_code,
-      profile.city,
-      profile.municipality,
-      location.latitude::float8 as latitude,
-      location.longitude::float8 as longitude,
-      location.geocode_source,
-      scb.workplaces as scb_workplaces,
-      scb.conflicts as scb_conflicts
-    from company_directory_profiles profile
-    left join company_directory_business_locations location on location.profile_id = profile.id
-    left join company_directory_scb_enrichment scb on scb.profile_id = profile.id
-    where profile.publication_status = 'published'
-      and profile.is_active = true
-      and profile.privacy_blocked = false
-      and profile.organization_kind = 'juridical_person'
-      and exists (
-        select 1
-        from company_directory_profile_services relation
-        where relation.profile_id = profile.id
-          and relation.is_active = true
-          and relation.public_visible = true
-      )
-      and (location.latitude is null or location.longitude is null)
-    order by profile.category_slug, profile.display_name, profile.id
+      id,
+      organization_number,
+      display_name,
+      category_slug,
+      address_line1,
+      postal_code,
+      city,
+      municipality,
+      latitude,
+      longitude,
+      geocode_source,
+      location_updated_at,
+      scb_workplaces,
+      scb_conflicts
+    from runnable_provider
+    where has_safe_workplace = true
+      and coalesce(geocode_source, '') not like ${terminalNoMatchPattern}
+    order by
+      case when geocode_source = ${TRANSIENT_ERROR_SOURCE} then 1 else 0 end,
+      case when geocode_source = ${TRANSIENT_ERROR_SOURCE} then location_updated_at end asc nulls first,
+      category_slug,
+      display_name,
+      id
+    limit ${boundedLimit}
   `;
 
+  // Keep the in-process predicate as defense-in-depth for injected test doubles and future query drift.
   const candidates = (rows as Record<string, unknown>[])
     .filter(rowNeedsGeocodingAttempt)
     .slice(0, boundedLimit);
@@ -1121,6 +1249,11 @@ export async function geocodeDirectoryProviderPointsFromAdmin(
     } catch (error) {
       if (classifyDirectoryGeocodingBatchError(error) === "deadline") break;
       errors += 1;
+      try {
+        await markTransientError(profile.id, processingDeadline);
+      } catch (markerError) {
+        if (classifyDirectoryGeocodingBatchError(markerError) === "deadline") break;
+      }
     }
   }
 
