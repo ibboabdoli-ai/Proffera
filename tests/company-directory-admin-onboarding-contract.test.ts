@@ -1,10 +1,13 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { createElement, type ReactNode } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   headers: vi.fn(),
   redirect: vi.fn(),
+  requireCompanyAdmin: vi.fn(),
   requireSuperAdmin: vi.fn(),
   isJuridicalOrganizationNumber: vi.fn(),
   upsertCompanyDirectoryCandidate: vi.fn(),
@@ -18,8 +21,16 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("server-only", () => ({}));
 vi.mock("next/headers", () => ({ headers: mocks.headers }));
+vi.mock("next/link", async () => {
+  const ReactModule = await import("react");
+  return {
+    default: ({ href, children }: { href: unknown; children?: ReactNode }) =>
+      ReactModule.createElement("a", { href: String(href) }, children),
+  };
+});
 vi.mock("next/navigation", () => ({ redirect: mocks.redirect }));
 vi.mock("@/lib/admin-authorization", () => ({
+  requireCompanyAdmin: mocks.requireCompanyAdmin,
   requireSuperAdmin: mocks.requireSuperAdmin,
 }));
 vi.mock("@/lib/bolagsverket-api-policy", () => ({
@@ -45,6 +56,7 @@ vi.mock("@/lib/public-form-protection", () => ({
   allowPublicSubmission: mocks.allowPublicSubmission,
 }));
 
+import CompanyAdminLayout from "../src/app/admin/foretag/layout";
 import { addCompanyDirectoryFromAdminAction } from "../src/app/admin/foretag/directory/lagg-till-foretag/actions";
 import { onboardJuridicalCompanyDirectoryByOrganizationNumber } from "../src/lib/company-directory-juridical-onboarding";
 
@@ -251,6 +263,29 @@ describe("super-admin Company Directory onboarding", () => {
     expect(mocks.upsertCompanyDirectoryCandidate).not.toHaveBeenCalled();
     expect(mocks.enrichCompanyDirectoryOfficialFactsForProfile).not.toHaveBeenCalled();
     expect(mocks.autoPublishCompanyDirectoryProfileIfSafe).not.toHaveBeenCalled();
+  });
+
+  it("hides super-admin Directory onboarding navigation from a non-super-admin layout render", async () => {
+    mocks.requireCompanyAdmin.mockResolvedValue({
+      userId: "support-admin-1",
+      role: "support_admin",
+      email: "support@example.com",
+      name: "Support",
+    });
+
+    const element = await CompanyAdminLayout({
+      children: createElement("div", null, "Company admin content"),
+    });
+    const html = renderToStaticMarkup(element);
+
+    expect(mocks.requireCompanyAdmin).toHaveBeenCalledTimes(1);
+    expect(html).toContain('href="/admin/foretag"');
+    expect(html).toContain("Kundkonton");
+    expect(html).toContain("Company admin content");
+    expect(html).not.toContain(
+      'href="/admin/foretag/directory/lagg-till-foretag"',
+    );
+    expect(html).not.toContain("Lägg till företag");
   });
 
   it("keeps the admin route Workspace-neutral and owner onboarding Workspace-first", () => {
