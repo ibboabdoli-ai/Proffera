@@ -21,6 +21,7 @@ const GEOCODING_ACTION_BUDGET_MS = 240_000;
 const GEOCODING_FINAL_COUNTS_RESERVE_MS = 10_000;
 const UPSTREAM_REQUEST_TIMEOUT_MS = 12_000;
 const FETCH_DEADLINE_GUARD_MS = 1_000;
+export const DIRECTORY_PROVIDER_GEOCODING_MAX_BATCH = 3;
 
 export const DIRECTORY_GEOCODING_PILOT_ORGS = [
   "5563115707",
@@ -167,10 +168,13 @@ export type DirectoryGeocodingStatus = {
   enabled: boolean;
   configured: boolean;
   postgisReady: boolean;
+  providerTotal: number;
+  /** Compatibility alias for the previous Admin UI contract. */
   pilotTotal: number;
   geocoded: number;
   remaining: number;
   needsReview: number;
+  unavailable: number;
 };
 
 class GeocodingDeadlineExceeded extends Error {
@@ -883,13 +887,12 @@ function rowNeedsGeocodingAttempt(row: Record<string, unknown>) {
   return shouldRetryDirectoryNoMatchAfterRegisterUnitFix(source);
 }
 
-async function pilotCounts(deadline?: number) {
+async function providerCounts(deadline?: number) {
   if (deadline) assertBeforeDeadline(deadline);
   const sql = getSql();
   if (!sql) {
-    return { geocoded: 0, remaining: DIRECTORY_GEOCODING_PILOT_ORGS.length, needsReview: 0 };
+    return { total: 0, geocoded: 0, remaining: 0, needsReview: 0, unavailable: 0 };
   }
-  const orgsJson = JSON.stringify(DIRECTORY_GEOCODING_PILOT_ORGS);
   const rows = await sql`
     select
       profile.organization_number,
@@ -905,17 +908,23 @@ async function pilotCounts(deadline?: number) {
     from company_directory_profiles profile
     left join company_directory_business_locations location on location.profile_id = profile.id
     left join company_directory_scb_enrichment scb on scb.profile_id = profile.id
-    where profile.organization_number in (
-      select jsonb_array_elements_text(${orgsJson}::jsonb)
-    )
-      and profile.publication_status in ('ready', 'published')
+    where profile.publication_status = 'published'
       and profile.is_active = true
       and profile.privacy_blocked = false
+      and profile.organization_kind = 'juridical_person'
+      and exists (
+        select 1
+        from company_directory_profile_services relation
+        where relation.profile_id = profile.id
+          and relation.is_active = true
+          and relation.public_visible = true
+      )
   `;
 
   let geocoded = 0;
   let remaining = 0;
   let needsReview = 0;
+  let unavailable = 0;
   for (const row of rows as Record<string, unknown>[]) {
     const hasCoordinates = row.latitude !== null
       && row.latitude !== undefined
@@ -929,22 +938,34 @@ async function pilotCounts(deadline?: number) {
       remaining += 1;
       continue;
     }
-    if (isDirectoryGeocodingNoMatchSource(row.geocode_source)) needsReview += 1;
+    if (isDirectoryGeocodingNoMatchSource(row.geocode_source)) {
+      needsReview += 1;
+      continue;
+    }
+    unavailable += 1;
   }
-  return { geocoded, remaining, needsReview };
+  return {
+    total: rows.length,
+    geocoded,
+    remaining,
+    needsReview,
+    unavailable,
+  };
 }
 
 export async function getDirectoryGeocodingStatus(): Promise<DirectoryGeocodingStatus> {
   const config = getGeocodingConfig();
-  const [postgis, counts] = await Promise.all([postgisReady(), pilotCounts()]);
+  const [postgis, counts] = await Promise.all([postgisReady(), providerCounts()]);
   return {
     enabled: config.enabled,
     configured: config.configured,
     postgisReady: postgis,
-    pilotTotal: DIRECTORY_GEOCODING_PILOT_ORGS.length,
+    providerTotal: counts.total,
+    pilotTotal: counts.total,
     geocoded: counts.geocoded,
     remaining: counts.remaining,
     needsReview: counts.needsReview,
+    unavailable: counts.unavailable,
   };
 }
 
@@ -977,7 +998,9 @@ async function markNoMatch(
   `;
 }
 
-export async function geocodeDirectoryPilotFromAdmin(limit = 5): Promise<DirectoryGeocodingBatchResult> {
+export async function geocodeDirectoryProviderPointsFromAdmin(
+  limit = DIRECTORY_PROVIDER_GEOCODING_MAX_BATCH,
+): Promise<DirectoryGeocodingBatchResult> {
   const actionDeadline = Date.now() + GEOCODING_ACTION_BUDGET_MS;
   const processingDeadline = actionDeadline - GEOCODING_FINAL_COUNTS_RESERVE_MS;
 
@@ -991,8 +1014,10 @@ export async function geocodeDirectoryPilotFromAdmin(limit = 5): Promise<Directo
   if (!(await postgisReady())) throw new Error("PostGIS is not installed");
 
   assertBeforeDeadline(processingDeadline);
-  const boundedLimit = Math.max(1, Math.min(5, Math.floor(Number(limit) || 5)));
-  const orgsJson = JSON.stringify(DIRECTORY_GEOCODING_PILOT_ORGS);
+  const boundedLimit = Math.max(
+    1,
+    Math.min(DIRECTORY_PROVIDER_GEOCODING_MAX_BATCH, Math.floor(Number(limit) || DIRECTORY_PROVIDER_GEOCODING_MAX_BATCH)),
+  );
   const rows = await sql`
     select
       profile.id::text,
@@ -1010,14 +1035,19 @@ export async function geocodeDirectoryPilotFromAdmin(limit = 5): Promise<Directo
     from company_directory_profiles profile
     left join company_directory_business_locations location on location.profile_id = profile.id
     left join company_directory_scb_enrichment scb on scb.profile_id = profile.id
-    where profile.organization_number in (
-      select jsonb_array_elements_text(${orgsJson}::jsonb)
-    )
-      and profile.publication_status in ('ready', 'published')
+    where profile.publication_status = 'published'
       and profile.is_active = true
       and profile.privacy_blocked = false
+      and profile.organization_kind = 'juridical_person'
+      and exists (
+        select 1
+        from company_directory_profile_services relation
+        where relation.profile_id = profile.id
+          and relation.is_active = true
+          and relation.public_visible = true
+      )
       and (location.latitude is null or location.longitude is null)
-    order by profile.category_slug, profile.display_name
+    order by profile.category_slug, profile.display_name, profile.id
   `;
 
   const candidates = (rows as Record<string, unknown>[])
@@ -1094,7 +1124,7 @@ export async function geocodeDirectoryPilotFromAdmin(limit = 5): Promise<Directo
     }
   }
 
-  const counts = await pilotCounts(actionDeadline);
+  const counts = await providerCounts(actionDeadline);
   return {
     attempted,
     geocoded,
@@ -1103,4 +1133,9 @@ export async function geocodeDirectoryPilotFromAdmin(limit = 5): Promise<Directo
     remaining: counts.remaining,
     needsReview: counts.needsReview,
   };
+}
+
+/** Legacy alias retained for existing diagnostics/tests while GEO PR2 moves the Admin UI to provider-wide geocoding. */
+export async function geocodeDirectoryPilotFromAdmin(limit = DIRECTORY_PROVIDER_GEOCODING_MAX_BATCH) {
+  return geocodeDirectoryProviderPointsFromAdmin(limit);
 }
