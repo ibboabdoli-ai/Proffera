@@ -14,17 +14,21 @@ const candidate = {
   serviceName: "VVS / Rörmokare",
   serviceCategory: "VVS",
   qualityScore: 95,
+  latitude: 59.20,
+  longitude: 17.63,
+  providerPointVerified: true,
 };
 
 describe("directory guest marketplace ranking", () => {
-  it("returns a local compatible company without claiming a confirmed service area", () => {
+  it("returns a local compatible company as locality fallback without claiming confirmed coverage", () => {
     const result = rankDirectoryGuestCandidates(lead, [candidate]);
     expect(result).toHaveLength(1);
+    expect(result[0]?.coverageState).toBe("locality_fallback");
     expect(result[0]?.serviceAreaConfirmed).toBe(false);
     expect(result[0]?.reasons).toContain("lokal kandidat – serviceområde ej bekräftat");
   });
 
-  it("excludes a company in another city when a city was requested", () => {
+  it("excludes a company in another city when customer coordinates are absent", () => {
     expect(rankDirectoryGuestCandidates(lead, [{ ...candidate, city: "Malmö", municipality: "Malmö" }])).toEqual([]);
   });
 
@@ -56,7 +60,7 @@ describe("directory guest marketplace ranking", () => {
     expect(rankDirectoryGuestCandidates(lead, rows)).toHaveLength(5);
   });
 
-  it("uses real coordinates and the smallest radius that yields three good candidates", () => {
+  it("uses real coordinates and the smallest inference radius that yields three good candidates", () => {
     const nearbyLead = {
       ...lead,
       customer_latitude: 59.1955,
@@ -72,26 +76,26 @@ describe("directory guest marketplace ranking", () => {
     const result = rankDirectoryGuestCandidates(nearbyLead, rows);
 
     expect(result).toHaveLength(3);
+    expect(result.every((item) => item.coverageState === "inferred_nearby")).toBe(true);
     expect(result.every((item) => item.distanceKm !== null && item.distanceKm <= 10)).toBe(true);
     expect(directoryGuestMatchRadius(result)).toBe(10);
   });
 
-  it("excludes a candidate without coordinates when the lead has coordinates", () => {
+  it("excludes a candidate without a provider point", () => {
     const nearbyLead = { ...lead, customer_latitude: 59.1955, customer_longitude: 17.6253 };
-
     expect(rankDirectoryGuestCandidates(nearbyLead, [{ ...candidate, latitude: null, longitude: null }])).toEqual([]);
   });
 
-  it("treats a 0,0 lead coordinate pair as missing and falls back to locality", () => {
+  it("treats a 0,0 customer coordinate pair as missing and falls back to locality", () => {
     const placeholderLead = { ...lead, customer_latitude: 0, customer_longitude: 0 };
-    const result = rankDirectoryGuestCandidates(placeholderLead, [{ ...candidate, latitude: null, longitude: null }]);
+    const result = rankDirectoryGuestCandidates(placeholderLead, [candidate]);
 
     expect(result).toHaveLength(1);
     expect(result[0]?.distanceKm).toBeNull();
-    expect(result[0]?.reasons).toContain("lokal kandidat – serviceområde ej bekräftat");
+    expect(result[0]?.coverageState).toBe("locality_fallback");
   });
 
-  it("expands toward 25 and 50 km only when needed instead of filling with weak matches", () => {
+  it("expands toward 25 and 50 km only for unconfirmed proximity inference", () => {
     const nearbyLead = { ...lead, customer_latitude: 59.1955, customer_longitude: 17.6253 };
     const rows = [
       { ...candidate, profileId: "11111111-1111-4111-8111-111111111111", latitude: 59.20, longitude: 17.63 },
@@ -107,7 +111,21 @@ describe("directory guest marketplace ranking", () => {
     expect(directoryGuestMatchRadius(result)).toBe(25);
   });
 
-  it("honors a confirmed service-area radius and excludes a provider outside it", () => {
+  it("marks a provider inside a confirmed radius as confirmed_inside", () => {
+    const nearbyLead = { ...lead, customer_latitude: 59.1955, customer_longitude: 17.6253 };
+    const result = rankDirectoryGuestCandidates(nearbyLead, [{
+      ...candidate,
+      latitude: 59.20,
+      longitude: 17.63,
+      serviceAreaRadiusKm: 25,
+    }]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]?.coverageState).toBe("confirmed_inside");
+    expect(result[0]?.serviceAreaConfirmed).toBe(true);
+  });
+
+  it("keeps confirmed_outside terminal even when generic 50 km inference would accept it", () => {
     const nearbyLead = { ...lead, customer_latitude: 59.1955, customer_longitude: 17.6253 };
     const result = rankDirectoryGuestCandidates(nearbyLead, [{
       ...candidate,
@@ -117,6 +135,15 @@ describe("directory guest marketplace ranking", () => {
     }]);
 
     expect(result).toEqual([]);
+  });
+
+  it("does not call confirmed coverage from an unverified provider point", () => {
+    const nearbyLead = { ...lead, customer_latitude: 59.1955, customer_longitude: 17.6253 };
+    expect(rankDirectoryGuestCandidates(nearbyLead, [{
+      ...candidate,
+      providerPointVerified: false,
+      serviceAreaRadiusKm: 25,
+    }])).toEqual([]);
   });
 
   it("marks a conflict-free SCB business-domain email as an internal official outreach contact", () => {
