@@ -64,7 +64,7 @@ describe("Quote Request matching and delivery lifecycle", () => {
     );
   });
 
-  it("uses private customer coordinates internally without returning them in LeadMatch.lead", async () => {
+  it("uses private customer coordinates for matching without returning them in LeadMatch.lead", async () => {
     let callIndex = 0;
     const sql = vi.fn(async () => {
       callIndex += 1;
@@ -83,7 +83,46 @@ describe("Quote Request matching and delivery lifecycle", () => {
           customer_longitude: 17.6253,
         }];
       }
-      return [];
+      return [{
+        workspace_id: "22222222-2222-4222-8222-222222222222",
+        company_name: "Verifierad VVS AB",
+        primary_city: "Stockholm",
+        email: "kontakt@verifieradvvs.se",
+        phone: "0700000000",
+        workspace_status: "active",
+        claimed_profile_id: "33333333-3333-4333-8333-333333333333",
+        claimed_profile_category_slug: "vvs",
+        claimed_profile_is_active: true,
+        claimed_profile_privacy_blocked: false,
+        provider_city: "Stockholm",
+        provider_municipality: "Stockholm",
+        claim_status: "claimed",
+        claim_verified_at: "2026-09-01T10:00:00.000Z",
+        claim_resolved_at: "2026-09-01T10:05:00.000Z",
+        service_id: "44444444-4444-4444-8444-444444444444",
+        service_name: "VVS / Rörmokare",
+        service_category: "VVS",
+        service_area: "Stockholm",
+        service_area_radius_km: 25,
+        provider_latitude: 59.1955,
+        provider_longitude: 17.6253,
+        geocode_source: "lantmateriet_belagenhetsadress_v4_2",
+        geocode_precision: "address",
+        geocode_confidence: 100,
+        geocoded_at: "2026-09-01T09:00:00.000Z",
+        location_is_public: true,
+        service_is_active: true,
+        service_public_status: "published",
+        service_conversion_mode: "quote",
+        feature_minimum_plan: "starter",
+        workspace_feature_enabled: true,
+        admin_override_enabled: null,
+        plan_key: "starter",
+        plan_status: "active",
+        plan_period_end: null,
+        trial_status: null,
+        trial_ends_at: null,
+      }];
     });
     mocks.getSql.mockReturnValue(sql);
 
@@ -92,6 +131,11 @@ describe("Quote Request matching and delivery lifecycle", () => {
     expect(result.ok).toBe(true);
     expect(result.matches).toHaveLength(1);
     expect(result.matches[0]?.lead).toMatchObject({ reference_id: "QR-PRIVATE-GEO" });
+    expect(result.matches[0]?.suggestions).toHaveLength(1);
+    expect(result.matches[0]?.suggestions[0]).toMatchObject({
+      companyName: "Verifierad VVS AB",
+      coverageState: "confirmed_inside",
+    });
     expect(result.matches[0]?.lead).not.toHaveProperty("customer_latitude");
     expect(result.matches[0]?.lead).not.toHaveProperty("customer_longitude");
     expect(result.matches[0]?.lead).not.toHaveProperty("customerLatitude");
