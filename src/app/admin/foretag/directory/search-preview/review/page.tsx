@@ -1,7 +1,6 @@
 import Link from "next/link";
 
 import { requireSuperAdmin } from "@/lib/admin-authorization";
-import { DIRECTORY_GEOCODING_PILOT_ORGS } from "@/lib/company-directory-geocoding";
 import { getSql } from "@/lib/db/server";
 
 export const dynamic = "force-dynamic";
@@ -17,11 +16,10 @@ function geocodeReason(source: string) {
   return source.split(":").at(-1) || source;
 }
 
-/** Shows terminal Lantmäteriet v2 pilot failures without mutating Production data. */
+/** Shows terminal Lantmäteriet v2 provider failures without mutating Production data. */
 export default async function DirectoryGeocodingReviewPage() {
   await requireSuperAdmin();
   const sql = getSql();
-  const orgsJson = JSON.stringify(DIRECTORY_GEOCODING_PILOT_ORGS);
 
   const rows = sql
     ? await sql`
@@ -33,12 +31,20 @@ export default async function DirectoryGeocodingReviewPage() {
         from company_directory_profiles profile
         join company_directory_business_locations location
           on location.profile_id = profile.id
-        where profile.organization_number in (
-          select jsonb_array_elements_text(${orgsJson}::jsonb)
-        )
+        where profile.publication_status = 'published'
+          and profile.is_active = true
+          and profile.privacy_blocked = false
+          and profile.organization_kind = 'juridical_person'
+          and exists (
+            select 1
+            from company_directory_profile_services relation
+            where relation.profile_id = profile.id
+              and relation.is_active = true
+              and relation.public_visible = true
+          )
           and (location.latitude is null or location.longitude is null)
           and location.geocode_source like 'lantmateriet_no_match_v4_2:registerenhet_v2:%'
-        order by profile.display_name
+        order by profile.display_name, profile.id
       `
     : [];
 
@@ -53,7 +59,7 @@ export default async function DirectoryGeocodingReviewPage() {
           </p>
           <h1 className="mt-2 text-3xl font-black sm:text-4xl">Adresser som behöver granskas</h1>
           <p className="mt-3 max-w-3xl text-sm leading-6 text-white/75">
-            Visar endast terminala registerenhet-v2-resultat utan verifierade koordinater. Sidan är read-only och ändrar inga företagsdata.
+            Visar terminala registerenhet-v2-resultat för publicerade leverantörer utan verifierade koordinater. Sidan är read-only och ändrar inga företagsdata.
           </p>
           <Link
             href="/admin/foretag/directory/search-preview"
