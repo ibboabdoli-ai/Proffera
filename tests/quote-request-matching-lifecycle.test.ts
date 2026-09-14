@@ -55,12 +55,46 @@ describe("Quote Request matching and delivery lifecycle", () => {
     expect(result).toEqual({ ok: true, matches: [] });
     expect(calls).toHaveLength(2);
     expect(calls[0]?.values).toEqual([...QUOTE_REQUEST_MATCHING_DELIVERY_STATUSES]);
-    expect(calls[0]?.text).toContain("from quote_requests where status in (");
-    expect(calls[0]?.text.indexOf("where status in (")).toBeLessThan(
-      calls[0]?.text.indexOf("order by created_at desc") ?? -1,
+    expect(calls[0]?.text).toContain("from quote_requests request where request.status in (");
+    expect(calls[0]?.text.indexOf("where request.status in (")).toBeLessThan(
+      calls[0]?.text.indexOf("order by request.created_at desc") ?? -1,
     );
-    expect(calls[0]?.text.indexOf("order by created_at desc")).toBeLessThan(
+    expect(calls[0]?.text.indexOf("order by request.created_at desc")).toBeLessThan(
       calls[0]?.text.indexOf("limit 50") ?? -1,
     );
+  });
+
+  it("uses private customer coordinates internally without returning them in LeadMatch.lead", async () => {
+    let callIndex = 0;
+    const sql = vi.fn(async () => {
+      callIndex += 1;
+      if (callIndex === 1) {
+        return [{
+          id: "11111111-1111-4111-8111-111111111111",
+          reference_id: "QR-PRIVATE-GEO",
+          category: "VVS",
+          service_type: "VVS / Rörmokare",
+          city: "Södertälje",
+          postal_code: "151 46",
+          description: "Läckande rör",
+          status: "submitted",
+          created_at: "2026-09-14T08:00:00.000Z",
+          customer_latitude: 59.1955,
+          customer_longitude: 17.6253,
+        }];
+      }
+      return [];
+    });
+    mocks.getSql.mockReturnValue(sql);
+
+    const result = await getLeadMatches();
+
+    expect(result.ok).toBe(true);
+    expect(result.matches).toHaveLength(1);
+    expect(result.matches[0]?.lead).toMatchObject({ reference_id: "QR-PRIVATE-GEO" });
+    expect(result.matches[0]?.lead).not.toHaveProperty("customer_latitude");
+    expect(result.matches[0]?.lead).not.toHaveProperty("customer_longitude");
+    expect(result.matches[0]?.lead).not.toHaveProperty("customerLatitude");
+    expect(result.matches[0]?.lead).not.toHaveProperty("customerLongitude");
   });
 });
