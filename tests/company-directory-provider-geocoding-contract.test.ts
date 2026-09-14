@@ -71,11 +71,20 @@ beforeEach(() => {
 describe("bounded provider-point geocoding", () => {
   it("reports provider-wide status through a database aggregate while preserving queue semantics", async () => {
     const queries: string[] = [];
+    const malformedWorkplace = [{
+      municipality: "Södertälje",
+      visitingAddress: {
+        addressLine: { toString: null },
+        postalCode: "151 00",
+        city: "Södertälje",
+      },
+    }];
     const rows = [
       statusRow({ latitude: 59.1955, longitude: 17.6253 }),
       statusRow({ organization_number: "5560000001" }),
       statusRow({ organization_number: "5560000002", geocode_source: correctedNoMatch }),
       statusRow({ organization_number: "5560000003", scb_workplaces: [] }),
+      statusRow({ organization_number: "5560000004", scb_workplaces: malformedWorkplace }),
     ];
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       const query = queryText(strings);
@@ -89,11 +98,11 @@ describe("bounded provider-point geocoding", () => {
     const status = await getDirectoryGeocodingStatus();
 
     expect(status).toMatchObject({
-      providerTotal: 4,
+      providerTotal: 5,
       geocoded: 1,
       remaining: 1,
       needsReview: 1,
-      unavailable: 1,
+      unavailable: 2,
     });
     const statusQuery = queries.find((query) => query.includes("with provider_state as")) ?? "";
     expect(statusQuery).toContain("count(*) filter");
@@ -102,35 +111,47 @@ describe("bounded provider-point geocoding", () => {
     expect(statusQuery).toContain("relation.is_active = true");
     expect(statusQuery).toContain("relation.public_visible = true");
     expect(statusQuery).toContain("jsonb_typeof(scb.workplaces)");
+    expect(statusQuery).toContain("jsonb_typeof(scb.workplaces -> 0 -> 'visitingAddress' -> 'addressLine')");
     expect(statusQuery).not.toContain("profile.organization_number in");
   });
 
   it("keeps the write path super-admin-only, DB-bounded, provider-wide, and hard-capped at three", async () => {
     const calls: Array<{ query: string; values: unknown[] }> = [];
+    const candidates = [
+      statusRow({ id: "11111111-1111-4111-8111-111111111101", organization_number: "5560000101" }),
+      statusRow({ id: "11111111-1111-4111-8111-111111111102", organization_number: "5560000102" }),
+      statusRow({ id: "11111111-1111-4111-8111-111111111103", organization_number: "5560000103" }),
+      statusRow({ id: "11111111-1111-4111-8111-111111111104", organization_number: "5560000104" }),
+      statusRow({ id: "11111111-1111-4111-8111-111111111105", organization_number: "5560000105" }),
+    ];
     const sql = vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
       const query = queryText(strings);
       calls.push({ query, values });
       if (query.includes("pg_extension")) return [{ ready: true }];
-      if (query.includes("profile.id::text")) return [];
+      if (query.includes("profile.id::text")) return candidates;
+      if (query.startsWith("insert into company_directory_business_locations")) return [];
       if (query.includes("with provider_state as")) {
-        return [{ total: 0, geocoded: 0, remaining: 0, needs_review: 0, unavailable: 0 }];
+        return [{ total: 5, geocoded: 0, remaining: 5, needs_review: 0, unavailable: 0 }];
       }
       throw new Error(`Unexpected SQL: ${query}`);
     });
     mocks.getSql.mockReturnValue(sql);
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockRejectedValue(new Error("temporary upstream failure"));
 
     const result = await geocodeDirectoryProviderPointsFromAdmin(99);
 
     expect(DIRECTORY_PROVIDER_GEOCODING_MAX_BATCH).toBe(3);
     expect(mocks.getPlatformAdmin).toHaveBeenCalledTimes(1);
     expect(result).toEqual({
-      attempted: 0,
+      attempted: 3,
       geocoded: 0,
       noMatch: 0,
-      errors: 0,
-      remaining: 0,
+      errors: 3,
+      remaining: 5,
       needsReview: 0,
     });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
     const target = calls.find((call) => call.query.includes("profile.id::text"));
     expect(target?.query).toContain("profile.publication_status = 'published'");
     expect(target?.query).toContain("profile.is_active = true");
@@ -140,6 +161,7 @@ describe("bounded provider-point geocoding", () => {
     expect(target?.query).toContain("relation.public_visible = true");
     expect(target?.query).toContain("location.latitude is null or location.longitude is null");
     expect(target?.query).toContain("jsonb_typeof(scb.workplaces)");
+    expect(target?.query).toContain("jsonb_typeof(scb.workplaces -> 0 -> 'visitingAddress' -> 'addressLine')");
     expect(target?.query).toContain("limit ?");
     expect(target?.values).toContain(DIRECTORY_PROVIDER_GEOCODING_MAX_BATCH);
     expect(target?.query).not.toContain("profile.organization_number in");
