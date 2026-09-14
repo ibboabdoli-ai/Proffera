@@ -868,11 +868,15 @@ function profileAddressFromRow(row: Record<string, unknown>): DirectoryPublicAdd
 }
 
 function selectedAddressFromRow(row: Record<string, unknown>) {
-  return selectDirectoryGeocodingAddress({
-    profileAddress: profileAddressFromRow(row),
-    scbWorkplaces: row.scb_workplaces,
-    scbConflicts: row.scb_conflicts,
-  });
+  try {
+    return selectDirectoryGeocodingAddress({
+      profileAddress: profileAddressFromRow(row),
+      scbWorkplaces: row.scb_workplaces,
+      scbConflicts: row.scb_conflicts,
+    });
+  } catch {
+    return null;
+  }
 }
 
 function rowNeedsGeocodingAttempt(row: Record<string, unknown>) {
@@ -937,6 +941,12 @@ async function providerCounts(deadline?: number) {
         case
           when jsonb_typeof(scb.workplaces) is distinct from 'array' then false
           when jsonb_array_length(scb.workplaces) <> 1 then false
+          when jsonb_typeof(scb.workplaces -> 0) is distinct from 'object' then false
+          when jsonb_typeof(scb.workplaces -> 0 -> 'visitingAddress') is distinct from 'object' then false
+          when coalesce(jsonb_typeof(scb.workplaces -> 0 -> 'visitingAddress' -> 'addressLine'), '') not in ('string', 'number', 'boolean') then false
+          when coalesce(jsonb_typeof(scb.workplaces -> 0 -> 'visitingAddress' -> 'postalCode'), '') not in ('string', 'number', 'boolean') then false
+          when coalesce(jsonb_typeof(scb.workplaces -> 0 -> 'visitingAddress' -> 'city'), '') not in ('string', 'number', 'boolean') then false
+          when coalesce(jsonb_typeof(scb.workplaces -> 0 -> 'municipality'), '') not in ('string', 'number', 'boolean') then false
           when nullif(btrim(scb.workplaces -> 0 -> 'visitingAddress' ->> 'addressLine'), '') is null then false
           when nullif(btrim(scb.workplaces -> 0 -> 'visitingAddress' ->> 'postalCode'), '') is null then false
           when nullif(btrim(scb.workplaces -> 0 -> 'visitingAddress' ->> 'city'), '') is null then false
@@ -1126,6 +1136,12 @@ export async function geocodeDirectoryProviderPointsFromAdmin(
         case
           when jsonb_typeof(scb.workplaces) is distinct from 'array' then false
           when jsonb_array_length(scb.workplaces) <> 1 then false
+          when jsonb_typeof(scb.workplaces -> 0) is distinct from 'object' then false
+          when jsonb_typeof(scb.workplaces -> 0 -> 'visitingAddress') is distinct from 'object' then false
+          when coalesce(jsonb_typeof(scb.workplaces -> 0 -> 'visitingAddress' -> 'addressLine'), '') not in ('string', 'number', 'boolean') then false
+          when coalesce(jsonb_typeof(scb.workplaces -> 0 -> 'visitingAddress' -> 'postalCode'), '') not in ('string', 'number', 'boolean') then false
+          when coalesce(jsonb_typeof(scb.workplaces -> 0 -> 'visitingAddress' -> 'city'), '') not in ('string', 'number', 'boolean') then false
+          when coalesce(jsonb_typeof(scb.workplaces -> 0 -> 'municipality'), '') not in ('string', 'number', 'boolean') then false
           when nullif(btrim(scb.workplaces -> 0 -> 'visitingAddress' ->> 'addressLine'), '') is null then false
           when nullif(btrim(scb.workplaces -> 0 -> 'visitingAddress' ->> 'postalCode'), '') is null then false
           when nullif(btrim(scb.workplaces -> 0 -> 'visitingAddress' ->> 'city'), '') is null then false
