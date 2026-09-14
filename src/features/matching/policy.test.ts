@@ -12,6 +12,8 @@ const lead: LeadMatchInput = {
   category: "Städning",
   service_type: "Hemstädning",
   city: "Södertälje",
+  customerLatitude: 59.1955,
+  customerLongitude: 17.6253,
 };
 
 function candidate(overrides: Partial<WorkspaceLeadCandidate> = {}): WorkspaceLeadCandidate {
@@ -33,6 +35,12 @@ function candidate(overrides: Partial<WorkspaceLeadCandidate> = {}): WorkspaceLe
     serviceName: "Hemstädning",
     serviceCategory: "Städning",
     serviceArea: "Södertälje",
+    serviceAreaRadiusKm: 25,
+    providerLatitude: 59.1955,
+    providerLongitude: 17.6253,
+    providerPointVerified: true,
+    providerCity: "Södertälje",
+    providerMunicipality: "Södertälje",
     serviceIsActive: true,
     servicePublicStatus: "published",
     serviceConversionMode: "quote",
@@ -49,7 +57,7 @@ function candidate(overrides: Partial<WorkspaceLeadCandidate> = {}): WorkspaceLe
 }
 
 describe("workspace lead matching policy", () => {
-  it("suggests an eligible claimed workspace with a published quote-capable service", () => {
+  it("suggests an eligible claimed workspace with confirmed geometry", () => {
     const result = buildWorkspaceLeadSuggestions(lead, [candidate()], now);
 
     expect(result).toHaveLength(1);
@@ -57,9 +65,10 @@ describe("workspace lead matching policy", () => {
       companyName: "Verifierad Städ AB",
       email: "kontakt@example.se",
       serviceName: "Hemstädning",
+      coverageState: "confirmed_inside",
       score: 100,
     });
-    expect(result[0]?.reasons).toEqual(["verifierat företag", "kategori", "tjänst", "område"]);
+    expect(result[0]?.reasons).toEqual(["verifierat företag", "kategori", "tjänst", "bekräftat serviceområde"]);
   });
 
   it("excludes structurally unverified workspaces even when their name looks production-like or test-like", () => {
@@ -83,9 +92,7 @@ describe("workspace lead matching policy", () => {
   });
 
   it("does not use workspace names as a hidden test exclusion", () => {
-    const verifiedTestNamedWorkspace = candidate({ companyName: "proffera-test-workspace" });
-
-    expect(buildWorkspaceLeadSuggestions(lead, [verifiedTestNamedWorkspace], now)).toHaveLength(1);
+    expect(buildWorkspaceLeadSuggestions(lead, [candidate({ companyName: "proffera-test-workspace" })], now)).toHaveLength(1);
   });
 
   it("excludes workspaces when lead management is disabled", () => {
@@ -109,18 +116,43 @@ describe("workspace lead matching policy", () => {
     expect(buildWorkspaceLeadSuggestions(lead, [candidate({ serviceName: "Kontorsstädning", serviceCategory: "Företag" })], now)).toEqual([]);
   });
 
-  it("does not treat the company's primary city as a service area", () => {
-    expect(
-      buildWorkspaceLeadSuggestions(
-        lead,
-        [candidate({ primaryCity: "Södertälje", serviceArea: "Stockholm" })],
-        now,
-      ),
-    ).toEqual([]);
+  it("does not treat free-text serviceArea as geometry", () => {
+    const result = buildWorkspaceLeadSuggestions(lead, [candidate({ serviceArea: "Malmö" })], now);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]?.coverageState).toBe("confirmed_inside");
   });
 
-  it("fails closed for a local lead when the service area is missing", () => {
-    expect(buildWorkspaceLeadSuggestions(lead, [candidate({ serviceArea: "" })], now)).toEqual([]);
+  it("rejects confirmed_outside even when free-text serviceArea says the lead city", () => {
+    expect(buildWorkspaceLeadSuggestions(lead, [candidate({
+      serviceArea: "Södertälje",
+      providerLatitude: 59.30,
+      providerLongitude: 17.70,
+      serviceAreaRadiusKm: 5,
+    })], now)).toEqual([]);
+  });
+
+  it("retains nearby geometry without a confirmed radius only as inferred_nearby", () => {
+    const result = buildWorkspaceLeadSuggestions(lead, [candidate({ serviceAreaRadiusKm: null })], now);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]?.coverageState).toBe("inferred_nearby");
+    expect(result[0]?.score).toBe(95);
+  });
+
+  it("uses locality_fallback only when customer coordinates are genuinely absent", () => {
+    const localLead = { ...lead, customerLatitude: null, customerLongitude: null };
+    const result = buildWorkspaceLeadSuggestions(localLead, [candidate()], now);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]?.coverageState).toBe("locality_fallback");
+  });
+
+  it("fails closed when the provider point is missing", () => {
+    expect(buildWorkspaceLeadSuggestions(lead, [candidate({
+      providerLatitude: null,
+      providerLongitude: null,
+    })], now)).toEqual([]);
   });
 
   it("returns an empty result when no candidate satisfies every safety boundary", () => {

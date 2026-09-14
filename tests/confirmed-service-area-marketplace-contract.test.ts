@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  classifyCompanyDirectoryGeoCoverage,
   confirmedCompanyDirectoryServiceAreaCoversSearch,
   hasConfirmedCompanyDirectoryServiceArea,
   normalizeCompanyDirectoryServiceAreaRadius,
@@ -33,12 +34,81 @@ describe("confirmed service-area runtime policy", () => {
     expect(hasConfirmedCompanyDirectoryServiceArea({ radiusKm: 301, publicVisible: true, confirmedAt })).toBe(false);
   });
 
-  it("fails closed for nearby searches outside the confirmed radius", () => {
+  it("keeps the exact confirmed radius boundary inclusive", () => {
     expect(confirmedCompanyDirectoryServiceAreaCoversSearch({ radiusKm: 25, nearbyEnabled: false, distanceKm: null })).toBe(true);
     expect(confirmedCompanyDirectoryServiceAreaCoversSearch({ radiusKm: 25, nearbyEnabled: true, distanceKm: 25 })).toBe(true);
     expect(confirmedCompanyDirectoryServiceAreaCoversSearch({ radiusKm: 25, nearbyEnabled: true, distanceKm: 25.01 })).toBe(false);
     expect(confirmedCompanyDirectoryServiceAreaCoversSearch({ radiusKm: 0, nearbyEnabled: false, distanceKm: null })).toBe(false);
     expect(confirmedCompanyDirectoryServiceAreaCoversSearch({ radiusKm: 301, nearbyEnabled: false, distanceKm: null })).toBe(false);
+  });
+
+  it("classifies deterministic confirmed coverage before every fallback", () => {
+    const inside = classifyCompanyDirectoryGeoCoverage({
+      providerLatitude: 59.1955,
+      providerLongitude: 17.6253,
+      providerPointVerified: true,
+      customerLatitude: 59.1955,
+      customerLongitude: 17.6253,
+      confirmedRadiusKm: 25,
+      localityMatched: true,
+    });
+    const outside = classifyCompanyDirectoryGeoCoverage({
+      providerLatitude: 59.1955,
+      providerLongitude: 17.6253,
+      providerPointVerified: true,
+      customerLatitude: 59.30,
+      customerLongitude: 17.70,
+      confirmedRadiusKm: 5,
+      localityMatched: true,
+      fallbackMaxDistanceKm: 50,
+    });
+
+    expect(inside.state).toBe("confirmed_inside");
+    expect(outside.state).toBe("confirmed_outside");
+    expect(outside.distanceKm).not.toBeNull();
+  });
+
+  it("keeps unconfirmed proximity and locality explicitly unconfirmed", () => {
+    expect(classifyCompanyDirectoryGeoCoverage({
+      providerLatitude: 59.20,
+      providerLongitude: 17.63,
+      customerLatitude: 59.1955,
+      customerLongitude: 17.6253,
+      fallbackMaxDistanceKm: 50,
+    }).state).toBe("inferred_nearby");
+
+    expect(classifyCompanyDirectoryGeoCoverage({
+      providerLatitude: 59.20,
+      providerLongitude: 17.63,
+      customerLatitude: null,
+      customerLongitude: null,
+      localityMatched: true,
+    }).state).toBe("locality_fallback");
+  });
+
+  it("fails closed for missing provider points, malformed geometry, or unverified confirmed points", () => {
+    expect(classifyCompanyDirectoryGeoCoverage({
+      providerLatitude: null,
+      providerLongitude: null,
+      customerLatitude: 59.1955,
+      customerLongitude: 17.6253,
+    }).state).toBe("unknown");
+
+    expect(classifyCompanyDirectoryGeoCoverage({
+      providerLatitude: 59.20,
+      providerLongitude: 17.63,
+      customerLatitude: "bad",
+      customerLongitude: 17.6253,
+    }).state).toBe("unknown");
+
+    expect(classifyCompanyDirectoryGeoCoverage({
+      providerLatitude: 59.20,
+      providerLongitude: 17.63,
+      providerPointVerified: false,
+      customerLatitude: 59.1955,
+      customerLongitude: 17.6253,
+      confirmedRadiusKm: 25,
+    }).state).toBe("unknown");
   });
 
   it("keeps non-owner evidence outside owner cleanup scope", () => {
@@ -61,6 +131,10 @@ describe("confirmed service-area integration wiring", () => {
   const serviceEditor = source("src/app/dashboard/installningar/services-read-only.tsx");
   const readiness = source("src/lib/workspace-marketplace-readiness.ts");
   const matching = source("src/features/matching/list.ts");
+  const matchingPolicy = source("src/features/matching/policy.ts");
+  const guestMatching = source("src/features/matching/directory-guest.ts");
+  const guestSingle = source("src/features/matching/directory-guest-single.ts");
+  const wavePlan = source("src/features/matching/marketplace-wave-plan.ts");
   const directorySearch = source("src/lib/company-directory-public-search.ts");
 
   it("requires explicit owner confirmation instead of treating free text as coverage", () => {
@@ -84,11 +158,27 @@ describe("confirmed service-area integration wiring", () => {
     expect(deleteStatements.every((statement) => statement.includes("source_type = 'owner'"))).toBe(true);
   });
 
-  it("requires canonical valid-radius evidence in every marketplace consumer", () => {
+  it("requires canonical valid-radius evidence and service-specific precedence", () => {
     expect(servicesDb).toContain("area.radius_km between 1 and 300");
     expect(readiness).toContain("service.serviceAreaConfirmed && service.serviceAreaRadiusKm !== null");
     expect(matching).toContain("area.radius_km between 1 and 300");
+    expect(matching).toContain("case when area.service_slug = service.public_slug then 0 else 1 end");
+    expect(guestMatching).toContain("case when area.service_slug = relation.service_slug then 0 else 1 end");
+    expect(guestSingle).toContain("case when area.service_slug = relation.service_slug then 0 else 1 end");
     expect(directorySearch).toContain("area.radius_km between 1 and 300");
     expect(directorySearch).toContain("confirmedCompanyDirectoryServiceAreaCoversSearch");
+  });
+
+  it("uses one shared geo classifier instead of free-text service area geometry", () => {
+    expect(matchingPolicy).toContain("classifyCompanyDirectoryGeoCoverage");
+    expect(guestMatching).toContain("classifyCompanyDirectoryGeoCoverage");
+    expect(matchingPolicy).not.toContain("textsOverlap(candidate.serviceArea, lead.city)");
+    expect(matching).toContain("customerLatitude: rawLead.customer_latitude");
+    expect(matching).toContain("providerPointVerified: isVerifiedDirectoryMarketplaceLocation");
+  });
+
+  it("fails closed at the automatic Marketplace invitation boundary", () => {
+    expect(wavePlan).toContain('candidate.coverageState === "confirmed_inside"');
+    expect(wavePlan).not.toContain("candidate.serviceAreaConfirmed === true");
   });
 });

@@ -322,6 +322,7 @@ if (RUN_POSTGRES_INTEGRATION) {
             distanceKm: 2,
             serviceAreaRadiusKm: 25,
             serviceAreaConfirmed: true,
+            coverageState: "confirmed_inside",
             recipientEmail: providerEmail,
             contactBasis: "official_business_register",
           }],
