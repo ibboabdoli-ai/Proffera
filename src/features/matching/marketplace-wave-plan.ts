@@ -11,6 +11,11 @@ function normalizedRecipientEmail(value: string | undefined) {
   return String(value ?? "").trim().toLowerCase();
 }
 
+function isConfirmedInside(candidate: DirectoryGuestCandidate) {
+  if (candidate.coverageState) return candidate.coverageState === "confirmed_inside";
+  return candidate.serviceAreaConfirmed === true && candidate.distanceKm !== null;
+}
+
 export function planMarketplaceGuestWave(input: {
   requestedWave: 1 | 2;
   candidates: DirectoryGuestCandidate[];
@@ -46,6 +51,7 @@ export function planMarketplaceGuestWave(input: {
     const recipientEmail = normalizedRecipientEmail(candidate.recipientEmail);
     if (
       candidate.score < MIN_AUTOMATION_SCORE
+      || !isConfirmedInside(candidate)
       || !recipientEmail
       || candidate.contactBasis !== "official_business_register"
       || invitationSummary.byProfile.has(candidate.profileId)
