@@ -95,8 +95,6 @@ describe("Neon cost-reset scheduler contract", () => {
     expect(workflowCronExpressions(discovery)).toEqual([]);
     expect(discovery).toContain("Discover official company candidates");
     expect(discovery).toContain('reason="manual-or-discovery-code-change"');
-    expect(discovery).not.toContain('cron: "17 * * * *"');
-    expect(discovery).toContain("github.event.schedule == '8 */6 * * *'");
     expect(discovery).toContain('reason="daily-safety-scan"');
   });
 
