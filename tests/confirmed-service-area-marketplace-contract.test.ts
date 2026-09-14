@@ -179,6 +179,6 @@ describe("confirmed service-area integration wiring", () => {
 
   it("fails closed at the automatic Marketplace invitation boundary", () => {
     expect(wavePlan).toContain('candidate.coverageState === "confirmed_inside"');
-    expect(wavePlan).toContain("candidate.serviceAreaConfirmed === true");
+    expect(wavePlan).not.toContain("candidate.serviceAreaConfirmed === true");
   });
 });
