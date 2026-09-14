@@ -12,8 +12,7 @@ function normalizedRecipientEmail(value: string | undefined) {
 }
 
 function isConfirmedInside(candidate: DirectoryGuestCandidate) {
-  if (candidate.coverageState) return candidate.coverageState === "confirmed_inside";
-  return candidate.serviceAreaConfirmed === true && candidate.distanceKm !== null;
+  return candidate.coverageState === "confirmed_inside";
 }
 
 export function planMarketplaceGuestWave(input: {
