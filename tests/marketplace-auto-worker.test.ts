@@ -60,6 +60,7 @@ function candidate(index: number, overrides: Record<string, unknown> = {}) {
     distanceKm: 5,
     serviceAreaRadiusKm: 25,
     serviceAreaConfirmed: true,
+    coverageState: "confirmed_inside",
     recipientEmail: `offert${index}@company.se`,
     contactBasis: "official_business_register" as const,
     ...overrides,
