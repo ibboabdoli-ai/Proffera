@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -127,5 +129,20 @@ describe("bounded provider-point geocoding", () => {
     expect(targetQuery).toContain("relation.public_visible = true");
     expect(targetQuery).toContain("location.latitude is null or location.longitude is null");
     expect(targetQuery).not.toContain("profile.organization_number in");
+  });
+
+  it("keeps the terminal review page provider-wide and read-only instead of hiding non-pilot failures", () => {
+    const reviewPage = readFileSync(
+      resolve(process.cwd(), "src/app/admin/foretag/directory/search-preview/review/page.tsx"),
+      "utf8",
+    );
+
+    expect(reviewPage).not.toContain("DIRECTORY_GEOCODING_PILOT_ORGS");
+    expect(reviewPage).not.toContain("profile.organization_number in");
+    expect(reviewPage).toContain("profile.publication_status = 'published'");
+    expect(reviewPage).toContain("profile.organization_kind = 'juridical_person'");
+    expect(reviewPage).toContain("relation.is_active = true");
+    expect(reviewPage).toContain("relation.public_visible = true");
+    expect(reviewPage).toContain("lantmateriet_no_match_v4_2:registerenhet_v2:%");
   });
 });
