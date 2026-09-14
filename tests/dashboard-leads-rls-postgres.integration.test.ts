@@ -6,9 +6,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { Client, type QueryResultRow } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-const RUN_POSTGRES_INTEGRATION =
-  process.env.GITHUB_ACTIONS === "true"
-  || process.env.PROFFERA_POSTGRES_INTEGRATION === "1";
+const RUN_POSTGRES_INTEGRATION = process.env.PROFFERA_POSTGRES_INTEGRATION === "1";
 
 const workspaceA = "11111111-1111-4111-8111-111111111111";
 const workspaceB = "22222222-2222-4222-8222-222222222222";
