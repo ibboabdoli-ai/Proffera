@@ -85,8 +85,8 @@ test.describe("public critical-flow smoke", () => {
     response = await page.goto("/aterstall-losenord?lang=en#token=ABCDEFGHIJKLMNOPQRSTUVWX");
     expect(response?.ok()).toBeTruthy();
     await expect(page.getByRole("heading", { level: 1, name: "Choose a new password" })).toBeVisible();
-    await expect(page.getByLabel("New password")).toBeVisible();
-    await expect(page.getByLabel("Confirm new password")).toBeVisible();
+    await expect(page.getByLabel("New password", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Confirm new password", { exact: true })).toBeVisible();
     await expect.poll(() => page.url()).not.toContain("#token=");
 
     response = await page.goto("/aterstall-losenord");
