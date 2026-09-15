@@ -36,9 +36,16 @@ const copy = {
   },
 } as const;
 
+function initialResetToken() {
+  if (typeof window === "undefined") return null;
+  const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  const candidate = params.get("token")?.trim() ?? "";
+  return RESET_TOKEN_PATTERN.test(candidate) ? candidate : null;
+}
+
 export function ResetPasswordForm({ locale }: { locale: PasswordResetLocale }) {
   const text = copy[locale];
-  const [token, setToken] = useState<string | null>(null);
+  const [token] = useState<string | null>(initialResetToken);
   const [ready, setReady] = useState(false);
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
@@ -46,13 +53,11 @@ export function ResetPasswordForm({ locale }: { locale: PasswordResetLocale }) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-    const candidate = params.get("token")?.trim() ?? "";
-    setToken(RESET_TOKEN_PATTERN.test(candidate) ? candidate : null);
-    setReady(true);
     if (window.location.hash) {
       window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
     }
+    const timer = window.setTimeout(() => setReady(true), 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
