@@ -1,0 +1,151 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Define the evidence required before Proffera V1 may be declared complete. This file is a stable contract, not a live completion report.",
+  "completionRule": "V1 COMPLETE is allowed only when every criterion has current evidence satisfying every requiredEvidence kind. Source merges, green builds, old screenshots, historical issue text, or unchecked boxes are never sufficient by themselves.",
+  "liveStateAuthority": "Current main, executable tests, exact-head CI/review evidence, deployed exact-SHA runtime evidence, and GitHub issue #548 override stale historical records.",
+  "evidenceKinds": {
+    "code_test": "Executable implementation plus automated test evidence on the relevant current head.",
+    "preview_runtime": "Runtime or browser proof in an isolated Preview/Staging environment using non-production data and credentials.",
+    "read_only_production": "Fresh read-only Production evidence; no mutation is authorized by this evidence kind.",
+    "production_runtime": "Fresh runtime evidence tied to the exact deployed main SHA. State-changing pilots still require their separate restricted-action approval.",
+    "human_approval": "Explicit owner/legal/business approval when the proof itself is a restricted or external real-world action."
+  },
+  "criteria": [
+    {
+      "id": "customer.discovery_request",
+      "group": "customer_marketplace",
+      "requirement": "A customer can discover a relevant service/provider and submit a valid request; invalid requests fail clearly.",
+      "requiredEvidence": ["code_test", "preview_runtime", "production_runtime"],
+      "restrictedAction": "production_marketplace_pilot",
+      "inspectionTargets": ["src/lib/company-directory-public-search.ts", "src/features/quote-request/actions.ts", "e2e/tests/public-critical-flows.e2e.mjs", "e2e/tests/marketplace-preview-lifecycle.e2e.mjs"]
+    },
+    {
+      "id": "customer.matching_invitation_offer",
+      "group": "customer_marketplace",
+      "requirement": "Eligible matching/invitation reaches a provider who can view and submit an offer.",
+      "requiredEvidence": ["code_test", "preview_runtime", "production_runtime"],
+      "restrictedAction": "production_marketplace_pilot_and_real_outreach",
+      "inspectionTargets": ["src/features/matching/marketplace-wave-plan.ts", "tests/marketplace-full-loop-postgres.test.ts", "e2e/tests/marketplace-preview-lifecycle.e2e.mjs"]
+    },
+    {
+      "id": "customer.offer_compare_selection",
+      "group": "customer_marketplace",
+      "requirement": "A customer can compare and select an offer with the correct persisted state.",
+      "requiredEvidence": ["code_test", "preview_runtime", "production_runtime"],
+      "restrictedAction": "production_marketplace_pilot",
+      "inspectionTargets": ["tests/marketplace-full-loop-postgres.test.ts", "e2e/tests/marketplace-preview-lifecycle.e2e.mjs"]
+    },
+    {
+      "id": "customer.selection_service_job",
+      "group": "customer_marketplace",
+      "requirement": "Customer selection creates or links exactly the correct ServiceJob.",
+      "requiredEvidence": ["code_test", "preview_runtime", "production_runtime"],
+      "restrictedAction": "production_marketplace_pilot",
+      "inspectionTargets": ["tests/marketplace-full-loop-postgres.test.ts", "e2e/tests/marketplace-preview-lifecycle.e2e.mjs"]
+    },
+    {
+      "id": "customer.completed_verified_review",
+      "group": "customer_marketplace",
+      "requirement": "Genuine work completion can produce exactly the eligible verified-review flow.",
+      "requiredEvidence": ["code_test", "preview_runtime", "production_runtime"],
+      "restrictedAction": "production_marketplace_pilot",
+      "inspectionTargets": ["tests/marketplace-full-loop-postgres.test.ts", "e2e/tests/marketplace-preview-lifecycle.e2e.mjs"]
+    },
+    {
+      "id": "customer.marketplace_tenant_isolation",
+      "group": "customer_marketplace",
+      "requirement": "The launch-critical Marketplace transitions do not leak data across Workspaces or tenants.",
+      "requiredEvidence": ["code_test", "preview_runtime", "production_runtime"],
+      "restrictedAction": "production_marketplace_pilot",
+      "inspectionTargets": ["tests/marketplace-full-loop-postgres.test.ts", "tests/company-directory-service-identity-tenant-isolation.integration.test.ts", "e2e/tests/preview-critical-flows.e2e.mjs"]
+    },
+    {
+      "id": "provider.onboarding_claim_workspace",
+      "group": "provider",
+      "requirement": "Provider onboarding, official identity, ownership claim, and Workspace linking are proven end-to-end.",
+      "requiredEvidence": ["code_test", "preview_runtime", "production_runtime"],
+      "restrictedAction": "real_provider_activation",
+      "inspectionTargets": ["src/lib/company-directory-provider-activation.ts", "tests/company-directory-smart-claim-services.test.ts", "e2e/tests/preview-critical-flows.e2e.mjs"]
+    },
+    {
+      "id": "provider.services_service_areas",
+      "group": "provider",
+      "requirement": "A linked provider can safely activate services and confirmed service areas using verified geo authority.",
+      "requiredEvidence": ["code_test", "preview_runtime", "production_runtime"],
+      "restrictedAction": "real_provider_activation",
+      "inspectionTargets": ["src/lib/company-directory-provider-activation.ts", "tests/confirmed-service-area-marketplace-contract.test.ts", "tests/company-directory-claimed-provider-origin.test.ts", "tests/business-profile-service-base-verification.test.ts"]
+    },
+    {
+      "id": "provider.receive_respond",
+      "group": "provider",
+      "requirement": "An eligible provider can receive Marketplace work and respond through the genuine application flow.",
+      "requiredEvidence": ["code_test", "preview_runtime", "production_runtime"],
+      "restrictedAction": "production_marketplace_pilot_and_real_outreach",
+      "inspectionTargets": ["tests/marketplace-full-loop-postgres.test.ts", "e2e/tests/marketplace-preview-lifecycle.e2e.mjs"]
+    },
+    {
+      "id": "provider.sole_trader_privacy",
+      "group": "provider",
+      "requirement": "The sole-trader provider path exposes only business-safe public data while preserving normal provider capability.",
+      "requiredEvidence": ["code_test", "preview_runtime", "production_runtime", "human_approval"],
+      "restrictedAction": "real_sole_trader_activation_and_privacy_review",
+      "inspectionTargets": ["src/lib/company-directory-provider-activation.ts", "tests/company-directory-sole-trader-marketplace-release.integration.test.ts"]
+    },
+    {
+      "id": "platform.login_session",
+      "group": "platform_quality",
+      "requirement": "Login, session, and authenticated access boundaries are healthy on launch-critical routes.",
+      "requiredEvidence": ["code_test", "preview_runtime", "production_runtime"],
+      "inspectionTargets": ["src/app/logga-in/LoginForm.tsx", "src/lib/auth-client.ts", "e2e/tests/preview-critical-flows.e2e.mjs"]
+    },
+    {
+      "id": "platform.password_reset",
+      "group": "platform_quality",
+      "requirement": "Password reset is complete, secure, bilingual where user-facing, abuse-resistant, and proven through request to reset to sign-in.",
+      "requiredEvidence": ["code_test", "preview_runtime", "production_runtime"],
+      "inspectionTargets": ["src/app/logga-in/LoginForm.tsx", "src/lib/auth-client.ts", "src/app/api/auth/[...all]/route.ts"]
+    },
+    {
+      "id": "platform.i18n_parity",
+      "group": "platform_quality",
+      "requirement": "Swedish and English parity is verified for all launch-critical public and authenticated flows.",
+      "requiredEvidence": ["code_test", "preview_runtime", "production_runtime"],
+      "inspectionTargets": ["e2e/tests/public-marketing.e2e.mjs", "e2e/tests/public-critical-flows.e2e.mjs", "e2e/tests/preview-critical-flows.e2e.mjs"]
+    },
+    {
+      "id": "platform.mobile_pwa",
+      "group": "platform_quality",
+      "requirement": "Launch-critical mobile/PWA flows are usable without safe-area, navigation, or language-control blockers.",
+      "requiredEvidence": ["code_test", "preview_runtime", "production_runtime"],
+      "inspectionTargets": ["src/components/dashboard/dashboard-shell.tsx", "e2e/tests/public-critical-flows.e2e.mjs", "e2e/tests/preview-critical-flows.e2e.mjs"]
+    },
+    {
+      "id": "platform.billing_tenant_integrity",
+      "group": "platform_quality",
+      "requirement": "Billing and tenant isolation remain intact across launch-critical Workspace behavior.",
+      "requiredEvidence": ["code_test", "preview_runtime", "read_only_production"],
+      "inspectionTargets": ["src/lib/stripe.ts", "src/app/api/stripe/webhook/route.ts", "src/app/api/stripe/checkout/route.ts", "e2e/tests/preview-critical-flows.e2e.mjs"]
+    },
+    {
+      "id": "platform.posthog_funnel",
+      "group": "platform_quality",
+      "requirement": "PostHog records the real launch funnel with Production/Preview separation and no fabricated activity.",
+      "requiredEvidence": ["code_test", "read_only_production"],
+      "inspectionTargets": ["docs/CURRENT_STATUS.md"]
+    },
+    {
+      "id": "platform.directory_scheduler_neon",
+      "group": "platform_quality",
+      "requirement": "Directory, scheduler/runtime, and Neon behavior are stable enough for controlled launch.",
+      "requiredEvidence": ["code_test", "read_only_production"],
+      "inspectionTargets": ["docs/CURRENT_STATUS.md", ".github/workflows"]
+    },
+    {
+      "id": "platform.release_exact_sha_gates",
+      "group": "platform_quality",
+      "requirement": "Required CI, CodeQL, E2E, current-head review policy, and exact-SHA Production deployment verification are green for release-impacting merged changes.",
+      "requiredEvidence": ["code_test", "production_runtime"],
+      "inspectionTargets": [".github/workflows/ci.yml", ".github/workflows/production-health.yml", "docs/PROFFERA_WORKFLOW.md"]
+    }
+  ]
+}
