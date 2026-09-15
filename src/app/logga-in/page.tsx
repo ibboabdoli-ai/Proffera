@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { isCheckoutPlanKey } from "@/lib/billing-plans";
+import { resolveSafeClaimLoginNext } from "@/lib/claim-login-return";
 import { resolveOwnerPostLoginPath } from "@/lib/owner-onboarding-routing";
 import { LoginForm } from "./LoginForm";
 
@@ -19,6 +20,7 @@ type LoginPageProps = {
     plan?: string | string[];
     lang?: string | string[];
     reset?: string | string[];
+    next?: string | string[];
   }>;
 };
 
@@ -57,11 +59,12 @@ function first(value?: string | string[]) {
   return Array.isArray(value) ? value[0] : value;
 }
 
-function languageHref(locale: LoginLocale, createdValue?: string, planValue?: string, resetValue?: string) {
+function languageHref(locale: LoginLocale, createdValue?: string, planValue?: string, resetValue?: string, nextValue?: string) {
   const params = new URLSearchParams({ lang: locale });
   if (createdValue) params.set("created", createdValue);
   if (planValue) params.set("plan", planValue);
   if (resetValue) params.set("reset", resetValue);
+  if (nextValue) params.set("next", nextValue);
   return `/logga-in?${params.toString()}`;
 }
 
@@ -70,10 +73,11 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const createdValue = first(params?.created);
   const planValue = first(params?.plan);
   const resetValue = first(params?.reset);
+  const nextValue = resolveSafeClaimLoginNext(params?.next) ?? undefined;
   const locale: LoginLocale = first(params?.lang) === "en" ? "en" : "sv";
   const text = copy[locale];
   const selectedPlan = isCheckoutPlanKey(planValue) ? planValue : null;
-  const afterLoginPath = resolveOwnerPostLoginPath({
+  const afterLoginPath = nextValue ?? resolveOwnerPostLoginPath({
     locale,
     accountCreated: createdValue === "1",
     selectedPlan,
@@ -86,8 +90,8 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
         <div className="order-2 lg:order-1">
           <div className="mb-7 flex items-center gap-3 text-sm" aria-label={text.languageLabel}>
             <span className="font-semibold text-[#5b665f]">{text.languageLabel}:</span>
-            <Link href={languageHref("sv", createdValue, planValue, resetValue)} className={`rounded-full px-3 py-1.5 font-semibold ${locale === "sv" ? "bg-[#17452f] text-white" : "bg-white text-[#17452f] ring-1 ring-[#d7ded5]"}`}>SV</Link>
-            <Link href={languageHref("en", createdValue, planValue, resetValue)} className={`rounded-full px-3 py-1.5 font-semibold ${locale === "en" ? "bg-[#17452f] text-white" : "bg-white text-[#17452f] ring-1 ring-[#d7ded5]"}`}>EN</Link>
+            <Link href={languageHref("sv", createdValue, planValue, resetValue, nextValue)} className={`rounded-full px-3 py-1.5 font-semibold ${locale === "sv" ? "bg-[#17452f] text-white" : "bg-white text-[#17452f] ring-1 ring-[#d7ded5]"}`}>SV</Link>
+            <Link href={languageHref("en", createdValue, planValue, resetValue, nextValue)} className={`rounded-full px-3 py-1.5 font-semibold ${locale === "en" ? "bg-[#17452f] text-white" : "bg-white text-[#17452f] ring-1 ring-[#d7ded5]"}`}>EN</Link>
           </div>
 
           <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#17452f]">{text.portal}</p>
