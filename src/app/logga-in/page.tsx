@@ -18,6 +18,7 @@ type LoginPageProps = {
     created?: string | string[];
     plan?: string | string[];
     lang?: string | string[];
+    reset?: string | string[];
   }>;
 };
 
@@ -33,6 +34,7 @@ const copy = {
     demo: "Boka demo",
     contact: "Kontakta Proffera",
     created: "Kontot och kundportalen är klara. Logga in med ditt nya lösenord.",
+    reset: "Lösenordet är uppdaterat. Logga in med ditt nya lösenord.",
     languageLabel: "Språk",
   },
   en: {
@@ -46,6 +48,7 @@ const copy = {
     demo: "Book a demo",
     contact: "Contact Proffera",
     created: "Your account and customer portal are ready. Sign in with your new password.",
+    reset: "Your password has been updated. Sign in with your new password.",
     languageLabel: "Language",
   },
 } as const;
@@ -54,10 +57,11 @@ function first(value?: string | string[]) {
   return Array.isArray(value) ? value[0] : value;
 }
 
-function languageHref(locale: LoginLocale, createdValue?: string, planValue?: string) {
+function languageHref(locale: LoginLocale, createdValue?: string, planValue?: string, resetValue?: string) {
   const params = new URLSearchParams({ lang: locale });
   if (createdValue) params.set("created", createdValue);
   if (planValue) params.set("plan", planValue);
+  if (resetValue) params.set("reset", resetValue);
   return `/logga-in?${params.toString()}`;
 }
 
@@ -65,6 +69,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const params = searchParams ? await searchParams : undefined;
   const createdValue = first(params?.created);
   const planValue = first(params?.plan);
+  const resetValue = first(params?.reset);
   const locale: LoginLocale = first(params?.lang) === "en" ? "en" : "sv";
   const text = copy[locale];
   const selectedPlan = isCheckoutPlanKey(planValue) ? planValue : null;
@@ -81,8 +86,8 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
         <div className="order-2 lg:order-1">
           <div className="mb-7 flex items-center gap-3 text-sm" aria-label={text.languageLabel}>
             <span className="font-semibold text-[#5b665f]">{text.languageLabel}:</span>
-            <Link href={languageHref("sv", createdValue, planValue)} className={`rounded-full px-3 py-1.5 font-semibold ${locale === "sv" ? "bg-[#17452f] text-white" : "bg-white text-[#17452f] ring-1 ring-[#d7ded5]"}`}>SV</Link>
-            <Link href={languageHref("en", createdValue, planValue)} className={`rounded-full px-3 py-1.5 font-semibold ${locale === "en" ? "bg-[#17452f] text-white" : "bg-white text-[#17452f] ring-1 ring-[#d7ded5]"}`}>EN</Link>
+            <Link href={languageHref("sv", createdValue, planValue, resetValue)} className={`rounded-full px-3 py-1.5 font-semibold ${locale === "sv" ? "bg-[#17452f] text-white" : "bg-white text-[#17452f] ring-1 ring-[#d7ded5]"}`}>SV</Link>
+            <Link href={languageHref("en", createdValue, planValue, resetValue)} className={`rounded-full px-3 py-1.5 font-semibold ${locale === "en" ? "bg-[#17452f] text-white" : "bg-white text-[#17452f] ring-1 ring-[#d7ded5]"}`}>EN</Link>
           </div>
 
           <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#17452f]">{text.portal}</p>
@@ -102,6 +107,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
 
         <div className="order-1 w-full lg:order-2">
           {createdValue === "1" ? <p className="mb-4 rounded-xl border border-[#b8d9c2] bg-[#eef8f0] px-4 py-3 text-sm font-semibold text-[#17452f]" role="status">{text.created}</p> : null}
+          {resetValue === "1" ? <p className="mb-4 rounded-xl border border-[#b8d9c2] bg-[#eef8f0] px-4 py-3 text-sm font-semibold text-[#17452f]" role="status">{text.reset}</p> : null}
           <LoginForm afterLoginPath={afterLoginPath} locale={locale} />
         </div>
       </section>

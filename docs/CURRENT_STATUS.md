@@ -18,6 +18,7 @@ Do not pin the current `main` SHA or current Vercel deployment ID in this file: 
 The repository contains active production implementations for these major areas:
 
 - Better Auth sign-in/session handling and Workspace membership/RBAC.
+- Better Auth password recovery uses the built-in single-use reset-token flow with a 60-minute expiry, revokes prior sessions after a successful reset, applies dedicated request/reset endpoint rate limits, and exposes bilingual Swedish/English recovery UI. Password-reset email delivery reuses the existing Brevo runtime/Preview isolation boundary. Reset tokens are placed in the browser URL fragment rather than the request path/query, are scrubbed from the address bar before submission, and are not projected into PostHog pageview data. Source/CI proof is not a claim that outbound reset email has been exercised in Production; Preview/Production runtime proof remains governed by the V1 evidence contract and environment approval gates.
 - Workspace-scoped Dashboard data for customers, bookings, leads, offers, reviews, billing and service work.
 - Public Booking, availability, email verification, booking management and customer portal foundations.
 - Quote Request / Offer flows and Service Job lifecycle foundations.
@@ -112,6 +113,7 @@ Committed non-destructive browser coverage includes:
 - public marketing/marketplace smoke coverage;
 - public nearby/geolocation coverage;
 - the real Login page entry surface;
+- bilingual password-recovery page rendering plus client-side reset-token fragment scrubbing without sending reset email;
 - Quote intake through service selection and adaptive-details navigation without submitting a request.
 
 An opt-in isolated Preview harness also exists for:

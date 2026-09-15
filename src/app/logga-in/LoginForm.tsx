@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { type FormEvent, useState } from "react";
 
 type LoginLocale = "sv" | "en";
@@ -18,6 +19,7 @@ const copy = {
     email: "E-post",
     emailPlaceholder: "namn@foretag.se",
     password: "Lösenord",
+    forgotPassword: "Glömt lösenordet?",
     idleError: "Inga inloggningsfel.",
     pending: "Loggar in...",
     submit: "Logga in",
@@ -31,6 +33,7 @@ const copy = {
     email: "Email",
     emailPlaceholder: "name@company.com",
     password: "Password",
+    forgotPassword: "Forgot your password?",
     idleError: "No sign-in errors.",
     pending: "Signing in...",
     submit: "Sign in",
@@ -82,6 +85,8 @@ export function LoginForm({ afterLoginPath = "/dashboard", locale = "sv" }: Logi
     }
   }
 
+  const forgotPasswordHref = locale === "en" ? "/glomt-losenord?lang=en" : "/glomt-losenord";
+
   return (
     <aside className="w-full rounded-[1.75rem] border border-white bg-white p-6 shadow-2xl shadow-[#17452f]/10 ring-1 ring-[#dfe5dd] sm:p-8">
       <div className="inline-flex rounded-full bg-[#e7f1eb] px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-[#17452f]">{text.badge}</div>
@@ -97,6 +102,11 @@ export function LoginForm({ afterLoginPath = "/dashboard", locale = "sv" }: Logi
         <div>
           <label htmlFor="password" className="text-sm font-semibold text-[#17201a]">{text.password}</label>
           <input id="password" name="password" type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} disabled={isPending} placeholder="••••••••" className="mt-2 w-full rounded-xl border border-[#d7ded5] bg-white px-4 py-3 text-base text-[#17201a] placeholder:text-[#8a958d] transition focus:border-[#17452f] focus:outline-none focus:ring-2 focus:ring-[#17452f]/20 disabled:cursor-not-allowed disabled:bg-[#f7f7f4] disabled:opacity-80" />
+          <div className="mt-2 text-right">
+            <Link href={forgotPasswordHref} className="text-sm font-semibold text-[#17452f] underline underline-offset-4">
+              {text.forgotPassword}
+            </Link>
+          </div>
         </div>
 
         {errorMessage ? <p id="login-error" className="rounded-xl bg-[#fff4f2] px-4 py-3 text-sm leading-6 text-[#8a2f1f]" role="alert">{errorMessage}</p> : <p id="login-error" className="sr-only">{text.idleError}</p>}
