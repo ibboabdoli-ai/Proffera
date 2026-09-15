@@ -1,9 +1,18 @@
 import { betterAuth } from "better-auth";
+import { after } from "next/server";
 import { Pool } from "pg";
 
+import {
+  passwordResetLocaleFromGeneratedUrl,
+  sendPasswordResetEmail,
+} from "@/features/email/password-reset-email";
 import { resolvePreviewAuthOriginConfig } from "@/lib/auth-origin";
 import { resolveAuthSecret } from "@/lib/auth-secret";
 import { resolveNodePostgresDatabaseUrl } from "@/lib/db/database-url";
+
+export const PASSWORD_RESET_TOKEN_EXPIRES_IN_SECONDS = 60 * 60;
+export const PASSWORD_RESET_REQUEST_RATE_LIMIT = { window: 15 * 60, max: 5 } as const;
+export const PASSWORD_RESET_SUBMIT_RATE_LIMIT = { window: 15 * 60, max: 10 } as const;
 
 function createAuth() {
   const databaseUrl = resolveNodePostgresDatabaseUrl();
@@ -31,6 +40,26 @@ function createAuth() {
     }),
     emailAndPassword: {
       enabled: true,
+      minPasswordLength: 8,
+      maxPasswordLength: 128,
+      resetPasswordTokenExpiresIn: PASSWORD_RESET_TOKEN_EXPIRES_IN_SECONDS,
+      revokeSessionsOnPasswordReset: true,
+      sendResetPassword: async ({ user, url, token }) => {
+        const locale = passwordResetLocaleFromGeneratedUrl(url);
+        after(async () => {
+          await sendPasswordResetEmail({
+            recipientEmail: user.email,
+            token,
+            locale,
+          });
+        });
+      },
+    },
+    rateLimit: {
+      customRules: {
+        "/request-password-reset": PASSWORD_RESET_REQUEST_RATE_LIMIT,
+        "/reset-password": PASSWORD_RESET_SUBMIT_RATE_LIMIT,
+      },
     },
     ...(previewAuthOriginConfig ?? {}),
   });
