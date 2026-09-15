@@ -145,7 +145,7 @@
       "group": "platform_quality",
       "requirement": "Required CI, CodeQL, E2E, current-head review policy, and exact-SHA Production deployment verification are green for release-impacting merged changes.",
       "requiredEvidence": ["code_test", "production_runtime"],
-      "inspectionTargets": [".github/workflows/ci.yml", ".github/workflows/production-health.yml", "docs/PROFFERA_WORKFLOW.md"]
+      "inspectionTargets": [".github/workflows/ci.yml", ".github/workflows/production-base-health.yml", "docs/PROFFERA_WORKFLOW.md"]
     }
   ]
 }
