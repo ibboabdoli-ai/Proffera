@@ -46,6 +46,15 @@ describe("password reset UI and privacy contract", () => {
     expect(resetPage).toContain("previous Proffera sessions are revoked");
   });
 
+  it("preserves the in-memory reset token when switching language after the URL fragment is scrubbed", () => {
+    expect(resetForm).toContain("function switchLocale");
+    expect(resetForm).toContain("new URLSearchParams({ token }).toString()");
+    expect(resetForm).toContain("window.location.replace(`${target}#${fragment}`)");
+    expect(resetForm).toContain('onClick={() => switchLocale("sv")}');
+    expect(resetForm).toContain('onClick={() => switchLocale("en")}');
+    expect(resetPage).not.toContain('href="/aterstall-losenord?lang=en"');
+  });
+
   it("keeps PostHog pageview capture query-free so reset fragments or query tokens are not projected", () => {
     expect(analytics).toContain("capture_pageview: false");
     expect(analytics).toContain("autocapture: false");
