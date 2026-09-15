@@ -11,6 +11,7 @@ const RESET_TOKEN_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
 
 const copy = {
   sv: {
+    language: "Språk",
     password: "Nytt lösenord",
     confirm: "Bekräfta nytt lösenord",
     hint: "Minst 8 tecken.",
@@ -23,6 +24,7 @@ const copy = {
     requestAgain: "Begär en ny återställningslänk",
   },
   en: {
+    language: "Language",
     password: "New password",
     confirm: "Confirm new password",
     hint: "At least 8 characters.",
@@ -60,6 +62,17 @@ export function ResetPasswordForm({ locale }: { locale: PasswordResetLocale }) {
     return () => window.clearTimeout(timer);
   }, []);
 
+  function switchLocale(nextLocale: PasswordResetLocale) {
+    if (nextLocale === locale) return;
+    const target = nextLocale === "en" ? "/aterstall-losenord?lang=en" : "/aterstall-losenord";
+    if (!token) {
+      window.location.replace(target);
+      return;
+    }
+    const fragment = new URLSearchParams({ token }).toString();
+    window.location.replace(`${target}#${fragment}`);
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!token || isPending) return;
@@ -93,59 +106,91 @@ export function ResetPasswordForm({ locale }: { locale: PasswordResetLocale }) {
   }
 
   const requestAgainUrl = locale === "en" ? "/glomt-losenord?lang=en" : "/glomt-losenord";
+  const languageSwitcher = (
+    <div className="mb-6 flex items-center gap-3 text-sm" aria-label={text.language}>
+      <span className="font-semibold text-[#5b665f]">{text.language}:</span>
+      <button
+        type="button"
+        aria-pressed={locale === "sv"}
+        onClick={() => switchLocale("sv")}
+        className={`rounded-full px-3 py-1.5 font-semibold ${locale === "sv" ? "bg-[#17452f] text-white" : "bg-white text-[#17452f] ring-1 ring-[#d7ded5]"}`}
+      >
+        SV
+      </button>
+      <button
+        type="button"
+        aria-pressed={locale === "en"}
+        onClick={() => switchLocale("en")}
+        className={`rounded-full px-3 py-1.5 font-semibold ${locale === "en" ? "bg-[#17452f] text-white" : "bg-white text-[#17452f] ring-1 ring-[#d7ded5]"}`}
+      >
+        EN
+      </button>
+    </div>
+  );
 
   if (!ready) {
-    return <div className="h-32 animate-pulse rounded-xl bg-[#f2f5f2]" aria-hidden="true" />;
+    return (
+      <div>
+        {languageSwitcher}
+        <div className="h-32 animate-pulse rounded-xl bg-[#f2f5f2]" aria-hidden="true" />
+      </div>
+    );
   }
 
   if (!token) {
     return (
-      <div className="grid gap-5">
-        <p className="rounded-xl bg-[#fff4f2] px-4 py-4 text-sm leading-6 text-[#8a2f1f]" role="alert">{text.invalidToken}</p>
-        <Link href={requestAgainUrl} className="text-sm font-semibold text-[#17452f] underline underline-offset-4">{text.requestAgain}</Link>
+      <div>
+        {languageSwitcher}
+        <div className="grid gap-5">
+          <p className="rounded-xl bg-[#fff4f2] px-4 py-4 text-sm leading-6 text-[#8a2f1f]" role="alert">{text.invalidToken}</p>
+          <Link href={requestAgainUrl} className="text-sm font-semibold text-[#17452f] underline underline-offset-4">{text.requestAgain}</Link>
+        </div>
       </div>
     );
   }
 
   return (
-    <form className="grid gap-5" onSubmit={handleSubmit}>
-      <div>
-        <label htmlFor="new-password" className="text-sm font-semibold text-[#17201a]">{text.password}</label>
-        <input
-          id="new-password"
-          name="newPassword"
-          type="password"
-          autoComplete="new-password"
-          minLength={8}
-          maxLength={128}
-          required
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          disabled={isPending}
-          className="mt-2 w-full rounded-xl border border-[#d7ded5] bg-white px-4 py-3 text-base text-[#17201a] focus:border-[#17452f] focus:outline-none focus:ring-2 focus:ring-[#17452f]/20 disabled:opacity-70"
-        />
-        <p className="mt-2 text-xs text-[#68736b]">{text.hint}</p>
-      </div>
-      <div>
-        <label htmlFor="confirm-password" className="text-sm font-semibold text-[#17201a]">{text.confirm}</label>
-        <input
-          id="confirm-password"
-          name="confirmPassword"
-          type="password"
-          autoComplete="new-password"
-          minLength={8}
-          maxLength={128}
-          required
-          value={confirmation}
-          onChange={(event) => setConfirmation(event.target.value)}
-          disabled={isPending}
-          className="mt-2 w-full rounded-xl border border-[#d7ded5] bg-white px-4 py-3 text-base text-[#17201a] focus:border-[#17452f] focus:outline-none focus:ring-2 focus:ring-[#17452f]/20 disabled:opacity-70"
-        />
-      </div>
-      {errorMessage ? <p className="rounded-xl bg-[#fff4f2] px-4 py-3 text-sm leading-6 text-[#8a2f1f]" role="alert">{errorMessage}</p> : null}
-      <button type="submit" disabled={isPending} className="inline-flex min-h-12 w-full items-center justify-center rounded-xl bg-[#17452f] px-6 py-3 text-base font-semibold text-white hover:bg-[#123824] disabled:cursor-not-allowed disabled:opacity-70">
-        {isPending ? text.pending : text.submit}
-      </button>
-    </form>
+    <div>
+      {languageSwitcher}
+      <form className="grid gap-5" onSubmit={handleSubmit}>
+        <div>
+          <label htmlFor="new-password" className="text-sm font-semibold text-[#17201a]">{text.password}</label>
+          <input
+            id="new-password"
+            name="newPassword"
+            type="password"
+            autoComplete="new-password"
+            minLength={8}
+            maxLength={128}
+            required
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            disabled={isPending}
+            className="mt-2 w-full rounded-xl border border-[#d7ded5] bg-white px-4 py-3 text-base text-[#17201a] focus:border-[#17452f] focus:outline-none focus:ring-2 focus:ring-[#17452f]/20 disabled:opacity-70"
+          />
+          <p className="mt-2 text-xs text-[#68736b]">{text.hint}</p>
+        </div>
+        <div>
+          <label htmlFor="confirm-password" className="text-sm font-semibold text-[#17201a]">{text.confirm}</label>
+          <input
+            id="confirm-password"
+            name="confirmPassword"
+            type="password"
+            autoComplete="new-password"
+            minLength={8}
+            maxLength={128}
+            required
+            value={confirmation}
+            onChange={(event) => setConfirmation(event.target.value)}
+            disabled={isPending}
+            className="mt-2 w-full rounded-xl border border-[#d7ded5] bg-white px-4 py-3 text-base text-[#17201a] focus:border-[#17452f] focus:outline-none focus:ring-2 focus:ring-[#17452f]/20 disabled:opacity-70"
+          />
+        </div>
+        {errorMessage ? <p className="rounded-xl bg-[#fff4f2] px-4 py-3 text-sm leading-6 text-[#8a2f1f]" role="alert">{errorMessage}</p> : null}
+        <button type="submit" disabled={isPending} className="inline-flex min-h-12 w-full items-center justify-center rounded-xl bg-[#17452f] px-6 py-3 text-base font-semibold text-white hover:bg-[#123824] disabled:cursor-not-allowed disabled:opacity-70">
+          {isPending ? text.pending : text.submit}
+        </button>
+      </form>
+    </div>
   );
 }
