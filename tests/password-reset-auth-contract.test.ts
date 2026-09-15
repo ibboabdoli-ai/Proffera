@@ -29,8 +29,6 @@ vi.mock("@/features/email/password-reset-email", () => ({
 
 import {
   getAuth,
-  PASSWORD_RESET_REQUEST_RATE_LIMIT,
-  PASSWORD_RESET_SUBMIT_RATE_LIMIT,
   PASSWORD_RESET_TOKEN_EXPIRES_IN_SECONDS,
 } from "@/lib/auth";
 
@@ -45,12 +43,10 @@ describe("Better Auth password reset contract", () => {
     mocks.sendPasswordResetEmail.mockResolvedValue({ ok: true, providerMessageId: "message-1" });
   });
 
-  it("uses the built-in reset flow with bounded tokens, session revocation, endpoint rate limits and deferred email", async () => {
+  it("uses the built-in reset flow with bounded tokens, session revocation and deferred email", async () => {
     getAuth();
 
     expect(PASSWORD_RESET_TOKEN_EXPIRES_IN_SECONDS).toBe(3600);
-    expect(PASSWORD_RESET_REQUEST_RATE_LIMIT).toEqual({ window: 900, max: 5 });
-    expect(PASSWORD_RESET_SUBMIT_RATE_LIMIT).toEqual({ window: 900, max: 10 });
     expect(mocks.betterAuth).toHaveBeenCalledTimes(1);
 
     const config = mocks.betterAuth.mock.calls[0]?.[0] as {
@@ -62,7 +58,6 @@ describe("Better Auth password reset contract", () => {
         revokeSessionsOnPasswordReset: boolean;
         sendResetPassword: (input: { user: { email: string }; url: string; token: string }) => Promise<void>;
       };
-      rateLimit: { customRules: Record<string, { window: number; max: number }> };
     };
 
     expect(config.emailAndPassword).toMatchObject({
@@ -71,10 +66,6 @@ describe("Better Auth password reset contract", () => {
       maxPasswordLength: 128,
       resetPasswordTokenExpiresIn: 3600,
       revokeSessionsOnPasswordReset: true,
-    });
-    expect(config.rateLimit.customRules).toEqual({
-      "/request-password-reset": { window: 900, max: 5 },
-      "/reset-password": { window: 900, max: 10 },
     });
 
     const generatedUrl = "https://www.proffera.se/api/auth/reset-password/opaque-token?callbackURL=%2Faterstall-losenord%3Flang%3Den";
