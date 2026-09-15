@@ -22,7 +22,6 @@ import {
 } from "@/lib/company-directory-geocoding";
 
 const correctedNoMatch = "lantmateriet_no_match_v4_2:registerenhet_v2:scb_workplace:no_reference";
-const legacyNoMatch = "lantmateriet_no_match_v4_2";
 const transientError = "lantmateriet_transient_error_v4_2";
 const workplace = [{
   municipality: "Södertälje",
@@ -86,7 +85,6 @@ describe("bounded provider-point geocoding", () => {
       statusRow({ organization_number: "5560000002", geocode_source: correctedNoMatch }),
       statusRow({ organization_number: "5560000003", scb_workplaces: [] }),
       statusRow({ organization_number: "5560000004", scb_workplaces: malformedWorkplace }),
-      statusRow({ organization_number: "5560000005", geocode_source: legacyNoMatch, scb_workplaces: [] }),
     ];
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       const query = queryText(strings);
@@ -100,11 +98,11 @@ describe("bounded provider-point geocoding", () => {
     const status = await getDirectoryGeocodingStatus();
 
     expect(status).toMatchObject({
-      providerTotal: 6,
+      providerTotal: 5,
       geocoded: 1,
       remaining: 1,
       needsReview: 1,
-      unavailable: 3,
+      unavailable: 2,
     });
     const statusQuery = queries.find((query) => query.includes("with provider_state as")) ?? "";
     expect(statusQuery).toContain("count(*) filter");
@@ -114,7 +112,6 @@ describe("bounded provider-point geocoding", () => {
     expect(statusQuery).toContain("relation.public_visible = true");
     expect(statusQuery).toContain("jsonb_typeof(scb.workplaces)");
     expect(statusQuery).toContain("jsonb_typeof(scb.workplaces -> 0 -> 'visitingAddress' -> 'addressLine')");
-    expect(statusQuery).not.toContain("coalesce(geocode_source, '') = ?");
     expect(statusQuery).not.toContain("profile.organization_number in");
   });
 
@@ -198,7 +195,7 @@ describe("bounded provider-point geocoding", () => {
     expect(transientWrite).toBeDefined();
   });
 
-  it("authorizes the terminal review page before DB access and executes the provider-wide read-only query", async () => {
+  it("authorizes the review page before DB access and exposes current terminal plus non-runnable legacy no-match states", async () => {
     const { default: DirectoryGeocodingReviewPage } = await import(
       "@/app/admin/foretag/directory/search-preview/review/page"
     );
@@ -225,6 +222,7 @@ describe("bounded provider-point geocoding", () => {
     expect(mocks.getSql).toHaveBeenCalledTimes(1);
     expect(queries).toHaveLength(1);
     const reviewQuery = queries[0] ?? "";
+    expect(reviewQuery).toContain("with review_state as");
     expect(reviewQuery).toContain("profile.publication_status = 'published'");
     expect(reviewQuery).toContain("profile.is_active = true");
     expect(reviewQuery).toContain("profile.privacy_blocked = false");
@@ -232,7 +230,11 @@ describe("bounded provider-point geocoding", () => {
     expect(reviewQuery).toContain("relation.is_active = true");
     expect(reviewQuery).toContain("relation.public_visible = true");
     expect(reviewQuery).toContain("location.latitude is null or location.longitude is null");
-    expect(reviewQuery).toContain("lantmateriet_no_match_v4_2:registerenhet_v2:%");
+    expect(reviewQuery).toContain("left join company_directory_scb_enrichment scb");
+    expect(reviewQuery).toContain("jsonb_typeof(scb.workplaces)");
+    expect(reviewQuery).toContain("geocode_source = 'lantmateriet_no_match_v4_2'");
+    expect(reviewQuery).toContain("geocode_source like 'lantmateriet_no_match_v4_2:%'");
+    expect(reviewQuery).toContain("geocode_source not like 'lantmateriet_no_match_v4_2:registerenhet_v2:scb_workplace:%'");
     expect(reviewQuery).not.toContain("profile.organization_number in");
   });
 });
