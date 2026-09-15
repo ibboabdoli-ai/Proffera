@@ -1,4 +1,5 @@
 import { getSql } from "@/lib/db/server";
+import { selectClaimedProviderMatchingOrigin } from "@/lib/company-directory-claimed-provider-origin";
 import { isVerifiedDirectoryMarketplaceLocation } from "@/lib/company-directory-marketplace-readiness";
 import { QUOTE_REQUEST_MATCHING_DELIVERY_STATUSES } from "@/lib/quote-request-lifecycle";
 import {
@@ -53,6 +54,44 @@ function asNullableNumber(value: unknown) {
 }
 
 function toCandidate(row: Record<string, unknown>): WorkspaceLeadCandidate {
+  const canonical = {
+    providerPointVerified: isVerifiedDirectoryMarketplaceLocation({
+      latitude: row.provider_latitude,
+      longitude: row.provider_longitude,
+      geocodeSource: row.geocode_source,
+      geocodePrecision: row.geocode_precision,
+      geocodeConfidence: row.geocode_confidence,
+      geocodedAt: row.geocoded_at,
+      locationIsPublic: row.location_is_public,
+    }),
+  };
+  const origin = selectClaimedProviderMatchingOrigin({
+    claimedWorkspaceId: row.workspace_id,
+    serviceBase: row.service_base_candidate_count === null || row.service_base_candidate_count === undefined
+      ? null
+      : {
+          candidateCount: row.service_base_candidate_count,
+          ownerWorkspaceId: row.service_base_owner_workspace_id,
+          sourceType: row.service_base_source_type,
+          purpose: row.service_base_purpose,
+          isActive: row.service_base_is_active,
+          confirmedAt: row.service_base_confirmed_at,
+          latitude: row.service_base_latitude,
+          longitude: row.service_base_longitude,
+          geocodeSource: row.service_base_geocode_source,
+          geocodePrecision: row.service_base_geocode_precision,
+          city: row.service_base_city,
+          municipality: row.service_base_municipality,
+        },
+    canonical: {
+      latitude: row.provider_latitude,
+      longitude: row.provider_longitude,
+      city: row.provider_city,
+      municipality: row.provider_municipality,
+      pointVerified: canonical.providerPointVerified,
+    },
+  });
+
   return {
     workspaceId: asText(row.workspace_id),
     companyName: asText(row.company_name),
@@ -72,19 +111,11 @@ function toCandidate(row: Record<string, unknown>): WorkspaceLeadCandidate {
     serviceCategory: asText(row.service_category),
     serviceArea: asText(row.service_area),
     serviceAreaRadiusKm: asNullableNumber(row.service_area_radius_km),
-    providerLatitude: row.provider_latitude,
-    providerLongitude: row.provider_longitude,
-    providerPointVerified: isVerifiedDirectoryMarketplaceLocation({
-      latitude: row.provider_latitude,
-      longitude: row.provider_longitude,
-      geocodeSource: row.geocode_source,
-      geocodePrecision: row.geocode_precision,
-      geocodeConfidence: row.geocode_confidence,
-      geocodedAt: row.geocoded_at,
-      locationIsPublic: row.location_is_public,
-    }),
-    providerCity: asText(row.provider_city),
-    providerMunicipality: asText(row.provider_municipality),
+    providerLatitude: origin.latitude,
+    providerLongitude: origin.longitude,
+    providerPointVerified: origin.pointVerified,
+    providerCity: origin.city,
+    providerMunicipality: origin.municipality,
     serviceIsActive: Boolean(row.service_is_active),
     servicePublicStatus: asText(row.service_public_status),
     serviceConversionMode: asText(row.service_conversion_mode),
@@ -192,6 +223,18 @@ export async function getLeadMatches() {
         location.geocode_confidence,
         location.geocoded_at::text as geocoded_at,
         location.is_public as location_is_public,
+        service_base.matching_candidate_count as service_base_candidate_count,
+        service_base.owner_workspace_id::text as service_base_owner_workspace_id,
+        service_base.source_type as service_base_source_type,
+        service_base.purpose as service_base_purpose,
+        service_base.is_active as service_base_is_active,
+        service_base.confirmed_at::text as service_base_confirmed_at,
+        service_base.latitude::float8 as service_base_latitude,
+        service_base.longitude::float8 as service_base_longitude,
+        service_base.geocode_source as service_base_geocode_source,
+        service_base.geocode_precision as service_base_geocode_precision,
+        service_base.city as service_base_city,
+        service_base.municipality as service_base_municipality,
         service.is_active as service_is_active,
         service.public_status as service_public_status,
         service.conversion_mode as service_conversion_mode,
@@ -227,6 +270,36 @@ export async function getLeadMatches() {
        and trial.feature_key = catalog.feature_key
       left join company_directory_business_locations location
         on location.profile_id = profile.id
+      left join lateral (
+        select
+          owner_base.owner_workspace_id,
+          owner_base.source_type,
+          owner_base.purpose,
+          owner_base.is_active,
+          owner_base.confirmed_at,
+          owner_base.latitude,
+          owner_base.longitude,
+          owner_base.geocode_source,
+          owner_base.geocode_precision,
+          owner_base.city,
+          owner_base.municipality,
+          (count(*) over ())::int as matching_candidate_count
+        from company_directory_profile_locations owner_base
+        where owner_base.profile_id = profile.id
+          and profile.claimed_workspace_id is not null
+          and owner_base.owner_workspace_id = profile.claimed_workspace_id
+          and owner_base.source_type = 'owner'
+          and owner_base.purpose = 'service_base'
+          and owner_base.is_active = true
+          and owner_base.confirmed_at is not null
+          and owner_base.latitude is not null
+          and owner_base.longitude is not null
+          and not (owner_base.latitude = 0 and owner_base.longitude = 0)
+          and owner_base.geocode_source = 'lantmateriet_belagenhetsadress_v4_2'
+          and owner_base.geocode_precision = 'address'
+        order by owner_base.confirmed_at desc, owner_base.id asc
+        limit 1
+      ) service_base on true
       left join lateral (
         select area.radius_km
         from company_directory_service_areas area
