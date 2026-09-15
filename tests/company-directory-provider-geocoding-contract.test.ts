@@ -22,6 +22,7 @@ import {
 } from "@/lib/company-directory-geocoding";
 
 const correctedNoMatch = "lantmateriet_no_match_v4_2:registerenhet_v2:scb_workplace:no_reference";
+const legacyNoMatch = "lantmateriet_no_match_v4_2";
 const transientError = "lantmateriet_transient_error_v4_2";
 const workplace = [{
   municipality: "Södertälje",
@@ -85,6 +86,7 @@ describe("bounded provider-point geocoding", () => {
       statusRow({ organization_number: "5560000002", geocode_source: correctedNoMatch }),
       statusRow({ organization_number: "5560000003", scb_workplaces: [] }),
       statusRow({ organization_number: "5560000004", scb_workplaces: malformedWorkplace }),
+      statusRow({ organization_number: "5560000005", geocode_source: legacyNoMatch, scb_workplaces: [] }),
     ];
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       const query = queryText(strings);
@@ -98,11 +100,11 @@ describe("bounded provider-point geocoding", () => {
     const status = await getDirectoryGeocodingStatus();
 
     expect(status).toMatchObject({
-      providerTotal: 5,
+      providerTotal: 6,
       geocoded: 1,
       remaining: 1,
       needsReview: 1,
-      unavailable: 2,
+      unavailable: 3,
     });
     const statusQuery = queries.find((query) => query.includes("with provider_state as")) ?? "";
     expect(statusQuery).toContain("count(*) filter");
@@ -112,6 +114,7 @@ describe("bounded provider-point geocoding", () => {
     expect(statusQuery).toContain("relation.public_visible = true");
     expect(statusQuery).toContain("jsonb_typeof(scb.workplaces)");
     expect(statusQuery).toContain("jsonb_typeof(scb.workplaces -> 0 -> 'visitingAddress' -> 'addressLine')");
+    expect(statusQuery).not.toContain("coalesce(geocode_source, '') = ?");
     expect(statusQuery).not.toContain("profile.organization_number in");
   });
 
