@@ -6,7 +6,7 @@ import { requireSuperAdmin } from "@/lib/admin-authorization";
 import { getDirectoryGeocodingStatus } from "@/lib/company-directory-geocoding";
 import { searchCompanyDirectory } from "@/lib/company-directory-search";
 import { resolveDirectoryServiceQuery } from "@/lib/company-directory-service-taxonomy";
-import { geocodeDirectoryPilotAction, searchDirectoryNearbyAction } from "./actions";
+import { geocodeDirectoryProviderPointsAction, searchDirectoryNearbyAction } from "./actions";
 import { NearbySearchFields } from "./NearbySearchFields";
 import {
   ADMIN_DIRECTORY_NEARBY_COOKIE,
@@ -46,7 +46,7 @@ function StatusPill({ ok, children }: { ok: boolean; children: React.ReactNode }
   );
 }
 
-/** Renders one high-level pilot status count. */
+/** Renders one high-level provider geocoding status count. */
 function SummaryCard({
   label,
   value,
@@ -141,21 +141,25 @@ export default async function DirectorySearchPreviewPage({ searchParams }: PageP
                 <MapPin className="h-5 w-5 text-[#17452f]" />
                 <p className="text-xs font-black uppercase tracking-[0.14em] text-[#607066]">Företagspositioner</p>
               </div>
-              <h2 className="mt-2 text-xl font-black text-[#17201a]">Adresskontroll för pilotföretag</h2>
+              <h2 className="mt-2 text-xl font-black text-[#17201a]">Verifierade positioner för publicerade leverantörer</h2>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-[#657068]">
-                En adress räknas som klar först när Proffera har sparat en säker, verifierad position. Osäkra träffar läggs för granskning i stället.
+                En position räknas som klar först när en entydig SCB-arbetsplatsadress har verifierats exakt mot Lantmäteriet. Registrerad adress eller postadress används inte som ersättning.
+              </p>
+              <p className="mt-2 max-w-2xl text-xs font-semibold leading-5 text-[#6b766e]">
+                Körningen är manuell och behandlar högst 3 företag per klick. Ingen cron, backfill eller automatisk körning aktiveras här.
               </p>
             </div>
             <span className="w-fit rounded-full bg-[#edf4ef] px-3 py-1 text-xs font-black text-[#17452f]">
-              Pilot · {geocodingStatus.pilotTotal} företag
+              Publicerade leverantörer · {geocodingStatus.providerTotal} företag
             </span>
           </div>
 
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             <SummaryCard label="Klara" value={geocodingStatus.geocoded} tone="success" />
             <SummaryCard label="Behöver granskas" value={geocodingStatus.needsReview} tone="warning" />
             <SummaryCard label="Väntar" value={geocodingStatus.remaining} tone="neutral" />
-            <SummaryCard label="Totalt" value={geocodingStatus.pilotTotal} tone="total" />
+            <SummaryCard label="Saknar säker arbetsplats" value={geocodingStatus.unavailable} tone="neutral" />
+            <SummaryCard label="Totalt" value={geocodingStatus.providerTotal} tone="total" />
           </div>
 
           {geocodingStatus.needsReview > 0 ? (
@@ -195,29 +199,31 @@ export default async function DirectorySearchPreviewPage({ searchParams }: PageP
             <div className="flex items-start gap-2 text-sm text-[#657068]">
               {geocodingStatus.remaining > 0 ? (
                 <Clock3 className="mt-0.5 h-4 w-4 shrink-0" />
-              ) : geocodingStatus.needsReview > 0 ? (
+              ) : geocodingStatus.needsReview > 0 || geocodingStatus.unavailable > 0 ? (
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[#8a691a]" />
               ) : (
                 <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[#17452f]" />
               )}
               <p>
                 {geocodingStatus.remaining > 0
-                  ? `${geocodingStatus.remaining} företag väntar på adresskontroll.`
+                  ? `${geocodingStatus.remaining} företag väntar på verifiering.`
                   : geocodingStatus.needsReview > 0
-                    ? `Inget väntar på automatisk körning. ${geocodingStatus.needsReview} adresser ligger i granskning.`
-                    : "Alla pilotadresser är behandlade."}
+                    ? `Inget väntar på automatisk verifiering. ${geocodingStatus.needsReview} adresser ligger i granskning.`
+                    : geocodingStatus.unavailable > 0
+                      ? `${geocodingStatus.unavailable} företag saknar en entydig, komplett SCB-arbetsplatsadress.`
+                      : "Alla kvalificerade företagspositioner är behandlade."}
               </p>
             </div>
 
             <div className="flex flex-wrap gap-2">
               {geocodingStatus.remaining > 0 ? (
-                <form action={geocodeDirectoryPilotAction}>
+                <form action={geocodeDirectoryProviderPointsAction}>
                   <button
                     type="submit"
                     disabled={!geocodingStatus.configured || !geocodingStatus.postgisReady}
                     className="min-h-11 rounded-xl bg-[#173e2b] px-4 text-sm font-black text-white disabled:cursor-not-allowed disabled:bg-[#d9dedb] disabled:text-[#7b847e]"
                   >
-                    Geokoda nästa 3
+                    Verifiera nästa 3
                   </button>
                 </form>
               ) : null}
