@@ -911,7 +911,7 @@ function providerCountsFromRows(rows: Record<string, unknown>[]) {
       remaining += 1;
       continue;
     }
-    if (isDirectoryGeocodingNoMatchSource(row.geocode_source)) {
+    if (String(row.geocode_source ?? "").startsWith(REGISTER_UNIT_NO_MATCH_SOURCE_PREFIX)) {
       needsReview += 1;
       continue;
     }
@@ -928,7 +928,6 @@ async function providerCounts(deadline?: number) {
     return { total: 0, geocoded: 0, remaining: 0, needsReview: 0, unavailable: 0 };
   }
   const terminalNoMatchPattern = `${REGISTER_UNIT_NO_MATCH_SOURCE_PREFIX}%`;
-  const anyNoMatchPattern = `${NO_MATCH_SOURCE}:%`;
   const rows = await sql`
     with provider_state as (
       select
@@ -986,10 +985,7 @@ async function providerCounts(deadline?: number) {
             has_safe_workplace
             and coalesce(geocode_source, '') not like ${terminalNoMatchPattern}
           )
-          and (
-            coalesce(geocode_source, '') = ${NO_MATCH_SOURCE}
-            or coalesce(geocode_source, '') like ${anyNoMatchPattern}
-          )
+          and coalesce(geocode_source, '') like ${terminalNoMatchPattern}
       )::int as needs_review,
       count(*) filter (
         where (latitude is null or longitude is null)
@@ -997,10 +993,7 @@ async function providerCounts(deadline?: number) {
             has_safe_workplace
             and coalesce(geocode_source, '') not like ${terminalNoMatchPattern}
           )
-          and not (
-            coalesce(geocode_source, '') = ${NO_MATCH_SOURCE}
-            or coalesce(geocode_source, '') like ${anyNoMatchPattern}
-          )
+          and coalesce(geocode_source, '') not like ${terminalNoMatchPattern}
       )::int as unavailable
     from provider_state
   `;
