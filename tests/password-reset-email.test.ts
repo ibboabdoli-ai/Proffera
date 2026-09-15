@@ -66,7 +66,7 @@ describe("password reset email safety", () => {
   });
 
   it("uses the runtime-safe recipient boundary and never sends to the submitted address in Preview", async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ messageId: "message-1" }), {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({ messageId: "message-1" }), {
       status: 201,
       headers: { "content-type": "application/json" },
     }));
@@ -80,8 +80,9 @@ describe("password reset email safety", () => {
 
     expect(mocks.resolveEmailRecipient).toHaveBeenCalledWith({ email: "real-user@example.com" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    const body = JSON.parse(String(init.body)) as {
+    const [, init] = fetchMock.mock.calls[0];
+    expect(init).toBeDefined();
+    const body = JSON.parse(String(init?.body)) as {
       to: Array<{ email: string }>;
       textContent: string;
       htmlContent: string;
