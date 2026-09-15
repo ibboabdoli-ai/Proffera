@@ -67,6 +67,31 @@ test.describe("public critical-flow smoke", () => {
     await expect(page.getByLabel("E-post")).toBeVisible();
     await expect(page.getByLabel("Lösenord")).toBeVisible();
     await expect(page.getByRole("button", { name: "Logga in" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Glömt lösenordet?" })).toHaveAttribute("href", "/glomt-losenord");
+  });
+
+  test("password recovery pages are bilingual and scrub reset-token fragments without sending email", async ({ page }) => {
+    let response = await page.goto("/glomt-losenord");
+    expect(response?.ok()).toBeTruthy();
+    await expect(page.getByRole("heading", { level: 1, name: "Glömt lösenordet?" })).toBeVisible();
+    await expect(page.getByLabel("E-post")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Skicka återställningslänk" })).toBeVisible();
+
+    response = await page.goto("/glomt-losenord?lang=en");
+    expect(response?.ok()).toBeTruthy();
+    await expect(page.getByRole("heading", { level: 1, name: "Forgot your password?" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Send reset link" })).toBeVisible();
+
+    response = await page.goto("/aterstall-losenord?lang=en#token=ABCDEFGHIJKLMNOPQRSTUVWX");
+    expect(response?.ok()).toBeTruthy();
+    await expect(page.getByRole("heading", { level: 1, name: "Choose a new password" })).toBeVisible();
+    await expect(page.getByLabel("New password")).toBeVisible();
+    await expect(page.getByLabel("Confirm new password")).toBeVisible();
+    await expect.poll(() => page.url()).not.toContain("#token=");
+
+    response = await page.goto("/aterstall-losenord");
+    expect(response?.ok()).toBeTruthy();
+    await expect(page.getByText("Återställningslänken är ogiltig eller har gått ut. Begär en ny länk.")).toBeVisible();
   });
 
   test("quote intake advances from service selection into adaptive details without submitting", async ({ page }) => {
