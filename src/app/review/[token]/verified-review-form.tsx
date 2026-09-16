@@ -3,6 +3,8 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, LoaderCircle, Star } from "lucide-react";
 
+import { emitMarketplaceFunnelEvent } from "@/components/analytics/marketplace-funnel-signal";
+
 type VerifiedReviewFormProps = {
   token: string;
   customerName: string;
@@ -101,6 +103,10 @@ export function VerifiedReviewForm({
       const result = (await response.json().catch(() => null)) as { error?: string } | null;
       if (!response.ok) throw new Error(result?.error ?? text.submitError);
 
+      emitMarketplaceFunnelEvent({
+        event: "marketplace_verified_review_submitted",
+        properties: { locale: language },
+      });
       form.reset();
       setRating(0);
       setSubmitted(true);
