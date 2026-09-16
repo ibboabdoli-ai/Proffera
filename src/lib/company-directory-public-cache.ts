@@ -4,7 +4,11 @@ import { revalidateTag, unstable_cache } from "next/cache";
 
 import { getSql } from "@/lib/db/server";
 
-export const PUBLIC_DIRECTORY_CACHE_TTL_SECONDS = 5 * 60;
+// Safe published + unclaimed juridical Directory projections are explicitly
+// invalidated on publication, claim, revalidation, and profile mutations. Keep
+// a 24-hour TTL only as a fallback so crawler repeats do not wake Neon every
+// five minutes when no underlying public data has changed.
+export const PUBLIC_DIRECTORY_CACHE_TTL_SECONDS = 24 * 60 * 60;
 
 const PUBLIC_DIRECTORY_PROFILE_CACHE_NAMESPACE = "public-directory-published-juridical-v2";
 const PUBLIC_DIRECTORY_EXTRAS_CACHE_NAMESPACE = "public-directory-profile-extras-v2";
