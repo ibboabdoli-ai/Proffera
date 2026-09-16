@@ -8,10 +8,6 @@ import {
   buildMarketplaceFunnelPostHogEvent,
 } from "@/lib/analytics/marketplace-funnel-events";
 import {
-  MARKETPLACE_FUNNEL_SIGNAL_COOKIE,
-  marketplaceFunnelEventFromCookie,
-} from "@/lib/analytics/marketplace-funnel-cookie";
-import {
   ANALYTICS_CONSENT_CHANGED_EVENT,
   ANALYTICS_CONSENT_STORAGE_KEY,
   analyticsSourceFromReferrer,
@@ -33,23 +29,6 @@ let lastCapturedPageKey: string | null = null;
 
 function readConsent(): AnalyticsConsentState {
   return readAnalyticsConsent(window.localStorage);
-}
-
-function takeMarketplaceFunnelCookie() {
-  const prefix = `${MARKETPLACE_FUNNEL_SIGNAL_COOKIE}=`;
-  const encoded = document.cookie
-    .split(";")
-    .map((part) => part.trim())
-    .find((part) => part.startsWith(prefix))
-    ?.slice(prefix.length);
-  if (encoded === undefined) return null;
-
-  document.cookie = `${MARKETPLACE_FUNNEL_SIGNAL_COOKIE}=; Max-Age=0; Path=/; SameSite=Lax`;
-  try {
-    return marketplaceFunnelEventFromCookie(decodeURIComponent(encoded));
-  } catch {
-    return null;
-  }
 }
 
 async function loadPostHog(config: PostHogPublicConfig) {
@@ -129,12 +108,6 @@ export function PostHogAnalytics({ config }: { config: PostHogPublicConfig }) {
     window.addEventListener(MARKETPLACE_FUNNEL_BROWSER_EVENT, handleMarketplaceEvent);
     return () => window.removeEventListener(MARKETPLACE_FUNNEL_BROWSER_EVENT, handleMarketplaceEvent);
   }, [config, consent]);
-
-  useEffect(() => {
-    const cookieSignal = takeMarketplaceFunnelCookie();
-    if (!cookieSignal || !isAnalyticsConsentGranted(consent)) return;
-    void captureMarketplaceEvent(config, cookieSignal);
-  }, [config, consent, pathname]);
 
   useEffect(() => {
     if (consent === "denied") {
