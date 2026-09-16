@@ -32,6 +32,9 @@ vi.mock("@/lib/company-directory-landing-seo", () => ({
 vi.mock("@/lib/company-directory-seo", () => ({
   listPublishedDirectorySitemapEntries: vi.fn(async () => mocks.directoryEntries),
 }));
+vi.mock("@/lib/public-read-cache", () => ({
+  getCachedPublicBusinessSitemapEntries: vi.fn(async () => []),
+}));
 vi.mock("@/lib/public-site-domain-routing", () => ({
   resolvePublicCustomDomain: vi.fn(async () => mocks.customTarget),
 }));
@@ -129,7 +132,7 @@ describe("sitemap index hygiene", () => {
     expect(mocks.sqlQuery).toContain("nullif(btrim(workspace.name), '')");
   });
 
-  it("adds only quality-gated Directory landing URLs to the platform sitemap", async () => {
+  it("temporarily omits Directory landing and profile discovery from the platform sitemap", async () => {
     mocks.directoryLandings = [{
       serviceSlug: "maleri",
       serviceLabel: "Måleri",
@@ -137,11 +140,17 @@ describe("sitemap index hygiene", () => {
       locationSlug: "sodertalje",
       businessCount: 3,
     }];
+    mocks.directoryEntries = [{
+      slug: "example-ab",
+      lastModified: new Date("2026-09-15T00:00:00Z"),
+    }];
 
     const entries = await sitemap();
     const urls = entries.map((entry) => entry.url);
 
-    expect(urls).toContain("https://www.proffera.se/hitta/maleri/sodertalje");
+    expect(urls).not.toContain("https://www.proffera.se/hitta/maleri/sodertalje");
+    expect(urls).not.toContain("https://www.proffera.se/foretag/listad/example-ab");
+    expect(urls).not.toContain("https://www.proffera.se/en/companies/example-ab");
     expect(urls).not.toContain("https://www.proffera.se/foretag/listad");
     expect(urls).not.toContain("https://www.proffera.se/anslut-foretag/registrera");
     expect(urls).not.toContain("https://www.proffera.se/anslut-foretag/tack");

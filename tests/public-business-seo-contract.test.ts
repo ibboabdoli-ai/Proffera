@@ -16,7 +16,7 @@ describe("Public Business Hub SEO contract", () => {
     expect(seo).toContain("service.public_status = 'published'");
     expect(seo).toContain("service.public_slug is not null");
     expect(seo).toContain('hasWorkspaceFeatureAccessForWorkspace(workspaceId, "website_builder")');
-    expect(sitemap).toContain("listPublicBusinessSitemapEntries");
+    expect(sitemap).toContain("getCachedPublicBusinessSitemapEntries");
     expect(sitemap).toContain("/foretag/${encodeURIComponent(entry.workspaceSlug)}");
   });
 
