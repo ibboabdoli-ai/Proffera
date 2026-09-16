@@ -32,11 +32,11 @@ function source(path: string) {
 }
 
 describe("public read cache contract", () => {
-  it("configures bounded 30-minute caches for suggestions and the platform Public Business sitemap source", async () => {
+  it("keeps Directory location suggestions for one day while preserving the 30-minute Public Business sitemap cache", async () => {
     expect(mocks.unstableCache).toHaveBeenCalledTimes(2);
 
     const locationCall = mocks.unstableCache.mock.calls.find(([, keyParts]) => keyParts[0] === "public-directory-location-suggestions-v3");
-    expect(locationCall?.[2]).toEqual({ revalidate: 30 * 60 });
+    expect(locationCall?.[2]).toEqual({ revalidate: 24 * 60 * 60 });
 
     const sitemapCall = mocks.unstableCache.mock.calls.find(([, keyParts]) => keyParts[0] === "platform-public-business-sitemap-v1");
     expect(sitemapCall?.[2]).toEqual({ revalidate: 30 * 60 });
@@ -69,8 +69,8 @@ describe("public read cache contract", () => {
     expect(sitemap).not.toContain("listPublishedDirectorySitemapEntries()");
     expect(sitemap).not.toContain("listDirectorySeoLandings()");
 
-    // Persistent profile caching is approved only behind the dedicated audited
-    // Directory boundary; this cost guard does not broaden or lengthen it.
+    // Persistent profile caching remains isolated behind the audited Directory
+    // boundary; only its fallback TTL is lengthened, not the cache eligibility.
     expect(requestCache).not.toContain('from "next/cache"');
     expect(profileResolver).not.toContain('from "next/cache"');
     expect(requestCache).toContain("readPublicDirectoryProfileCache");

@@ -5,7 +5,10 @@ import { unstable_cache } from "next/cache";
 import { getPublishedDirectoryLocationSuggestions } from "@/lib/company-directory-public-search";
 import { listPublicBusinessSitemapEntries } from "@/lib/public-business-seo";
 
-const LOCATION_SUGGESTIONS_REVALIDATE_SECONDS = 30 * 60;
+// Location suggestions are public, low-volatility labels. Keep them warm for a
+// day so bare Directory landing requests do not periodically wake Neon. Actual
+// Search/Nearby results remain live and outside this cache.
+const LOCATION_SUGGESTIONS_REVALIDATE_SECONDS = 24 * 60 * 60;
 const PUBLIC_BUSINESS_SITEMAP_REVALIDATE_SECONDS = 30 * 60;
 
 const readCachedPublishedDirectoryLocationSuggestions = unstable_cache(

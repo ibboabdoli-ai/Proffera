@@ -171,16 +171,16 @@ describe("directory shared-cache behavior", () => {
     expect(mocks.hasActivePaidDirectoryContactAccess).not.toHaveBeenCalled();
   });
 
-  it("uses a 300-second TTL and profile-specific tags for profile and extras", async () => {
+  it("uses a one-day TTL and profile-specific tags for profile and extras", async () => {
     mocks.getSql.mockReturnValue(publishedSql());
     mocks.getPublicDirectoryBusiness.mockResolvedValue(publicBusiness());
     mocks.getPublicDirectoryProfileExtras.mockResolvedValue({ services: [], serviceAreas: [], reputation: null });
 
     await getPublicBusinessProfileViewForRequest("test-company-ab");
 
-    expect(PUBLIC_DIRECTORY_CACHE_TTL_SECONDS).toBe(300);
+    expect(PUBLIC_DIRECTORY_CACHE_TTL_SECONDS).toBe(24 * 60 * 60);
     expect(cacheReads.length).toBeGreaterThanOrEqual(2);
-    expect(cacheReads.every((read) => read.revalidate === 300)).toBe(true);
+    expect(cacheReads.every((read) => read.revalidate === 24 * 60 * 60)).toBe(true);
     expect(cacheReads.some((read) => read.tags.includes(publicDirectoryProfileCacheTag("test-company-ab")))).toBe(true);
     expect(cacheReads.some((read) => read.tags.includes(publicDirectoryExtrasCacheTag(PROFILE_ID)))).toBe(true);
   });
