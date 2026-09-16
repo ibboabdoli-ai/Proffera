@@ -208,7 +208,7 @@ describe("Quote-request language switch guard", () => {
   });
 
   it("disables the locale control while the submission state is pending", () => {
-    resetHooks(new Map([
+    resetHooks(new Map<number, unknown>([
       [0, 5],
       [8, true],
     ]));
