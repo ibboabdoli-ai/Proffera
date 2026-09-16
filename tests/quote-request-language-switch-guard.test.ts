@@ -43,6 +43,9 @@ vi.mock("react", async (importOriginal) => {
 });
 
 vi.mock("lucide-react", () => ({ CheckCircle2: () => null }));
+vi.mock("@/components/analytics/marketplace-funnel-signal", () => ({
+  emitMarketplaceFunnelEvent: vi.fn(() => true),
+}));
 vi.mock("@/features/quote-request/actions", () => ({ submitQuoteRequest: mocks.submitQuoteRequest }));
 vi.mock("@/features/quote-request/form-copy", () => {
   const copy = {
