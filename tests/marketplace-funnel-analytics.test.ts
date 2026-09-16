@@ -109,23 +109,12 @@ vi.mock("@/features/quote-request/smart-quote-questions", () => ({
   validateSmartQuoteAnswers: () => ({}),
   buildSmartQuoteDescription: () => "safe description",
 }));
-for (const modulePath of [
-  "@/features/quote-request/step-contact",
-  "@/features/quote-request/step-description",
-  "@/features/quote-request/step-location",
-  "@/features/quote-request/step-review",
-  "@/features/quote-request/step-service",
-  "@/features/quote-request/step-smart-details",
-]) {
-  vi.mock(modulePath, () => ({
-    QuoteContactStep: () => null,
-    QuoteDescriptionStep: () => null,
-    QuoteLocationStep: () => null,
-    QuoteReviewStep: () => null,
-    QuoteServiceStep: () => null,
-    QuoteSmartDetailsStep: () => null,
-  }));
-}
+vi.mock("@/features/quote-request/step-contact", () => ({ QuoteContactStep: () => null }));
+vi.mock("@/features/quote-request/step-description", () => ({ QuoteDescriptionStep: () => null }));
+vi.mock("@/features/quote-request/step-location", () => ({ QuoteLocationStep: () => null }));
+vi.mock("@/features/quote-request/step-review", () => ({ QuoteReviewStep: () => null }));
+vi.mock("@/features/quote-request/step-service", () => ({ QuoteServiceStep: () => null }));
+vi.mock("@/features/quote-request/step-smart-details", () => ({ QuoteSmartDetailsStep: () => null }));
 
 vi.mock("@/lib/business-profile-search", () => ({
   searchPublishedBusinessProfiles: mocks.directorySearch,
