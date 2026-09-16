@@ -65,6 +65,14 @@ describe("marketplace guest invitation email delivery", () => {
     expect(marketplaceGuestInvitationEmailConfigured()).toBe(false);
   });
 
+  it("marks real invitation entry links without putting analytics identifiers in the URL", () => {
+    const email = buildMarketplaceGuestInvitationEmail(invitationInput());
+    const expected = "https://www.proffera.se/offert/svara/token?source=invitation";
+    expect(email.text).toContain(expected);
+    expect(email.html).toContain(`href="${expected}"`);
+    expect(email.text).not.toMatch(/quote_request_id|workspace_id|service_job_id|provider_id|claim_id/i);
+  });
+
   it("sends the durable dispatch token as Brevo idempotencyKey", async () => {
     const idempotencyKey = "11111111-1111-4111-8111-111111111111";
     const fetchMock = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => {
@@ -173,7 +181,7 @@ describe("marketplace guest invitation email delivery", () => {
     ]);
   });
 
-  it("marks the controlled test email clearly and omits live quote and opt-out copy", () => {
+  it("marks the controlled test email clearly and omits live quote, analytics, and opt-out copy", () => {
     const email = buildMarketplaceGuestInvitationEmail({
       recipientEmail: "test@company.test",
       companyName: "Testmottagare",
@@ -194,6 +202,8 @@ describe("marketplace guest invitation email delivery", () => {
     expect(email.html).toContain("Proffera · TEST");
     expect(email.text).toContain("https://www.proffera.se/offert/testa/token");
     expect(email.html).toContain('href="https://www.proffera.se/offert/testa/token"');
+    expect(email.text).not.toContain("source=invitation");
+    expect(email.html).not.toContain("source=invitation");
     expect(email.text).not.toContain("Vill ni inte få fler");
     expect(email.text).not.toContain("https://www.proffera.se/avregistrera/test");
     expect(email.html).not.toContain("https://www.proffera.se/avregistrera/test");
