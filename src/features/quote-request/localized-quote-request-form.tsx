@@ -3,6 +3,7 @@
 import { CheckCircle2 } from "lucide-react";
 import { useEffect, useState, useTransition } from "react";
 
+import { emitMarketplaceFunnelEvent } from "@/components/analytics/marketplace-funnel-signal";
 import type { PublicLocale } from "@/lib/public-locale";
 import { submitQuoteRequest } from "./actions";
 import { quoteFormCopy } from "./form-copy";
@@ -228,6 +229,7 @@ export function LocalizedQuoteRequestForm({
           return;
         }
         discardLanguageDraft();
+        emitMarketplaceFunnelEvent({ event: "marketplace_request_submitted", properties: { locale } });
         setReference(result.referenceId);
         setErrors({});
       });
