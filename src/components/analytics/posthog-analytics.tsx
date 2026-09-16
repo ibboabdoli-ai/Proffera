@@ -85,14 +85,13 @@ async function loadPostHog(config: PostHogPublicConfig) {
   return postHogClientPromise;
 }
 
-function captureMarketplaceEvent(config: PostHogPublicConfig, input: unknown) {
+async function captureMarketplaceEvent(config: PostHogPublicConfig, input: unknown) {
   const sanitized = buildMarketplaceFunnelPostHogEvent(input, config.environment);
   if (!sanitized) return;
-  void loadPostHog(config).then((posthog) => {
-    if (!posthog) return;
-    posthog.opt_in_capturing();
-    posthog.capture(sanitized.event, sanitized.properties);
-  });
+  const posthog = await loadPostHog(config);
+  if (!posthog) return;
+  posthog.opt_in_capturing();
+  posthog.capture(sanitized.event, sanitized.properties);
 }
 
 function optOutLoadedPostHog() {
@@ -124,7 +123,7 @@ export function PostHogAnalytics({ config }: { config: PostHogPublicConfig }) {
   useEffect(() => {
     const handleMarketplaceEvent = (event: Event) => {
       if (!isAnalyticsConsentGranted(consent)) return;
-      captureMarketplaceEvent(config, event instanceof CustomEvent ? event.detail : null);
+      void captureMarketplaceEvent(config, event instanceof CustomEvent ? event.detail : null);
     };
 
     window.addEventListener(MARKETPLACE_FUNNEL_BROWSER_EVENT, handleMarketplaceEvent);
@@ -134,7 +133,7 @@ export function PostHogAnalytics({ config }: { config: PostHogPublicConfig }) {
   useEffect(() => {
     const cookieSignal = takeMarketplaceFunnelCookie();
     if (!cookieSignal || !isAnalyticsConsentGranted(consent)) return;
-    captureMarketplaceEvent(config, cookieSignal);
+    void captureMarketplaceEvent(config, cookieSignal);
   }, [config, consent, pathname]);
 
   useEffect(() => {
