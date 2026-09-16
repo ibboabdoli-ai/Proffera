@@ -8,6 +8,10 @@ import {
   buildMarketplaceFunnelPostHogEvent,
 } from "@/lib/analytics/marketplace-funnel-events";
 import {
+  MARKETPLACE_FUNNEL_SIGNAL_COOKIE,
+  marketplaceFunnelEventFromCookie,
+} from "@/lib/analytics/marketplace-funnel-cookie";
+import {
   ANALYTICS_CONSENT_CHANGED_EVENT,
   ANALYTICS_CONSENT_STORAGE_KEY,
   analyticsSourceFromReferrer,
@@ -29,6 +33,23 @@ let lastCapturedPageKey: string | null = null;
 
 function readConsent(): AnalyticsConsentState {
   return readAnalyticsConsent(window.localStorage);
+}
+
+function takeMarketplaceFunnelCookie() {
+  const prefix = `${MARKETPLACE_FUNNEL_SIGNAL_COOKIE}=`;
+  const encoded = document.cookie
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(prefix))
+    ?.slice(prefix.length);
+  if (encoded === undefined) return null;
+
+  document.cookie = `${MARKETPLACE_FUNNEL_SIGNAL_COOKIE}=; Max-Age=0; Path=/; SameSite=Lax`;
+  try {
+    return marketplaceFunnelEventFromCookie(decodeURIComponent(encoded));
+  } catch {
+    return null;
+  }
 }
 
 async function loadPostHog(config: PostHogPublicConfig) {
@@ -64,6 +85,16 @@ async function loadPostHog(config: PostHogPublicConfig) {
   return postHogClientPromise;
 }
 
+function captureMarketplaceEvent(config: PostHogPublicConfig, input: unknown) {
+  const sanitized = buildMarketplaceFunnelPostHogEvent(input, config.environment);
+  if (!sanitized) return;
+  void loadPostHog(config).then((posthog) => {
+    if (!posthog) return;
+    posthog.opt_in_capturing();
+    posthog.capture(sanitized.event, sanitized.properties);
+  });
+}
+
 function optOutLoadedPostHog() {
   lastCapturedPageKey = null;
   void postHogClientPromise?.then((posthog) => posthog?.opt_out_capturing()).catch(() => undefined);
@@ -93,20 +124,18 @@ export function PostHogAnalytics({ config }: { config: PostHogPublicConfig }) {
   useEffect(() => {
     const handleMarketplaceEvent = (event: Event) => {
       if (!isAnalyticsConsentGranted(consent)) return;
-      const detail = event instanceof CustomEvent ? event.detail : null;
-      const sanitized = buildMarketplaceFunnelPostHogEvent(detail, config.environment);
-      if (!sanitized) return;
-
-      void loadPostHog(config).then((posthog) => {
-        if (!posthog) return;
-        posthog.opt_in_capturing();
-        posthog.capture(sanitized.event, sanitized.properties);
-      });
+      captureMarketplaceEvent(config, event instanceof CustomEvent ? event.detail : null);
     };
 
     window.addEventListener(MARKETPLACE_FUNNEL_BROWSER_EVENT, handleMarketplaceEvent);
     return () => window.removeEventListener(MARKETPLACE_FUNNEL_BROWSER_EVENT, handleMarketplaceEvent);
   }, [config, consent]);
+
+  useEffect(() => {
+    const cookieSignal = takeMarketplaceFunnelCookie();
+    if (!cookieSignal || !isAnalyticsConsentGranted(consent)) return;
+    captureMarketplaceEvent(config, cookieSignal);
+  }, [config, consent, pathname]);
 
   useEffect(() => {
     if (consent === "denied") {
