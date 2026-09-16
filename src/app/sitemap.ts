@@ -3,8 +3,6 @@ import { headers } from "next/headers";
 
 import { getPublicBusinessHub } from "@/lib/public-business-hub";
 import { isIndexablePublicBusinessWorkspace, listPublicBusinessSitemapEntries } from "@/lib/public-business-seo";
-import { listDirectorySeoLandings } from "@/lib/company-directory-landing-seo";
-import { listPublishedDirectorySitemapEntries } from "@/lib/company-directory-seo";
 import { marketingIndustrySlugs } from "@/lib/marketing-industry-pages";
 import { marketingServiceSlugs } from "@/lib/marketing-service-pages";
 import { primeViewIndexableAreaPages } from "@/lib/primeview-area-pages";
@@ -68,11 +66,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     ];
   }
 
-  const [publicBusinessEntries, directoryEntries, directoryLandings] = await Promise.all([
-    listPublicBusinessSitemapEntries(),
-    listPublishedDirectorySitemapEntries(),
-    listDirectorySeoLandings(),
-  ]);
+  // Company Directory profile/landing URLs are intentionally omitted from the
+  // platform sitemap while pre-launch crawler traffic is creating avoidable
+  // Neon wakeups. Direct routes keep working; this only removes crawl discovery.
+  const publicBusinessEntries = await listPublicBusinessSitemapEntries();
   const seenBusinesses = new Set<string>();
   const publicBusinessRoutes: MetadataRoute.Sitemap = [];
 
@@ -94,36 +91,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     }
   }
 
-  // Only publish lastModified when the source provides a trustworthy content timestamp.
-  const directoryRoutes: MetadataRoute.Sitemap = directoryEntries.flatMap((entry) => {
-    const encodedSlug = encodeURIComponent(entry.slug);
-    const languages = {
-      "sv-SE": `${siteConfig.url}/foretag/listad/${encodedSlug}`,
-      en: `${siteConfig.url}/en/companies/${encodedSlug}`,
-    };
-    return [
-      {
-        url: languages["sv-SE"],
-        lastModified: entry.lastModified,
-        changeFrequency: "weekly" as const,
-        priority: 0.65,
-        alternates: { languages },
-      },
-      {
-        url: languages.en,
-        lastModified: entry.lastModified,
-        changeFrequency: "weekly" as const,
-        priority: 0.65,
-        alternates: { languages },
-      },
-    ];
-  });
-  const directoryLandingRoutes: MetadataRoute.Sitemap = directoryLandings.map((landing) => ({
-    url: `${siteConfig.url}/hitta/${encodeURIComponent(landing.serviceSlug)}/${encodeURIComponent(landing.locationSlug)}`,
-    changeFrequency: "weekly",
-    priority: 0.72,
-  }));
-
   return [
     ...indexableLocalizedPublicRoutes.flatMap((route) => {
       const languages = { "sv-SE": `${siteConfig.url}${route.sv}`, en: `${siteConfig.url}${route.en}` };
@@ -134,7 +101,5 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     }),
     ...swedishOnlyRoutes.map((route) => ({ url: `${siteConfig.url}${route}`, changeFrequency: "monthly" as const, priority: 0.8 })),
     ...publicBusinessRoutes,
-    ...directoryLandingRoutes,
-    ...directoryRoutes,
   ];
 }
