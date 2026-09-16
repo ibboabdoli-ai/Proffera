@@ -110,7 +110,7 @@ describe("Marketplace launch-funnel analytics contract", () => {
     const invitationEmail = source("src/features/email/marketplace-guest-invitation-email.ts");
     const guestLayout = source("src/app/offert/svara/[token]/layout.tsx");
     const selectionAction = source("src/app/offert/jamfor/[token]/actions.ts");
-    const selectionLayout = source("src/app/offert/jamfor/[token]/layout.tsx");
+    const customerJobLayout = source("src/app/offert/jobb/kund/[token]/layout.tsx");
     const jobLayout = source("src/app/offert/jobb/[token]/layout.tsx");
     const reviewForm = source("src/app/review/[token]/verified-review-form.tsx");
 
@@ -124,9 +124,11 @@ describe("Marketplace launch-funnel analytics contract", () => {
     expect(guestLayout).toContain('event="marketplace_invitation_outcome"');
     expect(guestLayout).toContain('event="marketplace_provider_offer_submitted"');
 
-    expect(selectionAction).toContain('if (result.ok) redirectWithState(token, locale, "selected")');
-    expect(selectionLayout).toContain('value="selected"');
-    expect(selectionLayout).toContain('event="marketplace_customer_selection_completed"');
+    expect(selectionAction).toContain("if (result.ok) redirectToSelectedJob(token, locale)");
+    expect(selectionAction.indexOf("redirectToSelectedJob(token, locale)"))
+      .toBeGreaterThan(selectionAction.indexOf("const result = await selectMarketplaceCustomerOffer"));
+    expect(customerJobLayout).toContain('value="selected"');
+    expect(customerJobLayout).toContain('event="marketplace_customer_selection_completed"');
 
     expect(jobLayout).toContain('value="completed"');
     expect(jobLayout).toContain('event="marketplace_service_job_completed"');
@@ -134,7 +136,7 @@ describe("Marketplace launch-funnel analytics contract", () => {
     expect(reviewForm.indexOf('event: "marketplace_verified_review_submitted"'))
       .toBeGreaterThan(reviewForm.indexOf("if (!response.ok)"));
 
-    const analyticsSources = [searchPage, requestForm, guestLayout, selectionLayout, jobLayout, reviewForm].join("\n");
+    const analyticsSources = [searchPage, requestForm, guestLayout, customerJobLayout, jobLayout, reviewForm].join("\n");
     for (const forbidden of [
       "quote_request_id",
       "workspace_id",
