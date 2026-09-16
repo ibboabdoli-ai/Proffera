@@ -36,6 +36,7 @@ const locales = new Set<MarketplaceFunnelLocale>(["sv", "en"]);
 const resultBands = new Set<MarketplaceDiscoveryResultBand>(["none", "1-5", "6-20", "21+"]);
 const invitationOutcomes = new Set<MarketplaceInvitationOutcome>(["invited"]);
 const priceKinds = new Set<MarketplaceOfferPriceKind>(["fixed", "estimate", "inspection_required"]);
+const anonymousIdentityProperties = ["distinct_id", "$device_id", "$session_id", "$window_id"] as const;
 
 function safeLocale(value: unknown) {
   return typeof value === "string" && locales.has(value as MarketplaceFunnelLocale)
@@ -110,5 +111,12 @@ export function sanitizeMarketplaceFunnelPostHogEvent(input: unknown): Marketpla
   const source = candidate.properties as Record<string, unknown>;
   const environment = source.proffera_environment;
   if (environment !== "production" && environment !== "preview") return null;
-  return buildMarketplaceFunnelPostHogEvent(candidate, environment);
+  const sanitized = buildMarketplaceFunnelPostHogEvent(candidate, environment);
+  if (!sanitized) return null;
+
+  for (const property of anonymousIdentityProperties) {
+    const value = source[property];
+    if (typeof value === "string" && value) sanitized.properties[property] = value;
+  }
+  return sanitized;
 }
