@@ -44,8 +44,9 @@ export function MarketplaceFunnelSignal({
 
   useEffect(() => {
     if (emitted.current) return;
-    emitted.current = true;
     const timer = window.setTimeout(() => {
+      if (emitted.current) return;
+      emitted.current = true;
       emitMarketplaceFunnelEvent({ event, properties });
       stripSearchParameters(stripSearchParams);
     }, 0);
