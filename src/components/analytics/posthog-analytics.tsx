@@ -4,6 +4,10 @@ import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 
 import {
+  MARKETPLACE_FUNNEL_BROWSER_EVENT,
+  buildMarketplaceFunnelPostHogEvent,
+} from "@/lib/analytics/marketplace-funnel-events";
+import {
   ANALYTICS_CONSENT_CHANGED_EVENT,
   ANALYTICS_CONSENT_STORAGE_KEY,
   analyticsSourceFromReferrer,
@@ -85,6 +89,24 @@ export function PostHogAnalytics({ config }: { config: PostHogPublicConfig }) {
       window.removeEventListener("storage", handleStorageChange);
     };
   }, []);
+
+  useEffect(() => {
+    const handleMarketplaceEvent = (event: Event) => {
+      if (!isAnalyticsConsentGranted(consent)) return;
+      const detail = event instanceof CustomEvent ? event.detail : null;
+      const sanitized = buildMarketplaceFunnelPostHogEvent(detail, config.environment);
+      if (!sanitized) return;
+
+      void loadPostHog(config).then((posthog) => {
+        if (!posthog) return;
+        posthog.opt_in_capturing();
+        posthog.capture(sanitized.event, sanitized.properties);
+      });
+    };
+
+    window.addEventListener(MARKETPLACE_FUNNEL_BROWSER_EVENT, handleMarketplaceEvent);
+    return () => window.removeEventListener(MARKETPLACE_FUNNEL_BROWSER_EVENT, handleMarketplaceEvent);
+  }, [config, consent]);
 
   useEffect(() => {
     if (consent === "denied") {
