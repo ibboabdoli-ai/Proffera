@@ -13,7 +13,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock("server-only", () => ({}));
 vi.mock("next/headers", () => ({ headers: mocks.headers }));
 vi.mock("@/lib/public-business-seo", () => ({
-  listPublicBusinessSitemapEntries: mocks.listPublicBusinessSitemapEntries,
+  isIndexablePublicBusinessWorkspace: vi.fn(() => true),
+}));
+vi.mock("@/lib/public-read-cache", () => ({
+  getCachedPublicBusinessSitemapEntries: mocks.listPublicBusinessSitemapEntries,
 }));
 vi.mock("@/lib/company-directory-seo", () => ({
   listPublishedDirectorySitemapEntries: mocks.listPublishedDirectorySitemapEntries,
@@ -90,12 +93,13 @@ describe("public directory SEO hygiene", () => {
       "/foretag/listad",
       "/foretag/claim",
       "/en/companies",
+      "/hitta/",
     ]));
     expect(policy.sitemap).toBe(`${siteConfig.url}/sitemap.xml`);
     expect(policy.host).toBe(siteConfig.url);
   });
 
-  it("keeps Company Directory search and profile URLs out of the platform sitemap", async () => {
+  it("keeps Company Directory search, profile and landing URLs out of the platform sitemap", async () => {
     const routes = await sitemap();
     const svUrl = `${siteConfig.url}/foretag/listad/${profile.slug}`;
     const enUrl = `${siteConfig.url}/en/companies/${profile.slug}`;
@@ -104,6 +108,7 @@ describe("public directory SEO hygiene", () => {
     expect(routes.some((route) => route.url === `${siteConfig.url}/en/companies`)).toBe(false);
     expect(routes.some((route) => route.url === svUrl)).toBe(false);
     expect(routes.some((route) => route.url === enUrl)).toBe(false);
+    expect(routes.some((route) => route.url.startsWith(`${siteConfig.url}/hitta/`))).toBe(false);
     expect(swedishListingMetadata.robots).toEqual({ index: false, follow: true });
     expect(englishListingMetadata.robots).toEqual({ index: false, follow: true });
     expect(mocks.listPublishedDirectorySitemapEntries).not.toHaveBeenCalled();

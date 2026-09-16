@@ -2,12 +2,13 @@ import type { MetadataRoute } from "next";
 import { headers } from "next/headers";
 
 import { getPublicBusinessHub } from "@/lib/public-business-hub";
-import { isIndexablePublicBusinessWorkspace, listPublicBusinessSitemapEntries } from "@/lib/public-business-seo";
+import { isIndexablePublicBusinessWorkspace } from "@/lib/public-business-seo";
 import { marketingIndustrySlugs } from "@/lib/marketing-industry-pages";
 import { marketingServiceSlugs } from "@/lib/marketing-service-pages";
 import { primeViewIndexableAreaPages } from "@/lib/primeview-area-pages";
 import { primeViewSite } from "@/lib/primeview-seo";
 import { primeViewServicePages } from "@/lib/primeview-seo-pages";
+import { getCachedPublicBusinessSitemapEntries } from "@/lib/public-read-cache";
 import { localizedPublicRoutes } from "@/lib/public-locale";
 import { resolvePublicCustomDomain } from "@/lib/public-site-domain-routing";
 import { hostnameFromHostHeader, isPlatformHost, isPrimeViewHost } from "@/lib/public-site-domains";
@@ -69,7 +70,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // Company Directory profile/landing URLs are intentionally omitted from the
   // platform sitemap while pre-launch crawler traffic is creating avoidable
   // Neon wakeups. Direct routes keep working; this only removes crawl discovery.
-  const publicBusinessEntries = await listPublicBusinessSitemapEntries();
+  const publicBusinessEntries = await getCachedPublicBusinessSitemapEntries();
   const seenBusinesses = new Set<string>();
   const publicBusinessRoutes: MetadataRoute.Sitemap = [];
 

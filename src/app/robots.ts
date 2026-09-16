@@ -53,6 +53,7 @@ export default async function robots(): Promise<MetadataRoute.Robots> {
         "/foretag/listad",
         "/foretag/claim",
         "/en/companies",
+        "/hitta/",
       ],
     },
     sitemap: `${siteConfig.url}/sitemap.xml`,
