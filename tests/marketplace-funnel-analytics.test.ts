@@ -9,9 +9,6 @@ import {
   sanitizeMarketplaceFunnelEventInput,
   sanitizeMarketplaceFunnelPostHogEvent,
 } from "@/lib/analytics/marketplace-funnel-events";
-import {
-  marketplaceFunnelEventFromCookie,
-} from "@/lib/analytics/marketplace-funnel-cookie";
 import { sanitizePostHogEvent } from "@/lib/analytics/posthog-send-boundary";
 
 function source(path: string) {
@@ -107,21 +104,13 @@ describe("Marketplace launch-funnel analytics contract", () => {
     });
   });
 
-  it("accepts only allowlisted one-shot funnel cookie values", () => {
-    expect(marketplaceFunnelEventFromCookie("marketplace_customer_selection_completed")).toEqual({
-      event: "marketplace_customer_selection_completed",
-      properties: {},
-    });
-    expect(marketplaceFunnelEventFromCookie("identify")).toBeNull();
-    expect(marketplaceFunnelEventFromCookie("person@example.com")).toBeNull();
-  });
-
   it("wires each milestone to a genuine success boundary without analytics identifiers", () => {
     const searchPage = source("src/components/company-directory/public-directory-search-page.tsx");
     const requestForm = source("src/features/quote-request/localized-quote-request-form.tsx");
     const invitationEmail = source("src/features/email/marketplace-guest-invitation-email.ts");
     const guestLayout = source("src/app/offert/svara/[token]/layout.tsx");
     const selectionAction = source("src/app/offert/jamfor/[token]/actions.ts");
+    const selectionLayout = source("src/app/offert/jamfor/[token]/layout.tsx");
     const jobLayout = source("src/app/offert/jobb/[token]/layout.tsx");
     const reviewForm = source("src/app/review/[token]/verified-review-form.tsx");
 
@@ -135,9 +124,9 @@ describe("Marketplace launch-funnel analytics contract", () => {
     expect(guestLayout).toContain('event="marketplace_invitation_outcome"');
     expect(guestLayout).toContain('event="marketplace_provider_offer_submitted"');
 
-    expect(selectionAction.indexOf("markCustomerSelectionForBrowserAnalytics")).toBeGreaterThan(-1);
-    expect(selectionAction.indexOf("await markCustomerSelectionForBrowserAnalytics()"))
-      .toBeGreaterThan(selectionAction.indexOf("if (result.ok)"));
+    expect(selectionAction).toContain('if (result.ok) redirectWithState(token, locale, "selected")');
+    expect(selectionLayout).toContain('value="selected"');
+    expect(selectionLayout).toContain('event="marketplace_customer_selection_completed"');
 
     expect(jobLayout).toContain('value="completed"');
     expect(jobLayout).toContain('event="marketplace_service_job_completed"');
@@ -145,7 +134,7 @@ describe("Marketplace launch-funnel analytics contract", () => {
     expect(reviewForm.indexOf('event: "marketplace_verified_review_submitted"'))
       .toBeGreaterThan(reviewForm.indexOf("if (!response.ok)"));
 
-    const analyticsSources = [searchPage, requestForm, guestLayout, selectionAction, jobLayout, reviewForm].join("\n");
+    const analyticsSources = [searchPage, requestForm, guestLayout, selectionLayout, jobLayout, reviewForm].join("\n");
     for (const forbidden of [
       "quote_request_id",
       "workspace_id",
