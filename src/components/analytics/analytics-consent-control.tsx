@@ -38,7 +38,7 @@ const consentCopy = {
 } as const;
 
 const choiceButtonClass =
-  "min-h-11 flex-1 rounded-xl border border-[#cbd5ce] bg-white px-4 py-2.5 text-sm font-bold text-[#17201a] transition hover:bg-[#f5f7f5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#17452f] focus-visible:ring-offset-2";
+  "min-h-11 min-w-0 rounded-lg border border-[#cbd5ce] bg-white px-3 py-2 text-[13px] font-bold leading-4 text-[#17201a] transition hover:bg-[#f5f7f5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#17452f] focus-visible:ring-offset-2";
 
 function currentDocumentLocale(
   pathname: string | null,
@@ -116,7 +116,7 @@ export function AnalyticsConsentControl() {
       <button
         type="button"
         onClick={() => setSettingsOpen(true)}
-        className="fixed bottom-4 left-4 z-[70] rounded-full border border-[#cbd5ce] bg-white/95 px-4 py-2 text-xs font-bold text-[#334139] shadow-sm backdrop-blur transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#17452f] focus-visible:ring-offset-2"
+        className="fixed bottom-3 left-3 z-[70] rounded-full border border-[#cbd5ce] bg-white/95 px-3 py-1.5 text-[11px] font-bold text-[#334139] shadow-sm backdrop-blur transition hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#17452f] focus-visible:ring-offset-2"
         aria-label={labels.settingsLabel}
       >
         {labels.settingsButton}
@@ -126,16 +126,16 @@ export function AnalyticsConsentControl() {
 
   return (
     <section
-      className="fixed inset-x-3 bottom-3 z-[80] mx-auto max-w-2xl rounded-2xl border border-[#d6ddd7] bg-white p-5 shadow-2xl sm:inset-x-6 sm:bottom-6"
+      className="fixed inset-x-2 bottom-2 z-[80] mx-auto max-h-[calc(100dvh-1rem)] max-w-md overflow-y-auto rounded-xl border border-[#d6ddd7] bg-white p-3 shadow-xl sm:inset-x-4 sm:bottom-4 sm:p-4"
       aria-labelledby="analytics-consent-title"
       aria-live="polite"
     >
-      <p className="text-xs font-black uppercase tracking-[0.12em] text-[#526159]">{labels.eyebrow}</p>
-      <h2 id="analytics-consent-title" className="mt-1 text-lg font-black text-[#17201a]">
+      <p className="text-[10px] font-black uppercase tracking-[0.12em] text-[#526159]">{labels.eyebrow}</p>
+      <h2 id="analytics-consent-title" className="mt-0.5 text-base font-black leading-5 text-[#17201a]">
         {labels.title}
       </h2>
-      <p className="mt-2 text-sm leading-6 text-[#526159]">{labels.body}</p>
-      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+      <p className="mt-1.5 text-[13px] leading-5 text-[#526159]">{labels.body}</p>
+      <div className="mt-3 grid grid-cols-2 gap-2">
         <button type="button" className={choiceButtonClass} onClick={() => chooseConsent("denied")}>
           {labels.reject}
         </button>
@@ -147,7 +147,7 @@ export function AnalyticsConsentControl() {
         <button
           type="button"
           onClick={() => setSettingsOpen(false)}
-          className="mt-3 text-xs font-bold text-[#526159] underline decoration-[#aab5ad] underline-offset-4"
+          className="mt-2 text-[11px] font-bold leading-4 text-[#526159] underline decoration-[#aab5ad] underline-offset-4"
         >
           {labels.close}
         </button>
