@@ -1,12 +1,8 @@
 "use server";
 
-import { cookies, headers } from "next/headers";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
-import {
-  MARKETPLACE_FUNNEL_SIGNAL_COOKIE,
-  marketplaceFunnelCookieValue,
-} from "@/lib/analytics/marketplace-funnel-cookie";
 import {
   hashMarketplaceCustomerComparisonToken,
   marketplaceCustomerComparisonPath,
@@ -22,21 +18,6 @@ function redirectWithState(token: string, locale: "sv" | "en", status: string): 
   const query = new URLSearchParams({ status });
   if (locale === "en") query.set("lang", "en");
   redirect(`${marketplaceCustomerComparisonPath(token)}?${query.toString()}`);
-}
-
-async function markCustomerSelectionForBrowserAnalytics() {
-  const cookieStore = await cookies();
-  cookieStore.set(
-    MARKETPLACE_FUNNEL_SIGNAL_COOKIE,
-    marketplaceFunnelCookieValue("marketplace_customer_selection_completed"),
-    {
-      path: "/",
-      maxAge: 60,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      httpOnly: false,
-    },
-  );
 }
 
 export async function selectMarketplaceCustomerOfferAction(token: string, formData: FormData) {
@@ -55,9 +36,6 @@ export async function selectMarketplaceCustomerOfferAction(token: string, formDa
   if (!allowed) redirectWithState(token, locale, "rate_limited");
 
   const result = await selectMarketplaceCustomerOffer(token, offerId);
-  if (result.ok) {
-    await markCustomerSelectionForBrowserAnalytics();
-    redirectWithState(token, locale, "selected");
-  }
+  if (result.ok) redirectWithState(token, locale, "selected");
   redirectWithState(token, locale, result.code);
 }
