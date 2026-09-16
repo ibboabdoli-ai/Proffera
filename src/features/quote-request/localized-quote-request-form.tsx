@@ -190,7 +190,7 @@ export function LocalizedQuoteRequestForm({
   }
 
   function switchLanguage() {
-    if (!alternateLocaleHref) return;
+    if (!alternateLocaleHref || submissionInFlight.current) return;
 
     try {
       const draft: QuoteLanguageDraft = { savedAt: Date.now(), data, smartAnswers, step };
@@ -261,7 +261,7 @@ export function LocalizedQuoteRequestForm({
   return <div className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[#dfe5dd] sm:p-8">
     <label className="absolute left-[-10000px]" aria-hidden="true">{t.website}<input type="text" tabIndex={-1} autoComplete="off" value={website} onChange={(event) => setWebsite(event.target.value)} /></label>
     {alternateLocaleHref && alternateLocaleLabel ? <div className="mb-5 flex justify-end">
-      <button type="button" onClick={switchLanguage} className="rounded-full border border-[#dfe5dd] bg-white px-4 py-2 text-sm font-semibold text-[#17452f] transition hover:bg-[#f4f8f4]">{alternateLocaleLabel}</button>
+      <button type="button" onClick={switchLanguage} disabled={submissionPending} className="rounded-full border border-[#dfe5dd] bg-white px-4 py-2 text-sm font-semibold text-[#17452f] transition hover:bg-[#f4f8f4] disabled:cursor-not-allowed disabled:opacity-50">{alternateLocaleLabel}</button>
     </div> : null}
     <div className="mb-8">
       <div className="flex items-center justify-between gap-4 text-sm font-semibold text-[#17452f]"><span>{t.step} {step + 1} {t.of} {t.steps.length}</span><span>{progress}%</span></div>
