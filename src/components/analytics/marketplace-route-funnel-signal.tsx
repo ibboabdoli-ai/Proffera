@@ -10,20 +10,23 @@ export function MarketplaceRouteFunnelSignal({
   value,
   event,
   properties,
+  enabled = true,
 }: {
   parameter: string;
   value: string;
   event: MarketplaceFunnelEventName;
   properties?: Record<string, unknown>;
+  enabled?: boolean;
 }) {
   const searchParams = useSearchParams();
-  if (searchParams.get(parameter) !== value) return null;
+  if (!enabled || searchParams.get(parameter) !== value) return null;
   const locale = searchParams.get("lang") === "en" ? "en" : "sv";
   return (
     <MarketplaceFunnelSignal
       event={event}
       properties={{ ...properties, locale }}
       stripSearchParams={[parameter]}
+      dedupeKey={`${event}:${parameter}:${value}`}
     />
   );
 }

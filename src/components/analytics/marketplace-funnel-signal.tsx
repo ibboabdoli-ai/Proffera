@@ -35,23 +35,26 @@ export function MarketplaceFunnelSignal({
   event,
   properties,
   stripSearchParams = [],
+  dedupeKey,
 }: {
   event: MarketplaceFunnelEventName;
   properties?: Record<string, unknown>;
   stripSearchParams?: readonly string[];
+  dedupeKey?: string;
 }) {
-  const emitted = useRef(false);
+  const lastEmittedKey = useRef<string | null>(null);
+  const emissionKey = dedupeKey ?? event;
 
   useEffect(() => {
-    if (emitted.current) return;
+    if (lastEmittedKey.current === emissionKey) return;
     const timer = window.setTimeout(() => {
-      if (emitted.current) return;
-      emitted.current = true;
-      emitMarketplaceFunnelEvent({ event, properties });
+      if (lastEmittedKey.current === emissionKey) return;
+      if (!emitMarketplaceFunnelEvent({ event, properties })) return;
+      lastEmittedKey.current = emissionKey;
       stripSearchParameters(stripSearchParams);
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [event, properties, stripSearchParams]);
+  }, [emissionKey, event, properties, stripSearchParams]);
 
   return null;
 }

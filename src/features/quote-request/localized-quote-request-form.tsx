@@ -1,7 +1,7 @@
 "use client";
 
 import { CheckCircle2 } from "lucide-react";
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 
 import { emitMarketplaceFunnelEvent } from "@/components/analytics/marketplace-funnel-signal";
 import type { PublicLocale } from "@/lib/public-locale";
@@ -93,6 +93,8 @@ export function LocalizedQuoteRequestForm({
   const [errors, setErrors] = useState<QuoteRequestErrors>({});
   const [reference, setReference] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [submitting, setSubmitting] = useState(false);
+  const submissionInFlight = useRef(false);
   const progress = Math.round(((step + 1) / t.steps.length) * 100);
   const smartQuestions = getSmartQuoteQuestions(data.category, data.serviceType, locale);
 
@@ -200,6 +202,8 @@ export function LocalizedQuoteRequestForm({
   }
 
   function handleSubmit() {
+    if (submissionInFlight.current) return;
+
     const detailErrors = validateSmartQuoteAnswers(smartQuestions, smartAnswers, locale);
     if (Object.keys(detailErrors).length > 0) {
       setSmartErrors(detailErrors);
@@ -217,22 +221,30 @@ export function LocalizedQuoteRequestForm({
     const submissionData = { ...data, description: compiledDescription };
     const allErrors = validate(submissionData);
     if (Object.keys(allErrors).length > 0) { setErrors(allErrors); return; }
+
+    submissionInFlight.current = true;
+    setSubmitting(true);
     startTransition(() => {
-      void submitQuoteRequest({ ...submissionData, website, formStartedAt: startedAt }).then((result) => {
-        if (!result.ok) {
-          if (locale === "en") {
-            const localizedErrors = validate(submissionData);
-            setErrors(Object.keys(localizedErrors).length > 0 ? localizedErrors : { form: t.serverError });
-          } else {
-            setErrors(result.errors);
+      void submitQuoteRequest({ ...submissionData, website, formStartedAt: startedAt })
+        .then((result) => {
+          if (!result.ok) {
+            if (locale === "en") {
+              const localizedErrors = validate(submissionData);
+              setErrors(Object.keys(localizedErrors).length > 0 ? localizedErrors : { form: t.serverError });
+            } else {
+              setErrors(result.errors);
+            }
+            return;
           }
-          return;
-        }
-        discardLanguageDraft();
-        emitMarketplaceFunnelEvent({ event: "marketplace_request_submitted", properties: { locale } });
-        setReference(result.referenceId);
-        setErrors({});
-      });
+          discardLanguageDraft();
+          emitMarketplaceFunnelEvent({ event: "marketplace_request_submitted", properties: { locale } });
+          setReference(result.referenceId);
+          setErrors({});
+        })
+        .finally(() => {
+          submissionInFlight.current = false;
+          setSubmitting(false);
+        });
     });
   }
 
@@ -244,6 +256,7 @@ export function LocalizedQuoteRequestForm({
   </div>;
 
   const stepProps = { locale, data, errors, update };
+  const submissionPending = pending || submitting;
 
   return <div className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[#dfe5dd] sm:p-8">
     <label className="absolute left-[-10000px]" aria-hidden="true">{t.website}<input type="text" tabIndex={-1} autoComplete="off" value={website} onChange={(event) => setWebsite(event.target.value)} /></label>
@@ -263,8 +276,8 @@ export function LocalizedQuoteRequestForm({
     {step === 4 ? <QuoteContactStep {...stepProps} /> : null}
     {step === 5 ? <QuoteReviewStep {...stepProps} smartAnswers={smartAnswers} /> : null}
     <div className="mt-8 flex flex-col-reverse gap-3 border-t border-[#dfe5dd] pt-6 sm:flex-row sm:justify-between">
-      <button type="button" onClick={() => setStep((current) => Math.max(current - 1, 0))} disabled={step === 0 || pending} className="rounded-full border border-[#dfe5dd] px-5 py-3 text-sm font-semibold text-[#17452f] disabled:opacity-50">{t.back}</button>
-      {step < t.steps.length - 1 ? <button type="button" onClick={goNext} className="rounded-full bg-[#17452f] px-5 py-3 text-sm font-semibold text-white hover:bg-[#0e2e1e]">{t.next}</button> : <button type="button" onClick={handleSubmit} disabled={pending} className="rounded-full bg-[#17452f] px-5 py-3 text-sm font-semibold text-white hover:bg-[#0e2e1e] disabled:opacity-60">{pending ? t.sending : t.submit}</button>}
+      <button type="button" onClick={() => setStep((current) => Math.max(current - 1, 0))} disabled={step === 0 || submissionPending} className="rounded-full border border-[#dfe5dd] px-5 py-3 text-sm font-semibold text-[#17452f] disabled:opacity-50">{t.back}</button>
+      {step < t.steps.length - 1 ? <button type="button" onClick={goNext} className="rounded-full bg-[#17452f] px-5 py-3 text-sm font-semibold text-white hover:bg-[#0e2e1e]">{t.next}</button> : <button type="button" onClick={handleSubmit} disabled={submissionPending} className="rounded-full bg-[#17452f] px-5 py-3 text-sm font-semibold text-white hover:bg-[#0e2e1e] disabled:opacity-60">{submissionPending ? t.sending : t.submit}</button>}
     </div>
   </div>;
 }

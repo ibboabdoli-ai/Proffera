@@ -78,6 +78,16 @@ export async function PublicDirectorySearchPage({ locale, searchParams }: { loca
   const activeSort = normalizeDirectorySearchSort(requestedSort, nearbyActive);
   const paginationHref = paginationBaseHref(paths.search, params);
   const searchFormKey = `${locale}:${nearbyActive ? "nearby" : "manual"}`;
+  const discoverySignalKey = search
+    ? [
+        locale,
+        searchService.trim().toLowerCase(),
+        nearbyRequested ? "nearby" : location.trim().toLowerCase(),
+        nearbyRequested ? radius : "",
+        activeSort,
+        page,
+      ].join("|")
+    : "";
 
   return (
     <div lang={locale} className="min-h-screen bg-canvas text-ink">
@@ -95,7 +105,7 @@ export async function PublicDirectorySearchPage({ locale, searchParams }: { loca
       </section>
 
       <div className="mx-auto max-w-7xl px-4 pb-12 pt-5 sm:px-6 lg:px-8">
-        {search ? <MarketplaceFunnelSignal event="marketplace_discovery_search_completed" properties={{ locale, result_band: resultBand(search.totalCount) }} /> : null}
+        {search ? <MarketplaceFunnelSignal dedupeKey={discoverySignalKey} event="marketplace_discovery_search_completed" properties={{ locale, result_band: resultBand(search.totalCount) }} /> : null}
         {searched ? (
           <aside className="flex items-start gap-2 text-xs font-semibold leading-5 text-muted">
             {nearbyActive ? <Navigation className="mt-0.5 h-4 w-4 shrink-0 text-brand" /> : <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-brand" />}
