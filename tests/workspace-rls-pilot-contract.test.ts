@@ -36,7 +36,10 @@ describe("workspace RLS pilot contract", () => {
     expect(context).toContain("uuidpattern.test(workspaceid)");
     expect(leads).toContain("sql.transaction([");
     expect(leads).toContain("...workspacetenantcontextqueries(sql, workspaceid)");
-    expect(leads).toContain("from customers customer");
-    expect(leads).toContain("where customer.workspace_id = ${workspaceid}");
+    expect(leads).toContain("from customers");
+    expect(leads).toContain("where workspace_id = ${workspaceid}");
+    expect(leads).not.toContain("workspace_services");
+    expect(leads).not.toContain('return [];\n  } catch');
+    expect(leads).toContain('if (!sql) throw new error("missing database connection for dashboard leads")');
   });
 });

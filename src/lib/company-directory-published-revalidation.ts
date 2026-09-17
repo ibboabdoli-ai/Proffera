@@ -2,6 +2,7 @@ import "server-only";
 
 import { assessCompanyDirectoryCategoryConfidence } from "@/lib/company-directory-category-confidence";
 import { enrichCompanyDirectoryOfficialFactsForProfile } from "@/lib/company-directory-official-facts";
+import { invalidatePublicDirectoryPublicProjectionByProfileId } from "@/lib/company-directory-public-cache";
 import { enrichCompanyDirectoryScbForProfile } from "@/lib/company-directory-scb-enrichment";
 import { createScbCompanyRegistryTransportFromEnv } from "@/lib/company-directory-scb-transport";
 import { getSql } from "@/lib/db/server";
@@ -457,6 +458,14 @@ export async function revalidatePublishedCompanyDirectoryBatch(
           reviewMessages.push(
             `${organizationNumber}: review (score ${confidence.score}, conflicts ${scbConflictCount}, unsafe ${unsafe ? "yes" : "no"})`,
           );
+        }
+        try {
+          await invalidatePublicDirectoryPublicProjectionByProfileId(profileId);
+        } catch (error) {
+          console.error("Failed to invalidate public Directory cache after committed published demotion", {
+            profileId,
+            error,
+          });
         }
       } catch (error) {
         errors += 1;

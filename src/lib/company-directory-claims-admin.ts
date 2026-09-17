@@ -9,6 +9,7 @@ import {
   serializeClaimEmailEvidence,
 } from "@/lib/company-directory-claim-email";
 import { finalizeCompanyDirectoryClaimIntoExistingWorkspace } from "@/lib/company-directory-existing-workspace-claim";
+import { invalidatePublicDirectoryPublicProjectionByProfileId } from "@/lib/company-directory-public-cache";
 import { getPlatformAdmin } from "@/lib/platform-admin";
 import { getSql } from "@/lib/db/server";
 
@@ -225,8 +226,6 @@ export async function approveAndProvisionCompanyDirectoryClaim(input: { claimId:
     });
   }
 
-  // Claim IDs are UUIDs and make provisioning idempotent across retries: the
-  // same claim always converges on the same workspace instead of creating extras.
   const generatedWorkspaceId = claimId;
   const reservationToken = randomUUID();
   const claimantEmail = String(row.claimant_email).trim().toLowerCase();
@@ -263,8 +262,6 @@ export async function approveAndProvisionCompanyDirectoryClaim(input: { claimId:
     throw new Error("Company profile is already reserved by an active claim operation");
   }
 
-  // requested_workspace_id has a non-deferrable FK to workspaces. Provision the
-  // deterministic workspace first, then persist that ID on the reserved claim.
   const provisioned = await provisionWorkspace({
     workspaceId: generatedWorkspaceId,
     userId: claimantUserId,
@@ -352,5 +349,14 @@ export async function approveAndProvisionCompanyDirectoryClaim(input: { claimId:
     `,
   ]);
 
+  try {
+    await invalidatePublicDirectoryPublicProjectionByProfileId(profileId);
+  } catch (error) {
+    console.error("Failed to invalidate public Directory cache after committed provisioned claim", {
+      claimId,
+      profileId,
+      error,
+    });
+  }
   return { claimId, workspaceId: provisioned.workspaceId, trialEndsAt: provisioned.trialEndsAt };
 }

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { COMPANY_DIRECTORY_CATEGORY_CONFIDENCE_POLICY_VERSION } from "@/lib/company-directory-category-confidence";
 import { revalidateCompanyDirectoryCategoryPolicyBatch } from "@/lib/company-directory-category-policy-revalidation";
 import { revalidateAllCompanyDirectoryBatch } from "@/lib/company-directory-full-revalidation";
+import { invalidateAllPublicDirectoryPublicCaches } from "@/lib/company-directory-public-cache";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -24,6 +25,17 @@ function failedPolicyEvaluation(error: unknown) {
     errorSummary: error instanceof Error ? error.message : "Category policy revalidation failed",
     remaining: null as number | null,
   };
+}
+
+function invalidatePublicDirectoryCachesBestEffort(context: string) {
+  try {
+    invalidateAllPublicDirectoryPublicCaches();
+  } catch (error) {
+    console.error("Public Directory cache invalidation failed after committed revalidation work", {
+      context,
+      error,
+    });
+  }
 }
 
 export async function GET(request: Request) {
@@ -61,8 +73,12 @@ export async function GET(request: Request) {
       REVALIDATION_BATCH_SIZE,
       { deadlineAt },
     );
+    if (policyEvaluation.movedToReview > 0) {
+      invalidatePublicDirectoryCachesBestEffort("category_policy_batch_success");
+    }
   } catch (error) {
     console.error("Company directory category policy revalidation failed", error);
+    invalidatePublicDirectoryCachesBestEffort("category_policy_batch_failure");
     policyEvaluation = failedPolicyEvaluation(error);
   }
 
@@ -91,9 +107,13 @@ export async function GET(request: Request) {
       REVALIDATION_BATCH_SIZE,
       { deadlineAt },
     );
+    if (result.movedToReview > 0) {
+      invalidatePublicDirectoryCachesBestEffort("full_revalidation_batch_success");
+    }
     return NextResponse.json({ ok: true, ...result, policyEvaluation });
   } catch (error) {
     console.error("Company directory dedicated revalidation failed", error);
+    invalidatePublicDirectoryCachesBestEffort("full_revalidation_batch_failure");
     return NextResponse.json(
       {
         ok: false,

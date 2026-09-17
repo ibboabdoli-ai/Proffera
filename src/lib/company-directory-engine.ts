@@ -4,6 +4,10 @@ import { createHash } from "node:crypto";
 
 import { getSql } from "@/lib/db/server";
 import {
+  invalidateAllPublicDirectoryPublicCaches,
+  invalidatePublicDirectoryPublicProjection,
+} from "@/lib/company-directory-public-cache";
+import {
   assessDirectoryCandidate,
   buildDirectoryPublicSlug,
   type NormalizedDirectoryCandidate,
@@ -16,6 +20,7 @@ import {
 
 const PILOT_MAX_PAGES_PER_RUN = 2;
 const PILOT_MAX_BATCH_SIZE = 10;
+const PUBLIC_DIRECTORY_SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 const PROVENANCE_FIELDS: Array<keyof NormalizedDirectoryCandidate> = [
   "organizationNumber",
@@ -50,6 +55,31 @@ function boundedInteger(value: unknown, fallback: number, max: number) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(1, Math.min(max, Math.floor(parsed)));
+}
+
+function invalidatePersistedPublicProjectionBestEffort(input: {
+  profileId: string;
+  persistedPublicSlug: unknown;
+}) {
+  const persistedPublicSlug = String(input.persistedPublicSlug ?? "").trim().toLowerCase();
+  try {
+    if (!PUBLIC_DIRECTORY_SLUG_PATTERN.test(persistedPublicSlug)) {
+      console.error("Directory upsert returned an invalid persisted public slug; expiring all public caches", {
+        profileId: input.profileId,
+      });
+      invalidateAllPublicDirectoryPublicCaches();
+      return;
+    }
+    invalidatePublicDirectoryPublicProjection({
+      slug: persistedPublicSlug,
+      profileId: input.profileId,
+    });
+  } catch (error) {
+    console.error("Failed to invalidate public Directory cache after committed candidate upsert", {
+      profileId: input.profileId,
+      error,
+    });
+  }
 }
 
 export type CompanyDirectorySyncResult = {
@@ -182,7 +212,7 @@ export async function upsertCompanyDirectoryCandidate(candidate: NormalizedDirec
         else null
       end,
       updated_at = now()
-    returning id::text, publication_status, category_slug
+    returning id::text, public_slug, publication_status, category_slug
   `;
 
   const profileId = String(rows[0]?.id ?? "");
@@ -280,6 +310,10 @@ export async function upsertCompanyDirectoryCandidate(candidate: NormalizedDirec
     `;
   }
 
+  invalidatePersistedPublicProjectionBestEffort({
+    profileId,
+    persistedPublicSlug: rows[0]?.public_slug,
+  });
   return {
     profileId,
     publicationStatus: String(rows[0]?.publication_status ?? desiredStatus),

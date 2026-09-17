@@ -1,6 +1,13 @@
 import "server-only";
 
 import { businessEmailDomainKind, validBusinessEmail } from "@/lib/company-directory-claim-email";
+import { isVerifiedDirectoryMarketplaceLocation } from "@/lib/company-directory-marketplace-readiness";
+import {
+  classifyCompanyDirectoryGeoCoverage,
+  normalizeCompanyDirectoryServiceAreaRadius,
+  type CompanyDirectoryGeoCoverageState,
+} from "@/lib/company-directory-service-area-policy";
+import { parseDirectoryCoordinates } from "@/lib/company-directory-distance";
 import { getSql } from "@/lib/db/server";
 import { serviceCategoryForQuoteCategory } from "@/lib/service-catalog";
 
@@ -33,6 +40,7 @@ export type DirectoryGuestCandidate = {
   distanceKm: number | null;
   serviceAreaRadiusKm: number | null;
   serviceAreaConfirmed: boolean;
+  coverageState?: CompanyDirectoryGeoCoverageState;
   recipientEmail: string;
   contactBasis: "official_business_register" | null;
 };
@@ -75,6 +83,7 @@ type CandidateRow = {
   qualityScore: number;
   latitude?: number | null;
   longitude?: number | null;
+  providerPointVerified?: boolean;
   serviceAreaRadiusKm?: number | null;
   recipientEmail?: string;
   scbConflicts?: unknown;
@@ -93,28 +102,10 @@ function finiteCoordinate(value: unknown, minimum: number, maximum: number) {
   return Number.isFinite(parsed) && parsed >= minimum && parsed <= maximum ? parsed : null;
 }
 
-function finiteRadius(value: unknown) {
-  if (value === null || value === undefined || value === "") return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= 1 && parsed <= 300 ? parsed : null;
-}
-
 function leadCoordinates(lead: Pick<GuestLead, "customer_latitude" | "customer_longitude">) {
-  const latitude = finiteCoordinate(lead.customer_latitude, -90, 90);
-  const longitude = finiteCoordinate(lead.customer_longitude, -180, 180);
-  if (latitude === null || longitude === null) return null;
-  if (latitude === 0 && longitude === 0) return null;
-  return { latitude, longitude };
-}
-
-function haversineDistanceKm(latitude1: number, longitude1: number, latitude2: number, longitude2: number) {
-  const radians = (value: number) => value * Math.PI / 180;
-  const deltaLatitude = radians(latitude2 - latitude1);
-  const deltaLongitude = radians(longitude2 - longitude1);
-  const a = Math.sin(deltaLatitude / 2) ** 2
-    + Math.cos(radians(latitude1)) * Math.cos(radians(latitude2))
-    * Math.sin(deltaLongitude / 2) ** 2;
-  return 6371 * 2 * Math.asin(Math.sqrt(Math.min(1, a)));
+  const point = parseDirectoryCoordinates(lead.customer_latitude, lead.customer_longitude);
+  if (!point || (point.latitude === 0 && point.longitude === 0)) return null;
+  return point;
 }
 
 function normalize(value: string) {
@@ -142,9 +133,7 @@ function overlapsPrepared(left: PreparedText, right: PreparedText) {
   if (
     shortestLength >= 5
     && (left.normalized.includes(right.normalized) || right.normalized.includes(left.normalized))
-  ) {
-    return true;
-  }
+  ) return true;
 
   return left.tokens.some((leftToken) => right.tokens.some((rightToken) => {
     const shortest = Math.min(leftToken.length, rightToken.length);
@@ -200,20 +189,10 @@ export function rankDirectoryGuestCandidates(
 
     const preparedRowCity = prepare(row.city);
     const preparedRowMunicipality = prepare(row.municipality);
-    const textualLocal = !leadHasCity
-      || overlapsPrepared(preparedRowCity, preparedLeadCity)
-      || overlapsPrepared(preparedRowMunicipality, preparedLeadCity);
-
-    const rowLatitude = finiteCoordinate(row.latitude, -90, 90);
-    const rowLongitude = finiteCoordinate(row.longitude, -180, 180);
-    let distanceKm: number | null = null;
-    if (origin) {
-      if (rowLatitude === null || rowLongitude === null) continue;
-      distanceKm = haversineDistanceKm(origin.latitude, origin.longitude, rowLatitude, rowLongitude);
-      if (distanceKm > MATCH_RADII_KM[MATCH_RADII_KM.length - 1]) continue;
-    } else if (!textualLocal) {
-      continue;
-    }
+    const textualLocal = leadHasCity && (
+      overlapsPrepared(preparedRowCity, preparedLeadCity)
+      || overlapsPrepared(preparedRowMunicipality, preparedLeadCity)
+    );
 
     const preparedServiceName = prepare(row.serviceName);
     const preparedServiceCategory = prepare(row.serviceCategory);
@@ -223,9 +202,17 @@ export function rankDirectoryGuestCandidates(
     if (!specific && !leadHasGenericService && !categoryCompatible) continue;
     if (lead.category === "Städning" && !specific && !leadHasGenericService) continue;
 
-    const serviceAreaRadiusKm = finiteRadius(row.serviceAreaRadiusKm);
-    if (distanceKm !== null && serviceAreaRadiusKm !== null && distanceKm > serviceAreaRadiusKm) continue;
-    const serviceAreaConfirmed = distanceKm !== null && serviceAreaRadiusKm !== null;
+    const coverage = classifyCompanyDirectoryGeoCoverage({
+      providerLatitude: row.latitude,
+      providerLongitude: row.longitude,
+      providerPointVerified: row.providerPointVerified,
+      customerLatitude: lead.customer_latitude,
+      customerLongitude: lead.customer_longitude,
+      confirmedRadiusKm: row.serviceAreaRadiusKm,
+      localityMatched: textualLocal,
+      fallbackMaxDistanceKm: MATCH_RADII_KM[MATCH_RADII_KM.length - 1],
+    });
+    if (coverage.state === "confirmed_outside" || coverage.state === "unknown") continue;
 
     let score = 45;
     const reasons = ["publicerad företagsprofil", "rätt kategori"];
@@ -237,18 +224,18 @@ export function rankDirectoryGuestCandidates(
       reasons.push("kategorimatch");
     }
 
-    if (distanceKm !== null) {
-      if (distanceKm <= 10) score += 15;
-      else if (distanceKm <= 25) score += 10;
+    if (coverage.distanceKm !== null) {
+      if (coverage.distanceKm <= 10) score += 15;
+      else if (coverage.distanceKm <= 25) score += 10;
       else score += 5;
-      reasons.push(`${distanceKm.toFixed(1)} km bort`);
-      if (serviceAreaConfirmed) {
-        score += 10;
-        reasons.push("bekräftat serviceområde");
-      } else {
-        reasons.push("serviceområde ej bekräftat");
-      }
-    } else if (leadHasCity) {
+      reasons.push(`${coverage.distanceKm.toFixed(1)} km bort`);
+    }
+    if (coverage.state === "confirmed_inside") {
+      score += 10;
+      reasons.push("bekräftat serviceområde");
+    } else if (coverage.state === "inferred_nearby") {
+      reasons.push("serviceområde ej bekräftat");
+    } else if (coverage.state === "locality_fallback") {
       score += 10;
       reasons.push("lokal kandidat – serviceområde ej bekräftat");
     }
@@ -269,9 +256,10 @@ export function rankDirectoryGuestCandidates(
       qualityScore: row.qualityScore,
       score: Math.min(100, score),
       reasons,
-      distanceKm,
-      serviceAreaRadiusKm,
-      serviceAreaConfirmed,
+      distanceKm: coverage.distanceKm,
+      serviceAreaRadiusKm: coverage.radiusKm,
+      serviceAreaConfirmed: coverage.state === "confirmed_inside",
+      coverageState: coverage.state,
       recipientEmail,
       contactBasis: recipientEmail ? "official_business_register" : null,
     };
@@ -288,16 +276,18 @@ export function rankDirectoryGuestCandidates(
 
   if (!origin) return ranked.slice(0, 5);
 
-  const selectedRadius = MATCH_RADII_KM.find((radius) => ranked.filter((candidate) => (candidate.distanceKm ?? Infinity) <= radius).length >= 3)
+  const inferred = ranked.filter((candidate) => candidate.coverageState === "inferred_nearby");
+  const selectedRadius = MATCH_RADII_KM.find((radius) => inferred.filter((candidate) => (candidate.distanceKm ?? Infinity) <= radius).length >= 3)
     ?? MATCH_RADII_KM[MATCH_RADII_KM.length - 1];
-  return ranked.filter((candidate) => (candidate.distanceKm ?? Infinity) <= selectedRadius).slice(0, 5);
+  return ranked.filter((candidate) => candidate.coverageState === "confirmed_inside"
+    || (candidate.coverageState === "inferred_nearby" && (candidate.distanceKm ?? Infinity) <= selectedRadius)).slice(0, 5);
 }
 
 export function directoryGuestMatchRadius(candidates: DirectoryGuestCandidate[]) {
   const distances = candidates.map((candidate) => candidate.distanceKm).filter((value): value is number => value !== null);
   if (distances.length === 0) return null;
   const furthest = Math.max(...distances);
-  return MATCH_RADII_KM.find((radius) => furthest <= radius) ?? 50;
+  return MATCH_RADII_KM.find((radius) => furthest <= radius) ?? Math.ceil(furthest);
 }
 
 export async function getDirectoryGuestLeadMatches() {
@@ -348,9 +338,7 @@ export async function getDirectoryGuestLeadMatches() {
       customer_longitude: finiteCoordinate(row.customer_longitude, -180, 180),
       created_at: text(row.created_at),
     })) as GuestLead[];
-    if (typedLeads.length === 0) {
-      return { ok: true as const, matches: [] as DirectoryGuestLeadMatch[] };
-    }
+    if (typedLeads.length === 0) return { ok: true as const, matches: [] as DirectoryGuestLeadMatch[] };
 
     const leadIdCsv = typedLeads.map((lead) => lead.id).join(",");
     const offerRows = await sql`
@@ -377,7 +365,8 @@ export async function getDirectoryGuestLeadMatches() {
     for (const row of offerRows as Record<string, unknown>[]) {
       const quoteRequestId = text(row.quote_request_id);
       if (!quoteRequestId) continue;
-      const offer: DirectoryGuestOffer = {
+      const bucket = offersByQuote.get(quoteRequestId) ?? [];
+      bucket.push({
         offerId: text(row.offer_id),
         companyName: text(row.display_name),
         profileSlug: text(row.public_slug),
@@ -388,9 +377,7 @@ export async function getDirectoryGuestLeadMatches() {
         availableDate: text(row.available_date),
         companyNote: text(row.company_note),
         submittedAt: text(row.submitted_at),
-      };
-      const bucket = offersByQuote.get(quoteRequestId) ?? [];
-      bucket.push(offer);
+      });
       offersByQuote.set(quoteRequestId, bucket);
     }
 
@@ -407,14 +394,12 @@ export async function getDirectoryGuestLeadMatches() {
     }
 
     const requiredCategoryCsv = [...requiredCategories].join(",");
-    const requiredLocalities = [...new Set(
+    const requiredLocalitiesJson = JSON.stringify([...new Set(
       typedLeads.map((lead) => text(lead.city).toLocaleLowerCase("sv-SE")).filter(Boolean),
-    )];
-    const requiredLocalitiesJson = JSON.stringify(requiredLocalities);
-    const requiredPoints = typedLeads
+    )]);
+    const requiredPointsJson = JSON.stringify(typedLeads
       .map((lead) => leadCoordinates(lead))
-      .filter((point): point is { latitude: number; longitude: number } => point !== null);
-    const requiredPointsJson = JSON.stringify(requiredPoints);
+      .filter((point): point is { latitude: number; longitude: number } => point !== null));
 
     const candidates = await sql`
       with required_localities as (
@@ -439,12 +424,16 @@ export async function getDirectoryGuestLeadMatches() {
           category.label as service_category,
           location.latitude::float8 as latitude,
           location.longitude::float8 as longitude,
+          location.geocode_source,
+          location.geocode_precision,
+          location.geocode_confidence,
+          location.geocoded_at::text as geocoded_at,
+          location.is_public as location_is_public,
           service_area.radius_km::float8 as service_area_radius_km,
           scb.email as recipient_email,
           scb.conflicts as scb_conflicts,
           row_number() over (
-            partition by
-              profile.category_slug,
+            partition by profile.category_slug,
               coalesce(nullif(lower(btrim(profile.city)), ''), nullif(lower(btrim(profile.municipality)), ''), '__unknown__'),
               relation.service_slug
             order by profile.quality_score desc, profile.display_name asc, profile.id asc
@@ -504,26 +493,15 @@ export async function getDirectoryGuestLeadMatches() {
                       * power(sin(radians(location.longitude - origin.longitude) / 2), 2)
                     )
                   )
-                ) <= 50
+                ) <= 300
             )
           )
       )
       select
-        profile_id,
-        public_slug,
-        display_name,
-        city,
-        municipality,
-        category_slug,
-        quality_score,
-        service_slug,
-        service_name,
-        service_category,
-        latitude,
-        longitude,
-        service_area_radius_km,
-        recipient_email,
-        scb_conflicts
+        profile_id, public_slug, display_name, city, municipality, category_slug, quality_score,
+        service_slug, service_name, service_category, latitude, longitude,
+        geocode_source, geocode_precision, geocode_confidence, geocoded_at, location_is_public,
+        service_area_radius_km, recipient_email, scb_conflicts
       from ranked_candidates
       where locality_service_rank <= 100
       order by quality_score desc, display_name asc, service_slug asc
@@ -546,7 +524,16 @@ export async function getDirectoryGuestLeadMatches() {
         qualityScore: Number(row.quality_score ?? 0),
         latitude: finiteCoordinate(row.latitude, -90, 90),
         longitude: finiteCoordinate(row.longitude, -180, 180),
-        serviceAreaRadiusKm: finiteRadius(row.service_area_radius_km),
+        providerPointVerified: isVerifiedDirectoryMarketplaceLocation({
+          latitude: row.latitude,
+          longitude: row.longitude,
+          geocodeSource: row.geocode_source,
+          geocodePrecision: row.geocode_precision,
+          geocodeConfidence: row.geocode_confidence,
+          geocodedAt: row.geocoded_at,
+          locationIsPublic: row.location_is_public,
+        }),
+        serviceAreaRadiusKm: normalizeCompanyDirectoryServiceAreaRadius(row.service_area_radius_km),
         recipientEmail: text(row.recipient_email),
         scbConflicts: row.scb_conflicts,
       };

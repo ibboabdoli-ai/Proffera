@@ -35,7 +35,6 @@ function authorizationShellBlock() {
     .join("\n");
 }
 
-
 function aiReviewShellBlock() {
   const startMarker = '          file_count="$(grep -c . <<< "$changed_files" || true)"';
   const endMarker = '          checks_json=""';
@@ -103,7 +102,7 @@ printf 'AI_REVIEW_OK\\n'
 
 function finalCodeRabbitGuardShellBlock() {
   const startMarker = '          if [ "$needs_ai_review" = "true" ]; then\n            final_reviews_json=';
-  const endMarker = '          merge_output="$(gh pr merge';
+  const endMarker = "          # Revalidate the mandatory per-PR human authorization";
   const start = workflow.indexOf(startMarker);
   const end = workflow.indexOf(endMarker, start);
   expect(start).toBeGreaterThanOrEqual(0);
@@ -322,15 +321,19 @@ describe("Proffera standing automerge authorization", () => {
     expect(Date.parse(authorization.expires_at)).toBeGreaterThan(Date.parse("2026-08-23T00:00:00Z"));
   });
 
-  it("executes the standing-authorization branch for a trusted same-repository owner PR", () => {
-    expect(runAuthorizationFixture({ pr: basePr() })).toContain("AUTH_MODE=standing:marketplace-core-loop");
+  it("refuses standing authorization alone as actual merge authority", () => {
+    const output = runAuthorizationFixture({ pr: basePr() });
+    expect(output).toContain("REFUSED:");
+    expect(output).toContain("standing authorization is advisory only");
+    expect(output).not.toContain("AUTH_MODE=");
   });
 
-  it("handles CRLF line endings in PR body handoff line", () => {
+  it("keeps a matching standing scope advisory when the PR body uses CRLF", () => {
     const output = runAuthorizationFixture({
       pr: basePr({ body: "Some text\r\nSupervisor handoff: #548\r\nMore text" }),
     });
-    expect(output).toContain("AUTH_MODE=standing:marketplace-core-loop");
+    expect(output).toContain("REFUSED:");
+    expect(output).not.toContain("AUTH_MODE=");
   });
 
   it("rejects an expired standing authorization", () => {
@@ -390,7 +393,7 @@ describe("Proffera standing automerge authorization", () => {
       }],
     });
     expect(output).toContain("REFUSED:");
-    expect(output).not.toContain("AUTH_MODE=fresh-owner-label");
+    expect(output).not.toContain("AUTH_MODE=fresh-exact-head-owner");
   });
 
   it("accepts manual fallback only when owner label and approval target the exact current head", () => {
@@ -407,21 +410,109 @@ describe("Proffera standing automerge authorization", () => {
         actor: { login: "ibboabdoli-ai" },
       }],
       reviews: [{
+        id: 1,
         user: { login: "ibboabdoli-ai" },
         state: "APPROVED",
         commit_id: currentHead,
+        submitted_at: "2099-09-05T12:00:00Z",
       }],
     });
-    expect(output).toContain("AUTH_MODE=fresh-owner-label");
+    expect(output).toContain("AUTH_MODE=fresh-exact-head-owner");
+  });
+
+  it("rejects a matching standing scope and owner signal without an exact-head owner approval", () => {
+    const output = runAuthorizationFixture({
+      pr: basePr({ labels: [{ name: "ibbo-approved" }] }),
+      events: [{
+        event: "labeled",
+        label: { name: "ibbo-approved" },
+        actor: { login: "ibboabdoli-ai" },
+      }],
+    });
+    expect(output).toContain("REFUSED:");
+    expect(output).not.toContain("AUTH_MODE=");
+  });
+
+  it("rejects bot and CodeRabbit-only evidence without fresh owner authorization", () => {
+    const output = runAuthorizationFixture({
+      pr: basePr({ labels: [{ name: "ibbo-approved" }] }),
+      events: [{
+        event: "labeled",
+        label: { name: "ibbo-approved" },
+        actor: { login: "github-actions[bot]" },
+      }],
+      reviews: [{
+        id: 1,
+        user: { login: "coderabbitai[bot]" },
+        state: "APPROVED",
+        commit_id: "1111111111111111111111111111111111111111",
+        submitted_at: "2099-09-05T12:00:00Z",
+      }],
+    });
+    expect(output).toContain("REFUSED:");
+    expect(output).not.toContain("AUTH_MODE=");
+  });
+
+  it("rejects an exact-head owner approval superseded by a later owner change request", () => {
+    const currentHead = "3333333333333333333333333333333333333333";
+    const output = runAuthorizationFixture({
+      pr: basePr({
+        headRefName: "work/proffera-other-manual-path",
+        headRefOid: currentHead,
+        labels: [{ name: "ibbo-approved" }],
+      }),
+      events: [{
+        event: "labeled",
+        label: { name: "ibbo-approved" },
+        actor: { login: "ibboabdoli-ai" },
+      }],
+      reviews: [
+        {
+          id: 1,
+          user: { login: "ibboabdoli-ai" },
+          state: "APPROVED",
+          commit_id: currentHead,
+          submitted_at: "2099-09-05T12:00:00Z",
+        },
+        {
+          id: 2,
+          user: { login: "ibboabdoli-ai" },
+          state: "CHANGES_REQUESTED",
+          commit_id: currentHead,
+          submitted_at: "2099-09-05T12:01:00Z",
+        },
+      ],
+    });
+    expect(output).toContain("REFUSED:");
+    expect(output).not.toContain("AUTH_MODE=");
   });
 
   it("reads standing authorization only from main and keeps current-head safety gates", () => {
     expect(workflow).toContain("contents/$STANDING_AUTH_PATH?ref=main");
+    expect(workflow).toContain("Standing authorization advisory");
+    expect(workflow).toContain("standing authorization is advisory only");
+    expect(workflow).toContain('authorization_mode="fresh-exact-head-owner"');
+    expect(workflow).not.toContain('authorization_mode="standing:');
     expect(workflow).toContain("needs-ai-review");
     expect(workflow).toContain("coderabbitai[bot]");
     expect(workflow).toContain("commit_id == $sha");
     expect(workflow).toContain("CodeRabbit changes remain requested on the current PR head; Codex fallback can never clear them.");
+    expect(workflow).toContain("Final exact-head review is complete for");
+    expect(workflow).toContain("I found no issues.");
+    expect(workflow).toContain("CodeRabbit review command invocation: v2:[0-9a-f]{64}");
+    expect(workflow).not.toContain("updated_at");
+    expect(workflow).toContain("clean exact-head completion comment");
+    expect(workflow).toContain('workflow_run:');
+    expect(workflow).toContain('workflows: [CI]');
+    expect(workflow).toContain('E2E public smoke');
+    expect(workflow).toContain('select(.name == "Validate" and .bucket == "pass")');
+    expect(workflow).toContain('select(.name == "E2E public smoke" and .bucket == "pass")');
+    expect(workflow).toContain('the exact-head CI Validate check is missing or not successful');
+    expect(workflow).toContain('the exact-head E2E public smoke Final Gate is missing or not successful');
+    expect(workflow).toContain('Refused: one or more checks failed or were cancelled.');
+    expect(workflow).toContain("Fresh exact-head owner authorization revalidated immediately before merge");
     expect(workflow).toContain("--match-head-commit \"$head_sha\"");
+    expect(workflow).not.toMatch(/gh pr merge[^\n]*--admin/);
     expect(workflow).not.toContain("head_commit_time");
     expect(workflow).not.toContain("approval_time");
   });
@@ -501,12 +592,26 @@ describe("Proffera standing automerge authorization", () => {
     expect(cleared.output).toContain("FINAL_REVIEW_OK");
   });
 
-  it("blocks sensitive control-plane and schema paths from standing authorization", () => {
+  it("blocks sensitive control-plane and schema paths even with fresh owner authorization", () => {
+    const currentHead = "1111111111111111111111111111111111111111";
     const output = runAuthorizationFixture({
-      pr: basePr(),
+      pr: basePr({ labels: [{ name: "ibbo-approved" }] }),
+      events: [{
+        event: "labeled",
+        label: { name: "ibbo-approved" },
+        actor: { login: "ibboabdoli-ai" },
+      }],
+      reviews: [{
+        id: 1,
+        user: { login: "ibboabdoli-ai" },
+        state: "APPROVED",
+        commit_id: currentHead,
+        submitted_at: "2099-09-05T12:00:00Z",
+      }],
       changedFiles: ".github/workflows/proffera-automerge.yml\nAGENTS.md\nWORKER_BOOTSTRAP.md\ndb/migrations/0059_x.sql",
     });
     expect(output).toContain("REFUSED:");
+    expect(output).toContain("blocked sensitive paths");
     expect(output).not.toContain("AUTH_MODE=standing:");
   });
 });

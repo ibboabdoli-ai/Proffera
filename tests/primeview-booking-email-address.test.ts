@@ -5,11 +5,11 @@ vi.mock("server-only", () => ({}));
 import { buildBookingOwnerNotificationEmail } from "../src/features/email/lead-email";
 import { buildUnifiedBookingConfirmationEmail } from "../src/features/email/unified-booking-confirmation-email";
 
-const address = "Flat, Cricket Pavilion, Staveley Road, London";
+const address = "Flat 2B, Cricket Pavilion, Staveley Road";
 const postcode = "W4 3ES";
 
 describe("PrimeView booking emails", () => {
-  it("sends the workspace owner an English notification with the exact address and postcode", () => {
+  it("sends the workspace owner an English notification with the exact canonical address and postcode", () => {
     const email = buildBookingOwnerNotificationEmail({
       ownerEmail: "owner@example.com",
       companyName: "PrimeView Window Care",
@@ -36,7 +36,7 @@ describe("PrimeView booking emails", () => {
     expect(email.html).toContain(postcode);
   });
 
-  it("includes the exact address and postcode in the English customer confirmation", () => {
+  it("includes the exact canonical address and postcode in the English customer confirmation", () => {
     const email = buildUnifiedBookingConfirmationEmail({
       customerName: "Andrew Clark",
       customerEmail: "andy.clark@example.co.uk",

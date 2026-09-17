@@ -20,6 +20,12 @@ function redirectWithState(token: string, locale: "sv" | "en", status: string): 
   redirect(`${marketplaceCustomerComparisonPath(token)}?${query.toString()}`);
 }
 
+function redirectToSelectedJob(token: string, locale: "sv" | "en"): never {
+  const query = new URLSearchParams({ status: "selected" });
+  if (locale === "en") query.set("lang", "en");
+  redirect(`/offert/jobb/kund/${encodeURIComponent(token)}?${query.toString()}`);
+}
+
 export async function selectMarketplaceCustomerOfferAction(token: string, formData: FormData) {
   const locale = localeFrom(formData);
   const offerId = String(formData.get("offerId") ?? "").trim();
@@ -36,6 +42,6 @@ export async function selectMarketplaceCustomerOfferAction(token: string, formDa
   if (!allowed) redirectWithState(token, locale, "rate_limited");
 
   const result = await selectMarketplaceCustomerOffer(token, offerId);
-  if (result.ok) redirectWithState(token, locale, "selected");
+  if (result.ok) redirectToSelectedJob(token, locale);
   redirectWithState(token, locale, result.code);
 }

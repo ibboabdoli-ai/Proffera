@@ -7,6 +7,10 @@ import {
 import { getPublicDirectoryBusiness, type PublicDirectoryBusiness } from "@/lib/company-directory-engine";
 import { hasActivePaidDirectoryContactAccess } from "@/lib/company-directory-paid-contact-entitlement";
 import {
+  readPublicDirectoryMissCache,
+  readPublicDirectoryProfileCache,
+} from "@/lib/company-directory-public-cache";
+import {
   resolveCompanyDirectoryCanonicalWorkplaceAddress,
   type DirectoryPublicAddress,
 } from "@/lib/company-directory-scb-address";
@@ -16,7 +20,9 @@ export type PublicDirectoryBusinessForRequest = PublicDirectoryBusiness & {
   publicationStatus: "published" | "claimed";
   organizationNumber: string;
   primarySniCode: string;
+  legalName: string;
   contact: DirectoryDirectContactDisclosure;
+  sharedCacheSafe: boolean;
 };
 
 type ScbDirectContact = {
@@ -30,6 +36,11 @@ type ClaimedOwnerPrimaryLocation = {
   isVisitable: boolean;
   confirmed: boolean;
   address: DirectoryPublicAddress;
+};
+
+type PublishedDirectoryResolution = {
+  business: PublicDirectoryBusinessForRequest;
+  sharedCacheSafe: boolean;
 };
 
 const EMPTY_PHYSICAL_ADDRESS: DirectoryPublicAddress = {
@@ -195,8 +206,11 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
     return {
       organizationNumber: "",
       primarySniCode: "",
+      legalName: "",
       address: EMPTY_PHYSICAL_ADDRESS,
       contact: emptyContact(),
+      claimedWorkspaceId: "",
+      officialFactsCheckedAt: "",
     };
   }
 
@@ -204,9 +218,16 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
     select
       organization_number,
       organization_kind,
+      legal_name,
       primary_sni_code,
       website_url,
-      claimed_workspace_id::text
+      claimed_workspace_id::text,
+      (
+        select facts.last_synced_at
+        from company_directory_official_facts facts
+        where facts.profile_id = company_directory_profiles.id
+        limit 1
+      ) as official_facts_last_synced_at
     from company_directory_profiles
     where id = ${business.id}::uuid
       and publication_status = 'published'
@@ -219,8 +240,11 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
     return {
       organizationNumber: "",
       primarySniCode: "",
+      legalName: "",
       address: EMPTY_PHYSICAL_ADDRESS,
       contact: emptyContact(),
+      claimedWorkspaceId: "",
+      officialFactsCheckedAt: "",
     };
   }
 
@@ -236,6 +260,7 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
   return {
     organizationNumber: publicDirectoryOrganizationNumber(row.organization_kind, row.organization_number),
     primarySniCode: String(row.primary_sni_code ?? ""),
+    legalName: String(row.legal_name ?? ""),
     address,
     contact: discloseDirectoryDirectContact({
       addressLine1: address.addressLine1,
@@ -243,6 +268,34 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
       email: scb?.email,
       website: row.website_url,
     }, false),
+    claimedWorkspaceId,
+    officialFactsCheckedAt: row.official_facts_last_synced_at
+      ? new Date(String(row.official_facts_last_synced_at)).toISOString()
+      : "",
+  };
+}
+
+async function resolvePublishedDirectoryBusiness(slug: string): Promise<PublishedDirectoryResolution | null> {
+  const published = await getPublicDirectoryBusiness(slug);
+  if (!published) return null;
+  const publicContact = await getPublishedDirectoryContact(published);
+  const sharedCacheSafe = Boolean(publicContact.organizationNumber) && !publicContact.claimedWorkspaceId;
+  return {
+    business: {
+      ...published,
+      lastCheckedAt: publicContact.officialFactsCheckedAt,
+      addressLine1: publicContact.contact.addressLine1,
+      postalCode: publicContact.address.postalCode,
+      city: publicContact.address.city,
+      municipality: publicContact.address.municipality,
+      publicationStatus: "published",
+      organizationNumber: publicContact.organizationNumber,
+      primarySniCode: publicContact.primarySniCode,
+      legalName: publicContact.legalName,
+      contact: publicContact.contact,
+      sharedCacheSafe,
+    },
+    sharedCacheSafe,
   };
 }
 
@@ -258,6 +311,7 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
       profile.public_slug,
       profile.organization_number,
       profile.organization_kind,
+      profile.legal_name,
       profile.display_name,
       profile.legal_form,
       profile.organization_status,
@@ -274,13 +328,14 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
       profile.quality_score,
       profile.official_source,
       profile.source_updated_at,
-      profile.last_synced_at,
+      facts.last_synced_at as official_facts_last_synced_at,
       profile.claimed_workspace_id::text,
       media.public_url as media_url,
       media.media_kind,
       media.attribution,
       media.is_actual_business_media
     from company_directory_profiles profile
+    left join company_directory_official_facts facts on facts.profile_id = profile.id
     left join lateral (
       select public_url, media_kind, attribution, is_actual_business_media
       from company_directory_media
@@ -300,12 +355,16 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
   const row = rows[0];
   if (!row) return null;
 
-  const workspaceId = String(row.claimed_workspace_id ?? "");
+  const profileId = String(row.id ?? "").trim();
+  const publicSlug = String(row.public_slug ?? "").trim().toLowerCase();
+  const workspaceId = String(row.claimed_workspace_id ?? "").trim();
+  if (!profileId || publicSlug !== normalized || !workspaceId) return null;
+
   const entitled = await hasActivePaidDirectoryContactAccess(workspaceId);
-  const scb = await getConflictFreeScbContact(sql, String(row.id));
+  const scb = await getConflictFreeScbContact(sql, profileId);
   const address = await resolvePublishedPhysicalAddress({
     sql,
-    profileId: String(row.id),
+    profileId,
     claimedWorkspaceId: workspaceId,
     profile: profileAddress(row),
     workplaces: scb?.workplaces,
@@ -318,9 +377,10 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
   }, entitled);
 
   return {
-    id: String(row.id),
-    slug: String(row.public_slug),
+    id: profileId,
+    slug: publicSlug,
     companyName: String(row.display_name),
+    legalName: String(row.legal_name ?? ""),
     legalForm: String(row.legal_form ?? ""),
     organizationStatus: String(row.organization_status ?? ""),
     categorySlug: String(row.category_slug ?? ""),
@@ -334,7 +394,9 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
     qualityScore: Number(row.quality_score ?? 0),
     officialSource: String(row.official_source ?? ""),
     sourceUpdatedAt: row.source_updated_at ? new Date(String(row.source_updated_at)).toISOString() : "",
-    lastCheckedAt: row.last_synced_at ? new Date(String(row.last_synced_at)).toISOString() : "",
+    lastCheckedAt: row.official_facts_last_synced_at
+      ? new Date(String(row.official_facts_last_synced_at)).toISOString()
+      : "",
     media: row.media_url ? {
       url: String(row.media_url),
       kind: String(row.media_kind ?? ""),
@@ -345,35 +407,38 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
     organizationNumber: publicDirectoryOrganizationNumber(row.organization_kind, row.organization_number),
     primarySniCode: String(row.primary_sni_code ?? ""),
     contact,
+    sharedCacheSafe: false,
   };
 }
 
 /**
- * Deduplicate the public directory business lookup across generateMetadata and
- * the Server Component tree for one render request. React invalidates this
- * memoization between server requests, so publication/privacy changes are not
- * persisted in an application-level cache here.
- *
- * A claimed profile may remain available as a read-only Directory fallback
- * when its previously published official data is still safe. Direct contact is
- * disclosed only when the claimed workspace has an active paid plan; Free and
- * Trial workspaces remain locked.
+ * React cache deduplicates metadata + Server Component work inside one render.
+ * The nested public-cache boundary absorbs cross-request traffic only for safe
+ * published, unclaimed juridical-person snapshots. A second short miss cache
+ * absorbs repeated crawler requests for slugs that have no public or claimed
+ * Directory profile. Claimed and sole-trader results always bypass persistence
+ * so entitlement and ownership state remain request-fresh.
  */
 export const getPublicDirectoryBusinessForRequest = cache(async (slug: string): Promise<PublicDirectoryBusinessForRequest | null> => {
-  const published = await getPublicDirectoryBusiness(slug);
-  if (published) {
-    const publicContact = await getPublishedDirectoryContact(published);
-    return {
-      ...published,
-      addressLine1: publicContact.contact.addressLine1,
-      postalCode: publicContact.address.postalCode,
-      city: publicContact.address.city,
-      municipality: publicContact.address.municipality,
-      publicationStatus: "published",
-      organizationNumber: publicContact.organizationNumber,
-      primarySniCode: publicContact.primarySniCode,
-      contact: publicContact.contact,
-    };
-  }
-  return getSafeClaimedDirectoryFallback(slug);
+  const normalized = slug.trim().toLowerCase();
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(normalized)) return null;
+
+  return readPublicDirectoryMissCache(normalized, async () => {
+    const published = await readPublicDirectoryProfileCache(normalized, async () => {
+      const resolved = await resolvePublishedDirectoryBusiness(normalized);
+      return resolved?.sharedCacheSafe
+        ? { cache: true, value: resolved.business }
+        : { cache: false, value: resolved?.business ?? null };
+    });
+    if (published) return { cache: false, value: published };
+
+    // A missing SQL client is an indeterminate infrastructure state, not proof
+    // that the Directory slug is absent. Never persist it as a negative cache.
+    if (!getSql()) return { cache: false, value: null };
+
+    const claimed = await getSafeClaimedDirectoryFallback(normalized);
+    return claimed
+      ? { cache: false, value: claimed }
+      : { cache: true, value: null };
+  });
 });

@@ -109,25 +109,25 @@ describe("automatic company directory discovery contract", () => {
     expect(worker).toContain("primary-supported-SNI + supported-form candidates");
   });
 
-  it("probes official discovery hourly, keeps a daily full scan, and leaves queue processing on the Operations runner", () => {
+  it("keeps Company Directory discovery manual-only during pre-launch while preserving its job behavior", () => {
     const discoveryWorkflow = source(".github/workflows/company-directory-automation.yml");
     const operationsWorkflow = source(".github/workflows/booking-reminders.yml");
     const discoveryTriggers = workflowTriggers(discoveryWorkflow);
     const operationsTriggers = workflowTriggers(operationsWorkflow);
 
+    expect(discoveryTriggers).toHaveProperty("workflow_dispatch");
+    expect(discoveryTriggers).not.toHaveProperty("push");
+    expect(discoveryTriggers).not.toHaveProperty("schedule");
+    expect(workflowCronExpressions(discoveryWorkflow)).toEqual([]);
     expect(discoveryWorkflow).toContain("Discover official company candidates");
-    expect(workflowCronExpressions(discoveryWorkflow)).toEqual([
-      "17 * * * *",
-      "31 3 * * *",
-    ]);
     expect(discoveryWorkflow).toContain("PROFFERA_REMINDER_CRON_SECRET");
     expect(discoveryWorkflow).toContain("company-directory-discovery-ingest");
     expect(discoveryWorkflow).toContain("source_probe=1");
     expect(discoveryWorkflow).toContain("Probe official company source");
     expect(discoveryWorkflow).toContain("daily-safety-scan");
     expect(discoveryWorkflow).toContain("official-source-changed");
+    expect(discoveryWorkflow).toContain('reason="manual-or-discovery-code-change"');
     expect(discoveryWorkflow).toContain("steps.scan.outputs.run_full == 'true'");
-    expect(discoveryTriggers).toHaveProperty("push");
     expect(workflowCronExpressions(discoveryWorkflow)).not.toContain("9,24,39,54 * * * *");
 
     expect(operationsWorkflow).toContain("Process booking reminders and directory updates");

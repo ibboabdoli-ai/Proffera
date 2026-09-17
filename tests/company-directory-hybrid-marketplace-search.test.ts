@@ -113,7 +113,7 @@ describe("hybrid directory marketplace search", () => {
     expect(entitlementSource).toContain("catalog.feature_key in ('website_builder', 'online_booking')");
     expect(searchSource).toContain("&& access?.websiteBuilder");
     expect(routingSource).toContain('hasWorkspaceFeatureAccessForWorkspace(workspaceId, "website_builder")');
-    expect(routingSource).toContain("return websiteBuilder ? workspaceSlug : null");
+    expect(routingSource).toContain("value: websiteBuilder ? workspaceSlug : null");
   });
 
   it("only exposes direct booking when canonical booking access and booking slug are present", () => {

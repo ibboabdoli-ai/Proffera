@@ -13,7 +13,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock("server-only", () => ({}));
 vi.mock("next/headers", () => ({ headers: mocks.headers }));
 vi.mock("@/lib/public-business-seo", () => ({
-  listPublicBusinessSitemapEntries: mocks.listPublicBusinessSitemapEntries,
+  isIndexablePublicBusinessWorkspace: vi.fn(() => true),
+}));
+vi.mock("@/lib/public-read-cache", () => ({
+  getCachedPublicBusinessSitemapEntries: mocks.listPublicBusinessSitemapEntries,
 }));
 vi.mock("@/lib/company-directory-seo", () => ({
   listPublishedDirectorySitemapEntries: mocks.listPublishedDirectorySitemapEntries,
@@ -41,6 +44,7 @@ import { metadata as englishListingMetadata } from "@/app/en/companies/page";
 import { generateMetadata as generateEnglishMetadata } from "@/app/en/companies/[slug]/page";
 import { metadata as swedishListingMetadata } from "@/app/foretag/listad/page";
 import { generateMetadata as generateSwedishMetadata } from "@/app/foretag/listad/[slug]/page";
+import robots from "@/app/robots";
 import sitemap from "@/app/sitemap";
 import { siteConfig } from "@/lib/site";
 
@@ -79,24 +83,35 @@ describe("public directory SEO hygiene", () => {
     expect(siteConfig.url).toBe("https://www.proffera.se");
   });
 
-  it("omits noindex search routes and emits reciprocal profile locales", async () => {
+  it("temporarily blocks Company Directory crawl prefixes on the platform host", async () => {
+    const policy = await robots();
+    const rules = Array.isArray(policy.rules) ? policy.rules : [policy.rules];
+    const platformRule = rules.find((rule) => rule.userAgent === "*");
+    const disallow = Array.isArray(platformRule?.disallow) ? platformRule.disallow : [platformRule?.disallow];
+
+    expect(disallow).toEqual(expect.arrayContaining([
+      "/foretag/listad",
+      "/foretag/claim",
+      "/en/companies",
+      "/hitta/",
+    ]));
+    expect(policy.sitemap).toBe(`${siteConfig.url}/sitemap.xml`);
+    expect(policy.host).toBe(siteConfig.url);
+  });
+
+  it("keeps Company Directory search, profile and landing URLs out of the platform sitemap", async () => {
     const routes = await sitemap();
     const svUrl = `${siteConfig.url}/foretag/listad/${profile.slug}`;
     const enUrl = `${siteConfig.url}/en/companies/${profile.slug}`;
-    const languages = { "sv-SE": svUrl, en: enUrl };
 
     expect(routes.some((route) => route.url === `${siteConfig.url}/foretag/listad`)).toBe(false);
     expect(routes.some((route) => route.url === `${siteConfig.url}/en/companies`)).toBe(false);
+    expect(routes.some((route) => route.url === svUrl)).toBe(false);
+    expect(routes.some((route) => route.url === enUrl)).toBe(false);
+    expect(routes.some((route) => route.url.startsWith(`${siteConfig.url}/hitta/`))).toBe(false);
     expect(swedishListingMetadata.robots).toEqual({ index: false, follow: true });
     expect(englishListingMetadata.robots).toEqual({ index: false, follow: true });
-    expect(routes.find((route) => route.url === svUrl)).toEqual(expect.objectContaining({
-      lastModified: new Date("2026-08-20T00:00:00Z"),
-      alternates: { languages },
-    }));
-    expect(routes.find((route) => route.url === enUrl)).toEqual(expect.objectContaining({
-      lastModified: new Date("2026-08-20T00:00:00Z"),
-      alternates: { languages },
-    }));
+    expect(mocks.listPublishedDirectorySitemapEntries).not.toHaveBeenCalled();
   });
 
   it("produces canonical bilingual profile metadata without duplicating the brand", async () => {

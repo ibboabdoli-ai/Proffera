@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { primeViewAreaPages } from "../src/lib/primeview-area-pages";
+import {
+  isPrimeViewIndexableAreaSlug,
+  primeViewAreaPages,
+  primeViewIndexableAreaPages,
+  primeViewTemplatedAreaPages,
+} from "../src/lib/primeview-area-pages";
 
 describe("PrimeView service areas", () => {
   it("keeps the expanded customer-approved coverage list unique", () => {
@@ -26,6 +31,20 @@ describe("PrimeView service areas", () => {
       "Arnos Grove",
     ]) {
       expect(names.has(area), area).toBe(true);
+    }
+  });
+
+  it("keeps only bespoke area pages indexable while preserving templated coverage", () => {
+    expect(primeViewIndexableAreaPages).toHaveLength(10);
+    expect(primeViewTemplatedAreaPages).toHaveLength(78);
+    expect(primeViewIndexableAreaPages.length + primeViewTemplatedAreaPages.length).toBe(primeViewAreaPages.length);
+
+    for (const slug of ["ealing", "harrow", "wembley", "uxbridge", "ruislip", "greenford", "acton", "northolt", "edgware", "pinner"]) {
+      expect(isPrimeViewIndexableAreaSlug(slug), slug).toBe(true);
+    }
+
+    for (const slug of ["hammersmith", "chiswick", "twickenham", "wimbledon", "camden", "enfield"]) {
+      expect(isPrimeViewIndexableAreaSlug(slug), slug).toBe(false);
     }
   });
 });

@@ -1,6 +1,10 @@
 import "server-only";
 
 import { getSql } from "@/lib/db/server";
+import {
+  CUSTOMER_ADDRESS_VERIFICATION_SOURCE,
+  verifyCustomerAddress,
+} from "@/lib/lantmateriet-address-verification";
 import { getPlatformAdmin } from "@/lib/platform-admin";
 import { canManageWorkspaceSettings, getUserWorkspaceAccess } from "@/lib/workspace-access";
 
@@ -60,6 +64,9 @@ export type DashboardBusinessProfileLocation = {
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+type SqlClient = NonNullable<ReturnType<typeof getSql>>;
+type NormalizedBusinessProfileLocationWrite = ReturnType<typeof normalizeBusinessProfileLocationWrite>;
+
 function cleanText(value: unknown, maxLength: number) {
   return String(value ?? "").trim().slice(0, maxLength);
 }
@@ -79,6 +86,12 @@ function optionalCoordinate(value: unknown, min: number, max: number, label: str
     throw new Error(`${label} is outside the allowed coordinate range`);
   }
   return parsed;
+}
+
+function storedCoordinate(value: unknown, min: number, max: number) {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= min && parsed <= max ? parsed : null;
 }
 
 export function normalizeBusinessProfileLocationWrite(input: WriteBusinessProfileLocationInput) {
@@ -174,6 +187,146 @@ async function requireSuperAdmin() {
   if (!admin || admin.role !== "super_admin") throw new Error("Super admin access required");
 }
 
+function sameNormalizedAddress(
+  normalized: NormalizedBusinessProfileLocationWrite,
+  row: Record<string, unknown>,
+) {
+  return normalized.addressLine1 === cleanText(row.address_line1, 250)
+    && normalized.postalCode === cleanText(row.postal_code, 32)
+    && normalized.city === cleanText(row.city, 120)
+    && normalized.municipality === cleanText(row.municipality, 120);
+}
+
+async function authorizeConfirmedServiceBaseWrite(
+  sql: SqlClient,
+  workspaceId: string,
+  normalized: NormalizedBusinessProfileLocationWrite,
+) {
+  if (normalized.id) {
+    const rows = await sql`
+      select
+        profile.id::text as profile_id,
+        location.address_line1,
+        location.postal_code,
+        location.city,
+        location.municipality,
+        location.latitude::float8,
+        location.longitude::float8,
+        location.geocode_source,
+        location.geocode_precision,
+        location.confirmed_at::text as confirmed_at
+      from company_directory_profiles profile
+      join company_directory_profile_locations location
+        on location.profile_id = profile.id
+       and location.id = ${normalized.id}::uuid
+       and location.source_type = 'owner'
+       and location.owner_workspace_id = ${workspaceId}::uuid
+       and location.is_active = true
+      where profile.claimed_workspace_id = ${workspaceId}::uuid
+        and profile.publication_status = 'claimed'
+        and profile.is_active = true
+        and profile.privacy_blocked = false
+      limit 1
+    `;
+    if (!rows[0]?.profile_id) {
+      throw new Error("Business Profile location is not owned by the currently claimed Workspace");
+    }
+    return rows[0] as Record<string, unknown>;
+  }
+
+  const rows = await sql`
+    select profile.id::text as profile_id
+    from company_directory_profiles profile
+    where profile.claimed_workspace_id = ${workspaceId}::uuid
+      and profile.publication_status = 'claimed'
+      and profile.is_active = true
+      and profile.privacy_blocked = false
+    limit 1
+  `;
+  if (!rows[0]?.profile_id) {
+    throw new Error("The active Workspace does not own an eligible claimed Business Profile");
+  }
+  return rows[0] as Record<string, unknown>;
+}
+
+async function authoritativeOwnerLocationWrite(
+  sql: SqlClient,
+  workspaceId: string,
+  normalized: NormalizedBusinessProfileLocationWrite,
+): Promise<NormalizedBusinessProfileLocationWrite> {
+  if (normalized.purpose !== "service_base") return normalized;
+
+  if (!normalized.confirmed) {
+    return {
+      ...normalized,
+      latitude: null,
+      longitude: null,
+      geocodeSource: "",
+      geocodePrecision: "unknown",
+    };
+  }
+
+  if (!normalized.addressLine1 || !normalized.postalCode || !normalized.city) {
+    throw new Error("Confirmed service base requires a complete address");
+  }
+
+  const authority = await authorizeConfirmedServiceBaseWrite(sql, workspaceId, normalized);
+  if (normalized.id && sameNormalizedAddress(normalized, authority)) {
+    const latitude = storedCoordinate(authority.latitude, -90, 90);
+    const longitude = storedCoordinate(authority.longitude, -180, 180);
+    if (
+      latitude !== null
+      && longitude !== null
+      && !(latitude === 0 && longitude === 0)
+      && cleanText(authority.geocode_source, 80) === CUSTOMER_ADDRESS_VERIFICATION_SOURCE
+      && cleanText(authority.geocode_precision, 32) === "address"
+      && Boolean(authority.confirmed_at)
+    ) {
+      return {
+        ...normalized,
+        latitude,
+        longitude,
+        geocodeSource: CUSTOMER_ADDRESS_VERIFICATION_SOURCE,
+        geocodePrecision: "address",
+      };
+    }
+  }
+
+  const verified = await verifyCustomerAddress({
+    addressLine1: normalized.addressLine1,
+    postalCode: normalized.postalCode,
+    city: normalized.city,
+  });
+  if (verified.status !== "matched") {
+    throw new Error(`Service base address verification failed: ${verified.status}:${verified.reason}`);
+  }
+
+  const transformedRows = await sql`
+    select
+      st_y(transformed.point)::float8 as latitude,
+      st_x(transformed.point)::float8 as longitude
+    from (
+      select st_transform(
+        st_setsrid(st_makepoint(${verified.easting}::float8, ${verified.northing}::float8), 3006),
+        4326
+      ) as point
+    ) transformed
+  `;
+  const latitude = storedCoordinate(transformedRows[0]?.latitude, -90, 90);
+  const longitude = storedCoordinate(transformedRows[0]?.longitude, -180, 180);
+  if (latitude === null || longitude === null || (latitude === 0 && longitude === 0)) {
+    throw new Error("Service base address verification returned invalid coordinates");
+  }
+
+  return {
+    ...normalized,
+    latitude,
+    longitude,
+    geocodeSource: verified.source,
+    geocodePrecision: "address",
+  };
+}
+
 export async function listOwnerBusinessProfileLocations(): Promise<DashboardBusinessProfileLocation[]> {
   const access = await requireLocationManagingWorkspace();
   const sql = getSql();
@@ -205,6 +358,7 @@ async function writeOwnerBusinessProfileLocation(input: WriteBusinessProfileLoca
   const normalized = normalizeBusinessProfileLocationWrite(input);
   const sql = getSql();
   if (!sql) throw new Error("Database is not configured");
+  const authoritative = await authoritativeOwnerLocationWrite(sql, access.workspaceId, normalized);
 
   const lockProfile = sql`
     select profile.id
@@ -217,24 +371,24 @@ async function writeOwnerBusinessProfileLocation(input: WriteBusinessProfileLoca
     for update
   `;
 
-  const clearPreviousPrimary = normalized.id
+  const clearPreviousPrimary = authoritative.id
     ? sql`
         update company_directory_profile_locations location
         set is_primary = false, updated_at = now()
         from company_directory_profiles profile
-        where ${normalized.isPrimary} = true
+        where ${authoritative.isPrimary} = true
           and profile.claimed_workspace_id = ${access.workspaceId}::uuid
           and profile.publication_status = 'claimed'
           and profile.is_active = true
           and profile.privacy_blocked = false
           and location.profile_id = profile.id
-          and location.id <> ${normalized.id}::uuid
+          and location.id <> ${authoritative.id}::uuid
           and location.is_primary = true
           and location.is_active = true
           and exists (
             select 1
             from company_directory_profile_locations target
-            where target.id = ${normalized.id}::uuid
+            where target.id = ${authoritative.id}::uuid
               and target.profile_id = profile.id
               and target.source_type = 'owner'
               and target.owner_workspace_id = ${access.workspaceId}::uuid
@@ -245,7 +399,7 @@ async function writeOwnerBusinessProfileLocation(input: WriteBusinessProfileLoca
         update company_directory_profile_locations location
         set is_primary = false, updated_at = now()
         from company_directory_profiles profile
-        where ${normalized.isPrimary} = true
+        where ${authoritative.isPrimary} = true
           and profile.claimed_workspace_id = ${access.workspaceId}::uuid
           and profile.publication_status = 'claimed'
           and profile.is_active = true
@@ -255,26 +409,26 @@ async function writeOwnerBusinessProfileLocation(input: WriteBusinessProfileLoca
           and location.is_active = true
       `;
 
-  const writeLocation = normalized.id
+  const writeLocation = authoritative.id
     ? sql`
         update company_directory_profile_locations location
-        set purpose = ${normalized.purpose},
-            visibility = ${normalized.visibility},
-            is_visitable = ${normalized.isVisitable},
-            is_primary = ${normalized.isPrimary},
+        set purpose = ${authoritative.purpose},
+            visibility = ${authoritative.visibility},
+            is_visitable = ${authoritative.isVisitable},
+            is_primary = ${authoritative.isPrimary},
             owner_workspace_id = ${access.workspaceId}::uuid,
-            address_line1 = ${normalized.addressLine1},
-            postal_code = ${normalized.postalCode},
-            city = ${normalized.city},
-            municipality = ${normalized.municipality},
-            latitude = ${normalized.latitude},
-            longitude = ${normalized.longitude},
-            geocode_source = ${normalized.geocodeSource},
-            geocode_precision = ${normalized.geocodePrecision},
-            confirmed_at = case when ${normalized.confirmed} then coalesce(location.confirmed_at, now()) else null end,
+            address_line1 = ${authoritative.addressLine1},
+            postal_code = ${authoritative.postalCode},
+            city = ${authoritative.city},
+            municipality = ${authoritative.municipality},
+            latitude = ${authoritative.latitude},
+            longitude = ${authoritative.longitude},
+            geocode_source = ${authoritative.geocodeSource},
+            geocode_precision = ${authoritative.geocodePrecision},
+            confirmed_at = case when ${authoritative.confirmed} then coalesce(location.confirmed_at, now()) else null end,
             updated_at = now()
         from company_directory_profiles profile
-        where location.id = ${normalized.id}::uuid
+        where location.id = ${authoritative.id}::uuid
           and location.profile_id = profile.id
           and location.source_type = 'owner'
           and location.owner_workspace_id = ${access.workspaceId}::uuid
@@ -292,11 +446,11 @@ async function writeOwnerBusinessProfileLocation(input: WriteBusinessProfileLoca
           latitude, longitude, geocode_source, geocode_precision, confirmed_at
         )
         select
-          profile.id, ${access.workspaceId}::uuid, ${normalized.purpose}, ${normalized.visibility},
-          ${normalized.isVisitable}, ${normalized.isPrimary}, 'owner', ${normalized.addressLine1},
-          ${normalized.postalCode}, ${normalized.city}, ${normalized.municipality},
-          ${normalized.latitude}, ${normalized.longitude}, ${normalized.geocodeSource},
-          ${normalized.geocodePrecision}, case when ${normalized.confirmed} then now() else null end
+          profile.id, ${access.workspaceId}::uuid, ${authoritative.purpose}, ${authoritative.visibility},
+          ${authoritative.isVisitable}, ${authoritative.isPrimary}, 'owner', ${authoritative.addressLine1},
+          ${authoritative.postalCode}, ${authoritative.city}, ${authoritative.municipality},
+          ${authoritative.latitude}, ${authoritative.longitude}, ${authoritative.geocodeSource},
+          ${authoritative.geocodePrecision}, case when ${authoritative.confirmed} then now() else null end
         from company_directory_profiles profile
         where profile.claimed_workspace_id = ${access.workspaceId}::uuid
           and profile.publication_status = 'claimed'

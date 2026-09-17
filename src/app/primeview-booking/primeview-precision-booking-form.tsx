@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import { CalendarDays, Check, ChevronRight, CirclePoundSterling, Home, Mail, MapPin, Sparkles } from "lucide-react";
 
@@ -13,6 +13,8 @@ type BookingService = BookingAvailabilityService & { id: string; name: string };
 type BookingHour = BookingAvailabilityHour & { weekday: number };
 type BusyBooking = BookingAvailabilityBusyBooking;
 type CleaningScope = NonNullable<PrimeViewPricingInput["cleaningScope"]>;
+type AddressField = "postcode" | "houseBuilding" | "street" | "unit";
+type AddressErrors = Partial<Record<AddressField, string>>;
 type Props = { action: (formData: FormData) => void | Promise<void>; services: BookingService[]; bookingHours: BookingHour[]; busyBookings: BusyBooking[]; timeZone: WorkspaceTimeZone; initialServiceId?: string };
 
 const UK_POSTCODE = /^[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}$/i;
@@ -46,6 +48,32 @@ function propertySizeFromPropertyType(value: string): PrimeViewPricingInput["pro
 function formatPrice(value: number) { return Number.isInteger(value) ? value.toFixed(0) : value.toFixed(2); }
 function scopeRate(scope: CleaningScope) { return scope === "Inside only" ? 5 : scope === "Inside & outside" ? 8 : 3; }
 function scopeDisplay(scope: CleaningScope) { return scope === "Inside & outside" ? "Inside & Outside" : scope; }
+function cleanAddressPart(value: string) { return value.trim().replace(/,/g, " ").replace(/\s+/g, " "); }
+function cleanUnit(value: string) { return cleanAddressPart(value).replace(/^(?:(?:flat|apartment|unit)(?:\s+|$))+/i, ""); }
+function buildCanonicalAddress(houseBuilding: string, street: string, unit: string, isFlat: boolean) {
+  return [isFlat && cleanUnit(unit) ? `Flat ${cleanUnit(unit)}` : "", cleanAddressPart(houseBuilding), cleanAddressPart(street)].filter(Boolean).join(", ");
+}
+export function parsePrimeViewAutocompleteAddress(address: string, postcode: string, propertyType: string) {
+  const compactPostcode = postcode.toUpperCase().replace(/\s+/g, "");
+  const parts = address.split(",").map((value) => value.trim()).filter(Boolean).filter((value) => value.toUpperCase().replace(/\s+/g, "") !== compactPostcode);
+  if (parts.length >= 3) parts.pop();
+  if (propertyType === "Flat / Apartment") {
+    while (parts.length && /^(?:flat|apartment|unit|room|suite)\b/i.test(parts[0])) parts.shift();
+  }
+  if (!parts.length) return { houseBuilding: "", street: "" };
+  const numbered = parts[0].match(/^(\d+[A-Za-z]?(?:[-/]\d+[A-Za-z]?)?)\s+(.+)$/);
+  if (numbered) return { houseBuilding: numbered[1], street: cleanAddressPart(numbered[2]) };
+  if (parts.length >= 2) {
+    return {
+      houseBuilding: cleanAddressPart(parts.slice(0, -1).join(" ")),
+      street: cleanAddressPart(parts.at(-1) ?? ""),
+    };
+  }
+  return { houseBuilding: "", street: "" };
+}
+function addressError(errors: AddressErrors, field: AddressField) {
+  return errors[field] ? <span id={`${field}-error`} role="alert" className="text-xs font-semibold text-red-700">{errors[field]}</span> : null;
+}
 
 export function PrimeViewPrecisionBookingForm({ action, services, bookingHours, busyBookings, timeZone, initialServiceId = "" }: Props) {
   const searchParams = useSearchParams();
@@ -60,7 +88,10 @@ export function PrimeViewPrecisionBookingForm({ action, services, bookingHours, 
     return requestedService?.id ?? services[0]?.id ?? "";
   });
   const [postcode, setPostcode] = useState(() => UK_POSTCODE.test(requestedPostcode) ? requestedPostcode : "");
-  const [address, setAddress] = useState("");
+  const [houseBuilding, setHouseBuilding] = useState("");
+  const [street, setStreet] = useState("");
+  const [unit, setUnit] = useState("");
+  const [addressErrors, setAddressErrors] = useState<AddressErrors>({});
   const [date, setDate] = useState(today);
   const [time, setTime] = useState("");
   const [propertyType, setPropertyType] = useState("");
@@ -79,6 +110,7 @@ export function PrimeViewPrecisionBookingForm({ action, services, bookingHours, 
   const serviceKey = selectedService ? serviceKeyFromName(selectedService.name) : null;
   const inferredPropertySize = propertySizeFromPropertyType(propertyType);
   const maximumDate = selectedService ? addDaysToDateInput(today, selectedService.maximumAdvanceDays) : undefined;
+  const canonicalAddress = buildCanonicalAddress(houseBuilding, street, unit, propertyType === "Flat / Apartment");
   const times = useMemo(() => {
     if (!selectedService || !date) return [];
     const hour = bookingHours.find((item) => item.weekday === weekdayForDate(date));
@@ -106,9 +138,31 @@ export function PrimeViewPrecisionBookingForm({ action, services, bookingHours, 
     }
   }
 
+  function validateAddress(form: HTMLFormElement) {
+    const nextErrors: AddressErrors = {};
+    if (!postcode.trim()) nextErrors.postcode = "Enter your UK postcode.";
+    else if (!UK_POSTCODE.test(postcode.trim())) nextErrors.postcode = "Enter a valid UK postcode, for example W4 3ES.";
+    if (!cleanAddressPart(houseBuilding)) nextErrors.houseBuilding = "Enter the house number or building name.";
+    if (!cleanAddressPart(street)) nextErrors.street = "Enter the street address.";
+    if (propertyType === "Flat / Apartment" && !cleanUnit(unit)) nextErrors.unit = "Enter the flat, apartment or unit number.";
+    setAddressErrors(nextErrors);
+    const firstInvalid = (["postcode", "houseBuilding", "street", "unit"] as AddressField[]).find((field) => nextErrors[field]);
+    if (!firstInvalid) return true;
+    requestAnimationFrame(() => {
+      const element = form.querySelector<HTMLElement>(`[data-address-field="${firstInvalid}"]`);
+      element?.scrollIntoView({ behavior: "smooth", block: "center" });
+      element?.focus({ preventScroll: true });
+    });
+    return false;
+  }
+
+  function handleAddressSubmit(event: FormEvent<HTMLFormElement>) {
+    if (!validateAddress(event.currentTarget)) event.preventDefault();
+  }
+
   return (
-    <form action={action} className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_350px]">
-      <input type="hidden" name="service_id" value={serviceId} /><input type="hidden" name="starts_at" value={date && time ? `${date}T${time}` : ""} /><input type="hidden" name="form_started_at" value={formStartedAt} />
+    <form action={action} onSubmit={handleAddressSubmit} className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_350px]">
+      <input type="hidden" name="service_id" value={serviceId} /><input type="hidden" name="starts_at" value={date && time ? `${date}T${time}` : ""} /><input type="hidden" name="form_started_at" value={formStartedAt} /><input type="hidden" name="address" value={canonicalAddress} />
       {(serviceKey === "window" || serviceKey === "gutter" || serviceKey === "fascia_gutter") ? <input type="hidden" name="property_size" value={inferredPropertySize ?? ""} /> : null}
       <label className="absolute left-[-10000px]" aria-hidden="true">Website<input name="website" tabIndex={-1} /></label>
       <div className="grid gap-5">
@@ -120,15 +174,17 @@ export function PrimeViewPrecisionBookingForm({ action, services, bookingHours, 
         <section className={cardClass}>
           <div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#eaf3ff] text-[#1769c2]"><Home className="h-5 w-5" /></div><div><h2 className="text-xl font-black text-[#0b2a4a]">2. Property & price details</h2><p className="mt-1 text-sm text-[#667b91]">Simple starting prices. Access, height and condition do not add automatic surcharges.</p></div></div>
           <div className="mt-5 grid gap-4 sm:grid-cols-2">
-            <Field label="Property type"><select name="property_type" required value={propertyType} onChange={(e) => setPropertyType(e.target.value)} className={fieldClass}><option value="">Choose</option><option>Detached</option><option>Semi-detached</option><option>Terraced</option><option>End of terrace</option><option>Bungalow</option><option>Flat / Apartment</option><option>Commercial (Shop/Office)</option></select></Field>
+            <Field label="Property type"><select name="property_type" required value={propertyType} onChange={(e) => { const value = e.target.value; setPropertyType(value); if (value !== "Flat / Apartment") { setUnit(""); setAddressErrors((current) => ({ ...current, unit: undefined })); } }} className={fieldClass}><option value="">Choose</option><option>Detached</option><option>Semi-detached</option><option>Terraced</option><option>End of terrace</option><option>Bungalow</option><option>Flat / Apartment</option><option>Commercial (Shop/Office)</option></select></Field>
             <Field label="Rear garden access"><select name="rear_garden_access" required value={rearGardenAccess} onChange={(e) => setRearGardenAccess(e.target.value)} className={fieldClass}><option>Side access</option><option>Through the property only</option><option>No access / arrangement required</option></select></Field>
             <Field label="Number of floors"><select name="floor_count" required value={floorCount} onChange={(e) => setFloorCount(e.target.value as typeof floorCount)} className={fieldClass}><option>1</option><option>2</option><option>3+</option><option>Unknown</option></select></Field>
             <Field label="Working height"><select name="working_height" required value={workingHeight} onChange={(e) => setWorkingHeight(e.target.value as typeof workingHeight)} className={fieldClass}><option>Ground floor only</option><option>First floor</option><option>Second floor+</option><option>Long ladder required</option></select></Field>
             <Field label="Parking"><select name="parking" required value={parking} onChange={(e) => setParking(e.target.value)} className={fieldClass}><option>Parking directly outside</option><option>Parking nearby</option><option>Difficult / paid parking</option></select></Field>
             <Field label="Pets at property"><select name="pets" required value={pets} onChange={(e) => setPets(e.target.value)} className={fieldClass}><option>No</option><option>Yes</option></select></Field>
-            <Field label="UK postcode"><input name="postcode" required autoComplete="postal-code" placeholder="W4 3ES" pattern="[A-Za-z]{1,2}[0-9][A-Za-z0-9]? ?[0-9][A-Za-z]{2}" value={postcode} onChange={(e) => { setPostcode(e.target.value.toUpperCase()); setAddress(""); }} className={fieldClass} /></Field>
-            <div className="sm:col-span-2 rounded-2xl border border-[#d9e4ef] bg-[#f9fbfe] p-4"><div className="flex items-center gap-2 text-sm font-black text-[#183e63]"><MapPin className="h-4 w-4 text-[#1769c2]" />Find your address</div><PrimeViewGoogleAddressAutocomplete onSelect={({ address: nextAddress, postcode: nextPostcode }) => { setAddress(nextAddress); if (nextPostcode) setPostcode(nextPostcode); }} /></div>
-            <Field label="Full address" wide><input name="address" required autoComplete="street-address" placeholder="House number and street" value={address} onChange={(e) => setAddress(e.target.value)} className={fieldClass} /></Field>
+            <Field label="UK postcode"><input name="postcode" data-address-field="postcode" autoComplete="postal-code" placeholder="W4 3ES" value={postcode} aria-invalid={Boolean(addressErrors.postcode)} aria-describedby={addressErrors.postcode ? "postcode-error" : undefined} onChange={(e) => { setPostcode(e.target.value.toUpperCase()); setAddressErrors((current) => ({ ...current, postcode: undefined })); }} className={fieldClass} />{addressError(addressErrors, "postcode")}</Field>
+            <div className="sm:col-span-2 rounded-2xl border border-[#d9e4ef] bg-[#f9fbfe] p-4"><div className="flex items-center gap-2 text-sm font-black text-[#183e63]"><MapPin className="h-4 w-4 text-[#1769c2]" />Find your address</div><PrimeViewGoogleAddressAutocomplete onSelect={({ address: nextAddress, postcode: nextPostcode }) => { const effectivePostcode = nextPostcode || postcode; const parsed = parsePrimeViewAutocompleteAddress(nextAddress, effectivePostcode, propertyType); if (parsed.houseBuilding) setHouseBuilding(parsed.houseBuilding); if (parsed.street) setStreet(parsed.street); setUnit(""); if (nextPostcode) setPostcode(nextPostcode); setAddressErrors((current) => ({ ...current, postcode: undefined, houseBuilding: parsed.houseBuilding ? undefined : current.houseBuilding, street: parsed.street ? undefined : current.street, unit: propertyType === "Flat / Apartment" ? current.unit : undefined })); }} /></div>
+            <Field label="House number or building name"><input name="address_house_building" data-address-field="houseBuilding" autoComplete="address-line1" placeholder="e.g. 10 or Cricket Pavilion" value={houseBuilding} aria-invalid={Boolean(addressErrors.houseBuilding)} aria-describedby={addressErrors.houseBuilding ? "houseBuilding-error" : undefined} onChange={(e) => { setHouseBuilding(e.target.value); setAddressErrors((current) => ({ ...current, houseBuilding: undefined })); }} className={fieldClass} />{addressError(addressErrors, "houseBuilding")}</Field>
+            <Field label="Street address"><input name="address_street" data-address-field="street" autoComplete="address-line2" placeholder="e.g. Staveley Road" value={street} aria-invalid={Boolean(addressErrors.street)} aria-describedby={addressErrors.street ? "street-error" : undefined} onChange={(e) => { setStreet(e.target.value); setAddressErrors((current) => ({ ...current, street: undefined })); }} className={fieldClass} />{addressError(addressErrors, "street")}</Field>
+            {propertyType === "Flat / Apartment" ? <Field label="Flat / apartment / unit number" wide><input name="address_unit" data-address-field="unit" autoComplete="address-line3" placeholder="e.g. 2B" value={unit} aria-invalid={Boolean(addressErrors.unit)} aria-describedby={addressErrors.unit ? "unit-error" : undefined} onChange={(e) => { setUnit(e.target.value); setAddressErrors((current) => ({ ...current, unit: undefined })); }} className={fieldClass} />{addressError(addressErrors, "unit")}</Field> : null}
             {serviceKey === "window" ? <>
               <Field label="Normal-size windows"><input name="standard_windows" required type="number" min="1" max="500" value={standardWindows} onChange={(e) => setStandardWindows(e.target.value)} placeholder="e.g. 10" className={fieldClass} /></Field>
               <Field label="Cleaning scope"><select name="cleaning_scope" required value={cleaningScope} onChange={(e) => setCleaningScope(e.target.value as CleaningScope)} className={fieldClass}><option value="Outside only">Outside only — £3/window</option><option value="Inside only">Inside only — £5/window</option><option value="Inside & outside">Inside & Outside — £8/window</option></select></Field>

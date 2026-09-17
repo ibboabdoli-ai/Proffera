@@ -9,6 +9,7 @@ import {
   parseClaimEmailEvidence,
   validBusinessEmail,
 } from "@/lib/company-directory-claim-email";
+import { invalidatePublicDirectoryPublicProjectionByProfileId } from "@/lib/company-directory-public-cache";
 import { getSql } from "@/lib/db/server";
 
 export type MarketplaceCompanyClaimProvisionResult =
@@ -164,14 +165,6 @@ async function compensateFailedMarketplaceClaim(input: {
   });
 }
 
-/**
- * Auto-provisions only the narrow Marketplace invitation case where the same
- * conflict-free SCB business mailbox was recently invited, owns the signed-in
- * account, and has just been verified by the Company Directory claim challenge.
- * Opt-out controls future outreach; it does not revoke the right to verify
- * ownership of an existing public company profile. Every other claim stays on
- * the existing manual-review path.
- */
 export async function tryAutoProvisionMarketplaceCompanyClaim(input: {
   claimId: string;
   claimantUserId: string;
@@ -450,5 +443,14 @@ export async function tryAutoProvisionMarketplaceCompanyClaim(input: {
     return { status: "manual_review", reason: "finalize_conflict" };
   }
 
+  try {
+    await invalidatePublicDirectoryPublicProjectionByProfileId(profileId);
+  } catch (error) {
+    console.error("Failed to invalidate public Directory cache after committed Marketplace claim", {
+      claimId: input.claimId,
+      profileId,
+      error,
+    });
+  }
   return { status: "provisioned", workspaceId: input.claimId };
 }

@@ -67,7 +67,7 @@ export function Header({ locale }: HeaderProps) {
 
   return (
     <header className="sticky top-0 z-40 border-b border-[#dfe5dd]/80 bg-white/90 backdrop-blur-xl">
-      <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
+      <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8" style={{ paddingTop: "calc(0.75rem + env(safe-area-inset-top))" }}>
         <Link href={homeHref} className="flex items-center" aria-label={copy.homeLabel}>
           <Image
             src="/brand/proffera-logo.svg"

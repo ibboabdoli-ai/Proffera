@@ -30,17 +30,15 @@ type GooglePlace = {
   googleMapsURI?: string;
 };
 
-type GooglePlaceClass = {
-  searchByText: (request: {
-    textQuery: string;
-    fields: string[];
-    language?: string;
-    region?: string;
-    maxResultCount?: number;
-    pureServiceAreaBusinessesIncluded?: boolean;
-    locationBias?: { center: { lat: number; lng: number }; radius: number };
-  }) => Promise<{ places: GooglePlace[] }>;
+type GooglePlaceInstance = GooglePlace & {
+  fetchFields: (request: { fields: string[] }) => Promise<{ place: GooglePlace }>;
 };
+
+type GooglePlaceClass = new (options: {
+  id: string;
+  requestedLanguage?: string;
+  requestedRegion?: string;
+}) => GooglePlaceInstance;
 
 type GooglePlacesLibrary = {
   Place: GooglePlaceClass;
@@ -53,10 +51,14 @@ type PrimeViewWindow = {
     };
   };
   __primeViewGoogleMapsPromise?: Promise<void>;
+  __primeViewGoogleMapsReady?: () => void;
 };
 
 const GOOGLE_SCRIPT_SELECTOR = 'script[data-primeview-google-maps="true"]';
-const PRIMEVIEW_NAME = "primeview window care";
+const GOOGLE_READY_CALLBACK = "__primeViewGoogleMapsReady";
+const PRIMEVIEW_PLACE_ID = "ChIJe8Pc47e0PIkRB6qswksM_Uc";
+const PRIMEVIEW_GOOGLE_MAPS_URL = `https://www.google.com/maps/search/?api=1&query=PrimeView%20Window%20Care&query_place_id=${PRIMEVIEW_PLACE_ID}`;
+const PRIMEVIEW_GOOGLE_REVIEW_URL = "https://g.page/r/CQeqrMJLDP1HEBM/review";
 
 function primeViewWindow() {
   return window as unknown as PrimeViewWindow;
@@ -68,32 +70,60 @@ function loadGoogleMaps(apiKey: string) {
   if (target.__primeViewGoogleMapsPromise) return target.__primeViewGoogleMapsPromise;
 
   target.__primeViewGoogleMapsPromise = new Promise<void>((resolve, reject) => {
+    let settled = false;
+    let timeoutId = 0;
+
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeoutId);
+      target.__primeViewGoogleMapsReady = () => undefined;
+
+      if (error) {
+        target.__primeViewGoogleMapsPromise = undefined;
+        reject(error);
+        return;
+      }
+
+      resolve();
+    };
+
+    const markReady = () => {
+      if (primeViewWindow().google?.maps?.importLibrary) {
+        finish();
+        return;
+      }
+      finish(new Error("Google Maps callback fired before importLibrary was available."));
+    };
+
+    target.__primeViewGoogleMapsReady = markReady;
+    timeoutId = window.setTimeout(() => finish(new Error("Google Maps timed out while loading.")), 15000);
+
     const existing = document.querySelector<HTMLScriptElement>(GOOGLE_SCRIPT_SELECTOR);
     if (existing) {
       if (primeViewWindow().google?.maps?.importLibrary) {
-        resolve();
+        finish();
         return;
       }
-      existing.addEventListener("load", () => resolve(), { once: true });
-      existing.addEventListener("error", () => reject(new Error("Google Maps failed to load.")), { once: true });
-      return;
+
+      if (existing.src.includes(`callback=${GOOGLE_READY_CALLBACK}`)) {
+        existing.addEventListener("error", () => finish(new Error("Google Maps failed to load.")), { once: true });
+        return;
+      }
+
+      existing.remove();
     }
 
     const script = document.createElement("script");
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&v=weekly&libraries=places`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&v=weekly&libraries=places&loading=async&callback=${GOOGLE_READY_CALLBACK}`;
     script.async = true;
     script.defer = true;
-    script.dataset.primeviewGoogleMaps = "true";
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error("Google Maps failed to load."));
+    script.setAttribute("data-primeview-google-maps", "true");
+    script.onerror = () => finish(new Error("Google Maps failed to load."));
     document.head.appendChild(script);
   });
 
   return target.__primeViewGoogleMapsPromise;
-}
-
-function normalizedName(value: string | undefined) {
-  return (value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 
 function Stars({ rating, size = "size-4" }: { rating: number; size?: string }) {
@@ -123,23 +153,22 @@ export function PrimeViewReviewForm({ serviceOptions }: PrimeViewReviewFormProps
         const googleMaps = primeViewWindow().google;
         if (!googleMaps?.maps?.importLibrary) throw new Error("Google Maps is unavailable.");
         const { Place } = await googleMaps.maps.importLibrary("places");
-        const { places } = await Place.searchByText({
-          textQuery: "PrimeView Window Care London +44 7500 338585",
+        const result = await new Place({
+          id: PRIMEVIEW_PLACE_ID,
+          requestedLanguage: "en-GB",
+          requestedRegion: "uk",
+        }).fetchFields({
           fields: ["id", "displayName", "rating", "userRatingCount", "reviews", "googleMapsURI"],
-          language: "en-GB",
-          region: "gb",
-          maxResultCount: 5,
-          pureServiceAreaBusinessesIncluded: true,
-          locationBias: { center: { lat: 51.515, lng: -0.18 }, radius: 40_000 },
         });
 
-        const exact = places.find((item: GooglePlace) => normalizedName(item.displayName) === PRIMEVIEW_NAME) ?? null;
+        const exact = result.place.id === PRIMEVIEW_PLACE_ID ? result.place : null;
         if (!disposed) {
           setPlace(exact);
           setFailed(!exact);
         }
       })
-      .catch(() => {
+      .catch((error: unknown) => {
+        console.error("PrimeView Google Reviews failed to load.", error);
         if (!disposed) setFailed(true);
       })
       .finally(() => {
@@ -152,7 +181,7 @@ export function PrimeViewReviewForm({ serviceOptions }: PrimeViewReviewFormProps
   }, [apiKey]);
 
   const reviews = useMemo(() => (place?.reviews ?? []).filter((review) => Boolean(review.text)).slice(0, 3), [place]);
-  const googleUrl = place?.googleMapsURI ?? "https://www.google.com/maps/search/?api=1&query=PrimeView%20Window%20Care%20London";
+  const googleUrl = place?.googleMapsURI ?? PRIMEVIEW_GOOGLE_MAPS_URL;
 
   if (loading) {
     return (
@@ -241,7 +270,7 @@ export function PrimeViewReviewForm({ serviceOptions }: PrimeViewReviewFormProps
         <a href={googleUrl} target="_blank" rel="noreferrer" className="inline-flex min-w-0 max-w-full items-center justify-center gap-2 rounded-xl bg-[#0a3c8f] px-4 py-3 text-sm font-black !text-white hover:bg-[#061b42]">
           <span className="min-w-0 break-words">View all reviews</span> <ExternalLink className="size-4 shrink-0" aria-hidden="true" />
         </a>
-        <a href={googleUrl} target="_blank" rel="noreferrer" className="inline-flex min-w-0 max-w-full items-center justify-center gap-2 rounded-xl border border-[#9fb9e2] bg-white px-4 py-3 text-sm font-black text-[#0a3c8f] hover:bg-[#eef4ff]">
+        <a href={PRIMEVIEW_GOOGLE_REVIEW_URL} target="_blank" rel="noreferrer" className="inline-flex min-w-0 max-w-full items-center justify-center gap-2 rounded-xl border border-[#9fb9e2] bg-white px-4 py-3 text-sm font-black text-[#0a3c8f] hover:bg-[#eef4ff]">
           <span className="min-w-0 break-words">Leave a Google review</span> <Star className="size-4 shrink-0" aria-hidden="true" />
         </a>
       </div>

@@ -1,16 +1,8 @@
 name: Company directory automation
 
+# Automatic triggers are temporarily paused while Proffera is pre-launch.
+# Keep workflow_dispatch so the job can still be run manually when needed.
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/workflows/company-directory-automation.yml"
-      - "scripts/company-directory-discovery.py"
-      - "src/app/api/cron/company-directory-discovery-ingest/route.ts"
-  schedule:
-    - cron: "17 * * * *"
-    - cron: "31 3 * * *"
   workflow_dispatch:
 
 permissions:
@@ -57,7 +49,7 @@ jobs:
 
       - name: Probe official company source
         id: probe
-        if: github.event_name == 'schedule' && github.event.schedule == '17 * * * *'
+        if: github.event_name == 'schedule' && github.event.schedule == '8 */6 * * *'
         env:
           INGEST_URL: ${{ steps.endpoint.outputs.ingest_url }}
           CRON_SECRET: ${{ secrets.PROFFERA_REMINDER_CRON_SECRET }}

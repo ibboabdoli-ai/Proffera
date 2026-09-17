@@ -18,8 +18,9 @@ function candidate(index: number, overrides: Partial<DirectoryGuestCandidate> = 
     score: 95,
     reasons: ["tjänstmatch"],
     distanceKm: 5,
-    serviceAreaRadiusKm: null,
-    serviceAreaConfirmed: false,
+    serviceAreaRadiusKm: 25,
+    serviceAreaConfirmed: true,
+    coverageState: "confirmed_inside",
     recipientEmail: `offert${index}@company.se`,
     contactBasis: "official_business_register",
     ...overrides,
@@ -38,7 +39,7 @@ function summary(overrides: Partial<MarketplaceLeadInvitationSummary> = {}): Mar
 }
 
 describe("marketplace 3+2 wave planner", () => {
-  it("selects at most three safe candidates for Wave 1", () => {
+  it("selects at most three confirmed_inside safe candidates for Wave 1", () => {
     const plan = planMarketplaceGuestWave({
       requestedWave: 1,
       candidates: [candidate(1), candidate(2), candidate(3), candidate(4)],
@@ -102,6 +103,23 @@ describe("marketplace 3+2 wave planner", () => {
 
     expect(plan.reason).toBe("ready");
     expect(plan.candidates).toHaveLength(1);
+  });
+
+  it("never auto-selects inferred, locality, unknown, confirmed_outside, or missing coverage states", () => {
+    const plan = planMarketplaceGuestWave({
+      requestedWave: 1,
+      candidates: [
+        candidate(1, { coverageState: "inferred_nearby", serviceAreaConfirmed: false }),
+        candidate(2, { coverageState: "locality_fallback", serviceAreaConfirmed: false, distanceKm: null }),
+        candidate(3, { coverageState: "unknown", serviceAreaConfirmed: false }),
+        candidate(4, { coverageState: "confirmed_outside", serviceAreaConfirmed: false }),
+        candidate(5, { coverageState: undefined, serviceAreaConfirmed: true }),
+      ],
+      invitationSummary: summary(),
+      submittedOfferCount: 0,
+    });
+
+    expect(plan).toMatchObject({ reason: "no_safe_contacts", candidates: [] });
   });
 
   it("never auto-selects weak, unsafe-basis, or already invited candidates", () => {

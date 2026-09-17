@@ -1,3 +1,7 @@
+import {
+  classifyCompanyDirectoryGeoCoverage,
+  type CompanyDirectoryGeoCoverageState,
+} from "@/lib/company-directory-service-area-policy";
 import { serviceCategoryForQuoteCategory } from "@/lib/service-catalog";
 import { resolveWorkspaceFeatureAccess } from "@/lib/workspace-feature-access";
 import { isWorkspacePlanFeatureIncluded } from "@/lib/workspace-feature-policy";
@@ -6,6 +10,8 @@ export type LeadMatchInput = {
   category: string;
   service_type: string;
   city: string;
+  customerLatitude?: unknown;
+  customerLongitude?: unknown;
 };
 
 export type WorkspaceLeadCandidate = {
@@ -26,6 +32,12 @@ export type WorkspaceLeadCandidate = {
   serviceName: string;
   serviceCategory: string;
   serviceArea: string;
+  serviceAreaRadiusKm?: number | null;
+  providerLatitude?: unknown;
+  providerLongitude?: unknown;
+  providerPointVerified?: boolean;
+  providerCity?: string;
+  providerMunicipality?: string;
   serviceIsActive: boolean;
   servicePublicStatus: string;
   serviceConversionMode: string;
@@ -48,6 +60,8 @@ export type WorkspaceLeadSuggestion = {
   serviceId: string;
   serviceName: string;
   serviceArea: string;
+  coverageState: CompanyDirectoryGeoCoverageState;
+  distanceKm: number | null;
   score: number;
   reasons: string[];
 };
@@ -138,8 +152,6 @@ function serviceCompatibility(lead: LeadMatchInput, candidate: WorkspaceLeadCand
     return { compatible: false, specific: false };
   }
 
-  // A broad service category such as "Städning" must not become an exact match
-  // merely because it is a substring of a specific request such as "Hemstädning".
   const specific = textsOverlap(candidate.serviceName, lead.service_type);
   if (specific || isGenericServiceType(lead.service_type)) return { compatible: true, specific };
 
@@ -148,9 +160,17 @@ function serviceCompatibility(lead: LeadMatchInput, candidate: WorkspaceLeadCand
   return { compatible: category, specific: false };
 }
 
-function locationMatches(lead: LeadMatchInput, candidate: WorkspaceLeadCandidate) {
-  // Registered/primary city describes the company, not where it has explicitly said it serves customers.
-  return textsOverlap(candidate.serviceArea, lead.city);
+function localityMatches(lead: LeadMatchInput, candidate: WorkspaceLeadCandidate) {
+  if (!normalizeMatchText(lead.city)) return false;
+  return textsOverlap(candidate.providerCity ?? "", lead.city)
+    || textsOverlap(candidate.providerMunicipality ?? "", lead.city);
+}
+
+function geoReason(state: CompanyDirectoryGeoCoverageState) {
+  if (state === "confirmed_inside") return "bekräftat serviceområde";
+  if (state === "inferred_nearby") return "närhet – serviceområde ej bekräftat";
+  if (state === "locality_fallback") return "lokalitet – serviceområde ej bekräftat";
+  return "";
 }
 
 export function buildWorkspaceLeadSuggestions(
@@ -165,9 +185,17 @@ export function buildWorkspaceLeadSuggestions(
     const compatibility = serviceCompatibility(lead, candidate);
     if (!compatibility.compatible) continue;
 
-    const locationRequired = normalizeMatchText(lead.city).length > 0;
-    const locationMatched = locationMatches(lead, candidate);
-    if (locationRequired && !locationMatched) continue;
+    const coverage = classifyCompanyDirectoryGeoCoverage({
+      providerLatitude: candidate.providerLatitude,
+      providerLongitude: candidate.providerLongitude,
+      providerPointVerified: candidate.providerPointVerified,
+      customerLatitude: lead.customerLatitude,
+      customerLongitude: lead.customerLongitude,
+      confirmedRadiusKm: candidate.serviceAreaRadiusKm,
+      localityMatched: localityMatches(lead, candidate),
+      fallbackMaxDistanceKm: 50,
+    });
+    if (coverage.state === "confirmed_outside" || coverage.state === "unknown") continue;
 
     let score = 60;
     const reasons = ["verifierat företag", "kategori"];
@@ -178,10 +206,9 @@ export function buildWorkspaceLeadSuggestions(
       score += 15;
       reasons.push("tjänstekategori");
     }
-    if (locationMatched) {
-      score += 15;
-      reasons.push("område");
-    }
+    if (coverage.state === "confirmed_inside") score += 15;
+    else score += 10;
+    reasons.push(geoReason(coverage.state));
 
     const suggestion: WorkspaceLeadSuggestion = {
       workspaceId: candidate.workspaceId,
@@ -192,6 +219,8 @@ export function buildWorkspaceLeadSuggestions(
       serviceId: candidate.serviceId,
       serviceName: candidate.serviceName,
       serviceArea: candidate.serviceArea,
+      coverageState: coverage.state,
+      distanceKm: coverage.distanceKm,
       score,
       reasons,
     };

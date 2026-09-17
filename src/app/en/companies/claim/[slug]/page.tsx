@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { ArrowLeft, BadgeCheck, Building2, KeyRound, Mail, RefreshCw, ShieldCheck, UserCheck } from "lucide-react";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
-import { getServerSession } from "@/lib/auth-session";
+import { getServerSession, hasBetterAuthSessionCookie } from "@/lib/auth-session";
 import { parseClaimEmailEvidence } from "@/lib/company-directory-claim-email";
 import { getPublicDirectoryBusiness } from "@/lib/company-directory-engine";
 import { getSql } from "@/lib/db/server";
@@ -77,35 +77,46 @@ const statusMessages: Record<string, { title: string; body: string }> = {
 
 export default async function EnglishClaimCompanyPage({ params, searchParams }: Props) {
   const { slug } = await params;
-  const [business, session, query] = await Promise.all([
-    getPublicDirectoryBusiness(slug),
-    getServerSession(),
-    searchParams ? searchParams : Promise.resolve(undefined),
-  ]);
+  const query = searchParams ? await searchParams : undefined;
+  const loginReturnTo = `/en/companies/claim/${encodeURIComponent(slug)}`;
+  const loginParams = new URLSearchParams({
+    lang: "en",
+    next: loginReturnTo,
+  });
+  const loginHref = `/logga-in?${loginParams.toString()}`;
+
+  if (!(await hasBetterAuthSessionCookie())) {
+    redirect(loginHref);
+  }
+
+  const session = await getServerSession();
+  if (!session?.user?.id) {
+    redirect(loginHref);
+  }
+
+  const business = await getPublicDirectoryBusiness(slug);
   if (!business) notFound();
 
   const status = Array.isArray(query?.status) ? query?.status[0] : query?.status;
   const message = status ? statusMessages[status] : null;
   const profileHref = `/en/companies/${encodeURIComponent(business.slug)}`;
-  const returnTo = `/en/companies/claim/${business.slug}`;
+  const returnTo = `/en/companies/claim/${encodeURIComponent(business.slug)}`;
 
   let emailEvidence: ReturnType<typeof parseClaimEmailEvidence> = null;
-  if (session?.user?.id) {
-    const sql = getSql();
-    if (sql) {
-      const rows = await sql`
-        select claim.verification_reference
-        from company_directory_claims claim
-        join company_directory_profiles profile on profile.id = claim.profile_id
-        where profile.public_slug = ${business.slug}
-          and claim.claimant_user_id = ${String(session.user.id)}
-          and claim.status = 'pending'
-          and claim.verification_method = 'email_domain'
-        order by claim.requested_at desc
-        limit 1
-      `;
-      emailEvidence = parseClaimEmailEvidence(rows[0]?.verification_reference);
-    }
+  const sql = getSql();
+  if (sql) {
+    const rows = await sql`
+      select claim.verification_reference
+      from company_directory_claims claim
+      join company_directory_profiles profile on profile.id = claim.profile_id
+      where profile.public_slug = ${business.slug}
+        and claim.claimant_user_id = ${String(session.user.id)}
+        and claim.status = 'pending'
+        and claim.verification_method = 'email_domain'
+      order by claim.requested_at desc
+      limit 1
+    `;
+    emailEvidence = parseClaimEmailEvidence(rows[0]?.verification_reference);
   }
 
   const challengeActive = emailEvidence?.stage === "business_email_code_sent" || emailEvidence?.stage === "business_email_locked";
@@ -222,7 +233,7 @@ export default async function EnglishClaimCompanyPage({ params, searchParams }: 
               )}
             </div>
           ) : (
-            <a href={`/logga-in?lang=en&next=${encodeURIComponent(returnTo)}`} className="mt-8 flex min-h-12 w-full items-center justify-center rounded-xl bg-[#173e2b] px-5 font-black text-white">Sign in to continue</a>
+            <a href={loginHref} className="mt-8 flex min-h-12 w-full items-center justify-center rounded-xl bg-[#173e2b] px-5 font-black text-white">Sign in to continue</a>
           ) : null}
         </section>
       </div>

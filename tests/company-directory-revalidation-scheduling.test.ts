@@ -40,39 +40,6 @@ function restoreEnv(key: EnvKey, value: string | undefined) {
   else process.env[key] = value;
 }
 
-/** Return whether a cron minute field schedules the requested minute. */
-function cronMinuteFieldIncludes(minuteField: string, minute: number) {
-  return minuteField.split(",").some((part) => {
-    const [base, stepText] = part.split("/");
-    const step = stepText ? Number(stepText) : 1;
-    if (!Number.isInteger(step) || step <= 0) return false;
-
-    if (base === "*") return minute % step === 0;
-
-    const [startText, endText] = base.split("-");
-    const start = Number(startText);
-    if (!Number.isInteger(start)) return false;
-    if (endText === undefined) return start === minute;
-
-    const end = Number(endText);
-    if (!Number.isInteger(end) || minute < start || minute > end) return false;
-    return (minute - start) % step === 0;
-  });
-}
-
-/** Assert that every active workflow cron expression avoids the dedicated revalidation minutes. */
-function expectNoRevalidationMinuteCollision(workflow: string) {
-  const minuteFields = workflowCronExpressions(workflow).map((expression) =>
-    expression.trim().split(/\s+/)[0]
-  );
-
-  expect(minuteFields.length).toBeGreaterThan(0);
-  for (const minuteField of minuteFields) {
-    expect(cronMinuteFieldIncludes(minuteField, 14)).toBe(false);
-    expect(cronMinuteFieldIncludes(minuteField, 44)).toBe(false);
-  }
-}
-
 describe("dedicated Company Directory revalidation scheduling", () => {
   beforeEach(() => {
     previousEnv = {
@@ -341,6 +308,7 @@ describe("dedicated Company Directory revalidation scheduling", () => {
     const operationsTriggers = workflowTriggers(operationsWorkflow);
     const marketplaceTriggers = workflowTriggers(marketplaceWorkflow);
     const productionHealthTriggers = workflowTriggers(productionHealthWorkflow);
+    const directoryAutomationTriggers = workflowTriggers(directoryAutomationWorkflow);
 
     expect(revalidationTriggers).toHaveProperty("workflow_dispatch");
     expect(revalidationTriggers).not.toHaveProperty("schedule");
@@ -359,11 +327,13 @@ describe("dedicated Company Directory revalidation scheduling", () => {
     expect(productionHealthTriggers).toHaveProperty("repository_dispatch");
     expect(productionHealthTriggers).not.toHaveProperty("schedule");
 
-    expect(workflowCronExpressions(directoryAutomationWorkflow)).toEqual([
-      "17 * * * *",
-      "31 3 * * *",
-    ]);
-    expectNoRevalidationMinuteCollision(directoryAutomationWorkflow);
+    expect(directoryAutomationTriggers).toHaveProperty("workflow_dispatch");
+    expect(directoryAutomationTriggers).not.toHaveProperty("push");
+    expect(directoryAutomationTriggers).not.toHaveProperty("schedule");
+    expect(workflowCronExpressions(directoryAutomationWorkflow)).toEqual([]);
+    expect(directoryAutomationWorkflow).toContain("Discover official company candidates");
+    expect(directoryAutomationWorkflow).toContain("company-directory-discovery-ingest");
+    expect(directoryAutomationWorkflow).toContain('reason="manual-or-discovery-code-change"');
 
     expect(workflow.match(/\/api\/cron\/company-directory-revalidation/g) ?? []).toHaveLength(1);
     expect(workflow).toContain("--connect-timeout 10");

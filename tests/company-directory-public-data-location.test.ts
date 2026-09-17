@@ -68,6 +68,7 @@ function sqlForPublished(
         primary_sni_code: "43.221",
         website_url: "",
         claimed_workspace_id: claimedWorkspaceId,
+        official_facts_last_synced_at: "2026-09-01T10:30:00.000Z",
       }];
     }
     if (query.includes("from company_directory_scb_enrichment")) {
@@ -101,7 +102,7 @@ function claimedRow() {
     quality_score: 95,
     official_source: "bolagsverket_vardefulla_datamangder",
     source_updated_at: "2026-08-25T00:00:00.000Z",
-    last_synced_at: "2026-08-25T00:00:00.000Z",
+    official_facts_last_synced_at: "2026-09-02T09:15:00.000Z",
     claimed_workspace_id: WORKSPACE_ID,
     media_url: null,
   };
@@ -139,6 +140,7 @@ describe("public Directory physical-location read contract", () => {
       postalCode: "151 00",
       city: "SÖDERTÄLJE",
       municipality: "Södertälje",
+      lastCheckedAt: "2026-09-01T10:30:00.000Z",
     });
     expect(result?.addressLine1).toBe("");
   });
@@ -181,6 +183,7 @@ describe("public Directory physical-location read contract", () => {
       postalCode: "151 00",
       city: "SÖDERTÄLJE",
       municipality: "Södertälje",
+      lastCheckedAt: "2026-09-02T09:15:00.000Z",
     });
   });
 

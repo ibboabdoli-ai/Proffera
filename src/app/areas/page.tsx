@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import { primeViewAreaPages } from "@/lib/primeview-area-pages";
+import { primeViewAreaPages, primeViewIndexableAreaPages } from "@/lib/primeview-area-pages";
 import { primeViewSite } from "@/lib/primeview-seo";
 
 const canonical = `${primeViewSite.origin}/areas`;
@@ -32,7 +32,7 @@ export default function PrimeViewAreasPage() {
     isPartOf: { "@id": `${primeViewSite.canonicalUrl}#website` },
     mainEntity: {
       "@type": "ItemList",
-      itemListElement: primeViewAreaPages.map((area, index) => ({
+      itemListElement: primeViewIndexableAreaPages.map((area, index) => ({
         "@type": "ListItem",
         position: index + 1,
         name: area.name,

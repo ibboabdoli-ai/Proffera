@@ -20,6 +20,34 @@ export { normalizeMarketplaceRecipientEmail } from "@/lib/marketplace-guest-opt-
 const GUEST_INVITATION_TTL_DAYS = 7;
 const ACTIVE_INVITATION_STATUSES = new Set(["pending", "sending", "sent", "viewed", "responded"]);
 const REDACTED_CONTACT = "[…]";
+const ADDRESS_DIACRITIC_EQUIVALENTS: Record<string, string> = {
+  a: "aàáâãäåāăąǎǟǡǻȁȃȧḁạảấầẩẫậắằẳẵặ",
+  b: "bḃḅḇ",
+  c: "cçćĉċčḉ",
+  d: "dďḋḍḏḑḓ",
+  e: "eèéêëēĕėęěȅȇȩḕḗḙḛḝẹẻẽếềểễệ",
+  f: "fḟ",
+  g: "gĝğġģǧǵḡ",
+  h: "hĥȟḣḥḧḩḫẖ",
+  i: "iìíîïĩīĭįǐȉȋḭḯỉị",
+  j: "jĵǰ",
+  k: "kķǩḱḳḵ",
+  l: "lĺļľḷḹḻḽ",
+  m: "mḿṁṃ",
+  n: "nñńņňǹṅṇṉṋ",
+  o: "oòóôõöōŏőơǒǫǭȍȏȫȭȯȱṍṏṑṓọỏốồổỗộớờởỡợ",
+  p: "pṕṗ",
+  q: "q",
+  r: "rŕŗřȑȓṙṛṝṟ",
+  s: "sśŝşšșṡṣṥṧṩ",
+  t: "tţťțṫṭṯṱẗ",
+  u: "uùúûüũūŭůűųưǔǖǘǚǜȕȗṳṵṷṹṻụủứừửữự",
+  v: "vṽṿ",
+  w: "wŵẁẃẅẇẉẘ",
+  x: "xẋẍ",
+  y: "yýÿŷȳẏẙỳỵỷỹ",
+  z: "zźżžẑẓẕ",
+};
 
 export type MarketplaceGuestQuoteView = {
   invitationId: string;
@@ -71,6 +99,72 @@ function redactLiteral(value: string, literal: string) {
   return value.replace(pattern, (_match, prefix: string) => `${prefix}${REDACTED_CONTACT}`);
 }
 
+function addressLetterPattern(value: string) {
+  const folded = value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("sv-SE");
+  const variants = ADDRESS_DIACRITIC_EQUIVALENTS[folded];
+  return variants
+    ? `[${variants}]\\p{M}*`
+    : `${escapeRegExp(value)}\\p{M}*`;
+}
+
+function isAddressWordChar(value: string) {
+  return /[\p{L}\p{N}]/u.test(value);
+}
+
+function isSingleLetterHouseSuffix(chars: string[], index: number) {
+  const current = chars[index] ?? "";
+  const previous = chars[index - 1] ?? "";
+  const next = chars[index + 1] ?? "";
+  return /\p{L}/u.test(current)
+    && /\d/u.test(previous)
+    && (!next || !isAddressWordChar(next));
+}
+
+function buildKnownStreetAddressPattern(addressLine1: string) {
+  const normalized = addressLine1
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .replace(/\s+/g, " ");
+  if (!normalized) return "";
+
+  const chars = Array.from(normalized);
+  let pattern = "";
+  for (let index = 0; index < chars.length; index += 1) {
+    const current = chars[index];
+    if (/\s/u.test(current)) {
+      const nextIndex = index + 1;
+      const next = chars[nextIndex] ?? "";
+      const previous = chars[index - 1] ?? "";
+      const afterNext = chars[nextIndex + 1] ?? "";
+      const optionalHouseSuffixSpace = /\d/u.test(previous)
+        && /\p{L}/u.test(next)
+        && (!afterNext || !isAddressWordChar(afterNext));
+      pattern += optionalHouseSuffixSpace ? "\\s*" : "\\s+";
+      continue;
+    }
+
+    if (isSingleLetterHouseSuffix(chars, index)) pattern += "\\s*";
+    pattern += /\p{L}/u.test(current)
+      ? addressLetterPattern(current)
+      : escapeRegExp(current);
+  }
+  return pattern;
+}
+
+function redactKnownStreetAddress(value: string, addressLine1: string) {
+  const pattern = buildKnownStreetAddressPattern(addressLine1);
+  if (!pattern) return value;
+  const matcher = new RegExp(
+    `(^|[^\\p{L}\\p{N}])${pattern}(?=$|[^\\p{L}\\p{N}])`,
+    "giu",
+  );
+  return value.replace(matcher, (_match, prefix: string) => `${prefix}${REDACTED_CONTACT}`);
+}
+
 function redactEmailCandidates(value: string, replacement = REDACTED_CONTACT) {
   return value.replace(
     /[^\s<>()@,;:"']+@[^\s<>()@,;:"']+\.[^\s<>()@,;:"']+/gu,
@@ -106,12 +200,15 @@ function redactPhoneCandidates(value: string) {
 
 export function redactMarketplaceGuestDescription(
   description: unknown,
-  contact: { name?: unknown; email?: unknown; phone?: unknown },
+  contact: { name?: unknown; email?: unknown; phone?: unknown; addressLine1?: unknown },
 ) {
   let redacted = String(description ?? "");
   const email = String(contact.email ?? "").trim();
   const phone = String(contact.phone ?? "").trim();
   const fullName = String(contact.name ?? "").trim();
+  const addressLine1 = String(contact.addressLine1 ?? "").trim();
+
+  if (addressLine1) redacted = redactKnownStreetAddress(redacted, addressLine1);
 
   if (email) redacted = redactLiteral(redacted, email);
   redacted = redactEmailCandidates(redacted);
@@ -152,6 +249,7 @@ export function buildMarketplaceGuestQuoteView(
       name: row.contact_name,
       email: row.contact_email,
       phone: row.contact_phone,
+      addressLine1: row.customer_address_line1,
     }),
     preferredDate: String(row.preferred_date ?? ""),
     offer: hasOffer ? {
@@ -606,6 +704,7 @@ async function loadGuestQuoteView(
       q.service_type,
       q.city,
       q.postal_code,
+      q.customer_address_line1,
       q.description,
       q.contact_name,
       q.contact_email,
