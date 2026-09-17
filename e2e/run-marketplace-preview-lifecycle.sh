@@ -26,6 +26,7 @@ for playwright_attempt in $(seq 1 "${max_playwright_attempts}"); do
     npx playwright test \
       tests/marketplace-preview-invalid-request.e2e.mjs \
       tests/marketplace-preview-lifecycle.e2e.mjs \
+      tests/provider-preview-onboarding.e2e.mjs \
       --project=chromium --reporter=line --retries=0; then
     unset oidc_token
     exit 0
