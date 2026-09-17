@@ -791,9 +791,18 @@ jobs:
                 | select((.created_at // "") >= $request_time)
                 | (.body // "") as $body
                 | select(
-                    ($body | test("(^|[\\r\\n])<!-- CodeRabbit review command invocation: v2:[0-9a-f]{64} -->($|[\\r\\n])"))
-                    and ($body | test("(^|[\\r\\n])[[:space:]]*(@[A-Za-z0-9-]+[[:space:]]+)?Final exact-head review is complete for[[:space:]]+`?" + $sha + "`?\\.[[:space:]]*($|[\\r\\n])"))
-                    and ($body | test("(^|[\\r\\n])[[:space:]]*I found no issues\\.[[:space:]]*($|[\\r\\n])"))
+                    (
+                      (
+                        ($body | test("(^|[\\r\\n])<!-- CodeRabbit review command invocation: v2:[0-9a-f]{64} -->($|[\\r\\n])"))
+                        and ($body | test("(^|[\\r\\n])[[:space:]]*(@[A-Za-z0-9-]+[[:space:]]+)?Final exact-head review is complete for[[:space:]]+`?" + $sha + "`?\\.[[:space:]]*($|[\\r\\n])"))
+                        and ($body | test("(^|[\\r\\n])[[:space:]]*I found no issues\\.[[:space:]]*($|[\\r\\n])"))
+                      )
+                      or
+                      (
+                        ($body | test("(^|[\\r\\n])[[:space:]]*(@[A-Za-z0-9-]+[[:space:]]+)?Review completed for exact HEAD[[:space:]]+`?" + $sha + "`?\\.[[:space:]]*($|[\\r\\n])"))
+                        and ($body | test("(^|[\\r\\n])[[:space:]]*I found no material findings\\.[[:space:]]*($|[\\r\\n])"))
+                      )
+                    )
                     and (($body | test("Review limit reached|Review rate[ -]?limited|rate[ -]?limit|Action not completed|Review skipped|temporarily unavailable|service unavailable|incomplete|did not complete"; "i")) | not)
                   )
               ]

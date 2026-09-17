@@ -2,6 +2,7 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import { Navigation, ShieldCheck, Sparkles } from "lucide-react";
 
+import { MarketplaceFunnelSignal } from "@/components/analytics/marketplace-funnel-signal";
 import { directoryCopy, directoryPaths, directoryServiceLabel, normalizeDirectoryPublicServiceQuery, popularDirectoryServices } from "@/components/company-directory/public-directory-copy";
 import { PublicDirectoryResults } from "@/components/company-directory/public-directory-results";
 import { PublicDirectorySearchForm } from "@/components/company-directory/public-directory-search-form";
@@ -18,6 +19,13 @@ import {
 type SearchParams = { service?: string | string[]; location?: string | string[]; nearby?: string | string[]; radius?: string | string[]; sort?: string | string[]; page?: string | string[] };
 
 function firstParam(value?: string | string[]) { return Array.isArray(value) ? value[0] : value; }
+
+function resultBand(totalCount: number) {
+  if (totalCount <= 0) return "none" as const;
+  if (totalCount <= 5) return "1-5" as const;
+  if (totalCount <= 20) return "6-20" as const;
+  return "21+" as const;
+}
 
 function paginationBaseHref(path: string, params: SearchParams | undefined) {
   const query = new URLSearchParams();
@@ -70,6 +78,16 @@ export async function PublicDirectorySearchPage({ locale, searchParams }: { loca
   const activeSort = normalizeDirectorySearchSort(requestedSort, nearbyActive);
   const paginationHref = paginationBaseHref(paths.search, params);
   const searchFormKey = `${locale}:${nearbyActive ? "nearby" : "manual"}`;
+  const discoverySignalKey = search
+    ? [
+        locale,
+        searchService.trim().toLowerCase(),
+        nearbyRequested ? "nearby" : location.trim().toLowerCase(),
+        nearbyRequested ? radius : "",
+        activeSort,
+        page,
+      ].join("|")
+    : "";
 
   return (
     <div lang={locale} className="min-h-screen bg-canvas text-ink">
@@ -87,6 +105,7 @@ export async function PublicDirectorySearchPage({ locale, searchParams }: { loca
       </section>
 
       <div className="mx-auto max-w-7xl px-4 pb-12 pt-5 sm:px-6 lg:px-8">
+        {search ? <MarketplaceFunnelSignal dedupeKey={discoverySignalKey} event="marketplace_discovery_search_completed" properties={{ locale, result_band: resultBand(search.totalCount) }} /> : null}
         {searched ? (
           <aside className="flex items-start gap-2 text-xs font-semibold leading-5 text-muted">
             {nearbyActive ? <Navigation className="mt-0.5 h-4 w-4 shrink-0 text-brand" /> : <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-brand" />}
