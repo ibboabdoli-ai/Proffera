@@ -6,7 +6,10 @@ import {
 } from "@/lib/company-directory-contact-entitlement";
 import { getPublicDirectoryBusiness, type PublicDirectoryBusiness } from "@/lib/company-directory-engine";
 import { hasActivePaidDirectoryContactAccess } from "@/lib/company-directory-paid-contact-entitlement";
-import { readPublicDirectoryProfileCache } from "@/lib/company-directory-public-cache";
+import {
+  readPublicDirectoryMissCache,
+  readPublicDirectoryProfileCache,
+} from "@/lib/company-directory-public-cache";
 import {
   resolveCompanyDirectoryCanonicalWorkplaceAddress,
   type DirectoryPublicAddress,
@@ -352,12 +355,16 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
   const row = rows[0];
   if (!row) return null;
 
-  const workspaceId = String(row.claimed_workspace_id ?? "");
+  const profileId = String(row.id ?? "").trim();
+  const publicSlug = String(row.public_slug ?? "").trim().toLowerCase();
+  const workspaceId = String(row.claimed_workspace_id ?? "").trim();
+  if (!profileId || publicSlug !== normalized || !workspaceId) return null;
+
   const entitled = await hasActivePaidDirectoryContactAccess(workspaceId);
-  const scb = await getConflictFreeScbContact(sql, String(row.id));
+  const scb = await getConflictFreeScbContact(sql, profileId);
   const address = await resolvePublishedPhysicalAddress({
     sql,
-    profileId: String(row.id),
+    profileId,
     claimedWorkspaceId: workspaceId,
     profile: profileAddress(row),
     workplaces: scb?.workplaces,
@@ -370,8 +377,8 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
   }, entitled);
 
   return {
-    id: String(row.id),
-    slug: String(row.public_slug),
+    id: profileId,
+    slug: publicSlug,
     companyName: String(row.display_name),
     legalName: String(row.legal_name ?? ""),
     legalForm: String(row.legal_form ?? ""),
@@ -407,21 +414,31 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
 /**
  * React cache deduplicates metadata + Server Component work inside one render.
  * The nested public-cache boundary absorbs cross-request traffic only for safe
- * published, unclaimed juridical-person snapshots. A non-cacheable result is
- * returned to this request without being persisted, so claimed and sole-trader
- * paths re-evaluate their DB/entitlement state on every request.
+ * published, unclaimed juridical-person snapshots. A second short miss cache
+ * absorbs repeated crawler requests for slugs that have no public or claimed
+ * Directory profile. Claimed and sole-trader results always bypass persistence
+ * so entitlement and ownership state remain request-fresh.
  */
 export const getPublicDirectoryBusinessForRequest = cache(async (slug: string): Promise<PublicDirectoryBusinessForRequest | null> => {
   const normalized = slug.trim().toLowerCase();
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(normalized)) return null;
 
-  const published = await readPublicDirectoryProfileCache(normalized, async () => {
-    const resolved = await resolvePublishedDirectoryBusiness(normalized);
-    return resolved?.sharedCacheSafe
-      ? { cache: true, value: resolved.business }
-      : { cache: false, value: resolved?.business ?? null };
-  });
-  if (published) return published;
+  return readPublicDirectoryMissCache(normalized, async () => {
+    const published = await readPublicDirectoryProfileCache(normalized, async () => {
+      const resolved = await resolvePublishedDirectoryBusiness(normalized);
+      return resolved?.sharedCacheSafe
+        ? { cache: true, value: resolved.business }
+        : { cache: false, value: resolved?.business ?? null };
+    });
+    if (published) return { cache: false, value: published };
 
-  return getSafeClaimedDirectoryFallback(normalized);
+    // A missing SQL client is an indeterminate infrastructure state, not proof
+    // that the Directory slug is absent. Never persist it as a negative cache.
+    if (!getSql()) return { cache: false, value: null };
+
+    const claimed = await getSafeClaimedDirectoryFallback(normalized);
+    return claimed
+      ? { cache: false, value: claimed }
+      : { cache: true, value: null };
+  });
 });
