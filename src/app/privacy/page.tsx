@@ -133,7 +133,7 @@ export default async function PrimeViewPrivacyPage() {
         <section className={sectionClass}>
           <h2 className="text-2xl font-black">8. Cookies and similar technology</h2>
           <p className="mt-4 leading-7 text-slate-600">
-            The website may use essential technical storage required for security, booking functionality and reliable operation. Optional Google Ads measurement is disabled by default. The Google tag is loaded only after you choose to allow measurement, and you can change that choice later using the privacy settings control. Google Consent Mode signals keep advertising personalisation and user-provided advertising data disabled for this integration.
+            The website may use essential technical storage required for security, booking functionality and reliable operation. Optional Google Ads measurement is disabled by default. The Google tag is loaded only after you choose to allow measurement, and you can change that choice later using the privacy settings control. Advertising personalisation stays disabled, and this integration does not provide Google with booking-form fields such as names, email addresses or phone numbers.
           </p>
         </section>
 
