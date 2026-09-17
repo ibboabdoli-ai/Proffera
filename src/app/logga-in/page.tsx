@@ -4,6 +4,12 @@ import Link from "next/link";
 import { isCheckoutPlanKey } from "@/lib/billing-plans";
 import { resolveSafeClaimLoginNext } from "@/lib/claim-login-return";
 import { resolveOwnerPostLoginPath } from "@/lib/owner-onboarding-routing";
+import {
+  authLocaleHref,
+  firstAuthSearchParam,
+  resolveAuthLocale,
+  type AuthSearchParams,
+} from "@/lib/auth-locale";
 import { LoginForm } from "./LoginForm";
 
 export const metadata: Metadata = {
@@ -12,15 +18,9 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-type LoginLocale = "sv" | "en";
-
 type LoginPageProps = {
-  searchParams?: Promise<{
-    created?: string | string[];
-    plan?: string | string[];
-    lang?: string | string[];
+  searchParams?: Promise<AuthSearchParams & {
     reset?: string | string[];
-    next?: string | string[];
   }>;
 };
 
@@ -55,26 +55,18 @@ const copy = {
   },
 } as const;
 
-function first(value?: string | string[]) {
-  return Array.isArray(value) ? value[0] : value;
-}
-
-function languageHref(locale: LoginLocale, createdValue?: string, planValue?: string, resetValue?: string, nextValue?: string) {
-  const params = new URLSearchParams({ lang: locale });
-  if (createdValue) params.set("created", createdValue);
-  if (planValue) params.set("plan", planValue);
-  if (resetValue) params.set("reset", resetValue);
-  if (nextValue) params.set("next", nextValue);
-  return `/logga-in?${params.toString()}`;
-}
-
 export default async function LoginPage({ searchParams }: LoginPageProps) {
-  const params = searchParams ? await searchParams : undefined;
-  const createdValue = first(params?.created);
-  const planValue = first(params?.plan);
-  const resetValue = first(params?.reset);
-  const nextValue = resolveSafeClaimLoginNext(params?.next) ?? undefined;
-  const locale: LoginLocale = first(params?.lang) === "en" ? "en" : "sv";
+  const rawParams = searchParams ? await searchParams : undefined;
+  const createdValue = firstAuthSearchParam(rawParams?.created);
+  const planValue = firstAuthSearchParam(rawParams?.plan);
+  const resetValue = firstAuthSearchParam(rawParams?.reset);
+  const nextValue = resolveSafeClaimLoginNext(rawParams?.next) ?? undefined;
+  const params: AuthSearchParams | undefined = rawParams ? { ...rawParams } : undefined;
+  if (params) {
+    if (nextValue) params.next = nextValue;
+    else delete params.next;
+  }
+  const locale = resolveAuthLocale(params);
   const text = copy[locale];
   const selectedPlan = isCheckoutPlanKey(planValue) ? planValue : null;
   const afterLoginPath = nextValue ?? resolveOwnerPostLoginPath({
@@ -90,8 +82,8 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
         <div className="order-2 lg:order-1">
           <div className="mb-7 flex items-center gap-3 text-sm" aria-label={text.languageLabel}>
             <span className="font-semibold text-[#5b665f]">{text.languageLabel}:</span>
-            <Link href={languageHref("sv", createdValue, planValue, resetValue, nextValue)} className={`rounded-full px-3 py-1.5 font-semibold ${locale === "sv" ? "bg-[#17452f] text-white" : "bg-white text-[#17452f] ring-1 ring-[#d7ded5]"}`}>SV</Link>
-            <Link href={languageHref("en", createdValue, planValue, resetValue, nextValue)} className={`rounded-full px-3 py-1.5 font-semibold ${locale === "en" ? "bg-[#17452f] text-white" : "bg-white text-[#17452f] ring-1 ring-[#d7ded5]"}`}>EN</Link>
+            <Link href={authLocaleHref("/logga-in", params, "sv")} className={`rounded-full px-3 py-1.5 font-semibold ${locale === "sv" ? "bg-[#17452f] text-white" : "bg-white text-[#17452f] ring-1 ring-[#d7ded5]"}`}>SV</Link>
+            <Link href={authLocaleHref("/logga-in", params, "en")} className={`rounded-full px-3 py-1.5 font-semibold ${locale === "en" ? "bg-[#17452f] text-white" : "bg-white text-[#17452f] ring-1 ring-[#d7ded5]"}`}>EN</Link>
           </div>
 
           <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#17452f]">{text.portal}</p>
