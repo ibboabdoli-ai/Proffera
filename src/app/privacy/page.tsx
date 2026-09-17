@@ -49,7 +49,7 @@ export default async function PrimeViewPrivacyPage() {
           <p className="mt-5 max-w-3xl text-base leading-7 text-slate-200">
             This notice explains how PrimeView Window Care uses personal information when you visit our website, request a quote, make or manage a booking, contact us or receive a service.
           </p>
-          <p className="mt-3 text-sm text-slate-300">Last updated: 11 August 2026</p>
+          <p className="mt-3 text-sm text-slate-300">Last updated: 17 September 2026</p>
         </div>
       </section>
 
@@ -94,6 +94,9 @@ export default async function PrimeViewPrivacyPage() {
             We only share personal information where needed to operate the service. This may include Proffera, which provides our booking and customer-management technology, and trusted providers used for website hosting, database services, email or SMS delivery and other essential business systems. These providers may only use the information for the services they provide to us and must protect it appropriately.
           </p>
           <p className="mt-3 leading-7 text-slate-600">
+            If you consent to optional measurement, the website also uses the Google Ads tag to measure whether advertising led to a completed booking. We do not send booking-form text, names, email addresses or phone numbers through this measurement integration.
+          </p>
+          <p className="mt-3 leading-7 text-slate-600">
             We may also share information if required by law, to protect legal rights, or in connection with professional advisers or a business transfer.
           </p>
         </section>
@@ -130,7 +133,7 @@ export default async function PrimeViewPrivacyPage() {
         <section className={sectionClass}>
           <h2 className="text-2xl font-black">8. Cookies and similar technology</h2>
           <p className="mt-4 leading-7 text-slate-600">
-            The website may use essential technical storage required for security, booking functionality and reliable operation. If we introduce non-essential analytics or advertising cookies that require consent, we will ask for consent before using them.
+            The website may use essential technical storage required for security, booking functionality and reliable operation. Optional Google Ads measurement is disabled by default. The Google tag is loaded only after you choose to allow measurement, and you can change that choice later using the privacy settings control. Google Consent Mode signals keep advertising personalisation and user-provided advertising data disabled for this integration.
           </p>
         </section>
 
