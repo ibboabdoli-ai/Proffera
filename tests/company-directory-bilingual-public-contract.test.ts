@@ -40,7 +40,7 @@ function renderedText(node: ReactNode) {
   walkReactTree(node, (value) => {
     if (typeof value === "string" || typeof value === "number") parts.push(String(value));
   });
-  return parts.join(" ");
+  return parts.join("");
 }
 
 const OFFICIAL_FACTS_CHECKED_AT = "2026-09-01T10:30:00.000Z";
