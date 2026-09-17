@@ -64,9 +64,10 @@ function queueConsentUpdate(consent: AnalyticsConsentState) {
   ensureGoogleTagQueue()("consent", "update", {
     ad_storage: measurementConsent,
     analytics_storage: measurementConsent,
-    // PrimeView uses the tag for conversion measurement only. No enhanced
-    // conversions, user-provided data, or ads-personalization signal is enabled.
-    ad_user_data: "denied",
+    // ad_user_data is required by Google for tag-based conversion measurement,
+    // but is only granted after PrimeView's explicit measurement consent. This
+    // integration never supplies user_data or enhanced-conversion form fields.
+    ad_user_data: measurementConsent,
     ad_personalization: "denied",
   });
 }
@@ -99,7 +100,10 @@ function configureGoogleTag() {
   if (!googleTagConfigured) {
     // Disable the implicit page view so every URL sent to Google is constructed
     // below. This prevents arbitrary query parameters from leaking to Ads.
-    gtag("config", PRIMEVIEW_GOOGLE_ADS_TAG_ID, { send_page_view: false });
+    gtag("config", PRIMEVIEW_GOOGLE_ADS_TAG_ID, {
+      send_page_view: false,
+      allow_ad_personalization_signals: false,
+    });
     googleTagConfigured = true;
   }
 
