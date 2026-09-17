@@ -70,7 +70,9 @@ exit 0
       const invocations = readFileSync(argsLog, "utf8").trim().split("\n");
       expect(invocations).toHaveLength(2);
       for (const invocation of invocations) {
-        expect(invocation).toContain("playwright test tests/marketplace-preview-lifecycle.e2e.mjs");
+        expect(invocation).toContain("playwright test");
+        expect(invocation).toContain("tests/marketplace-preview-invalid-request.e2e.mjs");
+        expect(invocation).toContain("tests/marketplace-preview-lifecycle.e2e.mjs");
         expect(invocation).toContain("--retries=0");
       }
       const output = `${result.stdout}${result.stderr}`;
