@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   BarChart3,
   Bot,
@@ -29,6 +29,12 @@ import type { WorkspaceOption } from "@/lib/workspace-access";
 import type { WorkspaceFeatureKey } from "@/lib/workspace-module-access";
 
 type DashboardLocale = "sv" | "en";
+
+type MobileMenuKeyEvent = {
+  key: string;
+  shiftKey: boolean;
+  preventDefault: () => void;
+};
 
 const navigationIcons: Record<string, LucideIcon> = {
   "/dashboard": LayoutDashboard,
@@ -95,16 +101,64 @@ const shellCopy = {
   },
 } as const;
 
+const mobileMenuFocusableSelector = [
+  "a[href]",
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  '[tabindex]:not([tabindex="-1"])',
+].join(",");
+
 function isActivePath(pathname: string, href: string) {
   return href === "/dashboard" ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
 }
 
-function localizedHref(href: string, locale: DashboardLocale, currentSearch: string) {
+export function localizedHref(href: string, locale: DashboardLocale, currentSearch: string) {
   const params = new URLSearchParams(currentSearch);
   if (locale === "en") params.set("lang", "en");
   else params.delete("lang");
   const query = params.toString();
   return query ? `${href}?${query}` : href;
+}
+
+export function handleMobileMenuKeydown(
+  event: MobileMenuKeyEvent,
+  panel: HTMLElement,
+  activeElement: Element | null,
+  onClose: () => void,
+) {
+  if (event.key === "Escape") {
+    event.preventDefault();
+    onClose();
+    return;
+  }
+
+  if (event.key !== "Tab") return;
+
+  const focusableElements = Array.from(panel.querySelectorAll<HTMLElement>(mobileMenuFocusableSelector))
+    .filter((element) => element.getAttribute("aria-hidden") !== "true" && !element.hasAttribute("disabled"));
+
+  if (focusableElements.length === 0) {
+    event.preventDefault();
+    panel.focus();
+    return;
+  }
+
+  const first = focusableElements[0];
+  const last = focusableElements[focusableElements.length - 1];
+  const focusIsOutsidePanel = !activeElement || !panel.contains(activeElement);
+
+  if (event.shiftKey && (activeElement === first || focusIsOutsidePanel)) {
+    event.preventDefault();
+    last.focus();
+    return;
+  }
+
+  if (!event.shiftKey && (activeElement === last || focusIsOutsidePanel)) {
+    event.preventDefault();
+    first.focus();
+  }
 }
 
 type NavigationLinksProps = {
@@ -163,9 +217,31 @@ export function DashboardShell({ children, workspaceName = "Proffera", workspace
   const text = shellCopy[locale];
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const mobileMenuTriggerRef = useRef<HTMLButtonElement>(null);
+  const mobileMenuPanelRef = useRef<HTMLElement>(null);
+  const mobileMenuCloseButtonRef = useRef<HTMLButtonElement>(null);
   const currentPage = dashboardNavigation.find((item) => isActivePath(pathname, item.href));
   const currentPageLabel = currentPage ? (locale === "en" ? englishNavigationLabels[currentPage.href] ?? currentPage.label : currentPage.label) : text.workspace;
   const languageHref = localizedHref(pathname, locale === "en" ? "sv" : "en", searchParamsString);
+
+  useEffect(() => {
+    if (!isMobileMenuOpen) return;
+
+    const panel = mobileMenuPanelRef.current;
+    if (!panel) return;
+
+    mobileMenuCloseButtonRef.current?.focus();
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      handleMobileMenuKeydown(event, panel, document.activeElement, () => setIsMobileMenuOpen(false));
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      mobileMenuTriggerRef.current?.focus();
+    };
+  }, [isMobileMenuOpen]);
 
   async function handleSignOut() {
     if (isSigningOut) return;
@@ -188,12 +264,12 @@ export function DashboardShell({ children, workspaceName = "Proffera", workspace
         </aside>
 
         <div className="flex min-h-screen flex-col">
-          <header className="sticky top-0 z-30 border-b border-[#e0e5dd] bg-white/90 px-4 py-3 backdrop-blur-xl sm:px-6 lg:px-8" style={{ paddingTop: "calc(0.75rem + env(safe-area-inset-top))" }}><div className="mx-auto flex max-w-[1500px] items-center justify-between gap-4"><div className="flex min-w-0 items-center gap-3"><button type="button" onClick={() => setIsMobileMenuOpen(true)} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[#dce3da] bg-white text-[#173e2b] lg:hidden" aria-label={text.openMenu} aria-expanded={isMobileMenuOpen}><Menu className="h-5 w-5" /></button><div><p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#6c786f]">{workspaceName} · {text.portal}</p><h1 className="truncate text-lg font-bold tracking-tight text-[#16231b] sm:text-xl">{currentPageLabel}</h1></div></div><div className="flex items-center gap-2 sm:gap-3"><Link href={languageHref} className="hidden rounded-xl border border-[#dce3da] bg-white px-3 py-2 text-xs font-bold text-[#17452f] sm:inline-flex">{text.language}</Link><div className="hidden items-center gap-2 rounded-full bg-[#eaf2ec] px-3 py-2 text-xs font-bold text-[#17452f] sm:flex"><span className="h-2 w-2 rounded-full bg-[#2e8b57]" />{text.activeWorkspace}</div><button type="button" onClick={handleSignOut} disabled={isSigningOut} className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-[#dce3da] bg-white px-3 text-sm font-semibold text-[#435047] disabled:opacity-70"><LogOut className="h-4 w-4" /><span className="hidden sm:inline">{isSigningOut ? text.signingOut : text.signOut}</span></button></div></div></header>
+          <header className="sticky top-0 z-30 border-b border-[#e0e5dd] bg-white/90 px-4 py-3 backdrop-blur-xl sm:px-6 lg:px-8" style={{ paddingTop: "calc(0.75rem + env(safe-area-inset-top))" }}><div className="mx-auto flex max-w-[1500px] items-center justify-between gap-4"><div className="flex min-w-0 items-center gap-3"><button ref={mobileMenuTriggerRef} type="button" onClick={() => setIsMobileMenuOpen(true)} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[#dce3da] bg-white text-[#173e2b] lg:hidden" aria-label={text.openMenu} aria-expanded={isMobileMenuOpen} aria-controls="dashboard-mobile-menu"><Menu className="h-5 w-5" /></button><div><p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#6c786f]">{workspaceName} · {text.portal}</p><h1 className="truncate text-lg font-bold tracking-tight text-[#16231b] sm:text-xl">{currentPageLabel}</h1></div></div><div className="flex items-center gap-2 sm:gap-3"><Link href={languageHref} className="hidden rounded-xl border border-[#dce3da] bg-white px-3 py-2 text-xs font-bold text-[#17452f] sm:inline-flex">{text.language}</Link><div className="hidden items-center gap-2 rounded-full bg-[#eaf2ec] px-3 py-2 text-xs font-bold text-[#17452f] sm:flex"><span className="h-2 w-2 rounded-full bg-[#2e8b57]" />{text.activeWorkspace}</div><button type="button" onClick={handleSignOut} disabled={isSigningOut} className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-[#dce3da] bg-white px-3 text-sm font-semibold text-[#435047] disabled:opacity-70"><LogOut className="h-4 w-4" /><span className="hidden sm:inline">{isSigningOut ? text.signingOut : text.signOut}</span></button></div></div></header>
           <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8"><div className="mx-auto max-w-[1500px]">{children}</div></main>
         </div>
       </div>
 
-      {isMobileMenuOpen ? <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label={text.menuDialog}><button type="button" className="absolute inset-0 bg-[#09150f]/55 backdrop-blur-sm" onClick={() => setIsMobileMenuOpen(false)} aria-label={text.closeMenu} /><aside className="relative flex h-full w-[min(88vw,330px)] flex-col bg-[#142b20] px-4 py-5 shadow-2xl" style={{ paddingTop: "calc(1.25rem + env(safe-area-inset-top))" }}><div className="flex items-center justify-between px-2"><Brand workspaceName={workspaceName} locale={locale} /><button type="button" onClick={() => setIsMobileMenuOpen(false)} className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-white" aria-label={text.closeMenu}><X className="h-5 w-5" /></button></div><div className="mt-9 flex-1 overflow-y-auto"><p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-[#a8c4b0]">{text.workspace}</p><NavigationLinks pathname={pathname} locale={locale} searchParams={searchParamsString} moduleAccess={moduleAccess} enabledFeatures={enabledFeatures} canManageSettings={canManageSettings} onNavigate={() => setIsMobileMenuOpen(false)} /><Link href={languageHref} onClick={() => setIsMobileMenuOpen(false)} className="mt-4 flex min-h-11 items-center rounded-xl border border-white/15 px-3 py-2.5 text-sm font-semibold text-white hover:bg-white/10">{text.language}</Link><WorkspaceSwitcher workspaceId={workspaceId} workspaceOptions={workspaceOptions} locale={locale} /></div></aside></div> : null}
+      {isMobileMenuOpen ? <div id="dashboard-mobile-menu" className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label={text.menuDialog}><button type="button" className="absolute inset-0 bg-[#09150f]/55 backdrop-blur-sm" onClick={() => setIsMobileMenuOpen(false)} aria-label={text.closeMenu} /><aside ref={mobileMenuPanelRef} tabIndex={-1} className="relative flex h-full w-[min(88vw,330px)] flex-col bg-[#142b20] px-4 py-5 shadow-2xl" style={{ paddingTop: "calc(1.25rem + env(safe-area-inset-top))" }}><div className="flex items-center justify-between px-2"><Brand workspaceName={workspaceName} locale={locale} /><button ref={mobileMenuCloseButtonRef} type="button" onClick={() => setIsMobileMenuOpen(false)} className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-white" aria-label={text.closeMenu}><X className="h-5 w-5" /></button></div><div className="mt-9 flex-1 overflow-y-auto"><p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-[#a8c4b0]">{text.workspace}</p><NavigationLinks pathname={pathname} locale={locale} searchParams={searchParamsString} moduleAccess={moduleAccess} enabledFeatures={enabledFeatures} canManageSettings={canManageSettings} onNavigate={() => setIsMobileMenuOpen(false)} /><Link href={languageHref} onClick={() => setIsMobileMenuOpen(false)} className="mt-4 flex min-h-11 items-center rounded-xl border border-white/15 px-3 py-2.5 text-sm font-semibold text-white hover:bg-white/10">{text.language}</Link><WorkspaceSwitcher workspaceId={workspaceId} workspaceOptions={workspaceOptions} locale={locale} /></div></aside></div> : null}
     </div>
   );
 }
