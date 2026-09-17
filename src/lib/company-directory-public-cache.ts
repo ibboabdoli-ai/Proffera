@@ -126,6 +126,13 @@ export async function readPublicDirectoryMissCache<T>(
   loader: () => Promise<PublicDirectoryCacheDecision<T>>,
 ): Promise<T> {
   const normalized = tagToken(slug);
+
+  // A negative Directory cache entry is safe only when the database is
+  // available and has actually proved the slug is missing. If the SQL client
+  // is unavailable, bypass the persistent miss cache entirely so a temporary
+  // infrastructure/configuration failure can never become a 30-minute 404.
+  if (!getSql()) return (await loader()).value;
+
   return activeAdapter().read({
     keyParts: [PUBLIC_DIRECTORY_MISS_CACHE_NAMESPACE, normalized],
     tags: publicDirectoryProfileTags(normalized),
