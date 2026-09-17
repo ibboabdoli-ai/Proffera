@@ -4,6 +4,7 @@ import { Hanken_Grotesk } from "next/font/google";
 import "./globals.css";
 import { AnalyticsConsentControl } from "@/components/analytics/analytics-consent-control";
 import { PostHogAnalytics } from "@/components/analytics/posthog-analytics";
+import { PrimeViewGoogleAdsAnalytics } from "@/components/analytics/primeview-google-ads-analytics";
 import { AppShell } from "@/components/layout/app-shell";
 import { ServiceAiChatWidget } from "@/components/service-ai-chat-widget";
 import { PwaServiceWorker } from "@/components/pwa-service-worker";
@@ -94,6 +95,8 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
         {!isCustomerSite && <PwaServiceWorker />}
         {!isCustomerSite && <ServiceAiChatWidget />}
         {isPlatformSite && <AnalyticsConsentControl />}
+        {isCustomerSite && <AnalyticsConsentControl brand="primeview" />}
+        {isCustomerSite && <PrimeViewGoogleAdsAnalytics />}
         {shouldRenderAnalytics && <PostHogAnalytics config={postHogConfig} />}
         {isPlatformSite && <WebVitalsReporter />}
       </body>
