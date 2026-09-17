@@ -32,17 +32,16 @@ function currentConsent(): AnalyticsConsentState {
   return readAnalyticsConsent(window.localStorage);
 }
 
-function ensureGoogleTagQueue() {
+function ensureGoogleTagQueue(): GoogleTagFunction {
   const googleWindow = window as GoogleAdsWindow;
   googleWindow.dataLayer ??= [];
 
-  if (!googleWindow.gtag) {
-    googleWindow.gtag = function gtag() {
-      googleWindow.dataLayer?.push(arguments);
-    };
-  }
+  const gtag: GoogleTagFunction = googleWindow.gtag ?? function gtag() {
+    googleWindow.dataLayer?.push(arguments);
+  };
+  googleWindow.gtag = gtag;
 
-  return googleWindow.gtag;
+  return gtag;
 }
 
 function queueDefaultConsent() {
