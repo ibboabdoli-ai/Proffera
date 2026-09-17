@@ -207,6 +207,7 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
       address: EMPTY_PHYSICAL_ADDRESS,
       contact: emptyContact(),
       claimedWorkspaceId: "",
+      officialFactsCheckedAt: "",
     };
   }
 
@@ -217,7 +218,13 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
       legal_name,
       primary_sni_code,
       website_url,
-      claimed_workspace_id::text
+      claimed_workspace_id::text,
+      (
+        select facts.last_synced_at
+        from company_directory_official_facts facts
+        where facts.profile_id = company_directory_profiles.id
+        limit 1
+      ) as official_facts_last_synced_at
     from company_directory_profiles
     where id = ${business.id}::uuid
       and publication_status = 'published'
@@ -234,6 +241,7 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
       address: EMPTY_PHYSICAL_ADDRESS,
       contact: emptyContact(),
       claimedWorkspaceId: "",
+      officialFactsCheckedAt: "",
     };
   }
 
@@ -258,6 +266,9 @@ async function getPublishedDirectoryContact(business: PublicDirectoryBusiness) {
       website: row.website_url,
     }, false),
     claimedWorkspaceId,
+    officialFactsCheckedAt: row.official_facts_last_synced_at
+      ? new Date(String(row.official_facts_last_synced_at)).toISOString()
+      : "",
   };
 }
 
@@ -269,6 +280,7 @@ async function resolvePublishedDirectoryBusiness(slug: string): Promise<Publishe
   return {
     business: {
       ...published,
+      lastCheckedAt: publicContact.officialFactsCheckedAt,
       addressLine1: publicContact.contact.addressLine1,
       postalCode: publicContact.address.postalCode,
       city: publicContact.address.city,
@@ -313,13 +325,14 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
       profile.quality_score,
       profile.official_source,
       profile.source_updated_at,
-      profile.last_synced_at,
+      facts.last_synced_at as official_facts_last_synced_at,
       profile.claimed_workspace_id::text,
       media.public_url as media_url,
       media.media_kind,
       media.attribution,
       media.is_actual_business_media
     from company_directory_profiles profile
+    left join company_directory_official_facts facts on facts.profile_id = profile.id
     left join lateral (
       select public_url, media_kind, attribution, is_actual_business_media
       from company_directory_media
@@ -374,7 +387,9 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
     qualityScore: Number(row.quality_score ?? 0),
     officialSource: String(row.official_source ?? ""),
     sourceUpdatedAt: row.source_updated_at ? new Date(String(row.source_updated_at)).toISOString() : "",
-    lastCheckedAt: row.last_synced_at ? new Date(String(row.last_synced_at)).toISOString() : "",
+    lastCheckedAt: row.official_facts_last_synced_at
+      ? new Date(String(row.official_facts_last_synced_at)).toISOString()
+      : "",
     media: row.media_url ? {
       url: String(row.media_url),
       kind: String(row.media_kind ?? ""),
