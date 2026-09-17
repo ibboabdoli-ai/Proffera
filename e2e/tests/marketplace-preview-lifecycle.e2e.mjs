@@ -273,17 +273,19 @@ test.describe("isolated Marketplace Preview lifecycle", () => {
 
       const selectA1 = compareA1.getByRole("button", { name: "Välj denna offert" });
       const selectA2 = compareA2.getByRole("button", { name: "Välj denna offert" });
+      const customerToken = tokenFromLink(comparisonA.link, "/offert/jamfor");
+      const selectedJobPath = `/offert/jobb/kund/${encodeURIComponent(customerToken)}`;
       await expect(selectA1).toBeVisible();
       await expect(selectA2).toBeVisible();
       await Promise.all([selectA1.click(), selectA2.click()]);
       await expect.poll(
-        () => new URL(compareA1.url()).searchParams.get("status"),
-        { message: "first concurrent selection reached the server action" },
-      ).toBe("selected");
+        () => new URL(compareA1.url()).pathname,
+        { message: "first concurrent selection reached the customer job route" },
+      ).toBe(selectedJobPath);
       await expect.poll(
-        () => new URL(compareA2.url()).searchParams.get("status"),
-        { message: "second concurrent selection reached the server action" },
-      ).toBe("selected");
+        () => new URL(compareA2.url()).pathname,
+        { message: "second concurrent selection reached the customer job route" },
+      ).toBe(selectedJobPath);
 
       const selected = await waitForState(
         request,
