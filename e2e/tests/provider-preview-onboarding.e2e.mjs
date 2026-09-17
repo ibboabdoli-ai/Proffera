@@ -96,7 +96,7 @@ test.describe("isolated provider onboarding Preview lifecycle", () => {
 
       await page.goto("/dashboard/marknadsplats");
       await expect(page.getByText("Kopplat och verifierat", { exact: true })).toBeVisible();
-      await expect(page.getByText(setup.body.companyName, { exact: true })).toBeVisible();
+      await expect(page.getByRole("heading", { name: setup.body.companyName, exact: true })).toBeVisible();
       await page.getByLabel("Kundens primära väg").selectOption("quote");
       await page.getByLabel("Serviceområde, radie i km").fill("37");
       await page.getByRole("button", { name: "Publicera på marknadsplatsen" }).click();
