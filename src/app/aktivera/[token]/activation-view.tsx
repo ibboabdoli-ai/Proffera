@@ -87,6 +87,21 @@ function LocaleControls({ locale, onChange }: { locale: AuthLocale; onChange: (l
   );
 }
 
+export function applyActivationLocaleChange(
+  search: string,
+  pathname: string,
+  nextLocale: AuthLocale,
+  replaceState: (href: string) => void,
+) {
+  const current = new URLSearchParams(search);
+  current.set("lang", nextLocale);
+  const visibleQuery = current.toString();
+  replaceState(`${pathname}${visibleQuery ? `?${visibleQuery}` : ""}`);
+
+  current.delete("error");
+  return current.toString();
+}
+
 export function ActivationView({ action, invitation, initialLocale, initialError, initialRedirectQuery }: ActivationViewProps) {
   const [locale, setLocale] = useState<AuthLocale>(initialLocale);
   const [redirectQuery, setRedirectQuery] = useState(initialRedirectQuery);
@@ -94,13 +109,13 @@ export function ActivationView({ action, invitation, initialLocale, initialError
 
   function changeLocale(nextLocale: AuthLocale) {
     if (nextLocale === locale) return;
-    const current = new URLSearchParams(window.location.search);
-    current.set("lang", nextLocale);
-    const visibleQuery = current.toString();
-    window.history.replaceState(null, "", `${window.location.pathname}${visibleQuery ? `?${visibleQuery}` : ""}`);
-
-    current.delete("error");
-    setRedirectQuery(current.toString());
+    const nextRedirectQuery = applyActivationLocaleChange(
+      window.location.search,
+      window.location.pathname,
+      nextLocale,
+      (href) => window.history.replaceState(null, "", href),
+    );
+    setRedirectQuery(nextRedirectQuery);
     setLocale(nextLocale);
   }
 
