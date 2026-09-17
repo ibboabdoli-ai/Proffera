@@ -432,6 +432,10 @@ export const getPublicDirectoryBusinessForRequest = cache(async (slug: string): 
     });
     if (published) return { cache: false, value: published };
 
+    // A missing SQL client is an indeterminate infrastructure state, not proof
+    // that the Directory slug is absent. Never persist it as a negative cache.
+    if (!getSql()) return { cache: false, value: null };
+
     const claimed = await getSafeClaimedDirectoryFallback(normalized);
     return claimed
       ? { cache: false, value: claimed }
