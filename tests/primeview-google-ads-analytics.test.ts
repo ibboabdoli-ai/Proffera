@@ -90,6 +90,7 @@ describe("PrimeView Google Ads conversion measurement", () => {
     expect(client).toContain('ad_storage: "denied"');
     expect(client).toContain('analytics_storage: "denied"');
     expect(client).toContain('ad_user_data: "denied"');
+    expect(client).toContain('ad_user_data: measurementConsent');
     expect(client).toContain('ad_personalization: "denied"');
     expect(client).toContain('if (!isAnalyticsConsentGranted(consent))');
     expect(client).toContain('queueConsentUpdate("granted")');
@@ -107,10 +108,12 @@ describe("PrimeView Google Ads conversion measurement", () => {
     expect(client).toContain("document.getElementById(PRIMEVIEW_GOOGLE_ADS_SCRIPT_ID)");
     expect(client).toContain('script[src^="https://www.googletagmanager.com/gtag/js"]');
     expect(client).toContain("send_page_view: false");
+    expect(client).toContain("allow_ad_personalization_signals: false");
     expect(client).toContain("lastSentPageKey === pageView.pageLocation");
     expect(client).toContain('ensureGoogleTagQueue()("event", "page_view"');
     expect(client).toContain('page_referrer: ""');
     expect(client).not.toContain('"event", "conversion"');
+    expect(client).not.toContain('user_data:');
   });
 
   it("updates PrimeView consent copy and privacy disclosure without changing the booking flow", () => {
