@@ -159,8 +159,8 @@ describe("mobile PWA and auth language contract", () => {
 
     expect(form).toContain('name="lang" value="en"');
     expect(form).toContain('name="redirect_query" value="lang=en&amp;plan=pro&amp;campaign=launch"');
-    expect(form).toContain('name="password" type="password"');
-    expect(form).toContain('name="confirm_password" type="password"');
+    expect(form).toMatch(/<input(?=[^>]*\btype="password")(?=[^>]*\bname="password")[^>]*>/);
+    expect(form).toMatch(/<input(?=[^>]*\btype="password")(?=[^>]*\bname="confirm_password")[^>]*>/);
     expect(form).not.toMatch(/name="password"[^>]*value=/);
     expect(form).not.toMatch(/name="confirm_password"[^>]*value=/);
     expect(form).toContain("Activate customer portal");
