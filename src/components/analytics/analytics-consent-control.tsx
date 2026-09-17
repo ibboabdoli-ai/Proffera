@@ -13,6 +13,10 @@ import {
 } from "@/lib/analytics/posthog-privacy";
 
 type AnalyticsConsentLocale = "sv" | "en";
+type AnalyticsConsentBrand = "proffera" | "primeview";
+type AnalyticsConsentControlProps = {
+  brand?: AnalyticsConsentBrand;
+};
 
 const consentCopy = {
   sv: {
@@ -37,6 +41,29 @@ const consentCopy = {
   },
 } as const;
 
+const primeViewConsentCopy = {
+  sv: {
+    settingsLabel: "Ändra integritetsinställningar",
+    settingsButton: "Integritetsinställningar",
+    eyebrow: "Valfri mätning",
+    title: "Tillåta analys- och annonsmätning?",
+    body: "PrimeView kan använda Google Ads-mätning för att förstå om en annons leder till en slutförd bokning. Google-taggen laddas inte innan du tillåter detta. Vi skickar inte formulärtext, namn, e-postadresser eller telefonnummer.",
+    reject: "Avvisa mätning",
+    accept: "Tillåt mätning",
+    close: "Behåll nuvarande val och stäng",
+  },
+  en: {
+    settingsLabel: "Change privacy settings",
+    settingsButton: "Privacy settings",
+    eyebrow: "Optional measurement",
+    title: "Allow analytics and ads measurement?",
+    body: "PrimeView can use Google Ads measurement to understand whether an ad led to a completed booking. The Google tag is not loaded until you allow this. We do not send booking form text, names, email addresses or phone numbers.",
+    reject: "Reject measurement",
+    accept: "Allow measurement",
+    close: "Keep current choice and close",
+  },
+} as const;
+
 const choiceButtonClass =
   "min-h-11 min-w-0 rounded-lg border border-[#cbd5ce] bg-white px-3 py-2 text-[13px] font-bold leading-4 text-[#17201a] transition hover:bg-[#f5f7f5] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#17452f] focus-visible:ring-offset-2";
 
@@ -55,12 +82,12 @@ function currentDocumentLocale(
   if (routeLanguage?.startsWith("en")) return "en";
   if (routeLanguage?.startsWith("sv")) return "sv";
 
-  if (pathname) return "sv";
   if (document.documentElement.lang.toLowerCase().startsWith("en")) return "en";
+  if (pathname) return "sv";
   return "sv";
 }
 
-export function AnalyticsConsentControl() {
+export function AnalyticsConsentControl({ brand = "proffera" }: AnalyticsConsentControlProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const queryLanguage = searchParams.get("lang");
@@ -69,7 +96,7 @@ export function AnalyticsConsentControl() {
   );
   const [consent, setConsent] = useState<AnalyticsConsentState | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const labels = consentCopy[locale];
+  const labels = brand === "primeview" ? primeViewConsentCopy[locale] : consentCopy[locale];
 
   useEffect(() => {
     const syncConsent = () => setConsent(readAnalyticsConsent(window.localStorage));
