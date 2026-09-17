@@ -19,7 +19,9 @@ export const metadata: Metadata = {
 };
 
 type LoginPageProps = {
-  searchParams?: Promise<AuthSearchParams>;
+  searchParams?: Promise<AuthSearchParams & {
+    reset?: string | string[];
+  }>;
 };
 
 const copy = {
@@ -54,11 +56,16 @@ const copy = {
 } as const;
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
-  const params = searchParams ? await searchParams : undefined;
-  const createdValue = firstAuthSearchParam(params?.created);
-  const planValue = firstAuthSearchParam(params?.plan);
-  const resetValue = firstAuthSearchParam(params?.reset);
-  const nextValue = resolveSafeClaimLoginNext(params?.next) ?? undefined;
+  const rawParams = searchParams ? await searchParams : undefined;
+  const createdValue = firstAuthSearchParam(rawParams?.created);
+  const planValue = firstAuthSearchParam(rawParams?.plan);
+  const resetValue = firstAuthSearchParam(rawParams?.reset);
+  const nextValue = resolveSafeClaimLoginNext(rawParams?.next) ?? undefined;
+  const params: AuthSearchParams | undefined = rawParams ? { ...rawParams } : undefined;
+  if (params) {
+    if (nextValue) params.next = nextValue;
+    else delete params.next;
+  }
   const locale = resolveAuthLocale(params);
   const text = copy[locale];
   const selectedPlan = isCheckoutPlanKey(planValue) ? planValue : null;
