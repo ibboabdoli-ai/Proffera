@@ -73,6 +73,7 @@ exit 0
         expect(invocation).toContain("playwright test");
         expect(invocation).toContain("tests/marketplace-preview-invalid-request.e2e.mjs");
         expect(invocation).toContain("tests/marketplace-preview-lifecycle.e2e.mjs");
+        expect(invocation).toContain("tests/provider-preview-onboarding.e2e.mjs");
         expect(invocation).toContain("--retries=0");
       }
       const output = `${result.stdout}${result.stderr}`;
