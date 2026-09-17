@@ -189,6 +189,20 @@ describe("directory shared-cache behavior", () => {
     expect(cacheReads.some((read) => read.revalidate === PUBLIC_DIRECTORY_MISS_CACHE_TTL_SECONDS)).toBe(true);
   });
 
+  it("does not persist a miss when the Directory SQL client is temporarily unavailable", async () => {
+    const sql = publishedSql();
+    mocks.getSql.mockReturnValueOnce(undefined).mockReturnValue(sql);
+    mocks.getPublicDirectoryBusiness
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(publicBusiness("database-recovery-company", "Recovered Company AB"));
+
+    expect(await getPublicDirectoryBusinessForRequest("database-recovery-company")).toBeNull();
+
+    const recovered = await getPublicDirectoryBusinessForRequest("database-recovery-company");
+    expect(recovered?.companyName).toBe("Recovered Company AB");
+    expect(mocks.getPublicDirectoryBusiness).toHaveBeenCalledTimes(2);
+  });
+
   it("uses a one-day TTL for safe public data and a short TTL for proven misses", async () => {
     mocks.getSql.mockReturnValue(publishedSql());
     mocks.getPublicDirectoryBusiness.mockResolvedValue(publicBusiness());
