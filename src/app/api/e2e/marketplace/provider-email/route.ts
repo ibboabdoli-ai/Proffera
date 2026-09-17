@@ -40,6 +40,20 @@ function providerName(runId: string) {
   return `Preview Provider ${runId.slice(0, 8)} AB`;
 }
 
+function verificationCodeFromBody(body: string) {
+  const plainTextMatch = body.match(/Din verifieringskod är:\s*(\d{6})/iu)?.[1];
+  if (plainTextMatch) return plainTextMatch;
+
+  const visibleText = body
+    .replace(/<style[\s\S]*?<\/style>/giu, " ")
+    .replace(/<script[\s\S]*?<\/script>/giu, " ")
+    .replace(/<[^>]+>/gu, " ")
+    .replace(/&nbsp;|&#160;/giu, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
+  return visibleText.match(/Verifieringskod\s+(\d{6})(?:\s|$)/iu)?.[1] ?? "";
+}
+
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -109,7 +123,7 @@ export async function GET(request: Request) {
     const subject = String(content.subject ?? item.subject ?? "");
     const body = String(content.body ?? "");
     if (!subject.includes(marker) && !body.includes(marker)) continue;
-    const code = body.match(/\b(\d{6})\b/u)?.[1] ?? "";
+    const code = verificationCodeFromBody(body);
     if (!code) continue;
 
     const originalList = await listTransactionalEmails(original, apiKey);
