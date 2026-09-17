@@ -113,7 +113,7 @@ describe("PrimeView Google Ads conversion measurement", () => {
     expect(client).toContain('ensureGoogleTagQueue()("event", "page_view"');
     expect(client).toContain('page_referrer: ""');
     expect(client).not.toContain('"event", "conversion"');
-    expect(client).not.toContain('user_data:');
+    expect(client).not.toMatch(/(^|[\s,{])user_data\s*:/m);
   });
 
   it("updates PrimeView consent copy and privacy disclosure without changing the booking flow", () => {
