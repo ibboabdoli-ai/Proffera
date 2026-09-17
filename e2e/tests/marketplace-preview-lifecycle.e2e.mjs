@@ -171,6 +171,11 @@ test.describe("isolated Marketplace Preview lifecycle", () => {
     expect(baseURL).toBeTruthy();
     const origin = new URL(baseURL).origin;
     await context.grantPermissions(["geolocation"], { origin });
+    // Analytics is unrelated to this synthetic lifecycle proof. Persist an explicit
+    // denied choice before navigation so the consent control cannot obscure form actions.
+    await context.addInitScript(() => {
+      window.localStorage.setItem("proffera:analytics-consent:v1", "denied");
+    });
 
     const suiteRunId = runId();
     const customerA = runId();
