@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-// Evidence-only refresh: rerun the isolated Marketplace Preview lifecycle on the current exact head.
+// Evidence-only refresh: exact-head isolated Marketplace Preview lifecycle verification.
 const workflow = readFileSync(
   path.join(process.cwd(), ".github/workflows/marketplace-preview-browser-e2e.yml"),
   "utf8",
