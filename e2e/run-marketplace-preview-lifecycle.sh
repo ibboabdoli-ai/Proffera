@@ -18,16 +18,13 @@ for playwright_attempt in $(seq 1 "${max_playwright_attempts}"); do
       echo "Unable to mint a fresh Marketplace Preview OIDC credential." >&2
       exit 1
     fi
-    echo "OIDC minting failed for Marketplace Preview attempt ${playwright_attempt}; retrying." >&2
+    echo "OIDC minting failed for Preview auth attempt ${playwright_attempt}; retrying." >&2
     continue
   fi
 
-  echo "Running isolated Marketplace, provider onboarding, and auth login/session Preview evidence."
+  echo "Running isolated auth login/session Preview evidence."
   if PROFFERA_PREVIEW_E2E_OIDC_TOKEN="${oidc_token}" \
-    npx playwright test \
-      tests/marketplace-preview-invalid-request.e2e.mjs \
-      tests/marketplace-preview-lifecycle.e2e.mjs \
-      tests/provider-preview-onboarding.e2e.mjs \
+    npx playwright test tests/preview-auth-login-session.e2e.mjs \
       --project=chromium --reporter=line --retries=0; then
     unset oidc_token
     exit 0
@@ -37,5 +34,5 @@ for playwright_attempt in $(seq 1 "${max_playwright_attempts}"); do
   if [ "${playwright_attempt}" -ge "${max_playwright_attempts}" ]; then
     exit 1
   fi
-  echo "Marketplace Preview browser attempt ${playwright_attempt} failed; retrying with a fresh OIDC credential." >&2
+  echo "Preview auth browser attempt ${playwright_attempt} failed; retrying with a fresh OIDC credential." >&2
 done
