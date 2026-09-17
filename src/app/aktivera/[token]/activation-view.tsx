@@ -95,10 +95,10 @@ export function applyActivationLocaleChange(
 ) {
   const current = new URLSearchParams(search);
   current.set("lang", nextLocale);
+  current.delete("error");
   const visibleQuery = current.toString();
   replaceState(`${pathname}${visibleQuery ? `?${visibleQuery}` : ""}`);
 
-  current.delete("error");
   return current.toString();
 }
 

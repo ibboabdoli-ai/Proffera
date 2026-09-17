@@ -132,7 +132,7 @@ describe("mobile PWA and auth language contract", () => {
     expect(successUrl.searchParams.has("error")).toBe(false);
   });
 
-  it("executes activation locale replacement and keeps password inputs uncontrolled", () => {
+  it("removes stale activation errors while changing locale and keeps password inputs uncontrolled", () => {
     const replacements: string[] = [];
     const redirectQuery = applyActivationLocaleChange(
       "?lang=sv&plan=pro&campaign=launch&error=expired",
@@ -142,7 +142,7 @@ describe("mobile PWA and auth language contract", () => {
     );
 
     expect(replacements).toEqual([
-      "/aktivera/token-123?lang=en&plan=pro&campaign=launch&error=expired",
+      "/aktivera/token-123?lang=en&plan=pro&campaign=launch",
     ]);
 
     const redirectParams = new URLSearchParams(redirectQuery);
