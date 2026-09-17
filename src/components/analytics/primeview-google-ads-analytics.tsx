@@ -36,9 +36,9 @@ function ensureGoogleTagQueue(): GoogleTagFunction {
   const googleWindow = window as GoogleAdsWindow;
   googleWindow.dataLayer ??= [];
 
-  const gtag: GoogleTagFunction = googleWindow.gtag ?? function gtag() {
-    googleWindow.dataLayer?.push(arguments);
-  };
+  const gtag: GoogleTagFunction = googleWindow.gtag ?? ((...args: unknown[]) => {
+    googleWindow.dataLayer?.push(args);
+  });
   googleWindow.gtag = gtag;
 
   return gtag;
@@ -163,6 +163,9 @@ export function PrimeViewGoogleAdsAnalytics() {
       send_to: PRIMEVIEW_GOOGLE_ADS_TAG_ID,
       page_location: pageView.pageLocation,
       page_path: pageView.pagePath,
+      // A browser referrer may itself contain identifiers or query data that was
+      // not processed by buildPrimeViewGoogleAdsPageView, so do not forward it.
+      page_referrer: "",
     });
     lastSentPageKey = pageView.pageLocation;
   }, [consent, pathname, search]);
