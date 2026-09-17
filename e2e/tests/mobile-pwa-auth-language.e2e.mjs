@@ -8,7 +8,10 @@ function queryValue(page, key) {
 }
 
 test.describe("mobile PWA and auth language browser wiring", () => {
-  test.skip(process.env.CI !== "true", "The local harness is intentionally available only in CI development mode.");
+  test.skip(
+    process.env.CI !== "true" || process.env.NODE_ENV === "production",
+    "The harness is intentionally available only in CI non-production mode.",
+  );
 
   test("switches activation language without losing in-progress password values", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
