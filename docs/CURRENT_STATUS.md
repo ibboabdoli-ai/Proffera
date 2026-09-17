@@ -1,6 +1,6 @@
 # Proffera Current Status
 
-Last updated: 2026-09-15
+Last updated: 2026-09-17
 
 This is the canonical factual status document for Proffera. For worker rules, live task state, current `main` SHA, roadmap order, and the stable V1 completion evidence requirements, also read `AGENTS.md`, `WORKER_BOOTSTRAP.md`, GitHub issue #548, GitHub issue #276, `docs/README.md`, and `docs/V1_LAUNCH_EVIDENCE_CONTRACT.json`.
 
@@ -21,6 +21,7 @@ The repository contains active production implementations for these major areas:
 - Better Auth password recovery uses the built-in single-use reset-token flow with a 60-minute expiry, revokes prior sessions after a successful reset, applies dedicated request/reset endpoint rate limits, and exposes bilingual Swedish/English recovery UI. Password-reset email delivery reuses the existing Brevo runtime/Preview isolation boundary. Reset tokens are placed in the browser URL fragment rather than the request path/query, are scrubbed from the address bar before submission, and are not projected into PostHog pageview data. Source/CI proof is not a claim that outbound reset email has been exercised in Production; Preview/Production runtime proof remains governed by the V1 evidence contract and environment approval gates.
 - Workspace-scoped Dashboard data for customers, bookings, leads, offers, reviews, billing and service work.
 - Public Booking, availability, email verification, booking management and customer portal foundations.
+- PrimeView Window Care has a customer-domain-only Google Ads measurement boundary for tag `AW-18438705476`. It reuses the existing explicit analytics-consent state, keeps the external Google tag blocked until consent is granted, applies Consent Mode v2 signals with `ad_user_data` and `ad_personalization` denied, strips arbitrary query parameters and sensitive route identifiers from Ads page-view data, and preserves only `/booking?booked=1` as the booking-success URL marker. Normal `/booking` visits are not success-marker page views, PrimeView measurement is not rendered on Proffera or other customer hosts, and the platform PostHog boundary remains unchanged. Source/CI proof is not Production runtime proof; the matching deployed SHA and live consent/tag behavior must still be verified after merge.
 - Quote Request / Offer flows and Service Job lifecycle foundations.
 - Verified Review invitation, token, moderation and publication protections.
 - Stripe Checkout, Customer Portal, subscription webhook synchronization and billing-alert foundations.
