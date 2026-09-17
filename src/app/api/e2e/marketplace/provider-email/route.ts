@@ -40,18 +40,53 @@ function providerName(runId: string) {
   return `Preview Provider ${runId.slice(0, 8)} AB`;
 }
 
+function verificationCodeAfterLabel(body: string, label: string) {
+  const start = body.toLocaleLowerCase("sv-SE").indexOf(label.toLocaleLowerCase("sv-SE"));
+  if (start < 0) return "";
+
+  let inTag = false;
+  let inEntity = false;
+  let digits = "";
+  const limit = Math.min(body.length, start + label.length + 512);
+
+  for (let index = start + label.length; index < limit; index += 1) {
+    const char = body[index];
+    if (inTag) {
+      if (char === ">") inTag = false;
+      continue;
+    }
+    if (inEntity) {
+      if (char === ";") inEntity = false;
+      continue;
+    }
+    if (char === "<") {
+      inTag = true;
+      continue;
+    }
+    if (char === "&") {
+      inEntity = true;
+      continue;
+    }
+    if (char >= "0" && char <= "9") {
+      digits += char;
+      if (digits.length === 6) {
+        const next = body[index + 1] ?? "";
+        return next >= "0" && next <= "9" ? "" : digits;
+      }
+      continue;
+    }
+    if (digits) return "";
+    if (char === ":" || char === "-" || /\s/u.test(char)) continue;
+    return "";
+  }
+
+  return "";
+}
+
 function verificationCodeFromBody(body: string) {
   const plainTextMatch = body.match(/Din verifieringskod är:\s*(\d{6})/iu)?.[1];
   if (plainTextMatch) return plainTextMatch;
-
-  const visibleText = body
-    .replace(/<style[\s\S]*?<\/style>/giu, " ")
-    .replace(/<script[\s\S]*?<\/script>/giu, " ")
-    .replace(/<[^>]+>/gu, " ")
-    .replace(/&nbsp;|&#160;/giu, " ")
-    .replace(/\s+/gu, " ")
-    .trim();
-  return visibleText.match(/Verifieringskod\s+(\d{6})(?:\s|$)/iu)?.[1] ?? "";
+  return verificationCodeAfterLabel(body, "Verifieringskod");
 }
 
 function delay(ms: number) {
