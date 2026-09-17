@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { resendPublicBookingCode, verifyPublicBookingCode } from "@/lib/public-booking-verification";
+import { publicBookingSuccessRedirect } from "@/lib/public-booking-success-redirect";
 
 export const dynamic = "force-dynamic";
 
@@ -30,8 +31,7 @@ async function verify(formData: FormData) {
   const channel = String(formData.get("channel") ?? "");
   const result = await verifyPublicBookingCode(id, code);
   if (!result.ok) redirect(`/boka/verifiera/${id}?error=${result.error}${locale === "en" ? "&lang=en" : ""}${channelSuffix(channel)}`);
-  if (result.slug === "primeview") redirect("/booking?booked=1");
-  redirect(`/boka/${result.slug}?booked=1${locale === "en" ? "&lang=en" : ""}`);
+  redirect(publicBookingSuccessRedirect(result.slug, locale));
 }
 
 async function resend(formData: FormData) {
