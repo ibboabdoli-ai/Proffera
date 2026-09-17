@@ -6,7 +6,10 @@ import {
 } from "@/lib/company-directory-contact-entitlement";
 import { getPublicDirectoryBusiness, type PublicDirectoryBusiness } from "@/lib/company-directory-engine";
 import { hasActivePaidDirectoryContactAccess } from "@/lib/company-directory-paid-contact-entitlement";
-import { readPublicDirectoryProfileCache } from "@/lib/company-directory-public-cache";
+import {
+  readPublicDirectoryMissCache,
+  readPublicDirectoryProfileCache,
+} from "@/lib/company-directory-public-cache";
 import {
   resolveCompanyDirectoryCanonicalWorkplaceAddress,
   type DirectoryPublicAddress,
@@ -407,21 +410,27 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
 /**
  * React cache deduplicates metadata + Server Component work inside one render.
  * The nested public-cache boundary absorbs cross-request traffic only for safe
- * published, unclaimed juridical-person snapshots. A non-cacheable result is
- * returned to this request without being persisted, so claimed and sole-trader
- * paths re-evaluate their DB/entitlement state on every request.
+ * published, unclaimed juridical-person snapshots. A second short miss cache
+ * absorbs repeated crawler requests for slugs that have no public or claimed
+ * Directory profile. Claimed and sole-trader results always bypass persistence
+ * so entitlement and ownership state remain request-fresh.
  */
 export const getPublicDirectoryBusinessForRequest = cache(async (slug: string): Promise<PublicDirectoryBusinessForRequest | null> => {
   const normalized = slug.trim().toLowerCase();
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(normalized)) return null;
 
-  const published = await readPublicDirectoryProfileCache(normalized, async () => {
-    const resolved = await resolvePublishedDirectoryBusiness(normalized);
-    return resolved?.sharedCacheSafe
-      ? { cache: true, value: resolved.business }
-      : { cache: false, value: resolved?.business ?? null };
-  });
-  if (published) return published;
+  return readPublicDirectoryMissCache(normalized, async () => {
+    const published = await readPublicDirectoryProfileCache(normalized, async () => {
+      const resolved = await resolvePublishedDirectoryBusiness(normalized);
+      return resolved?.sharedCacheSafe
+        ? { cache: true, value: resolved.business }
+        : { cache: false, value: resolved?.business ?? null };
+    });
+    if (published) return { cache: false, value: published };
 
-  return getSafeClaimedDirectoryFallback(normalized);
+    const claimed = await getSafeClaimedDirectoryFallback(normalized);
+    return claimed
+      ? { cache: false, value: claimed }
+      : { cache: true, value: null };
+  });
 });
