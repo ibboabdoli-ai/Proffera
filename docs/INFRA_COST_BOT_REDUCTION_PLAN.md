@@ -1,7 +1,7 @@
 # INFRA-COST-BOT-REDUCTION-1
 
-Priority: HIGH / P1  
-Supervisor: #548  
+Priority: HIGH / P1
+Supervisor: #548
 Baseline main: `7032cb916030587b20fb939eb603d82ebce7732b`
 
 ## Goal

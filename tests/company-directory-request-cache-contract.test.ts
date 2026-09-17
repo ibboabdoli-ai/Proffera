@@ -323,7 +323,11 @@ describe("directory shared-cache behavior", () => {
   it("profile invalidation also clears a cached not-found decision", async () => {
     const sql = vi.fn(async (strings: TemplateStringsArray) => {
       const query = strings.join(" ");
-      if (query.includes("from company_directory_profiles") && query.includes("organization_number")) {
+      if (
+        query.includes("from company_directory_profiles")
+        && query.includes("organization_number")
+        && query.includes("publication_status = 'published'")
+      ) {
         return [{
           organization_number: "5560000000",
           organization_kind: "juridical_person",
