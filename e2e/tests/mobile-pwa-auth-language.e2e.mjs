@@ -45,9 +45,8 @@ test.describe("mobile PWA and auth language browser wiring", () => {
     const response = await page.goto(`${dashboardHarnessPath}?lang=en&campaign=spring&filter=open`);
 
     expect(response?.ok()).toBeTruthy();
-    await expect(page.locator("header").first()).toHaveAttribute("style", /safe-area-inset-top/);
-
     const trigger = page.getByRole("button", { name: "Open menu" });
+    await expect(trigger.locator("xpath=ancestor::header")).toHaveAttribute("style", /safe-area-inset-top/);
     await trigger.click();
 
     const dialog = page.getByRole("dialog", { name: "Dashboard menu" });
