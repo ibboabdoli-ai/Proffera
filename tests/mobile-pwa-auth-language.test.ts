@@ -1,8 +1,53 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import React, { type ReactNode } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it, vi } from "vitest";
 
-import { describe, expect, it } from "vitest";
+const navigationState = vi.hoisted(() => ({
+  pathname: "/dashboard/leads",
+  search: "lang=en&campaign=spring&filter=open",
+}));
 
+vi.mock("next/link", async () => {
+  const ReactModule = await import("react");
+  return {
+    default: ({ href, children }: { href: unknown; children?: ReactNode }) => ReactModule.createElement(
+      "a",
+      { "data-test-href": String(href) },
+      children,
+    ),
+  };
+});
+
+vi.mock("next/image", async () => {
+  const ReactModule = await import("react");
+  return {
+    default: ({ alt, src }: { alt: string; src: string }) => ReactModule.createElement("img", { alt, src }),
+  };
+});
+
+vi.mock("next/navigation", () => ({
+  usePathname: () => navigationState.pathname,
+  useSearchParams: () => new URLSearchParams(navigationState.search),
+}));
+
+vi.mock("@/app/dashboard/workspace-actions", () => ({
+  switchWorkspaceAction: vi.fn(),
+}));
+
+vi.mock("@/lib/auth-client", () => ({
+  authClient: { signOut: vi.fn() },
+}));
+
+import { ActivationForm } from "../src/app/aktivera/[token]/activation-form";
+import { applyActivationLocaleChange } from "../src/app/aktivera/[token]/activation-view";
+import {
+  DashboardShell,
+  handleMobileMenuKeydown,
+  localizedHref,
+} from "../src/components/dashboard/dashboard-shell";
+import { Header } from "../src/components/layout/header";
 import {
   authLocaleHref,
   authRedirectHref,
@@ -14,16 +59,30 @@ function source(path: string) {
   return readFileSync(resolve(process.cwd(), path), "utf8");
 }
 
-describe("mobile PWA and auth language contract", () => {
-  it("keeps viewport-fit cover and applies top safe-area padding to public and dashboard headers", () => {
-    const rootLayout = source("src/app/layout.tsx");
-    const publicHeader = source("src/components/layout/header.tsx");
-    const dashboardShell = source("src/components/dashboard/dashboard-shell.tsx");
+function focusableElement() {
+  return {
+    focus: vi.fn(),
+    getAttribute: vi.fn(() => null),
+    hasAttribute: vi.fn(() => false),
+  };
+}
 
-    expect(rootLayout).toContain('viewportFit: "cover"');
-    expect(publicHeader).toContain("env(safe-area-inset-top)");
-    expect(dashboardShell).toContain("env(safe-area-inset-top)");
-    expect(dashboardShell).toContain("calc(1.25rem + env(safe-area-inset-top))");
+describe("mobile PWA and auth language contract", () => {
+  it("keeps viewport-fit cover and renders top safe-area padding", () => {
+    expect(source("src/app/layout.tsx")).toContain('viewportFit: "cover"');
+
+    navigationState.pathname = "/dashboard/leads";
+    navigationState.search = "lang=en&campaign=spring&filter=open";
+
+    const publicHeader = renderToStaticMarkup(React.createElement(Header, { locale: "en" }));
+    const dashboard = renderToStaticMarkup(React.createElement(
+      DashboardShell,
+      null,
+      React.createElement("div", null, "Dashboard content"),
+    ));
+
+    expect(publicHeader).toContain("padding-top:calc(0.75rem + env(safe-area-inset-top))");
+    expect(dashboard).toContain("padding-top:calc(0.75rem + env(safe-area-inset-top))");
   });
 
   it("preserves unrelated auth query params while changing only locale", () => {
@@ -73,37 +132,89 @@ describe("mobile PWA and auth language contract", () => {
     expect(successUrl.searchParams.has("error")).toBe(false);
   });
 
-  it("keeps activation bilingual without navigation-driven form resets", () => {
-    const page = source("src/app/aktivera/[token]/page.tsx");
-    const view = source("src/app/aktivera/[token]/activation-view.tsx");
-    const form = source("src/app/aktivera/[token]/activation-form.tsx");
-    const actions = source("src/app/aktivera/[token]/actions.ts");
+  it("executes activation locale replacement and keeps password inputs uncontrolled", () => {
+    const replacements: string[] = [];
+    const redirectQuery = applyActivationLocaleChange(
+      "?lang=sv&plan=pro&campaign=launch&error=expired",
+      "/aktivera/token-123",
+      "en",
+      (href) => replacements.push(href),
+    );
 
-    expect(page).toContain("resolveAuthLocale");
-    expect(page).toContain("ActivationView");
-    expect(view).toContain('window.history.replaceState');
-    expect(view).toContain('current.set("lang", nextLocale)');
-    expect(view).toContain('current.delete("error")');
-    expect(view).toContain('Activate customer portal');
-    expect(view).toContain('Välj ditt lösenord');
-    expect(form).toContain('name="lang"');
-    expect(form).toContain('name="redirect_query"');
-    expect(form).toContain('Show password');
-    expect(form).toContain('Visa lösenord');
-    expect(actions).toContain('authRedirectHref(activationPath');
-    expect(actions).toContain('authRedirectHref("/logga-in"');
+    expect(replacements).toEqual([
+      "/aktivera/token-123?lang=en&plan=pro&campaign=launch&error=expired",
+    ]);
+
+    const redirectParams = new URLSearchParams(redirectQuery);
+    expect(redirectParams.get("lang")).toBe("en");
+    expect(redirectParams.get("plan")).toBe("pro");
+    expect(redirectParams.get("campaign")).toBe("launch");
+    expect(redirectParams.has("error")).toBe(false);
+
+    const form = renderToStaticMarkup(React.createElement(ActivationForm, {
+      action: async () => undefined,
+      locale: "en",
+      redirectQuery,
+    }));
+
+    expect(form).toContain('name="lang" value="en"');
+    expect(form).toContain('name="redirect_query" value="lang=en&amp;plan=pro&amp;campaign=launch"');
+    expect(form).toContain('name="password" type="password"');
+    expect(form).toContain('name="confirm_password" type="password"');
+    expect(form).not.toMatch(/name="password"[^>]*value=/);
+    expect(form).not.toMatch(/name="confirm_password"[^>]*value=/);
+    expect(form).toContain("Activate customer portal");
   });
 
-  it("keeps dashboard language switching in the mobile drawer and preserves query context", () => {
-    const dashboardShell = source("src/components/dashboard/dashboard-shell.tsx");
-    const loginPage = source("src/app/logga-in/page.tsx");
+  it("preserves dashboard query context when switching language", () => {
+    expect(localizedHref(
+      "/dashboard/leads",
+      "sv",
+      "lang=en&campaign=spring&filter=open",
+    )).toBe("/dashboard/leads?campaign=spring&filter=open");
 
-    expect(dashboardShell).toContain("const searchParamsString = searchParams.toString()");
-    expect(dashboardShell).toContain("new URLSearchParams(currentSearch)");
-    expect(dashboardShell).toContain("searchParams={searchParamsString}");
-    expect(dashboardShell).toContain("const languageHref = localizedHref(pathname");
-    expect(dashboardShell).toContain('onClick={() => setIsMobileMenuOpen(false)} className="mt-4 flex min-h-11');
-    expect(loginPage).toContain('authLocaleHref("/logga-in", params, "sv")');
-    expect(loginPage).toContain('authLocaleHref("/logga-in", params, "en")');
+    expect(localizedHref(
+      "/dashboard/leads",
+      "en",
+      "campaign=spring&filter=open",
+    )).toBe("/dashboard/leads?campaign=spring&filter=open&lang=en");
+
+    navigationState.pathname = "/dashboard/leads";
+    navigationState.search = "lang=en&campaign=spring&filter=open";
+    const dashboard = renderToStaticMarkup(React.createElement(
+      DashboardShell,
+      null,
+      React.createElement("div", null, "Dashboard content"),
+    ));
+
+    expect(dashboard).toContain('data-test-href="/dashboard/leads?campaign=spring&amp;filter=open"');
+  });
+
+  it("traps mobile-menu tab focus and closes on Escape", () => {
+    const first = focusableElement();
+    const last = focusableElement();
+    const panelFocus = vi.fn();
+    const panel = {
+      querySelectorAll: vi.fn(() => [first, last]),
+      contains: vi.fn((element: unknown) => element === first || element === last),
+      focus: panelFocus,
+    } as unknown as HTMLElement;
+
+    const forwardEvent = { key: "Tab", shiftKey: false, preventDefault: vi.fn() };
+    handleMobileMenuKeydown(forwardEvent, panel, last as unknown as Element, vi.fn());
+    expect(forwardEvent.preventDefault).toHaveBeenCalledOnce();
+    expect(first.focus).toHaveBeenCalledOnce();
+
+    const backwardEvent = { key: "Tab", shiftKey: true, preventDefault: vi.fn() };
+    handleMobileMenuKeydown(backwardEvent, panel, first as unknown as Element, vi.fn());
+    expect(backwardEvent.preventDefault).toHaveBeenCalledOnce();
+    expect(last.focus).toHaveBeenCalledOnce();
+
+    const close = vi.fn();
+    const escapeEvent = { key: "Escape", shiftKey: false, preventDefault: vi.fn() };
+    handleMobileMenuKeydown(escapeEvent, panel, first as unknown as Element, close);
+    expect(escapeEvent.preventDefault).toHaveBeenCalledOnce();
+    expect(close).toHaveBeenCalledOnce();
+    expect(panelFocus).not.toHaveBeenCalled();
   });
 });
