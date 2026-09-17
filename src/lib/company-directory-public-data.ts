@@ -355,12 +355,16 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
   const row = rows[0];
   if (!row) return null;
 
-  const workspaceId = String(row.claimed_workspace_id ?? "");
+  const profileId = String(row.id ?? "").trim();
+  const publicSlug = String(row.public_slug ?? "").trim().toLowerCase();
+  const workspaceId = String(row.claimed_workspace_id ?? "").trim();
+  if (!profileId || publicSlug !== normalized || !workspaceId) return null;
+
   const entitled = await hasActivePaidDirectoryContactAccess(workspaceId);
-  const scb = await getConflictFreeScbContact(sql, String(row.id));
+  const scb = await getConflictFreeScbContact(sql, profileId);
   const address = await resolvePublishedPhysicalAddress({
     sql,
-    profileId: String(row.id),
+    profileId,
     claimedWorkspaceId: workspaceId,
     profile: profileAddress(row),
     workplaces: scb?.workplaces,
@@ -373,8 +377,8 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
   }, entitled);
 
   return {
-    id: String(row.id),
-    slug: String(row.public_slug),
+    id: profileId,
+    slug: publicSlug,
     companyName: String(row.display_name),
     legalName: String(row.legal_name ?? ""),
     legalForm: String(row.legal_form ?? ""),
