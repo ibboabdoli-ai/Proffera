@@ -8,8 +8,8 @@ import type { AuthLocale } from "@/lib/auth-locale";
 
 type ActivationFormProps = {
   action: (formData: FormData) => void | Promise<void>;
-  locale: AuthLocale;
-  redirectQuery: string;
+  locale?: AuthLocale;
+  redirectQuery?: string;
 };
 
 const copy = {
@@ -44,7 +44,7 @@ function SubmitButton({ locale }: { locale: AuthLocale }) {
   );
 }
 
-export function ActivationForm({ action, locale, redirectQuery }: ActivationFormProps) {
+export function ActivationForm({ action, locale = "sv", redirectQuery = "" }: ActivationFormProps) {
   const [showPassword, setShowPassword] = useState(false);
   const text = copy[locale];
   const inputClass = "mt-2 min-h-12 w-full rounded-xl border border-[#cfd8cf] bg-white px-4 py-3 pr-12 text-base text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-4 focus:ring-[#17452f]/10";
