@@ -49,16 +49,20 @@ describe("bilingual public directory contract", () => {
     expect(profile).toContain('lang="sv"');
   });
 
-  it("shows the real profile check date in both public languages", () => {
+  it("shows authoritative Official Facts freshness instead of generic profile-sync freshness", () => {
     const profileCopy = source("src/components/company-directory/public-directory-profile-copy.ts");
-    const engine = source("src/lib/company-directory-engine.ts");
+    const publicData = source("src/lib/company-directory-public-data.ts");
 
-    expect(profileCopy).toContain('lastChecked: "Senast kontrollerad"');
-    expect(profileCopy).toContain('lastChecked: "Last checked"');
+    expect(profileCopy).toContain('lastChecked: "Officiella fakta senast verifierade"');
+    expect(profileCopy).toContain('lastChecked: "Official facts last verified"');
+    expect(profileCopy).toContain("SCB-data kan ha en separat synktid");
+    expect(profileCopy).toContain("SCB data can have a separate sync time");
     expect(profile).toContain("business.lastCheckedAt");
     expect(profile).toContain("t.lastChecked");
-    expect(engine).toContain("profile.last_synced_at");
-    expect(engine).toContain("lastCheckedAt: row.last_synced_at");
+    expect(publicData).toContain("company_directory_official_facts");
+    expect(publicData).toContain("official_facts_last_synced_at");
+    expect(publicData).toContain("lastCheckedAt: row.official_facts_last_synced_at");
+    expect(publicData).not.toContain("lastCheckedAt: row.last_synced_at");
   });
 
   it("scopes the contrast override to result CTAs so locale links remain readable", () => {
