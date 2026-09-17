@@ -22,6 +22,7 @@ for playwright_attempt in $(seq 1 "${max_playwright_attempts}"); do
     continue
   fi
 
+  echo "Running isolated Marketplace, provider onboarding, and auth login/session Preview evidence."
   if PROFFERA_PREVIEW_E2E_OIDC_TOKEN="${oidc_token}" \
     npx playwright test \
       tests/marketplace-preview-invalid-request.e2e.mjs \

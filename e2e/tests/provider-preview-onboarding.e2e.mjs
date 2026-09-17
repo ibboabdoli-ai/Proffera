@@ -43,7 +43,7 @@ async function waitForClaimEmail(request, suiteRunId) {
 test.describe("isolated provider onboarding Preview lifecycle", () => {
   test.skip(process.env.E2E_MARKETPLACE_PREVIEW_LIFECYCLE !== "true", "Provider Preview lifecycle is opt-in and Preview-only.");
 
-  test("signup -> official claim -> workspace link -> service and area activation", async ({ page, context, request }) => {
+  test("signup -> login/session boundary -> official claim -> workspace link -> service and area activation", async ({ page, context, request }) => {
     test.setTimeout(5 * 60_000);
     await context.addInitScript(() => {
       window.localStorage.setItem("proffera:analytics-consent:v1", "denied");
@@ -54,6 +54,9 @@ test.describe("isolated provider onboarding Preview lifecycle", () => {
     let fixtureCreated = false;
 
     try {
+      await page.goto("/dashboard/marknadsplats");
+      await page.waitForURL(/\/logga-in(?:\?|$)/u, { timeout: 30_000 });
+
       const setup = await fixtureRequest(request, suiteRunId, "POST");
       expect(setup.response.ok(), JSON.stringify(setup.body)).toBeTruthy();
       expect(setup.body?.ok).toBe(true);
@@ -68,6 +71,13 @@ test.describe("isolated provider onboarding Preview lifecycle", () => {
       await page.getByLabel("Telefon").fill("0701234567");
       await page.getByRole("button", { name: "Starta 14 dagar gratis" }).click();
       await page.waitForURL(/\/dashboard\/onboarding(?:\?|$)/u, { timeout: 30_000 });
+
+      await page.getByRole("button", { name: "Logga ut" }).click();
+      await page.waitForURL(/\/logga-in(?:\?|$)/u, { timeout: 30_000 });
+      await page.getByLabel("E-post").fill(setup.body.ownerEmail);
+      await page.getByLabel("Lösenord").fill(password);
+      await page.getByRole("button", { name: "Logga in" }).click();
+      await page.waitForURL(/\/dashboard(?:\/|$|\?)/u, { timeout: 30_000 });
 
       await page.goto("/dashboard/marknadsplats");
       await expect(page.getByRole("heading", { name: "Aktivera företaget på Proffera" })).toBeVisible();
