@@ -100,7 +100,12 @@ describe("Directory miss cache database availability", () => {
 
     mocks.getPublicDirectoryBusiness.mockResolvedValue(null);
     mocks.hasActivePaidDirectoryContactAccess.mockResolvedValue(false);
-    mocks.getSql.mockReturnValueOnce(null).mockReturnValue(sql);
+    // The miss-cache boundary and claimed fallback each check DB availability
+    // during the first request, so keep both reads unavailable before recovery.
+    mocks.getSql
+      .mockReturnValueOnce(null)
+      .mockReturnValueOnce(null)
+      .mockReturnValue(sql);
 
     expect(await getPublicDirectoryBusinessForRequest(SLUG)).toBeNull();
 
