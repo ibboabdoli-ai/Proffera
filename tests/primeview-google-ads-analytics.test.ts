@@ -109,6 +109,7 @@ describe("PrimeView Google Ads conversion measurement", () => {
     expect(client).toContain("send_page_view: false");
     expect(client).toContain("lastSentPageKey === pageView.pageLocation");
     expect(client).toContain('ensureGoogleTagQueue()("event", "page_view"');
+    expect(client).toContain('page_referrer: ""');
     expect(client).not.toContain('"event", "conversion"');
   });
 
