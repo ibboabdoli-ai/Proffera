@@ -119,7 +119,7 @@ async function currentState(runId: string) {
           conversion_mode,
           coalesce(nullif(trim(primary_directory_service_slug), ''), public_slug) as directory_service_slug
         from workspace_services
-        where workspace_id = ${workspaceId}::uuid
+        where workspace_id = ${workspaceId}
           and coalesce(nullif(trim(primary_directory_service_slug), ''), public_slug) = ${SERVICE_SLUG}
         order by updated_at desc, id asc
         limit 1
