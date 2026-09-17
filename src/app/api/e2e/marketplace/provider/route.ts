@@ -314,6 +314,7 @@ export async function DELETE(request: Request) {
     const workspaceId = String(workspaceRows[0]?.workspace_id ?? "");
 
     await sql`delete from company_directory_profiles where id = ${identity.profileId}::uuid`;
+    if (userId) await sql`delete from admin_audit_logs where admin_user_id = ${userId}`;
     if (workspaceId) await sql`delete from workspaces where id = ${workspaceId}::uuid`;
     if (userId) await sql`delete from "user" where id = ${userId}`;
     return NextResponse.json({ ok: true });
