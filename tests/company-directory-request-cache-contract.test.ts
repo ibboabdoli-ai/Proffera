@@ -325,7 +325,7 @@ describe("directory shared-cache behavior", () => {
       const query = strings.join(" ");
       if (
         query.includes("from company_directory_profiles")
-        && query.includes("organization_number")
+        && query.includes("where id =")
         && query.includes("publication_status = 'published'")
       ) {
         return [{
