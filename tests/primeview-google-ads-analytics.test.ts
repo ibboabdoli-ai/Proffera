@@ -1,17 +1,61 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
-
 import { describe, expect, it } from "vitest";
 
 import {
+  PRIMEVIEW_GOOGLE_ADS_SCRIPT_ID,
   PRIMEVIEW_GOOGLE_ADS_TAG_ID,
   buildPrimeViewGoogleAdsPageView,
   isPrimeViewBookingConversionPage,
 } from "../src/lib/analytics/google-ads";
+import {
+  createPrimeViewGoogleAdsRuntime,
+  type GoogleTagFunction,
+} from "../src/lib/analytics/primeview-google-ads-runtime";
+import { publicBookingSuccessRedirect } from "../src/lib/public-booking-success-redirect";
 import { isPrimeViewHost } from "../src/lib/public-site-domains";
 
-function source(path: string) {
-  return readFileSync(resolve(process.cwd(), path), "utf8");
+type ScriptRecord = { id: string; async: boolean; src: string };
+
+function createRuntimeHarness(existingGoogleTag = false) {
+  const commands: unknown[][] = [];
+  const scripts: ScriptRecord[] = [];
+  const runtime = createPrimeViewGoogleAdsRuntime();
+  const gtag: GoogleTagFunction = (...args) => commands.push(args);
+
+  function sync({
+    consent,
+    host = "www.primeviewwindowcare.co.uk",
+    origin = "https://www.primeviewwindowcare.co.uk",
+    pathname = "/booking",
+    query = "",
+  }: {
+    consent: "unknown" | "denied" | "granted";
+    host?: string;
+    origin?: string;
+    pathname?: string;
+    query?: string;
+  }) {
+    runtime.sync({
+      consent,
+      host,
+      origin,
+      pathname,
+      searchParams: new URLSearchParams(query),
+      gtag,
+      hasScriptById: (id) => scripts.some((script) => script.id === id),
+      hasAnyGoogleTagScript: () =>
+        existingGoogleTag
+        || scripts.some((script) => script.src.startsWith("https://www.googletagmanager.com/gtag/js")),
+      appendScript: (script) => scripts.push(script),
+    });
+  }
+
+  return { commands, scripts, sync };
+}
+
+function pageViewCommands(commands: unknown[][]) {
+  return commands.filter(
+    (command) => command[0] === "event" && command[1] === "page_view",
+  );
 }
 
 describe("PrimeView Google Ads conversion measurement", () => {
@@ -47,7 +91,7 @@ describe("PrimeView Google Ads conversion measurement", () => {
     });
   });
 
-  it("strips arbitrary query data and sensitive path identifiers before sending a page view", () => {
+  it("strips arbitrary query data and sensitive path identifiers", () => {
     const successWithPii = buildPrimeViewGoogleAdsPageView(
       "https://www.primeviewwindowcare.co.uk",
       "/booking",
@@ -71,59 +115,161 @@ describe("PrimeView Google Ads conversion measurement", () => {
     expect(JSON.stringify(verification)).not.toContain("123456");
   });
 
-  it("scopes the Ads integration to the two PrimeView production hosts", () => {
+  it("scopes Ads measurement to PrimeView hosts even if the runtime is invoked elsewhere", () => {
     expect(isPrimeViewHost("primeviewwindowcare.co.uk")).toBe(true);
     expect(isPrimeViewHost("www.primeviewwindowcare.co.uk")).toBe(true);
     expect(isPrimeViewHost("proffera.se")).toBe(false);
     expect(isPrimeViewHost("customer.example.com")).toBe(false);
 
-    const layout = source("src/app/layout.tsx");
-    expect(layout).toContain('{isCustomerSite && <AnalyticsConsentControl brand="primeview" />}');
-    expect(layout).toContain("{isCustomerSite && <PrimeViewGoogleAdsAnalytics />}");
-    expect(layout).toContain("{shouldRenderAnalytics && <PostHogAnalytics config={postHogConfig} />}");
+    const harness = createRuntimeHarness();
+    harness.sync({ consent: "granted", host: "proffera.se" });
+    harness.sync({ consent: "granted", host: "customer.example.com" });
+
+    expect(harness.commands).toEqual([]);
+    expect(harness.scripts).toEqual([]);
   });
 
-  it("uses consent mode defaults and never loads gtag.js before analytics consent is granted", () => {
-    const client = source("src/components/analytics/primeview-google-ads-analytics.tsx");
+  it("does not load Google before consent, then loads once and sends sanitized deduplicated page views", () => {
+    const harness = createRuntimeHarness();
+
+    harness.sync({
+      consent: "unknown",
+      pathname: "/booking",
+      query: "email=person%40example.com",
+    });
 
     expect(PRIMEVIEW_GOOGLE_ADS_TAG_ID).toBe("AW-18438705476");
-    expect(client).toContain('ad_storage: "denied"');
-    expect(client).toContain('analytics_storage: "denied"');
-    expect(client).toContain('ad_user_data: "denied"');
-    expect(client).toContain('ad_user_data: measurementConsent');
-    expect(client).toContain('ad_personalization: "denied"');
-    expect(client).toContain('if (!isAnalyticsConsentGranted(consent))');
-    expect(client).toContain('queueConsentUpdate("granted")');
-    expect(client).toContain("configureGoogleTag();");
-    expect(client.indexOf('if (!isAnalyticsConsentGranted(consent))')).toBeLessThan(
-      client.lastIndexOf("configureGoogleTag();"),
+    expect(harness.scripts).toHaveLength(0);
+    expect(pageViewCommands(harness.commands)).toHaveLength(0);
+    expect(harness.commands[0]).toEqual([
+      "consent",
+      "default",
+      {
+        ad_storage: "denied",
+        analytics_storage: "denied",
+        ad_user_data: "denied",
+        ad_personalization: "denied",
+        wait_for_update: 500,
+      },
+    ]);
+
+    harness.sync({
+      consent: "granted",
+      pathname: "/booking",
+      query: "email=person%40example.com&phone=07123456789",
+    });
+
+    expect(harness.scripts).toEqual([
+      {
+        id: PRIMEVIEW_GOOGLE_ADS_SCRIPT_ID,
+        async: true,
+        src: `https://www.googletagmanager.com/gtag/js?id=${PRIMEVIEW_GOOGLE_ADS_TAG_ID}`,
+      },
+    ]);
+
+    const config = harness.commands.find((command) => command[0] === "config");
+    expect(config).toEqual([
+      "config",
+      PRIMEVIEW_GOOGLE_ADS_TAG_ID,
+      {
+        send_page_view: false,
+        allow_ad_personalization_signals: false,
+      },
+    ]);
+
+    const grantedUpdate = harness.commands.find(
+      (command) => command[0] === "consent" && command[1] === "update" &&
+        (command[2] as { ad_storage?: string }).ad_storage === "granted",
     );
-    expect(client).toContain("document.createElement(\"script\")");
-    expect(client).toContain("https://www.googletagmanager.com/gtag/js?id=");
+    expect(grantedUpdate).toEqual([
+      "consent",
+      "update",
+      {
+        ad_storage: "granted",
+        analytics_storage: "granted",
+        ad_user_data: "granted",
+        ad_personalization: "denied",
+      },
+    ]);
+
+    expect(pageViewCommands(harness.commands)).toEqual([
+      [
+        "event",
+        "page_view",
+        {
+          send_to: PRIMEVIEW_GOOGLE_ADS_TAG_ID,
+          page_location: "https://www.primeviewwindowcare.co.uk/booking",
+          page_path: "/booking",
+          page_referrer: "",
+        },
+      ],
+    ]);
+    expect(JSON.stringify(harness.commands)).not.toContain("person@example.com");
+    expect(JSON.stringify(harness.commands)).not.toContain("07123456789");
+
+    harness.sync({
+      consent: "granted",
+      pathname: "/booking",
+      query: "email=other%40example.com",
+    });
+    expect(harness.scripts).toHaveLength(1);
+    expect(pageViewCommands(harness.commands)).toHaveLength(1);
+
+    harness.sync({
+      consent: "granted",
+      pathname: "/booking",
+      query: "booked=1&email=private%40example.com&phone=07999999999",
+    });
+
+    expect(harness.scripts).toHaveLength(1);
+    expect(pageViewCommands(harness.commands)).toHaveLength(2);
+    expect(pageViewCommands(harness.commands)[1]).toEqual([
+      "event",
+      "page_view",
+      {
+        send_to: PRIMEVIEW_GOOGLE_ADS_TAG_ID,
+        page_location: "https://www.primeviewwindowcare.co.uk/booking?booked=1",
+        page_path: "/booking?booked=1",
+        page_referrer: "",
+      },
+    ]);
+    expect(harness.commands.some((command) => command[0] === "event" && command[1] === "conversion")).toBe(false);
+    expect(JSON.stringify(harness.commands)).not.toContain("private@example.com");
+    expect(JSON.stringify(harness.commands)).not.toContain("07999999999");
   });
 
-  it("prevents duplicate tag/page firing and relies on the single URL-based Ads conversion", () => {
-    const client = source("src/components/analytics/primeview-google-ads-analytics.tsx");
+  it("updates consent to denied without loading a tag and reuses an existing gtag.js instance", () => {
+    const deniedHarness = createRuntimeHarness();
+    deniedHarness.sync({ consent: "denied" });
 
-    expect(client).toContain("document.getElementById(PRIMEVIEW_GOOGLE_ADS_SCRIPT_ID)");
-    expect(client).toContain('script[src^="https://www.googletagmanager.com/gtag/js"]');
-    expect(client).toContain("send_page_view: false");
-    expect(client).toContain("allow_ad_personalization_signals: false");
-    expect(client).toContain("lastSentPageKey === pageView.pageLocation");
-    expect(client).toContain('ensureGoogleTagQueue()("event", "page_view"');
-    expect(client).toContain('page_referrer: ""');
-    expect(client).not.toContain('"event", "conversion"');
-    expect(client).not.toMatch(/(^|[\s,{])user_data\s*:/m);
+    expect(deniedHarness.scripts).toHaveLength(0);
+    expect(deniedHarness.commands).toContainEqual([
+      "consent",
+      "update",
+      {
+        ad_storage: "denied",
+        analytics_storage: "denied",
+        ad_user_data: "denied",
+        ad_personalization: "denied",
+      },
+    ]);
+
+    const existingTagHarness = createRuntimeHarness(true);
+    existingTagHarness.sync({ consent: "granted" });
+    existingTagHarness.sync({ consent: "granted" });
+
+    expect(existingTagHarness.scripts).toHaveLength(0);
+    expect(pageViewCommands(existingTagHarness.commands)).toHaveLength(1);
   });
 
-  it("updates PrimeView consent copy and privacy disclosure without changing the booking flow", () => {
-    const consent = source("src/components/analytics/analytics-consent-control.tsx");
-    const privacy = source("src/app/privacy/page.tsx");
-    const bookingVerifier = source("src/app/boka/verifiera/[id]/page.tsx");
-
-    expect(consent).toContain("The Google tag is not loaded until you allow this.");
-    expect(consent).toContain("We do not send booking form text, names, email addresses or phone numbers.");
-    expect(privacy).toContain("Optional Google Ads measurement is disabled by default.");
-    expect(bookingVerifier).toContain('if (result.slug === "primeview") redirect("/booking?booked=1")');
+  it("routes a verified PrimeView booking to the Ads success URL", () => {
+    expect(publicBookingSuccessRedirect("primeview", "sv")).toBe("/booking?booked=1");
+    expect(publicBookingSuccessRedirect("primeview", "en")).toBe("/booking?booked=1");
+    expect(publicBookingSuccessRedirect("example-company", "sv")).toBe(
+      "/boka/example-company?booked=1",
+    );
+    expect(publicBookingSuccessRedirect("example-company", "en")).toBe(
+      "/boka/example-company?booked=1&lang=en",
+    );
   });
 });
