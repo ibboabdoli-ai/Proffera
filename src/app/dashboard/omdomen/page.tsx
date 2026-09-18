@@ -173,12 +173,12 @@ export default async function WebsiteReviewsPage({ searchParams }: ReviewsPagePr
       </div>
 
       {value("updated") === "1" ? (
-        <p className="rounded-2xl bg-[#eef8f1] p-4 text-sm font-semibold text-[#17452f] ring-1 ring-[#cfe8d6]" role="status">
+        <p className="rounded-2xl bg-[#eef8f1] p-4 text-sm font-semibold text-[#087754] ring-1 ring-[#cfe8d6]" role="status">
           {isEnglish ? "Review updated." : "Omdömet uppdaterades."}
         </p>
       ) : null}
       {value("deleted") === "1" ? (
-        <p className="rounded-2xl bg-[#eef8f1] p-4 text-sm font-semibold text-[#17452f] ring-1 ring-[#cfe8d6]" role="status">
+        <p className="rounded-2xl bg-[#eef8f1] p-4 text-sm font-semibold text-[#087754] ring-1 ring-[#cfe8d6]" role="status">
           {isEnglish ? "Review permanently deleted." : "Omdömet raderades permanent."}
         </p>
       ) : null}
@@ -318,7 +318,7 @@ export default async function WebsiteReviewsPage({ searchParams }: ReviewsPagePr
 
                 {review.status === "approved" && review.isVerified ? (
                   <details className="mt-4 rounded-2xl border border-[#d5e7da] bg-[#f7faf7] open:bg-white">
-                    <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-bold text-[#17452f]">
+                    <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-bold text-[#087754]">
                       <MessageSquareReply className="size-4" aria-hidden="true" />
                       {isEnglish ? "Owner reply & featured" : "Företagets svar & utvald"}
                     </summary>
@@ -345,12 +345,12 @@ export default async function WebsiteReviewsPage({ searchParams }: ReviewsPagePr
                           className="mt-1 size-4 shrink-0"
                         />
                         <span>
-                          <strong className="block text-[#17201a]">{isEnglish ? "Feature this review" : "Markera som utvalt omdöme"}</strong>
+                          <strong className="block text-[#11213b]">{isEnglish ? "Feature this review" : "Markera som utvalt omdöme"}</strong>
                           {isEnglish ? "Featured reviews are shown first on the public website." : "Utvalda omdömen visas först på den offentliga webbplatsen."}
                         </span>
                       </label>
                       <div>
-                        <button type="submit" className="min-h-11 rounded-xl bg-[#173e2b] px-4 text-sm font-bold text-white">
+                        <button type="submit" className="min-h-11 rounded-xl bg-[#0a2e63] px-4 text-sm font-bold text-white">
                           {isEnglish ? "Save reply & display" : "Spara svar & visning"}
                         </button>
                       </div>
@@ -424,7 +424,7 @@ export default async function WebsiteReviewsPage({ searchParams }: ReviewsPagePr
                       />
                     </label>
                     <div>
-                      <button type="submit" className="min-h-11 rounded-xl bg-[#173e2b] px-4 text-sm font-bold text-white">
+                      <button type="submit" className="min-h-11 rounded-xl bg-[#0a2e63] px-4 text-sm font-bold text-white">
                         {isEnglish ? "Save changes" : "Spara ändringar"}
                       </button>
                     </div>
