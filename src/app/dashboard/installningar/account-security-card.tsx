@@ -87,7 +87,7 @@ export function AccountSecurityCard() {
         </label>
         {message ? <p role={isError ? "alert" : "status"} className={`rounded-control px-4 py-3 text-sm font-semibold sm:col-span-2 ${isError ? "border border-[#f4c7ba] bg-[#fff5f2] text-danger" : "border border-[#cfe8d6] bg-[#eaf8f2] text-[#087754]"}`}>{message}</p> : null}
         <div className="sm:col-span-2">
-          <button type="submit" disabled={isPending} className="inline-flex min-h-11 items-center justify-center rounded-control bg-[#17452f] px-5 py-3 text-sm font-bold text-white transition hover:bg-brand-hover focus:outline-none focus:ring-2 focus:ring-brand focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70">
+          <button type="submit" disabled={isPending} className="inline-flex min-h-11 items-center justify-center rounded-control bg-[#1469d8] px-5 py-3 text-sm font-bold text-white transition hover:bg-brand-hover focus:outline-none focus:ring-2 focus:ring-brand focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70">
             {isPending ? "Sparar..." : "Byt lösenord"}
           </button>
         </div>
