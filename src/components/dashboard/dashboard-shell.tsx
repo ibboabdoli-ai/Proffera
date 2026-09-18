@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import {
   BarChart3,
   Bot,
@@ -27,6 +27,22 @@ import { authClient } from "@/lib/auth-client";
 import { dashboardNavigation, type ProfferaModuleAccess } from "@/lib/proffera-modules";
 import type { WorkspaceOption } from "@/lib/workspace-access";
 import type { WorkspaceFeatureKey } from "@/lib/workspace-module-access";
+
+const dashboardTheme = {
+  "--pf-canvas": "#f5f7fa",
+  "--pf-surface": "#ffffff",
+  "--pf-surface-subtle": "#f8fafc",
+  "--pf-ink": "#11213b",
+  "--pf-ink-muted": "#617085",
+  "--pf-line": "#dce4ee",
+  "--pf-line-strong": "#bfd2ec",
+  "--pf-brand": "#1469d8",
+  "--pf-brand-hover": "#0f5fc7",
+  "--pf-brand-deep": "#0a2e63",
+  "--pf-brand-soft": "#eaf2ff",
+  "--pf-brand-tint": "#eef5ff",
+  "--pf-on-brand-muted": "#dce8f7",
+} as CSSProperties;
 
 type DashboardLocale = "sv" | "en";
 
@@ -259,7 +275,7 @@ export function DashboardShell({ children, workspaceName = "Proffera", workspace
   }
 
   return (
-    <div className="min-h-screen bg-[#f5f7fa] text-[#11213b]" lang={locale}>
+    <div className="min-h-screen bg-[#f5f7fa] text-[#11213b]" lang={locale} style={dashboardTheme}>
       <div className="grid min-h-screen lg:grid-cols-[264px_minmax(0,1fr)]">
         <aside className="sticky top-0 hidden h-screen overflow-y-auto bg-[#0a2e63] px-4 py-5 lg:flex lg:flex-col">
           <div className="px-2"><Brand workspaceName={workspaceName} locale={locale} /></div>
