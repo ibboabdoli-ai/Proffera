@@ -8,19 +8,30 @@ export const runtime = "nodejs";
 export async function POST(request: Request) {
   const formData = await request.formData().catch(() => null);
   const token = String(formData?.get("token") ?? "");
+  const locale = formData?.get("lang") === "en" ? "en" : "sv";
   const payment = await getPublicServiceJobPayment(token);
   if (!payment || payment.status !== "pending" || !payment.accountReady) return NextResponse.json({ error: "payment_unavailable" }, { status: 400 });
   const stripe = getStripeClient();
   if (!stripe) return NextResponse.json({ error: "stripe_unavailable" }, { status: 503 });
 
+  const paymentPath = `/betala/${token}`;
+  const paymentUrl = new URL(paymentPath, request.url);
+  if (locale === "en") paymentUrl.searchParams.set("lang", "en");
+
   try {
     if (payment.checkoutSessionId) {
       const existing = await stripe.checkout.sessions.retrieve(payment.checkoutSessionId).catch(() => null);
       if (existing?.status === "open" && existing.url) return NextResponse.redirect(existing.url, 303);
-      if (existing?.status === "complete") return NextResponse.redirect(new URL(`/betala/${token}`, request.url), 303);
+      if (existing?.status === "complete") return NextResponse.redirect(paymentUrl, 303);
     }
 
     const baseUrl = new URL(request.url).origin;
+    const successUrl = new URL(paymentPath, baseUrl);
+    successUrl.searchParams.set("status", "success");
+    if (locale === "en") successUrl.searchParams.set("lang", "en");
+    const cancelUrl = new URL(paymentPath, baseUrl);
+    if (locale === "en") cancelUrl.searchParams.set("lang", "en");
+
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       line_items: [{
@@ -47,8 +58,8 @@ export async function POST(request: Request) {
           service_job_id: payment.serviceJobId,
         },
       },
-      success_url: `${baseUrl}/betala/${token}?status=success`,
-      cancel_url: `${baseUrl}/betala/${token}`,
+      success_url: successUrl.toString(),
+      cancel_url: cancelUrl.toString(),
     });
     if (!session.url) return NextResponse.json({ error: "checkout_unavailable" }, { status: 502 });
     await bindServiceJobCheckoutSession(payment.id, session.id);
