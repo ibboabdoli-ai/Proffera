@@ -87,4 +87,27 @@ describe("dashboard workflow human-designed UX contract", () => {
       expect(page).toContain("bg-surface");
     }
   });
+
+  it("aligns customer detail, offer editing, attachments, invitations, and settings cards", () => {
+    const customer = source("src/app/dashboard/kunder/[id]/page.tsx");
+    const offerEditor = source("src/app/dashboard/offerter/[id]/offer/[offerId]/page.tsx");
+    const attachments = source("src/app/dashboard/uppdrag/[id]/attachment-manager.tsx");
+    const invitationManager = source("src/app/dashboard/omdomen/inbjudningar/review-invitation-manager.tsx");
+    const security = source("src/app/dashboard/installningar/account-security-card.tsx");
+    const members = source("src/app/dashboard/installningar/workspace-members-card.tsx");
+    const billing = source("src/app/dashboard/installningar/workspace-billing-card.tsx");
+    const services = source("src/app/dashboard/installningar/services-read-only.tsx");
+
+    expect(customer).toContain("createCustomerNoteAction");
+    expect(customer).toContain("rounded-panel border border-line bg-surface");
+    expect(offerEditor).toContain("updateDashboardWorkspaceQuoteOfferDraft");
+    expect(offerEditor).toContain('name="expectedUpdatedAt"');
+    expect(attachments).toContain('action="/api/dashboard/service-jobs/attachments"');
+    expect(invitationManager).toContain('fetch("/api/dashboard/review-invitations"');
+    expect(security).toContain('fetch("/api/auth/change-password"');
+    expect(members).toContain("addWorkspaceMemberAction");
+    expect(billing).toContain('fetch("/api/stripe/checkout"');
+    expect(services).toContain("createWorkspaceServiceAction");
+    expect(services).toContain("updateWorkspaceServiceAction");
+  });
 });
