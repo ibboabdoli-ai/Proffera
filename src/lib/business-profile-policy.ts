@@ -85,7 +85,7 @@ export type BusinessProfileOwnerSource = {
   bookingSlug: string;
   companyName: string;
   businessIntro: string;
-  logoUrl: string;
+  logoUrl?: string;
   heroImageUrl: string;
   featuredMediaUrl: string;
   services: BusinessProfileOwnerServiceSource[];
