@@ -63,4 +63,23 @@ describe("auth and signup human-designed UX contract", () => {
     expect(page).not.toContain("radial-gradient");
     expect(signup).not.toContain("radial-gradient");
   });
+
+  it("keeps activation and member invitations bilingual with locale-preserving redirects", () => {
+    const activation = source("src/app/aktivera/[token]/activation-view.tsx");
+    const activationForm = source("src/app/aktivera/[token]/activation-form.tsx");
+    const invite = source("src/app/bjud-in/[token]/page.tsx");
+    const inviteAction = source("src/app/bjud-in/[token]/actions.ts");
+
+    expect(activation).toContain('sv: {');
+    expect(activation).toContain('en: {');
+    expect(activation).toContain("applyActivationLocaleChange");
+    expect(activation).toContain("authStyles.languageButton");
+    expect(activationForm).toContain('name="lang"');
+    expect(invite).toContain('sv: {');
+    expect(invite).toContain('en: {');
+    expect(invite).toContain("authStyles.languageLink");
+    expect(invite).toContain("<ActivationForm");
+    expect(inviteAction).toContain('formData.get("lang")');
+    expect(inviteAction).toContain('"/logga-in?lang=en&created=1"');
+  });
 });
