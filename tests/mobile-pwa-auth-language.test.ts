@@ -46,6 +46,7 @@ import {
   DashboardShell,
   handleMobileMenuKeydown,
   localizedHref,
+  mobileLanguageLinkStyle,
 } from "../src/components/dashboard/dashboard-shell";
 import { Header } from "../src/components/layout/header";
 import {
@@ -164,6 +165,17 @@ describe("mobile PWA and auth language contract", () => {
     expect(form).not.toMatch(/name="password"[^>]*value=/);
     expect(form).not.toMatch(/name="confirm_password"[^>]*value=/);
     expect(form).toContain("Activate customer portal");
+  });
+
+  it("keeps the mobile language switch readable in WebKit", () => {
+    expect(mobileLanguageLinkStyle).toEqual({
+      color: "#ffffff",
+      WebkitTextFillColor: "#ffffff",
+    });
+
+    expect(source("src/components/dashboard/dashboard-shell.tsx")).toContain(
+      'style={mobileLanguageLinkStyle}>{text.language}</Link>',
+    );
   });
 
   it("preserves dashboard query context when switching language", () => {
