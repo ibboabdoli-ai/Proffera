@@ -26,6 +26,12 @@ function reviewHref(token: string, locale: Locale) {
   return locale === "en" ? base + "?lang=en" : base;
 }
 
+const englishMetadata: Metadata = {
+  title: { absolute: "Verified customer review" },
+  description: "Submit a secure, single-use review for a completed customer booking.",
+  robots: { index: false, follow: false },
+};
+
 export async function generateMetadata({
   searchParams,
 }: {
@@ -33,11 +39,10 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const query = await (searchParams ?? Promise.resolve(undefined));
   const locale = localeFrom(query?.lang, "sv");
+  if (locale === "en") return englishMetadata;
   return {
-    title: { absolute: locale === "en" ? "Verified customer review" : "Verifierat kundomdöme" },
-    description: locale === "en"
-      ? "Submit a secure, single-use review for a completed customer booking."
-      : "Lämna ett säkert verifierat omdöme efter en slutförd bokning.",
+    title: { absolute: "Verifierat kundomdöme" },
+    description: "Lämna ett säkert verifierat omdöme efter en slutförd bokning.",
     robots: { index: false, follow: false },
   };
 }
