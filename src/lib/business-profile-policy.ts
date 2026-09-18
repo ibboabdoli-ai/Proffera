@@ -85,7 +85,7 @@ export type BusinessProfileOwnerSource = {
   bookingSlug: string;
   companyName: string;
   businessIntro: string;
-  logoUrl?: string;
+  logoUrl: string;
   heroImageUrl: string;
   featuredMediaUrl: string;
   services: BusinessProfileOwnerServiceSource[];
@@ -200,7 +200,7 @@ export type SearchCardBusinessProjection = {
   city: string;
   municipality: string;
   media: ResolvedBusinessProfileMedia | null;
-  logoUrl: string;
+  logoUrl?: string;
   canonicalServiceSlugs: string[];
   reputation: null | {
     rating: number;
