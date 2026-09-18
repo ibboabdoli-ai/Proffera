@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { BadgeCheck, ShieldCheck } from "lucide-react";
+import { cache } from "react";
 
 import styles from "@/app/public-customer-lifecycle.module.css";
 import { VerifiedReviewForm } from "@/app/review/[token]/verified-review-form";
@@ -11,6 +12,18 @@ import { hashVerifiedReviewToken } from "@/lib/verified-review-token";
 export const dynamic = "force-dynamic";
 
 type Locale = "sv" | "en";
+
+type MarketplaceReviewPageProps = {
+  params: Promise<{ token: string }>;
+  searchParams?: Promise<{ lang?: string | string[] }>;
+};
+
+const getCachedMarketplaceVerifiedReviewInvitation = cache(async (token: string) => {
+  const parsed = verifiedReviewTokenSchema.safeParse(token);
+  return parsed.success
+    ? await getMarketplaceVerifiedReviewPreviewByHash(hashVerifiedReviewToken(parsed.data))
+    : null;
+});
 
 function localeFrom(value: string | string[] | undefined, fallback: Locale): Locale {
   if (Array.isArray(value)) return value[0] === "en" ? "en" : value[0] === "sv" ? "sv" : fallback;
@@ -24,12 +37,13 @@ function reviewHref(token: string, locale: Locale) {
 }
 
 export async function generateMetadata({
+  params,
   searchParams,
-}: {
-  searchParams?: Promise<{ lang?: string | string[] }>;
-}): Promise<Metadata> {
-  const query = await (searchParams ?? Promise.resolve(undefined));
-  const locale = localeFrom(query?.lang, "sv");
+}: MarketplaceReviewPageProps): Promise<Metadata> {
+  const [{ token }, query] = await Promise.all([params, searchParams ?? Promise.resolve(undefined)]);
+  const invitation = await getCachedMarketplaceVerifiedReviewInvitation(token);
+  const invitationLanguage: Locale = invitation?.language === "en" ? "en" : "sv";
+  const locale = localeFrom(query?.lang, invitationLanguage);
   return {
     title: { absolute: locale === "en" ? "Verified Marketplace review" : "Verifierat Marketplace-omdöme" },
     description: locale === "en"
@@ -61,15 +75,9 @@ type UnavailableReviewState = keyof (typeof stateCopy)["sv"];
 export default async function MarketplaceVerifiedReviewPage({
   params,
   searchParams,
-}: {
-  params: Promise<{ token: string }>;
-  searchParams?: Promise<{ lang?: string | string[] }>;
-}) {
+}: MarketplaceReviewPageProps) {
   const [{ token }, query] = await Promise.all([params, searchParams ?? Promise.resolve(undefined)]);
-  const parsed = verifiedReviewTokenSchema.safeParse(token);
-  const invitation = parsed.success
-    ? await getMarketplaceVerifiedReviewPreviewByHash(hashVerifiedReviewToken(parsed.data))
-    : null;
+  const invitation = await getCachedMarketplaceVerifiedReviewInvitation(token);
   const invitationLanguage: Locale = invitation?.language === "en" ? "en" : "sv";
   const language = localeFrom(query?.lang, invitationLanguage);
   const companyName = invitation?.companyName ?? (language === "en" ? "Service provider" : "Tjänsteföretag");

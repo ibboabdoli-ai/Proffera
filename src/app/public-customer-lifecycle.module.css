@@ -282,6 +282,7 @@
 .dangerButton:focus-visible,
 .submitButton:focus-visible,
 .languageLink:focus-visible,
+.companyIdentity:focus-visible,
 .starButton:focus-visible,
 .input:focus-visible,
 .textarea:focus-visible {

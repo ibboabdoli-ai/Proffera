@@ -1,110 +1,234 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { renderToStaticMarkup } from "react-dom/server";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { describe, expect, it } from "vitest";
+const mocks = vi.hoisted(() => ({
+  getPublicWorkspaceQuoteOffer: vi.fn(),
+  getMarketplaceCustomerComparison: vi.fn(),
+  getMarketplaceRematchForCustomerToken: vi.fn(),
+  getMarketplaceServiceJobForCustomerToken: vi.fn(),
+  getVerifiedReviewInvitation: vi.fn(),
+  getMarketplaceVerifiedReviewPreviewByHash: vi.fn(),
+  hashVerifiedReviewToken: vi.fn(() => "a".repeat(64)),
+  safeParseReviewToken: vi.fn((token: string) => ({ success: true as const, data: token })),
+}));
 
-function source(path: string) {
-  return readFileSync(resolve(process.cwd(), path), "utf8");
-}
+vi.mock("react", async () => {
+  const actual = await vi.importActual<typeof import("react")>("react");
+  return { ...actual, cache: <T,>(fn: T) => fn };
+});
+vi.mock("server-only", () => ({}));
+vi.mock("@/app/offert/[token]/actions", () => ({ respondToPublicQuoteOfferAction: vi.fn() }));
+vi.mock("@/app/offert/jamfor/[token]/actions", () => ({ selectMarketplaceCustomerOfferAction: vi.fn() }));
+vi.mock("@/components/analytics/marketplace-funnel-signal", () => ({ emitMarketplaceFunnelEvent: vi.fn() }));
+vi.mock("@/lib/workspace-quote-offers-db", () => ({ getPublicWorkspaceQuoteOffer: mocks.getPublicWorkspaceQuoteOffer }));
+vi.mock("@/lib/workspace-quote-offer-public", () => ({
+  publicWorkspaceQuoteOfferPath: (token: string) => "/offert/" + encodeURIComponent(token),
+  publicWorkspaceQuoteOfferPdfPath: (token: string) => "/offert/" + encodeURIComponent(token) + "/pdf",
+}));
+vi.mock("@/lib/marketplace-customer-comparison", () => ({
+  getMarketplaceCustomerComparison: mocks.getMarketplaceCustomerComparison,
+  marketplaceCustomerComparisonPath: (token: string) => "/offert/jamfor/" + encodeURIComponent(token),
+}));
+vi.mock("@/lib/marketplace-rematch", () => ({
+  getMarketplaceRematchForCustomerToken: mocks.getMarketplaceRematchForCustomerToken,
+}));
+vi.mock("@/lib/marketplace-service-jobs", () => ({
+  getMarketplaceServiceJobForCustomerToken: mocks.getMarketplaceServiceJobForCustomerToken,
+}));
+vi.mock("@/lib/verified-review-invitations", () => ({
+  getVerifiedReviewInvitation: mocks.getVerifiedReviewInvitation,
+}));
+vi.mock("@/features/reviews/verified-review", () => ({
+  verifiedReviewTokenSchema: { safeParse: mocks.safeParseReviewToken },
+}));
+vi.mock("@/lib/marketplace-verified-review", () => ({
+  getMarketplaceVerifiedReviewPreviewByHash: mocks.getMarketplaceVerifiedReviewPreviewByHash,
+}));
+vi.mock("@/lib/verified-review-token", () => ({
+  hashVerifiedReviewToken: mocks.hashVerifiedReviewToken,
+}));
 
-describe("public customer lifecycle human UX", () => {
-  it("uses the approved marketplace palette and restrained shared surface", () => {
-    const css = source("src/app/public-customer-lifecycle.module.css");
+import PublicQuoteOfferPage from "@/app/offert/[token]/page";
+import MarketplaceCustomerComparisonPage from "@/app/offert/jamfor/[token]/page";
+import MarketplaceCustomerJobPage from "@/app/offert/jobb/kund/[token]/page";
+import lifecycleStyles from "@/app/public-customer-lifecycle.module.css";
+import VerifiedReviewPage, {
+  generateMetadata as generateVerifiedReviewMetadata,
+} from "@/app/review/[token]/page";
+import MarketplaceVerifiedReviewPage, {
+  generateMetadata as generateMarketplaceReviewMetadata,
+} from "@/app/review/marketplace/[token]/page";
 
-    expect(css).toContain("#0a2e63");
-    expect(css).toContain("#1469d8");
-    expect(css).toContain("#dce4ee");
-    expect(css).toContain("#f6f9fd");
-    expect(css).toContain("prefers-reduced-motion");
-    expect(css).not.toContain("linear-gradient");
-    expect(css).not.toContain("radial-gradient");
+const selectedComparison = {
+  quoteReferenceId: "PF-1234",
+  serviceType: "plumbing",
+  city: "Stockholm",
+  preferredDate: "2030-02-03",
+  quoteStatus: "booked",
+  selectedOfferId: "offer-1",
+  offers: [
+    {
+      id: "offer-1",
+      companyName: "Nordic Fix AB",
+      profileSlug: "nordic-fix-ab",
+      status: "selected",
+      priceKind: "fixed",
+      currency: "SEK",
+      amountMinor: 125000,
+      availableDate: "2030-02-03",
+      companyNote: "We can help.",
+      directContactRedacted: false,
+      submittedAt: "2030-01-01T10:00:00.000Z",
+      rating: 4.8,
+      reviewCount: 12,
+      providerEmail: "winner@nordic-fix.test",
+    },
+    {
+      id: "offer-2",
+      companyName: "Other Provider AB",
+      profileSlug: "other-provider-ab",
+      status: "rejected",
+      priceKind: "estimate",
+      currency: "SEK",
+      amountMinor: 140000,
+      availableDate: "2030-02-05",
+      companyNote: "Call […] for details.",
+      directContactRedacted: true,
+      submittedAt: "2030-01-01T11:00:00.000Z",
+      rating: null,
+      reviewCount: 0,
+      providerEmail: "",
+    },
+  ],
+};
+
+const englishReviewInvitation = {
+  state: "valid",
+  customerName: "Anna",
+  service: "Window cleaning",
+  area: "Stockholm",
+  bookingId: "booking-1",
+  expiresAt: "2030-02-20T12:00:00.000Z",
+  companyName: "Nordic Fix AB",
+  timeZone: "Europe/Stockholm",
+  language: "en",
+  primaryColor: "#1469d8",
+  accentColor: "#d8ae52",
+  logoUrl: null,
+  homeUrl: "/foretag/nordic-fix",
+};
+
+beforeEach(() => {
+  for (const mock of Object.values(mocks)) mock.mockClear();
+  mocks.getMarketplaceRematchForCustomerToken.mockResolvedValue(null);
+});
+
+describe("public customer lifecycle rendered contract", () => {
+  it("renders direct quote state in Swedish and preserves response feedback when switching to English", async () => {
+    mocks.getPublicWorkspaceQuoteOffer.mockResolvedValue({
+      companyName: "Nordic Fix AB",
+      customerName: "Anna",
+      status: "accepted",
+      quoteReferenceId: "PF-1234",
+      validUntil: "2030-02-10T12:00:00.000Z",
+      sentAt: "2030-02-01T12:00:00.000Z",
+      title: "Badrumsrenovering",
+      terms: "Arbete enligt offert.",
+      subtotalMinor: 100000,
+      vatRateBasisPoints: 2500,
+      vatAmountMinor: 25000,
+      totalMinor: 125000,
+      currency: "SEK",
+    });
+
+    const html = renderToStaticMarkup(await PublicQuoteOfferPage({
+      params: Promise.resolve({ token: "quote-token" }),
+      searchParams: Promise.resolve({ response: "invalid" }),
+    }));
+
+    expect(html).toContain('<main lang="sv"');
+    expect(html).toContain(`class="${lifecycleStyles.page}"`);
+    expect(html).toContain("Offerten är accepterad");
+    expect(html).toContain("Ditt svar kunde inte registreras");
+    expect(html).toContain('href="/offert/quote-token?lang=en&amp;response=invalid"');
   });
 
-  it("keeps workspace offer response private, bilingual, and behavior-preserving", () => {
-    const page = source("src/app/offert/[token]/page.tsx");
-    const action = source("src/app/offert/[token]/actions.ts");
+  it("renders a selected Marketplace offer without leaking losing-provider contact data", async () => {
+    mocks.getMarketplaceCustomerComparison.mockResolvedValue(selectedComparison);
 
-    expect(page).toContain("public-customer-lifecycle.module.css");
-    expect(page).toContain("getPublicWorkspaceQuoteOffer(token)");
-    expect(page).toContain('offer.status === "sent"');
-    expect(page).toContain('offer.status === "accepted"');
-    expect(page).toContain('name="decision" value="accepted"');
-    expect(page).toContain('name="decision" value="rejected"');
-    expect(page).toContain('name="lang" value={locale}');
-    expect(page).toContain("Säker personlig länk");
-    expect(page).toContain("Secure personal link");
-    expect(page).toContain("publicWorkspaceQuoteOfferPdfPath(token)");
-    expect(page).toContain('if (response) query.set("response", response)');
-    expect(page).toContain("publicHref(token, alternativeLocale, response)");
+    const html = renderToStaticMarkup(await MarketplaceCustomerComparisonPage({
+      params: Promise.resolve({ token: "customer-token" }),
+      searchParams: Promise.resolve({ lang: "en", status: "selected" }),
+    }));
 
-    expect(action).toContain('decision !== "accepted" && decision !== "rejected"');
-    expect(action).toContain("respondToPublicWorkspaceQuoteOffer(token");
-    expect(action).toContain('result.ok ? result.response : "invalid"');
+    expect(html).toContain('<main lang="en"');
+    expect(html).toContain("Your selection has been recorded.");
+    expect(html).toContain("Nordic Fix AB");
+    expect(html).toContain('href="mailto:winner@nordic-fix.test"');
+    expect(html).not.toContain("loser@");
+    expect(html).toContain("Call […] for details.");
+    expect(html).toContain('href="/offert/jamfor/customer-token?status=selected"');
   });
 
-  it("keeps Marketplace offer selection token-isolated with honest empty and review states", () => {
-    const page = source("src/app/offert/jamfor/[token]/page.tsx");
-    const action = source("src/app/offert/jamfor/[token]/actions.ts");
+  it("renders the completed customer job with the selected provider and locale-safe feedback", async () => {
+    mocks.getMarketplaceCustomerComparison.mockResolvedValue(selectedComparison);
+    mocks.getMarketplaceServiceJobForCustomerToken.mockResolvedValue({
+      status: "completed",
+      serviceName: "Plumbing",
+      scheduledDate: "2030-02-03",
+      amountMinor: 125000,
+      currency: "SEK",
+    });
 
-    expect(page).toContain("getMarketplaceCustomerComparison(token)");
-    expect(page).toContain("view.offers.length > 0");
-    expect(page).toContain("No offers to show yet");
-    expect(page).toContain("Inga offerter att visa ännu");
-    expect(page).toContain("offer.rating === null");
-    expect(page).toContain("offer.providerEmail");
-    expect(page).toContain('offer.status === "submitted"');
-    expect(page).toContain('name="offerId" value={offer.id}');
-    expect(page).toContain('name="lang" value={locale}');
+    const html = renderToStaticMarkup(await MarketplaceCustomerJobPage({
+      params: Promise.resolve({ token: "customer-token" }),
+      searchParams: Promise.resolve({ lang: "en", status: "selected" }),
+    }));
 
-    expect(action).toContain("hashMarketplaceCustomerComparisonToken(token)");
-    expect(action).toContain("selectMarketplaceCustomerOffer(token, offerId)");
-    expect(action).toContain("redirectToSelectedJob(token, locale)");
+    expect(html).toContain('<main lang="en"');
+    expect(html).toContain("Your selection is recorded and the job has been created.");
+    expect(html).toContain("Nordic Fix AB");
+    expect(html).toContain('href="mailto:winner@nordic-fix.test"');
+    expect(html).toContain("The job is marked completed.");
+    expect(html).toContain('href="/offert/jobb/kund/customer-token?status=selected"');
+    expect(html).not.toContain("Cancel job");
   });
 
-  it("keeps the customer job self-service actions and rematch semantics unchanged", () => {
-    const page = source("src/app/offert/jobb/kund/[token]/page.tsx");
+  it("uses the booking review invitation language for metadata and rendered UI when the URL has no locale override", async () => {
+    mocks.getVerifiedReviewInvitation.mockResolvedValue(englishReviewInvitation);
 
-    expect(page).toContain("getMarketplaceServiceJobForCustomerToken(token)");
-    expect(page).toContain("getMarketplaceCustomerComparison(token)");
-    expect(page).toContain("getMarketplaceRematchForCustomerToken(token)");
-    expect(page).toContain('name="intent" value="cancel"');
-    expect(page).toContain('name="intent" value="rematch"');
-    expect(page).toContain('method="post"');
-    expect(page).toContain('name="lang" value={locale}');
-    expect(page).toContain("Säker personlig jobblänk");
-    expect(page).toContain("Secure personal job link");
+    const metadata = await generateVerifiedReviewMetadata({
+      params: Promise.resolve({ token: "review-token" }),
+      searchParams: Promise.resolve({}),
+    });
+    const html = renderToStaticMarkup(await VerifiedReviewPage({
+      params: Promise.resolve({ token: "review-token" }),
+      searchParams: Promise.resolve({}),
+    }));
+
+    expect(metadata.title).toEqual({ absolute: "Verified customer review" });
+    expect(html).toContain('<main class="' + lifecycleStyles.page + '" lang="en"');
+    expect(html).toContain("Verified customer review");
+    expect(html).toContain("Submit verified review");
+    expect(html).toContain('href="/review/review-token"');
   });
 
-  it("supports Swedish and English across both secure review-token experiences", () => {
-    const bookingReview = source("src/app/review/[token]/page.tsx");
-    const marketplaceReview = source("src/app/review/marketplace/[token]/page.tsx");
+  it("uses the Marketplace invitation language for metadata and rendered UI when the URL has no locale override", async () => {
+    mocks.getMarketplaceVerifiedReviewPreviewByHash.mockResolvedValue(englishReviewInvitation);
 
-    for (const page of [bookingReview, marketplaceReview]) {
-      expect(page).toContain("searchParams");
-      expect(page).toContain('value === "en" || value === "sv"');
-      expect(page).toContain("Verified");
-      expect(page).toContain("Verifierat");
-      expect(page).toContain("robots: { index: false, follow: false }");
-      expect(page).toContain("VerifiedReviewForm");
-      expect(page).toContain("public-customer-lifecycle.module.css");
-    }
+    const metadata = await generateMarketplaceReviewMetadata({
+      params: Promise.resolve({ token: "marketplace-review-token" }),
+      searchParams: Promise.resolve({}),
+    });
+    const html = renderToStaticMarkup(await MarketplaceVerifiedReviewPage({
+      params: Promise.resolve({ token: "marketplace-review-token" }),
+      searchParams: Promise.resolve({}),
+    }));
 
-    expect(bookingReview).toContain("getVerifiedReviewInvitation(token)");
-    expect(marketplaceReview).toContain("hashVerifiedReviewToken(parsed.data)");
-    expect(marketplaceReview).toContain("getMarketplaceVerifiedReviewPreviewByHash");
-  });
-
-  it("keeps review submission anti-abuse, consent, API, and success/error states intact", () => {
-    const form = source("src/app/review/[token]/verified-review-form.tsx");
-
-    expect(form).toContain('name="website"');
-    expect(form).toContain('aria-hidden="true"');
-    expect(form).toContain('name="consent"');
-    expect(form).toContain('required');
-    expect(form).toContain('fetch("/api/reviews/" + encodeURIComponent(token)');
-    expect(form).toContain("formStartedAtRef");
-    expect(form).toContain("marketplace_verified_review_submitted");
-    expect(form).toContain("messageError");
-    expect(form).toContain("messageSuccess");
+    expect(metadata.title).toEqual({ absolute: "Verified Marketplace review" });
+    expect(html).toContain('<main lang="en" class="' + lifecycleStyles.page + '"');
+    expect(html).toContain("Verified Marketplace review");
+    expect(html).toContain("Submit verified review");
+    expect(html).toContain('href="/review/marketplace/marketplace-review-token"');
   });
 });

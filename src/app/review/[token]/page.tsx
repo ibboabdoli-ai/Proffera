@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { BadgeCheck, Clock3, ShieldCheck } from "lucide-react";
+import { cache } from "react";
 
 import { getVerifiedReviewInvitation } from "@/lib/verified-review-invitations";
 import styles from "@/app/public-customer-lifecycle.module.css";
@@ -14,6 +15,8 @@ type ReviewPageProps = {
   params: Promise<{ token: string }>;
   searchParams?: Promise<{ lang?: string | string[] }>;
 };
+
+const getCachedVerifiedReviewInvitation = cache(getVerifiedReviewInvitation);
 
 function localeFrom(value: string | string[] | undefined, fallback: Locale): Locale {
   if (Array.isArray(value)) return value[0] === "en" ? "en" : value[0] === "sv" ? "sv" : fallback;
@@ -33,12 +36,13 @@ const englishMetadata: Metadata = {
 };
 
 export async function generateMetadata({
+  params,
   searchParams,
-}: {
-  searchParams?: Promise<{ lang?: string | string[] }>;
-}): Promise<Metadata> {
-  const query = await (searchParams ?? Promise.resolve(undefined));
-  const locale = localeFrom(query?.lang, "sv");
+}: ReviewPageProps): Promise<Metadata> {
+  const [{ token }, query] = await Promise.all([params, searchParams ?? Promise.resolve(undefined)]);
+  const invitation = await getCachedVerifiedReviewInvitation(token);
+  const invitationLanguage: Locale = invitation.language === "en" ? "en" : "sv";
+  const locale = localeFrom(query?.lang, invitationLanguage);
   if (locale === "en") return englishMetadata;
   return {
     title: { absolute: "Verifierat kundomdöme" },
@@ -66,7 +70,7 @@ const stateContent = {
 
 export default async function VerifiedReviewPage({ params, searchParams }: ReviewPageProps) {
   const [{ token }, query] = await Promise.all([params, searchParams ?? Promise.resolve(undefined)]);
-  const invitation = await getVerifiedReviewInvitation(token);
+  const invitation = await getCachedVerifiedReviewInvitation(token);
   const invitationLanguage: Locale = invitation.language === "en" ? "en" : "sv";
   const language = localeFrom(query?.lang, invitationLanguage);
   const companyName = invitation.companyName ?? (language === "en" ? "Service provider" : "Tjänsteföretag");
