@@ -41,7 +41,7 @@ const copy = {
     title: "Jämför och välj ett företag",
     intro: "Du kan välja exakt en offert. Innan du väljer är direkta kontaktuppgifter låsta.",
     reference: "Referens",
-    location: "Plats",
+    serviceAndLocation: "Tjänst och plats",
     preferredDate: "Önskat datum",
     price: "Pris",
     inspection: "Platsbesök krävs",
@@ -76,7 +76,7 @@ const copy = {
     title: "Compare and choose one provider",
     intro: "You can select exactly one offer. Direct contact details stay locked until you choose.",
     reference: "Reference",
-    location: "Location",
+    serviceAndLocation: "Service and location",
     preferredDate: "Preferred date",
     price: "Price",
     inspection: "Site visit required",
@@ -214,8 +214,8 @@ export default async function MarketplaceCustomerComparisonPage({
               <dd className={styles.factValue}>{view.quoteReferenceId}</dd>
             </div>
             <div className={styles.fact}>
-              <dt className={styles.factLabel}>{text.location}</dt>
-              <dd className={styles.factValue}>{view.city}</dd>
+              <dt className={styles.factLabel}>{text.serviceAndLocation}</dt>
+              <dd className={styles.factValue}>{view.serviceType} · {view.city}</dd>
             </div>
             <div className={styles.fact}>
               <dt className={styles.factLabel}>{text.preferredDate}</dt>
