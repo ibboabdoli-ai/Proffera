@@ -127,7 +127,7 @@ export async function PublicDirectorySearchPage({
     : "";
 
   return (
-    <div lang={locale} className={styles.page}>
+    <div lang={locale} className={`${styles.page} bg-canvas border-line`}>
       <section className={styles.searchHero}>
         <div className={styles.searchHeroInner}>
           <div className={styles.searchIntro}>
