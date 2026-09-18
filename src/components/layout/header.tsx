@@ -22,11 +22,13 @@ const marketplaceNavigation = {
     { label: "Hitta företag", href: "/foretag/listad" },
     { label: "Populära tjänster", href: "/#populara-tjanster" },
     { label: "Så fungerar det", href: "/#sa-fungerar" },
+    { label: "Om oss", href: "/om" },
   ],
   en: [
     { label: "Find businesses", href: "/en/companies" },
     { label: "Popular services", href: "/en#populara-tjanster" },
     { label: "How it works", href: "/en#sa-fungerar" },
+    { label: "About us", href: "/en/about" },
   ],
 } as const;
 
