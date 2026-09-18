@@ -1,4 +1,6 @@
 import { ShieldCheck, Sparkles, Target } from "lucide-react";
+
+import styles from "@/components/marketing/platform-marketing.module.css";
 import { ButtonLink } from "@/components/ui/button-link";
 
 const values = [
@@ -9,38 +11,50 @@ const values = [
 
 export default function AboutPage() {
   return (
-    <div className="bg-[#f7f7f4]">
-      <section className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8 lg:py-24">
-        <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Om Proffera</p>
-        <h1 className="mt-3 max-w-4xl text-4xl font-bold tracking-tight text-[#17201a] sm:text-5xl">
-          Vi bygger ett enklare sätt för tjänsteföretag att växa digitalt.
-        </h1>
-        <p className="mt-5 max-w-3xl text-lg leading-8 text-[#5b665f]">
-          Proffera började som ett lead- och offertflöde och utvecklas stegvis till en SaaS-plattform för svenska småföretag.
-        </p>
-      </section>
-
-      <section className="mx-auto grid max-w-7xl gap-6 px-4 pb-16 sm:px-6 lg:grid-cols-3 lg:px-8">
-        {values.map(({ icon: Icon, title, text }) => (
-          <article key={title} className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
-            <Icon className="h-8 w-8 text-[#17452f]" aria-hidden="true" />
-            <h2 className="mt-4 text-xl font-semibold text-[#17201a]">{title}</h2>
-            <p className="mt-2 text-sm leading-6 text-[#5b665f]">{text}</p>
-          </article>
-        ))}
-      </section>
-
-      <section className="mx-auto max-w-7xl px-4 pb-16 sm:px-6 lg:px-8">
-        <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-[#dfe5dd]">
-          <h2 className="text-2xl font-bold text-[#17201a]">Nästa steg</h2>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-[#5b665f]">
-            Vi bygger vidare med publika sidor, dashboard, bokningsflöde, CRM och abonnemang på ett kontrollerat sätt. Planerade moduler lanseras först när de är klara för användning.
+    <main className={styles.page}>
+      <section className={styles.hero}>
+        <div className={styles.inner}>
+          <p className={styles.eyebrow}>Om Proffera</p>
+          <h1 className={styles.title}>Ett tydligare sätt för lokala tjänsteföretag att möta kunder digitalt.</h1>
+          <p className={styles.lead}>
+            Proffera började som ett lead- och offertflöde och utvecklas stegvis till en sammanhängande marknadsplats och arbetsyta för svenska tjänsteföretag.
           </p>
-          <div className="mt-6">
-            <ButtonLink href="/kontakt">Prata med oss</ButtonLink>
+        </div>
+      </section>
+
+      <section className={styles.sectionWhite}>
+        <div className={styles.compactInner}>
+          <div className={styles.sectionHeader}>
+            <div>
+              <p className={styles.eyebrow}>Vårt fokus</p>
+              <h2 className={styles.sectionTitle}>Praktiska flöden före dekorativa funktioner.</h2>
+            </div>
+            <p className={styles.sectionLead}>Vi bygger runt verkliga kundärenden, tydlig data och kontrollerad lansering av nya delar.</p>
+          </div>
+
+          <ul className={styles.valueList}>
+            {values.map(({ icon: Icon, title, text }) => (
+              <li key={title} className={styles.valueRow}>
+                <div className={styles.valueTitle}><Icon aria-hidden="true" />{title}</div>
+                <p>{text}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </section>
+
+      <section className={styles.sectionSoft}>
+        <div className={styles.compactInner}>
+          <div className={styles.ctaBand}>
+            <h2>Vill du se hur Proffera passar ditt kundflöde?</h2>
+            <p>Vi visar bara funktioner och flöden som faktiskt finns eller är tydligt markerade som planerade.</p>
+            <div className={styles.actions}>
+              <ButtonLink href="/kontakt">Prata med oss</ButtonLink>
+              <ButtonLink href="/demo" variant="secondary">Se demo</ButtonLink>
+            </div>
           </div>
         </div>
       </section>
-    </div>
+    </main>
   );
 }
