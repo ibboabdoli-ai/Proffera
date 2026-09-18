@@ -65,4 +65,24 @@ describe("public booking human-designed UX contract", () => {
     expect(page).toContain("visibleServices");
     expect(page).toContain("publishedHours");
   });
+
+  it("extends Swedish and English through customer self-service and rescheduling", () => {
+    const portalLanguage = source("src/lib/customer-portal-language.ts");
+    const portal = source("src/app/mina-bokningar/[token]/page.tsx");
+    const reschedule = source("src/app/mina-bokningar/[token]/[bookingId]/boka-om/page.tsx");
+    const picker = source("src/app/mina-bokningar/[token]/[bookingId]/boka-om/reschedule-slot-picker.tsx");
+
+    expect(portalLanguage).toContain("workspace_experience_settings");
+    expect(portalLanguage).toContain("defaultLanguage");
+    expect(portalLanguage).not.toContain('=== "primeview" ? "en" : "sv"');
+    expect(portal).toContain("getCustomerPortalPresentation");
+    expect(portal).toContain("resolvePortalLanguage");
+    expect(portal).toContain('language === "en"');
+    expect(portal).toContain("styles.languageNav");
+    expect(reschedule).toContain("getCustomerPortalPresentation");
+    expect(reschedule).toContain("rescheduleHref");
+    expect(reschedule).toContain('language === "en" ? "&lang=en" : ""');
+    expect(picker).toContain("language = \"sv\"");
+    expect(picker).toContain("isEnglish");
+  });
 });
