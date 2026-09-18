@@ -62,4 +62,23 @@ describe("dashboard secondary human-designed UX contract", () => {
     expect(gallery).toContain("publishedCount");
     expect(gallery).toContain("draftCount");
   });
+
+  it("aligns quote, calendar, staff, and marketplace pages without weakening their workflows", () => {
+    const quotes = source("src/app/dashboard/offerter/page.tsx");
+    const calendar = source("src/app/dashboard/kalender/page.tsx");
+    const staff = source("src/app/dashboard/personal/page.tsx");
+    const marketplace = source("src/app/dashboard/marknadsplats/page.tsx");
+
+    expect(quotes).toContain("getDashboardWorkspaceQuoteRequests()");
+    expect(quotes).toContain("bg-brand-deep");
+    expect(calendar).toContain("getDashboardCalendarEvents()");
+    expect(calendar).toContain("getDashboardWorkspaceSettings()");
+    expect(calendar).toContain("DashboardMetricGrid");
+    expect(staff).toContain("createDashboardStaffMember");
+    expect(staff).toContain("setDashboardStaffActive");
+    expect(staff).toContain('name="staff_id"');
+    expect(marketplace).toContain("findProviderProfileByOrganizationNumber");
+    expect(marketplace).toContain("activateProviderMarketplaceService");
+    expect(marketplace).toContain("DashboardPageHeader");
+  });
 });
