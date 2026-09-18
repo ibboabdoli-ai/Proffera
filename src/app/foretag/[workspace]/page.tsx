@@ -19,6 +19,8 @@ import {
   serializePublicBusinessJsonLd,
 } from "@/lib/public-business-seo";
 
+import styles from "./public-business-page.module.css";
+
 export const dynamic = "force-dynamic";
 
 type Props = {
@@ -76,73 +78,268 @@ export default async function PublicBusinessPage({ params, searchParams }: Props
   const languageSwitchHref = withPublicBusinessLocale(urls.companyHref, otherLocale);
 
   const dark = experience.appearance === "dark";
-  const background = dark ? "#101512" : experience.themeKey === "premium" ? "#f4f0e8" : experience.themeKey === "modern" ? "#edf4f6" : "#f7f8f5";
+  const background = dark ? "#101512" : experience.themeKey === "premium" ? "#f4f0e8" : experience.themeKey === "modern" ? "#edf4f6" : "#f8fafc";
   const card = dark ? "#19211c" : "#ffffff";
-  const text = dark ? "#f5f7f5" : "#17201a";
-  const muted = dark ? "#b9c3bc" : "#5d685f";
-  const subtleBorder = dark ? "rgba(255,255,255,.16)" : "rgba(0,0,0,.10)";
-  const style = { "--business-primary": experience.primaryColor, "--business-accent": experience.accentColor, background, color: text } as CSSProperties;
+  const text = dark ? "#f5f7f5" : "#11213b";
+  const muted = dark ? "#b9c3bc" : "#617085";
+  const subtleBorder = dark ? "rgba(255,255,255,.16)" : "#dce4ee";
+  const style = {
+    "--business-primary": experience.primaryColor,
+    "--business-accent": experience.accentColor,
+    "--business-bg": background,
+    "--business-card": card,
+    "--business-text": text,
+    "--business-muted": muted,
+    "--business-border": subtleBorder,
+  } as CSSProperties;
+
   const bookingHref = business.bookingEnabled && business.bookingSlug
     ? withPublicBusinessLocale(`/boka/${encodeURIComponent(business.bookingSlug)}`, locale)
     : "";
 
+  const hasHeroMedia = Boolean(experience.heroImageUrl || experience.heroVideoUrl);
+
   return (
-    <main lang={locale} style={style} className="min-h-screen px-4 py-6 sm:px-6 sm:py-10">
+    <main lang={locale} style={style} className={styles.page}>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializePublicBusinessJsonLd(jsonLd) }} />
       <PublicBusinessViewEvent workspaceId={business.id} />
-      <div className="mx-auto max-w-6xl">
-        <header className="flex items-center justify-between gap-4 pb-6">
-          <div className="flex min-w-0 items-center gap-3">
-            {experience.logoUrl ? <img src={experience.logoUrl} alt={`${business.companyName} logotyp`} className="max-h-12 max-w-40 object-contain" /> : <div style={{ background: experience.primaryColor }} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-lg font-black text-white">{business.companyName.slice(0, 1).toUpperCase()}</div>}
-            <div className="min-w-0"><p className="truncate text-lg font-black">{business.companyName}</p>{business.primaryCity ? <p style={{ color: muted }} className="truncate text-sm">{business.primaryCity}</p> : null}</div>
+
+      <div className={styles.shell}>
+        <header className={styles.header}>
+          <div className={styles.identity}>
+            {experience.logoUrl ? (
+              // Public tenant logos can live on tenant-specific Blob/CDN hosts.
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={experience.logoUrl} alt={`${business.companyName} logotyp`} className={styles.logoImage} />
+            ) : (
+              <div className={styles.logoFallback}>{business.companyName.slice(0, 1).toUpperCase()}</div>
+            )}
+            <div className={styles.identityText}>
+              <p className={styles.companyName}>{business.companyName}</p>
+              {business.primaryCity ? <p className={styles.companyCity}>{business.primaryCity}</p> : null}
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            {showLanguageSwitch ? <a href={languageSwitchHref} aria-label={t.languageSwitchLabel} style={{ borderColor: subtleBorder }} className="inline-flex min-h-11 items-center gap-2 rounded-xl border px-3 text-sm font-black"><Languages className="h-4 w-4" /> <span className="hidden sm:inline">{t.languageSwitch}</span></a> : null}
-            {bookingHref ? <PublicBusinessTrackedLink workspaceId={business.id} eventKey="book_clicked" href={bookingHref} className="hidden min-h-11 items-center justify-center rounded-xl bg-[var(--business-primary)] px-5 text-sm font-black text-white sm:inline-flex">{companyCopy.bookTime}</PublicBusinessTrackedLink> : null}
+
+          <div className={styles.headerActions}>
+            {showLanguageSwitch ? (
+              <a href={languageSwitchHref} aria-label={t.languageSwitchLabel} className={styles.languageButton}>
+                <Languages className="h-4 w-4" aria-hidden="true" />
+                <span className="hidden sm:inline">{t.languageSwitch}</span>
+              </a>
+            ) : null}
+            {bookingHref ? (
+              <PublicBusinessTrackedLink
+                workspaceId={business.id}
+                eventKey="book_clicked"
+                href={bookingHref}
+                className={styles.headerBook}
+              >
+                {companyCopy.bookTime}
+              </PublicBusinessTrackedLink>
+            ) : null}
           </div>
         </header>
 
-        {experience.heroEnabled ? <section style={{ background: experience.primaryColor }} className="overflow-hidden rounded-[2rem] text-white shadow-xl">
-          <div className={`grid ${experience.heroImageUrl || experience.heroVideoUrl ? "lg:grid-cols-[1.1fr_.9fr]" : ""}`}>
-            <div className="p-7 sm:p-10 lg:p-12">
-              <p className="text-xs font-black uppercase tracking-[0.18em] text-white/70">{companyCopy.heroEyebrow}</p>
-              <h1 className="mt-4 max-w-3xl text-4xl font-black leading-tight sm:text-5xl">{business.companyName}</h1>
-              {business.primaryCity ? <p className="mt-4 flex items-center gap-2 text-white/80"><MapPin className="h-5 w-5" /> {business.primaryCity}</p> : null}
-              <p className="mt-6 max-w-2xl text-base leading-7 text-white/85">{business.businessIntro || companyCopy.defaultIntro}</p>
-              <div className="mt-7 flex flex-wrap gap-3">
-                {services.length ? <a href="#tjanster" className="inline-flex min-h-12 items-center justify-center rounded-xl bg-white px-5 font-black text-[#173e2b]">{companyCopy.seeServices} <ArrowRight className="ml-2 h-4 w-4" /></a> : bookingHref ? <PublicBusinessTrackedLink workspaceId={business.id} eventKey="book_clicked" href={bookingHref} className="inline-flex min-h-12 items-center justify-center rounded-xl bg-white px-5 font-black text-[#173e2b]">{companyCopy.bookOnline} <ArrowRight className="ml-2 h-4 w-4" /></PublicBusinessTrackedLink> : null}
-                {experience.contactEnabled ? <PublicBusinessTrackedLink workspaceId={business.id} eventKey="contact_clicked" href="#kontakt" className="inline-flex min-h-12 items-center justify-center rounded-xl border border-white/35 px-5 font-black text-white">{companyCopy.contactUs}</PublicBusinessTrackedLink> : null}
+        {experience.heroEnabled ? (
+          <section className={styles.hero}>
+            <div className={`${styles.heroGrid} ${hasHeroMedia ? "" : styles.heroSolo}`}>
+              <div className={styles.heroCopy}>
+                <p className={styles.heroEyebrow}>{companyCopy.heroEyebrow}</p>
+                <h1 className={styles.heroTitle}>{business.companyName}</h1>
+                {business.primaryCity ? (
+                  <p className={styles.heroCity}>
+                    <MapPin aria-hidden="true" />
+                    {business.primaryCity}
+                  </p>
+                ) : null}
+                <p className={styles.heroIntro}>{business.businessIntro || companyCopy.defaultIntro}</p>
+
+                <div className={styles.heroActions}>
+                  {services.length ? (
+                    <a href="#tjanster" className={styles.primaryAction}>
+                      {companyCopy.seeServices}<ArrowRight className="h-4 w-4" aria-hidden="true" />
+                    </a>
+                  ) : bookingHref ? (
+                    <PublicBusinessTrackedLink
+                      workspaceId={business.id}
+                      eventKey="book_clicked"
+                      href={bookingHref}
+                      className={styles.primaryAction}
+                    >
+                      {companyCopy.bookOnline}<ArrowRight className="h-4 w-4" aria-hidden="true" />
+                    </PublicBusinessTrackedLink>
+                  ) : null}
+
+                  {experience.contactEnabled ? (
+                    <PublicBusinessTrackedLink
+                      workspaceId={business.id}
+                      eventKey="contact_clicked"
+                      href="#kontakt"
+                      className={styles.secondaryAction}
+                    >
+                      {companyCopy.contactUs}
+                    </PublicBusinessTrackedLink>
+                  ) : null}
+                </div>
+              </div>
+
+              {experience.heroVideoUrl ? (
+                <div className={styles.heroMedia}>
+                  <video src={experience.heroVideoUrl} controls muted playsInline />
+                </div>
+              ) : experience.heroImageUrl ? (
+                <div className={styles.heroMedia}>
+                  {/* Public tenant media can live on tenant-specific Blob/CDN hosts. */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={experience.heroImageUrl} alt="" />
+                </div>
+              ) : null}
+            </div>
+          </section>
+        ) : null}
+
+        {experience.servicesEnabled ? (
+          <section className={styles.section} id="tjanster">
+            <div className={styles.sectionHeader}>
+              <div>
+                <p className={styles.sectionEyebrow}>{companyCopy.servicesEyebrow}</p>
+                <h2 className={styles.sectionTitle}>{companyCopy.servicesTitle}</h2>
+              </div>
+              <p className={styles.sectionLead}>{companyCopy.servicesLead}</p>
+            </div>
+
+            {services.length ? (
+              <div className={styles.serviceList}>
+                {services.map((service) => {
+                  const price = formatPublicBusinessPrice(service, business.billingCurrency, locale === "en" ? "en-SE" : "sv-SE");
+                  const serviceHref = withPublicBusinessLocale(urls.serviceHref(service.publicSlug), locale);
+                  const modeLabel = companyCopy.serviceMode[service.conversionMode];
+
+                  return (
+                    <a key={service.id} href={serviceHref} className={styles.serviceCard}>
+                      <div className={styles.serviceVisual}>
+                        {service.coverImageUrl ? (
+                          // Public tenant media can live on tenant-specific Blob/CDN hosts.
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={service.coverImageUrl} alt={service.name} loading="lazy" />
+                        ) : (
+                          <div className={styles.serviceFallback}>
+                            <span>{service.name.slice(0, 1).toUpperCase()}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className={styles.serviceContent}>
+                        {service.category ? <p className={styles.serviceCategory}>{service.category}</p> : null}
+                        <h3 className={styles.serviceName}>{service.name}</h3>
+                        <p className={styles.serviceDescription}>{service.shortDescription || service.description || companyCopy.serviceFallback}</p>
+                        <div className={styles.serviceMeta}>
+                          {price ? <span className={styles.servicePrice}>{price}</span> : null}
+                          {service.durationMinutes ? <span><Clock3 className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" />{service.durationMinutes} min</span> : null}
+                        </div>
+                      </div>
+
+                      <div className={styles.serviceAction}>
+                        <span className={styles.serviceMode}>{modeLabel}</span>
+                        <span className={styles.serviceLink}>
+                          {companyCopy.viewService}<ArrowRight className="h-4 w-4" aria-hidden="true" />
+                        </span>
+                      </div>
+                    </a>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className={styles.emptyServices}>{companyCopy.noServices}</div>
+            )}
+          </section>
+        ) : null}
+
+        {experience.galleryEnabled && gallery.length ? (
+          <section className={styles.section}>
+            <p className={styles.sectionEyebrow}>{companyCopy.galleryEyebrow}</p>
+            <h2 className={styles.sectionTitle}>{companyCopy.galleryTitle}</h2>
+            <div className={styles.galleryGrid}>
+              {gallery.map((item) =>
+                item.mediaType === "video" ? (
+                  <video key={item.id} src={item.publicUrl} controls muted playsInline />
+                ) : (
+                  // Public tenant media can live on tenant-specific Blob/CDN hosts.
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img key={item.id} src={item.publicUrl} alt={item.altText || item.title || business.companyName} />
+                ),
+              )}
+            </div>
+          </section>
+        ) : null}
+
+        {experience.reviewsEnabled && reviews.length ? (
+          <section className={styles.section}>
+            <div className={styles.reviewHeader}>
+              <div>
+                <p className={styles.sectionEyebrow}>{companyCopy.reviewsEyebrow}</p>
+                <h2 className={styles.sectionTitle}>{companyCopy.reviewsTitle}</h2>
+              </div>
+              <div className={styles.reviewScore}>
+                <Star aria-hidden="true" />
+                {(reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length).toFixed(1)}
               </div>
             </div>
-            {experience.heroVideoUrl ? <video src={experience.heroVideoUrl} controls muted playsInline className="h-full min-h-72 w-full object-cover" /> : experience.heroImageUrl ? <img src={experience.heroImageUrl} alt="" className="h-full min-h-72 w-full object-cover" /> : null}
-          </div>
-        </section> : null}
 
-        {experience.servicesEnabled ? <section className="py-14" id="tjanster">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--business-primary)]">{companyCopy.servicesEyebrow}</p><h2 className="mt-2 text-3xl font-black">{companyCopy.servicesTitle}</h2></div><p style={{ color: muted }} className="max-w-xl text-sm leading-6">{companyCopy.servicesLead}</p></div>
-          {services.length ? <div className="mt-7 grid gap-4 md:grid-cols-2 lg:grid-cols-3">{services.map((service) => {
-            const price = formatPublicBusinessPrice(service, business.billingCurrency, locale === "en" ? "en-SE" : "sv-SE");
-            const serviceHref = withPublicBusinessLocale(urls.serviceHref(service.publicSlug), locale);
-            const modeLabel = companyCopy.serviceMode[service.conversionMode];
-            return <a key={service.id} href={serviceHref} style={{ background: card }} className="group overflow-hidden rounded-[1.6rem] shadow-sm ring-1 ring-black/10 transition hover:-translate-y-1 hover:shadow-lg">
-              {service.coverImageUrl ? <img src={service.coverImageUrl} alt={service.name} loading="lazy" className="h-48 w-full object-cover" /> : <div style={{ background: experience.primaryColor }} className="flex h-48 items-center justify-center text-white"><span className="flex h-16 w-16 items-center justify-center rounded-3xl bg-white/15 text-3xl font-black">{service.name.slice(0, 1).toUpperCase()}</span></div>}
-              <div className="p-6">
-                <div className="flex items-start justify-between gap-3"><div>{service.category ? <p style={{ color: muted }} className="text-xs font-black uppercase tracking-wide">{service.category}</p> : null}<h3 className="mt-2 text-xl font-black">{service.name}</h3></div></div>
-                <p style={{ color: muted }} className="mt-4 line-clamp-3 min-h-[4.5rem] text-sm leading-6">{service.shortDescription || service.description || companyCopy.serviceFallback}</p>
-                <div className="mt-5 flex flex-wrap items-center gap-3 text-sm font-bold">{price ? <span className="text-[var(--business-primary)]">{price}</span> : null}{service.durationMinutes ? <span style={{ color: muted }} className="inline-flex items-center gap-1"><Clock3 className="h-4 w-4" /> {service.durationMinutes} min</span> : null}</div>
-                <div style={{ borderColor: subtleBorder }} className="mt-5 flex items-center justify-between gap-3 border-t pt-4"><span style={{ color: muted }} className="text-xs font-bold">{modeLabel}</span><span className="inline-flex items-center text-sm font-black text-[var(--business-primary)]">{companyCopy.viewService}<ArrowRight className="ml-1.5 h-4 w-4 transition group-hover:translate-x-1" /></span></div>
+            <div className={styles.reviewGrid}>
+              {reviews.slice(0, 6).map((review) => (
+                <article key={review.id} className={styles.reviewCard}>
+                  <div className={styles.stars} aria-label={`${review.rating} ${locale === "en" ? "of 5 stars" : "av 5 stjärnor"}`}>
+                    {Array.from({ length: 5 }, (_, index) => (
+                      <Star key={index} className={index < review.rating ? "fill-current" : "opacity-25"} aria-hidden="true" />
+                    ))}
+                  </div>
+                  <p className={styles.reviewMessage}>“{review.message}”</p>
+                  <p className={styles.reviewAuthor}>{review.reviewerName}{review.area ? ` · ${review.area}` : ""}</p>
+                </article>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
+        {experience.contactEnabled ? (
+          <section id="kontakt" className={styles.contactSection}>
+            <div className={styles.contactGrid}>
+              <div>
+                <p className={styles.sectionEyebrow}>{companyCopy.contactEyebrow}</p>
+                <h2 className={styles.sectionTitle}>{companyCopy.contactTitle}</h2>
+                <p className={styles.sectionLead}>{companyCopy.contactLead(business.companyName)}</p>
+                <div className="mt-5">
+                  <PublicBusinessContactForm workspaceId={business.id} locale={locale} />
+                </div>
               </div>
-            </a>;
-          })}</div> : <div style={{ background: card, color: muted }} className="mt-7 rounded-3xl p-6 ring-1 ring-black/10">{companyCopy.noServices}</div>}
-        </section> : null}
 
-        {experience.galleryEnabled && gallery.length ? <section className="pb-14"><p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--business-primary)]">{companyCopy.galleryEyebrow}</p><h2 className="mt-2 text-3xl font-black">{companyCopy.galleryTitle}</h2><div className="mt-7 grid grid-cols-2 gap-3 md:grid-cols-4">{gallery.map((item, index) => item.mediaType === "video" ? <video key={item.id} src={item.publicUrl} controls muted playsInline className={`w-full rounded-2xl object-cover ${index === 0 ? "col-span-2 row-span-2 h-full min-h-64" : "h-48"}`} /> : <img key={item.id} src={item.publicUrl} alt={item.altText || item.title || business.companyName} className={`w-full rounded-2xl object-cover ${index === 0 ? "col-span-2 row-span-2 h-full min-h-64" : "h-48"}`} />)}</div></section> : null}
+              <aside className={styles.directContact}>
+                <p className={styles.directContactTitle}>{companyCopy.directContact}</p>
+                {business.contactPhone ? (
+                  <PublicBusinessTrackedLink workspaceId={business.id} eventKey="contact_clicked" href={`tel:${business.contactPhone}`} className={styles.directLink}>
+                    <Phone aria-hidden="true" />{business.contactPhone}
+                  </PublicBusinessTrackedLink>
+                ) : null}
+                {business.contactEmail ? (
+                  <PublicBusinessTrackedLink workspaceId={business.id} eventKey="contact_clicked" href={`mailto:${business.contactEmail}`} className={styles.directLink}>
+                    <Mail aria-hidden="true" />{business.contactEmail}
+                  </PublicBusinessTrackedLink>
+                ) : null}
+                {bookingHref ? (
+                  <PublicBusinessTrackedLink workspaceId={business.id} eventKey="book_clicked" href={bookingHref} className={styles.headerBook}>
+                    {companyCopy.bookOnline}
+                  </PublicBusinessTrackedLink>
+                ) : null}
+              </aside>
+            </div>
+          </section>
+        ) : null}
 
-        {experience.reviewsEnabled && reviews.length ? <section className="pb-14"><div className="flex items-end justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--business-primary)]">{companyCopy.reviewsEyebrow}</p><h2 className="mt-2 text-3xl font-black">{companyCopy.reviewsTitle}</h2></div><div className="flex items-center gap-1 text-sm font-black"><Star className="h-5 w-5 fill-current text-[var(--business-accent)]" /> {(reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length).toFixed(1)}</div></div><div className="mt-7 grid gap-4 md:grid-cols-2 lg:grid-cols-3">{reviews.slice(0, 6).map((review) => <article key={review.id} style={{ background: card }} className="rounded-3xl p-6 ring-1 ring-black/10"><div className="flex gap-1 text-[var(--business-accent)]" aria-label={`${review.rating} ${locale === "en" ? "of 5 stars" : "av 5 stjärnor"}`}>{Array.from({ length: 5 }, (_, index) => <Star key={index} className={`h-4 w-4 ${index < review.rating ? "fill-current" : "opacity-25"}`} />)}</div><p className="mt-4 text-sm leading-6">“{review.message}”</p><p style={{ color: muted }} className="mt-4 text-sm font-bold">{review.reviewerName}{review.area ? ` · ${review.area}` : ""}</p></article>)}</div></section> : null}
-
-        {experience.contactEnabled ? <section id="kontakt" style={{ background: card }} className="mb-8 rounded-[2rem] p-7 ring-1 ring-black/10 sm:p-9"><div className="grid gap-8 lg:grid-cols-[minmax(0,1.2fr)_minmax(280px,.8fr)]"><div><p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--business-primary)]">{companyCopy.contactEyebrow}</p><h2 className="mt-2 text-3xl font-black">{companyCopy.contactTitle}</h2><p style={{ color: muted }} className="mt-3 max-w-2xl text-sm leading-6">{companyCopy.contactLead(business.companyName)}</p><div className="mt-6"><PublicBusinessContactForm workspaceId={business.id} locale={locale} /></div></div><aside className="grid content-start gap-3"><p className="text-sm font-black">{companyCopy.directContact}</p>{business.contactPhone ? <PublicBusinessTrackedLink workspaceId={business.id} eventKey="contact_clicked" href={`tel:${business.contactPhone}`} className="inline-flex min-h-12 items-center rounded-xl border border-black/10 px-5 font-bold"><Phone className="mr-2 h-4 w-4" /> {business.contactPhone}</PublicBusinessTrackedLink> : null}{business.contactEmail ? <PublicBusinessTrackedLink workspaceId={business.id} eventKey="contact_clicked" href={`mailto:${business.contactEmail}`} className="inline-flex min-h-12 items-center rounded-xl border border-black/10 px-5 font-bold"><Mail className="mr-2 h-4 w-4" /> {business.contactEmail}</PublicBusinessTrackedLink> : null}{bookingHref ? <PublicBusinessTrackedLink workspaceId={business.id} eventKey="book_clicked" href={bookingHref} className="inline-flex min-h-12 items-center justify-center rounded-xl bg-[var(--business-primary)] px-5 font-black text-white">{companyCopy.bookOnline}</PublicBusinessTrackedLink> : null}</aside></div></section> : null}
-
-        <footer style={{ color: muted }} className="flex flex-col gap-2 border-t border-black/10 py-6 text-xs sm:flex-row sm:items-center sm:justify-between"><span>© {new Date().getFullYear()} {business.companyName}</span><span>{companyCopy.footer}</span></footer>
+        <footer className={styles.footer}>
+          <span>© {new Date().getFullYear()} {business.companyName}</span>
+          <span>{companyCopy.footer}</span>
+        </footer>
       </div>
     </main>
   );
