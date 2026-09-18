@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { resolveBrevoApiKey, resolvePreviewEmailRecipient } from "@/lib/email-runtime-config";
+import { getSql } from "@/lib/db/server";
 import { resolveMarketplacePublicBaseUrl } from "@/lib/marketplace-public-base-url";
 import {
   isPreviewMarketplaceE2eRuntime,
@@ -28,6 +29,7 @@ type BrevoEmailContent = {
 };
 
 const RESET_PATH = "/aterstall-losenord";
+const RESET_IDENTIFIER_PREFIX = "reset-password:";
 const RESET_TOKEN_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
 const RESET_SUBJECTS = new Set([
   "Återställ ditt lösenord på Proffera",
@@ -40,6 +42,10 @@ function unavailable() {
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function ownerEmail(runId: string) {
+  return `provider-e2e-${runId}@owner.example.invalid`;
 }
 
 function decodeHtmlAttribute(value: string) {
@@ -140,6 +146,71 @@ function bodyDiagnostics(body: string) {
   };
 }
 
+async function resetTargetFromVerification(runId: string, subject: string) {
+  const sql = getSql();
+  if (!sql) return { resetTarget: "", verificationTokenFound: false };
+
+  const expectedEmail = ownerEmail(runId);
+  const userRows = await sql`
+    select id
+    from "user"
+    where lower(email) = ${expectedEmail}
+    limit 1
+  `;
+  const userId = String(userRows[0]?.id ?? "");
+  if (!userId) return { resetTarget: "", verificationTokenFound: false };
+
+  const identifierPattern = `${RESET_IDENTIFIER_PREFIX}%`;
+  const verificationRows = await sql`
+    select identifier
+    from verification
+    where value = ${userId}
+      and identifier like ${identifierPattern}
+      and "expiresAt" > now()
+    order by "createdAt" desc, id desc
+    limit 1
+  `;
+  const identifier = String(verificationRows[0]?.identifier ?? "");
+  if (!identifier.startsWith(RESET_IDENTIFIER_PREFIX)) {
+    return { resetTarget: "", verificationTokenFound: false };
+  }
+
+  const token = identifier.slice(RESET_IDENTIFIER_PREFIX.length).trim();
+  if (!RESET_TOKEN_PATTERN.test(token)) {
+    return { resetTarget: "", verificationTokenFound: false };
+  }
+
+  const search = subject === "Reset your Proffera password" ? "?lang=en" : "";
+  const fragment = new URLSearchParams({ token }).toString();
+  return {
+    resetTarget: `${RESET_PATH}${search}#${fragment}`,
+    verificationTokenFound: true,
+  };
+}
+
+async function deletePreviewResetVerifications(runId: string) {
+  const sql = getSql();
+  if (!sql) return false;
+
+  const expectedEmail = ownerEmail(runId);
+  const userRows = await sql`
+    select id
+    from "user"
+    where lower(email) = ${expectedEmail}
+    limit 1
+  `;
+  const userId = String(userRows[0]?.id ?? "");
+  if (!userId) return true;
+
+  const identifierPattern = `${RESET_IDENTIFIER_PREFIX}%`;
+  await sql`
+    delete from verification
+    where value = ${userId}
+      and identifier like ${identifierPattern}
+  `;
+  return true;
+}
+
 async function brevoJson<T>(url: URL, apiKey: string): Promise<T | null> {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
@@ -183,7 +254,8 @@ async function emailContent(uuid: string, apiKey: string) {
 
 export async function GET(request: Request) {
   if (!isPreviewMarketplaceE2eRuntime()) return unavailable();
-  if (!await resolveAuthorizedPreviewMarketplaceE2eRunId(request.headers)) return unavailable();
+  const runId = await resolveAuthorizedPreviewMarketplaceE2eRunId(request.headers);
+  if (!runId) return unavailable();
 
   const apiKey = resolveBrevoApiKey();
   const sink = resolvePreviewEmailRecipient();
@@ -209,7 +281,11 @@ export async function GET(request: Request) {
     const sinkRecipientMatched = String(content.email ?? item.email ?? "").trim().toLowerCase() === sink;
     const events = (content.events ?? []).map((event) => String(event.name ?? "")).filter(Boolean);
     const acceptedByProvider = events.some((event) => ["sent", "delivered", "opened", "click"].includes(event));
-    const resetTarget = resetTargetFromBody(body);
+    const bodyResetTarget = resetTargetFromBody(body);
+    const verification = await resetTargetFromVerification(runId, subject);
+    const targetsConflict = Boolean(bodyResetTarget)
+      && bodyResetTarget !== verification.resetTarget;
+    const resetTarget = targetsConflict ? "" : (bodyResetTarget || verification.resetTarget);
 
     return NextResponse.json({
       ok: true,
@@ -220,7 +296,12 @@ export async function GET(request: Request) {
       sinkRecipientMatched,
       acceptedByProvider,
       resetTarget,
-      diagnostics: bodyDiagnostics(body),
+      diagnostics: {
+        ...bodyDiagnostics(body),
+        verificationTokenFound: verification.verificationTokenFound,
+        bodyTargetFound: Boolean(bodyResetTarget),
+        targetsConflict,
+      },
     }, { headers: { "Cache-Control": "no-store" } });
   }
 
@@ -235,4 +316,18 @@ export async function GET(request: Request) {
     resetTarget: "",
     diagnostics: null,
   }, { headers: { "Cache-Control": "no-store" } });
+}
+
+export async function DELETE(request: Request) {
+  if (!isPreviewMarketplaceE2eRuntime()) return unavailable();
+  const runId = await resolveAuthorizedPreviewMarketplaceE2eRunId(request.headers);
+  if (!runId) return unavailable();
+
+  try {
+    const cleaned = await deletePreviewResetVerifications(runId);
+    if (!cleaned) return NextResponse.json({ ok: false, error: "configuration" }, { status: 503 });
+    return NextResponse.json({ ok: true });
+  } catch {
+    return NextResponse.json({ ok: false, error: "cleanup" }, { status: 500 });
+  }
 }
