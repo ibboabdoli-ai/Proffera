@@ -1,6 +1,6 @@
 # Proffera Design System
 
-Status: approved homepage direction for PR #877. This document is the visual and UX source of truth for marketplace-facing work unless a later approved design decision explicitly replaces it.
+Status: approved homepage direction for PR #877. Owner approval recorded 2026-09-18. This document is the visual and UX source of truth for marketplace-facing work unless a later approved design decision explicitly replaces it.
 
 ## Product identity
 
