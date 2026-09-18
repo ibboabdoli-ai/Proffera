@@ -68,6 +68,8 @@ describe("public custom-domain routing", () => {
 
     expect(isPublicPageRouteAllowedForHost(platformHost, "/")).toBe(true);
     expect(isPublicPageRouteAllowedForHost(platformHost, "/priser")).toBe(true);
+    expect(isPublicPageRouteAllowedForHost("127.0.0.1:3000", "/primeview-booking")).toBe(true);
+    expect(isPublicPageRouteAllowedForHost("localhost:3000", "/primeview-booking")).toBe(true);
     expect(isPublicPageRouteAllowedForHost(platformHost, "/dashboard")).toBe(true);
     expect(isPublicPageRouteAllowedForHost(platformHost, "/gallery/acme")).toBe(true);
   });
