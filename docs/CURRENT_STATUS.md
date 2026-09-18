@@ -108,7 +108,7 @@ Available CI lanes cover:
 - whitespace validation;
 - Playwright browser smoke.
 
-Playwright browser E2E is automated in CI. The actual browser job is `E2E public smoke run`; the required `E2E public smoke` check is the final browser-plus-review gate described above. For low-risk scope where browser execution is not selected, the browser job records an explicit targeted skip and the final required gate still runs. No required status name is removed by targeted CI.
+Playwright browser E2E is automated in CI. The actual browser job is `E2E public smoke run`; the required `E2E public smoke` check is the final browser-plus-review gate described above. A separate exact-head Vercel Preview safe-smoke workflow is available for dedicated `work/proffera-preview-e2e-*` branches; it uses read-only GitHub permissions and exercises only non-submitting public browser journeys, so it does not require Preview email/payment credentials or mutate Preview/Production state. For low-risk scope where browser execution is not selected, the browser job records an explicit targeted skip and the final required gate still runs. No required status name is removed by targeted CI.
 
 Committed non-destructive browser coverage includes:
 
