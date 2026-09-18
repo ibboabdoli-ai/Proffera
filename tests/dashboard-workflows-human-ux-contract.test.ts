@@ -110,4 +110,34 @@ describe("dashboard workflow human-designed UX contract", () => {
     expect(services).toContain("createWorkspaceServiceAction");
     expect(services).toContain("updateWorkspaceServiceAction");
   });
+
+  it("aligns onboarding and public-experience configuration chrome without changing ownership or domain safety", () => {
+    const onboarding = source("src/app/dashboard/onboarding/page.tsx");
+    const addCompany = source("src/app/dashboard/marknadsplats/lagg-till-foretag/page.tsx");
+    const locations = source("src/app/dashboard/installningar/foretagssida/platser/page.tsx");
+    const galleryLayout = source("src/app/dashboard/galleri/layout.tsx");
+    const bookingBuilder = source("src/app/dashboard/installningar/utseende/booking-page-builder.tsx");
+    const themeEditor = source("src/app/dashboard/installningar/utseende/theme-content-editor.tsx");
+
+    expect(onboarding).toContain("seedWorkspaceServicesForIndustry");
+    expect(onboarding).toContain("updateWorkspaceOnboarding");
+    expect(onboarding).toContain("DashboardPageHeader");
+
+    expect(addCompany).toContain("onboardOwnerCompanyByOrganizationNumber");
+    expect(addCompany).toContain("ownerOnboardingErrorRedirect");
+    expect(addCompany).toContain("DashboardPageHeader");
+
+    expect(locations).toContain("listOwnerBusinessProfileLocations");
+    expect(locations).toContain("createLocationAction");
+    expect(locations).toContain("updateLocationAction");
+    expect(locations).toContain("deactivateLocationAction");
+    expect(locations).toContain("DashboardPageHeader");
+
+    expect(galleryLayout).toContain('featureKey="media_gallery"');
+    expect(bookingBuilder).toContain("data-booking-page-builder");
+    expect(bookingBuilder).toContain("data-booking-builder-preview");
+    expect(bookingBuilder).toContain("bg-brand-deep");
+    expect(themeEditor).toContain("data-theme-content-editor");
+    expect(themeEditor).toContain("bg-brand-deep");
+  });
 });
