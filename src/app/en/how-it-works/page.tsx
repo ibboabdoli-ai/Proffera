@@ -26,7 +26,7 @@ export default function EnglishHowItWorksPage() {
             <div>
               <p className={styles.landingEyebrow}>How it works</p>
               <h1 className={styles.landingTitle}>From a customer need to a chosen business in three clear steps.</h1>
-              <p className={styles.landingLead}>Proffera makes the quote journey clearer without replacing the customer's decision or a business's own information.</p>
+              <p className={styles.landingLead}>Proffera makes the quote journey clearer without replacing the customer’s decision or a business’s own information.</p>
               <div className={styles.actions} style={{ marginTop: "1.5rem" }}>
                 <Link href="/en/get-quote" className={styles.primaryButton}>Describe your job <ArrowRight className="h-4 w-4" aria-hidden="true" /></Link>
                 <Link href="/en/companies" className={styles.secondaryButton}>Find businesses</Link>
