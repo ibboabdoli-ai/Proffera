@@ -68,4 +68,5 @@
   limit secret and live Stripe values only after explicit payment approval.
 - [ ] Obtain legal/business approval for public copy, terms, privacy policy and
   processor list.
+- [ ] Validate the exact known-good rollback SHA/deployment with `scripts/release-rollback-plan.mjs`; destructive or unknown database impact requires a separate approved recovery plan.
 - [ ] Confirm rollback target and deployment health before announcing launch.
