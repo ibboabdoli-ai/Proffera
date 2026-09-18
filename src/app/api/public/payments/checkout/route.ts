@@ -20,9 +20,18 @@ export async function POST(request: Request) {
 
   try {
     if (payment.checkoutSessionId) {
-      const existing = await stripe.checkout.sessions.retrieve(payment.checkoutSessionId).catch(() => null);
-      if (existing?.status === "open" && existing.url) return NextResponse.redirect(existing.url, 303);
-      if (existing?.status === "complete") return NextResponse.redirect(paymentUrl, 303);
+      let existing;
+      try {
+        existing = await stripe.checkout.sessions.retrieve(payment.checkoutSessionId);
+      } catch (error) {
+        console.error("Failed to retrieve existing service job checkout", error);
+        return NextResponse.json({ error: "checkout_state_unavailable" }, { status: 502 });
+      }
+      if (existing.status === "open") {
+        if (!existing.url) return NextResponse.json({ error: "checkout_unavailable" }, { status: 502 });
+        return NextResponse.redirect(existing.url, 303);
+      }
+      if (existing.status === "complete") return NextResponse.redirect(paymentUrl, 303);
     }
 
     const baseUrl = new URL(request.url).origin;
