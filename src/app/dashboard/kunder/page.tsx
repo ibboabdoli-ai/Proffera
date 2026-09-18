@@ -122,9 +122,19 @@ export default async function CustomersPage({ searchParams }: CustomersPageProps
         </DashboardDataPanel>
       )}
 
-      <section className="grid gap-4 md:grid-cols-3">
-        <article className="rounded-panel bg-brand-deep p-6 text-white shadow-lift md:col-span-2"><p className="text-xs font-bold uppercase tracking-[0.12em] text-white/60">CRM</p><h3 className="mt-2 text-xl font-bold">{copy.relationshipTitle}</h3><p className="mt-2 max-w-2xl text-sm leading-7 text-white/75">{copy.relationshipText}</p></article>
-        <article className="rounded-card border border-line bg-surface p-6 shadow-card"><p className="text-sm font-semibold uppercase tracking-wide text-brand">{copy.customerWork}</p><h3 className="mt-2 text-xl font-bold text-ink">{copy.moreData}</h3><p className="mt-2 text-sm leading-7 text-ink-muted">{copy.moreDataText}</p></article>
+      <section className="rounded-card border border-line bg-surface shadow-card">
+        <div className="grid divide-y divide-line md:grid-cols-2 md:divide-x md:divide-y-0">
+          <article className="p-5 sm:p-6">
+            <p className="text-xs font-bold uppercase tracking-[0.12em] text-brand">CRM</p>
+            <h3 className="mt-2 text-lg font-bold text-ink">{copy.relationshipTitle}</h3>
+            <p className="mt-2 text-sm leading-6 text-ink-muted">{copy.relationshipText}</p>
+          </article>
+          <article className="p-5 sm:p-6">
+            <p className="text-xs font-bold uppercase tracking-[0.12em] text-brand">{copy.customerWork}</p>
+            <h3 className="mt-2 text-lg font-bold text-ink">{copy.moreData}</h3>
+            <p className="mt-2 text-sm leading-6 text-ink-muted">{copy.moreDataText}</p>
+          </article>
+        </div>
       </section>
     </div>
   );
