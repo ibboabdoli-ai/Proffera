@@ -22,12 +22,9 @@ type BrevoEmailList = {
 type BrevoEmailContent = {
   email?: string;
   subject?: string;
-  body?: string;
   events?: Array<{ name?: string }>;
 };
 
-const RESET_TOKEN_PATTERN = /^[A-Za-z0-9_-]{16,128}$/u;
-const RESET_PATH = "/aterstall-losenord";
 const RESET_SUBJECTS = new Set([
   "Återställ ditt lösenord på Proffera",
   "Reset your Proffera password",
@@ -82,40 +79,6 @@ async function emailContent(uuid: string, apiKey: string) {
   return brevoJson<BrevoEmailContent>(url, apiKey);
 }
 
-function resetUrlFromBody(body: string) {
-  let searchFrom = 0;
-  while (searchFrom < body.length) {
-    const pathIndex = body.indexOf(RESET_PATH, searchFrom);
-    if (pathIndex < 0) return null;
-    searchFrom = pathIndex + RESET_PATH.length;
-
-    const originIndex = body.lastIndexOf("https://", pathIndex);
-    if (originIndex < 0 || pathIndex - originIndex > 256) continue;
-
-    const fragmentIndex = body.indexOf("#token=", pathIndex + RESET_PATH.length);
-    if (fragmentIndex < 0 || fragmentIndex - pathIndex > 128) continue;
-
-    let token = "";
-    for (let index = fragmentIndex + "#token=".length; index < body.length && token.length <= 128; index += 1) {
-      const char = body[index];
-      if (!/[A-Za-z0-9_-]/u.test(char)) break;
-      token += char;
-    }
-    if (!RESET_TOKEN_PATTERN.test(token)) continue;
-
-    const rawUrl = `${body.slice(originIndex, fragmentIndex)}#token=${token}`.replaceAll("&amp;", "&");
-    try {
-      const parsed = new URL(rawUrl);
-      if (parsed.protocol !== "https:" || parsed.pathname !== RESET_PATH) continue;
-      if (new URLSearchParams(parsed.hash.replace(/^#/, "")).get("token") !== token) continue;
-      return parsed.toString();
-    } catch {
-      continue;
-    }
-  }
-  return null;
-}
-
 export async function GET(request: Request) {
   if (!isPreviewMarketplaceE2eRuntime()) return unavailable();
   if (!await resolveAuthorizedPreviewMarketplaceE2eRunId(request.headers)) return unavailable();
@@ -131,15 +94,14 @@ export async function GET(request: Request) {
   for (const [index, item] of candidates.entries()) {
     const uuid = String(item.uuid ?? "").trim();
     if (!uuid) continue;
+    const listedSubject = String(item.subject ?? "").trim();
+    if (listedSubject && !RESET_SUBJECTS.has(listedSubject)) continue;
     if (index > 0) await delay(400);
 
     const content = await emailContent(uuid, apiKey);
     if (!content) continue;
     const subject = String(content.subject ?? item.subject ?? "").trim();
     if (!RESET_SUBJECTS.has(subject)) continue;
-
-    const resetUrl = resetUrlFromBody(String(content.body ?? ""));
-    if (!resetUrl) continue;
 
     const sinkRecipientMatched = String(content.email ?? item.email ?? "").trim().toLowerCase() === sink;
     const events = (content.events ?? []).map((event) => String(event.name ?? "")).filter(Boolean);
@@ -151,7 +113,6 @@ export async function GET(request: Request) {
       uuid,
       messageId: String(item.messageId ?? ""),
       subject,
-      resetUrl,
       sinkRecipientMatched,
       acceptedByProvider,
     }, { headers: { "Cache-Control": "no-store" } });
@@ -163,7 +124,6 @@ export async function GET(request: Request) {
     uuid: "",
     messageId: "",
     subject: "",
-    resetUrl: "",
     sinkRecipientMatched: false,
     acceptedByProvider: false,
   }, { headers: { "Cache-Control": "no-store" } });
