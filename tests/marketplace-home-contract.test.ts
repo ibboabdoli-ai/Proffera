@@ -63,6 +63,30 @@ describe("marketplace-first homepage contract", () => {
     expect(mapSniToDirectoryCategory("96.210")?.categorySlug).toBe("frisor");
   });
 
+
+  it("renders real published companies with resilient logo and media fallbacks", () => {
+    const home = source("src/components/marketplace/marketplace-home.tsx");
+    const media = source("src/components/marketplace/marketplace-company-media.tsx");
+
+    expect(home).toContain("getCachedMarketplaceHomeCompanies(4)");
+    expect(home).toContain("MarketplaceCompanyLogo");
+    expect(home).toContain("MarketplaceCompanyCover");
+    expect(home).toContain("profile.logoUrl");
+    expect(home).toContain("profile.media");
+    expect(media).toContain("onError={() => setFailed(true)}");
+    expect(media).toContain("Building2");
+  });
+
+  it("keeps review claims truthful and sends Google through a neutral Maps search link", () => {
+    const home = source("src/components/marketplace/marketplace-home.tsx");
+
+    expect(home).toContain("verified Proffera reviews");
+    expect(home).toContain("verifierade Proffera-omdömen");
+    expect(home).toContain("https://www.google.com/maps/search/?api=1&query=");
+    expect(home).not.toContain("Google Reviews");
+    expect(home).not.toContain("Google-omdömen");
+  });
+
   it("uses semantic design tokens on the marketplace homepage", () => {
     const home = source("src/components/marketplace/marketplace-home.tsx");
 
