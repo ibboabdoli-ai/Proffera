@@ -79,7 +79,7 @@ const copy: Record<PublicLocale, MarketplaceHomeCopy> = {
   sv: {
     eyebrow: "Lokala företag. Verifierade uppgifter.",
     title: "Vad behöver du hjälp med?",
-    lead: "Hitta lokala företag, boka tid eller få offerter – gratis.",
+    lead: "Hitta företag, boka tid eller få offerter – gratis.",
     trust: ["Gratis att söka", "Företagsuppgifter verifierade", "Boka tid · Begär offert · Se omdömen"],
     categoriesTitle: "Populära tjänster",
     categoriesLead: "Välj en tjänst eller skriv själv vad du behöver hjälp med.",
@@ -126,7 +126,7 @@ const copy: Record<PublicLocale, MarketplaceHomeCopy> = {
   en: {
     eyebrow: "Local businesses. Verified details.",
     title: "What do you need help with?",
-    lead: "Find local businesses, book an appointment or request quotes – free.",
+    lead: "Find businesses, book an appointment or request quotes – free.",
     trust: ["Free to search", "Verified company details", "Book appointment · Request quote · View reviews"],
     categoriesTitle: "Popular services",
     categoriesLead: "Choose a service or type what you need help with.",
