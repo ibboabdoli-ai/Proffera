@@ -105,6 +105,7 @@ export default async function PublicPaymentPage({
   }
 
   const paid = payment.status === "paid";
+  const awaitingConfirmation = !paid && status === "success";
 
   return (
     <main lang={locale} className={styles.page}>
@@ -135,21 +136,23 @@ export default async function PublicPaymentPage({
               <CheckCircle2 className="mr-2 inline h-5 w-5" aria-hidden="true" />
               {text.paid}
             </p>
-          ) : status === "success" ? (
+          ) : awaitingConfirmation ? (
             <p className={[styles.notice, styles.info].join(" ")} role="status">{text.pending}</p>
           ) : null}
 
-          {!paid && payment.accountReady ? (
-            <form method="post" action="/api/public/payments/checkout">
-              <input type="hidden" name="token" value={token} />
-              <input type="hidden" name="lang" value={locale} />
-              <button type="submit" className={[styles.primaryButton, styles.fullButton].join(" ")}>
-                <CreditCard className="h-5 w-5" aria-hidden="true" />
-                {text.pay}
-              </button>
-            </form>
-          ) : !paid ? (
-            <p className={[styles.notice, styles.error].join(" ")} role="alert">{text.unavailable}</p>
+          {!paid && !awaitingConfirmation ? (
+            payment.accountReady ? (
+              <form method="post" action="/api/public/payments/checkout">
+                <input type="hidden" name="token" value={token} />
+                <input type="hidden" name="lang" value={locale} />
+                <button type="submit" className={[styles.primaryButton, styles.fullButton].join(" ")}>
+                  <CreditCard className="h-5 w-5" aria-hidden="true" />
+                  {text.pay}
+                </button>
+              </form>
+            ) : (
+              <p className={[styles.notice, styles.error].join(" ")} role="alert">{text.unavailable}</p>
+            )
           ) : null}
 
           <p className={styles.secureLine}>
