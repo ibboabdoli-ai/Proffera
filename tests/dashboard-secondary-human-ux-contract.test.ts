@@ -15,7 +15,7 @@ describe("dashboard secondary human-designed UX contract", () => {
     expect(jobs).toContain("statusTone");
     expect(jobs).toContain("bg-brand-deep");
     expect(jobs).toContain("DashboardDataPanel");
-    expect(jobs).not.toContain("bg-[#173e2b]");
+    expect(jobs).not.toContain("bg-[#0a2e63]");
   });
 
   it("keeps review moderation truthful while using the workspace visual system", () => {
@@ -48,7 +48,7 @@ describe("dashboard secondary human-designed UX contract", () => {
     expect(ai).toContain('"/api/ai-chat/sync-booking-page"');
     expect(ai).toContain("DashboardPageHeader");
     expect(ai).toContain("divide-y divide-line");
-    expect(ai).not.toContain('bg-[#17452f]');
+    expect(ai).not.toContain('bg-[#1469d8]');
   });
 
   it("keeps gallery media actions intact while making the manager data-led", () => {
