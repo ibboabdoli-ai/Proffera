@@ -144,8 +144,8 @@ async function saveAppearance(formData: FormData) {
 
   const nextSettings = {
     themeKey: String(formData.get("themeKey") ?? "clean"),
-    primaryColor: String(formData.get("primaryColor") ?? "#17452f"),
-    accentColor: String(formData.get("accentColor") ?? "#d9b44a"),
+    primaryColor: String(formData.get("primaryColor") ?? "#0a2e63"),
+    accentColor: String(formData.get("accentColor") ?? "#1469d8"),
     appearance: formData.get("appearance") === "dark" ? "dark" as const : "light" as const,
     defaultLanguage,
     swedishEnabled,
