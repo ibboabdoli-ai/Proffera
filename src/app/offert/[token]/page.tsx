@@ -3,6 +3,7 @@ import Link from "next/link";
 import { CheckCircle2, Download, FileText, ShieldCheck, XCircle } from "lucide-react";
 
 import { respondToPublicQuoteOfferAction } from "./actions";
+import styles from "@/app/public-customer-lifecycle.module.css";
 import { getPublicWorkspaceQuoteOffer } from "@/lib/workspace-quote-offers-db";
 import {
   publicWorkspaceQuoteOfferPath,
@@ -31,7 +32,6 @@ const copy = {
     subtotal: "Exkl. moms",
     vat: "Moms",
     total: "Totalt",
-    terms: "Villkor",
     downloadPdf: "Ladda ner PDF",
     accept: "Acceptera offert",
     reject: "Tacka nej",
@@ -55,7 +55,6 @@ const copy = {
     subtotal: "Excluding VAT",
     vat: "VAT",
     total: "Total",
-    terms: "Terms",
     downloadPdf: "Download PDF",
     accept: "Accept quote",
     reject: "Decline quote",
@@ -75,12 +74,12 @@ function localeFrom(value: string | string[] | undefined): Locale {
 
 function publicHref(token: string, locale: Locale) {
   const base = publicWorkspaceQuoteOfferPath(token);
-  return locale === "en" ? `${base}?lang=en` : base;
+  return locale === "en" ? base + "?lang=en" : base;
 }
 
 function pdfHref(token: string, locale: Locale) {
   const base = publicWorkspaceQuoteOfferPdfPath(token);
-  return locale === "en" ? `${base}?lang=en` : base;
+  return locale === "en" ? base + "?lang=en" : base;
 }
 
 function formatMoney(amountMinor: number, currency: string, locale: Locale) {
@@ -112,12 +111,24 @@ export default async function PublicQuoteOfferPage({
 
   if (!offer) {
     return (
-      <main className="min-h-screen bg-[#f7f7f4] px-4 py-16 sm:px-6">
-        <section className="mx-auto max-w-xl rounded-3xl bg-white p-8 text-center shadow-sm ring-1 ring-[#dfe5dd]">
-          <XCircle className="mx-auto h-10 w-10 text-[#a95b50]" aria-hidden="true" />
-          <h1 className="mt-5 text-3xl font-bold text-[#17201a]">{text.unavailableTitle}</h1>
-          <p className="mt-4 leading-7 text-[#5b665f]">{text.unavailableBody}</p>
-          <p className="mt-3 text-sm text-[#667168]">{text.contact}</p>
+      <main lang={locale} className={styles.page}>
+        <section className={[styles.frame, styles.narrowFrame].join(" ")}>
+          <header className={styles.header}>
+            <div className={styles.headerRow}>
+              <div className={styles.headerCopy}>
+                <p className={styles.eyebrow}>{text.eyebrow}</p>
+                <h1 className={styles.title}>{text.unavailableTitle}</h1>
+              </div>
+              <Link href={publicHref(token, alternativeLocale)} className={styles.languageLink}>
+                {text.language}
+              </Link>
+            </div>
+          </header>
+          <div className={styles.stateBody}>
+            <XCircle className={styles.stateIcon} aria-hidden="true" />
+            <p className={styles.reviewLead}>{text.unavailableBody}</p>
+            <p className={styles.reviewLead}>{text.contact}</p>
+          </div>
         </section>
       </main>
     );
@@ -128,34 +139,107 @@ export default async function PublicQuoteOfferPage({
   const isAccepted = offer.status === "accepted";
 
   return (
-    <main className="min-h-screen bg-[#f7f7f4] px-4 py-8 text-[#17201a] sm:px-6 sm:py-12">
-      <section className="mx-auto max-w-3xl overflow-hidden rounded-[1.75rem] bg-white shadow-sm ring-1 ring-[#dfe5dd]">
-        <header className="bg-[#102a1c] px-6 py-7 text-white sm:px-10 sm:py-9">
-          <div className="flex items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#a9dbb9]">{text.eyebrow}</p><h1 className="mt-3 text-3xl font-bold tracking-[-0.03em]">{offer.companyName}</h1></div><Link href={publicHref(token, alternativeLocale)} className="rounded-lg border border-white/35 px-3 py-2 text-xs font-bold text-white">{text.language}</Link></div>
-          <p className="mt-4 text-sm text-white/80">{text.greeting} {offer.customerName}</p>
+    <main lang={locale} className={styles.page}>
+      <section className={styles.frame}>
+        <header className={styles.header}>
+          <div className={styles.headerRow}>
+            <div className={styles.headerCopy}>
+              <p className={styles.eyebrow}>{text.eyebrow}</p>
+              <h1 className={styles.title}>{offer.companyName}</h1>
+              <p className={styles.intro}>
+                {text.greeting} {offer.customerName}
+              </p>
+            </div>
+            <Link href={publicHref(token, alternativeLocale)} className={styles.languageLink}>
+              {text.language}
+            </Link>
+          </div>
         </header>
 
-        <div className="grid gap-7 p-6 sm:p-10">
-          {response === "invalid" ? <p className="rounded-xl bg-[#fff4f2] px-4 py-3 text-sm font-semibold text-[#8a2b20]" role="alert">{text.statusError}</p> : null}
+        <div className={styles.content}>
+          {response === "invalid" ? (
+            <p className={[styles.notice, styles.noticeError].join(" ")} role="alert">
+              {text.statusError}
+            </p>
+          ) : null}
 
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div><p className="text-sm font-bold uppercase tracking-wide text-[#6b776d]">{text.request}</p><p className="mt-1 font-semibold">{offer.quoteReferenceId}</p></div>
-            <div className="text-left sm:text-right"><p className="text-sm font-bold uppercase tracking-wide text-[#6b776d]">{text.validUntil}</p><p className="mt-1 font-semibold">{offer.validUntil ? formatDate(offer.validUntil, locale) : "—"}</p></div>
-          </div>
+          <dl className={styles.facts}>
+            <div className={styles.fact}>
+              <dt className={styles.factLabel}>{text.request}</dt>
+              <dd className={styles.factValue}>{offer.quoteReferenceId}</dd>
+            </div>
+            <div className={styles.fact}>
+              <dt className={styles.factLabel}>{text.sentAt}</dt>
+              <dd className={styles.factValue}>{formatDate(offer.sentAt, locale)}</dd>
+            </div>
+            <div className={styles.fact}>
+              <dt className={styles.factLabel}>{text.validUntil}</dt>
+              <dd className={styles.factValue}>{offer.validUntil ? formatDate(offer.validUntil, locale) : "—"}</dd>
+            </div>
+          </dl>
 
-          <article className="rounded-2xl border border-[#dce5da] bg-[#fafcf9] p-5 sm:p-6"><div className="flex items-start gap-3"><FileText className="mt-0.5 h-6 w-6 shrink-0 text-[#17452f]" aria-hidden="true" /><div><h2 className="text-xl font-bold">{offer.title}</h2>{offer.terms ? <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-[#4d5b52]">{offer.terms}</p> : null}</div></div></article>
+          <article className={[styles.panel, styles.iconPanel].join(" ")}>
+            <span className={styles.iconBadge}>
+              <FileText className="h-5 w-5" aria-hidden="true" />
+            </span>
+            <div>
+              <h2 className={styles.panelTitle}>{offer.title}</h2>
+              {offer.terms ? <p className={styles.panelBody}>{offer.terms}</p> : null}
+            </div>
+          </article>
 
-          <dl className="grid gap-4 rounded-2xl border border-[#dce5da] p-5 text-sm sm:grid-cols-3"><div><dt className="font-bold uppercase tracking-wide text-[#6b776d]">{text.subtotal}</dt><dd className="mt-2">{formatMoney(offer.subtotalMinor, offer.currency, locale)}</dd></div><div><dt className="font-bold uppercase tracking-wide text-[#6b776d]">{text.vat} ({offer.vatRateBasisPoints / 100}%)</dt><dd className="mt-2">{formatMoney(offer.vatAmountMinor, offer.currency, locale)}</dd></div><div><dt className="font-bold uppercase tracking-wide text-[#6b776d]">{text.total}</dt><dd className="mt-2 text-xl font-extrabold text-[#173e2b]">{formatMoney(offer.totalMinor, offer.currency, locale)}</dd></div></dl>
+          <dl className={styles.priceGrid}>
+            <div className={styles.fact}>
+              <dt className={styles.factLabel}>{text.subtotal}</dt>
+              <dd className={styles.factValue}>{formatMoney(offer.subtotalMinor, offer.currency, locale)}</dd>
+            </div>
+            <div className={styles.fact}>
+              <dt className={styles.factLabel}>
+                {text.vat} ({offer.vatRateBasisPoints / 100}%)
+              </dt>
+              <dd className={styles.factValue}>{formatMoney(offer.vatAmountMinor, offer.currency, locale)}</dd>
+            </div>
+            <div className={[styles.fact, styles.priceTotal].join(" ")}>
+              <dt className={styles.factLabel}>{text.total}</dt>
+              <dd className={styles.factValue}>{formatMoney(offer.totalMinor, offer.currency, locale)}</dd>
+            </div>
+          </dl>
 
-          <Link href={pdfHref(token, locale)} prefetch={false} className="inline-flex min-h-11 w-fit items-center justify-center gap-2 rounded-xl border border-[#bfd0c0] bg-white px-4 py-2.5 text-sm font-bold text-[#17452f] transition hover:bg-[#f2f7f2]"><Download className="h-4 w-4" aria-hidden="true" />{text.downloadPdf}</Link>
+          <Link href={pdfHref(token, locale)} prefetch={false} className={styles.secondaryButton}>
+            <Download className="h-4 w-4" aria-hidden="true" />
+            {text.downloadPdf}
+          </Link>
 
           {isOpen ? (
-            <div className="grid gap-3 sm:grid-cols-2"><form action={action}><input type="hidden" name="decision" value="accepted" /><input type="hidden" name="lang" value={locale} /><button type="submit" className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#17452f] px-5 py-3 text-sm font-bold text-white transition hover:bg-[#103822]"><CheckCircle2 className="h-5 w-5" aria-hidden="true" />{text.accept}</button></form><form action={action}><input type="hidden" name="decision" value="rejected" /><input type="hidden" name="lang" value={locale} /><button type="submit" className="inline-flex min-h-12 w-full items-center justify-center rounded-xl border border-[#d3a39d] bg-white px-5 py-3 text-sm font-bold text-[#8a2b20] transition hover:bg-[#fff7f5]"><XCircle className="h-5 w-5" aria-hidden="true" />{text.reject}</button></form></div>
+            <div className={styles.actions}>
+              <form action={action}>
+                <input type="hidden" name="decision" value="accepted" />
+                <input type="hidden" name="lang" value={locale} />
+                <button type="submit" className={styles.primaryButton}>
+                  <CheckCircle2 className="h-5 w-5" aria-hidden="true" />
+                  {text.accept}
+                </button>
+              </form>
+              <form action={action}>
+                <input type="hidden" name="decision" value="rejected" />
+                <input type="hidden" name="lang" value={locale} />
+                <button type="submit" className={styles.dangerButton}>
+                  <XCircle className="h-5 w-5" aria-hidden="true" />
+                  {text.reject}
+                </button>
+              </form>
+            </div>
           ) : (
-            <section className={`rounded-2xl p-5 ${isAccepted ? "bg-[#edf8ef] text-[#17452f]" : "bg-[#fff4f2] text-[#8a2b20]"}`}><h2 className="font-bold">{isAccepted ? text.accepted : text.rejected}</h2><p className="mt-2 text-sm leading-6">{isAccepted ? text.acceptedBody : text.rejectedBody}</p></section>
+            <section className={[styles.notice, isAccepted ? styles.noticeSuccess : styles.noticeMuted].join(" ")}>
+              <h2 className={styles.sectionTitle}>{isAccepted ? text.accepted : text.rejected}</h2>
+              <p className={styles.sectionCopy}>{isAccepted ? text.acceptedBody : text.rejectedBody}</p>
+            </section>
           )}
 
-          <p className="flex items-center gap-2 text-xs text-[#6b776d]"><ShieldCheck className="h-4 w-4 text-[#557061]" aria-hidden="true" />{text.protected} · {text.sentAt} {formatDate(offer.sentAt, locale)}</p>
+          <p className={styles.secureLine}>
+            <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+            {text.protected}
+          </p>
         </div>
       </section>
     </main>
