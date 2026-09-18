@@ -50,7 +50,6 @@ const primeViewPublicRouteFamilies = [
 ] as const;
 
 const primeViewExactPublicRoutes = new Set([
-  "/",
   "/booking",
   "/gallery",
   "/privacy",
@@ -64,6 +63,11 @@ const sharedCustomerRouteFamilies = [
   "/gallery",
   "/galleri",
 ] as const;
+
+function normalizedRoutePath(pathname: string) {
+  const value = pathname.trim() || "/";
+  return value === "/" ? "/" : value.replace(/\/+$/, "");
+}
 
 function matchesRouteFamily(pathname: string, family: string) {
   return pathname === family || pathname.startsWith(`${family}/`);
@@ -93,7 +97,7 @@ export function isPublicPageRouteAllowedForHost(
   host: string | null | undefined,
   pathname: string,
 ) {
-  const path = pathname || "/";
+  const path = normalizedRoutePath(pathname);
 
   if (isPlatformHost(host)) {
     return path !== "/primeview-booking" && !isPrimeViewPublicRoute(path);
@@ -101,7 +105,7 @@ export function isPublicPageRouteAllowedForHost(
 
   if (isPrimeViewHost(host)) {
     if (path === "/primeview-booking") return false;
-    return isPrimeViewPublicRoute(path) || isSharedCustomerRoute(path);
+    return path === "/" || isPrimeViewPublicRoute(path) || isSharedCustomerRoute(path);
   }
 
   if (path === "/primeview-booking" || isPrimeViewPublicRoute(path)) return false;
