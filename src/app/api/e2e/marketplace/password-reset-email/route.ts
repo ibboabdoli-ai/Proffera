@@ -82,8 +82,6 @@ function resetTargetFromBody(body: string) {
   const expectedOrigin = new URL(resolveMarketplacePublicBaseUrl()).origin;
   const absolutePrefix = `${expectedOrigin}${RESET_PATH}`;
 
-  // Brevo may expose the transactional body as plain text, HTML, or a combined body.
-  // Prefer the exact Preview origin when it appears as plain text so no foreign URL can escape.
   let absoluteIndex = body.indexOf(absolutePrefix);
   while (absoluteIndex >= 0) {
     const end = candidateEnd(body, absoluteIndex);
@@ -92,8 +90,6 @@ function resetTargetFromBody(body: string) {
     absoluteIndex = body.indexOf(absolutePrefix, absoluteIndex + absolutePrefix.length);
   }
 
-  // HTML bodies carry the same absolute URL in href. Keep this parser bounded and require
-  // the same trusted Preview origin + reset path + token format before returning anything.
   let cursor = 0;
   while (cursor < body.length) {
     const markerIndex = body.indexOf(RESET_PATH, cursor);
@@ -113,6 +109,35 @@ function resetTargetFromBody(body: string) {
   }
 
   return "";
+}
+
+function bodyDiagnostics(body: string) {
+  const expectedOrigin = new URL(resolveMarketplacePublicBaseUrl()).origin;
+  const hrefOrigins = new Set<string>();
+  let cursor = 0;
+
+  while (hrefOrigins.size < 6) {
+    const hrefIndex = body.indexOf('href="', cursor);
+    if (hrefIndex < 0) break;
+    const valueStart = hrefIndex + 6;
+    const valueEnd = body.indexOf('"', valueStart);
+    if (valueEnd < 0 || valueEnd - valueStart > 2_048) break;
+    try {
+      const url = new URL(decodeHtmlAttribute(body.slice(valueStart, valueEnd)), expectedOrigin);
+      hrefOrigins.add(url.origin);
+    } catch {
+      // Diagnostics intentionally expose origins only, never paths, queries, hashes, or content.
+    }
+    cursor = valueEnd + 1;
+  }
+
+  return {
+    bodyLength: body.length,
+    resetPathSeen: body.includes(RESET_PATH),
+    expectedOriginSeen: body.includes(expectedOrigin),
+    tokenMarkerSeen: body.includes("#token=") || body.includes("%23token%3D") || body.includes("%23token="),
+    hrefOrigins: [...hrefOrigins],
+  };
 }
 
 async function brevoJson<T>(url: URL, apiKey: string): Promise<T | null> {
@@ -180,10 +205,11 @@ export async function GET(request: Request) {
     const subject = String(content.subject ?? item.subject ?? "").trim();
     if (!RESET_SUBJECTS.has(subject)) continue;
 
+    const body = String(content.body ?? "");
     const sinkRecipientMatched = String(content.email ?? item.email ?? "").trim().toLowerCase() === sink;
     const events = (content.events ?? []).map((event) => String(event.name ?? "")).filter(Boolean);
     const acceptedByProvider = events.some((event) => ["sent", "delivered", "opened", "click"].includes(event));
-    const resetTarget = resetTargetFromBody(String(content.body ?? ""));
+    const resetTarget = resetTargetFromBody(body);
 
     return NextResponse.json({
       ok: true,
@@ -194,6 +220,7 @@ export async function GET(request: Request) {
       sinkRecipientMatched,
       acceptedByProvider,
       resetTarget,
+      diagnostics: bodyDiagnostics(body),
     }, { headers: { "Cache-Control": "no-store" } });
   }
 
@@ -206,5 +233,6 @@ export async function GET(request: Request) {
     sinkRecipientMatched: false,
     acceptedByProvider: false,
     resetTarget: "",
+    diagnostics: null,
   }, { headers: { "Cache-Control": "no-store" } });
 }
