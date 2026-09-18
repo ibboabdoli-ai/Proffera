@@ -341,7 +341,7 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
                 <Search aria-hidden="true" />
                 <h2>{t.similarTitle}</h2>
                 <p>{t.similarLead}</p>
-                <Link href={similarHref} className={`${styles.inverseCta} rounded-control bg-white text-brand-deep`}>
+                <Link href={similarHref} className={`${styles.inverseCta} rounded-control bg-white px-4 text-sm font-black text-brand-deep`}>
                   {t.similarCta}<ArrowRight className="h-4 w-4" />
                 </Link>
               </section>
