@@ -3,13 +3,17 @@ const primeViewHosts = new Set([
   "www.primeviewwindowcare.co.uk",
 ]);
 
+const localDevelopmentHosts = new Set([
+  "localhost",
+  "127.0.0.1",
+  "::1",
+]);
+
 const platformHosts = new Set([
   "proffera.se",
   "www.proffera.se",
   "chat.proffera.se",
-  "localhost",
-  "127.0.0.1",
-  "::1",
+  ...localDevelopmentHosts,
 ]);
 
 const productionAnalyticsHosts = new Set([
@@ -100,7 +104,10 @@ export function isPublicPageRouteAllowedForHost(
   const path = normalizedRoutePath(pathname);
 
   if (isPlatformHost(host)) {
-    return path !== "/primeview-booking" && !isPrimeViewPublicRoute(path);
+    if (path === "/primeview-booking") {
+      return localDevelopmentHosts.has(hostnameFromHostHeader(host));
+    }
+    return !isPrimeViewPublicRoute(path);
   }
 
   if (isPrimeViewHost(host)) {
