@@ -38,6 +38,23 @@ describe("Directory pilot workplace authority", () => {
     });
   });
 
+  it("lets a canonical pilot workplace win even when the registered profile address is outside the pilot", () => {
+    const outsidePilotProfile = {
+      ...profile,
+      city: "Uppsala",
+      municipality: "Uppsala",
+    };
+
+    expect(assessCompanyDirectoryPilotWorkplace(outsidePilotProfile, [workplace()])).toMatchObject({
+      eligible: true,
+      reason: "pilot_workplace",
+      address: {
+        city: "Stockholm",
+        municipality: "Stockholm",
+      },
+    });
+  });
+
   it("does not let a pilot profile address override a physical workplace outside the pilot", () => {
     expect(assessCompanyDirectoryPilotWorkplace(profile, [workplace({
       city: "Uppsala",
