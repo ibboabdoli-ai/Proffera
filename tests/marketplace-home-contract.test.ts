@@ -15,7 +15,7 @@ describe("marketplace-first homepage contract", () => {
     const home = source("src/components/marketplace/marketplace-home.tsx");
 
     expect(home).toContain("Vad behöver du hjälp med?");
-    expect(home).toContain("Hitta lokala företag, boka tid eller få offerter – gratis.");
+    expect(home).toContain("Hitta företag, boka tid eller få offerter – gratis.");
     expect(home).toContain("PublicDirectorySearchForm");
     expect(home).toContain("getCachedPublishedDirectoryLocationSuggestions");
     expect(home).toContain(".filter((category) => category.query)");
