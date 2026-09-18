@@ -140,8 +140,9 @@ export default async function ClaimCompanyPage({ params, searchParams }: Props) 
     ? `/en/companies/claim/${encodeURIComponent(slug)}`
     : `/foretag/claim/${encodeURIComponent(slug)}`;
   const loginReturnTo = localizedClaimPath;
-  const loginParams = new URLSearchParams({ next: loginReturnTo });
+  const loginParams = new URLSearchParams();
   if (locale === "en") loginParams.set("lang", "en");
+  loginParams.set("next", loginReturnTo);
   const loginHref = `/logga-in?${loginParams.toString()}`;
 
   if (!(await hasBetterAuthSessionCookie())) {
