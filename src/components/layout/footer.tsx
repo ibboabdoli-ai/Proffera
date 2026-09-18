@@ -42,7 +42,7 @@ export function Footer({ locale, marketplace = false }: FooterProps) {
 
   const footerClass = marketplace
     ? "border-t border-[#dce4ee] bg-white text-[#11213b]"
-    : "border-t border-[#0c2116] bg-[#102a1c] text-white";
+    : "border-t border-[#082654] bg-[#0a2e63] text-white";
   const secondaryText = marketplace ? "text-[#66758a]" : "text-white/70";
   const tertiaryText = marketplace ? "text-[#7b8799]" : "text-white/45";
   const linkClass = marketplace
