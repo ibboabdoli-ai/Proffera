@@ -8,8 +8,8 @@ export const dynamic = "force-dynamic";
 
 const statusStyles: Record<string, string> = {
   draft: "bg-surface-subtle text-ink-muted",
-  requested: "bg-accent-soft/35 text-brand-deep",
-  confirmed: "bg-brand-soft text-brand",
+  requested: "bg-[#fff7df] text-[#805d14]",
+  confirmed: "bg-[#eaf8f2] text-[#087754]",
   completed: "bg-surface-subtle text-brand-deep",
   cancelled: "bg-danger/10 text-danger",
   no_show: "bg-danger/10 text-danger",
