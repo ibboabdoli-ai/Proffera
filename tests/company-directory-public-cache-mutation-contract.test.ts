@@ -109,6 +109,16 @@ function publicationSql(slug = "safe-company-ab") {
         ongoing_procedures: [],
         facts_last_synced_token: "facts-v1",
         facts_source_payload_hash: "facts-hash",
+        scb_workplaces: [{
+          cfarNumber: "12345678",
+          municipality: "Stockholm",
+          visitingAddress: {
+            addressLine: "Arbetsplatsgatan 2",
+            postalCode: "11122",
+            city: "Stockholm",
+          },
+        }],
+        scb_source_payload_hash: "scb-hash",
         scb_conflict_count: 0,
         official_facts_fresh: true,
         scb_snapshot_fresh: true,
