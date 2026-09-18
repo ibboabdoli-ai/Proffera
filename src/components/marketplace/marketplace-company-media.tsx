@@ -66,7 +66,8 @@ export function MarketplaceCompanyCover({
   if (!url || failed) {
     return (
       <div className="relative grid h-full min-h-40 place-items-center overflow-hidden bg-brand-tint">
-        <div className="absolute inset-0 opacity-60 [background-image:radial-gradient(circle_at_25%_25%,rgba(23,69,47,.14),transparent_42%),radial-gradient(circle_at_80%_70%,rgba(23,69,47,.09),transparent_38%)]" />
+        <div className="absolute -right-8 -top-8 size-32 rounded-full border border-brand/10 bg-surface/40" aria-hidden="true" />
+        <div className="absolute -bottom-10 -left-10 size-36 rounded-full border border-brand/10 bg-surface/35" aria-hidden="true" />
         <div className="relative grid place-items-center gap-2 text-brand-deep">
           <span className="grid size-12 place-items-center rounded-2xl bg-white/90 shadow-sm">
             <Building2 className="size-6" aria-hidden="true" />
