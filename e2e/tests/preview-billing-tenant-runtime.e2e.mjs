@@ -123,8 +123,8 @@ async function completeStripeCheckout(page, checkoutUrl, email) {
   await page.goto(checkoutUrl, { waitUntil: "domcontentloaded" });
 
   await fillStripeField(page, [/Email/iu, /E-post/iu], ['input[type="email"]', 'input[name="email"]'], email);
-  await fillStripeField(page, [/Card number/iu, /Kortnummer/iu], ['input[name="cardNumber"]', 'input[autocomplete="cc-number"]'], "4242424242424242");
-  await fillStripeField(page, [/Expiration/iu, /Expiry/iu, /Utgång/iu], ['input[name="cardExpiry"]', 'input[autocomplete="cc-exp"]'], "1234");
+  await fillStripeField(page, [/Card number/iu, /Kortnummer/iu], ['input[name="cardNumber"]', 'input[autocomplete="cc-number"]'], "4242 4242 4242 4242");
+  await fillStripeField(page, [/Expiration/iu, /Expiry/iu, /Utgång/iu], ['input[name="cardExpiry"]', 'input[autocomplete="cc-exp"]'], "12 / 34");
   await fillStripeField(page, [/CVC/iu, /CVV/iu, /Säkerhetskod/iu], ['input[name="cardCvc"]', 'input[autocomplete="cc-csc"]'], "123");
 
   const name = await visibleEditableControl(
@@ -172,10 +172,27 @@ async function completeStripeCheckout(page, checkoutUrl, email) {
   expect(payButton, "Stripe Checkout submit button was not visible.").not.toBeNull();
   await payButton.click();
 
-  await page.waitForURL(/\/dashboard\/installningar\?[^#]*billing=success/u, {
-    timeout: 60_000,
-    waitUntil: "domcontentloaded",
-  });
+  try {
+    await page.waitForURL(/\/dashboard\/installningar\?[^#]*billing=success/u, {
+      timeout: 30_000,
+      waitUntil: "domcontentloaded",
+    });
+  } catch (error) {
+    const diagnostics = [];
+    for (const frame of page.frames()) {
+      for (const role of ["alert", "status"]) {
+        const messages = frame.getByRole(role);
+        const count = Math.min(await messages.count(), 6);
+        for (let index = 0; index < count; index += 1) {
+          const message = messages.nth(index);
+          if (!await message.isVisible().catch(() => false)) continue;
+          const value = (await message.innerText().catch(() => "")).trim();
+          if (value) diagnostics.push(value);
+        }
+      }
+    }
+    throw new Error(`Stripe Checkout did not complete. URL=${page.url()} messages=${diagnostics.join(" | ")} cause=${String(error)}`);
+  }
 }
 
 async function waitForBillingSync(request, suiteRunId) {
@@ -291,7 +308,7 @@ test.describe("isolated Preview billing/tenant runtime", () => {
       expect(checkoutUrl.href).toContain(billingState.body.billing.checkoutSessionId);
       await expect(page).toHaveURL(/\/dashboard\/installningar(?:\?|$)/u);
 
-      await completeStripeCheckout(page, checkoutUrl.href, setup.body.ownerEmail);
+      await completeStripeCheckout(page, checkoutUrl.href, "billing-test@example.com");
 
       const reconciled = await waitForBillingSync(request, suiteRunId);
       expect(reconciled.billing.checkoutSessionId).toBe(billingState.body.billing.checkoutSessionId);
