@@ -45,7 +45,7 @@ describe("public custom-domain routing", () => {
     const primeViewHost = "www.primeviewwindowcare.co.uk";
     const customerHost = "customer.example.com";
 
-    for (const path of ["/services", "/services/window-cleaning", "/areas/ealing", "/gallery", "/privacy", "/booking", "/boka/primeview"]) {
+    for (const path of ["/services", "/services/window-cleaning", "/areas/ealing", "/gallery", "/gallery/", "/privacy", "/booking", "/boka/primeview"]) {
       expect(isPublicPageRouteAllowedForHost(platformHost, path)).toBe(false);
     }
 
@@ -62,10 +62,11 @@ describe("public custom-domain routing", () => {
       expect(isPublicPageRouteAllowedForHost(customerHost, path)).toBe(true);
     }
 
-    for (const path of ["/priser", "/en/pricing", "/dashboard", "/admin", "/services", "/areas/ealing", "/gallery", "/privacy", "/booking", "/boka/primeview", "/primeview-booking"]) {
+    for (const path of ["/priser", "/en/pricing", "/dashboard", "/admin", "/services", "/areas/ealing", "/gallery", "/gallery/", "/privacy", "/booking", "/boka/primeview", "/primeview-booking"]) {
       expect(isPublicPageRouteAllowedForHost(customerHost, path)).toBe(false);
     }
 
+    expect(isPublicPageRouteAllowedForHost(platformHost, "/")).toBe(true);
     expect(isPublicPageRouteAllowedForHost(platformHost, "/priser")).toBe(true);
     expect(isPublicPageRouteAllowedForHost(platformHost, "/dashboard")).toBe(true);
     expect(isPublicPageRouteAllowedForHost(platformHost, "/gallery/acme")).toBe(true);
