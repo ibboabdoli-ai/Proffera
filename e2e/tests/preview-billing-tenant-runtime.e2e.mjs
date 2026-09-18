@@ -105,8 +105,18 @@ async function selectStripeCountry(page) {
   }
 
   await country.click();
-  const option = page.getByRole("option", { name: /Sweden|Sverige/iu }).first();
-  if (await option.count() > 0) await option.click();
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    for (const frame of page.frames()) {
+      const option = frame.getByRole("option", { name: /Sweden|Sverige/iu }).first();
+      if (await option.count() > 0 && await option.isVisible().catch(() => false)) {
+        await option.click();
+        return;
+      }
+    }
+    await page.waitForTimeout(200);
+  }
+  throw new Error("Stripe country selector did not expose Sweden.");
 }
 
 async function completeStripeCheckout(page, checkoutUrl, email) {
