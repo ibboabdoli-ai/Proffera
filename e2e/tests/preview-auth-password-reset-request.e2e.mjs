@@ -111,8 +111,8 @@ test.describe("isolated Preview password reset lifecycle", () => {
       expect(email.resetTarget).toMatch(/^\/aterstall-losenord(?:\?lang=en)?#token=[A-Za-z0-9_-]{16,128}$/u);
 
       await page.goto(email.resetTarget);
-      await page.getByLabel("Nytt lösenord").fill(replacementPassword);
-      await page.getByLabel("Bekräfta nytt lösenord").fill(replacementPassword);
+      await page.getByLabel("Nytt lösenord", { exact: true }).fill(replacementPassword);
+      await page.getByLabel("Bekräfta nytt lösenord", { exact: true }).fill(replacementPassword);
       await page.getByRole("button", { name: "Spara nytt lösenord" }).click();
       await page.waitForURL(/\/logga-in\?reset=1(?:&|$)/u, { timeout: 30_000 });
 
