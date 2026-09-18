@@ -4,6 +4,7 @@ import { expect, test } from "@playwright/test";
 
 const RUN_HEADER = "x-proffera-preview-e2e-run";
 const fixturePath = "/api/e2e/marketplace/provider";
+const billingEvidencePath = "/api/e2e/marketplace/billing";
 
 function runId() {
   return randomBytes(24).toString("hex");
@@ -18,10 +19,19 @@ async function fixtureRequest(request, suiteRunId, method) {
   return { response, body };
 }
 
+async function billingRequest(request, suiteRunId, method) {
+  const response = await request.fetch(billingEvidencePath, {
+    method,
+    headers: { [RUN_HEADER]: suiteRunId },
+  });
+  const body = await response.json().catch(() => null);
+  return { response, body };
+}
+
 test.describe("isolated Preview billing/tenant runtime", () => {
   test.skip(process.env.E2E_MARKETPLACE_PREVIEW_LIFECYCLE !== "true", "Billing Preview runtime evidence is opt-in and Preview-only.");
 
-  test("synthetic owner sees Stripe Sandbox billing and guarded checkout rejects an invalid plan before Stripe", async ({ page, context, request }) => {
+  test("synthetic owner creates only a test-mode checkout bound to its Preview workspace", async ({ page, context, request }) => {
     test.setTimeout(90_000);
     await context.addInitScript(() => {
       window.localStorage.setItem("proffera:analytics-consent:v1", "denied");
@@ -73,9 +83,40 @@ test.describe("isolated Preview billing/tenant runtime", () => {
 
       expect(invalidCheckout.status).toBe(400);
       expect(invalidCheckout.body?.error).toBe("Välj en tillgänglig plan.");
+
+      const validCheckout = await page.evaluate(async () => {
+        const response = await fetch("/api/stripe/checkout", {
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ planKey: "starter", lang: "sv" }),
+        });
+        return {
+          status: response.status,
+          body: await response.json().catch(() => null),
+        };
+      });
+
+      expect(validCheckout.status, JSON.stringify(validCheckout.body)).toBe(200);
+      expect(typeof validCheckout.body?.url).toBe("string");
+      const checkoutUrl = new URL(validCheckout.body.url);
+      expect(checkoutUrl.protocol).toBe("https:");
+      expect(checkoutUrl.hostname).toBe("checkout.stripe.com");
+      expect(checkoutUrl.href).toContain("cs_test_");
+
+      const billingState = await billingRequest(request, suiteRunId, "GET");
+      expect(billingState.response.ok(), JSON.stringify(billingState.body)).toBeTruthy();
+      expect(billingState.body?.ok).toBe(true);
+      expect(billingState.body?.billing?.status).toBe("pending");
+      expect(billingState.body?.billing?.checkoutSessionId).toMatch(/^cs_test_/u);
+      expect(billingState.body?.billing?.priceId).toMatch(/^price_/u);
+      expect(checkoutUrl.href).toContain(billingState.body.billing.checkoutSessionId);
       await expect(page).toHaveURL(/\/dashboard\/installningar(?:\?|$)/u);
     } finally {
       if (fixtureCreated) {
+        await billingRequest(request, suiteRunId, "DELETE").catch(() => undefined);
         await fixtureRequest(request, suiteRunId, "DELETE").catch(() => undefined);
       }
     }
