@@ -2,12 +2,13 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { CheckCircle2, Download, FileText, ShieldCheck, XCircle } from "lucide-react";
 
-import { respondToPublicQuoteOfferAction } from "./actions";
+import lifecycleStyles from "@/components/customer-lifecycle/customer-lifecycle.module.css";
 import { getPublicWorkspaceQuoteOffer } from "@/lib/workspace-quote-offers-db";
 import {
   publicWorkspaceQuoteOfferPath,
   publicWorkspaceQuoteOfferPdfPath,
 } from "@/lib/workspace-quote-offer-public";
+import { respondToPublicQuoteOfferAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,6 @@ type Locale = "sv" | "en";
 
 const copy = {
   sv: {
-    language: "English",
     unavailableTitle: "Länken kan inte användas",
     unavailableBody: "Offerten är ogiltig, har gått ut eller har redan stängts.",
     contact: "Kontakta företaget om du behöver hjälp.",
@@ -44,7 +44,6 @@ const copy = {
     protected: "Säker personlig länk",
   },
   en: {
-    language: "Svenska",
     unavailableTitle: "This link cannot be used",
     unavailableBody: "The offer is invalid, has expired, or is no longer open.",
     contact: "Contact the business if you need help.",
@@ -73,9 +72,13 @@ function localeFrom(value: string | string[] | undefined): Locale {
   return Array.isArray(value) ? (value[0] === "en" ? "en" : "sv") : value === "en" ? "en" : "sv";
 }
 
-function publicHref(token: string, locale: Locale) {
+function publicHref(token: string, locale: Locale, response?: string) {
+  const query = new URLSearchParams();
+  if (locale === "en") query.set("lang", "en");
+  if (response) query.set("response", response);
+  const suffix = query.toString();
   const base = publicWorkspaceQuoteOfferPath(token);
-  return locale === "en" ? `${base}?lang=en` : base;
+  return suffix ? `${base}?${suffix}` : base;
 }
 
 function pdfHref(token: string, locale: Locale) {
@@ -107,17 +110,15 @@ export default async function PublicQuoteOfferPage({
   const locale = localeFrom(query?.lang);
   const text = copy[locale];
   const offer = await getPublicWorkspaceQuoteOffer(token);
-  const response = Array.isArray(query?.response) ? query?.response[0] : query?.response;
-  const alternativeLocale: Locale = locale === "en" ? "sv" : "en";
+  const response = Array.isArray(query?.response) ? query.response[0] : query?.response;
 
   if (!offer) {
     return (
-      <main className="min-h-screen bg-[#f7f7f4] px-4 py-16 sm:px-6">
-        <section className="mx-auto max-w-xl rounded-3xl bg-white p-8 text-center shadow-sm ring-1 ring-[#dfe5dd]">
-          <XCircle className="mx-auto h-10 w-10 text-[#a95b50]" aria-hidden="true" />
-          <h1 className="mt-5 text-3xl font-bold text-[#17201a]">{text.unavailableTitle}</h1>
-          <p className="mt-4 leading-7 text-[#5b665f]">{text.unavailableBody}</p>
-          <p className="mt-3 text-sm text-[#667168]">{text.contact}</p>
+      <main lang={locale} className={lifecycleStyles.page}>
+        <section className={lifecycleStyles.unavailable}>
+          <h1>{text.unavailableTitle}</h1>
+          <p>{text.unavailableBody}</p>
+          <p>{text.contact}</p>
         </section>
       </main>
     );
@@ -128,36 +129,80 @@ export default async function PublicQuoteOfferPage({
   const isAccepted = offer.status === "accepted";
 
   return (
-    <main className="min-h-screen bg-[#f7f7f4] px-4 py-8 text-[#17201a] sm:px-6 sm:py-12">
-      <section className="mx-auto max-w-3xl overflow-hidden rounded-[1.75rem] bg-white shadow-sm ring-1 ring-[#dfe5dd]">
-        <header className="bg-[#102a1c] px-6 py-7 text-white sm:px-10 sm:py-9">
-          <div className="flex items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#a9dbb9]">{text.eyebrow}</p><h1 className="mt-3 text-3xl font-bold tracking-[-0.03em]">{offer.companyName}</h1></div><Link href={publicHref(token, alternativeLocale)} className="rounded-lg border border-white/35 px-3 py-2 text-xs font-bold text-white">{text.language}</Link></div>
-          <p className="mt-4 text-sm text-white/80">{text.greeting} {offer.customerName}</p>
-        </header>
-
-        <div className="grid gap-7 p-6 sm:p-10">
-          {response === "invalid" ? <p className="rounded-xl bg-[#fff4f2] px-4 py-3 text-sm font-semibold text-[#8a2b20]" role="alert">{text.statusError}</p> : null}
-
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div><p className="text-sm font-bold uppercase tracking-wide text-[#6b776d]">{text.request}</p><p className="mt-1 font-semibold">{offer.quoteReferenceId}</p></div>
-            <div className="text-left sm:text-right"><p className="text-sm font-bold uppercase tracking-wide text-[#6b776d]">{text.validUntil}</p><p className="mt-1 font-semibold">{offer.validUntil ? formatDate(offer.validUntil, locale) : "—"}</p></div>
+    <main lang={locale} className={lifecycleStyles.page}>
+      <div className={lifecycleStyles.shell}>
+        <div className={lifecycleStyles.topbar}>
+          <div>
+            <p className={lifecycleStyles.eyebrow}>{text.eyebrow}</p>
+            <h1 className={lifecycleStyles.title}>{offer.companyName}</h1>
+            <p className={lifecycleStyles.greeting}>{text.greeting} {offer.customerName}</p>
           </div>
-
-          <article className="rounded-2xl border border-[#dce5da] bg-[#fafcf9] p-5 sm:p-6"><div className="flex items-start gap-3"><FileText className="mt-0.5 h-6 w-6 shrink-0 text-[#17452f]" aria-hidden="true" /><div><h2 className="text-xl font-bold">{offer.title}</h2>{offer.terms ? <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-[#4d5b52]">{offer.terms}</p> : null}</div></div></article>
-
-          <dl className="grid gap-4 rounded-2xl border border-[#dce5da] p-5 text-sm sm:grid-cols-3"><div><dt className="font-bold uppercase tracking-wide text-[#6b776d]">{text.subtotal}</dt><dd className="mt-2">{formatMoney(offer.subtotalMinor, offer.currency, locale)}</dd></div><div><dt className="font-bold uppercase tracking-wide text-[#6b776d]">{text.vat} ({offer.vatRateBasisPoints / 100}%)</dt><dd className="mt-2">{formatMoney(offer.vatAmountMinor, offer.currency, locale)}</dd></div><div><dt className="font-bold uppercase tracking-wide text-[#6b776d]">{text.total}</dt><dd className="mt-2 text-xl font-extrabold text-[#173e2b]">{formatMoney(offer.totalMinor, offer.currency, locale)}</dd></div></dl>
-
-          <Link href={pdfHref(token, locale)} prefetch={false} className="inline-flex min-h-11 w-fit items-center justify-center gap-2 rounded-xl border border-[#bfd0c0] bg-white px-4 py-2.5 text-sm font-bold text-[#17452f] transition hover:bg-[#f2f7f2]"><Download className="h-4 w-4" aria-hidden="true" />{text.downloadPdf}</Link>
-
-          {isOpen ? (
-            <div className="grid gap-3 sm:grid-cols-2"><form action={action}><input type="hidden" name="decision" value="accepted" /><input type="hidden" name="lang" value={locale} /><button type="submit" className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#17452f] px-5 py-3 text-sm font-bold text-white transition hover:bg-[#103822]"><CheckCircle2 className="h-5 w-5" aria-hidden="true" />{text.accept}</button></form><form action={action}><input type="hidden" name="decision" value="rejected" /><input type="hidden" name="lang" value={locale} /><button type="submit" className="inline-flex min-h-12 w-full items-center justify-center rounded-xl border border-[#d3a39d] bg-white px-5 py-3 text-sm font-bold text-[#8a2b20] transition hover:bg-[#fff7f5]"><XCircle className="h-5 w-5" aria-hidden="true" />{text.reject}</button></form></div>
-          ) : (
-            <section className={`rounded-2xl p-5 ${isAccepted ? "bg-[#edf8ef] text-[#17452f]" : "bg-[#fff4f2] text-[#8a2b20]"}`}><h2 className="font-bold">{isAccepted ? text.accepted : text.rejected}</h2><p className="mt-2 text-sm leading-6">{isAccepted ? text.acceptedBody : text.rejectedBody}</p></section>
-          )}
-
-          <p className="flex items-center gap-2 text-xs text-[#6b776d]"><ShieldCheck className="h-4 w-4 text-[#557061]" aria-hidden="true" />{text.protected} · {text.sentAt} {formatDate(offer.sentAt, locale)}</p>
+          <nav className={lifecycleStyles.languageNav} aria-label={locale === "en" ? "Language" : "Språk"}>
+            <Link href={publicHref(token, "sv", response)} className={locale === "sv" ? lifecycleStyles.languageActive : lifecycleStyles.languageLink}>SV</Link>
+            <Link href={publicHref(token, "en", response)} className={locale === "en" ? lifecycleStyles.languageActive : lifecycleStyles.languageLink}>EN</Link>
+          </nav>
         </div>
-      </section>
+
+        {response === "invalid" ? <p className={lifecycleStyles.noticeError} role="alert">{text.statusError}</p> : null}
+
+        <section className={lifecycleStyles.panel}>
+          <dl className={lifecycleStyles.metaGrid}>
+            <div className={lifecycleStyles.metaCell}><dt>{text.request}</dt><dd>{offer.quoteReferenceId}</dd></div>
+            <div className={lifecycleStyles.metaCell}><dt>{text.validUntil}</dt><dd>{offer.validUntil ? formatDate(offer.validUntil, locale) : "—"}</dd></div>
+            <div className={lifecycleStyles.metaCell}><dt>{text.sentAt}</dt><dd>{formatDate(offer.sentAt, locale)}</dd></div>
+          </dl>
+
+          <div className={lifecycleStyles.panelBody}>
+            <article className={lifecycleStyles.document}>
+              <div className="flex items-start gap-3">
+                <FileText className="mt-0.5 h-5 w-5 shrink-0 text-[#1469d8]" aria-hidden="true" />
+                <div>
+                  <h2 className={lifecycleStyles.documentTitle}>{offer.title}</h2>
+                  {offer.terms ? <p className={lifecycleStyles.documentText}>{offer.terms}</p> : null}
+                </div>
+              </div>
+            </article>
+
+            <dl className={lifecycleStyles.moneyGrid}>
+              <div className={lifecycleStyles.moneyCell}><dt>{text.subtotal}</dt><dd>{formatMoney(offer.subtotalMinor, offer.currency, locale)}</dd></div>
+              <div className={lifecycleStyles.moneyCell}><dt>{text.vat} ({offer.vatRateBasisPoints / 100}%)</dt><dd>{formatMoney(offer.vatAmountMinor, offer.currency, locale)}</dd></div>
+              <div className={lifecycleStyles.moneyCell}><dt>{text.total}</dt><dd className={lifecycleStyles.moneyTotal}>{formatMoney(offer.totalMinor, offer.currency, locale)}</dd></div>
+            </dl>
+
+            <div className={lifecycleStyles.actions}>
+              <Link href={pdfHref(token, locale)} prefetch={false} className={lifecycleStyles.secondaryAction}>
+                <Download className="h-4 w-4" aria-hidden="true" />{text.downloadPdf}
+              </Link>
+            </div>
+
+            {isOpen ? (
+              <div className={lifecycleStyles.actions}>
+                <form action={action} className="flex-1">
+                  <input type="hidden" name="decision" value="accepted" />
+                  <input type="hidden" name="lang" value={locale} />
+                  <button type="submit" className={`${lifecycleStyles.primaryAction} w-full`}>
+                    <CheckCircle2 className="h-4 w-4" aria-hidden="true" />{text.accept}
+                  </button>
+                </form>
+                <form action={action} className="flex-1">
+                  <input type="hidden" name="decision" value="rejected" />
+                  <input type="hidden" name="lang" value={locale} />
+                  <button type="submit" className={`${lifecycleStyles.dangerAction} w-full`}>
+                    <XCircle className="h-4 w-4" aria-hidden="true" />{text.reject}
+                  </button>
+                </form>
+              </div>
+            ) : (
+              <section className={isAccepted ? lifecycleStyles.noticeSuccess : lifecycleStyles.noticeError}>
+                <strong>{isAccepted ? text.accepted : text.rejected}</strong>
+                <p className="mt-1">{isAccepted ? text.acceptedBody : text.rejectedBody}</p>
+              </section>
+            )}
+
+            <p className={lifecycleStyles.protected}><ShieldCheck aria-hidden="true" />{text.protected}</p>
+          </div>
+        </section>
+      </div>
     </main>
   );
 }
