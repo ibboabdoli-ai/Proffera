@@ -29,13 +29,17 @@ describe("remaining public experience redesign", () => {
     expect(page).toContain('name="token" value={token}');
     expect(page).toContain('name="lang" value={locale}');
     expect(page).toContain('payment.status === "paid"');
-    expect(page).toContain('status === "success"');
+    expect(page).toContain('const awaitingConfirmation = !paid && status === "success"');
+    expect(page).toContain("!paid && !awaitingConfirmation");
     expect(page).toContain("Payment received.");
     expect(page).toContain("Betalningen är mottagen.");
 
     expect(checkout).toContain('payment.status !== "pending"');
     expect(checkout).toContain("!payment.accountReady");
     expect(checkout).toContain("getStripeClient()");
+    expect(checkout).toContain("existing = await stripe.checkout.sessions.retrieve(payment.checkoutSessionId);");
+    expect(checkout).toContain('error: "checkout_state_unavailable"');
+    expect(checkout).not.toContain("checkout.sessions.retrieve(payment.checkoutSessionId).catch(() => null)");
     expect(checkout).toContain("transfer_data: { destination: payment.stripeAccountId }");
     expect(checkout).toContain('payment_kind: "service_job"');
     expect(checkout).toContain('formData?.get("lang") === "en"');
