@@ -1,13 +1,11 @@
 import type { LucideIcon } from "lucide-react";
 import {
   ArrowRight,
-  BarChart3,
   CalendarCheck2,
   CheckCircle2,
   ClipboardCheck,
   FileText,
   Globe2,
-  Images,
   MessageSquareText,
   Star,
   UserRound,
