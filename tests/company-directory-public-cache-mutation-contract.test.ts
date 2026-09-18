@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   fullBatch: vi.fn(),
   assessDirectoryCandidate: vi.fn(),
   buildDirectoryPublicSlug: vi.fn(),
+  isDirectoryPilotLocation: vi.fn(),
   mapPrimarySni: vi.fn(),
   fetchDirectoryBatch: vi.fn(),
   verifyDirectoryCandidate: vi.fn(),
@@ -55,6 +56,7 @@ vi.mock("@/lib/company-directory-full-revalidation", () => ({
 vi.mock("@/lib/company-directory-policy", () => ({
   assessDirectoryCandidate: mocks.assessDirectoryCandidate,
   buildDirectoryPublicSlug: mocks.buildDirectoryPublicSlug,
+  isDirectoryPilotLocation: mocks.isDirectoryPilotLocation,
 }));
 vi.mock("@/lib/company-directory-service-taxonomy", () => ({
   mapPrimarySniToDirectorySearchService: mocks.mapPrimarySni,
@@ -289,6 +291,7 @@ beforeEach(() => {
     autoPublicEligible: false,
   });
   mocks.buildDirectoryPublicSlug.mockReturnValue("new-computed-slug");
+  mocks.isDirectoryPilotLocation.mockReturnValue(true);
   mocks.mapPrimarySni.mockReturnValue(null);
   mocks.createWorkspaceSlug.mockReturnValue("safe-company");
   mocks.getPlatformAdmin.mockResolvedValue({ role: "super_admin", userId: "admin-1" });
