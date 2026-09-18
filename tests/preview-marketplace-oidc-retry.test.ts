@@ -71,7 +71,7 @@ exit 0
       expect(invocations).toHaveLength(2);
       for (const invocation of invocations) {
         expect(invocation).toContain("playwright test");
-        expect(invocation).toContain("tests/preview-auth-login-session.e2e.mjs");
+        expect(invocation).toContain("tests/preview-billing-tenant-runtime.e2e.mjs");
         expect(invocation).toContain("--retries=0");
       }
       const output = `${result.stdout}${result.stderr}`;
