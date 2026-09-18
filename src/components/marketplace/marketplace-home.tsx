@@ -321,7 +321,7 @@ export async function MarketplaceHome({ locale }: { locale: PublicLocale }) {
                 : null;
 
               return (
-                <article key={result.id} className={styles.companyCard}>
+                <article key={result.id} className={`group ${styles.companyCard}`}>
                   <div className={styles.companyCover}>
                     <MarketplaceCompanyCover
                       name={result.companyName}
