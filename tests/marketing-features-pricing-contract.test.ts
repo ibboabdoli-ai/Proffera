@@ -1,7 +1,13 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 
 import { describe, expect, it } from "vitest";
+
+import { MarketingPricing } from "../src/components/marketing/marketing-pricing";
+import { SignupForm } from "../src/components/signup/signup-form";
+import { pricingPlans } from "../src/lib/site";
 
 function source(path: string) {
   return readFileSync(resolve(process.cwd(), path), "utf8");
@@ -32,35 +38,40 @@ describe("marketing features and pricing contract", () => {
     expect(features).toContain("Samma service-ID genom kundresan");
   });
 
-  it("derives public pricing from the canonical Starter and Professional plan source", () => {
-    const pricing = source("src/components/marketing/marketing-pricing.tsx");
+  it("renders the canonical 299/599 launch prices on Swedish and English pricing surfaces", () => {
+    const swedish = renderToStaticMarkup(createElement(MarketingPricing, { locale: "sv" }));
+    const english = renderToStaticMarkup(createElement(MarketingPricing, { locale: "en" }));
 
-    expect(pricing).toContain('name: "Starter"');
-    expect(pricing).toContain('getCheckoutPlanPriceLabel("starter", "SEK", "sv")');
-    expect(pricing).toContain('features: ["Onlinebokning", "Leadhantering", "Kund-CRM", "Kundportal", "Bokningspåminnelser"]');
-    expect(pricing).toContain('name: "Professional"');
-    expect(pricing).toContain('getCheckoutPlanPriceLabel("professional", "SEK", "sv")');
-    expect(pricing).toContain('"Företagssida", "Offerter", "Galleri", "Verifierade omdömen", "Analys", "Flera medarbetare"');
-    expect(pricing).toContain('name: "Enterprise"');
-    expect(pricing).toContain('"Egen domän"');
+    expect(swedish).toContain("299 kr/mån");
+    expect(swedish).toContain("599 kr/mån");
+    expect(swedish).not.toContain("199 kr/mån");
+    expect(swedish).not.toContain("699 kr/mån");
+
+    expect(english).toContain("SEK 299/month");
+    expect(english).toContain("SEK 599/month");
+    expect(english).not.toContain("SEK 199/month");
+    expect(english).not.toContain("SEK 699/month");
   });
 
-  it("keeps launch pricing sources free of the superseded 199/699 price sets", () => {
-    const pricingSources = [
-      "src/lib/billing-plans.ts",
-      "src/lib/site.ts",
-      "src/components/marketing/marketing-pricing.tsx",
-      "src/components/marketing/marketing-home.tsx",
-      "src/components/marketing/marketing-home-v2.tsx",
-      "src/components/signup/signup-form.tsx",
-      "src/app/priser/page.tsx",
-      "src/app/en/pricing/page.tsx",
-      "docs/INTERNATIONAL_B2B_BILLING.md",
-    ].map(source).join("\n");
+  it("renders the same canonical prices in signup and shared site pricing", () => {
+    const swedishSignup = renderToStaticMarkup(createElement(SignupForm, {
+      locale: "sv",
+      initialPlan: "starter",
+      sessionUser: { name: "Test Owner", email: "owner@example.com" },
+    }));
+    const englishSignup = renderToStaticMarkup(createElement(SignupForm, {
+      locale: "en",
+      initialPlan: "starter",
+      sessionUser: { name: "Test Owner", email: "owner@example.com" },
+    }));
 
-    for (const stalePrice of ["199 kr/mån", "SEK 199/month", "699 kr/mån", "SEK 699/month"]) {
-      expect(pricingSources).not.toContain(stalePrice);
-    }
+    expect(swedishSignup).toContain("Starter – från 299 kr/mån");
+    expect(swedishSignup).toContain("Professional – från 599 kr/mån");
+    expect(englishSignup).toContain("Starter – from SEK 299/month");
+    expect(englishSignup).toContain("Professional – from SEK 599/month");
+
+    expect(pricingPlans.find((plan) => plan.name === "Starter")?.price).toBe("299 kr/mån");
+    expect(pricingPlans.find((plan) => plan.name === "Professional")?.price).toBe("599 kr/mån");
   });
 
   it("keeps Professional visibly recommended and trial signup self-service", () => {
