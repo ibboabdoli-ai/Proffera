@@ -34,6 +34,8 @@ describe("public customer lifecycle human UX", () => {
     expect(page).toContain("Säker personlig länk");
     expect(page).toContain("Secure personal link");
     expect(page).toContain("publicWorkspaceQuoteOfferPdfPath(token)");
+    expect(page).toContain('if (response) query.set("response", response)');
+    expect(page).toContain("publicHref(token, alternativeLocale, response)");
 
     expect(action).toContain('decision !== "accepted" && decision !== "rejected"');
     expect(action).toContain("respondToPublicWorkspaceQuoteOffer(token");
