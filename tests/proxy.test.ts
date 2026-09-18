@@ -15,8 +15,10 @@ function request(path: string, headers?: HeadersInit) {
 }
 
 function hostRequest(host: string, path: string, headers: HeadersInit = {}) {
+  const requestHeaders = new Headers(headers);
+  requestHeaders.set("host", host);
   return new NextRequest(`https://${host}${path}`, {
-    headers: { host, ...Object.fromEntries(new Headers(headers).entries()) },
+    headers: requestHeaders,
   });
 }
 
@@ -112,7 +114,7 @@ describe("proxy request boundary", () => {
   });
 
   it("fails closed when PrimeView-only routes are requested on the platform host", async () => {
-    for (const path of ["/services", "/services/window-cleaning", "/areas/ealing", "/gallery", "/privacy", "/booking", "/boka/primeview", "/primeview-booking"]) {
+    for (const path of ["/services", "/services/window-cleaning", "/areas/ealing", "/gallery", "/gallery/", "/privacy", "/booking", "/boka/primeview", "/primeview-booking"]) {
       const response = await proxy(hostRequest("www.proffera.se", path));
       expect(response.status, path).toBe(404);
       expect(response.headers.get("x-robots-tag"), path).toBe("noindex, nofollow");
@@ -132,7 +134,7 @@ describe("proxy request boundary", () => {
   });
 
   it("keeps generic custom domains fail-closed outside root, services and shared customer flows", async () => {
-    for (const path of ["/priser", "/en/pricing", "/dashboard", "/admin", "/services", "/areas/ealing", "/gallery", "/privacy", "/booking", "/boka/primeview"]) {
+    for (const path of ["/priser", "/en/pricing", "/dashboard", "/admin", "/services", "/areas/ealing", "/gallery", "/gallery/", "/privacy", "/booking", "/boka/primeview"]) {
       const response = await proxy(hostRequest("customer.example.com", path));
       expect(response.status, path).toBe(404);
       expect(response.headers.get("x-robots-tag"), path).toBe("noindex, nofollow");
@@ -164,6 +166,14 @@ describe("proxy request boundary", () => {
     expect(service.headers.get("x-middleware-rewrite")).toBe(
       "https://customer.example.com/foretag/acme/tjanster/window-cleaning",
     );
+  });
+
+  it("keeps the platform root on the platform host", async () => {
+    const response = await proxy(hostRequest("www.proffera.se", "/"));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(response.headers.get("x-middleware-rewrite")).toBeNull();
   });
 
   it("forwards the English locale for English public routes", async () => {
