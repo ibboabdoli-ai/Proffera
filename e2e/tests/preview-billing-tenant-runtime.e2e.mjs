@@ -73,6 +73,7 @@ test.describe("isolated Preview billing/tenant runtime", () => {
 
       expect(invalidCheckout.status).toBe(400);
       expect(invalidCheckout.body?.error).toBe("Välj en tillgänglig plan.");
+      await expect(page).toHaveURL(/\/dashboard\/installningar(?:\?|$)/u);
     } finally {
       if (fixtureCreated) {
         await fixtureRequest(request, suiteRunId, "DELETE").catch(() => undefined);
