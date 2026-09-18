@@ -159,7 +159,7 @@ export function PublicDirectoryResults({
   }
 
   return (
-    <section className={styles.resultsSection}>
+    <section className={`${styles.resultsSection} bg-surface border-line`}>
       <div className={styles.resultsToolbar}>
         <div className={styles.resultsMeta}>
           <p className={styles.eyebrow}>{t.results}</p>
@@ -203,7 +203,10 @@ export function PublicDirectoryResults({
 
           return (
             <article key={result.id} className={`group ${styles.resultCard}`}>
-              <div className={styles.resultVisual}>
+              <div
+                className={styles.resultVisual}
+                data-search-card-media={profileMedia && profileMedia.role !== "illustration" ? "true" : undefined}
+              >
                 <MarketplaceCompanyCover
                   name={result.companyName}
                   url={coverMedia?.url}
@@ -319,7 +322,7 @@ export function PublicDirectoryResults({
                   <Link
                     data-marketplace-action="directory-profile"
                     href={`${profileBase}/${encodeURIComponent(result.slug)}`}
-                    className={styles.directoryAction}
+                    className={`directory-profile-result-cta ${styles.directoryAction}`}
                   >
                     {t.viewProfile}<ArrowRight aria-hidden="true" />
                   </Link>
@@ -360,7 +363,7 @@ export function PublicDirectoryResults({
             const showGap = previousPage !== undefined && page - previousPage > 1;
             return (
               <span key={page} className="contents">
-                {showGap ? <span className="px-1 text-sm font-bold text-[#617085]" aria-hidden="true">…</span> : null}
+                {showGap ? <span className={styles.paginationGap} aria-hidden="true">…</span> : null}
                 {page === search.page ? (
                   <span
                     aria-current="page"
