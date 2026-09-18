@@ -11,9 +11,9 @@ type CustomersPageProps = {
 };
 
 const statusStyles: Record<string, string> = {
-  prospect: "bg-brand-soft text-brand",
-  active: "bg-brand-soft text-brand",
-  paused: "bg-accent-soft/30 text-brand-deep",
+  prospect: "bg-[#eef5ff] text-[#1469d8]",
+  active: "bg-[#eaf8f2] text-[#087754]",
+  paused: "bg-[#fff7df] text-[#805d14]",
   lost: "bg-danger/10 text-danger",
 };
 
