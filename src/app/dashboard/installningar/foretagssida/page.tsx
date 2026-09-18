@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { Store } from "lucide-react";
+
+import { DashboardPageHeader } from "@/components/dashboard/dashboard-page-ui";
 import { redirect } from "next/navigation";
 
 import { getSql } from "@/lib/db/server";
@@ -59,37 +62,37 @@ export default async function PublicBusinessSettingsPage({ searchParams }: { sea
 
   return (
     <div className="grid gap-5">
-      <header className="rounded-[28px] bg-[#173e2b] p-6 text-white sm:p-7">
-        <p className="text-xs font-bold uppercase tracking-[0.18em] text-white/65">Företagssida</p>
-        <div className="mt-2 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div><h1 className="text-3xl font-black">Din publika företagsyta</h1><p className="mt-3 max-w-3xl text-sm leading-7 text-white/80">Tjänster, bokning, offert, omdömen, galleri och kontakt använder samma workspace-data. Ingen separat tjänstekatalog behöver underhållas.</p></div>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <Link href="/dashboard/installningar/foretagssida/platser" className="inline-flex min-h-11 items-center justify-center rounded-xl border border-white/35 px-4 py-2.5 text-sm font-black text-white">Hantera företagsplatser</Link>
-            <a href={publicUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center justify-center rounded-xl bg-white px-4 py-2.5 text-sm font-black text-[#173e2b]">Förhandsvisa företagssida</a>
-          </div>
-        </div>
-      </header>
+      <DashboardPageHeader
+        eyebrow="Företagssida"
+        title="Din publika företagsyta"
+        description="Tjänster, bokning, offert, omdömen, galleri och kontakt använder samma workspace-data. Ingen separat tjänstekatalog behöver underhållas."
+        icon={Store}
+        actions={<div className="flex flex-col gap-2 sm:flex-row">
+          <Link href="/dashboard/installningar/foretagssida/platser" className="inline-flex min-h-11 items-center justify-center rounded-control border border-line bg-surface px-4 py-2.5 text-sm font-bold text-brand-deep">Hantera företagsplatser</Link>
+          <a href={publicUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center justify-center rounded-control bg-brand-deep px-4 py-2.5 text-sm font-bold text-white">Förhandsvisa företagssida</a>
+        </div>}
+      />
 
-      {params.updated === "1" ? <p className="rounded-xl bg-[#eaf6ed] p-4 text-sm font-bold text-[#17452f]">Företagssidans inställningar sparades.</p> : null}
-      {params.error === "intro" ? <p className="rounded-xl bg-[#fff3ef] p-4 text-sm font-bold text-[#8f2f1b]">Presentationstexten är för lång.</p> : null}
-      {params.error === "plan" ? <p className="rounded-xl bg-[#fff3ef] p-4 text-sm font-bold text-[#8f2f1b]">Företagssidan är inte aktiverad i nuvarande plan eller modulåtkomst.</p> : null}
+      {params.updated === "1" ? <p className="rounded-card border border-[#cfe8d6] bg-[#eaf8f2] p-4 text-sm font-bold text-brand">Företagssidans inställningar sparades.</p> : null}
+      {params.error === "intro" ? <p className="rounded-card border border-[#f4c7ba] bg-[#fff5f2] p-4 text-sm font-bold text-danger">Presentationstexten är för lång.</p> : null}
+      {params.error === "plan" ? <p className="rounded-card border border-[#f4c7ba] bg-[#fff5f2] p-4 text-sm font-bold text-danger">Företagssidan är inte aktiverad i nuvarande plan eller modulåtkomst.</p> : null}
 
-      <section className="rounded-[24px] border border-[#dfe6df] bg-white p-6 shadow-sm">
+      <section className="rounded-card border border-line bg-surface p-5 shadow-card sm:p-6">
         <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
           <form action={savePublicBusinessSettings} className="grid gap-5">
-            <div><p className="text-xs font-black uppercase tracking-[0.16em] text-[#68736b]">Startsida på egen domän</p><h2 className="mt-2 text-xl font-black text-[#17201a]">Välj vad besökaren möter först</h2><p className="mt-2 text-sm leading-6 text-[#5b665f]">Befintliga workspaces fortsätter med bokningssidan tills du aktivt väljer företagssidan.</p></div>
+            <div><p className="text-xs font-black uppercase tracking-[0.16em] text-ink-muted">Startsida på egen domän</p><h2 className="mt-2 text-xl font-black text-ink">Välj vad besökaren möter först</h2><p className="mt-2 text-sm leading-6 text-ink-muted">Befintliga workspaces fortsätter med bokningssidan tills du aktivt väljer företagssidan.</p></div>
             <div className="grid gap-3 sm:grid-cols-2">
-              <label className={`cursor-pointer rounded-2xl border p-4 ${mode === "booking" ? "border-[#17452f] bg-[#f1f7f3]" : "border-[#dfe6df]"}`}><input type="radio" name="public_home_mode" value="booking" defaultChecked={mode === "booking"} className="mr-2" /><strong className="text-[#17201a]">Bokningssida</strong><p className="mt-2 text-xs leading-5 text-[#5b665f]">Domänens startsida öppnar direkt onlinebokningen.</p></label>
-              <label className={`cursor-pointer rounded-2xl border p-4 ${mode === "website" ? "border-[#17452f] bg-[#f1f7f3]" : "border-[#dfe6df]"}`}><input type="radio" name="public_home_mode" value="website" defaultChecked={mode === "website"} disabled={!builderEnabled} className="mr-2" /><strong className="text-[#17201a]">Företagssida</strong><p className="mt-2 text-xs leading-5 text-[#5b665f]">Visar tjänster, omdömen, galleri och flera kundvägar.</p>{!builderEnabled ? <span className="mt-2 inline-block text-xs font-bold text-[#8f6816]">Kräver Webbplats för företag</span> : null}</label>
+              <label className={`cursor-pointer rounded-2xl border p-4 ${mode === "booking" ? "border-brand bg-brand-soft" : "border-line"}`}><input type="radio" name="public_home_mode" value="booking" defaultChecked={mode === "booking"} className="mr-2" /><strong className="text-ink">Bokningssida</strong><p className="mt-2 text-xs leading-5 text-ink-muted">Domänens startsida öppnar direkt onlinebokningen.</p></label>
+              <label className={`cursor-pointer rounded-2xl border p-4 ${mode === "website" ? "border-brand bg-brand-soft" : "border-line"}`}><input type="radio" name="public_home_mode" value="website" defaultChecked={mode === "website"} disabled={!builderEnabled} className="mr-2" /><strong className="text-ink">Företagssida</strong><p className="mt-2 text-xs leading-5 text-ink-muted">Visar tjänster, omdömen, galleri och flera kundvägar.</p>{!builderEnabled ? <span className="mt-2 inline-block text-xs font-bold text-[#8f6816]">Kräver Webbplats för företag</span> : null}</label>
             </div>
-            <label className="grid gap-2 text-sm font-bold text-[#344139]">Kort presentation<textarea name="business_intro" maxLength={2000} rows={6} defaultValue={String(experience?.business_intro ?? "")} placeholder="Berätta kort vad företaget gör, för vem och i vilket område." className="rounded-2xl border border-[#dfe6df] px-4 py-3 font-normal text-[#17201a] outline-none focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20" /></label>
+            <label className="grid gap-2 text-sm font-bold text-ink-muted">Kort presentation<textarea name="business_intro" maxLength={2000} rows={6} defaultValue={String(experience?.business_intro ?? "")} placeholder="Berätta kort vad företaget gör, för vem och i vilket område." className="rounded-control border border-line px-4 py-3 font-normal text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/15" /></label>
             <button className="inline-flex min-h-12 items-center justify-center rounded-xl bg-[#17452f] px-5 font-black text-white">Spara företagssida</button>
           </form>
 
           <aside className="grid content-start gap-4">
-            <div className="rounded-2xl bg-[#f7f9f6] p-5 ring-1 ring-[#dfe6df]"><p className="text-xs font-black uppercase tracking-[0.16em] text-[#68736b]">Publik adress</p><a href={publicUrl} target="_blank" rel="noreferrer" className="mt-2 block break-all font-bold text-[#17452f]">{publicUrl}</a></div>
-            {bookingUrl ? <div className="rounded-2xl bg-[#f7f9f6] p-5 ring-1 ring-[#dfe6df]"><p className="text-xs font-black uppercase tracking-[0.16em] text-[#68736b]">Bokningsadress</p><a href={bookingUrl} target="_blank" rel="noreferrer" className="mt-2 block break-all font-bold text-[#17452f]">{bookingUrl}</a></div> : null}
-            {customDomainEnabled && experience?.custom_domain ? <div className="rounded-2xl bg-[#f7f9f6] p-5 ring-1 ring-[#dfe6df]"><p className="text-xs font-black uppercase tracking-[0.16em] text-[#68736b]">Egen domän</p><p className="mt-2 break-all font-bold text-[#17201a]">{String(experience.custom_domain)}</p><p className="mt-2 text-xs text-[#5b665f]">Startsidan använder läget <strong>{mode === "website" ? "Företagssida" : "Bokningssida"}</strong>. Domänkopplingen ändras inte.</p></div> : null}
+            <div className="rounded-card bg-surface-subtle p-5 ring-1 ring-line"><p className="text-xs font-black uppercase tracking-[0.16em] text-ink-muted">Publik adress</p><a href={publicUrl} target="_blank" rel="noreferrer" className="mt-2 block break-all font-bold text-brand">{publicUrl}</a></div>
+            {bookingUrl ? <div className="rounded-card bg-surface-subtle p-5 ring-1 ring-line"><p className="text-xs font-black uppercase tracking-[0.16em] text-ink-muted">Bokningsadress</p><a href={bookingUrl} target="_blank" rel="noreferrer" className="mt-2 block break-all font-bold text-brand">{bookingUrl}</a></div> : null}
+            {customDomainEnabled && experience?.custom_domain ? <div className="rounded-card bg-surface-subtle p-5 ring-1 ring-line"><p className="text-xs font-black uppercase tracking-[0.16em] text-ink-muted">Egen domän</p><p className="mt-2 break-all font-bold text-ink">{String(experience.custom_domain)}</p><p className="mt-2 text-xs text-ink-muted">Startsidan använder läget <strong>{mode === "website" ? "Företagssida" : "Bokningssida"}</strong>. Domänkopplingen ändras inte.</p></div> : null}
           </aside>
         </div>
       </section>
