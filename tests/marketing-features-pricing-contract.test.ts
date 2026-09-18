@@ -45,6 +45,21 @@ describe("marketing features and pricing contract", () => {
     expect(pricing).toContain('"Egen domän"');
   });
 
+  it("keeps active launch pricing surfaces free of the superseded 199/699 price sets", () => {
+    const activePricingSources = [
+      "src/lib/billing-plans.ts",
+      "src/lib/site.ts",
+      "src/components/marketing/marketing-pricing.tsx",
+      "src/components/signup/signup-form.tsx",
+      "src/app/priser/page.tsx",
+      "src/app/en/pricing/page.tsx",
+    ].map(source).join("\n");
+
+    for (const stalePrice of ["199 kr/mån", "SEK 199/month", "699 kr/mån", "SEK 699/month"]) {
+      expect(activePricingSources).not.toContain(stalePrice);
+    }
+  });
+
   it("keeps Professional visibly recommended and trial signup self-service", () => {
     const pricing = source("src/components/marketing/marketing-pricing.tsx");
 
