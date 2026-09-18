@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowUpRight, Bot, CheckCircle2, MessageSquareText, Settings2, Unplug, Widget } from "lucide-react";
+import { ArrowUpRight, Bot, CheckCircle2, Code2, MessageSquareText, Settings2, Unplug } from "lucide-react";
 
 import { DashboardPageHeader } from "@/components/dashboard/dashboard-page-ui";
 import { getWorkspaceAiChatIntegration, isServiceAiChatBridgeConfigured } from "@/lib/service-ai-chat-bridge";
@@ -164,7 +164,7 @@ export default async function AiAssistantPage({ searchParams }: AiAssistantPageP
                 },
                 {
                   href: panelHref("/app/widget-install", integration.tenantId!),
-                  icon: Widget,
+                  icon: Code2,
                   eyebrow: isEnglish ? "Installation" : "Installation",
                   title: isEnglish ? "Get widget code" : "Hämta widget-kod",
                   text: isEnglish ? "Copy the unique widget code to your website and test it in demo mode." : "Kopiera den unika widget-koden till din webbplats och testa i demo-läget.",
