@@ -130,7 +130,7 @@ export async function ServicesReadOnly({ services }: ServicesReadOnlyProps) {
   const publishedServices = services.filter((service) => service.publicStatus === "published").length;
 
   return (
-    <section id="tjanster" className="rounded-card bg-surface p-6 shadow-sm ring-1 ring-[#dfe5dd]">
+    <section id="tjanster" className="rounded-card bg-surface p-6 shadow-sm ring-1 ring-[#dce4ee]">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-sm font-semibold uppercase tracking-wide text-brand">Tjänster</p>
@@ -152,7 +152,7 @@ export async function ServicesReadOnly({ services }: ServicesReadOnlyProps) {
         <summary className="cursor-pointer text-sm font-black text-ink">+ Skapa ny tjänst</summary>
         <form action={createWorkspaceServiceAction} className="mt-5 space-y-4">
           <ServiceFields billingCurrency={billingCurrency} />
-          <button type="submit" className="inline-flex w-full items-center justify-center rounded-full bg-[#17452f] px-6 py-3 text-sm font-semibold text-white transition hover:bg-brand-hover focus:outline-none focus:ring-2 focus:ring-brand focus:ring-offset-2">Skapa tjänst</button>
+          <button type="submit" className="inline-flex w-full items-center justify-center rounded-control bg-[#1469d8] px-6 py-3 text-sm font-semibold text-white transition hover:bg-brand-hover focus:outline-none focus:ring-2 focus:ring-brand focus:ring-offset-2">Skapa tjänst</button>
         </form>
       </details>
 
@@ -168,13 +168,13 @@ export async function ServicesReadOnly({ services }: ServicesReadOnlyProps) {
                 </div>
                 <p className="mt-4 line-clamp-3 min-h-[3rem] text-sm leading-6 text-ink-muted">{visibleValue(service.shortDescription || service.description)}</p>
                 <div className="mt-5 grid gap-2 text-sm text-ink-muted"><p><strong className="text-ink">Pris:</strong> {displayPrice(service, billingCurrency)}</p><p><strong className="text-ink">Längd:</strong> {formatDuration(service.durationMinutes)}</p><p><strong className="text-ink">Kundåtgärd:</strong> {conversionLabels[service.conversionMode]}</p><p><strong className="text-ink">Område:</strong> {visibleValue(service.serviceArea)}</p><p><strong className="text-ink">Marketplace-område:</strong> {service.serviceAreaConfirmed && service.serviceAreaRadiusKm !== null ? `Bekräftat · ${service.serviceAreaRadiusKm} km` : "Inte bekräftat"}</p></div>
-                <details className="mt-5 rounded-card bg-surface p-4 ring-1 ring-[#dfe5dd]"><summary className="cursor-pointer text-sm font-black text-ink">Redigera tjänst</summary><form action={updateWorkspaceServiceAction} className="mt-5 space-y-4"><input type="hidden" name="service_id" value={service.id} /><ServiceFields service={service} billingCurrency={billingCurrency} /><button type="submit" className="inline-flex w-full items-center justify-center rounded-full bg-[#17452f] px-6 py-3 text-sm font-semibold text-white transition hover:bg-brand-hover focus:outline-none focus:ring-2 focus:ring-brand focus:ring-offset-2">Spara tjänst</button></form></details>
+                <details className="mt-5 rounded-card bg-surface p-4 ring-1 ring-[#dce4ee]"><summary className="cursor-pointer text-sm font-black text-ink">Redigera tjänst</summary><form action={updateWorkspaceServiceAction} className="mt-5 space-y-4"><input type="hidden" name="service_id" value={service.id} /><ServiceFields service={service} billingCurrency={billingCurrency} /><button type="submit" className="inline-flex w-full items-center justify-center rounded-control bg-[#1469d8] px-6 py-3 text-sm font-semibold text-white transition hover:bg-brand-hover focus:outline-none focus:ring-2 focus:ring-brand focus:ring-offset-2">Spara tjänst</button></form></details>
               </div>
             </article>
           ))}
         </div>
       ) : (
-        <div className="mt-6 rounded-card bg-[#f7f7f4] p-5 text-sm leading-6 text-ink-muted">Inga tjänster ännu. Skapa första tjänsten och publicera den när den är redo för kunder.</div>
+        <div className="mt-6 rounded-card bg-[#f6f9fd] p-5 text-sm leading-6 text-ink-muted">Inga tjänster ännu. Skapa första tjänsten och publicera den när den är redo för kunder.</div>
       )}
     </section>
   );
