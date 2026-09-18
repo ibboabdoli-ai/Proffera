@@ -243,7 +243,7 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
     { label: "Händelser", value: String(historyEvents.length), helper: "Registrerade aktiviteter", icon: Activity, tone: "bg-[#f8f0df] text-[#8a6722]" },
     { label: "Åtgärd", value: "Tillgänglig", helper: "Status och tid kan uppdateras", icon: RefreshCw, tone: "bg-[#f0ece8] text-[#6d5948]" },
   ] as const;
-  const fieldClass = "rounded-control border border-[#d9e1d7] px-4 py-3 text-sm font-normal text-ink outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20";
+  const fieldClass = "rounded-control border border-[#dce4ee] px-4 py-3 text-sm font-normal text-ink outline-none transition focus:border-[#1469d8] focus:ring-2 focus:ring-[#1469d8]/20";
 
   return <div className="grid gap-6">
     <DashboardPageHeader eyebrow={isEnglish ? "Booking profile" : "Bokningsprofil"} title={booking.title} description={isEnglish ? "View the booking details, connected customer and history. Change the status or reschedule the time securely." : "Se bokningens viktigaste uppgifter, kopplad kund och historik. Ändra status eller flytta tiden kontrollerat."} icon={CalendarClock} actions={<Link href={withLang("/dashboard/bokningar", locale)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border border-[#d5ddd3] bg-surface px-4 py-2.5 text-sm font-bold text-brand"><ArrowLeft className="h-4 w-4" />{isEnglish ? "Back to bookings" : "Tillbaka till bokningar"}</Link>} />
