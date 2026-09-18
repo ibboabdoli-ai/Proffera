@@ -1,13 +1,11 @@
 import type { LucideIcon } from "lucide-react";
 import {
-  ArrowRight,
   CalendarCheck2,
   CheckCircle2,
   FileText,
   House,
   MessageSquareText,
   Scissors,
-  Sparkles,
   Wrench,
 } from "lucide-react";
 
