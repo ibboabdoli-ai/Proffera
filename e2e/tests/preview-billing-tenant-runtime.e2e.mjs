@@ -75,6 +75,20 @@ async function fillStripeField(page, labels, selectors, value) {
   await locator.fill(value);
 }
 
+async function visibleButton(page, names, timeout = 30_000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    for (const frame of page.frames()) {
+      for (const name of names) {
+        const locator = frame.getByRole("button", { name }).first();
+        if (await locator.count() > 0 && await locator.isVisible().catch(() => false)) return locator;
+      }
+    }
+    await page.waitForTimeout(250);
+  }
+  return null;
+}
+
 async function selectStripeCountry(page) {
   const country = await visibleControl(
     page,
@@ -137,11 +151,14 @@ async function completeStripeCheckout(page, checkoutUrl, email) {
   );
   if (postalCode) await postalCode.fill("11122");
 
-  const payButton = await visibleControl(
-    page,
-    [/^Subscribe(?: .*)?$/iu, /^Pay(?: .*)?$/iu, /^Start trial(?: .*)?$/iu, /^Prenumerera(?: .*)?$/iu, /^Betala(?: .*)?$/iu, /^Abonnera(?: .*)?$/iu],
-    ['button[type="submit"]'],
-  );
+  const payButton = await visibleButton(page, [
+    /^Subscribe(?: .*)?$/iu,
+    /^Pay(?: .*)?$/iu,
+    /^Start trial(?: .*)?$/iu,
+    /^Prenumerera(?: .*)?$/iu,
+    /^Betala(?: .*)?$/iu,
+    /^Abonnera(?: .*)?$/iu,
+  ]);
   expect(payButton, "Stripe Checkout submit button was not visible.").not.toBeNull();
   await payButton.click();
 
