@@ -148,7 +148,7 @@ export default async function CustomerDetailPage({ params, searchParams }: Custo
             <input type="hidden" name="lang" value={locale} />
             <label className="grid gap-2 text-sm font-semibold text-ink">{isEnglish ? "Title" : "Rubrik"}<input name="title" type="text" required maxLength={140} className={fieldClass} placeholder={isEnglish ? "For example: Follow-up" : "Till exempel: Uppföljning"} /></label>
             <label className="grid gap-2 text-sm font-semibold text-ink">{isEnglish ? "Note" : "Notering"}<textarea name="note" required maxLength={1000} rows={5} className={fieldClass} placeholder={isEnglish ? "Write an internal customer note..." : "Skriv en intern kundnotering..."} /></label>
-            <button type="submit" className="inline-flex min-h-12 w-fit items-center justify-center rounded-control bg-brand px-5 py-3 text-sm font-semibold text-white shadow-card transition hover:-translate-y-0.5 hover:bg-brand-hover">{isEnglish ? "Save note" : "Spara notering"}</button>
+            <button type="submit" className="inline-flex min-h-12 w-fit items-center justify-center rounded-control bg-brand-deep px-5 py-3 text-sm font-semibold text-white shadow-card transition hover:-translate-y-0.5 hover:bg-brand-hover">{isEnglish ? "Save note" : "Spara notering"}</button>
           </form>
         </article>
 
