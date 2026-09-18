@@ -30,22 +30,30 @@ async function resetEmail(request, suiteRunId) {
 async function waitForFreshResetEmail(request, suiteRunId, baselineUuid) {
   const deadline = Date.now() + 60_000;
   let latest = null;
+  let freshWithoutTarget = 0;
+
   while (Date.now() < deadline) {
     latest = await resetEmail(request, suiteRunId);
-    if (
-      latest.response.ok()
+    const isFresh = latest.response.ok()
       && latest.body?.ok === true
       && latest.body?.found === true
       && latest.body?.uuid
-      && latest.body.uuid !== baselineUuid
-      && latest.body?.resetTarget
-    ) {
-      return latest.body;
+      && latest.body.uuid !== baselineUuid;
+
+    if (isFresh && latest.body?.resetTarget) return latest.body;
+
+    if (isFresh && Number(latest.body?.diagnostics?.bodyLength ?? 0) > 0) {
+      freshWithoutTarget += 1;
+      if (freshWithoutTarget >= 2) {
+        throw new Error(`Fresh Preview reset email had no trusted reset target: ${JSON.stringify(latest.body?.diagnostics ?? null)}`);
+      }
     }
+
     await new Promise((resolve) => setTimeout(resolve, 2_000));
   }
+
   expect(latest?.response.ok(), JSON.stringify(latest?.body ?? null)).toBeTruthy();
-  throw new Error("Timed out waiting for a fresh Preview password reset email with a trusted reset target.");
+  throw new Error(`Timed out waiting for a fresh Preview password reset email with a trusted reset target: ${JSON.stringify(latest?.body?.diagnostics ?? null)}`);
 }
 
 test.describe("isolated Preview password reset lifecycle", () => {
