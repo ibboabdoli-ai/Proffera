@@ -1,3 +1,5 @@
+import { getCheckoutPlanPriceLabel } from "@/lib/billing-plans";
+
 export const chatLinks = {
   app: "https://chat.proffera.se/app/inbox?tenant=proffera",
   demo: "https://chat.proffera.se/demo?tenant=proffera",
@@ -38,13 +40,13 @@ export const serviceCategories = [
 export const pricingPlans = [
   {
     name: "Starter",
-    price: "199 kr/mån",
+    price: getCheckoutPlanPriceLabel("starter", "SEK", "sv"),
     description: "För små företag som vill samla bokningar, leads och kunder i ett system.",
     features: ["Onlinebokning", "Leadhantering", "Kund-CRM", "Kundportal", "Påminnelser"],
   },
   {
     name: "Professional",
-    price: "599 kr/mån",
+    price: getCheckoutPlanPriceLabel("professional", "SEK", "sv"),
     description: "För företag som vill visa tjänster online och hantera fler delar av kundresan i Proffera.",
     features: ["Allt i Starter", "Företagssida", "Offerter", "Galleri och verifierade omdömen", "Analys", "Flera medarbetare"],
   },
