@@ -27,6 +27,12 @@ async function resetEmail(request, suiteRunId) {
   return { response, body };
 }
 
+async function cleanupResetVerification(request, suiteRunId) {
+  return request.delete(resetEmailPath, {
+    headers: { [RUN_HEADER]: suiteRunId },
+  });
+}
+
 async function waitForFreshResetEmail(request, suiteRunId, baselineUuid) {
   const deadline = Date.now() + 60_000;
   let latest = null;
@@ -100,6 +106,8 @@ test.describe("isolated Preview password reset lifecycle", () => {
       expect(email.subject).toBe("Återställ ditt lösenord på Proffera");
       expect(email.sinkRecipientMatched).toBe(true);
       expect(email.acceptedByProvider).toBe(true);
+      expect(email.diagnostics?.verificationTokenFound).toBe(true);
+      expect(email.diagnostics?.targetsConflict).toBe(false);
       expect(email.resetTarget).toMatch(/^\/aterstall-losenord(?:\?lang=en)?#token=[A-Za-z0-9_-]{16,128}$/u);
 
       await page.goto(email.resetTarget);
@@ -118,6 +126,7 @@ test.describe("isolated Preview password reset lifecycle", () => {
       await expect(page.getByRole("button", { name: "Logga ut" })).toBeVisible();
     } finally {
       if (fixtureCreated) {
+        await cleanupResetVerification(request, suiteRunId).catch(() => undefined);
         await fixtureRequest(request, suiteRunId, "DELETE").catch(() => undefined);
       }
     }
