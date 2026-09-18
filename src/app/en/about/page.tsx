@@ -1,4 +1,6 @@
 import { ShieldCheck, Sparkles, Target } from "lucide-react";
+
+import styles from "@/components/marketing/platform-marketing.module.css";
 import { ButtonLink } from "@/components/ui/button-link";
 import { createEnglishMetadata } from "@/lib/english-metadata";
 
@@ -17,10 +19,50 @@ const values = [
 
 export default function EnglishAboutPage() {
   return (
-    <div className="bg-[#f7f7f4]">
-      <section className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8 lg:py-24"><p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">About Proffera</p><h1 className="mt-3 max-w-4xl text-4xl font-bold tracking-tight text-[#17201a] sm:text-5xl">We are building a simpler way for service businesses to grow digitally.</h1><p className="mt-5 max-w-3xl text-lg leading-8 text-[#5b665f]">Proffera started as a lead and quote workflow and is evolving step by step into a SaaS platform for small businesses in Sweden.</p></section>
-      <section className="mx-auto grid max-w-7xl gap-6 px-4 pb-16 sm:px-6 lg:grid-cols-3 lg:px-8">{values.map(({ icon: Icon, title, text }) => <article key={title} className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]"><Icon className="h-8 w-8 text-[#17452f]" aria-hidden="true" /><h2 className="mt-4 text-xl font-semibold text-[#17201a]">{title}</h2><p className="mt-2 text-sm leading-6 text-[#5b665f]">{text}</p></article>)}</section>
-      <section className="mx-auto max-w-7xl px-4 pb-16 sm:px-6 lg:px-8"><div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-[#dfe5dd]"><h2 className="text-2xl font-bold text-[#17201a]">What comes next</h2><p className="mt-3 max-w-2xl text-sm leading-6 text-[#5b665f]">We are continuing with public pages, dashboard, booking flows, CRM and subscriptions in a controlled way. Planned modules launch only when they are ready to use.</p><div className="mt-6"><ButtonLink href="/en/contact">Talk to us</ButtonLink></div></div></section>
-    </div>
+    <main className={styles.page} lang="en">
+      <section className={styles.hero}>
+        <div className={styles.inner}>
+          <p className={styles.eyebrow}>About Proffera</p>
+          <h1 className={styles.title}>A clearer way for local service businesses to meet customers digitally.</h1>
+          <p className={styles.lead}>
+            Proffera started as a lead and quote workflow and is evolving step by step into a connected marketplace and workspace for service businesses in Sweden.
+          </p>
+        </div>
+      </section>
+
+      <section className={styles.sectionWhite}>
+        <div className={styles.compactInner}>
+          <div className={styles.sectionHeader}>
+            <div>
+              <p className={styles.eyebrow}>Our focus</p>
+              <h2 className={styles.sectionTitle}>Practical workflows before decorative features.</h2>
+            </div>
+            <p className={styles.sectionLead}>We build around real customer jobs, clear data and controlled rollout of new capabilities.</p>
+          </div>
+
+          <ul className={styles.valueList}>
+            {values.map(({ icon: Icon, title, text }) => (
+              <li key={title} className={styles.valueRow}>
+                <div className={styles.valueTitle}><Icon aria-hidden="true" />{title}</div>
+                <p>{text}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </section>
+
+      <section className={styles.sectionSoft}>
+        <div className={styles.compactInner}>
+          <div className={styles.ctaBand}>
+            <h2>Want to see how Proffera fits your customer workflow?</h2>
+            <p>We only present capabilities and flows that already exist or are clearly marked as planned.</p>
+            <div className={styles.actions}>
+              <ButtonLink href="/en/contact">Talk to us</ButtonLink>
+              <ButtonLink href="/en/demo" variant="secondary">View demo</ButtonLink>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
   );
 }
