@@ -2,6 +2,7 @@ import "server-only";
 
 import { assessCompanyDirectoryCategoryConfidence } from "@/lib/company-directory-category-confidence";
 import { enrichCompanyDirectoryOfficialFactsForProfile } from "@/lib/company-directory-official-facts";
+import { assessCompanyDirectoryPilotWorkplace } from "@/lib/company-directory-pilot-location";
 import { invalidatePublicDirectoryPublicProjectionByProfileId } from "@/lib/company-directory-public-cache";
 import { enrichCompanyDirectoryScbForProfile } from "@/lib/company-directory-scb-enrichment";
 import { createScbCompanyRegistryTransportFromEnv } from "@/lib/company-directory-scb-transport";
@@ -37,6 +38,18 @@ function jsonArray(value: unknown): unknown[] {
     }
   }
   return [];
+}
+
+function hasSafePilotWorkplace(row: Record<string, unknown>) {
+  return assessCompanyDirectoryPilotWorkplace(
+    {
+      addressLine1: text(row.address_line1),
+      postalCode: text(row.postal_code),
+      city: text(row.city),
+      municipality: text(row.municipality),
+    },
+    jsonArray(row.scb_workplaces),
+  ).eligible;
 }
 
 function boundedLimit(value: unknown) {
@@ -127,6 +140,15 @@ async function selectCandidates(limit: number) {
         or scb.source_payload_hash = ''
         or scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' is distinct from profile.updated_at::text
         or scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' is distinct from facts.last_synced_at::text
+        or jsonb_array_length(coalesce(scb.workplaces, '[]'::jsonb)) <> 1
+        or nullif(btrim(scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is null
+        or nullif(btrim(scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is null
+        or nullif(btrim(scb.workplaces->0->'visitingAddress'->>'city'), '') is null
+        or nullif(btrim(scb.workplaces->0->>'municipality'), '') is null
+        or (
+          lower(btrim(scb.workplaces->0->'visitingAddress'->>'city')) not in ('stockholm', 'södertälje')
+          and lower(btrim(scb.workplaces->0->>'municipality')) not in ('stockholm', 'södertälje')
+        )
       )
     order by
       case when facts.profile_id is null then 0 else 1 end,
@@ -159,6 +181,15 @@ async function backlogCount() {
         or scb.source_payload_hash = ''
         or scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' is distinct from profile.updated_at::text
         or scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' is distinct from facts.last_synced_at::text
+        or jsonb_array_length(coalesce(scb.workplaces, '[]'::jsonb)) <> 1
+        or nullif(btrim(scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is null
+        or nullif(btrim(scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is null
+        or nullif(btrim(scb.workplaces->0->'visitingAddress'->>'city'), '') is null
+        or nullif(btrim(scb.workplaces->0->>'municipality'), '') is null
+        or (
+          lower(btrim(scb.workplaces->0->'visitingAddress'->>'city')) not in ('stockholm', 'södertälje')
+          and lower(btrim(scb.workplaces->0->>'municipality')) not in ('stockholm', 'södertälje')
+        )
       )
   `;
 
@@ -180,6 +211,10 @@ async function loadFreshEvaluation(profileId: string) {
       profile.legal_name,
       profile.display_name,
       profile.activity_description,
+      profile.address_line1,
+      profile.postal_code,
+      profile.city,
+      profile.municipality,
       profile.is_active,
       profile.privacy_blocked,
       profile.auto_public_eligible,
@@ -192,6 +227,7 @@ async function loadFreshEvaluation(profileId: string) {
       facts.ongoing_procedures,
       facts.last_synced_at::text as facts_last_synced_token,
       facts.source_payload_hash as facts_source_payload_hash,
+      scb.workplaces as scb_workplaces,
       scb.source_payload_hash as scb_source_payload_hash,
       coalesce(jsonb_array_length(scb.conflicts), 0)::int as scb_conflict_count,
       (
@@ -414,6 +450,7 @@ export async function revalidatePublishedCompanyDirectoryBatch(
           continue;
         }
 
+        const pilotWorkplaceSafe = hasSafePilotWorkplace(row);
         const unsafe = text(row.country_code) !== "SE"
           || text(row.organization_kind) !== "juridical_person"
           || !Boolean(row.is_active)
@@ -422,7 +459,8 @@ export async function revalidatePublishedCompanyDirectoryBatch(
           || Boolean(row.claimed_workspace_id)
           || Boolean(row.deregistration_date)
           || Boolean(row.advertising_blocked)
-          || jsonArray(row.ongoing_procedures).length > 0;
+          || jsonArray(row.ongoing_procedures).length > 0
+          || !pilotWorkplaceSafe;
         const scbConflictCount = Math.max(0, number(row.scb_conflict_count));
         const shouldReview = unsafe
           || !confidence.officialFactsReady
@@ -456,7 +494,7 @@ export async function revalidatePublishedCompanyDirectoryBatch(
         movedToReview += 1;
         if (reviewMessages.length < 5) {
           reviewMessages.push(
-            `${organizationNumber}: review (score ${confidence.score}, conflicts ${scbConflictCount}, unsafe ${unsafe ? "yes" : "no"})`,
+            `${organizationNumber}: review (score ${confidence.score}, conflicts ${scbConflictCount}, unsafe ${unsafe ? "yes" : "no"}, pilot-workplace ${pilotWorkplaceSafe ? "yes" : "no"})`,
           );
         }
         try {
