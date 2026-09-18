@@ -35,14 +35,14 @@ export default function JoinCompanyPage() {
               <p className={styles.sectionCopy}>Företagsuppgifter och behörigheter verifieras innan en offentlig profil kopplas till ett workspace.</p>
             </aside>
           </div>
-          <div className={styles.rowList} style={{ marginTop: "3rem" }}>
+          <ol className={styles.rowList} style={{ marginTop: "3rem" }}>
             {benefits.map(([title, text], index) => (
-              <div key={title} className={styles.row}>
+              <li key={title} className={styles.row}>
                 <span className={styles.rowNumber}>0{index + 1}</span>
                 <div><h2 className={styles.rowTitle}>{title}</h2><p className={styles.rowText}>{text}</p></div>
-              </div>
+              </li>
             ))}
-          </div>
+          </ol>
           <p className={[styles.notice, styles.info].join(" ")} style={{ marginTop: "2rem" }}>
             <CheckCircle2 className="mr-2 inline h-5 w-5" aria-hidden="true" />
             Ingen betalning eller bokning skapas när du skickar en demoförfrågan.

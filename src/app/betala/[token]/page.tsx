@@ -40,9 +40,13 @@ function localeFrom(value: string | string[] | undefined): Locale {
   return Array.isArray(value) ? (value[0] === "en" ? "en" : "sv") : value === "en" ? "en" : "sv";
 }
 
-function paymentHref(token: string, locale: Locale) {
+function paymentHref(token: string, locale: Locale, status?: string) {
   const base = `/betala/${encodeURIComponent(token)}`;
-  return locale === "en" ? `${base}?lang=en` : base;
+  const query = new URLSearchParams();
+  if (locale === "en") query.set("lang", "en");
+  if (status === "success") query.set("status", "success");
+  const suffix = query.toString();
+  return suffix ? `${base}?${suffix}` : base;
 }
 
 function money(amount: number, currency: string, locale: Locale) {
@@ -89,7 +93,7 @@ export default async function PublicPaymentPage({
                 <p className={styles.eyebrow}>Proffera</p>
                 <h1 className={styles.title}>{text.unavailableTitle}</h1>
               </div>
-              <Link href={paymentHref(token, alternative)} className={styles.languageLink}>{text.language}</Link>
+              <Link href={paymentHref(token, alternative, status)} className={styles.languageLink}>{text.language}</Link>
             </div>
           </header>
           <div className={styles.stateBody}>
@@ -112,7 +116,7 @@ export default async function PublicPaymentPage({
               <h1 className={styles.title}>{text.title}</h1>
               <p className={styles.intro}>{payment.title}</p>
             </div>
-            <Link href={paymentHref(token, alternative)} className={styles.languageLink}>{text.language}</Link>
+            <Link href={paymentHref(token, alternative, status)} className={styles.languageLink}>{text.language}</Link>
           </div>
         </header>
 

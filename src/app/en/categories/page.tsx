@@ -45,14 +45,14 @@ export default function EnglishCategoriesPage() {
             </aside>
           </div>
 
-          <div className={styles.rowList} style={{ marginTop: "3rem" }}>
+          <ul className={styles.rowList} style={{ marginTop: "3rem" }}>
             {categories.map((category, index) => (
-              <div key={category} className={styles.row}>
+              <li key={category} className={styles.row}>
                 <span className={styles.rowNumber}>{String(index + 1).padStart(2, "0")}</span>
                 <div><h2 className={styles.rowTitle}>{category}</h2></div>
-              </div>
+              </li>
             ))}
-          </div>
+          </ul>
         </div>
       </section>
     </main>

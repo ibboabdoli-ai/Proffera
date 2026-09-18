@@ -37,14 +37,14 @@ export default function EnglishJoinBusinessPage() {
               <p className={styles.sectionCopy}>Business information and authority are verified before a public profile is connected to a workspace.</p>
             </aside>
           </div>
-          <div className={styles.rowList} style={{ marginTop: "3rem" }}>
+          <ol className={styles.rowList} style={{ marginTop: "3rem" }}>
             {benefits.map(([title, text], index) => (
-              <div key={title} className={styles.row}>
+              <li key={title} className={styles.row}>
                 <span className={styles.rowNumber}>0{index + 1}</span>
                 <div><h2 className={styles.rowTitle}>{title}</h2><p className={styles.rowText}>{text}</p></div>
-              </div>
+              </li>
             ))}
-          </div>
+          </ol>
           <p className={[styles.notice, styles.info].join(" ")} style={{ marginTop: "2rem" }}>
             <CheckCircle2 className="mr-2 inline h-5 w-5" aria-hidden="true" />
             No payment or booking is created when you send a demo request.

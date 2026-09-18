@@ -521,7 +521,10 @@
 
 .rowList {
   display: grid;
+  margin: 0;
+  padding: 0;
   border-top: 1px solid var(--border);
+  list-style: none;
 }
 
 .row {

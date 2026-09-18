@@ -36,14 +36,14 @@ export default function HowItWorksPage() {
             </aside>
           </div>
 
-          <div className={styles.rowList} style={{ marginTop: "3rem" }}>
+          <ol className={styles.rowList} style={{ marginTop: "3rem" }}>
             {steps.map(([title, text], index) => (
-              <div key={title} className={styles.row}>
+              <li key={title} className={styles.row}>
                 <span className={styles.rowNumber}>0{index + 1}</span>
                 <div><h2 className={styles.rowTitle}>{title}</h2><p className={styles.rowText}>{text}</p></div>
-              </div>
+              </li>
             ))}
-          </div>
+          </ol>
         </div>
       </section>
     </main>
