@@ -140,7 +140,7 @@ export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, t
     <article className="rounded-card border border-line bg-surface p-6 shadow-[0_1px_2px_rgba(20,43,32,0.03),0_14px_36px_rgba(20,43,32,0.045)]">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-start gap-3">
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-card bg-[#eaf8f2] text-[#087754]">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-card bg-[#eef5ff] text-[#087754]">
             <CreditCard className="h-5 w-5" aria-hidden="true" />
           </span>
           <div>
@@ -148,7 +148,7 @@ export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, t
             <p className="mt-1 text-sm leading-6 text-ink-muted">Starta abonnemanget via Stripes säkra betalningssida.</p>
           </div>
         </div>
-        <span className={`w-fit rounded-full px-3 py-1 text-xs font-semibold ${hasActivePlan ? "bg-[#eaf8f2] text-[#087754]" : "bg-surface-subtle text-ink-muted"}`}>
+        <span className={`w-fit rounded-full px-3 py-1 text-xs font-semibold ${hasActivePlan ? "bg-[#eef5ff] text-[#087754]" : "bg-surface-subtle text-ink-muted"}`}>
           {billing.status ? statusLabels[billing.status] : "Ingen aktiv plan"}
         </span>
       </div>
@@ -193,7 +193,7 @@ export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, t
             type="button"
             onClick={openBillingPortal}
             disabled={portalLoading || loadingPlanKey !== null}
-            className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-control border border-[#17452f] bg-surface px-5 py-3 text-sm font-semibold text-brand transition hover:bg-[#eaf8f2] focus:outline-none focus:ring-2 focus:ring-brand focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+            className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-control border border-[#1469d8] bg-surface px-5 py-3 text-sm font-semibold text-brand transition hover:bg-[#eef5ff] focus:outline-none focus:ring-2 focus:ring-brand focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
           >
             {portalLoading ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <CreditCard className="h-4 w-4" aria-hidden="true" />}
             {portalLoading ? "Öppnar Stripe…" : "Hantera betalning och abonnemang"}
@@ -224,7 +224,7 @@ export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, t
                   type="button"
                   onClick={() => startCheckout(plan.key)}
                   disabled={!plan.configured || loadingPlanKey !== null}
-                  className={`rounded-card border p-4 text-left transition focus:outline-none focus:ring-2 focus:ring-brand focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-55 ${isPreferred ? "border-[#17452f] bg-[#eaf8f2]" : "border-line bg-surface-subtle hover:border-line-strong"}`}
+                  className={`rounded-card border p-4 text-left transition focus:outline-none focus:ring-2 focus:ring-brand focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-55 ${isPreferred ? "border-[#1469d8] bg-[#eef5ff]" : "border-line bg-surface-subtle hover:border-line-strong"}`}
                 >
                   <span className="flex items-start justify-between gap-3">
                     <span>
@@ -243,7 +243,7 @@ export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, t
       ) : null}
 
       {canUpgrade && professionalPlan ? (
-        <div className="mt-5 rounded-card border border-line bg-[#eaf8f2] p-4">
+        <div className="mt-5 rounded-card border border-line bg-[#eef5ff] p-4">
           <p className="text-base font-bold text-ink">Uppgradera till Professional</p>
           <p className="mt-1 text-sm leading-6 text-ink-muted">{professionalPlan.description}</p>
 
@@ -308,7 +308,7 @@ export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, t
 
       {!canManage ? <p className="mt-5 text-sm text-ink-muted">Endast arbetsytans Owner kan starta eller ändra abonnemanget.</p> : null}
       {canManage && !checkoutConfigured ? <p className="mt-5 text-sm text-ink-muted">Stripe Checkout är ännu inte konfigurerad.</p> : null}
-      {success ? <p className="mt-4 rounded-control bg-[#eaf8f2] p-4 text-sm font-semibold text-brand" role="status" aria-live="polite">{success}</p> : null}
+      {success ? <p className="mt-4 rounded-control bg-[#eef5ff] p-4 text-sm font-semibold text-brand" role="status" aria-live="polite">{success}</p> : null}
       {error ? <p className="mt-4 text-sm font-semibold text-danger" role="alert" aria-live="assertive">{error}</p> : null}
     </article>
   );
