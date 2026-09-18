@@ -1,0 +1,452 @@
+.page {
+  min-height: 100vh;
+  background: var(--booking-bg, #f6f8fb);
+  color: var(--booking-text, #11213b);
+}
+
+.shell {
+  width: min(100%, 1180px);
+  margin: 0 auto;
+  padding: 22px 22px 40px;
+}
+
+.tenantHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 14px;
+}
+
+.tenantIdentity {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.tenantLogo {
+  max-height: 38px;
+  max-width: 130px;
+  object-fit: contain;
+}
+
+.tenantMark {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: none;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--booking-primary);
+  color: #fff;
+  font-weight: 950;
+}
+
+.tenantName {
+  overflow: hidden;
+  margin: 0;
+  color: var(--booking-text, #11213b);
+  font-size: .84rem;
+  font-weight: 950;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tenantCity {
+  overflow: hidden;
+  margin: 2px 0 0;
+  color: var(--booking-muted, #617085);
+  font-size: .66rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.languageNav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.languageLink,
+.languageActive {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  padding: 0 10px;
+  font-size: .68rem;
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.languageLink {
+  border: 1px solid var(--booking-line, #dce4ee);
+  background: var(--booking-card, #fff);
+  color: var(--booking-text, #11213b);
+}
+
+.languageActive {
+  border: 1px solid var(--booking-primary);
+  background: var(--booking-primary);
+  color: #fff;
+}
+
+.hero {
+  overflow: hidden;
+  border: 1px solid var(--booking-line, #dce4ee);
+  border-radius: 15px;
+  background: var(--booking-card, #fff);
+  box-shadow: 0 8px 24px rgb(10 46 99 / 6%);
+}
+
+.heroGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(300px, .92fr);
+  min-height: 330px;
+}
+
+.heroSolo {
+  grid-template-columns: 1fr;
+}
+
+.heroCopy {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 32px;
+}
+
+.heroEyebrow {
+  margin: 0;
+  color: var(--booking-primary);
+  font-size: .62rem;
+  font-weight: 900;
+  letter-spacing: .15em;
+  text-transform: uppercase;
+}
+
+.heroTitle {
+  margin: 8px 0 0;
+  color: var(--booking-text, #11213b);
+  font-size: clamp(2rem, 4.5vw, 3.7rem);
+  font-weight: 950;
+  line-height: 1.01;
+  letter-spacing: -.045em;
+  text-wrap: balance;
+}
+
+.heroSubtitle {
+  margin: 9px 0 0;
+  color: var(--booking-text, #11213b);
+  font-size: .92rem;
+  font-weight: 900;
+}
+
+.heroDescription {
+  max-width: 660px;
+  margin: 9px 0 0;
+  color: var(--booking-muted, #617085);
+  font-size: .78rem;
+  line-height: 1.65;
+}
+
+.heroLocation {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 12px 0 0;
+  color: var(--booking-muted, #617085);
+  font-size: .72rem;
+  font-weight: 800;
+}
+
+.heroLocation svg {
+  width: 14px;
+  height: 14px;
+  color: var(--booking-primary);
+}
+
+.heroCta {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  margin-top: 17px;
+  border-radius: 8px;
+  background: var(--booking-primary);
+  padding: 0 13px;
+  color: #fff;
+  font-size: .72rem;
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.heroMedia {
+  min-height: 330px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--booking-primary) 10%, var(--booking-card, #fff));
+}
+
+.heroMedia img,
+.heroMedia video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.bookingLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 330px;
+  gap: 14px;
+  margin-top: 14px;
+  align-items: start;
+}
+
+.bookingPanel,
+.sidePanel {
+  border: 1px solid var(--booking-line, #dce4ee);
+  border-radius: 13px;
+  background: var(--booking-card, #fff);
+  box-shadow: 0 3px 14px rgb(10 46 99 / 4%);
+}
+
+.bookingPanel {
+  padding: 22px;
+}
+
+.verification {
+  border: 1px solid color-mix(in srgb, var(--booking-primary) 20%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--booking-primary) 8%, var(--booking-card, #fff));
+  padding: 11px 13px;
+  color: var(--booking-text, #11213b);
+  font-size: .72rem;
+  line-height: 1.55;
+}
+
+.startHint {
+  margin: 9px 0 0;
+  color: var(--booking-muted, #617085);
+  font-size: .68rem;
+  font-weight: 750;
+  line-height: 1.5;
+}
+
+.errorNotice {
+  margin-top: 12px;
+  border: 1px solid #f4c7ba;
+  border-radius: 9px;
+  background: #fff5f2;
+  padding: 11px 13px;
+  color: #9f3a2d;
+  font-size: .72rem;
+  font-weight: 800;
+}
+
+.successNotice {
+  border: 1px solid #cfe8d6;
+  border-radius: 11px;
+  background: #eaf8f2;
+  padding: 16px;
+  color: #087754;
+}
+
+.successNotice p {
+  margin: 0;
+  font-size: .78rem;
+  font-weight: 850;
+  line-height: 1.55;
+}
+
+.successAction {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  margin-top: 12px;
+  border-radius: 8px;
+  background: var(--booking-primary);
+  padding: 0 13px;
+  color: #fff;
+  font-size: .72rem;
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.preparing {
+  margin-top: 14px;
+  border: 1px dashed var(--booking-line, #dce4ee);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--booking-card, #fff) 92%, var(--booking-primary) 8%);
+  padding: 13px;
+  color: var(--booking-muted, #617085);
+  font-size: .72rem;
+}
+
+.sideColumn {
+  display: grid;
+  gap: 10px;
+}
+
+.sidePanel {
+  padding: 15px;
+}
+
+.sideTitle {
+  margin: 0;
+  color: var(--booking-text, #11213b);
+  font-size: .82rem;
+  font-weight: 950;
+}
+
+.serviceList,
+.hoursList,
+.contactList {
+  display: grid;
+  margin-top: 9px;
+}
+
+.serviceRow,
+.hoursRow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid var(--booking-line, #dce4ee);
+  padding: 9px 0;
+}
+
+.serviceRow:first-child,
+.hoursRow:first-child {
+  border-top: 0;
+}
+
+.serviceRow strong,
+.hoursRow strong {
+  color: var(--booking-text, #11213b);
+  font-size: .7rem;
+}
+
+.serviceRow span,
+.hoursRow span {
+  color: var(--booking-muted, #617085);
+  font-size: .66rem;
+  text-align: right;
+}
+
+.contactLink {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  border-top: 1px solid var(--booking-line, #dce4ee);
+  color: var(--booking-text, #11213b);
+  font-size: .7rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.contactLink:first-child {
+  border-top: 0;
+}
+
+.faqTitle {
+  margin: 9px 0 0;
+  color: var(--booking-text, #11213b);
+  font-size: .72rem;
+  font-weight: 900;
+}
+
+.faqBody {
+  margin: 5px 0 0;
+  color: var(--booking-muted, #617085);
+  font-size: .68rem;
+  line-height: 1.55;
+}
+
+.unavailablePage {
+  min-height: 100vh;
+  background: #f6f8fb;
+  padding: 48px 18px;
+}
+
+.unavailableCard {
+  width: min(100%, 560px);
+  margin: 0 auto;
+  border: 1px solid #dce4ee;
+  border-radius: 14px;
+  background: #fff;
+  padding: 24px;
+  text-align: center;
+  box-shadow: 0 8px 24px rgb(10 46 99 / 6%);
+}
+
+.unavailableCard h1 {
+  margin: 0;
+  color: #0a2e63;
+  font-size: 1.5rem;
+  font-weight: 950;
+}
+
+.unavailableCard p {
+  margin: 9px 0 0;
+  color: #617085;
+  font-size: .78rem;
+  line-height: 1.6;
+}
+
+@media (max-width: 900px) {
+  .heroGrid,
+  .bookingLayout {
+    grid-template-columns: 1fr;
+  }
+
+  .heroMedia {
+    min-height: 260px;
+  }
+
+  .sideColumn {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .shell {
+    padding: 14px 14px 30px;
+  }
+
+  .tenantHeader {
+    align-items: flex-start;
+  }
+
+  .heroCopy {
+    padding: 22px 18px;
+  }
+
+  .heroTitle {
+    font-size: clamp(2rem, 11vw, 3rem);
+  }
+
+  .heroMedia {
+    min-height: 205px;
+  }
+
+  .bookingPanel {
+    padding: 16px;
+  }
+
+  .sideColumn {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .heroCta,
+  .languageLink,
+  .languageActive,
+  .successAction {
+    transition: none !important;
+  }
+}
