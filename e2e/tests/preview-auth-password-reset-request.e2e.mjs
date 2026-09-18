@@ -1,0 +1,99 @@
+import { randomBytes } from "node:crypto";
+
+import { expect, test } from "@playwright/test";
+
+const RUN_HEADER = "x-proffera-preview-e2e-run";
+const fixturePath = "/api/e2e/marketplace/provider";
+const resetEmailPath = "/api/e2e/marketplace/password-reset-email";
+
+function runId() {
+  return randomBytes(24).toString("hex");
+}
+
+async function fixtureRequest(request, suiteRunId, method) {
+  const response = await request.fetch(fixturePath, {
+    method,
+    headers: { [RUN_HEADER]: suiteRunId },
+  });
+  const body = await response.json().catch(() => null);
+  return { response, body };
+}
+
+async function resetEmail(request, suiteRunId) {
+  const response = await request.get(resetEmailPath, {
+    headers: { [RUN_HEADER]: suiteRunId },
+  });
+  const body = await response.json().catch(() => null);
+  return { response, body };
+}
+
+async function waitForFreshResetEmail(request, suiteRunId, baselineUuid) {
+  const deadline = Date.now() + 60_000;
+  let latest = null;
+  while (Date.now() < deadline) {
+    latest = await resetEmail(request, suiteRunId);
+    if (
+      latest.response.ok()
+      && latest.body?.ok === true
+      && latest.body?.found === true
+      && latest.body?.uuid
+      && latest.body.uuid !== baselineUuid
+    ) {
+      return latest.body;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+  }
+  expect(latest?.response.ok(), JSON.stringify(latest?.body ?? null)).toBeTruthy();
+  throw new Error("Timed out waiting for a fresh Preview password reset email.");
+}
+
+test.describe("isolated Preview password reset request", () => {
+  test.skip(process.env.E2E_MARKETPLACE_PREVIEW_LIFECYCLE !== "true", "Password reset Preview evidence is opt-in and Preview-only.");
+
+  test("creates a synthetic account and delivers a fresh reset email to the Preview sink", async ({ page, context, request }) => {
+    test.setTimeout(120_000);
+    await context.addInitScript(() => {
+      window.localStorage.setItem("proffera:analytics-consent:v1", "denied");
+    });
+
+    const suiteRunId = runId();
+    const password = `Preview-${suiteRunId.slice(0, 12)}-A9!`;
+    let fixtureCreated = false;
+
+    try {
+      const setup = await fixtureRequest(request, suiteRunId, "POST");
+      expect(setup.response.ok(), JSON.stringify(setup.body)).toBeTruthy();
+      expect(setup.body?.ok).toBe(true);
+      fixtureCreated = true;
+
+      await page.goto("/skapa-konto?plan=starter");
+      await page.getByLabel("Ditt namn").fill("Preview Reset Owner");
+      await page.getByLabel("Företagsnamn").fill(setup.body.companyName);
+      await page.getByLabel("E-post").fill(setup.body.ownerEmail);
+      await page.getByLabel("Lösenord").fill(password);
+      await page.getByLabel("Ort").fill("Stockholm");
+      await page.getByLabel("Telefon").fill("0701234567");
+      await page.getByRole("button", { name: "Starta 14 dagar gratis" }).click();
+      await page.waitForURL(/\/dashboard\/onboarding(?:\?|$)/u, { timeout: 30_000 });
+
+      const baseline = await resetEmail(request, suiteRunId);
+      expect(baseline.response.ok(), JSON.stringify(baseline.body)).toBeTruthy();
+      expect(baseline.body?.ok).toBe(true);
+      const baselineUuid = baseline.body?.found ? String(baseline.body.uuid ?? "") : "";
+
+      await page.goto("/glomt-losenord");
+      await page.getByLabel("E-post").fill(setup.body.ownerEmail);
+      await page.getByRole("button", { name: "Skicka återställningslänk" }).click();
+      await expect(page.getByRole("status")).toContainText("Om det finns ett konto med den e-postadressen");
+
+      const email = await waitForFreshResetEmail(request, suiteRunId, baselineUuid);
+      expect(email.subject).toBe("Återställ ditt lösenord på Proffera");
+      expect(email.sinkRecipientMatched).toBe(true);
+      expect(email.acceptedByProvider).toBe(true);
+    } finally {
+      if (fixtureCreated) {
+        await fixtureRequest(request, suiteRunId, "DELETE").catch(() => undefined);
+      }
+    }
+  });
+});
