@@ -7,8 +7,8 @@ import { quoteFormCopy } from "./form-copy";
 import styles from "./quote-request-marketplace.module.css";
 import type { QuoteFormStepProps } from "./step-props";
 
-function ErrorText({ value }: { value?: string }) {
-  return value ? <p className={styles.errorText}>{value}</p> : null;
+function ErrorText({ id, value }: { id: string; value?: string }) {
+  return value ? <p id={id} className={styles.errorText}>{value}</p> : null;
 }
 
 export function QuoteLocationStep({ locale, data, errors, update }: QuoteFormStepProps) {
@@ -73,6 +73,8 @@ export function QuoteLocationStep({ locale, data, errors, update }: QuoteFormSte
               onChange={(event) => updateAddress(event.target.value)}
               placeholder={t.addressHint}
               className={styles.input}
+              aria-invalid={errors.addressLine1 ? true : undefined}
+              aria-describedby={errors.addressLine1 ? "quote-address-line-1-error" : undefined}
             />
           </div>
         </div>
@@ -87,20 +89,39 @@ export function QuoteLocationStep({ locale, data, errors, update }: QuoteFormSte
           {nearbyLoading ? t.nearMeLoading : t.nearMe}
         </button>
       </div>
-      <ErrorText value={errors.addressLine1} />
+      <ErrorText id="quote-address-line-1-error" value={errors.addressLine1} />
       {nearbyStatus ? <p className={`${styles.statusText} ${nearbyActive ? styles.statusActive : ""}`}>{nearbyStatus}</p> : null}
     </div>
 
     <div className={styles.twoCol}>
       <div className={styles.fieldGroup}>
         <label className={styles.label} htmlFor="city">{t.city}</label>
-        <input id="city" autoComplete="address-level2" value={data.city} onChange={(event) => update("city", event.target.value)} placeholder={t.cityHint} className={styles.input} />
-        <ErrorText value={errors.city} />
+        <input
+          id="city"
+          autoComplete="address-level2"
+          value={data.city}
+          onChange={(event) => update("city", event.target.value)}
+          placeholder={t.cityHint}
+          className={styles.input}
+          aria-invalid={errors.city ? true : undefined}
+          aria-describedby={errors.city ? "quote-city-error" : undefined}
+        />
+        <ErrorText id="quote-city-error" value={errors.city} />
       </div>
       <div className={styles.fieldGroup}>
         <label className={styles.label} htmlFor="postalCode">{t.postal}</label>
-        <input id="postalCode" autoComplete="postal-code" inputMode="numeric" value={data.postalCode} onChange={(event) => update("postalCode", event.target.value)} placeholder={t.postalHint} className={styles.input} />
-        <ErrorText value={errors.postalCode} />
+        <input
+          id="postalCode"
+          autoComplete="postal-code"
+          inputMode="numeric"
+          value={data.postalCode}
+          onChange={(event) => update("postalCode", event.target.value)}
+          placeholder={t.postalHint}
+          className={styles.input}
+          aria-invalid={errors.postalCode ? true : undefined}
+          aria-describedby={errors.postalCode ? "quote-postal-code-error" : undefined}
+        />
+        <ErrorText id="quote-postal-code-error" value={errors.postalCode} />
       </div>
     </div>
 
