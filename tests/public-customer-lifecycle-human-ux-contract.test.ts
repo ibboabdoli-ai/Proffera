@@ -48,7 +48,9 @@ vi.mock("@/lib/verified-review-token", () => ({
   hashVerifiedReviewToken: mocks.hashVerifiedReviewToken,
 }));
 
-import PublicQuoteOfferPage from "@/app/offert/[token]/page";
+import PublicQuoteOfferPage, {
+  generateMetadata as generatePublicQuoteMetadata,
+} from "@/app/offert/[token]/page";
 import MarketplaceCustomerComparisonPage from "@/app/offert/jamfor/[token]/page";
 import MarketplaceCustomerJobPage from "@/app/offert/jobb/kund/[token]/page";
 import lifecycleStyles from "@/app/public-customer-lifecycle.module.css";
@@ -141,11 +143,15 @@ describe("public customer lifecycle rendered contract", () => {
       currency: "SEK",
     });
 
+    const metadata = await generatePublicQuoteMetadata({
+      searchParams: Promise.resolve({ lang: "en" }),
+    });
     const html = renderToStaticMarkup(await PublicQuoteOfferPage({
       params: Promise.resolve({ token: "quote-token" }),
       searchParams: Promise.resolve({ response: "invalid" }),
     }));
 
+    expect(metadata.title).toBe("Quote");
     expect(html).toContain('<main lang="sv"');
     expect(html).toContain(`class="${lifecycleStyles.page}"`);
     expect(html).toContain("Offerten är accepterad");
@@ -164,6 +170,7 @@ describe("public customer lifecycle rendered contract", () => {
     expect(html).toContain('<main lang="en"');
     expect(html).toContain("Your selection has been recorded.");
     expect(html).toContain("Nordic Fix AB");
+    expect(html).toContain("plumbing · Stockholm");
     expect(html).toContain('href="mailto:winner@nordic-fix.test"');
     expect(html).not.toContain("loser@");
     expect(html).toContain("Call […] for details.");
