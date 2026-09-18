@@ -46,8 +46,31 @@ async function visibleControl(page, labels, selectors = [], timeout = 30_000) {
   return null;
 }
 
+async function visibleEditableControl(page, labels, selectors = [], timeout = 30_000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    for (const frame of page.frames()) {
+      for (const label of labels) {
+        const locator = frame.getByLabel(label, { exact: false }).first();
+        if (await locator.count() === 0 || !await locator.isVisible().catch(() => false)) continue;
+        const editable = await locator.evaluate((element) => {
+          const tag = element.tagName.toLowerCase();
+          return tag === "input" || tag === "textarea" || tag === "select" || element.getAttribute("contenteditable") === "true";
+        }).catch(() => false);
+        if (editable) return locator;
+      }
+      for (const selector of selectors) {
+        const locator = frame.locator(selector).first();
+        if (await locator.count() > 0 && await locator.isVisible().catch(() => false)) return locator;
+      }
+    }
+    await page.waitForTimeout(250);
+  }
+  return null;
+}
+
 async function fillStripeField(page, labels, selectors, value) {
-  const locator = await visibleControl(page, labels, selectors);
+  const locator = await visibleEditableControl(page, labels, selectors);
   expect(locator, `Missing Stripe field: ${labels.map((label) => label.source).join(", ")}`).not.toBeNull();
   await locator.fill(value);
 }
@@ -80,7 +103,7 @@ async function completeStripeCheckout(page, checkoutUrl, email) {
   await fillStripeField(page, [/Expiration/iu, /Expiry/iu, /Utgång/iu], ['input[name="cardExpiry"]', 'input[autocomplete="cc-exp"]'], "1234");
   await fillStripeField(page, [/CVC/iu, /CVV/iu, /Säkerhetskod/iu], ['input[name="cardCvc"]', 'input[autocomplete="cc-csc"]'], "123");
 
-  const name = await visibleControl(
+  const name = await visibleEditableControl(
     page,
     [/Name on card/iu, /Cardholder name/iu, /Namn på kort/iu],
     ['input[name="billingName"]', 'input[autocomplete="cc-name"]'],
@@ -90,15 +113,15 @@ async function completeStripeCheckout(page, checkoutUrl, email) {
 
   await selectStripeCountry(page);
 
-  const address = await visibleControl(
+  const address = await visibleEditableControl(
     page,
-    [/Address line 1/iu, /Address/iu, /Adressrad 1/iu, /Adress/iu],
+    [/Address line 1/iu, /Street address/iu, /Adressrad 1/iu, /Gatuadress/iu],
     ['input[name="billingAddressLine1"]', 'input[autocomplete="address-line1"]'],
     5_000,
   );
   if (address) await address.fill("Testgatan 1");
 
-  const city = await visibleControl(
+  const city = await visibleEditableControl(
     page,
     [/City/iu, /Ort/iu, /Stad/iu],
     ['input[name="billingLocality"]', 'input[autocomplete="address-level2"]'],
@@ -106,7 +129,7 @@ async function completeStripeCheckout(page, checkoutUrl, email) {
   );
   if (city) await city.fill("Stockholm");
 
-  const postalCode = await visibleControl(
+  const postalCode = await visibleEditableControl(
     page,
     [/Postal code/iu, /ZIP/iu, /Postnummer/iu],
     ['input[name="billingPostalCode"]', 'input[autocomplete="postal-code"]'],
