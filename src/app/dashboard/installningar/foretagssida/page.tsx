@@ -86,7 +86,7 @@ export default async function PublicBusinessSettingsPage({ searchParams }: { sea
               <label className={`cursor-pointer rounded-2xl border p-4 ${mode === "website" ? "border-brand bg-brand-soft" : "border-line"}`}><input type="radio" name="public_home_mode" value="website" defaultChecked={mode === "website"} disabled={!builderEnabled} className="mr-2" /><strong className="text-ink">Företagssida</strong><p className="mt-2 text-xs leading-5 text-ink-muted">Visar tjänster, omdömen, galleri och flera kundvägar.</p>{!builderEnabled ? <span className="mt-2 inline-block text-xs font-bold text-[#8f6816]">Kräver Webbplats för företag</span> : null}</label>
             </div>
             <label className="grid gap-2 text-sm font-bold text-ink-muted">Kort presentation<textarea name="business_intro" maxLength={2000} rows={6} defaultValue={String(experience?.business_intro ?? "")} placeholder="Berätta kort vad företaget gör, för vem och i vilket område." className="rounded-control border border-line px-4 py-3 font-normal text-ink outline-none focus:border-brand focus:ring-2 focus:ring-brand/15" /></label>
-            <button className="inline-flex min-h-12 items-center justify-center rounded-xl bg-[#17452f] px-5 font-black text-white">Spara företagssida</button>
+            <button className="inline-flex min-h-12 items-center justify-center rounded-xl bg-[#1469d8] px-5 font-black text-white">Spara företagssida</button>
           </form>
 
           <aside className="grid content-start gap-4">
