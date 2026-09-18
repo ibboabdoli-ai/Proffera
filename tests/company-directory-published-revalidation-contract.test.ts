@@ -64,6 +64,18 @@ function candidateRow() {
   };
 }
 
+function workplace(city = "Stockholm", municipality = "Stockholm") {
+  return {
+    cfarNumber: "12345678",
+    municipality,
+    visitingAddress: {
+      addressLine: "Arbetsplatsgatan 2",
+      postalCode: "11122",
+      city,
+    },
+  };
+}
+
 function freshEvaluation(overrides: Record<string, unknown> = {}) {
   return {
     id: PROFILE_ID,
@@ -75,6 +87,10 @@ function freshEvaluation(overrides: Record<string, unknown> = {}) {
     legal_name: "Exempel El AB",
     display_name: "Exempel El AB",
     activity_description: "Elinstallation och service",
+    address_line1: "Registrerad gata 1",
+    postal_code: "151 00",
+    city: "Södertälje",
+    municipality: "Södertälje",
     is_active: true,
     privacy_blocked: false,
     auto_public_eligible: true,
@@ -87,6 +103,7 @@ function freshEvaluation(overrides: Record<string, unknown> = {}) {
     ongoing_procedures: [],
     facts_last_synced_token: FACTS_TOKEN,
     facts_source_payload_hash: FACTS_HASH,
+    scb_workplaces: [workplace()],
     scb_source_payload_hash: SCB_HASH,
     scb_conflict_count: 0,
     official_facts_fresh: true,
@@ -226,7 +243,7 @@ describe("published Directory revalidation worker", () => {
     expect(finish?.values).toContain(RUN_ID);
   });
 
-  it("refreshes Official Facts before SCB and keeps fresh 95+ evidence published", async () => {
+  it("refreshes Official Facts before SCB and keeps fresh 95+ pilot-workplace evidence published", async () => {
     configureCandidateSql();
     const order: string[] = [];
     mocks.enrichOfficialFacts.mockImplementation(async () => {
@@ -253,7 +270,39 @@ describe("published Directory revalidation worker", () => {
     ));
     expect(selection?.query).toContain("profile.publication_status = 'published'");
     expect(selection?.query).toContain("profile.claimed_workspace_id is null");
+    expect(selection?.query).toContain("jsonb_array_length(coalesce(scb.workplaces, '[]'::jsonb)) <> 1");
+    expect(selection?.query).toContain("visitingAddress");
     expect(selection?.values.at(-1)).toBe(3);
+  });
+
+  it("moves a fresh high-confidence profile to Review when the physical workplace is outside the pilot", async () => {
+    configureCandidateSql({
+      evaluation: freshEvaluation({
+        scb_workplaces: [workplace("Uppsala", "Uppsala")],
+      }),
+    });
+
+    await expect(revalidatePublishedCompanyDirectoryBatch(2)).resolves.toMatchObject({
+      revalidated: 1,
+      keptPublished: 0,
+      movedToReview: 1,
+      errors: 0,
+    });
+  });
+
+  it("moves a fresh high-confidence profile to Review when workplace authority is ambiguous", async () => {
+    configureCandidateSql({
+      evaluation: freshEvaluation({
+        scb_workplaces: [workplace(), workplace("Södertälje", "Södertälje")],
+      }),
+    });
+
+    await expect(revalidatePublishedCompanyDirectoryBatch(2)).resolves.toMatchObject({
+      revalidated: 1,
+      keptPublished: 0,
+      movedToReview: 1,
+      errors: 0,
+    });
   });
 
   it("moves fresh evidence below 95 to Review with exact snapshot guards", async () => {
