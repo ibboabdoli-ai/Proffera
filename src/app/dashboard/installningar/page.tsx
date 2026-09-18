@@ -71,7 +71,7 @@ const memberErrorMessages: Record<string, string> = {
 };
 
 const inputClass =
-  "rounded-xl border border-[#d9e1d7] bg-white px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/15";
+  "rounded-xl border border-[#dce4ee] bg-white px-4 py-3 text-sm font-normal text-[#11213b] outline-none transition focus:border-[#1469d8] focus:ring-2 focus:ring-[#1469d8]/15";
 
 function firstParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
@@ -169,8 +169,8 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
 
       <WorkspaceMembersCard members={workspaceMembers} invitations={pendingInvitations} canManage={canManageWorkspaceMembers(access)} />
 
-      {billingValue === "success" && !billingIsActive ? <section className="rounded-2xl bg-[#eef8f0] p-5 text-sm font-semibold text-[#17452f] ring-1 ring-[#c9e6d0]" role="status">Betalningen är genomförd. Planen aktiveras så snart Stripe har bekräftat abonnemanget.</section> : null}
-      {billingValue === "cancelled" && !billingIsActive ? <section className="rounded-2xl bg-[#f7f9f6] p-5 text-sm font-semibold text-[#5b665f] ring-1 ring-[#e0e5dd]" role="status">Betalningen avbröts. Inga ändringar gjordes i arbetsytan.</section> : null}
+      {billingValue === "success" && !billingIsActive ? <section className="rounded-2xl bg-[#eef8f0] p-5 text-sm font-semibold text-[#087754] ring-1 ring-[#c9e6d0]" role="status">Betalningen är genomförd. Planen aktiveras så snart Stripe har bekräftat abonnemanget.</section> : null}
+      {billingValue === "cancelled" && !billingIsActive ? <section className="rounded-2xl bg-[#f8fafc] p-5 text-sm font-semibold text-[#617085] ring-1 ring-[#dce4ee]" role="status">Betalningen avbröts. Inga ändringar gjordes i arbetsytan.</section> : null}
 
       <WorkspaceBillingCard
         billing={billing}
@@ -185,23 +185,23 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         adaptivePricingEnabled={isStripeAdaptivePricingEnabled()}
       />
 
-      {memberUpdatedValue ? <section className="rounded-2xl bg-[#eef8f0] p-5 text-sm font-semibold text-[#17452f] ring-1 ring-[#c9e6d0]" role="status">Teamets åtkomst uppdaterades.</section> : null}
+      {memberUpdatedValue ? <section className="rounded-2xl bg-[#eef8f0] p-5 text-sm font-semibold text-[#087754] ring-1 ring-[#c9e6d0]" role="status">Teamets åtkomst uppdaterades.</section> : null}
       {memberErrorMessage ? <section className="rounded-2xl bg-[#fff5f2] p-5 text-sm font-semibold text-[#8f2f1b] ring-1 ring-[#f4c7ba]" role="alert">{memberErrorMessage}</section> : null}
 
       {wasUpdated ? (
-        <section className="rounded-2xl bg-[#eef8f0] p-5 text-sm font-semibold text-[#17452f] ring-1 ring-[#c9e6d0]">
+        <section className="rounded-2xl bg-[#eef8f0] p-5 text-sm font-semibold text-[#087754] ring-1 ring-[#c9e6d0]">
           Företagsprofilen sparades.
         </section>
       ) : null}
 
       {wasServiceUpdated ? (
-        <section className="rounded-2xl bg-[#eef8f0] p-5 text-sm font-semibold text-[#17452f] ring-1 ring-[#c9e6d0]">
+        <section className="rounded-2xl bg-[#eef8f0] p-5 text-sm font-semibold text-[#087754] ring-1 ring-[#c9e6d0]">
           Tjänsten sparades.
         </section>
       ) : null}
 
       {wereBookingHoursUpdated ? (
-        <section className="rounded-2xl bg-[#eef8f0] p-5 text-sm font-semibold text-[#17452f] ring-1 ring-[#c9e6d0]">
+        <section className="rounded-2xl bg-[#eef8f0] p-5 text-sm font-semibold text-[#087754] ring-1 ring-[#c9e6d0]">
           Bokningstiderna sparades och används nu på din bokningssida.
         </section>
       ) : null}
@@ -244,15 +244,15 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
             </div>
           </section>
 
-          <article className="rounded-[24px] border border-[#e0e5dd] bg-white p-6 shadow-[0_1px_2px_rgba(20,43,32,0.03),0_14px_36px_rgba(20,43,32,0.045)]">
+          <article className="rounded-[24px] border border-[#dce4ee] bg-white p-6 shadow-[0_1px_2px_rgba(20,43,32,0.03),0_14px_36px_rgba(20,43,32,0.045)]">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <h3 className="text-xl font-bold text-[#17201a]">Proffera-moduler</h3>
-                <p className="mt-2 text-sm leading-6 text-[#5b665f]">
+                <h3 className="text-xl font-bold text-[#11213b]">Proffera-moduler</h3>
+                <p className="mt-2 text-sm leading-6 text-[#617085]">
                   Här ser du vilka moduler som är aktiva för din arbetsyta. Betalning och ändring av plan hanteras av Proffera.
                 </p>
               </div>
-              <span className="w-fit rounded-full bg-[#f7f7f4] px-3 py-1 text-xs font-semibold text-[#5b665f]">Read-only</span>
+              <span className="w-fit rounded-full bg-[#f6f9fd] px-3 py-1 text-xs font-semibold text-[#617085]">Read-only</span>
             </div>
             <div className="mt-5 divide-y divide-line border-y border-line">
               {moduleAccess.map((module) => (
@@ -270,15 +270,15 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
             </div>
           </article>
 
-          <article className="rounded-[24px] border border-[#e0e5dd] bg-white p-6 shadow-[0_1px_2px_rgba(20,43,32,0.03),0_14px_36px_rgba(20,43,32,0.045)]">
+          <article className="rounded-[24px] border border-[#dce4ee] bg-white p-6 shadow-[0_1px_2px_rgba(20,43,32,0.03),0_14px_36px_rgba(20,43,32,0.045)]">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <h3 className="text-xl font-bold text-[#17201a]">Profil som används i kundflöden</h3>
-                <p className="mt-2 text-sm leading-6 text-[#5b665f]">
+                <h3 className="text-xl font-bold text-[#11213b]">Profil som används i kundflöden</h3>
+                <p className="mt-2 text-sm leading-6 text-[#617085]">
                   Dessa värden visas i kontaktflöden, påverkar CTA-copy och är grunden för kommande AI-kunddialoger.
                 </p>
               </div>
-              <span className="w-fit rounded-full bg-[#e7f1eb] px-3 py-1 text-xs font-semibold text-[#17452f]">Kundnära data</span>
+              <span className="w-fit rounded-full bg-[#eef5ff] px-3 py-1 text-xs font-semibold text-[#1469d8]">Kundnära data</span>
             </div>
             <dl className="mt-5 divide-y divide-line border-y border-line">
               {profileSummary.map((item) => (
@@ -291,39 +291,39 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
           </article>
         </div>
 
-        <aside className="rounded-[24px] border border-[#e0e5dd] bg-white p-6 shadow-[0_1px_2px_rgba(20,43,32,0.03),0_14px_36px_rgba(20,43,32,0.045)]">
-          <h3 className="text-xl font-bold text-[#17201a]">Redigera företagsprofil</h3>
-          <p className="mt-2 text-sm leading-6 text-[#5b665f]">
+        <aside className="rounded-[24px] border border-[#dce4ee] bg-white p-6 shadow-[0_1px_2px_rgba(20,43,32,0.03),0_14px_36px_rgba(20,43,32,0.045)]">
+          <h3 className="text-xl font-bold text-[#11213b]">Redigera företagsprofil</h3>
+          <p className="mt-2 text-sm leading-6 text-[#617085]">
             Uppdatera de uppgifter som kunder och interna flöden ska se först.
           </p>
 
           <form action={updateWorkspaceSettingsAction} className="mt-5 space-y-4">
-            <label className="grid gap-2 text-sm font-semibold text-[#344139]">
+            <label className="grid gap-2 text-sm font-semibold text-[#40536c]">
               Företagsnamn
               <input name="company_name" type="text" required maxLength={160} className={inputClass} defaultValue={workspaceSettings.companyName} />
             </label>
 
-            <label className="grid gap-2 text-sm font-semibold text-[#344139]">
+            <label className="grid gap-2 text-sm font-semibold text-[#40536c]">
               Primär ort
               <input name="primary_city" type="text" required maxLength={120} className={inputClass} defaultValue={workspaceSettings.primaryCity} />
             </label>
 
-            <label className="grid gap-2 text-sm font-semibold text-[#344139]">
+            <label className="grid gap-2 text-sm font-semibold text-[#40536c]">
               Svarstid mål
               <input name="response_time_goal" type="text" required maxLength={120} className={inputClass} defaultValue={workspaceSettings.responseTimeGoal} />
             </label>
 
-            <label className="grid gap-2 text-sm font-semibold text-[#344139]">
+            <label className="grid gap-2 text-sm font-semibold text-[#40536c]">
               Standard CTA
               <input name="default_cta" type="text" required maxLength={80} className={inputClass} defaultValue={workspaceSettings.defaultCta} />
             </label>
 
-            <label className="grid gap-2 text-sm font-semibold text-[#344139]">
+            <label className="grid gap-2 text-sm font-semibold text-[#40536c]">
               Kontakt e-post
               <input name="contact_email" type="email" maxLength={180} className={inputClass} defaultValue={workspaceSettings.contactEmail} placeholder="Ej angivet" />
             </label>
 
-            <label className="grid gap-2 text-sm font-semibold text-[#344139]">
+            <label className="grid gap-2 text-sm font-semibold text-[#40536c]">
               Kontakt telefon
               <input name="contact_phone" type="tel" maxLength={80} className={inputClass} defaultValue={workspaceSettings.contactPhone} placeholder="Ej angivet" />
             </label>
@@ -335,19 +335,19 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
               locale={isEnglish ? "en" : "sv"}
             />
 
-            <label className="grid gap-2 text-sm font-semibold text-[#344139]">
+            <label className="grid gap-2 text-sm font-semibold text-[#40536c]">
               Länk för onlinebokning
               <input name="public_booking_slug" type="text" maxLength={60} pattern="[a-z0-9-]+" className={inputClass} placeholder="Ex. iboren" />
-              <span className="text-xs font-normal text-[#5b665f]">Din länk blir proffera.se/boka/ditt-namn</span>
+              <span className="text-xs font-normal text-[#617085]">Din länk blir proffera.se/boka/ditt-namn</span>
             </label>
 
-            <div className="rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4 text-sm leading-6 text-[#5b665f]">
-              <strong className="text-[#17201a]">Säker ändring:</strong> Endast företagsprofilen uppdateras. Kunddata, leads och bokningar påverkas inte.
+            <div className="rounded-xl border border-[#dce4ee] bg-[#f8fafc] p-4 text-sm leading-6 text-[#617085]">
+              <strong className="text-[#11213b]">Säker ändring:</strong> Endast företagsprofilen uppdateras. Kunddata, leads och bokningar påverkas inte.
             </div>
 
             <button
               type="submit"
-              className="inline-flex w-full items-center justify-center rounded-xl bg-[#173e2b] px-6 py-3 text-sm font-semibold !text-white transition hover:bg-[#123824] hover:!text-white focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2"
+              className="inline-flex w-full items-center justify-center rounded-xl bg-[#0a2e63] px-6 py-3 text-sm font-semibold !text-white transition hover:bg-[#082654] hover:!text-white focus:outline-none focus:ring-2 focus:ring-[#1469d8] focus:ring-offset-2"
             >
               Spara ändringar
             </button>
@@ -355,15 +355,15 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         </aside>
       </section>
 
-      <section className="rounded-[24px] border border-[#e0e5dd] bg-white p-6 shadow-[0_1px_2px_rgba(20,43,32,0.03),0_14px_36px_rgba(20,43,32,0.045)]">
+      <section className="rounded-[24px] border border-[#dce4ee] bg-white p-6 shadow-[0_1px_2px_rgba(20,43,32,0.03),0_14px_36px_rgba(20,43,32,0.045)]">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h3 className="text-xl font-bold text-[#17201a]">Bokningstider</h3>
-            <p className="mt-2 text-sm leading-6 text-[#5b665f]">
+            <h3 className="text-xl font-bold text-[#11213b]">Bokningstider</h3>
+            <p className="mt-2 text-sm leading-6 text-[#617085]">
               Kunder kan bara skicka bokningsförfrågningar inom dessa tider. {bookingHours.isConfigured ? "Tiderna är publicerade." : "Spara tiderna för att publicera bokning."}
             </p>
           </div>
-          <span className="w-fit rounded-full bg-[#e7f1eb] px-3 py-1 text-xs font-semibold text-[#17452f]">
+          <span className="w-fit rounded-full bg-[#eef5ff] px-3 py-1 text-xs font-semibold text-[#1469d8]">
             {bookingHours.isConfigured ? "Publicerad" : "Ej publicerad"}
           </span>
         </div>
@@ -373,20 +373,20 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
             {bookingWeekdays.map((day) => {
               const hour = bookingHours.hours.find((item) => item.weekday === day.value)!;
               return (
-                <fieldset key={day.value} className="grid gap-3 rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4 sm:grid-cols-[minmax(110px,1fr)_150px_150px_auto] sm:items-end">
+                <fieldset key={day.value} className="grid gap-3 rounded-xl border border-[#dce4ee] bg-[#f8fafc] p-4 sm:grid-cols-[minmax(110px,1fr)_150px_150px_auto] sm:items-end">
                   <legend className="sr-only">{day.label}</legend>
-                  <p className="text-sm font-bold text-[#17201a]">{day.label}</p>
-                  <label className="grid gap-1 text-xs font-semibold text-[#5b665f]">Öppnar<input name={`opens_at_${day.value}`} type="time" defaultValue={hour.opensAt} className={inputClass} /></label>
-                  <label className="grid gap-1 text-xs font-semibold text-[#5b665f]">Stänger<input name={`closes_at_${day.value}`} type="time" defaultValue={hour.closesAt} className={inputClass} /></label>
-                  <label className="flex min-h-11 items-center gap-2 text-sm font-semibold text-[#344139]"><input name={`closed_${day.value}`} type="checkbox" defaultChecked={hour.isClosed} className="h-4 w-4 accent-[#17452f]" />Stängt</label>
+                  <p className="text-sm font-bold text-[#11213b]">{day.label}</p>
+                  <label className="grid gap-1 text-xs font-semibold text-[#617085]">Öppnar<input name={`opens_at_${day.value}`} type="time" defaultValue={hour.opensAt} className={inputClass} /></label>
+                  <label className="grid gap-1 text-xs font-semibold text-[#617085]">Stänger<input name={`closes_at_${day.value}`} type="time" defaultValue={hour.closesAt} className={inputClass} /></label>
+                  <label className="flex min-h-11 items-center gap-2 text-sm font-semibold text-[#40536c]"><input name={`closed_${day.value}`} type="checkbox" defaultChecked={hour.isClosed} className="h-4 w-4 accent-[#1469d8]" />Stängt</label>
                 </fieldset>
               );
             })}
           </div>
-          <div className="rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4 text-sm leading-6 text-[#5b665f]">
-            <strong className="text-[#17201a]">Säker ändring:</strong> Endast öppettiderna för onlinebokning uppdateras. Befintliga kunder och bokningar ändras inte.
+          <div className="rounded-xl border border-[#dce4ee] bg-[#f8fafc] p-4 text-sm leading-6 text-[#617085]">
+            <strong className="text-[#11213b]">Säker ändring:</strong> Endast öppettiderna för onlinebokning uppdateras. Befintliga kunder och bokningar ändras inte.
           </div>
-          <button type="submit" className="inline-flex w-full items-center justify-center rounded-xl bg-[#173e2b] px-6 py-3 text-sm font-semibold !text-white transition hover:bg-[#123824] hover:!text-white focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2">Spara bokningstider</button>
+          <button type="submit" className="inline-flex w-full items-center justify-center rounded-xl bg-[#0a2e63] px-6 py-3 text-sm font-semibold !text-white transition hover:bg-[#082654] hover:!text-white focus:outline-none focus:ring-2 focus:ring-[#1469d8] focus:ring-offset-2">Spara bokningstider</button>
         </form>
       </section>
 
