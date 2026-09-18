@@ -1,6 +1,7 @@
 import "server-only";
 
 import { assessCompanyDirectoryCategoryConfidence } from "@/lib/company-directory-category-confidence";
+import { assessCompanyDirectoryPilotWorkplace } from "@/lib/company-directory-pilot-location";
 import { invalidatePublicDirectoryPublicProjection } from "@/lib/company-directory-public-cache";
 import { enrichCompanyDirectoryScbForProfile } from "@/lib/company-directory-scb-enrichment";
 import { getSql } from "@/lib/db/server";
@@ -28,6 +29,18 @@ function jsonArray(value: unknown): unknown[] {
   return [];
 }
 
+function hasSafePilotWorkplace(row: Record<string, unknown>) {
+  return assessCompanyDirectoryPilotWorkplace(
+    {
+      addressLine1: text(row.address_line1),
+      postalCode: text(row.postal_code),
+      city: text(row.city),
+      municipality: text(row.municipality),
+    },
+    jsonArray(row.scb_workplaces),
+  ).eligible;
+}
+
 export async function publishCompanyDirectoryProfileIfSafe(
   profileId: string,
 ): Promise<CompanyDirectoryPublicationResult> {
@@ -42,6 +55,7 @@ export async function publishCompanyDirectoryProfileIfSafe(
     select
       p.id::text, p.public_slug, p.display_name, p.legal_name,
       p.category_slug, p.primary_sni_code, p.activity_description,
+      p.address_line1, p.postal_code, p.city, p.municipality,
       p.publication_status, p.is_active, p.privacy_blocked,
       p.auto_public_eligible, p.claimed_workspace_id,
       p.updated_at::text as profile_updated_token,
@@ -50,6 +64,8 @@ export async function publishCompanyDirectoryProfileIfSafe(
       f.advertising_blocked, f.ongoing_procedures,
       f.last_synced_at::text as facts_last_synced_token,
       f.source_payload_hash as facts_source_payload_hash,
+      scb.workplaces as scb_workplaces,
+      scb.source_payload_hash as scb_source_payload_hash,
       coalesce(jsonb_array_length(scb.conflicts), 0)::int as scb_conflict_count,
       (
         f.profile_id is not null
@@ -109,7 +125,10 @@ export async function publishCompanyDirectoryProfileIfSafe(
     return { ok: false, code: "not_ready" };
   }
 
-  if (!scbSnapshotFresh) {
+  let scbSourcePayloadHash = text(row.scb_source_payload_hash);
+  if (scbSnapshotFresh) {
+    if (!hasSafePilotWorkplace(row)) return { ok: false, code: "unsafe" };
+  } else {
     try {
       const scb = await enrichCompanyDirectoryScbForProfile(profileId);
       if (scb.status !== "saved") {
@@ -122,7 +141,40 @@ export async function publishCompanyDirectoryProfileIfSafe(
       console.error("SCB company directory enrichment failed before publication", error);
       return { ok: false, code: "not_ready" };
     }
+
+    const refreshedRows = await sql`
+      select
+        p.address_line1, p.postal_code, p.city, p.municipality,
+        scb.workplaces as scb_workplaces,
+        scb.source_payload_hash as scb_source_payload_hash,
+        coalesce(jsonb_array_length(scb.conflicts), 0)::int as scb_conflict_count,
+        (
+          scb.profile_id is not null
+          and scb.source_payload_hash <> ''
+          and scb.last_synced_at >= now() - interval '7 days'
+          and scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = p.updated_at::text
+          and scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = f.last_synced_at::text
+        ) as scb_snapshot_fresh
+      from company_directory_profiles p
+      join company_directory_official_facts f on f.profile_id = p.id
+      left join company_directory_scb_enrichment scb on scb.profile_id = p.id
+      where p.id = ${profileId}::uuid
+        and p.updated_at::text = ${profileUpdatedToken}
+        and f.last_synced_at::text = ${factsLastSyncedToken}
+        and f.source_payload_hash = ${factsSourcePayloadHash}
+      limit 1
+    `;
+    const refreshedRow = refreshedRows[0];
+    if (!refreshedRow || !Boolean(refreshedRow.scb_snapshot_fresh)) {
+      return { ok: false, code: "not_ready" };
+    }
+    if (Number(refreshedRow.scb_conflict_count ?? 0) > 0 || !hasSafePilotWorkplace(refreshedRow)) {
+      return { ok: false, code: "unsafe" };
+    }
+    scbSourcePayloadHash = text(refreshedRow.scb_source_payload_hash);
   }
+
+  if (!scbSourcePayloadHash) return { ok: false, code: "not_ready" };
 
   const updated = await sql`
     update company_directory_profiles p
@@ -163,7 +215,7 @@ export async function publishCompanyDirectoryProfileIfSafe(
             from company_directory_scb_enrichment scb
             where scb.profile_id = p.id
               and jsonb_array_length(coalesce(scb.conflicts, '[]'::jsonb)) = 0
-              and scb.source_payload_hash <> ''
+              and scb.source_payload_hash = ${scbSourcePayloadHash}
               and scb.last_synced_at >= now() - interval '7 days'
               and scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = p.updated_at::text
               and scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = f.last_synced_at::text
