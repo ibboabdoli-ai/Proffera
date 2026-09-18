@@ -13,17 +13,35 @@ export type CheckoutPlanOption = {
   configured: boolean;
 };
 
+/**
+ * Canonical Proffera recurring launch prices in SEK.
+ *
+ * Product copy and Checkout labels must derive from this map so public pricing
+ * cannot drift between marketing, signup and billing surfaces. Stripe Price
+ * objects remain provider configuration and must be reconciled separately
+ * before a pricing change is released to Production.
+ */
+export const checkoutPlanMonthlyPricesSek = {
+  starter: 299,
+  professional: 599,
+} as const satisfies Record<CheckoutPlanKey, number>;
+
+function getSekMonthlyPriceLabel(planKey: CheckoutPlanKey, locale: CheckoutPlanLocale) {
+  const amount = checkoutPlanMonthlyPricesSek[planKey];
+  return locale === "sv" ? `${amount} kr/mån` : `SEK ${amount}/month`;
+}
+
 export const checkoutPlanDefinitions: Record<CheckoutPlanKey, Omit<CheckoutPlanOption, "configured">> = {
   starter: {
     key: "starter",
     name: "Starter",
-    priceLabel: "199 kr/mån",
+    priceLabel: getSekMonthlyPriceLabel("starter", "sv"),
     description: "Onlinebokning, leadhantering, Kund-CRM, kundportal och bokningspåminnelser.",
   },
   professional: {
     key: "professional",
     name: "Professional",
-    priceLabel: "599 kr/mån",
+    priceLabel: getSekMonthlyPriceLabel("professional", "sv"),
     description: "Allt i Starter samt företagssida, offerter, galleri, verifierade omdömen, analys och flera medarbetare.",
   },
 };
@@ -44,24 +62,42 @@ export function getCheckoutPlanDescription(planKey: CheckoutPlanKey, locale: Che
 }
 
 /**
- * The live recurring Stripe Prices are SEK-denominated. Checkout remains the
+ * The recurring Stripe Prices are SEK-denominated. Checkout remains the
  * authority for the final currency and amount, including any Stripe-hosted
  * localisation/adaptive pricing that may be enabled separately.
- * Keep these labels descriptive; never invent unsupported live Price currencies.
+ * Keep these labels descriptive; never invent unsupported Price currencies.
  */
 const checkoutPlanPriceLabels: Record<
   CheckoutPlanKey,
   Record<WorkspaceBillingCurrency, Record<CheckoutPlanLocale, string>>
 > = {
   starter: {
-    SEK: { sv: "199 kr/mån", en: "SEK 199/month" },
-    EUR: { sv: "199 kr/mån · slutlig valuta visas i kassan", en: "SEK 199/month · final currency shown at checkout" },
-    GBP: { sv: "199 kr/mån · slutlig valuta visas i kassan", en: "SEK 199/month · final currency shown at checkout" },
+    SEK: {
+      sv: getSekMonthlyPriceLabel("starter", "sv"),
+      en: getSekMonthlyPriceLabel("starter", "en"),
+    },
+    EUR: {
+      sv: `${getSekMonthlyPriceLabel("starter", "sv")} · slutlig valuta visas i kassan`,
+      en: `${getSekMonthlyPriceLabel("starter", "en")} · final currency shown at checkout`,
+    },
+    GBP: {
+      sv: `${getSekMonthlyPriceLabel("starter", "sv")} · slutlig valuta visas i kassan`,
+      en: `${getSekMonthlyPriceLabel("starter", "en")} · final currency shown at checkout`,
+    },
   },
   professional: {
-    SEK: { sv: "599 kr/mån", en: "SEK 599/month" },
-    EUR: { sv: "599 kr/mån · slutlig valuta visas i kassan", en: "SEK 599/month · final currency shown at checkout" },
-    GBP: { sv: "599 kr/mån · slutlig valuta visas i kassan", en: "SEK 599/month · final currency shown at checkout" },
+    SEK: {
+      sv: getSekMonthlyPriceLabel("professional", "sv"),
+      en: getSekMonthlyPriceLabel("professional", "en"),
+    },
+    EUR: {
+      sv: `${getSekMonthlyPriceLabel("professional", "sv")} · slutlig valuta visas i kassan`,
+      en: `${getSekMonthlyPriceLabel("professional", "en")} · final currency shown at checkout`,
+    },
+    GBP: {
+      sv: `${getSekMonthlyPriceLabel("professional", "sv")} · slutlig valuta visas i kassan`,
+      en: `${getSekMonthlyPriceLabel("professional", "en")} · final currency shown at checkout`,
+    },
   },
 };
 
