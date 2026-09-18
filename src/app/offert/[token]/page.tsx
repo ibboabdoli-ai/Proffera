@@ -72,9 +72,13 @@ function localeFrom(value: string | string[] | undefined): Locale {
   return Array.isArray(value) ? (value[0] === "en" ? "en" : "sv") : value === "en" ? "en" : "sv";
 }
 
-function publicHref(token: string, locale: Locale) {
+function publicHref(token: string, locale: Locale, response?: string) {
+  const query = new URLSearchParams();
+  if (locale === "en") query.set("lang", "en");
+  if (response) query.set("response", response);
+  const suffix = query.toString();
   const base = publicWorkspaceQuoteOfferPath(token);
-  return locale === "en" ? base + "?lang=en" : base;
+  return suffix ? base + "?" + suffix : base;
 }
 
 function pdfHref(token: string, locale: Locale) {
@@ -119,7 +123,7 @@ export default async function PublicQuoteOfferPage({
                 <p className={styles.eyebrow}>{text.eyebrow}</p>
                 <h1 className={styles.title}>{text.unavailableTitle}</h1>
               </div>
-              <Link href={publicHref(token, alternativeLocale)} className={styles.languageLink}>
+              <Link href={publicHref(token, alternativeLocale, response)} className={styles.languageLink}>
                 {text.language}
               </Link>
             </div>
@@ -150,7 +154,7 @@ export default async function PublicQuoteOfferPage({
                 {text.greeting} {offer.customerName}
               </p>
             </div>
-            <Link href={publicHref(token, alternativeLocale)} className={styles.languageLink}>
+            <Link href={publicHref(token, alternativeLocale, response)} className={styles.languageLink}>
               {text.language}
             </Link>
           </div>
