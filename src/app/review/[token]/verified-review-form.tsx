@@ -22,6 +22,11 @@ const copy = {
   sv: {
     chooseRating: "Välj ett stjärnbetyg innan du skickar omdömet.",
     submitError: "Omdömet kunde inte skickas. Försök igen.",
+    invalidSubmission: "Kontrollera formuläret och försök igen.",
+    rateLimited: "För många försök. Vänta en stund och försök igen.",
+    linkUnavailable: "Omdömeslänken kan inte användas längre.",
+    reviewUnavailable: "Omdömet kan inte skickas i det här läget.",
+    temporaryFailure: "Omdömet kunde inte sparas just nu. Försök igen senare.",
     success: "Tack. Ditt verifierade omdöme har tagits emot och visas efter godkännande.",
     verified: "Verifierad slutförd tjänst",
     rating: "Ditt betyg",
@@ -37,6 +42,11 @@ const copy = {
   en: {
     chooseRating: "Please choose a star rating before submitting your review.",
     submitError: "We couldn't submit your review. Please try again.",
+    invalidSubmission: "Check the form and try again.",
+    rateLimited: "Too many attempts. Wait a while and try again.",
+    linkUnavailable: "This review link can no longer be used.",
+    reviewUnavailable: "This review cannot be submitted in its current state.",
+    temporaryFailure: "The review could not be saved right now. Please try again later.",
     success: "Thank you. Your verified review was received and will appear after approval.",
     verified: "Verified completed service",
     rating: "Your rating",
@@ -98,8 +108,21 @@ export function VerifiedReviewForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const result = (await response.json().catch(() => null)) as { error?: string } | null;
-      if (!response.ok) throw new Error(result?.error ?? text.submitError);
+      if (!response.ok) {
+        const localizedError =
+          response.status === 400
+            ? text.invalidSubmission
+            : response.status === 404
+              ? text.linkUnavailable
+              : response.status === 409
+                ? text.reviewUnavailable
+                : response.status === 429
+                  ? text.rateLimited
+                  : response.status === 503
+                    ? text.temporaryFailure
+                    : text.submitError;
+        throw new Error(localizedError);
+      }
 
       emitMarketplaceFunnelEvent({
         event: "marketplace_verified_review_submitted",
