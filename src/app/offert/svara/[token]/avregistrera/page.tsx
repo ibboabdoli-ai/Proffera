@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { guestFlowLocaleFrom, guestOptOutHref, guestQuoteHref, type GuestFlowLocale } from "../guest-flow-locale";
+import providerStyles from "@/components/provider-lifecycle/provider-lifecycle.module.css";
 import { getMarketplaceGuestOptOutViewWithHistory } from "@/lib/marketplace-guest-opt-out-history";
 
 export const dynamic = "force-dynamic";
@@ -66,18 +67,23 @@ export default async function MarketplaceGuestOptOutPage({
   const [{ token }, query] = await Promise.all([params, searchParams ?? Promise.resolve(undefined)]);
   const locale = guestFlowLocaleFrom(query?.lang);
   const text = copy[locale];
-  const alternativeLocale: GuestFlowLocale = locale === "en" ? "sv" : "en";
   const view = await getMarketplaceGuestOptOutViewWithHistory(token);
   const rawStatus = query?.status;
   const status = Array.isArray(rawStatus) ? rawStatus[0] : rawStatus;
+  const languageNav = (
+    <nav className={providerStyles.languageNav} aria-label={locale === "en" ? "Language" : "Språk"}>
+      <Link href={guestOptOutHref(token, "sv", status)} className={locale === "sv" ? providerStyles.languageActive : providerStyles.languageLink}>SV</Link>
+      <Link href={guestOptOutHref(token, "en", status)} className={locale === "en" ? providerStyles.languageActive : providerStyles.languageLink}>EN</Link>
+    </nav>
+  );
 
   if (!view) {
     return (
-      <main lang={locale} className="min-h-screen bg-[#f7f7f4] px-4 py-16 sm:px-6">
-        <section className="mx-auto max-w-xl rounded-3xl bg-white p-8 text-center shadow-sm ring-1 ring-[#dfe5dd]">
-          <div className="flex justify-end"><Link href={guestOptOutHref(token, alternativeLocale, status)} className="text-xs font-bold text-[#17452f]">{text.language}</Link></div>
-          <h1 className="mt-4 text-3xl font-bold text-[#17201a]">{text.unavailableTitle}</h1>
-          <p className="mt-4 text-[#5b665f]">{text.unavailableBody}</p>
+      <main lang={locale} className={providerStyles.page}>
+        <section className={providerStyles.unavailable}>
+          {languageNav}
+          <h1>{text.unavailableTitle}</h1>
+          <p>{text.unavailableBody}</p>
         </section>
       </main>
     );
@@ -85,11 +91,11 @@ export default async function MarketplaceGuestOptOutPage({
 
   if (status === "dispatch_in_progress") {
     return (
-      <main lang={locale} className="min-h-screen bg-[#f7f7f4] px-4 py-16 sm:px-6">
-        <section className="mx-auto max-w-xl rounded-3xl bg-white p-8 text-center shadow-sm ring-1 ring-[#dfe5dd]">
-          <div className="flex justify-end"><Link href={guestOptOutHref(token, alternativeLocale, status)} className="text-xs font-bold text-[#17452f]">{text.language}</Link></div>
-          <h1 className="mt-4 text-3xl font-bold text-[#17201a]">{text.dispatchTitle}</h1>
-          <p className="mt-4 leading-7 text-[#5b665f]">{text.dispatchBody}</p>
+      <main lang={locale} className={providerStyles.page}>
+        <section className={providerStyles.unavailable}>
+          {languageNav}
+          <h1>{text.dispatchTitle}</h1>
+          <p>{text.dispatchBody}</p>
         </section>
       </main>
     );
@@ -97,36 +103,44 @@ export default async function MarketplaceGuestOptOutPage({
 
   if (status === "done" || view.status === "suppressed") {
     return (
-      <main lang={locale} className="min-h-screen bg-[#f7f7f4] px-4 py-16 sm:px-6">
-        <section className="mx-auto max-w-xl rounded-3xl bg-white p-8 text-center shadow-sm ring-1 ring-[#dfe5dd]">
-          <div className="flex justify-end"><Link href={guestOptOutHref(token, alternativeLocale, status)} className="text-xs font-bold text-[#17452f]">{text.language}</Link></div>
-          <h1 className="mt-4 text-3xl font-bold text-[#17201a]">{text.doneTitle}</h1>
-          <p className="mt-4 leading-7 text-[#5b665f]">{text.doneBody}</p>
+      <main lang={locale} className={providerStyles.page}>
+        <section className={providerStyles.unavailable}>
+          {languageNav}
+          <h1>{text.doneTitle}</h1>
+          <p>{text.doneBody}</p>
         </section>
       </main>
     );
   }
 
   return (
-    <main lang={locale} className="min-h-screen bg-[#f7f7f4] px-4 py-16 sm:px-6">
-      <section className="mx-auto max-w-xl rounded-3xl bg-white p-8 shadow-sm ring-1 ring-[#dfe5dd]">
-        <div className="flex items-start justify-between gap-4">
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#4c745a]">Proffera</p>
-          <Link href={guestOptOutHref(token, alternativeLocale, status)} className="text-xs font-bold text-[#17452f]">{text.language}</Link>
+    <main lang={locale} className={providerStyles.page}>
+      <div className={providerStyles.shell}>
+        <div className={providerStyles.topbar}>
+          <div>
+            <p className={providerStyles.eyebrow}>Proffera</p>
+            <h1 className={providerStyles.title}>{text.title}</h1>
+            <p className={providerStyles.lead}>{text.bodyPrefix} {view.companyName}. {text.bodySuffix}</p>
+          </div>
+          {languageNav}
         </div>
-        <h1 className="mt-3 text-3xl font-bold text-[#17201a]">{text.title}</h1>
-        <p className="mt-4 leading-7 text-[#5b665f]">{text.bodyPrefix} {view.companyName}. {text.bodySuffix}</p>
+
         {status ? (
-          <p className="mt-4 rounded-xl bg-[#fff4f2] px-4 py-3 text-sm font-semibold text-[#8a2b20]" role="alert">
+          <p className={providerStyles.noticeError} role="alert">
             {status === "rate_limited" ? text.rateLimited : text.failed}
           </p>
         ) : null}
-        <form method="post" action={`/api/marketplace/guest-quote/${encodeURIComponent(token)}/opt-out`} className="mt-7">
-          <input type="hidden" name="lang" value={locale} />
-          <button type="submit" className="min-h-12 w-full rounded-xl bg-[#8a2b20] px-5 py-3 font-bold text-white">{text.confirm}</button>
-        </form>
-        <Link href={guestQuoteHref(token, locale)} className="mt-4 inline-flex text-sm font-bold text-[#17452f]">{text.back}</Link>
-      </section>
+
+        <section className={providerStyles.panel}>
+          <div className={providerStyles.panelBody}>
+            <form method="post" action={`/api/marketplace/guest-quote/${encodeURIComponent(token)}/opt-out`} className={providerStyles.form}>
+              <input type="hidden" name="lang" value={locale} />
+              <button type="submit" className={providerStyles.danger}>{text.confirm}</button>
+            </form>
+            <Link href={guestQuoteHref(token, locale)} className={`${providerStyles.secondary} mt-3`}>{text.back}</Link>
+          </div>
+        </section>
+      </div>
     </main>
   );
 }
