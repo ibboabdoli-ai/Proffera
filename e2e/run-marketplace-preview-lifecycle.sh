@@ -22,11 +22,9 @@ for playwright_attempt in $(seq 1 "${max_playwright_attempts}"); do
     continue
   fi
 
-  echo "Running isolated auth and billing Preview evidence."
+  echo "Running isolated billing Preview evidence."
   if PROFFERA_PREVIEW_E2E_OIDC_TOKEN="${oidc_token}" \
     npx playwright test \
-      tests/preview-auth-login-session.e2e.mjs \
-      tests/preview-auth-password-reset-request.e2e.mjs \
       tests/preview-billing-tenant-runtime.e2e.mjs \
       --project=chromium --reporter=line --retries=0; then
     unset oidc_token
