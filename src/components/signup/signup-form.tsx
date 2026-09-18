@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { type FormEvent, useState } from "react";
 
+import authStyles from "@/components/auth/auth-marketplace.module.css";
 import { authClient } from "@/lib/auth-client";
 import { getCheckoutPlanPriceLabel, type CheckoutPlanKey } from "@/lib/billing-plans";
 
@@ -136,63 +137,64 @@ export function SignupForm({ locale, initialPlan, sessionUser }: SignupFormProps
   const loginHref = `/logga-in?lang=${locale}&plan=${plan}`;
 
   return (
-    <aside className="rounded-[1.75rem] border border-white bg-white p-6 shadow-2xl shadow-[#17452f]/10 ring-1 ring-[#dfe5dd] sm:p-8">
-      <h2 className="text-2xl font-bold text-[#17201a]">{text.title}</h2>
-      <p className="mt-2 text-sm leading-6 text-[#5b665f]">{text.intro}</p>
+    <aside className={authStyles.card}>
+      <p className={authStyles.cardEyebrow}>{locale === "en" ? "Business account" : "Företagskonto"}</p>
+      <h2 className={authStyles.cardTitle}>{text.title}</h2>
+      <p className={authStyles.cardLead}>{text.intro}</p>
 
-      <form className="mt-6 grid gap-4" onSubmit={handleSubmit}>
+      <form className={authStyles.form} onSubmit={handleSubmit}>
         {!accountReady ? (
-          <div>
-            <label htmlFor="signup-name" className="text-sm font-semibold text-[#17201a]">{text.contactName}</label>
-            <input id="signup-name" autoComplete="name" required minLength={2} maxLength={120} value={contactName} onChange={(event) => setContactName(event.target.value)} disabled={isPending} className="mt-2 w-full rounded-xl border border-[#d7ded5] px-4 py-3" />
+          <div className={authStyles.field}>
+            <label htmlFor="signup-name" className={authStyles.label}>{text.contactName}</label>
+            <input id="signup-name" autoComplete="name" required minLength={2} maxLength={120} value={contactName} onChange={(event) => setContactName(event.target.value)} disabled={isPending} className={authStyles.input} />
           </div>
         ) : null}
 
-        <div>
-          <label htmlFor="signup-company" className="text-sm font-semibold text-[#17201a]">{text.companyName}</label>
-          <input id="signup-company" autoComplete="organization" required minLength={2} maxLength={160} value={companyName} onChange={(event) => setCompanyName(event.target.value)} disabled={isPending} className="mt-2 w-full rounded-xl border border-[#d7ded5] px-4 py-3" />
+        <div className={authStyles.field}>
+          <label htmlFor="signup-company" className={authStyles.label}>{text.companyName}</label>
+          <input id="signup-company" autoComplete="organization" required minLength={2} maxLength={160} value={companyName} onChange={(event) => setCompanyName(event.target.value)} disabled={isPending} className={authStyles.input} />
         </div>
 
-        <div>
-          <label htmlFor="signup-email" className="text-sm font-semibold text-[#17201a]">{text.email}</label>
-          <input id="signup-email" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} disabled={isPending || accountReady} className="mt-2 w-full rounded-xl border border-[#d7ded5] px-4 py-3 disabled:bg-[#f5f6f3]" />
+        <div className={authStyles.field}>
+          <label htmlFor="signup-email" className={authStyles.label}>{text.email}</label>
+          <input id="signup-email" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} disabled={isPending || accountReady} className={authStyles.input} />
         </div>
 
         {!accountReady ? (
-          <div>
-            <label htmlFor="signup-password" className="text-sm font-semibold text-[#17201a]">{text.password}</label>
-            <input id="signup-password" type="password" autoComplete="new-password" required minLength={8} maxLength={128} value={password} onChange={(event) => setPassword(event.target.value)} disabled={isPending} className="mt-2 w-full rounded-xl border border-[#d7ded5] px-4 py-3" />
+          <div className={authStyles.field}>
+            <label htmlFor="signup-password" className={authStyles.label}>{text.password}</label>
+            <input id="signup-password" type="password" autoComplete="new-password" required minLength={8} maxLength={128} value={password} onChange={(event) => setPassword(event.target.value)} disabled={isPending} className={authStyles.input} />
           </div>
         ) : null}
 
         <div className="grid gap-4 sm:grid-cols-2">
-          <div>
-            <label htmlFor="signup-city" className="text-sm font-semibold text-[#17201a]">{text.city}</label>
-            <input id="signup-city" autoComplete="address-level2" required maxLength={160} value={city} onChange={(event) => setCity(event.target.value)} disabled={isPending} className="mt-2 w-full rounded-xl border border-[#d7ded5] px-4 py-3" />
+          <div className={authStyles.field}>
+            <label htmlFor="signup-city" className={authStyles.label}>{text.city}</label>
+            <input id="signup-city" autoComplete="address-level2" required maxLength={160} value={city} onChange={(event) => setCity(event.target.value)} disabled={isPending} className={authStyles.input} />
           </div>
-          <div>
-            <label htmlFor="signup-phone" className="text-sm font-semibold text-[#17201a]">{text.phone}</label>
-            <input id="signup-phone" type="tel" autoComplete="tel" maxLength={80} value={phone} onChange={(event) => setPhone(event.target.value)} disabled={isPending} className="mt-2 w-full rounded-xl border border-[#d7ded5] px-4 py-3" />
+          <div className={authStyles.field}>
+            <label htmlFor="signup-phone" className={authStyles.label}>{text.phone}</label>
+            <input id="signup-phone" type="tel" autoComplete="tel" maxLength={80} value={phone} onChange={(event) => setPhone(event.target.value)} disabled={isPending} className={authStyles.input} />
           </div>
         </div>
 
-        <div>
-          <label htmlFor="signup-plan" className="text-sm font-semibold text-[#17201a]">{text.plan}</label>
-          <select id="signup-plan" value={plan} onChange={(event) => setPlan(event.target.value as CheckoutPlanKey)} disabled={isPending} className="mt-2 w-full rounded-xl border border-[#d7ded5] bg-white px-4 py-3">
+        <div className={authStyles.field}>
+          <label htmlFor="signup-plan" className={authStyles.label}>{text.plan}</label>
+          <select id="signup-plan" value={plan} onChange={(event) => setPlan(event.target.value as CheckoutPlanKey)} disabled={isPending} className={authStyles.select}>
             <option value="starter">{text.starter}</option>
             <option value="professional">{text.professional}</option>
           </select>
         </div>
 
-        {errorMessage ? <p className="rounded-xl bg-[#fff4f2] px-4 py-3 text-sm leading-6 text-[#8a2f1f]" role="alert">{errorMessage}</p> : null}
+        {errorMessage ? <p className={authStyles.statusError} role="alert">{errorMessage}</p> : null}
 
-        <button type="submit" disabled={isPending} className="mt-1 inline-flex min-h-12 items-center justify-center rounded-xl bg-[#17452f] px-6 py-3 font-semibold text-white transition hover:bg-[#123824] disabled:cursor-not-allowed disabled:opacity-70">
+        <button type="submit" disabled={isPending} className={authStyles.primaryButton}>
           {isPending ? text.pending : text.submit}
         </button>
       </form>
 
-      <p className="mt-4 text-xs leading-6 text-[#6a756e]">{text.terms}</p>
-      <Link href={loginHref} className="mt-4 inline-flex text-sm font-semibold text-[#17452f] hover:underline">{text.login}</Link>
+      <p className={authStyles.terms}>{text.terms}</p>
+      <Link href={loginHref} className={authStyles.secondaryLink}>{text.login}</Link>
     </aside>
   );
 }
