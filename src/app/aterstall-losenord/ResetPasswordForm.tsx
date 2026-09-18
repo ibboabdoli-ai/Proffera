@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { type FormEvent, useEffect, useState } from "react";
 
+import authStyles from "@/components/auth/auth-marketplace.module.css";
 import { authClient } from "@/lib/auth-client";
 
 type PasswordResetLocale = "sv" | "en";
@@ -107,13 +108,13 @@ export function ResetPasswordForm({ locale }: { locale: PasswordResetLocale }) {
 
   const requestAgainUrl = locale === "en" ? "/glomt-losenord?lang=en" : "/glomt-losenord";
   const languageSwitcher = (
-    <div className="mb-6 flex items-center gap-3 text-sm" aria-label={text.language}>
-      <span className="font-semibold text-[#5b665f]">{text.language}:</span>
+    <div className={authStyles.languageRow} aria-label={text.language}>
+      <span className={authStyles.label}>{text.language}:</span>
       <button
         type="button"
         aria-pressed={locale === "sv"}
         onClick={() => switchLocale("sv")}
-        className={`rounded-full px-3 py-1.5 font-semibold ${locale === "sv" ? "bg-[#17452f] text-white" : "bg-white text-[#17452f] ring-1 ring-[#d7ded5]"}`}
+        className={`${authStyles.languageButton} ${locale === "sv" ? authStyles.languageActive : ""}`}
       >
         SV
       </button>
@@ -121,7 +122,7 @@ export function ResetPasswordForm({ locale }: { locale: PasswordResetLocale }) {
         type="button"
         aria-pressed={locale === "en"}
         onClick={() => switchLocale("en")}
-        className={`rounded-full px-3 py-1.5 font-semibold ${locale === "en" ? "bg-[#17452f] text-white" : "bg-white text-[#17452f] ring-1 ring-[#d7ded5]"}`}
+        className={`${authStyles.languageButton} ${locale === "en" ? authStyles.languageActive : ""}`}
       >
         EN
       </button>
@@ -132,7 +133,7 @@ export function ResetPasswordForm({ locale }: { locale: PasswordResetLocale }) {
     return (
       <div>
         {languageSwitcher}
-        <div className="h-32 animate-pulse rounded-xl bg-[#f2f5f2]" aria-hidden="true" />
+        <div className={authStyles.skeleton} aria-hidden="true" />
       </div>
     );
   }
@@ -142,8 +143,8 @@ export function ResetPasswordForm({ locale }: { locale: PasswordResetLocale }) {
       <div>
         {languageSwitcher}
         <div className="grid gap-5">
-          <p className="rounded-xl bg-[#fff4f2] px-4 py-4 text-sm leading-6 text-[#8a2f1f]" role="alert">{text.invalidToken}</p>
-          <Link href={requestAgainUrl} className="text-sm font-semibold text-[#17452f] underline underline-offset-4">{text.requestAgain}</Link>
+          <p className={authStyles.statusError} role="alert">{text.invalidToken}</p>
+          <Link href={requestAgainUrl} className={authStyles.secondaryLink}>{text.requestAgain}</Link>
         </div>
       </div>
     );
@@ -152,9 +153,9 @@ export function ResetPasswordForm({ locale }: { locale: PasswordResetLocale }) {
   return (
     <div>
       {languageSwitcher}
-      <form className="grid gap-5" onSubmit={handleSubmit}>
+      <form className={authStyles.form} onSubmit={handleSubmit}>
         <div>
-          <label htmlFor="new-password" className="text-sm font-semibold text-[#17201a]">{text.password}</label>
+          <label htmlFor="new-password" className={authStyles.label}>{text.password}</label>
           <input
             id="new-password"
             name="newPassword"
@@ -166,12 +167,12 @@ export function ResetPasswordForm({ locale }: { locale: PasswordResetLocale }) {
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             disabled={isPending}
-            className="mt-2 w-full rounded-xl border border-[#d7ded5] bg-white px-4 py-3 text-base text-[#17201a] focus:border-[#17452f] focus:outline-none focus:ring-2 focus:ring-[#17452f]/20 disabled:opacity-70"
+            className={authStyles.input}
           />
-          <p className="mt-2 text-xs text-[#68736b]">{text.hint}</p>
+          <p className={authStyles.helpText}>{text.hint}</p>
         </div>
         <div>
-          <label htmlFor="confirm-password" className="text-sm font-semibold text-[#17201a]">{text.confirm}</label>
+          <label htmlFor="confirm-password" className={authStyles.label}>{text.confirm}</label>
           <input
             id="confirm-password"
             name="confirmPassword"
@@ -183,11 +184,11 @@ export function ResetPasswordForm({ locale }: { locale: PasswordResetLocale }) {
             value={confirmation}
             onChange={(event) => setConfirmation(event.target.value)}
             disabled={isPending}
-            className="mt-2 w-full rounded-xl border border-[#d7ded5] bg-white px-4 py-3 text-base text-[#17201a] focus:border-[#17452f] focus:outline-none focus:ring-2 focus:ring-[#17452f]/20 disabled:opacity-70"
+            className={authStyles.input}
           />
         </div>
-        {errorMessage ? <p className="rounded-xl bg-[#fff4f2] px-4 py-3 text-sm leading-6 text-[#8a2f1f]" role="alert">{errorMessage}</p> : null}
-        <button type="submit" disabled={isPending} className="inline-flex min-h-12 w-full items-center justify-center rounded-xl bg-[#17452f] px-6 py-3 text-base font-semibold text-white hover:bg-[#123824] disabled:cursor-not-allowed disabled:opacity-70">
+        {errorMessage ? <p className={authStyles.statusError} role="alert">{errorMessage}</p> : null}
+        <button type="submit" disabled={isPending} className={authStyles.primaryButton}>
           {isPending ? text.pending : text.submit}
         </button>
       </form>
