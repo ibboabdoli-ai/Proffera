@@ -132,10 +132,6 @@ function localeFrom(value: string | string[] | undefined): Locale {
   return Array.isArray(value) ? (value[0] === "en" ? "en" : "sv") : value === "en" ? "en" : "sv";
 }
 
-function withLocale(path: string, locale: Locale) {
-  return locale === "en" ? `${path}${path.includes("?") ? "&" : "?"}lang=en` : path;
-}
-
 export default async function ClaimCompanyPage({ params, searchParams }: Props) {
   const { slug } = await params;
   const query = searchParams ? await searchParams : undefined;
