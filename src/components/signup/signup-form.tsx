@@ -4,7 +4,7 @@ import Link from "next/link";
 import { type FormEvent, useState } from "react";
 
 import { authClient } from "@/lib/auth-client";
-import type { CheckoutPlanKey } from "@/lib/billing-plans";
+import { getCheckoutPlanPriceLabel, type CheckoutPlanKey } from "@/lib/billing-plans";
 
 type SignupLocale = "sv" | "en";
 
@@ -28,8 +28,8 @@ const copy = {
     city: "Ort",
     phone: "Telefon",
     plan: "Plan efter provperioden",
-    starter: "Starter – från 299 kr/mån",
-    professional: "Professional – från 699 kr/mån",
+    starter: `Starter – från ${getCheckoutPlanPriceLabel("starter", "SEK", "sv")}`,
+    professional: `Professional – från ${getCheckoutPlanPriceLabel("professional", "SEK", "sv")}`,
     submit: "Starta 14 dagar gratis",
     pending: "Skapar konto och arbetsyta...",
     genericError: "Det gick inte att slutföra registreringen. Försök igen.",
@@ -48,8 +48,8 @@ const copy = {
     city: "City",
     phone: "Phone",
     plan: "Plan after the trial",
-    starter: "Starter – from SEK 299/month",
-    professional: "Professional – from SEK 699/month",
+    starter: `Starter – from ${getCheckoutPlanPriceLabel("starter", "SEK", "en")}`,
+    professional: `Professional – from ${getCheckoutPlanPriceLabel("professional", "SEK", "en")}`,
     submit: "Start 14-day free trial",
     pending: "Creating account and workspace...",
     genericError: "We could not complete the registration. Please try again.",
