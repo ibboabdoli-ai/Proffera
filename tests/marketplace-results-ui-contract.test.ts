@@ -300,14 +300,21 @@ describe("marketplace results UI contract", () => {
     expect(nearby).not.toContain("longitude=");
   });
 
-  it("uses the compact Home-style search surface and denser result cards", () => {
+  it("uses the approved marketplace search/results design system with real media fallbacks", () => {
     const searchPage = source("src/components/company-directory/public-directory-search-page.tsx");
     const results = source("src/components/company-directory/public-directory-results.tsx");
+    const styles = source("src/components/company-directory/public-directory-marketplace.module.css");
 
-    expect(searchPage).toContain('tone="light" layout="hero"');
-    expect(searchPage).toContain("max-w-7xl");
+    expect(searchPage).toContain('tone="light"');
+    expect(searchPage).toContain('layout="hero"');
+    expect(searchPage).toContain("styles.searchHero");
     expect(searchPage).not.toContain("<header");
-    expect(results).toContain("md:grid-cols-[minmax(0,1fr)_160px]");
-    expect(results).toContain("rounded-2xl border border-line bg-surface p-4");
+    expect(results).toContain("MarketplaceCompanyCover");
+    expect(results).toContain("MarketplaceCompanyLogo");
+    expect(results).toContain("styles.resultCard");
+    expect(results).toContain('data-marketplace-action="directory-profile"');
+    expect(styles).toContain("--marketplace-navy: #0a2e63");
+    expect(styles).toContain("grid-template-columns: 168px minmax(0, 1fr) 164px");
+    expect(styles).toContain("prefers-reduced-motion");
   });
 });

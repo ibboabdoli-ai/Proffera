@@ -111,6 +111,31 @@ test.describe("public critical-flow smoke", () => {
     await expect(page.getByRole("button", { name: "Tillbaka" })).toBeEnabled();
   });
 
+  test("quote flow disables motion for progress and navigation controls in both locales", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+
+    for (const flow of [
+      { path: "/fa-offert", stepText: "Steg 1 av 6", back: "Tillbaka", next: "Fortsätt" },
+      { path: "/en/get-quote", stepText: "Step 1 of 6", back: "Back", next: "Continue" },
+    ]) {
+      const response = await page.goto(flow.path);
+      expect(response?.ok()).toBeTruthy();
+
+      const stepLabel = page.getByText(flow.stepText, { exact: true });
+      await expect(stepLabel).toBeVisible();
+      const progressBar = stepLabel.locator("xpath=../following-sibling::div[1]/div");
+      await expect(progressBar).toBeVisible();
+
+      for (const locator of [
+        progressBar,
+        page.getByRole("button", { name: flow.back }),
+        page.getByRole("button", { name: flow.next }),
+      ]) {
+        await expect.poll(() => locator.evaluate((element) => getComputedStyle(element).transitionDuration)).toBe("0s");
+      }
+    }
+  });
+
   test("preserves private location and smart answers when switching Swedish into English", async ({ page }) => {
     const smartDetails = await advanceQuoteToLocation(page, {
       path: "/fa-offert",
