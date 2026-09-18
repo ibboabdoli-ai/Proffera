@@ -38,7 +38,7 @@ export default async function QuotePage({ searchParams }: QuotePageProps) {
       <section className={styles.pageShell}>
         <div className={styles.intro}>
           <p className={styles.eyebrow}>Få offerter</p>
-          <h1 className={styles.title}>Beskriv jobbet. Jämför rätt företag.</h1>
+          <h1 className={styles.title}>Beskriv ditt uppdrag steg för steg.</h1>
           <p className={styles.lead}>
             Fyll i tjänst, plats och vad du behöver hjälp med. Proffera använder uppgifterna för att matcha förfrågan med lämpliga företag.
           </p>
