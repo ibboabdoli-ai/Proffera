@@ -251,6 +251,14 @@
   font-weight: 900;
 }
 
+.sectionTitle {
+  margin: 0;
+  color: #0a2e63;
+  font-size: 1.12rem;
+  font-weight: 900;
+  letter-spacing: -.02em;
+}
+
 .stack {
   display: grid;
   gap: 18px;
