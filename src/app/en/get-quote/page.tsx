@@ -35,7 +35,7 @@ export default async function EnglishQuotePage({ searchParams }: QuotePageProps)
       <section className={styles.pageShell}>
         <div className={styles.intro}>
           <p className={styles.eyebrow}>Get quotes</p>
-          <h1 className={styles.title}>Describe the job. Compare the right businesses.</h1>
+          <h1 className={styles.title}>Describe your job step by step.</h1>
           <p className={styles.lead}>
             Add the service, location and what you need help with. Proffera uses the details to match your request with suitable businesses.
           </p>
