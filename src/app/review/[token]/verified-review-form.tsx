@@ -4,6 +4,7 @@ import { type FormEvent, useEffect, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, LoaderCircle, Star } from "lucide-react";
 
 import { emitMarketplaceFunnelEvent } from "@/components/analytics/marketplace-funnel-signal";
+import lifecycleStyles from "@/components/customer-lifecycle/customer-lifecycle.module.css";
 
 type VerifiedReviewFormProps = {
   token: string;
@@ -49,9 +50,6 @@ const copy = {
     stars: "out of 5 stars",
   },
 } as const;
-
-const inputClassName =
-  "rounded-xl border border-slate-300 bg-white px-4 py-3.5 font-normal text-[#17201a] outline-none transition focus:ring-4 focus:ring-slate-200";
 
 export function VerifiedReviewForm({
   token,
@@ -122,24 +120,22 @@ export function VerifiedReviewForm({
   }
 
   return (
-    <form onSubmit={submitReview} className="relative grid gap-5">
+    <form onSubmit={submitReview} className={lifecycleStyles.formStack}>
       <div aria-hidden="true" className="pointer-events-none absolute -left-[10000px] top-auto size-px overflow-hidden">
         <input name="website" type="text" tabIndex={-1} autoComplete="off" />
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-        <p className="font-black text-slate-900">{service}</p>
-        {area ? <p className="mt-1">{area}</p> : null}
-        <p className="mt-2 text-xs font-semibold uppercase tracking-[0.12em]" style={{ color: primaryColor }}>
-          {text.verified}
-        </p>
+      <div className={lifecycleStyles.reviewMeta}>
+        <strong>{service}</strong>
+        {area ? <p>{area}</p> : null}
+        <p style={{ color: primaryColor }}>{text.verified}</p>
       </div>
 
       <fieldset disabled={submitted}>
-        <legend className="text-sm font-black text-slate-800">
+        <legend className={lifecycleStyles.label}>
           {text.rating} <span className="text-red-700">*</span>
         </legend>
-        <div className="mt-2 flex flex-wrap gap-2" role="group" aria-label={text.rating}>
+        <div className={lifecycleStyles.ratingRow} role="group" aria-label={text.rating}>
           {[1, 2, 3, 4, 5].map((value) => (
             <button
               key={value}
@@ -147,19 +143,19 @@ export function VerifiedReviewForm({
               onClick={() => setRating(value)}
               aria-pressed={rating === value}
               aria-label={`${value} ${text.stars}`}
-              className="grid size-11 place-items-center rounded-xl border bg-white transition focus:outline-none focus:ring-4 focus:ring-slate-200"
+              className={lifecycleStyles.starButton}
               style={{
-                borderColor: rating >= value ? primaryColor : "#cbd5e1",
+                borderColor: rating >= value ? primaryColor : "#dce4ee",
                 color: rating >= value ? primaryColor : "#94a3b8",
               }}
             >
-              <Star className="size-5" fill="currentColor" aria-hidden="true" />
+              <Star className="h-5 w-5" fill="currentColor" aria-hidden="true" />
             </button>
           ))}
         </div>
       </fieldset>
 
-      <label className="grid gap-2 text-sm font-black text-slate-800">
+      <label className={lifecycleStyles.label}>
         {text.name} <span className="text-red-700">*</span>
         <input
           name="reviewer_name"
@@ -168,11 +164,11 @@ export function VerifiedReviewForm({
           maxLength={80}
           defaultValue={customerName === "Customer" ? "" : customerName}
           disabled={submitted}
-          className={inputClassName}
+          className={lifecycleStyles.inputControl}
         />
       </label>
 
-      <label className="grid gap-2 text-sm font-black text-slate-800">
+      <label className={lifecycleStyles.label}>
         {text.experience} <span className="text-red-700">*</span>
         <textarea
           name="message"
@@ -181,19 +177,18 @@ export function VerifiedReviewForm({
           minLength={10}
           maxLength={1_000}
           disabled={submitted}
-          className={`resize-y ${inputClassName}`}
+          className={lifecycleStyles.textareaControl}
           placeholder={text.placeholder}
         />
       </label>
 
-      <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-700">
+      <label className={lifecycleStyles.consent}>
         <input
           name="consent"
           value="true"
           required
           type="checkbox"
           disabled={submitted}
-          className="mt-1 size-4 shrink-0"
           style={{ accentColor: primaryColor }}
         />
         <span>{text.consent.replace("företaget", companyName).replace("the company", companyName)}</span>
@@ -201,18 +196,14 @@ export function VerifiedReviewForm({
 
       {submissionMessage ? (
         <p
-          className={`flex items-start gap-2 rounded-xl px-4 py-3 text-sm font-semibold ${
-            submissionMessage.kind === "error"
-              ? "bg-red-50 text-red-800"
-              : "bg-emerald-50 text-emerald-800"
-          }`}
+          className={submissionMessage.kind === "error" ? lifecycleStyles.noticeError : lifecycleStyles.noticeSuccess}
           role={submissionMessage.kind === "error" ? "alert" : "status"}
           aria-live="polite"
         >
           {submissionMessage.kind === "error" ? (
-            <AlertCircle className="mt-0.5 size-5 shrink-0" aria-hidden="true" />
+            <AlertCircle className="mr-2 inline h-4 w-4" aria-hidden="true" />
           ) : (
-            <CheckCircle2 className="mt-0.5 size-5 shrink-0" aria-hidden="true" />
+            <CheckCircle2 className="mr-2 inline h-4 w-4" aria-hidden="true" />
           )}
           {submissionMessage.text}
         </p>
@@ -221,15 +212,15 @@ export function VerifiedReviewForm({
       <button
         type="submit"
         disabled={isSubmitting || submitted}
-        className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-black text-white transition disabled:cursor-not-allowed disabled:opacity-70"
-        style={{ backgroundColor: primaryColor }}
+        className={lifecycleStyles.submit}
+        style={{ backgroundColor: primaryColor, borderColor: primaryColor }}
       >
         {isSubmitting ? (
-          <LoaderCircle className="size-5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+          <LoaderCircle className="mr-2 inline h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
         ) : submitted ? (
-          <CheckCircle2 className="size-5" aria-hidden="true" />
+          <CheckCircle2 className="mr-2 inline h-4 w-4" aria-hidden="true" />
         ) : (
-          <Star className="size-5" aria-hidden="true" />
+          <Star className="mr-2 inline h-4 w-4" aria-hidden="true" />
         )}
         {isSubmitting ? text.submitting : submitted ? text.submitted : text.submit}
       </button>
