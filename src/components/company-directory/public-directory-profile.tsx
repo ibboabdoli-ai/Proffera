@@ -225,18 +225,18 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
             </div>
 
             {hasReputation && reputation ? (
-              <section className="mt-8 rounded-panel border border-brand/15 bg-brand-soft p-5 sm:p-6">
-                <div className="flex items-center gap-2 text-brand-deep">
-                  <Star className="h-5 w-5 fill-current" />
+              <section className={`${styles.reputation} rounded-panel bg-brand-soft`}>
+                <div className={styles.reputationHeader}>
+                  <Star aria-hidden="true" />
                   <h2 className="text-lg font-black">{locale === "en" ? "Verified Proffera reputation" : "Verifierat rykte på Proffera"}</h2>
                 </div>
-                <p className="mt-2 text-sm leading-6 text-body">
+                <p>
                   {locale === "en"
                     ? "Based only on approved verified reviews and completed work handled through Proffera."
                     : "Bygger endast på godkända verifierade omdömen och slutförda jobb som hanterats via Proffera."}
                 </p>
-                <dl className="mt-5 grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-card border border-brand/10 bg-white p-4">
+                <dl className={styles.reputationGrid}>
+                  <div className={styles.reputationStat}>
                     <dt className="text-xs font-black uppercase tracking-wide text-muted">{locale === "en" ? "Rating" : "Betyg"}</dt>
                     <dd className="mt-1 text-2xl font-black text-brand-deep">{reputation.verifiedReviews > 0 && reputation.rating > 0 ? `${ratingFormatter.format(reputation.rating)} / 5` : "—"}</dd>
                   </div>
@@ -253,22 +253,22 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
             ) : null}
 
             {business.activityDescription ? (
-              <section className="mt-9">
-                <p className="text-xs font-black uppercase tracking-[0.14em] text-brand">{t.about}</p>
-                <p lang="sv" className="mt-3 max-w-3xl whitespace-pre-line text-base leading-8 text-body">{business.activityDescription}</p>
+              <section className={styles.section}>
+                <p className={styles.sectionEyebrow}>{t.about}</p>
+                <p lang="sv" className={styles.aboutText}>{business.activityDescription}</p>
               </section>
             ) : null}
 
-            <section className="mt-10 border-t border-line pt-8">
-              <h2 className="text-xl font-black tracking-tight text-ink">{t.contactTitle}</h2>
-              {hasLockedContact ? <p className="mt-2 text-sm leading-6 text-muted">{t.contactLockedLead}</p> : null}
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <section className={`${styles.section} border-line`}>
+              <h2 className={styles.sectionTitle}>{t.contactTitle}</h2>
+              {hasLockedContact ? <p className={styles.contactLead}>{t.contactLockedLead}</p> : null}
+              <div className={styles.contactGrid}>
                 {contactRows.map((item) => {
                   const Icon = item.icon;
                   return (
-                    <div key={item.key} className="rounded-card border border-line bg-surface-subtle p-4">
-                      <div className="flex items-center gap-2 text-sm font-black text-ink"><Icon className="h-4 w-4 text-brand" /> {item.label}</div>
-                      <div className="mt-2 min-h-6 text-sm font-bold text-body">
+                    <div key={item.key} className={`${styles.contactCard} rounded-card border-line bg-surface-subtle`}>
+                      <div className={styles.contactLabel}><Icon aria-hidden="true" /> {item.label}</div>
+                      <div className={styles.contactValue}>
                         {item.value ? (
                           item.href ? (
                             <a
@@ -292,15 +292,15 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
             </section>
 
             {extras.services.length ? (
-              <section className="mt-10 border-t border-line pt-8">
-                <h2 className="text-xl font-black tracking-tight text-ink">{t.services}</h2>
-                <div className="mt-4 flex flex-wrap gap-2">
+              <section className={`${styles.section} border-line`}>
+                <h2 className={styles.sectionTitle}>{t.services}</h2>
+                <div className={styles.serviceTags}>
                   {extras.services.map((service) => (
-                    <div key={service.slug} className="rounded-control border border-line bg-surface-subtle px-4 py-3">
-                      <p className="font-black text-ink">{directoryServiceLabel(service.slug, service.label, locale)}</p>
-                      <p className="mt-1 text-xs font-bold text-muted">
+                    <div key={service.slug} className={`${styles.serviceTag} rounded-control border-line bg-surface-subtle`}>
+                      <strong>{directoryServiceLabel(service.slug, service.label, locale)}</strong>
+                      <small>
                         {service.sourceType === "sni" ? t.serviceSni : service.confirmed ? t.serviceConfirmed : t.servicePublic}
-                      </p>
+                      </small>
                     </div>
                   ))}
                 </div>
@@ -309,16 +309,16 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
 
             {extras.serviceAreas.length ? (
               <section className="mt-10 border-t border-line pt-8">
-                <h2 className="text-xl font-black tracking-tight text-ink">{t.serviceAreas}</h2>
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <h2 className={styles.sectionTitle}>{t.serviceAreas}</h2>
+                <div className={styles.serviceAreaGrid}>
                   {extras.serviceAreas.map((area, index) => {
                     const areaLabel = area.serviceSlug
                       ? directoryServiceLabel(area.serviceSlug, area.serviceLabel, locale)
                       : t.generalArea;
                     return (
-                      <div key={`${area.serviceSlug || "general"}-${area.radiusKm}-${index}`} className="flex items-center justify-between gap-4 rounded-card border border-line bg-surface-subtle p-4 text-sm">
-                        <p className="font-black text-ink">{areaLabel}</p>
-                        <p className="shrink-0 text-muted">{radiusFormatter.format(area.radiusKm)} km {t.radius}</p>
+                      <div key={`${area.serviceSlug || "general"}-${area.radiusKm}-${index}`} className={`${styles.serviceAreaCard} rounded-card border-line bg-surface-subtle`}>
+                        <strong>{areaLabel}</strong>
+                        <span>{radiusFormatter.format(area.radiusKm)} km {t.radius}</span>
                       </div>
                     );
                   })}
@@ -326,30 +326,30 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
               </section>
             ) : null}
 
-            <div className="mt-10 grid gap-4 lg:grid-cols-2">
-              <section className="rounded-panel border border-brand/15 bg-brand-soft p-6">
-                <FileText className="h-6 w-6 text-brand" />
-                <h2 className="mt-4 text-xl font-black text-brand-deep">{t.quoteTitle}</h2>
-                <p className="mt-2 text-sm leading-6 text-body">{t.quoteLead}</p>
-                <p className="mt-2 text-xs font-semibold leading-5 text-muted">{t.quoteDisclosure}</p>
-                <Link href={quoteHref} className="mt-5 inline-flex min-h-11 items-center justify-center gap-2 rounded-control bg-brand px-4 text-sm font-black text-white transition hover:bg-brand-strong">
+            <div className={styles.ctaGrid}>
+              <section className={`${styles.quoteCard} rounded-panel bg-brand-soft`}>
+                <FileText aria-hidden="true" />
+                <h2>{t.quoteTitle}</h2>
+                <p>{t.quoteLead}</p>
+                <p>{t.quoteDisclosure}</p>
+                <Link href={quoteHref} className={`${styles.primaryCta} rounded-control bg-brand text-white`}>
                   {t.quoteCta}<ArrowRight className="h-4 w-4" />
                 </Link>
               </section>
 
-              <section className="rounded-panel bg-brand-deep p-6 text-white">
-                <Search className="h-6 w-6 text-white/80" />
-                <h2 className="mt-4 text-xl font-black">{t.similarTitle}</h2>
-                <p className="mt-2 text-sm leading-6 text-white/70">{t.similarLead}</p>
-                <Link href={similarHref} className="mt-5 inline-flex min-h-11 items-center justify-center gap-2 rounded-control bg-white px-4 text-sm font-black text-brand-deep transition hover:bg-brand-soft">
+              <section className={`${styles.similarCard} rounded-panel bg-brand-deep text-white`}>
+                <Search aria-hidden="true" />
+                <h2>{t.similarTitle}</h2>
+                <p>{t.similarLead}</p>
+                <Link href={similarHref} className={`${styles.inverseCta} rounded-control bg-white text-brand-deep`}>
                   {t.similarCta}<ArrowRight className="h-4 w-4" />
                 </Link>
               </section>
             </div>
 
             <section className="mt-10 border-t border-line pt-8">
-              <h2 className="text-base font-black text-ink">{t.details}</h2>
-              <dl className="mt-5 grid gap-x-8 gap-y-5 text-sm sm:grid-cols-2">
+              <h2 className={styles.sectionTitle}>{t.details}</h2>
+              <dl className={styles.detailList}>
                 {business.organizationNumber ? <div className="border-b border-line pb-4"><dt className="text-muted">{t.organizationNumber}</dt><dd className="mt-1 font-bold text-ink">{business.organizationNumber}</dd></div> : null}
                 {business.legalForm ? <div className="border-b border-line pb-4"><dt className="text-muted">{t.legalForm}</dt><dd className="mt-1 font-bold text-ink">{business.legalForm}</dd></div> : null}
                 {business.primarySniCode ? <div className="border-b border-line pb-4"><dt className="text-muted">{t.sniCode}</dt><dd className="mt-1 font-bold text-ink">{business.primarySniCode}{business.primarySniLabel ? ` – ${business.primarySniLabel}` : ""}</dd></div> : null}
