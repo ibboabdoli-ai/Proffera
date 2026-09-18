@@ -32,14 +32,14 @@ describe("marketing features and pricing contract", () => {
     expect(features).toContain("Samma service-ID genom kundresan");
   });
 
-  it("keeps pricing aligned with the verified Starter and Professional Stripe prices", () => {
+  it("derives public pricing from the canonical Starter and Professional plan source", () => {
     const pricing = source("src/components/marketing/marketing-pricing.tsx");
 
     expect(pricing).toContain('name: "Starter"');
-    expect(pricing).toContain('price: "199 kr/mån"');
+    expect(pricing).toContain('getCheckoutPlanPriceLabel("starter", "SEK", "sv")');
     expect(pricing).toContain('features: ["Onlinebokning", "Leadhantering", "Kund-CRM", "Kundportal", "Bokningspåminnelser"]');
     expect(pricing).toContain('name: "Professional"');
-    expect(pricing).toContain('price: "599 kr/mån"');
+    expect(pricing).toContain('getCheckoutPlanPriceLabel("professional", "SEK", "sv")');
     expect(pricing).toContain('"Företagssida", "Offerter", "Galleri", "Verifierade omdömen", "Analys", "Flera medarbetare"');
     expect(pricing).toContain('name: "Enterprise"');
     expect(pricing).toContain('"Egen domän"');
