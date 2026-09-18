@@ -160,24 +160,24 @@ export function BookingPageBuilder({
       {englishEnabled ? <input type="hidden" name="englishEnabled" value="on" /> : null}
       {sections.map(({ key }) => sectionState[key] ? <input key={key} type="hidden" name={key} value="on" /> : null)}
 
-      <div className="flex flex-col gap-3 rounded-[24px] border border-[#dfe6df] bg-white p-3 shadow-sm xl:flex-row xl:items-center xl:justify-between">
+      <div className="flex flex-col gap-3 rounded-card border border-line bg-surface p-3 shadow-card xl:flex-row xl:items-center xl:justify-between">
         <div className="flex flex-wrap gap-2" aria-label="Builder tabs">
           {([
             ["design", "Design"],
             ["content", "Innehåll"],
             ["domain", "Domän"],
           ] as const).map(([key, label]) => (
-            <button key={key} type="button" onClick={() => setTab(key)} className={`rounded-xl px-4 py-2.5 text-sm font-black ${tab === key ? "bg-[#173e2b] text-white" : "text-[#445149] hover:bg-[#f2f5f1]"}`}>{label}</button>
+            <button key={key} type="button" onClick={() => setTab(key)} className={`rounded-control px-4 py-2.5 text-sm font-bold ${tab === key ? "bg-brand-deep text-white" : "text-brand-deep hover:bg-surface-subtle"}`}>{label}</button>
           ))}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex rounded-xl bg-[#f2f5f1] p-1" aria-label="Preview size">
+          <div className="flex rounded-control bg-surface-subtle p-1" aria-label="Preview size">
             {(["desktop", "tablet", "mobile"] as const).map((value) => (
-              <button key={value} type="button" onClick={() => setDevice(value)} className={`rounded-lg px-3 py-2 text-xs font-bold capitalize ${device === value ? "bg-white text-[#173e2b] shadow-sm" : "text-[#68736b]"}`}>{value}</button>
+              <button key={value} type="button" onClick={() => setDevice(value)} className={`rounded-control px-3 py-2 text-xs font-bold capitalize ${device === value ? "bg-surface text-brand-deep shadow-card" : "text-ink-muted"}`}>{value}</button>
             ))}
           </div>
-          {publicBookingUrl ? <a href={publicBookingUrl} target="_blank" rel="noreferrer" className="rounded-xl border border-[#cbd7cc] bg-white px-4 py-2.5 text-sm font-bold text-[#17452f]">Öppna bokningssidan</a> : null}
-          <button className="rounded-xl bg-[#173e2b] px-5 py-2.5 text-sm font-black text-white shadow-sm">Spara & publicera</button>
+          {publicBookingUrl ? <a href={publicBookingUrl} target="_blank" rel="noreferrer" className="rounded-control border border-line bg-surface px-4 py-2.5 text-sm font-bold text-brand-deep">Öppna bokningssidan</a> : null}
+          <button className="rounded-control bg-brand-deep px-5 py-2.5 text-sm font-bold text-white shadow-card">Spara & publicera</button>
         </div>
       </div>
 
@@ -185,8 +185,8 @@ export function BookingPageBuilder({
         <aside className="grid content-start gap-4">
           {tab === "design" ? (
             <>
-              <section className="rounded-[24px] border border-[#dfe6df] bg-white p-5">
-                <p className="text-xs font-black uppercase tracking-[0.14em] text-[#68736b]">Startmall</p>
+              <section className="rounded-card border border-line bg-surface p-5 shadow-card">
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-ink-muted">Startmall</p>
                 <h2 className="mt-2 text-lg font-black text-[#17201a]">Välj känsla</h2>
                 <p className="mt-1 text-xs leading-5 text-[#667168]">Mallen är en central startpunkt med färdiga texter, bild och branschanpassat innehåll. Dina ändringar sparas separat.</p>
                 <div className="mt-4 grid gap-2">
@@ -199,7 +199,7 @@ export function BookingPageBuilder({
                 </div>
               </section>
 
-              <section className="rounded-[24px] border border-[#dfe6df] bg-white p-5">
+              <section className="rounded-card border border-line bg-surface p-5 shadow-card">
                 <h2 className="text-lg font-black text-[#17201a]">Varumärke</h2>
                 <div className="mt-4 grid gap-4">
                   <label className="grid gap-2 text-sm font-bold text-[#263129]">Primär färg<input type="color" value={primaryColor} onChange={(event) => setPrimaryColor(event.target.value)} className="h-12 w-full rounded-xl border border-[#d7dfd7] p-1" /></label>
@@ -212,12 +212,12 @@ export function BookingPageBuilder({
 
           {tab === "content" ? (
             <>
-              <section className="rounded-[24px] border border-[#dfe6df] bg-white p-5">
-                <p className="text-xs font-black uppercase tracking-[0.14em] text-[#68736b]">Sektioner</p><h2 className="mt-2 text-lg font-black text-[#17201a]">Vad ska visas?</h2>
+              <section className="rounded-card border border-line bg-surface p-5 shadow-card">
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-ink-muted">Sektioner</p><h2 className="mt-2 text-lg font-black text-[#17201a]">Vad ska visas?</h2>
                 <div className="mt-4 grid gap-2">{sections.map(({ key, label, helper }) => <label key={key} className="flex cursor-pointer items-start justify-between gap-3 rounded-2xl border border-[#e0e5dd] p-3 hover:bg-[#f8faf7]"><span><span className="block text-sm font-black text-[#17201a]">{label}</span><span className="mt-0.5 block text-xs leading-4 text-[#68736b]">{helper}</span></span><input type="checkbox" checked={sectionState[key]} onChange={(event) => setSection(key, event.target.checked)} className="mt-1 h-5 w-5 accent-[#17452f]" /></label>)}</div>
               </section>
 
-              <section className="rounded-[24px] border border-[#dfe6df] bg-white p-5">
+              <section className="rounded-card border border-line bg-surface p-5 shadow-card">
                 <h2 className="text-lg font-black text-[#17201a]">Språk</h2>
                 <div className="mt-4 grid gap-3">
                   <label className="flex items-center justify-between rounded-xl border border-[#e0e5dd] p-3 text-sm font-bold"><span>Svenska</span><input type="checkbox" checked={swedishEnabled} onChange={(event) => setSwedishEnabled(event.target.checked)} className="h-5 w-5 accent-[#17452f]" /></label>
@@ -227,7 +227,7 @@ export function BookingPageBuilder({
                 </div>
               </section>
 
-              <section className="rounded-[24px] border border-[#dfe6df] bg-white p-5">
+              <section className="rounded-card border border-line bg-surface p-5 shadow-card">
                 <h2 className="text-lg font-black text-[#17201a]">Media</h2>
                 <div className="mt-4 grid gap-3">
                   <label className="grid gap-2 text-sm font-bold">Logotyp URL<input name="logoUrl" defaultValue={settings.logoUrl} placeholder="https://..." className="rounded-xl border border-[#d7dfd7] px-4 py-3 font-normal" /></label>
@@ -239,8 +239,8 @@ export function BookingPageBuilder({
           ) : null}
 
           {tab === "domain" ? (
-            <section className="rounded-[24px] border border-[#dfe6df] bg-white p-5">
-              <p className="text-xs font-black uppercase tracking-[0.14em] text-[#68736b]">Publicering</p><h2 className="mt-2 text-lg font-black text-[#17201a]">Domän & adress</h2>
+            <section className="rounded-card border border-line bg-surface p-5 shadow-card">
+              <p className="text-xs font-bold uppercase tracking-[0.14em] text-ink-muted">Publicering</p><h2 className="mt-2 text-lg font-black text-[#17201a]">Domän & adress</h2>
               <div className="mt-4 rounded-2xl bg-[#f4f7f3] p-4"><p className="text-xs font-bold text-[#68736b]">Din Proffera-adress</p><p className="mt-1 break-all text-sm font-black text-[#17452f]">{publicLabel}</p>{publicBookingUrl ? <a href={publicBookingUrl} target="_blank" rel="noreferrer" className="mt-3 inline-flex text-xs font-black text-[#17452f] underline underline-offset-4">Öppna adressen</a> : null}</div>
               <label className="mt-4 grid gap-2 text-sm font-bold">Egen domän<input name="customDomain" defaultValue={settings.customDomain} placeholder="booking.foretagen.se" disabled={!customDomainEnabled} className="rounded-xl border border-[#d7dfd7] px-4 py-3 font-normal disabled:cursor-not-allowed disabled:bg-[#f2f4f1] disabled:text-[#7a857d]" /></label>
               <div className="mt-3 flex items-center gap-2 text-xs font-bold"><span className={`h-2.5 w-2.5 rounded-full ${settings.customDomain && domainConnected ? "bg-[#2f8b57]" : "bg-[#d29b32]"}`} />{settings.customDomain ? (domainConnected ? "Egen domän ansluten" : "Egen domän väntar på anslutning") : "Ingen egen domän ansluten"}</div>
@@ -251,8 +251,8 @@ export function BookingPageBuilder({
           ) : null}
         </aside>
 
-        <main className="min-w-0 rounded-[28px] border border-[#dfe6df] bg-[#eef2ed] p-3 sm:p-5" data-booking-builder-preview style={previewStyle}>
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 px-1"><div><p className="text-xs font-black uppercase tracking-[0.14em] text-[#68736b]">Live design preview</p><p className="mt-1 text-sm text-[#5f6b63]">Preview använder samma centrala mallinnehåll som den publika sidan.</p></div><span className="rounded-full bg-white px-3 py-1.5 text-xs font-bold text-[#5f6b63] shadow-sm">{themeKey} · {resolvedAppearance}</span></div>
+        <main className="min-w-0 rounded-card border border-line bg-surface-subtle p-3 sm:p-5" data-booking-builder-preview style={previewStyle}>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 px-1"><div><p className="text-xs font-bold uppercase tracking-[0.14em] text-ink-muted">Live design preview</p><p className="mt-1 text-sm text-ink-muted">Preview använder samma centrala mallinnehåll som den publika sidan.</p></div><span className="rounded-full bg-surface px-3 py-1.5 text-xs font-bold text-ink-muted shadow-card">{themeKey} · {resolvedAppearance}</span></div>
 
           <div className={`mx-auto overflow-hidden rounded-[26px] shadow-xl transition-all ${previewWidth}`} style={{ backgroundColor: dark ? "#0e110f" : "#f7f7f4", color: dark ? "#ffffff" : "#17201a" }}>
             {sectionState.heroEnabled ? (
