@@ -5,29 +5,29 @@ type LegalSection = {
   text: string;
 };
 
-type EnglishLegalPageProps = {
+type SwedishLegalPageProps = {
   title: string;
   introduction: string;
   sections: readonly LegalSection[];
+  englishHref: string;
   notice?: string;
-  swedishHref: string;
 };
 
-export function EnglishLegalPage({ title, introduction, sections, notice, swedishHref }: EnglishLegalPageProps) {
+export function SwedishLegalPage({ title, introduction, sections, englishHref, notice }: SwedishLegalPageProps) {
   return (
-    <main className="min-h-screen bg-[#f6f9fd] text-[#11213b]" lang="en">
+    <main className="min-h-screen bg-[#f6f9fd] text-[#11213b]">
       <section className="border-b border-[#dce4ee] bg-white">
         <div className="mx-auto max-w-4xl px-4 py-14 sm:px-6 lg:px-8 lg:py-20">
           <div className="flex items-start justify-between gap-5">
             <div>
-              <p className="text-xs font-extrabold uppercase tracking-[0.15em] text-[#1469d8]">Legal</p>
+              <p className="text-xs font-extrabold uppercase tracking-[0.15em] text-[#1469d8]">Juridiskt</p>
               <h1 className="mt-3 text-4xl font-extrabold tracking-[-0.04em] text-[#0a2e63] sm:text-5xl">{title}</h1>
             </div>
-            <Link href={swedishHref} className="text-sm font-bold text-[#1469d8] underline underline-offset-4">Svenska</Link>
+            <Link href={englishHref} className="text-sm font-bold text-[#1469d8] underline underline-offset-4">English</Link>
           </div>
           <p className="mt-5 max-w-3xl text-base leading-8 text-[#617085]">{introduction}</p>
           <p className="mt-5 border-l-2 border-[#1469d8] pl-4 text-sm leading-6 text-[#617085]">
-            Last updated: 22 July 2026. {notice ?? "This English version is provided for convenience; the Swedish version prevails if there is a difference."}
+            Senast uppdaterad: 22 juli 2026. {notice ?? "Kundspecifika villkor eller personuppgiftsbiträdesavtal kan komplettera informationen på den här sidan."}
           </p>
         </div>
       </section>

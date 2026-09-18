@@ -21,5 +21,5 @@ const sections = [
 ] as const;
 
 export default function EnglishPrivacyPage() {
-  return <EnglishLegalPage title="Privacy policy" introduction="This policy describes how Proffera processes personal data in connection with leads, bookings, business registrations and communication." sections={sections} />;
+  return <EnglishLegalPage title="Privacy policy" introduction="This policy describes how Proffera processes personal data in connection with leads, bookings, business registrations and communication." sections={sections} swedishHref="/integritetspolicy" />;
 }
