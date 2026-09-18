@@ -217,7 +217,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
               {canUseBooking ? (
                 <Link
                   href={withLocale("/dashboard/bokningar/ny", locale)}
-                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border border-line bg-surface px-4 py-2.5 text-sm font-bold text-ink transition hover:bg-surface-subtle"
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border border-line bg-surface px-4 py-2.5 text-sm font-bold text-brand-deep transition hover:bg-surface-subtle"
                 >
                   <CalendarPlus className="h-4 w-4 text-brand" aria-hidden="true" />{text.newBooking}
                 </Link>
