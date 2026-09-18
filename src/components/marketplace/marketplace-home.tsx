@@ -250,6 +250,11 @@ export async function MarketplaceHome({ locale }: { locale: PublicLocale }) {
                   {heroResult.city || heroResult.municipality || (locale === "en" ? "Sweden" : "Sverige")}
                 </p>
               ) : null}
+              {heroMedia?.role === "illustration" ? (
+                <span className="mt-3 inline-flex rounded-full border border-white/25 bg-black/35 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-white">
+                  {t.illustration}
+                </span>
+              ) : null}
             </div>
           </div>
         </div>
