@@ -73,6 +73,8 @@ export default async function MarketplaceGuestOptOutPage({
     );
   }
 
+  if (!view) return null;
+
   return (
     <main lang={locale} className={styles.page}>
       <section className={[styles.shell, styles.narrow].join(" ")}>
