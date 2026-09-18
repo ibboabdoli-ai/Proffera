@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { type FormEvent, useState } from "react";
 
+import authStyles from "@/components/auth/auth-marketplace.module.css";
+
 type LoginLocale = "sv" | "en";
 
 type LoginFormProps = {
@@ -88,35 +90,33 @@ export function LoginForm({ afterLoginPath = "/dashboard", locale = "sv" }: Logi
   const forgotPasswordHref = locale === "en" ? "/glomt-losenord?lang=en" : "/glomt-losenord";
 
   return (
-    <aside className="w-full rounded-[1.75rem] border border-white bg-white p-6 shadow-2xl shadow-[#17452f]/10 ring-1 ring-[#dfe5dd] sm:p-8">
-      <div className="inline-flex rounded-full bg-[#e7f1eb] px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-[#17452f]">{text.badge}</div>
-      <h2 className="mt-5 text-2xl font-bold text-[#17201a]">{text.title}</h2>
-      <p className="mt-3 text-sm leading-7 text-[#5b665f]">{text.intro}</p>
+    <aside className={authStyles.card}>
+      <p className={authStyles.cardEyebrow}>{text.badge}</p>
+      <h2 className={authStyles.cardTitle}>{text.title}</h2>
+      <p className={authStyles.cardLead}>{text.intro}</p>
 
-      <form className="mt-6 grid gap-5" onSubmit={handleSubmit} aria-describedby="login-help login-error">
-        <div>
-          <label htmlFor="email" className="text-sm font-semibold text-[#17201a]">{text.email}</label>
-          <input id="email" name="email" type="email" inputMode="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} disabled={isPending} placeholder={text.emailPlaceholder} className="mt-2 w-full rounded-xl border border-[#d7ded5] bg-white px-4 py-3 text-base text-[#17201a] placeholder:text-[#8a958d] transition focus:border-[#17452f] focus:outline-none focus:ring-2 focus:ring-[#17452f]/20 disabled:cursor-not-allowed disabled:bg-[#f7f7f4] disabled:opacity-80" />
+      <form className={authStyles.form} onSubmit={handleSubmit} aria-describedby="login-help login-error">
+        <div className={authStyles.field}>
+          <label htmlFor="email" className={authStyles.label}>{text.email}</label>
+          <input id="email" name="email" type="email" inputMode="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} disabled={isPending} placeholder={text.emailPlaceholder} className={authStyles.input} />
         </div>
 
-        <div>
-          <label htmlFor="password" className="text-sm font-semibold text-[#17201a]">{text.password}</label>
-          <input id="password" name="password" type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} disabled={isPending} placeholder="••••••••" className="mt-2 w-full rounded-xl border border-[#d7ded5] bg-white px-4 py-3 text-base text-[#17201a] placeholder:text-[#8a958d] transition focus:border-[#17452f] focus:outline-none focus:ring-2 focus:ring-[#17452f]/20 disabled:cursor-not-allowed disabled:bg-[#f7f7f4] disabled:opacity-80" />
-          <div className="mt-2 text-right">
-            <Link href={forgotPasswordHref} className="text-sm font-semibold text-[#17452f] underline underline-offset-4">
-              {text.forgotPassword}
-            </Link>
+        <div className={authStyles.field}>
+          <label htmlFor="password" className={authStyles.label}>{text.password}</label>
+          <input id="password" name="password" type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} disabled={isPending} placeholder="••••••••" className={authStyles.input} />
+          <div className={authStyles.formMeta}>
+            <Link href={forgotPasswordHref} className={authStyles.secondaryLink}>{text.forgotPassword}</Link>
           </div>
         </div>
 
-        {errorMessage ? <p id="login-error" className="rounded-xl bg-[#fff4f2] px-4 py-3 text-sm leading-6 text-[#8a2f1f]" role="alert">{errorMessage}</p> : <p id="login-error" className="sr-only">{text.idleError}</p>}
+        {errorMessage ? <p id="login-error" className={authStyles.statusError} role="alert">{errorMessage}</p> : <p id="login-error" className="sr-only">{text.idleError}</p>}
 
-        <button type="submit" disabled={isPending} className="inline-flex min-h-12 w-full items-center justify-center rounded-xl bg-[#17452f] px-6 py-3 text-base font-semibold text-white transition hover:bg-[#123824] focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70">
+        <button type="submit" disabled={isPending} className={authStyles.primaryButton}>
           {isPending ? text.pending : text.submit}
         </button>
       </form>
 
-      <p id="login-help" className="mt-4 text-xs leading-6 text-[#6a756e]">{text.help}</p>
+      <p id="login-help" className={authStyles.helpText}>{text.help}</p>
     </aside>
   );
 }
