@@ -226,19 +226,23 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
 
       <section className="grid gap-6 lg:grid-cols-[1fr_420px]">
         <div className="grid gap-6">
-          <div className="grid gap-4 lg:grid-cols-2">
-            {settings.map((setting) => (
-              <article key={setting.label} className="rounded-[24px] border border-[#e0e5dd] bg-white p-6 shadow-[0_1px_2px_rgba(20,43,32,0.03),0_14px_36px_rgba(20,43,32,0.045)]">
-                <div className="flex items-start justify-between gap-4">
+          <section className="overflow-hidden rounded-card border border-line bg-surface shadow-card">
+            <div className="border-b border-line px-5 py-4">
+              <p className="text-xs font-bold uppercase tracking-[0.12em] text-brand">{isEnglish ? "Workspace" : "Arbetsyta"}</p>
+              <h3 className="mt-1 text-lg font-bold text-ink">{isEnglish ? "Configuration status" : "Status för konfiguration"}</h3>
+            </div>
+            <div className="divide-y divide-line">
+              {settings.map((setting) => (
+                <article key={setting.label} className="flex items-start justify-between gap-5 px-5 py-4">
                   <div>
-                    <p className="text-lg font-bold text-[#17201a]">{setting.label}</p>
-                    <p className="mt-2 text-sm leading-6 text-[#5b665f]">{setting.value}</p>
+                    <p className="text-sm font-bold text-ink">{setting.label}</p>
+                    <p className="mt-1 text-sm leading-6 text-ink-muted">{setting.value}</p>
                   </div>
-                  <span className="rounded-full bg-[#e7f1eb] px-3 py-1 text-xs font-semibold text-[#17452f]">{setting.status}</span>
-                </div>
-              </article>
-            ))}
-          </div>
+                  <span className="shrink-0 rounded-full bg-brand-soft px-3 py-1 text-xs font-semibold text-brand">{setting.status}</span>
+                </article>
+              ))}
+            </div>
+          </section>
 
           <article className="rounded-[24px] border border-[#e0e5dd] bg-white p-6 shadow-[0_1px_2px_rgba(20,43,32,0.03),0_14px_36px_rgba(20,43,32,0.045)]">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -250,17 +254,17 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
               </div>
               <span className="w-fit rounded-full bg-[#f7f7f4] px-3 py-1 text-xs font-semibold text-[#5b665f]">Read-only</span>
             </div>
-            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            <div className="mt-5 divide-y divide-line border-y border-line">
               {moduleAccess.map((module) => (
-                <div key={module.id} className="rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <p className="text-sm font-bold text-[#17201a]">{module.name}</p>
-                    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${module.accessState === "active" ? "bg-[#e7f1eb] text-[#17452f]" : module.accessState === "locked" ? "bg-[#f1f2ef] text-[#5b665f]" : "bg-[#fdf1d4] text-[#805d14]"}`}>
-                      {getModuleAccessLabel(module.accessState)}
-                    </span>
+                <div key={module.id} className="flex items-start justify-between gap-5 py-4">
+                  <div>
+                    <p className="text-sm font-bold text-ink">{module.name}</p>
+                    <p className="mt-1 text-sm leading-6 text-ink-muted">{module.description}</p>
+                    {module.isLocked ? <p className="mt-1 text-xs font-semibold text-ink-muted">Inte aktiverad för den här arbetsytan.</p> : null}
                   </div>
-                  <p className="mt-2 text-sm leading-6 text-[#5b665f]">{module.description}</p>
-                  {module.isLocked ? <p className="mt-2 text-xs font-semibold text-[#5b665f]">Inte aktiverad för den här arbetsytan.</p> : null}
+                  <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${module.accessState === "active" ? "bg-[#eaf8f2] text-[#087754]" : module.accessState === "locked" ? "bg-surface-subtle text-ink-muted" : "bg-[#fff7df] text-[#805d14]"}`}>
+                    {getModuleAccessLabel(module.accessState)}
+                  </span>
                 </div>
               ))}
             </div>
@@ -276,14 +280,14 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
               </div>
               <span className="w-fit rounded-full bg-[#e7f1eb] px-3 py-1 text-xs font-semibold text-[#17452f]">Kundnära data</span>
             </div>
-            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            <dl className="mt-5 divide-y divide-line border-y border-line">
               {profileSummary.map((item) => (
-                <div key={item.label} className="rounded-xl border border-[#e4e9e2] bg-[#f7f9f6] p-4">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-[#5b665f]">{item.label}</p>
-                  <p className="mt-1 text-sm font-bold text-[#17201a]">{item.value}</p>
+                <div key={item.label} className="grid gap-1 py-3 sm:grid-cols-[150px_minmax(0,1fr)] sm:items-center">
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-ink-muted">{item.label}</dt>
+                  <dd className="text-sm font-bold text-ink">{item.value}</dd>
                 </div>
               ))}
-            </div>
+            </dl>
           </article>
         </div>
 
