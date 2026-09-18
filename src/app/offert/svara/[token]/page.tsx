@@ -8,6 +8,7 @@ import {
   guestQuoteHref,
   type GuestFlowLocale,
 } from "./guest-flow-locale";
+import providerStyles from "@/components/provider-lifecycle/provider-lifecycle.module.css";
 import { getMarketplaceGuestQuoteView } from "@/lib/marketplace-guest-quote-human-view";
 
 export const dynamic = "force-dynamic";
@@ -161,18 +162,24 @@ export default async function MarketplaceGuestQuotePage({
   const [{ token }, query] = await Promise.all([params, searchParams ?? Promise.resolve(undefined)]);
   const locale = guestFlowLocaleFrom(query?.lang);
   const text = copy[locale];
-  const alternativeLocale: GuestFlowLocale = locale === "en" ? "sv" : "en";
   const view = await getMarketplaceGuestQuoteView(token);
   const rawStatus = query?.status;
   const status = Array.isArray(rawStatus) ? rawStatus[0] : rawStatus;
 
+  const languageNav = (
+    <nav className={providerStyles.languageNav} aria-label={locale === "en" ? "Language" : "Språk"}>
+      <Link href={guestQuoteHref(token, "sv", status)} className={locale === "sv" ? providerStyles.languageActive : providerStyles.languageLink}>SV</Link>
+      <Link href={guestQuoteHref(token, "en", status)} className={locale === "en" ? providerStyles.languageActive : providerStyles.languageLink}>EN</Link>
+    </nav>
+  );
+
   if (!view) {
     return (
-      <main lang={locale} className="min-h-screen bg-[#f7f7f4] px-4 py-16 sm:px-6">
-        <section className="mx-auto max-w-xl rounded-3xl bg-white p-8 text-center shadow-sm ring-1 ring-[#dfe5dd]">
-          <div className="flex justify-end"><Link href={guestQuoteHref(token, alternativeLocale, status)} className="text-xs font-bold text-[#17452f]">{text.language}</Link></div>
-          <h1 className="mt-4 text-3xl font-bold text-[#17201a]">{text.unavailableTitle}</h1>
-          <p className="mt-4 leading-7 text-[#5b665f]">{text.unavailableBody}</p>
+      <main lang={locale} className={providerStyles.page}>
+        <section className={providerStyles.unavailable}>
+          {languageNav}
+          <h1>{text.unavailableTitle}</h1>
+          <p>{text.unavailableBody}</p>
         </section>
       </main>
     );
@@ -180,11 +187,11 @@ export default async function MarketplaceGuestQuotePage({
 
   if (view.status === "suppressed") {
     return (
-      <main lang={locale} className="min-h-screen bg-[#f7f7f4] px-4 py-16 sm:px-6">
-        <section className="mx-auto max-w-xl rounded-3xl bg-white p-8 text-center shadow-sm ring-1 ring-[#dfe5dd]">
-          <div className="flex justify-end"><Link href={guestQuoteHref(token, alternativeLocale, status)} className="text-xs font-bold text-[#17452f]">{text.language}</Link></div>
-          <h1 className="mt-4 text-3xl font-bold text-[#17201a]">{text.suppressedTitle}</h1>
-          <p className="mt-4 leading-7 text-[#5b665f]">{text.suppressedBody}</p>
+      <main lang={locale} className={providerStyles.page}>
+        <section className={providerStyles.unavailable}>
+          {languageNav}
+          <h1>{text.suppressedTitle}</h1>
+          <p>{text.suppressedBody}</p>
         </section>
       </main>
     );
@@ -197,36 +204,45 @@ export default async function MarketplaceGuestQuotePage({
       : "";
 
     return (
-      <main lang={locale} className="min-h-screen bg-[#f7f7f4] px-4 py-10 sm:px-6">
-        <section className="mx-auto max-w-2xl rounded-3xl bg-white p-7 shadow-sm ring-1 ring-[#dfe5dd] sm:p-10">
-          <div className="flex justify-end"><Link href={guestQuoteHref(token, alternativeLocale, status)} className="text-xs font-bold text-[#17452f]">{text.language}</Link></div>
-          <p className="mt-3 text-xs font-bold uppercase tracking-[0.16em] text-[#4c745a]">{text.responseSent}</p>
-          <h1 className="mt-3 text-3xl font-bold text-[#17201a]">{text.thankYou}, {view.companyName}</h1>
-          <p className="mt-4 leading-7 text-[#5b665f]">{text.responseStored}</p>
-          <dl className="mt-7 grid gap-4 rounded-2xl bg-[#f7f9f7] p-5 sm:grid-cols-2">
-            <div><dt className="text-xs font-bold uppercase tracking-wide text-[#6b776d]">{text.price}</dt><dd className="mt-1 text-lg font-bold">{view.offer.priceKind === "inspection_required" ? text.inspectionRequired : money(view.offer.amountMinor, locale)}</dd></div>
-            <div><dt className="text-xs font-bold uppercase tracking-wide text-[#6b776d]">{text.available}</dt><dd className="mt-1 font-semibold">{view.offer.availableDate || text.notSpecified}</dd></div>
-          </dl>
-
-          {contact ? (
-            <section className="mt-7 rounded-2xl border border-[#a9cdb2] bg-[#edf8ef] p-5 text-[#17452f]">
-              <h2 className="text-lg font-bold">{text.winnerTitle}</h2>
-              <p className="mt-2 text-sm leading-6">{text.winnerBody}</p>
-              <dl className="mt-5 grid gap-4 text-sm sm:grid-cols-2">
-                <div><dt className="font-bold">{text.contactName}</dt><dd className="mt-1">{contact.name || text.notSpecified}</dd></div>
-                <div><dt className="font-bold">{text.contactEmail}</dt><dd className="mt-1">{contact.email ? <a href={`mailto:${contact.email}`} className="underline">{contact.email}</a> : text.notSpecified}</dd></div>
-                <div><dt className="font-bold">{text.contactPhone}</dt><dd className="mt-1">{contact.phone ? <a href={`tel:${contact.phone}`} className="underline">{contact.phone}</a> : text.notSpecified}</dd></div>
-                <div><dt className="font-bold">{text.contactAddress}</dt><dd className="mt-1">{contactAddress || text.notSpecified}</dd></div>
-              </dl>
-            </section>
-          ) : null}
-
-          <div className="mt-8 rounded-2xl border border-[#dce5da] p-5">
-            <h2 className="font-bold text-[#17201a]">{text.claimTitle}</h2>
-            <p className="mt-2 text-sm leading-6 text-[#5b665f]">{text.claimBody}</p>
-            <Link href={guestClaimHref(view.profileSlug, locale)} className="mt-4 inline-flex rounded-xl bg-[#17452f] px-4 py-3 text-sm font-bold text-white">{text.claimAction}</Link>
+      <main lang={locale} className={providerStyles.page}>
+        <div className={providerStyles.shell}>
+          <div className={providerStyles.topbar}>
+            <div>
+              <p className={providerStyles.eyebrow}>{text.responseSent}</p>
+              <h1 className={providerStyles.title}>{text.thankYou}, {view.companyName}</h1>
+              <p className={providerStyles.lead}>{text.responseStored}</p>
+            </div>
+            {languageNav}
           </div>
-        </section>
+
+          <section className={providerStyles.panel}>
+            <div className={providerStyles.panelBody}>
+              <div className={providerStyles.resultGrid}>
+                <div className={providerStyles.resultCard}><small>{text.price}</small><b>{view.offer.priceKind === "inspection_required" ? text.inspectionRequired : money(view.offer.amountMinor, locale)}</b></div>
+                <div className={providerStyles.resultCard}><small>{text.available}</small><b>{view.offer.availableDate || text.notSpecified}</b></div>
+              </div>
+
+              {contact ? (
+                <section className={providerStyles.noticeSuccess}>
+                  <strong>{text.winnerTitle}</strong>
+                  <p className="mt-1">{text.winnerBody}</p>
+                  <div className={providerStyles.contactGrid}>
+                    <div className={providerStyles.contactCell}><small>{text.contactName}</small><p>{contact.name || text.notSpecified}</p></div>
+                    <div className={providerStyles.contactCell}><small>{text.contactEmail}</small><p>{contact.email ? <a href={`mailto:${contact.email}`} className="underline">{contact.email}</a> : text.notSpecified}</p></div>
+                    <div className={providerStyles.contactCell}><small>{text.contactPhone}</small><p>{contact.phone ? <a href={`tel:${contact.phone}`} className="underline">{contact.phone}</a> : text.notSpecified}</p></div>
+                    <div className={providerStyles.contactCell}><small>{text.contactAddress}</small><p>{contactAddress || text.notSpecified}</p></div>
+                  </div>
+                </section>
+              ) : null}
+
+              <section className={providerStyles.actionBlock}>
+                <h2>{text.claimTitle}</h2>
+                <p>{text.claimBody}</p>
+                <Link href={guestClaimHref(view.profileSlug, locale)} className={`${providerStyles.primary} mt-3`}>{text.claimAction}</Link>
+              </section>
+            </div>
+          </section>
+        </div>
       </main>
     );
   }
@@ -234,66 +250,72 @@ export default async function MarketplaceGuestQuotePage({
   const errorMessage = statusMessage(status, locale);
 
   return (
-    <main lang={locale} className="min-h-screen bg-[#f7f7f4] px-4 py-8 text-[#17201a] sm:px-6 sm:py-12">
-      <section className="mx-auto max-w-3xl overflow-hidden rounded-[1.75rem] bg-white shadow-sm ring-1 ring-[#dfe5dd]">
-        <header className="bg-[#102a1c] px-6 py-7 text-white sm:px-10 sm:py-9">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#a9dbb9]">{text.eyebrow}</p>
-              <h1 className="mt-3 text-3xl font-bold tracking-[-0.03em]">{view.serviceType} {text.inWord} {view.city}</h1>
-            </div>
-            <Link href={guestQuoteHref(token, alternativeLocale, status)} className="rounded-lg border border-white/35 px-3 py-2 text-xs font-bold text-white">{text.language}</Link>
+    <main lang={locale} className={providerStyles.page}>
+      <div className={providerStyles.shell}>
+        <div className={providerStyles.topbar}>
+          <div>
+            <p className={providerStyles.eyebrow}>{text.eyebrow}</p>
+            <h1 className={providerStyles.title}>{view.serviceType} {text.inWord} {view.city}</h1>
+            <p className={providerStyles.lead}>{text.to} {view.companyName} · {text.reference} {view.quoteReferenceId}</p>
           </div>
-          <p className="mt-3 text-sm text-white/80">{text.to} {view.companyName} · {text.reference} {view.quoteReferenceId}</p>
-        </header>
-
-        <div className="grid gap-7 p-6 sm:p-10">
-          {errorMessage ? <p className="rounded-xl bg-[#fff4f2] px-4 py-3 text-sm font-semibold text-[#8a2b20]" role="alert">{errorMessage}</p> : null}
-
-          <section className="rounded-2xl border border-[#dce5da] bg-[#fafcf9] p-5">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div><p className="text-xs font-bold uppercase tracking-wide text-[#6b776d]">{text.category}</p><p className="mt-1 font-semibold">{view.category}</p></div>
-              <div><p className="text-xs font-bold uppercase tracking-wide text-[#6b776d]">{text.city}</p><p className="mt-1 font-semibold">{view.city}{view.postalCode ? ` · ${view.postalCode}` : ""}</p></div>
-              <div><p className="text-xs font-bold uppercase tracking-wide text-[#6b776d]">{text.preferredDate}</p><p className="mt-1 font-semibold">{view.preferredDate || text.notSpecified}</p></div>
-            </div>
-            <div className="mt-5 border-t border-[#dce5da] pt-5"><p className="text-xs font-bold uppercase tracking-wide text-[#6b776d]">{text.description}</p><p className="mt-2 whitespace-pre-wrap leading-7 text-[#455148]">{view.description}</p></div>
-          </section>
-
-          <p className="rounded-xl bg-[#eef6f0] px-4 py-3 text-sm text-[#355344]">{text.privacy}</p>
-
-          <form method="post" action={`/api/marketplace/guest-quote/${encodeURIComponent(token)}`} className="grid gap-5">
-            <input type="hidden" name="lang" value={locale} />
-            <fieldset className="grid gap-3">
-              <legend className="font-bold">{text.pricingLegend}</legend>
-              <label className="flex items-center gap-3"><input type="radio" name="priceKind" value="fixed" required /> {text.fixedPrice}</label>
-              <label className="flex items-center gap-3"><input type="radio" name="priceKind" value="estimate" required /> {text.estimate}</label>
-              <label className="flex items-center gap-3"><input type="radio" name="priceKind" value="inspection_required" required /> {text.inspectionOption}</label>
-            </fieldset>
-
-            <label className="grid gap-2 text-sm font-bold">{text.amountLabel}
-              <input name="amountSek" inputMode="decimal" placeholder={text.amountPlaceholder} className="min-h-12 rounded-xl border border-[#cdd8cf] px-4 font-normal" />
-              <span className="text-xs font-normal text-[#6b776d]">{text.amountHint}</span>
-            </label>
-
-            <label className="grid gap-2 text-sm font-bold">{text.earliestDate}
-              <input type="date" name="availableDate" className="min-h-12 rounded-xl border border-[#cdd8cf] px-4 font-normal" />
-            </label>
-
-            <label className="grid gap-2 text-sm font-bold">{text.noteLabel}
-              <textarea name="companyNote" maxLength={4000} rows={5} placeholder={text.notePlaceholder} className="rounded-xl border border-[#cdd8cf] p-4 font-normal" />
-            </label>
-
-            <label className="flex items-start gap-3 rounded-xl border border-[#dce5da] p-4 text-sm leading-6">
-              <input type="checkbox" name="confirmAuthority" value="yes" required className="mt-1" />
-              <span>{text.authority} {view.companyName}.</span>
-            </label>
-
-            <button type="submit" className="min-h-12 rounded-xl bg-[#17452f] px-5 py-3 font-bold text-white">{text.send}</button>
-          </form>
-
-          <p className="text-center text-xs text-[#6b776d]">{text.optOutQuestion} <Link href={guestOptOutHref(token, locale)} className="underline">{text.optOutAction}</Link>.</p>
+          {languageNav}
         </div>
-      </section>
+
+        {errorMessage ? <p className={providerStyles.noticeError} role="alert">{errorMessage}</p> : null}
+
+        <section className={providerStyles.panel}>
+          <div className={providerStyles.facts}>
+            <div className={providerStyles.fact}><small>{text.category}</small><b>{view.category}</b></div>
+            <div className={providerStyles.fact}><small>{text.city}</small><b>{view.city}{view.postalCode ? ` · ${view.postalCode}` : ""}</b></div>
+            <div className={providerStyles.fact}><small>{text.preferredDate}</small><b>{view.preferredDate || text.notSpecified}</b></div>
+          </div>
+          <div className={providerStyles.description}>
+            <strong>{text.description}</strong>
+            <p>{view.description}</p>
+          </div>
+          <div className={providerStyles.panelBody}>
+            <p className={providerStyles.noticeInfo}>{text.privacy}</p>
+
+            <form method="post" action={`/api/marketplace/guest-quote/${encodeURIComponent(token)}`} className={providerStyles.form}>
+              <input type="hidden" name="lang" value={locale} />
+
+              <fieldset className={providerStyles.fieldset}>
+                <legend className={providerStyles.legend}>{text.pricingLegend}</legend>
+                <label className={providerStyles.radio}><input type="radio" name="priceKind" value="fixed" required /> {text.fixedPrice}</label>
+                <label className={providerStyles.radio}><input type="radio" name="priceKind" value="estimate" required /> {text.estimate}</label>
+                <label className={providerStyles.radio}><input type="radio" name="priceKind" value="inspection_required" required /> {text.inspectionOption}</label>
+              </fieldset>
+
+              <div className={providerStyles.field}>
+                <label>{text.amountLabel}</label>
+                <input name="amountSek" inputMode="decimal" placeholder={text.amountPlaceholder} className={providerStyles.input} />
+                <span className={providerStyles.helper}>{text.amountHint}</span>
+              </div>
+
+              <div className={providerStyles.field}>
+                <label>{text.earliestDate}</label>
+                <input type="date" name="availableDate" className={providerStyles.input} />
+              </div>
+
+              <div className={providerStyles.field}>
+                <label>{text.noteLabel}</label>
+                <textarea name="companyNote" maxLength={4000} rows={5} placeholder={text.notePlaceholder} className={providerStyles.textarea} />
+              </div>
+
+              <label className={providerStyles.consent}>
+                <input type="checkbox" name="confirmAuthority" value="yes" required />
+                <span>{text.authority} {view.companyName}.</span>
+              </label>
+
+              <button type="submit" className={providerStyles.primary}>{text.send}</button>
+            </form>
+
+            <p className={providerStyles.protected}>
+              {text.optOutQuestion} <Link href={guestOptOutHref(token, locale)} className="underline">{text.optOutAction}</Link>.
+            </p>
+          </div>
+        </section>
+      </div>
     </main>
   );
 }
