@@ -14,7 +14,7 @@ describe("customer offer and verified review human UX contract", () => {
 
     expect(page).toContain("getPublicWorkspaceQuoteOffer(token)");
     expect(page).toContain("publicWorkspaceQuoteOfferPdfPath(token)");
-    expect(page).toContain("styles");
+    expect(page).toContain("lifecycleStyles");
     expect(page).toContain("SV");
     expect(page).toContain("EN");
     expect(page).toContain('name="decision" value="accepted"');
