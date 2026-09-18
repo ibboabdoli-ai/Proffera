@@ -50,10 +50,51 @@ function decodeHtmlAttribute(value: string) {
     .replaceAll("&#39;", "'");
 }
 
+function normalizedResetTarget(rawCandidate: string, expectedOrigin: string) {
+  try {
+    const url = new URL(decodeHtmlAttribute(rawCandidate.trim()), expectedOrigin);
+    const token = new URLSearchParams(url.hash.slice(1)).get("token")?.trim() ?? "";
+    if (
+      url.origin !== expectedOrigin
+      || url.pathname !== RESET_PATH
+      || !RESET_TOKEN_PATTERN.test(token)
+    ) return "";
+
+    const fragment = new URLSearchParams({ token }).toString();
+    return `${url.pathname}${url.search}#${fragment}`;
+  } catch {
+    return "";
+  }
+}
+
+function candidateEnd(body: string, start: number) {
+  const limit = Math.min(body.length, start + 2_048);
+  for (let index = start; index < limit; index += 1) {
+    const char = body[index];
+    if (char === '"' || char === "'" || char === "<" || char === ">" || /\s/u.test(char)) {
+      return index;
+    }
+  }
+  return limit;
+}
+
 function resetTargetFromBody(body: string) {
   const expectedOrigin = new URL(resolveMarketplacePublicBaseUrl()).origin;
-  let cursor = 0;
+  const absolutePrefix = `${expectedOrigin}${RESET_PATH}`;
 
+  // Brevo may expose the transactional body as plain text, HTML, or a combined body.
+  // Prefer the exact Preview origin when it appears as plain text so no foreign URL can escape.
+  let absoluteIndex = body.indexOf(absolutePrefix);
+  while (absoluteIndex >= 0) {
+    const end = candidateEnd(body, absoluteIndex);
+    const target = normalizedResetTarget(body.slice(absoluteIndex, end), expectedOrigin);
+    if (target) return target;
+    absoluteIndex = body.indexOf(absolutePrefix, absoluteIndex + absolutePrefix.length);
+  }
+
+  // HTML bodies carry the same absolute URL in href. Keep this parser bounded and require
+  // the same trusted Preview origin + reset path + token format before returning anything.
+  let cursor = 0;
   while (cursor < body.length) {
     const markerIndex = body.indexOf(RESET_PATH, cursor);
     if (markerIndex < 0) return "";
@@ -63,21 +104,8 @@ function resetTargetFromBody(body: string) {
       const valueStart = hrefIndex + 6;
       const valueEnd = body.indexOf('"', valueStart);
       if (valueEnd > markerIndex && valueEnd - valueStart <= 2_048) {
-        const rawHref = decodeHtmlAttribute(body.slice(valueStart, valueEnd).trim());
-        try {
-          const url = new URL(rawHref, expectedOrigin);
-          const token = new URLSearchParams(url.hash.slice(1)).get("token")?.trim() ?? "";
-          if (
-            url.origin === expectedOrigin
-            && url.pathname === RESET_PATH
-            && RESET_TOKEN_PATTERN.test(token)
-          ) {
-            const fragment = new URLSearchParams({ token }).toString();
-            return `${url.pathname}${url.search}#${fragment}`;
-          }
-        } catch {
-          // Keep scanning bounded email content for the trusted Preview reset target.
-        }
+        const target = normalizedResetTarget(body.slice(valueStart, valueEnd), expectedOrigin);
+        if (target) return target;
       }
     }
 
