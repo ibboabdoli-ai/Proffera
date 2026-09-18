@@ -15,17 +15,17 @@ describe("marketplace-first homepage contract", () => {
     const home = source("src/components/marketplace/marketplace-home.tsx");
 
     expect(home).toContain("Vad behöver du hjälp med?");
-    expect(home).toContain("Hitta företag, boka tid eller få offerter – gratis.");
+    expect(home).toContain("Hitta lokala företag, boka tid eller få offerter – gratis.");
     expect(home).toContain("PublicDirectorySearchForm");
     expect(home).toContain("getCachedPublishedDirectoryLocationSuggestions");
-    expect(home).toContain("serviceSuggestions = t.categories.map");
+    expect(home).toContain(".filter((category) => category.query)");
     expect(home).toContain("directoryPaths[locale]");
   });
 
   it("keeps the three real marketplace next steps visible without a heavy explanatory section", () => {
     const home = source("src/components/marketplace/marketplace-home.tsx");
 
-    expect(home).toContain("Boka tid · Begär offert · Se företag");
+    expect(home).toContain("Boka tid · Begär offert · Se omdömen");
     expect(home).toContain("Företagsuppgifter verifierade");
     expect(home).not.toContain("En marknadsplats, tre vägar vidare");
   });
@@ -40,7 +40,7 @@ describe("marketplace-first homepage contract", () => {
 
   it("uses supported service queries for marketplace category shortcuts", () => {
     const home = source("src/components/marketplace/marketplace-home.tsx");
-    const queries = ["elinstallation", "vvs", "lokalvard", "flytthjalp", "malning", "snickeri", "tradgardshjalp"];
+    const queries = ["elinstallation", "vvs", "lokalvard", "flytthjalp", "malning", "snickeri", "tradgardshjalp", "varmepump"];
 
     for (const query of queries) {
       expect(home).toContain(`query: "${query}"`);
@@ -87,15 +87,17 @@ describe("marketplace-first homepage contract", () => {
     expect(home).not.toContain("Google-omdömen");
   });
 
-  it("uses semantic design tokens on the marketplace homepage", () => {
+  it("locks the approved marketplace visual system and compact service rail", () => {
     const home = source("src/components/marketplace/marketplace-home.tsx");
+    const styles = source("src/components/marketplace/marketplace-home.module.css");
 
-    expect(home).toContain("bg-canvas");
-    expect(home).toContain("bg-brand-tint");
-    expect(home).toContain("bg-brand-deep");
-    expect(home).toContain("text-ink");
-    expect(home).toContain("border-line");
-    expect(home).toContain("rounded-2xl");
-    expect(home).not.toMatch(/#(?:17452f|17201a|dfe5dd|f6f8f4|102a1c|f7f8f4)/i);
+    expect(home).toContain("serviceRail");
+    expect(home).toContain("PaintRoller");
+    expect(home).toContain("Snowflake");
+    expect(home).toContain("BadgeCheck");
+    expect(styles).toContain("--marketplace-navy: #0a2e63");
+    expect(styles).toContain("--marketplace-blue: #1469d8");
+    expect(styles).toContain("scroll-snap-type: x proximity");
+    expect(styles).toContain("prefers-reduced-motion");
   });
 });
