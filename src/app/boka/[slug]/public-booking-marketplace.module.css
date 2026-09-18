@@ -366,6 +366,178 @@
   line-height: 1.55;
 }
 
+.bookingPanel :global(form[data-booking-form="default"]) {
+  margin-top: 18px !important;
+  gap: 12px !important;
+}
+
+.bookingPanel :global(form[data-booking-form="default"] > label:not(.absolute)),
+.bookingPanel :global(form[data-booking-form="default"] fieldset label) {
+  gap: 6px !important;
+  color: var(--booking-text, #11213b);
+  font-size: .72rem !important;
+  font-weight: 850 !important;
+}
+
+.bookingPanel :global(form[data-booking-form="default"] select),
+.bookingPanel :global(form[data-booking-form="default"] input:not([type="hidden"]):not([type="checkbox"])),
+.bookingPanel :global(form[data-booking-form="default"] textarea) {
+  min-height: 44px !important;
+  border: 1px solid var(--booking-line, #dce4ee) !important;
+  border-radius: 8px !important;
+  background: var(--booking-card, #fff) !important;
+  color: var(--booking-text, #11213b) !important;
+  box-shadow: none !important;
+}
+
+.bookingPanel :global(form[data-booking-form="default"] select:focus),
+.bookingPanel :global(form[data-booking-form="default"] input:not([type="hidden"]):not([type="checkbox"]):focus),
+.bookingPanel :global(form[data-booking-form="default"] textarea:focus) {
+  border-color: var(--booking-primary) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--booking-primary) 11%, transparent) !important;
+}
+
+.bookingPanel :global(form[data-booking-form="default"] fieldset) {
+  border: 1px solid var(--booking-line, #dce4ee) !important;
+  border-radius: 10px !important;
+  background: color-mix(in srgb, var(--booking-card, #fff) 95%, var(--booking-primary) 5%) !important;
+  padding: 14px !important;
+}
+
+.bookingPanel :global(form[data-booking-form="default"] > button[type="submit"]),
+.bookingPanel :global(form[data-booking-form="default"] > button:not([type])) {
+  min-height: 44px !important;
+  border-radius: 8px !important;
+  background: var(--booking-primary) !important;
+  padding: 0 14px !important;
+  color: #fff !important;
+  font-size: .75rem !important;
+  font-weight: 900 !important;
+}
+
+.bookingPanel :global(form[data-booking-form="default"] > div) {
+  border-radius: 9px !important;
+}
+
+.verifyPage {
+  min-height: 100vh;
+  background: #f6f8fb;
+  padding: 40px 18px;
+}
+
+.verifyShell {
+  width: min(100%, 560px);
+  margin: 0 auto;
+}
+
+.verifyCard {
+  border: 1px solid #dce4ee;
+  border-radius: 15px;
+  background: #fff;
+  padding: 24px;
+  box-shadow: 0 10px 28px rgb(10 46 99 / 7%);
+}
+
+.verifyEyebrow {
+  margin: 0;
+  color: #1469d8;
+  font-size: .64rem;
+  font-weight: 900;
+  letter-spacing: .15em;
+  text-transform: uppercase;
+}
+
+.verifyTitle {
+  margin: 7px 0 0;
+  color: #0a2e63;
+  font-size: 1.65rem;
+  font-weight: 950;
+  letter-spacing: -.03em;
+}
+
+.verifyLead {
+  margin: 9px 0 0;
+  color: #617085;
+  font-size: .76rem;
+  line-height: 1.6;
+}
+
+.verifyForm {
+  display: grid;
+  gap: 13px;
+  margin-top: 18px;
+}
+
+.verifyLabel {
+  display: grid;
+  gap: 7px;
+  color: #11213b;
+  font-size: .74rem;
+  font-weight: 850;
+}
+
+.codeInput {
+  min-height: 50px;
+  border: 1px solid #dce4ee;
+  border-radius: 9px;
+  background: #fff;
+  padding: 0 12px;
+  color: #11213b;
+  text-align: center;
+  font-size: 1.35rem;
+  font-weight: 950;
+  letter-spacing: .3em;
+  outline: none;
+}
+
+.codeInput:focus {
+  border-color: #1469d8;
+  box-shadow: 0 0 0 3px rgb(20 105 216 / 10%);
+}
+
+.verifyPrimary,
+.verifySecondary {
+  min-height: 43px;
+  border-radius: 8px;
+  font-size: .74rem;
+  font-weight: 900;
+}
+
+.verifyPrimary {
+  border: 1px solid #0a2e63;
+  background: #0a2e63;
+  color: #fff;
+}
+
+.verifySecondary {
+  width: 100%;
+  border: 1px solid #dce4ee;
+  background: #fff;
+  color: #0a2e63;
+}
+
+.verifySuccess {
+  margin-top: 14px;
+  border: 1px solid #cfe8d6;
+  border-radius: 9px;
+  background: #eaf8f2;
+  padding: 11px 13px;
+  color: #087754;
+  font-size: .72rem;
+  font-weight: 800;
+}
+
+.verifyError {
+  margin-top: 14px;
+  border: 1px solid #f4c7ba;
+  border-radius: 9px;
+  background: #fff5f2;
+  padding: 11px 13px;
+  color: #9f3a2d;
+  font-size: .72rem;
+  font-weight: 800;
+}
+
 .unavailablePage {
   min-height: 100vh;
   background: #f6f8fb;
