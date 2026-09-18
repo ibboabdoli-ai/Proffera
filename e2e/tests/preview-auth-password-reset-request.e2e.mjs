@@ -38,26 +38,28 @@ async function waitForFreshResetEmail(request, suiteRunId, baselineUuid) {
       && latest.body?.found === true
       && latest.body?.uuid
       && latest.body.uuid !== baselineUuid
+      && latest.body?.resetTarget
     ) {
       return latest.body;
     }
     await new Promise((resolve) => setTimeout(resolve, 2_000));
   }
   expect(latest?.response.ok(), JSON.stringify(latest?.body ?? null)).toBeTruthy();
-  throw new Error("Timed out waiting for a fresh Preview password reset email.");
+  throw new Error("Timed out waiting for a fresh Preview password reset email with a trusted reset target.");
 }
 
-test.describe("isolated Preview password reset request", () => {
+test.describe("isolated Preview password reset lifecycle", () => {
   test.skip(process.env.E2E_MARKETPLACE_PREVIEW_LIFECYCLE !== "true", "Password reset Preview evidence is opt-in and Preview-only.");
 
-  test("creates a synthetic account and delivers a fresh reset email to the Preview sink", async ({ page, context, request }) => {
-    test.setTimeout(120_000);
+  test("request -> Preview email -> token reset -> login with replacement password", async ({ page, context, request }) => {
+    test.setTimeout(150_000);
     await context.addInitScript(() => {
       window.localStorage.setItem("proffera:analytics-consent:v1", "denied");
     });
 
     const suiteRunId = runId();
     const password = `Preview-${suiteRunId.slice(0, 12)}-A9!`;
+    const replacementPassword = `Reset-${suiteRunId.slice(12, 24)}-B8!`;
     let fixtureCreated = false;
 
     try {
@@ -90,6 +92,22 @@ test.describe("isolated Preview password reset request", () => {
       expect(email.subject).toBe("Återställ ditt lösenord på Proffera");
       expect(email.sinkRecipientMatched).toBe(true);
       expect(email.acceptedByProvider).toBe(true);
+      expect(email.resetTarget).toMatch(/^\/aterstall-losenord(?:\?lang=en)?#token=[A-Za-z0-9_-]{16,128}$/u);
+
+      await page.goto(email.resetTarget);
+      await page.getByLabel("Nytt lösenord").fill(replacementPassword);
+      await page.getByLabel("Bekräfta nytt lösenord").fill(replacementPassword);
+      await page.getByRole("button", { name: "Spara nytt lösenord" }).click();
+      await page.waitForURL(/\/logga-in\?reset=1(?:&|$)/u, { timeout: 30_000 });
+
+      await page.getByLabel("E-post").fill(setup.body.ownerEmail);
+      await page.getByLabel("Lösenord").fill(replacementPassword);
+      await page.getByRole("button", { name: "Logga in" }).click();
+      await page.waitForURL(/\/dashboard(?:\/|$|\?)/u, { timeout: 30_000 });
+
+      await page.goto("/dashboard/marknadsplats");
+      await expect(page).toHaveURL(/\/dashboard\/marknadsplats(?:\?|$)/u);
+      await expect(page.getByRole("button", { name: "Logga ut" })).toBeVisible();
     } finally {
       if (fixtureCreated) {
         await fixtureRequest(request, suiteRunId, "DELETE").catch(() => undefined);
