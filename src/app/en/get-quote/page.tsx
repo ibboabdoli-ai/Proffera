@@ -1,5 +1,5 @@
-import { PageShell } from "@/components/layout/page-shell";
 import { QuoteRequestForm } from "@/features/quote-request/quote-request-form";
+import styles from "@/features/quote-request/quote-request-marketplace.module.css";
 import { createEnglishMetadata } from "@/lib/english-metadata";
 
 export const metadata = createEnglishMetadata({
@@ -30,16 +30,31 @@ export default async function EnglishQuotePage({ searchParams }: QuotePageProps)
     city: queryValue(params?.city),
   };
 
-  return <PageShell
-    eyebrow="Get quotes"
-    title="Describe your job step by step."
-    description="Add the service, location, job details and your contact information. Proffera uses the information to handle your request and match it with suitable companies."
-  >
-    <QuoteRequestForm
-      locale="en"
-      initialValues={initialValues}
-      alternateLocaleHref="/fa-offert?resume=1"
-      alternateLocaleLabel="SV Svenska"
-    />
-  </PageShell>;
+  return (
+    <main className={styles.page}>
+      <section className={styles.pageShell}>
+        <div className={styles.intro}>
+          <p className={styles.eyebrow}>Get quotes</p>
+          <h1 className={styles.title}>Describe your job step by step.</h1>
+          <p className={styles.lead}>
+            Add the service, location and what you need help with. Proffera uses the details to match your request with suitable businesses.
+          </p>
+          <div className={styles.trustRow}>
+            <span><i className={styles.trustDot}>✓</i>Free to send a request</span>
+            <span><i className={styles.trustDot}>✓</i>Your details are used for matching</span>
+            <span><i className={styles.trustDot}>✓</i>Compare before you choose</span>
+          </div>
+        </div>
+
+        <div className={styles.formWrap}>
+          <QuoteRequestForm
+            locale="en"
+            initialValues={initialValues}
+            alternateLocaleHref="/fa-offert?resume=1"
+            alternateLocaleLabel="SV Svenska"
+          />
+        </div>
+      </section>
+    </main>
+  );
 }
