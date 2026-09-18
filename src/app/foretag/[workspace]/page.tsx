@@ -110,7 +110,7 @@ export default async function PublicBusinessPage({ params, searchParams }: Props
             {experience.logoUrl ? (
               // Public tenant logos can live on tenant-specific Blob/CDN hosts.
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={experience.logoUrl} alt={`${business.companyName} logotyp`} className={styles.logoImage} />
+              <img src={experience.logoUrl} alt={`${business.companyName} ${locale === "en" ? "logo" : "logotyp"}`} className={styles.logoImage} />
             ) : (
               <div className={styles.logoFallback}>{business.companyName.slice(0, 1).toUpperCase()}</div>
             )}
