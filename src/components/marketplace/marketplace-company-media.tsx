@@ -28,7 +28,7 @@ export function MarketplaceCompanyLogo({
   if (!url || failed) {
     return (
       <span
-        className={`grid ${sizeClass} shrink-0 place-items-center rounded-full border border-line bg-brand-deep font-black tracking-[-0.02em] text-white shadow-sm`}
+        className={`grid ${sizeClass} shrink-0 place-items-center rounded-xl border-4 border-white bg-[#0a2e63] font-black tracking-[-0.02em] text-white shadow-sm`}
         aria-label={name}
       >
         {initials(name)}
@@ -37,7 +37,7 @@ export function MarketplaceCompanyLogo({
   }
 
   return (
-    <span className={`grid ${sizeClass} shrink-0 place-items-center overflow-hidden rounded-full border border-line bg-white p-1.5 shadow-sm`}>
+    <span className={`grid ${sizeClass} shrink-0 place-items-center overflow-hidden rounded-xl border-4 border-white bg-white p-1 shadow-sm`}>
       {/* Company logos can live on tenant-specific Blob/CDN hosts. */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
@@ -65,11 +65,11 @@ export function MarketplaceCompanyCover({
 
   if (!url || failed) {
     return (
-      <div className="relative grid h-full min-h-40 place-items-center overflow-hidden bg-brand-tint">
-        <div className="absolute -right-8 -top-8 size-32 rounded-full border border-brand/10 bg-surface/40" aria-hidden="true" />
-        <div className="absolute -bottom-10 -left-10 size-36 rounded-full border border-brand/10 bg-surface/35" aria-hidden="true" />
-        <div className="relative grid place-items-center gap-2 text-brand-deep">
-          <span className="grid size-12 place-items-center rounded-2xl bg-white/90 shadow-sm">
+      <div className="relative grid h-full min-h-40 place-items-center overflow-hidden bg-[#eef4fb]">
+        <div className="absolute -right-8 -top-8 size-32 rounded-full border border-[#cddbea] bg-white/55" aria-hidden="true" />
+        <div className="absolute -bottom-10 -left-10 size-36 rounded-full border border-[#cddbea] bg-white/45" aria-hidden="true" />
+        <div className="relative grid place-items-center gap-2 text-[#0a2e63]">
+          <span className="grid size-12 place-items-center rounded-xl bg-white shadow-sm">
             <Building2 className="size-6" aria-hidden="true" />
           </span>
           <span className="max-w-44 text-center text-xs font-bold">{name}</span>
@@ -79,7 +79,7 @@ export function MarketplaceCompanyCover({
   }
 
   return (
-    <div className="relative h-full min-h-40 overflow-hidden bg-surface-subtle">
+    <div className="relative h-full min-h-40 overflow-hidden bg-[#f6f9fd]">
       {/* Published profile media can live on tenant-specific Blob/CDN hosts. */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
