@@ -10,6 +10,7 @@ import {
   resolveAuthLocale,
   type AuthSearchParams,
 } from "@/lib/auth-locale";
+import authStyles from "@/components/auth/auth-marketplace.module.css";
 import { LoginForm } from "./LoginForm";
 
 export const metadata: Metadata = {
@@ -76,35 +77,54 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   });
 
   return (
-    <main className="relative overflow-hidden bg-[#f7f7f4]" lang={locale === "sv" ? "sv" : "en"}>
-      <div className="absolute inset-x-0 top-0 h-80 bg-[radial-gradient(circle_at_12%_0%,rgba(139,195,157,0.28),transparent_35%),linear-gradient(180deg,#fff_0%,#f7f7f4_100%)]" />
-      <section className="relative mx-auto grid min-h-[calc(100vh-5rem)] max-w-7xl items-start gap-10 px-4 py-12 sm:px-6 lg:grid-cols-[1.05fr_0.95fr] lg:items-center lg:gap-16 lg:px-8 lg:py-20">
-        <div className="order-2 lg:order-1">
-          <div className="mb-7 flex items-center gap-3 text-sm" aria-label={text.languageLabel}>
-            <span className="font-semibold text-[#5b665f]">{text.languageLabel}:</span>
-            <Link href={authLocaleHref("/logga-in", params, "sv")} className={`rounded-full px-3 py-1.5 font-semibold ${locale === "sv" ? "bg-[#17452f] text-white" : "bg-white text-[#17452f] ring-1 ring-[#d7ded5]"}`}>SV</Link>
-            <Link href={authLocaleHref("/logga-in", params, "en")} className={`rounded-full px-3 py-1.5 font-semibold ${locale === "en" ? "bg-[#17452f] text-white" : "bg-white text-[#17452f] ring-1 ring-[#d7ded5]"}`}>EN</Link>
+    <main className={authStyles.page} lang={locale === "sv" ? "sv" : "en"}>
+      <section className={authStyles.shell}>
+        <div className={authStyles.split}>
+          <div>
+            <div className={authStyles.languageRow} aria-label={text.languageLabel}>
+              <span>{text.languageLabel}:</span>
+              <Link
+                href={authLocaleHref("/logga-in", params, "sv")}
+                className={`${authStyles.languageLink} ${locale === "sv" ? authStyles.languageActive : ""}`}
+              >
+                SV
+              </Link>
+              <Link
+                href={authLocaleHref("/logga-in", params, "en")}
+                className={`${authStyles.languageLink} ${locale === "en" ? authStyles.languageActive : ""}`}
+              >
+                EN
+              </Link>
+            </div>
+
+            <p className={authStyles.eyebrow}>{text.portal}</p>
+            <h1 className={authStyles.title}>{text.heading}</h1>
+            <p className={authStyles.lead}>{text.intro}</p>
+
+            <div className={authStyles.infoGrid}>
+              <div className={authStyles.infoCell}>
+                <strong>{text.pilotTitle}</strong>
+                <p>{text.pilotText}</p>
+              </div>
+              <div className={authStyles.infoCell}>
+                <strong>{text.helpTitle}</strong>
+                <p>{text.helpText}</p>
+              </div>
+            </div>
+
+            <div className={authStyles.linkRow}>
+              <Link href="/demo" className={authStyles.textLink}>{text.demo}</Link>
+              <Link href="/kontakt" className={authStyles.textLink}>{text.contact}</Link>
+            </div>
           </div>
 
-          <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#17452f]">{text.portal}</p>
-          <h1 className="mt-4 max-w-3xl text-4xl font-bold leading-[1.08] tracking-[-0.04em] text-[#17201a] sm:text-5xl">{text.heading}</h1>
-          <p className="mt-5 max-w-2xl text-lg leading-8 text-[#5b665f]">{text.intro}</p>
-
-          <div className="mt-8 grid gap-3 text-sm text-[#344139] sm:grid-cols-2">
-            <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-[#dfe5dd]"><p className="font-semibold text-[#17201a]">{text.pilotTitle}</p><p className="mt-1 leading-6">{text.pilotText}</p></div>
-            <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-[#dfe5dd]"><p className="font-semibold text-[#17201a]">{text.helpTitle}</p><p className="mt-1 leading-6">{text.helpText}</p></div>
+          <div>
+            {createdValue === "1" ? <p className={authStyles.statusSuccess} role="status">{text.created}</p> : null}
+            {resetValue === "1" ? <p className={authStyles.statusSuccess} role="status">{text.reset}</p> : null}
+            <div className={createdValue === "1" || resetValue === "1" ? "mt-3" : undefined}>
+              <LoginForm afterLoginPath={afterLoginPath} locale={locale} />
+            </div>
           </div>
-
-          <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-            <Link href="/demo" className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[#17452f] px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#123824] focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2">{text.demo}</Link>
-            <Link href="/kontakt" className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[#17452f] bg-white px-6 py-3 text-sm font-semibold text-[#17452f] transition hover:bg-[#eef5ef] focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2">{text.contact}</Link>
-          </div>
-        </div>
-
-        <div className="order-1 w-full lg:order-2">
-          {createdValue === "1" ? <p className="mb-4 rounded-xl border border-[#b8d9c2] bg-[#eef8f0] px-4 py-3 text-sm font-semibold text-[#17452f]" role="status">{text.created}</p> : null}
-          {resetValue === "1" ? <p className="mb-4 rounded-xl border border-[#b8d9c2] bg-[#eef8f0] px-4 py-3 text-sm font-semibold text-[#17452f]" role="status">{text.reset}</p> : null}
-          <LoginForm afterLoginPath={afterLoginPath} locale={locale} />
         </div>
       </section>
     </main>
