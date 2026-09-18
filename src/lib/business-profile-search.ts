@@ -59,6 +59,7 @@ function fallbackSearchCard(
     city: result.city,
     municipality: result.municipality,
     media: null,
+    logoUrl: "",
     canonicalServiceSlugs: [],
     reputation: null,
     capabilities: {
@@ -401,7 +402,11 @@ async function hydrateSearchCards(
           : null,
       });
 
-      cards.set(result.id, projectBusinessProfileSearchCard(resolved));
+      const projected = projectBusinessProfileSearchCard(resolved);
+      cards.set(result.id, {
+        ...projected,
+        logoUrl: ownerBound ? text(context.logo_url) : projected.logoUrl,
+      });
     }
 
     return cards;
