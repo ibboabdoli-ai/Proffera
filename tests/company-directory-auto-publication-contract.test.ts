@@ -235,7 +235,7 @@ describe("safe company directory auto publication contract", () => {
 
   it.each([
     ["an SCB row with no conflicts", "jsonb_array_length(coalesce(scb.conflicts, '[]'::jsonb)) = 0"],
-    ["a non-empty SCB source hash", "scb.source_payload_hash <> ''"],
+    ["the exact refreshed SCB source hash", "scb.source_payload_hash = ?"],
     ["a matching profile snapshot", "{comparisonSnapshot,profileUpdatedToken}"],
     ["a matching Official Facts snapshot", "{comparisonSnapshot,officialFactsLastSyncedToken}"],
   ])("requires %s in the final atomic database gate", async (_label, requiredGuard) => {
