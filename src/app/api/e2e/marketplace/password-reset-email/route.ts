@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { resolveBrevoApiKey, resolvePreviewEmailRecipient } from "@/lib/email-runtime-config";
+import { resolveMarketplacePublicBaseUrl } from "@/lib/marketplace-public-base-url";
 import {
   isPreviewMarketplaceE2eRuntime,
   resolveAuthorizedPreviewMarketplaceE2eRunId,
@@ -20,11 +21,14 @@ type BrevoEmailList = {
 };
 
 type BrevoEmailContent = {
+  body?: string;
   email?: string;
   subject?: string;
   events?: Array<{ name?: string }>;
 };
 
+const RESET_PATH = "/aterstall-losenord";
+const RESET_TOKEN_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
 const RESET_SUBJECTS = new Set([
   "Återställ ditt lösenord på Proffera",
   "Reset your Proffera password",
@@ -36,6 +40,51 @@ function unavailable() {
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function decodeHtmlAttribute(value: string) {
+  return value
+    .replaceAll("&amp;", "&")
+    .replaceAll("&quot;", "\"")
+    .replaceAll("&#039;", "'")
+    .replaceAll("&#39;", "'");
+}
+
+function resetTargetFromBody(body: string) {
+  const expectedOrigin = new URL(resolveMarketplacePublicBaseUrl()).origin;
+  let cursor = 0;
+
+  while (cursor < body.length) {
+    const markerIndex = body.indexOf(RESET_PATH, cursor);
+    if (markerIndex < 0) return "";
+
+    const hrefIndex = body.lastIndexOf('href="', markerIndex);
+    if (hrefIndex >= 0 && markerIndex - hrefIndex <= 512) {
+      const valueStart = hrefIndex + 6;
+      const valueEnd = body.indexOf('"', valueStart);
+      if (valueEnd > markerIndex && valueEnd - valueStart <= 2_048) {
+        const rawHref = decodeHtmlAttribute(body.slice(valueStart, valueEnd).trim());
+        try {
+          const url = new URL(rawHref, expectedOrigin);
+          const token = new URLSearchParams(url.hash.slice(1)).get("token")?.trim() ?? "";
+          if (
+            url.origin === expectedOrigin
+            && url.pathname === RESET_PATH
+            && RESET_TOKEN_PATTERN.test(token)
+          ) {
+            const fragment = new URLSearchParams({ token }).toString();
+            return `${url.pathname}${url.search}#${fragment}`;
+          }
+        } catch {
+          // Keep scanning bounded email content for the trusted Preview reset target.
+        }
+      }
+    }
+
+    cursor = markerIndex + RESET_PATH.length;
+  }
+
+  return "";
 }
 
 async function brevoJson<T>(url: URL, apiKey: string): Promise<T | null> {
@@ -106,6 +155,7 @@ export async function GET(request: Request) {
     const sinkRecipientMatched = String(content.email ?? item.email ?? "").trim().toLowerCase() === sink;
     const events = (content.events ?? []).map((event) => String(event.name ?? "")).filter(Boolean);
     const acceptedByProvider = events.some((event) => ["sent", "delivered", "opened", "click"].includes(event));
+    const resetTarget = resetTargetFromBody(String(content.body ?? ""));
 
     return NextResponse.json({
       ok: true,
@@ -115,6 +165,7 @@ export async function GET(request: Request) {
       subject,
       sinkRecipientMatched,
       acceptedByProvider,
+      resetTarget,
     }, { headers: { "Cache-Control": "no-store" } });
   }
 
@@ -126,5 +177,6 @@ export async function GET(request: Request) {
     subject: "",
     sinkRecipientMatched: false,
     acceptedByProvider: false,
+    resetTarget: "",
   }, { headers: { "Cache-Control": "no-store" } });
 }
