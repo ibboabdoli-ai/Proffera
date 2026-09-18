@@ -12,11 +12,6 @@ import {
 
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = {
-  title: "Offert",
-  robots: { index: false, follow: false },
-};
-
 type Locale = "sv" | "en";
 
 const copy = {
@@ -70,6 +65,19 @@ const copy = {
 
 function localeFrom(value: string | string[] | undefined): Locale {
   return Array.isArray(value) ? (value[0] === "en" ? "en" : "sv") : value === "en" ? "en" : "sv";
+}
+
+export async function generateMetadata({
+  searchParams,
+}: {
+  searchParams?: Promise<{ lang?: string | string[] }>;
+}): Promise<Metadata> {
+  const query = await (searchParams ?? Promise.resolve(undefined));
+  const locale = localeFrom(query?.lang);
+  return {
+    title: locale === "en" ? "Quote" : "Offert",
+    robots: { index: false, follow: false },
+  };
 }
 
 function publicHref(token: string, locale: Locale, response?: string) {
