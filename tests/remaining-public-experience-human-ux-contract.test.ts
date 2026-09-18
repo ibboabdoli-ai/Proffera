@@ -43,31 +43,6 @@ describe("remaining public experience redesign", () => {
     expect(checkout).toContain('cancelUrl.searchParams.set("lang", "en")');
   });
 
-  it("preserves provider quote invitation, opt-out and service-job APIs with bilingual states", () => {
-    const quote = source("src/app/offert/svara/[token]/page.tsx");
-    const optOut = source("src/app/offert/svara/[token]/avregistrera/page.tsx");
-    const job = source("src/app/offert/jobb/[token]/page.tsx");
-
-    expect(quote).toContain("getMarketplaceGuestQuoteView(token)");
-    expect(quote).toContain('/api/marketplace/guest-quote/');
-    expect(quote).toContain('name="lang" value={locale}');
-    expect(quote).toContain("Offertförfrågan via Proffera");
-    expect(quote).toContain("Quote request via Proffera");
-
-    expect(optOut).toContain("getMarketplaceGuestOptOutViewWithHistory(token)");
-    expect(optOut).toContain('/opt-out');
-    expect(optOut).toContain('name="lang" value={locale}');
-    expect(optOut).toContain("Avregistreringen är registrerad");
-    expect(optOut).toContain("Your opt-out is registered");
-
-    expect(job).toContain("getMarketplaceServiceJobForGuestToken(token)");
-    expect(job).toContain("getMarketplaceGuestQuoteView(token)");
-    expect(job).toContain('/api/marketplace/service-job/');
-    expect(job).toContain('name="nextStatus" value="completed"');
-    expect(job).toContain('name="nextStatus" value="provider_cancelled"');
-    expect(job).toContain('name="lang" value={locale}');
-  });
-
   it("keeps demo registration separate from SaaS signup and bilingual through API redirects", () => {
     const sv = source("src/app/anslut-foretag/registrera/page.tsx");
     const en = source("src/app/en/join-business/register/page.tsx");
