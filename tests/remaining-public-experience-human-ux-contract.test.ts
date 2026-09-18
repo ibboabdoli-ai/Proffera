@@ -40,6 +40,8 @@ describe("remaining public experience redesign", () => {
     expect(checkout).toContain("existing = await stripe.checkout.sessions.retrieve(payment.checkoutSessionId);");
     expect(checkout).toContain('error: "checkout_state_unavailable"');
     expect(checkout).not.toContain("checkout.sessions.retrieve(payment.checkoutSessionId).catch(() => null)");
+    expect(checkout).toContain('paymentUrl.searchParams.set("status", "success")');
+    expect(checkout).toContain('idempotencyKey: `service-job-payment:${payment.id}:${payment.checkoutSessionId || "initial"}`');
     expect(checkout).toContain("transfer_data: { destination: payment.stripeAccountId }");
     expect(checkout).toContain('payment_kind: "service_job"');
     expect(checkout).toContain('formData?.get("lang") === "en"');

@@ -14,7 +14,7 @@ export async function POST(request: Request) {
   const stripe = getStripeClient();
   if (!stripe) return NextResponse.json({ error: "stripe_unavailable" }, { status: 503 });
 
-  const paymentPath = `/betala/${token}`;
+  const paymentPath = `/betala/${encodeURIComponent(token)}`;
   const paymentUrl = new URL(paymentPath, request.url);
   if (locale === "en") paymentUrl.searchParams.set("lang", "en");
 
@@ -31,7 +31,13 @@ export async function POST(request: Request) {
         if (!existing.url) return NextResponse.json({ error: "checkout_unavailable" }, { status: 502 });
         return NextResponse.redirect(existing.url, 303);
       }
-      if (existing.status === "complete") return NextResponse.redirect(paymentUrl, 303);
+      if (existing.status === "complete") {
+        paymentUrl.searchParams.set("status", "success");
+        return NextResponse.redirect(paymentUrl, 303);
+      }
+      if (existing.status !== "expired") {
+        return NextResponse.json({ error: "checkout_state_unavailable" }, { status: 502 });
+      }
     }
 
     const baseUrl = new URL(request.url).origin;
@@ -69,6 +75,8 @@ export async function POST(request: Request) {
       },
       success_url: successUrl.toString(),
       cancel_url: cancelUrl.toString(),
+    }, {
+      idempotencyKey: `service-job-payment:${payment.id}:${payment.checkoutSessionId || "initial"}`,
     });
     if (!session.url) return NextResponse.json({ error: "checkout_unavailable" }, { status: 502 });
     await bindServiceJobCheckoutSession(payment.id, session.id);
