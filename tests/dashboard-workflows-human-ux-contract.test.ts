@@ -61,7 +61,7 @@ describe("dashboard workflow human-designed UX contract", () => {
     expect(assignments).toContain('name="staff_id"');
     expect(invitations).toContain("getReviewInvitationDashboardContext");
     expect(invitations).toContain("listReviewInvitationCandidates");
-    expect(invitations).toContain("bg-[#f3f8ff]");
+    expect(invitations).toContain("bg-[#f6f9ff]");
   });
 
   it("aligns settings sub-pages without changing entitlement, domain, reminder or Stripe boundaries", () => {
