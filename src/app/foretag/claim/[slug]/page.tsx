@@ -140,7 +140,10 @@ export default async function ClaimCompanyPage({ params, searchParams }: Props) 
   const { slug } = await params;
   const query = searchParams ? await searchParams : undefined;
   const locale = localeFrom(query?.lang);
-  const loginReturnTo = withLocale(`/foretag/claim/${encodeURIComponent(slug)}`, locale);
+  const localizedClaimPath = locale === "en"
+    ? `/en/companies/claim/${encodeURIComponent(slug)}`
+    : `/foretag/claim/${encodeURIComponent(slug)}`;
+  const loginReturnTo = localizedClaimPath;
   const loginParams = new URLSearchParams({ next: loginReturnTo });
   if (locale === "en") loginParams.set("lang", "en");
   const loginHref = `/logga-in?${loginParams.toString()}`;
@@ -160,8 +163,18 @@ export default async function ClaimCompanyPage({ params, searchParams }: Props) 
   const text = copy[locale];
   const status = Array.isArray(query?.status) ? query?.status[0] : query?.status;
   const message = status ? statusMessages[locale][status] : null;
-  const profileHref = withLocale(`/foretag/listad/${encodeURIComponent(business.slug)}`, locale);
-  const returnTo = withLocale(`/foretag/claim/${encodeURIComponent(business.slug)}`, locale);
+  const profileHref = locale === "en"
+    ? `/en/companies/${encodeURIComponent(business.slug)}`
+    : `/foretag/listad/${encodeURIComponent(business.slug)}`;
+  const returnTo = locale === "en"
+    ? `/en/companies/claim/${encodeURIComponent(business.slug)}`
+    : `/foretag/claim/${encodeURIComponent(business.slug)}`;
+  const languageParams = new URLSearchParams();
+  if (status) languageParams.set("status", status);
+  const languageQuery = languageParams.toString();
+  const languageHref = locale === "en"
+    ? `/foretag/claim/${encodeURIComponent(business.slug)}${languageQuery ? `?${languageQuery}` : ""}`
+    : `/en/companies/claim/${encodeURIComponent(business.slug)}${languageQuery ? `?${languageQuery}` : ""}`;
 
   let emailEvidence: ReturnType<typeof parseClaimEmailEvidence> = null;
   const sql = getSql();
@@ -185,63 +198,68 @@ export default async function ClaimCompanyPage({ params, searchParams }: Props) 
   const challengeExpired = status === "email_code_expired";
 
   return (
-    <main lang={locale} className="min-h-screen bg-[#f6f7f5] px-4 py-10 text-[#17201a] sm:px-6">
+    <main lang={locale} className="min-h-screen bg-[#f6f9fd] px-4 py-10 text-[#11213b] sm:px-6">
       <div className="mx-auto max-w-2xl">
-        <a href={profileHref} className="inline-flex items-center text-sm font-black text-[#173e2b]">
-          <ArrowLeft className="mr-2 h-4 w-4" /> {text.back}
-        </a>
+        <div className="flex items-center justify-between gap-4">
+          <a href={profileHref} className="inline-flex items-center text-sm font-black text-[#0a2e63]">
+            <ArrowLeft className="mr-2 h-4 w-4" /> {text.back}
+          </a>
+          <a href={languageHref} className="text-sm font-black text-[#1469d8] underline underline-offset-4">
+            {locale === "en" ? "Svenska" : "English"}
+          </a>
+        </div>
 
         <section className="mt-6 rounded-[2rem] bg-white p-6 shadow-sm ring-1 ring-black/10 sm:p-9">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#e8f2ec] text-[#173e2b]">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#edf4fd] text-[#0a2e63]">
             <Building2 className="h-6 w-6" />
           </div>
-          <p className="mt-5 text-xs font-black uppercase tracking-[0.16em] text-[#54705e]">{text.eyebrow}</p>
+          <p className="mt-5 text-xs font-black uppercase tracking-[0.16em] text-[#617085]">{text.eyebrow}</p>
           <h1 className="mt-2 text-3xl font-black">{business.companyName}</h1>
-          <p className="mt-3 text-sm leading-6 text-[#5d685f]">{text.intro}</p>
+          <p className="mt-3 text-sm leading-6 text-[#617085]">{text.intro}</p>
 
           {message ? (
-            <div className="mt-7 rounded-2xl border border-[#cfe1d4] bg-[#f1f8f3] p-5">
-              <p className="font-black text-[#173e2b]">{message.title}</p>
-              <p className="mt-1 text-sm leading-6 text-[#536057]">{message.body}</p>
+            <div className="mt-7 rounded-2xl border border-[#bfd4ef] bg-[#f2f7fd] p-5">
+              <p className="font-black text-[#0a2e63]">{message.title}</p>
+              <p className="mt-1 text-sm leading-6 text-[#536579]">{message.body}</p>
             </div>
           ) : null}
 
           <div className="mt-7 grid gap-3">
-            <div className="flex gap-3 rounded-2xl bg-[#f7f8f6] p-4">
-              <BadgeCheck className="mt-0.5 h-5 w-5 shrink-0 text-[#173e2b]" />
-              <div><p className="font-bold">{text.officialTitle}</p><p className="mt-1 text-sm text-[#687169]">{text.officialBody}</p></div>
+            <div className="flex gap-3 rounded-2xl bg-[#f8fafc] p-4">
+              <BadgeCheck className="mt-0.5 h-5 w-5 shrink-0 text-[#0a2e63]" />
+              <div><p className="font-bold">{text.officialTitle}</p><p className="mt-1 text-sm text-[#617085]">{text.officialBody}</p></div>
             </div>
-            <div className="flex gap-3 rounded-2xl bg-[#f7f8f6] p-4">
-              <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-[#173e2b]" />
-              <div><p className="font-bold">{text.workspaceTitle}</p><p className="mt-1 text-sm text-[#687169]">{text.workspaceBody}</p></div>
+            <div className="flex gap-3 rounded-2xl bg-[#f8fafc] p-4">
+              <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-[#0a2e63]" />
+              <div><p className="font-bold">{text.workspaceTitle}</p><p className="mt-1 text-sm text-[#617085]">{text.workspaceBody}</p></div>
             </div>
           </div>
 
           {status !== "sent" ? session?.user?.id ? (
             <div className="mt-8 space-y-4">
-              <div className="rounded-2xl border border-[#dfe5df] bg-[#fafbfa] p-5">
+              <div className="rounded-2xl border border-[#dce4ee] bg-[#f8fafc] p-5">
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex gap-3">
-                    <Fingerprint className="mt-0.5 h-6 w-6 shrink-0 text-[#173e2b]" />
+                    <Fingerprint className="mt-0.5 h-6 w-6 shrink-0 text-[#0a2e63]" />
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="font-black">{text.bankIdTitle}</p>
                         <span className="rounded-full bg-[#edf0ed] px-2.5 py-1 text-[11px] font-black text-[#617067]">{text.optionalSoon}</span>
                       </div>
-                      <p className="mt-1 text-sm leading-6 text-[#687169]">{text.bankIdBody}</p>
+                      <p className="mt-1 text-sm leading-6 text-[#617085]">{text.bankIdBody}</p>
                     </div>
                   </div>
                 </div>
-                <button type="button" disabled className="mt-4 min-h-11 w-full cursor-not-allowed rounded-xl border border-[#d7ddd8] bg-white px-4 text-sm font-black text-[#8a938d]">{text.bankIdButton}</button>
+                <button type="button" disabled className="mt-4 min-h-11 w-full cursor-not-allowed rounded-xl border border-[#dce4ee] bg-white px-4 text-sm font-black text-[#8a938d]">{text.bankIdButton}</button>
               </div>
 
               {challengeActive ? (
-                <div className="rounded-2xl border border-[#cfe1d4] bg-[#f3f8f4] p-5">
+                <div className="rounded-2xl border border-[#bfd4ef] bg-[#f6f9fd] p-5">
                   <div className="flex items-start gap-3">
-                    <KeyRound className="mt-0.5 h-6 w-6 shrink-0 text-[#173e2b]" />
+                    <KeyRound className="mt-0.5 h-6 w-6 shrink-0 text-[#0a2e63]" />
                     <div>
                       <p className="font-black">{text.verifyEmailTitle}</p>
-                      <p className="mt-1 text-sm leading-6 text-[#5f6c63]">{text.codeSentPrefix} <strong>{emailEvidence?.businessEmail ?? text.businessEmailFallback}</strong>.</p>
+                      <p className="mt-1 text-sm leading-6 text-[#536579]">{text.codeSentPrefix} <strong>{emailEvidence?.businessEmail ?? text.businessEmailFallback}</strong>.</p>
                       {emailEvidence?.emailDomainKind === "public_mailbox" ? (
                         <p className="mt-2 rounded-lg bg-[#fff5da] px-3 py-2 text-xs leading-5 text-[#76580d]">{text.publicMailboxWarning}</p>
                       ) : null}
@@ -253,9 +271,9 @@ export default async function ClaimCompanyPage({ params, searchParams }: Props) 
                     <input type="hidden" name="returnTo" value={returnTo} />
                     <label className="text-sm font-bold text-[#334139]">
                       {text.codeLabel}
-                      <input name="code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" minLength={6} maxLength={6} required disabled={challengeLocked || challengeExpired} placeholder="000000" className="mt-2 min-h-12 w-full rounded-xl border border-[#cad8ce] bg-white px-4 text-center text-xl font-black tracking-[0.35em] outline-none focus:ring-2 focus:ring-[#17452f]/20 disabled:bg-[#eef0ed] disabled:text-[#89908b]" />
+                      <input name="code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" minLength={6} maxLength={6} required disabled={challengeLocked || challengeExpired} placeholder="000000" className="mt-2 min-h-12 w-full rounded-xl border border-[#bdc9d8] bg-white px-4 text-center text-xl font-black tracking-[0.35em] outline-none focus:ring-2 focus:ring-[#1469d8]/20 disabled:bg-[#eef2f7] disabled:text-[#8491a3]" />
                     </label>
-                    <button type="submit" disabled={challengeLocked || challengeExpired} className="mt-4 min-h-12 w-full rounded-xl bg-[#173e2b] px-5 font-black text-white disabled:cursor-not-allowed disabled:opacity-40">{text.verifyCodeButton}</button>
+                    <button type="submit" disabled={challengeLocked || challengeExpired} className="mt-4 min-h-12 w-full rounded-xl bg-[#1469d8] px-5 font-black text-white disabled:cursor-not-allowed disabled:opacity-40">{text.verifyCodeButton}</button>
                   </form>
 
                   <div className="mt-4 grid gap-2 sm:grid-cols-2">
@@ -263,52 +281,52 @@ export default async function ClaimCompanyPage({ params, searchParams }: Props) 
                       <input type="hidden" name="slug" value={business.slug} />
                       <input type="hidden" name="returnTo" value={returnTo} />
                       <input type="hidden" name="action" value="resend" />
-                      <button type="submit" className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-[#cbd8ce] bg-white px-4 text-sm font-black text-[#17452f]"><RefreshCw className="h-4 w-4" /> {text.resend}</button>
+                      <button type="submit" className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-[#bdc9d8] bg-white px-4 text-sm font-black text-[#1469d8]"><RefreshCw className="h-4 w-4" /> {text.resend}</button>
                     </form>
                     <form action="/api/public-directory/claim-email/send" method="post">
                       <input type="hidden" name="slug" value={business.slug} />
                       <input type="hidden" name="returnTo" value={returnTo} />
                       <input type="hidden" name="action" value="reset" />
-                      <button type="submit" className="min-h-11 w-full rounded-xl border border-[#d7ddd8] bg-white px-4 text-sm font-bold text-[#687169]">{text.changeDetails}</button>
+                      <button type="submit" className="min-h-11 w-full rounded-xl border border-[#dce4ee] bg-white px-4 text-sm font-bold text-[#617085]">{text.changeDetails}</button>
                     </form>
                   </div>
                 </div>
               ) : (
-                <form action="/api/public-directory/claim-email/send" method="post" className="rounded-2xl border border-[#cfe1d4] bg-[#f3f8f4] p-5">
+                <form action="/api/public-directory/claim-email/send" method="post" className="rounded-2xl border border-[#bfd4ef] bg-[#f6f9fd] p-5">
                   <input type="hidden" name="slug" value={business.slug} />
                   <input type="hidden" name="returnTo" value={returnTo} />
                   <input type="hidden" name="action" value="start" />
 
                   <div className="flex items-start gap-3">
-                    <UserCheck className="mt-0.5 h-6 w-6 shrink-0 text-[#173e2b]" />
+                    <UserCheck className="mt-0.5 h-6 w-6 shrink-0 text-[#0a2e63]" />
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="font-black">{text.emailManualTitle}</p>
-                        <span className="rounded-full bg-[#e4f2e8] px-2.5 py-1 text-[11px] font-black text-[#17452f]">{text.free}</span>
+                        <span className="rounded-full bg-[#e7f1fd] px-2.5 py-1 text-[11px] font-black text-[#1469d8]">{text.free}</span>
                       </div>
-                      <p className="mt-1 text-sm leading-6 text-[#5f6c63]">{text.emailManualBody}</p>
+                      <p className="mt-1 text-sm leading-6 text-[#536579]">{text.emailManualBody}</p>
                     </div>
                   </div>
 
                   <div className="mt-5 grid gap-4 sm:grid-cols-2">
-                    <label className="text-sm font-bold text-[#334139]">{text.name}<input name="claimantName" required minLength={2} maxLength={100} defaultValue={session.user.name ?? ""} autoComplete="name" className="mt-2 min-h-11 w-full rounded-xl border border-[#cad8ce] bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-[#17452f]/20" /></label>
-                    <label className="text-sm font-bold text-[#334139]">{text.role}<input name="role" required minLength={2} maxLength={80} placeholder={text.rolePlaceholder} className="mt-2 min-h-11 w-full rounded-xl border border-[#cad8ce] bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-[#17452f]/20" /></label>
-                    <label className="text-sm font-bold text-[#334139]">{text.businessEmail}<input name="businessEmail" type="email" required maxLength={254} autoComplete="email" placeholder="name@company.se" className="mt-2 min-h-11 w-full rounded-xl border border-[#cad8ce] bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-[#17452f]/20" /></label>
-                    <label className="text-sm font-bold text-[#334139]">{text.phone} <span className="font-normal text-[#778078]">{text.optional}</span><input name="phone" type="tel" maxLength={40} autoComplete="tel" className="mt-2 min-h-11 w-full rounded-xl border border-[#cad8ce] bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-[#17452f]/20" /></label>
+                    <label className="text-sm font-bold text-[#334139]">{text.name}<input name="claimantName" required minLength={2} maxLength={100} defaultValue={session.user.name ?? ""} autoComplete="name" className="mt-2 min-h-11 w-full rounded-xl border border-[#bdc9d8] bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-[#1469d8]/20" /></label>
+                    <label className="text-sm font-bold text-[#334139]">{text.role}<input name="role" required minLength={2} maxLength={80} placeholder={text.rolePlaceholder} className="mt-2 min-h-11 w-full rounded-xl border border-[#bdc9d8] bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-[#1469d8]/20" /></label>
+                    <label className="text-sm font-bold text-[#334139]">{text.businessEmail}<input name="businessEmail" type="email" required maxLength={254} autoComplete="email" placeholder="name@company.se" className="mt-2 min-h-11 w-full rounded-xl border border-[#bdc9d8] bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-[#1469d8]/20" /></label>
+                    <label className="text-sm font-bold text-[#334139]">{text.phone} <span className="font-normal text-[#778078]">{text.optional}</span><input name="phone" type="tel" maxLength={40} autoComplete="tel" className="mt-2 min-h-11 w-full rounded-xl border border-[#bdc9d8] bg-white px-3 text-sm outline-none focus:ring-2 focus:ring-[#1469d8]/20" /></label>
                   </div>
 
-                  <label className="mt-5 flex items-start gap-3 rounded-xl bg-white p-4 text-sm leading-6 text-[#4f5c53] ring-1 ring-black/5">
-                    <input type="checkbox" name="confirmAuthority" value="yes" required className="mt-1 h-4 w-4 accent-[#17452f]" />
+                  <label className="mt-5 flex items-start gap-3 rounded-xl bg-white p-4 text-sm leading-6 text-[#536579] ring-1 ring-black/5">
+                    <input type="checkbox" name="confirmAuthority" value="yes" required className="mt-1 h-4 w-4 accent-[#1469d8]" />
                     <span>{text.authority}</span>
                   </label>
 
-                  <button type="submit" className="mt-5 min-h-12 w-full rounded-xl bg-[#173e2b] px-5 font-black text-white">{text.sendCode}</button>
+                  <button type="submit" className="mt-5 min-h-12 w-full rounded-xl bg-[#1469d8] px-5 font-black text-white">{text.sendCode}</button>
                   <p className="mt-3 flex items-center justify-center gap-1.5 text-center text-xs leading-5 text-[#707870]"><Mail className="h-3.5 w-3.5" /> {text.signedInAs} {session.user.email ?? text.userFallback}</p>
                 </form>
               )}
             </div>
           ) : (
-            <a href={loginHref} className="mt-8 flex min-h-12 w-full items-center justify-center rounded-xl bg-[#173e2b] px-5 font-black text-white">{text.login}</a>
+            <a href={loginHref} className="mt-8 flex min-h-12 w-full items-center justify-center rounded-xl bg-[#1469d8] px-5 font-black text-white">{text.login}</a>
           ) : null}
         </section>
       </div>
