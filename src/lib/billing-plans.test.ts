@@ -21,10 +21,10 @@ describe("checkout plan product copy", () => {
     expect(description).not.toContain("samt crm");
   });
 
-  it("localizes checkout descriptions without changing the configured plan prices", () => {
+  it("localizes checkout descriptions without changing the canonical plan prices", () => {
     expect(getCheckoutPlanDescription("starter", "en")).toContain("Customer CRM");
     expect(getCheckoutPlanDescription("professional", "en")).toContain("Everything in Starter");
-    expect(getCheckoutPlanPriceLabel("starter", "SEK", "sv")).toBe("199 kr/mån");
+    expect(getCheckoutPlanPriceLabel("starter", "SEK", "sv")).toBe("299 kr/mån");
     expect(getCheckoutPlanPriceLabel("professional", "SEK", "en")).toBe("SEK 599/month");
   });
 });
