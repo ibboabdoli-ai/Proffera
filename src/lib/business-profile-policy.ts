@@ -200,6 +200,7 @@ export type SearchCardBusinessProjection = {
   city: string;
   municipality: string;
   media: ResolvedBusinessProfileMedia | null;
+  logoUrl?: string;
   canonicalServiceSlugs: string[];
   reputation: null | {
     rating: number;
@@ -528,6 +529,7 @@ export function projectBusinessProfileSearchCard(
     city: profile.location.city,
     municipality: profile.location.municipality,
     media: profile.presentation.media ? { ...profile.presentation.media } : null,
+    logoUrl: profile.presentation.media?.role === "logo" ? profile.presentation.media.url : "",
     canonicalServiceSlugs: [...new Set(
       profile.services
         .map((service) => service.canonicalServiceSlug)
