@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import authStyles from "@/components/auth/auth-marketplace.module.css";
 import { SignupForm } from "@/components/signup/signup-form";
 import type { CheckoutPlanKey } from "@/lib/billing-plans";
 import { getServerSession } from "@/lib/auth-session";
@@ -66,21 +67,31 @@ export async function SignupPage({ locale, initialPlan }: SignupPageProps) {
   const demoHref = locale === "en" ? "/en/demo" : "/demo";
 
   return (
-    <div className="relative overflow-hidden bg-[#f7f7f4]">
-      <div className="absolute inset-x-0 top-0 h-96 bg-[radial-gradient(circle_at_12%_0%,rgba(139,195,157,0.28),transparent_35%),linear-gradient(180deg,#fff_0%,#f7f7f4_100%)]" />
-      <section className="relative mx-auto grid max-w-7xl gap-10 px-4 py-12 sm:px-6 lg:grid-cols-[1.05fr_0.95fr] lg:items-center lg:gap-16 lg:px-8 lg:py-20">
-        <div>
-          <p className="inline-flex rounded-full border border-[#cfe0d3] bg-white px-4 py-2 text-sm font-semibold text-[#17452f] shadow-sm">{text.badge}</p>
-          <h1 className="mt-5 max-w-3xl text-4xl font-bold leading-[1.08] tracking-[-0.04em] text-[#17201a] sm:text-5xl">{text.title}</h1>
-          <p className="mt-5 max-w-2xl text-lg leading-8 text-[#5b665f]">{text.intro}</p>
-          <ul className="mt-7 grid gap-3 text-sm font-medium text-[#344139]">
-            {text.points.map((point) => <li key={point} className="flex items-center gap-3"><span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#e7f1eb] text-xs font-bold text-[#17452f]">✓</span>{point}</li>)}
-          </ul>
-          <Link href={demoHref} className="mt-8 inline-flex text-sm font-semibold text-[#17452f] hover:underline">{text.demo}</Link>
-        </div>
+    <main className={authStyles.page} lang={locale === "sv" ? "sv" : "en"}>
+      <section className={authStyles.shell}>
+        <div className={authStyles.split}>
+          <div>
+            <p className={authStyles.eyebrow}>{text.badge}</p>
+            <h1 className={authStyles.title}>{text.title}</h1>
+            <p className={authStyles.lead}>{text.intro}</p>
 
-        <SignupForm locale={locale} initialPlan={initialPlan} sessionUser={sessionUser} />
+            <ul className={authStyles.trustList}>
+              {text.points.map((point) => (
+                <li key={point} className={authStyles.trustItem}>
+                  <span className={authStyles.trustMark}>✓</span>
+                  <span>{point}</span>
+                </li>
+              ))}
+            </ul>
+
+            <div className={authStyles.linkRow}>
+              <Link href={demoHref} className={authStyles.textLink}>{text.demo}</Link>
+            </div>
+          </div>
+
+          <SignupForm locale={locale} initialPlan={initialPlan} sessionUser={sessionUser} />
+        </div>
       </section>
-    </div>
+    </main>
   );
 }
