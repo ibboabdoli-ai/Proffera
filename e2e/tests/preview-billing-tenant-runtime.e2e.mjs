@@ -255,7 +255,7 @@ test.describe("isolated Preview billing/tenant runtime", () => {
       await expect(page.getByRole("heading", { name: "Plan och betalning" })).toBeVisible();
       await expect(page.getByRole("note")).toContainText("Stripe Sandbox");
       await expect(page.getByRole("note")).toContainText("Inga riktiga pengar dras");
-      await expect(page.getByText("199 kr/mån · Stripe Sandbox")).toBeVisible();
+      await expect(page.getByText("299 kr/mån · Stripe Sandbox")).toBeVisible();
       await expect(page.getByText("599 kr/mån · Stripe Sandbox")).toBeVisible();
       await expect(page.getByText("1 kr/mån", { exact: false })).toHaveCount(0);
 
@@ -304,7 +304,7 @@ test.describe("isolated Preview billing/tenant runtime", () => {
       expect(billingState.body?.ok).toBe(true);
       expect(billingState.body?.billing?.status).toBe("pending");
       expect(billingState.body?.billing?.checkoutSessionId).toMatch(/^cs_test_/u);
-      expect(billingState.body?.billing?.priceId).toMatch(/^price_/u);
+      expect(billingState.body?.billing?.priceId).toBe("price_1UGvu6Ije09L34ksPXTg3hTX");
       expect(checkoutUrl.href).toContain(billingState.body.billing.checkoutSessionId);
       await expect(page).toHaveURL(/\/dashboard\/installningar(?:\?|$)/u);
 
