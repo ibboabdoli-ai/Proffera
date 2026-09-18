@@ -32,7 +32,7 @@ const noSubscriptionBilling: WorkspaceBillingSummary = {
 const starterPlan = {
   key: "starter" as const,
   name: "Starter",
-  priceLabel: "199 kr/mån",
+  priceLabel: "299 kr/mån",
   description: "Starter test",
   configured: true,
 };
@@ -68,9 +68,9 @@ describe("preview billing safety behavior", () => {
     const upgradeHtml = renderBilling();
     const pickerHtml = renderBilling([starterPlan, professionalPlan], noSubscriptionBilling);
 
-    expect(upgradeHtml).toContain("Starter · 199 kr/mån (test)");
+    expect(upgradeHtml).toContain("Starter · 299 kr/mån (test)");
     expect(upgradeHtml).toContain("Professional · 599 kr/mån (test)");
-    expect(pickerHtml).toContain("199 kr/mån · Stripe Sandbox");
+    expect(pickerHtml).toContain("299 kr/mån · Stripe Sandbox");
     expect(pickerHtml).toContain("599 kr/mån · Stripe Sandbox");
     expect(upgradeHtml).not.toContain("1 kr/mån (test)");
     expect(pickerHtml).not.toContain("1 kr/mån (test)");
@@ -83,8 +83,8 @@ describe("preview billing safety behavior", () => {
 
     expect(upgradeHtml).toContain("Starter · Pris bekräftas i Stripe (test)");
     expect(pickerHtml).toContain("Pris bekräftas i Stripe · Stripe Sandbox");
-    expect(pickerHtml).not.toContain("199 kr/mån · Stripe Sandbox");
-    expect(upgradeHtml).not.toContain("Starter · 199 kr/mån (test)");
+    expect(pickerHtml).not.toContain("299 kr/mån · Stripe Sandbox");
+    expect(upgradeHtml).not.toContain("Starter · 299 kr/mån (test)");
   });
 
   it("rewrites a canonical production booking URL only when the server marks the deployment as Preview", () => {

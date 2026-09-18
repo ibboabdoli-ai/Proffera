@@ -24,6 +24,7 @@ The repository contains active production implementations for these major areas:
 - Quote Request / Offer flows and Service Job lifecycle foundations.
 - Verified Review invitation, token, moderation and publication protections.
 - Stripe Checkout, Customer Portal, subscription webhook synchronization and billing-alert foundations.
+- Canonical Proffera launch subscription pricing is **Starter 299 SEK/month** and **Professional 599 SEK/month**. Application pricing labels derive from the shared billing-plan source; Stripe Price IDs remain environment/provider configuration and must be staged so public copy and Checkout amounts change together. Historical Price objects and existing subscriptions are not migrated or removed without a separate decision.
 - Company Directory ingestion, official-facts verification, SNI/category mapping, publication safety gates and admin review flows.
 - Public marketplace/search foundations and provider marketplace activation.
 - Marketplace geo coverage now uses one explicit coverage-state contract: `confirmed_inside`, `confirmed_outside`, `inferred_nearby`, `locality_fallback`, or `unknown`. Only `confirmed_inside` is eligible for automatic Marketplace outreach. Confirmed service-specific radius wins over confirmed default/profile radius; explicit `confirmed_outside` is terminal; malformed/missing authority fails closed. `workspace_services.service_area` remains metadata rather than geometry, and exact customer coordinates remain private matching data.
