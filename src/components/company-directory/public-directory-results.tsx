@@ -195,31 +195,31 @@ export function PublicDirectoryResults({
           const canContact = result.conversionMode === "contact";
           const hasPrimaryMarketplaceAction = Boolean(marketplace?.bookingHref || canQuote || canContact);
           const profileMedia = result.profile?.media;
-          const coverMedia = profileMedia && profileMedia.role !== "logo" ? profileMedia : null;
+          const trustedCardMedia = profileMedia
+            && profileMedia.role !== "illustration"
+            && (profileMedia.kind === "image" || profileMedia.kind === "photo" || profileMedia.kind === "logo")
+            ? profileMedia
+            : null;
           const logoUrl = result.profile?.logoUrl || (profileMedia?.role === "logo" ? profileMedia.url : "");
           const reputation = result.profile?.reputation && result.profile.reputation.verifiedReviews > 0
             ? result.profile.reputation
             : null;
 
           return (
-            <article key={result.id} className={`group ${styles.resultCard}`}>
+            <article key={result.id} className={`group shadow-card ${styles.resultCard}`}>
               <div
                 className={styles.resultVisual}
-                data-search-card-media={profileMedia && profileMedia.role !== "illustration" ? "true" : undefined}
+                data-search-card-media={trustedCardMedia ? "true" : undefined}
               >
                 <MarketplaceCompanyCover
                   name={result.companyName}
-                  url={coverMedia?.url}
-                  illustration={coverMedia?.role === "illustration"}
+                  url={trustedCardMedia?.url}
+                  illustration={false}
                 />
                 <span className={styles.logoFloat}>
                   <MarketplaceCompanyLogo name={result.companyName} url={logoUrl} size="sm" />
                 </span>
-                {coverMedia?.role === "illustration" ? (
-                  <span className={styles.illustrationBadge}>
-                    {locale === "en" ? "Illustration" : "Illustrationsbild"}
-                  </span>
-                ) : null}
+
               </div>
 
               <div className={styles.resultContent}>
