@@ -240,7 +240,7 @@ export async function MarketplaceHome({ locale }: { locale: PublicLocale }) {
               url={heroMedia?.url}
               illustration={heroMedia?.role === "illustration"}
             />
-            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/55 via-black/20 to-transparent p-6 pt-20 text-white">
+            <div className="absolute inset-x-4 bottom-4 rounded-2xl bg-black/55 p-4 text-white backdrop-blur-sm">
               <p className="text-xs font-black uppercase tracking-[0.14em] text-white/75">
                 {heroResult ? (locale === "en" ? "Published business profile" : "Publicerad företagsprofil") : "Proffera"}
               </p>
@@ -440,9 +440,7 @@ export async function MarketplaceHome({ locale }: { locale: PublicLocale }) {
                 {t.workspaceItems.map((item, index) => (
                   <div key={item} className="rounded-xl bg-surface-subtle p-3">
                     <p className="text-xs font-black text-ink">{item}</p>
-                    <div className="mt-3 h-2 rounded-full bg-line">
-                      <div className="h-2 rounded-full bg-brand/35" style={{ width: `${55 + index * 9}%` }} />
-                    </div>
+                    <span className={`mt-3 block h-2 rounded-full bg-line ${index % 2 === 0 ? "w-2/3" : "w-4/5"}`} aria-hidden="true" />
                   </div>
                 ))}
               </div>
