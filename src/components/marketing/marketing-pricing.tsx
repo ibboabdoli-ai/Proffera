@@ -1,6 +1,7 @@
 import { CheckCircle2, Sparkles } from "lucide-react";
 
 import { ButtonLink } from "@/components/ui/button-link";
+import { getCheckoutPlanPriceLabel } from "@/lib/billing-plans";
 import type { PublicLocale } from "@/lib/public-locale";
 
 const copy = {
@@ -14,7 +15,7 @@ const copy = {
     plans: [
       {
         name: "Starter",
-        price: "199 kr/mån",
+        price: getCheckoutPlanPriceLabel("starter", "SEK", "sv"),
         description: "För små tjänsteföretag som vill samla bokningar, leads och kunder i ett system.",
         features: ["Onlinebokning", "Leadhantering", "Kund-CRM", "Kundportal", "Bokningspåminnelser"],
         cta: "Starta gratis",
@@ -22,7 +23,7 @@ const copy = {
       },
       {
         name: "Professional",
-        price: "599 kr/mån",
+        price: getCheckoutPlanPriceLabel("professional", "SEK", "sv"),
         description: "För företag som vill visa tjänster online och hantera fler delar av kundresan i Proffera.",
         features: ["Allt i Starter", "Företagssida", "Offerter", "Galleri", "Verifierade omdömen", "Analys", "Flera medarbetare"],
         cta: "Starta gratis",
@@ -57,7 +58,7 @@ const copy = {
     plans: [
       {
         name: "Starter",
-        price: "SEK 199/month",
+        price: getCheckoutPlanPriceLabel("starter", "SEK", "en"),
         description: "For small service businesses that want bookings, leads and customers in one system.",
         features: ["Online booking", "Lead management", "Customer CRM", "Customer portal", "Booking reminders"],
         cta: "Start free",
@@ -65,7 +66,7 @@ const copy = {
       },
       {
         name: "Professional",
-        price: "SEK 599/month",
+        price: getCheckoutPlanPriceLabel("professional", "SEK", "en"),
         description: "For businesses that want to show services online and run more of the customer journey in Proffera.",
         features: ["Everything in Starter", "Business page", "Quotes", "Gallery", "Verified reviews", "Analytics", "Multiple staff"],
         cta: "Start free",
