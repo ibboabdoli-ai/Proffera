@@ -1,4 +1,4 @@
-:root {
+.page {
   --proffera-marketplace-navy: #0a2e63;
   --proffera-marketplace-blue: #1469d8;
   --proffera-marketplace-ink: #11213b;
@@ -6,9 +6,6 @@
   --proffera-marketplace-border: #dce4ee;
   --proffera-marketplace-soft: #f6f9fd;
   --proffera-marketplace-success: #17a672;
-}
-
-.page {
   min-height: 100vh;
   background: var(--proffera-marketplace-soft);
   color: var(--proffera-marketplace-ink);
