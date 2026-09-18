@@ -116,6 +116,10 @@
   min-height: 410px;
 }
 
+.heroSolo {
+  grid-template-columns: 1fr;
+}
+
 .heroCopy {
   display: flex;
   flex-direction: column;
