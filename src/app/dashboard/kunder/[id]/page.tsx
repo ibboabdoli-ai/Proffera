@@ -161,10 +161,10 @@ export default async function CustomerDetailPage({ params, searchParams }: Custo
         </article>
       </div>
 
-      <aside className="h-fit rounded-panel bg-brand-deep p-5 text-white shadow-lift sm:p-6 xl:sticky xl:top-24">
-        <p className="text-xs font-bold uppercase tracking-[0.12em] text-white/60">CRM timeline</p>
-        <h3 className="mt-2 text-xl font-bold">{isEnglish ? "Customer history" : "Kundhistorik"}</h3><p className="mt-3 text-sm leading-7 text-white/75">{isEnglish ? "Internal notes, booking events and other important customer history are collected here." : "Här samlas interna noteringar, bokningshändelser och annan viktig kundhistorik."}</p>
-        <div className="mt-5 space-y-3">{events.length === 0 ? <p className="rounded-card border border-white/10 bg-white/[0.06] p-4 text-sm text-white/75">{isEnglish ? "No events were found." : "Inga händelser hittades."}</p> : events.map((event) => <div key={event.id} className="rounded-card border border-white/10 bg-white/[0.07] p-4"><div className="flex items-center justify-between gap-3"><span className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white/85">{eventTypes[event.type as keyof typeof eventTypes] ?? event.type}</span><span className="text-xs text-white/60">{event.createdAt}</span></div><p className="mt-3 font-semibold text-white">{event.title}</p><p className="mt-2 text-sm leading-6 text-white/75">{event.description}</p></div>)}</div>
+      <aside className="h-fit rounded-panel border border-line bg-surface p-5 shadow-card sm:p-6 xl:sticky xl:top-24">
+        <p className="text-xs font-bold uppercase tracking-[0.12em] text-ink-muted">CRM timeline</p>
+        <h3 className="mt-2 text-xl font-bold">{isEnglish ? "Customer history" : "Kundhistorik"}</h3><p className="mt-3 text-sm leading-7 text-ink-muted">{isEnglish ? "Internal notes, booking events and other important customer history are collected here." : "Här samlas interna noteringar, bokningshändelser och annan viktig kundhistorik."}</p>
+        <div className="mt-5 space-y-3">{events.length === 0 ? <p className="rounded-card border border-line bg-surface-subtle p-4 text-sm text-white/75">{isEnglish ? "No events were found." : "Inga händelser hittades."}</p> : events.map((event) => <div key={event.id} className="rounded-card border border-line bg-surface-subtle p-4"><div className="flex items-center justify-between gap-3"><span className="rounded-full bg-brand-soft px-3 py-1 text-xs font-semibold text-brand-deep">{eventTypes[event.type as keyof typeof eventTypes] ?? event.type}</span><span className="text-xs text-white/60">{event.createdAt}</span></div><p className="mt-3 font-semibold text-ink">{event.title}</p><p className="mt-2 text-sm leading-6 text-white/75">{event.description}</p></div>)}</div>
       </aside>
     </section>
   </div>;
