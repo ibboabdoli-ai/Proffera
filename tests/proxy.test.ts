@@ -1,17 +1,32 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 vi.mock("../src/lib/public-site-domain-routing", () => ({
   resolvePublicCustomDomain: vi.fn(async () => null),
 }));
 
+import { resolvePublicCustomDomain } from "../src/lib/public-site-domain-routing";
 import { proxy } from "../src/proxy";
+
+const resolvePublicCustomDomainMock = vi.mocked(resolvePublicCustomDomain);
 
 function request(path: string, headers?: HeadersInit) {
   return new NextRequest(`https://www.proffera.se${path}`, { headers });
 }
 
+function hostRequest(host: string, path: string, headers: HeadersInit = {}) {
+  const requestHeaders = new Headers(headers);
+  requestHeaders.set("host", host);
+  return new NextRequest(`https://${host}${path}`, {
+    headers: requestHeaders,
+  });
+}
+
 describe("proxy request boundary", () => {
+  beforeEach(() => {
+    resolvePublicCustomDomainMock.mockReset();
+    resolvePublicCustomDomainMock.mockResolvedValue(null);
+  });
   it("passes the exact admin path to session and role authorization", async () => {
     const response = await proxy(request("/admin/billing/alerts"));
 
@@ -84,6 +99,81 @@ describe("proxy request boundary", () => {
     expect(response.headers.get("x-middleware-rewrite")).toBe(
       "https://primeviewwindowcare.co.uk/demo/primeview",
     );
+  });
+
+  it("rewrites the PrimeView booking alias while blocking its internal route directly", async () => {
+    const booking = await proxy(hostRequest("www.primeviewwindowcare.co.uk", "/booking"));
+    const internal = await proxy(hostRequest("www.primeviewwindowcare.co.uk", "/primeview-booking"));
+
+    expect(booking.status).toBe(200);
+    expect(booking.headers.get("x-middleware-rewrite")).toBe(
+      "https://www.primeviewwindowcare.co.uk/primeview-booking",
+    );
+    expect(internal.status).toBe(404);
+    expect(internal.headers.get("x-robots-tag")).toBe("noindex, nofollow");
+  });
+
+  it("fails closed when PrimeView-only routes are requested on the platform host", async () => {
+    for (const path of ["/services", "/services/window-cleaning", "/areas/ealing", "/gallery", "/gallery/", "/privacy", "/booking", "/boka/primeview", "/primeview-booking"]) {
+      const response = await proxy(hostRequest("www.proffera.se", path));
+      expect(response.status, path).toBe(404);
+      expect(response.headers.get("x-robots-tag"), path).toBe("noindex, nofollow");
+    }
+  });
+
+  it("fails closed when platform namespaces are requested on the PrimeView host", async () => {
+    for (const path of ["/priser", "/skapa-konto", "/en/pricing", "/tjanster", "/dashboard", "/admin", "/demo"]) {
+      const response = await proxy(hostRequest("www.primeviewwindowcare.co.uk", path));
+      expect(response.status, path).toBe(404);
+      expect(response.headers.get("x-robots-tag"), path).toBe("noindex, nofollow");
+    }
+
+    const services = await proxy(hostRequest("www.primeviewwindowcare.co.uk", "/services/window-cleaning"));
+    expect(services.status).toBe(200);
+    expect(services.headers.get("x-middleware-next")).toBe("1");
+  });
+
+  it("keeps generic custom domains fail-closed outside root, services and shared customer flows", async () => {
+    for (const path of ["/priser", "/en/pricing", "/dashboard", "/admin", "/services", "/areas/ealing", "/gallery", "/gallery/", "/privacy", "/booking", "/boka/primeview"]) {
+      const response = await proxy(hostRequest("customer.example.com", path));
+      expect(response.status, path).toBe(404);
+      expect(response.headers.get("x-robots-tag"), path).toBe("noindex, nofollow");
+    }
+
+    for (const path of ["/boka/acme", "/mina-bokningar/token", "/offert/token", "/review/token", "/gallery/acme"]) {
+      const response = await proxy(hostRequest("customer.example.com", path));
+      expect(response.status, path).toBe(200);
+      expect(response.headers.get("x-middleware-next"), path).toBe("1");
+    }
+  });
+
+  it("preserves generic custom-domain root and clean service rewrites", async () => {
+    resolvePublicCustomDomainMock.mockResolvedValue({
+      workspaceId: "11111111-1111-4111-8111-111111111111",
+      workspaceSlug: "acme",
+      bookingSlug: "acme-booking",
+      publicHomeMode: "website",
+    });
+
+    const root = await proxy(hostRequest("customer.example.com", "/"));
+    const service = await proxy(hostRequest("customer.example.com", "/tjanster/window-cleaning"));
+
+    expect(root.status).toBe(200);
+    expect(root.headers.get("x-middleware-rewrite")).toBe(
+      "https://customer.example.com/foretag/acme",
+    );
+    expect(service.status).toBe(200);
+    expect(service.headers.get("x-middleware-rewrite")).toBe(
+      "https://customer.example.com/foretag/acme/tjanster/window-cleaning",
+    );
+  });
+
+  it("keeps the platform root on the platform host", async () => {
+    const response = await proxy(hostRequest("www.proffera.se", "/"));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(response.headers.get("x-middleware-rewrite")).toBeNull();
   });
 
   it("forwards the English locale for English public routes", async () => {

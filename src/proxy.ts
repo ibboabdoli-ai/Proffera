@@ -6,6 +6,7 @@ import { resolvePublicCustomDomain } from "./lib/public-site-domain-routing";
 import {
   isPlatformHost,
   isPrimeViewHost,
+  isPublicPageRouteAllowedForHost,
 } from "./lib/public-site-domains";
 
 const CHAT_ORIGIN = "https://chat.proffera.se";
@@ -104,7 +105,11 @@ function allowPublicPath(request: NextRequest) {
 
 export async function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
-  const host = request.headers.get("host");
+  const host = request.headers.get("host") ?? request.nextUrl.host;
+
+  if (!isPublicPageRouteAllowedForHost(host, pathname)) {
+    return notFound();
+  }
 
   // PrimeView keeps its bespoke public site while generic customer domains use
   // the workspace-selected public destination below.
@@ -182,16 +187,7 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/",
-    "/booking",
-    "/tjanster/:path*",
-    "/en",
-    "/en/:path*",
-    "/app/:path*",
+    "/((?!api|_next/static|_next/image|favicon.ico|.*\\..*).*)",
     "/api/widget-config",
-    "/dashboard",
-    "/dashboard/:path*",
-    "/admin",
-    "/admin/:path*",
   ],
 };
