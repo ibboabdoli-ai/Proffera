@@ -51,8 +51,9 @@ describe("self-service signup contract", () => {
     const demoForm = source("src/app/anslut-foretag/registrera/page.tsx");
     const home = source("src/components/marketing/marketing-home.tsx");
 
-    expect(joinPage).toContain('ctaLabel="Boka demo"');
-    expect(joinPage).not.toContain('ctaLabel="Registrera företag"');
+    expect(joinPage).toContain('href="/anslut-foretag/registrera"');
+    expect(joinPage).toContain("Boka demo");
+    expect(joinPage).not.toContain("Registrera företag");
     expect(demoForm).toContain("Ingen bokning eller betalning skapas här");
     expect(home).toContain('const signupHref = locale === "en" ? "/en/create-account" : "/skapa-konto"');
     expect(home).toContain('const demoHref = locale === "en" ? "/en/demo" : "/demo"');
