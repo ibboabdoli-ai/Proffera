@@ -32,12 +32,12 @@ export async function applyCanonicalProfferaMigrations(client: Client) {
   const migrationFiles = readdirSync(MIGRATIONS_DIR, { withFileTypes: true })
     .filter((entry) => entry.isFile() && entry.name.endsWith(".sql"))
     .map((entry) => entry.name)
-    .sort((left, right) => left.localeCompare(right));
+    .sort();
 
   let externalPrerequisitesReady = false;
 
   for (const file of migrationFiles) {
-    if (!externalPrerequisitesReady && file.localeCompare(EXTERNAL_BOOTSTRAP_BEFORE) >= 0) {
+    if (!externalPrerequisitesReady && file >= EXTERNAL_BOOTSTRAP_BEFORE) {
       await createExternalBootstrapPrerequisites(client);
       externalPrerequisitesReady = true;
     }
