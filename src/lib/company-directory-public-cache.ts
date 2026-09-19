@@ -19,8 +19,8 @@ export const PUBLIC_DIRECTORY_MISS_CACHE_TTL_SECONDS = 30 * 60;
 
 const PUBLIC_DIRECTORY_PROFILE_CACHE_NAMESPACE = "public-directory-published-juridical-v3";
 const PUBLIC_DIRECTORY_EXTRAS_CACHE_NAMESPACE = "public-directory-profile-extras-v3";
-const PUBLIC_DIRECTORY_MISS_CACHE_NAMESPACE = "public-directory-miss-v1";
-const PUBLIC_DIRECTORY_ROUTING_MISS_CACHE_NAMESPACE = "public-directory-routing-miss-v1";
+const PUBLIC_DIRECTORY_MISS_CACHE_NAMESPACE = "public-directory-miss-v2";
+const PUBLIC_DIRECTORY_ROUTING_MISS_CACHE_NAMESPACE = "public-directory-routing-miss-v2";
 const PUBLIC_DIRECTORY_PROFILE_GLOBAL_TAG = "public-directory-profile:v3:all";
 const PUBLIC_DIRECTORY_EXTRAS_GLOBAL_TAG = "public-directory-extras:v3:all";
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
