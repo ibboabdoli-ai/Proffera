@@ -2,6 +2,24 @@ import { mainNav } from "./site";
 
 export type PublicLocale = "sv" | "en";
 
+export const PUBLIC_LOCALE_CHANGE_EVENT = "proffera:locale-change";
+
+const queryLocalizedAuthRoutes = [
+  "/logga-in",
+  "/glomt-losenord",
+  "/aterstall-losenord",
+] as const;
+
+const authSurfaceRoutes = [
+  ...queryLocalizedAuthRoutes,
+  "/skapa-konto",
+  "/en/create-account",
+] as const;
+
+const queryLocalizedPublicPrefixes = [
+  "/offert/",
+] as const;
+
 type LocalizedRoute = {
   sv: string;
   en: string;
@@ -104,3 +122,38 @@ export function isEnglishPublicPath(pathname: string) {
 }
 
 export const localizedPublicRoutes = localizedRoutes;
+
+
+export function isAuthQueryLocalePath(pathname: string | null | undefined) {
+  if (!pathname) return false;
+  return queryLocalizedAuthRoutes.some((route) => pathname === route)
+    || pathname.startsWith("/aktivera/")
+    || pathname.startsWith("/bjud-in/");
+}
+
+export function isAuthSurfacePath(pathname: string | null | undefined) {
+  if (!pathname) return false;
+  return authSurfaceRoutes.some((route) => pathname === route)
+    || pathname.startsWith("/aktivera/")
+    || pathname.startsWith("/bjud-in/");
+}
+
+export function isPublicQueryLocalePath(pathname: string | null | undefined) {
+  if (!pathname) return false;
+  return isAuthQueryLocalePath(pathname)
+    || queryLocalizedPublicPrefixes.some((prefix) => pathname.startsWith(prefix));
+}
+
+export function isRouteResolvedPublicLocalePath(pathname: string | null | undefined) {
+  if (!pathname) return false;
+  return pathname.startsWith("/boka/")
+    || (pathname.startsWith("/foretag/") && !pathname.startsWith("/foretag/listad"));
+}
+
+export function resolvePublicRequestLocale(
+  pathname: string | null | undefined,
+  queryLocale?: string | null,
+): PublicLocale {
+  if (getPublicLocale(pathname) === "en") return "en";
+  return isPublicQueryLocalePath(pathname) && queryLocale === "en" ? "en" : "sv";
+}
