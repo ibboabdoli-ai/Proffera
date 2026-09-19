@@ -21,7 +21,7 @@ const readCachedPublishedDirectoryLocationSuggestions = unstable_cache(
 
 const readCachedMarketplaceHomeCompanies = unstable_cache(
   async (limit: number) => searchPublishedBusinessProfiles({ limit, sort: "recommended" }),
-  ["marketplace-home-companies-v1"],
+  ["marketplace-home-companies-v2"],
   { revalidate: MARKETPLACE_HOME_COMPANIES_REVALIDATE_SECONDS },
 );
 
