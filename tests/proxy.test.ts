@@ -9,6 +9,7 @@ import { resolvePublicCustomDomain } from "../src/lib/public-site-domain-routing
 import { proxy } from "../src/proxy";
 
 const resolvePublicCustomDomainMock = vi.mocked(resolvePublicCustomDomain);
+const requestId = "123e4567-e89b-42d3-a456-426614174000";
 
 function request(path: string, headers?: HeadersInit) {
   return new NextRequest(`https://www.proffera.se${path}`, { headers });
@@ -174,6 +175,39 @@ describe("proxy request boundary", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("x-middleware-next")).toBe("1");
     expect(response.headers.get("x-middleware-rewrite")).toBeNull();
+  });
+
+  it("preserves a valid request ID on an unresolved custom-domain 404", async () => {
+    const response = await proxy(hostRequest("customer.example.com", "/", {
+      "x-proffera-request-id": requestId,
+    }));
+
+    expect(resolvePublicCustomDomainMock).toHaveBeenCalledWith("customer.example.com");
+    expect(response.status).toBe(404);
+    expect(response.headers.get("x-proffera-request-id")).toBe(requestId);
+  });
+
+  it("propagates the request ID to both downstream request headers and the response", async () => {
+    const response = await proxy(request("/en/pricing", {
+      "x-proffera-request-id": requestId,
+    }));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-proffera-request-id")).toBe(requestId);
+    expect(response.headers.get("x-middleware-request-x-proffera-request-id")).toBe(requestId);
+  });
+
+  it("replaces an invalid incoming request ID before forwarding it", async () => {
+    const response = await proxy(request("/", {
+      "x-proffera-request-id": "attacker-controlled",
+    }));
+
+    const generated = response.headers.get("x-proffera-request-id");
+    expect(generated).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u,
+    );
+    expect(generated).not.toBe("attacker-controlled");
+    expect(response.headers.get("x-middleware-request-x-proffera-request-id")).toBe(generated);
   });
 
   it("forwards the English locale for English public routes", async () => {
