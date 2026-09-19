@@ -86,7 +86,17 @@ The active Preview was exercised against the sanitized Neon branch on 2026-08-21
 - a no-egress synthetic Guest Quote state test created a disposable Preview-only company, quote and invitation with a known synthetic token, rendered the real guest response page, recorded `sent -> viewed`, submitted a fixed-price test offer through a Preview-only temporary harness, recorded invitation `responded`, quote `answered` and offer `submitted`, rendered the real success page, then deleted all disposable rows;
 - after cleanup the Preview branch again contained zero users, sessions, accounts, company profiles, quote requests, marketplace invitations and marketplace offers.
 
-The remaining activation blockers are operational rather than database-state blockers: configure a genuinely independent `PROFFERA_PREVIEW_BREVO_API_KEY`, rotate the current Preview Better Auth secret to a strong random value, and then verify controlled-recipient email egress plus the normal Admin-visible end-to-end route before enabling recurring state-changing browser automation.
+## Later runtime proof superseding the August activation blockers
+
+Subsequent isolated Preview evidence proved that the August email/auth activation blockers are no longer current runtime blockers:
+
+- controlled Preview Brevo email egress succeeded through the dedicated recipient boundary;
+- the full synthetic Marketplace lifecycle completed through Quote → Matching/Invitation → Provider Offer → Customer Selection → ServiceJob → Completed → Verified Review, with scoped cleanup;
+- Better Auth signup, protected-session access, logout, re-login and protected access were proven on isolated Preview;
+- password reset was proven end-to-end through a fresh controlled Preview email, password replacement and successful re-login;
+- Production data/configuration was not mutated by these Preview evidence runs.
+
+Accordingly, availability of `PROFFERA_PREVIEW_BREVO_API_KEY` and basic usability of `PROFFERA_PREVIEW_AUTH_SECRET` must not be treated as unresolved activation blockers without fresh contradictory runtime evidence. Secret values and rotation history are intentionally not exposed by repository evidence; they must remain independent from Production, and any future rotation is a separate security-maintenance action rather than a prerequisite inferred from the superseded August note.
 
 ## Marketplace state-changing E2E gate
 
@@ -100,4 +110,4 @@ Marketplace Guest Quote E2E may run only after the validation gate above is prov
 6. verify Production counts and records remain unchanged;
 7. clean the disposable Preview test data after the run.
 
-The core Guest Quote state transitions are now proven with synthetic Preview data and no external email egress. Full browser automation remains gated until the dedicated Preview Brevo credential and stronger Preview auth secret are configured and the complete controlled-recipient/Admin path is re-run.
+The full isolated Marketplace browser lifecycle is now proven on the dedicated Preview evidence lane, including controlled email egress, provider offer, customer selection, ServiceJob completion and verified review. This proof does not turn state-changing Preview E2E into a general required CI lane: Booking, broader payment lifecycle and destructive Admin mutations remain separately gated, and all Preview credentials must remain isolated from Production.
