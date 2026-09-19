@@ -34,6 +34,9 @@ describe("company directory pilot database guard", () => {
     expect(sql).toContain("comparisonsnapshot,profileupdatedtoken");
     expect(sql).toContain("comparisonsnapshot,officialfactslastsyncedtoken");
     expect(sql).toContain("jsonb_array_length");
+    expect(sql).toContain("jsonb_typeof(scb.conflicts) = 'array'");
+    expect(sql).toContain("jsonb_array_length(scb.conflicts) = 0");
+    expect(sql).toContain("else true");
     expect(sql).toContain("visitingaddress");
     expect(sql).toContain("stockholm");
     expect(sql).toContain("södertälje");

@@ -29,12 +29,10 @@ with unsafe_published as (
           else '[]'::jsonb
         end
       ) <> 1
-      or jsonb_array_length(
-        case
-          when jsonb_typeof(scb.conflicts) = 'array' then scb.conflicts
-          else '[]'::jsonb
-        end
-      ) > 0
+      or case
+        when jsonb_typeof(scb.conflicts) = 'array' then jsonb_array_length(scb.conflicts) > 0
+        else true
+      end
       or nullif(btrim(scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is null
       or nullif(btrim(scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is null
       or nullif(btrim(scb.workplaces->0->'visitingAddress'->>'city'), '') is null
@@ -101,12 +99,8 @@ begin
       and scb.last_synced_at >= now() - interval '7 days'
       and scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = evidence_profile_updated_token
       and scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = facts.last_synced_at::text
-      and jsonb_array_length(
-        case
-          when jsonb_typeof(scb.conflicts) = 'array' then scb.conflicts
-          else '[]'::jsonb
-        end
-      ) = 0
+      and jsonb_typeof(scb.conflicts) = 'array'
+      and jsonb_array_length(scb.conflicts) = 0
       and jsonb_array_length(
         case
           when jsonb_typeof(scb.workplaces) = 'array' then scb.workplaces

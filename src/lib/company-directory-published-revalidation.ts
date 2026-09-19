@@ -144,6 +144,10 @@ async function selectCandidates(limit: number) {
         or scb.last_synced_at < now() - interval '7 days'
         or scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' is distinct from profile.updated_at::text
         or scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' is distinct from facts.last_synced_at::text
+        or case
+          when jsonb_typeof(scb.conflicts) = 'array' then jsonb_array_length(scb.conflicts) > 0
+          else true
+        end
         or jsonb_array_length(coalesce(scb.workplaces, '[]'::jsonb)) <> 1
         or nullif(btrim(scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is null
         or nullif(btrim(scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is null
@@ -189,6 +193,10 @@ async function backlogCount() {
         or scb.last_synced_at < now() - interval '7 days'
         or scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' is distinct from profile.updated_at::text
         or scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' is distinct from facts.last_synced_at::text
+        or case
+          when jsonb_typeof(scb.conflicts) = 'array' then jsonb_array_length(scb.conflicts) > 0
+          else true
+        end
         or jsonb_array_length(coalesce(scb.workplaces, '[]'::jsonb)) <> 1
         or nullif(btrim(scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is null
         or nullif(btrim(scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is null
@@ -239,7 +247,10 @@ async function loadFreshEvaluation(profileId: string) {
       facts.source_payload_hash as facts_source_payload_hash,
       scb.workplaces as scb_workplaces,
       scb.source_payload_hash as scb_source_payload_hash,
-      coalesce(jsonb_array_length(scb.conflicts), 0)::int as scb_conflict_count,
+      case
+        when jsonb_typeof(scb.conflicts) = 'array' then jsonb_array_length(scb.conflicts)
+        else 1
+      end::int as scb_conflict_count,
       (
         facts.profile_id is not null
         and facts.last_synced_at >= profile.last_synced_at

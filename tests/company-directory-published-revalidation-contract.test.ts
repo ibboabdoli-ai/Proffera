@@ -223,6 +223,9 @@ describe("published Directory revalidation worker", () => {
     expect(mocks.enrichScb).not.toHaveBeenCalled();
     const backlog = sqlCalls.find((call) => call.query.includes("select count(*)::int as count"));
     expect(backlog?.query).toContain("scb.last_synced_at < now() - interval '7 days'");
+    expect(backlog?.query).toContain("jsonb_typeof(scb.conflicts) = 'array'");
+    expect(backlog?.query).toContain("jsonb_array_length(scb.conflicts) > 0");
+    expect(backlog?.query).toContain("else true");
     expect(backlog?.query).toContain("string_to_array");
     expect(backlog?.values).toContain(DIRECTORY_PILOT_LOCATIONS.join(","));
   });
@@ -278,6 +281,9 @@ describe("published Directory revalidation worker", () => {
     expect(selection?.query).toContain("jsonb_array_length(coalesce(scb.workplaces, '[]'::jsonb)) <> 1");
     expect(selection?.query).toContain("visitingAddress");
     expect(selection?.query).toContain("scb.last_synced_at < now() - interval '7 days'");
+    expect(selection?.query).toContain("jsonb_typeof(scb.conflicts) = 'array'");
+    expect(selection?.query).toContain("jsonb_array_length(scb.conflicts) > 0");
+    expect(selection?.query).toContain("else true");
     expect(selection?.query).toContain("string_to_array");
     expect(selection?.query).not.toContain("'stockholm', 'södertälje'");
     expect(selection?.values).toContain(DIRECTORY_PILOT_LOCATIONS.join(","));
@@ -287,6 +293,8 @@ describe("published Directory revalidation worker", () => {
       && call.query.includes("scb_snapshot_fresh")
     ));
     expect(evaluation?.query).toContain("scb.last_synced_at >= now() - interval '7 days'");
+    expect(evaluation?.query).toContain("case when jsonb_typeof(scb.conflicts) = 'array'");
+    expect(evaluation?.query).toContain("else 1");
   });
 
   it("moves a fresh high-confidence profile to Review when the physical workplace is outside the pilot", async () => {
