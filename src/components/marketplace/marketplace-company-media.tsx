@@ -12,7 +12,6 @@ import {
   Truck,
   Wrench,
   Zap,
-  type LucideIcon,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -26,39 +25,40 @@ function initials(name: string) {
     .join("") || "P";
 }
 
-function serviceIcon(serviceSlug?: string | null): LucideIcon {
+function ServiceIllustrationIcon({ serviceSlug }: { serviceSlug?: string | null }) {
+  const iconProps = { className: "size-9", strokeWidth: 1.8, "aria-hidden": true as const };
   switch ((serviceSlug ?? "").toLowerCase()) {
     case "frisor":
-      return Scissors;
+      return <Scissors {...iconProps} />;
     case "vvs":
     case "avloppsrensning":
     case "vattenlacka":
-      return Wrench;
+      return <Wrench {...iconProps} />;
     case "elinstallation":
     case "felsokning-el":
     case "laddbox":
     case "elcentral":
-      return Zap;
+      return <Zap {...iconProps} />;
     case "lokalvard":
     case "hemstadning":
     case "kontorsstadning":
     case "flyttstadning":
     case "fonsterputsning":
-      return Sparkles;
+      return <Sparkles {...iconProps} />;
     case "flytthjalp":
-      return Truck;
+      return <Truck {...iconProps} />;
     case "malning":
-      return PaintRoller;
+      return <PaintRoller {...iconProps} />;
     case "snickeri":
-      return Hammer;
+      return <Hammer {...iconProps} />;
     case "tradgardshjalp":
-      return Sprout;
+      return <Sprout {...iconProps} />;
     case "varmepump":
-      return Snowflake;
+      return <Snowflake {...iconProps} />;
     case "hemservice":
-      return House;
+      return <House {...iconProps} />;
     default:
-      return Building2;
+      return <Building2 {...iconProps} />;
   }
 }
 
@@ -113,7 +113,6 @@ export function MarketplaceCompanyCover({
   serviceSlug?: string | null;
 }) {
   const [failed, setFailed] = useState(false);
-  const Icon = serviceIcon(serviceSlug);
   const showIllustration = illustration || !url || failed;
 
   if (showIllustration) {
@@ -128,7 +127,7 @@ export function MarketplaceCompanyCover({
         <div className="absolute -bottom-14 -left-8 size-40 rounded-full border border-[#c8d9ec] bg-white/45" aria-hidden="true" />
         <div className="absolute left-[18%] top-[24%] h-px w-[64%] rotate-[-8deg] bg-[#c9d9eb]" aria-hidden="true" />
         <div className="relative grid size-20 place-items-center rounded-2xl border border-[#c9d9eb] bg-white text-[#1469d8] shadow-[0_12px_30px_rgba(10,46,99,.08)]">
-          <Icon className="size-9" strokeWidth={1.8} aria-hidden="true" />
+          <ServiceIllustrationIcon serviceSlug={serviceSlug} />
         </div>
       </div>
     );
