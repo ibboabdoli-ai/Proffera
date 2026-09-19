@@ -1,7 +1,22 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { acceptMemberInvitationAction } from "../src/app/bjud-in/[token]/actions";
+
+const invitationRuntime = vi.hoisted(() => ({
+  redirect: vi.fn(),
+  claimWorkspaceMemberInvitation: vi.fn(),
+}));
+
+vi.mock("next/navigation", () => ({
+  redirect: invitationRuntime.redirect,
+}));
+
+vi.mock("@/features/company/workspace-member-invitation", () => ({
+  claimWorkspaceMemberInvitation: invitationRuntime.claimWorkspaceMemberInvitation,
+}));
 
 function source(path: string) {
   return readFileSync(resolve(process.cwd(), path), "utf8");
@@ -15,6 +30,10 @@ describe("auth and signup human-designed UX contract", () => {
     expect(page).toContain("resolveSafeClaimLoginNext");
     expect(page).toContain("resolveOwnerPostLoginPath");
     expect(page).toContain("authLocaleHref");
+    expect(page).toContain("generateMetadata");
+    expect(page).not.toContain('title: "Sign in | Proffera"');
+    expect(page).not.toContain("För pilotkunder");
+    expect(page).toContain("Företagsinloggning");
     expect(page).toContain("auth-marketplace.module.css");
     expect(form).toContain('fetch("/api/auth/sign-in/email"');
     expect(form).toContain("rememberMe: true");
@@ -72,7 +91,6 @@ describe("auth and signup human-designed UX contract", () => {
     const activation = source("src/app/aktivera/[token]/activation-view.tsx");
     const activationForm = source("src/app/aktivera/[token]/activation-form.tsx");
     const invite = source("src/app/bjud-in/[token]/page.tsx");
-    const inviteAction = source("src/app/bjud-in/[token]/actions.ts");
 
     expect(activation).toContain('sv: {');
     expect(activation).toContain('en: {');
@@ -83,7 +101,59 @@ describe("auth and signup human-designed UX contract", () => {
     expect(invite).toContain('en: {');
     expect(invite).toContain("authStyles.languageLink");
     expect(invite).toContain("<ActivationForm");
-    expect(inviteAction).toContain('formData.get("lang")');
-    expect(inviteAction).toContain('"/logga-in?lang=en&created=1"');
+  });
+});
+
+
+function memberInvitationForm(locale: "sv" | "en", password: string, confirmPassword: string) {
+  const form = new FormData();
+  form.set("lang", locale);
+  form.set("password", password);
+  form.set("confirm_password", confirmPassword);
+  return form;
+}
+
+describe("member invitation redirect behavior", () => {
+  beforeEach(() => {
+    invitationRuntime.redirect.mockReset();
+    invitationRuntime.claimWorkspaceMemberInvitation.mockReset();
+    invitationRuntime.redirect.mockImplementation((target: string) => {
+      throw new Error(`NEXT_REDIRECT:${target}`);
+    });
+  });
+
+  it.each([
+    ["sv", "/bjud-in/token-123?error=password"],
+    ["en", "/bjud-in/token-123?lang=en&error=password"],
+  ] as const)("keeps %s locale on password validation redirects", async (locale, expected) => {
+    await expect(
+      acceptMemberInvitationAction("token-123", memberInvitationForm(locale, "password1", "password2")),
+    ).rejects.toThrow(`NEXT_REDIRECT:${expected}`);
+
+    expect(invitationRuntime.claimWorkspaceMemberInvitation).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["sv", "/bjud-in/token-123?error=expired"],
+    ["en", "/bjud-in/token-123?lang=en&error=expired"],
+  ] as const)("keeps %s locale on claim failures", async (locale, expected) => {
+    invitationRuntime.claimWorkspaceMemberInvitation.mockResolvedValue({ ok: false, code: "expired" });
+
+    await expect(
+      acceptMemberInvitationAction("token-123", memberInvitationForm(locale, "password1", "password1")),
+    ).rejects.toThrow(`NEXT_REDIRECT:${expected}`);
+  });
+
+  it.each([
+    ["sv", "/logga-in?created=1"],
+    ["en", "/logga-in?lang=en&created=1"],
+  ] as const)("keeps %s locale after successful invitation acceptance", async (locale, expected) => {
+    invitationRuntime.claimWorkspaceMemberInvitation.mockResolvedValue({ ok: true });
+
+    await expect(
+      acceptMemberInvitationAction("token-123", memberInvitationForm(locale, "password1", "password1")),
+    ).rejects.toThrow(`NEXT_REDIRECT:${expected}`);
+
+    expect(invitationRuntime.claimWorkspaceMemberInvitation).toHaveBeenCalledWith("token-123", "password1");
   });
 });
