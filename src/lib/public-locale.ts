@@ -142,6 +142,7 @@ export function isAuthSurfacePath(pathname: string | null | undefined) {
 
 export function isPublicQueryLocalePath(pathname: string | null | undefined) {
   if (!pathname) return false;
+  if (pathname === "/foretag/listad" || pathname.startsWith("/foretag/listad/")) return false;
   return isAuthQueryLocalePath(pathname)
     || queryLocalizedPublicPrefixes.some((prefix) => pathname.startsWith(prefix));
 }
