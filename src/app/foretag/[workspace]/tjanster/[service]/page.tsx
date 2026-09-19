@@ -20,6 +20,8 @@ import {
   serializePublicBusinessJsonLd,
 } from "@/lib/public-business-seo";
 
+import styles from "./public-service-page.module.css";
+
 export const dynamic = "force-dynamic";
 
 type Props = {
@@ -70,12 +72,21 @@ export default async function PublicServicePage({ params, searchParams }: Props)
   const languageSwitchHref = withPublicBusinessLocale(urls.serviceHref(item.publicSlug), otherLocale);
 
   const dark = experience.appearance === "dark";
-  const background = dark ? "#101512" : experience.themeKey === "premium" ? "#f4f0e8" : experience.themeKey === "modern" ? "#edf4f6" : "#f7f8f5";
+  const background = dark ? "#101512" : experience.themeKey === "premium" ? "#f4f0e8" : experience.themeKey === "modern" ? "#edf4f6" : "#f8fafc";
   const card = dark ? "#19211c" : "#ffffff";
-  const text = dark ? "#f5f7f5" : "#17201a";
-  const muted = dark ? "#b9c3bc" : "#5d685f";
-  const subtleBorder = dark ? "rgba(255,255,255,.16)" : "rgba(0,0,0,.10)";
-  const style = { "--business-primary": experience.primaryColor, "--business-accent": experience.accentColor, background, color: text } as CSSProperties;
+  const text = dark ? "#f5f7f5" : "#11213b";
+  const muted = dark ? "#b9c3bc" : "#617085";
+  const subtleBorder = dark ? "rgba(255,255,255,.16)" : "#dce4ee";
+  const style = {
+    "--business-primary": experience.primaryColor,
+    "--business-accent": experience.accentColor,
+    "--business-bg": background,
+    "--business-card": card,
+    "--business-text": text,
+    "--business-muted": muted,
+    "--business-border": subtleBorder,
+  } as CSSProperties;
+
   const price = formatPublicBusinessPrice(item, business.billingCurrency, locale === "en" ? "en-SE" : "sv-SE");
   const canBook = business.bookingEnabled && Boolean(business.bookingSlug) && (item.conversionMode === "book" || item.conversionMode === "book_or_quote");
   const canQuote = item.conversionMode === "quote" || item.conversionMode === "book_or_quote";
@@ -83,48 +94,199 @@ export default async function PublicServicePage({ params, searchParams }: Props)
   const bookingHref = withPublicBusinessLocale(`/boka/${encodeURIComponent(business.bookingSlug)}?service_id=${encodeURIComponent(item.id)}`, locale);
 
   return (
-    <main lang={locale} style={style} className="min-h-screen px-4 pb-28 pt-6 sm:px-6 sm:pt-10 lg:pb-10">
+    <main lang={locale} style={style} className={`${styles.page} px-4 pb-28 pt-6 sm:px-6 sm:pt-10 lg:pb-10`}>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: serializePublicBusinessJsonLd(jsonLd) }} />
       <PublicBusinessViewEvent workspaceId={business.id} serviceId={item.id} />
-      <div className="mx-auto max-w-5xl">
-        <div className="flex items-center justify-between gap-3">
-          <a href={companyHref} className="inline-flex min-h-11 items-center gap-2 rounded-xl px-2 text-sm font-black text-[var(--business-primary)]"><ArrowLeft className="h-4 w-4" /> {serviceCopy.backTo(business.companyName)}</a>
-          {showLanguageSwitch ? <a href={languageSwitchHref} aria-label={t.languageSwitchLabel} style={{ borderColor: subtleBorder }} className="inline-flex min-h-11 items-center gap-2 rounded-xl border px-3 text-sm font-black"><Languages className="h-4 w-4" /> <span className="hidden sm:inline">{t.languageSwitch}</span></a> : null}
+
+      <div className={styles.shell}>
+        <div className={styles.topbar}>
+          <a href={companyHref} className={styles.backLink}>
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+            {serviceCopy.backTo(business.companyName)}
+          </a>
+          {showLanguageSwitch ? (
+            <a href={languageSwitchHref} aria-label={t.languageSwitchLabel} className={styles.languageLink}>
+              <Languages className="h-4 w-4" aria-hidden="true" />
+              <span className="hidden sm:inline">{t.languageSwitch}</span>
+            </a>
+          ) : null}
         </div>
 
-        <section style={{ background: card }} className="mt-4 overflow-hidden rounded-[2rem] shadow-lg ring-1 ring-black/10">
-          <div className="grid gap-0 lg:grid-cols-[1.2fr_.8fr]">
-            <div className="p-7 sm:p-10">
-              {item.category ? <p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--business-primary)]">{item.category}</p> : null}
-              <h1 className="mt-3 text-4xl font-black leading-tight sm:text-5xl">{item.name}</h1>
-              <p style={{ color: muted }} className="mt-5 max-w-2xl text-base leading-7">{item.shortDescription || item.description || serviceCopy.fallback}</p>
-              <div className="mt-7 flex flex-wrap gap-3 text-sm font-bold">
-                {price ? <span className="rounded-full bg-black/[.05] px-4 py-2 text-[var(--business-primary)]">{price}</span> : null}
-                {item.durationMinutes ? <span style={{ color: muted }} className="inline-flex items-center gap-2 rounded-full bg-black/[.04] px-4 py-2"><Clock3 className="h-4 w-4" /> {item.durationMinutes} min</span> : null}
-                {item.serviceArea ? <span style={{ color: muted }} className="inline-flex items-center gap-2 rounded-full bg-black/[.04] px-4 py-2"><MapPin className="h-4 w-4" /> {item.serviceArea}</span> : null}
+        <section className={styles.hero}>
+          <div className={styles.heroGrid}>
+            <div className={styles.heroCopy}>
+              {item.category ? <p className={styles.eyebrow}>{item.category}</p> : null}
+              <h1 className={styles.title}>{item.name}</h1>
+              <p className={styles.lead}>{item.shortDescription || item.description || serviceCopy.fallback}</p>
+
+              <div className={styles.meta}>
+                {price ? <span>{price}</span> : null}
+                {item.durationMinutes ? <span><Clock3 aria-hidden="true" />{item.durationMinutes} min</span> : null}
+                {item.serviceArea ? <span><MapPin aria-hidden="true" />{item.serviceArea}</span> : null}
               </div>
+
               <div className="mt-8 hidden flex-wrap gap-3 lg:flex">
-                {canBook ? <PublicBusinessTrackedLink workspaceId={business.id} serviceId={item.id} eventKey="book_clicked" href={bookingHref} className="inline-flex min-h-12 items-center justify-center rounded-xl bg-[var(--business-primary)] px-5 font-black text-white"><CalendarCheck2 className="mr-2 h-5 w-5" /> {serviceCopy.bookOnline}</PublicBusinessTrackedLink> : null}
-                {canQuote ? <PublicBusinessTrackedLink workspaceId={business.id} serviceId={item.id} eventKey="quote_clicked" href="#offert" className="inline-flex min-h-12 items-center justify-center rounded-xl border border-black/15 px-5 font-black">{serviceCopy.requestQuote}</PublicBusinessTrackedLink> : null}
-                {canContact ? <PublicBusinessTrackedLink workspaceId={business.id} serviceId={item.id} eventKey="contact_clicked" href="#kontaktforfragan" className="inline-flex min-h-12 items-center justify-center rounded-xl border border-black/15 px-5 font-black"><Mail className="mr-2 h-4 w-4" /> {serviceCopy.contact}</PublicBusinessTrackedLink> : null}
+                {canBook ? (
+                  <PublicBusinessTrackedLink
+                    workspaceId={business.id}
+                    serviceId={item.id}
+                    eventKey="book_clicked"
+                    href={bookingHref}
+                    className="inline-flex min-h-12 items-center justify-center rounded-xl bg-[var(--business-primary)] px-5 font-black text-white"
+                  >
+                    <CalendarCheck2 className="mr-2 h-5 w-5" aria-hidden="true" />{serviceCopy.bookOnline}
+                  </PublicBusinessTrackedLink>
+                ) : null}
+                {canQuote ? (
+                  <PublicBusinessTrackedLink
+                    workspaceId={business.id}
+                    serviceId={item.id}
+                    eventKey="quote_clicked"
+                    href="#offert"
+                    className="inline-flex min-h-12 items-center justify-center rounded-xl border border-black/15 px-5 font-black"
+                  >
+                    {serviceCopy.requestQuote}
+                  </PublicBusinessTrackedLink>
+                ) : null}
+                {canContact ? (
+                  <PublicBusinessTrackedLink
+                    workspaceId={business.id}
+                    serviceId={item.id}
+                    eventKey="contact_clicked"
+                    href="#kontaktforfragan"
+                    className="inline-flex min-h-12 items-center justify-center rounded-xl border border-black/15 px-5 font-black"
+                  >
+                    <Mail className="mr-2 h-4 w-4" aria-hidden="true" />{serviceCopy.contact}
+                  </PublicBusinessTrackedLink>
+                ) : null}
               </div>
             </div>
-            {item.coverImageUrl ? <img src={item.coverImageUrl} alt={item.name} className="h-full min-h-72 w-full object-cover" /> : <div style={{ background: experience.primaryColor }} className="flex min-h-56 items-center justify-center p-8 text-white"><div className="text-center"><div className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl bg-white/15 text-3xl font-black">{item.name.slice(0, 1).toUpperCase()}</div><p className="mt-4 text-sm font-black uppercase tracking-[0.16em] text-white/70">{business.companyName}</p>{business.primaryCity ? <p className="mt-2 text-white/80">{business.primaryCity}</p> : null}</div></div>}
+
+            <div className={styles.heroMedia}>
+              {item.coverImageUrl ? (
+                // Public tenant media can live on tenant-specific Blob/CDN hosts.
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={item.coverImageUrl} alt={item.name} />
+              ) : (
+                <div className={styles.fallback}>
+                  <div className="text-center">
+                    <div className={styles.fallbackMark}>{item.name.slice(0, 1).toUpperCase()}</div>
+                    <p className={styles.fallbackCompany}>{business.companyName}</p>
+                    {business.primaryCity ? <p className={styles.fallbackCity}>{business.primaryCity}</p> : null}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </section>
 
-        {item.description && item.description !== item.shortDescription ? <section style={{ background: card }} className="mt-6 rounded-[1.6rem] p-7 ring-1 ring-black/10 sm:p-8"><h2 className="text-2xl font-black">{serviceCopy.about}</h2><p style={{ color: muted }} className="mt-4 whitespace-pre-line leading-7">{item.description}</p></section> : null}
+        {item.description && item.description !== item.shortDescription ? (
+          <section className={styles.section}>
+            <h2 className={styles.sectionTitle}>{serviceCopy.about}</h2>
+            <p className={`${styles.sectionText} whitespace-pre-line`}>{item.description}</p>
+          </section>
+        ) : null}
 
-        {canQuote ? <section id="offert" style={{ background: card }} className="mt-6 scroll-mt-24 rounded-[1.6rem] p-7 ring-1 ring-black/10 sm:p-8"><div className="mb-6"><p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--business-primary)]">{serviceCopy.quoteEyebrow}</p><h2 className="mt-2 text-2xl font-black">{serviceCopy.quoteTitle}</h2><p style={{ color: muted }} className="mt-2 text-sm leading-6">{serviceCopy.quoteLead(business.companyName, item.name)}</p></div><PublicBusinessQuoteForm workspaceSlug={business.slug} serviceId={item.id} serviceName={item.name} locale={locale} /></section> : null}
+        {canQuote ? (
+          <section id="offert" className={`scroll-mt-24 ${styles.section}`}>
+            <div className="mb-5">
+              <p className={styles.eyebrow}>{serviceCopy.quoteEyebrow}</p>
+              <h2 className={styles.sectionTitle}>{serviceCopy.quoteTitle}</h2>
+              <p className={styles.sectionText}>{serviceCopy.quoteLead(business.companyName, item.name)}</p>
+            </div>
+            <PublicBusinessQuoteForm workspaceSlug={business.slug} serviceId={item.id} serviceName={item.name} locale={locale} />
+          </section>
+        ) : null}
 
-        {canContact ? <section id="kontaktforfragan" style={{ background: card }} className="mt-6 scroll-mt-24 rounded-[1.6rem] p-7 ring-1 ring-black/10 sm:p-8"><div className="mb-6"><p className="text-xs font-black uppercase tracking-[0.16em] text-[var(--business-primary)]">{serviceCopy.contactEyebrow}</p><h2 className="mt-2 text-2xl font-black">{serviceCopy.contactTitle}</h2><p style={{ color: muted }} className="mt-2 text-sm leading-6">{serviceCopy.contactLead(business.companyName)}</p></div><PublicBusinessContactForm workspaceId={business.id} serviceId={item.id} locale={locale} /></section> : null}
+        {canContact ? (
+          <section id="kontaktforfragan" className={`scroll-mt-24 ${styles.section}`}>
+            <div className="mb-5">
+              <p className={styles.eyebrow}>{serviceCopy.contactEyebrow}</p>
+              <h2 className={styles.sectionTitle}>{serviceCopy.contactTitle}</h2>
+              <p className={styles.sectionText}>{serviceCopy.contactLead(business.companyName)}</p>
+            </div>
+            <PublicBusinessContactForm workspaceId={business.id} serviceId={item.id} locale={locale} />
+          </section>
+        ) : null}
 
-        {experience.contactEnabled && (business.contactEmail || business.contactPhone) ? <section style={{ background: card }} className="mt-6 rounded-[1.6rem] p-7 ring-1 ring-black/10 sm:p-8"><h2 className="text-2xl font-black">{serviceCopy.contactDetails}</h2><div className="mt-5 flex flex-wrap gap-3">{business.contactPhone ? <PublicBusinessTrackedLink workspaceId={business.id} serviceId={item.id} eventKey="contact_clicked" href={`tel:${business.contactPhone}`} className="inline-flex min-h-12 items-center rounded-xl border border-black/15 px-5 font-bold"><Phone className="mr-2 h-4 w-4" /> {business.contactPhone}</PublicBusinessTrackedLink> : null}{business.contactEmail ? <PublicBusinessTrackedLink workspaceId={business.id} serviceId={item.id} eventKey="contact_clicked" href={`mailto:${business.contactEmail}?subject=${encodeURIComponent(item.name)}`} className="inline-flex min-h-12 items-center rounded-xl border border-black/15 px-5 font-bold"><Mail className="mr-2 h-4 w-4" /> {business.contactEmail}</PublicBusinessTrackedLink> : null}</div></section> : null}
+        {experience.contactEnabled && (business.contactEmail || business.contactPhone) ? (
+          <section className={styles.section}>
+            <h2 className={styles.sectionTitle}>{serviceCopy.contactDetails}</h2>
+            <div className={styles.contactLinks}>
+              {business.contactPhone ? (
+                <PublicBusinessTrackedLink
+                  workspaceId={business.id}
+                  serviceId={item.id}
+                  eventKey="contact_clicked"
+                  href={`tel:${business.contactPhone}`}
+                  className={styles.contactLink}
+                >
+                  <Phone aria-hidden="true" />{business.contactPhone}
+                </PublicBusinessTrackedLink>
+              ) : null}
+              {business.contactEmail ? (
+                <PublicBusinessTrackedLink
+                  workspaceId={business.id}
+                  serviceId={item.id}
+                  eventKey="contact_clicked"
+                  href={`mailto:${business.contactEmail}?subject=${encodeURIComponent(item.name)}`}
+                  className={styles.contactLink}
+                >
+                  <Mail aria-hidden="true" />{business.contactEmail}
+                </PublicBusinessTrackedLink>
+              ) : null}
+            </div>
+          </section>
+        ) : null}
 
-        <footer style={{ color: muted }} className="mt-8 flex flex-col gap-2 border-t border-black/10 py-6 text-xs sm:flex-row sm:items-center sm:justify-between"><span>© {new Date().getFullYear()} {business.companyName}</span><span>{serviceCopy.footer}</span></footer>
+        <footer className={styles.footer}>
+          <span>© {new Date().getFullYear()} {business.companyName}</span>
+          <span>{serviceCopy.footer}</span>
+        </footer>
       </div>
 
-      {canBook || canQuote || canContact ? <div style={{ background: card, borderColor: subtleBorder, paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }} className="fixed inset-x-0 bottom-0 z-40 border-t px-3 pt-3 shadow-[0_-10px_30px_rgba(0,0,0,.08)] backdrop-blur lg:hidden"><div className="mx-auto flex max-w-5xl gap-2">{canBook ? <PublicBusinessTrackedLink workspaceId={business.id} serviceId={item.id} eventKey="book_clicked" href={bookingHref} className="inline-flex min-h-12 flex-1 items-center justify-center rounded-xl bg-[var(--business-primary)] px-4 text-sm font-black text-white"><CalendarCheck2 className="mr-2 h-4 w-4" /> {serviceCopy.bookOnline}</PublicBusinessTrackedLink> : null}{canQuote ? <PublicBusinessTrackedLink workspaceId={business.id} serviceId={item.id} eventKey="quote_clicked" href="#offert" className={`inline-flex min-h-12 flex-1 items-center justify-center rounded-xl px-4 text-sm font-black ${canBook ? "border border-black/15" : "bg-[var(--business-primary)] text-white"}`}>{serviceCopy.requestQuote}</PublicBusinessTrackedLink> : null}{canContact ? <PublicBusinessTrackedLink workspaceId={business.id} serviceId={item.id} eventKey="contact_clicked" href="#kontaktforfragan" className="inline-flex min-h-12 flex-1 items-center justify-center rounded-xl bg-[var(--business-primary)] px-4 text-sm font-black text-white"><Mail className="mr-2 h-4 w-4" /> {serviceCopy.contact}</PublicBusinessTrackedLink> : null}</div></div> : null}
+      {canBook || canQuote || canContact ? (
+        <div
+          style={{ background: card, borderColor: subtleBorder, paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
+          className="fixed inset-x-0 bottom-0 z-40 border-t px-3 pt-3 shadow-[0_-10px_30px_rgba(0,0,0,.08)] backdrop-blur lg:hidden"
+        >
+          <div className="mx-auto flex max-w-5xl gap-2">
+            {canBook ? (
+              <PublicBusinessTrackedLink
+                workspaceId={business.id}
+                serviceId={item.id}
+                eventKey="book_clicked"
+                href={bookingHref}
+                className="inline-flex min-h-12 flex-1 items-center justify-center rounded-xl bg-[var(--business-primary)] px-4 text-sm font-black text-white"
+              >
+                <CalendarCheck2 className="mr-2 h-4 w-4" aria-hidden="true" />{serviceCopy.bookOnline}
+              </PublicBusinessTrackedLink>
+            ) : null}
+            {canQuote ? (
+              <PublicBusinessTrackedLink
+                workspaceId={business.id}
+                serviceId={item.id}
+                eventKey="quote_clicked"
+                href="#offert"
+                className={`inline-flex min-h-12 flex-1 items-center justify-center rounded-xl px-4 text-sm font-black ${canBook ? "border border-black/15" : "bg-[var(--business-primary)] text-white"}`}
+              >
+                {serviceCopy.requestQuote}
+              </PublicBusinessTrackedLink>
+            ) : null}
+            {canContact ? (
+              <PublicBusinessTrackedLink
+                workspaceId={business.id}
+                serviceId={item.id}
+                eventKey="contact_clicked"
+                href="#kontaktforfragan"
+                className="inline-flex min-h-12 flex-1 items-center justify-center rounded-xl bg-[var(--business-primary)] px-4 text-sm font-black text-white"
+              >
+                <Mail className="mr-2 h-4 w-4" aria-hidden="true" />{serviceCopy.contact}
+              </PublicBusinessTrackedLink>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
