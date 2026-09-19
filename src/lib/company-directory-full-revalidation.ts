@@ -12,6 +12,7 @@ import {
 import { enrichCompanyDirectoryScbForProfile } from "@/lib/company-directory-scb-enrichment";
 import { createScbCompanyRegistryTransportFromEnv } from "@/lib/company-directory-scb-transport";
 import { getSql } from "@/lib/db/server";
+import { invalidateMarketplaceHomeCompaniesCache } from "@/lib/public-read-cache";
 
 const REVALIDATION_PROVIDER = "full_directory_revalidation";
 const DEFAULT_BATCH_SIZE = 10;
@@ -1141,7 +1142,28 @@ export async function revalidateAllCompanyDirectoryBatch(
           || confidence.score < 95
           || scbConflictCount > 0;
 
-        if (claimed || status === "inactive") {
+        if (claimed) {
+          try {
+            await invalidatePublicDirectoryPublicProjectionByProfileId(profileId);
+          } catch (error) {
+            console.error("Failed to invalidate public Directory cache after claimed workplace revalidation", {
+              profileId,
+              error,
+            });
+          }
+          try {
+            invalidateMarketplaceHomeCompaniesCache();
+          } catch (error) {
+            console.error("Failed to invalidate Marketplace cache after claimed workplace revalidation", {
+              profileId,
+              error,
+            });
+          }
+          kept += 1;
+          continue;
+        }
+
+        if (status === "inactive") {
           kept += 1;
           continue;
         }
@@ -1248,6 +1270,14 @@ export async function revalidateAllCompanyDirectoryBatch(
             await invalidatePublicDirectoryPublicProjectionByProfileId(profileId);
           } catch (error) {
             console.error("Failed to invalidate public Directory cache after committed full-revalidation demotion", {
+              profileId,
+              error,
+            });
+          }
+          try {
+            invalidateMarketplaceHomeCompaniesCache();
+          } catch (error) {
+            console.error("Failed to invalidate Marketplace cache after committed full-revalidation demotion", {
               profileId,
               error,
             });
