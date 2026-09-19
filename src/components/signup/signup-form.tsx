@@ -126,8 +126,18 @@ export async function submitSignup(
     return { accountReady, error: accountReady ? "recovery" : "genericError" };
   }
 
-  dependencies.persistLocale(input.locale);
-  dependencies.navigate(result.redirectPath || "/dashboard/onboarding?new=1");
+  try {
+    dependencies.persistLocale(input.locale);
+  } catch {
+    // Locale persistence is best-effort after the account and workspace already exist.
+  }
+
+  try {
+    dependencies.navigate(result.redirectPath || "/dashboard/onboarding?new=1");
+  } catch {
+    return { accountReady, error: "recovery" };
+  }
+
   return { accountReady, error: null };
 }
 
