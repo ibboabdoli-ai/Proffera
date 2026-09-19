@@ -503,7 +503,7 @@ describe("Proffera standing automerge authorization", () => {
     expect(workflow).not.toContain("updated_at");
     expect(workflow).toContain("clean exact-head completion comment");
     expect(workflow).toContain('workflow_run:');
-    expect(workflow).toContain('workflows: [CI]');
+    expect(workflow).toContain('workflows: [CI, Security review regressions]');
     expect(workflow).toContain('E2E public smoke');
     expect(workflow).toContain('select(.name == "Validate" and .bucket == "pass")');
     expect(workflow).toContain('select(.name == "E2E public smoke" and .bucket == "pass")');
@@ -520,6 +520,7 @@ describe("Proffera standing automerge authorization", () => {
   it("reacts to CI completion and review events instead of depending on polling", () => {
     const triggers = parseWorkflowTriggers(workflow);
     expect(triggers.get("workflow_run")?.workflows).toContain("CI");
+    expect(triggers.get("workflow_run")?.workflows).toContain("Security review regressions");
     expect(triggers.get("workflow_run")?.types).toContain("completed");
     expect(triggers.has("pull_request_review")).toBe(true);
     expect(triggers.has("issue_comment")).toBe(true);
