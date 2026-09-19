@@ -363,7 +363,13 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
           and claimed_facts.last_synced_at >= profile.last_synced_at
           and claimed_facts.deregistration_date is null
           and coalesce(claimed_facts.advertising_blocked, false) = false
-          and jsonb_array_length(coalesce(claimed_facts.ongoing_procedures, '[]'::jsonb)) = 0
+          and (
+            case
+              when jsonb_typeof(claimed_facts.ongoing_procedures) = 'array'
+                then jsonb_array_length(claimed_facts.ongoing_procedures)
+              else 1
+            end
+          ) = 0
           and claimed_scb.source_payload_hash <> ''
           and claimed_scb.last_synced_at >= now() - interval '7 days'
           and claimed_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
