@@ -8,6 +8,7 @@ import { invalidatePublicDirectoryPublicProjectionByProfileId } from "@/lib/comp
 import { enrichCompanyDirectoryScbForProfile } from "@/lib/company-directory-scb-enrichment";
 import { createScbCompanyRegistryTransportFromEnv } from "@/lib/company-directory-scb-transport";
 import { getSql } from "@/lib/db/server";
+import { invalidateMarketplaceHomeCompaniesCache } from "@/lib/public-read-cache";
 
 const REVALIDATION_PROVIDER = "published_revalidation";
 const DEFAULT_REVALIDATION_BATCH_SIZE = 2;
@@ -556,6 +557,14 @@ export async function revalidatePublishedCompanyDirectoryBatch(
           await invalidatePublicDirectoryPublicProjectionByProfileId(profileId);
         } catch (error) {
           console.error("Failed to invalidate public Directory cache after committed published demotion", {
+            profileId,
+            error,
+          });
+        }
+        try {
+          invalidateMarketplaceHomeCompaniesCache();
+        } catch (error) {
+          console.error("Failed to invalidate Marketplace cache after committed published demotion", {
             profileId,
             error,
           });
