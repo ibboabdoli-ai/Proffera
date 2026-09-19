@@ -3,6 +3,7 @@ import "server-only";
 import { assessCompanyDirectoryCategoryConfidence } from "@/lib/company-directory-category-confidence";
 import { enrichCompanyDirectoryOfficialFactsForProfile } from "@/lib/company-directory-official-facts";
 import { assessCompanyDirectoryPilotWorkplace } from "@/lib/company-directory-pilot-location";
+import { DIRECTORY_PILOT_LOCATIONS } from "@/lib/company-directory-policy";
 import { invalidatePublicDirectoryPublicProjectionByProfileId } from "@/lib/company-directory-public-cache";
 import { enrichCompanyDirectoryScbForProfile } from "@/lib/company-directory-scb-enrichment";
 import { createScbCompanyRegistryTransportFromEnv } from "@/lib/company-directory-scb-transport";
@@ -13,6 +14,7 @@ const DEFAULT_REVALIDATION_BATCH_SIZE = 2;
 const MAX_REVALIDATION_BATCH_SIZE = 3;
 const OFFICIAL_FACTS_START_HEADROOM_MS = 30_000;
 const SCB_START_HEADROOM_MS = 18_000;
+const PILOT_LOCATION_CSV = DIRECTORY_PILOT_LOCATIONS.join(",");
 
 type RevalidationOptions = {
   deadlineAt?: number;
@@ -138,6 +140,8 @@ async function selectCandidates(limit: number) {
         or facts.last_synced_at < profile.last_synced_at
         or scb.profile_id is null
         or scb.source_payload_hash = ''
+        or scb.last_synced_at is null
+        or scb.last_synced_at < now() - interval '7 days'
         or scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' is distinct from profile.updated_at::text
         or scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' is distinct from facts.last_synced_at::text
         or jsonb_array_length(coalesce(scb.workplaces, '[]'::jsonb)) <> 1
@@ -146,8 +150,10 @@ async function selectCandidates(limit: number) {
         or nullif(btrim(scb.workplaces->0->'visitingAddress'->>'city'), '') is null
         or nullif(btrim(scb.workplaces->0->>'municipality'), '') is null
         or (
-          lower(btrim(scb.workplaces->0->'visitingAddress'->>'city')) not in ('stockholm', 'södertälje')
-          and lower(btrim(scb.workplaces->0->>'municipality')) not in ('stockholm', 'södertälje')
+          not (
+            lower(btrim(scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            or lower(btrim(scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+          )
         )
       )
     order by
@@ -179,6 +185,8 @@ async function backlogCount() {
         or facts.last_synced_at < profile.last_synced_at
         or scb.profile_id is null
         or scb.source_payload_hash = ''
+        or scb.last_synced_at is null
+        or scb.last_synced_at < now() - interval '7 days'
         or scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' is distinct from profile.updated_at::text
         or scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' is distinct from facts.last_synced_at::text
         or jsonb_array_length(coalesce(scb.workplaces, '[]'::jsonb)) <> 1
@@ -187,8 +195,10 @@ async function backlogCount() {
         or nullif(btrim(scb.workplaces->0->'visitingAddress'->>'city'), '') is null
         or nullif(btrim(scb.workplaces->0->>'municipality'), '') is null
         or (
-          lower(btrim(scb.workplaces->0->'visitingAddress'->>'city')) not in ('stockholm', 'södertälje')
-          and lower(btrim(scb.workplaces->0->>'municipality')) not in ('stockholm', 'södertälje')
+          not (
+            lower(btrim(scb.workplaces->0->'visitingAddress'->>'city')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+            or lower(btrim(scb.workplaces->0->>'municipality')) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
+          )
         )
       )
   `;
@@ -238,6 +248,7 @@ async function loadFreshEvaluation(profileId: string) {
       (
         scb.profile_id is not null
         and scb.source_payload_hash <> ''
+        and scb.last_synced_at >= now() - interval '7 days'
         and scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
         and scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = facts.last_synced_at::text
       ) as scb_snapshot_fresh

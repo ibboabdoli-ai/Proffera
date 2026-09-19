@@ -65,7 +65,9 @@ const juridicalLegalForms = [
   "filial",
 ];
 
-const pilotLocations = new Set(["stockholm", "södertälje"]);
+export const DIRECTORY_PILOT_LOCATIONS = ["stockholm", "södertälje"] as const;
+
+const pilotLocations = new Set<string>(DIRECTORY_PILOT_LOCATIONS);
 
 function normalizeLocation(value: unknown) {
   return String(value ?? "").trim().toLocaleLowerCase("sv-SE");
