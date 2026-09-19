@@ -26,6 +26,8 @@ describe("Readability and contrast hardening", () => {
     expect(css).toContain('[class~="bg-[#0a2e63]"]');
     expect(css).toContain('[class~="bg-[#0a3c8f]"]');
     expect(css).toContain('[class~="bg-[#1469d8]"]');
+    expect(css).toContain('[class~="bg-[#1769c2]"]');
+    expect(css).toContain('[class~="bg-[#2f80ed]"]');
     expect(header).toContain('bg-[#0a2e63] px-4 text-sm font-black !text-white');
     expect(header).toContain("hover:!text-white");
   });
