@@ -1,0 +1,117 @@
+name: Preview safe browser smoke
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, ready_for_review]
+    paths:
+      - "e2e/tests/public-critical-flows.e2e.mjs"
+      - "e2e/tests/public-marketing.e2e.mjs"
+      - "e2e/playwright.config.mjs"
+      - "e2e/package.json"
+      - "e2e/package-lock.json"
+      - "src/app/**"
+      - "src/components/**"
+      - "src/features/quote-request/**"
+      - "src/lib/public-*.ts"
+      - ".github/workflows/preview-safe-smoke.yml"
+
+permissions:
+  contents: read
+  deployments: read
+
+concurrency:
+  group: preview-safe-smoke-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  preview-safe-smoke:
+    name: Preview safe smoke
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.event.pull_request.head.ref, 'work/proffera-preview-e2e-')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      deployments: read
+
+    steps:
+      - name: Checkout exact pull request head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+
+      - name: Resolve exact-head Vercel Preview
+        id: preview
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          api="https://api.github.com/repos/${REPOSITORY}"
+          preview_url=""
+
+          for attempt in $(seq 1 48); do
+            deployments="$(curl --fail --silent --show-error               -H "Authorization: Bearer ${GH_TOKEN}"               -H "Accept: application/vnd.github+json"               -H "X-GitHub-Api-Version: 2022-11-28"               "${api}/deployments?sha=${HEAD_SHA}&per_page=20")" || {
+                echo "Deployment lookup failed on attempt ${attempt}/48; retrying." >&2
+                sleep 10
+                continue
+              }
+
+            while IFS= read -r deployment_id; do
+              [ -n "${deployment_id}" ] || continue
+              statuses="$(curl --fail --silent --show-error                 -H "Authorization: Bearer ${GH_TOKEN}"                 -H "Accept: application/vnd.github+json"                 -H "X-GitHub-Api-Version: 2022-11-28"                 "${api}/deployments/${deployment_id}/statuses?per_page=20")" || continue
+
+              candidate="$(jq -r '[.[] | select(.state == "success") | .environment_url // empty][0] // empty' <<<"${statuses}")"
+              [ -n "${candidate}" ] || continue
+
+              host="$(node -e 'const u=new URL(process.argv[1]); process.stdout.write(u.hostname)' "${candidate}")"
+              protocol="$(node -e 'const u=new URL(process.argv[1]); process.stdout.write(u.protocol)' "${candidate}")"
+              if [ "${protocol}" = "https:" ]                 && [[ "${host}" == *.vercel.app ]]                 && [ "${host}" != "proffera.se" ]                 && [ "${host}" != "www.proffera.se" ]                 && [ "${host}" != "chat.proffera.se" ]; then
+                preview_url="${candidate%/}"
+                break 2
+              fi
+            done < <(jq -r '.[] | select((.environment // "") != "Production" and (.environment // "") != "production") | .id' <<<"${deployments}")
+
+            sleep 10
+          done
+
+          if [ -z "${preview_url}" ]; then
+            echo "No successful isolated Vercel Preview deployment was found for exact head ${HEAD_SHA}." >&2
+            exit 1
+          fi
+
+          echo "url=${preview_url}" >> "${GITHUB_OUTPUT}"
+          echo "Using exact-head Preview: ${preview_url}"
+
+      - name: Install browser test dependencies
+        working-directory: e2e
+        run: npm ci --no-audit --no-fund
+
+      - name: Install Chromium
+        working-directory: e2e
+        run: npx playwright install --with-deps chromium
+
+      - name: Run read-only public Preview smoke
+        working-directory: e2e
+        env:
+          E2E_BASE_URL: ${{ steps.preview.outputs.url }}
+          E2E_ALLOW_REMOTE: "true"
+        run: >-
+          npx playwright test
+          tests/public-critical-flows.e2e.mjs
+          tests/public-marketing.e2e.mjs
+          --project=chromium
+          --reporter=line
+          --retries=0
