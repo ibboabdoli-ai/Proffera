@@ -54,6 +54,7 @@ vi.mock("@/lib/company-directory-full-revalidation", () => ({
   revalidateAllCompanyDirectoryBatch: mocks.fullBatch,
 }));
 vi.mock("@/lib/company-directory-policy", () => ({
+  DIRECTORY_PILOT_LOCATIONS: ["stockholm", "södertälje"],
   assessDirectoryCandidate: mocks.assessDirectoryCandidate,
   buildDirectoryPublicSlug: mocks.buildDirectoryPublicSlug,
   isDirectoryPilotLocation: mocks.isDirectoryPilotLocation,
