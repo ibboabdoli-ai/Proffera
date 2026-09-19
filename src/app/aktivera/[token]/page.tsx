@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { getWorkspaceInvitation } from "@/features/company/workspace-invitation";
 import {
+  activationDocumentTitle,
   authRedirectQuery,
   firstAuthSearchParam,
   resolveAuthLocale,
@@ -16,7 +17,7 @@ export async function generateMetadata({ searchParams }: PageProps): Promise<Met
   const locale = resolveAuthLocale(query);
 
   return {
-    title: locale === "en" ? "Activate workspace" : "Aktivera arbetsyta",
+    title: { absolute: activationDocumentTitle(locale) },
     robots: { index: false, follow: false },
   };
 }
