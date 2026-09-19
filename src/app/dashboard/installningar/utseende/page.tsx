@@ -1,6 +1,7 @@
 import { SlidersHorizontal } from "lucide-react";
 import { redirect } from "next/navigation";
 
+import { DashboardActionFeedback } from "@/components/dashboard/dashboard-action-feedback";
 import { DashboardPageHeader } from "@/components/dashboard/dashboard-page-ui";
 
 import { BookingPageBuilder } from "./booking-page-builder";
@@ -269,6 +270,22 @@ export default async function AppearanceSettingsPage({
     : redirectDomainState
       ? domainMessages[redirectDomainState]
       : null;
+  const actionStatusMessage = params.updated === "1"
+    ? "Designen och temainnehållet sparades och publicerades."
+    : params.domainRemoved === "1"
+      ? "Domänen kopplades från och togs bort från Profferas Vercel-projekt."
+      : null;
+  const actionErrorMessages: Record<string, string> = {
+    language: "Minst ett språk måste vara aktivt.",
+    theme_content: "Temainnehållet kunde inte sparas. Välj ett giltigt tema.",
+    domain: "Ange bara ett giltigt domännamn, till exempel booking.foretagen.se.",
+    domain_taken: "Domänen används redan av en annan arbetsyta.",
+    domain_remove: "Domänen kunde inte kopplas från Vercel. Ingen säker bortkoppling genomfördes.",
+    domain_cleanup: "Den gamla domänen kunde inte städas bort säkert. Domänbytet återställdes.",
+    domain_provision: "Den nya domänen kunde inte läggas till säkert i Vercel. Den tidigare domänen behölls.",
+    domain_protected: "Den här domänen är skyddad och kan inte flyttas eller kopplas från via självservice.",
+  };
+  const actionAlertMessage = params.error ? actionErrorMessages[params.error] ?? null : null;
 
   return (
     <div className="grid gap-5">
@@ -280,16 +297,7 @@ export default async function AppearanceSettingsPage({
         actions={publicBookingUrl ? <a href={publicBookingUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center justify-center rounded-control bg-brand-deep px-4 py-2.5 text-sm font-bold text-white">Visa publik sida</a> : null}
       />
 
-      {params.updated === "1" ? <p className="rounded-card border border-[#cfe8d6] bg-[#eaf8f2] p-4 text-sm font-bold text-brand">Designen och temainnehållet sparades och publicerades.</p> : null}
-      {params.domainRemoved === "1" ? <p className="rounded-card border border-[#cfe8d6] bg-[#eaf8f2] p-4 text-sm font-bold text-brand">Domänen kopplades från och togs bort från Profferas Vercel-projekt.</p> : null}
-      {params.error === "language" ? <p className="rounded-card border border-[#f4c7ba] bg-[#fff5f2] p-4 text-sm font-bold text-danger">Minst ett språk måste vara aktivt.</p> : null}
-      {params.error === "theme_content" ? <p className="rounded-card border border-[#f4c7ba] bg-[#fff5f2] p-4 text-sm font-bold text-danger">Temainnehållet kunde inte sparas. Välj ett giltigt tema.</p> : null}
-      {params.error === "domain" ? <p className="rounded-card border border-[#f4c7ba] bg-[#fff5f2] p-4 text-sm font-bold text-danger">Ange bara ett giltigt domännamn, till exempel booking.foretagen.se.</p> : null}
-      {params.error === "domain_taken" ? <p className="rounded-card border border-[#f4c7ba] bg-[#fff5f2] p-4 text-sm font-bold text-danger">Domänen används redan av en annan arbetsyta.</p> : null}
-      {params.error === "domain_remove" ? <p className="rounded-card border border-[#f4c7ba] bg-[#fff5f2] p-4 text-sm font-bold text-danger">Domänen kunde inte kopplas från Vercel. Ingen säker bortkoppling genomfördes.</p> : null}
-      {params.error === "domain_cleanup" ? <p className="rounded-card border border-[#f4c7ba] bg-[#fff5f2] p-4 text-sm font-bold text-danger">Den gamla domänen kunde inte städas bort säkert. Domänbytet återställdes.</p> : null}
-      {params.error === "domain_provision" ? <p className="rounded-card border border-[#f4c7ba] bg-[#fff5f2] p-4 text-sm font-bold text-danger">Den nya domänen kunde inte läggas till säkert i Vercel. Den tidigare domänen behölls.</p> : null}
-      {params.error === "domain_protected" ? <p className="rounded-card border border-[#f4c7ba] bg-[#fff5f2] p-4 text-sm font-bold text-danger">Den här domänen är skyddad och kan inte flyttas eller kopplas från via självservice.</p> : null}
+      <DashboardActionFeedback statusMessage={actionStatusMessage} alertMessage={actionAlertMessage} />
 
       {!builderEnabled ? (
         <section className="rounded-card border border-[#efd58d] bg-[#fff7df] p-5">
