@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { CheckCircle2 } from "lucide-react";
+
+import styles from "@/app/remaining-public-experience.module.css";
 import { createEnglishMetadata } from "@/lib/english-metadata";
 
 export const metadata = createEnglishMetadata({
@@ -8,15 +11,28 @@ export const metadata = createEnglishMetadata({
   swedishPath: "/anslut-foretag/tack",
 });
 
-type PageProps = {
-  searchParams: Promise<{ ref?: string }>;
-};
+type PageProps = { searchParams: Promise<{ ref?: string }> };
 
 export default async function EnglishThanksPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const reference = params.ref ?? "";
+  const svHref = `/anslut-foretag/tack${reference ? `?ref=${encodeURIComponent(reference)}` : ""}`;
 
   return (
-    <main className="min-h-screen bg-[#f7f7f4] px-4 py-16 sm:px-6 lg:px-8"><section className="mx-auto max-w-2xl rounded-3xl bg-white p-8 shadow-sm ring-1 ring-[#dfe5dd]"><p className="text-sm font-semibold uppercase tracking-[0.2em] text-[#17452f]">Business</p><h1 className="mt-4 text-4xl font-bold text-[#17201a]">Thank you! Your request has been received.</h1><p className="mt-4 text-[#5b665f]">We have received your information and will contact you about the next step for a demo or installation.</p>{reference ? <p className="mt-6 rounded-2xl bg-[#eef5ef] p-4 font-semibold text-[#17452f]">Reference number: {reference}</p> : null}<div className="mt-8 flex flex-wrap gap-3"><Link className="rounded-full bg-[#17452f] px-5 py-3 text-sm font-semibold text-white" href="/en">Back to home</Link><Link className="rounded-full border border-[#17452f] px-5 py-3 text-sm font-semibold text-[#17452f]" href="/en/join-business">Send another request</Link></div></section></main>
+    <main className={styles.page} lang="en">
+      <section className={[styles.shell, styles.narrow].join(" ")}>
+        <header className={styles.header}>
+          <div className={styles.headerRow}>
+            <div className={styles.headerCopy}><p className={styles.eyebrow}>Business</p><h1 className={styles.title}>Thank you! Your request has been received.</h1></div>
+            <Link href={svHref} className={styles.languageLink}>Svenska</Link>
+          </div>
+        </header>
+        <div className={styles.content}>
+          <p className={styles.sectionCopy}>We have received your information and will contact you about the next step for a demo or installation.</p>
+          {reference ? <p className={[styles.notice, styles.success].join(" ")}><CheckCircle2 className="mr-2 inline h-5 w-5" aria-hidden="true" />Reference number: {reference}</p> : null}
+          <div className={styles.actions}><Link className={styles.primaryButton} href="/en">Back to home</Link><Link className={styles.secondaryButton} href="/en/join-business">New request</Link></div>
+        </div>
+      </section>
+    </main>
   );
 }
