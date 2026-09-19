@@ -110,12 +110,17 @@ export async function submitSignup(
     accountReady = true;
   }
 
-  const result = await dependencies.provision({
-    companyName: input.companyName.trim(),
-    city: input.city.trim(),
-    phone: input.phone.trim(),
-    plan: input.plan,
-  });
+  let result: { ok: boolean; redirectPath?: string };
+  try {
+    result = await dependencies.provision({
+      companyName: input.companyName.trim(),
+      city: input.city.trim(),
+      phone: input.phone.trim(),
+      plan: input.plan,
+    });
+  } catch {
+    return { accountReady, error: accountReady ? "recovery" : "genericError" };
+  }
 
   if (!result.ok) {
     return { accountReady, error: accountReady ? "recovery" : "genericError" };
