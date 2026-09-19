@@ -106,13 +106,10 @@ describe("mobile PWA and auth language contract", () => {
     navigationState.pathname = "/logga-in";
     navigationState.search = "lang=en";
 
-    const AuthShell = AppShell as React.ComponentType<{
-      localeHint?: "sv" | "en";
-      children?: ReactNode;
-    }>;
+    const AuthShell = AppShell as React.ComponentType<{ children?: ReactNode }>;
     const shell = renderToStaticMarkup(React.createElement(
       AuthShell,
-      { localeHint: "en" },
+      null,
       React.createElement("div", null, "Auth content"),
     ));
 
@@ -122,6 +119,16 @@ describe("mobile PWA and auth language contract", () => {
     expect(shell).toContain("All rights reserved.");
     expect(shell).not.toContain(">Features<");
     expect(shell).not.toContain(">Funktioner<");
+
+    navigationState.search = "";
+    const swedishShell = renderToStaticMarkup(React.createElement(
+      AuthShell,
+      null,
+      React.createElement("div", null, "Auth content"),
+    ));
+    expect(swedishShell).toContain("Hitta företag");
+    expect(swedishShell).toContain("För företag");
+    expect(swedishShell).toContain("Alla rättigheter förbehållna.");
   });
 
   it("preserves unrelated auth query params while changing only locale", () => {
