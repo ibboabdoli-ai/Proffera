@@ -186,6 +186,12 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       icon: ShieldCheck,
     },
   ];
+  const overviewSeparatorClasses = [
+    "",
+    "border-t border-line sm:border-l sm:border-t-0",
+    "border-t border-line xl:border-l xl:border-t-0",
+    "border-t border-line sm:border-l xl:border-t-0",
+  ] as const;
 
   return (
     <div className="grid gap-6 lg:gap-7" lang={locale}>
@@ -228,9 +234,9 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       </section>
 
       <section className="rounded-card border border-line bg-surface shadow-card" aria-label={text.overviewLabel}>
-        <div className="grid gap-px bg-line sm:grid-cols-2 xl:grid-cols-4">
-          {overviewStats.map((item) => (
-            <article key={item.label} className="min-w-0 bg-surface p-5">
+        <div className="grid sm:grid-cols-2 xl:grid-cols-4">
+          {overviewStats.map((item, index) => (
+            <article key={item.label} className={`min-w-0 bg-surface p-5 ${overviewSeparatorClasses[index] ?? "border-t border-line"}`}>
               <div className="flex items-center justify-between gap-4">
                 <p className="text-xs font-bold uppercase tracking-[0.1em] text-ink-muted">{item.label}</p>
                 <item.icon className="h-[18px] w-[18px] text-brand" aria-hidden="true" />
