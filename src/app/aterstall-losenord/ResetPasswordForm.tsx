@@ -10,6 +10,49 @@ type PasswordResetLocale = "sv" | "en";
 
 const RESET_TOKEN_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
 
+export function readResetToken(hash: string) {
+  const params = new URLSearchParams(hash.replace(/^#/, ""));
+  const candidate = params.get("token")?.trim() ?? "";
+  return RESET_TOKEN_PATTERN.test(candidate) ? candidate : null;
+}
+
+export function resetUrlWithoutFragment(pathname: string, search: string) {
+  return `${pathname}${search}`;
+}
+
+export function resetCompletionLoginUrl(locale: PasswordResetLocale) {
+  return locale === "en" ? "/logga-in?lang=en&reset=1" : "/logga-in?reset=1";
+}
+
+export function resetLocaleTarget(locale: PasswordResetLocale, token: string | null) {
+  const target = locale === "en" ? "/aterstall-losenord?lang=en" : "/aterstall-losenord";
+  if (!token) return target;
+  const fragment = new URLSearchParams({ token }).toString();
+  return `${target}#${fragment}`;
+}
+
+export async function submitResetPassword(input: {
+  token: string | null;
+  password: string;
+  confirmation: string;
+  resetPassword: (input: { newPassword: string; token: string }) => Promise<{ error?: unknown }>;
+}) {
+  if (!input.token) return { ok: false, error: "invalidToken" as const };
+  if (input.password.length < 8 || input.password.length > 128) {
+    return { ok: false, error: "invalidPassword" as const };
+  }
+  if (input.password !== input.confirmation) {
+    return { ok: false, error: "mismatch" as const };
+  }
+  const result = await input.resetPassword({
+    newPassword: input.password,
+    token: input.token,
+  });
+  return result.error
+    ? { ok: false, error: "reset" as const }
+    : { ok: true, error: null };
+}
+
 const copy = {
   sv: {
     language: "Språk",
@@ -41,9 +84,7 @@ const copy = {
 
 function initialResetToken() {
   if (typeof window === "undefined") return null;
-  const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-  const candidate = params.get("token")?.trim() ?? "";
-  return RESET_TOKEN_PATTERN.test(candidate) ? candidate : null;
+  return readResetToken(window.location.hash);
 }
 
 export function ResetPasswordForm({ locale }: { locale: PasswordResetLocale }) {
@@ -57,7 +98,11 @@ export function ResetPasswordForm({ locale }: { locale: PasswordResetLocale }) {
 
   useEffect(() => {
     if (window.location.hash) {
-      window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+      window.history.replaceState(
+        null,
+        "",
+        resetUrlWithoutFragment(window.location.pathname, window.location.search),
+      );
     }
     const timer = window.setTimeout(() => setReady(true), 0);
     return () => window.clearTimeout(timer);
@@ -65,43 +110,33 @@ export function ResetPasswordForm({ locale }: { locale: PasswordResetLocale }) {
 
   function switchLocale(nextLocale: PasswordResetLocale) {
     if (nextLocale === locale) return;
-    const target = nextLocale === "en" ? "/aterstall-losenord?lang=en" : "/aterstall-losenord";
-    if (!token) {
-      window.location.replace(target);
-      return;
-    }
-    const fragment = new URLSearchParams({ token }).toString();
-    window.location.replace(`${target}#${fragment}`);
+    window.location.replace(resetLocaleTarget(nextLocale, token));
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!token || isPending) return;
-    if (password.length < 8 || password.length > 128) {
-      setErrorMessage(text.invalidPassword);
-      return;
-    }
-    if (password !== confirmation) {
-      setErrorMessage(text.mismatch);
-      return;
-    }
+    if (isPending) return;
 
     setIsPending(true);
     setErrorMessage(null);
     try {
-      const { error } = await authClient.resetPassword({
-        newPassword: password,
+      const result = await submitResetPassword({
         token,
+        password,
+        confirmation,
+        resetPassword: (input) => authClient.resetPassword(input),
       });
-      if (error) {
-        setErrorMessage(text.error);
-        setIsPending(false);
+      if (!result.ok) {
+        if (result.error === "invalidPassword") setErrorMessage(text.invalidPassword);
+        else if (result.error === "mismatch") setErrorMessage(text.mismatch);
+        else if (result.error === "invalidToken") setErrorMessage(text.invalidToken);
+        else setErrorMessage(text.error);
         return;
       }
-      const loginUrl = locale === "en" ? "/logga-in?lang=en&reset=1" : "/logga-in?reset=1";
-      window.location.replace(loginUrl);
+      window.location.replace(resetCompletionLoginUrl(locale));
     } catch {
       setErrorMessage(text.error);
+    } finally {
       setIsPending(false);
     }
   }
