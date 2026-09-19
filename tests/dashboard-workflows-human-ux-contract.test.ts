@@ -38,6 +38,8 @@ describe("dashboard workflow human-designed UX contract", () => {
     expect(detail).toContain("rescheduleDashboardBooking");
     expect(detail).toContain("sendBookingStatusEmail");
     expect(detail).toContain("sendBookingCustomerSms");
+    expect(detail).toContain("DashboardActionFeedback");
+    expect(detail).toContain('text-[#bcd5ff]');
     expect(blocks).toContain("createDashboardAvailabilityBlock");
     expect(blocks).toContain("createDashboardRecurringAvailabilityBlocks");
     expect(blocks).toContain("deleteDashboardAvailabilityBlock");
@@ -76,6 +78,7 @@ describe("dashboard workflow human-designed UX contract", () => {
     expect(appearance).toContain("ensureVercelCustomDomain");
     expect(appearance).toContain("removeVercelCustomDomain");
     expect(appearance).toContain("DashboardPageHeader");
+    expect(appearance).toContain("DashboardActionFeedback");
     expect(business).toContain('hasWorkspaceFeature("website_builder")');
     expect(business).toContain("DashboardPageHeader");
     expect(reminders).toContain("updateBookingReminderSettings");
@@ -137,10 +140,28 @@ describe("dashboard workflow human-designed UX contract", () => {
     expect(bookingBuilder).toContain("data-booking-page-builder");
     expect(bookingBuilder).toContain("data-booking-builder-preview");
     expect(bookingBuilder).toContain("bg-brand-deep");
+    expect(bookingBuilder).toContain("aria-pressed={tab === key}");
+    expect(bookingBuilder).toContain("aria-pressed={device === value}");
     expect(themeEditor).toContain("data-theme-content-editor");
     expect(themeEditor).toContain("bg-brand-deep");
     expect(themeEditor).toContain("savedPreviewImageUrl");
     expect(themeEditor).toContain("src={savedPreviewImageUrl}");
     expect(themeEditor).not.toContain("src={draft.heroImageUrl || template.heroImageUrl}");
+
+    const customer = source("src/app/dashboard/kunder/[id]/page.tsx");
+    const marketplace = source("src/app/dashboard/marknadsplats/page.tsx");
+    const invitationManager = source("src/app/dashboard/omdomen/inbjudningar/review-invitation-manager.tsx");
+    const aiAssistant = source("src/app/dashboard/ai-assistent/page.tsx");
+    const settingsOverview = source("src/app/dashboard/installningar/page.tsx");
+
+    expect(customer).not.toContain("text-white/60");
+    expect(customer).not.toContain("text-white/75");
+    expect(marketplace).toContain("text-base sm:text-sm");
+    expect(invitationManager).toContain("text-base text-brand-deep sm:text-sm");
+    expect(aiAssistant.indexOf("if (!access.ok)")).toBeLessThan(aiAssistant.indexOf("if (!eligible)"));
+    expect(aiAssistant.indexOf("if (!eligible)")).toBeLessThan(aiAssistant.indexOf("if (!bridgeConfigured)"));
+    expect(aiAssistant.indexOf("if (!bridgeConfigured)")).toBeLessThan(aiAssistant.indexOf("if (active)"));
+    expect(settingsOverview).toContain('"Company profile"');
+    expect(settingsOverview).toContain('"Ready to configure"');
   });
 });
