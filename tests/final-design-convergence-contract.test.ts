@@ -1,7 +1,11 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+
+import { MarketplaceCompanyCover } from "../src/components/marketplace/marketplace-company-media";
 
 function source(path: string) {
   return readFileSync(resolve(process.cwd(), path), "utf8");
@@ -57,21 +61,21 @@ describe("final Proffera design convergence", () => {
     expect(demo).toContain("styles.editorialList");
   });
 
-  it("shows a labelled service illustration when a company has no trusted photo", () => {
-    const media = source("src/components/marketplace/marketplace-company-media.tsx");
+  it("renders a labelled service illustration when a company has no trusted photo", () => {
+    const html = renderToStaticMarkup(createElement(MarketplaceCompanyCover, {
+      name: "Rörfixarna AB",
+      serviceSlug: "vvs",
+    }));
     const results = source("src/components/company-directory/public-directory-results.tsx");
     const home = source("src/components/marketplace/marketplace-home.tsx");
-    const copy = source("src/components/company-directory/public-directory-copy.ts");
 
-    expect(media).toContain("function ServiceIllustrationIcon");
-    expect(media).toContain("showIllustration");
-    expect(media).toContain('serviceSlug?: string | null');
+    expect(html).toContain('role="img"');
+    expect(html).toContain('aria-label="Illustration: Rörfixarna AB"');
+    expect(html).toContain("lucide-wrench");
+    expect(html).not.toContain("<img");
     expect(results).toContain("illustration={!trustedCardMedia}");
     expect(results).toContain("serviceSlug={result.matchedServiceSlug}");
-    expect(results).toContain("styles.illustrationBadge");
     expect(home).toContain('coverMedia?.role === "illustration" || !coverMedia?.url');
-    expect(copy).toContain('illustration: "Illustrationsbild"');
-    expect(copy).toContain('illustration: "Illustration"');
   });
 
   it("aligns browser and share surfaces to the same brand", () => {
