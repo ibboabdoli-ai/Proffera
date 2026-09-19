@@ -419,7 +419,6 @@ async function getSafeClaimedDirectoryFallback(slug: string): Promise<PublicDire
               and owner_base.geocode_precision = 'address'
               and (
                 lower(btrim(owner_base.city)) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
-                or lower(btrim(owner_base.municipality)) = any(string_to_array(${PILOT_LOCATION_CSV}, ','))
               )
           )
         )
