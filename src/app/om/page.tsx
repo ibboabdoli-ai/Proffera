@@ -35,7 +35,7 @@ export default function AboutPage() {
           <ul className={styles.valueList}>
             {values.map(({ icon: Icon, title, text }) => (
               <li key={title} className={styles.valueRow}>
-                <div className={styles.valueTitle}><Icon aria-hidden="true" />{title}</div>
+                <h3 className={styles.valueTitle}><Icon aria-hidden="true" />{title}</h3>
                 <p>{text}</p>
               </li>
             ))}
