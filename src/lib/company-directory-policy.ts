@@ -219,8 +219,7 @@ export function assessDirectoryCandidate(candidate: NormalizedDirectoryCandidate
   const autoPublicEligible = candidate.isActive
     && !privacyBlocked
     && Boolean(category)
-    && primarySniVerified
-    && Boolean(candidate.city.trim());
+    && primarySniVerified;
 
   let publicationStatus: DirectoryQualityAssessment["publicationStatus"] = "review";
   if (!candidate.isActive) publicationStatus = "inactive";

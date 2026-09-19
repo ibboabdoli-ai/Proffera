@@ -154,6 +154,18 @@ describe("company directory policy", () => {
     expect(assessment.publicationStatus).toBe("ready");
   });
 
+  it("keeps missing profile location advisory without blocking canonical workplace eligibility", () => {
+    const missingProfileLocation = candidate({ city: "", municipality: "" });
+    const assessment = assessDirectoryCandidate(missingProfileLocation);
+
+    expect(isDirectoryPilotLocation(missingProfileLocation)).toBe(false);
+    expect(assessment.reasons).toContain("missing_city");
+    expect(assessment.reasons).toContain("outside_pilot_area");
+    expect(assessment.score).toBeGreaterThanOrEqual(80);
+    expect(assessment.autoPublicEligible).toBe(true);
+    expect(assessment.publicationStatus).toBe("ready");
+  });
+
   it("does not award tax quality points when explicit registration details are all negative", () => {
     const positive = assessDirectoryCandidate(candidate());
     const negative = assessDirectoryCandidate(candidate({
