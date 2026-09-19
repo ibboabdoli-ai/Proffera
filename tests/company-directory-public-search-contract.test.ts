@@ -56,7 +56,7 @@ describe("public company directory search contract", () => {
     expect(searchSource).toContain("comparisonSnapshot,officialFactsLastSyncedToken");
     expect(searchSource).toContain("claimed_facts.deregistration_date is null");
     expect(searchSource).toContain("coalesce(claimed_facts.advertising_blocked, false) = false");
-    expect(searchSource).toContain("ongoing_procedures");
+    expect(searchSource).toContain("jsonb_typeof(claimed_facts.ongoing_procedures) = 'array'");
     expect(searchSource).toContain("jsonb_typeof(claimed_scb.conflicts) = 'array'");
     expect(searchSource).toContain("jsonb_typeof(claimed_scb.workplaces) = 'array'");
     expect(searchSource).toContain("DIRECTORY_PILOT_LOCATIONS");
