@@ -3,10 +3,7 @@ import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import {
-  SECURITY_CSP_REPORT_ONLY,
-  SECURITY_RESPONSE_HEADERS,
-} from "../src/lib/security-response-headers";
+import { SECURITY_RESPONSE_HEADERS } from "../src/lib/security-response-headers";
 
 function headerMap() {
   return Object.fromEntries(SECURITY_RESPONSE_HEADERS.map(({ key, value }) => [key, value]));
@@ -22,18 +19,11 @@ describe("security response headers", () => {
     });
   });
 
-  it("stages CSP as report-only without restricting existing HTTPS integrations", () => {
+  it("does not emit CSP until report-only violations have an observable privacy-safe destination", () => {
     const headers = headerMap();
 
     expect(headers["Content-Security-Policy"]).toBeUndefined();
-    expect(headers["Content-Security-Policy-Report-Only"]).toBe(SECURITY_CSP_REPORT_ONLY);
-    expect(SECURITY_CSP_REPORT_ONLY).toContain("default-src 'self' https: data: blob:");
-    expect(SECURITY_CSP_REPORT_ONLY).toContain("object-src 'none'");
-    expect(SECURITY_CSP_REPORT_ONLY).toContain("base-uri 'self'");
-    expect(SECURITY_CSP_REPORT_ONLY).toContain("frame-ancestors 'self'");
-    expect(SECURITY_CSP_REPORT_ONLY).toContain("form-action 'self' https:");
-    expect(SECURITY_CSP_REPORT_ONLY).toContain("connect-src 'self' https: wss:");
-    expect(SECURITY_CSP_REPORT_ONLY).toContain("frame-src 'self' https:");
+    expect(headers["Content-Security-Policy-Report-Only"]).toBeUndefined();
   });
 
   it("wires the shared contract globally through Next config", () => {
