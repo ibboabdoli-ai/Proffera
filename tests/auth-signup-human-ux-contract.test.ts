@@ -95,6 +95,12 @@ describe("auth and signup human-designed UX contract", () => {
     const english = renderToStaticMarkup(await LoginPage({
       searchParams: Promise.resolve({ lang: "en" }),
     }));
+    const swedishProfessional = renderToStaticMarkup(await LoginPage({
+      searchParams: Promise.resolve({ lang: "sv", plan: "professional" }),
+    }));
+    const englishProfessional = renderToStaticMarkup(await LoginPage({
+      searchParams: Promise.resolve({ lang: "en", plan: "professional" }),
+    }));
 
     expect(swedish).toContain("Företagsinloggning");
     expect(swedish).toContain("Logga in till Proffera");
@@ -105,6 +111,9 @@ describe("auth and signup human-designed UX contract", () => {
     expect(english).toContain("Sign in to Proffera");
     expect(english).toContain("Start a free 14-day trial");
     expect(english).not.toContain("Företagsinloggning");
+
+    expect(swedishProfessional).toContain('href="/skapa-konto?plan=professional"');
+    expect(englishProfessional).toContain('href="/en/create-account?plan=professional"');
   });
 
   it("returns locale-correct auth metadata at runtime", async () => {
