@@ -13,6 +13,7 @@ import {
   StickyNote,
 } from "lucide-react";
 
+import { DashboardActionFeedback } from "@/components/dashboard/dashboard-action-feedback";
 import { DashboardMetricGrid, DashboardPageHeader } from "@/components/dashboard/dashboard-page-ui";
 import { sendBookingRescheduleEmail } from "@/features/email/booking-reschedule-email";
 import { sendBookingStatusEmail } from "@/features/email/lead-email";
@@ -244,13 +245,23 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
     { label: "Åtgärd", value: "Tillgänglig", helper: "Status och tid kan uppdateras", icon: RefreshCw, tone: "bg-[#f0ece8] text-[#6d5948]" },
   ] as const;
   const fieldClass = "rounded-control border border-[#dce4ee] px-4 py-3 text-sm font-normal text-ink outline-none transition focus:border-[#1469d8] focus:ring-2 focus:ring-[#1469d8]/20";
+  const successMessage = value("rescheduled") === "1"
+    ? isEnglish
+      ? "The booking was rescheduled. The previous and new times were saved, and the customer was notified when contact details were available."
+      : "Bokningen flyttades. Den tidigare och nya tiden sparades i historiken och kunden notifierades när kontaktuppgifter fanns."
+    : value("updated") === "1"
+      ? isEnglish
+        ? "The status was updated and saved in the history."
+        : "Status uppdaterades och ändringen sparades i historiken."
+      : value("created") === "1"
+        ? isEnglish
+          ? "The booking was created successfully."
+          : "Bokningen skapades."
+        : null;
 
   return <div className="grid gap-6">
     <DashboardPageHeader eyebrow={isEnglish ? "Booking profile" : "Bokningsprofil"} title={booking.title} description={isEnglish ? "View the booking details, connected customer and history. Change the status or reschedule the time securely." : "Se bokningens viktigaste uppgifter, kopplad kund och historik. Ändra status eller flytta tiden kontrollerat."} icon={CalendarClock} actions={<Link href={withLang("/dashboard/bokningar", locale)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control border border-[#d5ddd3] bg-surface px-4 py-2.5 text-sm font-bold text-brand"><ArrowLeft className="h-4 w-4" />{isEnglish ? "Back to bookings" : "Tillbaka till bokningar"}</Link>} />
-    {errorMessage ? <section className="rounded-card bg-[#fff5f2] p-5 text-sm font-semibold text-[#8f2f1b] ring-1 ring-[#f4c7ba]">{errorMessage}</section> : null}
-    {value("created") === "1" ? <section className="rounded-card bg-[#eef8f1] p-5 text-sm font-semibold text-brand ring-1 ring-[#cfe8d6]">{isEnglish ? "The booking was created successfully." : "Bokningen skapades."}</section> : null}
-    {value("updated") === "1" ? <section className="rounded-card bg-[#eef8f1] p-5 text-sm font-semibold text-brand ring-1 ring-[#cfe8d6]">{isEnglish ? "The status was updated and saved in the history." : "Status uppdaterades och ändringen sparades i historiken."}</section> : null}
-    {value("rescheduled") === "1" ? <section className="rounded-card bg-[#eef8f1] p-5 text-sm font-semibold text-brand ring-1 ring-[#cfe8d6]">{isEnglish ? "The booking was rescheduled. The previous and new times were saved, and the customer was notified when contact details were available." : "Bokningen flyttades. Den tidigare och nya tiden sparades i historiken och kunden notifierades när kontaktuppgifter fanns."}</section> : null}
+    <DashboardActionFeedback statusMessage={successMessage} alertMessage={errorMessage} />
     <DashboardMetricGrid items={metrics} />
 
     <section className="grid gap-6 lg:grid-cols-[1fr_360px]">
@@ -267,7 +278,7 @@ export default async function BookingDetailPage({ params, searchParams }: Bookin
         {parsedNotes.estimatedPrice ? <article className="overflow-hidden rounded-card border border-[#d5e4f5] bg-surface shadow-sm">
           <div className="flex flex-col gap-4 bg-[#071b42] p-6 text-white sm:flex-row sm:items-end sm:justify-between">
             <div><p className="flex items-center gap-2 text-sm font-bold text-[#bcd5ff]"><CirclePoundSterling className="h-5 w-5" />{isEnglish ? "Customer price estimate" : "Kundens prisindikation"}</p><p className="mt-2 text-4xl font-black tracking-tight">{parsedNotes.estimatedPrice}</p></div>
-            {parsedNotes.minimumCharge ? <div className="rounded-control bg-surface/10 px-4 py-3 text-sm"><span className="text-ink-muted">{isEnglish ? "Minimum charge" : "Minimipris"}</span><strong className="ml-2">{parsedNotes.minimumCharge}</strong></div> : null}
+            {parsedNotes.minimumCharge ? <div className="rounded-control bg-surface/10 px-4 py-3 text-sm"><span className="text-[#bcd5ff]">{isEnglish ? "Minimum charge" : "Minimipris"}</span><strong className="ml-2">{parsedNotes.minimumCharge}</strong></div> : null}
           </div>
           <div className="p-6">
             {parsedNotes.priceLines.length ? <div className="grid gap-2">{parsedNotes.priceLines.map((line) => <div key={line} className="flex items-start gap-3 rounded-control border border-[#e3eaf3] bg-[#f8fbff] px-4 py-3 text-sm text-[#34485f]"><ListChecks className="mt-0.5 h-4 w-4 shrink-0 text-[#2769b5]" /><span>{line}</span></div>)}</div> : null}
