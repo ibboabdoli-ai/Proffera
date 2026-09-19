@@ -171,6 +171,18 @@ describe("auth and signup human-designed UX contract", () => {
     expect(resetPage).toContain("auth-marketplace.module.css");
   });
 
+  it("keeps password text clear of visibility controls", () => {
+    const styles = source("src/components/auth/auth-marketplace.module.css");
+    const login = source("src/app/logga-in/LoginForm.tsx");
+    const activation = source("src/app/aktivera/[token]/activation-form.tsx");
+
+    expect(styles).toContain(".input.passwordInput");
+    expect(styles).toContain("padding-right: 72px");
+    expect(login).toContain("authStyles.passwordInput");
+    expect(activation).toContain("authStyles.passwordInput");
+    expect(activation).not.toContain("pr-12");
+  });
+
   it("avoids the previous green radial-gradient auth treatment", () => {
     const styles = source("src/components/auth/auth-marketplace.module.css");
     const page = source("src/app/logga-in/page.tsx");
