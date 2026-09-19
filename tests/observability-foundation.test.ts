@@ -185,7 +185,11 @@ describe("observability foundation", () => {
   it("removes request PII and query values before Sentry delivery", () => {
     const event = scrubSentryEvent({
       type: undefined,
+      message: "customer 556677-8899 failed",
+      logentry: { message: "private structured message" },
+      extra: { organizationNumber: "556677-8899" },
       user: { id: "private-user", email: "private@example.com" },
+      transaction: `/mina-bokningar/${"signed".repeat(8)}.${"signature".repeat(4)}?email=private@example.com`,
       request: {
         url: `https://proffera.se/review/${"a".repeat(40)}?email=private@example.com#secret`,
         cookies: { session: "private-cookie" },
@@ -193,9 +197,22 @@ describe("observability foundation", () => {
         headers: { authorization: "Bearer private-token" },
         query_string: "email=private@example.com",
       },
+      exception: {
+        values: [{
+          type: "DirectoryError",
+          value: "organization 556677-8899 failed",
+          stacktrace: {
+            frames: [{ filename: "company-directory.ts", vars: { organizationNumber: "556677-8899" } }],
+          },
+        }],
+      },
     });
 
     expect(event.user).toBeUndefined();
+    expect(event.message).toBeUndefined();
+    expect(event.logentry).toBeUndefined();
+    expect(event.extra).toBeUndefined();
+    expect(event.transaction).toBe("/mina-bokningar/[redacted]");
     expect(event.request).toEqual({
       url: "https://proffera.se/review/[redacted]",
       cookies: undefined,
@@ -203,6 +220,8 @@ describe("observability foundation", () => {
       headers: undefined,
       query_string: undefined,
     });
+    expect(event.exception?.values?.[0]?.value).toBe("DirectoryError");
+    expect(event.exception?.values?.[0]?.stacktrace?.frames?.[0]?.vars).toBeUndefined();
   });
 
   it("removes query values from Sentry HTTP breadcrumbs", () => {
@@ -219,6 +238,24 @@ describe("observability foundation", () => {
       method: "GET",
       status_code: 200,
       url: "/api/customer/[redacted]",
+    });
+  });
+
+  it("scrubs navigation breadcrumb destinations and arbitrary breadcrumb payloads", () => {
+    const breadcrumb = scrubSentryBreadcrumb({
+      category: "navigation",
+      message: "customer private@example.com navigated",
+      data: {
+        from: `/review/${"signed".repeat(8)}.${"signature".repeat(4)}?from=private`,
+        to: `/mina-bokningar/${"d".repeat(40)}#secret`,
+        customerEmail: "private@example.com",
+      },
+    });
+
+    expect(breadcrumb.message).toBeUndefined();
+    expect(breadcrumb.data).toEqual({
+      from: "/review/[redacted]",
+      to: "/mina-bokningar/[redacted]",
     });
   });
 

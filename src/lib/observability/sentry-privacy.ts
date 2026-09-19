@@ -1,6 +1,6 @@
 import type { Breadcrumb, ErrorEvent } from "@sentry/nextjs";
 
-const PRIVATE_PATH_SEGMENT = /^(?:[0-9a-f]{8}-[0-9a-f-]{27,}|[A-Za-z0-9_-]{24,})$/iu;
+const PRIVATE_PATH_SEGMENT = /^(?:[0-9a-f]{8}-[0-9a-f-]{27,}|[A-Za-z0-9._~-]{24,})$/iu;
 
 function scrubPath(pathname: string) {
   return pathname
@@ -25,6 +25,10 @@ function withoutQueryOrFragment(value: unknown) {
 
 export function scrubSentryEvent(event: ErrorEvent) {
   event.user = undefined;
+  event.message = undefined;
+  event.logentry = undefined;
+  event.extra = undefined;
+  event.transaction = withoutQueryOrFragment(event.transaction) as string | undefined;
 
   if (event.request) {
     event.request = {
@@ -37,18 +41,44 @@ export function scrubSentryEvent(event: ErrorEvent) {
     };
   }
 
+  if (event.exception?.values) {
+    event.exception.values = event.exception.values.map((exception) => ({
+      ...exception,
+      value: exception.type ?? "Application error",
+      stacktrace: exception.stacktrace ? {
+        ...exception.stacktrace,
+        frames: exception.stacktrace.frames?.map((frame) => ({
+          ...frame,
+          vars: undefined,
+        })),
+      } : undefined,
+    }));
+  }
+
+  event.breadcrumbs = event.breadcrumbs?.map(scrubSentryBreadcrumb);
+
   return event;
 }
 
 export function scrubSentryBreadcrumb(breadcrumb: Breadcrumb) {
-  if (!breadcrumb.data || typeof breadcrumb.data.url !== "string") return breadcrumb;
+  const safeData: Record<string, unknown> = {};
+  if (breadcrumb.data) {
+    for (const key of ["url", "from", "to"] as const) {
+      if (typeof breadcrumb.data[key] === "string") {
+        safeData[key] = withoutQueryOrFragment(breadcrumb.data[key]);
+      }
+    }
+    for (const key of ["method", "status_code"] as const) {
+      if (typeof breadcrumb.data[key] === "string" || typeof breadcrumb.data[key] === "number") {
+        safeData[key] = breadcrumb.data[key];
+      }
+    }
+  }
 
   return {
     ...breadcrumb,
-    data: {
-      ...breadcrumb.data,
-      url: withoutQueryOrFragment(breadcrumb.data.url),
-    },
+    message: undefined,
+    data: Object.keys(safeData).length > 0 ? safeData : undefined,
   };
 }
 
@@ -56,9 +86,11 @@ export function scrubSentrySpan<T extends {
   data: Record<string, unknown>;
   description?: string;
 }>(span: T): T {
-  const data = { ...span.data };
-  for (const key of ["http.url", "url.full", "url.path", "url.query"]) {
-    delete data[key];
+  const data: Record<string, unknown> = {};
+  for (const key of ["http.method", "http.request.method", "http.status_code", "http.response.status_code"]) {
+    if (typeof span.data[key] === "string" || typeof span.data[key] === "number") {
+      data[key] = span.data[key];
+    }
   }
 
   return {
