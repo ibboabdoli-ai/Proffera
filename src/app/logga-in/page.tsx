@@ -13,11 +13,20 @@ import {
 import authStyles from "@/components/auth/auth-marketplace.module.css";
 import { LoginForm } from "./LoginForm";
 
-export const metadata: Metadata = {
-  title: "Sign in | Proffera",
-  description: "Sign in to the Proffera customer portal.",
-  robots: { index: false, follow: false },
-};
+export async function generateMetadata({
+  searchParams,
+}: LoginPageProps): Promise<Metadata> {
+  const params = searchParams ? await searchParams : undefined;
+  const locale = resolveAuthLocale(params);
+
+  return {
+    title: locale === "en" ? "Sign in" : "Logga in",
+    description: locale === "en"
+      ? "Sign in to your Proffera business workspace."
+      : "Logga in till företagets arbetsyta i Proffera.",
+    robots: { index: false, follow: false },
+  };
+}
 
 type LoginPageProps = {
   searchParams?: Promise<AuthSearchParams & {
@@ -27,30 +36,30 @@ type LoginPageProps = {
 
 const copy = {
   sv: {
-    portal: "Proffera kundportal",
+    portal: "Företagsinloggning",
     heading: "Logga in till Proffera",
-    intro: "Logga in med ditt Proffera-konto för att komma åt dashboard, kunder, leads och bokningar.",
-    pilotTitle: "För pilotkunder",
-    pilotText: "Åtkomst öppnas när konto, workspace och behörigheter är aktiva.",
-    helpTitle: "Behöver du hjälp?",
-    helpText: "Kontakta Proffera för demo, onboarding eller planerad åtkomst.",
+    intro: "Logga in för att fortsätta till företagets arbetsyta och hantera kunder, bokningar, leads och uppdrag.",
+    highlights: [
+      "Kunder, bokningar och leads samlade i samma arbetsyta.",
+      "Fortsätt direkt till din arbetsyta efter inloggning.",
+    ],
+    signup: "Starta gratis i 14 dagar",
     demo: "Boka demo",
-    contact: "Kontakta Proffera",
-    created: "Kontot och kundportalen är klara. Logga in med ditt nya lösenord.",
+    created: "Kontot och arbetsytan är klara. Logga in med ditt nya lösenord.",
     reset: "Lösenordet är uppdaterat. Logga in med ditt nya lösenord.",
     languageLabel: "Språk",
   },
   en: {
-    portal: "Proffera customer portal",
+    portal: "Business sign-in",
     heading: "Sign in to Proffera",
-    intro: "Sign in with your Proffera account to access your dashboard, customers, leads and bookings.",
-    pilotTitle: "For pilot customers",
-    pilotText: "Access becomes available when your account, workspace and permissions are active.",
-    helpTitle: "Need help?",
-    helpText: "Contact Proffera for a demo, onboarding or planned access.",
+    intro: "Sign in to continue to your business workspace and manage customers, bookings, leads and jobs.",
+    highlights: [
+      "Customers, bookings and leads in one workspace.",
+      "Continue directly to your workspace after signing in.",
+    ],
+    signup: "Start a free 14-day trial",
     demo: "Book a demo",
-    contact: "Contact Proffera",
-    created: "Your account and customer portal are ready. Sign in with your new password.",
+    created: "Your account and workspace are ready. Sign in with your new password.",
     reset: "Your password has been updated. Sign in with your new password.",
     languageLabel: "Language",
   },
@@ -69,6 +78,8 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   }
   const locale = resolveAuthLocale(params);
   const text = copy[locale];
+  const signupHref = locale === "en" ? "/en/create-account" : "/skapa-konto";
+  const demoHref = locale === "en" ? "/en/demo" : "/demo";
   const selectedPlan = isCheckoutPlanKey(planValue) ? planValue : null;
   const afterLoginPath = nextValue ?? resolveOwnerPostLoginPath({
     locale,
@@ -77,44 +88,44 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   });
 
   return (
-    <main className={authStyles.page} lang={locale === "sv" ? "sv" : "en"}>
+    <div className={authStyles.page} lang={locale === "sv" ? "sv" : "en"}>
       <section className={authStyles.shell}>
         <div className={authStyles.split}>
           <div>
             <div className={authStyles.languageRow} aria-label={text.languageLabel}>
               <span>{text.languageLabel}:</span>
-              <Link
+              <a
                 href={authLocaleHref("/logga-in", params, "sv")}
                 className={`${authStyles.languageLink} ${locale === "sv" ? authStyles.languageActive : ""}`}
+                aria-current={locale === "sv" ? "page" : undefined}
               >
                 SV
-              </Link>
-              <Link
+              </a>
+              <a
                 href={authLocaleHref("/logga-in", params, "en")}
                 className={`${authStyles.languageLink} ${locale === "en" ? authStyles.languageActive : ""}`}
+                aria-current={locale === "en" ? "page" : undefined}
               >
                 EN
-              </Link>
+              </a>
             </div>
 
             <p className={authStyles.eyebrow}>{text.portal}</p>
             <h1 className={authStyles.title}>{text.heading}</h1>
             <p className={authStyles.lead}>{text.intro}</p>
 
-            <div className={authStyles.infoGrid}>
-              <div className={authStyles.infoCell}>
-                <strong>{text.pilotTitle}</strong>
-                <p>{text.pilotText}</p>
-              </div>
-              <div className={authStyles.infoCell}>
-                <strong>{text.helpTitle}</strong>
-                <p>{text.helpText}</p>
-              </div>
-            </div>
+            <ul className={authStyles.trustList}>
+              {text.highlights.map((item) => (
+                <li key={item} className={authStyles.trustItem}>
+                  <span className={authStyles.trustMark} aria-hidden="true">✓</span>
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
 
             <div className={authStyles.linkRow}>
-              <Link href="/demo" className={authStyles.textLink}>{text.demo}</Link>
-              <Link href="/kontakt" className={authStyles.textLink}>{text.contact}</Link>
+              <Link href={signupHref} className={authStyles.textLink}>{text.signup}</Link>
+              <Link href={demoHref} className={authStyles.textLink}>{text.demo}</Link>
             </div>
           </div>
 
