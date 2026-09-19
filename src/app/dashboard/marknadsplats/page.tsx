@@ -2,6 +2,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { BadgeCheck, Building2, CheckCircle2, MapPin, Search, Store } from "lucide-react";
 
+import { DashboardPageHeader } from "@/components/dashboard/dashboard-page-ui";
+
 import {
   activateProviderMarketplaceService,
   findProviderProfileByOrganizationNumber,
@@ -169,21 +171,22 @@ export default async function MarketplaceActivationPage({
 
   return (
     <div className="grid gap-6">
-      <header className="rounded-[28px] bg-[#173e2b] p-7 text-white">
-        <p className="text-xs font-black uppercase tracking-[0.18em] text-white/65">{t.eyebrow}</p>
-        <h1 className="mt-2 text-3xl font-black">{t.title}</h1>
-        <p className="mt-3 max-w-3xl text-sm leading-7 text-white/80">{t.lead}</p>
-      </header>
+      <DashboardPageHeader
+        eyebrow={t.eyebrow}
+        title={t.title}
+        description={t.lead}
+        icon={Store}
+      />
 
       {status && statusCopy[status] ? (
-        <section className={`rounded-2xl p-4 text-sm font-bold ${status === "service_ok" || status === "linked" ? "bg-[#eaf6ed] text-[#17452f]" : "bg-[#fff5f2] text-[#8f2f1b]"}`} role="status">
+        <section className={`rounded-card border p-4 text-sm font-bold ${status === "service_ok" || status === "linked" ? "border-[#cfe8d6] bg-[#eaf8f2] text-[#087754]" : "border-[#f4c7ba] bg-[#fff5f2] text-danger"}`} role="status">
           <p>{statusCopy[status][locale]}</p>
           {status === "not_found" ? (
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <p className="font-semibold">{t.addMissingCompany}</p>
               <Link
                 href={withLang("/dashboard/marknadsplats/lagg-till-foretag", locale)}
-                className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[#d6b5ab] bg-white px-4 text-sm font-black text-[#8f2f1b]"
+                className="inline-flex min-h-10 items-center justify-center rounded-control border border-[#efc8c0] bg-surface px-4 text-sm font-bold text-danger"
               >
                 {t.addCompany}
               </Link>
@@ -193,22 +196,22 @@ export default async function MarketplaceActivationPage({
       ) : null}
 
       {!linkedProfile ? (
-        <section className="rounded-[24px] border border-[#dfe6df] bg-white p-6">
+        <section className="rounded-card border border-line bg-surface p-5 shadow-card sm:p-6">
           <div className="flex items-start gap-3">
-            <Building2 className="mt-1 h-6 w-6 text-[#17452f]" />
+            <Building2 className="mt-1 h-6 w-6 text-brand" />
             <div>
-              <h2 className="text-xl font-black text-[#17201a]">{t.officialCompany}</h2>
-              <p className="mt-2 text-sm leading-6 text-[#667168]">{locale === "en" ? "We use the exact official organisation number. Company names are never matched approximately." : "Vi använder exakt officiellt organisationsnummer. Företagsnamn matchas aldrig ungefärligt."}</p>
+              <h2 className="text-xl font-black text-ink">{t.officialCompany}</h2>
+              <p className="mt-2 text-sm leading-6 text-ink-muted">{locale === "en" ? "We use the exact official organisation number. Company names are never matched approximately." : "Vi använder exakt officiellt organisationsnummer. Företagsnamn matchas aldrig ungefärligt."}</p>
             </div>
           </div>
 
           {state.pendingClaim ? (
             <div className="mt-5 rounded-2xl border border-[#e7d29c] bg-[#fff9e9] p-5">
-              <p className="font-black text-[#76580d]">{t.pendingTitle}</p>
-              <p className="mt-1 text-sm leading-6 text-[#6f654c]">{[state.pendingClaim.companyName, state.pendingClaim.organizationNumber].filter(Boolean).join(" · ")}</p>
-              <p className="mt-2 text-sm leading-6 text-[#6f654c]">{t.pendingLead}</p>
+              <p className="font-black text-[#805d14]">{t.pendingTitle}</p>
+              <p className="mt-1 text-sm leading-6 text-[#805d14]">{[state.pendingClaim.companyName, state.pendingClaim.organizationNumber].filter(Boolean).join(" · ")}</p>
+              <p className="mt-2 text-sm leading-6 text-[#805d14]">{t.pendingLead}</p>
               {state.pendingClaim.profileSlug ? (
-                <Link href={claimHref(state.pendingClaim.profileSlug, locale)} className="mt-4 inline-flex min-h-11 items-center rounded-xl border border-[#d5bd7c] bg-white px-4 text-sm font-black text-[#76580d]">
+                <Link href={claimHref(state.pendingClaim.profileSlug, locale)} className="mt-4 inline-flex min-h-11 items-center rounded-xl border border-[#efd58d] bg-surface px-4 text-sm font-bold text-[#805d14]">
                   {locale === "en" ? "Open verification" : "Öppna verifiering"}
                 </Link>
               ) : null}
@@ -216,11 +219,11 @@ export default async function MarketplaceActivationPage({
           ) : (
             <form action={findOfficialCompanyAction} className="mt-5 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
               <input type="hidden" name="lang" value={locale} />
-              <label className="grid gap-2 text-sm font-bold text-[#334139]">
+              <label className="grid gap-2 text-sm font-bold text-ink">
                 {t.organizationNumber}
-                <input name="organizationNumber" required inputMode="numeric" autoComplete="off" placeholder={t.organizationPlaceholder} className="min-h-12 rounded-xl border border-[#cad8ce] bg-white px-4 text-base outline-none focus:ring-2 focus:ring-[#17452f]/20" />
+                <input name="organizationNumber" required inputMode="numeric" autoComplete="off" placeholder={t.organizationPlaceholder} className="min-h-12 rounded-xl border border-line bg-surface px-4 text-base outline-none focus:ring-2 focus:ring-brand/20" />
               </label>
-              <button type="submit" className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-[#173e2b] px-6 text-sm font-black text-white">
+              <button type="submit" className="inline-flex min-h-12 items-center justify-center gap-2 rounded-control bg-brand-deep px-6 text-sm font-black text-white">
                 <Search className="h-4 w-4" /> {t.findCompany}
               </button>
             </form>
@@ -228,91 +231,91 @@ export default async function MarketplaceActivationPage({
         </section>
       ) : (
         <>
-          <section className="rounded-[24px] border border-[#c9e6d0] bg-[#eef8f0] p-6">
+          <section className="rounded-card border border-[#cfe8d6] bg-[#eaf8f2] p-5 shadow-card sm:p-6">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <p className="inline-flex items-center gap-2 text-sm font-black text-[#17452f]"><BadgeCheck className="h-5 w-5" /> {t.linked}</p>
-                <h2 className="mt-2 text-2xl font-black text-[#17201a]">{linkedProfile.companyName}</h2>
-                <p className="mt-2 text-sm text-[#466352]">{[linkedProfile.organizationNumber, linkedProfile.city].filter(Boolean).join(" · ")}</p>
+                <p className="inline-flex items-center gap-2 text-sm font-black text-brand"><BadgeCheck className="h-5 w-5" /> {t.linked}</p>
+                <h2 className="mt-2 text-2xl font-black text-ink">{linkedProfile.companyName}</h2>
+                <p className="mt-2 text-sm text-ink-muted">{[linkedProfile.organizationNumber, linkedProfile.city].filter(Boolean).join(" · ")}</p>
               </div>
               {linkedProfile.slug ? (
-                <Link href={locale === "en" ? `/en/companies/${encodeURIComponent(linkedProfile.slug)}` : `/foretag/listad/${encodeURIComponent(linkedProfile.slug)}`} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[#bcd8c3] bg-white px-4 text-sm font-black text-[#17452f]">
+                <Link href={locale === "en" ? `/en/companies/${encodeURIComponent(linkedProfile.slug)}` : `/foretag/listad/${encodeURIComponent(linkedProfile.slug)}`} className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[#cfe8d6] bg-surface px-4 text-sm font-bold text-[#087754]">
                   {locale === "en" ? "Official profile" : "Officiell profil"}
                 </Link>
               ) : null}
             </div>
           </section>
 
-          <section className="rounded-[24px] border border-[#dfe6df] bg-white p-6">
+          <section className="rounded-card border border-line bg-surface p-5 shadow-card sm:p-6">
             <div className="flex items-start gap-3">
-              <Store className="mt-1 h-6 w-6 text-[#17452f]" />
+              <Store className="mt-1 h-6 w-6 text-brand" />
               <div>
-                <h2 className="text-xl font-black text-[#17201a]">{t.servicesTitle}</h2>
-                <p className="mt-2 text-sm leading-6 text-[#667168]">{t.servicesLead}</p>
+                <h2 className="text-xl font-black text-ink">{t.servicesTitle}</h2>
+                <p className="mt-2 text-sm leading-6 text-ink-muted">{t.servicesLead}</p>
               </div>
             </div>
 
             {activatableWorkspaceServices.length === 0 ? (
-              <div className="mt-5 rounded-2xl bg-[#fff9e9] p-4 text-sm font-semibold leading-6 text-[#76580d]">
+              <div className="mt-5 rounded-card bg-[#fff7df] p-4 text-sm font-semibold leading-6 text-[#805d14]">
                 <p>{t.noWorkspaceServices}</p>
                 <Link href={withLang("/dashboard/installningar", locale)} className="mt-3 inline-flex font-black underline underline-offset-4">{t.manageServices}</Link>
               </div>
             ) : state.directoryServices.length === 0 ? (
-              <p className="mt-5 rounded-2xl bg-[#fff9e9] p-4 text-sm font-semibold leading-6 text-[#76580d]">{t.noDirectoryServices}</p>
+              <p className="mt-5 rounded-card bg-[#fff7df] p-4 text-sm font-semibold leading-6 text-[#805d14]">{t.noDirectoryServices}</p>
             ) : (
               <form action={activateMarketplaceServiceAction} className="mt-6 grid gap-4 md:grid-cols-2">
                 <input type="hidden" name="lang" value={locale} />
-                <label className="grid gap-2 text-sm font-bold text-[#334139]">
+                <label className="grid gap-2 text-sm font-bold text-ink">
                   {t.workspaceService}
-                  <select name="serviceId" required className="min-h-12 rounded-xl border border-[#cad8ce] bg-white px-3 text-sm">
+                  <select name="serviceId" required className="min-h-12 rounded-xl border border-line bg-surface px-3 text-base sm:text-sm">
                     {activatableWorkspaceServices.map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}
                   </select>
                 </label>
-                <label className="grid gap-2 text-sm font-bold text-[#334139]">
+                <label className="grid gap-2 text-sm font-bold text-ink">
                   {t.marketplaceService}
-                  <select name="directoryServiceSlug" required className="min-h-12 rounded-xl border border-[#cad8ce] bg-white px-3 text-sm">
+                  <select name="directoryServiceSlug" required className="min-h-12 rounded-xl border border-line bg-surface px-3 text-base sm:text-sm">
                     {state.directoryServices.map((service) => <option key={service.slug} value={service.slug}>{service.label}</option>)}
                   </select>
                 </label>
-                <label className="grid gap-2 text-sm font-bold text-[#334139]">
+                <label className="grid gap-2 text-sm font-bold text-ink">
                   {t.action}
-                  <select name="conversionMode" defaultValue="book" className="min-h-12 rounded-xl border border-[#cad8ce] bg-white px-3 text-sm">
+                  <select name="conversionMode" defaultValue="book" className="min-h-12 rounded-xl border border-line bg-surface px-3 text-base sm:text-sm">
                     <option value="book">{t.book}</option>
                     <option value="quote">{t.quote}</option>
                     <option value="book_or_quote">{t.both}</option>
                     <option value="contact">{t.contact}</option>
                   </select>
                 </label>
-                <label className="grid gap-2 text-sm font-bold text-[#334139]">
+                <label className="grid gap-2 text-sm font-bold text-ink">
                   {t.radius}
                   <div className="relative">
-                    <MapPin className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#667168]" />
-                    <input name="radiusKm" type="number" min="1" max="300" step="0.1" defaultValue="25" required className="min-h-12 w-full rounded-xl border border-[#cad8ce] bg-white pl-10 pr-3 text-sm" />
+                    <MapPin className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-muted" />
+                    <input name="radiusKm" type="number" min="1" max="300" step="0.1" defaultValue="25" required className="min-h-12 w-full rounded-xl border border-line bg-surface pl-10 pr-3 text-base sm:text-sm" />
                   </div>
                 </label>
-                <button type="submit" className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-[#173e2b] px-6 text-sm font-black text-white md:col-span-2">
+                <button type="submit" className="inline-flex min-h-12 items-center justify-center gap-2 rounded-control bg-brand-deep px-6 text-sm font-black text-white md:col-span-2">
                   <CheckCircle2 className="h-4 w-4" /> {t.activate}
                 </button>
               </form>
             )}
           </section>
 
-          <section className="rounded-[24px] border border-[#dfe6df] bg-white p-6">
-            <h2 className="text-xl font-black text-[#17201a]">{t.activeTitle}</h2>
+          <section className="rounded-card border border-line bg-surface p-5 shadow-card sm:p-6">
+            <h2 className="text-xl font-black text-ink">{t.activeTitle}</h2>
             {activeMarketplaceServices.length === 0 ? (
-              <p className="mt-3 text-sm text-[#667168]">{t.noneActive}</p>
+              <p className="mt-3 text-sm text-ink-muted">{t.noneActive}</p>
             ) : (
               <div className="mt-4 grid gap-3">
                 {activeMarketplaceServices.map((service) => (
-                  <article key={service.id} className="flex flex-col gap-3 rounded-2xl border border-[#dfe6df] bg-[#f8faf8] p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <article key={service.id} className="flex flex-col gap-3 rounded-card border border-line bg-surface-subtle p-4 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                      <p className="font-black text-[#17201a]">{service.name}</p>
-                      <p className="mt-1 text-xs font-semibold text-[#667168]">{service.publicSlug} · {service.conversionMode} · {service.serviceAreaRadiusKm ?? "–"} km</p>
+                      <p className="font-black text-ink">{service.name}</p>
+                      <p className="mt-1 text-xs font-semibold text-ink-muted">{service.publicSlug} · {service.conversionMode} · {service.serviceAreaRadiusKm ?? "–"} km</p>
                     </div>
                     <Link href={locale === "en"
                       ? `/en/companies?service=${encodeURIComponent(service.publicSlug)}`
                       : `/foretag/listad?service=${encodeURIComponent(service.publicSlug)}`}
-                      className="inline-flex min-h-10 items-center justify-center rounded-xl border border-[#cbd8ce] bg-white px-4 text-sm font-black text-[#17452f]">
+                      className="inline-flex min-h-10 items-center justify-center rounded-control border border-line bg-surface px-4 text-sm font-bold text-brand-deep">
                       {t.searchTest}
                     </Link>
                   </article>

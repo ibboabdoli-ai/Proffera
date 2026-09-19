@@ -35,9 +35,9 @@ import {
 export const dynamic = "force-dynamic";
 
 const statusStyles = {
-  pending: "bg-[#fff7e5] text-[#805d14]",
-  approved: "bg-[#e8f5eb] text-[#17452f]",
-  rejected: "bg-[#f1f3f4] text-[#5b665f]",
+  pending: "bg-[#fff7df] text-[#805d14]",
+  approved: "bg-[#eaf8f2] text-[#087754]",
+  rejected: "bg-surface-subtle text-ink-muted",
 } as const;
 
 function localizedHref(href: string, isEnglish: boolean) {
@@ -165,7 +165,7 @@ export default async function WebsiteReviewsPage({ searchParams }: ReviewsPagePr
       <div className="flex flex-wrap gap-3">
         <Link
           href={localizedHref("/dashboard/omdomen/inbjudningar", isEnglish)}
-          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#173e2b] px-4 text-sm font-bold text-white"
+          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control bg-brand-deep px-4 text-sm font-bold text-white transition hover:bg-brand-hover"
         >
           <Link2 className="size-4" aria-hidden="true" />
           {isEnglish ? "Review invitations" : "Omdömesinbjudningar"}
@@ -173,12 +173,12 @@ export default async function WebsiteReviewsPage({ searchParams }: ReviewsPagePr
       </div>
 
       {value("updated") === "1" ? (
-        <p className="rounded-2xl bg-[#eef8f1] p-4 text-sm font-semibold text-[#17452f] ring-1 ring-[#cfe8d6]" role="status">
+        <p className="rounded-2xl bg-[#eef8f1] p-4 text-sm font-semibold text-[#087754] ring-1 ring-[#cfe8d6]" role="status">
           {isEnglish ? "Review updated." : "Omdömet uppdaterades."}
         </p>
       ) : null}
       {value("deleted") === "1" ? (
-        <p className="rounded-2xl bg-[#eef8f1] p-4 text-sm font-semibold text-[#17452f] ring-1 ring-[#cfe8d6]" role="status">
+        <p className="rounded-2xl bg-[#eef8f1] p-4 text-sm font-semibold text-[#087754] ring-1 ring-[#cfe8d6]" role="status">
           {isEnglish ? "Review permanently deleted." : "Omdömet raderades permanent."}
         </p>
       ) : null}
@@ -195,38 +195,38 @@ export default async function WebsiteReviewsPage({ searchParams }: ReviewsPagePr
             value: String(pendingReviews.length),
             helper: isEnglish ? "Reviews to moderate" : "Omdömen att granska",
             icon: Clock3,
-            tone: "bg-[#fff7e5] text-[#805d14]",
+            tone: "bg-[#fff7df] text-[#805d14]",
           },
           {
             label: isEnglish ? "Published verified" : "Publicerade verifierade",
             value: String(publishedReviews.length),
             helper: isEnglish ? "Eligible for public display" : "Kan visas offentligt",
             icon: CheckCircle2,
-            tone: "bg-[#e8f5eb] text-[#17452f]",
+            tone: "bg-[#eaf8f2] text-[#087754]",
           },
           {
             label: isEnglish ? "Featured" : "Utvalda",
             value: String(featuredReviews.length),
             helper: isEnglish ? "Shown first on the website" : "Visas först på webbplatsen",
             icon: Sparkles,
-            tone: "bg-[#fff7e5] text-[#805d14]",
+            tone: "bg-[#fff7df] text-[#805d14]",
           },
           {
             label: isEnglish ? "Hidden" : "Dolda",
             value: String(hiddenReviews.length),
             helper: isEnglish ? "Not visible publicly" : "Visas inte offentligt",
             icon: EyeOff,
-            tone: "bg-[#f1f3f4] text-[#5b665f]",
+            tone: "bg-surface-subtle text-ink-muted",
           },
         ]}
       />
 
-      <section className="rounded-[24px] border border-[#e0e5dd] bg-white shadow-sm">
-        <div className="border-b border-[#e5e9e2] px-5 py-5 sm:px-6">
-          <h2 className="text-lg font-bold tracking-tight text-[#17201a]">
+      <section className="rounded-card border border-line bg-surface shadow-card">
+        <div className="border-b border-line px-5 py-4 sm:px-6">
+          <h2 className="text-lg font-bold tracking-tight text-ink">
             {isEnglish ? "Review queue" : "Granskningskö"}
           </h2>
-          <p className="mt-1 text-sm leading-6 text-[#667168]">
+          <p className="mt-1 text-sm leading-6 text-ink-muted">
             {isEnglish
               ? "Only approved verified reviews can appear publicly. Add an owner reply and feature the strongest reviews after publication."
               : "Endast godkända verifierade omdömen kan visas offentligt. Lägg till företagets svar och markera de starkaste omdömena som utvalda efter publicering."}
@@ -236,15 +236,15 @@ export default async function WebsiteReviewsPage({ searchParams }: ReviewsPagePr
         {reviews.length ? (
           <div className="grid gap-4 p-5 sm:p-6">
             {reviews.map((review) => (
-              <article key={review.id} className="rounded-2xl border border-[#e2e7df] p-4 sm:p-5">
+              <article key={review.id} className="rounded-card border border-line bg-surface-subtle p-4 sm:p-5">
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="font-bold text-[#17201a]">{review.reviewerName}</h3>
+                      <h3 className="font-bold text-ink">{review.reviewerName}</h3>
                       <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${statusStyles[review.status]}`}>
                         {statusLabels[review.status]}
                       </span>
-                      <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold ${review.isVerified ? "bg-[#e8f5eb] text-[#17452f]" : "bg-[#fff3e8] text-[#8a4d13]"}`}>
+                      <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold ${review.isVerified ? "bg-[#eaf8f2] text-[#087754]" : "bg-[#fff7df] text-[#805d14]"}`}>
                         {review.isVerified ? <BadgeCheck className="size-3.5" /> : <ShieldAlert className="size-3.5" />}
                         {review.isVerified
                           ? isEnglish
@@ -255,14 +255,14 @@ export default async function WebsiteReviewsPage({ searchParams }: ReviewsPagePr
                             : "Äldre overifierad"}
                       </span>
                       {review.isFeatured ? (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-[#fff7e5] px-2.5 py-1 text-xs font-bold text-[#805d14]">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-[#fff7df] px-2.5 py-1 text-xs font-bold text-[#805d14]">
                           <Sparkles className="size-3.5" aria-hidden="true" />
                           {isEnglish ? "Featured" : "Utvald"}
                         </span>
                       ) : null}
                     </div>
-                    <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-[#5b665f]">
-                      <span className="inline-flex items-center gap-1 font-semibold text-[#a86f13]">
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-ink-muted">
+                      <span className="inline-flex items-center gap-1 font-semibold text-[#b7791f]">
                         {Array.from({ length: review.rating }, (_, index) => (
                           <Star key={index} className="size-4 fill-current" aria-hidden="true" />
                         ))}
@@ -280,7 +280,7 @@ export default async function WebsiteReviewsPage({ searchParams }: ReviewsPagePr
                       <form action={moderateReviewAction}>
                         <input type="hidden" name="lang" value={isEnglish ? "en" : "sv"} />
                         <input type="hidden" name="review_id" value={review.id} />
-                        <button name="decision" value="approved" type="submit" className="min-h-10 rounded-xl bg-[#173e2b] px-4 text-sm font-bold text-white">
+                        <button name="decision" value="approved" type="submit" className="min-h-10 rounded-control bg-brand-deep px-4 text-sm font-bold text-white hover:bg-brand-hover">
                           {review.isVerified
                             ? isEnglish
                               ? "Publish"
@@ -295,20 +295,20 @@ export default async function WebsiteReviewsPage({ searchParams }: ReviewsPagePr
                       <form action={moderateReviewAction}>
                         <input type="hidden" name="lang" value={isEnglish ? "en" : "sv"} />
                         <input type="hidden" name="review_id" value={review.id} />
-                        <button name="decision" value="rejected" type="submit" className="min-h-10 rounded-xl border border-[#d7dfd5] bg-white px-4 text-sm font-bold text-[#435047]">
+                        <button name="decision" value="rejected" type="submit" className="min-h-10 rounded-control border border-line bg-surface px-4 text-sm font-bold text-ink-muted hover:bg-surface-subtle">
                           {isEnglish ? "Hide" : "Dölj"}
                         </button>
                       </form>
                     ) : null}
                   </div>
                 </div>
-                <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-[#435047]">
+                <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-ink-muted">
                   {review.message}
                 </p>
 
                 {review.ownerReply ? (
-                  <div className="mt-4 rounded-2xl border border-[#d5e7da] bg-[#f1f8f3] p-4">
-                    <p className="flex items-center gap-2 text-xs font-black uppercase tracking-wide text-[#17452f]">
+                  <div className="mt-4 rounded-card border border-line bg-[#f3f8ff] p-4">
+                    <p className="flex items-center gap-2 text-xs font-black uppercase tracking-wide text-brand">
                       <MessageSquareReply className="size-4" aria-hidden="true" />
                       {isEnglish ? "Owner reply" : "Företagets svar"}
                     </p>
@@ -318,7 +318,7 @@ export default async function WebsiteReviewsPage({ searchParams }: ReviewsPagePr
 
                 {review.status === "approved" && review.isVerified ? (
                   <details className="mt-4 rounded-2xl border border-[#d5e7da] bg-[#f7faf7] open:bg-white">
-                    <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-bold text-[#17452f]">
+                    <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-bold text-[#087754]">
                       <MessageSquareReply className="size-4" aria-hidden="true" />
                       {isEnglish ? "Owner reply & featured" : "Företagets svar & utvald"}
                     </summary>
@@ -345,12 +345,12 @@ export default async function WebsiteReviewsPage({ searchParams }: ReviewsPagePr
                           className="mt-1 size-4 shrink-0"
                         />
                         <span>
-                          <strong className="block text-[#17201a]">{isEnglish ? "Feature this review" : "Markera som utvalt omdöme"}</strong>
+                          <strong className="block text-[#11213b]">{isEnglish ? "Feature this review" : "Markera som utvalt omdöme"}</strong>
                           {isEnglish ? "Featured reviews are shown first on the public website." : "Utvalda omdömen visas först på den offentliga webbplatsen."}
                         </span>
                       </label>
                       <div>
-                        <button type="submit" className="min-h-11 rounded-xl bg-[#173e2b] px-4 text-sm font-bold text-white">
+                        <button type="submit" className="min-h-11 rounded-xl bg-[#0a2e63] px-4 text-sm font-bold text-white">
                           {isEnglish ? "Save reply & display" : "Spara svar & visning"}
                         </button>
                       </div>
@@ -424,7 +424,7 @@ export default async function WebsiteReviewsPage({ searchParams }: ReviewsPagePr
                       />
                     </label>
                     <div>
-                      <button type="submit" className="min-h-11 rounded-xl bg-[#173e2b] px-4 text-sm font-bold text-white">
+                      <button type="submit" className="min-h-11 rounded-xl bg-[#0a2e63] px-4 text-sm font-bold text-white">
                         {isEnglish ? "Save changes" : "Spara ändringar"}
                       </button>
                     </div>

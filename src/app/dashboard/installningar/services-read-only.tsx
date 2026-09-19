@@ -5,9 +5,9 @@ import type { WorkspaceBillingCurrency } from "@/lib/workspace-market";
 
 import { createWorkspaceServiceAction, updateWorkspaceServiceAction } from "./service-actions";
 
-const fieldClass = "rounded-2xl border border-[#dfe5dd] px-4 py-3 text-sm font-normal text-[#17201a] outline-none transition focus:border-[#17452f] focus:ring-2 focus:ring-[#17452f]/20";
-const sectionClass = "rounded-2xl border border-[#dfe5dd] bg-[#fbfcfa] p-4";
-const summaryClass = "cursor-pointer list-none text-sm font-black text-[#17201a] marker:hidden";
+const fieldClass = "rounded-card border border-line px-4 py-3 text-sm font-normal text-ink outline-none transition focus:border-brand focus:ring-2 focus:ring-brand/20";
+const sectionClass = "rounded-card border border-line bg-surface-subtle p-4";
+const summaryClass = "cursor-pointer list-none text-sm font-black text-ink marker:hidden";
 
 function visibleValue(value: string) {
   return value.trim().length > 0 ? value : "Ej angivet";
@@ -56,69 +56,69 @@ function ServiceFields({ service, billingCurrency }: ServiceFieldsProps) {
 
       <details open className={sectionClass}>
         <summary className={summaryClass}>1. Grundinfo</summary>
-        <p className="mt-2 text-xs leading-5 text-[#667168]">Det kunden behöver förstå först: namn, beskrivning, kategori och ungefärlig tid.</p>
+        <p className="mt-2 text-xs leading-5 text-ink-muted">Det kunden behöver förstå först: namn, beskrivning, kategori och ungefärlig tid.</p>
         <div className="mt-4 grid gap-3">
-          <label className="grid gap-2 text-sm font-semibold text-[#344139]">Namn<input name="name" type="text" required maxLength={140} className={fieldClass} defaultValue={service?.name ?? ""} /></label>
-          <label className="grid gap-2 text-sm font-semibold text-[#344139]">Kort beskrivning<textarea name="short_description" maxLength={280} rows={2} className={fieldClass} defaultValue={service?.shortDescription ?? ""} placeholder="Kort nytta som kunden ser i tjänstekortet." /></label>
-          <label className="grid gap-2 text-sm font-semibold text-[#344139]">Full beskrivning<textarea name="description" maxLength={500} rows={4} className={fieldClass} defaultValue={service?.description ?? ""} /></label>
+          <label className="grid gap-2 text-sm font-semibold text-ink-muted">Namn<input name="name" type="text" required maxLength={140} className={fieldClass} defaultValue={service?.name ?? ""} /></label>
+          <label className="grid gap-2 text-sm font-semibold text-ink-muted">Kort beskrivning<textarea name="short_description" maxLength={280} rows={2} className={fieldClass} defaultValue={service?.shortDescription ?? ""} placeholder="Kort nytta som kunden ser i tjänstekortet." /></label>
+          <label className="grid gap-2 text-sm font-semibold text-ink-muted">Full beskrivning<textarea name="description" maxLength={500} rows={4} className={fieldClass} defaultValue={service?.description ?? ""} /></label>
           <div className="grid gap-3 md:grid-cols-2">
-            <label className="grid gap-2 text-sm font-semibold text-[#344139]">Kategori<input name="category" type="text" maxLength={120} className={fieldClass} defaultValue={service?.category ?? ""} /></label>
-            <label className="grid gap-2 text-sm font-semibold text-[#344139]">Längd, minuter<input name="duration_minutes" type="number" min={1} max={1440} className={fieldClass} defaultValue={service?.durationMinutes ?? ""} /></label>
+            <label className="grid gap-2 text-sm font-semibold text-ink-muted">Kategori<input name="category" type="text" maxLength={120} className={fieldClass} defaultValue={service?.category ?? ""} /></label>
+            <label className="grid gap-2 text-sm font-semibold text-ink-muted">Längd, minuter<input name="duration_minutes" type="number" min={1} max={1440} className={fieldClass} defaultValue={service?.durationMinutes ?? ""} /></label>
           </div>
         </div>
       </details>
 
       <details open className={sectionClass}>
         <summary className={summaryClass}>2. Pris och område</summary>
-        <p className="mt-2 text-xs leading-5 text-[#667168]">Marketplace använder bara ett område som företaget uttryckligen har bekräftat. Registrerad företagsadress räknas inte som serviceområde.</p>
+        <p className="mt-2 text-xs leading-5 text-ink-muted">Marketplace använder bara ett område som företaget uttryckligen har bekräftat. Registrerad företagsadress räknas inte som serviceområde.</p>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
-          <label className="grid gap-2 text-sm font-semibold text-[#344139]">Pristyp<select name="price_type" className={fieldClass} defaultValue={pricing.type}><option value="fixed">Fast pris</option><option value="from">Från-pris</option><option value="quote">Pris efter offert</option></select></label>
-          <label className="grid gap-2 text-sm font-semibold text-[#344139]">Belopp · {billingCurrency}<input name="price_amount" type="number" min={0} step="0.01" inputMode="decimal" className={fieldClass} defaultValue={pricing.amount} placeholder={pricing.type === "quote" ? "Lämna tomt för offert" : `Belopp i ${billingCurrency}`} /></label>
-          <label className="grid gap-2 text-sm font-semibold text-[#344139]">Områdesnamn<input name="service_area" type="text" maxLength={240} className={fieldClass} defaultValue={service?.serviceArea ?? ""} placeholder="Till exempel Södertälje" /></label>
-          <label className="grid gap-2 text-sm font-semibold text-[#344139]">Radie, km<input name="service_area_radius_km" type="number" min={1} max={300} step={1} inputMode="numeric" className={fieldClass} defaultValue={service?.serviceAreaRadiusKm ?? 25} /></label>
-          <label className="flex items-start gap-3 rounded-2xl border border-[#cfe0d4] bg-white p-4 text-sm font-semibold text-[#344139] md:col-span-2">
+          <label className="grid gap-2 text-sm font-semibold text-ink-muted">Pristyp<select name="price_type" className={fieldClass} defaultValue={pricing.type}><option value="fixed">Fast pris</option><option value="from">Från-pris</option><option value="quote">Pris efter offert</option></select></label>
+          <label className="grid gap-2 text-sm font-semibold text-ink-muted">Belopp · {billingCurrency}<input name="price_amount" type="number" min={0} step="0.01" inputMode="decimal" className={fieldClass} defaultValue={pricing.amount} placeholder={pricing.type === "quote" ? "Lämna tomt för offert" : `Belopp i ${billingCurrency}`} /></label>
+          <label className="grid gap-2 text-sm font-semibold text-ink-muted">Områdesnamn<input name="service_area" type="text" maxLength={240} className={fieldClass} defaultValue={service?.serviceArea ?? ""} placeholder="Till exempel Södertälje" /></label>
+          <label className="grid gap-2 text-sm font-semibold text-ink-muted">Radie, km<input name="service_area_radius_km" type="number" min={1} max={300} step={1} inputMode="numeric" className={fieldClass} defaultValue={service?.serviceAreaRadiusKm ?? 25} /></label>
+          <label className="flex items-start gap-3 rounded-card border border-line bg-surface p-4 text-sm font-semibold text-ink-muted md:col-span-2">
             <input name="service_area_confirmed" type="checkbox" defaultChecked={service?.serviceAreaConfirmed ?? false} className="mt-1" />
-            <span>Jag bekräftar att företaget faktiskt arbetar inom den här radien från företagets publika plats.<span className="mt-1 block text-xs font-normal leading-5 text-[#667168]">Bekräftelsen används bara för en aktiv och publicerad tjänst som är kopplad till företagets verifierade Directory-profil.</span></span>
+            <span>Jag bekräftar att företaget faktiskt arbetar inom den här radien från företagets publika plats.<span className="mt-1 block text-xs font-normal leading-5 text-ink-muted">Bekräftelsen används bara för en aktiv och publicerad tjänst som är kopplad till företagets verifierade Directory-profil.</span></span>
           </label>
         </div>
       </details>
 
       <details className={sectionClass}>
-        <summary className={summaryClass}>3. Bokningsregler <span className="ml-2 font-normal text-[#667168]">Avancerat</span></summary>
-        <p className="mt-2 text-xs leading-5 text-[#667168]">Öppna bara detta när tjänsten behöver egna buffertar eller bokningsgränser.</p>
+        <summary className={summaryClass}>3. Bokningsregler <span className="ml-2 font-normal text-ink-muted">Avancerat</span></summary>
+        <p className="mt-2 text-xs leading-5 text-ink-muted">Öppna bara detta när tjänsten behöver egna buffertar eller bokningsgränser.</p>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
-          <label className="grid gap-2 text-sm font-semibold text-[#344139]">Buffert före, min<input name="buffer_before_minutes" type="number" min={0} max={1440} className={fieldClass} defaultValue={service?.bufferBeforeMinutes ?? 0} /></label>
-          <label className="grid gap-2 text-sm font-semibold text-[#344139]">Buffert efter, min<input name="buffer_after_minutes" type="number" min={0} max={1440} className={fieldClass} defaultValue={service?.bufferAfterMinutes ?? 0} /></label>
-          <label className="grid gap-2 text-sm font-semibold text-[#344139]">Minsta framförhållning, min<input name="minimum_notice_minutes" type="number" min={0} max={525600} className={fieldClass} defaultValue={service?.minimumNoticeMinutes ?? 0} /></label>
-          <label className="grid gap-2 text-sm font-semibold text-[#344139]">Bokningshorisont, dagar<input name="maximum_advance_days" type="number" min={1} max={730} className={fieldClass} defaultValue={service?.maximumAdvanceDays ?? 365} /></label>
+          <label className="grid gap-2 text-sm font-semibold text-ink-muted">Buffert före, min<input name="buffer_before_minutes" type="number" min={0} max={1440} className={fieldClass} defaultValue={service?.bufferBeforeMinutes ?? 0} /></label>
+          <label className="grid gap-2 text-sm font-semibold text-ink-muted">Buffert efter, min<input name="buffer_after_minutes" type="number" min={0} max={1440} className={fieldClass} defaultValue={service?.bufferAfterMinutes ?? 0} /></label>
+          <label className="grid gap-2 text-sm font-semibold text-ink-muted">Minsta framförhållning, min<input name="minimum_notice_minutes" type="number" min={0} max={525600} className={fieldClass} defaultValue={service?.minimumNoticeMinutes ?? 0} /></label>
+          <label className="grid gap-2 text-sm font-semibold text-ink-muted">Bokningshorisont, dagar<input name="maximum_advance_days" type="number" min={1} max={730} className={fieldClass} defaultValue={service?.maximumAdvanceDays ?? 365} /></label>
         </div>
       </details>
 
-      <details open className="rounded-2xl border border-[#cfe0d4] bg-[#f1f7f3] p-4">
+      <details open className="rounded-card border border-line bg-[#f3f8ff] p-4">
         <summary className={summaryClass}>4. Publik sida</summary>
-        <p className="mt-2 text-xs leading-5 text-[#5b665f]">Välj hur tjänsten visas och vilket nästa steg kunden ska kunna ta.</p>
+        <p className="mt-2 text-xs leading-5 text-ink-muted">Välj hur tjänsten visas och vilket nästa steg kunden ska kunna ta.</p>
         <div className="mt-4 grid gap-3">
           <div className="grid gap-3 md:grid-cols-2">
-            <label className="grid gap-2 text-sm font-semibold text-[#344139]">Publicering<select name="public_status" className={fieldClass} defaultValue={service?.publicStatus ?? "draft"}><option value="draft">Utkast</option><option value="published">Publicerad</option><option value="hidden">Dold</option></select></label>
-            <label className="grid gap-2 text-sm font-semibold text-[#344139]">Hur går kunden vidare?<select name="conversion_mode" className={fieldClass} defaultValue={service?.conversionMode ?? "book"}><option value="book">Boka online</option><option value="quote">Begär offert</option><option value="book_or_quote">Boka eller begär offert</option><option value="contact">Kontakta oss</option></select></label>
+            <label className="grid gap-2 text-sm font-semibold text-ink-muted">Publicering<select name="public_status" className={fieldClass} defaultValue={service?.publicStatus ?? "draft"}><option value="draft">Utkast</option><option value="published">Publicerad</option><option value="hidden">Dold</option></select></label>
+            <label className="grid gap-2 text-sm font-semibold text-ink-muted">Hur går kunden vidare?<select name="conversion_mode" className={fieldClass} defaultValue={service?.conversionMode ?? "book"}><option value="book">Boka online</option><option value="quote">Begär offert</option><option value="book_or_quote">Boka eller begär offert</option><option value="contact">Kontakta oss</option></select></label>
           </div>
-          <label className="grid gap-2 text-sm font-semibold text-[#344139]">Omslagsbild (URL)<input name="cover_image_url" type="url" maxLength={2000} className={fieldClass} defaultValue={service?.coverImageUrl ?? ""} placeholder="https://.../tjanst.jpg" /><span className="text-xs font-normal text-[#68736b]">Visas på tjänstekortet och tjänstesidan.</span></label>
-          {service?.coverImageUrl ? <img src={service.coverImageUrl} alt="Förhandsvisning av omslagsbild" className="h-40 w-full rounded-2xl object-cover ring-1 ring-black/10" /> : null}
-          <label className="grid gap-2 text-sm font-semibold text-[#344139]">Sortering<input name="sort_order" type="number" min={0} max={9999} required className={fieldClass} defaultValue={service?.sortOrder ?? 100} /><span className="text-xs font-normal text-[#68736b]">Lägre nummer visas först.</span></label>
+          <label className="grid gap-2 text-sm font-semibold text-ink-muted">Omslagsbild (URL)<input name="cover_image_url" type="url" maxLength={2000} className={fieldClass} defaultValue={service?.coverImageUrl ?? ""} placeholder="https://.../tjanst.jpg" /><span className="text-xs font-normal text-ink-muted">Visas på tjänstekortet och tjänstesidan.</span></label>
+          {service?.coverImageUrl ? <img src={service.coverImageUrl} alt="Förhandsvisning av omslagsbild" className="h-40 w-full rounded-card object-cover ring-1 ring-black/10" /> : null}
+          <label className="grid gap-2 text-sm font-semibold text-ink-muted">Sortering<input name="sort_order" type="number" min={0} max={9999} required className={fieldClass} defaultValue={service?.sortOrder ?? 100} /><span className="text-xs font-normal text-ink-muted">Lägre nummer visas först.</span></label>
         </div>
       </details>
 
       <details className={sectionClass}>
-        <summary className={summaryClass}>5. SEO och URL <span className="ml-2 font-normal text-[#667168]">Valfritt</span></summary>
-        <p className="mt-2 text-xs leading-5 text-[#667168]">Proffera skapar bra standardvärden automatiskt. Ändra bara om du behöver mer kontroll.</p>
+        <summary className={summaryClass}>5. SEO och URL <span className="ml-2 font-normal text-ink-muted">Valfritt</span></summary>
+        <p className="mt-2 text-xs leading-5 text-ink-muted">Proffera skapar bra standardvärden automatiskt. Ändra bara om du behöver mer kontroll.</p>
         <div className="mt-4 grid gap-3">
-          <label className="grid gap-2 text-sm font-semibold text-[#344139]">Publik URL-slug<input name="public_slug" type="text" maxLength={120} className={fieldClass} defaultValue={service?.publicSlug ?? ""} placeholder="skapas automatiskt från namnet" /></label>
-          <label className="grid gap-2 text-sm font-semibold text-[#344139]">SEO-titel<input name="seo_title" type="text" maxLength={180} className={fieldClass} defaultValue={service?.seoTitle ?? ""} placeholder="Lämna tomt för tjänstens namn" /></label>
-          <label className="grid gap-2 text-sm font-semibold text-[#344139]">SEO-beskrivning<textarea name="seo_description" maxLength={320} rows={2} className={fieldClass} defaultValue={service?.seoDescription ?? ""} placeholder="Lämna tomt för den korta beskrivningen" /></label>
+          <label className="grid gap-2 text-sm font-semibold text-ink-muted">Publik URL-slug<input name="public_slug" type="text" maxLength={120} className={fieldClass} defaultValue={service?.publicSlug ?? ""} placeholder="skapas automatiskt från namnet" /></label>
+          <label className="grid gap-2 text-sm font-semibold text-ink-muted">SEO-titel<input name="seo_title" type="text" maxLength={180} className={fieldClass} defaultValue={service?.seoTitle ?? ""} placeholder="Lämna tomt för tjänstens namn" /></label>
+          <label className="grid gap-2 text-sm font-semibold text-ink-muted">SEO-beskrivning<textarea name="seo_description" maxLength={320} rows={2} className={fieldClass} defaultValue={service?.seoDescription ?? ""} placeholder="Lämna tomt för den korta beskrivningen" /></label>
         </div>
       </details>
 
-      <label className="flex items-center gap-3 rounded-2xl border border-[#dfe5dd] bg-white p-4 text-sm font-semibold text-[#344139]"><input name="is_active" type="checkbox" defaultChecked={service?.isActive ?? true} />Aktiv tjänst internt</label>
+      <label className="flex items-center gap-3 rounded-card border border-line bg-surface p-4 text-sm font-semibold text-ink-muted"><input name="is_active" type="checkbox" defaultChecked={service?.isActive ?? true} />Aktiv tjänst internt</label>
     </div>
   );
 }
@@ -130,51 +130,51 @@ export async function ServicesReadOnly({ services }: ServicesReadOnlyProps) {
   const publishedServices = services.filter((service) => service.publicStatus === "published").length;
 
   return (
-    <section id="tjanster" className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
+    <section id="tjanster" className="rounded-card bg-surface p-6 shadow-sm ring-1 ring-[#dce4ee]">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <p className="text-sm font-semibold uppercase tracking-wide text-[#17452f]">Tjänster</p>
-          <h3 className="mt-2 text-xl font-bold text-[#17201a]">Hantera det kunden kan köpa eller fråga om</h3>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-[#5b665f]">Samma tjänst används i företagssidan, bokning, offert och kundflödet. Börja med grundinfo och publicering; avancerade regler och SEO kan lämnas orörda.</p>
+          <p className="text-sm font-semibold uppercase tracking-wide text-brand">Tjänster</p>
+          <h3 className="mt-2 text-xl font-bold text-ink">Hantera det kunden kan köpa eller fråga om</h3>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-ink-muted">Samma tjänst används i företagssidan, bokning, offert och kundflödet. Börja med grundinfo och publicering; avancerade regler och SEO kan lämnas orörda.</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <span className="w-fit rounded-full bg-[#e7f1eb] px-3 py-1 text-xs font-semibold text-[#17452f]">{services.length > 0 ? `${activeServices} aktiva` : "Redo att fyllas i"}</span>
-          <span className="w-fit rounded-full bg-[#eef3ff] px-3 py-1 text-xs font-semibold text-[#355a92]">{publishedServices} publicerade</span>
+          <span className="w-fit rounded-full bg-[#eaf8f2] px-3 py-1 text-xs font-semibold text-[#087754]">{services.length > 0 ? `${activeServices} aktiva` : "Redo att fyllas i"}</span>
+          <span className="w-fit rounded-full bg-[#eef5ff] px-3 py-1 text-xs font-semibold text-[#1469d8]">{publishedServices} publicerade</span>
         </div>
       </div>
 
       <div className="mt-5 flex flex-wrap gap-2">
-        <a href="/dashboard/installningar/foretagssida" className="inline-flex min-h-10 items-center rounded-full border border-[#cdd8d0] px-4 text-sm font-bold text-[#17452f]">Förhandsvisa företagssida</a>
-        <a href="/dashboard/galleri" className="inline-flex min-h-10 items-center rounded-full border border-[#cdd8d0] px-4 text-sm font-bold text-[#17452f]">Hantera bilder</a>
+        <a href="/dashboard/installningar/foretagssida" className="inline-flex min-h-10 items-center rounded-full border border-line px-4 text-sm font-bold text-brand">Förhandsvisa företagssida</a>
+        <a href="/dashboard/galleri" className="inline-flex min-h-10 items-center rounded-full border border-line px-4 text-sm font-bold text-brand">Hantera bilder</a>
       </div>
 
-      <details className="mt-6 rounded-2xl border border-[#cfe0d4] bg-[#f6faf7] p-5">
-        <summary className="cursor-pointer text-sm font-black text-[#17201a]">+ Skapa ny tjänst</summary>
+      <details className="mt-6 rounded-card border border-line bg-[#f6faf7] p-5">
+        <summary className="cursor-pointer text-sm font-black text-ink">+ Skapa ny tjänst</summary>
         <form action={createWorkspaceServiceAction} className="mt-5 space-y-4">
           <ServiceFields billingCurrency={billingCurrency} />
-          <button type="submit" className="inline-flex w-full items-center justify-center rounded-full bg-[#17452f] px-6 py-3 text-sm font-semibold !text-white transition hover:bg-[#123824] focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2">Skapa tjänst</button>
+          <button type="submit" className="inline-flex w-full items-center justify-center rounded-control bg-[#1469d8] px-6 py-3 text-sm font-semibold text-white transition hover:bg-brand-hover focus:outline-none focus:ring-2 focus:ring-brand focus:ring-offset-2">Skapa tjänst</button>
         </form>
       </details>
 
       {services.length > 0 ? (
         <div className="mt-6 grid gap-4 lg:grid-cols-3">
           {services.map((service) => (
-            <article key={service.id} className="overflow-hidden rounded-2xl border border-[#dfe5dd] bg-[#fdfdfb]">
-              {service.coverImageUrl ? <img src={service.coverImageUrl} alt={service.name} className="h-40 w-full object-cover" /> : <div className="flex h-28 items-center justify-center bg-[#edf3ee] text-3xl font-black text-[#17452f]">{service.name.slice(0, 1).toUpperCase()}</div>}
+            <article key={service.id} className="overflow-hidden rounded-card border border-line bg-surface">
+              {service.coverImageUrl ? <img src={service.coverImageUrl} alt={service.name} className="h-40 w-full object-cover" /> : <div className="flex h-28 items-center justify-center bg-brand-soft text-3xl font-black text-brand">{service.name.slice(0, 1).toUpperCase()}</div>}
               <div className="p-5">
                 <div className="flex items-start justify-between gap-3">
-                  <div><p className="text-base font-bold text-[#17201a]">{service.name}</p><p className="mt-1 text-xs font-semibold uppercase tracking-wide text-[#5b665f]">{visibleValue(service.category)}</p></div>
-                  <div className="grid justify-items-end gap-1"><span className="rounded-full bg-[#e7f1eb] px-3 py-1 text-xs font-semibold text-[#17452f]">{service.isActive ? "Aktiv" : "Inaktiv"}</span><span className="rounded-full bg-[#eef3ff] px-3 py-1 text-xs font-semibold text-[#355a92]">{publicationLabels[service.publicStatus]}</span></div>
+                  <div><p className="text-base font-bold text-ink">{service.name}</p><p className="mt-1 text-xs font-semibold uppercase tracking-wide text-ink-muted">{visibleValue(service.category)}</p></div>
+                  <div className="grid justify-items-end gap-1"><span className="rounded-full bg-[#eaf8f2] px-3 py-1 text-xs font-semibold text-[#087754]">{service.isActive ? "Aktiv" : "Inaktiv"}</span><span className="rounded-full bg-[#eef5ff] px-3 py-1 text-xs font-semibold text-[#1469d8]">{publicationLabels[service.publicStatus]}</span></div>
                 </div>
-                <p className="mt-4 line-clamp-3 min-h-[3rem] text-sm leading-6 text-[#5b665f]">{visibleValue(service.shortDescription || service.description)}</p>
-                <div className="mt-5 grid gap-2 text-sm text-[#5b665f]"><p><strong className="text-[#17201a]">Pris:</strong> {displayPrice(service, billingCurrency)}</p><p><strong className="text-[#17201a]">Längd:</strong> {formatDuration(service.durationMinutes)}</p><p><strong className="text-[#17201a]">Kundåtgärd:</strong> {conversionLabels[service.conversionMode]}</p><p><strong className="text-[#17201a]">Område:</strong> {visibleValue(service.serviceArea)}</p><p><strong className="text-[#17201a]">Marketplace-område:</strong> {service.serviceAreaConfirmed && service.serviceAreaRadiusKm !== null ? `Bekräftat · ${service.serviceAreaRadiusKm} km` : "Inte bekräftat"}</p></div>
-                <details className="mt-5 rounded-2xl bg-white p-4 ring-1 ring-[#dfe5dd]"><summary className="cursor-pointer text-sm font-black text-[#17201a]">Redigera tjänst</summary><form action={updateWorkspaceServiceAction} className="mt-5 space-y-4"><input type="hidden" name="service_id" value={service.id} /><ServiceFields service={service} billingCurrency={billingCurrency} /><button type="submit" className="inline-flex w-full items-center justify-center rounded-full bg-[#17452f] px-6 py-3 text-sm font-semibold !text-white transition hover:bg-[#123824] focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2">Spara tjänst</button></form></details>
+                <p className="mt-4 line-clamp-3 min-h-[3rem] text-sm leading-6 text-ink-muted">{visibleValue(service.shortDescription || service.description)}</p>
+                <div className="mt-5 grid gap-2 text-sm text-ink-muted"><p><strong className="text-ink">Pris:</strong> {displayPrice(service, billingCurrency)}</p><p><strong className="text-ink">Längd:</strong> {formatDuration(service.durationMinutes)}</p><p><strong className="text-ink">Kundåtgärd:</strong> {conversionLabels[service.conversionMode]}</p><p><strong className="text-ink">Område:</strong> {visibleValue(service.serviceArea)}</p><p><strong className="text-ink">Marketplace-område:</strong> {service.serviceAreaConfirmed && service.serviceAreaRadiusKm !== null ? `Bekräftat · ${service.serviceAreaRadiusKm} km` : "Inte bekräftat"}</p></div>
+                <details className="mt-5 rounded-card bg-surface p-4 ring-1 ring-[#dce4ee]"><summary className="cursor-pointer text-sm font-black text-ink">Redigera tjänst</summary><form action={updateWorkspaceServiceAction} className="mt-5 space-y-4"><input type="hidden" name="service_id" value={service.id} /><ServiceFields service={service} billingCurrency={billingCurrency} /><button type="submit" className="inline-flex w-full items-center justify-center rounded-control bg-[#1469d8] px-6 py-3 text-sm font-semibold text-white transition hover:bg-brand-hover focus:outline-none focus:ring-2 focus:ring-brand focus:ring-offset-2">Spara tjänst</button></form></details>
               </div>
             </article>
           ))}
         </div>
       ) : (
-        <div className="mt-6 rounded-2xl bg-[#f7f7f4] p-5 text-sm leading-6 text-[#5b665f]">Inga tjänster ännu. Skapa första tjänsten och publicera den när den är redo för kunder.</div>
+        <div className="mt-6 rounded-card bg-[#f6f9fd] p-5 text-sm leading-6 text-ink-muted">Inga tjänster ännu. Skapa första tjänsten och publicera den när den är redo för kunder.</div>
       )}
     </section>
   );
