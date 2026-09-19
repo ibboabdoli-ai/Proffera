@@ -19,6 +19,17 @@ describe("Readability and contrast hardening", () => {
     expect(css).toContain("--shadow-panel: var(--pf-shadow-lift)");
   });
 
+  it("keeps dark blue public CTAs readable when global anchor inheritance wins over utility layers", () => {
+    const css = source("src/app/globals.css");
+    const header = source("src/components/layout/header.tsx");
+
+    expect(css).toContain('[class~="bg-[#0a2e63]"]');
+    expect(css).toContain('[class~="bg-[#0a3c8f]"]');
+    expect(css).toContain('[class~="bg-[#1469d8]"]');
+    expect(header).toContain('bg-[#0a2e63] px-4 text-sm font-black !text-white');
+    expect(header).toContain("hover:!text-white");
+  });
+
   it("prevents light CTAs inside dark cards from inheriting white WebKit text fill", () => {
     const css = source("src/app/globals.css");
     const dashboard = source("src/app/dashboard/page.tsx");
