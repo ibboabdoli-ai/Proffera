@@ -44,7 +44,7 @@ export function Footer({ locale, marketplace = false }: FooterProps) {
     ? "border-t border-[#dce4ee] bg-white text-[#11213b]"
     : "border-t border-[#082654] bg-[#0a2e63] text-white";
   const secondaryText = marketplace ? "text-[#66758a]" : "text-white/70";
-  const tertiaryText = marketplace ? "text-[#7b8799]" : "text-white/45";
+  const tertiaryText = marketplace ? "text-[#7b8799]" : "text-white/55";
   const linkClass = marketplace
     ? "transition hover:text-[#1469d8] focus:outline-none focus-visible:text-[#1469d8]"
     : "transition hover:text-white focus:outline-none focus-visible:text-white";
