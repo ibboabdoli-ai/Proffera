@@ -4,6 +4,7 @@ import { COMPANY_DIRECTORY_CATEGORY_CONFIDENCE_POLICY_VERSION } from "@/lib/comp
 import { revalidateCompanyDirectoryCategoryPolicyBatch } from "@/lib/company-directory-category-policy-revalidation";
 import { revalidateAllCompanyDirectoryBatch } from "@/lib/company-directory-full-revalidation";
 import { invalidateAllPublicDirectoryPublicCaches } from "@/lib/company-directory-public-cache";
+import { invalidateMarketplaceHomeCompaniesCache } from "@/lib/public-read-cache";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -32,6 +33,17 @@ function invalidatePublicDirectoryCachesBestEffort(context: string) {
     invalidateAllPublicDirectoryPublicCaches();
   } catch (error) {
     console.error("Public Directory cache invalidation failed after committed revalidation work", {
+      context,
+      error,
+    });
+  }
+}
+
+function invalidateMarketplaceCacheBestEffort(context: string) {
+  try {
+    invalidateMarketplaceHomeCompaniesCache();
+  } catch (error) {
+    console.error("Marketplace cache invalidation failed after committed Directory revalidation work", {
       context,
       error,
     });
@@ -109,11 +121,13 @@ export async function GET(request: Request) {
     );
     if (result.movedToReview > 0) {
       invalidatePublicDirectoryCachesBestEffort("full_revalidation_batch_success");
+      invalidateMarketplaceCacheBestEffort("full_revalidation_batch_success");
     }
     return NextResponse.json({ ok: true, ...result, policyEvaluation });
   } catch (error) {
     console.error("Company directory dedicated revalidation failed", error);
     invalidatePublicDirectoryCachesBestEffort("full_revalidation_batch_failure");
+    invalidateMarketplaceCacheBestEffort("full_revalidation_batch_failure");
     return NextResponse.json(
       {
         ok: false,
