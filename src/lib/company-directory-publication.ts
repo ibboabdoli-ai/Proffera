@@ -66,7 +66,10 @@ export async function publishCompanyDirectoryProfileIfSafe(
       f.source_payload_hash as facts_source_payload_hash,
       scb.workplaces as scb_workplaces,
       scb.source_payload_hash as scb_source_payload_hash,
-      coalesce(jsonb_array_length(scb.conflicts), 0)::int as scb_conflict_count,
+      case
+        when jsonb_typeof(scb.conflicts) = 'array' then jsonb_array_length(scb.conflicts)
+        else 1
+      end::int as scb_conflict_count,
       (
         f.profile_id is not null
         and f.last_synced_at >= p.last_synced_at
@@ -147,7 +150,10 @@ export async function publishCompanyDirectoryProfileIfSafe(
         p.address_line1, p.postal_code, p.city, p.municipality,
         scb.workplaces as scb_workplaces,
         scb.source_payload_hash as scb_source_payload_hash,
-        coalesce(jsonb_array_length(scb.conflicts), 0)::int as scb_conflict_count,
+        case
+        when jsonb_typeof(scb.conflicts) = 'array' then jsonb_array_length(scb.conflicts)
+        else 1
+      end::int as scb_conflict_count,
         (
           scb.profile_id is not null
           and scb.source_payload_hash <> ''
@@ -214,7 +220,8 @@ export async function publishCompanyDirectoryProfileIfSafe(
             select 1
             from company_directory_scb_enrichment scb
             where scb.profile_id = p.id
-              and jsonb_array_length(coalesce(scb.conflicts, '[]'::jsonb)) = 0
+              and jsonb_typeof(scb.conflicts) = 'array'
+              and jsonb_array_length(scb.conflicts) = 0
               and scb.source_payload_hash = ${scbSourcePayloadHash}
               and scb.last_synced_at >= now() - interval '7 days'
               and scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = p.updated_at::text
