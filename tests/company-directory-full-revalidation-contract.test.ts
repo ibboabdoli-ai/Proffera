@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   enrichOfficialFacts: vi.fn(),
   enrichScb: vi.fn(),
   createScbTransport: vi.fn(),
+  invalidateByProfileId: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -21,6 +22,9 @@ vi.mock("@/lib/company-directory-scb-enrichment", () => ({
 }));
 vi.mock("@/lib/company-directory-scb-transport", () => ({
   createScbCompanyRegistryTransportFromEnv: mocks.createScbTransport,
+}));
+vi.mock("@/lib/company-directory-public-cache", () => ({
+  invalidatePublicDirectoryPublicProjectionByProfileId: mocks.invalidateByProfileId,
 }));
 
 import { revalidateAllCompanyDirectoryBatch } from "../src/lib/company-directory-full-revalidation";
@@ -200,6 +204,33 @@ describe("full Company Directory revalidation", () => {
       errors: 0,
     });
     expect(sqlCalls.some((call) => call.query.includes("set publication_status = 'review'"))).toBe(true);
+    expect(mocks.invalidateByProfileId).toHaveBeenCalledWith(PROFILE_ID);
+  });
+
+  it("keeps a committed published demotion counted when public cache invalidation fails", async () => {
+    const cacheError = new Error("cache invalidate failed");
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    mocks.invalidateByProfileId.mockRejectedValueOnce(cacheError);
+    configureWorker({
+      status: "published",
+      evaluation: evaluation("published", {
+        scb_workplaces: [workplace("Uppsala", "Uppsala")],
+      }),
+    });
+
+    const result = await revalidateAllCompanyDirectoryBatch(10);
+
+    expect(result).toMatchObject({
+      selected: 1,
+      refreshed: 1,
+      movedToReview: 1,
+      errors: 0,
+    });
+    expect(consoleError).toHaveBeenCalledWith(
+      "Failed to invalidate public Directory cache after committed full-revalidation demotion",
+      { profileId: PROFILE_ID, error: cacheError },
+    );
+    consoleError.mockRestore();
   });
 
   it("keeps an outside-pilot Review profile in Review instead of recovering it to Ready", async () => {

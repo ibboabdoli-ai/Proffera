@@ -3,6 +3,7 @@ import "server-only";
 import { assessCompanyDirectoryCategoryConfidence } from "@/lib/company-directory-category-confidence";
 import { enrichCompanyDirectoryOfficialFactsForProfile } from "@/lib/company-directory-official-facts";
 import { assessCompanyDirectoryPilotWorkplace } from "@/lib/company-directory-pilot-location";
+import { invalidatePublicDirectoryPublicProjectionByProfileId } from "@/lib/company-directory-public-cache";
 import { isBolagsverketOrganizationNotFoundError } from "@/lib/company-directory-official-facts-errors";
 import {
   SCB_COMPANY_REGISTRY_MATCH_COUNT_FAILURE_CODE as DETERMINISTIC_SCB_FAILURE_CODE,
@@ -1242,6 +1243,16 @@ export async function revalidateAllCompanyDirectoryBatch(
         }
 
         movedToReview += 1;
+        if (status === "published") {
+          try {
+            await invalidatePublicDirectoryPublicProjectionByProfileId(profileId);
+          } catch (error) {
+            console.error("Failed to invalidate public Directory cache after committed full-revalidation demotion", {
+              profileId,
+              error,
+            });
+          }
+        }
 
         // The status transition updates profile.updated_at. Refresh SCB once more so
         // the saved provenance matches the final profile token. If the shared cron
