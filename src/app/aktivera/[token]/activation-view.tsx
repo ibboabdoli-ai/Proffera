@@ -22,8 +22,8 @@ const copy = {
     invalidTitle: "Länken kan inte användas",
     invalidText: "Den är ogiltig, har gått ut eller har redan använts.",
     contact: "Kontakta Proffera",
-    portal: "Proffera kundportal",
-    activate: "Aktivera kundportal för",
+    portal: "Proffera arbetsyta",
+    activate: "Aktivera arbetsyta för",
     benefitWorkspace: "Egen säker arbetsyta.",
     benefitOverview: "Kunder, bokningar och leads samlade.",
     benefitSingleUse: "Inbjudan kan bara användas en gång.",
@@ -42,8 +42,8 @@ const copy = {
     invalidTitle: "This link cannot be used",
     invalidText: "It is invalid, has expired, or has already been used.",
     contact: "Contact Proffera",
-    portal: "Proffera customer portal",
-    activate: "Activate customer portal for",
+    portal: "Proffera workspace",
+    activate: "Activate workspace for",
     benefitWorkspace: "Your own secure workspace.",
     benefitOverview: "Customers, bookings and leads in one place.",
     benefitSingleUse: "The invitation can only be used once.",
@@ -67,6 +67,7 @@ function LocaleControls({ locale, onChange }: { locale: AuthLocale; onChange: (l
       <span>{text.language}:</span>
       <button
         type="button"
+        aria-pressed={locale === "sv"}
         className={`${authStyles.languageButton} ${locale === "sv" ? authStyles.languageActive : ""}`}
         onClick={() => onChange("sv")}
       >
@@ -74,6 +75,7 @@ function LocaleControls({ locale, onChange }: { locale: AuthLocale; onChange: (l
       </button>
       <button
         type="button"
+        aria-pressed={locale === "en"}
         className={`${authStyles.languageButton} ${locale === "en" ? authStyles.languageActive : ""}`}
         onClick={() => onChange("en")}
       >
@@ -123,7 +125,7 @@ export function ActivationView({
 
   if (!invitation) {
     return (
-      <main className={authStyles.page} lang={locale}>
+      <div className={authStyles.page} lang={locale}>
         <section className={authStyles.shell}>
           <div className={authStyles.single}>
             <LocaleControls locale={locale} onChange={changeLocale} />
@@ -139,7 +141,7 @@ export function ActivationView({
             </section>
           </div>
         </section>
-      </main>
+      </div>
     );
   }
 
@@ -148,7 +150,7 @@ export function ActivationView({
     : null;
 
   return (
-    <main className={authStyles.page} lang={locale}>
+    <div className={authStyles.page} lang={locale}>
       <section className={authStyles.shell}>
         <LocaleControls locale={locale} onChange={changeLocale} />
 
@@ -185,6 +187,6 @@ export function ActivationView({
           </section>
         </div>
       </section>
-    </main>
+    </div>
   );
 }
