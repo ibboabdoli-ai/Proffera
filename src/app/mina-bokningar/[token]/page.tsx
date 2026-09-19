@@ -1,4 +1,5 @@
 /* eslint-disable react-hooks/purity */
+import type { CSSProperties } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
@@ -7,45 +8,55 @@ import { notFound, redirect } from "next/navigation";
 import { CalendarClock, CalendarDays, Clock3, History, MapPin, XCircle } from "lucide-react";
 
 import { cancelCustomerCalendarBooking, getCustomerCalendar, type CustomerCalendarBooking } from "@/lib/customer-calendar";
-import { getCustomerPortalLanguage } from "@/lib/customer-portal-language";
+import { getCustomerPortalPresentation, type CustomerPortalLanguage } from "@/lib/customer-portal-language";
 import { isPrimeViewHost } from "@/lib/public-site-domains";
 import type { WorkspaceTimeZone } from "@/lib/workspace-market";
+import styles from "../customer-portal.module.css";
 
 export const dynamic = "force-dynamic";
 
 type PageProps = {
   params: Promise<{ token: string }>;
-  searchParams?: Promise<{ changed?: string; cancelled?: string; error?: string }>;
+  searchParams?: Promise<{ changed?: string | string[]; cancelled?: string | string[]; error?: string | string[]; lang?: string | string[] }>;
 };
 
 const statusLabelsSv: Record<string, string> = {
-  draft: "Utkast",
-  requested: "Förfrågad",
-  confirmed: "Bekräftad",
-  completed: "Genomförd",
-  cancelled: "Avbokad",
-  no_show: "Uteblev",
+  draft: "Utkast", requested: "Förfrågad", confirmed: "Bekräftad", completed: "Genomförd", cancelled: "Avbokad", no_show: "Uteblev",
 };
 
 const statusLabelsEn: Record<string, string> = {
-  draft: "Draft",
-  requested: "Requested",
-  confirmed: "Confirmed",
-  completed: "Completed",
-  cancelled: "Cancelled",
-  no_show: "No-show",
+  draft: "Draft", requested: "Requested", confirmed: "Confirmed", completed: "Completed", cancelled: "Cancelled", no_show: "No-show",
 };
 
 const formatDate = (value: string, timeZone: WorkspaceTimeZone, isEnglish: boolean) =>
   new Intl.DateTimeFormat(isEnglish ? "en-GB" : "sv-SE", {
-    timeZone,
-    weekday: "short",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
+    timeZone, weekday: "short", day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit",
   }).format(new Date(value));
+
+function first(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function resolvePortalLanguage(
+  requested: string | undefined,
+  presentation: Awaited<ReturnType<typeof getCustomerPortalPresentation>>,
+): CustomerPortalLanguage {
+  if (requested === "en" && presentation?.englishEnabled) return "en";
+  if (requested === "sv" && presentation?.swedishEnabled) return "sv";
+  if (presentation?.defaultLanguage === "en" && presentation.englishEnabled) return "en";
+  if (presentation?.swedishEnabled !== false) return "sv";
+  return "en";
+}
+
+function portalHref(token: string, locale: CustomerPortalLanguage, query?: { changed?: string; cancelled?: string; error?: string }) {
+  const params = new URLSearchParams();
+  if (locale === "en") params.set("lang", "en");
+  if (query?.changed) params.set("changed", query.changed);
+  if (query?.cancelled) params.set("cancelled", query.cancelled);
+  if (query?.error) params.set("error", query.error);
+  const suffix = params.toString();
+  return `/mina-bokningar/${encodeURIComponent(token)}${suffix ? `?${suffix}` : ""}`;
+}
 
 async function cancelBooking(formData: FormData) {
   "use server";
@@ -56,13 +67,7 @@ async function cancelBooking(formData: FormData) {
 }
 
 function BookingCard({
-  booking,
-  token,
-  timeZone,
-  canReschedule,
-  canCancel,
-  cancelNoticeHours,
-  isEnglish,
+  booking, token, timeZone, canReschedule, canCancel, cancelNoticeHours, language,
 }: {
   booking: CustomerCalendarBooking;
   token: string;
@@ -70,8 +75,9 @@ function BookingCard({
   canReschedule: boolean;
   canCancel: boolean;
   cancelNoticeHours: number;
-  isEnglish: boolean;
+  language: CustomerPortalLanguage;
 }) {
+  const isEnglish = language === "en";
   const calendarUrl = `/api/mina-bokningar/${encodeURIComponent(token)}/${encodeURIComponent(booking.id)}/calendar`;
   const start = new Date(booking.startsAt).getTime();
   const isPast = start <= Date.now();
@@ -82,59 +88,45 @@ function BookingCard({
   const displayStatus = isPast && ["requested", "confirmed"].includes(booking.status)
     ? isEnglish ? "Time has passed" : "Tiden har passerat"
     : labels[booking.status] ?? booking.status;
-
-  const accent = isEnglish ? "text-[#1769c2]" : "text-[#17452f]";
-  const button = isEnglish
-    ? "border-[#b9cdec] text-[#0a3c8f] hover:bg-[#f2f7ff]"
-    : "border-[#cfd9d0] text-[#17452f]";
+  const statusClass = booking.status === "confirmed" && !isPast
+    ? styles.statusActive
+    : ["cancelled", "no_show"].includes(booking.status) || isPast
+      ? styles.statusMuted
+      : styles.statusNeutral;
+  const rescheduleHref = `/mina-bokningar/${encodeURIComponent(token)}/${booking.id}/boka-om${isEnglish ? "?lang=en" : ""}`;
 
   return (
-    <article className={`rounded-2xl border bg-white p-5 shadow-sm ${isEnglish ? "border-[#d9e4ef]" : "border-[#dfe6df]"}`}>
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <article className={styles.bookingCard}>
+      <div className={styles.bookingTop}>
         <div>
-          <p className={`text-xs font-bold uppercase tracking-[0.16em] ${isEnglish ? "text-[#5f7894]" : "text-[#647269]"}`}>{displayStatus}</p>
-          <h3 className={`mt-1 text-lg font-black ${isEnglish ? "text-[#071b42]" : "text-[#17201a]"}`}>{booking.title}</h3>
-          <p className={`mt-1 text-sm ${isEnglish ? "text-[#667b91]" : "text-[#5c685f]"}`}>{booking.service}</p>
+          <span className={`${styles.status} ${statusClass}`}>{displayStatus}</span>
+          <h3 className={styles.bookingTitle}>{booking.title}</h3>
+          <p className={styles.bookingService}>{booking.service}</p>
         </div>
-        <span className={`rounded-full px-3 py-1 text-xs font-bold ${isEnglish ? "bg-[#eaf3ff] text-[#0a3c8f]" : "bg-[#edf5ef] text-[#17452f]"}`}>
-          {isEnglish ? "Private booking" : "Privat bokning"}
-        </span>
+        <span className={`${styles.status} ${styles.statusNeutral}`}>{isEnglish ? "Private booking" : "Privat bokning"}</span>
       </div>
 
-      <div className={`mt-4 grid gap-2 text-sm ${isEnglish ? "text-[#334d68]" : "text-[#344139]"}`}>
-        <p className="flex items-center gap-2"><Clock3 className={`h-4 w-4 ${accent}`} />{formatDate(booking.startsAt, timeZone, isEnglish)}</p>
-        {booking.city ? <p className="flex items-center gap-2"><MapPin className={`h-4 w-4 ${accent}`} />{booking.city}</p> : null}
+      <div className={styles.bookingMeta}>
+        <span><Clock3 aria-hidden="true" />{formatDate(booking.startsAt, timeZone, isEnglish)}</span>
+        {booking.city ? <span><MapPin aria-hidden="true" />{booking.city}</span> : null}
       </div>
 
-      <div className="mt-5 flex flex-wrap gap-2">
-        <Link href={calendarUrl} className={`inline-flex min-h-10 items-center rounded-xl border px-4 py-2 text-sm font-bold ${button}`}>
-          {isEnglish ? "Add to calendar" : "Lägg till i kalender"}
-        </Link>
-        {rescheduleAllowed ? (
-          <Link href={`/mina-bokningar/${encodeURIComponent(token)}/${booking.id}/boka-om`} className={`inline-flex min-h-10 items-center gap-2 rounded-xl border px-4 py-2 text-sm font-bold ${button}`}>
-            <CalendarClock className="h-4 w-4" />{isEnglish ? "Reschedule" : "Boka om"}
-          </Link>
-        ) : null}
+      <div className={styles.actions}>
+        <Link href={calendarUrl} className={styles.secondaryAction}>{isEnglish ? "Add to calendar" : "Lägg till i kalender"}</Link>
+        {rescheduleAllowed ? <Link href={rescheduleHref} className={styles.primaryAction}><CalendarClock aria-hidden="true" className="h-4 w-4" />{isEnglish ? "Reschedule" : "Boka om"}</Link> : null}
         {cancelAllowed ? (
           <form action={cancelBooking}>
             <input type="hidden" name="token" value={token} />
             <input type="hidden" name="booking_id" value={booking.id} />
-            <button type="submit" className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-[#efc8c3] px-4 py-2 text-sm font-bold text-[#a5362a] hover:bg-[#fff7f5]">
-              <XCircle className="h-4 w-4" />{isEnglish ? "Cancel" : "Avboka"}
-            </button>
+            <input type="hidden" name="lang" value={language} />
+            <button type="submit" className={styles.dangerAction}><XCircle aria-hidden="true" className="h-4 w-4" />{isEnglish ? "Cancel" : "Avboka"}</button>
           </form>
         ) : null}
       </div>
 
-      {active && !rescheduleAllowed && !cancelAllowed ? (
-        <p className="mt-3 text-xs text-[#6c756f]">{isEnglish ? "The company has disabled self-service for this booking." : "Företaget har stängt av självservice för den här bokningen."}</p>
-      ) : null}
-      {active && canCancel && !cancelAllowed ? (
-        <p className="mt-3 text-xs text-[#6c756f]">{isEnglish ? `Online cancellation closes ${cancelNoticeHours} hours before the appointment.` : `Avbokning online stänger ${cancelNoticeHours} timmar före start.`}</p>
-      ) : null}
-      {isPast && ["requested", "confirmed"].includes(booking.status) ? (
-        <p className="mt-3 text-xs text-[#6c756f]">{isEnglish ? "The booking time has passed. The company can mark it as completed or no-show." : "Bokningstiden har passerat. Företaget kan markera den som genomförd eller utebliven."}</p>
-      ) : null}
+      {active && !rescheduleAllowed && !cancelAllowed ? <p className={styles.helper}>{isEnglish ? "The company has disabled self-service for this booking." : "Företaget har stängt av självservice för den här bokningen."}</p> : null}
+      {active && canCancel && !cancelAllowed ? <p className={styles.helper}>{isEnglish ? `Online cancellation closes ${cancelNoticeHours} hours before the appointment.` : `Avbokning online stänger ${cancelNoticeHours} timmar före start.`}</p> : null}
+      {isPast && ["requested", "confirmed"].includes(booking.status) ? <p className={styles.helper}>{isEnglish ? "The booking time has passed. The company can mark it as completed or no-show." : "Bokningstiden har passerat. Företaget kan markera den som genomförd eller utebliven."}</p> : null}
     </article>
   );
 }
@@ -142,15 +134,20 @@ function BookingCard({
 export default async function Page({ params, searchParams }: PageProps) {
   const { token } = await params;
   const query = searchParams ? await searchParams : undefined;
-  const language = await getCustomerPortalLanguage(token);
+  const [presentation, requestHeaders] = await Promise.all([
+    getCustomerPortalPresentation(token),
+    headers(),
+  ]);
+  const language = resolvePortalLanguage(first(query?.lang), presentation);
   const isEnglish = language === "en";
-  const requestHeaders = await headers();
+  const isPrimeView = presentation?.publicBookingSlug === "primeview";
 
-  if (isEnglish && !isPrimeViewHost(requestHeaders.get("host"))) {
+  if (isPrimeView && !isPrimeViewHost(requestHeaders.get("host"))) {
     const url = new URL(`https://www.primeviewwindowcare.co.uk/mina-bokningar/${encodeURIComponent(token)}`);
-    if (query?.changed) url.searchParams.set("changed", query.changed);
-    if (query?.cancelled) url.searchParams.set("cancelled", query.cancelled);
-    if (query?.error) url.searchParams.set("error", query.error);
+    if (isEnglish) url.searchParams.set("lang", "en");
+    if (first(query?.changed)) url.searchParams.set("changed", first(query?.changed)!);
+    if (first(query?.cancelled)) url.searchParams.set("cancelled", first(query?.cancelled)!);
+    if (first(query?.error)) url.searchParams.set("error", first(query?.error)!);
     redirect(url.toString());
   }
 
@@ -166,67 +163,67 @@ export default async function Page({ params, searchParams }: PageProps) {
       canReschedule={data.policy.customerRescheduleEnabled}
       canCancel={data.policy.customerCancelEnabled}
       cancelNoticeHours={data.policy.cancelNoticeHours}
-      isEnglish={isEnglish}
+      language={language}
     />
   );
 
+  const companyName = presentation?.companyName || (isPrimeView ? "PrimeView Window Care" : "Proffera");
+  const style = { "--portal-primary": presentation?.primaryColor || (isPrimeView ? "#1769c2" : "#0a2e63") } as CSSProperties;
+  const switchQuery = { changed: first(query?.changed), cancelled: first(query?.cancelled), error: first(query?.error) };
+  const showLanguageSwitch = presentation ? presentation.swedishEnabled && presentation.englishEnabled : true;
+
   return (
-    <main className={`min-h-screen px-4 py-8 sm:px-6 ${isEnglish ? "bg-[#f4f6fb]" : "bg-[#f4f7f3]"}`}>
-      <div className="mx-auto grid max-w-4xl gap-6">
-        <header className={`rounded-[28px] p-6 text-white shadow-sm sm:p-8 ${isEnglish ? "bg-[#06183b]" : "bg-[#173e2b]"}`}>
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              {isEnglish ? (
-                <Image src="/brand/primeview-window-care-logo.jpeg" alt="PrimeView Window Care" width={56} height={56} className="h-12 w-12 rounded-xl object-cover ring-1 ring-white/25" />
-              ) : (
-                <span className="grid h-11 w-11 place-items-center rounded-2xl bg-white/12"><CalendarDays className="h-5 w-5" /></span>
-              )}
-              <div>
-                <p className={`text-xs font-bold uppercase tracking-[0.18em] ${isEnglish ? "text-[#b8ceff]" : "text-white/70"}`}>
-                  {isEnglish ? "PrimeView Window Care · My bookings" : "Mina bokningar"}
-                </p>
-                <h1 className="mt-1 text-2xl font-black sm:text-3xl">{isEnglish ? "Hello" : "Hej"} {data.customer.name}</h1>
-              </div>
+    <main className={styles.page} lang={language} style={style}>
+      <div className={styles.shell}>
+        <div className={styles.topbar}>
+          <div className={styles.identity}>
+            {isPrimeView ? (
+              <Image src="/brand/primeview-window-care-logo.jpeg" alt="PrimeView Window Care" width={48} height={48} className={styles.logo} />
+            ) : presentation?.logoUrl ? (
+              // Workspace logos are runtime tenant media and may use Blob/CDN hosts.
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={presentation.logoUrl} alt="" className={styles.logo} />
+            ) : (
+              <span className={styles.mark}><CalendarDays className="h-5 w-5" aria-hidden="true" /></span>
+            )}
+            <div>
+              <p className={styles.companyName}>{companyName}</p>
+              <p className={styles.portalLabel}>{isEnglish ? "My bookings" : "Mina bokningar"}</p>
             </div>
-            {isEnglish ? <Link href="/" className="rounded-xl bg-[#1769c2] px-4 py-3 text-sm font-black text-white hover:bg-[#2f80ed]">PrimeView website</Link> : null}
           </div>
-          <p className="mt-4 max-w-2xl text-sm leading-7 text-white/80">
-            {isEnglish ? "Only your own bookings are shown here. Available actions are controlled by PrimeView's booking rules." : "Här visas endast dina egna bokningar. Tillgängliga åtgärder styrs av företagets bokningsregler."}
-          </p>
+
+          {showLanguageSwitch ? (
+            <nav className={styles.languageNav} aria-label={isEnglish ? "Language" : "Språk"}>
+              <Link href={portalHref(token, "sv", switchQuery)} className={language === "sv" ? styles.languageActive : styles.languageLink}>SV</Link>
+              <Link href={portalHref(token, "en", switchQuery)} className={language === "en" ? styles.languageActive : styles.languageLink}>EN</Link>
+            </nav>
+          ) : null}
+        </div>
+
+        <header className={styles.hero}>
+          <p className={styles.eyebrow}>{isEnglish ? "Customer self-service" : "Kundens självservice"}</p>
+          <h1 className={styles.title}>{isEnglish ? "Hello" : "Hej"} {data.customer.name}</h1>
+          <p className={styles.lead}>{isEnglish ? "Only your own bookings are shown here. Available actions follow the company’s booking rules." : "Här visas endast dina egna bokningar. Tillgängliga åtgärder styrs av företagets bokningsregler."}</p>
+          {isPrimeView ? <Link href="/" className={styles.websiteLink}>PrimeView website</Link> : null}
         </header>
 
-        {query?.changed === "1" ? (
-          <p className={`rounded-xl p-4 text-sm font-bold ${isEnglish ? "bg-[#eaf3ff] text-[#0a3c8f]" : "bg-[#eaf6ed] text-[#17452f]"}`}>
-            {isEnglish ? "The appointment time has been changed." : "Tiden har ändrats."}
-          </p>
-        ) : null}
+        {first(query?.changed) === "1" ? <p className={styles.noticeSuccess}>{isEnglish ? "The appointment time has been changed." : "Tiden har ändrats."}</p> : null}
+        {first(query?.cancelled) === "1" ? <p className={styles.noticeSuccess}>{isEnglish ? "The booking has been cancelled." : "Bokningen har avbokats."}</p> : null}
 
-        <section className={`rounded-[24px] border bg-white p-5 sm:p-6 ${isEnglish ? "border-[#d9e4ef]" : "border-[#dfe6df]"}`}>
-          <div className="flex items-center gap-2">
-            <CalendarDays className={`h-5 w-5 ${isEnglish ? "text-[#1769c2]" : "text-[#17452f]"}`} />
-            <h2 className={`text-xl font-black ${isEnglish ? "text-[#071b42]" : "text-[#17201a]"}`}>{isEnglish ? "Upcoming" : "Kommande"}</h2>
-          </div>
-          <div className="mt-5 grid gap-4 md:grid-cols-2">
-            {data.upcoming.length ? data.upcoming.map(card) : <p className="text-sm text-[#667b91]">{isEnglish ? "You have no upcoming bookings." : "Du har inga kommande bokningar."}</p>}
-          </div>
+        <section className={styles.section}>
+          <div className={styles.sectionHeader}><CalendarDays aria-hidden="true" /><h2>{isEnglish ? "Upcoming" : "Kommande"}</h2></div>
+          <div className={styles.bookingList}>{data.upcoming.length ? data.upcoming.map(card) : <p className={styles.empty}>{isEnglish ? "You have no upcoming bookings." : "Du har inga kommande bokningar."}</p>}</div>
         </section>
 
-        <section className={`rounded-[24px] border bg-white p-5 sm:p-6 ${isEnglish ? "border-[#d9e4ef]" : "border-[#dfe6df]"}`}>
-          <div className="flex items-center gap-2">
-            <History className={`h-5 w-5 ${isEnglish ? "text-[#1769c2]" : "text-[#17452f]"}`} />
-            <h2 className={`text-xl font-black ${isEnglish ? "text-[#071b42]" : "text-[#17201a]"}`}>{isEnglish ? "History" : "Historik"}</h2>
-          </div>
-          <div className="mt-5 grid gap-4 md:grid-cols-2">
-            {data.history.length ? data.history.map(card) : <p className="text-sm text-[#667b91]">{isEnglish ? "No booking history yet." : "Ingen bokningshistorik ännu."}</p>}
-          </div>
+        <section className={styles.section}>
+          <div className={styles.sectionHeader}><History aria-hidden="true" /><h2>{isEnglish ? "History" : "Historik"}</h2></div>
+          <div className={styles.bookingList}>{data.history.length ? data.history.map(card) : <p className={styles.empty}>{isEnglish ? "No booking history yet." : "Ingen bokningshistorik ännu."}</p>}</div>
         </section>
 
-        {isEnglish ? (
-          <footer className="flex flex-wrap items-center justify-between gap-3 px-2 pb-3 text-xs text-[#667b91]">
-            <span>PrimeView Window Care</span>
-            <Link href="/privacy" className="font-bold text-[#0a3c8f] underline underline-offset-3">Privacy Policy</Link>
-          </footer>
-        ) : null}
+        <footer className={styles.footer}>
+          <span>{companyName}</span>
+          {isPrimeView ? <Link href="/privacy" className={styles.backLink}>Privacy Policy</Link> : <span>{isEnglish ? "Booking self-service via Proffera" : "Bokningssjälvservice via Proffera"}</span>}
+        </footer>
       </div>
     </main>
   );

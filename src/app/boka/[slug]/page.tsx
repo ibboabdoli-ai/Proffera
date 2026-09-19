@@ -14,6 +14,7 @@ import { hasWorkspaceFeatureAccessForWorkspace } from "@/lib/workspace-feature-e
 import { getPublicWorkspaceExperienceSettings, type WorkspaceLanguage } from "@/lib/workspace-experience";
 
 import { BookingRequestForm } from "./booking-request-form";
+import styles from "./public-booking-marketplace.module.css";
 
 export const dynamic = "force-dynamic";
 
@@ -203,8 +204,9 @@ async function requestPublicBooking(formData: FormData) {
 export default async function PublicBookingPage({ params, searchParams }: PageProps) {
   const { slug } = await params;
   const query = searchParams ? await searchParams : undefined;
+  const requestedQueryLocale: WorkspaceLanguage = firstParam(query?.lang) === "en" ? "en" : "sv";
   const sql = getSql();
-  if (!sql) return <Unavailable locale="sv" />;
+  if (!sql) return <Unavailable locale={requestedQueryLocale} />;
 
   let workspace: Record<string, unknown> | undefined;
   let services: Array<Record<string, unknown>> = [];
@@ -242,7 +244,7 @@ export default async function PublicBookingPage({ params, searchParams }: PagePr
       }
     }
   } catch { workspace = undefined; }
-  if (!workspace) return <Unavailable locale="sv" />;
+  if (!workspace) return <Unavailable locale={requestedQueryLocale} />;
 
   const experience = await getPublicWorkspaceExperienceSettings(String(workspace.id));
   const requestedLanguage = firstParam(query?.lang) === "en" ? "en" : firstParam(query?.lang) === "sv" ? "sv" : experience.defaultLanguage;
@@ -263,39 +265,175 @@ export default async function PublicBookingPage({ params, searchParams }: PagePr
   /> : null;
 
   const serviceQuery = initialServiceId ? `&service_id=${encodeURIComponent(initialServiceId)}` : "";
-  const languageSwitch = experience.swedishEnabled && experience.englishEnabled ? <nav className="flex justify-end gap-2" aria-label="Language"><a href={`/boka/${slug}?lang=sv${serviceQuery}`} className={`rounded-full px-3 py-2 text-xs font-bold ${locale === "sv" ? "bg-white text-black" : "bg-white/15 text-white"}`}>Svenska</a><a href={`/boka/${slug}?lang=en${serviceQuery}`} className={`rounded-full px-3 py-2 text-xs font-bold ${locale === "en" ? "bg-white text-black" : "bg-white/15 text-white"}`}>English</a></nav> : null;
-  const errorNotice = error ? <p role="alert" className="mt-4 rounded-xl bg-[#fff5f2] p-4 text-sm font-semibold text-[#8f2f1b] ring-1 ring-[#f4c7ba]">{error}</p> : null;
-  const successNotice = booked ? <div data-booking-success className="rounded-2xl bg-[#eef8f0] p-5 text-[#17452f] ring-1 ring-[#c9e6d0]"><p role="status" className="font-bold leading-6">{t.booked}</p><a href={`/boka/${slug}?lang=${locale}`} className="mt-4 inline-flex min-h-11 items-center justify-center rounded-xl bg-[#17452f] px-5 py-3 text-sm font-bold text-white">{t.bookAnother}</a></div> : null;
+  const languageSwitch = experience.swedishEnabled && experience.englishEnabled ? (
+    <nav className={styles.languageNav} aria-label="Language">
+      <a
+        href={`/boka/${slug}?lang=sv${serviceQuery}`}
+        className={locale === "sv" ? styles.languageActive : styles.languageLink}
+      >
+        Svenska
+      </a>
+      <a
+        href={`/boka/${slug}?lang=en${serviceQuery}`}
+        className={locale === "en" ? styles.languageActive : styles.languageLink}
+      >
+        English
+      </a>
+    </nav>
+  ) : null;
+  const errorNotice = error ? <p role="alert" className={styles.errorNotice}>{error}</p> : null;
+  const successNotice = booked ? (
+    <div data-booking-success className={styles.successNotice}>
+      <p role="status">{t.booked}</p>
+      <a href={`/boka/${slug}?lang=${locale}`} className={styles.successAction}>{t.bookAnother}</a>
+    </div>
+  ) : null;
   const showChatbot = Boolean(aiChatClientId && experience.chatbotEnabled);
 
-  if (slug === "julius-salong") return <main lang={locale}><div className="fixed right-4 top-4 z-50 rounded-full bg-[#173e2b] p-1 shadow-lg">{languageSwitch}</div><JuliusBookingDemo live bookingContent={<div className="mt-6 rounded-[1.7rem] bg-white p-4 text-[#17201a] shadow-2xl lg:mt-0 lg:p-6"><p className="text-xs font-bold uppercase tracking-wide text-[#17452f]">{t.bookOnline}</p><h2 className="mt-1 text-2xl font-black">{String(workspace.company_name)}</h2>{booked ? <div className="mt-4">{successNotice}</div> : <><p className="mt-4 rounded-2xl bg-[#e7f1eb] px-4 py-3 text-xs font-bold leading-5 text-[#17452f]">{t.verification}</p><p data-booking-start-hint className="mt-3 text-xs font-semibold leading-5 text-[#5b665f]">{t.startHint}</p>{errorNotice}{bookingForm}</>}</div>} />{showChatbot ? <BookingAiChatWidget clientId={aiChatClientId!} /> : null}</main>;
+  if (slug === "julius-salong") return <main lang={locale}><div className="fixed right-4 top-4 z-50 rounded-full bg-[#0a2e63] p-1 shadow-lg">{languageSwitch}</div><JuliusBookingDemo live bookingContent={<div className="mt-6 rounded-[1.7rem] bg-white p-4 text-[#11213b] shadow-2xl lg:mt-0 lg:p-6"><p className="text-xs font-bold uppercase tracking-wide text-[#1469d8]">{t.bookOnline}</p><h2 className="mt-1 text-2xl font-black">{String(workspace.company_name)}</h2>{booked ? <div className="mt-4">{successNotice}</div> : <><p className="mt-4 rounded-2xl bg-[#eef5ff] px-4 py-3 text-xs font-bold leading-5 text-[#1469d8]">{t.verification}</p><p data-booking-start-hint className="mt-3 text-xs font-semibold leading-5 text-[#617085]">{t.startHint}</p>{errorNotice}{bookingForm}</>}</div>} />{showChatbot ? <BookingAiChatWidget clientId={aiChatClientId!} /> : null}</main>;
 
   const dark = experience.appearance === "dark";
-  const themeStyles = { "--booking-primary": experience.primaryColor, "--booking-accent": experience.accentColor } as CSSProperties;
-  const pageBackground = dark ? "#111713" : experience.themeKey === "premium" ? "#f3efe7" : experience.themeKey === "modern" ? "#eef4f7" : "#f7f7f4";
-  const cardBackground = dark ? "#1b241e" : "#ffffff";
-  const textColor = dark ? "#f4f7f4" : "#17201a";
-  const mutedColor = dark ? "#bac5bd" : "#5b665f";
+  const pageBackground = dark ? "#101512" : experience.themeKey === "premium" ? "#f4f0e8" : experience.themeKey === "modern" ? "#edf4f6" : "#f6f8fb";
+  const cardBackground = dark ? "#19211c" : "#ffffff";
+  const textColor = dark ? "#f5f7f5" : "#11213b";
+  const mutedColor = dark ? "#b9c3bc" : "#617085";
+  const lineColor = dark ? "rgba(255,255,255,.16)" : "#dce4ee";
+  const themeStyles = {
+    "--booking-primary": experience.primaryColor,
+    "--booking-accent": experience.accentColor,
+    "--booking-bg": pageBackground,
+    "--booking-card": cardBackground,
+    "--booking-text": textColor,
+    "--booking-muted": mutedColor,
+    "--booking-line": lineColor,
+  } as CSSProperties;
   const heroImageUrl = experience.heroImageUrl || themeContent.heroImageUrl;
   const visibleServices = services.length
     ? services.map((service) => ({ key: String(service.id), name: String(service.name), meta: `${Number(service.duration_minutes) || 60} min${service.price_label ? ` · ${String(service.price_label)}` : ""}` }))
     : themeContent.serviceSamples.map((service, index) => ({ key: `sample-${index}`, name: service.name, meta: service.description }));
 
-  return <main lang={locale} style={{ ...themeStyles, background: pageBackground, color: textColor }} className="min-h-screen px-4 py-8 sm:px-6">
-    <section style={{ background: experience.primaryColor }} className="mx-auto max-w-5xl rounded-[2rem] p-5 text-white shadow-lg sm:p-7">{languageSwitch}{experience.heroEnabled ? <div className="mt-4 grid items-center gap-6 md:grid-cols-[1fr_280px]"><div>{experience.logoUrl ? <img src={experience.logoUrl} alt="" className="mb-4 max-h-16 max-w-48 object-contain" /> : null}<p className="text-sm font-bold uppercase tracking-[.16em] text-white/75">{String(workspace.company_name)}</p><h1 className="mt-3 text-3xl font-bold sm:text-4xl">{themeContent.heroTitle}</h1><p className="mt-2 text-base font-bold text-white/90">{themeContent.heroSubtitle}</p><p className="mt-3 max-w-2xl text-sm leading-6 text-white/80">{themeContent.heroDescription}</p><p className="mt-3 flex gap-2 text-white/80"><MapPin className="h-5 w-5 shrink-0" />{String(workspace.primary_city ?? "")}</p><a href="#booking-form" className="mt-5 inline-flex min-h-11 items-center justify-center rounded-xl bg-white px-5 py-3 text-sm font-black text-[#17201a]">{themeContent.ctaLabel}</a></div>{experience.heroVideoUrl ? <video src={experience.heroVideoUrl} controls muted playsInline className="h-52 w-full rounded-2xl object-cover" /> : heroImageUrl ? <img src={heroImageUrl} alt="" className="h-52 w-full rounded-2xl object-cover" /> : null}</div> : null}</section>
-    <div className="mx-auto mt-6 grid max-w-5xl gap-6 lg:grid-cols-[1fr_360px]">
-      <section id="booking-form" style={{ background: cardBackground, color: textColor }} className="rounded-[2rem] p-6 shadow-sm ring-1 ring-black/10 sm:p-8">{booked ? successNotice : <><p style={{ background: dark ? "#26342b" : "#eef8f0", color: dark ? "#dce8df" : experience.primaryColor }} className="rounded-xl p-4 text-sm">{t.verification}</p><p data-booking-start-hint style={{ color: mutedColor }} className="mt-3 text-xs font-semibold leading-5">{t.startHint}</p>{errorNotice}{bookingForm ?? <p style={{ color: mutedColor }} className="mt-6 rounded-xl border border-black/10 p-4 text-sm">{t.preparing}</p>}</>}</section>
-      <aside className="grid content-start gap-5">
-        {experience.servicesEnabled && visibleServices.length ? <section style={{ background: cardBackground, color: textColor }} className="rounded-3xl p-5 shadow-sm ring-1 ring-black/10"><h2 className="text-lg font-bold">{t.services}</h2><div className="mt-3 grid gap-2">{visibleServices.map((service) => <div key={service.key} className="rounded-xl border border-black/10 p-3"><strong>{service.name}</strong><p style={{ color: mutedColor }} className="mt-1 text-sm">{service.meta}</p></div>)}</div></section> : null}
-        {publishedHours.length ? <section style={{ background: cardBackground, color: textColor }} className="rounded-3xl p-5 shadow-sm ring-1 ring-black/10"><h2 className="text-lg font-bold">{t.hours}</h2><ul style={{ color: mutedColor }} className="mt-3 grid gap-1 text-sm">{publishedHours.map((hour) => <li key={String(hour.weekday)}><span className="font-semibold">{t.weekdays[Number(hour.weekday)]}:</span> {hour.is_closed ? t.closed : `${String(hour.opens_at).slice(0, 5)}–${String(hour.closes_at).slice(0, 5)}`}</li>)}</ul></section> : null}
-        {experience.contactEnabled && (workspace.contact_email || workspace.contact_phone) ? <section style={{ background: cardBackground, color: textColor }} className="rounded-3xl p-5 shadow-sm ring-1 ring-black/10"><h2 className="text-lg font-bold">{t.contact}</h2><div style={{ color: mutedColor }} className="mt-3 grid gap-2 text-sm">{workspace.contact_email ? <a href={`mailto:${String(workspace.contact_email)}`}>{String(workspace.contact_email)}</a> : null}{workspace.contact_phone ? <a href={`tel:${String(workspace.contact_phone)}`}>{String(workspace.contact_phone)}</a> : null}</div></section> : null}
-        {experience.faqEnabled ? <section style={{ background: cardBackground, color: textColor }} className="rounded-3xl p-5 shadow-sm ring-1 ring-black/10"><h2 className="text-lg font-bold">{t.faq}</h2><h3 className="mt-3 font-semibold">{themeContent.faqTitle}</h3><p style={{ color: mutedColor }} className="mt-1 text-sm leading-6">{themeContent.faqBody}</p></section> : null}
-      </aside>
-    </div>{showChatbot ? <BookingAiChatWidget clientId={aiChatClientId!} /> : null}
-  </main>;
+  return (
+    <main lang={locale} style={themeStyles} className={styles.page}>
+      <div className={styles.shell}>
+        <header className={styles.tenantHeader}>
+          <div className={styles.tenantIdentity}>
+            {experience.logoUrl ? (
+              // Public tenant media can live on tenant-specific Blob/CDN hosts.
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={experience.logoUrl} alt="" className={styles.tenantLogo} />
+            ) : (
+              <span className={styles.tenantMark}>{String(workspace.company_name).slice(0, 1).toUpperCase()}</span>
+            )}
+            <div>
+              <p className={styles.tenantName}>{String(workspace.company_name)}</p>
+              {workspace.primary_city ? <p className={styles.tenantCity}>{String(workspace.primary_city)}</p> : null}
+            </div>
+          </div>
+          {languageSwitch}
+        </header>
+
+        {experience.heroEnabled ? (
+          <section className={styles.hero}>
+            <div className={`${styles.heroGrid} ${experience.heroVideoUrl || heroImageUrl ? "" : styles.heroSolo}`}>
+              <div className={styles.heroCopy}>
+                <p className={styles.heroEyebrow}>{String(workspace.company_name)}</p>
+                <h1 className={styles.heroTitle}>{themeContent.heroTitle}</h1>
+                <p className={styles.heroSubtitle}>{themeContent.heroSubtitle}</p>
+                <p className={styles.heroDescription}>{themeContent.heroDescription}</p>
+                {workspace.primary_city ? (
+                  <p className={styles.heroLocation}><MapPin aria-hidden="true" />{String(workspace.primary_city)}</p>
+                ) : null}
+                <a href="#booking-form" className={styles.heroCta}>{themeContent.ctaLabel}</a>
+              </div>
+
+              {experience.heroVideoUrl ? (
+                <div className={styles.heroMedia}><video src={experience.heroVideoUrl} controls muted playsInline /></div>
+              ) : heroImageUrl ? (
+                <div className={styles.heroMedia}>
+                  {/* Public tenant media can live on tenant-specific Blob/CDN hosts. */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={heroImageUrl} alt="" />
+                </div>
+              ) : null}
+            </div>
+          </section>
+        ) : null}
+
+        <div className={styles.bookingLayout}>
+          <section id="booking-form" className={styles.bookingPanel}>
+            {booked ? successNotice : (
+              <>
+                <p className={styles.verification}>{t.verification}</p>
+                <p data-booking-start-hint className={styles.startHint}>{t.startHint}</p>
+                {errorNotice}
+                {bookingForm ?? <p className={styles.preparing}>{t.preparing}</p>}
+              </>
+            )}
+          </section>
+
+          <aside className={styles.sideColumn}>
+            {experience.servicesEnabled && visibleServices.length ? (
+              <section className={styles.sidePanel}>
+                <h2 className={styles.sideTitle}>{t.services}</h2>
+                <div className={styles.serviceList}>
+                  {visibleServices.map((service) => (
+                    <div key={service.key} className={styles.serviceRow}>
+                      <strong>{service.name}</strong>
+                      <span>{service.meta}</span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+
+            {publishedHours.length ? (
+              <section className={styles.sidePanel}>
+                <h2 className={styles.sideTitle}>{t.hours}</h2>
+                <div className={styles.hoursList}>
+                  {publishedHours.map((hour) => (
+                    <div key={String(hour.weekday)} className={styles.hoursRow}>
+                      <strong>{t.weekdays[Number(hour.weekday)]}</strong>
+                      <span>{hour.is_closed ? t.closed : `${String(hour.opens_at).slice(0, 5)}–${String(hour.closes_at).slice(0, 5)}`}</span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+
+            {experience.contactEnabled && (workspace.contact_email || workspace.contact_phone) ? (
+              <section className={styles.sidePanel}>
+                <h2 className={styles.sideTitle}>{t.contact}</h2>
+                <div className={styles.contactList}>
+                  {workspace.contact_email ? <a href={`mailto:${String(workspace.contact_email)}`} className={styles.contactLink}>{String(workspace.contact_email)}</a> : null}
+                  {workspace.contact_phone ? <a href={`tel:${String(workspace.contact_phone)}`} className={styles.contactLink}>{String(workspace.contact_phone)}</a> : null}
+                </div>
+              </section>
+            ) : null}
+
+            {experience.faqEnabled ? (
+              <section className={styles.sidePanel}>
+                <h2 className={styles.sideTitle}>{t.faq}</h2>
+                <h3 className={styles.faqTitle}>{themeContent.faqTitle}</h3>
+                <p className={styles.faqBody}>{themeContent.faqBody}</p>
+              </section>
+            ) : null}
+          </aside>
+        </div>
+      </div>
+
+      {showChatbot ? <BookingAiChatWidget clientId={aiChatClientId!} /> : null}
+    </main>
+  );
 }
 
 function Unavailable({ locale }: { locale: WorkspaceLanguage }) {
   const t = copy[locale];
-  return <main className="min-h-screen bg-[#f7f7f4] px-4 py-16"><section className="mx-auto max-w-lg rounded-3xl bg-white p-8 text-center shadow-sm ring-1 ring-[#dfe5dd]"><h1 className="text-2xl font-bold text-[#17201a]">{t.unavailableTitle}</h1><p className="mt-3 text-[#5b665f]">{t.unavailableBody}</p></section></main>;
+  return (
+    <main className={styles.unavailablePage} lang={locale}>
+      <section className={styles.unavailableCard}>
+        <h1>{t.unavailableTitle}</h1>
+        <p>{t.unavailableBody}</p>
+      </section>
+    </main>
+  );
 }
