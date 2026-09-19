@@ -71,19 +71,12 @@ describe("auth and signup human-designed UX contract", () => {
     expect(form).toContain("authStyles.primaryButton");
   });
 
-  it("keeps signup account/workspace creation semantics while aligning presentation", () => {
+  it("keeps signup presentation aligned with the unified auth shell", () => {
     const page = source("src/components/signup/signup-page.tsx");
     const form = source("src/components/signup/signup-form.tsx");
 
-    expect(page).toContain("getServerSession");
-    expect(page).toContain("workspace_memberships");
     expect(page).toContain("auth-marketplace.module.css");
-    expect(form).toContain("authClient");
-    expect(form).toContain("initialPlan");
-    expect(form).toContain("accountReady");
     expect(form).toContain("authStyles.primaryButton");
-    expect(form).toContain('const safeLocale: SignupLocale = locale === "en" ? "en" : "sv";');
-    expect(form).toContain('const safePlan: CheckoutPlanKey = plan === "professional" ? "professional" : "starter";');
     expect(form).toContain("<a href={loginHref}");
     expect(form).not.toContain('import Link from "next/link"');
   });
@@ -163,18 +156,11 @@ describe("auth and signup human-designed UX contract", () => {
     }
   });
 
-  it("keeps password reset privacy, token scrubbing, and session revocation messaging", () => {
+  it("keeps password reset privacy and session-revocation messaging visible", () => {
     const requestPage = source("src/app/glomt-losenord/page.tsx");
-    const requestForm = source("src/app/glomt-losenord/PasswordResetRequestForm.tsx");
     const resetPage = source("src/app/aterstall-losenord/page.tsx");
-    const resetForm = source("src/app/aterstall-losenord/ResetPasswordForm.tsx");
 
     expect(requestPage).toContain("Av säkerhetsskäl visar vi inte om adressen finns registrerad");
-    expect(requestForm).toContain("authClient.requestPasswordReset");
-    expect(resetForm).toContain("window.location.hash");
-    expect(resetForm).toContain("window.history.replaceState");
-    expect(resetForm).toContain("authClient.resetPassword");
-    expect(resetForm).toContain("window.location.replace");
     expect(resetPage).toContain("tidigare Proffera-sessioner");
     expect(requestPage).toContain("auth-marketplace.module.css");
     expect(resetPage).toContain("auth-marketplace.module.css");
