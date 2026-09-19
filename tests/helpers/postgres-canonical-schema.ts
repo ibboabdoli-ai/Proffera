@@ -10,15 +10,10 @@ const EXTERNAL_BOOTSTRAP_BEFORE = "20260809_0036_public_business_hub.sql";
 
 async function createHistoricalBootstrapPrerequisites(client: Client) {
   await client.query("create extension if not exists pgcrypto");
-  await client.query(`
-    do $
-    begin
-      if not exists (select 1 from pg_roles where rolname = 'neondb_owner') then
-        create role neondb_owner nologin;
-      end if;
-    end
-    $;
-  `);
+  const ownerRole = await client.query("select 1 from pg_roles where rolname = 'neondb_owner'");
+  if (ownerRole.rowCount === 0) {
+    await client.query("create role neondb_owner nologin");
+  }
   await client.query(readFileSync(
     join(LEGACY_MIGRATIONS_DIR, "001_create_quote_requests.sql"),
     "utf8",
