@@ -62,6 +62,10 @@ const WORKSPACE_SLUG = "synthetic-safe-service";
 const BLOCKED_ACTIVITY_MARKER = "WA3_BLOCKED_ACTIVITY_MUST_NOT_PUBLISH_8F2B6A";
 const OWNER_INTRO = "Owner-authored Workspace introduction";
 
+function docker(args: string[]) {
+  return execFileSync("docker", args, { encoding: "utf8" }).trim();
+}
+
 function createPostgresSqlAdapter(client: Client) {
   return async (strings: TemplateStringsArray, ...values: unknown[]) => {
     let query = strings[0] ?? "";
