@@ -29,7 +29,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/db/server", () => ({ getSql: mocks.getSql }));
-vi.mock("@/lib/company-directory-public-cache", () => ({
+vi.mock("@/lib/company-directory-public-cache", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/company-directory-public-cache")>()),
   invalidatePublicDirectoryPublicProjection: mocks.invalidateProjection,
   invalidatePublicDirectoryPublicProjectionByProfileId: mocks.invalidateByProfileId,
   invalidateAllPublicDirectoryPublicCaches: mocks.invalidateAll,
