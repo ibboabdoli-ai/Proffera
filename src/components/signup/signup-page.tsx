@@ -67,7 +67,7 @@ export async function SignupPage({ locale, initialPlan }: SignupPageProps) {
   const demoHref = locale === "en" ? "/en/demo" : "/demo";
 
   return (
-    <main className={authStyles.page} lang={locale === "sv" ? "sv" : "en"}>
+    <div className={authStyles.page} lang={locale === "sv" ? "sv" : "en"}>
       <section className={authStyles.shell}>
         <div className={authStyles.split}>
           <div>
