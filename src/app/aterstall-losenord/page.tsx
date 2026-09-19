@@ -62,6 +62,6 @@ export default async function ResetPasswordPage({
           </section>
         </div>
       </section>
-    </main>
+    </div>
   );
 }
