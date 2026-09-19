@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
-import { PageShell } from "@/components/layout/page-shell";
 import { QuoteRequestForm } from "@/features/quote-request/quote-request-form";
+import styles from "@/features/quote-request/quote-request-marketplace.module.css";
 
 export const metadata: Metadata = {
   title: "Få offerter",
@@ -34,17 +34,30 @@ export default async function QuotePage({ searchParams }: QuotePageProps) {
   };
 
   return (
-    <PageShell
-      eyebrow="Få offerter"
-      title="Beskriv ditt uppdrag steg för steg."
-      description="Fyll i tjänst, plats, beskrivning och kontaktuppgifter. Proffera använder uppgifterna för att hantera förfrågan och matcha den med lämpliga företag."
-    >
-      <QuoteRequestForm
-        locale="sv"
-        initialValues={initialValues}
-        alternateLocaleHref="/en/get-quote?resume=1"
-        alternateLocaleLabel="EN English"
-      />
-    </PageShell>
+    <main className={styles.page}>
+      <section className={styles.pageShell}>
+        <div className={styles.intro}>
+          <p className={styles.eyebrow}>Få offerter</p>
+          <h1 className={styles.title}>Beskriv ditt uppdrag steg för steg.</h1>
+          <p className={styles.lead}>
+            Fyll i tjänst, plats och vad du behöver hjälp med. Proffera använder uppgifterna för att matcha förfrågan med lämpliga företag.
+          </p>
+          <div className={styles.trustRow}>
+            <span><i className={styles.trustDot}>✓</i>Gratis att skicka förfrågan</span>
+            <span><i className={styles.trustDot}>✓</i>Dina uppgifter används för matchning</span>
+            <span><i className={styles.trustDot}>✓</i>Jämför innan du väljer</span>
+          </div>
+        </div>
+
+        <div className={styles.formWrap}>
+          <QuoteRequestForm
+            locale="sv"
+            initialValues={initialValues}
+            alternateLocaleHref="/en/get-quote?resume=1"
+            alternateLocaleLabel="EN English"
+          />
+        </div>
+      </section>
+    </main>
   );
 }

@@ -109,25 +109,25 @@ export default async function EditOfferDraftPage({
 
   return (
     <div className="grid gap-6" lang={locale}>
-      <Link href={localHref(`/dashboard/offerter/${id}`, locale)} className="inline-flex w-fit items-center gap-2 text-sm font-bold text-[#17452f]">
+      <Link href={localHref(`/dashboard/offerter/${id}`, locale)} className="inline-flex w-fit items-center gap-2 text-sm font-bold text-brand">
         <ArrowLeft className="h-4 w-4" />{text.back}
       </Link>
       <DashboardPageHeader eyebrow={text.eyebrow} title={`${offer.title} · ${text.version} ${offer.version}`} description={offer.currency} icon={PencilLine} />
 
-      {message ? <p className={`rounded-xl px-4 py-3 text-sm font-semibold ${state === "saved" ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-900"}`}>{message}</p> : null}
+      {message ? <p className={`rounded-control px-4 py-3 text-sm font-semibold ${state === "saved" ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-900"}`}>{message}</p> : null}
 
       {!editable ? (
-        <section className="rounded-3xl border border-[#ead9bf] bg-[#fff9ef] p-5 text-sm font-semibold text-[#7a5320] sm:p-6">{text.locked}</section>
+        <section className="rounded-card border border-[#efd58d] bg-[#fff7df] p-5 text-sm font-semibold text-[#805d14] sm:p-6">{text.locked}</section>
       ) : (
-        <section className="rounded-3xl border border-[#dbe3d8] bg-[#f7f9f6] p-5 sm:p-6">
+        <section className="rounded-card border border-line bg-surface p-5 sm:p-6">
           <form action={updateDraft} className="grid gap-4 sm:grid-cols-2">
             <input type="hidden" name="expectedUpdatedAt" value={offer.updatedAt} />
-            <label className="grid gap-1.5 text-sm font-semibold"><span>{text.title}</span><input name="title" required maxLength={160} defaultValue={offer.title} className="min-h-11 rounded-xl border border-[#cfd8cf] bg-white px-3" /></label>
-            <label className="grid gap-1.5 text-sm font-semibold"><span>{text.validUntil}</span><input name="validUntil" type="date" defaultValue={offer.validUntil} className="min-h-11 rounded-xl border border-[#cfd8cf] bg-white px-3" /></label>
-            <label className="grid gap-1.5 text-sm font-semibold"><span>{text.amount} ({offer.currency})</span><input name="amount" required inputMode="decimal" defaultValue={minorToInput(offer.subtotalMinor)} className="min-h-11 rounded-xl border border-[#cfd8cf] bg-white px-3" /></label>
-            <label className="grid gap-1.5 text-sm font-semibold"><span>{text.vat}</span><input name="vatRate" required inputMode="decimal" defaultValue={(offer.vatRateBasisPoints / 100).toString()} className="min-h-11 rounded-xl border border-[#cfd8cf] bg-white px-3" /></label>
-            <label className="grid gap-1.5 text-sm font-semibold sm:col-span-2"><span>{text.terms}</span><textarea name="terms" maxLength={5000} rows={8} defaultValue={offer.terms} className="rounded-xl border border-[#cfd8cf] bg-white px-3 py-2" /></label>
-            <button type="submit" className="min-h-11 w-fit rounded-xl bg-[#173e2b] px-5 py-2.5 text-sm font-bold text-white hover:bg-[#0f3020]">{text.save}</button>
+            <label className="grid gap-1.5 text-sm font-semibold"><span>{text.title}</span><input name="title" required maxLength={160} defaultValue={offer.title} className="min-h-11 rounded-control border border-line bg-surface px-3" /></label>
+            <label className="grid gap-1.5 text-sm font-semibold"><span>{text.validUntil}</span><input name="validUntil" type="date" defaultValue={offer.validUntil} className="min-h-11 rounded-control border border-line bg-surface px-3" /></label>
+            <label className="grid gap-1.5 text-sm font-semibold"><span>{text.amount} ({offer.currency})</span><input name="amount" required inputMode="decimal" defaultValue={minorToInput(offer.subtotalMinor)} className="min-h-11 rounded-control border border-line bg-surface px-3" /></label>
+            <label className="grid gap-1.5 text-sm font-semibold"><span>{text.vat}</span><input name="vatRate" required inputMode="decimal" defaultValue={(offer.vatRateBasisPoints / 100).toString()} className="min-h-11 rounded-control border border-line bg-surface px-3" /></label>
+            <label className="grid gap-1.5 text-sm font-semibold sm:col-span-2"><span>{text.terms}</span><textarea name="terms" maxLength={5000} rows={8} defaultValue={offer.terms} className="rounded-control border border-line bg-surface px-3 py-2" /></label>
+            <button type="submit" className="min-h-11 w-fit rounded-control bg-brand-deep px-5 py-2.5 text-sm font-bold text-white hover:bg-brand-hover">{text.save}</button>
           </form>
         </section>
       )}

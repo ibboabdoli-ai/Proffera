@@ -137,63 +137,63 @@ export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, t
   }
 
   return (
-    <article className="rounded-[24px] border border-[#dce5dc] bg-white p-6 shadow-[0_1px_2px_rgba(20,43,32,0.03),0_14px_36px_rgba(20,43,32,0.045)]">
+    <article className="rounded-card border border-line bg-surface p-6 shadow-[0_1px_2px_rgba(20,43,32,0.03),0_14px_36px_rgba(20,43,32,0.045)]">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-start gap-3">
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#e7f1eb] text-[#17452f]">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-card bg-[#eef5ff] text-[#087754]">
             <CreditCard className="h-5 w-5" aria-hidden="true" />
           </span>
           <div>
-            <h3 className="text-xl font-bold text-[#17201a]">Plan och betalning</h3>
-            <p className="mt-1 text-sm leading-6 text-[#5b665f]">Starta abonnemanget via Stripes säkra betalningssida.</p>
+            <h3 className="text-xl font-bold text-ink">Plan och betalning</h3>
+            <p className="mt-1 text-sm leading-6 text-ink-muted">Starta abonnemanget via Stripes säkra betalningssida.</p>
           </div>
         </div>
-        <span className={`w-fit rounded-full px-3 py-1 text-xs font-semibold ${hasActivePlan ? "bg-[#e7f1eb] text-[#17452f]" : "bg-[#f1f2ef] text-[#5b665f]"}`}>
+        <span className={`w-fit rounded-full px-3 py-1 text-xs font-semibold ${hasActivePlan ? "bg-[#eef5ff] text-[#087754]" : "bg-surface-subtle text-ink-muted"}`}>
           {billing.status ? statusLabels[billing.status] : "Ingen aktiv plan"}
         </span>
       </div>
 
       {testMode ? (
-        <div className="mt-5 flex items-start gap-3 rounded-2xl bg-[#fdf5dc] p-4 text-sm leading-6 text-[#72520f]" role="note">
+        <div className="mt-5 flex items-start gap-3 rounded-card bg-[#fdf5dc] p-4 text-sm leading-6 text-[#72520f]" role="note">
           <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
           <p><strong>Stripe Sandbox:</strong> Stripe använder testpriser i den här miljön. Inga riktiga pengar dras.</p>
         </div>
       ) : null}
 
-      <div className="mt-5 rounded-2xl border border-[#dce5dc] bg-[#f7f9f6] p-4 text-sm leading-6 text-[#5b665f]">
-        <p className="font-bold text-[#17201a]">{locale === "en" ? "B2B billing market" : "B2B-betalningsmarknad"}</p>
+      <div className="mt-5 rounded-card border border-line bg-surface-subtle p-4 text-sm leading-6 text-ink-muted">
+        <p className="font-bold text-ink">{locale === "en" ? "B2B billing market" : "B2B-betalningsmarknad"}</p>
         <p className="mt-1">{locale === "en" ? `Currency preference: ${billingCurrency}. Business time zone: ${timeZone}.` : `Valutapreferens: ${billingCurrency}. Företagets tidszon: ${timeZone}.`}</p>
         <p className="mt-1">{localPriceNote}</p>
         <p className="mt-1">{locale === "en" ? "Checkout collects the billing address and VAT number. Tax is applied only when Proffera has enabled the relevant Stripe Tax registrations." : "Kassan samlar in fakturaadress och VAT-nummer. Skatt tillämpas först när Proffera har aktiverat relevanta Stripe Tax-registreringar."}</p>
       </div>
 
       {billing.currentPeriodEnd && hasActivePlan ? (
-        <p className="mt-4 text-sm text-[#5b665f]">
+        <p className="mt-4 text-sm text-ink-muted">
           {locale === "en" ? "Current period ends " : "Nuvarande period gäller till "}{new Intl.DateTimeFormat(dateLocale, { dateStyle: "long", timeZone }).format(new Date(billing.currentPeriodEnd))}.
         </p>
       ) : null}
 
       {hasActivePlan && billing.planKey ? (
-        <p className="mt-3 text-sm font-semibold text-[#17201a]">
+        <p className="mt-3 text-sm font-semibold text-ink">
           Nuvarande plan: {billing.planKey === "professional" ? "Professional" : "Starter"}
         </p>
       ) : null}
 
       {billing.cancelAtPeriodEnd && billing.currentPeriodEnd ? (
-        <p className="mt-4 rounded-xl bg-[#fdf5dc] p-4 text-sm font-semibold leading-6 text-[#72520f]" role="status">
+        <p className="mt-4 rounded-control bg-[#fdf5dc] p-4 text-sm font-semibold leading-6 text-[#72520f]" role="status">
           {locale === "en" ? "The subscription ends on " : "Abonnemanget avslutas den "}{new Intl.DateTimeFormat(dateLocale, { dateStyle: "long", timeZone }).format(new Date(billing.currentPeriodEnd))}.{locale === "en" ? " You can reactivate it through Stripe before then." : " Du kan återaktivera det via Stripe innan dess."}
         </p>
       ) : null}
 
       {canOpenPortal ? (
-        <div className="mt-5 rounded-2xl border border-[#dce5dc] bg-[#f7f9f6] p-4">
-          <p className="text-sm font-bold text-[#17201a]">Hantera abonnemang</p>
-          <p className="mt-1 text-sm leading-6 text-[#5b665f]">Öppna Stripes säkra portal för att byta betalkort, se fakturor eller avsluta abonnemanget vid periodens slut.</p>
+        <div className="mt-5 rounded-card border border-line bg-surface-subtle p-4">
+          <p className="text-sm font-bold text-ink">Hantera abonnemang</p>
+          <p className="mt-1 text-sm leading-6 text-ink-muted">Öppna Stripes säkra portal för att byta betalkort, se fakturor eller avsluta abonnemanget vid periodens slut.</p>
           <button
             type="button"
             onClick={openBillingPortal}
             disabled={portalLoading || loadingPlanKey !== null}
-            className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-[#17452f] bg-white px-5 py-3 text-sm font-semibold text-[#17452f] transition hover:bg-[#eef8f0] focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+            className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-control border border-[#1469d8] bg-surface px-5 py-3 text-sm font-semibold text-brand transition hover:bg-[#eef5ff] focus:outline-none focus:ring-2 focus:ring-brand focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
           >
             {portalLoading ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <CreditCard className="h-4 w-4" aria-hidden="true" />}
             {portalLoading ? "Öppnar Stripe…" : "Hantera betalning och abonnemang"}
@@ -202,12 +202,12 @@ export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, t
       ) : null}
 
       {!billing.databaseReady ? (
-        <p className="mt-5 rounded-2xl bg-[#f7f9f6] p-4 text-sm text-[#5b665f]">Betalning blir tillgänglig när installationen är klar.</p>
+        <p className="mt-5 rounded-card bg-surface-subtle p-4 text-sm text-ink-muted">Betalning blir tillgänglig när installationen är klar.</p>
       ) : null}
 
       {canManage && billing.databaseReady && checkoutConfigured && !hasActivePlan && canStartCheckout ? (
         <div className="mt-5">
-          <p className="text-sm font-semibold text-[#17201a]">Välj plan</p>
+          <p className="text-sm font-semibold text-ink">Välj plan</p>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             {checkoutPlans.map((plan) => {
               const isLoading = loadingPlanKey === plan.key;
@@ -224,17 +224,17 @@ export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, t
                   type="button"
                   onClick={() => startCheckout(plan.key)}
                   disabled={!plan.configured || loadingPlanKey !== null}
-                  className={`rounded-2xl border p-4 text-left transition focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-55 ${isPreferred ? "border-[#17452f] bg-[#eef8f0]" : "border-[#dce5dc] bg-[#fbfcfa] hover:border-[#91c5a2]"}`}
+                  className={`rounded-card border p-4 text-left transition focus:outline-none focus:ring-2 focus:ring-brand focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-55 ${isPreferred ? "border-[#1469d8] bg-[#eef5ff]" : "border-line bg-surface-subtle hover:border-line-strong"}`}
                 >
                   <span className="flex items-start justify-between gap-3">
                     <span>
-                      <span className="block text-base font-bold text-[#17201a]">{plan.name}</span>
-                      <span className="mt-1 block text-sm font-semibold text-[#17452f]">{testMode ? `${planPriceLabel} · Stripe Sandbox` : planPriceLabel}</span>
+                      <span className="block text-base font-bold text-ink">{plan.name}</span>
+                      <span className="mt-1 block text-sm font-semibold text-brand">{testMode ? `${planPriceLabel} · Stripe Sandbox` : planPriceLabel}</span>
                     </span>
-                    {isLoading ? <LoaderCircle className="h-4 w-4 animate-spin text-[#17452f]" aria-hidden="true" /> : <CreditCard className="h-4 w-4 text-[#17452f]" aria-hidden="true" />}
+                    {isLoading ? <LoaderCircle className="h-4 w-4 animate-spin text-brand" aria-hidden="true" /> : <CreditCard className="h-4 w-4 text-brand" aria-hidden="true" />}
                   </span>
-                  <span className="mt-2 block text-sm leading-6 text-[#5b665f]">{plan.configured ? plan.description : "Inte tillgänglig ännu."}</span>
-                  <span className="mt-3 block text-sm font-bold text-[#17452f]">{isLoading ? "Öppnar Stripe…" : plan.configured ? `Välj ${plan.name}` : "Förbereds"}</span>
+                  <span className="mt-2 block text-sm leading-6 text-ink-muted">{plan.configured ? plan.description : "Inte tillgänglig ännu."}</span>
+                  <span className="mt-3 block text-sm font-bold text-brand">{isLoading ? "Öppnar Stripe…" : plan.configured ? `Välj ${plan.name}` : "Förbereds"}</span>
                 </button>
               );
             })}
@@ -243,28 +243,28 @@ export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, t
       ) : null}
 
       {canUpgrade && professionalPlan ? (
-        <div className="mt-5 rounded-2xl border border-[#b8d8c2] bg-[#eef8f0] p-4">
-          <p className="text-base font-bold text-[#17201a]">Uppgradera till Professional</p>
-          <p className="mt-1 text-sm leading-6 text-[#5b665f]">{professionalPlan.description}</p>
+        <div className="mt-5 rounded-card border border-line bg-[#eef5ff] p-4">
+          <p className="text-base font-bold text-ink">Uppgradera till Professional</p>
+          <p className="mt-1 text-sm leading-6 text-ink-muted">{professionalPlan.description}</p>
 
-          <dl className="mt-4 divide-y divide-[#cfe2d5] rounded-xl border border-[#cfe2d5] bg-white px-4 text-sm">
+          <dl className="mt-4 divide-y divide-line rounded-control border border-line bg-surface px-4 text-sm">
             <div className="flex items-center justify-between gap-4 py-3">
-              <dt className="text-[#5b665f]">Nuvarande plan</dt>
-              <dd className="text-right font-semibold text-[#17201a]">Starter · {starterPriceLabel}{testMode ? " (test)" : ""}</dd>
+              <dt className="text-ink-muted">Nuvarande plan</dt>
+              <dd className="text-right font-semibold text-ink">Starter · {starterPriceLabel}{testMode ? " (test)" : ""}</dd>
             </div>
             <div className="flex items-center justify-between gap-4 py-3">
-              <dt className="text-[#5b665f]">Ny plan</dt>
-              <dd className="text-right font-semibold text-[#17201a]">Professional · {professionalPlan.priceLabel}{testMode ? " (test)" : ""}</dd>
+              <dt className="text-ink-muted">Ny plan</dt>
+              <dd className="text-right font-semibold text-ink">Professional · {professionalPlan.priceLabel}{testMode ? " (test)" : ""}</dd>
             </div>
           </dl>
 
-          <div className="mt-3 rounded-xl bg-white p-4 text-sm leading-6 text-[#49554e]" role="note">
+          <div className="mt-3 rounded-control bg-surface p-4 text-sm leading-6 text-ink-muted" role="note">
             {testMode ? (
-              <p><strong className="text-[#17201a]">Testbetalning:</strong> Inga riktiga pengar dras. Stripe registrerar bara uppgraderingen med testpriset.</p>
+              <p><strong className="text-ink">Testbetalning:</strong> Inga riktiga pengar dras. Stripe registrerar bara uppgraderingen med testpriset.</p>
             ) : billing.status === "trialing" ? (
-              <p><strong className="text-[#17201a]">Uppgradering under testperiod:</strong> Ingen tidigare Starter-betalning räknas av om testperioden varit kostnadsfri. Stripe beräknar om något ska betalas nu och Professional-priset gäller för kommande betalningsperioder. Det exakta beloppet bekräftas av Stripe.</p>
+              <p><strong className="text-ink">Uppgradering under testperiod:</strong> Ingen tidigare Starter-betalning räknas av om testperioden varit kostnadsfri. Stripe beräknar om något ska betalas nu och Professional-priset gäller för kommande betalningsperioder. Det exakta beloppet bekräftas av Stripe.</p>
             ) : (
-              <p><strong className="text-[#17201a]">Betalning vid uppgradering:</strong> Stripe räknar av det du redan betalat för Starter och debiterar bara den proportionella prisskillnaden för resten av perioden. Därefter debiteras {professionalPlan.priceLabel.replace("Från ", "")} från nästa betalningsperiod. Det exakta beloppet bekräftas av Stripe.</p>
+              <p><strong className="text-ink">Betalning vid uppgradering:</strong> Stripe räknar av det du redan betalat för Starter och debiterar bara den proportionella prisskillnaden för resten av perioden. Därefter debiteras {professionalPlan.priceLabel.replace("Från ", "")} från nästa betalningsperiod. Det exakta beloppet bekräftas av Stripe.</p>
             )}
           </div>
 
@@ -273,21 +273,21 @@ export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, t
               type="button"
               onClick={() => setUpgradeConfirmationOpen(true)}
               disabled={loadingPlanKey !== null}
-              className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#173e2b] px-5 py-3 text-sm font-semibold !text-white transition hover:bg-[#123824] focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+              className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-control bg-brand-deep px-5 py-3 text-sm font-semibold !text-white transition hover:bg-brand-hover focus:outline-none focus:ring-2 focus:ring-brand focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
             >
               <CreditCard className="h-4 w-4" aria-hidden="true" />
               Fortsätt till bekräftelse
             </button>
           ) : (
-            <div className="mt-4 rounded-xl border border-[#91c5a2] bg-white p-4" role="group" aria-labelledby="upgrade-confirmation-title">
-              <p id="upgrade-confirmation-title" className="font-bold text-[#17201a]">Bekräfta uppgraderingen</p>
-              <p className="mt-1 text-sm leading-6 text-[#5b665f]">Genom att bekräfta godkänner du bytet till Professional och Stripes betalningsvillkor ovan.</p>
+            <div className="mt-4 rounded-control border border-line-strong bg-surface p-4" role="group" aria-labelledby="upgrade-confirmation-title">
+              <p id="upgrade-confirmation-title" className="font-bold text-ink">Bekräfta uppgraderingen</p>
+              <p className="mt-1 text-sm leading-6 text-ink-muted">Genom att bekräfta godkänner du bytet till Professional och Stripes betalningsvillkor ovan.</p>
               <div className="mt-4 flex flex-col gap-2 sm:flex-row">
                 <button
                   type="button"
                   onClick={upgradeToProfessional}
                   disabled={loadingPlanKey !== null}
-                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#173e2b] px-5 py-3 text-sm font-semibold !text-white transition hover:bg-[#123824] focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-control bg-brand-deep px-5 py-3 text-sm font-semibold !text-white transition hover:bg-brand-hover focus:outline-none focus:ring-2 focus:ring-brand focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {loadingPlanKey === "professional" ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <CreditCard className="h-4 w-4" aria-hidden="true" />}
                   {loadingPlanKey === "professional" ? "Uppgraderar…" : "Bekräfta och uppgradera"}
@@ -296,7 +296,7 @@ export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, t
                   type="button"
                   onClick={() => setUpgradeConfirmationOpen(false)}
                   disabled={loadingPlanKey !== null}
-                  className="min-h-11 rounded-xl border border-[#c8d5ca] bg-white px-5 py-3 text-sm font-semibold text-[#17452f] transition hover:bg-[#f7f9f6] focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="min-h-11 rounded-control border border-line bg-surface px-5 py-3 text-sm font-semibold text-brand transition hover:bg-surface-subtle focus:outline-none focus:ring-2 focus:ring-brand focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Avbryt
                 </button>
@@ -306,10 +306,10 @@ export function WorkspaceBillingCard({ billing, canManage, checkoutConfigured, t
         </div>
       ) : null}
 
-      {!canManage ? <p className="mt-5 text-sm text-[#5b665f]">Endast arbetsytans Owner kan starta eller ändra abonnemanget.</p> : null}
-      {canManage && !checkoutConfigured ? <p className="mt-5 text-sm text-[#5b665f]">Stripe Checkout är ännu inte konfigurerad.</p> : null}
-      {success ? <p className="mt-4 rounded-xl bg-[#eef8f0] p-4 text-sm font-semibold text-[#17452f]" role="status" aria-live="polite">{success}</p> : null}
-      {error ? <p className="mt-4 text-sm font-semibold text-[#9b301f]" role="alert" aria-live="assertive">{error}</p> : null}
+      {!canManage ? <p className="mt-5 text-sm text-ink-muted">Endast arbetsytans Owner kan starta eller ändra abonnemanget.</p> : null}
+      {canManage && !checkoutConfigured ? <p className="mt-5 text-sm text-ink-muted">Stripe Checkout är ännu inte konfigurerad.</p> : null}
+      {success ? <p className="mt-4 rounded-control bg-[#eef5ff] p-4 text-sm font-semibold text-brand" role="status" aria-live="polite">{success}</p> : null}
+      {error ? <p className="mt-4 text-sm font-semibold text-danger" role="alert" aria-live="assertive">{error}</p> : null}
     </article>
   );
 }

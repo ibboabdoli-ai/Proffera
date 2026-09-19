@@ -1,19 +1,18 @@
 import type { LucideIcon } from "lucide-react";
 import {
   ArrowRight,
-  BarChart3,
   CalendarCheck2,
   CheckCircle2,
   ClipboardCheck,
   FileText,
   Globe2,
-  Images,
   MessageSquareText,
   Star,
   UserRound,
   Users,
 } from "lucide-react";
 
+import styles from "@/components/marketing/platform-marketing.module.css";
 import { ButtonLink } from "@/components/ui/button-link";
 import type { PublicLocale } from "@/lib/public-locale";
 
@@ -168,26 +167,105 @@ export function MarketingFeatures({ locale }: { locale: PublicLocale }) {
   const demoHref = locale === "en" ? "/en/demo" : "/demo";
 
   return (
-    <div className="overflow-hidden bg-[#f6f8f4]">
-      <section className="border-b border-[#e1e7df] bg-white">
-        <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8 lg:py-24">
-          <p className="text-sm font-black uppercase tracking-[0.16em] text-[#17452f]">{t.eyebrow}</p>
-          <h1 className="mt-4 max-w-4xl text-4xl font-black leading-[1.05] tracking-[-0.04em] text-[#17201a] sm:text-5xl">{t.title}</h1>
-          <p className="mt-5 max-w-3xl text-lg leading-8 text-[#5b665f]">{t.intro}</p>
-          <div className="mt-8 flex flex-col gap-3 sm:flex-row"><ButtonLink href={signupHref}>{t.primary}</ButtonLink><ButtonLink href={pricingHref} variant="secondary">{t.secondary}</ButtonLink></div>
-          <div className="mt-10 flex flex-wrap items-center gap-2">{t.flow.map((item, index) => <div key={item} className="flex items-center gap-2"><span className="rounded-full border border-[#cfdcd1] bg-[#f8fbf8] px-4 py-2 text-sm font-black text-[#28523b]">{item}</span>{index < t.flow.length - 1 ? <ArrowRight className="h-4 w-4 text-[#93a298]" /> : null}</div>)}</div>
+    <div className={styles.page} lang={locale}>
+      <section className={styles.hero}>
+        <div className={styles.inner}>
+          <p className={styles.eyebrow}>{t.eyebrow}</p>
+          <h1 className={styles.title}>{t.title}</h1>
+          <p className={styles.lead}>{t.intro}</p>
+          <div className={styles.actions}>
+            <ButtonLink href={signupHref}>{t.primary}</ButtonLink>
+            <ButtonLink href={pricingHref} variant="secondary">{t.secondary}</ButtonLink>
+          </div>
+          <ol className={styles.flowRail} aria-label={locale === "en" ? "Customer workflow" : "Kundflöde"}>
+            {t.flow.map((item, index) => (
+              <li key={item} className={styles.flowItem}>
+                <span className={styles.flowNumber}>{String(index + 1).padStart(2, "0")}</span>
+                {item}
+                {index < t.flow.length - 1 ? <ArrowRight className="h-3.5 w-3.5 opacity-60" aria-hidden="true" /> : null}
+              </li>
+            ))}
+          </ol>
         </div>
       </section>
 
-      <section className="mx-auto max-w-7xl px-4 py-20 sm:px-6 lg:px-8">
-        <div className="grid gap-6 lg:grid-cols-2">{t.groups.map(({ icon: Icon, title, description, items }) => <article key={title} className="rounded-[1.8rem] border border-[#dfe5dd] bg-white p-6 shadow-sm sm:p-7"><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#eaf2ec] text-[#17452f]"><Icon className="h-6 w-6" /></div><h2 className="mt-5 text-2xl font-black tracking-tight text-[#17201a]">{title}</h2><p className="mt-2 text-sm leading-6 text-[#667168]">{description}</p><div className="mt-6 grid gap-3">{items.map((item) => <div key={item.title} className="rounded-2xl bg-[#f7f9f6] p-4"><div className="flex gap-3"><CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-[#2f7b53]" /><div><h3 className="font-black text-[#17201a]">{item.title}</h3><p className="mt-1 text-sm leading-6 text-[#667168]">{item.text}</p></div></div></div>)}</div></article>)}</div>
+      <section className={styles.sectionWhite}>
+        <div className={styles.compactInner}>
+          <div className={styles.sectionHeader}>
+            <div>
+              <p className={styles.eyebrow}>{locale === "en" ? "The product" : "Produkten"}</p>
+              <h2 className={styles.sectionTitle}>{locale === "en" ? "One workspace behind the customer journey." : "En arbetsyta bakom hela kundresan."}</h2>
+            </div>
+            <p className={styles.sectionLead}>{locale === "en" ? "Each part has a clear job. The structure follows the customer from discovery to completed work and follow-up." : "Varje del har en tydlig uppgift. Strukturen följer kunden från första kontakt till genomfört jobb och uppföljning."}</p>
+          </div>
+
+          <ul className={styles.editorialList}>
+            {t.groups.map(({ icon: Icon, title, description, items }) => (
+              <li key={title} className={styles.editorialRow}>
+                <span className={styles.rowMarker}><Icon aria-hidden="true" /></span>
+                <div>
+                  <h3 className={styles.rowTitle}>{title}</h3>
+                  <p className={styles.rowText}>{description}</p>
+                  <ul className={styles.sublist}>
+                    {items.map((item) => (
+                      <li key={item.title}>
+                        <CheckCircle2 aria-hidden="true" />
+                        <span><strong>{item.title}</strong> — {item.text}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
       </section>
 
-      <section className="border-y border-[#e1e7df] bg-white py-20"><div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8"><div className="max-w-3xl"><h2 className="text-3xl font-black tracking-[-0.03em] text-[#17201a]">{t.examplesTitle}</h2><p className="mt-4 text-base leading-7 text-[#5b665f]">{t.examplesLead}</p></div><div className="mt-8 grid gap-4 md:grid-cols-3">{t.examples.map(({ icon: Icon, title, text }) => <article key={title} className="rounded-3xl border border-[#dfe5dd] bg-[#fbfcfa] p-6"><Icon className="h-6 w-6 text-[#17452f]" /><h3 className="mt-5 text-xl font-black text-[#17201a]">{title}</h3><p className="mt-2 text-sm leading-6 text-[#667168]">{text}</p></article>)}</div></div></section>
+      <section className={styles.sectionSoft}>
+        <div className={styles.compactInner}>
+          <div className={styles.sectionHeader}>
+            <div>
+              <p className={styles.eyebrow}>{locale === "en" ? "Different next steps" : "Olika nästa steg"}</p>
+              <h2 className={styles.sectionTitle}>{t.examplesTitle}</h2>
+            </div>
+            <p className={styles.sectionLead}>{t.examplesLead}</p>
+          </div>
+          <div className={styles.featureColumns}>
+            {t.examples.map(({ icon: Icon, title, text }) => (
+              <article key={title} className={styles.featureColumn}>
+                <Icon aria-hidden="true" />
+                <h3>{title}</h3>
+                <p>{text}</p>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
 
-      <section className="mx-auto max-w-7xl px-4 py-20 sm:px-6 lg:px-8"><div className="grid gap-6 rounded-[2rem] bg-[#102a1c] p-8 text-white sm:p-10 lg:grid-cols-[.75fr_1.25fr] lg:items-center"><div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/10 text-[#e8c678]"><Users className="h-7 w-7" /></div><div><h2 className="text-3xl font-black tracking-tight">{t.proofTitle}</h2><p className="mt-3 max-w-3xl text-base leading-7 text-white/75">{t.proofText}</p></div></div></section>
+      <section className={styles.sectionWhite}>
+        <div className={styles.compactInner}>
+          <div className={styles.callout}>
+            <span className={styles.calloutIcon}><Users aria-hidden="true" /></span>
+            <div>
+              <h2>{t.proofTitle}</h2>
+              <p>{t.proofText}</p>
+            </div>
+          </div>
+        </div>
+      </section>
 
-      <section className="border-t border-[#e1e7df] bg-white"><div className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-16 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8"><div><h2 className="text-3xl font-black tracking-tight text-[#17201a]">{t.finalTitle}</h2><p className="mt-3 text-base text-[#5b665f]">{t.finalText}</p></div><div className="flex flex-col gap-3 sm:flex-row"><ButtonLink href={signupHref}>{t.finalPrimary}</ButtonLink><ButtonLink href={demoHref} variant="secondary">{t.finalSecondary}</ButtonLink></div></div></section>
+      <section className={styles.sectionSoft}>
+        <div className={styles.compactInner}>
+          <div className={styles.ctaBand}>
+            <h2>{t.finalTitle}</h2>
+            <p>{t.finalText}</p>
+            <div className={styles.actions}>
+              <ButtonLink href={signupHref}>{t.finalPrimary}</ButtonLink>
+              <ButtonLink href={demoHref} variant="secondary">{t.finalSecondary}</ButtonLink>
+            </div>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { CheckCircle2, Sparkles } from "lucide-react";
 
+import styles from "@/components/marketing/platform-marketing.module.css";
 import { ButtonLink } from "@/components/ui/button-link";
 import { getCheckoutPlanPriceLabel } from "@/lib/billing-plans";
 import type { PublicLocale } from "@/lib/public-locale";
@@ -97,23 +98,72 @@ export function MarketingPricing({ locale }: { locale: PublicLocale }) {
   const t = copy[locale];
 
   return (
-    <div className="overflow-hidden bg-[#f6f8f4]">
-      <section className="border-b border-[#e1e7df] bg-white">
-        <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8 lg:py-24">
-          <p className="text-sm font-black uppercase tracking-[0.16em] text-[#17452f]">{t.eyebrow}</p>
-          <h1 className="mt-4 max-w-4xl text-4xl font-black leading-[1.05] tracking-[-0.04em] text-[#17201a] sm:text-5xl">{t.title}</h1>
-          <p className="mt-5 max-w-3xl text-lg leading-8 text-[#5b665f]">{t.intro}</p>
-          <p className="mt-5 inline-flex rounded-full border border-[#cfe0d3] bg-[#f7fbf8] px-4 py-2 text-sm font-bold text-[#28523b]">{t.trial}</p>
+    <main className={styles.page} lang={locale}>
+      <section className={styles.hero}>
+        <div className={styles.inner}>
+          <p className={styles.eyebrow}>{t.eyebrow}</p>
+          <h1 className={styles.title}>{t.title}</h1>
+          <p className={styles.lead}>{t.intro}</p>
+          <div className={styles.callout} style={{ marginTop: "1.5rem", maxWidth: "48rem" }}>
+            <span className={styles.calloutIcon}><Sparkles aria-hidden="true" /></span>
+            <div><h2>{locale === "en" ? "14-day trial" : "14 dagars provperiod"}</h2><p>{t.trial}</p></div>
+          </div>
         </div>
       </section>
 
-      <section className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8 lg:py-20">
-        <div className="grid gap-5 lg:grid-cols-3">{t.plans.map((plan) => { const popular = plan.name === "Professional"; return <article key={plan.name} className={`relative flex flex-col rounded-[1.8rem] border p-6 sm:p-7 ${popular ? "border-[#17452f] bg-[#f7fbf8] shadow-[0_22px_60px_rgba(23,69,47,.13)]" : "border-[#dfe5dd] bg-white shadow-sm"}`}>{popular ? <span className="absolute right-6 top-0 -translate-y-1/2 rounded-full bg-[#173e2b] px-3 py-1.5 text-xs font-black text-white">{t.popular}</span> : null}<h2 className="text-2xl font-black text-[#17201a]">{plan.name}</h2><p className="mt-3 text-3xl font-black tracking-tight text-[#17452f]">{plan.price}</p><p className="mt-3 min-h-[4.5rem] text-sm leading-6 text-[#5b665f]">{plan.description}</p><div className="mt-6 border-t border-[#e2e7e0] pt-5"><p className="text-xs font-black uppercase tracking-[0.12em] text-[#748078]">{t.included}</p><ul className="mt-4 grid gap-2.5">{plan.features.map((feature) => <li key={feature} className="flex gap-2 text-sm font-semibold text-[#344139]"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[#2f7b53]" />{feature}</li>)}</ul></div><div className="mt-auto pt-7"><ButtonLink href={plan.href} variant={popular ? "primary" : "secondary"} className="w-full">{plan.cta}</ButtonLink></div></article>; })}</div>
+      <section className={styles.sectionSoft}>
+        <div className={styles.compactInner}>
+          <div className={styles.priceGrid}>
+            {t.plans.map((plan) => {
+              const popular = plan.name === "Professional";
+              return (
+                <article key={plan.name} className={[styles.priceCard, popular ? styles.priceCardPopular : ""].filter(Boolean).join(" ")}>
+                  {popular ? <span className={styles.popularBadge}>{t.popular}</span> : null}
+                  <h2 className={styles.planName}>{plan.name}</h2>
+                  <p className={styles.planPrice}>{plan.price}</p>
+                  <p className={styles.planDescription}>{plan.description}</p>
+                  <div className={styles.planDivider}>
+                    <p className={styles.planLabel}>{t.included}</p>
+                    <ul className={styles.planFeatures}>
+                      {plan.features.map((feature) => (
+                        <li key={feature}><CheckCircle2 aria-hidden="true" />{feature}</li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div className={styles.planAction}>
+                    <ButtonLink href={plan.href} variant={popular ? "primary" : "secondary"} className="w-full">{plan.cta}</ButtonLink>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
 
-        <div className="mt-8 rounded-3xl border border-[#dce5db] bg-white p-6 sm:p-7"><div className="flex items-start gap-4"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#eaf2ec] text-[#17452f]"><Sparkles className="h-5 w-5" /></span><div><h2 className="text-lg font-black text-[#17201a]">{t.noteTitle}</h2><p className="mt-2 max-w-4xl text-sm leading-6 text-[#667168]">{t.noteText}</p></div></div></div>
+          <div className={styles.callout} style={{ marginTop: "1.25rem" }}>
+            <span className={styles.calloutIcon}><Sparkles aria-hidden="true" /></span>
+            <div><h2>{t.noteTitle}</h2><p>{t.noteText}</p></div>
+          </div>
+        </div>
       </section>
 
-      <section className="border-t border-[#e1e7df] bg-white py-16"><div className="mx-auto grid max-w-7xl gap-8 px-4 sm:px-6 lg:grid-cols-[.65fr_1.35fr] lg:px-8"><h2 className="text-3xl font-black tracking-tight text-[#17201a]">{t.faqTitle}</h2><div className="grid gap-3">{t.faqs.map((item) => <article key={item.q} className="rounded-2xl border border-[#dfe5dd] bg-[#fbfcfa] p-5"><h3 className="font-black text-[#17201a]">{item.q}</h3><p className="mt-2 text-sm leading-7 text-[#5b665f]">{item.a}</p></article>)}</div></div></section>
-    </div>
+      <section className={styles.sectionWhite}>
+        <div className={styles.compactInner}>
+          <div className={styles.sectionHeader}>
+            <div>
+              <p className={styles.eyebrow}>{locale === "en" ? "Questions" : "Frågor"}</p>
+              <h2 className={styles.sectionTitle}>{t.faqTitle}</h2>
+            </div>
+            <p className={styles.sectionLead}>{locale === "en" ? "Clear answers about trial, plan selection and what happens when the trial ends." : "Tydliga svar om provperiod, planval och vad som händer när provperioden tar slut."}</p>
+          </div>
+          <ul className={styles.faqList}>
+            {t.faqs.map((item) => (
+              <li key={item.q} className={styles.faqItem}>
+                <h3>{item.q}</h3>
+                <p>{item.a}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </section>
+    </main>
   );
 }
