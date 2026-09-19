@@ -1,4 +1,7 @@
+import type { Instrumentation } from "next";
+
 import { buildPreviewSafeBrevoRequestInit } from "@/lib/preview-email-egress";
+import { captureServerRequestError } from "@/lib/observability/server";
 
 const PREVIEW_FETCH_GUARD = Symbol.for("proffera.preview-email-fetch-guard");
 
@@ -22,3 +25,12 @@ export async function register() {
   guardedFetch[PREVIEW_FETCH_GUARD] = true;
   globalThis.fetch = guardedFetch;
 }
+
+
+export const onRequestError: Instrumentation.onRequestError = async (
+  error,
+  request,
+  context,
+) => {
+  captureServerRequestError(error, request, context);
+};

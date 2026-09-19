@@ -1,0 +1,554 @@
+.page {
+  --marketplace-navy: #0a2e63;
+  --marketplace-blue: #1469d8;
+  --marketplace-ink: #11213b;
+  --marketplace-muted: #617085;
+  --marketplace-line: #dce4ee;
+  --marketplace-soft: #f6f9fd;
+  --marketplace-green: #17a672;
+  min-height: 100vh;
+  background: #f8fafc;
+  color: var(--marketplace-ink);
+}
+
+.shell {
+  width: min(100%, 1180px);
+  margin: 0 auto;
+}
+
+.utilityHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.brandLink {
+  color: var(--marketplace-navy);
+  font-size: 1.2rem;
+  font-weight: 950;
+  letter-spacing: -0.035em;
+}
+
+.languageLink {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--marketplace-line);
+  border-radius: 9px;
+  background: #fff;
+  padding: 0 12px;
+  color: var(--marketplace-navy);
+  font-size: 0.78rem;
+  font-weight: 900;
+  box-shadow: 0 2px 8px rgba(10,46,99,.04);
+}
+
+.languageLink:hover {
+  border-color: #bfd2ec;
+  background: #f6f9fd;
+}
+
+.backLink {
+  display: inline-flex;
+  margin-top: 22px;
+  color: var(--marketplace-blue);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.profileCard {
+  overflow: hidden;
+  margin-top: 12px;
+  border: 1px solid var(--marketplace-line);
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 10px 28px rgba(10,46,99,.07);
+}
+
+.heroMedia {
+  position: relative;
+  height: 240px;
+  overflow: hidden;
+  background: #e9f0f7;
+}
+
+.heroMedia img {
+  object-fit: cover;
+}
+
+.noMediaBar {
+  height: 8px;
+  background: var(--marketplace-navy);
+}
+
+.profileBody {
+  padding: 28px;
+}
+
+.identityRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding-bottom: 26px;
+  border-bottom: 1px solid var(--marketplace-line);
+}
+
+.identityMain {
+  min-width: 0;
+}
+
+.badgeRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.categoryBadge,
+.officialBadge {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 5px;
+  border-radius: 999px;
+  padding: 0 9px;
+  font-size: 0.62rem;
+  font-weight: 900;
+}
+
+.categoryBadge {
+  background: #eef5ff;
+  color: var(--marketplace-blue);
+}
+
+.officialBadge {
+  border: 1px solid #dce4ee;
+  background: #f8fafc;
+  color: #536277;
+}
+
+.officialBadge svg {
+  width: 13px;
+  height: 13px;
+}
+
+.profileTitle {
+  margin: 12px 0 0;
+  color: var(--marketplace-navy);
+  font-size: clamp(2rem, 4vw, 3.7rem);
+  font-weight: 950;
+  line-height: 1.02;
+  letter-spacing: -0.05em;
+  overflow-wrap: anywhere;
+}
+
+.location {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 11px;
+  color: #596a7f;
+  font-size: 0.86rem;
+  font-weight: 750;
+}
+
+.location svg {
+  width: 16px;
+  height: 16px;
+  color: var(--marketplace-blue);
+}
+
+.claimLink {
+  display: inline-flex;
+  min-height: 44px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border-radius: 9px;
+  background: var(--marketplace-navy);
+  padding: 0 16px;
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.claimLink:hover {
+  background: #082654;
+}
+
+.factGrid {
+  display: grid;
+  grid-template-columns: repeat(3,minmax(0,1fr));
+  border-bottom: 1px solid var(--marketplace-line);
+}
+
+.fact {
+  padding: 18px;
+  border-left: 1px solid var(--marketplace-line);
+}
+
+.fact:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+
+.fact svg {
+  width: 18px;
+  height: 18px;
+  color: var(--marketplace-blue);
+}
+
+.factLabel {
+  margin: 10px 0 0;
+  color: var(--marketplace-muted);
+  font-size: 0.64rem;
+  font-weight: 900;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.factValue {
+  margin: 4px 0 0;
+  color: var(--marketplace-ink);
+  font-size: .84rem;
+  font-weight: 850;
+}
+
+.reputation {
+  margin-top: 24px;
+  border: 1px solid #ccdbed;
+  border-radius: 14px;
+  background: #f3f8ff;
+  padding: 18px;
+}
+
+.reputationHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--marketplace-navy);
+}
+
+.reputationHeader svg {
+  width: 18px;
+  height: 18px;
+  color: #e7a11a;
+  fill: currentColor;
+}
+
+.reputationHeader h2 {
+  margin: 0;
+  font-size: .98rem;
+  font-weight: 900;
+}
+
+.reputation > p {
+  margin: 6px 0 0;
+  color: var(--marketplace-muted);
+  font-size: .76rem;
+  line-height: 1.55;
+}
+
+.reputationGrid {
+  display: grid;
+  grid-template-columns: repeat(3,minmax(0,1fr));
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.reputationStat {
+  border: 1px solid #dce6f2;
+  border-radius: 10px;
+  background: white;
+  padding: 12px;
+}
+
+.reputationStat dt {
+  color: var(--marketplace-muted);
+  font-size: .58rem;
+  font-weight: 900;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.reputationStat dd {
+  margin: 4px 0 0;
+  color: var(--marketplace-navy);
+  font-size: 1.35rem;
+  font-weight: 950;
+}
+
+.section {
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid var(--marketplace-line);
+}
+
+.section:first-of-type {
+  border-top: 0;
+}
+
+.sectionEyebrow {
+  margin: 0;
+  color: var(--marketplace-blue);
+  font-size: .66rem;
+  font-weight: 900;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+
+.sectionTitle {
+  margin: 0;
+  color: var(--marketplace-navy);
+  font-size: 1.15rem;
+  font-weight: 900;
+  letter-spacing: -.02em;
+}
+
+.aboutText {
+  max-width: 800px;
+  margin: 9px 0 0;
+  color: #53647a;
+  font-size: .88rem;
+  line-height: 1.75;
+}
+
+.contactLead {
+  margin: 6px 0 0;
+  color: var(--marketplace-muted);
+  font-size: .76rem;
+  line-height: 1.55;
+}
+
+.contactGrid,
+.serviceAreaGrid {
+  display: grid;
+  grid-template-columns: repeat(2,minmax(0,1fr));
+  gap: 9px;
+  margin-top: 13px;
+}
+
+.contactCard,
+.serviceAreaCard {
+  border: 1px solid var(--marketplace-line);
+  border-radius: 10px;
+  background: #f9fbfd;
+  padding: 13px;
+}
+
+.contactLabel {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--marketplace-ink);
+  font-size: .76rem;
+  font-weight: 900;
+}
+
+.contactLabel svg {
+  width: 15px;
+  height: 15px;
+  color: var(--marketplace-blue);
+}
+
+.contactValue {
+  min-height: 24px;
+  margin-top: 7px;
+  color: #53647a;
+  font-size: .76rem;
+  font-weight: 750;
+}
+
+.contactValue a {
+  color: var(--marketplace-blue);
+}
+
+.serviceTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 13px;
+}
+
+.serviceTag {
+  border: 1px solid var(--marketplace-line);
+  border-radius: 9px;
+  background: #f9fbfd;
+  padding: 10px 12px;
+}
+
+.serviceTag strong {
+  display: block;
+  color: var(--marketplace-navy);
+  font-size: .78rem;
+  font-weight: 900;
+}
+
+.serviceTag small {
+  display: block;
+  margin-top: 3px;
+  color: var(--marketplace-muted);
+  font-size: .62rem;
+  font-weight: 750;
+}
+
+.serviceAreaCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  font-size: .74rem;
+}
+
+.serviceAreaCard strong {
+  color: var(--marketplace-navy);
+}
+
+.serviceAreaCard span {
+  color: var(--marketplace-muted);
+  white-space: nowrap;
+}
+
+.ctaGrid {
+  display: grid;
+  grid-template-columns: repeat(2,minmax(0,1fr));
+  gap: 12px;
+  margin-top: 28px;
+}
+
+.quoteCard,
+.similarCard {
+  border-radius: 14px;
+  padding: 20px;
+}
+
+.quoteCard {
+  border: 1px solid #ccdbed;
+  background: #f3f8ff;
+}
+
+.similarCard {
+  background: var(--marketplace-navy);
+  color: white;
+}
+
+.quoteCard svg,
+.similarCard svg {
+  width: 21px;
+  height: 21px;
+}
+
+.quoteCard svg {
+  color: var(--marketplace-blue);
+}
+
+.similarCard svg {
+  color: rgba(255,255,255,.8);
+}
+
+.quoteCard h2,
+.similarCard h2 {
+  margin: 12px 0 0;
+  font-size: 1.05rem;
+  font-weight: 900;
+}
+
+.quoteCard h2 {
+  color: var(--marketplace-navy);
+}
+
+.quoteCard p,
+.similarCard p {
+  margin: 6px 0 0;
+  font-size: .74rem;
+  line-height: 1.55;
+}
+
+.quoteCard p {
+  color: var(--marketplace-muted);
+}
+
+.similarCard p {
+  color: rgba(255,255,255,.72);
+}
+
+.primaryCta,
+.inverseCta {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 14px;
+  border-radius: 8px;
+  padding: 0 13px;
+  font-size: .72rem;
+  font-weight: 900;
+}
+
+.primaryCta {
+  background: var(--marketplace-navy);
+  color: #fff;
+}
+
+.inverseCta {
+  background: #fff;
+  color: var(--marketplace-navy);
+}
+
+.detailList {
+  margin-top: 14px;
+}
+
+@media (max-width: 760px) {
+  .identityRow,
+  .ctaGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .identityRow {
+    flex-direction: column;
+  }
+
+  .claimLink {
+    width: 100%;
+  }
+
+  .factGrid,
+  .reputationGrid,
+  .contactGrid,
+  .serviceAreaGrid,
+  .ctaGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .fact {
+    border-top: 1px solid var(--marketplace-line);
+    border-left: 0;
+    padding: 15px 0;
+  }
+
+  .fact:first-child {
+    border-top: 0;
+  }
+
+  .profileBody {
+    padding: 20px;
+  }
+
+  .heroMedia {
+    height: 190px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .claimLink,
+  .languageLink,
+  .primaryCta,
+  .inverseCta {
+    transition: none !important;
+  }
+}

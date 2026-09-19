@@ -4,6 +4,8 @@ import { directoryCopy } from "@/components/company-directory/public-directory-c
 import type { DirectorySearchSort } from "@/lib/company-directory-public-search";
 import type { PublicLocale } from "@/lib/public-locale";
 
+import styles from "./public-directory-marketplace.module.css";
+
 function sortHref(baseHref: string, sort: DirectorySearchSort) {
   const url = new URL(baseHref, "https://proffera.invalid");
   if (sort === "recommended") url.searchParams.delete("sort");
@@ -31,8 +33,8 @@ export function PublicDirectorySortControls({
   ];
 
   return (
-    <nav aria-label={t.sortBy} className="flex flex-wrap items-center gap-2">
-      <span className="mr-1 text-xs font-bold text-muted">{t.sortBy}</span>
+    <nav aria-label={t.sortBy} className={styles.sortNav}>
+      <span className={styles.sortLabel}>{t.sortBy}</span>
       {options.map((option) => {
         const active = option.value === sort;
         return (
@@ -41,9 +43,7 @@ export function PublicDirectorySortControls({
             data-search-sort={option.value}
             aria-current={active ? "page" : undefined}
             href={sortHref(baseHref, option.value)}
-            className={active
-              ? "inline-flex min-h-9 items-center justify-center rounded-control bg-brand px-3 text-xs font-black text-white"
-              : "inline-flex min-h-9 items-center justify-center rounded-control border border-line bg-surface px-3 text-xs font-black text-brand transition hover:border-brand/25 hover:bg-brand-soft"}
+            className={active ? styles.sortActive : styles.sortLink}
           >
             {option.label}
           </Link>
