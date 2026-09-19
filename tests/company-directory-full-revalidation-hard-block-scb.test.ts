@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
   enrichOfficialFacts: vi.fn(),
   enrichScb: vi.fn(),
   createScbTransport: vi.fn(),
+  invalidateByProfileId: vi.fn(),
+  invalidateMarketplace: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -21,6 +23,14 @@ vi.mock("@/lib/company-directory-scb-enrichment", () => ({
 }));
 vi.mock("@/lib/company-directory-scb-transport", () => ({
   createScbCompanyRegistryTransportFromEnv: mocks.createScbTransport,
+}));
+vi.mock("@/lib/company-directory-public-cache", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/company-directory-public-cache")>()),
+  invalidatePublicDirectoryPublicProjectionByProfileId: mocks.invalidateByProfileId,
+}));
+vi.mock("@/lib/public-read-cache", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/public-read-cache")>()),
+  invalidateMarketplaceHomeCompaniesCache: mocks.invalidateMarketplace,
 }));
 
 import { revalidateAllCompanyDirectoryBatch } from "../src/lib/company-directory-full-revalidation";
@@ -249,6 +259,36 @@ describe("full Directory revalidation hard-block and deterministic SCB handling"
     expect(marker?.values).toContain("company_match_count");
     expect(marker?.query).toContain("on conflict (profile_id) do update");
     expect(marker?.query).toContain("source_payload_hash = ''");
+    expect(mocks.invalidateByProfileId).toHaveBeenCalledWith(PROFILE_ID);
+    expect(mocks.invalidateMarketplace).toHaveBeenCalledTimes(1);
+  });
+
+  it("invalidates claimed public caches after a committed deterministic SCB failure without changing status", async () => {
+    const fresh = evaluation({
+      publication_status: "claimed",
+      claimed_workspace_id: "22222222-2222-4222-8222-222222222222",
+    });
+
+    responder = async (query) => {
+      if (query.includes("with blocked as (")) return [];
+      if (query.includes("started_at < now() - interval '10 minutes'")) return [];
+      if (query.includes("insert into company_directory_sync_runs")) return [{ id: RUN_ID, cursor_value: "" }];
+      if (query.includes("with eligible as (")) return [candidate("claimed")];
+      if (query.includes("profile.category_slug") && query.includes("scb_snapshot_fresh")) return [fresh];
+      if (query.includes("insert into company_directory_scb_enrichment") && query.includes("revalidationFailure")) {
+        return [{ profile_id: PROFILE_ID }];
+      }
+      if (query.includes("update company_directory_sync_runs") && query.includes("where id =")) return [];
+      if (query.includes("select count(*)::int as count")) return [{ count: 0 }];
+      throw new Error(`Unexpected SQL in claimed deterministic SCB test: ${query}`);
+    };
+    mocks.enrichScb.mockRejectedValue(new ScbCompanyRegistryMatchCountError());
+
+    const result = await revalidateAllCompanyDirectoryBatch(10);
+
+    expect(result).toMatchObject({ selected: 1, movedToReview: 0, deferred: 1, errors: 0 });
+    expect(mocks.invalidateByProfileId).toHaveBeenCalledWith(PROFILE_ID);
+    expect(mocks.invalidateMarketplace).toHaveBeenCalledTimes(1);
   });
 
   it("suppresses blocked Review rows between bounded Official Facts rechecks and current SCB failures", async () => {
