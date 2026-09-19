@@ -195,7 +195,13 @@ async function demoteKnownHardBlockedProfiles(limit: number) {
         and (
           facts.deregistration_date is not null
           or coalesce(facts.advertising_blocked, false) = true
-          or jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) > 0
+          or (
+            case
+              when jsonb_typeof(facts.ongoing_procedures) = 'array'
+                then jsonb_array_length(facts.ongoing_procedures)
+              else 1
+            end
+          ) > 0
         )
       order by
         case profile.publication_status when 'published' then 0 else 1 end,
@@ -245,7 +251,13 @@ async function selectCandidates(limit: number, cursorValue: string) {
           and (
             facts.deregistration_date is not null
             or coalesce(facts.advertising_blocked, false) = true
-            or jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) > 0
+            or (
+            case
+              when jsonb_typeof(facts.ongoing_procedures) = 'array'
+                then jsonb_array_length(facts.ongoing_procedures)
+              else 1
+            end
+          ) > 0
           )
         ) as known_hard_official_facts_block
       from company_directory_profiles profile
@@ -264,7 +276,13 @@ async function selectCandidates(limit: number, cursorValue: string) {
             and (
               facts.deregistration_date is not null
               or coalesce(facts.advertising_blocked, false) = true
-              or jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) > 0
+              or (
+            case
+              when jsonb_typeof(facts.ongoing_procedures) = 'array'
+                then jsonb_array_length(facts.ongoing_procedures)
+              else 1
+            end
+          ) > 0
             )
             and greatest(facts.last_synced_at, profile.updated_at) < now() - interval '24 hours'
             and not exists (
@@ -283,7 +301,13 @@ async function selectCandidates(limit: number, cursorValue: string) {
               and (
                 facts.deregistration_date is not null
                 or coalesce(facts.advertising_blocked, false) = true
-                or jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) > 0
+                or (
+            case
+              when jsonb_typeof(facts.ongoing_procedures) = 'array'
+                then jsonb_array_length(facts.ongoing_procedures)
+              else 1
+            end
+          ) > 0
               )
             )
             and facts.last_synced_at < profile.last_synced_at
@@ -297,7 +321,13 @@ async function selectCandidates(limit: number, cursorValue: string) {
               and (
                 facts.deregistration_date is not null
                 or coalesce(facts.advertising_blocked, false) = true
-                or jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) > 0
+                or (
+            case
+              when jsonb_typeof(facts.ongoing_procedures) = 'array'
+                then jsonb_array_length(facts.ongoing_procedures)
+              else 1
+            end
+          ) > 0
               )
             )
             and not coalesce((
@@ -335,7 +365,13 @@ async function selectCandidates(limit: number, cursorValue: string) {
                 and facts.last_synced_at >= profile.last_synced_at
                 and facts.deregistration_date is null
                 and coalesce(facts.advertising_blocked, false) = false
-                and jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) = 0
+                and (
+            case
+              when jsonb_typeof(facts.ongoing_procedures) = 'array'
+                then jsonb_array_length(facts.ongoing_procedures)
+              else 1
+            end
+          ) = 0
                 and scb.profile_id is not null
                 and scb.source_payload_hash <> ''
                 and scb.last_synced_at >= now() - interval '7 days'
@@ -390,7 +426,13 @@ async function backlogCount() {
           and (
             facts.deregistration_date is not null
             or coalesce(facts.advertising_blocked, false) = true
-            or jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) > 0
+            or (
+            case
+              when jsonb_typeof(facts.ongoing_procedures) = 'array'
+                then jsonb_array_length(facts.ongoing_procedures)
+              else 1
+            end
+          ) > 0
           )
           and greatest(facts.last_synced_at, profile.updated_at) < now() - interval '24 hours'
           and not exists (
@@ -409,7 +451,13 @@ async function backlogCount() {
             and (
               facts.deregistration_date is not null
               or coalesce(facts.advertising_blocked, false) = true
-              or jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) > 0
+              or (
+            case
+              when jsonb_typeof(facts.ongoing_procedures) = 'array'
+                then jsonb_array_length(facts.ongoing_procedures)
+              else 1
+            end
+          ) > 0
             )
           )
           and facts.last_synced_at < profile.last_synced_at
@@ -423,7 +471,13 @@ async function backlogCount() {
             and (
               facts.deregistration_date is not null
               or coalesce(facts.advertising_blocked, false) = true
-              or jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) > 0
+              or (
+            case
+              when jsonb_typeof(facts.ongoing_procedures) = 'array'
+                then jsonb_array_length(facts.ongoing_procedures)
+              else 1
+            end
+          ) > 0
             )
           )
           and not coalesce((
@@ -461,7 +515,13 @@ async function backlogCount() {
               and facts.last_synced_at >= profile.last_synced_at
               and facts.deregistration_date is null
               and coalesce(facts.advertising_blocked, false) = false
-              and jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) = 0
+              and (
+            case
+              when jsonb_typeof(facts.ongoing_procedures) = 'array'
+                then jsonb_array_length(facts.ongoing_procedures)
+              else 1
+            end
+          ) = 0
               and scb.profile_id is not null
               and scb.source_payload_hash <> ''
               and scb.last_synced_at >= now() - interval '7 days'
@@ -632,7 +692,13 @@ async function moveKnownHardBlockedProfileToReview(profileId: string, expectedSt
           and (
             facts.deregistration_date is not null
             or coalesce(facts.advertising_blocked, false) = true
-            or jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) > 0
+            or (
+            case
+              when jsonb_typeof(facts.ongoing_procedures) = 'array'
+                then jsonb_array_length(facts.ongoing_procedures)
+              else 1
+            end
+          ) > 0
           )
       )
     returning profile.id::text
@@ -842,7 +908,13 @@ async function restoreSafeReviewProfileToReady(input: {
           and facts.source_payload_hash = ${input.factsSourcePayloadHash}
           and facts.deregistration_date is null
           and coalesce(facts.advertising_blocked, false) = false
-          and jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) = 0
+          and (
+            case
+              when jsonb_typeof(facts.ongoing_procedures) = 'array'
+                then jsonb_array_length(facts.ongoing_procedures)
+              else 1
+            end
+          ) = 0
       )
       and exists (
         select 1
