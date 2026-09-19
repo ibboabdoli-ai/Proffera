@@ -11,8 +11,8 @@ describe("Readability and contrast hardening", () => {
   it("publishes the semantic color aliases used by public directory and workspace UI", () => {
     const css = source("src/app/globals.css");
 
-    expect(css).toContain("--pf-body: #455249");
-    expect(css).toContain("--pf-ink-muted: #4f5c53");
+    expect(css).toContain("--pf-body: #4f6178");
+    expect(css).toContain("--pf-ink-muted: #617085");
     expect(css).toContain("--color-body: var(--pf-body)");
     expect(css).toContain("--color-muted: var(--pf-ink-muted)");
     expect(css).toContain("--color-brand-strong: var(--pf-brand-hover)");
@@ -34,11 +34,11 @@ describe("Readability and contrast hardening", () => {
   it("raises secondary-copy contrast on dark Proffera surfaces and disabled primary actions", () => {
     const css = source("src/app/globals.css");
 
-    expect(css).toContain("--pf-on-brand-muted: #d9e3dd");
+    expect(css).toContain("--pf-on-brand-muted: #dce8f7");
     expect(css).toContain('[class*="text-white/65"]');
     expect(css).toContain('[class*="text-white/70"]');
     expect(css).toContain("color: var(--pf-on-brand-muted) !important");
-    expect(css).toContain("--pf-disabled-bg: #667168");
+    expect(css).toContain("--pf-disabled-bg: #7c8ca1");
     expect(css).toContain("background: var(--pf-disabled-bg) !important");
   });
 
