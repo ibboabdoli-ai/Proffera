@@ -7,6 +7,13 @@ function source(path: string) {
   return readFileSync(resolve(process.cwd(), path), "utf8");
 }
 
+function between(content: string, start: string, end: string) {
+  const startIndex = content.indexOf(start);
+  const endIndex = content.indexOf(end, startIndex + start.length);
+  if (startIndex < 0 || endIndex < 0) throw new Error(`Expected source markers: ${start} -> ${end}`);
+  return content.slice(startIndex, endIndex);
+}
+
 describe("dashboard workflow human-designed UX contract", () => {
   it("keeps quote and job detail workflows intact while using the workspace system", () => {
     const quote = source("src/app/dashboard/offerter/[id]/page.tsx");
@@ -24,6 +31,10 @@ describe("dashboard workflow human-designed UX contract", () => {
     expect(job).toContain('name="evidence"');
     expect(job).toContain('name="staffId"');
     expect(job).toContain("bg-brand-deep");
+    expect(job).toContain('aria-label={text.notes}');
+    expect(job).toContain('aria-label={text.assignment}');
+    expect(job).toContain("px-3 py-2 text-base sm:text-sm");
+    expect(job).toContain("px-3 text-base sm:text-sm");
     expect(job).toContain("rounded-control border border-line bg-surface-subtle p-3 text-sm");
     expect(job).not.toContain("rounded-control bg-surface/10 p-3 text-sm");
   });
@@ -162,9 +173,36 @@ describe("dashboard workflow human-designed UX contract", () => {
     expect(customer).not.toContain("text-white/75");
     expect(marketplace).toContain("text-base sm:text-sm");
     expect(invitationManager).toContain("text-base text-brand-deep sm:text-sm");
-    expect(aiAssistant.indexOf("if (!access.ok)")).toBeLessThan(aiAssistant.indexOf("if (!eligible)"));
-    expect(aiAssistant.indexOf("if (!eligible)")).toBeLessThan(aiAssistant.indexOf("if (!bridgeConfigured)"));
-    expect(aiAssistant.indexOf("if (!bridgeConfigured)")).toBeLessThan(aiAssistant.indexOf("if (active)"));
+    const accessBranch = between(aiAssistant, "if (!access.ok) {", "if (!eligible) {");
+    const eligibilityBranch = between(aiAssistant, "if (!eligible) {", "if (!bridgeConfigured) {");
+    const bridgeBranch = between(aiAssistant, "if (!bridgeConfigured) {", "if (active) {");
+    const activeBranch = between(aiAssistant, "if (active) {", 'statusLabel: isEnglish ? "Ready to activate"');
+    const readyBranch = between(aiAssistant, 'statusLabel: isEnglish ? "Ready to activate"', "})();");
+
+    expect(accessBranch).toContain('"Select a workspace"');
+    expect(accessBranch).toContain('"Välj en workspace"');
+    expect(accessBranch).toContain('"AI Chat is managed per workspace and requires an active sign-in."');
+    expect(accessBranch).toContain('"AI Chat hanteras per workspace och kräver en aktiv inloggning."');
+
+    expect(eligibilityBranch).toContain('"Included in Professional"');
+    expect(eligibilityBranch).toContain('"Ingår i Professional"');
+    expect(eligibilityBranch).toContain('"When Professional is active, a dedicated tenant, inbox and installation code are created for your workspace."');
+    expect(eligibilityBranch).toContain('"När Professional är aktiv skapas en egen tenant, inkorg och installationskod för din workspace."');
+
+    expect(bridgeBranch).toContain('"AI Chat is being prepared"');
+    expect(bridgeBranch).toContain('"AI Chat förbereds"');
+    expect(bridgeBranch).toContain('"The connection to the AI Chat service is not configured in this environment yet."');
+    expect(bridgeBranch).toContain('"Kopplingen till AI Chat-tjänsten är inte konfigurerad i den här miljön ännu."');
+
+    expect(activeBranch).toContain('"Active"');
+    expect(activeBranch).toContain('"Aktiv"');
+    expect(activeBranch).toContain('"AI Chat is connected to your workspace and appears automatically on your public booking page."');
+    expect(activeBranch).toContain('"AI Chat är kopplad till din workspace och visas automatiskt på din publika bokningssida."');
+
+    expect(readyBranch).toContain('"Ready to activate"');
+    expect(readyBranch).toContain('"Redo att aktiveras"');
+    expect(readyBranch).toContain('"We create a separate tenant and secure account for your workspace. After activation, your own inbox opens."');
+    expect(readyBranch).toContain('"Vi skapar en separat tenant och ett säkert konto för din workspace. Efter aktivering öppnas din egen inkorg."');
     expect(settingsOverview).toContain('"Company profile"');
     expect(settingsOverview).toContain('"Ready to configure"');
   });
