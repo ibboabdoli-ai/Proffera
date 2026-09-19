@@ -99,11 +99,15 @@ jobs:
           fi
 
           if [ "$EVENT_NAME" = "workflow_run" ]; then
-            if [ "$EVENT_WORKFLOW_NAME" != "CI" ]; then
-              refuse "Workflow-run event is not the CI workflow."
-            fi
+            case "$EVENT_WORKFLOW_NAME" in
+              "CI"|"Security review regressions")
+                ;;
+              *)
+                refuse "Workflow-run event is not an allowed completion workflow."
+                ;;
+            esac
             if [ "$EVENT_WORKFLOW_CONCLUSION" != "success" ]; then
-              refuse "CI workflow did not complete successfully."
+              refuse "Workflow '$EVENT_WORKFLOW_NAME' did not complete successfully."
             fi
           fi
 
