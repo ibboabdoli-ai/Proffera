@@ -106,12 +106,14 @@ describe("mobile PWA and auth language contract", () => {
     navigationState.pathname = "/logga-in";
     navigationState.search = "lang=en";
 
+    const AuthShell = AppShell as React.ComponentType<{
+      localeHint?: "sv" | "en";
+      children?: ReactNode;
+    }>;
     const shell = renderToStaticMarkup(React.createElement(
-      AppShell,
-      {
-        localeHint: "en",
-        children: React.createElement("div", null, "Auth content"),
-      },
+      AuthShell,
+      { localeHint: "en" },
+      React.createElement("div", null, "Auth content"),
     ));
 
     expect(shell).toContain("Find businesses");
