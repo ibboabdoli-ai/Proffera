@@ -6,7 +6,7 @@ import authStyles from "@/components/auth/auth-marketplace.module.css";
 import { authClient } from "@/lib/auth-client";
 import { getCheckoutPlanPriceLabel, type CheckoutPlanKey } from "@/lib/billing-plans";
 
-type SignupLocale = "sv" | "en";
+export type SignupLocale = "sv" | "en";
 
 type SignupFormProps = {
   locale: SignupLocale;
@@ -60,6 +60,72 @@ const copy = {
   },
 } as const;
 
+type SignupSubmissionError = "existingEmail" | "genericError" | "recovery";
+
+type SignupSubmissionInput = {
+  locale: SignupLocale;
+  accountReady: boolean;
+  contactName: string;
+  companyName: string;
+  email: string;
+  password: string;
+  city: string;
+  phone: string;
+  plan: CheckoutPlanKey;
+};
+
+type SignupSubmissionDependencies = {
+  signUpEmail: (input: { name: string; email: string; password: string }) => Promise<{ error?: { status?: number } | null }>;
+  provision: (input: {
+    companyName: string;
+    city: string;
+    phone: string;
+    plan: CheckoutPlanKey;
+  }) => Promise<{ ok: boolean; redirectPath?: string }>;
+  persistLocale: (locale: SignupLocale) => void;
+  navigate: (href: string) => void;
+};
+
+export async function submitSignup(
+  input: SignupSubmissionInput,
+  dependencies: SignupSubmissionDependencies,
+): Promise<{ accountReady: boolean; error: SignupSubmissionError | null }> {
+  const normalizedEmail = input.email.trim().toLowerCase();
+  let accountReady = input.accountReady;
+
+  if (!accountReady) {
+    const { error } = await dependencies.signUpEmail({
+      name: input.contactName.trim(),
+      email: normalizedEmail,
+      password: input.password,
+    });
+
+    if (error) {
+      return {
+        accountReady: false,
+        error: error.status === 422 || error.status === 409 ? "existingEmail" : "genericError",
+      };
+    }
+
+    accountReady = true;
+  }
+
+  const result = await dependencies.provision({
+    companyName: input.companyName.trim(),
+    city: input.city.trim(),
+    phone: input.phone.trim(),
+    plan: input.plan,
+  });
+
+  if (!result.ok) {
+    return { accountReady, error: accountReady ? "recovery" : "genericError" };
+  }
+
+  dependencies.persistLocale(input.locale);
+  dependencies.navigate(result.redirectPath || "/dashboard/onboarding?new=1");
+  return { accountReady, error: null };
+}
+
 export function SignupForm({ locale, initialPlan, sessionUser }: SignupFormProps) {
   const text = copy[locale];
   const [contactName, setContactName] = useState(sessionUser?.name ?? "");
@@ -79,56 +145,45 @@ export function SignupForm({ locale, initialPlan, sessionUser }: SignupFormProps
 
     setIsPending(true);
     setErrorMessage(null);
-    const normalizedEmail = email.trim().toLowerCase();
 
     try {
-      let accountExistsForRetry = accountReady;
-
-      if (!accountExistsForRetry) {
-        const { error } = await authClient.signUp.email({
-          name: contactName.trim(),
-          email: normalizedEmail,
-          password,
-        });
-
-        if (error) {
-          setErrorMessage(error.status === 422 || error.status === 409 ? text.existingEmail : text.genericError);
-          setIsPending(false);
-          return;
-        }
-
-        accountExistsForRetry = true;
-        setAccountReady(true);
-      }
-
-      const response = await fetch("/api/signup/provision", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          companyName: companyName.trim(),
-          city: city.trim(),
-          phone: phone.trim(),
-          plan,
-        }),
+      const result = await submitSignup({
+        locale,
+        accountReady,
+        contactName,
+        companyName,
+        email,
+        password,
+        city,
+        phone,
+        plan,
+      }, {
+        signUpEmail: (input) => authClient.signUp.email(input),
+        provision: async (input) => {
+          const response = await fetch("/api/signup/provision", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify(input),
+          });
+          const body = (await response.json().catch(() => null)) as {
+            ok?: boolean;
+            redirectPath?: string;
+          } | null;
+          return { ok: response.ok && body?.ok === true, redirectPath: body?.redirectPath };
+        },
+        persistLocale: (nextLocale) => {
+          window.localStorage.setItem("proffera-locale", nextLocale);
+          document.cookie = `proffera_locale=${nextLocale}; path=/; max-age=31536000; samesite=lax`;
+        },
+        navigate: (href) => window.location.assign(href),
       });
-      const result = (await response.json().catch(() => null)) as {
-        ok?: boolean;
-        code?: string;
-        redirectPath?: string;
-      } | null;
 
-      if (!response.ok || !result?.ok) {
-        setErrorMessage(accountExistsForRetry ? text.recovery : text.genericError);
-        setIsPending(false);
-        return;
-      }
-
-      window.localStorage.setItem("proffera-locale", locale);
-      document.cookie = `proffera_locale=${locale}; path=/; max-age=31536000; samesite=lax`;
-      window.location.assign(result.redirectPath || "/dashboard/onboarding?new=1");
+      if (result.accountReady && !accountReady) setAccountReady(true);
+      if (result.error) setErrorMessage(text[result.error]);
     } catch {
       setErrorMessage(accountReady ? text.recovery : text.genericError);
+    } finally {
       setIsPending(false);
     }
   }
