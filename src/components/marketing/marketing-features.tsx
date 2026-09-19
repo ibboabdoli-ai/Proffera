@@ -167,7 +167,7 @@ export function MarketingFeatures({ locale }: { locale: PublicLocale }) {
   const demoHref = locale === "en" ? "/en/demo" : "/demo";
 
   return (
-    <main className={styles.page} lang={locale}>
+    <div className={styles.page} lang={locale}>
       <section className={styles.hero}>
         <div className={styles.inner}>
           <p className={styles.eyebrow}>{t.eyebrow}</p>
@@ -266,6 +266,6 @@ export function MarketingFeatures({ locale }: { locale: PublicLocale }) {
           </div>
         </div>
       </section>
-    </main>
+    </div>
   );
 }
