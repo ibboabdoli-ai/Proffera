@@ -147,8 +147,17 @@ describe("company directory shared-cache route contract", () => {
     for (const candidate of [publicDataSource, routingSource]) {
       expect(candidate).toContain("claimed_facts.last_synced_at >= profile.last_synced_at");
       expect(candidate).toContain("claimed_scb.last_synced_at >= now() - interval '7 days'");
-      expect(candidate).toContain("comparisonSnapshot,profileUpdatedToken");
+      expect(candidate).toContain("claimed_scb.last_synced_at >= profile.last_synced_at");
+      expect(candidate).not.toContain("claimed_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text");
       expect(candidate).toContain("comparisonSnapshot,officialFactsLastSyncedToken");
+      expect(candidate).toContain("profile.organization_kind = 'sole_trader'");
+      expect(candidate).toContain("bolagsverket_vardefulla_datamangder:sole_trader_owner");
+      expect(candidate).toContain("owner_claim.status = 'claimed'");
+      expect(candidate).toContain("owner_claim.verification_method = 'manual_review'");
+      expect(candidate).toContain("company_directory_profile_locations owner_base");
+      expect(candidate).toContain("owner_base.purpose = 'service_base'");
+      expect(candidate).toContain("owner_base.geocode_source = 'lantmateriet_belagenhetsadress_v4_2'");
+      expect(candidate).toContain("owner_base.geocode_precision = 'address'");
       expect(candidate).toContain("claimed_facts.deregistration_date is null");
       expect(candidate).toContain("coalesce(claimed_facts.advertising_blocked, false) = false");
       expect(candidate).toContain("jsonb_typeof(claimed_facts.ongoing_procedures) = 'array'");
