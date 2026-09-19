@@ -58,6 +58,23 @@ describe("auth and signup human-designed UX contract", () => {
     expect(form).not.toContain('import Link from "next/link"');
   });
 
+  it("uses locale-correct auth metadata without duplicating the Proffera title template", () => {
+    const login = source("src/app/logga-in/page.tsx");
+    const forgot = source("src/app/glomt-losenord/page.tsx");
+    const reset = source("src/app/aterstall-losenord/page.tsx");
+    const activation = source("src/app/aktivera/[token]/page.tsx");
+    const invitation = source("src/app/bjud-in/[token]/page.tsx");
+
+    for (const page of [login, forgot, reset, activation, invitation]) {
+      expect(page).toContain("generateMetadata");
+      expect(page).not.toMatch(/title:\s*["'][^"']+\|\s*Proffera/);
+    }
+
+    expect(login).toContain('locale === "en" ? "Sign in" : "Logga in"');
+    expect(forgot).toContain('locale === "en" ? "Reset password" : "Glömt lösenord"');
+    expect(reset).toContain('locale === "en" ? "Choose a new password" : "Välj ett nytt lösenord"');
+  });
+
   it("keeps password reset privacy, token scrubbing, and session revocation messaging", () => {
     const requestPage = source("src/app/glomt-losenord/page.tsx");
     const requestForm = source("src/app/glomt-losenord/PasswordResetRequestForm.tsx");
