@@ -46,7 +46,7 @@ describe("bilingual top-level metadata", () => {
     });
   });
 
-  it("keeps English canonical/hreflang and supplies locale-correct Twitter metadata", () => {
+  it("keeps English canonical/hreflang and supplies locale-correct social metadata", () => {
     const metadata = createEnglishMetadata({
       title: "English title",
       description: "English description",
@@ -71,15 +71,23 @@ describe("bilingual top-level metadata", () => {
         siteName: "Proffera",
         locale: "en_US",
         type: "website",
-        images: ["/og"],
+        images: ["/og?lang=en"],
       },
       twitter: {
         card: "summary_large_image",
         title: "English title | Proffera",
         description: "English description",
-        images: ["/og"],
+        images: ["/og?lang=en"],
       },
     });
+  });
+
+  it("serves a language-matched social image strapline", () => {
+    const code = source("src/app/og/route.tsx");
+
+    expect(code).toContain('searchParams.get("lang") === "en"');
+    expect(code).toContain("Booking, CRM and AI assistant for service businesses");
+    expect(code).toContain("Bokning, CRM och AI-assistent för tjänsteföretag");
   });
 
   it.each([
