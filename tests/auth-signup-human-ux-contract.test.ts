@@ -1,8 +1,15 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import React, { type ReactNode } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import LoginPage, { generateMetadata as loginMetadata } from "../src/app/logga-in/page";
+import { generateMetadata as forgotPasswordMetadata } from "../src/app/glomt-losenord/page";
+import { generateMetadata as resetPasswordMetadata } from "../src/app/aterstall-losenord/page";
+import { generateMetadata as activationMetadata } from "../src/app/aktivera/[token]/page";
+import { generateMetadata as memberInvitationMetadata } from "../src/app/bjud-in/[token]/page";
 import { acceptMemberInvitationAction } from "../src/app/bjud-in/[token]/actions";
 
 const invitationRuntime = vi.hoisted(() => ({
@@ -10,8 +17,31 @@ const invitationRuntime = vi.hoisted(() => ({
   claimWorkspaceMemberInvitation: vi.fn(),
 }));
 
+vi.mock("next/link", async () => {
+  const ReactModule = await import("react");
+  return {
+    default: ({
+      href,
+      children,
+      className,
+    }: {
+      href: unknown;
+      children?: ReactNode;
+      className?: string;
+    }) => ReactModule.createElement("a", { href: String(href), className }, children),
+  };
+});
+
 vi.mock("next/navigation", () => ({
   redirect: invitationRuntime.redirect,
+}));
+
+vi.mock("@/features/company/workspace-invitation", () => ({
+  getWorkspaceInvitation: vi.fn(),
+}));
+
+vi.mock("../src/app/aktivera/[token]/actions", () => ({
+  activateWorkspaceAction: vi.fn(),
 }));
 
 vi.mock("@/features/company/workspace-member-invitation", () => ({
@@ -58,21 +88,70 @@ describe("auth and signup human-designed UX contract", () => {
     expect(form).not.toContain('import Link from "next/link"');
   });
 
-  it("uses locale-correct auth metadata without duplicating the Proffera title template", () => {
-    const login = source("src/app/logga-in/page.tsx");
-    const forgot = source("src/app/glomt-losenord/page.tsx");
-    const reset = source("src/app/aterstall-losenord/page.tsx");
-    const activation = source("src/app/aktivera/[token]/page.tsx");
-    const invitation = source("src/app/bjud-in/[token]/page.tsx");
+  it("renders the login page in Swedish and English at runtime", async () => {
+    const swedish = renderToStaticMarkup(await LoginPage({
+      searchParams: Promise.resolve({ lang: "sv" }),
+    }));
+    const english = renderToStaticMarkup(await LoginPage({
+      searchParams: Promise.resolve({ lang: "en" }),
+    }));
 
-    for (const page of [login, forgot, reset, activation, invitation]) {
+    expect(swedish).toContain("Företagsinloggning");
+    expect(swedish).toContain("Logga in till Proffera");
+    expect(swedish).toContain("Starta gratis i 14 dagar");
+    expect(swedish).not.toContain("Business sign-in");
+
+    expect(english).toContain("Business sign-in");
+    expect(english).toContain("Sign in to Proffera");
+    expect(english).toContain("Start a free 14-day trial");
+    expect(english).not.toContain("Företagsinloggning");
+  });
+
+  it("returns locale-correct auth metadata at runtime", async () => {
+    const loginSv = await loginMetadata({ searchParams: Promise.resolve({ lang: "sv" }) });
+    const loginEn = await loginMetadata({ searchParams: Promise.resolve({ lang: "en" }) });
+    const forgotSv = await forgotPasswordMetadata({ searchParams: Promise.resolve({ lang: "sv" }) });
+    const forgotEn = await forgotPasswordMetadata({ searchParams: Promise.resolve({ lang: "en" }) });
+    const resetSv = await resetPasswordMetadata({ searchParams: Promise.resolve({ lang: "sv" }) });
+    const resetEn = await resetPasswordMetadata({ searchParams: Promise.resolve({ lang: "en" }) });
+    const activationSv = await activationMetadata({
+      params: Promise.resolve({ token: "token-123" }),
+      searchParams: Promise.resolve({ lang: "sv" }),
+    });
+    const activationEn = await activationMetadata({
+      params: Promise.resolve({ token: "token-123" }),
+      searchParams: Promise.resolve({ lang: "en" }),
+    });
+    const invitationSv = await memberInvitationMetadata({
+      params: Promise.resolve({ token: "token-123" }),
+      searchParams: Promise.resolve({ lang: "sv" }),
+    });
+    const invitationEn = await memberInvitationMetadata({
+      params: Promise.resolve({ token: "token-123" }),
+      searchParams: Promise.resolve({ lang: "en" }),
+    });
+
+    expect(loginSv.title).toBe("Logga in");
+    expect(loginEn.title).toBe("Sign in");
+    expect(forgotSv.title).toBe("Glömt lösenord");
+    expect(forgotEn.title).toBe("Reset password");
+    expect(resetSv.title).toBe("Välj ett nytt lösenord");
+    expect(resetEn.title).toBe("Choose a new password");
+    expect(activationSv.title).toEqual({ absolute: "Aktivera arbetsyta | Proffera" });
+    expect(activationEn.title).toEqual({ absolute: "Activate workspace | Proffera" });
+    expect(invitationSv.title).toBe("Gå med i arbetsyta");
+    expect(invitationEn.title).toBe("Join workspace");
+
+    const metadataSources = [
+      source("src/app/logga-in/page.tsx"),
+      source("src/app/glomt-losenord/page.tsx"),
+      source("src/app/aterstall-losenord/page.tsx"),
+      source("src/app/aktivera/[token]/page.tsx"),
+      source("src/app/bjud-in/[token]/page.tsx"),
+    ];
+    for (const page of metadataSources) {
       expect(page).toContain("generateMetadata");
-      expect(page).not.toMatch(/title:\s*["'][^"']+\|\s*Proffera/);
     }
-
-    expect(login).toContain('locale === "en" ? "Sign in" : "Logga in"');
-    expect(forgot).toContain('locale === "en" ? "Reset password" : "Glömt lösenord"');
-    expect(reset).toContain('locale === "en" ? "Choose a new password" : "Välj ett nytt lösenord"');
   });
 
   it("keeps password reset privacy, token scrubbing, and session revocation messaging", () => {
