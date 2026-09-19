@@ -1,14 +1,23 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-
 import authStyles from "@/components/auth/auth-marketplace.module.css";
 import { PasswordResetRequestForm } from "./PasswordResetRequestForm";
 
-export const metadata: Metadata = {
-  title: "Reset password | Proffera",
-  description: "Request a secure Proffera password reset link.",
-  robots: { index: false, follow: false },
-};
+export async function generateMetadata({
+  searchParams,
+}: {
+  searchParams?: Promise<{ lang?: string | string[] }>;
+}): Promise<Metadata> {
+  const params = searchParams ? await searchParams : undefined;
+  const locale: PasswordResetLocale = first(params?.lang) === "en" ? "en" : "sv";
+
+  return {
+    title: locale === "en" ? "Reset password" : "Glömt lösenord",
+    description: locale === "en"
+      ? "Request a secure Proffera password reset link."
+      : "Begär en säker återställningslänk för ditt Proffera-konto.",
+    robots: { index: false, follow: false },
+  };
+}
 
 type PasswordResetLocale = "sv" | "en";
 
@@ -41,13 +50,13 @@ export default async function ForgotPasswordPage({
   const text = copy[locale];
 
   return (
-    <main className={authStyles.page} lang={locale}>
+    <div className={authStyles.page} lang={locale}>
       <section className={authStyles.shell}>
         <div className={authStyles.single}>
           <div className={authStyles.languageRow} aria-label={text.language}>
             <span>{text.language}:</span>
-            <Link href="/glomt-losenord" className={`${authStyles.languageLink} ${locale === "sv" ? authStyles.languageActive : ""}`}>SV</Link>
-            <Link href="/glomt-losenord?lang=en" className={`${authStyles.languageLink} ${locale === "en" ? authStyles.languageActive : ""}`}>EN</Link>
+            <a href="/glomt-losenord" className={`${authStyles.languageLink} ${locale === "sv" ? authStyles.languageActive : ""}`} aria-current={locale === "sv" ? "page" : undefined}>SV</a>
+            <a href="/glomt-losenord?lang=en" className={`${authStyles.languageLink} ${locale === "en" ? authStyles.languageActive : ""}`} aria-current={locale === "en" ? "page" : undefined}>EN</a>
           </div>
 
           <section className={authStyles.card}>
