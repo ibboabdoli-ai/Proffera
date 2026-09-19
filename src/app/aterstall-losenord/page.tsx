@@ -3,11 +3,22 @@ import type { Metadata } from "next";
 import authStyles from "@/components/auth/auth-marketplace.module.css";
 import { ResetPasswordForm } from "./ResetPasswordForm";
 
-export const metadata: Metadata = {
-  title: "Choose a new password | Proffera",
-  description: "Choose a new password for your Proffera account.",
-  robots: { index: false, follow: false },
-};
+export async function generateMetadata({
+  searchParams,
+}: {
+  searchParams?: Promise<{ lang?: string | string[] }>;
+}): Promise<Metadata> {
+  const params = searchParams ? await searchParams : undefined;
+  const locale: PasswordResetLocale = first(params?.lang) === "en" ? "en" : "sv";
+
+  return {
+    title: locale === "en" ? "Choose a new password" : "Välj ett nytt lösenord",
+    description: locale === "en"
+      ? "Choose a new password for your Proffera account."
+      : "Välj ett nytt lösenord för ditt Proffera-konto.",
+    robots: { index: false, follow: false },
+  };
+}
 
 type PasswordResetLocale = "sv" | "en";
 
@@ -38,7 +49,7 @@ export default async function ResetPasswordPage({
   const text = copy[locale];
 
   return (
-    <main className={authStyles.page} lang={locale}>
+    <div className={authStyles.page} lang={locale}>
       <section className={authStyles.shell}>
         <div className={authStyles.single}>
           <section className={authStyles.card}>
