@@ -55,6 +55,14 @@ describe("company directory pilot database guard", () => {
     expect(sql).toContain("category_slug");
     expect(sql).toContain("primary_sni_not_confirmed");
     expect(sql).toContain("company_directory_scb_enrichment");
+    expect(sql).toContain("company_directory_official_facts");
+    expect(sql).toContain("facts.last_synced_at >= profile.last_synced_at");
+    expect(sql).toContain("facts.deregistration_date is null");
+    expect(sql).toContain("coalesce(facts.advertising_blocked, false) = false");
+    expect(sql).toContain("ongoing_procedures");
+    expect(sql).toContain("scb.last_synced_at >= now() - interval '7 days'");
+    expect(sql).toContain("comparisonsnapshot,profileupdatedtoken");
+    expect(sql).toContain("comparisonsnapshot,officialfactslastsyncedtoken");
     expect(sql).toContain("outside_pilot_area");
     expect(sql).toContain("missing_city");
     expect(sql).toContain("jsonb_typeof(scb.workplaces) = 'array'");
