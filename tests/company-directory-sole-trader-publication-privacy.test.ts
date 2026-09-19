@@ -1,6 +1,4 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { Client } from "pg";
@@ -54,6 +52,7 @@ vi.mock("@/lib/public-business-seo", () => ({
 import PublicBusinessPage, { generateMetadata } from "@/app/foretag/[workspace]/page";
 import { approveSoleTraderDirectoryClaim } from "@/lib/company-directory-sole-trader-owner";
 import { getPublicBusinessHub } from "@/lib/public-business-hub";
+import { applyCanonicalProfferaMigrations } from "./helpers/postgres-canonical-schema";
 
 const WORKSPACE_ID = "11111111-1111-4111-8111-111111111111";
 const MEMBERSHIP_ID = "44444444-4444-4444-8444-444444444444";
@@ -62,61 +61,6 @@ const CLAIM_ID = "33333333-3333-4333-8333-333333333333";
 const WORKSPACE_SLUG = "synthetic-safe-service";
 const BLOCKED_ACTIVITY_MARKER = "WA3_BLOCKED_ACTIVITY_MUST_NOT_PUBLISH_8F2B6A";
 const OWNER_INTRO = "Owner-authored Workspace introduction";
-
-const preHubMigrations = [
-  "20260613_phase18_booking_crm.sql",
-  "20260614_phase18_15_workspace_settings.sql",
-  "20260614_phase18_16_workspace_services.sql",
-  "20260616_0001_better_auth_core_schema.sql",
-  "20260616_0002_proffera_workspace_schema.sql",
-  "20260715_0005_public_booking_foundation.sql",
-  "20260728_0016_workspace_staff.sql",
-  "20260729_0019_website_reviews.sql",
-  "20260730_0019a_website_gallery_items.sql",
-  "20260801_0020_workspace_market_settings.sql",
-  "20260802_0021_workspace_service_pricing.sql",
-  "20260802_0022_workspace_quote_requests.sql",
-  "20260802_0023_workspace_quote_offers.sql",
-  "20260802_0025_workspace_service_jobs.sql",
-  "20260803_0028_booking_email_verifications.sql",
-] as const;
-
-const postBootstrapMigrations = [
-  "20260809_0036_public_business_hub.sql",
-  "20260809_0037_company_profile_engine_foundation.sql",
-  "20260809_0040_company_profile_claim_reservation.sql",
-] as const;
-
-function docker(args: string[]) {
-  return execFileSync("docker", args, { encoding: "utf8" }).trim();
-}
-
-async function applyMigration(client: Client, file: string) {
-  const migration = readFileSync(join(process.cwd(), "db/migrations", file), "utf8");
-  await client.query(migration);
-}
-
-async function createExternalBootstrapPrerequisites(client: Client) {
-  // These two historical prerequisites are not created by the active
-  // db/migrations chain. Keep only the minimum surface needed before canonical
-  // migrations/application code take over the schema exercised by this proof.
-  await client.query(`
-    create table workspace_experience_settings (
-      workspace_id uuid primary key references workspaces(id) on delete cascade
-    );
-
-    create table admin_audit_logs (
-      id uuid primary key default gen_random_uuid(),
-      admin_user_id text not null,
-      workspace_id uuid,
-      action text not null,
-      reason text,
-      previous_value jsonb,
-      new_value jsonb,
-      created_at timestamptz not null default now()
-    );
-  `);
-}
 
 function createPostgresSqlAdapter(client: Client) {
   return async (strings: TemplateStringsArray, ...values: unknown[]) => {
@@ -198,9 +142,7 @@ const publicExperience = {
       client = new Client({ connectionString });
       await client.connect();
 
-      for (const file of preHubMigrations) await applyMigration(client, file);
-      await createExternalBootstrapPrerequisites(client);
-      for (const file of postBootstrapMigrations) await applyMigration(client, file);
+      await applyCanonicalProfferaMigrations(client);
     }, 120_000);
 
     afterAll(async () => {
