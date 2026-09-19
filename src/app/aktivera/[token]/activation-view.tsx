@@ -5,7 +5,7 @@ import { CheckCircle2, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 
 import authStyles from "@/components/auth/auth-marketplace.module.css";
-import type { AuthLocale } from "@/lib/auth-locale";
+import { activationDocumentTitle, type AuthLocale } from "@/lib/auth-locale";
 import { ActivationForm } from "./activation-form";
 
 type ActivationViewProps = {
@@ -121,6 +121,7 @@ export function ActivationView({
     );
     setRedirectQuery(nextRedirectQuery);
     setLocale(nextLocale);
+    document.title = activationDocumentTitle(nextLocale);
   }
 
   if (!invitation) {
