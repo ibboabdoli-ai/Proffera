@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { type FormEvent, useState } from "react";
 
 import authStyles from "@/components/auth/auth-marketplace.module.css";
@@ -134,7 +133,9 @@ export function SignupForm({ locale, initialPlan, sessionUser }: SignupFormProps
     }
   }
 
-  const loginHref = `/logga-in?lang=${locale}&plan=${plan}`;
+  const safeLocale: SignupLocale = locale === "en" ? "en" : "sv";
+  const safePlan: CheckoutPlanKey = plan === "professional" ? "professional" : "starter";
+  const loginHref = `/logga-in?lang=${safeLocale}&plan=${safePlan}`;
 
   return (
     <aside className={authStyles.card}>
@@ -194,7 +195,7 @@ export function SignupForm({ locale, initialPlan, sessionUser }: SignupFormProps
       </form>
 
       <p className={authStyles.terms}>{text.terms}</p>
-      <Link href={loginHref} className={authStyles.secondaryLink}>{text.login}</Link>
+      <a href={loginHref} className={authStyles.secondaryLink}>{text.login}</a>
     </aside>
   );
 }
