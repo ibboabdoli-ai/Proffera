@@ -63,7 +63,7 @@ describe("final Proffera design convergence", () => {
     const home = source("src/components/marketplace/marketplace-home.tsx");
     const copy = source("src/components/company-directory/public-directory-copy.ts");
 
-    expect(media).toContain("function serviceIcon");
+    expect(media).toContain("function ServiceIllustrationIcon");
     expect(media).toContain("showIllustration");
     expect(media).toContain('serviceSlug?: string | null');
     expect(results).toContain("illustration={!trustedCardMedia}");
