@@ -92,6 +92,8 @@ function postgresSql(client: Client) {
           id uuid primary key,
           public_slug text not null,
           display_name text not null,
+          organization_kind text not null default 'juridical_person',
+          official_source text not null default 'bolagsverket_vardefulla_datamangder',
           category_slug text not null,
           publication_status text not null,
           activity_description text not null default '',
@@ -107,6 +109,15 @@ function postgresSql(client: Client) {
           privacy_blocked boolean not null default false,
           last_synced_at timestamptz not null default now(),
           updated_at timestamptz not null default now()
+        );
+        create table company_directory_claims (
+          id uuid primary key default gen_random_uuid(),
+          profile_id uuid not null,
+          claimant_user_id text not null default 'test-user',
+          requested_workspace_id uuid,
+          status text not null,
+          verification_method text not null default 'manual_review',
+          requested_at timestamptz not null default now()
         );
         create table company_directory_services (
           slug text primary key,
@@ -142,6 +153,8 @@ function postgresSql(client: Client) {
           municipality text not null default '',
           latitude numeric,
           longitude numeric,
+          geocode_source text not null default '',
+          geocode_precision text not null default 'unknown',
           confirmed_at timestamptz
         );
         create table company_directory_official_facts (
@@ -200,7 +213,7 @@ function postgresSql(client: Client) {
         truncate table company_directory_service_areas, workspace_services,
           company_directory_scb_enrichment, company_directory_official_facts, company_directory_profile_locations,
           company_directory_business_locations, company_directory_profile_services,
-          company_directory_services, company_directory_profiles, workspaces
+          company_directory_claims, company_directory_services, company_directory_profiles, workspaces
       `);
       await client!.query(`
         insert into company_directory_services (slug, category_slug, label)
