@@ -28,13 +28,13 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className={`${styles.scope} ${mobileStyles.scope} grid gap-6`}>
-      <section data-settings-nav-panel className="rounded-[24px] border border-[#dfe6df] bg-white p-4 shadow-sm sm:p-5">
+      <section data-settings-nav-panel className="rounded-card border border-line bg-surface p-4 shadow-card sm:p-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="text-xs font-black uppercase tracking-[0.16em] text-[#68736b]">
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-ink-muted">
               {isEnglish ? "Settings" : "Inställningar"}
             </p>
-            <h2 className="mt-1 text-xl font-black text-[#17201a]">
+            <h2 className="mt-1 text-xl font-black text-ink">
               {isEnglish ? "Workspace configuration" : "Konfigurera arbetsytan"}
             </h2>
           </div>
@@ -50,8 +50,8 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
                   aria-current={active ? "page" : undefined}
                   className={`shrink-0 rounded-xl border px-3.5 py-2.5 text-sm font-bold transition ${
                     active
-                      ? "border-[#173e2b] bg-[#173e2b] text-white"
-                      : "border-[#d9e1d7] bg-white text-[#173e2b] hover:border-[#9aab9f] hover:bg-[#f7f9f6]"
+                      ? "border-brand-deep bg-brand-deep text-white"
+                      : "border-line bg-surface text-brand-deep hover:border-line-strong hover:bg-surface-subtle"
                   }`}
                 >
                   {isEnglish ? item.en : item.sv}

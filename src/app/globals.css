@@ -1,44 +1,44 @@
 @import "tailwindcss";
 
 :root {
-  /* Proffera Design System 2.0 — semantic source of truth. */
-  --pf-canvas: #f6f8f4;
+  /* Proffera marketplace design system — approved source of truth. */
+  --pf-canvas: #f6f9fd;
   --pf-surface: #ffffff;
-  --pf-surface-subtle: #fbfcfa;
-  --pf-ink: #17201a;
-  --pf-body: #455249;
-  --pf-ink-muted: #4f5c53;
-  --pf-line: #dfe5dd;
-  --pf-line-strong: #9fbaa7;
-  --pf-brand: #17452f;
-  --pf-brand-hover: #0e2e1e;
-  --pf-brand-deep: #102a1c;
-  --pf-brand-soft: #eaf2ec;
-  --pf-brand-tint: #eef5ef;
-  --pf-on-brand-muted: #d9e3dd;
-  --pf-disabled-bg: #667168;
+  --pf-surface-subtle: #fbfdff;
+  --pf-ink: #11213b;
+  --pf-body: #4f6178;
+  --pf-ink-muted: #617085;
+  --pf-line: #dce4ee;
+  --pf-line-strong: #bfd2ec;
+  --pf-brand: #1469d8;
+  --pf-brand-hover: #0f5fc7;
+  --pf-brand-deep: #0a2e63;
+  --pf-brand-soft: #eef5ff;
+  --pf-brand-tint: #f6f9fd;
+  --pf-on-brand-muted: #dce8f7;
+  --pf-disabled-bg: #7c8ca1;
   --pf-disabled-fg: #ffffff;
-  --pf-accent: #e8c678;
+  --pf-accent: #dce8f7;
   --pf-danger: #9f3a2d;
-  --pf-shadow-card: 0 1px 2px rgb(16 42 28 / 0.04), 0 14px 34px rgb(16 42 28 / 0.06);
-  --pf-shadow-lift: 0 22px 60px rgb(23 69 47 / 0.13);
-  --pf-radius-control: 0.75rem;
-  --pf-radius-card: 1.5rem;
-  --pf-radius-panel: 2rem;
+  --pf-shadow-card: 0 1px 2px rgb(10 46 99 / 0.035), 0 10px 28px rgb(10 46 99 / 0.07);
+  --pf-shadow-lift: 0 18px 46px rgb(10 46 99 / 0.12);
+  --pf-radius-control: 0.65rem;
+  --pf-radius-card: 0.875rem;
+  --pf-radius-panel: 1rem;
 
   /* Existing aliases retained for broad application compatibility. */
-  --background: #f3f5f1;
-  --foreground: #152019;
+  --background: #f6f9fd;
+  --foreground: #11213b;
   --muted: var(--pf-ink-muted);
   --surface: #ffffff;
-  --surface-subtle: #f7f8f5;
-  --border: #dde3db;
-  --brand: #17452f;
+  --surface-subtle: #fbfdff;
+  --border: #dce4ee;
+  --brand: #1469d8;
   --brand-strong: var(--pf-brand-hover);
-  --brand-soft: #e8f1eb;
-  --accent: #d7a940;
+  --brand-soft: #eef5ff;
+  --accent: #1469d8;
   --danger: #9f3a2d;
-  --shadow-soft: 0 1px 2px rgb(16 45 32 / 0.04), 0 16px 40px rgb(16 45 32 / 0.06);
+  --shadow-soft: 0 1px 2px rgb(10 46 99 / 0.035), 0 12px 32px rgb(10 46 99 / 0.07);
 }
 
 @theme inline {
@@ -152,8 +152,8 @@ button:disabled {
 }
 
 ::selection {
-  background: var(--accent);
-  color: var(--brand-strong);
+  background: #dce8f7;
+  color: #0a2e63;
 }
 
 /*
@@ -169,6 +169,11 @@ button:disabled {
 :where(a, button)[class*="bg-[#173e2b]"],
 :where(a, button)[class*="bg-[#142b20]"],
 :where(a, button)[class*="bg-[#102d20]"],
+:where(a, button)[class~="bg-[#0a2e63]"],
+:where(a, button)[class~="bg-[#0a3c8f]"],
+:where(a, button)[class~="bg-[#1469d8]"],
+:where(a, button)[class~="bg-[#1769c2]"],
+:where(a, button)[class~="bg-[#2f80ed]"],
 :where(a, button)[class~="bg-brand"],
 :where(a, button)[class~="bg-brand-deep"] {
   color: #ffffff !important;
@@ -223,8 +228,8 @@ button:disabled {
 }
 
 .directory-profile-result-cta {
-  color: #173e2b !important;
-  -webkit-text-fill-color: #173e2b !important;
+  color: #0a2e63 !important;
+  -webkit-text-fill-color: #0a2e63 !important;
 }
 
 .directory-profile-result-cta:hover {

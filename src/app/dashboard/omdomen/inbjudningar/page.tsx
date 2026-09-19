@@ -49,8 +49,8 @@ export default async function ReviewInvitationsPage({ searchParams }: Invitation
         icon={Link2}
       />
 
-      <section className="rounded-2xl border border-[#dbe5f6] bg-[#f6f9ff] p-5 text-sm leading-6 text-[#29436f]">
-        <p className="font-bold text-[#071b42]">
+      <section className="rounded-card border border-[#dbe5f6] bg-[#f6f9ff] p-5 text-sm leading-6 text-[#29436f]">
+        <p className="font-bold text-brand-deep">
           {isEnglish ? "Security model" : "Säkerhetsmodell"}
         </p>
         <p className="mt-1">
