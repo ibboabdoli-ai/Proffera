@@ -130,15 +130,14 @@ On 2026-08-21 the dedicated non-Production Neon Preview branch was refreshed in 
 
 Marketplace Guest Quote state transitions were also exercised with synthetic Preview-only data and no external email egress: the real guest page rendered with contact redaction, invitation state changed `sent -> viewed -> responded`, a fixed-price synthetic offer was recorded as `submitted`, the Quote moved to `answered`, and the real success page rendered the saved price/date. All synthetic profile/quote/invitation/offer rows were deleted after the test. The Guest Quote email sender was hardened so Preview now uses the dedicated Brevo resolver and controlled-recipient rewrite instead of directly using shared credentials or the company recipient.
 
-The remaining Preview activation blockers are operational: a genuinely independent `PROFFERA_PREVIEW_BREVO_API_KEY` is not yet configured, so Preview outbound email remains intentionally fail-closed; the current Preview Better Auth secret should also be rotated to a strong random value after runtime warnings identified it as weak/short. Full controlled-recipient email egress and the normal Admin-visible end-to-end route must be re-run before recurring state-changing browser automation is enabled.
+Later isolated Preview evidence supersedes that August blocker. The dedicated Preview lane has successfully exercised controlled Brevo email egress and the full synthetic Marketplace lifecycle through Quote → Matching/Invitation → Provider Offer → Customer Selection → ServiceJob → Completed → Verified Review, with scoped cleanup and no Production mutation. Separate isolated Preview runs also proved Better Auth signup/login/logout/re-login and end-to-end password reset through a fresh controlled Preview email. These runtime results show the Preview Brevo and Auth configuration are operational; do not treat a missing Brevo key or unusable Preview Auth configuration as a current blocker unless fresh runtime evidence contradicts this. Secret values and rotation history remain intentionally opaque and must stay independent from Production.
 
-Those authenticated/Booking checks intentionally skip unless dedicated Preview E2E credentials/workspace names/booking slug are supplied. They must not become required CI until Preview is proven isolated from Production for database, auth, email, payments and customer data.
+Other opt-in authenticated/Booking checks may still skip unless their dedicated Preview E2E credentials, Workspace names or booking slug are supplied. They must not become required CI unless the specific flow is proven safe inside the isolated Preview boundary.
 
-Still intentionally excluded from recurring state-changing browser automation until the remaining runtime isolation gate is proven:
+Still intentionally excluded from general recurring state-changing browser automation unless separately proven and gated:
 
 - Booking → email verification → confirmation;
-- full Marketplace Quote invitation → controlled email → Offer → Admin visibility;
-- Stripe/payment lifecycle;
+- broader Stripe/payment lifecycle;
 - destructive Admin mutations.
 
 Do not run destructive or uncertain browser tests against Production or real customer Workspaces.
@@ -184,8 +183,8 @@ A Production runtime warning observed on 2026-08-18 concerns PostgreSQL connecti
 3. Keep this file synchronized only when a PR changes stable project-level truth; do not use it for fast-moving task/SHA/deployment state.
 4. Keep AI-review routing fail closed while avoiding review latency as CI runner latency: low-risk PRs avoid unnecessary review, sensitive/high-risk paths fail fast while waiting for CodeRabbit and wake only the final gate when exact-head review evidence changes, and medium-risk non-sensitive PRs may use bounded Codex fallback only after CodeRabbit availability failure.
 5. Audit Directory/scheduler/Neon reliability, PostHog funnel coverage, and Marketplace product gaps from fresh evidence before opening additional implementation PRs.
-6. Configure an independent Preview Brevo credential and rotate the weak Preview Better Auth secret, then re-run controlled-recipient email and Admin-visible Marketplace E2E only under the separate environment/secret approval gates.
-7. Keep recurring state-changing Booking/Marketplace/Stripe browser automation gated until the remaining Preview runtime isolation checks are proven.
+6. Preserve the proven Preview Brevo/Auth isolation contract; do not rotate or rewrite Preview secrets merely because older documentation called them blockers. Re-run the bounded isolated Preview evidence lane when auth/email behavior changes, and treat any secret rotation as a separate owner-approved security action.
+7. Keep recurring state-changing Booking/Stripe and destructive Admin browser automation separately gated; the proven Marketplace lifecycle remains confined to the isolated Preview evidence lane rather than becoming a general Production-like CI mutation path.
 8. Continue database tenant-defense work only through isolated-branch proof before any Production RLS rollout.
 
 ## Status-document rule
