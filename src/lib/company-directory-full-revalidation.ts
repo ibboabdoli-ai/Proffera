@@ -1171,6 +1171,23 @@ export async function revalidateAllCompanyDirectoryBatch(
             continue;
           }
 
+          try {
+            await invalidatePublicDirectoryPublicProjectionByProfileId(profileId);
+          } catch (cacheError) {
+            console.error("Failed to invalidate public Directory cache after deterministic SCB failure", {
+              profileId,
+              error: cacheError,
+            });
+          }
+          try {
+            invalidateMarketplaceHomeCompaniesCache();
+          } catch (cacheError) {
+            console.error("Failed to invalidate Marketplace cache after deterministic SCB failure", {
+              profileId,
+              error: cacheError,
+            });
+          }
+
           deferred += 1;
           continue;
         }
