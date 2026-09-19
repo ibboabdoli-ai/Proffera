@@ -17,5 +17,5 @@ const sections = [
 ] as const;
 
 export default function EnglishCookiesPage() {
-  return <EnglishLegalPage title="Cookie policy" introduction="This page describes how Proffera uses cookies and similar technology for operation, security and optional analytics." sections={sections} notice="This English version is provided for convenience; the Swedish version prevails if there is a difference." />;
+  return <EnglishLegalPage title="Cookie policy" introduction="This page describes how Proffera uses cookies and similar technology for operation, security and optional analytics." sections={sections} swedishHref="/cookies" notice="This English version is provided for convenience; the Swedish version prevails if there is a difference." />;
 }

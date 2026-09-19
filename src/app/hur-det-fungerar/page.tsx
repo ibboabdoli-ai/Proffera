@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
-import { PageShell } from "@/components/layout/page-shell";
+import Link from "next/link";
+import { ArrowRight } from "lucide-react";
+
+import styles from "@/app/remaining-public-experience.module.css";
 
 export const metadata: Metadata = {
   title: "Hur det fungerar",
@@ -7,28 +10,42 @@ export const metadata: Metadata = {
 };
 
 const steps = [
-  "Välj tjänst och område",
-  "Beskriv uppdraget i ett guidat flöde",
-  "Jämför svar från relevanta företag",
+  ["Beskriv behovet", "Välj tjänst och område och beskriv uppdraget i ett guidat flöde."],
+  ["Jämför relevanta svar", "Förfrågningar och offerter hålls strukturerade så att kunden kan jämföra verkliga alternativ."],
+  ["Välj och fortsätt", "När kunden väljer företag fortsätter kontakten och jobbet utan att Proffera hittar på data eller automatiskt väljer åt kunden."],
 ] as const;
 
 export default function HowItWorksPage() {
   return (
-    <PageShell
-      eyebrow="Så fungerar det"
-      title="Från behov till jämförbara svar i tre tydliga steg."
-      description="Proffera byggs för att göra offertprocessen enklare, mer strukturerad och mer transparent för både kunder och företag."
-      ctaLabel="Beskriv ditt uppdrag"
-      ctaHref="/fa-offert"
-    >
-      <div className="grid gap-4 md:grid-cols-3">
-        {steps.map((step, index) => (
-          <article key={step} className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[#dfe5dd]">
-            <span className="text-sm font-semibold text-[#17452f]">Steg {index + 1}</span>
-            <h2 className="mt-3 text-lg font-semibold">{step}</h2>
-          </article>
-        ))}
-      </div>
-    </PageShell>
+    <main className={styles.landing}>
+      <section className={styles.landingHero}>
+        <div className={styles.landingInner}>
+          <div className={styles.landingGrid}>
+            <div>
+              <p className={styles.landingEyebrow}>Så fungerar det</p>
+              <h1 className={styles.landingTitle}>Från behov till valt företag i tre tydliga steg.</h1>
+              <p className={styles.landingLead}>Proffera gör offertprocessen tydligare utan att ersätta kundens beslut eller företagets egna uppgifter.</p>
+              <div className={styles.actions} style={{ marginTop: "1.5rem" }}>
+                <Link href="/fa-offert" className={styles.primaryButton}>Beskriv ditt uppdrag <ArrowRight className="h-4 w-4" aria-hidden="true" /></Link>
+                <Link href="/foretag/listad" className={styles.secondaryButton}>Hitta företag</Link>
+              </div>
+            </div>
+            <aside className={styles.landingAside}>
+              <Link href="/en/how-it-works" className={styles.link}>English</Link>
+              <p className={styles.sectionCopy}>Kunden väljer själv. Proffera visar bara den information och de svar som faktiskt finns i flödet.</p>
+            </aside>
+          </div>
+
+          <ol className={styles.rowList} style={{ marginTop: "3rem" }}>
+            {steps.map(([title, text], index) => (
+              <li key={title} className={styles.row}>
+                <span className={styles.rowNumber}>0{index + 1}</span>
+                <div><h2 className={styles.rowTitle}>{title}</h2><p className={styles.rowText}>{text}</p></div>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </section>
+    </main>
   );
 }

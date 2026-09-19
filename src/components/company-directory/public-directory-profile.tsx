@@ -29,6 +29,8 @@ import { getClaimedDirectoryWorkspaceSlug } from "@/lib/company-directory-routin
 import type { PublicLocale } from "@/lib/public-locale";
 import { siteConfig } from "@/lib/site";
 
+import styles from "./public-directory-profile.module.css";
+
 function absoluteUrl(value: string) {
   return new URL(value, siteConfig.url).toString();
 }
@@ -162,79 +164,79 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
   ];
 
   return (
-    <main lang={locale} className="min-h-screen bg-canvas px-4 py-6 text-ink sm:px-6 sm:py-10">
+    <main lang={locale} className={`${styles.page} bg-canvas border-line px-4 py-6 text-ink sm:px-6 sm:py-10`}>
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData).replace(/</g, "\\u003c") }}
       />
-      <div className="mx-auto max-w-5xl">
-        <header className="flex items-center justify-between gap-3">
-          <Link href={directoryPaths[locale].home} className="text-lg font-black tracking-tight text-brand">Proffera</Link>
-          <a href={`${alternateBase}/${encodeURIComponent(business.slug)}`} className="inline-flex min-h-10 items-center gap-2 rounded-control border border-line bg-surface px-3 text-sm font-black text-brand shadow-sm transition hover:border-brand/25 hover:bg-brand-soft">
+      <div className={styles.shell}>
+        <header className={`${styles.utilityHeader} bg-surface border-line`}>
+          <Link href={directoryPaths[locale].home} className={styles.brandLink}>Proffera</Link>
+          <a href={`${alternateBase}/${encodeURIComponent(business.slug)}`} className={`${styles.languageLink} rounded-control border-line bg-surface`}>
             <Languages className="h-4 w-4" /> {t.language}
           </a>
         </header>
 
-        <Link href={profileBase} className="mt-6 inline-flex text-sm font-black text-brand transition hover:text-brand-strong">← {locale === "en" ? "Back to companies" : "Tillbaka till företag"}</Link>
+        <Link href={profileBase} className={styles.backLink}>← {locale === "en" ? "Back to companies" : "Tillbaka till företag"}</Link>
 
-        <article className="mt-4 overflow-hidden rounded-panel border border-line bg-surface shadow-card">
+        <article className={`${styles.profileCard} rounded-panel border-line bg-surface shadow-card`}>
           {hasMedia ? (
-            <div className="relative h-52 sm:h-72">
+            <div className={styles.heroMedia}>
               <Image src={business.media!.url} alt={business.companyName} fill unoptimized sizes="(max-width: 1024px) 100vw, 960px" className="object-cover" />
               <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/25 to-transparent" aria-hidden="true" />
             </div>
           ) : (
-            <div className="h-3 bg-brand" aria-hidden="true" />
+            <div className={`${styles.noMediaBar} bg-brand`} aria-hidden="true" />
           )}
 
-          <div className="p-6 sm:p-9">
-            <div className="flex flex-col gap-6 border-b border-line pb-8 md:flex-row md:items-start md:justify-between">
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="rounded-full bg-brand-soft px-3 py-1 text-xs font-black text-brand">{category}</span>
-                  <span className="inline-flex items-center gap-1 rounded-full bg-surface-subtle px-3 py-1 text-xs font-bold text-body"><ShieldCheck className="h-3.5 w-3.5" /> {t.official}</span>
+          <div className={styles.profileBody}>
+            <div className={`${styles.identityRow} border-line`}>
+              <div className={styles.identityMain}>
+                <div className={styles.badgeRow}>
+                  <span className={`${styles.categoryBadge} bg-brand-soft text-brand`}>{category}</span>
+                  <span className={`${styles.officialBadge} border-line bg-surface-subtle text-body`}><ShieldCheck aria-hidden="true" /> {t.official}</span>
                 </div>
-                <h1 className="mt-4 break-words text-3xl font-black tracking-[-0.035em] text-ink sm:text-5xl">{business.companyName}</h1>
-                {location ? <p className="mt-3 flex items-center gap-2 text-body"><MapPin className="h-4 w-4 text-brand" /> {location}</p> : null}
+                <h1 className={`${styles.profileTitle} text-ink`}>{business.companyName}</h1>
+                {location ? <p className={`${styles.location} text-body`}><MapPin aria-hidden="true" /> {location}</p> : null}
               </div>
               {locale === "sv" && profile.identity.ownershipState !== "claimed" ? (
-                <Link href={`/foretag/claim/${encodeURIComponent(business.slug)}`} className="inline-flex min-h-12 shrink-0 items-center justify-center rounded-control bg-brand px-5 font-black text-white transition hover:bg-brand-strong">
+                <Link href={`/foretag/claim/${encodeURIComponent(business.slug)}`} className={`${styles.claimLink} rounded-control bg-brand text-white`}>
                   {t.claim}<ArrowRight className="ml-2 h-4 w-4" />
                 </Link>
               ) : null}
             </div>
 
-            <div className="grid divide-y divide-line border-b border-line py-2 md:grid-cols-3 md:divide-x md:divide-y-0">
-              <section className="py-5 md:px-5 md:first:pl-0">
-                <Building2 className="h-5 w-5 text-brand" />
-                <p className="mt-3 text-xs font-black uppercase tracking-wide text-muted">{t.industry}</p>
-                <p className="mt-1 font-bold text-ink">{business.primarySniLabel || category}</p>
+            <div className={`${styles.factGrid} border-line`}>
+              <section className={styles.fact}>
+                <Building2 aria-hidden="true" />
+                <p className={styles.factLabel}>{t.industry}</p>
+                <p className={styles.factValue}>{business.primarySniLabel || category}</p>
               </section>
-              <section className="py-5 md:px-5">
-                <BadgeCheck className="h-5 w-5 text-brand" />
-                <p className="mt-3 text-xs font-black uppercase tracking-wide text-muted">{t.status}</p>
-                <p className="mt-1 font-bold text-ink">{business.organizationStatus || t.active}</p>
+              <section className={styles.fact}>
+                <BadgeCheck aria-hidden="true" />
+                <p className={styles.factLabel}>{t.status}</p>
+                <p className={styles.factValue}>{business.organizationStatus || t.active}</p>
               </section>
-              <section className="py-5 md:px-5 md:last:pr-0">
-                <ShieldCheck className="h-5 w-5 text-brand" />
-                <p className="mt-3 text-xs font-black uppercase tracking-wide text-muted">{t.quality}</p>
-                <p className="mt-1 font-bold text-ink">{t.checked}</p>
+              <section className={styles.fact}>
+                <ShieldCheck aria-hidden="true" />
+                <p className={styles.factLabel}>{t.quality}</p>
+                <p className={styles.factValue}>{t.checked}</p>
               </section>
             </div>
 
             {hasReputation && reputation ? (
-              <section className="mt-8 rounded-panel border border-brand/15 bg-brand-soft p-5 sm:p-6">
-                <div className="flex items-center gap-2 text-brand-deep">
-                  <Star className="h-5 w-5 fill-current" />
+              <section className={`${styles.reputation} rounded-panel bg-brand-soft`}>
+                <div className={styles.reputationHeader}>
+                  <Star aria-hidden="true" />
                   <h2 className="text-lg font-black">{locale === "en" ? "Verified Proffera reputation" : "Verifierat rykte på Proffera"}</h2>
                 </div>
-                <p className="mt-2 text-sm leading-6 text-body">
+                <p>
                   {locale === "en"
                     ? "Based only on approved verified reviews and completed work handled through Proffera."
                     : "Bygger endast på godkända verifierade omdömen och slutförda jobb som hanterats via Proffera."}
                 </p>
-                <dl className="mt-5 grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-card border border-brand/10 bg-white p-4">
+                <dl className={styles.reputationGrid}>
+                  <div className={styles.reputationStat}>
                     <dt className="text-xs font-black uppercase tracking-wide text-muted">{locale === "en" ? "Rating" : "Betyg"}</dt>
                     <dd className="mt-1 text-2xl font-black text-brand-deep">{reputation.verifiedReviews > 0 && reputation.rating > 0 ? `${ratingFormatter.format(reputation.rating)} / 5` : "—"}</dd>
                   </div>
@@ -251,22 +253,22 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
             ) : null}
 
             {business.activityDescription ? (
-              <section className="mt-9">
-                <p className="text-xs font-black uppercase tracking-[0.14em] text-brand">{t.about}</p>
-                <p lang="sv" className="mt-3 max-w-3xl whitespace-pre-line text-base leading-8 text-body">{business.activityDescription}</p>
+              <section className={styles.section}>
+                <p className={styles.sectionEyebrow}>{t.about}</p>
+                <p lang="sv" className={styles.aboutText}>{business.activityDescription}</p>
               </section>
             ) : null}
 
-            <section className="mt-10 border-t border-line pt-8">
-              <h2 className="text-xl font-black tracking-tight text-ink">{t.contactTitle}</h2>
-              {hasLockedContact ? <p className="mt-2 text-sm leading-6 text-muted">{t.contactLockedLead}</p> : null}
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <section className={`${styles.section} border-line`}>
+              <h2 className={styles.sectionTitle}>{t.contactTitle}</h2>
+              {hasLockedContact ? <p className={styles.contactLead}>{t.contactLockedLead}</p> : null}
+              <div className={styles.contactGrid}>
                 {contactRows.map((item) => {
                   const Icon = item.icon;
                   return (
-                    <div key={item.key} className="rounded-card border border-line bg-surface-subtle p-4">
-                      <div className="flex items-center gap-2 text-sm font-black text-ink"><Icon className="h-4 w-4 text-brand" /> {item.label}</div>
-                      <div className="mt-2 min-h-6 text-sm font-bold text-body">
+                    <div key={item.key} className={`${styles.contactCard} rounded-card border-line bg-surface-subtle`}>
+                      <div className={styles.contactLabel}><Icon aria-hidden="true" /> {item.label}</div>
+                      <div className={styles.contactValue}>
                         {item.value ? (
                           item.href ? (
                             <a
@@ -290,15 +292,15 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
             </section>
 
             {extras.services.length ? (
-              <section className="mt-10 border-t border-line pt-8">
-                <h2 className="text-xl font-black tracking-tight text-ink">{t.services}</h2>
-                <div className="mt-4 flex flex-wrap gap-2">
+              <section className={`${styles.section} border-line`}>
+                <h2 className={styles.sectionTitle}>{t.services}</h2>
+                <div className={styles.serviceTags}>
                   {extras.services.map((service) => (
-                    <div key={service.slug} className="rounded-control border border-line bg-surface-subtle px-4 py-3">
-                      <p className="font-black text-ink">{directoryServiceLabel(service.slug, service.label, locale)}</p>
-                      <p className="mt-1 text-xs font-bold text-muted">
+                    <div key={service.slug} className={`${styles.serviceTag} rounded-control border-line bg-surface-subtle`}>
+                      <strong>{directoryServiceLabel(service.slug, service.label, locale)}</strong>
+                      <small>
                         {service.sourceType === "sni" ? t.serviceSni : service.confirmed ? t.serviceConfirmed : t.servicePublic}
-                      </p>
+                      </small>
                     </div>
                   ))}
                 </div>
@@ -307,16 +309,16 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
 
             {extras.serviceAreas.length ? (
               <section className="mt-10 border-t border-line pt-8">
-                <h2 className="text-xl font-black tracking-tight text-ink">{t.serviceAreas}</h2>
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <h2 className={styles.sectionTitle}>{t.serviceAreas}</h2>
+                <div className={styles.serviceAreaGrid}>
                   {extras.serviceAreas.map((area, index) => {
                     const areaLabel = area.serviceSlug
                       ? directoryServiceLabel(area.serviceSlug, area.serviceLabel, locale)
                       : t.generalArea;
                     return (
-                      <div key={`${area.serviceSlug || "general"}-${area.radiusKm}-${index}`} className="flex items-center justify-between gap-4 rounded-card border border-line bg-surface-subtle p-4 text-sm">
-                        <p className="font-black text-ink">{areaLabel}</p>
-                        <p className="shrink-0 text-muted">{radiusFormatter.format(area.radiusKm)} km {t.radius}</p>
+                      <div key={`${area.serviceSlug || "general"}-${area.radiusKm}-${index}`} className={`${styles.serviceAreaCard} rounded-card border-line bg-surface-subtle`}>
+                        <strong>{areaLabel}</strong>
+                        <span>{radiusFormatter.format(area.radiusKm)} km {t.radius}</span>
                       </div>
                     );
                   })}
@@ -324,30 +326,30 @@ export async function PublicDirectoryProfile({ slug, locale }: { slug: string; l
               </section>
             ) : null}
 
-            <div className="mt-10 grid gap-4 lg:grid-cols-2">
-              <section className="rounded-panel border border-brand/15 bg-brand-soft p-6">
-                <FileText className="h-6 w-6 text-brand" />
-                <h2 className="mt-4 text-xl font-black text-brand-deep">{t.quoteTitle}</h2>
-                <p className="mt-2 text-sm leading-6 text-body">{t.quoteLead}</p>
-                <p className="mt-2 text-xs font-semibold leading-5 text-muted">{t.quoteDisclosure}</p>
-                <Link href={quoteHref} className="mt-5 inline-flex min-h-11 items-center justify-center gap-2 rounded-control bg-brand px-4 text-sm font-black text-white transition hover:bg-brand-strong">
+            <div className={styles.ctaGrid}>
+              <section className={`${styles.quoteCard} rounded-panel bg-brand-soft`}>
+                <FileText aria-hidden="true" />
+                <h2>{t.quoteTitle}</h2>
+                <p>{t.quoteLead}</p>
+                <p>{t.quoteDisclosure}</p>
+                <Link href={quoteHref} className={`${styles.primaryCta} rounded-control bg-brand text-white`}>
                   {t.quoteCta}<ArrowRight className="h-4 w-4" />
                 </Link>
               </section>
 
-              <section className="rounded-panel bg-brand-deep p-6 text-white">
-                <Search className="h-6 w-6 text-white/80" />
-                <h2 className="mt-4 text-xl font-black">{t.similarTitle}</h2>
-                <p className="mt-2 text-sm leading-6 text-white/70">{t.similarLead}</p>
-                <Link href={similarHref} className="mt-5 inline-flex min-h-11 items-center justify-center gap-2 rounded-control bg-white px-4 text-sm font-black text-brand-deep transition hover:bg-brand-soft">
+              <section className={`${styles.similarCard} rounded-panel bg-brand-deep text-white`}>
+                <Search aria-hidden="true" />
+                <h2>{t.similarTitle}</h2>
+                <p>{t.similarLead}</p>
+                <Link href={similarHref} className={`${styles.inverseCta} rounded-control bg-white px-4 text-sm font-black text-brand-deep`}>
                   {t.similarCta}<ArrowRight className="h-4 w-4" />
                 </Link>
               </section>
             </div>
 
             <section className="mt-10 border-t border-line pt-8">
-              <h2 className="text-base font-black text-ink">{t.details}</h2>
-              <dl className="mt-5 grid gap-x-8 gap-y-5 text-sm sm:grid-cols-2">
+              <h2 className={styles.sectionTitle}>{t.details}</h2>
+              <dl className={styles.detailList}>
                 {business.organizationNumber ? <div className="border-b border-line pb-4"><dt className="text-muted">{t.organizationNumber}</dt><dd className="mt-1 font-bold text-ink">{business.organizationNumber}</dd></div> : null}
                 {business.legalForm ? <div className="border-b border-line pb-4"><dt className="text-muted">{t.legalForm}</dt><dd className="mt-1 font-bold text-ink">{business.legalForm}</dd></div> : null}
                 {business.primarySniCode ? <div className="border-b border-line pb-4"><dt className="text-muted">{t.sniCode}</dt><dd className="mt-1 font-bold text-ink">{business.primarySniCode}{business.primarySniLabel ? ` – ${business.primarySniLabel}` : ""}</dd></div> : null}
