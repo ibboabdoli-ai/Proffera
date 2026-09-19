@@ -91,7 +91,9 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   return (
     <html lang={documentLanguage} className={isCustomerSite ? "primeview-site" : undefined}>
       <body className={`${hankenGrotesk.variable}${isCustomerSite ? " primeview-site" : ""}`}>
-        {isCustomerSite ? <main>{children}</main> : <AppShell>{children}</AppShell>}
+        {isCustomerSite
+          ? <main>{children}</main>
+          : <AppShell localeHint={isEnglishPublicSite ? "en" : undefined}>{children}</AppShell>}
         {!isCustomerSite && <PwaServiceWorker />}
         {!isCustomerSite && <ServiceAiChatWidget />}
         {isPlatformSite && <AnalyticsConsentControl />}
