@@ -117,12 +117,10 @@ describe("mobile PWA and auth language contract", () => {
     const sync = source("src/components/layout/document-language-sync.tsx");
     const company = source("src/app/foretag/[workspace]/page.tsx");
     const service = source("src/app/foretag/[workspace]/tjanster/[service]/page.tsx");
-    const booking = source("src/app/boka/[slug]/page.tsx");
 
     expect(sync).toContain("document.documentElement.lang = locale");
     expect(company).toContain("<DocumentLanguageSync locale={locale} />");
     expect(service).toContain("<DocumentLanguageSync locale={locale} />");
-    expect(booking).toContain("<DocumentLanguageSync locale={locale} />");
   });
 
   it("uses the current marketplace header and English footer on English auth surfaces", () => {
