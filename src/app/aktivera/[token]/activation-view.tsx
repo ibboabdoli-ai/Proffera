@@ -6,7 +6,6 @@ import { useState } from "react";
 
 import authStyles from "@/components/auth/auth-marketplace.module.css";
 import type { AuthLocale } from "@/lib/auth-locale";
-import { PUBLIC_LOCALE_CHANGE_EVENT } from "@/lib/public-locale";
 import { ActivationForm } from "./activation-form";
 
 type ActivationViewProps = {
@@ -122,7 +121,6 @@ export function ActivationView({
     );
     setRedirectQuery(nextRedirectQuery);
     setLocale(nextLocale);
-    window.dispatchEvent(new CustomEvent(PUBLIC_LOCALE_CHANGE_EVENT, { detail: nextLocale }));
   }
 
   if (!invitation) {
