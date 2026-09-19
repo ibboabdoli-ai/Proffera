@@ -46,7 +46,18 @@ describe("company directory high-confidence Ready auto-publish contract", () => 
     expect(resolver).toContain("facts.source_payload_hash <> ''");
     expect(resolver).toContain("facts.deregistration_date is null");
     expect(resolver).toContain("coalesce(facts.advertising_blocked, false) = false");
-    expect(resolver).toContain("jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) = 0");
+    expect(resolver).toContain("jsonb_typeof(facts.ongoing_procedures) = 'array'");
+    expect(resolver).toContain("then jsonb_array_length(facts.ongoing_procedures)");
+    expect(resolver).toContain("company_directory_scb_enrichment scb");
+    expect(resolver).toContain("scb.last_synced_at >= now() - interval '7 days'");
+    expect(resolver).toContain("{comparisonSnapshot,profileUpdatedToken}");
+    expect(resolver).toContain("{comparisonSnapshot,officialFactsLastSyncedToken}");
+    expect(resolver).toContain("jsonb_typeof(scb.conflicts) = 'array'");
+    expect(resolver).toContain("jsonb_array_length(scb.conflicts) = 0");
+    expect(resolver).toContain("jsonb_typeof(scb.workplaces) = 'array'");
+    expect(resolver).toContain("jsonb_array_length(scb.workplaces) = 1");
+    expect(resolver).toContain("PILOT_LOCATION_CSV");
+    expect(resolver).toContain("DIRECTORY_PILOT_LOCATIONS");
   });
 
   it("synchronizes a Ready queue row only after the profile is published", () => {
