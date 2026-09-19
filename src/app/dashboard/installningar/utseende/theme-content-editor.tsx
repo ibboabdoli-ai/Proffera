@@ -62,6 +62,9 @@ export function ThemeContentEditor({ activeThemeKey, overrides, saveAction }: Pr
   ) as Record<BookingThemeKey, Draft>);
   const draft = drafts[themeKey];
   const template = BOOKING_THEME_TEMPLATES[themeKey];
+  // Keep DOM-entered text out of the image sink. The preview uses only the last
+  // server-provided saved value; a newly typed URL becomes previewable after save/reload.
+  const savedPreviewImageUrl = resolveBookingThemeContent(themeKey, "sv", overrides).heroImageUrl || template.heroImageUrl;
 
   const hasOverride = useMemo(() => Boolean(overrides[themeKey] && Object.keys(overrides[themeKey] ?? {}).length), [overrides, themeKey]);
 
@@ -113,10 +116,14 @@ export function ThemeContentEditor({ activeThemeKey, overrides, saveAction }: Pr
         </div>
 
         <div className="grid gap-4 rounded-card border border-line p-4 lg:grid-cols-[1fr_260px] lg:items-end">
-          <label className="grid gap-2 text-sm font-bold">Hero-bild URL<input name="themeHeroImageUrl" value={draft.heroImageUrl} onChange={(event) => change("heroImageUrl", event.target.value)} placeholder={template.heroImageUrl} className="rounded-control border border-line px-4 py-3 font-normal" /></label>
+          <label className="grid gap-2 text-sm font-bold">
+            Hero-bild URL
+            <input name="themeHeroImageUrl" value={draft.heroImageUrl} onChange={(event) => change("heroImageUrl", event.target.value)} placeholder={template.heroImageUrl} className="rounded-control border border-line px-4 py-3 font-normal" />
+            <span className="text-xs font-normal leading-5 text-ink-muted">Förhandsbilden använder senast sparade URL. Spara för att uppdatera bilden.</span>
+          </label>
           <div className="aspect-[16/10] overflow-hidden rounded-control border border-line bg-surface-subtle">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={draft.heroImageUrl || template.heroImageUrl} alt="" className="h-full w-full object-cover" />
+            <img src={savedPreviewImageUrl} alt="" className="h-full w-full object-cover" />
           </div>
         </div>
 

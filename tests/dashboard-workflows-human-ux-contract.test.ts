@@ -139,5 +139,8 @@ describe("dashboard workflow human-designed UX contract", () => {
     expect(bookingBuilder).toContain("bg-brand-deep");
     expect(themeEditor).toContain("data-theme-content-editor");
     expect(themeEditor).toContain("bg-brand-deep");
+    expect(themeEditor).toContain("savedPreviewImageUrl");
+    expect(themeEditor).toContain("src={savedPreviewImageUrl}");
+    expect(themeEditor).not.toContain("src={draft.heroImageUrl || template.heroImageUrl}");
   });
 });
