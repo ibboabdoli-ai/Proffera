@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { type FormEvent, useState } from "react";
 
+import authStyles from "@/components/auth/auth-marketplace.module.css";
 import { authClient } from "@/lib/auth-client";
 
 type PasswordResetLocale = "sv" | "en";
@@ -28,6 +29,22 @@ const copy = {
   },
 } as const;
 
+export function passwordResetRedirectTo(locale: PasswordResetLocale) {
+  return locale === "en" ? "/aterstall-losenord?lang=en" : "/aterstall-losenord";
+}
+
+export async function submitPasswordResetRequest(
+  email: string,
+  locale: PasswordResetLocale,
+  requestPasswordReset: (input: { email: string; redirectTo: string }) => Promise<{ error?: unknown }>,
+) {
+  const result = await requestPasswordReset({
+    email: email.trim().toLowerCase(),
+    redirectTo: passwordResetRedirectTo(locale),
+  });
+  return { ok: !result.error };
+}
+
 export function PasswordResetRequestForm({ locale }: { locale: PasswordResetLocale }) {
   const text = copy[locale];
   const [email, setEmail] = useState("");
@@ -42,15 +59,12 @@ export function PasswordResetRequestForm({ locale }: { locale: PasswordResetLoca
     setIsPending(true);
     setErrorMessage(null);
     try {
-      const normalizedEmail = email.trim().toLowerCase();
-      const redirectTo = locale === "en"
-        ? "/aterstall-losenord?lang=en"
-        : "/aterstall-losenord";
-      const { error } = await authClient.requestPasswordReset({
-        email: normalizedEmail,
-        redirectTo,
-      });
-      if (error) {
+      const result = await submitPasswordResetRequest(
+        email,
+        locale,
+        (input) => authClient.requestPasswordReset(input),
+      );
+      if (!result.ok) {
         setErrorMessage(text.error);
         setIsPending(false);
         return;
@@ -65,11 +79,11 @@ export function PasswordResetRequestForm({ locale }: { locale: PasswordResetLoca
 
   if (submitted) {
     return (
-      <div className="grid gap-5" role="status">
-        <p className="rounded-xl border border-[#b8d9c2] bg-[#eef8f0] px-4 py-4 text-sm leading-6 text-[#17452f]">
+      <div className="grid gap-4" role="status">
+        <p className={authStyles.statusSuccess}>
           {text.success}
         </p>
-        <Link href={locale === "en" ? "/logga-in?lang=en" : "/logga-in"} className="text-sm font-semibold text-[#17452f] underline underline-offset-4">
+        <Link href={locale === "en" ? "/logga-in?lang=en" : "/logga-in"} className={authStyles.secondaryLink}>
           {text.back}
         </Link>
       </div>
@@ -77,9 +91,9 @@ export function PasswordResetRequestForm({ locale }: { locale: PasswordResetLoca
   }
 
   return (
-    <form className="grid gap-5" onSubmit={handleSubmit}>
+    <form className={authStyles.form} onSubmit={handleSubmit}>
       <div>
-        <label htmlFor="reset-email" className="text-sm font-semibold text-[#17201a]">{text.email}</label>
+        <label htmlFor="reset-email" className={authStyles.label}>{text.email}</label>
         <input
           id="reset-email"
           name="email"
@@ -92,14 +106,14 @@ export function PasswordResetRequestForm({ locale }: { locale: PasswordResetLoca
           onChange={(event) => setEmail(event.target.value)}
           disabled={isPending}
           placeholder={text.emailPlaceholder}
-          className="mt-2 w-full rounded-xl border border-[#d7ded5] bg-white px-4 py-3 text-base text-[#17201a] placeholder:text-[#8a958d] focus:border-[#17452f] focus:outline-none focus:ring-2 focus:ring-[#17452f]/20 disabled:opacity-70"
+          className={authStyles.input}
         />
       </div>
-      {errorMessage ? <p className="rounded-xl bg-[#fff4f2] px-4 py-3 text-sm leading-6 text-[#8a2f1f]" role="alert">{errorMessage}</p> : null}
-      <button type="submit" disabled={isPending} className="inline-flex min-h-12 w-full items-center justify-center rounded-xl bg-[#17452f] px-6 py-3 text-base font-semibold text-white hover:bg-[#123824] disabled:cursor-not-allowed disabled:opacity-70">
+      {errorMessage ? <p className={authStyles.statusError} role="alert">{errorMessage}</p> : null}
+      <button type="submit" disabled={isPending} className={authStyles.primaryButton}>
         {isPending ? text.pending : text.submit}
       </button>
-      <Link href={locale === "en" ? "/logga-in?lang=en" : "/logga-in"} className="text-center text-sm font-semibold text-[#17452f] underline underline-offset-4">
+      <Link href={locale === "en" ? "/logga-in?lang=en" : "/logga-in"} className={authStyles.secondaryLink}>
         {text.back}
       </Link>
     </form>

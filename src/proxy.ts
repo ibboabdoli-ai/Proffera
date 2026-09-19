@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { resolveAdminArea } from "./lib/admin-navigation";
-import { isEnglishPublicPath } from "./lib/public-locale";
+import { resolvePublicRequestLocale } from "./lib/public-locale";
 import { resolvePublicCustomDomain } from "./lib/public-site-domain-routing";
 import {
   isPlatformHost,
@@ -127,9 +127,13 @@ function allowAdminWithPath(request: NextRequest, requestId: string) {
 
 function allowPublicPath(request: NextRequest, requestId: string) {
   const requestHeaders = requestHeadersWithRequestId(request, requestId);
-  if (isEnglishPublicPath(request.nextUrl.pathname)) {
-    requestHeaders.set("x-proffera-locale", "en");
-  }
+  requestHeaders.delete("x-proffera-locale");
+
+  const locale = resolvePublicRequestLocale(
+    request.nextUrl.pathname,
+    request.nextUrl.searchParams.get("lang"),
+  );
+  if (locale === "en") requestHeaders.set("x-proffera-locale", "en");
 
   return withResponseRequestId(NextResponse.next({
     request: {

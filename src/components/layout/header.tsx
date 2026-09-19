@@ -11,6 +11,7 @@ import {
   getAlternateLocalePath,
   getLocalizedRoute,
   getPublicNavigation,
+  isAuthSurfacePath,
   localeCopy,
   type PublicLocale,
 } from "@/lib/public-locale";
@@ -40,7 +41,7 @@ export function Header({ locale }: HeaderProps) {
   const copy = localeCopy[locale];
   const marketplaceHome = pathname === "/" || pathname === "/en";
   const marketplaceSearch = pathname === "/foretag/listad" || pathname === "/en/companies";
-  const marketplaceContext = marketplaceHome || marketplaceSearch;
+  const marketplaceContext = marketplaceHome || marketplaceSearch || isAuthSurfacePath(pathname);
   const navigation = marketplaceContext ? marketplaceNavigation[locale] : getPublicNavigation(locale);
   const alternateLocalePath = getAlternateLocalePath(pathname);
   const homeHref = getLocalizedRoute("/", locale);

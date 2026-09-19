@@ -48,13 +48,22 @@ import {
   localizedHref,
   mobileLanguageLinkStyle,
 } from "../src/components/dashboard/dashboard-shell";
+import { AppShell } from "../src/components/layout/app-shell";
 import { Header } from "../src/components/layout/header";
 import {
+  activationDocumentTitle,
   authLocaleHref,
   authRedirectHref,
   authRedirectQuery,
   resolveAuthLocale,
 } from "../src/lib/auth-locale";
+import {
+  isAuthQueryLocalePath,
+  isAuthSurfacePath,
+  isPublicQueryLocalePath,
+  isRouteResolvedPublicLocalePath,
+  resolvePublicRequestLocale,
+} from "../src/lib/public-locale";
 
 function source(path: string) {
   return readFileSync(resolve(process.cwd(), path), "utf8");
@@ -84,6 +93,63 @@ describe("mobile PWA and auth language contract", () => {
 
     expect(publicHeader).toContain("padding-top:calc(0.75rem + env(safe-area-inset-top))");
     expect(dashboard).toContain("padding-top:calc(0.75rem + env(safe-area-inset-top))");
+  });
+
+  it("keeps tenant-resolved routes out of raw query locale inference", () => {
+    expect(isAuthQueryLocalePath("/logga-in")).toBe(true);
+    expect(isAuthQueryLocalePath("/aktivera/token-123")).toBe(true);
+    expect(isAuthSurfacePath("/en/create-account")).toBe(true);
+    expect(isRouteResolvedPublicLocalePath("/foretag/acme-ab")).toBe(true);
+    expect(isRouteResolvedPublicLocalePath("/foretag/acme-ab/tjanster/fonsterputs")).toBe(true);
+    expect(isRouteResolvedPublicLocalePath("/boka/acme-ab")).toBe(true);
+    expect(isRouteResolvedPublicLocalePath("/foretag/listad")).toBe(false);
+    expect(isPublicQueryLocalePath("/offert/token-123")).toBe(true);
+    expect(resolvePublicRequestLocale("/logga-in", "en")).toBe("en");
+    expect(resolvePublicRequestLocale("/logga-in", "sv")).toBe("sv");
+    expect(resolvePublicRequestLocale("/foretag/acme-ab", "en")).toBe("sv");
+    expect(resolvePublicRequestLocale("/boka/acme-ab", "en")).toBe("sv");
+    expect(resolvePublicRequestLocale("/offert/token-123", "en")).toBe("en");
+    expect(resolvePublicRequestLocale("/en/demo", null)).toBe("en");
+    expect(resolvePublicRequestLocale("/demo", "en")).toBe("sv");
+  });
+
+  it("syncs document language from the resolved workspace locale", () => {
+    const sync = source("src/components/layout/document-language-sync.tsx");
+    const company = source("src/app/foretag/[workspace]/page.tsx");
+    const service = source("src/app/foretag/[workspace]/tjanster/[service]/page.tsx");
+
+    expect(sync).toContain("document.documentElement.lang = locale");
+    expect(company).toContain("<DocumentLanguageSync locale={locale} />");
+    expect(service).toContain("<DocumentLanguageSync locale={locale} />");
+  });
+
+  it("uses the current marketplace header and English footer on English auth surfaces", () => {
+    navigationState.pathname = "/logga-in";
+    navigationState.search = "lang=en";
+
+    const AuthShell = AppShell as React.ComponentType<{ children?: ReactNode }>;
+    const shell = renderToStaticMarkup(React.createElement(
+      AuthShell,
+      null,
+      React.createElement("div", null, "Auth content"),
+    ));
+
+    expect(shell).toContain("Find businesses");
+    expect(shell).toContain("Popular services");
+    expect(shell).toContain("For businesses");
+    expect(shell).toContain("All rights reserved.");
+    expect(shell).not.toContain(">Features<");
+    expect(shell).not.toContain(">Funktioner<");
+
+    navigationState.search = "";
+    const swedishShell = renderToStaticMarkup(React.createElement(
+      AuthShell,
+      null,
+      React.createElement("div", null, "Auth content"),
+    ));
+    expect(swedishShell).toContain("Hitta företag");
+    expect(swedishShell).toContain("För företag");
+    expect(swedishShell).toContain("Alla rättigheter förbehållna.");
   });
 
   it("preserves unrelated auth query params while changing only locale", () => {
@@ -131,6 +197,17 @@ describe("mobile PWA and auth language contract", () => {
     expect(successUrl.searchParams.get("campaign")).toBe("launch");
     expect(successUrl.searchParams.get("created")).toBe("1");
     expect(successUrl.searchParams.has("error")).toBe(false);
+  });
+
+  it("keeps activation browser titles localized without duplicating the brand suffix", () => {
+    expect(activationDocumentTitle("sv")).toBe("Aktivera arbetsyta | Proffera");
+    expect(activationDocumentTitle("en")).toBe("Activate workspace | Proffera");
+    expect(source("src/app/aktivera/[token]/page.tsx")).toContain(
+      "title: { absolute: activationDocumentTitle(locale) }",
+    );
+    expect(source("src/app/aktivera/[token]/activation-view.tsx")).toContain(
+      "document.title = activationDocumentTitle(nextLocale)",
+    );
   });
 
   it("removes stale activation errors while changing locale and keeps password inputs uncontrolled", () => {
