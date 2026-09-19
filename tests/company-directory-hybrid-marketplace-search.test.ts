@@ -88,7 +88,12 @@ describe("hybrid directory marketplace search", () => {
     expect(searchSource).toContain("claimed_workspace.status in ('active', 'trial')");
     expect(searchSource).toContain("claimed_facts.last_synced_at >= profile.last_synced_at");
     expect(searchSource).toContain("claimed_scb.last_synced_at >= now() - interval '7 days'");
-    expect(searchSource).toContain("comparisonSnapshot,profileUpdatedToken");
+    expect(searchSource).toContain("claimed_scb.last_synced_at >= profile.last_synced_at");
+    expect(searchSource).not.toContain("claimed_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text");
+    expect(searchSource).toContain("profile.organization_kind = 'sole_trader'");
+    expect(searchSource).toContain("owner_claim.verification_method = 'manual_review'");
+    expect(searchSource).toContain("owner_base.purpose = 'service_base'");
+    expect(searchSource).toContain("owner_base.geocode_source = 'lantmateriet_belagenhetsadress_v4_2'");
     expect(searchSource).toContain("claimed_facts.deregistration_date is null");
     expect(searchSource).toContain("coalesce(claimed_facts.advertising_blocked, false) = false");
     expect(searchSource).toContain("jsonb_typeof(claimed_facts.ongoing_procedures) = 'array'");
@@ -104,7 +109,12 @@ describe("hybrid directory marketplace search", () => {
     expect(publicDataSource).toContain("profile.privacy_blocked = false");
     expect(publicDataSource).toContain("claimed_facts.last_synced_at >= profile.last_synced_at");
     expect(publicDataSource).toContain("claimed_scb.last_synced_at >= now() - interval '7 days'");
-    expect(publicDataSource).toContain("comparisonSnapshot,profileUpdatedToken");
+    expect(publicDataSource).toContain("claimed_scb.last_synced_at >= profile.last_synced_at");
+    expect(publicDataSource).not.toContain("claimed_scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text");
+    expect(publicDataSource).toContain("profile.organization_kind = 'sole_trader'");
+    expect(publicDataSource).toContain("owner_claim.verification_method = 'manual_review'");
+    expect(publicDataSource).toContain("owner_base.purpose = 'service_base'");
+    expect(publicDataSource).toContain("owner_base.geocode_source = 'lantmateriet_belagenhetsadress_v4_2'");
     expect(publicDataSource).toContain("claimed_facts.deregistration_date is null");
     expect(publicDataSource).toContain("coalesce(claimed_facts.advertising_blocked, false) = false");
     expect(publicDataSource).toContain("jsonb_typeof(claimed_facts.ongoing_procedures) = 'array'");
