@@ -8,6 +8,134 @@ const LEGACY_MIGRATIONS_DIR = join(process.cwd(), "db/legacy-migrations");
 const VERIFIED_REVIEW_PREREQUISITES_BEFORE = "20260807_0032_website_review_responses.sql";
 const EXTERNAL_BOOTSTRAP_BEFORE = "20260809_0036_public_business_hub.sql";
 
+const NON_TRANSACTIONAL_MIGRATIONS = new Set([
+  "20260821_0053_marketplace_guest_recipient_index.sql",
+  "20260822_0062_marketplace_single_winner_index.sql",
+  "20260823_0065_workspace_service_directory_identity.sql",
+]);
+
+function splitSqlStatements(sql: string) {
+  const statements: string[] = [];
+  let current = "";
+  let index = 0;
+  let singleQuoted = false;
+  let doubleQuoted = false;
+  let lineComment = false;
+  let blockComment = false;
+  let dollarTag: string | null = null;
+
+  while (index < sql.length) {
+    const char = sql[index] ?? "";
+    const next = sql[index + 1] ?? "";
+
+    if (lineComment) {
+      current += char;
+      if (char === "\n") lineComment = false;
+      index += 1;
+      continue;
+    }
+
+    if (blockComment) {
+      current += char;
+      if (char === "*" && next === "/") {
+        current += next;
+        blockComment = false;
+        index += 2;
+      } else {
+        index += 1;
+      }
+      continue;
+    }
+
+    if (dollarTag) {
+      if (sql.startsWith(dollarTag, index)) {
+        current += dollarTag;
+        index += dollarTag.length;
+        dollarTag = null;
+      } else {
+        current += char;
+        index += 1;
+      }
+      continue;
+    }
+
+    if (singleQuoted) {
+      current += char;
+      if (char === "'" && next === "'") {
+        current += next;
+        index += 2;
+      } else {
+        if (char === "'") singleQuoted = false;
+        index += 1;
+      }
+      continue;
+    }
+
+    if (doubleQuoted) {
+      current += char;
+      if (char === '"' && next === '"') {
+        current += next;
+        index += 2;
+      } else {
+        if (char === '"') doubleQuoted = false;
+        index += 1;
+      }
+      continue;
+    }
+
+    if (char === "-" && next === "-") {
+      current += char + next;
+      lineComment = true;
+      index += 2;
+      continue;
+    }
+
+    if (char === "/" && next === "*") {
+      current += char + next;
+      blockComment = true;
+      index += 2;
+      continue;
+    }
+
+    if (char === "'") {
+      current += char;
+      singleQuoted = true;
+      index += 1;
+      continue;
+    }
+
+    if (char === '"') {
+      current += char;
+      doubleQuoted = true;
+      index += 1;
+      continue;
+    }
+
+    if (char === "$") {
+      const match = sql.slice(index).match(/^\$[A-Za-z_][A-Za-z0-9_]*\$|^\$\$/u);
+      if (match?.[0]) {
+        dollarTag = match[0];
+        current += dollarTag;
+        index += dollarTag.length;
+        continue;
+      }
+    }
+
+    if (char === ";") {
+      if (current.trim()) statements.push(current.trim());
+      current = "";
+      index += 1;
+      continue;
+    }
+
+    current += char;
+    index += 1;
+  }
+
+  if (current.trim()) statements.push(current.trim());
+  return statements;
+}
+
 async function createHistoricalBootstrapPrerequisites(client: Client) {
   await client.query("create extension if not exists pgcrypto");
   const ownerRole = await client.query("select 1 from pg_roles where rolname = 'neondb_owner'");
@@ -90,7 +218,13 @@ export async function applyCanonicalProfferaMigrations(client: Client) {
 
     const migration = readFileSync(join(MIGRATIONS_DIR, file), "utf8");
     try {
-      await client.query(migration);
+      if (NON_TRANSACTIONAL_MIGRATIONS.has(file)) {
+        for (const statement of splitSqlStatements(migration)) {
+          await client.query(statement);
+        }
+      } else {
+        await client.query(migration);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Canonical migration ${file} failed: ${message}`, { cause: error });
