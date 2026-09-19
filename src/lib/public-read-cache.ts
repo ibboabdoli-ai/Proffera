@@ -3,8 +3,11 @@ import "server-only";
 import { revalidateTag, unstable_cache } from "next/cache";
 
 import { searchPublishedBusinessProfiles } from "@/lib/business-profile-search";
+import { PUBLIC_DIRECTORY_LOCATION_SUGGESTIONS_CACHE_TAG } from "@/lib/company-directory-public-cache";
 import { getPublishedDirectoryLocationSuggestions } from "@/lib/company-directory-public-search";
 import { listPublicBusinessSitemapEntries } from "@/lib/public-business-seo";
+
+export { PUBLIC_DIRECTORY_LOCATION_SUGGESTIONS_CACHE_TAG };
 
 // Location suggestions are public, low-volatility labels. Keep them warm for a
 // day so bare Directory landing requests do not periodically wake Neon. Actual
@@ -17,7 +20,10 @@ const PUBLIC_BUSINESS_SITEMAP_REVALIDATE_SECONDS = 30 * 60;
 const readCachedPublishedDirectoryLocationSuggestions = unstable_cache(
   async (limit: number) => getPublishedDirectoryLocationSuggestions(limit),
   ["public-directory-location-suggestions-v3"],
-  { revalidate: LOCATION_SUGGESTIONS_REVALIDATE_SECONDS },
+  {
+    revalidate: LOCATION_SUGGESTIONS_REVALIDATE_SECONDS,
+    tags: [PUBLIC_DIRECTORY_LOCATION_SUGGESTIONS_CACHE_TAG],
+  },
 );
 
 const readCachedMarketplaceHomeCompanies = unstable_cache(
