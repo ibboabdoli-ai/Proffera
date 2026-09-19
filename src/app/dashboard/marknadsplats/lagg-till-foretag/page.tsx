@@ -2,6 +2,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft, Building2, Search, ShieldCheck } from "lucide-react";
 
+import { DashboardPageHeader } from "@/components/dashboard/dashboard-page-ui";
+
 import { onboardOwnerCompanyByOrganizationNumber } from "@/lib/company-directory-owner-onboarding";
 import {
   ownerOnboardingErrorRedirect,
@@ -140,18 +142,19 @@ export default async function AddMarketplaceCompanyPage({
     <div className="grid gap-6">
       <Link
         href={locale === "en" ? "/dashboard/marknadsplats?lang=en" : "/dashboard/marknadsplats"}
-        className="inline-flex w-fit min-h-11 items-center gap-2 rounded-xl px-3 text-sm font-black text-[#17452f] hover:bg-[#edf4ef]"
+        className="inline-flex w-fit min-h-11 items-center gap-2 rounded-control px-3 text-sm font-bold text-brand-deep hover:bg-surface-subtle"
       >
         <ArrowLeft className="h-4 w-4" /> {t.back}
       </Link>
 
-      <header className="rounded-[28px] bg-[#173e2b] p-7 text-white">
-        <p className="text-xs font-black uppercase tracking-[0.18em] text-white/65">{t.eyebrow}</p>
-        <h1 className="mt-2 text-3xl font-black">{t.title}</h1>
-        <p className="mt-3 max-w-3xl text-sm leading-7 text-white/80">{t.lead}</p>
-      </header>
+      <DashboardPageHeader
+        eyebrow={t.eyebrow}
+        title={t.title}
+        description={t.lead}
+        icon={Building2}
+      />
 
-      <section className="flex gap-3 rounded-2xl border border-[#e7d29c] bg-[#fff9e9] p-5 text-[#76580d]">
+      <section className="flex gap-3 rounded-card border border-[#efd58d] bg-[#fff7df] p-5 text-[#805d14]">
         <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0" />
         <div>
           <p className="font-black">{t.soleTraderInfoTitle}</p>
@@ -164,10 +167,10 @@ export default async function AddMarketplaceCompanyPage({
           role="status"
           className={`rounded-2xl border p-5 ${
             message.tone === "green"
-              ? "border-[#c9e6d0] bg-[#eef8f0] text-[#17452f]"
+              ? "border-[#cfe8d6] bg-[#eaf8f2] text-[#087754]"
               : message.tone === "red"
-                ? "border-[#e7c8bf] bg-[#fff5f2] text-[#8f2f1b]"
-                : "border-[#e7d29c] bg-[#fff9e9] text-[#76580d]"
+                ? "border-[#f4c7ba] bg-[#fff5f2] text-danger"
+                : "border-[#efd58d] bg-[#fff7df] text-[#805d14]"
           }`}
         >
           <p className="font-black">{message.title}</p>
@@ -175,12 +178,12 @@ export default async function AddMarketplaceCompanyPage({
         </section>
       ) : null}
 
-      <section className="rounded-[24px] border border-[#dfe6df] bg-white p-6">
+      <section className="rounded-card border border-line bg-surface p-5 shadow-card sm:p-6">
         <div className="flex items-start gap-3">
-          <Building2 className="mt-1 h-6 w-6 text-[#17452f]" />
+          <Building2 className="mt-1 h-6 w-6 text-brand" />
           <div>
-            <h2 className="text-xl font-black text-[#17201a]">{t.organizationNumber}</h2>
-            <p className="mt-2 text-sm leading-6 text-[#667168]">
+            <h2 className="text-xl font-black text-ink">{t.organizationNumber}</h2>
+            <p className="mt-2 text-sm leading-6 text-ink-muted">
               {locale === "en"
                 ? "Exact identity only. Proffera does not fuzzy-match company names."
                 : "Endast exakt identitet. Proffera gissar aldrig företag utifrån ungefärliga namn."}
@@ -190,7 +193,7 @@ export default async function AddMarketplaceCompanyPage({
 
         <form action={addCompanyAction} className="mt-5 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
           <input type="hidden" name="lang" value={locale} />
-          <label className="grid gap-2 text-sm font-bold text-[#334139]">
+          <label className="grid gap-2 text-sm font-bold text-ink">
             {t.organizationNumber}
             <input
               name="organizationNumber"
@@ -198,20 +201,20 @@ export default async function AddMarketplaceCompanyPage({
               inputMode="numeric"
               autoComplete="off"
               placeholder={t.placeholder}
-              className="min-h-12 rounded-xl border border-[#cad8ce] bg-white px-4 text-base outline-none focus:ring-2 focus:ring-[#17452f]/20"
+              className="min-h-12 rounded-control border border-line bg-surface px-4 text-base outline-none focus:ring-2 focus:ring-brand/15"
             />
           </label>
           <button
             type="submit"
-            className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-[#173e2b] px-6 text-sm font-black text-white"
+            className="inline-flex min-h-12 items-center justify-center gap-2 rounded-control bg-brand-deep px-6 text-sm font-black text-white"
           >
             <Search className="h-4 w-4" /> {t.submit}
           </button>
         </form>
       </section>
 
-      <section className="flex gap-3 rounded-2xl border border-[#d6e2d8] bg-[#f1f7f2] p-5 text-sm leading-6 text-[#465349]">
-        <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-[#17452f]" />
+      <section className="flex gap-3 rounded-card border border-line bg-[#f3f8ff] p-5 text-sm leading-6 text-ink-muted">
+        <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-brand" />
         <p>{t.safety}</p>
       </section>
     </div>

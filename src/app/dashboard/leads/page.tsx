@@ -13,7 +13,7 @@ type LeadStatus = DashboardLead["status"];
 type DashboardLocale = "sv" | "en";
 
 const statusStyles: Record<LeadStatus, string> = {
-  Ny: "bg-brand-soft text-brand",
+  Ny: "bg-[#eaf8f2] text-[#087754]",
 };
 
 const copy = {

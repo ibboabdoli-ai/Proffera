@@ -160,24 +160,24 @@ export function BookingPageBuilder({
       {englishEnabled ? <input type="hidden" name="englishEnabled" value="on" /> : null}
       {sections.map(({ key }) => sectionState[key] ? <input key={key} type="hidden" name={key} value="on" /> : null)}
 
-      <div className="flex flex-col gap-3 rounded-[24px] border border-[#dfe6df] bg-white p-3 shadow-sm xl:flex-row xl:items-center xl:justify-between">
+      <div className="flex flex-col gap-3 rounded-card border border-line bg-surface p-3 shadow-card xl:flex-row xl:items-center xl:justify-between">
         <div className="flex flex-wrap gap-2" aria-label="Builder tabs">
           {([
             ["design", "Design"],
             ["content", "Innehåll"],
             ["domain", "Domän"],
           ] as const).map(([key, label]) => (
-            <button key={key} type="button" onClick={() => setTab(key)} className={`rounded-xl px-4 py-2.5 text-sm font-black ${tab === key ? "bg-[#173e2b] text-white" : "text-[#445149] hover:bg-[#f2f5f1]"}`}>{label}</button>
+            <button key={key} type="button" aria-pressed={tab === key} onClick={() => setTab(key)} className={`rounded-control px-4 py-2.5 text-sm font-bold ${tab === key ? "bg-brand-deep text-white" : "text-brand-deep hover:bg-surface-subtle"}`}>{label}</button>
           ))}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex rounded-xl bg-[#f2f5f1] p-1" aria-label="Preview size">
+          <div className="flex rounded-control bg-surface-subtle p-1" aria-label="Preview size">
             {(["desktop", "tablet", "mobile"] as const).map((value) => (
-              <button key={value} type="button" onClick={() => setDevice(value)} className={`rounded-lg px-3 py-2 text-xs font-bold capitalize ${device === value ? "bg-white text-[#173e2b] shadow-sm" : "text-[#68736b]"}`}>{value}</button>
+              <button key={value} type="button" aria-pressed={device === value} onClick={() => setDevice(value)} className={`rounded-control px-3 py-2 text-xs font-bold capitalize ${device === value ? "bg-surface text-brand-deep shadow-card" : "text-ink-muted"}`}>{value}</button>
             ))}
           </div>
-          {publicBookingUrl ? <a href={publicBookingUrl} target="_blank" rel="noreferrer" className="rounded-xl border border-[#cbd7cc] bg-white px-4 py-2.5 text-sm font-bold text-[#17452f]">Öppna bokningssidan</a> : null}
-          <button className="rounded-xl bg-[#173e2b] px-5 py-2.5 text-sm font-black text-white shadow-sm">Spara & publicera</button>
+          {publicBookingUrl ? <a href={publicBookingUrl} target="_blank" rel="noreferrer" className="rounded-control border border-line bg-surface px-4 py-2.5 text-sm font-bold text-brand-deep">Öppna bokningssidan</a> : null}
+          <button className="rounded-control bg-brand-deep px-5 py-2.5 text-sm font-bold text-white shadow-card">Spara & publicera</button>
         </div>
       </div>
 
@@ -185,26 +185,26 @@ export function BookingPageBuilder({
         <aside className="grid content-start gap-4">
           {tab === "design" ? (
             <>
-              <section className="rounded-[24px] border border-[#dfe6df] bg-white p-5">
-                <p className="text-xs font-black uppercase tracking-[0.14em] text-[#68736b]">Startmall</p>
-                <h2 className="mt-2 text-lg font-black text-[#17201a]">Välj känsla</h2>
-                <p className="mt-1 text-xs leading-5 text-[#667168]">Mallen är en central startpunkt med färdiga texter, bild och branschanpassat innehåll. Dina ändringar sparas separat.</p>
+              <section className="rounded-card border border-line bg-surface p-5 shadow-card">
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-ink-muted">Startmall</p>
+                <h2 className="mt-2 text-lg font-black text-[#11213b]">Välj känsla</h2>
+                <p className="mt-1 text-xs leading-5 text-[#617085]">Mallen är en central startpunkt med färdiga texter, bild och branschanpassat innehåll. Dina ändringar sparas separat.</p>
                 <div className="mt-4 grid gap-2">
                   {templates.map((template) => (
-                    <button key={template.key} type="button" onClick={() => applyTemplate(template)} className={`flex items-center gap-3 rounded-2xl border p-3 text-left ${themeKey === template.key ? "border-[#17452f] bg-[#f0f6f2] ring-1 ring-[#17452f]" : "border-[#e0e5dd] hover:bg-[#f8faf7]"}`}>
+                    <button key={template.key} type="button" onClick={() => applyTemplate(template)} className={`flex items-center gap-3 rounded-2xl border p-3 text-left ${themeKey === template.key ? "border-[#1469d8] bg-[#eef5ff] ring-1 ring-[#1469d8]" : "border-[#dce4ee] hover:bg-[#f8fafc]"}`}>
                       <span className="h-9 w-9 rounded-xl border border-black/10" style={{ background: `linear-gradient(135deg, ${template.primaryColor} 0 64%, ${template.accentColor} 64%)` }} />
-                      <span><span className="block text-sm font-black text-[#17201a]">{template.name}</span><span className="block text-xs text-[#68736b]">{template.description}</span></span>
+                      <span><span className="block text-sm font-black text-[#11213b]">{template.name}</span><span className="block text-xs text-[#617085]">{template.description}</span></span>
                     </button>
                   ))}
                 </div>
               </section>
 
-              <section className="rounded-[24px] border border-[#dfe6df] bg-white p-5">
-                <h2 className="text-lg font-black text-[#17201a]">Varumärke</h2>
+              <section className="rounded-card border border-line bg-surface p-5 shadow-card">
+                <h2 className="text-lg font-black text-[#11213b]">Varumärke</h2>
                 <div className="mt-4 grid gap-4">
-                  <label className="grid gap-2 text-sm font-bold text-[#263129]">Primär färg<input type="color" value={primaryColor} onChange={(event) => setPrimaryColor(event.target.value)} className="h-12 w-full rounded-xl border border-[#d7dfd7] p-1" /></label>
-                  <label className="grid gap-2 text-sm font-bold text-[#263129]">Accentfärg<input type="color" value={accentColor} onChange={(event) => setAccentColor(event.target.value)} className="h-12 w-full rounded-xl border border-[#d7dfd7] p-1" /></label>
-                  <label className="grid gap-2 text-sm font-bold text-[#263129]">Läge<select value={resolvedAppearance} disabled={fixedAppearance} onChange={(event) => setAppearance(event.target.value === "dark" ? "dark" : "light")} className="rounded-xl border border-[#d7dfd7] px-4 py-3 font-normal disabled:cursor-not-allowed disabled:bg-[#f2f4f1] disabled:text-[#667168]"><option value="light">Ljust</option><option value="dark">Mörkt</option></select>{fixedAppearance ? <span className="text-xs font-normal leading-5 text-[#68736b]">Det här temat använder ett fast läge för att behålla rätt kontrast och design.</span> : null}</label>
+                  <label className="grid gap-2 text-sm font-bold text-[#40536c]">Primär färg<input type="color" value={primaryColor} onChange={(event) => setPrimaryColor(event.target.value)} className="h-12 w-full rounded-xl border border-[#dce4ee] p-1" /></label>
+                  <label className="grid gap-2 text-sm font-bold text-[#40536c]">Accentfärg<input type="color" value={accentColor} onChange={(event) => setAccentColor(event.target.value)} className="h-12 w-full rounded-xl border border-[#dce4ee] p-1" /></label>
+                  <label className="grid gap-2 text-sm font-bold text-[#40536c]">Läge<select value={resolvedAppearance} disabled={fixedAppearance} onChange={(event) => setAppearance(event.target.value === "dark" ? "dark" : "light")} className="rounded-xl border border-[#dce4ee] px-4 py-3 font-normal disabled:cursor-not-allowed disabled:bg-[#f2f4f1] disabled:text-[#617085]"><option value="light">Ljust</option><option value="dark">Mörkt</option></select>{fixedAppearance ? <span className="text-xs font-normal leading-5 text-[#617085]">Det här temat använder ett fast läge för att behålla rätt kontrast och design.</span> : null}</label>
                 </div>
               </section>
             </>
@@ -212,53 +212,53 @@ export function BookingPageBuilder({
 
           {tab === "content" ? (
             <>
-              <section className="rounded-[24px] border border-[#dfe6df] bg-white p-5">
-                <p className="text-xs font-black uppercase tracking-[0.14em] text-[#68736b]">Sektioner</p><h2 className="mt-2 text-lg font-black text-[#17201a]">Vad ska visas?</h2>
-                <div className="mt-4 grid gap-2">{sections.map(({ key, label, helper }) => <label key={key} className="flex cursor-pointer items-start justify-between gap-3 rounded-2xl border border-[#e0e5dd] p-3 hover:bg-[#f8faf7]"><span><span className="block text-sm font-black text-[#17201a]">{label}</span><span className="mt-0.5 block text-xs leading-4 text-[#68736b]">{helper}</span></span><input type="checkbox" checked={sectionState[key]} onChange={(event) => setSection(key, event.target.checked)} className="mt-1 h-5 w-5 accent-[#17452f]" /></label>)}</div>
+              <section className="rounded-card border border-line bg-surface p-5 shadow-card">
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-ink-muted">Sektioner</p><h2 className="mt-2 text-lg font-black text-[#11213b]">Vad ska visas?</h2>
+                <div className="mt-4 grid gap-2">{sections.map(({ key, label, helper }) => <label key={key} className="flex cursor-pointer items-start justify-between gap-3 rounded-2xl border border-[#dce4ee] p-3 hover:bg-[#f8fafc]"><span><span className="block text-sm font-black text-[#11213b]">{label}</span><span className="mt-0.5 block text-xs leading-4 text-[#617085]">{helper}</span></span><input type="checkbox" checked={sectionState[key]} onChange={(event) => setSection(key, event.target.checked)} className="mt-1 h-5 w-5 accent-[#1469d8]" /></label>)}</div>
               </section>
 
-              <section className="rounded-[24px] border border-[#dfe6df] bg-white p-5">
-                <h2 className="text-lg font-black text-[#17201a]">Språk</h2>
+              <section className="rounded-card border border-line bg-surface p-5 shadow-card">
+                <h2 className="text-lg font-black text-[#11213b]">Språk</h2>
                 <div className="mt-4 grid gap-3">
-                  <label className="flex items-center justify-between rounded-xl border border-[#e0e5dd] p-3 text-sm font-bold"><span>Svenska</span><input type="checkbox" checked={swedishEnabled} onChange={(event) => setSwedishEnabled(event.target.checked)} className="h-5 w-5 accent-[#17452f]" /></label>
-                  <label className="flex items-center justify-between rounded-xl border border-[#e0e5dd] p-3 text-sm font-bold"><span>English</span><input type="checkbox" checked={englishEnabled} onChange={(event) => setEnglishEnabled(event.target.checked)} className="h-5 w-5 accent-[#17452f]" /></label>
-                  <label className="grid gap-2 text-sm font-bold">Standardspråk<select value={defaultLanguage} onChange={(event) => setDefaultLanguage(event.target.value === "en" ? "en" : "sv")} className="rounded-xl border border-[#d7dfd7] px-4 py-3 font-normal"><option value="sv" disabled={!swedishEnabled}>Svenska</option><option value="en" disabled={!englishEnabled}>English</option></select></label>
+                  <label className="flex items-center justify-between rounded-xl border border-[#dce4ee] p-3 text-sm font-bold"><span>Svenska</span><input type="checkbox" checked={swedishEnabled} onChange={(event) => setSwedishEnabled(event.target.checked)} className="h-5 w-5 accent-[#1469d8]" /></label>
+                  <label className="flex items-center justify-between rounded-xl border border-[#dce4ee] p-3 text-sm font-bold"><span>English</span><input type="checkbox" checked={englishEnabled} onChange={(event) => setEnglishEnabled(event.target.checked)} className="h-5 w-5 accent-[#1469d8]" /></label>
+                  <label className="grid gap-2 text-sm font-bold">Standardspråk<select value={defaultLanguage} onChange={(event) => setDefaultLanguage(event.target.value === "en" ? "en" : "sv")} className="rounded-xl border border-[#dce4ee] px-4 py-3 font-normal"><option value="sv" disabled={!swedishEnabled}>Svenska</option><option value="en" disabled={!englishEnabled}>English</option></select></label>
                   {!swedishEnabled && !englishEnabled ? <p className="rounded-xl bg-[#fff3ef] p-3 text-xs font-bold text-[#8f2f1b]">Minst ett språk måste vara aktivt innan du sparar.</p> : null}
                 </div>
               </section>
 
-              <section className="rounded-[24px] border border-[#dfe6df] bg-white p-5">
-                <h2 className="text-lg font-black text-[#17201a]">Media</h2>
+              <section className="rounded-card border border-line bg-surface p-5 shadow-card">
+                <h2 className="text-lg font-black text-[#11213b]">Media</h2>
                 <div className="mt-4 grid gap-3">
-                  <label className="grid gap-2 text-sm font-bold">Logotyp URL<input name="logoUrl" defaultValue={settings.logoUrl} placeholder="https://..." className="rounded-xl border border-[#d7dfd7] px-4 py-3 font-normal" /></label>
-                  <label className="grid gap-2 text-sm font-bold">Workspace Hero-bild URL<input name="heroImageUrl" defaultValue={settings.heroImageUrl} placeholder="Valfritt: ersätter temats standardbild" className="rounded-xl border border-[#d7dfd7] px-4 py-3 font-normal" /></label>
-                  <label className="grid gap-2 text-sm font-bold">Hero-video URL<input name="heroVideoUrl" defaultValue={settings.heroVideoUrl} placeholder="https://..." className="rounded-xl border border-[#d7dfd7] px-4 py-3 font-normal" /></label>
+                  <label className="grid gap-2 text-sm font-bold">Logotyp URL<input name="logoUrl" defaultValue={settings.logoUrl} placeholder="https://..." className="rounded-xl border border-[#dce4ee] px-4 py-3 font-normal" /></label>
+                  <label className="grid gap-2 text-sm font-bold">Workspace Hero-bild URL<input name="heroImageUrl" defaultValue={settings.heroImageUrl} placeholder="Valfritt: ersätter temats standardbild" className="rounded-xl border border-[#dce4ee] px-4 py-3 font-normal" /></label>
+                  <label className="grid gap-2 text-sm font-bold">Hero-video URL<input name="heroVideoUrl" defaultValue={settings.heroVideoUrl} placeholder="https://..." className="rounded-xl border border-[#dce4ee] px-4 py-3 font-normal" /></label>
                 </div>
               </section>
             </>
           ) : null}
 
           {tab === "domain" ? (
-            <section className="rounded-[24px] border border-[#dfe6df] bg-white p-5">
-              <p className="text-xs font-black uppercase tracking-[0.14em] text-[#68736b]">Publicering</p><h2 className="mt-2 text-lg font-black text-[#17201a]">Domän & adress</h2>
-              <div className="mt-4 rounded-2xl bg-[#f4f7f3] p-4"><p className="text-xs font-bold text-[#68736b]">Din Proffera-adress</p><p className="mt-1 break-all text-sm font-black text-[#17452f]">{publicLabel}</p>{publicBookingUrl ? <a href={publicBookingUrl} target="_blank" rel="noreferrer" className="mt-3 inline-flex text-xs font-black text-[#17452f] underline underline-offset-4">Öppna adressen</a> : null}</div>
-              <label className="mt-4 grid gap-2 text-sm font-bold">Egen domän<input name="customDomain" defaultValue={settings.customDomain} placeholder="booking.foretagen.se" disabled={!customDomainEnabled} className="rounded-xl border border-[#d7dfd7] px-4 py-3 font-normal disabled:cursor-not-allowed disabled:bg-[#f2f4f1] disabled:text-[#7a857d]" /></label>
+            <section className="rounded-card border border-line bg-surface p-5 shadow-card">
+              <p className="text-xs font-bold uppercase tracking-[0.14em] text-ink-muted">Publicering</p><h2 className="mt-2 text-lg font-black text-[#11213b]">Domän & adress</h2>
+              <div className="mt-4 rounded-2xl bg-[#f6f9fd] p-4"><p className="text-xs font-bold text-[#617085]">Din Proffera-adress</p><p className="mt-1 break-all text-sm font-black text-[#1469d8]">{publicLabel}</p>{publicBookingUrl ? <a href={publicBookingUrl} target="_blank" rel="noreferrer" className="mt-3 inline-flex text-xs font-black text-[#1469d8] underline underline-offset-4">Öppna adressen</a> : null}</div>
+              <label className="mt-4 grid gap-2 text-sm font-bold">Egen domän<input name="customDomain" defaultValue={settings.customDomain} placeholder="booking.foretagen.se" disabled={!customDomainEnabled} className="rounded-xl border border-[#dce4ee] px-4 py-3 font-normal disabled:cursor-not-allowed disabled:bg-[#f2f4f1] disabled:text-[#7c8ca1]" /></label>
               <div className="mt-3 flex items-center gap-2 text-xs font-bold"><span className={`h-2.5 w-2.5 rounded-full ${settings.customDomain && domainConnected ? "bg-[#2f8b57]" : "bg-[#d29b32]"}`} />{settings.customDomain ? (domainConnected ? "Egen domän ansluten" : "Egen domän väntar på anslutning") : "Ingen egen domän ansluten"}</div>
-              <p className="mt-3 text-xs leading-5 text-[#667168]">{customDomainEnabled ? "Spara en domän du redan äger. Proffera ansluter den via Vercel och visar DNS-stegen om något saknas." : "Egen domän är inte tillgänglig i nuvarande plan. Din Proffera-adress fortsätter fungera."}</p>
-              {!customDomainEnabled ? <a href="/dashboard/installningar/funktioner" className="mt-3 inline-flex text-sm font-black text-[#17452f] underline underline-offset-4">Visa domänåtkomst</a> : null}
-              <div className="mt-5 rounded-2xl border border-dashed border-[#d5ddd4] p-4"><p className="text-sm font-black text-[#17201a]">Köp domän via Proffera</p><p className="mt-1 text-xs leading-5 text-[#68736b]">Planerad nästa fas: sök, köp och automatisk DNS/SSL direkt i Proffera. Ingen köpknapp visas innan registrar-integrationen är klar.</p></div>
+              <p className="mt-3 text-xs leading-5 text-[#617085]">{customDomainEnabled ? "Spara en domän du redan äger. Proffera ansluter den via Vercel och visar DNS-stegen om något saknas." : "Egen domän är inte tillgänglig i nuvarande plan. Din Proffera-adress fortsätter fungera."}</p>
+              {!customDomainEnabled ? <a href="/dashboard/installningar/funktioner" className="mt-3 inline-flex text-sm font-black text-[#1469d8] underline underline-offset-4">Visa domänåtkomst</a> : null}
+              <div className="mt-5 rounded-2xl border border-dashed border-[#dce4ee] p-4"><p className="text-sm font-black text-[#11213b]">Köp domän via Proffera</p><p className="mt-1 text-xs leading-5 text-[#617085]">Planerad nästa fas: sök, köp och automatisk DNS/SSL direkt i Proffera. Ingen köpknapp visas innan registrar-integrationen är klar.</p></div>
             </section>
           ) : null}
         </aside>
 
-        <main className="min-w-0 rounded-[28px] border border-[#dfe6df] bg-[#eef2ed] p-3 sm:p-5" data-booking-builder-preview style={previewStyle}>
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 px-1"><div><p className="text-xs font-black uppercase tracking-[0.14em] text-[#68736b]">Live design preview</p><p className="mt-1 text-sm text-[#5f6b63]">Preview använder samma centrala mallinnehåll som den publika sidan.</p></div><span className="rounded-full bg-white px-3 py-1.5 text-xs font-bold text-[#5f6b63] shadow-sm">{themeKey} · {resolvedAppearance}</span></div>
+        <main className="min-w-0 rounded-card border border-line bg-surface-subtle p-3 sm:p-5" data-booking-builder-preview style={previewStyle}>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 px-1"><div><p className="text-xs font-bold uppercase tracking-[0.14em] text-ink-muted">Live design preview</p><p className="mt-1 text-sm text-ink-muted">Preview använder samma centrala mallinnehåll som den publika sidan.</p></div><span className="rounded-full bg-surface px-3 py-1.5 text-xs font-bold text-ink-muted shadow-card">{themeKey} · {resolvedAppearance}</span></div>
 
-          <div className={`mx-auto overflow-hidden rounded-[26px] shadow-xl transition-all ${previewWidth}`} style={{ backgroundColor: dark ? "#0e110f" : "#f7f7f4", color: dark ? "#ffffff" : "#17201a" }}>
+          <div className={`mx-auto overflow-hidden rounded-[26px] shadow-xl transition-all ${previewWidth}`} style={{ backgroundColor: dark ? "#0e110f" : "#f6f9fd", color: dark ? "#ffffff" : "#11213b" }}>
             {sectionState.heroEnabled ? (
               <section className="p-5 sm:p-7" style={{ backgroundColor: primaryColor, color: primaryText, backgroundImage: `linear-gradient(90deg, rgb(0 0 0 / 55%), rgb(0 0 0 / 12%)), url("${previewImage}")`, backgroundSize: "cover", backgroundPosition: "center" }}>
-                <div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-black uppercase tracking-[0.18em] opacity-80">{workspaceName}</p><h2 className="mt-2 text-2xl font-black">{previewContent.heroTitle}</h2><p className="mt-2 text-xs font-bold opacity-90">{previewContent.heroSubtitle}</p><p className="mt-2 max-w-md text-[11px] leading-5 opacity-80">{previewContent.heroDescription}</p></div><div className="flex gap-1.5">{swedishEnabled ? <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-black text-[#17201a]">Svenska</span> : null}{englishEnabled ? <span className="rounded-full border border-white/30 px-2.5 py-1 text-[10px] font-black">English</span> : null}</div></div>
-                <div className="mt-5 flex flex-wrap gap-2 text-[10px] font-bold">{sectionState.reviewsEnabled ? <span className="rounded-full bg-white/10 px-3 py-2">★★★★★ {ui.reviews}</span> : null}<span className="rounded-full bg-white/10 px-3 py-2">{ui.secure}</span><span className="rounded-full bg-white px-3 py-2 text-[#17201a]">{previewContent.ctaLabel}</span></div>
+                <div className="flex items-start justify-between gap-4"><div><p className="text-[10px] font-black uppercase tracking-[0.18em] opacity-80">{workspaceName}</p><h2 className="mt-2 text-2xl font-black">{previewContent.heroTitle}</h2><p className="mt-2 text-xs font-bold opacity-90">{previewContent.heroSubtitle}</p><p className="mt-2 max-w-md text-[11px] leading-5 opacity-80">{previewContent.heroDescription}</p></div><div className="flex gap-1.5">{swedishEnabled ? <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-black text-[#11213b]">Svenska</span> : null}{englishEnabled ? <span className="rounded-full border border-white/30 px-2.5 py-1 text-[10px] font-black">English</span> : null}</div></div>
+                <div className="mt-5 flex flex-wrap gap-2 text-[10px] font-bold">{sectionState.reviewsEnabled ? <span className="rounded-full bg-white/10 px-3 py-2">★★★★★ {ui.reviews}</span> : null}<span className="rounded-full bg-white/10 px-3 py-2">{ui.secure}</span><span className="rounded-full bg-white px-3 py-2 text-[#11213b]">{previewContent.ctaLabel}</span></div>
               </section>
             ) : null}
 

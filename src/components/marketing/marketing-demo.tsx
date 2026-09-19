@@ -12,6 +12,7 @@ import {
   Users,
 } from "lucide-react";
 
+import styles from "@/components/marketing/platform-marketing.module.css";
 import { ButtonLink } from "@/components/ui/button-link";
 import type { PublicLocale } from "@/lib/public-locale";
 
@@ -129,27 +130,92 @@ export function MarketingDemo({ locale }: { locale: PublicLocale }) {
   const signupHref = locale === "en" ? "/en/create-account" : "/skapa-konto";
 
   return (
-    <div className="overflow-hidden bg-[#f6f8f4]">
-      <section className="relative border-b border-[#284336] bg-[#102a1c] text-white">
-        <div className="absolute -right-20 -top-28 h-96 w-96 rounded-full bg-[#3e9b68]/20 blur-3xl" aria-hidden="true" />
-        <div className="relative mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8 lg:py-24">
-          <p className="text-sm font-black uppercase tracking-[0.16em] text-[#b6d4c0]">{t.eyebrow}</p>
-          <h1 className="mt-4 max-w-4xl text-4xl font-black leading-[1.05] tracking-[-0.04em] sm:text-5xl">{t.title}</h1>
-          <p className="mt-5 max-w-3xl text-lg leading-8 text-white/75">{t.intro}</p>
-          <div className="mt-8 flex flex-col gap-3 sm:flex-row"><ButtonLink href={demoRequestHref}>{t.primary}</ButtonLink><ButtonLink href={signupHref} variant="secondary">{t.secondary}</ButtonLink></div>
-          <p className="mt-4 text-sm font-semibold text-white/60">{t.note}</p>
+    <main className={styles.page} lang={locale}>
+      <section className={styles.hero}>
+        <div className={styles.inner}>
+          <p className={styles.eyebrow}>{t.eyebrow}</p>
+          <h1 className={styles.title}>{t.title}</h1>
+          <p className={styles.lead}>{t.intro}</p>
+          <div className={styles.actions}>
+            <ButtonLink href={demoRequestHref}>{t.primary}</ButtonLink>
+            <ButtonLink href={signupHref} variant="secondary">{t.secondary}</ButtonLink>
+          </div>
+          <p className={styles.note}>{t.note}</p>
         </div>
       </section>
 
-      <section className="mx-auto max-w-7xl px-4 py-20 sm:px-6 lg:px-8">
-        <div className="grid gap-5 lg:grid-cols-2">{t.steps.map(({ icon: Icon, title, text, details }) => <article key={title} className="rounded-[1.8rem] border border-[#dfe5dd] bg-white p-6 shadow-sm sm:p-7"><span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#eaf2ec] text-[#17452f]"><Icon className="h-6 w-6" /></span><h2 className="mt-5 text-2xl font-black tracking-tight text-[#17201a]">{title}</h2><p className="mt-2 text-sm leading-6 text-[#667168]">{text}</p><ul className="mt-5 grid gap-2 sm:grid-cols-2">{details.map((detail) => <li key={detail} className="flex items-start gap-2 rounded-xl bg-[#f7f9f6] p-3 text-sm font-semibold text-[#344139]"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[#2f7b53]" />{detail}</li>)}</ul></article>)}</div>
+      <section className={styles.sectionWhite}>
+        <div className={styles.compactInner}>
+          <div className={styles.sectionHeader}>
+            <div>
+              <p className={styles.eyebrow}>{locale === "en" ? "What we show" : "Det här visar vi"}</p>
+              <h2 className={styles.sectionTitle}>{locale === "en" ? "A real workflow, step by step." : "Ett verkligt flöde, steg för steg."}</h2>
+            </div>
+            <p className={styles.sectionLead}>{locale === "en" ? "The demo follows one customer journey instead of jumping between disconnected feature screens." : "Demon följer en sammanhängande kundresa i stället för att hoppa mellan fristående funktionsskärmar."}</p>
+          </div>
+          <ol className={styles.editorialList}>
+            {t.steps.map(({ icon: Icon, title, text, details }, index) => (
+              <li key={title} className={styles.editorialRow}>
+                <span className={styles.rowMarker}><Icon aria-hidden="true" /></span>
+                <div>
+                  <span className={styles.rowIndex}>{String(index + 1).padStart(2, "0")}</span>
+                  <h3 className={styles.rowTitle}>{title.replace(/^\d+\.\s*/, "")}</h3>
+                  <p className={styles.rowText}>{text}</p>
+                  <ul className={styles.sublist}>
+                    {details.map((detail) => (
+                      <li key={detail}><CheckCircle2 aria-hidden="true" /><span>{detail}</span></li>
+                    ))}
+                  </ul>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </div>
       </section>
 
-      <section className="border-y border-[#e1e7df] bg-white py-20"><div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8"><p className="text-sm font-black uppercase tracking-[0.14em] text-[#17452f]">{t.flowEyebrow}</p><h2 className="mt-3 text-3xl font-black tracking-[-0.03em] text-[#17201a]">{t.flowTitle}</h2><div className="mt-8 grid gap-3 lg:grid-cols-5">{t.flow.map(({ icon: Icon, label }, index) => <article key={label} className="relative rounded-2xl border border-[#dfe5dd] bg-[#fafcf9] p-5"><Icon className="h-5 w-5 text-[#17452f]" /><p className="mt-4 text-sm font-black leading-6 text-[#17201a]">{label}</p>{index < t.flow.length - 1 ? <ArrowRight className="absolute -right-2 top-1/2 z-10 hidden h-4 w-4 -translate-y-1/2 text-[#8ba395] lg:block" /> : null}</article>)}</div></div></section>
+      <section className={styles.sectionSoft}>
+        <div className={styles.compactInner}>
+          <div className={styles.sectionHeader}>
+            <div>
+              <p className={styles.eyebrow}>{t.flowEyebrow}</p>
+              <h2 className={styles.sectionTitle}>{t.flowTitle}</h2>
+            </div>
+            <p className={styles.sectionLead}>{locale === "en" ? "The same customer identity and service context continue through the workflow." : "Samma kundidentitet och tjänstekontext följer med genom flödet."}</p>
+          </div>
+          <ol className={styles.flowRail}>
+            {t.flow.map(({ icon: Icon, label }, index) => (
+              <li key={label} className={styles.flowItem}>
+                <span className={styles.flowNumber}>{String(index + 1).padStart(2, "0")}</span>
+                <Icon className="h-4 w-4" aria-hidden="true" />
+                {label}
+                {index < t.flow.length - 1 ? <ArrowRight className="h-3.5 w-3.5 opacity-60" aria-hidden="true" /> : null}
+              </li>
+            ))}
+          </ol>
+        </div>
+      </section>
 
-      <section className="mx-auto max-w-7xl px-4 py-20 sm:px-6 lg:px-8"><div className="grid gap-6 rounded-[2rem] bg-[#eef4ef] p-8 sm:p-10 lg:grid-cols-[.7fr_1.3fr] lg:items-center"><span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#173e2b] text-white"><LayoutDashboard className="h-7 w-7" /></span><div><h2 className="text-3xl font-black tracking-tight text-[#17201a]">{t.fitTitle}</h2><p className="mt-3 max-w-3xl text-base leading-7 text-[#5b665f]">{t.fitText}</p></div></div></section>
+      <section className={styles.sectionWhite}>
+        <div className={styles.compactInner}>
+          <div className={styles.callout}>
+            <span className={styles.calloutIcon}><LayoutDashboard aria-hidden="true" /></span>
+            <div><h2>{t.fitTitle}</h2><p>{t.fitText}</p></div>
+          </div>
+        </div>
+      </section>
 
-      <section className="border-t border-[#e1e7df] bg-white"><div className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-16 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8"><div><h2 className="text-3xl font-black tracking-tight text-[#17201a]">{t.finalTitle}</h2><p className="mt-3 max-w-2xl text-base leading-7 text-[#5b665f]">{t.finalText}</p></div><div className="flex flex-col gap-3 sm:flex-row"><ButtonLink href={demoRequestHref}>{t.finalPrimary}</ButtonLink><ButtonLink href={signupHref} variant="secondary">{t.finalSecondary}</ButtonLink></div></div></section>
-    </div>
+      <section className={styles.sectionSoft}>
+        <div className={styles.compactInner}>
+          <div className={styles.ctaBand}>
+            <h2>{t.finalTitle}</h2>
+            <p>{t.finalText}</p>
+            <div className={styles.actions}>
+              <ButtonLink href={demoRequestHref}>{t.finalPrimary}</ButtonLink>
+              <ButtonLink href={signupHref} variant="secondary">{t.finalSecondary}</ButtonLink>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
   );
 }
