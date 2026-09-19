@@ -1,18 +1,57 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { BadgeCheck, ShieldCheck } from "lucide-react";
+import { cache } from "react";
 
+import styles from "@/app/public-customer-lifecycle.module.css";
+import { VerifiedReviewForm } from "@/app/review/[token]/verified-review-form";
 import { verifiedReviewTokenSchema } from "@/features/reviews/verified-review";
 import { getMarketplaceVerifiedReviewPreviewByHash } from "@/lib/marketplace-verified-review";
 import { hashVerifiedReviewToken } from "@/lib/verified-review-token";
-import { VerifiedReviewForm } from "@/app/review/[token]/verified-review-form";
 
 export const dynamic = "force-dynamic";
-export const metadata: Metadata = {
-  title: { absolute: "Verified Marketplace review" },
-  description: "Submit a secure verified review after a completed Proffera Marketplace job.",
-  robots: { index: false, follow: false },
+
+type Locale = "sv" | "en";
+
+type MarketplaceReviewPageProps = {
+  params: Promise<{ token: string }>;
+  searchParams?: Promise<{ lang?: string | string[] }>;
 };
+
+const getCachedMarketplaceVerifiedReviewInvitation = cache(async (token: string) => {
+  const parsed = verifiedReviewTokenSchema.safeParse(token);
+  return parsed.success
+    ? await getMarketplaceVerifiedReviewPreviewByHash(hashVerifiedReviewToken(parsed.data))
+    : null;
+});
+
+function localeFrom(value: string | string[] | undefined, fallback: Locale): Locale {
+  if (Array.isArray(value)) return value[0] === "en" ? "en" : value[0] === "sv" ? "sv" : fallback;
+  if (value === "en" || value === "sv") return value;
+  return fallback;
+}
+
+function reviewHref(token: string, locale: Locale) {
+  const base = "/review/marketplace/" + encodeURIComponent(token);
+  return locale === "en" ? base + "?lang=en" : base;
+}
+
+export async function generateMetadata({
+  params,
+  searchParams,
+}: MarketplaceReviewPageProps): Promise<Metadata> {
+  const [{ token }, query] = await Promise.all([params, searchParams ?? Promise.resolve(undefined)]);
+  const invitation = await getCachedMarketplaceVerifiedReviewInvitation(token);
+  const invitationLanguage: Locale = invitation?.language === "en" ? "en" : "sv";
+  const locale = localeFrom(query?.lang, invitationLanguage);
+  return {
+    title: { absolute: locale === "en" ? "Verified Marketplace review" : "Verifierat Marketplace-omdöme" },
+    description: locale === "en"
+      ? "Submit a secure verified review after a completed Proffera Marketplace job."
+      : "Lämna ett säkert verifierat omdöme efter ett slutfört Proffera Marketplace-jobb.",
+    robots: { index: false, follow: false },
+  };
+}
 
 const stateCopy = {
   sv: {
@@ -35,72 +74,97 @@ type UnavailableReviewState = keyof (typeof stateCopy)["sv"];
 
 export default async function MarketplaceVerifiedReviewPage({
   params,
-}: {
-  params: Promise<{ token: string }>;
-}) {
-  const { token } = await params;
-  const parsed = verifiedReviewTokenSchema.safeParse(token);
-  const invitation = parsed.success
-    ? await getMarketplaceVerifiedReviewPreviewByHash(hashVerifiedReviewToken(parsed.data))
-    : null;
-  const language = invitation?.language === "en" ? "en" : "sv";
-  const companyName = invitation?.companyName ?? "Service provider";
-  const primaryColor = invitation?.primaryColor ?? "#173e2b";
-  const accentColor = invitation?.accentColor ?? "#d8ae52";
+  searchParams,
+}: MarketplaceReviewPageProps) {
+  const [{ token }, query] = await Promise.all([params, searchParams ?? Promise.resolve(undefined)]);
+  const invitation = await getCachedMarketplaceVerifiedReviewInvitation(token);
+  const invitationLanguage: Locale = invitation?.language === "en" ? "en" : "sv";
+  const language = localeFrom(query?.lang, invitationLanguage);
+  const companyName = invitation?.companyName ?? (language === "en" ? "Service provider" : "Tjänsteföretag");
+  const primaryColor = invitation?.primaryColor ?? "#1469d8";
   const homeUrl = invitation?.homeUrl ?? "/";
+  const alternativeLanguage: Locale = language === "en" ? "sv" : "en";
   const unavailableState: UnavailableReviewState = invitation && invitation.state !== "valid"
     ? invitation.state
     : "invalid";
-  const heading = language === "en" ? `How did ${companyName} do?` : `Hur upplevde du ${companyName}?`;
+  const heading = language === "en" ? "How did " + companyName + " do?" : "Hur upplevde du " + companyName + "?";
+  const languageLabel = language === "en" ? "Svenska" : "English";
+  const badge = language === "en" ? "Verified Marketplace review" : "Verifierat Marketplace-omdöme";
 
   return (
-    <main
-      lang={language}
-      className="min-h-screen px-4 py-10 text-slate-900 sm:px-6 sm:py-16"
-      style={{ backgroundColor: `${accentColor}18` }}
-    >
-      <div className="mx-auto max-w-2xl">
-        <div className="mb-6 flex justify-center">
-          <Link href={homeUrl} className="rounded-2xl bg-white px-5 py-3 font-black shadow-lg">{companyName}</Link>
-        </div>
-        <section className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_24px_60px_rgba(15,23,42,.14)] sm:p-9">
-          <p className="flex items-center gap-2 text-sm font-black uppercase tracking-[0.15em]" style={{ color: primaryColor }}>
-            <BadgeCheck className="size-5" aria-hidden="true" />
-            {language === "en" ? "Verified Marketplace review" : "Verifierat Marketplace-omdöme"}
-          </p>
+    <main lang={language} className={styles.page}>
+      <section className={[styles.frame, styles.reviewFrame].join(" ")}>
+        <div className={styles.tenantBar} style={{ backgroundColor: primaryColor }} />
+        <header className={styles.header}>
+          <div className={styles.headerRow}>
+            <div className={styles.headerCopy}>
+              <p className={styles.eyebrow}>Proffera Marketplace</p>
+              <h1 className={styles.title}>{badge}</h1>
+            </div>
+            <Link href={reviewHref(token, alternativeLanguage)} className={styles.languageLink}>
+              {languageLabel}
+            </Link>
+          </div>
+        </header>
 
+        {invitation ? (
+          <Link href={homeUrl} className={styles.companyIdentity}>
+            <span className={styles.logoFrame}>
+              <span className={styles.logoFallback} style={{ backgroundColor: primaryColor }} aria-hidden="true">
+                {companyName.charAt(0).toUpperCase()}
+              </span>
+            </span>
+            <span className={styles.companyName}>{companyName}</span>
+          </Link>
+        ) : null}
+
+        <div className={styles.content}>
           {invitation?.state === "valid" ? (
             <>
-              <h1 className="mt-4 text-3xl font-black tracking-tight sm:text-4xl">{heading}</h1>
-              <p className="mt-3 text-base leading-7 text-slate-600">
-                {language === "en"
-                  ? "This secure one-time link is tied to a real completed Proffera Marketplace job."
-                  : "Den här säkra engångslänken är kopplad till ett verkligt slutfört Marketplace-jobb i Proffera."}
-              </p>
-              <div className="mt-7">
-                <VerifiedReviewForm
-                  token={token}
-                  customerName={invitation.customerName}
-                  service={invitation.service}
-                  area={invitation.area}
-                  companyName={companyName}
-                  language={language}
-                  primaryColor={primaryColor}
-                />
+              <div>
+                <p className={styles.verifiedLabel}>
+                  <BadgeCheck className="h-5 w-5" aria-hidden="true" />
+                  {badge}
+                </p>
+                <h2 className={styles.reviewQuestion}>{heading}</h2>
+                <p className={styles.reviewLead}>
+                  {language === "en"
+                    ? "This secure one-time link is tied to a real completed Proffera Marketplace job."
+                    : "Den här säkra engångslänken är kopplad till ett verkligt slutfört Marketplace-jobb i Proffera."}
+                </p>
               </div>
+              <VerifiedReviewForm
+                token={token}
+                customerName={invitation.customerName}
+                service={invitation.service}
+                area={invitation.area}
+                companyName={companyName}
+                language={language}
+                primaryColor={primaryColor}
+              />
             </>
           ) : (
             <>
-              <h1 className="mt-4 text-3xl font-black tracking-tight sm:text-4xl">{stateCopy[language][unavailableState][0]}</h1>
-              <p className="mt-4 text-base leading-7 text-slate-600">{stateCopy[language][unavailableState][1]}</p>
-              <p className="mt-7 flex items-start gap-2 rounded-2xl bg-slate-50 p-5 text-sm leading-6 text-slate-700">
-                <ShieldCheck className="mt-0.5 size-5 shrink-0" aria-hidden="true" />
-                {language === "en" ? "Review links never ask for payment or passwords." : "Omdömeslänkar frågar aldrig efter betalning eller lösenord."}
-              </p>
+              <div>
+                <p className={styles.verifiedLabel}>
+                  <BadgeCheck className="h-5 w-5" aria-hidden="true" />
+                  {badge}
+                </p>
+                <h2 className={styles.reviewQuestion}>{stateCopy[language][unavailableState][0]}</h2>
+                <p className={styles.reviewLead}>{stateCopy[language][unavailableState][1]}</p>
+              </div>
+              <div className={styles.reviewSecurity}>
+                <p>
+                  <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
+                  {language === "en"
+                    ? "Review links never ask for payment or passwords."
+                    : "Omdömeslänkar frågar aldrig efter betalning eller lösenord."}
+                </p>
+              </div>
             </>
           )}
-        </section>
-      </div>
+        </div>
+      </section>
     </main>
   );
 }

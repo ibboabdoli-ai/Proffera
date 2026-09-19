@@ -1,21 +1,55 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { BadgeCheck, Clock3, ShieldCheck } from "lucide-react";
+import { cache } from "react";
 
 import { getVerifiedReviewInvitation } from "@/lib/verified-review-invitations";
+import styles from "@/app/public-customer-lifecycle.module.css";
 import { VerifiedReviewForm } from "./verified-review-form";
 
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = {
+type Locale = "sv" | "en";
+
+type ReviewPageProps = {
+  params: Promise<{ token: string }>;
+  searchParams?: Promise<{ lang?: string | string[] }>;
+};
+
+const getCachedVerifiedReviewInvitation = cache(getVerifiedReviewInvitation);
+
+function localeFrom(value: string | string[] | undefined, fallback: Locale): Locale {
+  if (Array.isArray(value)) return value[0] === "en" ? "en" : value[0] === "sv" ? "sv" : fallback;
+  if (value === "en" || value === "sv") return value;
+  return fallback;
+}
+
+function reviewHref(token: string, locale: Locale) {
+  const base = "/review/" + encodeURIComponent(token);
+  return locale === "en" ? base + "?lang=en" : base;
+}
+
+const englishMetadata: Metadata = {
   title: { absolute: "Verified customer review" },
   description: "Submit a secure, single-use review for a completed customer booking.",
   robots: { index: false, follow: false },
 };
 
-type ReviewPageProps = {
-  params: Promise<{ token: string }>;
-};
+export async function generateMetadata({
+  params,
+  searchParams,
+}: ReviewPageProps): Promise<Metadata> {
+  const [{ token }, query] = await Promise.all([params, searchParams ?? Promise.resolve(undefined)]);
+  const invitation = await getCachedVerifiedReviewInvitation(token);
+  const invitationLanguage: Locale = invitation.language === "en" ? "en" : "sv";
+  const locale = localeFrom(query?.lang, invitationLanguage);
+  if (locale === "en") return englishMetadata;
+  return {
+    title: { absolute: "Verifierat kundomdöme" },
+    description: "Lämna ett säkert verifierat omdöme efter en slutförd bokning.",
+    robots: { index: false, follow: false },
+  };
+}
 
 const stateContent = {
   sv: {
@@ -34,116 +68,117 @@ const stateContent = {
   },
 } as const;
 
-export default async function VerifiedReviewPage({ params }: ReviewPageProps) {
-  const { token } = await params;
-  const invitation = await getVerifiedReviewInvitation(token);
-  const language = invitation.language ?? "en";
-  const companyName = invitation.companyName ?? "Service provider";
-  const primaryColor = invitation.primaryColor ?? "#173e2b";
-  const accentColor = invitation.accentColor ?? "#d8ae52";
+export default async function VerifiedReviewPage({ params, searchParams }: ReviewPageProps) {
+  const [{ token }, query] = await Promise.all([params, searchParams ?? Promise.resolve(undefined)]);
+  const invitation = await getCachedVerifiedReviewInvitation(token);
+  const invitationLanguage: Locale = invitation.language === "en" ? "en" : "sv";
+  const language = localeFrom(query?.lang, invitationLanguage);
+  const companyName = invitation.companyName ?? (language === "en" ? "Service provider" : "Tjänsteföretag");
+  const primaryColor = invitation.primaryColor ?? "#1469d8";
   const homeUrl = invitation.homeUrl ?? "/";
+  const alternativeLanguage: Locale = language === "en" ? "sv" : "en";
   const text = language === "en"
     ? {
         badge: "Verified customer review",
-        question: `How did ${companyName} do?`,
+        question: "How did " + companyName + " do?",
         secure: "This secure link is connected to your completed booking. It can be used once and expires on",
         payment: "Review invitations never ask for payment or account passwords.",
-        help: `Need help? Contact ${companyName} through its official website.`,
-        visit: `Visit ${companyName}`,
+        help: "Need help? Contact " + companyName + " through its official website.",
+        visit: "Visit " + companyName,
+        language: "Svenska",
       }
     : {
         badge: "Verifierat kundomdöme",
-        question: `Hur upplevde du ${companyName}?`,
+        question: "Hur upplevde du " + companyName + "?",
         secure: "Den säkra länken är kopplad till din slutförda bokning. Den kan användas en gång och gäller till",
         payment: "Omdömesinbjudningar frågar aldrig efter betalning eller kontolösenord.",
-        help: `Behöver du hjälp? Kontakta ${companyName} via företagets officiella webbplats.`,
-        visit: `Besök ${companyName}`,
+        help: "Behöver du hjälp? Kontakta " + companyName + " via företagets officiella webbplats.",
+        visit: "Besök " + companyName,
+        language: "English",
       };
 
   return (
-    <main
-      className="min-h-screen px-4 py-10 text-slate-900 sm:px-6 sm:py-16"
-      style={{ backgroundColor: `${accentColor}18` }}
-      lang={language}
-    >
-      <div className="mx-auto max-w-2xl">
-        <div className="mb-6 flex items-center justify-center">
-          <Link href={homeUrl} aria-label={companyName} className="flex items-center gap-3 rounded-2xl bg-white px-4 py-3 shadow-lg">
+    <main className={styles.page} lang={language}>
+      <section className={[styles.frame, styles.reviewFrame].join(" ")}>
+        <div className={styles.tenantBar} style={{ backgroundColor: primaryColor }} />
+        <header className={styles.header}>
+          <div className={styles.headerRow}>
+            <div className={styles.headerCopy}>
+              <p className={styles.eyebrow}>Proffera</p>
+              <h1 className={styles.title}>{text.badge}</h1>
+            </div>
+            <Link href={reviewHref(token, alternativeLanguage)} className={styles.languageLink}>
+              {text.language}
+            </Link>
+          </div>
+        </header>
+
+        <Link href={homeUrl} aria-label={companyName} className={styles.companyIdentity}>
+          <span className={styles.logoFrame}>
             {invitation.logoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={invitation.logoUrl} alt="" className="size-12 rounded-xl object-cover" />
+              <img src={invitation.logoUrl} alt="" className={styles.logoImage} />
             ) : (
-              <span
-                className="grid size-12 place-items-center rounded-xl text-xl font-black text-white"
-                style={{ backgroundColor: primaryColor }}
-                aria-hidden="true"
-              >
+              <span className={styles.logoFallback} style={{ backgroundColor: primaryColor }} aria-hidden="true">
                 {companyName.charAt(0).toUpperCase()}
               </span>
             )}
-            <span className="font-black">{companyName}</span>
-          </Link>
-        </div>
+          </span>
+          <span className={styles.companyName}>{companyName}</span>
+        </Link>
 
-        <section className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-[0_24px_60px_rgba(15,23,42,.14)] sm:p-9">
-          <div className="flex items-center gap-2 text-sm font-black uppercase tracking-[0.15em]" style={{ color: primaryColor }}>
-            <BadgeCheck className="size-5" aria-hidden="true" />
-            {text.badge}
-          </div>
-
+        <div className={styles.content}>
           {invitation.state === "valid" ? (
             <>
-              <h1 className="mt-4 text-3xl font-black tracking-tight sm:text-4xl">
-                {text.question}
-              </h1>
-              <p className="mt-3 text-base leading-7 text-slate-600">
-                {text.secure}{" "}
-                {new Intl.DateTimeFormat(language === "en" ? "en-GB" : "sv-SE", {
-                  dateStyle: "medium",
-                  timeZone: invitation.timeZone,
-                }).format(new Date(invitation.expiresAt))}.
-              </p>
-              <div className="mt-7">
-                <VerifiedReviewForm
-                  token={token}
-                  customerName={invitation.customerName}
-                  service={invitation.service}
-                  area={invitation.area}
-                  companyName={invitation.companyName}
-                  language={invitation.language}
-                  primaryColor={invitation.primaryColor}
-                />
+              <div>
+                <p className={styles.verifiedLabel}>
+                  <BadgeCheck className="h-5 w-5" aria-hidden="true" />
+                  {text.badge}
+                </p>
+                <h2 className={styles.reviewQuestion}>{text.question}</h2>
+                <p className={styles.reviewLead}>
+                  {text.secure}{" "}
+                  {new Intl.DateTimeFormat(language === "en" ? "en-GB" : "sv-SE", {
+                    dateStyle: "medium",
+                    timeZone: invitation.timeZone,
+                  }).format(new Date(invitation.expiresAt))}.
+                </p>
               </div>
+              <VerifiedReviewForm
+                token={token}
+                customerName={invitation.customerName}
+                service={invitation.service}
+                area={invitation.area}
+                companyName={invitation.companyName}
+                language={language}
+                primaryColor={primaryColor}
+              />
             </>
           ) : (
             <>
-              <h1 className="mt-4 text-3xl font-black tracking-tight sm:text-4xl">
-                {stateContent[language][invitation.state][0]}
-              </h1>
-              <p className="mt-4 text-base leading-7 text-slate-600">
-                {stateContent[language][invitation.state][1]}
-              </p>
-              <div className="mt-7 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-5 text-sm leading-6 text-slate-700">
-                <p className="flex items-center gap-2 font-bold">
-                  <ShieldCheck className="size-5" aria-hidden="true" />
+              <div>
+                <p className={styles.verifiedLabel}>
+                  <BadgeCheck className="h-5 w-5" aria-hidden="true" />
+                  {text.badge}
+                </p>
+                <h2 className={styles.reviewQuestion}>{stateContent[language][invitation.state][0]}</h2>
+                <p className={styles.reviewLead}>{stateContent[language][invitation.state][1]}</p>
+              </div>
+              <div className={styles.reviewSecurity}>
+                <p>
+                  <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
                   {text.payment}
                 </p>
-                <p className="flex items-center gap-2">
-                  <Clock3 className="size-5" aria-hidden="true" />
+                <p>
+                  <Clock3 className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
                   {text.help}
                 </p>
               </div>
-              <Link
-                href={homeUrl}
-                className="mt-7 inline-flex min-h-11 items-center justify-center rounded-xl px-5 py-3 text-sm font-black text-white"
-                style={{ backgroundColor: primaryColor }}
-              >
-                {text.visit}
-              </Link>
+              <Link href={homeUrl} className={styles.secondaryButton}>{text.visit}</Link>
             </>
           )}
-        </section>
-      </div>
+        </div>
+      </section>
     </main>
   );
 }

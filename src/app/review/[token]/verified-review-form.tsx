@@ -3,6 +3,7 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, LoaderCircle, Star } from "lucide-react";
 
+import styles from "@/app/public-customer-lifecycle.module.css";
 import { emitMarketplaceFunnelEvent } from "@/components/analytics/marketplace-funnel-signal";
 
 type VerifiedReviewFormProps = {
@@ -21,6 +22,11 @@ const copy = {
   sv: {
     chooseRating: "Välj ett stjärnbetyg innan du skickar omdömet.",
     submitError: "Omdömet kunde inte skickas. Försök igen.",
+    invalidSubmission: "Kontrollera formuläret och försök igen.",
+    rateLimited: "För många försök. Vänta en stund och försök igen.",
+    linkUnavailable: "Omdömeslänken kan inte användas längre.",
+    reviewUnavailable: "Omdömet kan inte skickas i det här läget.",
+    temporaryFailure: "Omdömet kunde inte sparas just nu. Försök igen senare.",
     success: "Tack. Ditt verifierade omdöme har tagits emot och visas efter godkännande.",
     verified: "Verifierad slutförd tjänst",
     rating: "Ditt betyg",
@@ -36,6 +42,11 @@ const copy = {
   en: {
     chooseRating: "Please choose a star rating before submitting your review.",
     submitError: "We couldn't submit your review. Please try again.",
+    invalidSubmission: "Check the form and try again.",
+    rateLimited: "Too many attempts. Wait a while and try again.",
+    linkUnavailable: "This review link can no longer be used.",
+    reviewUnavailable: "This review cannot be submitted in its current state.",
+    temporaryFailure: "The review could not be saved right now. Please try again later.",
     success: "Thank you. Your verified review was received and will appear after approval.",
     verified: "Verified completed service",
     rating: "Your rating",
@@ -49,9 +60,6 @@ const copy = {
     stars: "out of 5 stars",
   },
 } as const;
-
-const inputClassName =
-  "rounded-xl border border-slate-300 bg-white px-4 py-3.5 font-normal text-[#17201a] outline-none transition focus:ring-4 focus:ring-slate-200";
 
 export function VerifiedReviewForm({
   token,
@@ -95,13 +103,26 @@ export function VerifiedReviewForm({
     setIsSubmitting(true);
     setSubmissionMessage(null);
     try {
-      const response = await fetch(`/api/reviews/${encodeURIComponent(token)}`, {
+      const response = await fetch("/api/reviews/" + encodeURIComponent(token), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const result = (await response.json().catch(() => null)) as { error?: string } | null;
-      if (!response.ok) throw new Error(result?.error ?? text.submitError);
+      if (!response.ok) {
+        const localizedError =
+          response.status === 400
+            ? text.invalidSubmission
+            : response.status === 404
+              ? text.linkUnavailable
+              : response.status === 409
+                ? text.reviewUnavailable
+                : response.status === 429
+                  ? text.rateLimited
+                  : response.status === 503
+                    ? text.temporaryFailure
+                    : text.submitError;
+        throw new Error(localizedError);
+      }
 
       emitMarketplaceFunnelEvent({
         event: "marketplace_verified_review_submitted",
@@ -122,45 +143,47 @@ export function VerifiedReviewForm({
   }
 
   return (
-    <form onSubmit={submitReview} className="relative grid gap-5">
-      <div aria-hidden="true" className="pointer-events-none absolute -left-[10000px] top-auto size-px overflow-hidden">
+    <form onSubmit={submitReview} className={styles.reviewForm}>
+      <div aria-hidden="true" className={styles.honeypot}>
         <input name="website" type="text" tabIndex={-1} autoComplete="off" />
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-        <p className="font-black text-slate-900">{service}</p>
-        {area ? <p className="mt-1">{area}</p> : null}
-        <p className="mt-2 text-xs font-semibold uppercase tracking-[0.12em]" style={{ color: primaryColor }}>
-          {text.verified}
-        </p>
+      <div className={styles.reviewSummary} style={{ borderLeftColor: primaryColor }}>
+        <p className={styles.panelTitle}>{service}</p>
+        {area ? <p className={styles.sectionCopy}>{area}</p> : null}
+        <p className={styles.verifiedLabel} style={{ marginTop: "0.65rem" }}>{text.verified}</p>
       </div>
 
       <fieldset disabled={submitted}>
-        <legend className="text-sm font-black text-slate-800">
-          {text.rating} <span className="text-red-700">*</span>
+        <legend className={styles.formLabel}>
+          {text.rating} <span aria-hidden="true">*</span>
         </legend>
-        <div className="mt-2 flex flex-wrap gap-2" role="group" aria-label={text.rating}>
-          {[1, 2, 3, 4, 5].map((value) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => setRating(value)}
-              aria-pressed={rating === value}
-              aria-label={`${value} ${text.stars}`}
-              className="grid size-11 place-items-center rounded-xl border bg-white transition focus:outline-none focus:ring-4 focus:ring-slate-200"
-              style={{
-                borderColor: rating >= value ? primaryColor : "#cbd5e1",
-                color: rating >= value ? primaryColor : "#94a3b8",
-              }}
-            >
-              <Star className="size-5" fill="currentColor" aria-hidden="true" />
-            </button>
-          ))}
+        <div className={styles.starRow} role="group" aria-label={text.rating}>
+          {[1, 2, 3, 4, 5].map((value) => {
+            const active = rating >= value;
+            return (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setRating(value)}
+                aria-pressed={rating === value}
+                aria-label={value + " " + text.stars}
+                className={styles.starButton}
+                style={{
+                  borderColor: active ? "#1469d8" : "#bdc9d8",
+                  color: active ? "#1469d8" : "#8b98aa",
+                  backgroundColor: active ? "#f2f7fd" : "#ffffff",
+                }}
+              >
+                <Star className="h-5 w-5" fill="currentColor" aria-hidden="true" />
+              </button>
+            );
+          })}
         </div>
       </fieldset>
 
-      <label className="grid gap-2 text-sm font-black text-slate-800">
-        {text.name} <span className="text-red-700">*</span>
+      <label className={styles.field}>
+        {text.name} <span aria-hidden="true">*</span>
         <input
           name="reviewer_name"
           required
@@ -168,12 +191,12 @@ export function VerifiedReviewForm({
           maxLength={80}
           defaultValue={customerName === "Customer" ? "" : customerName}
           disabled={submitted}
-          className={inputClassName}
+          className={styles.input}
         />
       </label>
 
-      <label className="grid gap-2 text-sm font-black text-slate-800">
-        {text.experience} <span className="text-red-700">*</span>
+      <label className={styles.field}>
+        {text.experience} <span aria-hidden="true">*</span>
         <textarea
           name="message"
           required
@@ -181,55 +204,44 @@ export function VerifiedReviewForm({
           minLength={10}
           maxLength={1_000}
           disabled={submitted}
-          className={`resize-y ${inputClassName}`}
+          className={styles.textarea}
           placeholder={text.placeholder}
         />
       </label>
 
-      <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-700">
+      <label className={styles.consent}>
         <input
           name="consent"
           value="true"
           required
           type="checkbox"
           disabled={submitted}
-          className="mt-1 size-4 shrink-0"
-          style={{ accentColor: primaryColor }}
         />
         <span>{text.consent.replace("företaget", companyName).replace("the company", companyName)}</span>
       </label>
 
       {submissionMessage ? (
         <p
-          className={`flex items-start gap-2 rounded-xl px-4 py-3 text-sm font-semibold ${
-            submissionMessage.kind === "error"
-              ? "bg-red-50 text-red-800"
-              : "bg-emerald-50 text-emerald-800"
-          }`}
+          className={submissionMessage.kind === "error" ? styles.messageError : styles.messageSuccess}
           role={submissionMessage.kind === "error" ? "alert" : "status"}
           aria-live="polite"
         >
           {submissionMessage.kind === "error" ? (
-            <AlertCircle className="mt-0.5 size-5 shrink-0" aria-hidden="true" />
+            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
           ) : (
-            <CheckCircle2 className="mt-0.5 size-5 shrink-0" aria-hidden="true" />
+            <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
           )}
           {submissionMessage.text}
         </p>
       ) : null}
 
-      <button
-        type="submit"
-        disabled={isSubmitting || submitted}
-        className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-black text-white transition disabled:cursor-not-allowed disabled:opacity-70"
-        style={{ backgroundColor: primaryColor }}
-      >
+      <button type="submit" disabled={isSubmitting || submitted} className={styles.submitButton}>
         {isSubmitting ? (
-          <LoaderCircle className="size-5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+          <LoaderCircle className="h-5 w-5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
         ) : submitted ? (
-          <CheckCircle2 className="size-5" aria-hidden="true" />
+          <CheckCircle2 className="h-5 w-5" aria-hidden="true" />
         ) : (
-          <Star className="size-5" aria-hidden="true" />
+          <Star className="h-5 w-5" aria-hidden="true" />
         )}
         {isSubmitting ? text.submitting : submitted ? text.submitted : text.submit}
       </button>
