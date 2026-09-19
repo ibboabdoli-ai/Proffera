@@ -6,6 +6,7 @@ import { Footer } from "@/components/layout/footer";
 import { Header } from "@/components/layout/header";
 import {
   isAuthSurfacePath,
+  isRouteResolvedPublicLocalePath,
   resolvePublicRequestLocale,
 } from "@/lib/public-locale";
 
@@ -18,9 +19,12 @@ export function AppShell({ children }: Readonly<{ children: React.ReactNode }>) 
   const directorySearchRoute = pathname === "/foretag/listad" || pathname === "/en/companies";
   const directoryProfileRoute = pathname?.startsWith("/foretag/listad/")
     || pathname?.startsWith("/en/companies/");
+  const routeResolvedLocale = isRouteResolvedPublicLocalePath(pathname);
+
   useEffect(() => {
+    if (routeResolvedLocale) return;
     document.documentElement.lang = locale === "en" ? "en" : "sv";
-  }, [locale]);
+  }, [locale, routeResolvedLocale]);
 
   const isStandaloneRoute = pathname?.startsWith("/admin")
     || pathname?.startsWith("/dashboard")
