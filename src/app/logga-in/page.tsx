@@ -10,13 +10,23 @@ import {
   resolveAuthLocale,
   type AuthSearchParams,
 } from "@/lib/auth-locale";
+import authStyles from "@/components/auth/auth-marketplace.module.css";
 import { LoginForm } from "./LoginForm";
 
-export const metadata: Metadata = {
-  title: "Sign in | Proffera",
-  description: "Sign in to the Proffera customer portal.",
-  robots: { index: false, follow: false },
-};
+export async function generateMetadata({
+  searchParams,
+}: LoginPageProps): Promise<Metadata> {
+  const params = searchParams ? await searchParams : undefined;
+  const locale = resolveAuthLocale(params);
+
+  return {
+    title: locale === "en" ? "Sign in" : "Logga in",
+    description: locale === "en"
+      ? "Sign in to your Proffera business workspace."
+      : "Logga in till företagets arbetsyta i Proffera.",
+    robots: { index: false, follow: false },
+  };
+}
 
 type LoginPageProps = {
   searchParams?: Promise<AuthSearchParams & {
@@ -26,30 +36,30 @@ type LoginPageProps = {
 
 const copy = {
   sv: {
-    portal: "Proffera kundportal",
+    portal: "Företagsinloggning",
     heading: "Logga in till Proffera",
-    intro: "Logga in med ditt Proffera-konto för att komma åt dashboard, kunder, leads och bokningar.",
-    pilotTitle: "För pilotkunder",
-    pilotText: "Åtkomst öppnas när konto, workspace och behörigheter är aktiva.",
-    helpTitle: "Behöver du hjälp?",
-    helpText: "Kontakta Proffera för demo, onboarding eller planerad åtkomst.",
+    intro: "Logga in för att fortsätta till företagets arbetsyta och hantera kunder, bokningar, leads och uppdrag.",
+    highlights: [
+      "Kunder, bokningar och leads samlade i samma arbetsyta.",
+      "Fortsätt direkt till din arbetsyta efter inloggning.",
+    ],
+    signup: "Starta gratis i 14 dagar",
     demo: "Boka demo",
-    contact: "Kontakta Proffera",
-    created: "Kontot och kundportalen är klara. Logga in med ditt nya lösenord.",
+    created: "Kontot och arbetsytan är klara. Logga in med ditt nya lösenord.",
     reset: "Lösenordet är uppdaterat. Logga in med ditt nya lösenord.",
     languageLabel: "Språk",
   },
   en: {
-    portal: "Proffera customer portal",
+    portal: "Business sign-in",
     heading: "Sign in to Proffera",
-    intro: "Sign in with your Proffera account to access your dashboard, customers, leads and bookings.",
-    pilotTitle: "For pilot customers",
-    pilotText: "Access becomes available when your account, workspace and permissions are active.",
-    helpTitle: "Need help?",
-    helpText: "Contact Proffera for a demo, onboarding or planned access.",
+    intro: "Sign in to continue to your business workspace and manage customers, bookings, leads and jobs.",
+    highlights: [
+      "Customers, bookings and leads in one workspace.",
+      "Continue directly to your workspace after signing in.",
+    ],
+    signup: "Start a free 14-day trial",
     demo: "Book a demo",
-    contact: "Contact Proffera",
-    created: "Your account and customer portal are ready. Sign in with your new password.",
+    created: "Your account and workspace are ready. Sign in with your new password.",
     reset: "Your password has been updated. Sign in with your new password.",
     languageLabel: "Language",
   },
@@ -69,6 +79,9 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const locale = resolveAuthLocale(params);
   const text = copy[locale];
   const selectedPlan = isCheckoutPlanKey(planValue) ? planValue : null;
+  const signupBaseHref = locale === "en" ? "/en/create-account" : "/skapa-konto";
+  const signupHref = selectedPlan ? `${signupBaseHref}?plan=${selectedPlan}` : signupBaseHref;
+  const demoHref = locale === "en" ? "/en/demo" : "/demo";
   const afterLoginPath = nextValue ?? resolveOwnerPostLoginPath({
     locale,
     accountCreated: createdValue === "1",
@@ -76,37 +89,56 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   });
 
   return (
-    <main className="relative overflow-hidden bg-[#f7f7f4]" lang={locale === "sv" ? "sv" : "en"}>
-      <div className="absolute inset-x-0 top-0 h-80 bg-[radial-gradient(circle_at_12%_0%,rgba(139,195,157,0.28),transparent_35%),linear-gradient(180deg,#fff_0%,#f7f7f4_100%)]" />
-      <section className="relative mx-auto grid min-h-[calc(100vh-5rem)] max-w-7xl items-start gap-10 px-4 py-12 sm:px-6 lg:grid-cols-[1.05fr_0.95fr] lg:items-center lg:gap-16 lg:px-8 lg:py-20">
-        <div className="order-2 lg:order-1">
-          <div className="mb-7 flex items-center gap-3 text-sm" aria-label={text.languageLabel}>
-            <span className="font-semibold text-[#5b665f]">{text.languageLabel}:</span>
-            <Link href={authLocaleHref("/logga-in", params, "sv")} className={`rounded-full px-3 py-1.5 font-semibold ${locale === "sv" ? "bg-[#17452f] text-white" : "bg-white text-[#17452f] ring-1 ring-[#d7ded5]"}`}>SV</Link>
-            <Link href={authLocaleHref("/logga-in", params, "en")} className={`rounded-full px-3 py-1.5 font-semibold ${locale === "en" ? "bg-[#17452f] text-white" : "bg-white text-[#17452f] ring-1 ring-[#d7ded5]"}`}>EN</Link>
+    <div className={authStyles.page} lang={locale === "sv" ? "sv" : "en"}>
+      <section className={authStyles.shell}>
+        <div className={authStyles.split}>
+          <div>
+            <div className={authStyles.languageRow} aria-label={text.languageLabel}>
+              <span>{text.languageLabel}:</span>
+              <a
+                href={authLocaleHref("/logga-in", params, "sv")}
+                className={`${authStyles.languageLink} ${locale === "sv" ? authStyles.languageActive : ""}`}
+                aria-current={locale === "sv" ? "page" : undefined}
+              >
+                SV
+              </a>
+              <a
+                href={authLocaleHref("/logga-in", params, "en")}
+                className={`${authStyles.languageLink} ${locale === "en" ? authStyles.languageActive : ""}`}
+                aria-current={locale === "en" ? "page" : undefined}
+              >
+                EN
+              </a>
+            </div>
+
+            <p className={authStyles.eyebrow}>{text.portal}</p>
+            <h1 className={authStyles.title}>{text.heading}</h1>
+            <p className={authStyles.lead}>{text.intro}</p>
+
+            <ul className={authStyles.trustList}>
+              {text.highlights.map((item) => (
+                <li key={item} className={authStyles.trustItem}>
+                  <span className={authStyles.trustMark} aria-hidden="true">✓</span>
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+
+            <div className={authStyles.linkRow}>
+              <Link href={signupHref} className={authStyles.textLink}>{text.signup}</Link>
+              <Link href={demoHref} className={authStyles.textLink}>{text.demo}</Link>
+            </div>
           </div>
 
-          <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#17452f]">{text.portal}</p>
-          <h1 className="mt-4 max-w-3xl text-4xl font-bold leading-[1.08] tracking-[-0.04em] text-[#17201a] sm:text-5xl">{text.heading}</h1>
-          <p className="mt-5 max-w-2xl text-lg leading-8 text-[#5b665f]">{text.intro}</p>
-
-          <div className="mt-8 grid gap-3 text-sm text-[#344139] sm:grid-cols-2">
-            <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-[#dfe5dd]"><p className="font-semibold text-[#17201a]">{text.pilotTitle}</p><p className="mt-1 leading-6">{text.pilotText}</p></div>
-            <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-[#dfe5dd]"><p className="font-semibold text-[#17201a]">{text.helpTitle}</p><p className="mt-1 leading-6">{text.helpText}</p></div>
+          <div>
+            {createdValue === "1" ? <p className={authStyles.statusSuccess} role="status">{text.created}</p> : null}
+            {resetValue === "1" ? <p className={authStyles.statusSuccess} role="status">{text.reset}</p> : null}
+            <div className={createdValue === "1" || resetValue === "1" ? "mt-3" : undefined}>
+              <LoginForm afterLoginPath={afterLoginPath} locale={locale} />
+            </div>
           </div>
-
-          <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-            <Link href="/demo" className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[#17452f] px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#123824] focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2">{text.demo}</Link>
-            <Link href="/kontakt" className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[#17452f] bg-white px-6 py-3 text-sm font-semibold text-[#17452f] transition hover:bg-[#eef5ef] focus:outline-none focus:ring-2 focus:ring-[#17452f] focus:ring-offset-2">{text.contact}</Link>
-          </div>
-        </div>
-
-        <div className="order-1 w-full lg:order-2">
-          {createdValue === "1" ? <p className="mb-4 rounded-xl border border-[#b8d9c2] bg-[#eef8f0] px-4 py-3 text-sm font-semibold text-[#17452f]" role="status">{text.created}</p> : null}
-          {resetValue === "1" ? <p className="mb-4 rounded-xl border border-[#b8d9c2] bg-[#eef8f0] px-4 py-3 text-sm font-semibold text-[#17452f]" role="status">{text.reset}</p> : null}
-          <LoginForm afterLoginPath={afterLoginPath} locale={locale} />
         </div>
       </section>
-    </main>
+    </div>
   );
 }
