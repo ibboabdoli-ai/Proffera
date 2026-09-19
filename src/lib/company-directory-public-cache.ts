@@ -23,6 +23,7 @@ const PUBLIC_DIRECTORY_MISS_CACHE_NAMESPACE = "public-directory-miss-v2";
 const PUBLIC_DIRECTORY_ROUTING_MISS_CACHE_NAMESPACE = "public-directory-routing-miss-v2";
 const PUBLIC_DIRECTORY_PROFILE_GLOBAL_TAG = "public-directory-profile:v3:all";
 const PUBLIC_DIRECTORY_EXTRAS_GLOBAL_TAG = "public-directory-extras:v3:all";
+export const PUBLIC_DIRECTORY_LOCATION_SUGGESTIONS_CACHE_TAG = "public-directory-location-suggestions:v1";
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export type PublicDirectoryCacheDecision<T> = {
@@ -177,9 +178,14 @@ export function invalidateAllPublicDirectoryExtrasCaches() {
   activeAdapter().invalidate(PUBLIC_DIRECTORY_EXTRAS_GLOBAL_TAG);
 }
 
+export function invalidatePublishedDirectoryLocationSuggestionsCache() {
+  activeAdapter().invalidate(PUBLIC_DIRECTORY_LOCATION_SUGGESTIONS_CACHE_TAG);
+}
+
 export function invalidateAllPublicDirectoryPublicCaches() {
   invalidateAllPublicDirectoryProfileCaches();
   invalidateAllPublicDirectoryExtrasCaches();
+  invalidatePublishedDirectoryLocationSuggestionsCache();
 }
 
 export function invalidatePublicDirectoryProfileCache(slug: string) {
@@ -206,10 +212,12 @@ export function invalidatePublicDirectoryPublicProjection(input: {
 }) {
   invalidatePublicDirectoryProfileCache(input.slug);
   invalidatePublicDirectoryExtrasCache(input.profileId);
+  invalidatePublishedDirectoryLocationSuggestionsCache();
 }
 
 export async function invalidatePublicDirectoryPublicProjectionByProfileId(profileId: string) {
   const normalized = tagToken(profileId);
+  invalidatePublishedDirectoryLocationSuggestionsCache();
   if (!UUID_PATTERN.test(normalized)) {
     invalidateAllPublicDirectoryPublicCaches();
     return;
