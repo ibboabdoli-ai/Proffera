@@ -138,6 +138,6 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           </div>
         </div>
       </section>
-    </main>
+    </div>
   );
 }
