@@ -7,8 +7,8 @@ export default function manifest(): MetadataRoute.Manifest {
     description: "Kundportal för bokningar, leads och kundrelationer.",
     start_url: "/dashboard",
     display: "standalone",
-    background_color: "#f7f7f4",
-    theme_color: "#17452f",
+    background_color: "#f6f9fd",
+    theme_color: "#0a2e63",
     icons: [
       {
         src: "/brand/proffera-app-icon.svg",

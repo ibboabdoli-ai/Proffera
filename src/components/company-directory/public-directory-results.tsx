@@ -214,12 +214,15 @@ export function PublicDirectoryResults({
                 <MarketplaceCompanyCover
                   name={result.companyName}
                   url={trustedCardMedia?.url}
-                  illustration={false}
+                  illustration={!trustedCardMedia}
+                  serviceSlug={result.matchedServiceSlug}
                 />
                 <span className={styles.logoFloat}>
                   <MarketplaceCompanyLogo name={result.companyName} url={logoUrl} size="sm" />
                 </span>
-
+                {!trustedCardMedia ? (
+                  <span className={styles.illustrationBadge}>{t.illustration}</span>
+                ) : null}
               </div>
 
               <div className={styles.resultContent}>

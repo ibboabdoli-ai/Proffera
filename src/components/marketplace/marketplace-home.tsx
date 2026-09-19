@@ -325,14 +325,15 @@ export async function MarketplaceHome({ locale }: { locale: PublicLocale }) {
                   <div className={styles.companyCover}>
                     <MarketplaceCompanyCover
                       name={result.companyName}
-                      url={coverMedia?.url}
-                      illustration={coverMedia?.role === "illustration"}
+                      url={coverMedia?.role === "illustration" ? undefined : coverMedia?.url}
+                      illustration={coverMedia?.role === "illustration" || !coverMedia?.url}
+                      serviceSlug={result.matchedServiceSlug}
                     />
                     <span className={styles.verifiedBadge}>
                       <BadgeCheck aria-hidden="true" />
                       {t.verified}
                     </span>
-                    {coverMedia?.role === "illustration" ? (
+                    {coverMedia?.role === "illustration" || !coverMedia?.url ? (
                       <span className={styles.illustrationBadge}>{t.illustration}</span>
                     ) : null}
                   </div>
