@@ -108,7 +108,7 @@ export function Header({ locale }: HeaderProps) {
           ))}
         </nav>
 
-        <div className="hidden items-center gap-3 sm:flex">
+        <div className="hidden items-center gap-3 lg:flex">
           {alternateLocalePath ? (
             <a
               href={alternateLocalePath}
@@ -136,7 +136,7 @@ export function Header({ locale }: HeaderProps) {
           {marketplaceContext ? (
             <Link
               href={primaryHref}
-              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-[#0a2e63] px-4 text-sm font-black text-white transition hover:bg-[#082654] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1469d8] focus-visible:ring-offset-2"
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-[#0a2e63] px-4 text-sm font-black !text-white transition hover:bg-[#082654] hover:!text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1469d8] focus-visible:ring-offset-2"
             >
               {primaryLabel}<ArrowRight className="h-4 w-4" aria-hidden="true" />
             </Link>
@@ -197,7 +197,7 @@ export function Header({ locale }: HeaderProps) {
                 <Link
                   href={primaryHref}
                   onClick={closeMenu}
-                  className="mt-2 inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#0a2e63] px-4 text-sm font-black text-white"
+                  className="mt-2 inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#0a2e63] px-4 text-sm font-black !text-white"
                 >
                   {primaryLabel}<ArrowRight className="h-4 w-4" aria-hidden="true" />
                 </Link>
