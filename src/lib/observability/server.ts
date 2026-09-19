@@ -25,7 +25,8 @@ export type ObservabilityEvent = {
 function headerValue(headers: HeaderSource, name: string) {
   if (!headers) return null;
   if (headers instanceof Headers) return headers.get(name);
-  const direct = headers[name] ?? headers[name.toLowerCase()];
+  const direct = headers[name]
+    ?? Object.entries(headers).find(([key]) => key.toLowerCase() === name.toLowerCase())?.[1];
   if (Array.isArray(direct)) return direct[0] ?? null;
   return typeof direct === "string" ? direct : null;
 }
