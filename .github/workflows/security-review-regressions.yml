@@ -1,0 +1,99 @@
+name: Security review regressions
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, ready_for_review]
+    paths:
+      - "src/lib/marketplace-guest-quote.ts"
+      - "src/lib/company-directory-sole-trader-owner.ts"
+      - "src/lib/public-business-hub.ts"
+      - "src/app/foretag/[workspace]/page.tsx"
+      - "src/app/api/public-directory/claim-email/send/route.ts"
+      - "src/app/api/public-directory/claim-email/verify/route.ts"
+      - "src/lib/company-directory-claim-email.ts"
+      - "tests/marketplace-guest-address-redaction.test.ts"
+      - "tests/company-directory-sole-trader-publication-privacy.test.ts"
+      - "tests/company-directory-claim-email-concurrency.test.ts"
+      - "tests/company-directory-claim-email-concurrency.integration.test.ts"
+      - "package.json"
+      - "package-lock.json"
+      - ".npmrc"
+      - "vitest.config.ts"
+      - "tests/server-only-stub.ts"
+      - "db/migrations/**"
+      - "db/legacy-migrations/001_create_quote_requests.sql"
+      - "tests/fixtures/verified-review-production-prerequisites.sql"
+      - "tests/helpers/postgres-canonical-schema.ts"
+      - ".github/workflows/security-review-regressions.yml"
+      - ".github/workflows/proffera-automerge.yml"
+  push:
+    branches: [main]
+    paths:
+      - "src/lib/marketplace-guest-quote.ts"
+      - "src/lib/company-directory-sole-trader-owner.ts"
+      - "src/lib/public-business-hub.ts"
+      - "src/app/foretag/[workspace]/page.tsx"
+      - "src/app/api/public-directory/claim-email/send/route.ts"
+      - "src/app/api/public-directory/claim-email/verify/route.ts"
+      - "src/lib/company-directory-claim-email.ts"
+      - "tests/marketplace-guest-address-redaction.test.ts"
+      - "tests/company-directory-sole-trader-publication-privacy.test.ts"
+      - "tests/company-directory-claim-email-concurrency.test.ts"
+      - "tests/company-directory-claim-email-concurrency.integration.test.ts"
+      - "package.json"
+      - "package-lock.json"
+      - ".npmrc"
+      - "vitest.config.ts"
+      - "tests/server-only-stub.ts"
+      - "db/migrations/**"
+      - "db/legacy-migrations/001_create_quote_requests.sql"
+      - "tests/fixtures/verified-review-production-prerequisites.sql"
+      - "tests/helpers/postgres-canonical-schema.ts"
+      - ".github/workflows/security-review-regressions.yml"
+      - ".github/workflows/proffera-automerge.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-review-regressions-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  security_regressions:
+    name: Security review regressions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Marketplace customer-address redaction regression
+        run: ./node_modules/.bin/vitest run tests/marketplace-guest-address-redaction.test.ts --reporter=verbose
+
+      - name: Claim-email concurrency unit regressions
+        run: ./node_modules/.bin/vitest run tests/company-directory-claim-email-concurrency.test.ts --reporter=verbose
+
+      - name: Claim-email PostgreSQL concurrency proof
+        env:
+          PROFFERA_POSTGRES_INTEGRATION: "1"
+        run: ./node_modules/.bin/vitest run tests/company-directory-claim-email-concurrency.integration.test.ts --reporter=verbose
+
+      - name: Sole-trader publication privacy PostgreSQL proof
+        env:
+          PROFFERA_POSTGRES_INTEGRATION: "1"
+        run: ./node_modules/.bin/vitest run tests/company-directory-sole-trader-publication-privacy.test.ts --reporter=verbose
