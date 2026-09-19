@@ -141,6 +141,36 @@ describe("signup entry runtime behavior", () => {
     expect(navigate).toHaveBeenCalledWith("/dashboard");
   });
 
+  it("keeps successful account state when locale persistence is unavailable", async () => {
+    const signUpEmail = vi.fn().mockResolvedValue({ error: null });
+    const provision = vi.fn().mockResolvedValue({ ok: true, redirectPath: "/dashboard" });
+    const persistLocale = vi.fn(() => { throw new Error("storage unavailable"); });
+    const navigate = vi.fn();
+
+    const result = await submitSignup({
+      locale: "en",
+      accountReady: false,
+      contactName: "Owner",
+      companyName: "Acme AB",
+      email: "owner@example.com",
+      password: "password123",
+      city: "Stockholm",
+      phone: "",
+      plan: "starter",
+    }, {
+      signUpEmail,
+      provision,
+      persistLocale,
+      navigate,
+    });
+
+    expect(result).toEqual({ accountReady: true, error: null });
+    expect(signUpEmail).toHaveBeenCalledTimes(1);
+    expect(provision).toHaveBeenCalledTimes(1);
+    expect(persistLocale).toHaveBeenCalledWith("en");
+    expect(navigate).toHaveBeenCalledWith("/dashboard");
+  });
+
   it("keeps account-ready retry state and does not create the account twice", async () => {
     const signUpEmail = vi.fn().mockResolvedValue({ error: null });
     const provision = vi.fn()
