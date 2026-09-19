@@ -18,6 +18,8 @@ const localizedRoutes = [
   { sv: "/skapa-konto", en: "/en/create-account" },
   { sv: "/om", en: "/en/about" },
   { sv: "/kontakt", en: "/en/contact" },
+  { sv: "/hur-det-fungerar", en: "/en/how-it-works" },
+  { sv: "/kategorier", en: "/en/categories" },
   { sv: "/anslut-foretag", en: "/en/join-business" },
   { sv: "/anslut-foretag/registrera", en: "/en/join-business/register" },
   { sv: "/anslut-foretag/tack", en: "/en/join-business/thank-you" },

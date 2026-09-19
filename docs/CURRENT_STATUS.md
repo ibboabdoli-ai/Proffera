@@ -18,6 +18,7 @@ Do not pin the current `main` SHA or current Vercel deployment ID in this file: 
 The repository contains active production implementations for these major areas:
 
 - Better Auth sign-in/session handling and Workspace membership/RBAC.
+- Runtime observability uses privacy-minimized structured error events, per-request correlation IDs for proxied application traffic, Next request-error instrumentation, and a same-origin client global-error endpoint with bounded streamed request bodies. Raw client error messages, stacks, query strings, URL fragments, and tokenized raw server request paths are intentionally excluded; Vercel runtime logs remain the current operational sink.
 - Better Auth password recovery uses the built-in single-use reset-token flow with a 60-minute expiry, revokes prior sessions after a successful reset, applies dedicated request/reset endpoint rate limits, and exposes bilingual Swedish/English recovery UI. Password-reset email delivery reuses the existing Brevo runtime/Preview isolation boundary. Reset tokens are placed in the browser URL fragment rather than the request path/query, are scrubbed from the address bar before submission, and are not projected into PostHog pageview data. Source/CI proof is not a claim that outbound reset email has been exercised in Production; Preview/Production runtime proof remains governed by the V1 evidence contract and environment approval gates.
 - Workspace-scoped Dashboard data for customers, bookings, leads, offers, reviews, billing and service work.
 - Public Booking, availability, email verification, booking management and customer portal foundations.
@@ -73,6 +74,8 @@ Current merge-safety rules include:
 - required `E2E public smoke` check;
 - no force push / protected default branch behavior;
 - gated automerge can use either an owner-applied `ibbo-approved` label backed by a repository-owner `APPROVED` review on the exact current head, or a scoped standing merge authorization committed on `main`; standing authorization is limited to trusted same-repository owner-authored PRs and never removes current-head CI/review/head-SHA gates or authorizes blocked sensitive paths.
+
+A repository-owned release rollback runbook and read-only dry-run validator now require an exact known-good Vercel deployment/SHA, explicit database-impact classification, and exact-SHA post-rollback health verification. The standard path never performs a database down-migration automatically; destructive or unknown database impact is blocked pending a separate approved recovery plan.
 
 Production release health is bound to the exact merged `main` commit rather than to a generic scheduled probe. GitHub-token merges do not reliably generate downstream `push` workflow runs, so gated automerge emits a `repository_dispatch` event only after a successful merge and includes the resolved merge commit SHA. The Production health workflow rejects a dispatch whose SHA is missing, malformed or no longer equals the default-branch head, waits for the matching Vercel deployment, and requires that deployed SHA plus schema health to pass. The trusted PR-base gate accepts successful exact-base health evidence from either a normal `push` run or this repository-dispatch handoff; scheduled health remains supplemental rather than proof for a specific PR base.
 
