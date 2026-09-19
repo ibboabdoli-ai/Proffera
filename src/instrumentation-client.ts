@@ -14,7 +14,7 @@ Sentry.init({
   enabled: Boolean(dsn),
   sendDefaultPii: false,
   tracesSampleRate: dsn ? 0.02 : 0,
-  environment: process.env.NEXT_PUBLIC_VERCEL_ENV ?? process.env.NODE_ENV,
+  environment: process.env.NEXT_PUBLIC_SENTRY_ENVIRONMENT ?? process.env.NODE_ENV,
   beforeSend: scrubSentryEvent,
   beforeSendTransaction: scrubSentryTransaction,
   beforeBreadcrumb: scrubSentryBreadcrumb,
