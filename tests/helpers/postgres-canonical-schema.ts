@@ -22,6 +22,14 @@ async function createHistoricalBootstrapPrerequisites(client: Client) {
       id uuid primary key default gen_random_uuid()
     );
   `);
+
+  // feature_catalog is also a historical Production prerequisite. The active
+  // chain references only its identity while creating feature overrides.
+  await client.query(`
+    create table if not exists feature_catalog (
+      feature_key text primary key
+    );
+  `);
 }
 
 async function createExternalBootstrapPrerequisites(client: Client) {
