@@ -169,6 +169,9 @@ button:disabled {
 :where(a, button)[class*="bg-[#173e2b]"],
 :where(a, button)[class*="bg-[#142b20]"],
 :where(a, button)[class*="bg-[#102d20]"],
+:where(a, button)[class~="bg-[#0a2e63]"],
+:where(a, button)[class~="bg-[#0a3c8f]"],
+:where(a, button)[class~="bg-[#1469d8]"],
 :where(a, button)[class~="bg-brand"],
 :where(a, button)[class~="bg-brand-deep"] {
   color: #ffffff !important;
