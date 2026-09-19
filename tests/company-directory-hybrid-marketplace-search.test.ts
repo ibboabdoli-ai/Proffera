@@ -86,6 +86,9 @@ describe("hybrid directory marketplace search", () => {
     expect(searchSource).toContain("profile.published_at is not null");
     expect(searchSource).toContain("profile.auto_public_eligible = true");
     expect(searchSource).toContain("claimed_workspace.status in ('active', 'trial')");
+    expect(searchSource).toContain("claimed_facts.last_synced_at >= profile.last_synced_at");
+    expect(searchSource).toContain("claimed_scb.last_synced_at >= now() - interval '7 days'");
+    expect(searchSource).toContain("comparisonSnapshot,profileUpdatedToken");
     expect(searchSource).toContain("profile.is_active = true");
     expect(searchSource).toContain("profile.privacy_blocked = false");
   });
@@ -96,6 +99,9 @@ describe("hybrid directory marketplace search", () => {
     expect(publicDataSource).toContain("profile.published_at is not null");
     expect(publicDataSource).toContain("profile.auto_public_eligible = true");
     expect(publicDataSource).toContain("profile.privacy_blocked = false");
+    expect(publicDataSource).toContain("claimed_facts.last_synced_at >= profile.last_synced_at");
+    expect(publicDataSource).toContain("claimed_scb.last_synced_at >= now() - interval '7 days'");
+    expect(publicDataSource).toContain("comparisonSnapshot,profileUpdatedToken");
   });
 
   it("only upgrades a claimed result to Marketplace actions with an exact published workspace-service mapping", () => {
