@@ -29,6 +29,22 @@ const copy = {
   },
 } as const;
 
+export function passwordResetRedirectTo(locale: PasswordResetLocale) {
+  return locale === "en" ? "/aterstall-losenord?lang=en" : "/aterstall-losenord";
+}
+
+export async function submitPasswordResetRequest(
+  email: string,
+  locale: PasswordResetLocale,
+  requestPasswordReset: (input: { email: string; redirectTo: string }) => Promise<{ error?: unknown }>,
+) {
+  const result = await requestPasswordReset({
+    email: email.trim().toLowerCase(),
+    redirectTo: passwordResetRedirectTo(locale),
+  });
+  return { ok: !result.error };
+}
+
 export function PasswordResetRequestForm({ locale }: { locale: PasswordResetLocale }) {
   const text = copy[locale];
   const [email, setEmail] = useState("");
@@ -43,15 +59,12 @@ export function PasswordResetRequestForm({ locale }: { locale: PasswordResetLoca
     setIsPending(true);
     setErrorMessage(null);
     try {
-      const normalizedEmail = email.trim().toLowerCase();
-      const redirectTo = locale === "en"
-        ? "/aterstall-losenord?lang=en"
-        : "/aterstall-losenord";
-      const { error } = await authClient.requestPasswordReset({
-        email: normalizedEmail,
-        redirectTo,
-      });
-      if (error) {
+      const result = await submitPasswordResetRequest(
+        email,
+        locale,
+        (input) => authClient.requestPasswordReset(input),
+      );
+      if (!result.ok) {
         setErrorMessage(text.error);
         setIsPending(false);
         return;
