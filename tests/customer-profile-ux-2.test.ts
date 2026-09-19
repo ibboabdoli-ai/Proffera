@@ -42,7 +42,7 @@ describe("Customer CRM UX 2.0", () => {
     expect(page).toContain("jsonb_build_object('source', 'dashboard_manual')");
     expect(page).toContain('name="title"');
     expect(page).toContain('name="note"');
-    expect(page).toContain("bg-brand-deep");
+    expect(page).toContain("bg-brand-tint");
     expect(page).toContain("rounded-panel");
     expect(page).toContain("border-line");
     expect(page).not.toMatch(migratedCustomerHex);

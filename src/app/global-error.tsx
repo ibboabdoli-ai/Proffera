@@ -1,5 +1,6 @@
 "use client";
 
+import * as Sentry from "@sentry/nextjs";
 import { useEffect, useSyncExternalStore } from "react";
 
 import { getPublicLocale, type PublicLocale } from "@/lib/public-locale";
@@ -61,6 +62,8 @@ export function resolveGlobalErrorPresentation(
 
 function reportGlobalError(error: GlobalErrorProps["error"]) {
   if (process.env.NODE_ENV !== "production") return;
+
+  Sentry.captureException(error);
 
   const payload = JSON.stringify({
     name: error.name || "Error",

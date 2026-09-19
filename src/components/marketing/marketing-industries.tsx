@@ -1,16 +1,15 @@
 import type { LucideIcon } from "lucide-react";
 import {
-  ArrowRight,
   CalendarCheck2,
   CheckCircle2,
   FileText,
   House,
   MessageSquareText,
   Scissors,
-  Sparkles,
   Wrench,
 } from "lucide-react";
 
+import styles from "@/components/marketing/platform-marketing.module.css";
 import { ButtonLink } from "@/components/ui/button-link";
 import type { PublicLocale } from "@/lib/public-locale";
 
@@ -135,27 +134,104 @@ export function MarketingIndustries({ locale }: { locale: PublicLocale }) {
   const demoHref = locale === "en" ? "/en/demo" : "/demo";
 
   return (
-    <div className="overflow-hidden bg-[#f6f8f4]">
-      <section className="border-b border-[#e1e7df] bg-white">
-        <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8 lg:py-24">
-          <p className="text-sm font-black uppercase tracking-[0.16em] text-[#17452f]">{t.eyebrow}</p>
-          <h1 className="mt-4 max-w-4xl text-4xl font-black leading-[1.05] tracking-[-0.04em] text-[#17201a] sm:text-5xl">{t.title}</h1>
-          <p className="mt-5 max-w-3xl text-lg leading-8 text-[#5b665f]">{t.intro}</p>
-          <div className="mt-8 flex flex-col gap-3 sm:flex-row"><ButtonLink href={signupHref}>{t.primary}</ButtonLink><ButtonLink href={demoHref} variant="secondary">{t.secondary}</ButtonLink></div>
+    <main className={styles.page} lang={locale}>
+      <section className={styles.hero}>
+        <div className={styles.inner}>
+          <p className={styles.eyebrow}>{t.eyebrow}</p>
+          <h1 className={styles.title}>{t.title}</h1>
+          <p className={styles.lead}>{t.intro}</p>
+          <div className={styles.actions}>
+            <ButtonLink href={signupHref}>{t.primary}</ButtonLink>
+            <ButtonLink href={demoHref} variant="secondary">{t.secondary}</ButtonLink>
+          </div>
         </div>
       </section>
 
-      <section className="mx-auto max-w-7xl px-4 py-20 sm:px-6 lg:px-8">
-        <div className="grid gap-5 md:grid-cols-2">{t.industries.map(({ icon: Icon, title, description, examples, primaryFlow }) => <article key={title} className="rounded-[1.8rem] border border-[#dfe5dd] bg-white p-6 shadow-sm sm:p-7"><div className="flex items-start justify-between gap-4"><span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#eaf2ec] text-[#17452f]"><Icon className="h-6 w-6" /></span><span className="rounded-full bg-[#f1f5f1] px-3 py-1.5 text-xs font-black text-[#42604e]">{primaryFlow}</span></div><h2 className="mt-5 text-2xl font-black tracking-tight text-[#17201a]">{title}</h2><p className="mt-2 text-sm leading-6 text-[#667168]">{description}</p><div className="mt-5 flex flex-wrap gap-2">{examples.map((example) => <span key={example} className="rounded-full border border-[#dde4dc] bg-[#fbfcfa] px-3 py-1.5 text-xs font-bold text-[#536158]">{example}</span>)}</div></article>)}</div>
+      <section className={styles.sectionWhite}>
+        <div className={styles.compactInner}>
+          <div className={styles.sectionHeader}>
+            <div>
+              <p className={styles.eyebrow}>{locale === "en" ? "Service businesses" : "Tjänsteföretag"}</p>
+              <h2 className={styles.sectionTitle}>{locale === "en" ? "Different industries, the same connected customer workflow." : "Olika branscher, samma sammanhängande kundflöde."}</h2>
+            </div>
+            <p className={styles.sectionLead}>{locale === "en" ? "The public next step can differ by service while customer history and operational work stay together." : "Kundens nästa steg kan skilja sig mellan tjänster medan historik och operativt arbete hålls ihop."}</p>
+          </div>
+
+          <ul className={styles.editorialList}>
+            {t.industries.map(({ icon: Icon, title, description, examples, primaryFlow }) => (
+              <li key={title} className={styles.editorialRow}>
+                <span className={styles.rowMarker}><Icon aria-hidden="true" /></span>
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className={styles.rowTitle}>{title}</h3>
+                    <span className="rounded-md border border-[#cddbeb] bg-[#f8fbff] px-2 py-1 text-[11px] font-black text-[#0a2e63]">{primaryFlow}</span>
+                  </div>
+                  <p className={styles.rowText}>{description}</p>
+                  <ul className={styles.sublist}>
+                    {examples.map((example) => (
+                      <li key={example}><CheckCircle2 aria-hidden="true" /><span>{example}</span></li>
+                    ))}
+                  </ul>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
       </section>
 
-      <section className="border-y border-[#e1e7df] bg-white py-20">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8"><div className="max-w-3xl"><p className="text-sm font-black uppercase tracking-[0.14em] text-[#17452f]">{t.modelEyebrow}</p><h2 className="mt-3 text-3xl font-black tracking-[-0.03em] text-[#17201a]">{t.modelTitle}</h2><p className="mt-4 text-base leading-7 text-[#5b665f]">{t.modelLead}</p></div><div className="mt-8 grid gap-4 md:grid-cols-3">{t.models.map(({ icon: Icon, title, text }) => <article key={title} className="rounded-3xl border border-[#dfe5dd] bg-[#f9fbf8] p-6"><Icon className="h-6 w-6 text-[#17452f]" /><h3 className="mt-5 text-xl font-black text-[#17201a]">{title}</h3><p className="mt-2 text-sm leading-6 text-[#667168]">{text}</p></article>)}</div></div>
+      <section className={styles.sectionSoft}>
+        <div className={styles.compactInner}>
+          <div className={styles.sectionHeader}>
+            <div>
+              <p className={styles.eyebrow}>{t.modelEyebrow}</p>
+              <h2 className={styles.sectionTitle}>{t.modelTitle}</h2>
+            </div>
+            <p className={styles.sectionLead}>{t.modelLead}</p>
+          </div>
+          <div className={styles.featureColumns}>
+            {t.models.map(({ icon: Icon, title, text }) => (
+              <article key={title} className={styles.featureColumn}>
+                <Icon aria-hidden="true" />
+                <h3>{title}</h3>
+                <p>{text}</p>
+              </article>
+            ))}
+          </div>
+        </div>
       </section>
 
-      <section className="mx-auto max-w-7xl px-4 py-20 sm:px-6 lg:px-8"><div className="grid gap-8 rounded-[2rem] bg-[#102a1c] p-8 text-white sm:p-10 lg:grid-cols-[.75fr_1.25fr] lg:items-center"><div><p className="text-sm font-black uppercase tracking-[0.14em] text-[#bfd1c4]">{t.commonEyebrow}</p><h2 className="mt-3 text-3xl font-black tracking-tight">{t.commonTitle}</h2></div><ul className="grid gap-3 sm:grid-cols-2">{t.commonItems.map((item) => <li key={item} className="flex items-start gap-3 rounded-2xl bg-white/[0.07] p-4 text-sm font-semibold text-white/85"><CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-[#e8c678]" />{item}</li>)}</ul></div></section>
+      <section className={styles.sectionWhite}>
+        <div className={styles.compactInner}>
+          <div className={styles.sectionHeader}>
+            <div>
+              <p className={styles.eyebrow}>{t.commonEyebrow}</p>
+              <h2 className={styles.sectionTitle}>{t.commonTitle}</h2>
+            </div>
+            <p className={styles.sectionLead}>{locale === "en" ? "The operating model stays consistent even when the first customer action differs." : "Arbetssättet bakom kulisserna är konsekvent även när första kundsteget skiljer sig."}</p>
+          </div>
+          <ul className={styles.editorialList}>
+            {t.commonItems.map((item, index) => (
+              <li key={item} className={styles.editorialRow}>
+                <span className={styles.rowIndex}>{String(index + 1).padStart(2, "0")}</span>
+                <div><h3 className={styles.rowTitle}>{item}</h3></div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </section>
 
-      <section className="border-t border-[#e1e7df] bg-white"><div className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-16 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8"><div><div className="flex items-center gap-2 text-[#17452f]"><Sparkles className="h-5 w-5" /><span className="text-xs font-black uppercase tracking-[0.12em]">Proffera</span></div><h2 className="mt-3 text-3xl font-black tracking-tight text-[#17201a]">{t.finalTitle}</h2><p className="mt-3 max-w-2xl text-base leading-7 text-[#5b665f]">{t.finalText}</p></div><div className="flex flex-col gap-3 sm:flex-row"><ButtonLink href={signupHref}>{t.finalPrimary}</ButtonLink><ButtonLink href={demoHref} variant="secondary">{t.finalSecondary}</ButtonLink></div></div></section>
-    </div>
+      <section className={styles.sectionSoft}>
+        <div className={styles.compactInner}>
+          <div className={styles.ctaBand}>
+            <h2>{t.finalTitle}</h2>
+            <p>{t.finalText}</p>
+            <div className={styles.actions}>
+              <ButtonLink href={signupHref}>{t.finalPrimary}</ButtonLink>
+              <ButtonLink href={demoHref} variant="secondary">{t.finalSecondary}</ButtonLink>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
   );
 }
