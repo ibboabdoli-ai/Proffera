@@ -7,11 +7,6 @@ import authStyles from "@/components/auth/auth-marketplace.module.css";
 import { getWorkspaceMemberInvitation } from "@/features/company/workspace-member-invitation";
 import { acceptMemberInvitationAction } from "./actions";
 
-export const metadata: Metadata = {
-  title: "Join workspace | Gå med i arbetsyta",
-  robots: { index: false, follow: false },
-};
-
 type Locale = "sv" | "en";
 
 const copy = {
@@ -65,13 +60,25 @@ function inviteHref(token: string, locale: Locale) {
     : `/bjud-in/${encodeURIComponent(token)}`;
 }
 
+type PageProps = {
+  params: Promise<{ token: string }>;
+  searchParams?: Promise<{ error?: string | string[]; lang?: string | string[] }>;
+};
+
+export async function generateMetadata({ searchParams }: PageProps): Promise<Metadata> {
+  const query = searchParams ? await searchParams : undefined;
+  const locale: Locale = first(query?.lang) === "en" ? "en" : "sv";
+
+  return {
+    title: locale === "en" ? "Join workspace" : "Gå med i arbetsyta",
+    robots: { index: false, follow: false },
+  };
+}
+
 export default async function MemberInvitePage({
   params,
   searchParams,
-}: {
-  params: Promise<{ token: string }>;
-  searchParams?: Promise<{ error?: string | string[]; lang?: string | string[] }>;
-}) {
+}: PageProps) {
   const [{ token }, query] = await Promise.all([
     params,
     searchParams ?? Promise.resolve(undefined),
@@ -86,13 +93,13 @@ export default async function MemberInvitePage({
 
   if (!invite) {
     return (
-      <main className={authStyles.page} lang={locale}>
+      <div className={authStyles.page} lang={locale}>
         <section className={authStyles.shell}>
           <div className={authStyles.single}>
             <div className={authStyles.languageRow} aria-label={text.language}>
               <span>{text.language}:</span>
-              <Link href={inviteHref(token, "sv")} className={`${authStyles.languageLink} ${locale === "sv" ? authStyles.languageActive : ""}`}>SV</Link>
-              <Link href={inviteHref(token, "en")} className={`${authStyles.languageLink} ${locale === "en" ? authStyles.languageActive : ""}`}>EN</Link>
+              <a href={inviteHref(token, "sv")} className={`${authStyles.languageLink} ${locale === "sv" ? authStyles.languageActive : ""}`} aria-current={locale === "sv" ? "page" : undefined}>SV</a>
+              <a href={inviteHref(token, "en")} className={`${authStyles.languageLink} ${locale === "en" ? authStyles.languageActive : ""}`} aria-current={locale === "en" ? "page" : undefined}>EN</a>
             </div>
             <section className={authStyles.card}>
               <p className={authStyles.cardEyebrow}>{text.eyebrow}</p>
@@ -104,20 +111,20 @@ export default async function MemberInvitePage({
             </section>
           </div>
         </section>
-      </main>
+      </div>
     );
   }
 
   const action = acceptMemberInvitationAction.bind(null, token);
 
   return (
-    <main className={authStyles.page} lang={locale}>
+    <div className={authStyles.page} lang={locale}>
       <section className={authStyles.shell}>
         <div className={authStyles.single}>
           <div className={authStyles.languageRow} aria-label={text.language}>
             <span>{text.language}:</span>
-            <Link href={inviteHref(token, "sv")} className={`${authStyles.languageLink} ${locale === "sv" ? authStyles.languageActive : ""}`}>SV</Link>
-            <Link href={inviteHref(token, "en")} className={`${authStyles.languageLink} ${locale === "en" ? authStyles.languageActive : ""}`}>EN</Link>
+            <a href={inviteHref(token, "sv")} className={`${authStyles.languageLink} ${locale === "sv" ? authStyles.languageActive : ""}`} aria-current={locale === "sv" ? "page" : undefined}>SV</a>
+            <a href={inviteHref(token, "en")} className={`${authStyles.languageLink} ${locale === "en" ? authStyles.languageActive : ""}`} aria-current={locale === "en" ? "page" : undefined}>EN</a>
           </div>
 
           <section className={authStyles.card}>
@@ -142,6 +149,6 @@ export default async function MemberInvitePage({
           </section>
         </div>
       </section>
-    </main>
+    </div>
   );
 }
