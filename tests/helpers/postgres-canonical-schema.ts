@@ -5,6 +5,7 @@ import type { Client } from "pg";
 
 const MIGRATIONS_DIR = join(process.cwd(), "db/migrations");
 const LEGACY_MIGRATIONS_DIR = join(process.cwd(), "db/legacy-migrations");
+const VERIFIED_REVIEW_PREREQUISITES_BEFORE = "20260807_0032_website_review_responses.sql";
 const EXTERNAL_BOOTSTRAP_BEFORE = "20260809_0036_public_business_hub.sql";
 
 async function createHistoricalBootstrapPrerequisites(client: Client) {
@@ -51,6 +52,10 @@ async function createExternalBootstrapPrerequisites(client: Client) {
       new_value jsonb,
       created_at timestamptz not null default now()
     );
+
+    alter table admin_audit_logs
+      add column if not exists workspace_id uuid,
+      add column if not exists previous_value jsonb;
   `);
 }
 
@@ -62,9 +67,18 @@ export async function applyCanonicalProfferaMigrations(client: Client) {
 
   await createHistoricalBootstrapPrerequisites(client);
 
+  let verifiedReviewPrerequisitesReady = false;
   let externalPrerequisitesReady = false;
 
   for (const file of migrationFiles) {
+    if (!verifiedReviewPrerequisitesReady && file >= VERIFIED_REVIEW_PREREQUISITES_BEFORE) {
+      const prerequisites = readFileSync(
+        join(process.cwd(), "tests/fixtures/verified-review-production-prerequisites.sql"),
+        "utf8",
+      );
+      await client.query(prerequisites);
+      verifiedReviewPrerequisitesReady = true;
+    }
     if (!externalPrerequisitesReady && file >= EXTERNAL_BOOTSTRAP_BEFORE) {
       await createExternalBootstrapPrerequisites(client);
       externalPrerequisitesReady = true;
