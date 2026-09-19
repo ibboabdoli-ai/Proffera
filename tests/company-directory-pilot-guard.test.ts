@@ -45,6 +45,20 @@ describe("company directory pilot database guard", () => {
     expect(sql).toContain("insert into proffera_schema_migrations");
   });
 
+  it("backfills legacy location-derived auto-public eligibility without publishing rows", () => {
+    const sql = source("db/migrations/20260919_0069_company_directory_non_location_eligibility_backfill.sql");
+
+    expect(sql).toContain("set auto_public_eligible = true");
+    expect(sql).toContain("organization_kind = 'juridical_person'");
+    expect(sql).toContain("is_active = true");
+    expect(sql).toContain("privacy_blocked = false");
+    expect(sql).toContain("category_slug");
+    expect(sql).toContain("primary_sni_not_confirmed");
+    expect(sql).not.toContain("set publication_status = 'published'");
+    expect(sql).toContain("'20260919_0069'");
+    expect(sql).toContain("insert into proffera_schema_migrations");
+  });
+
   it("keeps every database pilot-location list synchronized with the canonical policy", () => {
     const sql = source("db/migrations/20260919_0068_company_directory_pilot_workplace_guard.sql");
     const lists = [...sql.matchAll(/\bin\s*\(([^)]+)\)/gu)]

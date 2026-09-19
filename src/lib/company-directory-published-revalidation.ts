@@ -84,17 +84,30 @@ async function startRun() {
   `;
 
   const rows = await sql`
-    insert into company_directory_sync_runs (provider, status)
-    values (${REVALIDATION_PROVIDER}, 'running')
+    insert into company_directory_sync_runs (provider, status, cursor_value)
+    values (
+      ${REVALIDATION_PROVIDER},
+      'running',
+      coalesce((
+        select previous.cursor_value
+        from company_directory_sync_runs previous
+        where previous.provider = ${REVALIDATION_PROVIDER}
+          and previous.status <> 'running'
+        order by previous.started_at desc
+        limit 1
+      ), '')
+    )
     on conflict do nothing
-    returning id::text
+    returning id::text, cursor_value
   `;
 
-  return text(rows[0]?.id) || null;
+  const runId = text(rows[0]?.id);
+  return runId ? { runId, cursorValue: text(rows[0]?.cursor_value) } : null;
 }
 
 async function finishRun(input: {
   runId: string;
+  cursorValue: string;
   selected: number;
   revalidated: number;
   keptPublished: number;
@@ -109,6 +122,7 @@ async function finishRun(input: {
   await sql`
     update company_directory_sync_runs
     set status = ${input.failed ? "failed" : "completed"},
+        cursor_value = ${input.cursorValue},
         scanned_count = ${input.selected},
         upserted_count = ${input.revalidated},
         published_count = ${input.keptPublished},
@@ -120,12 +134,16 @@ async function finishRun(input: {
   `;
 }
 
-async function selectCandidates(limit: number) {
+async function selectCandidates(limit: number, cursorValue: string) {
   const sql = getSql();
   if (!sql) throw new Error("Database is not configured");
 
   return await sql`
-    select profile.id::text, profile.organization_number, profile.display_name
+    select
+      profile.id::text,
+      profile.organization_number,
+      profile.display_name,
+      regexp_replace(profile.organization_number, '\\D', '', 'g') as normalized_organization_number
     from company_directory_profiles profile
     left join company_directory_official_facts facts on facts.profile_id = profile.id
     left join company_directory_scb_enrichment scb on scb.profile_id = profile.id
@@ -166,10 +184,12 @@ async function selectCandidates(limit: number) {
         )
       )
     order by
-      case when facts.profile_id is null then 0 else 1 end,
-      case when scb.profile_id is null then 0 else 1 end,
-      scb.last_synced_at asc nulls first,
-      profile.organization_number asc
+      case
+        when ${cursorValue} = '' then 0
+        when regexp_replace(profile.organization_number, '\\D', '', 'g') > ${cursorValue} then 0
+        else 1
+      end,
+      regexp_replace(profile.organization_number, '\\D', '', 'g') asc
     limit ${limit}
   `;
 }
@@ -380,8 +400,8 @@ export async function revalidatePublishedCompanyDirectoryBatch(
     };
   }
 
-  const runId = await startRun();
-  if (!runId) {
+  const run = await startRun();
+  if (!run) {
     return {
       skipped: true,
       reason: "already_running",
@@ -397,6 +417,8 @@ export async function revalidatePublishedCompanyDirectoryBatch(
     };
   }
 
+  const runId = run.runId;
+  let cursorValue = run.cursorValue;
   let candidates: Awaited<ReturnType<typeof selectCandidates>> = [];
   let revalidated = 0;
   let keptPublished = 0;
@@ -407,7 +429,7 @@ export async function revalidatePublishedCompanyDirectoryBatch(
   const reviewMessages: string[] = [];
 
   try {
-    candidates = await selectCandidates(safeLimit);
+    candidates = await selectCandidates(safeLimit, cursorValue);
 
     candidateLoop:
     for (let index = 0; index < candidates.length; index += 1) {
@@ -418,7 +440,8 @@ export async function revalidatePublishedCompanyDirectoryBatch(
 
       const candidate = candidates[index];
       const profileId = text(candidate.id);
-      const organizationNumber = text(candidate.organization_number).replace(/\D/g, "");
+      const organizationNumber = text(candidate.normalized_organization_number || candidate.organization_number).replace(/\D/g, "");
+      if (organizationNumber.length === 10) cursorValue = organizationNumber;
       if (!profileId || organizationNumber.length !== 10) {
         errors += 1;
         if (errorMessages.length < 5) errorMessages.push("Published revalidation candidate is invalid");
@@ -550,6 +573,7 @@ export async function revalidatePublishedCompanyDirectoryBatch(
     const errorSummary = errorMessages.join(" | ");
     await finishRun({
       runId,
+      cursorValue,
       selected: candidates.length,
       revalidated,
       keptPublished,
@@ -575,6 +599,7 @@ export async function revalidatePublishedCompanyDirectoryBatch(
     const message = error instanceof Error ? error.message : "Published revalidation failed";
     await finishRun({
       runId,
+      cursorValue,
       selected: candidates.length,
       revalidated,
       keptPublished,

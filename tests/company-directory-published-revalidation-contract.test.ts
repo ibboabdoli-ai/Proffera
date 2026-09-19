@@ -124,7 +124,7 @@ function configureCandidateSql(input: {
 
   sqlResponder = async (query) => {
     if (query.includes("started_at < now() - interval '10 minutes'")) return [];
-    if (query.includes("insert into company_directory_sync_runs")) return [{ id: RUN_ID }];
+    if (query.includes("insert into company_directory_sync_runs")) return [{ id: RUN_ID, cursor_value: "" }];
     if (query.includes("select profile.id::text, profile.organization_number, profile.display_name")) {
       return [candidateRow()];
     }
@@ -236,7 +236,7 @@ describe("published Directory revalidation worker", () => {
   it("finalizes the lease immediately when candidate selection throws", async () => {
     sqlResponder = async (query) => {
       if (query.includes("started_at < now() - interval '10 minutes'")) return [];
-      if (query.includes("insert into company_directory_sync_runs")) return [{ id: RUN_ID }];
+      if (query.includes("insert into company_directory_sync_runs")) return [{ id: RUN_ID, cursor_value: "" }];
       if (query.includes("select profile.id::text, profile.organization_number, profile.display_name")) {
         throw new Error("selection failed");
       }
@@ -280,6 +280,10 @@ describe("published Directory revalidation worker", () => {
       call.query.includes("select profile.id::text, profile.organization_number, profile.display_name")
     ));
     expect(selection?.query).toContain("profile.publication_status = 'published'");
+    expect(selection?.query).toContain("normalized_organization_number");
+    expect(selection?.query).toContain("regexp_replace(profile.organization_number");
+    expect(selection?.query).toContain("then 0");
+    expect(selection?.query).toContain("else 1");
     expect(selection?.query).toContain("profile.claimed_workspace_id is null");
     expect(selection?.query).toContain("jsonb_typeof(scb.workplaces) = 'array'");
     expect(selection?.query).toContain("then scb.workplaces");
@@ -300,6 +304,23 @@ describe("published Directory revalidation worker", () => {
     expect(evaluation?.query).toContain("scb.last_synced_at >= now() - interval '7 days'");
     expect(evaluation?.query).toContain("case when jsonb_typeof(scb.conflicts) = 'array'");
     expect(evaluation?.query).toContain("else 1");
+  });
+
+  it("advances the durable cursor even when a stale candidate fails refresh", async () => {
+    configureCandidateSql();
+    mocks.enrichScb.mockRejectedValueOnce(new Error("deterministic SCB failure"));
+
+    await expect(revalidatePublishedCompanyDirectoryBatch(1)).resolves.toMatchObject({
+      selected: 1,
+      errors: 1,
+    });
+
+    const finish = sqlCalls.find((call) => (
+      call.query.includes("update company_directory_sync_runs")
+      && call.query.includes("cursor_value =")
+      && call.query.includes("where id =")
+    ));
+    expect(finish?.values).toContain("5563115707");
   });
 
   it("moves a fresh high-confidence profile to Review when the physical workplace is outside the pilot", async () => {
