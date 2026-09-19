@@ -79,7 +79,8 @@
 }
 
 .languageButton,
-.headerBook {
+.headerBook,
+.directBook {
   display: inline-flex;
   min-height: 40px;
   align-items: center;
@@ -97,7 +98,8 @@
   color: var(--business-text, var(--proffera-ink));
 }
 
-.headerBook {
+.headerBook,
+.directBook {
   background: var(--business-primary);
   color: #fff;
 }
@@ -618,6 +620,7 @@
   .serviceCard,
   .languageButton,
   .headerBook,
+  .directBook,
   .primaryAction,
   .secondaryAction {
     transition: none !important;
