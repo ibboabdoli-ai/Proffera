@@ -51,6 +51,7 @@ import {
 import { AppShell } from "../src/components/layout/app-shell";
 import { Header } from "../src/components/layout/header";
 import {
+  activationDocumentTitle,
   authLocaleHref,
   authRedirectHref,
   authRedirectQuery,
@@ -176,6 +177,17 @@ describe("mobile PWA and auth language contract", () => {
     expect(successUrl.searchParams.get("campaign")).toBe("launch");
     expect(successUrl.searchParams.get("created")).toBe("1");
     expect(successUrl.searchParams.has("error")).toBe(false);
+  });
+
+  it("keeps activation browser titles localized without duplicating the brand suffix", () => {
+    expect(activationDocumentTitle("sv")).toBe("Aktivera arbetsyta | Proffera");
+    expect(activationDocumentTitle("en")).toBe("Activate workspace | Proffera");
+    expect(source("src/app/aktivera/[token]/page.tsx")).toContain(
+      "title: { absolute: activationDocumentTitle(locale) }",
+    );
+    expect(source("src/app/aktivera/[token]/activation-view.tsx")).toContain(
+      "document.title = activationDocumentTitle(nextLocale)",
+    );
   });
 
   it("removes stale activation errors while changing locale and keeps password inputs uncontrolled", () => {
