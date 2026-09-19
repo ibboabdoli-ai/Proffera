@@ -246,7 +246,7 @@ function wrongCodeFor(code: string) {
       mocks.canManageWorkspaceSettings.mockReturnValue(false);
 
       await control!.query("truncate table company_directory_claims, company_directory_profiles, \"user\" cascade");
-      await control!.query("insert into \"user\" (id, email) values ($1, $2)", [USER_ID, ACCOUNT_EMAIL]);
+      await control!.query("insert into \"user\" (id, name, email) values ($1, $2, $3)", [USER_ID, "Race Owner", ACCOUNT_EMAIL]);
       await control!.query(`
         insert into company_directory_profiles (
           id, country_code, organization_number, organization_kind, legal_name, display_name,
