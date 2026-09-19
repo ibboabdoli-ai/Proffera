@@ -23,7 +23,8 @@ vi.mock("@/lib/company-directory-scb-enrichment", () => ({
 vi.mock("@/lib/company-directory-scb-transport", () => ({
   createScbCompanyRegistryTransportFromEnv: mocks.createScbTransport,
 }));
-vi.mock("@/lib/company-directory-public-cache", () => ({
+vi.mock("@/lib/company-directory-public-cache", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/company-directory-public-cache")>()),
   invalidatePublicDirectoryPublicProjectionByProfileId: mocks.invalidateByProfileId,
 }));
 
