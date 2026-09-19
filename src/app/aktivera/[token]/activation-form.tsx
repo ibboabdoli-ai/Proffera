@@ -48,7 +48,7 @@ function SubmitButton({ locale }: { locale: AuthLocale }) {
 export function ActivationForm({ action, locale = "sv", redirectQuery = "" }: ActivationFormProps) {
   const [showPassword, setShowPassword] = useState(false);
   const text = copy[locale];
-  const inputClass = `${authStyles.input} pr-12`;
+  const passwordInputClass = `${authStyles.input} ${authStyles.passwordInput}`;
 
   return (
     <form action={action} className={authStyles.form}>
@@ -57,7 +57,7 @@ export function ActivationForm({ action, locale = "sv", redirectQuery = "" }: Ac
       <label className={authStyles.label}>
         {text.password}
         <span className="relative block">
-          <input className={inputClass} name="password" type={showPassword ? "text" : "password"} autoComplete="new-password" minLength={8} maxLength={128} required />
+          <input className={passwordInputClass} name="password" type={showPassword ? "text" : "password"} autoComplete="new-password" minLength={8} maxLength={128} required />
           <button type="button" onClick={() => setShowPassword((value) => !value)} className="absolute inset-y-1 right-1 flex w-10 items-center justify-center rounded-md text-[#617085] hover:bg-[#eef5ff] focus:outline-none focus:ring-2 focus:ring-[#1469d8]" aria-label={showPassword ? text.hidePassword : text.showPassword}>
             {showPassword ? <EyeOff className="h-5 w-5" aria-hidden="true" /> : <Eye className="h-5 w-5" aria-hidden="true" />}
           </button>
@@ -65,7 +65,7 @@ export function ActivationForm({ action, locale = "sv", redirectQuery = "" }: Ac
       </label>
       <label className={authStyles.label}>
         {text.confirmPassword}
-        <input className={inputClass} name="confirm_password" type={showPassword ? "text" : "password"} autoComplete="new-password" minLength={8} maxLength={128} required />
+        <input className={authStyles.input} name="confirm_password" type={showPassword ? "text" : "password"} autoComplete="new-password" minLength={8} maxLength={128} required />
       </label>
       <p className={authStyles.helpText}>{text.hint}</p>
       <SubmitButton locale={locale} />
