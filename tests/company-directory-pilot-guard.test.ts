@@ -54,6 +54,13 @@ describe("company directory pilot database guard", () => {
     expect(sql).toContain("privacy_blocked = false");
     expect(sql).toContain("category_slug");
     expect(sql).toContain("primary_sni_not_confirmed");
+    expect(sql).toContain("company_directory_scb_enrichment");
+    expect(sql).toContain("outside_pilot_area");
+    expect(sql).toContain("missing_city");
+    expect(sql).toContain("jsonb_typeof(scb.workplaces) = 'array'");
+    expect(sql).toContain("jsonb_typeof(scb.conflicts) = 'array'");
+    expect(sql).toContain("stockholm");
+    expect(sql).toContain("södertälje");
     expect(sql).not.toContain("set publication_status = 'published'");
     expect(sql).toContain("'20260919_0069'");
     expect(sql).toContain("insert into proffera_schema_migrations");

@@ -1,6 +1,7 @@
 -- Repair legacy auto_public_eligible bits that were previously coupled to
 -- registered/profile geography. Canonical SCB workplace evidence now owns pilot
--- geography; this backfill only repairs the persisted non-location eligibility bit.
+-- geography; this backfill only repairs rows that are already structurally safe
+-- under the canonical physical-workplace policy.
 --
 -- This migration does not publish any profile. Review/Ready recovery still passes
 -- through Official Facts, SCB freshness/conflict checks, confidence gates and the
@@ -11,13 +12,31 @@ begin;
 update company_directory_profiles profile
 set auto_public_eligible = true,
     updated_at = now()
-where profile.auto_public_eligible = false
+from company_directory_scb_enrichment scb
+where scb.profile_id = profile.id
+  and profile.auto_public_eligible = false
   and profile.country_code = 'SE'
   and profile.organization_kind = 'juridical_person'
   and profile.is_active = true
   and profile.privacy_blocked = false
   and nullif(btrim(profile.category_slug), '') is not null
-  and not (coalesce(profile.quality_reasons, '[]'::jsonb) ? 'primary_sni_not_confirmed');
+  and not (coalesce(profile.quality_reasons, '[]'::jsonb) ? 'primary_sni_not_confirmed')
+  and (
+    coalesce(profile.quality_reasons, '[]'::jsonb) ? 'outside_pilot_area'
+    or coalesce(profile.quality_reasons, '[]'::jsonb) ? 'missing_city'
+  )
+  and jsonb_typeof(scb.conflicts) = 'array'
+  and jsonb_array_length(scb.conflicts) = 0
+  and jsonb_typeof(scb.workplaces) = 'array'
+  and jsonb_array_length(scb.workplaces) = 1
+  and nullif(btrim(scb.workplaces->0->'visitingAddress'->>'addressLine'), '') is not null
+  and nullif(btrim(scb.workplaces->0->'visitingAddress'->>'postalCode'), '') is not null
+  and nullif(btrim(scb.workplaces->0->'visitingAddress'->>'city'), '') is not null
+  and nullif(btrim(scb.workplaces->0->>'municipality'), '') is not null
+  and (
+    lower(btrim(scb.workplaces->0->'visitingAddress'->>'city')) in ('stockholm', 'södertälje')
+    or lower(btrim(scb.workplaces->0->>'municipality')) in ('stockholm', 'södertälje')
+  );
 
 -- The original foundation guard still required profile.city for Published rows.
 -- Geography is now authorized exclusively by the canonical SCB workplace trigger,
@@ -55,7 +74,7 @@ values (
   null,
   'migration-0069',
   'canonical-migration',
-  'Backfills legacy location-derived auto_public_eligible=false rows and removes the obsolete profile.city requirement from the generic public guard; publication remains protected by migration 0068 canonical SCB workplace authority.'
+  'Backfills only legacy location-derived eligibility rows with one structurally safe in-pilot canonical SCB workplace and removes the obsolete profile.city requirement from the generic public guard.'
 )
 on conflict (migration_key) do nothing;
 
