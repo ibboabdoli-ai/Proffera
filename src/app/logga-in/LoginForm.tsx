@@ -15,31 +15,31 @@ type LoginFormProps = {
 const copy = {
   sv: {
     genericError: "Det gick inte att logga in. Kontrollera uppgifterna och försök igen.",
-    badge: "Kundinloggning",
-    title: "Logga in",
-    intro: "Använd e-post och lösenord för ditt Proffera-konto.",
+    badge: "Företagskonto",
+    title: "Fortsätt till din arbetsyta",
+    intro: "Använd e-postadressen och lösenordet för ditt Proffera-konto.",
     email: "E-post",
     emailPlaceholder: "namn@foretag.se",
     password: "Lösenord",
+    showPassword: "Visa",
+    hidePassword: "Dölj",
     forgotPassword: "Glömt lösenordet?",
-    idleError: "Inga inloggningsfel.",
     pending: "Loggar in...",
     submit: "Logga in",
-    help: "Logga in via www.proffera.se för bästa stöd med kundportalen.",
   },
   en: {
     genericError: "We could not sign you in. Check your details and try again.",
-    badge: "Customer sign-in",
-    title: "Sign in",
+    badge: "Business account",
+    title: "Continue to your workspace",
     intro: "Use the email address and password for your Proffera account.",
     email: "Email",
     emailPlaceholder: "name@company.com",
     password: "Password",
+    showPassword: "Show",
+    hidePassword: "Hide",
     forgotPassword: "Forgot your password?",
-    idleError: "No sign-in errors.",
     pending: "Signing in...",
     submit: "Sign in",
-    help: "Sign in through www.proffera.se for the best customer portal experience.",
   },
 } as const;
 
@@ -47,6 +47,7 @@ export function LoginForm({ afterLoginPath = "/dashboard", locale = "sv" }: Logi
   const text = copy[locale];
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [isPending, setIsPending] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -95,7 +96,11 @@ export function LoginForm({ afterLoginPath = "/dashboard", locale = "sv" }: Logi
       <h2 className={authStyles.cardTitle}>{text.title}</h2>
       <p className={authStyles.cardLead}>{text.intro}</p>
 
-      <form className={authStyles.form} onSubmit={handleSubmit} aria-describedby="login-help login-error">
+      <form
+        className={authStyles.form}
+        onSubmit={handleSubmit}
+        aria-describedby={errorMessage ? "login-error" : undefined}
+      >
         <div className={authStyles.field}>
           <label htmlFor="email" className={authStyles.label}>{text.email}</label>
           <input id="email" name="email" type="email" inputMode="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} disabled={isPending} placeholder={text.emailPlaceholder} className={authStyles.input} />
@@ -103,20 +108,41 @@ export function LoginForm({ afterLoginPath = "/dashboard", locale = "sv" }: Logi
 
         <div className={authStyles.field}>
           <label htmlFor="password" className={authStyles.label}>{text.password}</label>
-          <input id="password" name="password" type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} disabled={isPending} placeholder="••••••••" className={authStyles.input} />
+          <div className={authStyles.passwordInputWrap}>
+            <input
+              id="password"
+              name="password"
+              type={showPassword ? "text" : "password"}
+              autoComplete="current-password"
+              required
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              disabled={isPending}
+              placeholder="••••••••"
+              className={`${authStyles.input} ${authStyles.passwordInput}`}
+            />
+            <button
+              type="button"
+              className={authStyles.passwordToggle}
+              aria-pressed={showPassword}
+              onClick={() => setShowPassword((visible) => !visible)}
+              disabled={isPending}
+            >
+              {showPassword ? text.hidePassword : text.showPassword}
+            </button>
+          </div>
           <div className={authStyles.formMeta}>
             <Link href={forgotPasswordHref} className={authStyles.secondaryLink}>{text.forgotPassword}</Link>
           </div>
         </div>
 
-        {errorMessage ? <p id="login-error" className={authStyles.statusError} role="alert">{errorMessage}</p> : <p id="login-error" className="sr-only">{text.idleError}</p>}
+        {errorMessage ? <p id="login-error" className={authStyles.statusError} role="alert">{errorMessage}</p> : null}
 
         <button type="submit" disabled={isPending} className={authStyles.primaryButton}>
           {isPending ? text.pending : text.submit}
         </button>
       </form>
 
-      <p id="login-help" className={authStyles.helpText}>{text.help}</p>
     </aside>
   );
 }
