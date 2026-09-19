@@ -15,7 +15,11 @@ describe("dashboard human-designed UX contract", () => {
     expect(page).toContain("getDashboardEnabledFeatureKeys()");
     expect(page).toContain("getUserWorkspaceAccess()");
     expect(page).toContain("getDashboardStats({ includeCustomers: canUseCrm, includeBookings: canUseBooking })");
-    expect(page).toContain("grid gap-px bg-line sm:grid-cols-2 xl:grid-cols-4");
+    expect(page).toContain("grid sm:grid-cols-2 xl:grid-cols-4");
+    expect(page).toContain("overviewSeparatorClasses");
+    expect(page).toContain("border-t border-line sm:border-l sm:border-t-0");
+    expect(page).toContain("border-t border-line xl:border-l xl:border-t-0");
+    expect(page).not.toContain("grid gap-px bg-line sm:grid-cols-2 xl:grid-cols-4");
     expect(page).not.toContain("sm:divide-x sm:divide-y-0");
     expect(page).toContain("bg-brand-deep");
     expect(page).toContain("rounded-panel");
