@@ -3,6 +3,12 @@ import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import {
+  readResetToken,
+  resetLocaleTarget,
+  resetUrlWithoutFragment,
+} from "../src/app/aterstall-losenord/ResetPasswordForm";
+
 function source(path: string) {
   return readFileSync(resolve(process.cwd(), path), "utf8");
 }
@@ -47,11 +53,15 @@ describe("password reset UI and privacy contract", () => {
   });
 
   it("preserves the in-memory reset token when switching language after the URL fragment is scrubbed", () => {
-    expect(resetForm).toContain("function switchLocale");
-    expect(resetForm).toContain("new URLSearchParams({ token }).toString()");
-    expect(resetForm).toContain("window.location.replace(`${target}#${fragment}`)");
-    expect(resetForm).toContain('onClick={() => switchLocale("sv")}');
-    expect(resetForm).toContain('onClick={() => switchLocale("en")}');
+    const token = "ABCDEFGHIJKLMNOPQRSTUVWX";
+
+    expect(readResetToken(`#token=${token}`)).toBe(token);
+    expect(resetUrlWithoutFragment("/aterstall-losenord", "?lang=en"))
+      .toBe("/aterstall-losenord?lang=en");
+    expect(resetLocaleTarget("en", token))
+      .toBe(`/aterstall-losenord?lang=en#token=${token}`);
+    expect(resetLocaleTarget("sv", token))
+      .toBe(`/aterstall-losenord#token=${token}`);
     expect(resetPage).not.toContain('href="/aterstall-losenord?lang=en"');
   });
 
