@@ -228,9 +228,9 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       </section>
 
       <section className="rounded-card border border-line bg-surface shadow-card" aria-label={text.overviewLabel}>
-        <div className="grid divide-y divide-line sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-4">
+        <div className="grid gap-px bg-line sm:grid-cols-2 xl:grid-cols-4">
           {overviewStats.map((item) => (
-            <article key={item.label} className="min-w-0 p-5">
+            <article key={item.label} className="min-w-0 bg-surface p-5">
               <div className="flex items-center justify-between gap-4">
                 <p className="text-xs font-bold uppercase tracking-[0.1em] text-ink-muted">{item.label}</p>
                 <item.icon className="h-[18px] w-[18px] text-brand" aria-hidden="true" />
