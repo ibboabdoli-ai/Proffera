@@ -12,8 +12,10 @@ begin;
 update company_directory_profiles profile
 set auto_public_eligible = true,
     updated_at = now()
-from company_directory_scb_enrichment scb
+from company_directory_scb_enrichment scb,
+     company_directory_official_facts facts
 where scb.profile_id = profile.id
+  and facts.profile_id = profile.id
   and profile.auto_public_eligible = false
   and profile.country_code = 'SE'
   and profile.organization_kind = 'juridical_person'
@@ -21,6 +23,15 @@ where scb.profile_id = profile.id
   and profile.privacy_blocked = false
   and nullif(btrim(profile.category_slug), '') is not null
   and not (coalesce(profile.quality_reasons, '[]'::jsonb) ? 'primary_sni_not_confirmed')
+  and facts.source_payload_hash <> ''
+  and facts.last_synced_at >= profile.last_synced_at
+  and facts.deregistration_date is null
+  and coalesce(facts.advertising_blocked, false) = false
+  and jsonb_array_length(coalesce(facts.ongoing_procedures, '[]'::jsonb)) = 0
+  and scb.source_payload_hash <> ''
+  and scb.last_synced_at >= now() - interval '7 days'
+  and scb.provenance #>> '{comparisonSnapshot,profileUpdatedToken}' = profile.updated_at::text
+  and scb.provenance #>> '{comparisonSnapshot,officialFactsLastSyncedToken}' = facts.last_synced_at::text
   and (
     coalesce(profile.quality_reasons, '[]'::jsonb) ? 'outside_pilot_area'
     or coalesce(profile.quality_reasons, '[]'::jsonb) ? 'missing_city'
